@@ -775,7 +775,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 并作为后续 native、PTX、exec、C99 等后端的共享入口。
 
 - [x] 新增 `docs/portable_mir_whitepaper.md`，作为 Phase 9A 实现前的详细 MIR 合同。
-- [ ] Phase 5B 的 `CoreBody`、CoreIR dump、CoreIR verifier 和 CoreIR closure contract 门禁全部通过。
+- [x] Phase 5B 的 `CoreBody`、CoreIR dump、CoreIR verifier 和 CoreIR closure contract 门禁全部通过。
 - [ ] 定义 `PortableMIR` 顶层 module / function / block / value / type / local / inst / terminator 结构。
 - [ ] `PortableMIR` 所有表动态增长，不引入函数、block、inst、value、local 或 type 的固定语义上限。
 - [ ] 明确 `LoweredProgram` 的职责边界：functions、globals、types、interfaces、err_unions、async_frames、
