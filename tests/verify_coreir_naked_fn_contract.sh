@@ -32,7 +32,14 @@ require_pattern "$LOWER_CORE_FILE" 'CORE_FUNCTION_FLAG_NAKED' "frozen ConcreteFu
 require_pattern "$LOWER_CORE_FILE" 'flags:[[:space:]]*i32' "ConcreteFunction flags field"
 require_pattern "$LOWER_CORE_FILE" 'CORE_BODY_FLAG_NAKED' "frozen CoreBody naked flag"
 require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_ASM' "asm-only CoreStmt kind"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_DEFER' "defer CoreStmt marker"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_ERRDEFER' "errdefer CoreStmt marker"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_FLAG_LOCAL_STACK_SLOT' "ordinary local stack slot marker"
 require_pattern "$LOWER_CORE_FILE" 'CORE_PLACE_FLAG_STACK_SLOT' "ordinary stack slot marker"
+require_pattern "$LOWER_CORE_FILE" 'CORE_BODY_FLAG_CLEANUP' "defer cleanup body marker"
+require_pattern "$LOWER_CORE_FILE" 'CORE_BODY_FLAG_DROP' "implicit drop body marker"
+require_pattern "$LOWER_CORE_FILE" 'CORE_BODY_FLAG_ASYNC' "async body marker"
+require_pattern "$LOWER_CORE_FILE" 'CORE_BODY_FLAG_ERROR_PROPAGATION' "error path body marker"
 require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_FLAG_ERROR_PROPAGATION' "error propagation marker"
 require_pattern "$LOWER_CORE_FILE" 'CORE_BODY_FLAG_IMPLICIT_RETURN' "implicit return marker"
 require_pattern "$LOWER_CORE_FILE" 'CORE_CAPABILITY_NAKED_FUNCTION' "naked function capability"
@@ -168,11 +175,26 @@ fn append_naked_stmt(lowered: &LoweredProgram, mode: i32) !void {
     if mode == 1 {
         kind = CORE_STMT_KIND_RETURN;
     }
+    if mode == 12 {
+        kind = CORE_STMT_KIND_DEFER;
+    }
+    if mode == 13 {
+        kind = CORE_STMT_KIND_ERRDEFER;
+    }
+    if mode == 17 {
+        kind = CORE_STMT_KIND_DROP;
+    }
+    if mode == 18 {
+        kind = CORE_STMT_KIND_ERROR_PROPAGATION;
+    }
     if mode == 5 {
         flags = CORE_STMT_FLAG_ERROR_PROPAGATION;
     }
     if mode == 7 {
         flags = CORE_STMT_FLAG_DROP;
+    }
+    if mode == 11 {
+        flags = CORE_STMT_FLAG_LOCAL_STACK_SLOT;
     }
     var cleanup_count: i32 = 0;
     if mode == 3 {
@@ -278,6 +300,15 @@ fn append_naked_body(lowered: &LoweredProgram, mode: i32) !void {
     if mode == 10 {
         body_flags = body_flags | CORE_BODY_FLAG_ASYNC;
     }
+    if mode == 14 {
+        body_flags = body_flags | CORE_BODY_FLAG_CLEANUP;
+    }
+    if mode == 15 {
+        body_flags = body_flags | CORE_BODY_FLAG_DROP;
+    }
+    if mode == 16 {
+        body_flags = body_flags | CORE_BODY_FLAG_ERROR_PROPAGATION;
+    }
     var root_count: i32 = 1;
     if mode == 6 {
         root_count = 0;
@@ -357,17 +388,25 @@ test "CoreIR accepts asm-only naked body with frozen flags and capabilities" {
     try expect_naked_verify(0, 0);
 }
 
-test "CoreIR rejects non asm-only naked body and ordinary stack slot" {
+test "CoreIR rejects non asm-only naked body and ordinary stack slots" {
     try expect_naked_verify(1, -1);
     try expect_naked_verify(2, -1);
+    try expect_naked_verify(11, -1);
 }
 
-test "CoreIR rejects naked cleanup drop async error propagation and implicit return" {
+test "CoreIR rejects naked defer drop async error propagation and implicit return" {
     try expect_naked_verify(3, -1);
+    try expect_naked_verify(12, -1);
+    try expect_naked_verify(13, -1);
+    try expect_naked_verify(14, -1);
     try expect_naked_verify(7, -1);
+    try expect_naked_verify(15, -1);
+    try expect_naked_verify(17, -1);
     try expect_naked_verify(10, -1);
     try expect_naked_verify(5, -1);
     try expect_naked_verify(9, -1);
+    try expect_naked_verify(16, -1);
+    try expect_naked_verify(18, -1);
     try expect_naked_verify(6, -1);
 }
 
