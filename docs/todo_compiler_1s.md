@@ -455,7 +455,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
 - [x] 新增 `tests/verify_coreir_closure_contract.sh`。
 - [x] 新增 `tests/verify_coreir_naked_fn_contract.sh`。
 - [x] 新增 `tests/verify_coreir_parallel_determinism.sh`。
-- [ ] CoreIR dump 覆盖多文件、泛型函数、泛型方法、interface dispatch、field/index/slice、
+- [x] CoreIR dump 覆盖多文件、泛型函数、泛型方法、interface dispatch、field/index/slice、
   atomic、SIMD vector/mask、error/defer/drop 和 `compile_files(...)` 调用形状。
 - [ ] CoreIR verifier 负例覆盖缺失 call target、缺失 field id、类型不匹配、cleanup edge 不完整、
   target capability 混入语言语义。

@@ -81,6 +81,7 @@ fn core_verify_fact(body_id: CoreBodyId, fact_id: CoreSemanticFactId, kind: i32)
         target_decl_id: TYPED_PROGRAM_INVALID_ID,
         target_symbol_id: TYPED_PROGRAM_INVALID_ID,
         mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+        arg_count: 0,
         receiver_type_id: TYPED_PROGRAM_INVALID_ID,
         method_symbol_id: TYPED_PROGRAM_INVALID_ID,
         interface_symbol_id: TYPED_PROGRAM_INVALID_ID,

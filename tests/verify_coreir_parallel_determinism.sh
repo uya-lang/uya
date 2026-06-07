@@ -131,6 +131,7 @@ fn coreir_parallel_fact(fact_id: CoreSemanticFactId, body_id: CoreBodyId, kind: 
         target_decl_id: TYPED_PROGRAM_INVALID_ID,
         target_symbol_id: TYPED_PROGRAM_INVALID_ID,
         mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+        arg_count: 0,
         receiver_type_id: TYPED_PROGRAM_INVALID_ID,
         method_symbol_id: TYPED_PROGRAM_INVALID_ID,
         interface_symbol_id: TYPED_PROGRAM_INVALID_ID,

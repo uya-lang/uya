@@ -91,6 +91,7 @@ fn coreir_dump_golden_fact(fact_id: CoreSemanticFactId, kind: i32) CoreSemanticF
         target_decl_id: TYPED_PROGRAM_INVALID_ID,
         target_symbol_id: TYPED_PROGRAM_INVALID_ID,
         mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+        arg_count: 0,
         receiver_type_id: TYPED_PROGRAM_INVALID_ID,
         method_symbol_id: TYPED_PROGRAM_INVALID_ID,
         interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
@@ -244,6 +245,445 @@ test "coreir dump matches stable golden text" {
     lowered_program_release(&lowered);
     compiler_arena_free_all(&arena);
 }
+
+fn append_coreir_dump_surface_functions(lowered: &LoweredProgram) !void {
+    var file0_fn: ConcreteFunction = ConcreteFunction{
+        function_id: 210,
+        decl_id: 310,
+        mono_instance_id: 910,
+        body_start: 0,
+        body_count: 1,
+        flags: 0,
+    };
+    var file1_fn: ConcreteFunction = ConcreteFunction{
+        function_id: 211,
+        decl_id: 311,
+        mono_instance_id: 911,
+        body_start: 1,
+        body_count: 1,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_append_function(lowered, &file0_fn), 0);
+    try assert_eq_i32(lowered_program_append_function(lowered, &file1_fn), 0);
+}
+
+fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
+    try append_coreir_dump_surface_functions(lowered);
+    var body0: CoreBody = CoreBody{
+        body_id: 0,
+        function_id: 210,
+        decl_id: 310,
+        root_stmt_start: 0,
+        root_stmt_count: 2,
+        expr_start: 0,
+        expr_count: 4,
+        place_start: 0,
+        place_count: 3,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 1,
+        semantic_fact_start: 0,
+        semantic_fact_count: 4,
+        source_span_id: 900,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    var body1: CoreBody = CoreBody{
+        body_id: 1,
+        function_id: 211,
+        decl_id: 311,
+        root_stmt_start: 2,
+        root_stmt_count: 2,
+        expr_start: 4,
+        expr_count: 4,
+        place_start: 3,
+        place_count: 0,
+        cleanup_edge_start: 1,
+        cleanup_edge_count: 1,
+        semantic_fact_start: 4,
+        semantic_fact_count: 4,
+        source_span_id: 1900,
+        flags: CORE_BODY_FLAG_SOURCE_BODY | CORE_BODY_FLAG_DROP | CORE_BODY_FLAG_ERROR_PROPAGATION,
+    };
+    var stmt0: CoreStmt = CoreStmt{
+        stmt_id: 0,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 0,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 0,
+        source_span_id: 901,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    var stmt1: CoreStmt = CoreStmt{
+        stmt_id: 1,
+        kind: CORE_STMT_KIND_DEFER,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 1,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 1,
+        source_span_id: 902,
+        cleanup_scope_id: 601,
+        flags: CORE_STMT_FLAG_CLEANUP,
+    };
+    var stmt2: CoreStmt = CoreStmt{
+        stmt_id: 2,
+        kind: CORE_STMT_KIND_DROP,
+        body_id: 1,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 5,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 1,
+        cleanup_edge_count: 0,
+        source_span_id: 1901,
+        cleanup_scope_id: 1601,
+        flags: CORE_STMT_FLAG_DROP,
+    };
+    var stmt3: CoreStmt = CoreStmt{
+        stmt_id: 3,
+        kind: CORE_STMT_KIND_ERROR_PROPAGATION,
+        body_id: 1,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 4,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 1,
+        cleanup_edge_count: 1,
+        source_span_id: 1902,
+        cleanup_scope_id: 1602,
+        flags: CORE_STMT_FLAG_ERROR_PROPAGATION,
+    };
+    var expr0: CoreExpr = CoreExpr{
+        expr_id: 0,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: 0,
+        source_expr_id: 100,
+        type_id: 1000,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: 0,
+        target_function_id: 1001,
+        target_decl_id: 1002,
+        field_id: 1200,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 903,
+        flags: 0,
+    };
+    var expr1: CoreExpr = CoreExpr{
+        expr_id: 1,
+        kind: CORE_EXPR_KIND_INDEX,
+        body_id: 0,
+        source_expr_id: 101,
+        type_id: 1003,
+        lhs_expr_id: 0,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: 1,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 904,
+        flags: 0,
+    };
+    var expr2: CoreExpr = CoreExpr{
+        expr_id: 2,
+        kind: CORE_EXPR_KIND_SLICE,
+        body_id: 0,
+        source_expr_id: 102,
+        type_id: 1004,
+        lhs_expr_id: 1,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: 2,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 905,
+        flags: 0,
+    };
+    var expr3: CoreExpr = CoreExpr{
+        expr_id: 3,
+        kind: CORE_EXPR_KIND_ATOMIC,
+        body_id: 0,
+        source_expr_id: 103,
+        type_id: 1005,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 906,
+        flags: 0,
+    };
+    var expr4: CoreExpr = CoreExpr{
+        expr_id: 4,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: 1,
+        source_expr_id: 200,
+        type_id: 2000,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: 4815,
+        target_decl_id: 4816,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 1903,
+        flags: CORE_EXPR_FLAG_ERROR_PROPAGATION,
+    };
+    var expr5: CoreExpr = CoreExpr{
+        expr_id: 5,
+        kind: CORE_EXPR_KIND_VECTOR,
+        body_id: 1,
+        source_expr_id: 201,
+        type_id: 2001,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 1904,
+        flags: 0,
+    };
+    var expr6: CoreExpr = CoreExpr{
+        expr_id: 6,
+        kind: CORE_EXPR_KIND_MASK,
+        body_id: 1,
+        source_expr_id: 202,
+        type_id: 2002,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 1905,
+        flags: 0,
+    };
+    var expr7: CoreExpr = CoreExpr{
+        expr_id: 7,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: 1,
+        source_expr_id: 203,
+        type_id: 2003,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: 2101,
+        target_decl_id: 2102,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 1906,
+        flags: 0,
+    };
+    var place0: CorePlace = CorePlace{
+        place_id: 0,
+        kind: CORE_PLACE_KIND_FIELD,
+        body_id: 0,
+        source_expr_id: 100,
+        type_id: 1000,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: 1200,
+        symbol_id: 1201,
+        source_span_id: 907,
+        flags: 0,
+    };
+    var place1: CorePlace = CorePlace{
+        place_id: 1,
+        kind: CORE_PLACE_KIND_INDEX,
+        body_id: 0,
+        source_expr_id: 101,
+        type_id: 1003,
+        base_place_id: 0,
+        index_expr_id: 1,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 908,
+        flags: 0,
+    };
+    var place2: CorePlace = CorePlace{
+        place_id: 2,
+        kind: CORE_PLACE_KIND_SLICE,
+        body_id: 0,
+        source_expr_id: 102,
+        type_id: 1004,
+        base_place_id: 0,
+        index_expr_id: 2,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 909,
+        flags: 0,
+    };
+    var edge0: CoreCleanupEdge = CoreCleanupEdge{
+        edge_id: 0,
+        kind: CORE_CLEANUP_EDGE_KIND_RETURN,
+        body_id: 0,
+        from_stmt_id: 1,
+        to_stmt_id: CORE_STMT_INVALID_ID,
+        cleanup_scope_id: 601,
+        drop_defer_plan_id: 701,
+        payload_expr_id: 1,
+        source_span_id: 910,
+        flags: 1,
+    };
+    var edge1: CoreCleanupEdge = CoreCleanupEdge{
+        edge_id: 1,
+        kind: CORE_CLEANUP_EDGE_KIND_RETURN,
+        body_id: 1,
+        from_stmt_id: 3,
+        to_stmt_id: CORE_STMT_INVALID_ID,
+        cleanup_scope_id: 1602,
+        drop_defer_plan_id: 1702,
+        payload_expr_id: 4,
+        source_span_id: 1907,
+        flags: 2,
+    };
+    var call_fact: CoreSemanticFact = coreir_dump_golden_fact(0, CORE_SEMANTIC_FACT_RESOLVED_CALL);
+    call_fact.expr_id = 0;
+    call_fact.call_target_kind = TYPED_CALL_TARGET_FUNCTION;
+    call_fact.target_function_id = 1001;
+    call_fact.target_decl_id = 1002;
+    call_fact.target_symbol_id = 1003;
+    call_fact.mono_instance_id = 901;
+    call_fact.arg_count = 2;
+    call_fact.type_id = 1000;
+
+    var field_fact: CoreSemanticFact = coreir_dump_golden_fact(1, CORE_SEMANTIC_FACT_FIELD_ID);
+    field_fact.expr_id = 0;
+    field_fact.place_id = 0;
+    field_fact.field_id = 1200;
+
+    var type_fact: CoreSemanticFact = coreir_dump_golden_fact(2, CORE_SEMANTIC_FACT_TYPE_ID);
+    type_fact.expr_id = 3;
+    type_fact.type_id = 1005;
+
+    var defer_fact: CoreSemanticFact = coreir_dump_golden_fact(3, CORE_SEMANTIC_FACT_CLEANUP);
+    defer_fact.stmt_id = 1;
+    defer_fact.expr_id = 1;
+    defer_fact.cleanup_edge_id = 0;
+    defer_fact.drop_defer_plan_id = 701;
+    defer_fact.cleanup_scope_id = 601;
+
+    var compile_fact: CoreSemanticFact = coreir_dump_golden_fact(4, CORE_SEMANTIC_FACT_RESOLVED_CALL);
+    compile_fact.body_id = 1;
+    compile_fact.expr_id = 4;
+    compile_fact.source_expr_id = 200;
+    compile_fact.call_target_kind = TYPED_CALL_TARGET_FUNCTION;
+    compile_fact.target_function_id = 4815;
+    compile_fact.target_decl_id = 4816;
+    compile_fact.target_symbol_id = 4817;
+    compile_fact.mono_instance_id = TYPED_PROGRAM_INVALID_ID;
+    compile_fact.arg_count = 16;
+    compile_fact.type_id = 2000;
+
+    var method_fact: CoreSemanticFact = coreir_dump_golden_fact(5, CORE_SEMANTIC_FACT_METHOD_DISPATCH);
+    method_fact.body_id = 1;
+    method_fact.expr_id = 7;
+    method_fact.source_expr_id = 203;
+    method_fact.mono_instance_id = 902;
+    method_fact.receiver_type_id = 2100;
+    method_fact.method_symbol_id = 2101;
+    method_fact.interface_symbol_id = 2102;
+    method_fact.vtable_slot = 3;
+
+    var error_fact: CoreSemanticFact = coreir_dump_golden_fact(6, CORE_SEMANTIC_FACT_CLEANUP);
+    error_fact.body_id = 1;
+    error_fact.stmt_id = 3;
+    error_fact.expr_id = 4;
+    error_fact.source_expr_id = 200;
+    error_fact.cleanup_edge_id = 1;
+    error_fact.drop_defer_plan_id = 1702;
+    error_fact.cleanup_scope_id = 1602;
+
+    var vector_type_fact: CoreSemanticFact = coreir_dump_golden_fact(7, CORE_SEMANTIC_FACT_TYPE_ID);
+    vector_type_fact.body_id = 1;
+    vector_type_fact.expr_id = 5;
+    vector_type_fact.source_expr_id = 201;
+    vector_type_fact.type_id = 2001;
+
+    try assert_eq_i32(lowered_program_append_core_body(lowered, &body0), 0);
+    try assert_eq_i32(lowered_program_append_core_body(lowered, &body1), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt0), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt1), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt2), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt3), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr0), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr1), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr2), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr3), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr4), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr5), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr6), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr7), 0);
+    try assert_eq_i32(lowered_program_append_core_place(lowered, &place0), 0);
+    try assert_eq_i32(lowered_program_append_core_place(lowered, &place1), 0);
+    try assert_eq_i32(lowered_program_append_core_place(lowered, &place2), 0);
+    try assert_eq_i32(lowered_program_append_core_cleanup_edge(lowered, &edge0), 0);
+    try assert_eq_i32(lowered_program_append_core_cleanup_edge(lowered, &edge1), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &call_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &field_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &type_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &defer_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &compile_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &method_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &error_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &vector_type_fact), 0);
+}
+
+test "coreir dump covers broad language surface markers" {
+    var arena_buf: [byte: 8192] = [];
+    var arena: CompilerArena = CompilerArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+    };
+    compiler_arena_init(&arena, &arena_buf[0], @len(arena_buf) as usize);
+
+    var lowered: LoweredProgram = coreir_dump_golden_program();
+    lowered_program_init(&lowered, &arena);
+    try append_coreir_dump_surface_fixture(&lowered);
+    try assert_eq_i32(lowered_program_verify_coreir(&lowered), 0);
+    lowered_program_maybe_dump_coreir(&lowered);
+
+    lowered_program_release(&lowered);
+    compiler_arena_free_all(&arena);
+}
 EOF
 
 dump_stderr="$tmp_dir/dump.stderr"
@@ -267,22 +707,68 @@ expr #0 body=0 kind=11 source_expr=7 type=77 lhs=-1 rhs=-1 callee=-1 place=0 tar
 place #0 body=0 kind=4 source_expr=7 type=77 base=-1 index=-1 field=301 symbol=302 source=702 flags=0
 cleanup #0 body=0 kind=2 from=0 to=-1 scope=601 drop_defer=901 payload=0 source=703 flags=5
 fact #0 kind=1 body=0 stmt=-1 expr=0 source_expr=7 place=-1 cleanup=-1
-  call kind=1 target_fn=101 target_decl=102 target_symbol=103 mono=104 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
+  call kind=1 target_fn=101 target_decl=102 target_symbol=103 mono=104 arg_count=0 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
   meta field=-1 type=77 proof=401 proof_status=1 proof_error=-1 source=700 drop_defer=-1 scope=-1 capability=801 flags=0
 fact #1 kind=3 body=0 stmt=-1 expr=0 source_expr=7 place=0 cleanup=-1
-  call kind=0 target_fn=-1 target_decl=-1 target_symbol=-1 mono=-1 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
+  call kind=0 target_fn=-1 target_decl=-1 target_symbol=-1 mono=-1 arg_count=0 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
   meta field=301 type=-1 proof=-1 proof_status=0 proof_error=-1 source=701 drop_defer=-1 scope=-1 capability=-1 flags=0
 fact #2 kind=7 body=0 stmt=0 expr=0 source_expr=7 place=-1 cleanup=0
-  call kind=0 target_fn=-1 target_decl=-1 target_symbol=-1 mono=-1 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
+  call kind=0 target_fn=-1 target_decl=-1 target_symbol=-1 mono=-1 arg_count=0 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
   meta field=-1 type=-1 proof=-1 proof_status=0 proof_error=-1 source=702 drop_defer=901 scope=601 capability=-1 flags=0
 fact #3 kind=8 body=0 stmt=-1 expr=0 source_expr=7 place=-1 cleanup=-1
-  call kind=0 target_fn=-1 target_decl=-1 target_symbol=-1 mono=-1 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
+  call kind=0 target_fn=-1 target_decl=-1 target_symbol=-1 mono=-1 arg_count=0 receiver_type=-1 method_symbol=-1 interface_symbol=-1 slot=-1
   meta field=-1 type=-1 proof=-1 proof_status=0 proof_error=-1 source=703 drop_defer=-1 scope=-1 capability=801 flags=0
 === coreir end ===
 EOF
 
 if ! diff -u "$expected_golden" "$actual_golden"; then
     echo "error: CoreIR dump golden changed" >&2
+    exit 1
+fi
+
+if ! grep -Fq "core_bodies=2 core_stmts=4 core_exprs=8 core_places=3 core_cleanup_edges=2 core_semantic_facts=8" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing multi-body table summary" >&2
+    exit 1
+fi
+if ! grep -Fq "body #0 function=210 decl=310 roots=0+2 exprs=0+4 places=0+3 cleanups=0+1 facts=0+4 source=900 flags=1" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing first multi-file body marker" >&2
+    exit 1
+fi
+if ! grep -Fq "body #1 function=211 decl=311 roots=2+2 exprs=4+4 places=3+0 cleanups=1+1 facts=4+4 source=1900 flags=49" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing second multi-file body marker" >&2
+    exit 1
+fi
+if ! grep -Fq "stmt #1 body=0 kind=12" "$dump_stderr" ||
+   ! grep -Fq "stmt #2 body=1 kind=14" "$dump_stderr" ||
+   ! grep -Fq "stmt #3 body=1 kind=15" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing defer/drop/error statement markers" >&2
+    exit 1
+fi
+if ! grep -Fq "expr #1 body=0 kind=12" "$dump_stderr" ||
+   ! grep -Fq "expr #2 body=0 kind=13" "$dump_stderr" ||
+   ! grep -Fq "expr #3 body=0 kind=14" "$dump_stderr" ||
+   ! grep -Fq "expr #5 body=1 kind=15" "$dump_stderr" ||
+   ! grep -Fq "expr #6 body=1 kind=16" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing index/slice/atomic/vector/mask expression markers" >&2
+    exit 1
+fi
+if ! grep -Fq "place #0 body=0 kind=4" "$dump_stderr" ||
+   ! grep -Fq "place #1 body=0 kind=5" "$dump_stderr" ||
+   ! grep -Fq "place #2 body=0 kind=6" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing field/index/slice place markers" >&2
+    exit 1
+fi
+if ! grep -Fq "call kind=1 target_fn=1001 target_decl=1002 target_symbol=1003 mono=901 arg_count=2" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing generic function call marker" >&2
+    exit 1
+fi
+if ! grep -Fq "call kind=1 target_fn=4815 target_decl=4816 target_symbol=4817 mono=-1 arg_count=16" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing compile_files 16-argument call marker" >&2
+    exit 1
+fi
+if ! grep -Fq "fact #5 kind=2 body=1" "$dump_stderr" ||
+   ! grep -Fq "mono=902 arg_count=0 receiver_type=2100 method_symbol=2101 interface_symbol=2102 slot=3" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing generic method interface dispatch marker" >&2
     exit 1
 fi
 

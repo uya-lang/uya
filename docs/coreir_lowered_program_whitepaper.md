@@ -356,6 +356,7 @@ backend 在 prologue/epilogue 阶段失败。
 - 适用时的源 AST `ExprId`
 - `TypeId`
 - source span
+- call / method / interface dispatch 的 resolved target、`MonoInstanceId` 和 typed argument count
 - 可选 proof result ID
 - 可选 capability requirement
 

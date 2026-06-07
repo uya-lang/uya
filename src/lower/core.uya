@@ -28,6 +28,10 @@ export const CORE_BODY_FLAG_ERROR_PROPAGATION: i32 = 32;
 export const CORE_BODY_FLAG_IMPLICIT_RETURN: i32 = 64;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
 export const CORE_STMT_KIND_ASM: i32 = 11;
+export const CORE_STMT_KIND_DEFER: i32 = 12;
+export const CORE_STMT_KIND_ERRDEFER: i32 = 13;
+export const CORE_STMT_KIND_DROP: i32 = 14;
+export const CORE_STMT_KIND_ERROR_PROPAGATION: i32 = 15;
 export const CORE_STMT_FLAG_LOCAL_STACK_SLOT: i32 = 1;
 export const CORE_STMT_FLAG_CLEANUP: i32 = 2;
 export const CORE_STMT_FLAG_DROP: i32 = 4;
@@ -35,9 +39,16 @@ export const CORE_STMT_FLAG_ASYNC: i32 = 8;
 export const CORE_STMT_FLAG_ERROR_PROPAGATION: i32 = 16;
 export const CORE_STMT_FLAG_IMPLICIT_RETURN: i32 = 32;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
+export const CORE_EXPR_KIND_INDEX: i32 = 12;
+export const CORE_EXPR_KIND_SLICE: i32 = 13;
+export const CORE_EXPR_KIND_ATOMIC: i32 = 14;
+export const CORE_EXPR_KIND_VECTOR: i32 = 15;
+export const CORE_EXPR_KIND_MASK: i32 = 16;
 export const CORE_EXPR_FLAG_NAKED_ASM_OPERAND: i32 = 1;
 export const CORE_EXPR_FLAG_ERROR_PROPAGATION: i32 = 2;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
+export const CORE_PLACE_KIND_INDEX: i32 = 5;
+export const CORE_PLACE_KIND_SLICE: i32 = 6;
 export const CORE_PLACE_FLAG_STACK_SLOT: i32 = 1;
 export const CORE_PLACE_FLAG_NAKED_ASM_OPERAND: i32 = 2;
 export const CORE_CLEANUP_EDGE_KIND_RETURN: i32 = 2;
@@ -256,6 +267,7 @@ export struct CoreSemanticFact {
     target_decl_id: DeclId,
     target_symbol_id: SymbolId,
     mono_instance_id: MonoInstanceId,
+    arg_count: i32,
     receiver_type_id: TypeId,
     method_symbol_id: SymbolId,
     interface_symbol_id: SymbolId,
@@ -1000,6 +1012,7 @@ fn lowered_program_empty_semantic_fact(program: &LoweredProgram, body_id: CoreBo
         target_decl_id: TYPED_PROGRAM_INVALID_ID,
         target_symbol_id: TYPED_PROGRAM_INVALID_ID,
         mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+        arg_count: 0,
         receiver_type_id: TYPED_PROGRAM_INVALID_ID,
         method_symbol_id: TYPED_PROGRAM_INVALID_ID,
         interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
@@ -2291,16 +2304,27 @@ fn lowered_program_coreir_is_known_fact_kind(kind: i32) i32 {
 fn lowered_program_coreir_stmt_kind_is_dumped_and_verified(kind: i32) i32 {
     if kind == CORE_STMT_KIND_RETURN { return 1; }
     if kind == CORE_STMT_KIND_ASM { return 1; }
+    if kind == CORE_STMT_KIND_DEFER { return 1; }
+    if kind == CORE_STMT_KIND_ERRDEFER { return 1; }
+    if kind == CORE_STMT_KIND_DROP { return 1; }
+    if kind == CORE_STMT_KIND_ERROR_PROPAGATION { return 1; }
     return 0;
 }
 
 fn lowered_program_coreir_expr_kind_is_dumped_and_verified(kind: i32) i32 {
     if kind == CORE_EXPR_KIND_CALL { return 1; }
+    if kind == CORE_EXPR_KIND_INDEX { return 1; }
+    if kind == CORE_EXPR_KIND_SLICE { return 1; }
+    if kind == CORE_EXPR_KIND_ATOMIC { return 1; }
+    if kind == CORE_EXPR_KIND_VECTOR { return 1; }
+    if kind == CORE_EXPR_KIND_MASK { return 1; }
     return 0;
 }
 
 fn lowered_program_coreir_place_kind_is_dumped_and_verified(kind: i32) i32 {
     if kind == CORE_PLACE_KIND_FIELD { return 1; }
+    if kind == CORE_PLACE_KIND_INDEX { return 1; }
+    if kind == CORE_PLACE_KIND_SLICE { return 1; }
     return 0;
 }
 
@@ -2311,6 +2335,9 @@ fn lowered_program_coreir_cleanup_kind_is_dumped_and_verified(kind: i32) i32 {
 
 fn lowered_program_coreir_call_payload_is_frozen(fact: &CoreSemanticFact) i32 {
     if fact == null || fact.call_target_kind == TYPED_CALL_TARGET_UNKNOWN {
+        return 0;
+    }
+    if fact.arg_count < 0 {
         return 0;
     }
     if fact.target_function_id == TYPED_PROGRAM_INVALID_ID &&
@@ -3143,10 +3170,10 @@ fn lowered_program_dump_coreir_facts(program: &LoweredProgram) void {
             fprintf(libc.stderr, "fact #%d kind=%d body=%d stmt=%d expr=%d source_expr=%d place=%d cleanup=%d\n" as *byte,
                 fact.fact_id, fact.kind, fact.body_id, fact.stmt_id, fact.expr_id,
                 fact.source_expr_id, fact.place_id, fact.cleanup_edge_id);
-            fprintf(libc.stderr, "  call kind=%d target_fn=%d target_decl=%d target_symbol=%d mono=%d receiver_type=%d method_symbol=%d interface_symbol=%d slot=%d\n" as *byte,
+            fprintf(libc.stderr, "  call kind=%d target_fn=%d target_decl=%d target_symbol=%d mono=%d arg_count=%d receiver_type=%d method_symbol=%d interface_symbol=%d slot=%d\n" as *byte,
                 fact.call_target_kind, fact.target_function_id, fact.target_decl_id, fact.target_symbol_id,
-                fact.mono_instance_id, fact.receiver_type_id, fact.method_symbol_id, fact.interface_symbol_id,
-                fact.vtable_slot);
+                fact.mono_instance_id, fact.arg_count, fact.receiver_type_id, fact.method_symbol_id,
+                fact.interface_symbol_id, fact.vtable_slot);
             fprintf(libc.stderr, "  meta field=%d type=%d proof=%d proof_status=%d proof_error=%d source=%d drop_defer=%d scope=%d capability=%d flags=%d\n" as *byte,
                 fact.field_id, fact.type_id, fact.proof_result_id, fact.proof_status, fact.proof_error_id,
                 fact.source_span_id, fact.drop_defer_plan_id, fact.cleanup_scope_id, fact.capability_id,

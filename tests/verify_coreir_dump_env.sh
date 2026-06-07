@@ -181,6 +181,7 @@ fn append_coreir_dump_fixture(lowered: &LoweredProgram) !void {
         target_decl_id: 102,
         target_symbol_id: 103,
         mono_instance_id: 104,
+        arg_count: 0,
         receiver_type_id: TYPED_PROGRAM_INVALID_ID,
         method_symbol_id: TYPED_PROGRAM_INVALID_ID,
         interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
