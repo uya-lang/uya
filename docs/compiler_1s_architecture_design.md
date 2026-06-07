@@ -58,7 +58,8 @@ make uya
 - 保持准确性：默认安全证明语义不能为了 KPI 被静默关闭。
 - 纯源码重编：硬 KPI 不依赖提交 `.o`、IR cache、平台二进制或常驻 daemon。
 - C99 继续保留：C99 后端是可审计产物、跨平台兜底和差分 oracle。
-- 当前第一平台固定为 Linux x86_64 nostdlib；其它平台后续扩展。
+- 当前完整语言 native 第一平台固定为 Linux x86_64 hosted；freestanding / nostdlib 作为 build-seed
+  下沉目标继续保留，其它平台后续扩展。
 - 不改变 Uya 语法、BNF 或内建函数；语言规范不因本设计自动升级。
 - 所有随程序规模增长的表都必须动态扩容；不得用写死槽数或固定最大项数换取暂时可跑。
 
@@ -98,17 +99,23 @@ Parse
   -> TypeCheck
   -> TypedProgram
   -> CoreLower
+  -> LoweredProgram / CoreIR
+  -> PortableMIR
   -> BuildPlan
-  -> NativeEmitter 或 C99Emitter
+  -> Target backend
 ```
 
 其中：
 
 - `SemanticDb` 是全程序符号、模块、作用域、类型和导入导出的稳定数据库。
 - `TypedProgram` 是 checker 对外合同，后端不得再重新推断类型。
-- `CoreLower` 负责收敛泛型、async、err_union、drop/defer、runtime helper 闭包。
+- `CoreLower` 负责收敛泛型、async、err_union、drop/defer、runtime helper 闭包，输出
+  `LoweredProgram` / CoreIR 程序清单，并用 `CoreBody` 冻结完整函数体语义。
+- `PortableMIR` 消费 frozen `LoweredProgram + CoreBody`，生成低级 CFG/value/memory IR，供 native、PTX、
+  exec、C99 等后端复用。
 - `BuildPlan` 描述要生成哪些二进制、命令、seed、链接单元和验证产物。
-- `NativeEmitter` 是 `make uya` 1 秒目标的主路径。
+- `Target backend` 将 `PortableMIR` 映射到 `MachineModule`、`PtxModule`、exec bytecode 或 staged C99 plan。
+- `NativeEmitter` 是 `make uya` 1 秒目标的主路径；完整语言 parity 第一阶段走 hosted native。
 - `C99Emitter` 只消费已完成的 plan，不再边打印边解析语义。
 
 ---
@@ -119,7 +126,7 @@ Parse
 
 所有编译器表都必须采用动态增长结构，程序规模相关表没有固定容量例外：
 
-- `SemanticDb`、`TypedProgram`、`LoweredProgram`、`C99Plan`、`NativePlan`、intern 表、scope 表、worklist、reloc/symbol table 都不得使用 `C99_MAX_*`、`CHECKER_*_SIZE`、固定数组长度或魔法容量作为语义上限。
+- `SemanticDb`、`TypedProgram`、`LoweredProgram`、`PortableMIR`、`C99Plan`、`NativePlan`、intern 表、scope 表、worklist、reloc/symbol table 都不得使用 `C99_MAX_*`、`CHECKER_*_SIZE`、固定数组长度或魔法容量作为语义上限。
 - 该规则同时适用于现有 C99/checker/exec 代码里的旧表；迁移计划不能只约束新模块。
 - 每个表必须显式记录 `count`、`capacity`、`bytes` 和可选的 `realloc_count`。
 - 每个表必须提供 `reserve`、`ensure_capacity`、`append/insert` 或等价接口；增长策略可按 1.5x/2x，但必须检查整数溢出。
@@ -150,9 +157,9 @@ Parse
 | 区域 | 临时角色标注 | 不能计入 hard path 的原因 | 退出条件 |
 | --- | --- | --- | --- |
 | `src/main.uya` 旧驱动输入图 | legacy driver fallback | 输入/依赖/program 列表仍有固定容量，当前仅用于旧入口兼容和自举兜底 | `FileId`/dependency worklist/program range 迁为动态 vector |
-| `src/codegen/c99/` 固定 codegen 表 | C99 oracle / fallback | C99 是差分 oracle 与跨平台 fallback，不是 1 秒主路径；固定 registry/cache/worklist 不能作为成功容量 | C99Plan/C99Emitter 改为动态 plan/table 后仅作为 oracle 消费 LoweredProgram |
+| `src/codegen/c99/` 固定 codegen 表 | C99 oracle / fallback | C99 是差分 oracle 与跨平台 fallback，不是 1 秒主路径；固定 registry/cache/worklist 不能作为成功容量 | C99Plan/C99Emitter 改为动态 plan/table 后保留 oracle，后续可增加 MIR->C99Plan |
 | `src/checker/` 固定 checker 表 | legacy checker oracle until SemanticDb | checker hash/cache/proof/worklist 仍由固定容量承载，只能作为 SemanticDb 迁移前的对照实现 | SemanticDb/TypedProgram 动态索引接管 lookup、mono、proof 和 reachability |
-| `src/exec/` 固定 VM 表 | staged exec fallback | exec VM 仍是 staged backend，locals/bytecode/frame/cleanup/call args 固定表不能定义自举容量 | LoweredProgram + bytecode/frame dynamic vector 或 native path 替换固定 staging 表 |
+| `src/exec/` 固定 VM 表 | staged exec fallback | exec VM 仍是 staged backend，locals/bytecode/frame/cleanup/call args 固定表不能定义自举容量 | PortableMIR + bytecode/frame dynamic vector 或 native path 替换固定 staging 表 |
 
 ### 5.2.2 固定表新增冻结门禁
 
@@ -251,6 +258,9 @@ TypeId -> DropPlan
 
 ## 6. TypedProgram 合同
 
+`TypedProgram -> LoweredProgram` 的详细合同见 `docs/coreir_lowered_program_whitepaper.md`；本节保留
+checker 输出摘要和后端禁令。
+
 checker 完成后输出：
 
 ```text
@@ -278,6 +288,8 @@ TypedProgram
 ---
 
 ## 7. LoweredProgram 与闭包收敛
+
+详细合同见 `docs/coreir_lowered_program_whitepaper.md`；本节保留闭包收敛摘要。
 
 ### 7.1 Worklist
 
@@ -310,7 +322,14 @@ LoweredProgram
   diagnostics: LowerDiagnostic[]
 ```
 
-C99 和 native 都读取同一份 `LoweredProgram`。差异只在 ABI、名字、指令和文件格式。
+`LoweredProgram` 是闭包清单和 Core-level 程序合同，不再承担完整低级函数体 IR。C99 第一阶段仍可直接
+消费 `LoweredProgram` 作为 oracle；native、PTX、exec 等需要共享低级 body lowering 的后端必须消费
+`PortableMIR`。
+
+完整函数体语义由 `CoreBody` 承载。`CoreBody` 保存已经从 `TypedProgram` 冻结的 resolved call target、
+method dispatch、field id、type id、proof result、source span、cleanup path 和 capability metadata。
+PortableMIR 实现之前必须先完成 `CoreBody`、CoreIR dump 和 CoreIR verifier；如果 MIR lowering 发现
+缺少语义事实，说明 CoreIR 合同不完整，应先补 CoreIR，而不是直接回查 `TypedProgram`。
 
 ### 7.3 正确性规则
 
@@ -318,6 +337,76 @@ C99 和 native 都读取同一份 `LoweredProgram`。差异只在 ABI、名字�
 - err_union / async frame / string constants 不允许在函数体输出后再“补发”。
 - vtable、method wrapper、runtime helper 必须有确定的依赖顺序。
 - split-C/native unit 的依赖 fingerprint 来自 `LoweredProgram`，不来自 C 文本差异。
+- `LoweredBodyOp` 只允许作为过渡兼容层，不再扩展为完整语言 IR。
+
+### 7.4 PortableMIR
+
+详细合同见 `docs/portable_mir_whitepaper.md`；本节只保留架构摘要。
+
+`PortableMIR` 位于 `LoweredProgram + CoreBody` 和 target backend 之间：
+
+```text
+LoweredProgram / CoreIR / CoreBody
+  -> PortableMIR
+  -> Target backend
+```
+
+核心结构：
+
+```text
+MirModule
+  functions: MirFunction[]
+  globals: MirGlobal[]
+  types: MirType[]
+
+MirFunction
+  locals: MirLocal[]
+  blocks: MirBlock[]
+
+MirBlock
+  insts: MirInst[]
+  terminator: MirTerminator
+```
+
+职责：
+
+- 显式表达 basic block、value、local、load/store/address、call、return、branch 和 cleanup path。
+- 统一 field/index/slice 地址计算、aggregate copy/move/drop、error union、defer/errdefer 和 drop path。
+- 保存 target-neutral layout metadata、calling convention 需求、hosted/freestanding runtime capability 和
+  address space 预留字段。
+- 不保存 x86_64 寄存器、ELF section、PTX 指令、C 文本等 target-specific 细节。
+- 通过 verifier 在线性扫描中检查 block 终结、value 使用、类型、地址/布局、cleanup path 和 target
+  capability。
+- 默认不查询 `TypedProgram`；source/proof/capability 辅助信息必须先由 CoreIR 合同转交。
+
+后端扩展接口只允许从 `PortableMIR` 进入 target IR：
+
+```text
+PortableMIR -> MachineModule -> object / executable
+PortableMIR -> PtxModule     -> PTX / cubin
+PortableMIR -> ExecBytecode  -> VM
+PortableMIR -> C99Plan       -> C99 text
+```
+
+C99 迁移到 MIR 是后续选项，不是第一阶段强制要求；在 hosted native parity 稳定前，C99 继续作为独立
+oracle 更有利于差分定位。
+
+### 7.5 语言语义与 Target Capability
+
+完整 Uya 语言语义只由 parser、checker、TypedProgram 和 CoreIR 定义。Hosted native、freestanding native、
+PTX device、microapp 等 target profile 只能裁决能力是否可用，不能引入独立语法、关键字、内建函数或
+checker 方言。
+
+例如 `@c_import`、filesystem、pthread、environment、malloc、syscall、`@asm` 和未来 PTX device subset
+都必须表达为 target capability requirement。target 不支持时输出明确 diagnostic；不能静默回落 C99，
+不能跳过 safety proof，也不能让同一段 Uya 代码在语言语义层面分叉。
+
+`@naked_fn` 也是 capability-gated 函数属性。CoreIR 必须把 naked flag 冻结到 concrete function；
+PortableMIR 必须把它降为 asm-only naked body；native backend 不得为它生成普通 prologue/epilogue。
+不支持 naked function 的 target 必须明确拒绝。
+
+并行编译只能发生在冻结边界之后，或通过 stable request merge 归并。并行开关不得改变 ID、dump、
+diagnostic 顺序、symbol order 或 object layout fingerprint。
 
 ---
 
@@ -335,7 +424,7 @@ C99Planner
 
 职责：
 
-- 将 `LoweredProgram` 映射到 C 类型、C 函数、C 全局和 helper 列表。
+- 第一阶段将 `LoweredProgram` 映射到 C 类型、C 函数、C 全局和 helper 列表。
 - 决定 split-C 单元归属。
 - 生成原型、定义和 include 需求。
 - 输出稳定的 unit fingerprint。
@@ -367,6 +456,9 @@ C99UnitPlan
 - 不改变 `LoweredProgram`。
 
 这样 C99 虽未作为 1 秒硬路径，也能成为稳定 oracle。
+
+当 `PortableMIR` 和 hosted native parity 稳定后，可以新增实验性 `MIR -> C99Plan` 路线；迁移前不能
+删除现有 C99 oracle。
 
 ---
 
@@ -435,51 +527,65 @@ uya microapp run ...
 - `.o` / IR / 二进制缓存。
 - daemon 常驻状态。
 
-因此最终路径必须让 Uya 自己直接生成目标平台可执行产物，至少在 Linux x86_64 主线做到：
+因此最终路径必须让 Uya 自己直接生成目标平台可执行产物。新的长期后端分层是：
 
 ```text
-LoweredProgram -> ELF64 x86_64 executable
+LoweredProgram / CoreIR / CoreBody
+  -> PortableMIR
+  -> MachineModule
+  -> object / executable
 ```
 
-或：
+完整语言 parity 第一阶段采用 Linux x86_64 hosted native：Uya 函数体生成机器码，libc、pthread、
+filesystem、env、malloc、extern 和 `@c_import` 链接需求交给宿主 ABI / linker 承接。
+
+freestanding / nostdlib build-seed 目标继续保留，但作为 hosted native 已验证能力的后续下沉路径：
 
 ```text
-LoweredProgram -> relocatable .o -> tiny internal linker -> executable
+PortableMIR -> MachineModule -> ELF64 executable
+PortableMIR -> MachineModule -> relocatable .o -> tiny internal linker -> executable
 ```
 
-v1 推荐先生成 ELF64 executable，减少外部链接成本。
+这避免为了追 `cmd/build` 某个新形状继续堆 ad hoc `LoweredBodyOp`，同时仍保留 1 秒冷构建最终所需的
+freestanding executable 路线。
 
 ### 10.2 v1 范围
 
-支持 `bin/cmd/build` 所需语言子集：
+native 范围分成两层：
 
-- 整数、bool、byte、指针、数组、slice、struct、union、enum、tuple。
+- hosted native 完整语言 parity：第一阶段完整实现当前 Uya 语言，并以 C99 为 oracle。
+- freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉。
+
+`CoreBody` 和 `PortableMIR` 首批必须覆盖完整语言主干：
+
+- 整数、bool、byte、浮点、指针、数组、slice、struct、union、enum、tuple、`atomic T`、
+  `@vector(T, N)` 和 `@mask(N)`。
 - 函数调用、方法调用、泛型单态化后的 concrete function。
 - `if`、`while`、`for range`、`break`、`continue`、`return`。
 - `!T`、`try`、`catch`、`defer`、`errdefer` 的 lowered form。
-- libc/syscall 最小 nostdlib bridge。
+- hosted libc / extern / runtime helper bridge，以及 freestanding syscall bridge 的 capability 标记。
 - 必需字符串、全局、静态表、vtable 和 async frame descriptor。
 
-暂不作为 v1 native 硬范围：
+暂不作为 hosted native 完整语言第一阶段硬范围：
 
-- 用户级 `@c_import`。
 - `uya microapp build/pack/inspect/verify/run`。
 - Windows / macOS native executable emission。
 - SIMD 高级优化。
 - debug info。
 
-这些能力可继续走 C99 fallback。
+用户级 `@c_import` 在 hosted native parity 中必须通过宿主 toolchain/linker 路径保持与 C99 行为一致。
+不支持的 freestanding 能力必须给明确 capability diagnostic，不能静默 fallback。
 
 ### 10.3 Native IR
 
 `NativeEmitter` 不直接消费 parser AST，而消费：
 
 ```text
-LoweredProgram
-  -> MachineFunction
+PortableMIR
+  -> MachineModule
   -> RegisterAllocation
   -> ObjectLayout
-  -> ELFWriter
+  -> ObjectWriter / ELFWriter
 ```
 
 v1 可采用简单策略：
@@ -528,7 +634,7 @@ peak_rss_kb          # 进程峰值常驻内存
 arena_peak_bytes     # compiler arena 峰值
 semantic_db_bytes    # SemanticDb 与索引占用
 typed_program_bytes  # TypedProgram 表占用
-lowered_bytes        # LoweredProgram / BuildPlan 占用
+lowered_bytes        # LoweredProgram / PortableMIR / BuildPlan 占用
 c99_output_buffer_peak_bytes # C99 输出 FILE 缓冲峰值
 output_bytes         # 生成 C/native/object/executable/build seed 字节数
 table_count          # 所有编译器动态表实际项数汇总
@@ -542,7 +648,7 @@ table_realloc_count  # 所有编译器动态表增长次数汇总
 
 ### 12.2 生命周期原则
 
-- AST、SemanticDb、TypedProgram、LoweredProgram 不能无界同时常驻；后续阶段一旦不再需要，必须可释放或复用 arena。
+- AST、SemanticDb、TypedProgram、LoweredProgram、PortableMIR 不能无界同时常驻；后续阶段一旦不再需要，必须可释放或复用 arena。
 - C99 字符串输出不能先构造整份巨型内存字符串再一次写出；planner 输出 unit，emitter 流式写文件。
 - `SemanticDb` 索引必须是压缩数组/range 结构，避免为每个名字单独分配链表节点。
 - `TypeId`、`SymbolId`、`DeclId` 等表用紧凑整数索引，不在热点表里重复存储 `&byte` 名字。
@@ -558,7 +664,7 @@ table_realloc_count  # 所有编译器动态表增长次数汇总
 | AST | 扁平 program + 多阶段重复引用 | AST 只保留语法树，语义结果放紧凑表 |
 | lookup cache | 多个直接映射缓存重复存名字 | 统一 intern id + range 索引 |
 | TypedProgram | 可能复制 AST/type 信息 | 只存 `ExprId -> TypeId` 等整数映射 |
-| LoweredProgram | 可能同时保留所有临时 IR | 按函数/单元释放临时 lowering arena |
+| LoweredProgram / PortableMIR | 可能同时保留所有临时 IR | 按函数/单元释放临时 lowering arena |
 | C99 输出 | 大体量文本和 split 文件 | 单元化、流式写、稳定 fingerprint |
 | Native 输出 | 机器码/reloc/debug 表膨胀 | v1 不生成 debug info，reloc 表最小化 |
 
@@ -589,8 +695,8 @@ table_realloc_count  # 所有编译器动态表增长次数汇总
 | `check_arena` | `TypeChecker` 结构与检查期工作内存 | `compile_files` 入口 | codegen 读取 reachable/mono | `compile_files` 末尾 |
 | `emit_arena` | `C99CodeGenerator` 结构与输出缓冲 | C99 阶段 alloc | `c99_codegen_generate` | `compile_files` 末尾 |
 
-`SemanticDb` / `TypedProgram` / `LoweredProgram` 不走编译器 arena，而是各自使用 malloc/realloc 后端的动态表
-（`SemanticVector` / `SemanticHash`），由 `typed_program_release` / `semantic_*_free` 独立释放，
+`SemanticDb` / `TypedProgram` / `LoweredProgram` / `PortableMIR` 不走编译器 arena，而是各自使用 malloc/realloc 后端的动态表
+（`SemanticVector` / `SemanticHash` 或等价动态表），由各自 release/free 接口独立释放，
 因此它们天然与上述 arena 生命周期解耦。
 
 各 arena 峰值通过 `ast_arena_peak_bytes` / `check_arena_peak_bytes` / `emit_arena_peak_bytes`
@@ -662,10 +768,11 @@ native 与 C99 对照：
 
 语言兼容验收：
 
-- C99 backend 与 native backend 必须支持完整 Uya 语言，不能只以 `cmd/build` 子集或 launcher 子集作为
+- C99 backend 与 hosted native backend 必须支持完整 Uya 语言，不能只以 `cmd/build` 子集或 launcher 子集作为
   release 成功依据。
 - 完整语言基线以 main 分支的语言规范文档和回归测试为准，包括语法、类型系统、内建函数、标准库入口、
-  多文件模块、泛型、接口、error union、defer/errdefer、async、`@c_import` 和 diagnostics 行为。
+  多文件模块、泛型、接口、error union、defer/errdefer、async、`atomic T`、`@vector(T, N)`、
+  `@mask(N)`、`@c_import` 和 diagnostics 行为。
 - Microapp / microcontainer 必须在语言层面兼容 main 分支，不允许引入独立语法、关键字、内建函数或 checker
   方言；它只能在 runtime/capability/profile/host API 层面施加限制。
 - Microapp 对不支持能力的拒绝必须是明确 diagnostic，不能通过改变语言语义、跳过安全证明或静默降级实现。
@@ -677,12 +784,12 @@ native 与 C99 对照：
 | 风险 | 说明 | 缓解 |
 | --- | --- | --- |
 | 语义数据库引入错误 | 旧代码依赖 AST 扫描顺序 | 先为 lookup 建对照测试，再逐类替换 |
-| C99 后端与 native 后端漂移 | 双后端容易语义不一致 | 统一 `LoweredProgram`，C99 做 oracle |
-| native ABI 错误 | nostdlib、调用约定、栈对齐出错 | 先覆盖 compiler build 子集，做 ABI smoke |
+| C99 后端与 native 后端漂移 | 双后端容易语义不一致 | native 统一消费 `PortableMIR`，C99 做 oracle |
+| native ABI 错误 | hosted/freestanding、调用约定、栈对齐出错 | hosted parity 先用系统 ABI 对齐，freestanding 下沉时做 ABI smoke |
 | seed 死锁 | dispatcher 无法生成 build compiler | 阶段内保留旧入口和 C99 fallback |
 | KPI 误报 | 热缓存或 daemon 混入冷测 | benchmark 脚本主动清理并报告状态 |
 | 内存换时间 | 大表预分配让 wall time 下降但 RSS 上升 | peak RSS / arena 同时门禁 |
-| IR 常驻膨胀 | AST、TypedProgram、LoweredProgram 同时保留 | 分 arena 生命周期，按阶段释放 |
+| IR 常驻膨胀 | AST、TypedProgram、LoweredProgram、PortableMIR 同时保留 | 分 arena 生命周期，按阶段释放 |
 | 过早删除 C99 能力 | 失去跨平台与审计兜底 | C99 只降级为 fallback，不删除 |
 
 ---
@@ -715,9 +822,29 @@ native 与 C99 对照：
 - `UYA_PROFILE_CODEGEN` 下 `body_ms < 4000ms`。
 - peak RSS 相比 Phase 0 下降至少 25%。
 
+### Phase 3A: CoreIR / CoreBody
+
+- 定义 `CoreBody`、`CoreStmt`、`CoreExpr`、`CorePlace` 和 cleanup edge。
+- 从 `TypedProgram` 冻结 resolved call target、field id、type id、proof result、source span 和
+  capability metadata。
+- 冻结 `@naked_fn` 函数属性，并在 CoreIR verifier 中拒绝非 asm-only naked body。
+- 若引入并行 CoreLower，只允许 worker 产生局部 request buffer，再按 stable key 串行归并。
+- 新增 CoreIR dump / verifier / closure contract 门禁。
+- MIR lowering 不得把 `TypedProgram` 当成语义查询旁路。
+
+### Phase 3B: PortableMIR
+
+- 定义完整函数体低级 IR：module、function、block、value、type、local、inst、terminator。
+- 从 frozen `LoweredProgram + CoreBody` lowering 到 MIR，不继续扩展 ad hoc `LoweredBodyOp`。
+- MIR verifier 覆盖类型、block、value、address/layout、cleanup path 和 target capability。
+- `@naked_fn` 降为 `MirFunction.flags.naked` + asm-only body，不走普通栈帧、cleanup 或 prologue/epilogue。
+- 支持 per-function 并行 MIR 构造时，按 stable function order 归并 diagnostics、dump 和 backend fragments。
+- native backend 改为 `PortableMIR -> MachineModule`。
+- hosted native 与 C99 建立完整语言 smoke 差分。
+
 ### Phase 4: 内存生命周期收口
 
-- 分离 AST、SemanticDb、TypedProgram、LoweredProgram arena。
+- 分离 AST、SemanticDb、TypedProgram、LoweredProgram、PortableMIR arena。
 - 后端输出后释放不再需要的临时 arena。
 - 输出缓冲改为单元化流式写。
 - 建立内存回归测试。
@@ -733,13 +860,14 @@ native 与 C99 对照：
 ### Phase 6: Native v1
 
 - Linux x86_64 ELF64 emitter。
-- 支持 build compiler 子集。
-- `cmd/build` native 自举通过核心测试。
+- hosted native 先支持完整语言 parity。
+- freestanding build compiler 子集从已通过 MIR 的能力逐步下沉。
+- `cmd/build` native 自举通过核心测试后再计入 build-seed 完成。
 - peak RSS 相比 Phase 0 下降至少 50%。
 
 ### Phase 7: `make uya` 1 秒收口
 
-- `make uya` 默认走 native build path。
+- `make uya` 默认走 native build path，hosted native 与 freestanding build-seed 结论分别记录。
 - C99 fallback 保留为 `make uya-c99`。
 - 冷构建时间和内存 benchmark 同时达标。
 - `make backup-all` 和 release 流程纳入 native 对照。
@@ -751,7 +879,7 @@ native 与 C99 对照：
 1. `make clean && make uya` 冷构建三次中位数 `< 1.0s`。
 2. 默认安全证明路径保留。
 3. C99 backend 支持完整 Uya 语言，并与 main 分支语言行为兼容。
-4. Native backend 支持完整 Uya 语言，并与 C99 / main 分支语言行为兼容。
+4. Hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，并与 C99 / main 分支语言行为兼容。
 5. Microapp / microcontainer 语言层面兼容 main 分支；仅允许 runtime/capability/profile 限制。
 6. native-built compiler 通过 `make check`。
 7. C99 fallback 仍可构建并通过差分验证。

@@ -1,8 +1,8 @@
 # Native `cmd/build` 子集清单
 
-**状态**: Phase 10 feature inventory  
-**更新日期**: 2026-06-07  
-**范围**: 统计把 `src/cmd/build/main.uya` 变成 native-built compiler 所需的语言、运行时和宿主能力。
+**状态**: Phase 10 feature inventory，PortableMIR 前冻结
+**更新日期**: 2026-06-07
+**范围**: 统计把 `src/cmd/build/main.uya` 变成 freestanding native build-seed compiler 所需的语言、运行时和宿主能力。
 
 ## Evidence Snapshot
 
@@ -23,8 +23,8 @@ UYA_ROOT="$PWD" ./bin/uya build src/cmd/build/main.uya \
 - `src/codegen/c99_build/*.uya`
 
 当前 build-only root 明确不包含 `exec`、`uya microapp build/pack/inspect/verify/run`、`fmt`、`upm`、kernel packaging 和完整
-`checker` / `codegen.c99` 路径。Phase 10 的 native 子集只面向 `cmd/build`，不是完整 `bin/uya` launcher
-和全部子命令。
+`checker` / `codegen.c99` 路径。Phase 10 的 native 子集只面向 freestanding `cmd/build` seed，不定义完整
+native 后端主线；完整语言 native parity 转由 `PortableMIR` + hosted native 路线承接。
 
 ## Feature Inventory
 
@@ -87,13 +87,30 @@ UYA_ROOT="$PWD" ./bin/uya build src/cmd/build/main.uya \
 
 ## Release Acceptance Boundary
 
-本文件只定义 Phase 10 native `cmd/build` 子集，不定义最终语言完备性。发布验收仍必须满足：
+本文件只定义 Phase 10 freestanding native `cmd/build` 子集，不定义最终语言完备性或长期 native 后端主线。
+发布验收仍必须满足：
 
 - C99 backend 支持完整 Uya 语言，并与 main 分支语言行为兼容。
-- Native backend 支持完整 Uya 语言，并与 C99 / main 分支语言行为兼容。
+- Hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，并与 C99 / main 分支语言行为兼容。
+- Freestanding native build-seed 子集保持 no-silent-C99 fallback 和明确 capability diagnostic。
 - Microapp / microcontainer 在语言层面完全兼容 main 分支；限制只能来自 runtime、capability、profile、
   ABI 或镜像格式层，不能变成独立 Uya 方言。
 
 ## Next Step
 
-下一项继续按缺口补 native `cmd/build` 子集能力：当前只有 build CLI 的极小函数输出路径；`cmd/build` 自身已经进入 reachable lowering，并已支持无副作用局部声明占位、zero-arg / one-i32-constant-arg / two-i32-constant-arg direct call 局部初始化、`get_argc()` 读取、基于 local 的最小 `if ==/!= const { return const; }` 和 `if local <= const { local = const; }`、`set_process_stack_limit_bytes(...)` syscall statement、`get_argv(1)[0]` 首字节读取、`&local` / `&array[0]` out-param 写回、两个 `&i32` out-param 写回、`parse_build_args(...)` 形状的 11 参数局部初始化和局部 effect 模拟、静态 false 分支跳过、split-C env no-op fast path、native `-o` 校验 no-op fast path、struct init placeholder、split lock defer/acquire no-op fast path，以及 `return local` / `return array[0]`。下一道真实门槛是把 `compile_files(...)` 的 parser/checker/native-codegen 主调用接入 native lowering；在这之前，不能声明已经生成 native `bin/cmd/build`。
+冻结当前 native subset 特例增长，先补齐 `CoreBody` / CoreIR verifier，再转向 `PortableMIR`；CoreIR 合同见
+`docs/coreir_lowered_program_whitepaper.md`，详细 MIR 合同见 `docs/portable_mir_whitepaper.md`。
+当前只有 build CLI 的极小函数输出路径；
+`cmd/build` 自身已经进入 reachable lowering，并已支持无副作用局部声明占位、zero-arg /
+one-i32-constant-arg / two-i32-constant-arg direct call 局部初始化、`get_argc()` 读取、基于 local 的最小
+`if ==/!= const { return const; }` 和 `if local <= const { local = const; }`、`set_process_stack_limit_bytes(...)`
+syscall statement、`get_argv(1)[0]` 首字节读取、`&local` / `&array[0]` out-param 写回、两个 `&i32`
+out-param 写回、`parse_build_args(...)` 形状的 11 参数局部初始化和局部 effect 模拟、静态 false 分支跳过、
+split-C env no-op fast path、native `-o` 校验 no-op fast path、struct init placeholder、split lock
+defer/acquire no-op fast path，以及 `return local` / `return array[0]`。
+
+下一道真实门槛仍固定为 `compile_files(...)` 16 参数 parser/checker/native-codegen 主调用，但不再通过新增
+`RETURN_*`、`LOCAL_CALL_*`、`IF_LOCAL_*` 等 one-off `LoweredBodyOp` 解决。它现在是 `CoreBody` dump /
+verifier、`PortableMIR` function body lowering、hosted native call ABI 和 target capability verifier 的首个
+真实验收样本。在这之前，不能声明已经生成 native `bin/cmd/build`。
+`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续固定该失败形状，确保 native 失败不会静默回落 C99。

@@ -336,6 +336,8 @@ make check
 ## Phase 5: LoweredProgram 闭包收敛
 
 - [x] 新建 `src/lower/core.uya`。
+- [x] 新增 `docs/coreir_lowered_program_whitepaper.md`，作为 `TypedProgram -> LoweredProgram/CoreIR`
+  的详细合同；这只表示设计合同已完成，不表示 `CoreBody` / CoreIR verifier 已实现。
 - [x] 定义 `LoweredProgram`。
 - [x] `LoweredProgram` 使用独立 arena。
 - [x] `LoweredProgram` 的 functions、globals、types、interfaces、err_unions、async_frames、helpers 全部动态增长。
@@ -417,6 +419,68 @@ make bench-compiler-1s-check
 
 - [x] 内存字段进入所有 1 秒 benchmark 输出。
 - [x] AST / TypedProgram / LoweredProgram 不再无界同时常驻。
+
+---
+
+## Phase 5B: CoreIR / CoreBody 合同实现
+
+本阶段把 Phase 5 的闭包清单推进为 PortableMIR 可消费的 Core-level 函数体合同。Phase 9A 的
+PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需要新的语义事实，先补
+`LoweredProgram` / `CoreBody` 合同，不能把 `TypedProgram` 当成语义查询旁路。
+
+- [ ] 定义 `CoreBody`，作为 concrete function 的结构化函数体表示。
+- [ ] 定义 `CoreStmt` / `CoreExpr` / `CorePlace` / `CoreCleanupEdge` 等 Core-level 节点。
+- [ ] `CoreBody` 保存 PortableMIR 所需的 resolved call target、method dispatch、field id、type id、
+  proof result、source span、drop/defer/errdefer 和 capability metadata。
+- [ ] Core lowering 从 `TypedProgram` 一次性冻结所需语义事实；完成后 MIR lowering 不再常规查询
+  `TypedProgram`。
+- [ ] 现有 `LoweredBodyOp` 只保留为过渡兼容输入，不再新增 `RETURN_*`、`LOCAL_CALL_*`、
+  `IF_LOCAL_*` 等 one-off opcode。
+- [ ] 新增 `UYA_DUMP_COREIR=1`，输出稳定的 CoreIR / CoreBody 文本摘要。
+- [ ] 新增 CoreIR verifier，检查 concrete function 是否有合法 `CoreBody`、节点 type/call/field/proof
+  是否已冻结、cleanup path 是否完整、capability metadata 是否只描述能力需求而不改变语言语义。
+- [ ] 明确语言语义与 target capability 边界：`@c_import`、filesystem、pthread、syscall、
+  `@asm`、未来 PTX device subset 等限制只能产生 capability diagnostic，不能变成 Uya 方言。
+- [ ] CoreIR 冻结 `@naked_fn` 函数属性，并在 verifier 中拒绝非 asm-only naked body、普通局部栈槽、
+  cleanup、drop、async、error propagation 和隐式 return。
+- [ ] 明确 CoreLower 并行边界：冻结前的 discovery 必须稳定归并，冻结后的 per-function CoreBody
+  materialization 不得改变 ID、dump 或 diagnostics 顺序。
+- [ ] C99 可继续直接消费 `LoweredProgram` 作为 oracle，但新增的完整函数体语义必须首先能在
+  `CoreBody` 中 dump 和验证。
+
+测试：
+
+- [ ] 新增 `tests/verify_coreir_dump_golden.sh`。
+- [ ] 新增 `tests/verify_coreir_verifier.sh`。
+- [ ] 新增 `tests/verify_coreir_closure_contract.sh`。
+- [ ] 新增 `tests/verify_coreir_naked_fn_contract.sh`。
+- [ ] 新增 `tests/verify_coreir_parallel_determinism.sh`。
+- [ ] CoreIR dump 覆盖多文件、泛型函数、泛型方法、interface dispatch、field/index/slice、
+  atomic、SIMD vector/mask、error/defer/drop 和 `compile_files(...)` 调用形状。
+- [ ] CoreIR verifier 负例覆盖缺失 call target、缺失 field id、类型不匹配、cleanup edge 不完整、
+  target capability 混入语言语义。
+- [ ] CoreIR verifier 负例覆盖 `@naked_fn` 中出现普通 statement、局部栈槽、defer/drop/async/error path。
+- [ ] CoreIR deterministic 测试覆盖并行 request merge 与串行输出一致。
+
+验证：
+
+```bash
+git diff --check
+bash tests/verify_coreir_dump_golden.sh
+bash tests/verify_coreir_verifier.sh
+bash tests/verify_coreir_closure_contract.sh
+bash tests/verify_coreir_naked_fn_contract.sh
+bash tests/verify_coreir_parallel_determinism.sh
+```
+
+阶段 KPI：
+
+- [ ] PortableMIR lowering 可以只从 frozen `LoweredProgram + CoreBody` 获得语义信息。
+- [ ] `compile_files(...)` 16 参数调用在 CoreIR dump 中以 resolved call target 和 typed arguments
+  稳定出现。
+- [ ] CoreIR verifier 能阻止 MIR 实现绕过 CoreIR 回查 checker / TypedProgram。
+- [ ] `@naked_fn` 在 CoreIR dump 中有稳定 flags/capability，且非法 body 先在 CoreIR verifier 被拒绝。
+- [ ] CoreIR 并行开关不改变 IDs、dump 或 diagnostics。
 
 ---
 
@@ -701,7 +765,94 @@ make tests-uya
 
 ---
 
+## Phase 9A: PortableMIR 完整语言主干
+
+路线调整：Phase 10 的 native `cmd/build` 子集已经证明了最小 native writer、ELF、调用约定和
+no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特例集合，而是先建立
+`CoreBody` 和 `PortableMIR` 主干。`LoweredProgram` 继续作为 Core-level 闭包收敛和程序清单；
+完整函数体语义先由 Phase 5B 的 `CoreBody` 冻结，再由 `PortableMIR` 承接为低级 CFG/value/memory IR，
+并作为后续 native、PTX、exec、C99 等后端的共享入口。
+
+- [x] 新增 `docs/portable_mir_whitepaper.md`，作为 Phase 9A 实现前的详细 MIR 合同。
+- [ ] Phase 5B 的 `CoreBody`、CoreIR dump、CoreIR verifier 和 CoreIR closure contract 门禁全部通过。
+- [ ] 定义 `PortableMIR` 顶层 module / function / block / value / type / local / inst / terminator 结构。
+- [ ] `PortableMIR` 所有表动态增长，不引入函数、block、inst、value、local 或 type 的固定语义上限。
+- [ ] 明确 `LoweredProgram` 的职责边界：functions、globals、types、interfaces、err_unions、async_frames、
+  drop_defer_plans、helpers、worklist 和稳定符号顺序；不把 `LoweredBodyOp` 扩成完整语言 IR。
+- [ ] 实现 `LoweredProgram + CoreBody` 到 `PortableMIR` 的 lowering 合同，覆盖表达式、语句、控制流、
+  load/store/address、atomic、SIMD vector/mask、call/return/branch、field/index/slice 地址计算、
+  copy/move/drop 和 cleanup path。
+- [ ] MIR lowering 默认不查询 `TypedProgram`；若确实缺少 source/proof/capability metadata，先回补
+  CoreIR 合同。
+- [ ] `PortableMIR` 显式记录 target-neutral layout metadata、calling convention 需求、hosted/freestanding
+  runtime capability、address space 预留字段。
+- [ ] `PortableMIR` 显式记录 `MirFunction.flags.naked` / asm-only naked body，禁止 naked 函数走普通
+  prologue/epilogue、stack slot、cleanup、drop、async 或隐式 return lowering。
+- [ ] 实现 MIR verifier，线性检查 block 终结、value 定义/使用、类型匹配、地址/布局、atomic / vector /
+  mask 规则、cleanup path 和 target capability。
+- [ ] 明确 PortableMIR 并行构造合同：worker 只消费 frozen `LoweredProgram + CoreBody`，按 stable
+  function order 归并 MIR functions、diagnostics、dump 和 backend fragments。
+- [ ] 新增 target backend 接口：后端只消费 `PortableMIR`，再映射到 `MachineModule`、`PtxModule`、
+  exec bytecode 或 C99 plan。
+- [ ] native backend 主路径改为 `PortableMIR -> MachineModule -> object/executable`。
+- [ ] hosted native 第一阶段通过宿主 ABI / linker 承接 libc、pthread、filesystem、env、malloc、extern
+  和 `@c_import` 链接需求。
+- [ ] freestanding native `cmd/build` 子集保留为回归边界，后续从已经通过 MIR 的能力逐步下沉，不阻塞
+  hosted native 完整语言 parity。
+- [ ] C99 backend 第一阶段继续作为独立 oracle；暂不强制迁移到 MIR。
+
+测试：
+
+- [ ] 新增 `tests/verify_portable_mir_golden.sh`，覆盖 block、value、load/store、aggregate、branch、call
+  和 cleanup path。
+- [ ] MIR dump / golden 覆盖 `atomic T`、`@vector(T, N)` 和 `@mask(N)`。
+- [ ] 新增 MIR verifier 负例测试，覆盖未终结 block、类型不匹配、非法地址、错误 cleanup、unsupported
+  target capability。
+- [ ] 新增 `tests/verify_portable_mir_verifier.sh`。
+- [ ] 新增 MIR `@naked_fn` golden / verifier 负例，覆盖 asm-only body、unsupported target、禁止普通 local /
+  cleanup / implicit return。
+- [ ] 新增 `tests/verify_portable_mir_naked_fn.sh`。
+- [ ] 新增 MIR parallel determinism 测试，覆盖并行构造开关下 dump、diagnostics、IDs 和 symbol order 不变。
+- [ ] 新增 `tests/verify_portable_mir_parallel_determinism.sh`。
+- [ ] 新增 hosted native / C99 完整语言差分 smoke，先覆盖多文件、泛型、方法、interface、error/defer/drop、
+  slice/array/struct/union/enum、atomic、SIMD vector/mask、builtin、extern 和 `@c_import`。
+- [ ] 新增 `tests/verify_hosted_native_full_language_smoke.sh`。
+- [ ] 保留 `tests/verify_native_cmd_build_no_silent_c99.sh`，确保 native 失败不会静默回落 C99。
+
+验证：
+
+```bash
+git diff --check
+# CoreIR 门禁必须先过；目标脚本名可按实现调整。
+bash tests/verify_coreir_dump_golden.sh
+bash tests/verify_coreir_verifier.sh
+bash tests/verify_coreir_closure_contract.sh
+bash tests/verify_coreir_naked_fn_contract.sh
+bash tests/verify_coreir_parallel_determinism.sh
+bash tests/verify_portable_mir_golden.sh
+bash tests/verify_portable_mir_verifier.sh
+bash tests/verify_portable_mir_naked_fn.sh
+bash tests/verify_portable_mir_parallel_determinism.sh
+bash tests/verify_hosted_native_full_language_smoke.sh
+bash tests/verify_native_cmd_build_no_silent_c99.sh
+```
+
+阶段 KPI：
+
+- [ ] `compile_files(...)` 16 参数调用缺口不再通过新增 one-off `LoweredBodyOp` 解决，而是成为 MIR lowering
+  和 hosted native call ABI 的验收样本。
+- [ ] native 后端新增语言能力时，语言 lowering 只需改 `PortableMIR`，不在每个 target backend 重复实现。
+- [ ] `@naked_fn` 通过 CoreIR/MIR verifier 和 native 专用 path，不走普通函数栈帧。
+- [ ] MIR 并行构造不改变 dump、diagnostics、IDs 或 symbol order。
+- [ ] hosted native 与 C99 对完整语言 smoke 的成功/失败、退出码、diagnostics 和运行结果一致。
+
+---
+
 ## Phase 10: Native build compiler 子集
+
+本阶段保留为 freestanding/build-seed 子集清单和回归边界。Phase 9A 完成前，不继续扩展 ad hoc
+`LoweredBodyOp` 来追 `cmd/build` 的下一个特殊形状；当前 `compile_files(...)` 缺口改为
+PortableMIR/native hosted parity 的验收输入。
 
 - [x] 统计 `cmd/build` 所需 language/runtime feature。
 - [x] 为每类 feature 标注 native 支持状态。
@@ -716,11 +867,12 @@ make tests-uya
 - [x] 支持 `memcpy`/`memset`/`strcmp`/`strlen`。
 - [x] 支持 compiler build 所需 error union / defer。
 - [x] 支持 compiler build 所需泛型实例。
-- [ ] 生成 native `bin/cmd/build`.
+- [ ] 通过 `PortableMIR` 路径生成 native `bin/cmd/build`。
 
 测试：
 
 - [x] 新增 `tests/verify_native_cmd_build_stage1.sh`。
+- [x] 新增 `tests/verify_native_cmd_build_no_silent_c99.sh`，固定当前失败形状并防止静默回落。
 - [ ] 用 native `cmd/build` 编译最小程序。
 - [ ] 用 native `cmd/build` 编译一组 compiler regression。
 - [ ] 用 native `cmd/build` 生成 C99 output，并与 C99-built compiler 输出比对。
@@ -737,6 +889,7 @@ make check
 - [ ] native `cmd/build` 可构建自身。
 - [ ] native `cmd/build` 自身构建 `< 3000ms`。
 - [ ] native `cmd/build` 自身构建 peak RSS 相比 Phase 0 baseline 下降至少 50%。
+- [ ] 不新增 `RETURN_*`、`LOCAL_CALL_*`、`IF_LOCAL_*` 等 one-off `LoweredBodyOp` 作为 Phase 10 继续推进方式。
 
 ---
 
@@ -744,7 +897,8 @@ make check
 
 - [ ] 增加 `UYA_BUILD_BACKEND=native|c99`。
 - [ ] 新增 `make uya-c99` 保留旧路径。
-- [ ] `make uya` 默认走 native path。
+- [ ] `make uya` 默认走 hosted native path。
+- [ ] freestanding native path 保留为 build-seed / 下沉目标，不作为 hosted native 完整语言 parity 的阻塞项。
 - [ ] `make uya` 输出：
 
 ```text
@@ -755,6 +909,7 @@ bin/cmd/build
 - [ ] native path 失败时不静默 fallback；必须显式报错。
 - [ ] `make uya-c99` 可作为手动 fallback。
 - [ ] release flow 同时验证 native 与 C99。
+- [ ] release flow 区分 hosted native 完整语言结论与 freestanding native build-seed 结论。
 - [ ] backup flow 纳入 native seed。
 - [ ] install flow 安装 `bin/cmd/build`。
 - [ ] install flow 安装 `bin/cmd/microapp`（若 Phase 7A 已完成）。
@@ -803,11 +958,12 @@ make backup-all
 - [ ] 明确 main 分支语言兼容基线：以 main 分支的 `docs/uya.md`、`docs/grammar_formal.md`、
   `docs/grammar_quick.md`、`docs/builtin_functions.md` 和完整语言回归测试为准。
 - [ ] C99 backend 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / build seed 子集。
-- [ ] Native backend 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
+- [ ] Hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
+- [ ] Freestanding native 能力按 hosted native 已验证的 MIR 能力逐步下沉，不阻塞完整语言 hosted parity。
 - [ ] C99 与 native 对同一套完整语言回归输入给出一致的成功/失败、退出码、diagnostics 和可执行行为。
 - [ ] 新增或整理完整语言后端差分套件，覆盖 parser/checker/codegen 主语言面：多文件模块、泛型、方法、
   接口、error union、`try/catch`、`defer/errdefer`、async、结构体/union/enum、slice/数组、指针、
-  `@c_import`、内建函数和标准库入口。
+  `atomic T`、`@vector(T, N)`、`@mask(N)`、`@c_import`、内建函数和标准库入口。
 - [ ] Microapp / microcontainer 在语言层面完全兼容 main 分支，不引入 microapp 专属语法、关键字、
   内建函数或 checker 方言。
 - [ ] Microapp 的限制只能是 capability / runtime / profile / host API 层面的限制；对不支持能力的拒绝必须是
@@ -836,7 +992,8 @@ make backup-all
 - [ ] 内存 KPI 达标。
 - [ ] 默认安全证明路径保留。
 - [ ] C99 backend 完整支持 Uya 语言，并与 main 分支语言行为兼容。
-- [ ] Native backend 完整支持 Uya 语言，并与 C99 / main 分支语言行为兼容。
+- [ ] Hosted native backend 经由 `PortableMIR` 完整支持 Uya 语言，并与 C99 / main 分支语言行为兼容。
+- [ ] Freestanding native build-seed 子集保持 no-silent-C99 fallback 和明确 capability diagnostic。
 - [ ] Microapp / microcontainer 语言层面完全兼容 main 分支；仅允许 runtime/capability/profile 限制。
 - [ ] native/C99 差分验证通过。
 - [ ] release/backup 流程无死锁。
@@ -847,10 +1004,14 @@ make backup-all
 
 ## 当前下一步
 
-建议下一次实施从 Phase 0 开始：
+建议下一次实施从 Phase 5B 开始：
 
-1. 新增 `scripts/bench_compiler_1s.sh`。
-2. 新增 `make bench-compiler-1s` 与 `make bench-compiler-1s-check`。
-3. 记录当前 `make clean && make uya` 的三次冷构建时间 baseline。
-4. 记录当前 `make clean && make uya` 的 `peak_rss_kb`、arena 和输出字节数 baseline。
-5. 再进入 Phase 1 的 `SemanticDb` 基础建设。
+1. 定义 `CoreBody` / `CoreStmt` / `CoreExpr`，并从 `TypedProgram` 冻结 resolved call target、field id、
+   type id、proof 和 cleanup metadata。
+2. 新增 CoreIR dump / verifier / closure contract 门禁。
+3. 补 `@naked_fn` CoreIR 合同和并行 CoreLower deterministic merge 门禁。
+4. 把当前 native subset 的简单函数体从 ad hoc `LoweredBodyOp` 迁到 `CoreBody`。
+5. 在 CoreIR 门禁通过后新增 `PortableMIR` 基础数据结构和动态表生命周期。
+6. 让 native backend 从 `PortableMIR` 导入 `MachineModule`。
+7. 将 `compile_files(...)` 16 参数调用固定为 CoreIR、MIR lowering、hosted native call ABI 和
+   target capability verifier 的首个真实验收样本。
