@@ -78,6 +78,9 @@ fn portable_mir_struct_profile() MirTargetProfile {
         endianness: 0,
         default_address_space: MIR_ADDRESS_SPACE_GENERIC,
         runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+        supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
+        supported_calling_conventions: 3,
+        runtime_capability_mask: 3,
         feature_flags: 0,
     };
 }
@@ -128,11 +131,19 @@ fn append_minimal_portable_mir(module: &PortableMirModule) !void {
         source_type_id: 77,
         size_bytes: 4usize,
         align_bytes: 4usize,
+        layout_id: 707,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 4usize,
         element_type_id: MIR_TYPE_INVALID_ID,
         pointee_type_id: MIR_TYPE_INVALID_ID,
         field_start: 0,
         field_count: 0,
         lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: 1,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
     var local: MirLocal = MirLocal{
@@ -176,6 +187,9 @@ fn append_minimal_portable_mir(module: &PortableMirModule) !void {
         result_value_id: 0,
         operand_start: 0,
         operand_count: 1,
+        calling_convention: 1,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: 0,
         flags: 0,
     };
@@ -219,6 +233,9 @@ fn append_minimal_portable_mir(module: &PortableMirModule) !void {
         cleanup_model: 0,
         capability_req_start: 0,
         capability_req_count: 0,
+        calling_convention: 1,
+        runtime_capability_mask: 1,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
         debug_loc_id: 0,
         flags: 0,
     };
@@ -252,6 +269,8 @@ test "PortableMIR top-level structures initialize and store a minimal function" 
     portable_mir_module_init(&module, &arena);
     try assert_eq_i32(module.lifecycle_state, PORTABLE_MIR_LIFECYCLE_ACTIVE);
     try assert_eq_i32(module.target_profile.default_address_space, MIR_ADDRESS_SPACE_GENERIC);
+    try assert_eq_i32(module.target_profile.supported_calling_conventions, 3);
+    try assert_eq_i32(module.target_profile.runtime_capability_mask, 3);
     try expect(module.functions.item_size == @size_of(MirFunction));
     try expect(module.blocks.item_size == @size_of(MirBlock));
     try expect(module.values.item_size == @size_of(MirValue));
@@ -270,13 +289,20 @@ test "PortableMIR top-level structures initialize and store a minimal function" 
     try expect(module.terminator_count == 1usize);
 
     const func: &MirFunction = semantic_vector_item_ptr(&module.functions, 0usize) as &MirFunction;
+    const type_item: &MirType = semantic_vector_item_ptr(&module.types, 0usize) as &MirType;
     const block: &MirBlock = semantic_vector_item_ptr(&module.blocks, 0usize) as &MirBlock;
     const inst: &MirInst = semantic_vector_item_ptr(&module.insts, 0usize) as &MirInst;
     const term: &MirTerminator = semantic_vector_item_ptr(&module.terminators, 0usize) as &MirTerminator;
     try expect(func != null);
+    try expect(type_item != null);
     try expect(block != null);
     try expect(inst != null);
     try expect(term != null);
+    try assert_eq_i32(type_item.layout_id, 707);
+    try assert_eq_i32(type_item.abi_class, 1);
+    try assert_eq_i32(func.calling_convention, 1);
+    try assert_eq_i32(func.runtime_capability_mask, 1);
+    try assert_eq_i32(inst.address_space, MIR_ADDRESS_SPACE_GENERIC);
     try assert_eq_i32(func.entry_block_id, block.block_id);
     try assert_eq_i32(block.terminator_id, term.terminator_id);
     try assert_eq_i32(inst.result_value_id, 0);

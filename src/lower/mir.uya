@@ -57,7 +57,7 @@ export const MIR_RUNTIME_MODE_FREESTANDING: i32 = 2;
 export const MIR_RUNTIME_MODE_DEVICE: i32 = 3;
 
 /// 功能说明：记录 PortableMIR target profile 中与后端无关的基础能力边界。
-/// 参数说明：无；字段保存 profile ID、pointer/layout 形态、runtime mode 和 feature flags。
+/// 参数说明：无；字段保存 profile ID、pointer/layout 形态、runtime mode、address/call/capability masks 和 feature flags。
 /// 返回值说明：无。
 export struct MirTargetProfile {
     profile_id: i32,
@@ -65,6 +65,9 @@ export struct MirTargetProfile {
     endianness: i32,
     default_address_space: i32,
     runtime_mode: i32,
+    supported_address_spaces: i32,
+    supported_calling_conventions: i32,
+    runtime_capability_mask: i32,
     feature_flags: i32,
 }
 
@@ -129,7 +132,7 @@ export struct MirCapabilityReq {
 }
 
 /// 功能说明：记录 PortableMIR 中的 lowered concrete type 和 layout metadata。
-/// 参数说明：无；字段保存 kind、layout、element/pointee、lane 和 field range。
+/// 参数说明：无；字段保存 kind、layout、ABI、address space、element/pointee、lane 和 field range。
 /// 返回值说明：无。
 export struct MirType {
     type_id: MirTypeId,
@@ -137,11 +140,19 @@ export struct MirType {
     source_type_id: TypeId,
     size_bytes: usize,
     align_bytes: usize,
+    layout_id: i32,
+    tag_offset_bytes: usize,
+    payload_offset_bytes: usize,
+    atomic_align_bytes: usize,
     element_type_id: MirTypeId,
     pointee_type_id: MirTypeId,
     field_start: i32,
     field_count: i32,
     lane_count: i32,
+    lane_stride_bytes: usize,
+    mask_representation: i32,
+    abi_class: i32,
+    address_space: i32,
     flags: i32,
 }
 
@@ -176,7 +187,7 @@ export struct MirValue {
 }
 
 /// 功能说明：记录 PortableMIR instruction。
-/// 参数说明：无；字段保存 opcode、结果类型/value、operand range 和 source 位置。
+/// 参数说明：无；字段保存 opcode、结果类型/value、operand range、ABI/capability/address metadata 和 source 位置。
 /// 返回值说明：无。
 export struct MirInst {
     inst_id: MirInstId,
@@ -187,6 +198,9 @@ export struct MirInst {
     result_value_id: MirValueId,
     operand_start: i32,
     operand_count: i32,
+    calling_convention: i32,
+    runtime_capability_mask: i32,
+    address_space: i32,
     debug_loc_id: MirDebugLocId,
     flags: i32,
 }
@@ -223,7 +237,7 @@ export struct MirBlock {
 }
 
 /// 功能说明：记录 PortableMIR function。
-/// 参数说明：无；字段保存 CoreIR 来源、签名/参数/local/block ranges、entry block 和 capabilities。
+/// 参数说明：无；字段保存 CoreIR 来源、签名/参数/local/block ranges、entry block、ABI、address space 和 capabilities。
 /// 返回值说明：无。
 export struct MirFunction {
     function_id: MirFunctionId,
@@ -242,6 +256,9 @@ export struct MirFunction {
     cleanup_model: i32,
     capability_req_start: i32,
     capability_req_count: i32,
+    calling_convention: i32,
+    runtime_capability_mask: i32,
+    required_address_space_mask: i32,
     debug_loc_id: MirDebugLocId,
     flags: i32,
 }
@@ -286,6 +303,9 @@ fn portable_mir_default_target_profile() MirTargetProfile {
         endianness: 0,
         default_address_space: MIR_ADDRESS_SPACE_GENERIC,
         runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+        supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
+        supported_calling_conventions: 3,
+        runtime_capability_mask: 3,
         feature_flags: 0,
     };
 }

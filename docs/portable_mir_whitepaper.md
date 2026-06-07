@@ -119,6 +119,11 @@ backend 可以决定 ABI 细节、寄存器分配、指令选择、文本输出�
 
 所有 MIR 表都是动态 vector。程序规模不能由固定容量限制。
 
+PortableMIR 必须显式记录 target-neutral layout metadata、calling convention、hosted/freestanding runtime capability
+和 address space。layout metadata 包括 size/alignment、layout ID、tag/payload offset、atomic alignment、
+vector lane stride、mask representation 和 ABI class；function / instruction 记录 calling convention 与 runtime
+capability mask，target profile 记录支持的 address space 和 calling convention mask。
+
 ```text
 MirModule
   target_profile: MirTargetProfile

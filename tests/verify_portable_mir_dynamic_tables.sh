@@ -81,6 +81,9 @@ fn portable_mir_dynamic_profile() MirTargetProfile {
         endianness: 0,
         default_address_space: MIR_ADDRESS_SPACE_GENERIC,
         runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+        supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
+        supported_calling_conventions: 3,
+        runtime_capability_mask: 3,
         feature_flags: 0,
     };
 }
@@ -131,11 +134,19 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
         source_type_id: 700 + id,
         size_bytes: 4usize,
         align_bytes: 4usize,
+        layout_id: 1700 + id,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 4usize,
         element_type_id: MIR_TYPE_INVALID_ID,
         pointee_type_id: MIR_TYPE_INVALID_ID,
         field_start: 0,
         field_count: 0,
         lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: 1,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
     var local: MirLocal = MirLocal{
@@ -202,6 +213,9 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
         result_value_id: id,
         operand_start: id,
         operand_count: 1,
+        calling_convention: 1,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: id,
         flags: 0,
     };
@@ -245,6 +259,9 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
         cleanup_model: 0,
         capability_req_start: id,
         capability_req_count: 1,
+        calling_convention: 1,
+        runtime_capability_mask: 1,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
         debug_loc_id: id,
         flags: 0,
     };

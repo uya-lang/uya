@@ -785,7 +785,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
   copy/move/drop 和 cleanup path。
 - [x] MIR lowering 默认不查询 `TypedProgram`；若确实缺少 source/proof/capability metadata，先回补
   CoreIR 合同。
-- [ ] `PortableMIR` 显式记录 target-neutral layout metadata、calling convention 需求、hosted/freestanding
+- [x] `PortableMIR` 显式记录 target-neutral layout metadata、calling convention 需求、hosted/freestanding
   runtime capability、address space 预留字段。
 - [ ] `PortableMIR` 显式记录 `MirFunction.flags.naked` / asm-only naked body，禁止 naked 函数走普通
   prologue/epilogue、stack slot、cleanup、drop、async 或隐式 return lowering。
@@ -835,6 +835,7 @@ bash tests/verify_portable_mir_structs.sh
 bash tests/verify_portable_mir_dynamic_tables.sh
 bash tests/verify_portable_mir_lowering_contract.sh
 bash tests/verify_portable_mir_no_typed_bypass.sh
+bash tests/verify_portable_mir_target_metadata.sh
 bash tests/verify_portable_mir_golden.sh
 bash tests/verify_portable_mir_verifier.sh
 bash tests/verify_portable_mir_naked_fn.sh
