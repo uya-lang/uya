@@ -817,7 +817,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] 新增 `tests/verify_portable_mir_parallel_determinism.sh`。
 - [x] 新增 hosted native / C99 完整语言差分 smoke，先覆盖多文件、泛型、方法、interface、error/defer/drop、
   slice/array/struct/union/enum、atomic、SIMD vector/mask、builtin、extern 和 `@c_import`。
-- [ ] 新增 `tests/verify_hosted_native_full_language_smoke.sh`。
+- [x] 新增 `tests/verify_hosted_native_full_language_smoke.sh`。
 - [ ] 保留 `tests/verify_native_cmd_build_no_silent_c99.sh`，确保 native 失败不会静默回落 C99。
 
 验证：
