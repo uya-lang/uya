@@ -1368,6 +1368,19 @@ fn native_build_expr_is_side_effect_free_placeholder(expr: &ASTNode) i32 {
         }
         return 1;
     }
+    if expr.type == ASTNodeType.AST_STRUCT_INIT {
+        if expr.struct_init_field_count > 0 && expr.struct_init_field_values == null {
+            return 0;
+        }
+        var si: i32 = 0;
+        while si < expr.struct_init_field_count {
+            if native_build_expr_is_side_effect_free_placeholder(expr.struct_init_field_values[si]) == 0 {
+                return 0;
+            }
+            si = si + 1;
+        }
+        return 1;
+    }
     return 0;
 }
 
@@ -2300,6 +2313,47 @@ fn native_build_if_stmt_is_native_output_path_validation(stmt: &ASTNode,
     return 1;
 }
 
+fn native_build_defer_stmt_is_static_noop(stmt: &ASTNode, locals: &NativeBuildLocalTable) i32 {
+    if stmt == null || locals == null || stmt.type != ASTNodeType.AST_DEFER_STMT ||
+       stmt.defer_stmt_body == null {
+        return 0;
+    }
+    const body: &ASTNode = stmt.defer_stmt_body;
+    if body.type != ASTNodeType.AST_BLOCK || body.block_stmts == null ||
+       body.block_stmt_count != 1 {
+        return 0;
+    }
+    const cleanup_if: &ASTNode = body.block_stmts[0];
+    if cleanup_if == null || cleanup_if.type != ASTNodeType.AST_IF_STMT ||
+       cleanup_if.if_stmt_condition == null ||
+       native_build_expr_mentions_identifier(cleanup_if.if_stmt_condition,
+           "split_c_lock_held" as &byte) == 0 {
+        return 0;
+    }
+    var cond_value: i32 = 0;
+    if native_build_expr_bool_const_value(cleanup_if.if_stmt_condition, locals, &cond_value) == 0 ||
+       cond_value != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_if_stmt_is_split_c_acquire_noop(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_condition == null || stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_else_branch != null ||
+       native_build_expr_mentions_identifier(stmt.if_stmt_condition,
+           "split_c_arg" as &byte) == 0 {
+        return 0;
+    }
+    const body: &ASTNode = stmt.if_stmt_then_branch;
+    if body.type != ASTNodeType.AST_BLOCK || body.block_stmts == null ||
+       body.block_stmt_count != 2 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_if_stmt_is_split_c_env_setup(stmt: &ASTNode) i32 {
     if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
        stmt.if_stmt_else_branch != null || stmt.if_stmt_condition == null ||
@@ -2495,6 +2549,14 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
             continue;
         }
         if native_build_if_stmt_is_native_output_path_validation(stmt, &locals) != 0 {
+            stmt_index = stmt_index + 1;
+            continue;
+        }
+        if native_build_defer_stmt_is_static_noop(stmt, &locals) != 0 {
+            stmt_index = stmt_index + 1;
+            continue;
+        }
+        if native_build_if_stmt_is_split_c_acquire_noop(stmt) != 0 {
             stmt_index = stmt_index + 1;
             continue;
         }
