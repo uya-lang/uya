@@ -31,7 +31,7 @@ done
 
 require_pattern "$LOWER_CORE_FILE" 'export[[:space:]]+struct[[:space:]]+PortableMirCoreInput' "PortableMIR Core-only input struct"
 require_pattern "$LOWER_CORE_FILE" 'portable_mir_core_input_is_frozen' "PortableMIR frozen Core input check"
-require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir' "PortableMIR input depends on CoreIR verifier"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir\(input\.program\)' "PortableMIR input is gated by CoreIR verifier"
 require_pattern "$PORTABLE_MIR_DOC" 'PortableMIR lowering 默认接收' "PortableMIR input contract section"
 require_pattern "$PORTABLE_MIR_DOC" '默认不查询 `TypedProgram`' "PortableMIR does not query TypedProgram"
 require_pattern "$COREIR_DOC" 'PortableMIR 不允许发现新的泛型实例' "CoreIR owns semantic closure"
