@@ -3,7 +3,7 @@
 # Phase 10：验证 build CLI 的第一个真实 --native 成功路径。
 # 当前允许无参/窄 i32 参数函数，函数体为 `return 0..255;`、`return callee();`、
 # `return lhs() + rhs();`，一个 direct call 局部初始化后 `return local;`，或最小 `&i32`
-# out-param 写回。
+# / `&array[0]` out-param 写回。
 
 set -euo pipefail
 
@@ -131,6 +131,19 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$TMP_DIR/local_array_addr_call_return.uya" <<'EOF'
+fn write_value(out: &i32) i32 {
+    out[0] = 9;
+    return 0;
+}
+
+export fn main() i32 {
+    var slots: [i32: 1] = [];
+    const status: i32 = write_value(&slots[0]);
+    return slots[0];
+}
+EOF
+
 cat >"$TMP_DIR/unsupported.uya" <<'EOF'
 fn value(x: i32) i32 {
     return x;
@@ -233,6 +246,7 @@ run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_call_return.uya" 5 
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_const_arg_call_return.uya" 6 0 2 3 3
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_const2_arg_call_return.uya" 15 0 2 3 3
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_addr_call_return.uya" 9 0 2 4 4
+run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_array_addr_call_return.uya" 9 0 2 4 4
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/exit0.uya" 0 1 1
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/return1.uya" 1 1 1
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/call.uya" 1 0 2
@@ -244,6 +258,7 @@ run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_call_re
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_const_arg_call_return.uya" 6 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_const2_arg_call_return.uya" 15 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_addr_call_return.uya" 9 0 2 4 4
+run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_array_addr_call_return.uya" 9 0 2 4 4
 run_reject_check "$REPO_ROOT/bin/uya" "uya"
 run_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
 
