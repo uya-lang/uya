@@ -76,8 +76,10 @@ require_pattern "$PORTABLE_MIR_DOC" '`compile_files\(\.\.\.\)` 16 参数调用�
 
 require_pattern "$NO_SILENT_TEST" 'run_hosted_reject_check' \
     "no-silent-C99 测试缺少 hosted native handoff reject"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_handoff_missing' \
-    "no-silent-C99 测试缺少 hosted PortableMIR handoff 缺口"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=0 verifier_error=0' \
+    "no-silent-C99 测试缺少 hosted PortableMIR preflight 证据"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_lowering_missing' \
+    "no-silent-C99 测试缺少 hosted 函数体 MIR lowering 缺口"
 require_pattern "$NO_SILENT_TEST" 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' \
     "no-silent-C99 测试缺少 hosted/build-seed 分界"
 require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_reject_check' \
@@ -96,8 +98,12 @@ require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_regression_boundary\.sh'
     "stage1 native cmd/build 验证未纳入回归边界合同"
 require_pattern "$DRIVER_SRC" 'compile_files\(&input_file_indices\[0\], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts\)' \
     "compiler driver 缺少真实 compile_files 16 参数调用输入"
-require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_handoff_missing' \
-    "build compiler driver 缺少 hosted native PortableMIR handoff 诊断"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_portable_mir_preflight' \
+    "build compiler driver 缺少 hosted native PortableMIR preflight"
+require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_lowering_missing' \
+    "build compiler driver 缺少 hosted native MIR lowering 缺口诊断"
+require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \
+    "build compiler driver 缺少 NativeHostedLinkPlan 初始化"
 require_pattern "$BUILD_DRIVER_SRC" 'is_nostdlib[[:space:]]*==[[:space:]]*0' \
     "build compiler driver 缺少 hosted native 与 freestanding native 分流"
 require_pattern "$NATIVE_BUILD_SRC" 'intentionally smaller than codegen\.native\.\*' \

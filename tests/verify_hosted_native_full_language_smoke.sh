@@ -255,13 +255,18 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_handoff_missing' "$native_build_err"; then
-    echo "error: native full-language reject lacks hosted PortableMIR handoff diagnostic" >&2
+if ! grep -q 'native_hosted_preflight: status=0 verifier_error=0 c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+    echo "error: native full-language reject lacks hosted PortableMIR preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'PortableMIR+MirTargetBackendRequest+NativeHostedLinkPlan' "$native_build_err"; then
-    echo "error: native full-language reject lacks hosted native handoff requirements" >&2
+if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$native_build_err"; then
+    echo "error: native full-language reject lacks function-body MIR lowering gap" >&2
+    cat "$native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'PortableMIR/NativeHostedLinkPlan preflight' "$native_build_err"; then
+    echo "error: native full-language reject lacks hosted native preflight summary" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
