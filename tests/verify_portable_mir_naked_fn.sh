@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
+MIR_VERIFIER_FILE="$REPO_ROOT/src/lower/mir_verifier.uya"
 PORTABLE_MIR_DOC="$REPO_ROOT/docs/portable_mir_whitepaper.md"
 
 require_pattern() {
@@ -17,7 +18,7 @@ require_pattern() {
     fi
 }
 
-for file in "$MIR_FILE" "$PORTABLE_MIR_DOC"; do
+for file in "$MIR_FILE" "$MIR_VERIFIER_FILE" "$PORTABLE_MIR_DOC"; do
     if [[ ! -f "$file" ]]; then
         echo "error: missing $file" >&2
         exit 1
@@ -44,6 +45,9 @@ require_pattern "$MIR_FILE" 'portable_mir_naked_forbidden_lowering_mask' "naked 
 require_pattern "$MIR_FILE" 'portable_mir_function_has_naked_flag' "naked flag helper"
 require_pattern "$MIR_FILE" 'portable_mir_function_rejects_naked_lowering' "naked lowering rejection helper"
 require_pattern "$MIR_FILE" 'portable_mir_function_has_asm_only_naked_body' "asm-only naked body helper"
+require_pattern "$MIR_VERIFIER_FILE" 'MIR_VERIFY_ERR_INVALID_NAKED_BODY' "naked verifier diagnostic"
+require_pattern "$MIR_VERIFIER_FILE" 'MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY' "unsupported target verifier diagnostic"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_module' "MIR verifier entry"
 require_pattern "$PORTABLE_MIR_DOC" 'MirFunction\.flags\.naked' "documented naked flag"
 require_pattern "$PORTABLE_MIR_DOC" 'body_kind = asm_only_naked' "documented asm-only naked body kind"
 require_pattern "$PORTABLE_MIR_DOC" 'naked_forbidden_lowering_mask' "documented forbidden lowering mask"
@@ -98,6 +102,14 @@ export fn semantic_vector_append(vec: &SemanticVector, item: &const void) i32 {
     return 0;
 }
 
+export fn semantic_vector_item_ptr(vec: &SemanticVector, index: usize) &byte {
+    if vec == null || vec.data == null || vec.item_size == 0usize || index >= vec.count {
+        return null;
+    }
+    const addr: usize = @usize_from_ptr(vec.data) + index * vec.item_size;
+    return @ptr_from_usize(addr) as &byte;
+}
+
 export fn semantic_vector_free(vec: &SemanticVector) void {
     if vec == null {
         return;
@@ -113,10 +125,25 @@ export fn semantic_vector_release(vec: &SemanticVector) void {
 }
 EOF
 
-cat "$MIR_FILE" >>"$tmp_dir/main.uya"
+cat "$MIR_FILE" "$MIR_VERIFIER_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
 use std.testing.assert_eq_i32;
+
+fn naked_vec(data: &byte, item_size: usize, count: usize) SemanticVector {
+    return SemanticVector{
+        data: data,
+        item_size: item_size,
+        count: count,
+        capacity: count,
+        bytes: item_size * count,
+        realloc_count: 0,
+    };
+}
+
+fn naked_empty_vec(item_size: usize) SemanticVector {
+    return naked_vec(null, item_size, 0usize);
+}
 
 fn portable_mir_naked_test_function(mode: i32) MirFunction {
     const forbidden: i32 = portable_mir_naked_forbidden_lowering_mask();
@@ -174,6 +201,127 @@ fn portable_mir_naked_test_function(mode: i32) MirFunction {
     return func;
 }
 
+fn portable_mir_naked_test_type() MirType {
+    return MirType{
+        type_id: 0,
+        kind: MIR_TYPE_KIND_I32,
+        source_type_id: 0,
+        size_bytes: 4usize,
+        align_bytes: 4usize,
+        layout_id: 1,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 0usize,
+        element_type_id: MIR_TYPE_INVALID_ID,
+        pointee_type_id: MIR_TYPE_INVALID_ID,
+        field_start: 0,
+        field_count: 0,
+        lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: 1,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        flags: 0,
+    };
+}
+
+fn portable_mir_naked_test_local() MirLocal {
+    return MirLocal{
+        local_id: 0,
+        function_id: 0,
+        type_id: 0,
+        source_symbol_id: 1,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        alignment: 4usize,
+        debug_loc_id: 0,
+        flags: 0,
+    };
+}
+
+fn portable_mir_naked_verify_result(mode: i32) i32 {
+    var functions: [MirFunction: 1] = [];
+    var types: [MirType: 1] = [];
+    var locals: [MirLocal: 1] = [];
+    functions[0] = portable_mir_naked_test_function(0);
+    types[0] = portable_mir_naked_test_type();
+    locals[0] = portable_mir_naked_test_local();
+
+    var local_count: usize = 0usize;
+    if mode == 1 {
+        functions[0].calling_convention = 16;
+    }
+    if mode == 2 {
+        functions[0].local_count = 1;
+        local_count = 1usize;
+    }
+    if mode == 3 {
+        functions[0].cleanup_model = 1;
+    }
+    if mode == 4 {
+        functions[0].entry_block_id = 0;
+    }
+    if mode == 5 {
+        functions[0].body_kind = MIR_FUNCTION_BODY_KIND_NORMAL;
+    }
+    if mode == 6 {
+        functions[0].naked_forbidden_lowering_mask = MIR_NAKED_FORBID_PROLOGUE_EPILOGUE;
+    }
+
+    var module: PortableMirModule = PortableMirModule{
+        arena: null,
+        lifecycle_state: PORTABLE_MIR_LIFECYCLE_ACTIVE,
+        target_profile: MirTargetProfile{
+            profile_id: 0,
+            pointer_size: 8,
+            endianness: 0,
+            default_address_space: MIR_ADDRESS_SPACE_GENERIC,
+            runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+            supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC,
+            supported_calling_conventions: 3,
+            runtime_capability_mask: 3,
+            feature_flags: 0,
+        },
+        function_count: 1usize,
+        block_count: 0usize,
+        value_count: 0usize,
+        type_count: 1usize,
+        local_count: local_count,
+        inst_count: 0usize,
+        terminator_count: 0usize,
+        operand_count: 0usize,
+        block_param_count: 0usize,
+        successor_count: 0usize,
+        debug_loc_count: 0usize,
+        capability_req_count: 0usize,
+        functions: naked_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize),
+        blocks: naked_empty_vec(@size_of(MirBlock)),
+        values: naked_empty_vec(@size_of(MirValue)),
+        types: naked_vec(&types[0] as &byte, @size_of(MirType), 1usize),
+        locals: naked_vec(&locals[0] as &byte, @size_of(MirLocal), local_count),
+        insts: naked_empty_vec(@size_of(MirInst)),
+        terminators: naked_empty_vec(@size_of(MirTerminator)),
+        operands: naked_empty_vec(@size_of(MirOperand)),
+        block_params: naked_empty_vec(@size_of(MirBlockParam)),
+        successors: naked_empty_vec(@size_of(MirSuccessor)),
+        debug_locs: naked_empty_vec(@size_of(MirDebugLoc)),
+        capability_reqs: naked_empty_vec(@size_of(MirCapabilityReq)),
+    };
+
+    var result: MirVerifierResult = MirVerifierResult{
+        error_code: 0,
+        function_id: 0,
+        block_id: 0,
+        inst_id: 0,
+        value_id: 0,
+        type_id: 0,
+        operand_id: 0,
+        capability_req_id: 0,
+        debug_loc_id: 0,
+    };
+    _ = portable_mir_verify_module(&module, &result);
+    return result.error_code;
+}
+
 test "PortableMIR records asm-only naked body and forbidden lowering mask" {
     const forbidden: i32 = portable_mir_naked_forbidden_lowering_mask();
     try assert_eq_i32(forbidden, MIR_NAKED_FORBID_PROLOGUE_EPILOGUE + MIR_NAKED_FORBID_STACK_SLOT +
@@ -211,6 +359,16 @@ test "PortableMIR rejects ordinary lowering shape for naked functions" {
     try assert_eq_i32(portable_mir_function_has_asm_only_naked_body(&cleanup_body), 0);
     try assert_eq_i32(portable_mir_function_has_asm_only_naked_body(&partial_forbidden), 0);
     try assert_eq_i32(portable_mir_function_has_asm_only_naked_body(&empty_asm_body), 0);
+}
+
+test "PortableMIR verifier rejects invalid naked lowering and unsupported target" {
+    try assert_eq_i32(portable_mir_naked_verify_result(0), MIR_VERIFY_OK);
+    try assert_eq_i32(portable_mir_naked_verify_result(1), MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);
+    try assert_eq_i32(portable_mir_naked_verify_result(2), MIR_VERIFY_ERR_INVALID_NAKED_BODY);
+    try assert_eq_i32(portable_mir_naked_verify_result(3), MIR_VERIFY_ERR_INVALID_NAKED_BODY);
+    try assert_eq_i32(portable_mir_naked_verify_result(4), MIR_VERIFY_ERR_INVALID_NAKED_BODY);
+    try assert_eq_i32(portable_mir_naked_verify_result(5), MIR_VERIFY_ERR_INVALID_NAKED_BODY);
+    try assert_eq_i32(portable_mir_naked_verify_result(6), MIR_VERIFY_ERR_INVALID_NAKED_BODY);
 }
 EOF
 
