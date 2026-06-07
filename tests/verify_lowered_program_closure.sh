@@ -35,5 +35,6 @@ run_check "$SCRIPT_DIR/verify_lowered_program_runtime_helper_closure.sh"
 run_check "$SCRIPT_DIR/verify_lowered_program_stable_sort.sh"
 run_check "$SCRIPT_DIR/verify_lowered_program_debug_dump.sh"
 run_check "$SCRIPT_DIR/verify_coreir_dump_env.sh"
+run_check "$SCRIPT_DIR/verify_coreir_dump_golden.sh"
 
 echo "✓ LoweredProgram closure aggregate verified"
