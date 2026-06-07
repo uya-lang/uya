@@ -76,7 +76,7 @@ require_pattern "$PORTABLE_MIR_DOC" '`compile_files\(\.\.\.\)` 16 参数调用�
 
 require_pattern "$NO_SILENT_TEST" 'run_hosted_reject_check' \
     "no-silent-C99 测试缺少 hosted native handoff reject"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=0 verifier_error=0 extern_symbols=' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=' \
     "no-silent-C99 测试缺少 hosted PortableMIR preflight 证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 hosted 函数体 MIR lowering 缺口"
@@ -102,6 +102,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_portable_mir_preflight'
     "build compiler driver 缺少 hosted native PortableMIR preflight"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_add_extern_symbol' \
     "build compiler driver 缺少 extern symbol hosted link plan 记录"
+require_pattern "$BUILD_DRIVER_SRC" 'portable_mir_append_function' \
+    "build compiler driver 缺少 hosted extern function MIR 记录"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_lowering_missing' \
     "build compiler driver 缺少 hosted native MIR lowering 缺口诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \

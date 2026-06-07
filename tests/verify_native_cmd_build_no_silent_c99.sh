@@ -36,7 +36,7 @@ run_hosted_reject_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"; then
+    if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"; then
         echo "错误: $label --native 缺少 hosted PortableMIR preflight 证据" >&2
         cat "$stderr" >&2
         exit 1
@@ -79,7 +79,7 @@ run_cmd_build_self_reject_check() {
         echo "错误: $label --native 拒绝生成 cmd/build 时不应留下输出文件: $out" >&2
         exit 1
     fi
-    grep -q '输入文件数量: 87' "$stderr"
+    grep -q '输入文件数量: 88' "$stderr"
     grep -q 'src/cmd/build/main.uya' "$stderr"
     grep -q '后端类型: Native' "$stderr"
     grep -Eq 'native_unsupported_call_expr: name=compile_files.*args=16' "$stderr"
