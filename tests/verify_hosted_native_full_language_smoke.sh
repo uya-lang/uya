@@ -16,6 +16,7 @@ builtin_src="$TMP_DIR/builtin_fragment.uya"
 array_len_src="$TMP_DIR/array_len_fragment.uya"
 slice_src="$TMP_DIR/slice_fragment.uya"
 error_id_src="$TMP_DIR/error_id_fragment.uya"
+catch_src="$TMP_DIR/catch_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -27,6 +28,8 @@ slice_c99_bin="$TMP_DIR/c99-slice-smoke"
 slice_native_bin="$TMP_DIR/native-slice-smoke"
 error_id_c99_bin="$TMP_DIR/c99-error-id-smoke"
 error_id_native_bin="$TMP_DIR/native-error-id-smoke"
+catch_c99_bin="$TMP_DIR/c99-catch-smoke"
+catch_native_bin="$TMP_DIR/native-catch-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -88,6 +91,23 @@ error SmokeError;
 
 export fn main() i32 {
     return @error_id(error.SmokeError) as i32;
+}
+EOF
+
+cat >"$catch_src" <<'EOF'
+error SmokeError;
+
+fn maybe_value(flag: i32) !i32 {
+    if flag == 0 {
+        return error.SmokeError;
+    }
+    return flag + 10;
+}
+
+export fn main() i32 {
+    const recovered: i32 = maybe_value(5) catch { 0; };
+    const failed: i32 = maybe_value(0) catch { 8; };
+    return recovered + failed;
 }
 EOF
 
@@ -227,6 +247,8 @@ require_pattern "$array_len_src" '@len\(\[1, 2, 3, 4\]\)' "array literal @len pa
 require_pattern "$slice_src" 'array\[1:2\]' "slice construction parity coverage"
 require_pattern "$slice_src" 'slice\[0\] \+ slice\[1\]' "slice index parity coverage"
 require_pattern "$error_id_src" '@error_id\(error.SmokeError\)' "builtin @error_id parity coverage"
+require_pattern "$catch_src" 'maybe_value\(5\) catch \{ 0; \}' "error-union catch success parity coverage"
+require_pattern "$catch_src" 'maybe_value\(0\) catch \{ 8; \}' "error-union catch fallback parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -595,6 +617,73 @@ if ! cmp -s "$TMP_DIR/error-id.c99.run.err" "$TMP_DIR/error-id.native.run.err"; 
     exit 1
 fi
 
+catch_c99_build_out="$TMP_DIR/catch.c99.build.out"
+catch_c99_build_err="$TMP_DIR/catch.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$catch_src" -o "$catch_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$catch_c99_build_out" 2>"$catch_c99_build_err"); then
+    cat "$catch_c99_build_out" >&2
+    cat "$catch_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$catch_c99_bin" >"$TMP_DIR/catch.c99.run.out" 2>"$TMP_DIR/catch.c99.run.err"
+catch_c99_status=$?
+set -e
+if [[ "$catch_c99_status" -ne 23 ]]; then
+    echo "error: C99 catch parity fragment exited with $catch_c99_status" >&2
+    cat "$TMP_DIR/catch.c99.run.out" >&2
+    cat "$TMP_DIR/catch.c99.run.err" >&2
+    exit 1
+fi
+
+catch_native_build_out="$TMP_DIR/catch.native.build.out"
+catch_native_build_err="$TMP_DIR/catch.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$catch_src" -o "$catch_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$catch_native_build_out" 2>"$catch_native_build_err"); then
+    cat "$catch_native_build_out" >&2
+    cat "$catch_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$catch_native_bin" ]]; then
+    echo "error: native catch parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$catch_native_build_err"; then
+    echo "error: native catch parity fragment appears to have fallen back to C99" >&2
+    cat "$catch_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$catch_native_build_err"; then
+    echo "error: native catch parity fragment used reject path" >&2
+    cat "$catch_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$catch_native_build_err"; then
+    echo "error: native catch parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$catch_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$catch_native_build_err"
+
+chmod +x "$catch_native_bin"
+set +e
+"$catch_native_bin" >"$TMP_DIR/catch.native.run.out" 2>"$TMP_DIR/catch.native.run.err"
+catch_native_status=$?
+set -e
+if [[ "$catch_native_status" -ne "$catch_c99_status" ]]; then
+    echo "error: hosted native/C99 catch parity exit status differs: c99=$catch_c99_status native=$catch_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/catch.c99.run.out" "$TMP_DIR/catch.native.run.out"; then
+    echo "error: hosted native/C99 catch parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/catch.c99.run.err" "$TMP_DIR/catch.native.run.err"; then
+    echo "error: hosted native/C99 catch parity stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -701,4 +790,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, catch parity, C99 success, and explicit native reject"

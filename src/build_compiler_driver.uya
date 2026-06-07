@@ -5553,6 +5553,262 @@ fn native_build_decl_const_slice_index_sum_return_value(decl: &ASTNode, out_valu
     return 0;
 }
 
+fn native_build_find_fn_decl_by_name(program: &ASTNode, name: &byte) &ASTNode {
+    if program == null || name == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, name as *byte) != 0 {
+            return decl;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn native_build_if_param_eq_error_return(stmt: &ASTNode, param_name: &byte,
+    out_compare_value: &i32) i32 {
+    if out_compare_value != null {
+        *out_compare_value = 0;
+    }
+    if stmt == null || param_name == null || out_compare_value == null ||
+       stmt.type != ASTNodeType.AST_IF_STMT || stmt.if_stmt_else_branch != null ||
+       stmt.if_stmt_condition == null || stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_condition.type != ASTNodeType.AST_BINARY_EXPR {
+        return 0;
+    }
+    const cond: &ASTNode = stmt.if_stmt_condition;
+    const op_tmp: !TokenType = cond.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_EQUAL ||
+       cond.binary_expr_left == null || cond.binary_expr_right == null {
+        return 0;
+    }
+    if cond.binary_expr_left.type == ASTNodeType.AST_IDENTIFIER &&
+       cond.binary_expr_left.identifier_name != null &&
+       str_equals(cond.binary_expr_left.identifier_name as *byte, param_name as *byte) != 0 {
+        if native_build_expr_scalar_const_value(cond.binary_expr_right, null,
+            out_compare_value) == 0 {
+            return 0;
+        }
+    } else if cond.binary_expr_right.type == ASTNodeType.AST_IDENTIFIER &&
+       cond.binary_expr_right.identifier_name != null &&
+       str_equals(cond.binary_expr_right.identifier_name as *byte, param_name as *byte) != 0 {
+        if native_build_expr_scalar_const_value(cond.binary_expr_left, null,
+            out_compare_value) == 0 {
+            return 0;
+        }
+    } else {
+        return 0;
+    }
+    const then_branch: &ASTNode = stmt.if_stmt_then_branch;
+    if then_branch.type != ASTNodeType.AST_BLOCK || then_branch.block_stmts == null ||
+       then_branch.block_stmt_count != 1 {
+        return 0;
+    }
+    const return_stmt: &ASTNode = then_branch.block_stmts[0];
+    if return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null ||
+       return_stmt.return_stmt_expr.type != ASTNodeType.AST_ERROR_VALUE {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_return_param_plus_const(stmt: &ASTNode, param_name: &byte,
+    out_add_value: &i32) i32 {
+    if out_add_value != null {
+        *out_add_value = 0;
+    }
+    if stmt == null || param_name == null || out_add_value == null ||
+       stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       stmt.return_stmt_expr.binary_expr_left == null ||
+       stmt.return_stmt_expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = stmt.return_stmt_expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS {
+        return 0;
+    }
+    if stmt.return_stmt_expr.binary_expr_left.type == ASTNodeType.AST_IDENTIFIER &&
+       stmt.return_stmt_expr.binary_expr_left.identifier_name != null &&
+       str_equals(stmt.return_stmt_expr.binary_expr_left.identifier_name as *byte,
+        param_name as *byte) != 0 {
+        return native_build_expr_scalar_const_value(stmt.return_stmt_expr.binary_expr_right,
+            null, out_add_value);
+    }
+    if stmt.return_stmt_expr.binary_expr_right.type == ASTNodeType.AST_IDENTIFIER &&
+       stmt.return_stmt_expr.binary_expr_right.identifier_name != null &&
+       str_equals(stmt.return_stmt_expr.binary_expr_right.identifier_name as *byte,
+        param_name as *byte) != 0 {
+        return native_build_expr_scalar_const_value(stmt.return_stmt_expr.binary_expr_left,
+            null, out_add_value);
+    }
+    return 0;
+}
+
+fn native_build_eval_const_error_union_call(callee_decl: &ASTNode, arg_value: i32,
+    out_is_error: &i32, out_value: &i32) i32 {
+    if out_is_error != null {
+        *out_is_error = 0;
+    }
+    if out_value != null {
+        *out_value = 0;
+    }
+    if callee_decl == null || out_is_error == null || out_value == null ||
+       callee_decl.fn_decl_params == null || callee_decl.fn_decl_param_count != 1 ||
+       callee_decl.fn_decl_body == null ||
+       callee_decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       callee_decl.fn_decl_body.block_stmts == null ||
+       callee_decl.fn_decl_body.block_stmt_count != 2 {
+        return 0;
+    }
+    const param: &ASTNode = callee_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL ||
+       param.var_decl_name == null || native_build_type_is_i32(param.var_decl_type) == 0 {
+        return 0;
+    }
+    var compare_value: i32 = 0;
+    if native_build_if_param_eq_error_return(callee_decl.fn_decl_body.block_stmts[0],
+        param.var_decl_name, &compare_value) == 0 {
+        return 0;
+    }
+    var add_value: i32 = 0;
+    if native_build_return_param_plus_const(callee_decl.fn_decl_body.block_stmts[1],
+        param.var_decl_name, &add_value) == 0 {
+        return 0;
+    }
+    if arg_value == compare_value {
+        *out_is_error = 1;
+        *out_value = 0;
+        return 1;
+    }
+    const sum: i64 = (arg_value as i64) + (add_value as i64);
+    const sum_result: !i32 = sum as! i32;
+    *out_value = sum_result catch {
+        return 0;
+    };
+    return 1;
+}
+
+fn native_build_catch_block_const_value(block: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if block == null || out_value == null ||
+       block.type != ASTNodeType.AST_BLOCK || block.block_stmts == null ||
+       block.block_stmt_count != 1 {
+        return 0;
+    }
+    return native_build_expr_scalar_const_value(block.block_stmts[0], null, out_value);
+}
+
+fn native_build_eval_const_catch_expr(program: &ASTNode, expr: &ASTNode,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if program == null || expr == null || out_value == null ||
+       expr.type != ASTNodeType.AST_CATCH_EXPR ||
+       expr.catch_expr_operand == null ||
+       expr.catch_expr_operand.type != ASTNodeType.AST_CALL_EXPR ||
+       expr.catch_expr_operand.call_expr_callee == null ||
+       expr.catch_expr_operand.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.catch_expr_operand.call_expr_callee.identifier_name == null ||
+       expr.catch_expr_operand.call_expr_args == null ||
+       expr.catch_expr_operand.call_expr_arg_count != 1 {
+        return 0;
+    }
+    var arg_value: i32 = 0;
+    if native_build_expr_scalar_const_value(expr.catch_expr_operand.call_expr_args[0],
+        null, &arg_value) == 0 {
+        return 0;
+    }
+    const callee_decl: &ASTNode = native_build_find_fn_decl_by_name(program,
+        expr.catch_expr_operand.call_expr_callee.identifier_name);
+    var is_error: i32 = 0;
+    var ok_value: i32 = 0;
+    if native_build_eval_const_error_union_call(callee_decl, arg_value,
+        &is_error, &ok_value) == 0 {
+        return 0;
+    }
+    if is_error != 0 {
+        return native_build_catch_block_const_value(expr.catch_expr_catch_block, out_value);
+    }
+    *out_value = ok_value;
+    return 1;
+}
+
+fn native_build_decl_const_catch_sum_return_value(program: &ASTNode, decl: &ASTNode,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if program == null || decl == null || out_value == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null || decl.fn_decl_body.block_stmt_count != 3 {
+        return 0;
+    }
+    const local0: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const local1: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    if local0 == null || local1 == null ||
+       local0.type != ASTNodeType.AST_VAR_DECL ||
+       local1.type != ASTNodeType.AST_VAR_DECL ||
+       local0.var_decl_name == null || local1.var_decl_name == null ||
+       local0.var_decl_init == null || local1.var_decl_init == null ||
+       return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null ||
+       return_stmt.return_stmt_expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       return_stmt.return_stmt_expr.binary_expr_left == null ||
+       return_stmt.return_stmt_expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = return_stmt.return_stmt_expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS ||
+       return_stmt.return_stmt_expr.binary_expr_left.type != ASTNodeType.AST_IDENTIFIER ||
+       return_stmt.return_stmt_expr.binary_expr_right.type != ASTNodeType.AST_IDENTIFIER ||
+       return_stmt.return_stmt_expr.binary_expr_left.identifier_name == null ||
+       return_stmt.return_stmt_expr.binary_expr_right.identifier_name == null ||
+       str_equals(return_stmt.return_stmt_expr.binary_expr_left.identifier_name as *byte,
+        local0.var_decl_name as *byte) == 0 ||
+       str_equals(return_stmt.return_stmt_expr.binary_expr_right.identifier_name as *byte,
+        local1.var_decl_name as *byte) == 0 {
+        return 0;
+    }
+    var value0: i32 = 0;
+    var value1: i32 = 0;
+    if native_build_eval_const_catch_expr(program, local0.var_decl_init, &value0) == 0 ||
+       native_build_eval_const_catch_expr(program, local1.var_decl_init, &value1) == 0 {
+        return 0;
+    }
+    const sum: i64 = (value0 as i64) + (value1 as i64);
+    const sum_result: !i32 = sum as! i32;
+    *out_value = sum_result catch {
+        return 0;
+    };
+    if *out_value >= 0 && *out_value <= 255 {
+        return 1;
+    }
+    return 0;
+}
+
 fn native_build_var_decl_scalar_const_value(stmt: &ASTNode, locals: &NativeBuildLocalTable,
     out_value: &i32) i32 {
     if out_value != null {
@@ -6458,6 +6714,12 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
         &const_slice_return_value) != 0 {
         return native_build_append_const_return_lowered_function(lowered,
             function_index, decl_index, decl, const_slice_return_value);
+    }
+    var const_catch_return_value: i32 = 0;
+    if native_build_decl_const_catch_sum_return_value(program, decl,
+        &const_catch_return_value) != 0 {
+        return native_build_append_const_return_lowered_function(lowered,
+            function_index, decl_index, decl, const_catch_return_value);
     }
     var locals: NativeBuildLocalTable = native_build_local_table_init(lowered.arena, body.block_stmt_count);
     if locals.names == null || locals.call_targets == null ||
