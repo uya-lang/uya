@@ -72,8 +72,7 @@ run_cmd_build_self_reject_check() {
     grep -q '输入文件数量: 83' "$stderr"
     grep -q 'src/cmd/build/main.uya' "$stderr"
     grep -q '后端类型: Native' "$stderr"
-    grep -Eq 'native_unsupported_call_expr: name=parse_build_args reason=unsupported_var_init args=11 type_args=0' "$stderr"
-    grep -Eq 'native_unsupported_fn_body: .*name=build_compiler_driver_run.*reason=unsupported_var_init.*stmt_index=12.*stmt_kind=var' "$stderr"
+    grep -Eq 'native_unsupported_fn_body: .*name=build_compiler_driver_run.*reason=unsupported_statement.*stmt_index=13.*stmt_kind=if' "$stderr"
     grep -Eq 'native_unsupported_fn_shape: .*body_stmts=39' "$stderr"
     grep -Eq 'native backend.*LoweredProgram.*机器码' "$stderr"
     if grep -q '后端类型: C99' "$stderr"; then

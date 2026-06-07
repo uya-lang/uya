@@ -4,7 +4,8 @@
 # 当前允许无参/窄 i32 参数函数，函数体为 `return 0..255;`、`return callee();`、
 # `return lhs() + rhs();`，一个 direct call 局部初始化后 `return local;`，或最小 `&i32`
 # / `&array[0]` out-param 写回、两个 `&i32` out-param 的最小调用，以及 `get_argc`
-# 的 Linux `_start` 初始栈 argc 读取，以及 `get_argv(1)[0]` 的 argv 指针读取。
+# 的 Linux `_start` 初始栈 argc 读取，以及 `get_argv(1)[0]` 的 argv 指针读取；
+# 同时覆盖 `parse_build_args` 形状的 11 参数/栈 out-param 最小调用。
 
 set -euo pipefail
 
@@ -186,6 +187,29 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$TMP_DIR/parse11_stack_out_return.uya" <<'EOF'
+fn parse_like(input: &i32, capacity: i32, count: &i32, output: &i32, backend: &i32, emit: &i32, safety: &i32, opt: &i32, nostd: &i32, stack: &i32, async_out: &i32) i32 {
+    async_out[0] = 91;
+    return 0;
+}
+
+export fn main() i32 {
+    var input_file_indices: [i32: 64] = [];
+    var input_file_count: i32 = 0;
+    var output_file_index: i32 = -1;
+    var backend: i32 = 0;
+    var emit_line_directives: i32 = 0;
+    var enable_safety_proof: i32 = 1;
+    var opt_level: i32 = 1;
+    var is_nostdlib: i32 = 0;
+    var stack_size: i32 = 65536;
+    var async_frame_heap_fallback: i32 = 0;
+    const input_file_index_capacity: i32 = @len(input_file_indices) as i32;
+    const parse_result: i32 = parse_like(&input_file_indices[0], input_file_index_capacity, &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &is_nostdlib, &stack_size, &async_frame_heap_fallback);
+    return async_frame_heap_fallback;
+}
+EOF
+
 cat >"$TMP_DIR/unsupported.uya" <<'EOF'
 fn value(x: i32) i32 {
     return x;
@@ -293,6 +317,7 @@ run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_addr2_call_return.u
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_direct.uya" 3 0 1 1 1 first second
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_local_return.uya" 3 0 1 2 2 first second
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argv_first_byte.uya" 90 0 1 2 2 Zed
+run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/parse11_stack_out_return.uya" 91 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/exit0.uya" 0 1 1
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/return1.uya" 1 1 1
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/call.uya" 1 0 2
@@ -309,6 +334,7 @@ run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_addr2_c
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_direct.uya" 3 0 1 1 1 first second
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_local_return.uya" 3 0 1 2 2 first second
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argv_first_byte.uya" 90 0 1 2 2 Zed
+run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/parse11_stack_out_return.uya" 91 0 2 3 3
 run_reject_check "$REPO_ROOT/bin/uya" "uya"
 run_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
 
