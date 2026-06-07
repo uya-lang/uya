@@ -30,6 +30,7 @@ done
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreVerifierResult' "Core verifier 结果结构"
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_MISSING_CORE_BODY' "缺失 CoreBody 诊断码"
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_UNFROZEN_CALL' "未冻结 call target 诊断码"
+require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_TYPE_MISMATCH' "类型不匹配诊断码"
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP' "cleanup path 不完整诊断码"
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_CAPABILITY_SEMANTICS' "capability 语义污染诊断码"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir_result' "带诊断的 CoreIR verifier API"
@@ -154,6 +155,9 @@ fn append_core_verify_body(lowered: &LoweredProgram, mode: i32) !void {
         source_span_id: 701,
         flags: 0,
     };
+    if mode == 8 {
+        expr.type_id = 78;
+    }
     var place: CorePlace = CorePlace{
         place_id: 0,
         kind: CORE_PLACE_KIND_FIELD,
@@ -320,8 +324,9 @@ test "CoreIR verifier rejects missing concrete function CoreBody" {
     try expect_core_verify(7, -1, COREIR_VERIFY_ERR_MISSING_CORE_BODY);
 }
 
-test "CoreIR verifier rejects unfrozen type call field and proof metadata" {
+test "CoreIR verifier rejects unfrozen and mismatched type call field and proof metadata" {
     try expect_core_verify(1, -1, COREIR_VERIFY_ERR_UNFROZEN_TYPE);
+    try expect_core_verify(8, -1, COREIR_VERIFY_ERR_TYPE_MISMATCH);
     try expect_core_verify(2, -1, COREIR_VERIFY_ERR_UNFROZEN_CALL);
     try expect_core_verify(3, -1, COREIR_VERIFY_ERR_UNFROZEN_FIELD);
     try expect_core_verify(6, -1, COREIR_VERIFY_ERR_UNFROZEN_PROOF);

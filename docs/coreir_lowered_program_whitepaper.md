@@ -748,6 +748,7 @@ module 检查：
 body 检查：
 
 - 每个 Core expression 有 `TypeId`。
+- Core expression 的直接 `TypeId` 与冻结的 type semantic fact 必须一致。
 - call targets 已解析。
 - method dispatches 已解析。
 - field accesses 有 `FieldId`。

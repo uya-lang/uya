@@ -457,7 +457,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
 - [x] 新增 `tests/verify_coreir_parallel_determinism.sh`。
 - [x] CoreIR dump 覆盖多文件、泛型函数、泛型方法、interface dispatch、field/index/slice、
   atomic、SIMD vector/mask、error/defer/drop 和 `compile_files(...)` 调用形状。
-- [ ] CoreIR verifier 负例覆盖缺失 call target、缺失 field id、类型不匹配、cleanup edge 不完整、
+- [x] CoreIR verifier 负例覆盖缺失 call target、缺失 field id、类型不匹配、cleanup edge 不完整、
   target capability 混入语言语义。
 - [ ] CoreIR verifier 负例覆盖 `@naked_fn` 中出现普通 statement、局部栈槽、defer/drop/async/error path。
 - [ ] CoreIR deterministic 测试覆盖并行 request merge 与串行输出一致。
