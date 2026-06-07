@@ -34,11 +34,14 @@ require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreStm
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreExpr' "CoreExpr 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CorePlace' "CorePlace 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreCleanupEdge' "CoreCleanupEdge 结构"
+require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreSemanticFact' "CoreSemanticFact 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+LoweredBodyOp' "LoweredBodyOp 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+ConcreteType' "ConcreteType 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+RuntimeHelper' "RuntimeHelper 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+ErrorUnionLayout' "ErrorUnionLayout 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+AsyncFramePlan' "AsyncFramePlan 结构"
+require_pattern "$LOWER_CORE_FILE" 'semantic_fact_start:[[:space:]]*CoreSemanticFactId' "CoreBody semantic fact range start"
+require_pattern "$LOWER_CORE_FILE" 'semantic_fact_count:[[:space:]]*i32' "CoreBody semantic fact range count"
 require_pattern "$LOWER_CORE_FILE" 'arena:[[:space:]]*&CompilerArena' "LoweredProgram 独立 arena 句柄"
 require_pattern "$LOWER_CORE_FILE" 'functions:[[:space:]]*SemanticVector' "functions 动态表"
 require_pattern "$LOWER_CORE_FILE" 'body_ops:[[:space:]]*SemanticVector' "body_ops 动态表"
@@ -47,6 +50,13 @@ require_pattern "$LOWER_CORE_FILE" 'core_stmts:[[:space:]]*SemanticVector' "Core
 require_pattern "$LOWER_CORE_FILE" 'core_exprs:[[:space:]]*SemanticVector' "CoreExpr 动态表"
 require_pattern "$LOWER_CORE_FILE" 'core_places:[[:space:]]*SemanticVector' "CorePlace 动态表"
 require_pattern "$LOWER_CORE_FILE" 'core_cleanup_edges:[[:space:]]*SemanticVector' "CoreCleanupEdge 动态表"
+require_pattern "$LOWER_CORE_FILE" 'core_semantic_facts:[[:space:]]*SemanticVector' "Core semantic metadata 动态表"
+require_pattern "$LOWER_CORE_FILE" 'call_target_kind:[[:space:]]*i32' "resolved call target kind metadata"
+require_pattern "$LOWER_CORE_FILE" 'method_symbol_id:[[:space:]]*SymbolId' "method dispatch metadata"
+require_pattern "$LOWER_CORE_FILE" 'field_id:[[:space:]]*FieldId' "field id metadata"
+require_pattern "$LOWER_CORE_FILE" 'proof_status:[[:space:]]*i32' "proof result metadata"
+require_pattern "$LOWER_CORE_FILE" 'drop_defer_plan_id:[[:space:]]*i32' "drop/defer/errdefer metadata"
+require_pattern "$LOWER_CORE_FILE" 'capability_id:[[:space:]]*i32' "capability metadata"
 require_pattern "$LOWER_CORE_FILE" 'globals:[[:space:]]*SemanticVector' "globals 动态表"
 require_pattern "$LOWER_CORE_FILE" 'types:[[:space:]]*SemanticVector' "types 动态表"
 require_pattern "$LOWER_CORE_FILE" 'interfaces:[[:space:]]*SemanticVector' "interfaces 动态表"
@@ -62,12 +72,14 @@ require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_stmt' "CoreStmt 
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_expr' "CoreExpr append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_place' "CorePlace append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_cleanup_edge' "CoreCleanupEdge append API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_semantic_fact' "CoreSemanticFact append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_body_op' "body op get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_body' "CoreBody get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_stmt' "CoreStmt get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_expr' "CoreExpr get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_place' "CorePlace get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_cleanup_edge' "CoreCleanupEdge get API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_semantic_fact' "CoreSemanticFact get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_work_item' "worklist append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_estimated_bytes' "estimated bytes API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_release' "release API"
@@ -114,6 +126,7 @@ fn lower_test_program() LoweredProgram {
         core_expr_count: 0usize,
         core_place_count: 0usize,
         core_cleanup_edge_count: 0usize,
+        core_semantic_fact_count: 0usize,
         estimated_bytes: 0usize,
         resident_peak_bytes: 0usize,
         lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
@@ -124,6 +137,7 @@ fn lower_test_program() LoweredProgram {
         core_exprs: lower_test_vector(),
         core_places: lower_test_vector(),
         core_cleanup_edges: lower_test_vector(),
+        core_semantic_facts: lower_test_vector(),
         globals: lower_test_vector(),
         types: lower_test_vector(),
         interfaces: lower_test_vector(),
@@ -132,6 +146,36 @@ fn lower_test_program() LoweredProgram {
         drop_defer_plans: lower_test_vector(),
         helpers: lower_test_vector(),
         worklist: lower_test_vector(),
+    };
+}
+
+fn lower_test_core_semantic_fact(i: i32, offset: i32, kind: i32) CoreSemanticFact {
+    return CoreSemanticFact{
+        fact_id: (i * 8) + offset,
+        kind: kind,
+        body_id: i,
+        stmt_id: i,
+        expr_id: i,
+        place_id: i,
+        cleanup_edge_id: i,
+        call_target_kind: TYPED_CALL_TARGET_FUNCTION,
+        target_function_id: i + 100,
+        target_decl_id: i + 200,
+        target_symbol_id: i + 210,
+        mono_instance_id: i + 220,
+        receiver_type_id: i + 230,
+        method_symbol_id: i + 240,
+        interface_symbol_id: i + 250,
+        vtable_slot: i + 3,
+        field_id: i + 500,
+        type_id: i + 600,
+        proof_result_id: i + 300,
+        proof_status: TYPED_PROOF_OK,
+        source_span_id: i + 400,
+        drop_defer_plan_id: i + 700,
+        cleanup_scope_id: i + 10,
+        capability_id: i + 800,
+        flags: 0,
     };
 }
 
@@ -224,6 +268,8 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
             place_count: 1,
             cleanup_edge_start: i,
             cleanup_edge_count: 0,
+            semantic_fact_start: i * 8,
+            semantic_fact_count: 8,
             source_span_id: i,
             flags: CORE_BODY_FLAG_SOURCE_BODY,
         };
@@ -292,6 +338,12 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
         try assert_eq_i32(lowered_program_append_core_expr(&lowered, &core_expr), 0);
         try assert_eq_i32(lowered_program_append_core_place(&lowered, &core_place), 0);
         try assert_eq_i32(lowered_program_append_core_cleanup_edge(&lowered, &cleanup_edge), 0);
+        var fact_offset: i32 = 0;
+        while fact_offset < 8 {
+            var semantic_fact: CoreSemanticFact = lower_test_core_semantic_fact(i, fact_offset, fact_offset + 1);
+            try assert_eq_i32(lowered_program_append_core_semantic_fact(&lowered, &semantic_fact), 0);
+            fact_offset = fact_offset + 1;
+        }
         try assert_eq_i32(lowered_program_append_global(&lowered, &global_item), 0);
         try assert_eq_i32(lowered_program_append_type(&lowered, &type_item), 0);
         try assert_eq_i32(lowered_program_append_interface(&lowered, &interface_item), 0);
@@ -309,6 +361,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(lowered.core_expr_count as i32, 40);
     try assert_eq_i32(lowered.core_place_count as i32, 40);
     try assert_eq_i32(lowered.core_cleanup_edge_count as i32, 40);
+    try assert_eq_i32(lowered.core_semantic_fact_count as i32, 320);
     try assert_eq_i32(lowered.global_count, 40);
     try assert_eq_i32(lowered.type_count, 40);
     try assert_eq_i32(lowered.interface_count, 40);
@@ -323,6 +376,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try expect(lowered.core_exprs.capacity >= 40usize);
     try expect(lowered.core_places.capacity >= 40usize);
     try expect(lowered.core_cleanup_edges.capacity >= 40usize);
+    try expect(lowered.core_semantic_facts.capacity >= 320usize);
     try expect(lowered.worklist.capacity >= 40usize);
     try expect(lowered.functions.realloc_count > 1);
     try expect(lowered.body_ops.realloc_count > 1);
@@ -331,6 +385,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try expect(lowered.core_exprs.realloc_count > 1);
     try expect(lowered.core_places.realloc_count > 1);
     try expect(lowered.core_cleanup_edges.realloc_count > 1);
+    try expect(lowered.core_semantic_facts.realloc_count > 1);
     try expect(lowered.worklist.realloc_count > 1);
     try expect(lowered_program_estimated_bytes(&lowered) > @size_of(LoweredProgram));
     try expect(lowered_program_peak_bytes(&lowered) >= lowered_program_current_bytes(&lowered));
@@ -359,6 +414,8 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
         place_count: 0,
         cleanup_edge_start: 0,
         cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
         source_span_id: 0,
         flags: 0,
     };
@@ -367,6 +424,8 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(got_core_body.function_id, 39);
     try assert_eq_i32(got_core_body.root_stmt_start, 78);
     try assert_eq_i32(got_core_body.expr_start, 117);
+    try assert_eq_i32(got_core_body.semantic_fact_start, 312);
+    try assert_eq_i32(got_core_body.semantic_fact_count, 8);
     var got_core_stmt: CoreStmt = CoreStmt{
         stmt_id: CORE_STMT_INVALID_ID,
         kind: 0,
@@ -441,10 +500,52 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(got_cleanup_edge.edge_id, 39);
     try assert_eq_i32(got_cleanup_edge.kind, CORE_CLEANUP_EDGE_KIND_RETURN);
     try assert_eq_i32(got_cleanup_edge.drop_defer_plan_id, 739);
+    var got_semantic_fact: CoreSemanticFact = CoreSemanticFact{
+        fact_id: CORE_SEMANTIC_FACT_INVALID_ID,
+        kind: 0,
+        body_id: CORE_BODY_INVALID_ID,
+        stmt_id: CORE_STMT_INVALID_ID,
+        expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_id: CORE_CLEANUP_EDGE_INVALID_ID,
+        call_target_kind: TYPED_CALL_TARGET_UNKNOWN,
+        target_function_id: 0,
+        target_decl_id: 0,
+        target_symbol_id: 0,
+        mono_instance_id: 0,
+        receiver_type_id: 0,
+        method_symbol_id: 0,
+        interface_symbol_id: 0,
+        vtable_slot: 0,
+        field_id: 0,
+        type_id: 0,
+        proof_result_id: 0,
+        proof_status: TYPED_PROOF_UNKNOWN,
+        source_span_id: 0,
+        drop_defer_plan_id: 0,
+        cleanup_scope_id: 0,
+        capability_id: 0,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_get_core_semantic_fact(&lowered, 313usize, &got_semantic_fact), 1);
+    try assert_eq_i32(got_semantic_fact.fact_id, 313);
+    try assert_eq_i32(got_semantic_fact.kind, CORE_SEMANTIC_FACT_METHOD_DISPATCH);
+    try assert_eq_i32(got_semantic_fact.target_function_id, 139);
+    try assert_eq_i32(got_semantic_fact.target_decl_id, 239);
+    try assert_eq_i32(got_semantic_fact.method_symbol_id, 279);
+    try assert_eq_i32(got_semantic_fact.interface_symbol_id, 289);
+    try assert_eq_i32(got_semantic_fact.field_id, 539);
+    try assert_eq_i32(got_semantic_fact.type_id, 639);
+    try assert_eq_i32(got_semantic_fact.proof_result_id, 339);
+    try assert_eq_i32(got_semantic_fact.proof_status, TYPED_PROOF_OK);
+    try assert_eq_i32(got_semantic_fact.source_span_id, 439);
+    try assert_eq_i32(got_semantic_fact.drop_defer_plan_id, 739);
+    try assert_eq_i32(got_semantic_fact.cleanup_scope_id, 49);
+    try assert_eq_i32(got_semantic_fact.capability_id, 839);
 
     const stats: LoweredProgramStats = lowered_program_stats(&lowered);
-    try assert_eq_i32(stats.table_count, 15);
-    try expect(stats.table_capacity >= 560usize);
+    try assert_eq_i32(stats.table_count, 16);
+    try expect(stats.table_capacity >= 880usize);
 
     lowered_program_release(&lowered);
     try assert_eq_i32(lowered_program_lifecycle_state(&lowered), LOWERED_PROGRAM_LIFECYCLE_RELEASED);

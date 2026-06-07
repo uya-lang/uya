@@ -7,6 +7,7 @@ export type CoreStmtId = i32;
 export type CoreExprId = i32;
 export type CorePlaceId = i32;
 export type CoreCleanupEdgeId = i32;
+export type CoreSemanticFactId = i32;
 
 export const LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const LOWERED_PROGRAM_LIFECYCLE_ACTIVE: i32 = 1;
@@ -16,11 +17,20 @@ export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
 export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
 export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
 export const CORE_CLEANUP_EDGE_INVALID_ID: CoreCleanupEdgeId = -1;
+export const CORE_SEMANTIC_FACT_INVALID_ID: CoreSemanticFactId = -1;
 export const CORE_BODY_FLAG_SOURCE_BODY: i32 = 1;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
 export const CORE_CLEANUP_EDGE_KIND_RETURN: i32 = 2;
+export const CORE_SEMANTIC_FACT_RESOLVED_CALL: i32 = 1;
+export const CORE_SEMANTIC_FACT_METHOD_DISPATCH: i32 = 2;
+export const CORE_SEMANTIC_FACT_FIELD_ID: i32 = 3;
+export const CORE_SEMANTIC_FACT_TYPE_ID: i32 = 4;
+export const CORE_SEMANTIC_FACT_PROOF_RESULT: i32 = 5;
+export const CORE_SEMANTIC_FACT_SOURCE_SPAN: i32 = 6;
+export const CORE_SEMANTIC_FACT_CLEANUP: i32 = 7;
+export const CORE_SEMANTIC_FACT_CAPABILITY: i32 = 8;
 export const LOWER_WORK_ITEM_FUNCTION: i32 = 1;
 export const LOWER_WORK_ITEM_TYPE: i32 = 2;
 export const LOWER_WORK_ITEM_ERR_UNION: i32 = 3;
@@ -81,6 +91,8 @@ export struct CoreBody {
     place_count: i32,
     cleanup_edge_start: CoreCleanupEdgeId,
     cleanup_edge_count: i32,
+    semantic_fact_start: CoreSemanticFactId,
+    semantic_fact_count: i32,
     source_span_id: i32,
     flags: i32,
 }
@@ -156,6 +168,37 @@ export struct CoreCleanupEdge {
     drop_defer_plan_id: i32,
     payload_expr_id: CoreExprId,
     source_span_id: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 CoreBody 已冻结、可直接交给 PortableMIR 消费的语义事实。
+/// 参数说明：无；`kind` 区分 call、method dispatch、field/type/proof/source/cleanup/capability 等 metadata。
+/// 返回值说明：无。
+export struct CoreSemanticFact {
+    fact_id: CoreSemanticFactId,
+    kind: i32,
+    body_id: CoreBodyId,
+    stmt_id: CoreStmtId,
+    expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    cleanup_edge_id: CoreCleanupEdgeId,
+    call_target_kind: i32,
+    target_function_id: FunctionId,
+    target_decl_id: DeclId,
+    target_symbol_id: SymbolId,
+    mono_instance_id: MonoInstanceId,
+    receiver_type_id: TypeId,
+    method_symbol_id: SymbolId,
+    interface_symbol_id: SymbolId,
+    vtable_slot: i32,
+    field_id: FieldId,
+    type_id: TypeId,
+    proof_result_id: i32,
+    proof_status: i32,
+    source_span_id: i32,
+    drop_defer_plan_id: i32,
+    cleanup_scope_id: i32,
+    capability_id: i32,
     flags: i32,
 }
 
@@ -294,6 +337,7 @@ export struct LoweredProgram {
     core_expr_count: usize,
     core_place_count: usize,
     core_cleanup_edge_count: usize,
+    core_semantic_fact_count: usize,
     estimated_bytes: usize,
     resident_peak_bytes: usize,
     lifecycle_state: i32,
@@ -304,6 +348,7 @@ export struct LoweredProgram {
     core_exprs: SemanticVector,
     core_places: SemanticVector,
     core_cleanup_edges: SemanticVector,
+    core_semantic_facts: SemanticVector,
     globals: SemanticVector,
     types: SemanticVector,
     interfaces: SemanticVector,
@@ -333,6 +378,7 @@ fn lowered_program_clear_counts(program: &LoweredProgram) void {
     program.core_expr_count = 0usize;
     program.core_place_count = 0usize;
     program.core_cleanup_edge_count = 0usize;
+    program.core_semantic_fact_count = 0usize;
     program.estimated_bytes = 0usize;
 }
 
@@ -376,6 +422,7 @@ export fn lowered_program_init(program: &LoweredProgram, arena: &CompilerArena) 
     semantic_vector_init(&program.core_exprs, @size_of(CoreExpr));
     semantic_vector_init(&program.core_places, @size_of(CorePlace));
     semantic_vector_init(&program.core_cleanup_edges, @size_of(CoreCleanupEdge));
+    semantic_vector_init(&program.core_semantic_facts, @size_of(CoreSemanticFact));
     semantic_vector_init(&program.globals, @size_of(GlobalObject));
     semantic_vector_init(&program.types, @size_of(ConcreteType));
     semantic_vector_init(&program.interfaces, @size_of(InterfacePlan));
@@ -403,6 +450,7 @@ export fn lowered_program_reset(program: &LoweredProgram) void {
     semantic_vector_reset(&program.core_exprs);
     semantic_vector_reset(&program.core_places);
     semantic_vector_reset(&program.core_cleanup_edges);
+    semantic_vector_reset(&program.core_semantic_facts);
     semantic_vector_reset(&program.globals);
     semantic_vector_reset(&program.types);
     semantic_vector_reset(&program.interfaces);
@@ -431,6 +479,7 @@ export fn lowered_program_release(program: &LoweredProgram) void {
     semantic_vector_release(&program.core_exprs);
     semantic_vector_release(&program.core_places);
     semantic_vector_release(&program.core_cleanup_edges);
+    semantic_vector_release(&program.core_semantic_facts);
     semantic_vector_release(&program.globals);
     semantic_vector_release(&program.types);
     semantic_vector_release(&program.interfaces);
@@ -555,6 +604,21 @@ export fn lowered_program_append_core_cleanup_edge(program: &LoweredProgram, ite
         return -1;
     }
     program.core_cleanup_edge_count = program.core_cleanup_edges.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加一条 CoreBody 语义事实 metadata。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 CoreSemanticFact。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_core_semantic_fact(program: &LoweredProgram, item: &CoreSemanticFact) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.core_semantic_facts, item as &const void) != 0 {
+        return -1;
+    }
+    program.core_semantic_fact_count = program.core_semantic_facts.count;
     lowered_program_refresh_bytes(program);
     return 0;
 }
@@ -784,6 +848,21 @@ export fn lowered_program_get_core_cleanup_edge(program: &LoweredProgram, index:
     return 1;
 }
 
+/// 功能说明：查询 LoweredProgram CoreSemanticFact 表中的指定语义事实。
+/// 参数说明：`program` 为目标 LoweredProgram，`index` 为 metadata 下标，`out_item` 接收结果。
+/// 返回值说明：命中返回 `1`，越界或参数无效返回 `0`。
+export fn lowered_program_get_core_semantic_fact(program: &LoweredProgram, index: usize, out_item: &CoreSemanticFact) i32 {
+    if program == null || out_item == null {
+        return 0;
+    }
+    const item: &CoreSemanticFact = semantic_vector_item_ptr(&program.core_semantic_facts, index) as &CoreSemanticFact;
+    if item == null {
+        return 0;
+    }
+    out_item[0] = item[0];
+    return 1;
+}
+
 fn lowered_program_reset_worklist(program: &LoweredProgram) void {
     if program == null {
         return;
@@ -835,6 +914,7 @@ export fn lowered_program_storage_bytes(program: &LoweredProgram) usize {
         program.core_exprs.bytes +
         program.core_places.bytes +
         program.core_cleanup_edges.bytes +
+        program.core_semantic_facts.bytes +
         program.globals.bytes +
         program.types.bytes +
         program.interfaces.bytes +
@@ -921,6 +1001,7 @@ export fn lowered_program_stats(program: &LoweredProgram) LoweredProgramStats {
     lowered_program_stats_add(&stats, &program.core_exprs);
     lowered_program_stats_add(&stats, &program.core_places);
     lowered_program_stats_add(&stats, &program.core_cleanup_edges);
+    lowered_program_stats_add(&stats, &program.core_semantic_facts);
     lowered_program_stats_add(&stats, &program.globals);
     lowered_program_stats_add(&stats, &program.types);
     lowered_program_stats_add(&stats, &program.interfaces);
@@ -1447,11 +1528,12 @@ export fn lowered_program_maybe_dump_summary(program: &LoweredProgram) void {
     }
     const stats: LoweredProgramStats = lowered_program_stats(program);
     fprintf(libc.stderr, "=== lowered program ===\n" as *byte);
-    fprintf(libc.stderr, "functions=%zu body_ops=%zu core_bodies=%zu core_stmts=%zu core_exprs=%zu core_places=%zu core_cleanup_edges=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
+    fprintf(libc.stderr, "functions=%zu body_ops=%zu core_bodies=%zu core_stmts=%zu core_exprs=%zu core_places=%zu core_cleanup_edges=%zu core_semantic_facts=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
         program.function_count, program.body_op_count, program.core_body_count, program.core_stmt_count,
-        program.core_expr_count, program.core_place_count, program.core_cleanup_edge_count, program.global_count,
-        program.type_count, program.interface_count, program.err_union_count, program.async_frame_count,
-        program.drop_defer_count, program.helper_count, program.work_item_count);
+        program.core_expr_count, program.core_place_count, program.core_cleanup_edge_count,
+        program.core_semantic_fact_count, program.global_count, program.type_count, program.interface_count,
+        program.err_union_count, program.async_frame_count, program.drop_defer_count, program.helper_count,
+        program.work_item_count);
     fprintf(libc.stderr, "tables=%d table_items=%zu table_capacity=%zu table_bytes=%zu table_reallocs=%d\n" as *byte,
         stats.table_count, stats.table_items, stats.table_capacity, stats.table_bytes, stats.table_realloc_count);
     fprintf(libc.stderr, "estimated_bytes=%zu peak_bytes=%zu\n" as *byte,
