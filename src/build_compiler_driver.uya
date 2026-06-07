@@ -841,6 +841,20 @@ fn native_build_print_unsupported_call_expr(expr: &ASTNode, reason: &byte) void 
         callee_name, reason, expr.call_expr_arg_count, expr.call_expr_type_arg_count);
 }
 
+fn native_build_expr_is_get_argc_call(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_CALL_EXPR ||
+       expr.call_expr_arg_count != 0 || expr.call_expr_type_arg_count != 0 ||
+       expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.call_expr_callee.identifier_name == null {
+        return 0;
+    }
+    if str_equals(expr.call_expr_callee.identifier_name as *byte, "get_argc" as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn native_build_resolve_reachable_const1_i32_call(program: &ASTNode, expr: &ASTNode,
     reach: &NativeBuildReachability, out_target: &i32, out_arg0: &i32) i32 {
     if out_target != null {
@@ -1094,6 +1108,10 @@ fn native_build_expr_to_body_op(program: &ASTNode, expr: &ASTNode,
        expr.number_value_i64 >= 0i64 && expr.number_value_i64 <= 255i64 {
         out_op.opcode = LOWERED_BODY_OP_RETURN_CONST_I32;
         out_op.imm = expr.number_value_i64;
+        return 1;
+    }
+    if native_build_expr_is_get_argc_call(expr) != 0 {
+        out_op.opcode = LOWERED_BODY_OP_RETURN_ARGC_I32;
         return 1;
     }
     var target: i32 = -1;
@@ -1562,6 +1580,29 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
                 continue;
             }
             if native_build_var_decl_is_noop_placeholder(stmt) != 0 {
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            if stmt.var_decl_name != null && native_build_expr_is_get_argc_call(stmt.var_decl_init) != 0 {
+                const argc_slot: i32 = native_build_local_add_i32_const(&locals, stmt.var_decl_name, 0);
+                if argc_slot < 0 {
+                    native_build_print_unsupported_function_body(decl, decl_index,
+                        "unsupported_local_slot" as &byte, stmt, stmt_index);
+                    return 0;
+                }
+                var local_argc_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_ARGC_I32,
+                    dst: argc_slot,
+                    src0: 0,
+                    src1: 0,
+                    target_id: -1,
+                    imm: 0i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_argc_op) != 0 {
+                    return 0;
+                }
+                emitted_local_ops = emitted_local_ops + 1;
                 stmt_index = stmt_index + 1;
                 continue;
             }
@@ -4243,7 +4284,7 @@ fn compile_files(
         var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
         if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
             codegen_end_time = clock();
-            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数或单个 &i32 out-param 函数，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return callee();`、`return lhs() + rhs();`、direct call 局部初始化后 `return local;` 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
+            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param 和最小 get_argc 函数子集，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc 局部初始化后 `return local;` 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
             return 1;
         }
         const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(actual_output as &byte,
