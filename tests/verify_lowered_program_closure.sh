@@ -16,7 +16,7 @@ run_check() {
 run_check "$SCRIPT_DIR/verify_lowered_program_core_definition.sh"
 run_check "$SCRIPT_DIR/verify_lowered_body_op_transition_contract.sh"
 run_check "$SCRIPT_DIR/verify_lowered_program_core_semantics_freeze.sh"
-run_check "$SCRIPT_DIR/verify_lowered_program_core_verifier.sh"
+run_check "$SCRIPT_DIR/verify_coreir_verifier.sh"
 run_check "$SCRIPT_DIR/verify_coreir_capability_boundary_contract.sh"
 run_check "$SCRIPT_DIR/verify_coreir_naked_fn_contract.sh"
 run_check "$SCRIPT_DIR/verify_coreir_parallel_boundary_contract.sh"

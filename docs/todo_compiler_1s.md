@@ -451,7 +451,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
 测试：
 
 - [x] 新增 `tests/verify_coreir_dump_golden.sh`。
-- [ ] 新增 `tests/verify_coreir_verifier.sh`。
+- [x] 新增 `tests/verify_coreir_verifier.sh`。
 - [ ] 新增 `tests/verify_coreir_closure_contract.sh`。
 - [ ] 新增 `tests/verify_coreir_naked_fn_contract.sh`。
 - [ ] 新增 `tests/verify_coreir_parallel_determinism.sh`。
