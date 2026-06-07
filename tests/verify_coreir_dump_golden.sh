@@ -263,8 +263,17 @@ fn append_coreir_dump_surface_functions(lowered: &LoweredProgram) !void {
         body_count: 1,
         flags: 0,
     };
+    var naked_fn: ConcreteFunction = ConcreteFunction{
+        function_id: 212,
+        decl_id: 312,
+        mono_instance_id: 912,
+        body_start: 2,
+        body_count: 1,
+        flags: CORE_FUNCTION_FLAG_NAKED,
+    };
     try assert_eq_i32(lowered_program_append_function(lowered, &file0_fn), 0);
     try assert_eq_i32(lowered_program_append_function(lowered, &file1_fn), 0);
+    try assert_eq_i32(lowered_program_append_function(lowered, &naked_fn), 0);
 }
 
 fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
@@ -302,6 +311,23 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         semantic_fact_count: 4,
         source_span_id: 1900,
         flags: CORE_BODY_FLAG_SOURCE_BODY | CORE_BODY_FLAG_DROP | CORE_BODY_FLAG_ERROR_PROPAGATION,
+    };
+    var body2: CoreBody = CoreBody{
+        body_id: 2,
+        function_id: 212,
+        decl_id: 312,
+        root_stmt_start: 4,
+        root_stmt_count: 1,
+        expr_start: 8,
+        expr_count: 0,
+        place_start: 3,
+        place_count: 0,
+        cleanup_edge_start: 2,
+        cleanup_edge_count: 0,
+        semantic_fact_start: 8,
+        semantic_fact_count: 2,
+        source_span_id: 2900,
+        flags: CORE_BODY_FLAG_SOURCE_BODY | CORE_BODY_FLAG_NAKED,
     };
     var stmt0: CoreStmt = CoreStmt{
         stmt_id: 0,
@@ -362,6 +388,21 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         source_span_id: 1902,
         cleanup_scope_id: 1602,
         flags: CORE_STMT_FLAG_ERROR_PROPAGATION,
+    };
+    var stmt4: CoreStmt = CoreStmt{
+        stmt_id: 4,
+        kind: CORE_STMT_KIND_ASM,
+        body_id: 2,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 2,
+        cleanup_edge_count: 0,
+        source_span_id: 2901,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
     };
     var expr0: CoreExpr = CoreExpr{
         expr_id: 0,
@@ -633,12 +674,24 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
     vector_type_fact.source_expr_id = 201;
     vector_type_fact.type_id = 2001;
 
+    var naked_fact: CoreSemanticFact = coreir_dump_golden_fact(8, CORE_SEMANTIC_FACT_CAPABILITY);
+    naked_fact.body_id = 2;
+    naked_fact.source_expr_id = TYPED_PROGRAM_INVALID_ID;
+    naked_fact.capability_id = CORE_CAPABILITY_NAKED_FUNCTION;
+
+    var asm_fact: CoreSemanticFact = coreir_dump_golden_fact(9, CORE_SEMANTIC_FACT_CAPABILITY);
+    asm_fact.body_id = 2;
+    asm_fact.source_expr_id = TYPED_PROGRAM_INVALID_ID;
+    asm_fact.capability_id = CORE_CAPABILITY_INLINE_ASM;
+
     try assert_eq_i32(lowered_program_append_core_body(lowered, &body0), 0);
     try assert_eq_i32(lowered_program_append_core_body(lowered, &body1), 0);
+    try assert_eq_i32(lowered_program_append_core_body(lowered, &body2), 0);
     try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt0), 0);
     try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt1), 0);
     try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt2), 0);
     try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt3), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt4), 0);
     try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr0), 0);
     try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr1), 0);
     try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr2), 0);
@@ -660,6 +713,8 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
     try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &method_fact), 0);
     try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &error_fact), 0);
     try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &vector_type_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &naked_fact), 0);
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &asm_fact), 0);
 }
 
 test "coreir dump covers broad language surface markers" {
@@ -726,7 +781,7 @@ if ! diff -u "$expected_golden" "$actual_golden"; then
     exit 1
 fi
 
-if ! grep -Fq "core_bodies=2 core_stmts=4 core_exprs=8 core_places=3 core_cleanup_edges=2 core_semantic_facts=8" "$dump_stderr"; then
+if ! grep -Fq "core_bodies=3 core_stmts=5 core_exprs=8 core_places=3 core_cleanup_edges=2 core_semantic_facts=10" "$dump_stderr"; then
     echo "error: CoreIR surface dump missing multi-body table summary" >&2
     exit 1
 fi
@@ -738,9 +793,14 @@ if ! grep -Fq "body #1 function=211 decl=311 roots=2+2 exprs=4+4 places=3+0 clea
     echo "error: CoreIR surface dump missing second multi-file body marker" >&2
     exit 1
 fi
+if ! grep -Fq "body #2 function=212 decl=312 roots=4+1 exprs=8+0 places=3+0 cleanups=2+0 facts=8+2 source=2900 flags=3" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing naked body flags marker" >&2
+    exit 1
+fi
 if ! grep -Fq "stmt #1 body=0 kind=12" "$dump_stderr" ||
    ! grep -Fq "stmt #2 body=1 kind=14" "$dump_stderr" ||
-   ! grep -Fq "stmt #3 body=1 kind=15" "$dump_stderr"; then
+   ! grep -Fq "stmt #3 body=1 kind=15" "$dump_stderr" ||
+   ! grep -Fq "stmt #4 body=2 kind=11" "$dump_stderr"; then
     echo "error: CoreIR surface dump missing defer/drop/error statement markers" >&2
     exit 1
 fi
@@ -769,6 +829,13 @@ fi
 if ! grep -Fq "fact #5 kind=2 body=1" "$dump_stderr" ||
    ! grep -Fq "mono=902 arg_count=0 receiver_type=2100 method_symbol=2101 interface_symbol=2102 slot=3" "$dump_stderr"; then
     echo "error: CoreIR surface dump missing generic method interface dispatch marker" >&2
+    exit 1
+fi
+if ! grep -Fq "fact #8 kind=8 body=2" "$dump_stderr" ||
+   ! grep -Fq "source=708 drop_defer=-1 scope=-1 capability=2 flags=0" "$dump_stderr" ||
+   ! grep -Fq "fact #9 kind=8 body=2" "$dump_stderr" ||
+   ! grep -Fq "source=709 drop_defer=-1 scope=-1 capability=1 flags=0" "$dump_stderr"; then
+    echo "error: CoreIR surface dump missing naked capability markers" >&2
     exit 1
 fi
 
