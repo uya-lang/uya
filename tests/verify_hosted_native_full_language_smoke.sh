@@ -14,6 +14,7 @@ helper_src="$TMP_DIR/smoke_helper.uya"
 main_src="$TMP_DIR/main.uya"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
+require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
 
 cat >"$helper_src" <<'EOF'
 export fn helper_value() i32 {
@@ -231,6 +232,13 @@ if [[ "$native_build_status" -eq 0 ]]; then
     fi
     echo "OK: hosted native full-language smoke matches C99"
     exit 0
+fi
+
+if [[ "$require_parity" != "0" ]]; then
+    echo "error: hosted native full-language parity required but native build rejected" >&2
+    echo "c99_build_status=0 c99_run_status=$c99_status native_build_status=$native_build_status" >&2
+    cat "$native_build_err" >&2
+    exit 1
 fi
 
 if [[ -e "$native_bin" ]]; then
