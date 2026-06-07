@@ -477,7 +477,7 @@ bash tests/verify_portable_mir_core_input_contract.sh
 阶段 KPI：
 
 - [x] PortableMIR lowering 可以只从 frozen `LoweredProgram + CoreBody` 获得语义信息。
-- [ ] `compile_files(...)` 16 参数调用在 CoreIR dump 中以 resolved call target 和 typed arguments
+- [x] `compile_files(...)` 16 参数调用在 CoreIR dump 中以 resolved call target 和 typed arguments
   稳定出现。
 - [ ] CoreIR verifier 能阻止 MIR 实现绕过 CoreIR 回查 checker / TypedProgram。
 - [ ] `@naked_fn` 在 CoreIR dump 中有稳定 flags/capability，且非法 body 先在 CoreIR verifier 被拒绝。
