@@ -9,8 +9,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
 ARCH_DOC="$REPO_ROOT/docs/compiler_1s_architecture_design.md"
+COREIR_DOC="$REPO_ROOT/docs/coreir_lowered_program_whitepaper.md"
+PORTABLE_MIR_DOC="$REPO_ROOT/docs/portable_mir_whitepaper.md"
 NO_SILENT_TEST="$REPO_ROOT/tests/verify_native_cmd_build_no_silent_c99.sh"
+LOWERED_BODY_CONTRACT_TEST="$REPO_ROOT/tests/verify_lowered_body_op_transition_contract.sh"
 STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
+DRIVER_SRC="$REPO_ROOT/src/compiler_driver.uya"
 NATIVE_BUILD_SRC="$REPO_ROOT/src/codegen/native_build/main.uya"
 
 require_pattern() {
@@ -38,6 +42,10 @@ require_pattern "$SUBSET_DOC" '已经通过 `CoreBody` / `PortableMIR` lowering�
     "cmd/build subset doc 缺少 MIR 通过后再下沉规则"
 require_pattern "$SUBSET_DOC" '不再为 `compile_files\(\.\.\.\)`' \
     "cmd/build subset doc 缺少 compile_files one-off 禁止规则"
+require_pattern "$SUBSET_DOC" '16 参数 parser/checker/native-codegen 主调用' \
+    "cmd/build subset doc 缺少 compile_files 16 参数验收输入"
+require_pattern "$SUBSET_DOC" 'hosted native call ABI 和 target capability verifier' \
+    "cmd/build subset doc 缺少 hosted native call ABI 验收边界"
 require_pattern "$SUBSET_DOC" 'tests/verify_native_cmd_build_no_silent_c99\.sh' \
     "cmd/build subset doc 缺少 no-silent-C99 门禁引用"
 require_pattern "$SUBSET_DOC" '不能生成伪 native 输出，也不能静默回落 C99' \
@@ -52,14 +60,33 @@ require_pattern "$ARCH_DOC" 'freestanding native build-seed 失败只能阻塞 b
 require_pattern "$ARCH_DOC" 'helper 只作为 Phase 10 freestanding 回归边界保留，不能作为 hosted native 完整语言主路径' \
     "architecture doc 缺少 LoweredProgram helper 边界"
 
+require_pattern "$COREIR_DOC" '`compile_files\(\.\.\.\)` 16 参数缺口必须通过 CoreBody \+ PortableMIR 解决' \
+    "CoreIR whitepaper 缺少 compile_files 16 参数 CoreBody/PortableMIR 验收规则"
+require_pattern "$COREIR_DOC" '用 `compile_files\(\.\.\.\)` 作为第一个大型 CoreIR \+ MIR 验收样本' \
+    "CoreIR whitepaper 缺少 compile_files 大型验收样本"
+require_pattern "$PORTABLE_MIR_DOC" '`compile_files\(\.\.\.\)` 缺口应成为 MIR \+ ABI 验收样本' \
+    "PortableMIR whitepaper 缺少 MIR + ABI 验收样本边界"
+require_pattern "$PORTABLE_MIR_DOC" '增加 call ABI metadata 和 hosted extern calls' \
+    "PortableMIR whitepaper 缺少 call ABI lowering slice"
+require_pattern "$PORTABLE_MIR_DOC" '使用 `compile_files\(\.\.\.\)` 作为第一个大型真实 MIR 验收样本' \
+    "PortableMIR whitepaper 缺少 compile_files 真实 MIR 验收样本"
+require_pattern "$PORTABLE_MIR_DOC" '`compile_files\(\.\.\.\)` 16 参数调用通过 CoreBody \+ MIR lower 到达' \
+    "PortableMIR whitepaper 缺少 compile_files 16 参数 MIR 到达标准"
+
 require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_reject_check' \
     "no-silent-C99 测试缺少 cmd/build self reject"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_call_expr: name=compile_files\.\*args=16' \
     "no-silent-C99 测试缺少 compile_files 16 参数缺口"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
     "no-silent-C99 测试缺少 C99 fallback 反向检查"
+require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'opcode 清单已变化' \
+    "LoweredBodyOp transition 测试缺少 opcode 冻结门禁"
+require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'CoreBody/PortableMIR' \
+    "LoweredBodyOp transition 测试缺少 CoreBody/PortableMIR 迁移要求"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_regression_boundary\.sh' \
     "stage1 native cmd/build 验证未纳入回归边界合同"
+require_pattern "$DRIVER_SRC" 'compile_files\(&input_file_indices\[0\], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts\)' \
+    "compiler driver 缺少真实 compile_files 16 参数调用输入"
 require_pattern "$NATIVE_BUILD_SRC" 'intentionally smaller than codegen\.native\.\*' \
     "native build seed writer 缺少窄子集说明"
 require_pattern "$NATIVE_BUILD_SRC" 'for a narrow' \

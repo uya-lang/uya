@@ -852,7 +852,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 
 阶段 KPI：
 
-- [ ] `compile_files(...)` 16 参数调用缺口不再通过新增 one-off `LoweredBodyOp` 解决，而是成为 MIR lowering
+- [x] `compile_files(...)` 16 参数调用缺口不再通过新增 one-off `LoweredBodyOp` 解决，而是成为 MIR lowering
   和 hosted native call ABI 的验收样本。
 - [ ] native 后端新增语言能力时，语言 lowering 只需改 `PortableMIR`，不在每个 target backend 重复实现。
 - [ ] `@naked_fn` 通过 CoreIR/MIR verifier 和 native 专用 path，不走普通函数栈帧。
