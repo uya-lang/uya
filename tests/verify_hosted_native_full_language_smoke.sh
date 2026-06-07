@@ -103,6 +103,7 @@ type SmokeVec = @vector(i32, 4);
 export fn main() i32 {
     const from_helper: i32 = helper_value();
     const call_return: i32 = helper_passthrough();
+    if from_helper != 3 { return 1; }
     const generic_value: i32 = helper_identity<i32>(4);
     const imported: i32 = add_i32(20, 22);
     const counter: SmokeCounter = SmokeCounter{ value: 7 };
@@ -130,7 +131,6 @@ export fn main() i32 {
     {
         const dropped: SmokeDrop = SmokeDrop{ value: 11 };
     }
-    if from_helper != 3 { return 1; }
     if generic_value != 4 { return 2; }
     if imported != 42 { return 3; }
     if method_value != 14 { return 4; }
@@ -269,12 +269,12 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=17 core_bodies=3 pending_bodies=10' "$native_build_err"; then
-    echo "error: native full-language reject lacks hosted CoreIR void/int-literal/call-return body preflight evidence" >&2
+if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=17 core_bodies=4 pending_bodies=10' "$native_build_err"; then
+    echo "error: native full-language reject lacks hosted CoreIR void/int-literal/call-return/main-prefix body preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=3 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=4 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted PortableMIR preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1

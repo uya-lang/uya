@@ -26,6 +26,7 @@ export const CORE_BODY_FLAG_CLEANUP: i32 = 8;
 export const CORE_BODY_FLAG_DROP: i32 = 16;
 export const CORE_BODY_FLAG_ERROR_PROPAGATION: i32 = 32;
 export const CORE_BODY_FLAG_IMPLICIT_RETURN: i32 = 64;
+export const CORE_BODY_FLAG_PARTIAL: i32 = 128;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
 export const CORE_STMT_KIND_ASM: i32 = 11;
 export const CORE_STMT_KIND_DEFER: i32 = 12;

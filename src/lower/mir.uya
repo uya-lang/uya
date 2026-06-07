@@ -27,6 +27,7 @@ export const MIR_DEBUG_LOC_INVALID_ID: MirDebugLocId = -1;
 export const MIR_CAPABILITY_REQ_INVALID_ID: MirCapabilityReqId = -1;
 export const MIR_FUNCTION_FLAG_NAKED: i32 = 1;
 export const MIR_FUNCTION_FLAG_EXTERN: i32 = 2;
+export const MIR_FUNCTION_FLAG_PARTIAL_BODY: i32 = 4;
 export const MIR_FUNCTION_BODY_KIND_NORMAL: i32 = 0;
 export const MIR_FUNCTION_BODY_KIND_ASM_ONLY_NAKED: i32 = 1;
 export const MIR_NAKED_FORBID_PROLOGUE_EPILOGUE: i32 = 1;

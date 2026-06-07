@@ -864,7 +864,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     - [x] 将 `return callee()` / 简单调用返回形状降成 PortableMIR call + return，覆盖 main/helper 的调用骨架。
     - 将 main 函数局部 const/var 初始化、基础 if-return 骨架迁入 CoreBody/MIR，不再依赖 build-seed `LoweredBodyOp` 特例：
       - [x] 在 CoreIR/PortableMIR 中冻结并验证最小 main local-call 初始化 + if-return preflight smoke，先覆盖 `const v: i32 = callee(); if v != 3 { return 1; } return 0;`。
-      - [ ] 将 full-language smoke 的 main 前置 i32 call locals 与基础 if-return 骨架接入 CoreBody/MIR，复杂类型/接口/drop 等仍保持 pending。
+      - [x] 将 full-language smoke 的 main 前置 i32 call locals 与基础 if-return 骨架接入 CoreBody/MIR，复杂类型/接口/drop 等仍保持 pending。
   - [ ] 接入 hosted native `@c_import` / extern linker handoff，确保 native link 对象与 C99 oracle 运行结果一致。
   - [ ] 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性。
   - [ ] 将 hosted native full-language smoke 从“允许明确拒绝”推进为默认强制 parity 门禁。
