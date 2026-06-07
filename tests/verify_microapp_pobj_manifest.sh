@@ -12,7 +12,7 @@ rm -f "$OUT_POBJ"
 export MICROAPP_TARGET_ARCH
 export TARGET_GCC
 
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$OUT_POBJ" >/tmp/verify_microapp_pobj_manifest.log 2>&1
+"$ROOT_DIR/bin/uya" microapp build examples/microapp/microcontainer_hello_source.uya -o "$OUT_POBJ" >/tmp/verify_microapp_pobj_manifest.log 2>&1
 
 python3 - <<'PY'
 from pathlib import Path

@@ -37,7 +37,7 @@ assert_single_result_surface() {
 }
 
 TARGET_GCC=x86_64-linux-gnu-gcc \
-    "$ROOT_DIR/bin/uya" build --app microapp \
+    "$ROOT_DIR/bin/uya" microapp build \
     --microapp-profile linux_aarch64_hardvm \
     examples/microapp/microcontainer_hello_source.uya \
     -o "$UAPP" >"$BUILD_LOG" 2>&1

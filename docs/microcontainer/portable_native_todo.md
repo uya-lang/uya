@@ -29,7 +29,7 @@
 
 - `.uapp v2` 可表达真实执行所需段信息
 - `linux_x86_64_hardvm` profile 可用
-- `run --app microapp` 不再依赖对照 ELF
+- `microapp run` 不再依赖对照 ELF
 - payload 从容器虚拟地址入口真执行
 - `SYS_PRINT / SYS_ALLOC / SYS_YIELD` 可用
   - 当前已有 x86_64 mapped payload 回归覆盖 `print + alloc + yield`
@@ -93,7 +93,7 @@
 
 ### 4.3 打包与校验
 
-- [x] legacy `pack-image` 支持 v2 生成；目标入口迁移到 `microapp pack`
+- [x] 旧顶层 `pack-image` 曾支持 v2 生成；当前目标入口为 `microapp pack`
 - [x] `image_validate()` 支持 v2 结构检查
 - [x] 增加 `.uapp v2` roundtrip 测试
 
@@ -101,8 +101,8 @@
 
 - [x] v1 / v2 `.pobj` 打包入口兼容读取
 - [~] v1 `.uapp` / v2 `.uapp` 双版本读取与显式 inspect/verify CLI
-  - [x] 已新增 legacy `inspect-image` CLI，可直接查看 `.pobj/.uapp` 头信息；目标入口为 `microapp inspect`
-  - [x] 已新增 legacy `verify-image` CLI，可直接校验 `.pobj/.uapp`；目标入口为 `microapp verify`
+  - [x] 旧顶层 `inspect-image` 曾可查看 `.pobj/.uapp` 头信息；当前目标入口为 `microapp inspect`
+  - [x] 旧顶层 `verify-image` 曾可校验 `.pobj/.uapp`；当前目标入口为 `microapp verify`
   - [x] 已补齐 `v1 .uapp / v2 .uapp / v5-v8 .pobj` CLI 回归覆盖
 
 ---
@@ -257,7 +257,7 @@
 
 验收标准：
 
-- [~] `run --app microapp examples/microapp/microcontainer_hello_source.uya`
+- [~] `microapp run examples/microapp/microcontainer_hello_source.uya`
   不再依赖 `.text.bin.elf`
   - [x] x86_64 hard-vm 运行时已不再依赖对照 ELF
   - [x] x86_64 hosted `call-gate` 构建期已不再依赖 `objdump/nm/readelf/objcopy`，也不再依赖“先链接出中间 ELF”这一步

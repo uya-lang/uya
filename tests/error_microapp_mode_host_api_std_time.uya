@@ -1,5 +1,5 @@
 // ERROR TEST: microapp 模式禁止直接调用 std.time 宿主时间 API (E4004)
-// 编译命令: ./bin/uya tests/error_microapp_mode_host_api_std_time.uya --c99 --app microapp
+// 编译命令: ./bin/uya microapp build --c99 tests/error_microapp_mode_host_api_std_time.uya
 // 预期: 编译失败，报错 E4004
 
 use std.time;

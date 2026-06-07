@@ -12,8 +12,8 @@ rm -f "$POBJ" "$UAPP"
 export MICROAPP_TARGET_ARCH
 export TARGET_GCC
 
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$POBJ" >/tmp/verify_microapp_pack_image_build.log 2>&1
-"$ROOT_DIR/bin/uya" pack-image "$POBJ" -o "$UAPP" >/tmp/verify_microapp_pack_image_pack.log 2>&1
+"$ROOT_DIR/bin/uya" microapp build examples/microapp/microcontainer_hello_source.uya -o "$POBJ" >/tmp/verify_microapp_pack_image_build.log 2>&1
+"$ROOT_DIR/bin/uya" microapp pack "$POBJ" -o "$UAPP" >/tmp/verify_microapp_pack_image_pack.log 2>&1
 
 python3 - <<'PY'
 from pathlib import Path
@@ -52,4 +52,4 @@ assert data[code_off:code_off + code_size] == pobj[84 + len(source_path):84 + le
 assert b"hello microapp" in data[rodata_off:rodata_off + rodata_size]
 PY
 
-echo "microapp pack-image ok"
+echo "microapp pack ok"

@@ -77,7 +77,7 @@ fi
 AARCH_UAPP="$TMP_DIR/aarch64-unwired.uapp"
 AARCH_BUILD_LOG="$TMP_DIR/aarch64-unwired.build.log"
 TARGET_GCC="$TARGET_GCC_BIN" \
-    "$ROOT_DIR/bin/uya" build --app microapp \
+    "$ROOT_DIR/bin/uya" microapp build \
     --microapp-profile linux_aarch64_hardvm \
     "$ROOT_DIR/examples/microapp/microcontainer_hello_source.uya" \
     -o "$AARCH_UAPP" >"$AARCH_BUILD_LOG" 2>&1

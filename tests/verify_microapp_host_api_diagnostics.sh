@@ -14,7 +14,7 @@ expect_compile_fail_with() {
     local output="$2"
     shift 2
     local log="$TMP_DIR/$(basename "$source" .uya).log"
-    if "$ROOT_DIR/bin/uya" --c99 --safety-proof --app microapp "$ROOT_DIR/$source" -o "$output" >"$log" 2>&1; then
+    if "$ROOT_DIR/bin/uya" microapp build --c99 --safety-proof "$ROOT_DIR/$source" -o "$output" >"$log" 2>&1; then
         echo "✗ 预期编译失败，但编译成功: $source"
         echo "--- $log ---"
         cat "$log"

@@ -33,12 +33,12 @@ rm -f "$HELLO_OUT" "$ALLOC_YIELD_OUT" "$TIME_OUT" "$BSS_OUT" "$RELOC_OUT" "$RELO
 export TARGET_GCC
 export MICROAPP_TARGET_ARCH
 
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$HELLO_SOURCE" -o "$HELLO_OUT" >"$HELLO_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$ALLOC_YIELD_SOURCE" -o "$ALLOC_YIELD_OUT" >"$ALLOC_YIELD_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$TIME_SOURCE" -o "$TIME_OUT" >"$TIME_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$BSS_SOURCE" -o "$BSS_OUT" >"$BSS_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$RELOC_SOURCE" -o "$RELOC_OUT" >"$RELOC_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$RELOC_DATA_SOURCE" -o "$RELOC_DATA_OUT" >"$RELOC_DATA_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$HELLO_SOURCE" -o "$HELLO_OUT" >"$HELLO_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$ALLOC_YIELD_SOURCE" -o "$ALLOC_YIELD_OUT" >"$ALLOC_YIELD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$TIME_SOURCE" -o "$TIME_OUT" >"$TIME_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$BSS_SOURCE" -o "$BSS_OUT" >"$BSS_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$RELOC_SOURCE" -o "$RELOC_OUT" >"$RELOC_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$RELOC_DATA_SOURCE" -o "$RELOC_DATA_OUT" >"$RELOC_DATA_LOG" 2>&1
 
 for pair in \
     "$HELLO_OUT:$HELLO_LOG:hello" \

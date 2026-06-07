@@ -93,8 +93,8 @@ for rel in "${PORTABLE_SOURCES[@]}"; do
 
     out_c="$TMP_DIR/$(basename "$rel" .uya).c"
     build_log="$TMP_DIR/$(basename "$rel" .uya).log"
-    if ! "$ROOT_DIR/bin/uya" build --app microapp "$src" -o "$out_c" >"$build_log" 2>&1; then
-        dump_and_fail "portable microapp 源码应能在 --app microapp 下通过编译: $rel" "$build_log"
+    if ! "$ROOT_DIR/bin/uya" microapp build "$src" -o "$out_c" >"$build_log" 2>&1; then
+        dump_and_fail "portable microapp 源码应能通过 microapp build 编译: $rel" "$build_log"
     fi
     if [ ! -s "$out_c" ]; then
         dump_and_fail "portable microapp 编译未生成输出: $rel" "$build_log"

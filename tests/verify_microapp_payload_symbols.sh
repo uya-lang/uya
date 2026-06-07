@@ -123,7 +123,7 @@ verify_default_linux_profile_contract() {
         OBJDUMP=false \
         NM=false \
         OBJCOPY=false \
-        "$ROOT_DIR/bin/uya" build --app microapp \
+        "$ROOT_DIR/bin/uya" microapp build \
         "$ROOT_DIR/examples/microapp/microcontainer_hello_source.uya" \
         -o "$uapp" >"$build_log" 2>&1
 
@@ -152,7 +152,7 @@ verify_case() {
     local symbols_log="$TMP_DIR/$name.symbols.log"
     local symbol_names="$TMP_DIR/$name.symbol-names.log"
 
-    "$ROOT_DIR/bin/uya" build --app microapp \
+    "$ROOT_DIR/bin/uya" microapp build \
         --microapp-profile linux_x86_64_hardvm \
         "$ROOT_DIR/$source_rel" -o "$uapp" >"$build_log" 2>&1
 

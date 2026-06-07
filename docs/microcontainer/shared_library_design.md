@@ -55,7 +55,7 @@
 
 共享库必须与普通 `microapp` 一样，接受：
 
-- `--app microapp` 语义检查
+- `uya microapp build` 语义检查
 - 镜像结构校验
 - relocation 校验
 - profile / bridge / target_arch 一致性检查
@@ -255,7 +255,7 @@ enum ImageKind {
 
 语义：
 
-- `ik_exec`：必须有主入口，可被 `run --app microapp` 直接执行
+- `ik_exec`：必须有主入口，可被 `microapp run` 直接执行
 - `ik_shared_lib`：不可直接作为容器主程序运行，只能被 loader 解析并绑定
 
 ### 6.4 `ImageHeader v3`

@@ -19,7 +19,7 @@ RUN_LOG="$TMP_DIR/run.log"
 export TARGET_GCC
 export MICROAPP_TARGET_PROFILE
 
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$SOURCE" -o "$OUT_C" >"$BUILD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$SOURCE" -o "$OUT_C" >"$BUILD_LOG" 2>&1
 
 if [ ! -f "$OUT_C" ]; then
     cat "$BUILD_LOG"
@@ -76,7 +76,7 @@ if ! printf '%s\n' "$touch_block" | grep -q '__typeof__(\*_uya_ptr) \*_uya_trans
     exit 1
 fi
 
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$RUNTIME_SOURCE" -o "$RUNTIME_C" >"$BUILD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$RUNTIME_SOURCE" -o "$RUNTIME_C" >"$BUILD_LOG" 2>&1
 if [ ! -f "$RUNTIME_C" ]; then
     cat "$BUILD_LOG"
     echo "✗ microapp MMU 运行 fixture 未产出 C 文件"

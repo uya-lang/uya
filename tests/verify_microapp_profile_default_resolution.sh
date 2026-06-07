@@ -12,7 +12,7 @@ trap cleanup EXIT
 
 env -u MICROAPP_TARGET_PROFILE -u MICROAPP_TARGET_ARCH \
     TARGET_OS=macos TARGET_ARCH=arm64 \
-    "$ROOT_DIR/bin/uya" build --app microapp \
+    "$ROOT_DIR/bin/uya" microapp build \
     examples/microapp/microcontainer_hello_source.uya \
     -o "$OUT_C" >"$BUILD_LOG" 2>&1
 

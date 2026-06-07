@@ -30,15 +30,15 @@ dump_log_and_fail() {
     exit 1
 }
 
-"$ROOT_DIR/bin/uya" run --app microapp "$SOURCE" >"$RUN_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp run "$SOURCE" >"$RUN_LOG" 2>&1
 grep -a -q "reloc64 ok" "$RUN_LOG" || dump_log_and_fail "microapp run 路径未输出 reloc64 ok" "$RUN_LOG"
 grep -a -q "\[microapp loader\] executed mapped payload" "$RUN_LOG" || dump_log_and_fail "microapp run 路径未命中 mapped payload 执行分支" "$RUN_LOG"
 if grep -a -q "\[microapp loader\] launching native payload" "$RUN_LOG"; then
     dump_log_and_fail "microapp run 路径意外回退到了 native payload ELF" "$RUN_LOG"
 fi
 
-"$ROOT_DIR/bin/uya" build --app microapp "$SOURCE" -o "$UAPP_PATH" >"$BUILD_LOG" 2>&1
-"$ROOT_DIR/bin/uya" inspect-image "$UAPP_PATH" >"$INSPECT_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build "$SOURCE" -o "$UAPP_PATH" >"$BUILD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp inspect "$UAPP_PATH" >"$INSPECT_LOG" 2>&1
 grep -q '^target_arch=x86_64$' "$INSPECT_LOG" || dump_log_and_fail "reloc_data inspect 未命中 x86_64" "$INSPECT_LOG"
 grep -Eq '^reloc_count=[2-9][0-9]*$|^reloc_count=[2-9]$' "$INSPECT_LOG" || dump_log_and_fail "reloc_data inspect 未体现扩展后的 reloc_count" "$INSPECT_LOG"
 

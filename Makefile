@@ -4,7 +4,7 @@
 # 若出现「没有规则可制作目标 install」：说明当前 Makefile 过旧，请用本仓库最新 Makefile
 # 替换，或从上游同步后再执行：make install PREFIX=$HOME/.local
 
-.PHONY: all from-c from-c-native restore-cmd-build-seed uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s bench-compiler-1s-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-cmd-build-seed backup-cmd-build-blob-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-build cmd-check cmd-run cmd-test cmd-fmt cmd-upm uya-upm-stage2 upm-check fmt check-fmt
+.PHONY: all from-c from-c-native restore-cmd-build-seed uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s bench-compiler-1s-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-cmd-build-seed backup-cmd-build-blob-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-build cmd-check cmd-run cmd-test cmd-fmt cmd-upm cmd-microapp uya-upm-stage2 upm-check fmt check-fmt
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
 HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')
@@ -34,7 +34,7 @@ LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）
 UYA_TEST_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
-UYA_CMD_NAMES := build check run test fmt upm
+UYA_CMD_NAMES := build check run test fmt upm microapp
 UYA_CMD_BINS := $(patsubst %,bin/cmd/%,$(UYA_CMD_NAMES))
 UYA_CMD_BOOTSTRAP_COMPILER ?= ./bin/cmd/build
 UYA_BUILD_SEED_COMPILER ?= ./bin/cmd/build
@@ -686,6 +686,8 @@ cmd-test: bin/cmd/test
 cmd-fmt: bin/cmd/fmt
 
 cmd-upm: bin/cmd/upm bin/uya-upm-stage2
+
+cmd-microapp: bin/cmd/microapp
 
 uya-upm-stage2: bin/uya-upm-stage2
 

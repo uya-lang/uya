@@ -56,7 +56,7 @@ TIMER_UAPP="$TMP_DIR/sys-io-timer.uapp"
 TIMER_BUILD_LOG="$TMP_DIR/sys-io-timer.build.log"
 TIMER_RUN_LOG="$TMP_DIR/sys-io-timer.run.log"
 
-if ! "$ROOT_DIR/bin/uya" build --app microapp \
+if ! "$ROOT_DIR/bin/uya" microapp build \
     --microapp-profile linux_x86_64_hardvm \
     "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_sys_io_timer.uya" \
     -o "$TIMER_UAPP" >"$TIMER_BUILD_LOG" 2>&1; then
@@ -81,7 +81,7 @@ DENIED_UAPP="$TMP_DIR/sys-io-denied.uapp"
 DENIED_BUILD_LOG="$TMP_DIR/sys-io-denied.build.log"
 DENIED_RUN_LOG="$TMP_DIR/sys-io-denied.run.log"
 
-if ! "$ROOT_DIR/bin/uya" build --app microapp \
+if ! "$ROOT_DIR/bin/uya" microapp build \
     --microapp-profile linux_x86_64_hardvm \
     "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_sys_io_denied.uya" \
     -o "$DENIED_UAPP" >"$DENIED_BUILD_LOG" 2>&1; then

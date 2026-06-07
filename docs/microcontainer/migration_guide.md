@@ -14,12 +14,12 @@
 1. 写 portable 源码
 2. 只使用 `std.microapp.*`
 3. 用 `--microapp-profile` 或 target tuple 选择目标 profile
-4. 目标 CLI 使用 `microapp build/run/inspect/verify` 走统一链路
+4. 目标 CLI 使用 `uya microapp build|pack|inspect|verify|run` 走统一链路
 
-> 过渡说明：当前仓库仍有不少脚本和历史文档使用旧形态
-> `build --app microapp`、`run --app microapp`、`pack-image`、`inspect-image`、`verify-image`。
-> 新的工具链目标是 `uya microapp build|pack|inspect|verify|run`；在 `cmd/microapp`
-> 真正落地前，旧命令可以继续作为实现对照或兼容入口。
+> 迁移说明：旧形态 `build --app microapp`、`run --app microapp`、
+> `pack-image`、`inspect-image`、`verify-image` 不再是推荐入口。新的工具链目标是
+> `uya microapp build|pack|inspect|verify|run`；需要排查 launcher 分发时，可直调
+> `bin/cmd/microapp ...` 做等价对照。
 
 推荐优先参考这些源码示例：
 
@@ -43,7 +43,7 @@
 
 ### 2.1 从 `arch-first` 迁到 `profile-first`
 
-旧习惯：
+旧习惯（迁移前，不再推荐）：
 
 ```bash
 MICROAPP_TARGET_ARCH=x86_64 ./bin/uya build --app microapp app.uya -o app.uapp
@@ -161,9 +161,9 @@ export fn main() i32 {
 1. 把源码里的 `libc.*` / `std.time` 换成 `std.microapp.*`
 2. 确认源码只保留 portable source 允许的接口
 3. 把构建入口改成 `--microapp-profile ...`
-4. 用 `microapp build -o xxx.c` 先验证 compile matrix
-5. 用 `microapp build -o xxx.uapp` / `microapp run` 验证当前已支持的 runtime profile
-6. 用 `microapp inspect` / `microapp verify` 确认产物元数据和格式版本
+4. 用 `uya microapp build -o xxx.c` 先验证 compile matrix
+5. 用 `uya microapp build -o xxx.uapp` / `uya microapp run` 验证当前已支持的 runtime profile
+6. 用 `uya microapp inspect` / `uya microapp verify` 确认产物元数据和格式版本
 
 ---
 

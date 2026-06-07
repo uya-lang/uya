@@ -148,7 +148,7 @@ set +e
 UYA_ROOT="$ROOT_DIR" "$CMD_BUILD" --app microapp "$ROOT_DIR/tests/test_errno.uya" -o "$TMP_DIR/should-not-build" >"$TMP_DIR/microapp.out" 2>"$TMP_DIR/microapp.err"
 microapp_status=$?
 set -e
-if [[ "$microapp_status" -eq 0 ]] || ! grep -q '不包含 microapp image/payload' "$TMP_DIR/microapp.err"; then
+if [[ "$microapp_status" -eq 0 ]] || ! grep -q 'uya microapp build' "$TMP_DIR/microapp.err"; then
     echo "错误: cmd/build seed 未明确拒绝 microapp image/payload 路径" >&2
     cat "$TMP_DIR/microapp.err" >&2
     exit 1

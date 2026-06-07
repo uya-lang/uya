@@ -25,8 +25,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$POBJ" >/tmp/verify_microapp_verify_build_pobj.log 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$UAPP" >/tmp/verify_microapp_verify_build_uapp.log 2>&1
+"$ROOT_DIR/bin/uya" microapp build examples/microapp/microcontainer_hello_source.uya -o "$POBJ" >/tmp/verify_microapp_verify_build_pobj.log 2>&1
+"$ROOT_DIR/bin/uya" microapp build examples/microapp/microcontainer_hello_source.uya -o "$UAPP" >/tmp/verify_microapp_verify_build_uapp.log 2>&1
 
 python3 - "$POBJ" "$LEGACY_POBJ_V5" "$LEGACY_POBJ_V6" "$LEGACY_UAPP_V1" <<'PY'
 from pathlib import Path
@@ -119,11 +119,11 @@ u[28:60] = digest
 out_uapp_v1.write_bytes(u)
 PY
 
-"$ROOT_DIR/bin/uya" verify-image "$POBJ" >"$POBJ_LOG" 2>&1
-"$ROOT_DIR/bin/uya" verify-image "$UAPP" >"$UAPP_LOG" 2>&1
-"$ROOT_DIR/bin/uya" verify-image "$LEGACY_POBJ_V5" >"$POBJ_V5_LOG" 2>&1
-"$ROOT_DIR/bin/uya" verify-image "$LEGACY_POBJ_V6" >"$POBJ_V6_LOG" 2>&1
-"$ROOT_DIR/bin/uya" verify-image "$LEGACY_UAPP_V1" >"$UAPP_V1_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp verify "$POBJ" >"$POBJ_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp verify "$UAPP" >"$UAPP_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp verify "$LEGACY_POBJ_V5" >"$POBJ_V5_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp verify "$LEGACY_POBJ_V6" >"$POBJ_V6_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp verify "$LEGACY_UAPP_V1" >"$UAPP_V1_LOG" 2>&1
 
 grep -q '^kind=pobj$' "$POBJ_LOG"
 grep -q '^verified=yes$' "$POBJ_LOG"
@@ -152,11 +152,11 @@ grep -q '^verified=yes$' "$UAPP_V1_LOG"
 grep -q '^format_version=1$' "$UAPP_V1_LOG"
 grep -q '^target_arch=rv32$' "$UAPP_V1_LOG"
 
-if "$ROOT_DIR/bin/uya" verify-image /tmp/does_not_exist.uapp >"$BAD_LOG" 2>&1; then
-    echo "✗ verify-image 对不存在文件不应成功"
+if "$ROOT_DIR/bin/uya" microapp verify /tmp/does_not_exist.uapp >"$BAD_LOG" 2>&1; then
+    echo "✗ microapp verify 对不存在文件不应成功"
     cat "$BAD_LOG"
     exit 1
 fi
 grep -q '错误: .uapp 太小或无法读取' "$BAD_LOG"
 
-echo "microapp verify-image ok"
+echo "microapp verify ok"

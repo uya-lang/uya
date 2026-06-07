@@ -25,11 +25,11 @@ rm -f "$MICRO_OUT" "$APP_OUT" "$STD_MICRO_OUT" "$STD_ALLOC_YIELD_OUT" "$STD_TIME
 export TARGET_GCC
 export MICROAPP_TARGET_ARCH
 
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$SOURCE" -o "$MICRO_OUT" >"$MICRO_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app app --no-safety-proof "$SOURCE" -o "$APP_OUT" >"$APP_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$STD_SOURCE" -o "$STD_MICRO_OUT" >"$STD_MICRO_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$STD_ALLOC_YIELD_SOURCE" -o "$STD_ALLOC_YIELD_OUT" >"$STD_ALLOC_YIELD_LOG" 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp --no-safety-proof "$STD_TIME_SOURCE" -o "$STD_TIME_OUT" >"$STD_TIME_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$SOURCE" -o "$MICRO_OUT" >"$MICRO_LOG" 2>&1
+"$ROOT_DIR/bin/uya" build --no-safety-proof "$SOURCE" -o "$APP_OUT" >"$APP_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$STD_SOURCE" -o "$STD_MICRO_OUT" >"$STD_MICRO_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$STD_ALLOC_YIELD_SOURCE" -o "$STD_ALLOC_YIELD_OUT" >"$STD_ALLOC_YIELD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build --no-safety-proof "$STD_TIME_SOURCE" -o "$STD_TIME_OUT" >"$STD_TIME_LOG" 2>&1
 
 if [ ! -f "$MICRO_OUT" ]; then
     cat "$MICRO_LOG"

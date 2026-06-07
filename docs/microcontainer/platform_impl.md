@@ -100,7 +100,7 @@
 
 ## 5. 平台差异下的统一约束
 
-- 安全语义不变：`--app microapp` 禁止 `@asm/extern/物理地址字面量`。
+- 安全语义不变：`uya microapp build` 禁止 `@asm/extern/物理地址字面量`。
 - syscall 逻辑编号不变：`SYS_PRINT/SYS_ALLOC/SYS_IO/SYS_YIELD`。
 - 镜像验证链路不变：哈希 + 结构重定位 + 指令策略。
 - 崩溃恢复策略不变：限次重启 + 熔断 + 可审计日志。

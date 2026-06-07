@@ -43,6 +43,9 @@ fn launcher_is_external_cmd(name: &byte) i32 {
     if strcmp(name as *byte, "upm" as *byte) == 0 {
         return 1;
     }
+    if strcmp(name as *byte, "microapp" as *byte) == 0 {
+        return 1;
+    }
     return 0;
 }
 
@@ -172,6 +175,7 @@ fn launcher_print_help(program_name: &byte) void {
     fprintf(stderr, "  %s test <文件> [选项]\n" as *byte, name as *byte);
     fprintf(stderr, "  %s fmt <文件> [选项]\n" as *byte, name as *byte);
     fprintf(stderr, "  %s upm <子命令> [参数]\n" as *byte, name as *byte);
+    fprintf(stderr, "  %s microapp <build|pack|inspect|verify|run> [参数]\n" as *byte, name as *byte);
     fprintf(stderr, "\n说明: 隐式编译入口已移除；请使用 `uya build ...`。\n" as *byte);
 }
 
@@ -182,6 +186,17 @@ fn launcher_print_compat_diagnostic(program_name: &byte) i32 {
     }
     fprintf(stderr, "错误: 隐式编译入口已移除，请使用 `%s build ...`\n" as *byte, name as *byte);
     fprintf(stderr, "提示: 子命令二进制位于 bin/cmd/；若缺失请先运行 make cmds\n" as *byte);
+    return 1;
+}
+
+fn launcher_print_microapp_image_migration(program_name: &byte, old_command: &byte, new_command: &byte) i32 {
+    var name: &byte = program_name;
+    if name == null {
+        name = "uya" as *byte;
+    }
+    fprintf(stderr, "错误: 顶层 `%s` 已迁移，请使用 `%s microapp %s ...`\n" as *byte,
+        old_command as *byte, name as *byte, new_command as *byte);
+    fprintf(stderr, "提示: microapp image/payload 逻辑位于独立子命令 bin/cmd/microapp\n" as *byte);
     return 1;
 }
 
@@ -207,6 +222,15 @@ export fn main() i32 {
     if strcmp(first_arg, "--version" as *byte) == 0 || strcmp(first_arg, "-v" as *byte) == 0 {
         fprintf(stderr, "Uya 编译器版本 v0.9.9\n" as *byte);
         return 0;
+    }
+    if strcmp(first_arg, "pack-image" as *byte) == 0 {
+        return launcher_print_microapp_image_migration(program_name as &byte, first_arg as &byte, "pack" as &byte);
+    }
+    if strcmp(first_arg, "inspect-image" as *byte) == 0 {
+        return launcher_print_microapp_image_migration(program_name as &byte, first_arg as &byte, "inspect" as &byte);
+    }
+    if strcmp(first_arg, "verify-image" as *byte) == 0 {
+        return launcher_print_microapp_image_migration(program_name as &byte, first_arg as &byte, "verify" as &byte);
     }
     if launcher_is_external_cmd(first_arg as &byte) != 0 {
         return launcher_dispatch_external_cmd(first_arg as &byte);

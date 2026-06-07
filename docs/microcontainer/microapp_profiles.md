@@ -209,8 +209,8 @@
 
 推荐优先用 CLI，而不是只依赖环境变量：
 
-> 目标 CLI 为 `uya microapp build|inspect|verify|run`。在 `cmd/microapp` 完全接线前，
-> 旧的 `build --app microapp` / `inspect-image` / `verify-image` 仍可作为过渡实现对照。
+> 目标 CLI 为 `uya microapp build|inspect|verify|run`。需要排查 launcher 分发时，可直接运行
+> `bin/cmd/microapp build|inspect|verify` 做等价对照。
 
 ```bash
 ./bin/uya microapp build \

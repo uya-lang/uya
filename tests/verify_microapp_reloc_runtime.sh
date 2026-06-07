@@ -29,14 +29,14 @@ dump_log_and_fail() {
     exit 1
 }
 
-"$ROOT_DIR/bin/uya" run --app microapp "$SOURCE" >"$RUN_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp run "$SOURCE" >"$RUN_LOG" 2>&1
 grep -a -q "reloc ok" "$RUN_LOG" || dump_log_and_fail "microapp run 路径未输出 reloc ok" "$RUN_LOG"
 grep -a -q "\[microapp loader\] executed mapped payload" "$RUN_LOG" || dump_log_and_fail "microapp run 路径未命中 mapped payload 执行分支" "$RUN_LOG"
 if grep -a -q "\[microapp loader\] launching native payload" "$RUN_LOG"; then
     dump_log_and_fail "microapp run 路径意外回退到了 native payload ELF" "$RUN_LOG"
 fi
 
-"$ROOT_DIR/bin/uya" build --app microapp "$SOURCE" -o "$UAPP_PATH" >"$BUILD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build "$SOURCE" -o "$UAPP_PATH" >"$BUILD_LOG" 2>&1
 "$ROOT_DIR/bin/uya" run lib/std/runtime/microapp/loader_main.uya -- "$UAPP_PATH" >"$LOADER_LOG" 2>&1
 grep -a -q "reloc ok" "$LOADER_LOG" || dump_log_and_fail "loader-only 路径未输出 reloc ok" "$LOADER_LOG"
 grep -a -q "\[microapp loader\] executed mapped payload" "$LOADER_LOG" || dump_log_and_fail "loader-only 路径未命中 mapped payload 执行分支" "$LOADER_LOG"

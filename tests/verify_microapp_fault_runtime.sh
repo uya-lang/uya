@@ -44,7 +44,7 @@ assert_single_result_surface() {
 }
 
 set +e
-"$ROOT_DIR/bin/uya" run --app microapp "$SOURCE" >"$RUN_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp run "$SOURCE" >"$RUN_LOG" 2>&1
 run_status=$?
 set -e
 if [ "$run_status" -ne 139 ]; then
@@ -56,7 +56,7 @@ if grep -a -q "\[microapp loader\] launching native payload" "$RUN_LOG"; then
     dump_log_and_fail "microapp run 路径意外回退到了 native payload ELF" "$RUN_LOG"
 fi
 
-"$ROOT_DIR/bin/uya" build --app microapp "$SOURCE" -o "$UAPP_PATH" >"$BUILD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build "$SOURCE" -o "$UAPP_PATH" >"$BUILD_LOG" 2>&1
 set +e
 "$ROOT_DIR/bin/uya" run lib/std/runtime/microapp/loader_main.uya -- "$UAPP_PATH" >"$LOADER_LOG" 2>&1
 loader_status=$?

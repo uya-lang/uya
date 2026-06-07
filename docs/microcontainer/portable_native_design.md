@@ -501,7 +501,7 @@ loader 的目标从“校验 + 对照运行”改为“校验 + 装载 + 真执�
 - 已引入 `MicroAppTargetProfile`
 - 已把 `MICROAPP_TARGET_ARCH` 升级为 `profile` 选择的一部分
 - 已从只抽 `.text/.rodata` 升级到提取 `segment + entry_va + data/bss`
-- `run --app microapp` 已改为默认真执行 `.uapp`
+- `microapp run` 已改为默认真执行 `.uapp`
 - 当前仍保留构建期 ELF 提取与其他 profile 的过渡路径
 
 ### 7.2 `lib/kernel/payload.uya`

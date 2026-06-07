@@ -31,10 +31,10 @@
 - `payload_obj`：编译器与打包器之间的中间产物，当前会保留源文件路径等 provenance 信息
 - `payload code`：`target_arch` 指定的目标架构载荷码
 - `.uapp`：最终加载器消费的镜像文件
-- 目标 CLI 是 `uya microapp build|pack|inspect|verify|run`；当前旧形态
-  `build --app microapp` / `pack-image` / `inspect-image` / `verify-image` 仍作为过渡实现对照
-- 目标态 `.uapp` 可以由 `microapp build ... -o xxx.uapp` 直接生成，也可以先产 `.pobj`
-  再用 `microapp pack` 打包；宿主示例仍保留用于对照和调试
+- 目标 CLI 是 `uya microapp build|pack|inspect|verify|run`；调试时也可直接运行
+  `bin/cmd/microapp ...` 验证与 launcher 分发等价
+- 目标态 `.uapp` 可以由 `uya microapp build ... -o xxx.uapp` 直接生成，也可以先产 `.pobj`
+  再用 `uya microapp pack` 打包；宿主示例仍保留用于对照和调试
 - 示例 loader 现在可通过命令行参数接收任意 `.uapp` 路径，默认仍回退到示例镜像
 - 热更新槽容量与示例 loader 读取缓冲已经拆成两个独立上限，便于后续分别调优
 - `examples/microapp/microcontainer_hello_source.uya` 是当前推荐的可移植 microapp 源码样例

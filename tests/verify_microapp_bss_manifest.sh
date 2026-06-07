@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$ROOT_DIR/bin/uya" build --app microapp "$SOURCE" -o "$OUT_POBJ" >"$BUILD_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp build "$SOURCE" -o "$OUT_POBJ" >"$BUILD_LOG" 2>&1
 
 python3 - "$OUT_POBJ" <<'PY'
 from pathlib import Path

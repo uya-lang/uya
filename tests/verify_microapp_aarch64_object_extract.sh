@@ -72,7 +72,7 @@ run_case() {
     local inspect_log="$TMP_DIR/$name.inspect.log"
 
     MICROAPP_TARGET_GCC="$fake_gcc" \
-        "$ROOT_DIR/bin/uya" build --app microapp \
+        "$ROOT_DIR/bin/uya" microapp build \
         --microapp-profile linux_aarch64_hardvm \
         "$SOURCE" -o "$uapp" >"$build_log" 2>&1 \
         || dump_log_and_fail "aarch64 object extract 构建失败: $name" "$build_log"
@@ -88,7 +88,7 @@ run_case() {
         dump_log_and_fail "aarch64 object extract 不应回退到内部 ELF 提取: $name" "$build_log"
     fi
 
-    "$ROOT_DIR/bin/uya" inspect-image "$uapp" >"$inspect_log" 2>&1
+    "$ROOT_DIR/bin/uya" microapp inspect "$uapp" >"$inspect_log" 2>&1
     grep -q '^profile=linux_aarch64_hardvm$' "$inspect_log" \
         || dump_log_and_fail "aarch64 object extract inspect 未命中 profile: $name" "$inspect_log"
     grep -q '^target_arch=aarch64$' "$inspect_log" \

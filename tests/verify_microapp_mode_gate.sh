@@ -25,9 +25,9 @@ export fn main() i32 {
 }
 UYA
 
-"$ROOT_DIR/bin/uya" --c99 --nostdlib "$SRC" -o "$OUT_C"
+"$ROOT_DIR/bin/uya" build --c99 --nostdlib "$SRC" -o "$OUT_C"
 
-if "$ROOT_DIR/bin/uya" --c99 --nostdlib --app microapp "$SRC" -o "$OUT_C" >/dev/null 2>&1; then
+if "$ROOT_DIR/bin/uya" microapp build --c99 --nostdlib "$SRC" -o "$OUT_C" >/dev/null 2>&1; then
     echo "expected microapp build to reject extern"
     exit 1
 fi

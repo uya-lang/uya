@@ -95,7 +95,7 @@ build_case_uapp() {
     local status=0
     rm -f "$uapp"
     set +e
-    "$ROOT_DIR/bin/uya" build --app microapp --microapp-profile macos_arm64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp build --microapp-profile macos_arm64_hardvm \
         "$ROOT_DIR/$source_rel" -o "$uapp" >"$build_log" 2>&1
     status=$?
     set -e
@@ -116,7 +116,7 @@ run_case_ok() {
     local status=0
     echo "==> macos arm64 runtime: $name"
     set +e
-    "$ROOT_DIR/bin/uya" run --app microapp --microapp-profile macos_arm64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp run --microapp-profile macos_arm64_hardvm \
         "$ROOT_DIR/$source_rel" >"$run_log" 2>&1
     status=$?
     set -e
@@ -150,7 +150,7 @@ run_case_exit_nonzero() {
 
     echo "==> macos arm64 runtime: exit_nonzero"
     set +e
-    "$ROOT_DIR/bin/uya" run --app microapp --microapp-profile macos_arm64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp run --microapp-profile macos_arm64_hardvm \
         "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_exit_nonzero.uya" >"$run_log" 2>&1
     status=$?
     set -e
@@ -183,7 +183,7 @@ run_case_fault() {
 
     echo "==> macos arm64 runtime: fault_segv"
     set +e
-    "$ROOT_DIR/bin/uya" run --app microapp --microapp-profile macos_arm64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp run --microapp-profile macos_arm64_hardvm \
         "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_fault_segv.uya" >"$run_log" 2>&1
     status=$?
     set -e

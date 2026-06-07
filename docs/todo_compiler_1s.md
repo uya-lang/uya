@@ -527,29 +527,29 @@ uya microapp verify ...
 uya microapp run ...
 ```
 
-- [ ] 新建 `src/cmd/microapp/main.uya`。
-- [ ] 新建或整理 `microapp_cli_main()`，只承载 microapp 子命令解析和调度。
-- [ ] `uya microapp build ...` 支持 microapp payload / `.pobj` / `.uapp` 构建流程。
-- [ ] `uya microapp pack ...` 替代旧顶层 `pack-image`。
-- [ ] `uya microapp inspect ...` 替代旧顶层 `inspect-image`。
-- [ ] `uya microapp verify ...` 替代旧顶层 `verify-image`。
-- [ ] `uya microapp run ...` 支持已接线 profile 的 loader 运行路径。
-- [ ] `bin/uya` launcher 将 `microapp` 分发到 `bin/cmd/microapp`。
-- [ ] `make cmds` / `make install` 纳入 `bin/cmd/microapp`。
-- [ ] 旧顶层 `pack-image` / `inspect-image` / `verify-image` 若保留，只作为兼容诊断或转发到
+- [x] 新建 `src/cmd/microapp/main.uya`。
+- [x] 新建或整理 `microapp_cli_main()`，只承载 microapp 子命令解析和调度。
+- [x] `uya microapp build ...` 支持 microapp payload / `.pobj` / `.uapp` 构建流程。
+- [x] `uya microapp pack ...` 替代旧顶层 `pack-image`。
+- [x] `uya microapp inspect ...` 替代旧顶层 `inspect-image`。
+- [x] `uya microapp verify ...` 替代旧顶层 `verify-image`。
+- [x] `uya microapp run ...` 支持已接线 profile 的 loader 运行路径。
+- [x] `bin/uya` launcher 将 `microapp` 分发到 `bin/cmd/microapp`。
+- [x] `make cmds` / `make install` 纳入 `bin/cmd/microapp`。
+- [x] 旧顶层 `pack-image` / `inspect-image` / `verify-image` 若保留，只作为兼容诊断或转发到
   `uya microapp pack|inspect|verify`，不得重新导入 microapp 大逻辑到 `src/main.uya`。
-- [ ] `cmd/build` seed 继续拒绝 `--app microapp` 与 image/payload 相关参数，并提示使用
+- [x] `cmd/build` seed 继续拒绝 `--app microapp` 与 image/payload 相关参数，并提示使用
   `uya microapp build ...`。
-- [ ] 更新 microapp 文档、示例和测试脚本中的旧命令形态。
+- [x] 更新 microapp 文档、示例和测试脚本中的旧命令形态。
 
 测试：
 
-- [ ] 新增 `tests/test_cmd_microapp_dispatch.sh`。
-- [ ] 覆盖 `bin/uya microapp pack` 与 `bin/cmd/microapp pack` argv 等价。
-- [ ] 覆盖 `bin/uya microapp inspect` / `verify` 分发。
-- [ ] 覆盖旧顶层 `pack-image` / `inspect-image` / `verify-image` 的兼容诊断或转发行为。
-- [ ] 覆盖 `cmd/build` 对 microapp image/payload 的拒绝文案。
-- [ ] 复跑 `make microapp-check`。
+- [x] 新增 `tests/test_cmd_microapp_dispatch.sh`。
+- [x] 覆盖 `bin/uya microapp pack` 与 `bin/cmd/microapp pack` argv 等价。
+- [x] 覆盖 `bin/uya microapp inspect` / `verify` 分发。
+- [x] 覆盖旧顶层 `pack-image` / `inspect-image` / `verify-image` 的兼容诊断或转发行为。
+- [x] 覆盖 `cmd/build` 对 microapp image/payload 的拒绝文案。
+- [x] 复跑 `make microapp-check`。
 
 验证：
 
@@ -562,9 +562,9 @@ make check
 
 阶段 KPI：
 
-- [ ] `bin/uya` launcher 不静态导入 microapp。
-- [ ] `bin/cmd/build` seed 不静态导入 microapp image/payload。
-- [ ] microapp CLI 能力通过 `uya microapp ...` 完整恢复。
+- [x] `bin/uya` launcher 不静态导入 microapp。
+- [x] `bin/cmd/build` seed 不静态导入 microapp image/payload。
+- [x] microapp CLI 能力通过 `uya microapp ...` 完整恢复。
 
 ---
 
@@ -589,7 +589,7 @@ bin/cmd/build
 - [x] 更新 `backup-all-seed`，生成 build seed。
 - [x] 保留 C99 fallback seed。
 - [x] 防止 dispatcher-only `bin/uya` 与 `cmd/build` 互相等待。
-- [ ] seed 对 microapp 参数的错误信息指向 `uya microapp build ...`，而不是旧顶层
+- [x] seed 对 microapp 参数的错误信息指向 `uya microapp build ...`，而不是旧顶层
   `pack-image` / `inspect-image` / `verify-image`。
 
 测试：

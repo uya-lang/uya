@@ -36,14 +36,14 @@ verify_example() {
     local loader_log="$TMP_DIR/${base}.loader.log"
     local uapp="$TMP_DIR/${base}.uapp"
 
-    "$ROOT_DIR/bin/uya" run --app microapp "$source" >"$run_log" 2>&1
+    "$ROOT_DIR/bin/uya" microapp run "$source" >"$run_log" 2>&1
     grep -a -q "$expected" "$run_log" || dump_log_and_fail "example run 未输出预期内容: $source_rel" "$run_log"
     grep -a -q "\[microapp loader\] executed mapped payload" "$run_log" || dump_log_and_fail "example run 未命中 mapped payload: $source_rel" "$run_log"
     if grep -a -q "\[microapp loader\] launching native payload" "$run_log"; then
         dump_log_and_fail "example run 意外回退 native payload: $source_rel" "$run_log"
     fi
 
-    "$ROOT_DIR/bin/uya" build --app microapp "$source" -o "$uapp" >"$build_log" 2>&1
+    "$ROOT_DIR/bin/uya" microapp build "$source" -o "$uapp" >"$build_log" 2>&1
     "$ROOT_DIR/bin/uya" run lib/std/runtime/microapp/loader_main.uya -- "$uapp" >"$loader_log" 2>&1
     grep -a -q "$expected" "$loader_log" || dump_log_and_fail "example loader 未输出预期内容: $source_rel" "$loader_log"
     grep -a -q "\[microapp loader\] executed mapped payload" "$loader_log" || dump_log_and_fail "example loader 未命中 mapped payload: $source_rel" "$loader_log"

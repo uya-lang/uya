@@ -46,7 +46,7 @@
   - `examples/microapp/microcontainer_time_source.uya`
   - `examples/microapp/microcontainer_bss_source.uya`
 
-当前实现已经打通 `build --app microapp -> target gcc .text -> payload_obj -> .uapp` 这条链路。
+当前实现已经打通 `uya microapp build -> target gcc .text -> payload_obj -> .uapp` 这条链路。
 如果后续要继续演进，重点会转向：
 
 - 把 `code` 从 C 后端产物进一步收敛成更明确的目标载荷表示
@@ -155,9 +155,9 @@ app.uya / microapp.uya
 
 这一阶段是“源码能否成为微应用”的第一道门槛。
 
-建议由编译器在显式模式下启用：
+建议由编译器在显式 microapp 子命令下启用：
 
-- `--app microapp`
+- `uya microapp build`
 
 该阶段至少要拒绝：
 
@@ -260,7 +260,7 @@ app.uya / microapp.uya
 - 写入 `target_arch`
 
 这一步当前已经有了第一版实现：`payload_pack_to_uapp()`。
-当前 `build --app microapp` 生成的 `.pobj/.uapp v2` 也已经开始携带非零 `reloc_count / reloc table`，便于后续 runtime 真正应用 relocation。
+当前 `uya microapp build` 生成的 `.pobj/.uapp v2` 也已经开始携带非零 `reloc_count / reloc table`，便于后续 runtime 真正应用 relocation。
 
 长期目标应该是：
 
@@ -307,8 +307,8 @@ app.uya / microapp.uya
 ## 6. 命令行形态建议
 
 建议最终用户看到的是一条面向产物的命令，而不是多脚本拼接。
-目标 CLI 统一走 `uya microapp build|pack|inspect|verify|run` 命名空间；当前仓库中的
-`build --app microapp`、`pack-image`、`inspect-image`、`verify-image` 仍可作为过渡实现对照。
+目标 CLI 统一走 `uya microapp build|pack|inspect|verify|run` 命名空间；需要排查 launcher 分发时，
+可直接运行 `bin/cmd/microapp build|pack|inspect|verify` 做等价对照。
 
 ### 6.1 最小目标命令
 
@@ -339,10 +339,10 @@ uya microapp pack build/hello.pobj -o examples/microapp/microcontainer_hello.uap
 
 其中：
 
-- `microapp build -o xxx.pobj` 负责前端、microapp 模式检查、目标代码生成、`payload_obj` 输出
-- `microapp pack` 负责封装 `.uapp`
+- `uya microapp build -o xxx.pobj` 负责前端、microapp 模式检查、目标代码生成、`payload_obj` 输出
+- `uya microapp pack` 负责封装 `.uapp`
 
-当前仓库里，`build --app microapp` 已经可以直接产出 `.pobj` 或 `.uapp`；宿主打包器示例主要用于对照验证和格式调试。
+当前仓库里，`uya microapp build` 已经可以直接产出 `.pobj` 或 `.uapp`；宿主打包器示例主要用于对照验证和格式调试。
 
 ### 6.2 调试型命令
 
@@ -568,8 +568,8 @@ make microapp-recovery-check
 当满足下面条件时，可以认为“源码 -> `.uapp` 编译链”已经初步成立：
 
 1. 开发者只需编写 `.uya` 源码，不需要手工拼镜像头
-2. `microapp build` 能产出 `payload_obj`
-3. `microapp pack` 能把 `payload_obj` 打包为 `.uapp`
+2. `uya microapp build` 能产出 `payload_obj`
+3. `uya microapp pack` 能把 `payload_obj` 打包为 `.uapp`
 4. 生成的 `.uapp` 默认通过 `image_validate()`
 5. 示例镜像能通过 `sim_load_image()` 正常运行
 6. 非法源码或非法指令路径会在编译期或打包期被拒绝
@@ -589,8 +589,8 @@ make microapp-recovery-check
 
 - 源码级 `microapp` 编译产物定义
 - `payload_obj` 中间层
-- 通用 `.uapp` packer 的目标入口：`microapp pack`
-- 从源码直接产出 `.uapp` 的正式命令入口：`microapp build`
+- 通用 `.uapp` packer 的目标入口：`uya microapp pack`
+- 从源码直接产出 `.uapp` 的正式命令入口：`uya microapp build`
 
 所以当前阶段最准确的表述应该是：
 
@@ -603,7 +603,7 @@ make microapp-recovery-check
 最值得优先推进的不是继续写更多手工构造示例，而是：
 
 1. 定义 `payload_obj`
-2. 抽出通用 `microapp pack`
+2. 抽出通用 `uya microapp pack`
 3. 让示例源码成为真正的编译输入
 4. 把 `.uapp` 从“脚本构造产物”升级为“编译链产物”
 

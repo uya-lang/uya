@@ -202,6 +202,7 @@ var g_async_frame_heap_fallback: i32 = 0;
 var g_container_mode: i32 = 0;
 // --app microapp: 微应用模式
 var g_app_mode_microapp: i32 = 0;
+var g_force_microapp_mode: i32 = 0;
 var g_microapp_softvm_mode: i32 = 0;
 var g_microapp_target_profile_override: [byte: 128] = [];
 var g_microapp_target_profile_override_active: i32 = 0;
@@ -1154,6 +1155,23 @@ fn path_get_parent_dir(src: &byte, dst: &byte, dst_cap: usize) i32 {
     return 0;
 }
 
+fn path_is_cmd_dir(src: &byte) i32 {
+    if src == null {
+        return 0;
+    }
+    const len: usize = strlen(src as *byte);
+    if len < 4usize {
+        return 0;
+    }
+    if src[len - 4usize] == 99 as byte &&
+       src[len - 3usize] == 109 as byte &&
+       src[len - 2usize] == 100 as byte &&
+       src[len - 1usize] == 47 as byte {
+        return 1;
+    }
+    return 0;
+}
+
 // 获取 UYA_ROOT 环境变量或默认目录
 fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     if buffer == null || buffer_size == 0 {
@@ -1182,7 +1200,35 @@ fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     if get_compiler_dir(argv0, &comp_dir[0] as &byte, PATH_MAX) != 0 {
         return -1;
     }
+    if path_is_cmd_dir(&comp_dir[0] as &byte) != 0 {
+        var bin_dir: [byte: PATH_MAX] = [];
+        if path_get_parent_dir(&comp_dir[0] as &byte, &bin_dir[0] as &byte, PATH_MAX) == 0 {
+            return path_get_parent_dir(&bin_dir[0] as &byte, buffer, buffer_size);
+        }
+    }
     return path_get_parent_dir(&comp_dir[0] as &byte, buffer, buffer_size);
+}
+
+fn get_launcher_path_from_cmd_wrapper(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if argv0 == null || buffer == null || buffer_size == 0 {
+        return -1;
+    }
+    var cmd_dir: [byte: PATH_MAX] = [];
+    if get_compiler_dir(argv0, &cmd_dir[0] as &byte, PATH_MAX) != 0 {
+        return -1;
+    }
+    if path_is_cmd_dir(&cmd_dir[0] as &byte) == 0 {
+        return -1;
+    }
+    var bin_dir: [byte: PATH_MAX] = [];
+    if path_get_parent_dir(&cmd_dir[0] as &byte, &bin_dir[0] as &byte, PATH_MAX) != 0 {
+        return -1;
+    }
+    const written: i32 = snprintf(buffer as *byte, buffer_size, "%suya" as *byte, &bin_dir[0] as *byte);
+    if written <= 0 || written >= buffer_size as i32 {
+        return -1;
+    }
+    return 0;
 }
 
 // 打印使用说明（program_name 用 &byte，传给 fprintf 时转为 *byte；若为 null 则用默认名避免 %s 段错误）
@@ -1881,6 +1927,11 @@ fn parse_args(
     g_split_c_dir[0] = 0 as byte;
     g_split_c_disabled_cli = 0;
     g_app_mode_microapp = 0;
+    g_container_mode = 0;
+    if g_force_microapp_mode != 0 {
+        g_app_mode_microapp = 1;
+        g_container_mode = 1;
+    }
     g_microapp_target_profile_override_active = 0;
     g_microapp_target_profile_override[0] = 0 as byte;
     g_module_root_override_active = 0;
@@ -2043,6 +2094,10 @@ fn parse_args(
                     g_app_mode_microapp = 1;
                     g_container_mode = 1;
                 } else if app_arg != null && strcmp(app_arg, "app" as *byte) == 0 {
+                    if g_force_microapp_mode != 0 {
+                        fprintf(libc.stderr, "错误: microapp 子命令不支持 --app app\n" as *byte);
+                        return -1;
+                    }
                     g_app_mode_microapp = 0;
                     g_container_mode = 0;
                 } else {
@@ -2189,6 +2244,11 @@ fn parse_args(
             print_usage(program_name as &byte);
         }
         return -1;
+    }
+
+    if g_force_microapp_mode != 0 {
+        g_app_mode_microapp = 1;
+        g_container_mode = 1;
     }
 
     // run 和 test 命令：如果没有指定 -o，自动生成输出路径
@@ -3471,7 +3531,7 @@ fn compiler_driver_run(default_command: CommandType, allow_all_subcommands: i32)
         }
         const run_profile: MicroAppTargetProfile = resolve_microapp_target_profile();
         if microapp_profile_supports_runtime_execution(&run_profile) == 0 {
-            fprintf(libc.stderr, "错误: microapp profile '%s' 当前尚未接线 run --app microapp 运行时\n" as *byte, run_profile.name as *byte);
+            fprintf(libc.stderr, "错误: microapp profile '%s' 当前尚未接线 microapp run 运行时\n" as *byte, run_profile.name as *byte);
             return 1;
         }
         fprintf(libc.stderr, "\n=== microapp run: 编译 payload ===\n" as *byte);
@@ -3501,11 +3561,17 @@ fn compiler_driver_run(default_command: CommandType, allow_all_subcommands: i32)
             fprintf(libc.stderr, "错误：无法生成 microapp payload 可执行文件路径\n" as *byte);
             return 1;
         }
+        var loader_compiler_path: [byte: PATH_MAX] = [];
+        var loader_compiler: &byte = get_argv(0);
+        if loader_compiler != null &&
+            get_launcher_path_from_cmd_wrapper(loader_compiler, &loader_compiler_path[0] as &byte, PATH_MAX) == 0 {
+            loader_compiler = &loader_compiler_path[0] as &byte;
+        }
         fprintf(libc.stderr, "=== microapp run: 编译并运行 loader ===\n" as *byte);
         var loader_cmd: [byte: 4096] = [];
         const loader_cmd_len: i32 = snprintf(&loader_cmd[0] as *byte, 4096,
             "\"%s\" run \"%s\" -- \"%s\" \"%s\"" as *byte,
-            get_argv(0),
+            loader_compiler as *byte,
             loader_source_path as *byte,
             &microapp_uapp_path[0] as *byte,
             &microapp_exe_path[0] as *byte);
@@ -3742,6 +3808,26 @@ export fn compiler_driver_check_main() i32 {
 /// 返回值说明：返回 run 命令的进程退出码。
 export fn compiler_driver_run_main() i32 {
     return compiler_driver_run(CommandType.COMMAND_RUN, 0);
+}
+
+/// 运行 `cmd/microapp build` 的独立 microapp build CLI。
+/// 参数说明：无，直接读取进程 argv；未显式写 `--app microapp` 时也强制进入 microapp 模式。
+/// 返回值说明：返回 microapp build 命令的进程退出码。
+export fn compiler_driver_microapp_build_main() i32 {
+    g_force_microapp_mode = 1;
+    const result: i32 = compiler_driver_run(CommandType.COMMAND_BUILD, 0);
+    g_force_microapp_mode = 0;
+    return result;
+}
+
+/// 运行 `cmd/microapp run` 的独立 microapp run CLI。
+/// 参数说明：无，直接读取进程 argv；未显式写 `--app microapp` 时也强制进入 microapp 模式。
+/// 返回值说明：返回 microapp run 命令的进程退出码。
+export fn compiler_driver_microapp_run_main() i32 {
+    g_force_microapp_mode = 1;
+    const result: i32 = compiler_driver_run(CommandType.COMMAND_RUN, 0);
+    g_force_microapp_mode = 0;
+    return result;
 }
 
 /// 运行 `cmd/test` 的独立 test CLI。

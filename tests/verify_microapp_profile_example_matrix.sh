@@ -39,7 +39,7 @@ verify_profile_compile_to_c() {
     local out_c="$TMP_DIR/${profile}.c"
     local log="$TMP_DIR/${profile}.log"
 
-    if ! "$ROOT_DIR/bin/uya" build --app microapp \
+    if ! "$ROOT_DIR/bin/uya" microapp build \
         --microapp-profile "$profile" \
         "$SOURCE" -o "$out_c" >"$log" 2>&1; then
         dump_and_fail "profile matrix 编译失败: $profile" "$log"
@@ -63,13 +63,13 @@ verify_profile_uapp_contract() {
     local log="$TMP_DIR/${profile}.uapp.log"
     local inspect="$TMP_DIR/${profile}.inspect.log"
 
-    if ! TARGET_GCC="$gcc_bin" "$ROOT_DIR/bin/uya" build --app microapp \
+    if ! TARGET_GCC="$gcc_bin" "$ROOT_DIR/bin/uya" microapp build \
         --microapp-profile "$profile" \
         "$SOURCE" -o "$uapp" >"$log" 2>&1; then
         dump_and_fail "profile matrix ${profile} .uapp 构建失败" "$log"
     fi
 
-    "$ROOT_DIR/bin/uya" inspect-image "$uapp" >"$inspect" 2>&1
+    "$ROOT_DIR/bin/uya" microapp inspect "$uapp" >"$inspect" 2>&1
     grep -q "^profile=${profile}$" "$inspect" \
         || dump_and_fail "profile matrix ${profile} .uapp inspect 未命中 profile" "$inspect"
     grep -q "^bridge=${expected_bridge}$" "$inspect" \
@@ -136,13 +136,13 @@ rm -f "$asm"
 EOF
     chmod +x "$fake_gcc"
 
-    if ! MICROAPP_TARGET_GCC="$fake_gcc" "$ROOT_DIR/bin/uya" build --app microapp \
+    if ! MICROAPP_TARGET_GCC="$fake_gcc" "$ROOT_DIR/bin/uya" microapp build \
         --microapp-profile "$profile" \
         "$SOURCE" -o "$uapp" >"$log" 2>&1; then
         dump_and_fail "profile matrix ${profile} .uapp 构建失败" "$log"
     fi
 
-    "$ROOT_DIR/bin/uya" inspect-image "$uapp" >"$inspect" 2>&1
+    "$ROOT_DIR/bin/uya" microapp inspect "$uapp" >"$inspect" 2>&1
     grep -q "^profile=${profile}$" "$inspect" \
         || dump_and_fail "profile matrix ${profile} .uapp inspect 未命中 profile" "$inspect"
     grep -q "^bridge=${expected_bridge}$" "$inspect" \
@@ -163,13 +163,13 @@ X86_UAPP="$TMP_DIR/linux_x86_64_hardvm.uapp"
 X86_INSPECT="$TMP_DIR/linux_x86_64_hardvm.inspect.log"
 if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
     if ! TARGET_GCC=x86_64-linux-gnu-gcc \
-        "$ROOT_DIR/bin/uya" build --app microapp \
+        "$ROOT_DIR/bin/uya" microapp build \
         --microapp-profile linux_x86_64_hardvm \
         "$SOURCE" -o "$X86_UAPP" >"$TMP_DIR/linux_x86_64_hardvm.uapp.log" 2>&1; then
         dump_and_fail "profile matrix x86_64 .uapp 构建失败" "$TMP_DIR/linux_x86_64_hardvm.uapp.log"
     fi
 
-    "$ROOT_DIR/bin/uya" inspect-image "$X86_UAPP" >"$X86_INSPECT" 2>&1
+    "$ROOT_DIR/bin/uya" microapp inspect "$X86_UAPP" >"$X86_INSPECT" 2>&1
     grep -q '^profile=linux_x86_64_hardvm$' "$X86_INSPECT" \
         || dump_and_fail "profile matrix x86_64 .uapp inspect 未命中 profile" "$X86_INSPECT"
     grep -q '^bridge=call_gate$' "$X86_INSPECT" \

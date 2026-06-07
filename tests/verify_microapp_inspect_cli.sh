@@ -24,8 +24,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$POBJ" >/tmp/verify_microapp_inspect_build_pobj.log 2>&1
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$UAPP" >/tmp/verify_microapp_inspect_build_uapp.log 2>&1
+"$ROOT_DIR/bin/uya" microapp build examples/microapp/microcontainer_hello_source.uya -o "$POBJ" >/tmp/verify_microapp_inspect_build_pobj.log 2>&1
+"$ROOT_DIR/bin/uya" microapp build examples/microapp/microcontainer_hello_source.uya -o "$UAPP" >/tmp/verify_microapp_inspect_build_uapp.log 2>&1
 
 python3 - "$POBJ" "$LEGACY_POBJ_V5" "$LEGACY_POBJ_V6" "$LEGACY_UAPP_V1" <<'PY'
 from pathlib import Path
@@ -157,11 +157,11 @@ u[28:60] = digest
 out_uapp_v1.write_bytes(u)
 PY
 
-"$ROOT_DIR/bin/uya" inspect-image "$POBJ" >"$POBJ_LOG" 2>&1
-"$ROOT_DIR/bin/uya" inspect-image "$UAPP" >"$UAPP_LOG" 2>&1
-"$ROOT_DIR/bin/uya" inspect-image "$LEGACY_POBJ_V5" >"$POBJ_V5_LOG" 2>&1
-"$ROOT_DIR/bin/uya" inspect-image "$LEGACY_POBJ_V6" >"$POBJ_V6_LOG" 2>&1
-"$ROOT_DIR/bin/uya" inspect-image "$LEGACY_UAPP_V1" >"$UAPP_V1_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp inspect "$POBJ" >"$POBJ_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp inspect "$UAPP" >"$UAPP_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp inspect "$LEGACY_POBJ_V5" >"$POBJ_V5_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp inspect "$LEGACY_POBJ_V6" >"$POBJ_V6_LOG" 2>&1
+"$ROOT_DIR/bin/uya" microapp inspect "$LEGACY_UAPP_V1" >"$UAPP_V1_LOG" 2>&1
 
 grep -q '^kind=pobj$' "$POBJ_LOG"
 grep -q '^version=8$' "$POBJ_LOG"
@@ -193,4 +193,4 @@ grep -q '^validated=yes$' "$UAPP_V1_LOG"
 grep -q '^format_version=1$' "$UAPP_V1_LOG"
 grep -q '^target_arch=rv32$' "$UAPP_V1_LOG"
 
-echo "microapp inspect-image ok"
+echo "microapp inspect ok"

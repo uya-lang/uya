@@ -93,7 +93,7 @@ build_case_uapp() {
     local build_log="$TMP_DIR/${name}.build.log"
 
     rm -f "$uapp"
-    "$ROOT_DIR/bin/uya" build --app microapp --microapp-profile linux_aarch64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp build --microapp-profile linux_aarch64_hardvm \
         "$ROOT_DIR/$source_rel" -o "$uapp" >"$build_log" 2>&1
     printf '%s\n' "$uapp"
 }
@@ -107,7 +107,7 @@ run_case_ok() {
     local uapp=""
 
     echo "==> aarch64 runtime: $name"
-    "$ROOT_DIR/bin/uya" run --app microapp --microapp-profile linux_aarch64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp run --microapp-profile linux_aarch64_hardvm \
         "$ROOT_DIR/$source_rel" >"$run_log" 2>&1
 
     grep -a -q "$expected_text" "$run_log" || dump_log_and_fail "aarch64 $name run 未输出期望文本: $expected_text" "$run_log"
@@ -136,7 +136,7 @@ run_case_exit_nonzero() {
 
     echo "==> aarch64 runtime: exit_nonzero"
     set +e
-    "$ROOT_DIR/bin/uya" run --app microapp --microapp-profile linux_aarch64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp run --microapp-profile linux_aarch64_hardvm \
         "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_exit_nonzero.uya" >"$run_log" 2>&1
     status=$?
     set -e
@@ -175,7 +175,7 @@ run_case_fault() {
 
     echo "==> aarch64 runtime: fault_segv"
     set +e
-    "$ROOT_DIR/bin/uya" run --app microapp --microapp-profile linux_aarch64_hardvm \
+    "$ROOT_DIR/bin/uya" microapp run --microapp-profile linux_aarch64_hardvm \
         "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_fault_segv.uya" >"$run_log" 2>&1
     status=$?
     set -e
