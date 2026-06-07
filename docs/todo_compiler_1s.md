@@ -869,7 +869,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
       - [x] 将 full-language smoke 的 main 前置 i32 call locals 与基础 if-return 骨架接入 CoreBody/MIR，复杂类型/接口/drop 等仍保持 pending。
   - 接入 hosted native `@c_import` / extern linker handoff，确保 native link 对象与 C99 oracle 运行结果一致（拆分执行）：
     - [x] 新增最小 extern C 对象 hosted native/C99 parity smoke，要求 `--native` 真实生成 executable 并链接 sidecar object。
-    - [ ] 将 `@c_import` sidecar object 纳入 hosted native link plan，preflight dump 必须记录 object 数量和 extern symbol。
+    - [x] 将 `@c_import` sidecar object 纳入 hosted native link plan，preflight dump 必须记录 object 数量和 extern symbol。
     - [ ] 将最小 `extern fn add_i32(...)` call body 经 CoreBody/PortableMIR 降到 hosted native executable，并与 C99 oracle 退出码一致。
     - [ ] 把 full-language smoke 中的 extern / `@c_import` 片段从明确 pending 推进为 parity 覆盖。
   - [ ] 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性。

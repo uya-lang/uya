@@ -3567,7 +3567,7 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     return 0;
 }
 
-fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, preflight_status: i32,
+fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_status: i32,
     result: &NativeHostedMirPreflightResult) void {
     if result == null {
         return;
@@ -3581,6 +3581,14 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
         preflight_status, result.verifier_error, result.mir_extern_function_count,
         result.mir_body_function_count, result.mir_type_count, result.extern_symbol_count,
         c_import_count, result.object_count);
+}
+
+fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, preflight_status: i32,
+    result: &NativeHostedMirPreflightResult) void {
+    if result == null {
+        return;
+    }
+    native_build_print_hosted_preflight_summary(c_import_count, preflight_status, result);
     fprintf(libc.stderr,
         "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing required=CoreBody+PortableMIR function-body lowering\n" as *byte);
     fprintf(libc.stderr,
@@ -8730,6 +8738,10 @@ fn compile_files(
             if hosted_link_status < 0 {
                 codegen_end_time = clock();
                 return 1;
+            }
+            if hosted_link_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
             }
             const hosted_subset_status: i32 = native_build_try_emit_hosted_no_deps_subset(
                 actual_output as &byte, merged_ast, &emit_arena, hosted_c_import_count);
