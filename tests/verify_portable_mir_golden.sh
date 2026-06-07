@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # Phase 9A：验证 PortableMIR 的基础 golden dump 形状。
-# 覆盖 block、value、load/store、aggregate field address、branch、call 和 cleanup path。
+# 覆盖 block、value、load/store、aggregate field address、branch、call、cleanup path、
+# atomic、vector 和 mask。
 
 set -euo pipefail
 
@@ -41,6 +42,9 @@ for symbol in \
     MIR_TERMINATOR_KIND_COND_BR \
     MIR_BLOCK_FLAG_CLEANUP \
     MIR_TYPE_KIND_STRUCT \
+    MIR_TYPE_KIND_ATOMIC \
+    MIR_TYPE_KIND_VECTOR \
+    MIR_TYPE_KIND_MASK \
     portable_mir_append_block \
     portable_mir_append_value \
     portable_mir_append_inst \
@@ -50,6 +54,9 @@ done
 
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_module' "MIR verifier entry"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_FIELD_ADDR' "aggregate field address opcode"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_ATOMIC_LOAD' "atomic load opcode"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_VECTOR_SPLAT' "vector splat opcode"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_VECTOR_SELECT' "mask/vector select opcode"
 require_pattern "$PORTABLE_MIR_DOC" '^## 23\. Dump 和 Golden 格式' "dump/golden 文档章节"
 require_pattern "$PORTABLE_MIR_DOC" 'golden tests 中 source path 可 normalize 或隐藏' "golden normalize 规则"
 require_pattern "$PORTABLE_MIR_DOC" 'golden test 应使用小 MIR program 隔离一个 feature' "小 MIR golden 规则"
@@ -65,6 +72,9 @@ cat "$ARENA_FILE" "$TABLE_FILE" "$MIR_FILE" "$MIR_VERIFIER_FILE" >>"$tmp_dir/mai
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
 const GOLDEN_OP_FIELD_ADDR: i32 = 8;
+const GOLDEN_OP_ATOMIC_LOAD: i32 = 17;
+const GOLDEN_OP_VECTOR_SPLAT: i32 = 21;
+const GOLDEN_OP_VECTOR_SELECT: i32 = 24;
 
 fn golden_type(id: i32, kind: i32, pointee: i32, field_count: i32) MirType {
     var typ: MirType = MirType{
@@ -96,6 +106,23 @@ fn golden_type(id: i32, kind: i32, pointee: i32, field_count: i32) MirType {
     if kind == MIR_TYPE_KIND_STRUCT {
         typ.size_bytes = 8usize;
         typ.align_bytes = 4usize;
+    }
+    if kind == MIR_TYPE_KIND_ATOMIC {
+        typ.atomic_align_bytes = 4usize;
+        typ.element_type_id = 0;
+    }
+    if kind == MIR_TYPE_KIND_VECTOR {
+        typ.size_bytes = 16usize;
+        typ.align_bytes = 16usize;
+        typ.element_type_id = 0;
+        typ.lane_count = 4;
+        typ.lane_stride_bytes = 4usize;
+    }
+    if kind == MIR_TYPE_KIND_MASK {
+        typ.size_bytes = 1usize;
+        typ.align_bytes = 1usize;
+        typ.lane_count = 4;
+        typ.mask_representation = 1;
     }
     return typ;
 }
@@ -216,15 +243,23 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var t1: MirType = golden_type(1, MIR_TYPE_KIND_POINTER, 0, 0);
     var t2: MirType = golden_type(2, MIR_TYPE_KIND_STRUCT, MIR_TYPE_INVALID_ID, 2);
     var t3: MirType = golden_type(3, MIR_TYPE_KIND_POINTER, 2, 0);
+    var t4: MirType = golden_type(4, MIR_TYPE_KIND_ATOMIC, MIR_TYPE_INVALID_ID, 0);
+    var t5: MirType = golden_type(5, MIR_TYPE_KIND_VECTOR, MIR_TYPE_INVALID_ID, 0);
+    var t6: MirType = golden_type(6, MIR_TYPE_KIND_MASK, MIR_TYPE_INVALID_ID, 0);
     if portable_mir_append_type(module, &t0) != 0 { return -1; }
     if portable_mir_append_type(module, &t1) != 0 { return -1; }
     if portable_mir_append_type(module, &t2) != 0 { return -1; }
     if portable_mir_append_type(module, &t3) != 0 { return -1; }
+    if portable_mir_append_type(module, &t4) != 0 { return -1; }
+    if portable_mir_append_type(module, &t5) != 0 { return -1; }
+    if portable_mir_append_type(module, &t6) != 0 { return -1; }
 
     var local0: MirLocal = golden_local(0, 0);
     var local1: MirLocal = golden_local(1, 2);
+    var local2: MirLocal = golden_local(2, 4);
     if portable_mir_append_local(module, &local0) != 0 { return -1; }
     if portable_mir_append_local(module, &local1) != 0 { return -1; }
+    if portable_mir_append_local(module, &local2) != 0 { return -1; }
 
     var value0: MirValue = golden_value(0, 0, 0, MIR_INST_INVALID_ID, 0, MIR_VALUE_FLAG_PARAM);
     var value1: MirValue = golden_value(1, 0, 0, 0, -1, 0);
@@ -232,12 +267,18 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var value3: MirValue = golden_value(3, 1, 3, 3, -1, MIR_VALUE_FLAG_ADDRESS);
     var value4: MirValue = golden_value(4, 1, 0, MIR_INST_INVALID_ID, 0, MIR_VALUE_FLAG_PARAM);
     var value5: MirValue = golden_value(5, 1, 0, 4, -1, 0);
+    var value6: MirValue = golden_value(6, 2, 4, 6, -1, 0);
+    var value7: MirValue = golden_value(7, 2, 5, 7, -1, 0);
+    var value8: MirValue = golden_value(8, 2, 6, 8, -1, 0);
     if portable_mir_append_value(module, &value0) != 0 { return -1; }
     if portable_mir_append_value(module, &value1) != 0 { return -1; }
     if portable_mir_append_value(module, &value2) != 0 { return -1; }
     if portable_mir_append_value(module, &value3) != 0 { return -1; }
     if portable_mir_append_value(module, &value4) != 0 { return -1; }
     if portable_mir_append_value(module, &value5) != 0 { return -1; }
+    if portable_mir_append_value(module, &value6) != 0 { return -1; }
+    if portable_mir_append_value(module, &value7) != 0 { return -1; }
+    if portable_mir_append_value(module, &value8) != 0 { return -1; }
 
     var param0: MirBlockParam = MirBlockParam{
         param_id: 0,
@@ -258,6 +299,9 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var op6: MirOperand = golden_operand(6, 3, MIR_LOCAL_INVALID_ID, 3);
     var op7: MirOperand = golden_operand(7, 3, MIR_LOCAL_INVALID_ID, 3);
     var op8: MirOperand = golden_operand(8, 5, MIR_LOCAL_INVALID_ID, 0);
+    var op9: MirOperand = golden_operand(9, MIR_VALUE_INVALID_ID, 2, 4);
+    var op10: MirOperand = golden_operand(10, 2, MIR_LOCAL_INVALID_ID, 0);
+    var op11: MirOperand = golden_operand(11, 7, MIR_LOCAL_INVALID_ID, 5);
     if portable_mir_append_operand(module, &op0) != 0 { return -1; }
     if portable_mir_append_operand(module, &op1) != 0 { return -1; }
     if portable_mir_append_operand(module, &op2) != 0 { return -1; }
@@ -267,6 +311,9 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     if portable_mir_append_operand(module, &op6) != 0 { return -1; }
     if portable_mir_append_operand(module, &op7) != 0 { return -1; }
     if portable_mir_append_operand(module, &op8) != 0 { return -1; }
+    if portable_mir_append_operand(module, &op9) != 0 { return -1; }
+    if portable_mir_append_operand(module, &op10) != 0 { return -1; }
+    if portable_mir_append_operand(module, &op11) != 0 { return -1; }
 
     var succ0: MirSuccessor = golden_successor(0, 1, 4, 1);
     var succ1: MirSuccessor = golden_successor(1, 2, 0, 0);
@@ -283,12 +330,18 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var inst3: MirInst = golden_inst(3, 1, GOLDEN_OP_FIELD_ADDR, 3, 3, 5, 1, MIR_ADDRESS_SPACE_HOST);
     var inst4: MirInst = golden_inst(4, 1, MIR_INST_OP_LOAD, 0, 5, 6, 1, MIR_ADDRESS_SPACE_HOST);
     var inst5: MirInst = golden_inst(5, 1, MIR_INST_OP_STORE, 0, MIR_VALUE_INVALID_ID, 7, 2, MIR_ADDRESS_SPACE_HOST);
+    var inst6: MirInst = golden_inst(6, 2, GOLDEN_OP_ATOMIC_LOAD, 4, 6, 9, 1, MIR_ADDRESS_SPACE_HOST);
+    var inst7: MirInst = golden_inst(7, 2, GOLDEN_OP_VECTOR_SPLAT, 5, 7, 10, 1, MIR_ADDRESS_SPACE_GENERIC);
+    var inst8: MirInst = golden_inst(8, 2, GOLDEN_OP_VECTOR_SELECT, 6, 8, 11, 1, MIR_ADDRESS_SPACE_GENERIC);
     if portable_mir_append_inst(module, &inst0) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst1) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst2) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst3) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst4) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst5) != 0 { return -1; }
+    if portable_mir_append_inst(module, &inst6) != 0 { return -1; }
+    if portable_mir_append_inst(module, &inst7) != 0 { return -1; }
+    if portable_mir_append_inst(module, &inst8) != 0 { return -1; }
 
     var term0: MirTerminator = golden_term(0, 0, MIR_TERMINATOR_KIND_COND_BR, 4, 1, 0, 2);
     var term1: MirTerminator = golden_term(1, 1, MIR_TERMINATOR_KIND_BR, 0, 0, 2, 1);
@@ -301,8 +354,8 @@ fn golden_append_module(module: &PortableMirModule) i32 {
 
     var block0: MirBlock = golden_block(0, 0, 0, 0, 3, 0, 0);
     var block1: MirBlock = golden_block(1, 0, 1, 3, 3, 1, 0);
-    var block2: MirBlock = golden_block(2, 0, 0, 6, 0, 2, 0);
-    var block3: MirBlock = golden_block(3, 0, 0, 6, 0, 3, MIR_BLOCK_FLAG_CLEANUP);
+    var block2: MirBlock = golden_block(2, 0, 0, 6, 3, 2, 0);
+    var block3: MirBlock = golden_block(3, 0, 0, 9, 0, 3, MIR_BLOCK_FLAG_CLEANUP);
     if portable_mir_append_block(module, &block0) != 0 { return -1; }
     if portable_mir_append_block(module, &block1) != 0 { return -1; }
     if portable_mir_append_block(module, &block2) != 0 { return -1; }
@@ -318,7 +371,7 @@ fn golden_append_module(module: &PortableMirModule) i32 {
         param_start: 0,
         param_count: 1,
         local_start: 0,
-        local_count: 2,
+        local_count: 3,
         block_start: 0,
         block_count: 4,
         entry_block_id: 0,
@@ -558,20 +611,27 @@ build_out="$tmp_dir/build.out"
 build_err="$tmp_dir/build.err"
 
 cat >"$expected" <<'EOF'
-mir_module profile=7 ptr=8 funcs=1 blocks=4 values=6 types=4 locals=2 insts=6 terms=4 operands=9 successors=4 block_params=1 cleanup=1
-fn#0 sig=t0 params=0+1 locals=0+2 blocks=0+4 entry=bb0 cleanup=1 cc=1 addrmask=3
+mir_module profile=7 ptr=8 funcs=1 blocks=4 values=9 types=7 locals=3 insts=9 terms=4 operands=12 successors=4 block_params=1 cleanup=1
+fn#0 sig=t0 params=0+1 locals=0+3 blocks=0+4 entry=bb0 cleanup=1 cc=1 addrmask=3
 type#0 kind=3 size=4 align=4 pointee=-1 fields=0 addr=1
 type#1 kind=5 size=8 align=8 pointee=0 fields=0 addr=2
 type#2 kind=6 size=8 align=4 pointee=-1 fields=2 addr=1
 type#3 kind=5 size=8 align=8 pointee=2 fields=0 addr=2
+type#4 kind=7 size=4 align=4 pointee=-1 fields=0 addr=1
+type#5 kind=8 size=16 align=16 pointee=-1 fields=0 addr=1
+type#6 kind=9 size=1 align=1 pointee=-1 fields=0 addr=1
 local#0 f=0 t=0 addr=2 align=4 flags=1
 local#1 f=0 t=2 addr=2 align=4 flags=1
+local#2 f=0 t=4 addr=2 align=4 flags=1
 value#0 f=0 bb=0 t=0 def=-1 local=-1 param=0 flags=1
 value#1 f=0 bb=0 t=0 def=0 local=-1 param=-1 flags=0
 value#2 f=0 bb=0 t=0 def=1 local=-1 param=-1 flags=0
 value#3 f=0 bb=1 t=3 def=3 local=-1 param=-1 flags=2
 value#4 f=0 bb=1 t=0 def=-1 local=-1 param=0 flags=1
 value#5 f=0 bb=1 t=0 def=4 local=-1 param=-1 flags=0
+value#6 f=0 bb=2 t=4 def=6 local=-1 param=-1 flags=0
+value#7 f=0 bb=2 t=5 def=7 local=-1 param=-1 flags=0
+value#8 f=0 bb=2 t=6 def=8 local=-1 param=-1 flags=0
 operand#0 value=-1 local=0 type=1 imm=0
 operand#1 value=1 local=-1 type=0 imm=0
 operand#2 value=-1 local=0 type=1 imm=0
@@ -581,12 +641,18 @@ operand#5 value=-1 local=1 type=3 imm=0
 operand#6 value=3 local=-1 type=3 imm=0
 operand#7 value=3 local=-1 type=3 imm=0
 operand#8 value=5 local=-1 type=0 imm=0
+operand#9 value=-1 local=2 type=4 imm=0
+operand#10 value=2 local=-1 type=0 imm=0
+operand#11 value=7 local=-1 type=5 imm=0
 inst#0 bb=0 op=1 type=0 result=1 ops=0+1 cc=1 cap=0 addr=2
 inst#1 bb=0 op=3 type=0 result=2 ops=1+1 cc=1 cap=0 addr=1
 inst#2 bb=0 op=2 type=0 result=-1 ops=2+2 cc=1 cap=0 addr=2
 inst#3 bb=1 op=8 type=3 result=3 ops=5+1 cc=1 cap=0 addr=2
 inst#4 bb=1 op=1 type=0 result=5 ops=6+1 cc=1 cap=0 addr=2
 inst#5 bb=1 op=2 type=0 result=-1 ops=7+2 cc=1 cap=0 addr=2
+inst#6 bb=2 op=17 type=4 result=6 ops=9+1 cc=1 cap=0 addr=2
+inst#7 bb=2 op=21 type=5 result=7 ops=10+1 cc=1 cap=0 addr=1
+inst#8 bb=2 op=24 type=6 result=8 ops=11+1 cc=1 cap=0 addr=1
 term#0 bb=0 kind=3 ops=4+1 succ=0+2
 term#1 bb=1 kind=2 ops=0+0 succ=2+1
 term#2 bb=2 kind=2 ops=0+0 succ=3+1
@@ -597,8 +663,8 @@ succ#2 ->bb3 args=0+0
 succ#3 ->bb3 args=0+0
 bb#0 f=0 params=0+0 insts=0+3 term=0 flags=0
 bb#1 f=0 params=0+1 insts=3+3 term=1 flags=0
-bb#2 f=0 params=0+0 insts=6+0 term=2 flags=0
-bb#3 f=0 params=0+0 insts=6+0 term=3 flags=1
+bb#2 f=0 params=0+0 insts=6+3 term=2 flags=0
+bb#3 f=0 params=0+0 insts=9+0 term=3 flags=1
 EOF
 
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$tmp_dir/main.uya" -o "$tmp_dir/mir-golden" \
