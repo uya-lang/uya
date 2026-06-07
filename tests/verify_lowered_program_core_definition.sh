@@ -30,6 +30,10 @@ done
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+LoweredProgram' "LoweredProgram 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+ConcreteFunction' "ConcreteFunction 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreBody' "CoreBody 结构"
+require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreStmt' "CoreStmt 结构"
+require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreExpr' "CoreExpr 结构"
+require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CorePlace' "CorePlace 结构"
+require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreCleanupEdge' "CoreCleanupEdge 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+LoweredBodyOp' "LoweredBodyOp 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+ConcreteType' "ConcreteType 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+RuntimeHelper' "RuntimeHelper 结构"
@@ -39,6 +43,10 @@ require_pattern "$LOWER_CORE_FILE" 'arena:[[:space:]]*&CompilerArena' "LoweredPr
 require_pattern "$LOWER_CORE_FILE" 'functions:[[:space:]]*SemanticVector' "functions 动态表"
 require_pattern "$LOWER_CORE_FILE" 'body_ops:[[:space:]]*SemanticVector' "body_ops 动态表"
 require_pattern "$LOWER_CORE_FILE" 'core_bodies:[[:space:]]*SemanticVector' "CoreBody 动态表"
+require_pattern "$LOWER_CORE_FILE" 'core_stmts:[[:space:]]*SemanticVector' "CoreStmt 动态表"
+require_pattern "$LOWER_CORE_FILE" 'core_exprs:[[:space:]]*SemanticVector' "CoreExpr 动态表"
+require_pattern "$LOWER_CORE_FILE" 'core_places:[[:space:]]*SemanticVector' "CorePlace 动态表"
+require_pattern "$LOWER_CORE_FILE" 'core_cleanup_edges:[[:space:]]*SemanticVector' "CoreCleanupEdge 动态表"
 require_pattern "$LOWER_CORE_FILE" 'globals:[[:space:]]*SemanticVector' "globals 动态表"
 require_pattern "$LOWER_CORE_FILE" 'types:[[:space:]]*SemanticVector' "types 动态表"
 require_pattern "$LOWER_CORE_FILE" 'interfaces:[[:space:]]*SemanticVector' "interfaces 动态表"
@@ -50,8 +58,16 @@ require_pattern "$LOWER_CORE_FILE" 'estimated_bytes:[[:space:]]*usize' "LoweredP
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_function' "function append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_body_op' "body op append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_body' "CoreBody append API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_stmt' "CoreStmt append API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_expr' "CoreExpr append API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_place' "CorePlace append API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_cleanup_edge' "CoreCleanupEdge append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_body_op' "body op get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_body' "CoreBody get API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_stmt' "CoreStmt get API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_expr' "CoreExpr get API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_place' "CorePlace get API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_cleanup_edge' "CoreCleanupEdge get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_work_item' "worklist append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_estimated_bytes' "estimated bytes API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_release' "release API"
@@ -94,12 +110,20 @@ fn lower_test_program() LoweredProgram {
         work_item_count: 0,
         body_op_count: 0usize,
         core_body_count: 0usize,
+        core_stmt_count: 0usize,
+        core_expr_count: 0usize,
+        core_place_count: 0usize,
+        core_cleanup_edge_count: 0usize,
         estimated_bytes: 0usize,
         resident_peak_bytes: 0usize,
         lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
         functions: lower_test_vector(),
         body_ops: lower_test_vector(),
         core_bodies: lower_test_vector(),
+        core_stmts: lower_test_vector(),
+        core_exprs: lower_test_vector(),
+        core_places: lower_test_vector(),
+        core_cleanup_edges: lower_test_vector(),
         globals: lower_test_vector(),
         types: lower_test_vector(),
         interfaces: lower_test_vector(),
@@ -203,9 +227,71 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
             source_span_id: i,
             flags: CORE_BODY_FLAG_SOURCE_BODY,
         };
+        var core_stmt: CoreStmt = CoreStmt{
+            stmt_id: i,
+            kind: CORE_STMT_KIND_RETURN,
+            body_id: i,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: i,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: i,
+            cleanup_edge_count: 1,
+            source_span_id: i,
+            cleanup_scope_id: i + 10,
+            flags: 0,
+        };
+        var core_expr: CoreExpr = CoreExpr{
+            expr_id: i,
+            kind: CORE_EXPR_KIND_CALL,
+            body_id: i,
+            source_expr_id: i,
+            type_id: i,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: i + 1,
+            place_id: i,
+            target_function_id: i + 100,
+            target_decl_id: i + 200,
+            field_id: -1,
+            proof_result_id: i + 300,
+            capability_id: i + 400,
+            source_span_id: i,
+            flags: 0,
+        };
+        var core_place: CorePlace = CorePlace{
+            place_id: i,
+            kind: CORE_PLACE_KIND_FIELD,
+            body_id: i,
+            source_expr_id: i,
+            type_id: i,
+            base_place_id: CORE_PLACE_INVALID_ID,
+            index_expr_id: CORE_EXPR_INVALID_ID,
+            field_id: i + 500,
+            symbol_id: i + 600,
+            source_span_id: i,
+            flags: 0,
+        };
+        var cleanup_edge: CoreCleanupEdge = CoreCleanupEdge{
+            edge_id: i,
+            kind: CORE_CLEANUP_EDGE_KIND_RETURN,
+            body_id: i,
+            from_stmt_id: i,
+            to_stmt_id: CORE_STMT_INVALID_ID,
+            cleanup_scope_id: i + 10,
+            drop_defer_plan_id: i + 700,
+            payload_expr_id: i,
+            source_span_id: i,
+            flags: 0,
+        };
         try assert_eq_i32(lowered_program_append_function(&lowered, &fn_item), 0);
         try assert_eq_i32(lowered_program_append_body_op(&lowered, &body_op), 0);
         try assert_eq_i32(lowered_program_append_core_body(&lowered, &core_body), 0);
+        try assert_eq_i32(lowered_program_append_core_stmt(&lowered, &core_stmt), 0);
+        try assert_eq_i32(lowered_program_append_core_expr(&lowered, &core_expr), 0);
+        try assert_eq_i32(lowered_program_append_core_place(&lowered, &core_place), 0);
+        try assert_eq_i32(lowered_program_append_core_cleanup_edge(&lowered, &cleanup_edge), 0);
         try assert_eq_i32(lowered_program_append_global(&lowered, &global_item), 0);
         try assert_eq_i32(lowered_program_append_type(&lowered, &type_item), 0);
         try assert_eq_i32(lowered_program_append_interface(&lowered, &interface_item), 0);
@@ -219,6 +305,10 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(lowered.function_count, 40);
     try assert_eq_i32(lowered.body_op_count as i32, 40);
     try assert_eq_i32(lowered.core_body_count as i32, 40);
+    try assert_eq_i32(lowered.core_stmt_count as i32, 40);
+    try assert_eq_i32(lowered.core_expr_count as i32, 40);
+    try assert_eq_i32(lowered.core_place_count as i32, 40);
+    try assert_eq_i32(lowered.core_cleanup_edge_count as i32, 40);
     try assert_eq_i32(lowered.global_count, 40);
     try assert_eq_i32(lowered.type_count, 40);
     try assert_eq_i32(lowered.interface_count, 40);
@@ -229,10 +319,18 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try expect(lowered.functions.capacity >= 40usize);
     try expect(lowered.body_ops.capacity >= 40usize);
     try expect(lowered.core_bodies.capacity >= 40usize);
+    try expect(lowered.core_stmts.capacity >= 40usize);
+    try expect(lowered.core_exprs.capacity >= 40usize);
+    try expect(lowered.core_places.capacity >= 40usize);
+    try expect(lowered.core_cleanup_edges.capacity >= 40usize);
     try expect(lowered.worklist.capacity >= 40usize);
     try expect(lowered.functions.realloc_count > 1);
     try expect(lowered.body_ops.realloc_count > 1);
     try expect(lowered.core_bodies.realloc_count > 1);
+    try expect(lowered.core_stmts.realloc_count > 1);
+    try expect(lowered.core_exprs.realloc_count > 1);
+    try expect(lowered.core_places.realloc_count > 1);
+    try expect(lowered.core_cleanup_edges.realloc_count > 1);
     try expect(lowered.worklist.realloc_count > 1);
     try expect(lowered_program_estimated_bytes(&lowered) > @size_of(LoweredProgram));
     try expect(lowered_program_peak_bytes(&lowered) >= lowered_program_current_bytes(&lowered));
@@ -269,10 +367,84 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(got_core_body.function_id, 39);
     try assert_eq_i32(got_core_body.root_stmt_start, 78);
     try assert_eq_i32(got_core_body.expr_start, 117);
+    var got_core_stmt: CoreStmt = CoreStmt{
+        stmt_id: CORE_STMT_INVALID_ID,
+        kind: 0,
+        body_id: CORE_BODY_INVALID_ID,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: 0,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_get_core_stmt(&lowered, 39usize, &got_core_stmt), 1);
+    try assert_eq_i32(got_core_stmt.stmt_id, 39);
+    try assert_eq_i32(got_core_stmt.kind, CORE_STMT_KIND_RETURN);
+    try assert_eq_i32(got_core_stmt.cleanup_scope_id, 49);
+    var got_core_expr: CoreExpr = CoreExpr{
+        expr_id: CORE_EXPR_INVALID_ID,
+        kind: 0,
+        body_id: CORE_BODY_INVALID_ID,
+        source_expr_id: 0,
+        type_id: 0,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: 0,
+        target_decl_id: 0,
+        field_id: 0,
+        proof_result_id: 0,
+        capability_id: 0,
+        source_span_id: 0,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_get_core_expr(&lowered, 39usize, &got_core_expr), 1);
+    try assert_eq_i32(got_core_expr.expr_id, 39);
+    try assert_eq_i32(got_core_expr.kind, CORE_EXPR_KIND_CALL);
+    try assert_eq_i32(got_core_expr.target_function_id, 139);
+    var got_core_place: CorePlace = CorePlace{
+        place_id: CORE_PLACE_INVALID_ID,
+        kind: 0,
+        body_id: CORE_BODY_INVALID_ID,
+        source_expr_id: 0,
+        type_id: 0,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: 0,
+        symbol_id: 0,
+        source_span_id: 0,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_get_core_place(&lowered, 39usize, &got_core_place), 1);
+    try assert_eq_i32(got_core_place.place_id, 39);
+    try assert_eq_i32(got_core_place.kind, CORE_PLACE_KIND_FIELD);
+    try assert_eq_i32(got_core_place.field_id, 539);
+    var got_cleanup_edge: CoreCleanupEdge = CoreCleanupEdge{
+        edge_id: CORE_CLEANUP_EDGE_INVALID_ID,
+        kind: 0,
+        body_id: CORE_BODY_INVALID_ID,
+        from_stmt_id: CORE_STMT_INVALID_ID,
+        to_stmt_id: CORE_STMT_INVALID_ID,
+        cleanup_scope_id: 0,
+        drop_defer_plan_id: 0,
+        payload_expr_id: CORE_EXPR_INVALID_ID,
+        source_span_id: 0,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_get_core_cleanup_edge(&lowered, 39usize, &got_cleanup_edge), 1);
+    try assert_eq_i32(got_cleanup_edge.edge_id, 39);
+    try assert_eq_i32(got_cleanup_edge.kind, CORE_CLEANUP_EDGE_KIND_RETURN);
+    try assert_eq_i32(got_cleanup_edge.drop_defer_plan_id, 739);
 
     const stats: LoweredProgramStats = lowered_program_stats(&lowered);
-    try assert_eq_i32(stats.table_count, 11);
-    try expect(stats.table_capacity >= 400usize);
+    try assert_eq_i32(stats.table_count, 15);
+    try expect(stats.table_capacity >= 560usize);
 
     lowered_program_release(&lowered);
     try assert_eq_i32(lowered_program_lifecycle_state(&lowered), LOWERED_PROGRAM_LIFECYCLE_RELEASED);

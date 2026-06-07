@@ -429,7 +429,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
 `LoweredProgram` / `CoreBody` 合同，不能把 `TypedProgram` 当成语义查询旁路。
 
 - [x] 定义 `CoreBody`，作为 concrete function 的结构化函数体表示。
-- [ ] 定义 `CoreStmt` / `CoreExpr` / `CorePlace` / `CoreCleanupEdge` 等 Core-level 节点。
+- [x] 定义 `CoreStmt` / `CoreExpr` / `CorePlace` / `CoreCleanupEdge` 等 Core-level 节点。
 - [ ] `CoreBody` 保存 PortableMIR 所需的 resolved call target、method dispatch、field id、type id、
   proof result、source span、drop/defer/errdefer 和 capability metadata。
 - [ ] Core lowering 从 `TypedProgram` 一次性冻结所需语义事实；完成后 MIR lowering 不再常规查询
