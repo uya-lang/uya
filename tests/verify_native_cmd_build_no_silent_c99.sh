@@ -36,7 +36,7 @@ run_hosted_reject_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    if ! grep -q 'native_hosted_preflight: status=0 verifier_error=0 c_import_objects=0 hosted_link_objects=0' "$stderr"; then
+    if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"; then
         echo "错误: $label --native 缺少 hosted PortableMIR preflight 证据" >&2
         cat "$stderr" >&2
         exit 1

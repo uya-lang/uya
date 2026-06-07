@@ -255,7 +255,7 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_preflight: status=0 verifier_error=0 c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted PortableMIR preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1

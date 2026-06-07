@@ -96,7 +96,8 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   或其它 compiler 形状新增 one-off `LoweredBodyOp`。
 - hosted `build --native` 入口必须先进入 `PortableMIR` / `MirTargetBackendRequest` / `NativeHostedLinkPlan`
   handoff；当前已固定空 `PortableMIR` verifier、Machine backend request 和 `NativeHostedLinkPlan` preflight，
-  真正的缺口是 `native_hosted_portable_mir_lowering_missing`，不能借用 freestanding build-seed helper。
+  并把 AST 中的 extern function symbol 与 `@c_import` object 计入 hosted link plan。真正的缺口是
+  `native_hosted_portable_mir_lowering_missing`，不能借用 freestanding build-seed helper。
 - `cmd/build` 当前失败卡点必须继续由 `tests/verify_native_cmd_build_no_silent_c99.sh` 固定；失败时必须保留
   native backend diagnostic，不能生成伪 native 输出，也不能静默回落 C99；`compile_files(...)` 16 参数缺口只在
   `--nostdlib` freestanding self-build reject 中固定。
