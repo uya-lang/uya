@@ -139,6 +139,9 @@ MirFunction
   symbol_name: InternId
   signature: MirSignatureId
   attrs: MirFunctionAttrs
+  body_kind: normal | asm_only_naked
+  naked_asm_inst_start/count
+  naked_forbidden_lowering_mask
   params: MirValueId[]
   locals: MirLocal[]
   blocks: MirBlock[]
@@ -484,7 +487,10 @@ backend 可因 target、register class、memory operand 或 clobber unsupported 
 MIR 表达规则：
 
 - `MirFunction.flags.naked = true`。
-- body 必须是 `MirNakedBody` 或等价的 asm-only body 形态。
+- `MirFunction.body_kind = asm_only_naked`，并用 `naked_asm_inst_start/count` 指向唯一裸汇编 body。
+- `MirFunction.naked_forbidden_lowering_mask` 必须覆盖 prologue/epilogue、stack slot、cleanup、drop、async 和
+  implicit return lowering。
+- body 必须是 `MirNakedBody` 或等价的 asm-only body 形态，不能复用普通 `blocks` / `entry_block` 形态。
 - body 只能包含 target-checked asm / target intrinsic，不允许普通 MIR local、stack slot、spill、cleanup block、
   drop、defer、errdefer、async frame 或隐式 return lowering。
 - 参数和返回值 ABI 只作为 verifier metadata 记录；backend 不生成常规参数搬运、栈帧、prologue 或 epilogue。

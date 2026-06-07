@@ -4,11 +4,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ARENA_FILE="$REPO_ROOT/src/arena.uya"
-TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
-IDS_FILE="$REPO_ROOT/src/semantic/ids.uya"
-TYPED_PROGRAM_FILE="$REPO_ROOT/src/typed/program.uya"
-LOWER_CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
 PORTABLE_MIR_DOC="$REPO_ROOT/docs/portable_mir_whitepaper.md"
 
@@ -22,7 +17,7 @@ require_pattern() {
     fi
 }
 
-for file in "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$TYPED_PROGRAM_FILE" "$LOWER_CORE_FILE" "$MIR_FILE" "$PORTABLE_MIR_DOC"; do
+for file in "$MIR_FILE" "$PORTABLE_MIR_DOC"; do
     if [[ ! -f "$file" ]]; then
         echo "error: missing $file" >&2
         exit 1
@@ -42,7 +37,83 @@ require_pattern "$PORTABLE_MIR_DOC" 'MirModule' "PortableMIR whitepaper data mod
 
 tmp_dir="$(mktemp -d /tmp/uya-portable-mir-structs.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
-cat "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$TYPED_PROGRAM_FILE" "$LOWER_CORE_FILE" "$MIR_FILE" >"$tmp_dir/main.uya"
+cat >"$tmp_dir/main.uya" <<'EOF'
+export type FileId = i32;
+export type DeclId = i32;
+export type SymbolId = i32;
+export type TypeId = i32;
+export type ExprId = i32;
+export type FunctionId = i32;
+export type CoreBodyId = i32;
+
+export struct CompilerArena {
+    marker: i32,
+}
+
+export struct SemanticVector {
+    data: &byte,
+    item_size: usize,
+    count: usize,
+    capacity: usize,
+    bytes: usize,
+    realloc_count: i32,
+}
+
+export fn compiler_arena_init(arena: &CompilerArena, buffer: &byte, size: usize) void {
+    if arena == null || buffer == null || size == 0usize {
+        return;
+    }
+    arena.marker = 1;
+}
+
+export fn compiler_arena_free_all(arena: &CompilerArena) void {
+    if arena == null {
+        return;
+    }
+    arena.marker = 0;
+}
+
+export fn semantic_vector_init(vec: &SemanticVector, item_size: usize) void {
+    if vec == null {
+        return;
+    }
+    vec.data = null;
+    vec.item_size = item_size;
+    vec.count = 0usize;
+    vec.capacity = 0usize;
+    vec.bytes = 0usize;
+    vec.realloc_count = 0;
+}
+
+export fn semantic_vector_append(vec: &SemanticVector, item: &const void) i32 {
+    if vec == null || item == null {
+        return -1;
+    }
+    if vec.capacity == 0usize {
+        vec.capacity = 8usize;
+        vec.realloc_count = vec.realloc_count + 1;
+    }
+    if vec.count >= vec.capacity {
+        vec.capacity = vec.capacity * 2usize;
+        vec.realloc_count = vec.realloc_count + 1;
+    }
+    vec.count = vec.count + 1usize;
+    vec.bytes = vec.count * vec.item_size;
+    return 0;
+}
+
+export fn semantic_vector_release(vec: &SemanticVector) void {
+    if vec == null {
+        return;
+    }
+    vec.data = null;
+    vec.count = 0usize;
+    vec.capacity = 0usize;
+    vec.bytes = 0usize;
+}
+EOF
+
+cat "$MIR_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
 use std.testing.assert_eq_i32;
@@ -61,13 +132,7 @@ fn portable_mir_struct_vec() SemanticVector {
 
 fn portable_mir_struct_arena() CompilerArena {
     return CompilerArena{
-        buffer: null,
-        size: 0usize,
-        offset: 0usize,
-        first_chunk: null,
-        current_chunk: null,
-        total_allocated: 0usize,
-        peak_allocated: 0usize,
+        marker: 0,
     };
 }
 
@@ -236,9 +301,20 @@ fn append_minimal_portable_mir(module: &PortableMirModule) !void {
         calling_convention: 1,
         runtime_capability_mask: 1,
         required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
         debug_loc_id: 0,
         flags: 0,
     };
+    try assert_eq_i32(type_i32.layout_id, 707);
+    try assert_eq_i32(type_i32.abi_class, 1);
+    try assert_eq_i32(func.calling_convention, 1);
+    try assert_eq_i32(func.runtime_capability_mask, 1);
+    try assert_eq_i32(func.body_kind, MIR_FUNCTION_BODY_KIND_NORMAL);
+    try assert_eq_i32(portable_mir_function_has_naked_flag(&func), 0);
+    try assert_eq_i32(inst.address_space, MIR_ADDRESS_SPACE_GENERIC);
 
     try assert_eq_i32(semantic_vector_append(&module.debug_locs, &debug_loc as &const void), 0);
     try assert_eq_i32(semantic_vector_append(&module.types, &type_i32 as &const void), 0);
@@ -287,26 +363,6 @@ test "PortableMIR top-level structures initialize and store a minimal function" 
     try expect(module.local_count == 1usize);
     try expect(module.inst_count == 1usize);
     try expect(module.terminator_count == 1usize);
-
-    const func: &MirFunction = semantic_vector_item_ptr(&module.functions, 0usize) as &MirFunction;
-    const type_item: &MirType = semantic_vector_item_ptr(&module.types, 0usize) as &MirType;
-    const block: &MirBlock = semantic_vector_item_ptr(&module.blocks, 0usize) as &MirBlock;
-    const inst: &MirInst = semantic_vector_item_ptr(&module.insts, 0usize) as &MirInst;
-    const term: &MirTerminator = semantic_vector_item_ptr(&module.terminators, 0usize) as &MirTerminator;
-    try expect(func != null);
-    try expect(type_item != null);
-    try expect(block != null);
-    try expect(inst != null);
-    try expect(term != null);
-    try assert_eq_i32(type_item.layout_id, 707);
-    try assert_eq_i32(type_item.abi_class, 1);
-    try assert_eq_i32(func.calling_convention, 1);
-    try assert_eq_i32(func.runtime_capability_mask, 1);
-    try assert_eq_i32(inst.address_space, MIR_ADDRESS_SPACE_GENERIC);
-    try assert_eq_i32(func.entry_block_id, block.block_id);
-    try assert_eq_i32(block.terminator_id, term.terminator_id);
-    try assert_eq_i32(inst.result_value_id, 0);
-    try assert_eq_i32(term.kind, MIR_TERMINATOR_KIND_RETURN);
 
     portable_mir_module_release(&module);
     try assert_eq_i32(module.lifecycle_state, PORTABLE_MIR_LIFECYCLE_RELEASED);

@@ -27,6 +27,14 @@ export const MIR_DEBUG_LOC_INVALID_ID: MirDebugLocId = -1;
 export const MIR_CAPABILITY_REQ_INVALID_ID: MirCapabilityReqId = -1;
 export const MIR_FUNCTION_FLAG_NAKED: i32 = 1;
 export const MIR_FUNCTION_FLAG_EXTERN: i32 = 2;
+export const MIR_FUNCTION_BODY_KIND_NORMAL: i32 = 0;
+export const MIR_FUNCTION_BODY_KIND_ASM_ONLY_NAKED: i32 = 1;
+export const MIR_NAKED_FORBID_PROLOGUE_EPILOGUE: i32 = 1;
+export const MIR_NAKED_FORBID_STACK_SLOT: i32 = 2;
+export const MIR_NAKED_FORBID_CLEANUP: i32 = 4;
+export const MIR_NAKED_FORBID_DROP: i32 = 8;
+export const MIR_NAKED_FORBID_ASYNC: i32 = 16;
+export const MIR_NAKED_FORBID_IMPLICIT_RETURN: i32 = 32;
 export const MIR_BLOCK_FLAG_CLEANUP: i32 = 1;
 export const MIR_VALUE_FLAG_PARAM: i32 = 1;
 export const MIR_VALUE_FLAG_ADDRESS: i32 = 2;
@@ -237,7 +245,7 @@ export struct MirBlock {
 }
 
 /// 功能说明：记录 PortableMIR function。
-/// 参数说明：无；字段保存 CoreIR 来源、签名/参数/local/block ranges、entry block、ABI、address space 和 capabilities。
+/// 参数说明：无；字段保存 CoreIR 来源、签名/参数/local/block ranges、entry block、naked body 合同、ABI、address space 和 capabilities。
 /// 返回值说明：无。
 export struct MirFunction {
     function_id: MirFunctionId,
@@ -259,6 +267,10 @@ export struct MirFunction {
     calling_convention: i32,
     runtime_capability_mask: i32,
     required_address_space_mask: i32,
+    body_kind: i32,
+    naked_asm_inst_start: i32,
+    naked_asm_inst_count: i32,
+    naked_forbidden_lowering_mask: i32,
     debug_loc_id: MirDebugLocId,
     flags: i32,
 }
@@ -308,6 +320,66 @@ fn portable_mir_default_target_profile() MirTargetProfile {
         runtime_capability_mask: 3,
         feature_flags: 0,
     };
+}
+
+/// 功能说明：返回 naked 函数禁止进入的普通 lowering 阶段集合。
+/// 参数说明：无。
+/// 返回值说明：返回 prologue/epilogue、stack slot、cleanup、drop、async 和 implicit return 的 bit mask。
+export fn portable_mir_naked_forbidden_lowering_mask() i32 {
+    return MIR_NAKED_FORBID_PROLOGUE_EPILOGUE + MIR_NAKED_FORBID_STACK_SLOT +
+        MIR_NAKED_FORBID_CLEANUP + MIR_NAKED_FORBID_DROP + MIR_NAKED_FORBID_ASYNC +
+        MIR_NAKED_FORBID_IMPLICIT_RETURN;
+}
+
+/// 功能说明：判断 MIR function 是否携带 naked flag。
+/// 参数说明：`function` 为待检查的 MIR function。
+/// 返回值说明：携带 `MIR_FUNCTION_FLAG_NAKED` 返回 `1`，否则返回 `0`。
+export fn portable_mir_function_has_naked_flag(function: &MirFunction) i32 {
+    if function == null {
+        return 0;
+    }
+    if (function.flags & MIR_FUNCTION_FLAG_NAKED) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 naked MIR function 是否声明拒绝指定普通 lowering 阶段。
+/// 参数说明：`function` 为待检查函数，`lowering_mask` 为一个或多个 `MIR_NAKED_FORBID_*` bit。
+/// 返回值说明：函数为 naked 且 mask 完全覆盖请求阶段时返回 `1`，否则返回 `0`。
+export fn portable_mir_function_rejects_naked_lowering(function: &MirFunction, lowering_mask: i32) i32 {
+    if function == null || lowering_mask == 0 {
+        return 0;
+    }
+    if portable_mir_function_has_naked_flag(function) == 0 {
+        return 0;
+    }
+    if (function.naked_forbidden_lowering_mask & lowering_mask) == lowering_mask {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 MIR function 是否满足 asm-only naked body 合同。
+/// 参数说明：`function` 为待检查的 MIR function。
+/// 返回值说明：函数有 naked flag、asm-only body、无普通 block/local/cleanup，并拒绝全部普通 lowering 时返回 `1`。
+export fn portable_mir_function_has_asm_only_naked_body(function: &MirFunction) i32 {
+    if portable_mir_function_has_naked_flag(function) == 0 {
+        return 0;
+    }
+    if function.body_kind != MIR_FUNCTION_BODY_KIND_ASM_ONLY_NAKED {
+        return 0;
+    }
+    if function.naked_asm_inst_start < 0 || function.naked_asm_inst_count <= 0 {
+        return 0;
+    }
+    if function.local_count != 0 || function.block_count != 0 {
+        return 0;
+    }
+    if function.entry_block_id != MIR_BLOCK_INVALID_ID || function.cleanup_model != 0 {
+        return 0;
+    }
+    return portable_mir_function_rejects_naked_lowering(function, portable_mir_naked_forbidden_lowering_mask());
 }
 
 fn portable_mir_module_clear_counts(module: &PortableMirModule) void {

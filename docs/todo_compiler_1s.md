@@ -787,7 +787,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
   CoreIR 合同。
 - [x] `PortableMIR` 显式记录 target-neutral layout metadata、calling convention 需求、hosted/freestanding
   runtime capability、address space 预留字段。
-- [ ] `PortableMIR` 显式记录 `MirFunction.flags.naked` / asm-only naked body，禁止 naked 函数走普通
+- [x] `PortableMIR` 显式记录 `MirFunction.flags.naked` / asm-only naked body，禁止 naked 函数走普通
   prologue/epilogue、stack slot、cleanup、drop、async 或隐式 return lowering。
 - [ ] 实现 MIR verifier，线性检查 block 终结、value 定义/使用、类型匹配、地址/布局、atomic / vector /
   mask 规则、cleanup path 和 target capability。
