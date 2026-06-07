@@ -151,9 +151,28 @@ fn native_mir_emitter_import_block(emitter: &NativeMirEmitter,
     return 0;
 }
 
+fn native_mir_emitter_import_naked_function(emitter: &NativeMirEmitter, function: &MirFunction) i32 {
+    if emitter == null || emitter.machine_module == null || function == null {
+        return -1;
+    }
+    if portable_mir_function_has_asm_only_naked_body(function) == 0 {
+        return -1;
+    }
+    const function_index: i32 = machine_module_add_function(emitter.machine_module,
+        function.function_id, function.symbol_id);
+    if function_index < 0 {
+        return -1;
+    }
+    emitter.imported_function_count = emitter.imported_function_count + 1usize;
+    return 0;
+}
+
 fn native_mir_emitter_import_function(emitter: &NativeMirEmitter, function: &MirFunction) i32 {
     if emitter == null || emitter.portable_mir == null || emitter.machine_module == null || function == null {
         return -1;
+    }
+    if portable_mir_function_has_naked_flag(function) != 0 {
+        return native_mir_emitter_import_naked_function(emitter, function);
     }
     if native_mir_range_valid(function.block_start, function.block_count, emitter.portable_mir.blocks.count) == 0 {
         return -1;

@@ -42,6 +42,9 @@ require_pattern "$MIR_EMITTER_FILE" 'portable_mir:[[:space:]]*&PortableMirModule
 require_pattern "$MIR_EMITTER_FILE" 'machine_module:[[:space:]]*&MachineModule' "MachineModule 输出"
 require_pattern "$MIR_EMITTER_FILE" 'native_mir_emitter_begin' "PortableMIR emitter 初始化入口"
 require_pattern "$MIR_EMITTER_FILE" 'native_mir_emitter_read_portable_mir' "PortableMIR 导入入口"
+require_pattern "$MIR_EMITTER_FILE" 'native_mir_emitter_import_naked_function' "naked function native 专用导入入口"
+require_pattern "$MIR_EMITTER_FILE" 'portable_mir_function_has_naked_flag' "naked function 分流"
+require_pattern "$MIR_EMITTER_FILE" 'portable_mir_function_has_asm_only_naked_body' "naked function asm-only gate"
 require_pattern "$MIR_EMITTER_FILE" 'request\.backend_kind[[:space:]]*!=[[:space:]]*MIR_TARGET_BACKEND_MACHINE' "machine backend kind gate"
 require_pattern "$MIR_EMITTER_FILE" 'portable_mir_backend_request_is_verified' "verifier-clean request gate"
 require_pattern "$MIR_EMITTER_FILE" 'semantic_vector_item_ptr\(&emitter\.portable_mir\.functions' "枚举 MIR functions"
@@ -147,6 +150,36 @@ fn native_mir_function() MirFunction {
         naked_forbidden_lowering_mask: 0,
         debug_loc_id: 0,
         flags: 0,
+    };
+}
+
+fn native_mir_naked_function() MirFunction {
+    return MirFunction{
+        function_id: 0,
+        lowered_function_id: 100,
+        decl_id: 200,
+        source_core_body_id: 0,
+        symbol_id: 300,
+        signature_type_id: 0,
+        param_start: 0,
+        param_count: 0,
+        local_start: 0,
+        local_count: 0,
+        block_start: 0,
+        block_count: 0,
+        entry_block_id: MIR_BLOCK_INVALID_ID,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: 1,
+        runtime_capability_mask: 1,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_ASM_ONLY_NAKED,
+        naked_asm_inst_start: 0,
+        naked_asm_inst_count: 1,
+        naked_forbidden_lowering_mask: portable_mir_naked_forbidden_lowering_mask(),
+        debug_loc_id: 0,
+        flags: MIR_FUNCTION_FLAG_NAKED,
     };
 }
 
@@ -350,6 +383,79 @@ test "native MIR emitter imports verified PortableMIR into MachineModule" {
     try assert_eq_i32(native_mir_emitter_finish_output(&emitter, &output), 0);
     try assert_eq_i32(portable_mir_backend_output_matches_request(&request, &output), 1);
     try expect(output.machine_module != null);
+
+    machine_module_release(&machine);
+    compiler_arena_free_all(&arena);
+}
+
+test "native MIR emitter imports naked functions without ordinary frame blocks" {
+    var arena_buf: [byte: 8192] = [];
+    var arena: CompilerArena = CompilerArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+    };
+    compiler_arena_init(&arena, &arena_buf[0], @len(arena_buf) as usize);
+
+    var functions: [MirFunction: 1] = [];
+    var types: [MirType: 1] = [];
+    functions[0] = native_mir_naked_function();
+    types[0] = native_mir_type_i32();
+
+    var module: PortableMirModule = native_mir_empty_module();
+    module.arena = &arena;
+    module.functions = SemanticVector{ data: &functions[0] as &byte, item_size: @size_of(MirFunction), count: 1usize, capacity: 1usize, bytes: @size_of(MirFunction), realloc_count: 0 };
+    module.types = SemanticVector{ data: &types[0] as &byte, item_size: @size_of(MirType), count: 1usize, capacity: 1usize, bytes: @size_of(MirType), realloc_count: 0 };
+    module.function_count = 1usize;
+    module.type_count = 1usize;
+
+    var verifier: MirVerifierResult = native_mir_result(MIR_VERIFY_ERR_INVALID_MODULE);
+    try assert_eq_i32(portable_mir_verify_module(&module, &verifier), 0);
+    try assert_eq_i32(verifier.error_code, MIR_VERIFY_OK);
+
+    var request: MirTargetBackendRequest = MirTargetBackendRequest{
+        module: null,
+        backend_kind: 0,
+        target_profile_id: 0,
+        verifier_error_code: -1,
+        flags: 0,
+    };
+    try assert_eq_i32(portable_mir_backend_request_init(&request, &module, &verifier,
+        MIR_TARGET_BACKEND_MACHINE), 0);
+
+    var machine: MachineModule = MachineModule{
+        arena: null,
+        function_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: MACHINE_LIFECYCLE_UNINITIALIZED,
+        functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        relocs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        symbols: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        strings: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        sections: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+    };
+    machine_module_init(&machine, &arena);
+
+    var emitter: NativeMirEmitter = native_mir_emitter_empty();
+    try assert_eq_i32(native_mir_emitter_begin(&emitter, &request, &machine, 1), 0);
+    try assert_eq_i32(native_mir_emitter_read_portable_mir(&emitter), 0);
+    try assert_eq_i32(emitter.imported_function_count as i32, 1);
+    try assert_eq_i32(emitter.imported_block_count as i32, 0);
+    try assert_eq_i32(emitter.imported_inst_count as i32, 0);
+    try assert_eq_i32(machine_module_function_count(&machine) as i32, 1);
+
+    const got_fn: &MachineFunction = machine_module_function_ptr(&machine, 0);
+    try expect(got_fn != null);
+    try assert_eq_i32(got_fn.function_id, 0);
+    try assert_eq_i32(got_fn.name_id, 300);
+    try assert_eq_i32(got_fn.frame_size, 0);
+    try assert_eq_i32(got_fn.frame_align, 0);
+    try assert_eq_i32(got_fn.blocks.count as i32, 0);
 
     machine_module_release(&machine);
     compiler_arena_free_all(&arena);
