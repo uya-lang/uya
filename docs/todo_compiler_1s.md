@@ -439,7 +439,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
 - [x] 新增 `UYA_DUMP_COREIR=1`，输出稳定的 CoreIR / CoreBody 文本摘要。
 - [x] 新增 CoreIR verifier，检查 concrete function 是否有合法 `CoreBody`、节点 type/call/field/proof
   是否已冻结、cleanup path 是否完整、capability metadata 是否只描述能力需求而不改变语言语义。
-- [ ] 明确语言语义与 target capability 边界：`@c_import`、filesystem、pthread、syscall、
+- [x] 明确语言语义与 target capability 边界：`@c_import`、filesystem、pthread、syscall、
   `@asm`、未来 PTX device subset 等限制只能产生 capability diagnostic，不能变成 Uya 方言。
 - [ ] CoreIR 冻结 `@naked_fn` 函数属性，并在 verifier 中拒绝非 asm-only naked body、普通局部栈槽、
   cleanup、drop、async、error propagation 和隐式 return。

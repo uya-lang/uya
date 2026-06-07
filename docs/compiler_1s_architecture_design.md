@@ -401,6 +401,12 @@ checker 方言。
 都必须表达为 target capability requirement。target 不支持时输出明确 diagnostic；不能静默回落 C99，
 不能跳过 safety proof，也不能让同一段 Uya 代码在语言语义层面分叉。
 
+capability diagnostic 必须指出 capability 名称、触发源构造和目标 profile。`@c_import` 仍是顶层 build graph
+声明；filesystem / environment / pthread / syscall / `@asm` / future PTX device subset 仍共享同一套
+parser、checker、TypedProgram 和 CoreIR 语义。target 可以拒绝能力，不能把拒绝实现成 Uya 方言、C99 fallback、
+hostcall 偷换、proof 跳过或标准库语义重写。CoreIR capability metadata 只能描述能力需求和 source attachment，
+不得混入 type/call/field/proof/cleanup 事实；该规则由 CoreIR verifier 先于 MIR lowering 检查。
+
 `@naked_fn` 也是 capability-gated 函数属性。CoreIR 必须把 naked flag 冻结到 concrete function；
 PortableMIR 必须把它降为 asm-only naked body；native backend 不得为它生成普通 prologue/epilogue。
 不支持 naked function 的 target 必须明确拒绝。

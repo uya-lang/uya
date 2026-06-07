@@ -586,6 +586,18 @@ CoreIR 必须区分“Uya 语言语义是否支持”和“目标能力是否支
 语言语义层面，普通 build、hosted native、freestanding native、PTX、microapp 都共享 parser/checker/CoreIR
 语义。不同目标只能在 capability 层拒绝不支持能力，不能创建方言。
 
+### 20.1 Capability 边界合同
+
+语言语义只能由 parser、checker、TypedProgram 和 CoreIR 冻结。target profile 只回答“这个已经合法的 Uya
+程序是否能在当前目标上使用某项能力”。因此：
+
+- target 不能新增、删除或重解释 Uya 语法、关键字、内建函数、类型规则、proof 规则或标准 CoreIR
+  lowering 语义。
+- capability 拒绝必须是 diagnostic；diagnostic 至少携带 capability 名称、触发源构造和目标 profile。
+- capability diagnostic 不能静默回落 C99，不能跳过 safety proof，也不能在 checker 阶段伪装成另一套语言规则。
+- CoreIR metadata 中的 capability fact 只能描述能力需求和 source attachment，不能携带 type/call/field/proof/
+  cleanup 等会改变语言语义的事实；CoreIR verifier 必须拒绝这种混入。
+
 capability 示例：
 
 - hosted libc
@@ -602,6 +614,17 @@ capability 示例：
 - diagnostic runtime
 - freestanding runtime helper
 - future PTX device / kernel capability
+
+### 20.2 具体能力边界
+
+| 能力 | CoreIR 表达 | 不支持时的行为 | 禁止行为 |
+| --- | --- | --- | --- |
+| `@c_import` | 顶层 build graph capability，记录导入路径、cflags/ldflags 和源位置 | 目标或 profile 不支持 C 构建导入时输出 capability diagnostic | 把 `@c_import` 改成表达式 builtin、删除该语法、静默忽略 C 文件或回落 C99 |
+| filesystem | 标记文件系统访问、路径解析、目录遍历和宿主工具链文件 IO 需求 | freestanding/device/microapp profile 不支持时诊断具体 API 或源构造 | 改变 `std.fs`/libc 绑定语义、伪造空结果或跳过错误联合 |
+| pthread / threading | 标记线程、mutex、condvar、TLS/TSD 和原子等待等需求 | 单线程 profile 或 device profile 不支持时诊断 threading capability | 把程序改写成单线程方言、改变内存/同步语义或忽略 join/cancel 错误 |
+| syscall | 标记裸 syscall 或 libc syscall bridge 需求，保留 errno/error-union 语义 | 非对应 OS/ABI 或禁用 syscall profile 下诊断 syscall capability | 改变 `@syscall` 返回/错误语义、绕过 proof 或偷偷替换为不等价 hostcall |
+| `@asm` | 标记 inline asm、寄存器约束、clobber 和目标 ISA 需求 | 目标 ISA/backend 不支持时诊断 asm capability 和源位置 | 让 asm 语法变成目标专属方言、生成普通 Uya 语义替代或吞掉 clobber |
+| future PTX device subset | 标记 device/kernel、地址空间、SIMD/atomic 和 host bridge 需求 | PTX profile 不支持某能力时诊断 device capability | 引入 PTX-only Uya 语法、改变标准库可见语义或让 host/device checker 分叉 |
 
 拒绝规则：
 
