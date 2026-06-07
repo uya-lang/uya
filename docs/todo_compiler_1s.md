@@ -452,7 +452,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
 
 - [x] 新增 `tests/verify_coreir_dump_golden.sh`。
 - [x] 新增 `tests/verify_coreir_verifier.sh`。
-- [ ] 新增 `tests/verify_coreir_closure_contract.sh`。
+- [x] 新增 `tests/verify_coreir_closure_contract.sh`。
 - [ ] 新增 `tests/verify_coreir_naked_fn_contract.sh`。
 - [ ] 新增 `tests/verify_coreir_parallel_determinism.sh`。
 - [ ] CoreIR dump 覆盖多文件、泛型函数、泛型方法、interface dispatch、field/index/slice、
