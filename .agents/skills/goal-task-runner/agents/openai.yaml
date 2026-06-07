@@ -1,0 +1,4 @@
+interface:
+  display_name: "目标任务执行器"
+  short_description: "按 todo 顺序 TDD 执行并提交推送"
+  default_prompt: "使用 $goal-task-runner 用中文按顺序执行这个 todo：TDD、更新状态、提交并推送。"

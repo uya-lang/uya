@@ -1,4 +1,0 @@
-interface:
-  display_name: "通用 TODO 执行器"
-  short_description: "按顺序执行 TODO、即时回写文档并严格验证每项完成情况"
-  default_prompt: "使用 $todo-executor 按顺序执行 /path/to/TODO.md 中所有未完成任务；每完成并验证一项就立刻更新文档，只有遇到真实阻塞才停止。"

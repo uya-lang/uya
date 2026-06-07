@@ -1,4 +1,0 @@
-interface:
-  display_name: "TODO 执行器"
-  short_description: "按严格顺序执行 TODO 文档"
-  default_prompt: "使用 $todo-doc-executor 按顺序执行 /path/to/TODO.md 中的任务，并在诚实可验证的前提下尽可能多地完成。默认用中文思考和回答。"
