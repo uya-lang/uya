@@ -31,6 +31,8 @@ export const NATIVE_BUILD_RETURN_CALL_CONST2: i32 = 6;
 export const NATIVE_BUILD_RETURN_ADD_PARAMS_I32: i32 = 7;
 export const NATIVE_BUILD_RETURN_STORE_PARAM0_CONST_I32: i32 = 8;
 export const NATIVE_BUILD_RETURN_CALL_ADDR1_LOCAL_I32: i32 = 9;
+export const NATIVE_BUILD_RETURN_STORE_PARAMS01_CONST_I32: i32 = 10;
+export const NATIVE_BUILD_RETURN_CALL_ADDR2_LOCAL_I32: i32 = 11;
 
 const NB_EHDR_SIZE: i32 = 64;
 const NB_PHDR_SIZE: i32 = 56;
@@ -41,7 +43,7 @@ const NB_PT_LOAD: i32 = 1;
 const NB_PF_X: i32 = 1;
 const NB_PF_R: i32 = 4;
 const NB_START_CODE_SIZE: usize = 14usize;
-const NB_FUNCTION_CODE_SIZE: usize = 32usize;
+const NB_FUNCTION_CODE_SIZE: usize = 64usize;
 
 /// 功能说明：build-seed native writer 可编码的极小函数计划。
 /// 参数说明：无；`return_kind` 为常量返回、无参 direct call 或两个 direct call 的 i32 加法；call target 为函数下标。
@@ -236,6 +238,19 @@ fn nb_emit_sub_rsp_8(buf: &byte, cap: usize, pos: &usize) i32 {
     return nb_code_put_u8(buf, cap, pos, 8);
 }
 
+fn nb_emit_sub_rsp_16(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 131) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 236) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 16);
+}
+
 fn nb_emit_add_rsp_8(buf: &byte, cap: usize, pos: &usize) i32 {
     if nb_code_put_u8(buf, cap, pos, 72) != 0 {
         return -1;
@@ -249,6 +264,19 @@ fn nb_emit_add_rsp_8(buf: &byte, cap: usize, pos: &usize) i32 {
     return nb_code_put_u8(buf, cap, pos, 8);
 }
 
+fn nb_emit_add_rsp_16(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 131) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 196) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 16);
+}
+
 fn nb_emit_mov_stack_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
     if nb_code_put_u8(buf, cap, pos, 199) != 0 {
         return -1;
@@ -257,6 +285,22 @@ fn nb_emit_mov_stack_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i3
         return -1;
     }
     if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_mov_stack8_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 199) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 68) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 8) != 0 {
         return -1;
     }
     return nb_code_put_u32(buf, cap, pos, imm as i64);
@@ -275,6 +319,22 @@ fn nb_emit_lea_rdi_rsp(buf: &byte, cap: usize, pos: &usize) i32 {
     return nb_code_put_u8(buf, cap, pos, 36);
 }
 
+fn nb_emit_lea_rsi_rsp8(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 141) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 116) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 8);
+}
+
 fn nb_emit_mov_eax_stack_i32(buf: &byte, cap: usize, pos: &usize) i32 {
     if nb_code_put_u8(buf, cap, pos, 139) != 0 {
         return -1;
@@ -285,11 +345,34 @@ fn nb_emit_mov_eax_stack_i32(buf: &byte, cap: usize, pos: &usize) i32 {
     return nb_code_put_u8(buf, cap, pos, 36);
 }
 
+fn nb_emit_mov_eax_stack8_i32(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 139) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 68) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 8);
+}
+
 fn nb_emit_mov_ptr_rdi_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
     if nb_code_put_u8(buf, cap, pos, 199) != 0 {
         return -1;
     }
     if nb_code_put_u8(buf, cap, pos, 7) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_mov_ptr_rsi_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 199) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 6) != 0 {
         return -1;
     }
     return nb_code_put_u32(buf, cap, pos, imm as i64);
@@ -549,6 +632,16 @@ fn native_build_emit_function_code(code: &byte, code_size: usize,
             if nb_emit_mov_eax_imm32(code, code_size, &pos, plan.return_value) != 0 {
                 return -1;
             }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_STORE_PARAMS01_CONST_I32 {
+            if nb_emit_mov_ptr_rdi_i32_imm32(code, code_size, &pos, plan.call_arg0_value) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_ptr_rsi_i32_imm32(code, code_size, &pos, plan.call_arg1_value) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_eax_imm32(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
         } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL_ADDR1_LOCAL_I32 {
             if plan.call_target < 0 || plan.call_target >= function_count {
                 return -1;
@@ -569,6 +662,42 @@ fn native_build_emit_function_code(code: &byte, code_size: usize,
                 return -1;
             }
             if nb_emit_add_rsp_8(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL_ADDR2_LOCAL_I32 {
+            if plan.call_target < 0 || plan.call_target >= function_count {
+                return -1;
+            }
+            if nb_emit_sub_rsp_16(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_stack_i32_imm32(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_stack8_i32_imm32(code, code_size, &pos, plan.call_arg0_value) != 0 {
+                return -1;
+            }
+            if nb_emit_lea_rdi_rsp(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_lea_rsi_rsp8(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target)) != 0 {
+                return -1;
+            }
+            if plan.call_arg1_value == 0 {
+                if nb_emit_mov_eax_stack_i32(code, code_size, &pos) != 0 {
+                    return -1;
+                }
+            } else if plan.call_arg1_value == 1 {
+                if nb_emit_mov_eax_stack8_i32(code, code_size, &pos) != 0 {
+                    return -1;
+                }
+            } else {
+                return -1;
+            }
+            if nb_emit_add_rsp_16(code, code_size, &pos) != 0 {
                 return -1;
             }
         } else {
@@ -775,6 +904,16 @@ fn native_build_machine_inst_to_plan(inst: &MachineInst,
         };
         return 0;
     }
+    if inst.opcode == LOWERED_BODY_OP_STORE_PARAMS01_CONST_I32 {
+        const store0_result: !i32 = inst.imm as! i32;
+        out_plan.return_kind = NATIVE_BUILD_RETURN_STORE_PARAMS01_CONST_I32;
+        out_plan.return_value = inst.src0;
+        out_plan.call_arg0_value = store0_result catch {
+            return -1;
+        };
+        out_plan.call_arg1_value = inst.src1;
+        return 0;
+    }
     return -1;
 }
 
@@ -873,6 +1012,43 @@ fn native_build_machine_local_addr_call_return_to_plan(first: &MachineInst, seco
     return 0;
 }
 
+fn native_build_machine_local_addr2_call_return_to_plan(first: &MachineInst, second: &MachineInst,
+    third: &MachineInst, fourth: &MachineInst, function_count: i32, out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || third == null || fourth == null ||
+       out_plan == null || function_count <= 0 {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_I32_CONST ||
+       second.opcode != LOWERED_BODY_OP_LOCAL_I32_CONST ||
+       third.opcode != LOWERED_BODY_OP_LOCAL_CALL_ADDR2_I32 ||
+       fourth.opcode != LOWERED_BODY_OP_RETURN_LOCAL_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.dst < 0 || first.dst == second.dst ||
+       third.src0 != first.dst || third.src1 != second.dst ||
+       (fourth.src0 != first.dst && fourth.src0 != second.dst) ||
+       third.target_id < 0 || third.target_id >= function_count {
+        return -1;
+    }
+    const init0_result: !i32 = first.imm as! i32;
+    const init1_result: !i32 = second.imm as! i32;
+    out_plan.return_kind = NATIVE_BUILD_RETURN_CALL_ADDR2_LOCAL_I32;
+    out_plan.return_value = init0_result catch {
+        return -1;
+    };
+    out_plan.call_target = third.target_id;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = init1_result catch {
+        return -1;
+    };
+    if fourth.src0 == first.dst {
+        out_plan.call_arg1_value = 0;
+    } else {
+        out_plan.call_arg1_value = 1;
+    }
+    return 0;
+}
+
 fn native_build_machine_to_function_plans(module: &MachineModule, plans: &NativeBuildFunctionPlan) i32 {
     if module == null || plans == null || module.function_count == 0usize {
         return -1;
@@ -911,6 +1087,15 @@ fn native_build_machine_to_function_plans(module: &MachineModule, plans: &Native
             const second3: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
             const third3: &MachineInst = semantic_vector_item_ptr(&block.insts, 2usize) as &MachineInst;
             if native_build_machine_local_addr_call_return_to_plan(first3, second3, third3, function_count, &plans[i]) != 0 {
+                return -1;
+            }
+        } else if block.insts.count == 4usize {
+            const first4: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
+            const second4: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
+            const third4: &MachineInst = semantic_vector_item_ptr(&block.insts, 2usize) as &MachineInst;
+            const fourth4: &MachineInst = semantic_vector_item_ptr(&block.insts, 3usize) as &MachineInst;
+            if native_build_machine_local_addr2_call_return_to_plan(first4, second4, third4, fourth4,
+                function_count, &plans[i]) != 0 {
                 return -1;
             }
         } else {

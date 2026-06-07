@@ -404,6 +404,28 @@ fn native_build_decl_is_one_i32_ptr_param_fn(decl: &ASTNode) i32 {
     return native_build_type_is_i32_ptr(param.var_decl_type);
 }
 
+fn native_build_decl_is_two_i32_ptr_param_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 2 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || native_build_type_is_i32(decl.fn_decl_return_type) == 0 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param0: &ASTNode = decl.fn_decl_params[0];
+    const param1: &ASTNode = decl.fn_decl_params[1];
+    if param0 == null || param1 == null ||
+       param0.type != ASTNodeType.AST_VAR_DECL || param1.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    if native_build_type_is_i32_ptr(param0.var_decl_type) == 0 {
+        return 0;
+    }
+    return native_build_type_is_i32_ptr(param1.var_decl_type);
+}
+
 fn native_build_decl_is_supported_i32_fn(decl: &ASTNode) i32 {
     if native_build_decl_is_noarg_i32_fn(decl) != 0 {
         return 1;
@@ -415,6 +437,9 @@ fn native_build_decl_is_supported_i32_fn(decl: &ASTNode) i32 {
         return 1;
     }
     if native_build_decl_is_one_i32_ptr_param_fn(decl) != 0 {
+        return 1;
+    }
+    if native_build_decl_is_two_i32_ptr_param_fn(decl) != 0 {
         return 1;
     }
     return 0;
@@ -731,6 +756,23 @@ fn native_build_find_one_i32_ptr_param_function_decl_index(program: &ASTNode, na
     return -1;
 }
 
+fn native_build_find_two_i32_ptr_param_function_decl_index(program: &ASTNode, name: &byte) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_two_i32_ptr_param_fn(decl) != 0 &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name as *byte, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
 fn native_build_assign_reachable_function(program: &ASTNode,
     reach: &NativeBuildReachability, decl_index: i32) i32 {
     if program == null || reach == null || reach.decl_to_function_index == null ||
@@ -902,6 +944,39 @@ fn native_build_array_index0_identifier(expr: &ASTNode, out_name: & & byte) i32 
     return 1;
 }
 
+fn native_build_addr_arg_to_local_slot(arg: &ASTNode, locals: &NativeBuildLocalTable, out_slot: &i32) i32 {
+    if out_slot != null {
+        *out_slot = -1;
+    }
+    if arg == null || locals == null || out_slot == null ||
+       arg.type != ASTNodeType.AST_UNARY_EXPR || arg.unary_expr_operand == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = arg.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_AMPERSAND {
+        return 0;
+    }
+    var addr_name: &byte = null;
+    if arg.unary_expr_operand.type == ASTNodeType.AST_IDENTIFIER &&
+       arg.unary_expr_operand.identifier_name != null {
+        addr_name = arg.unary_expr_operand.identifier_name;
+    } else {
+        _ = native_build_array_index0_identifier(arg.unary_expr_operand, &addr_name);
+    }
+    if addr_name == null {
+        return 0;
+    }
+    const slot: i32 = native_build_local_find(locals, addr_name);
+    if slot < 0 || locals.kinds == null || locals.kinds[slot] != NATIVE_BUILD_LOCAL_KIND_SCALAR_I32 {
+        return 0;
+    }
+    *out_slot = slot;
+    return 1;
+}
+
 fn native_build_resolve_reachable_addr1_i32_call(program: &ASTNode, expr: &ASTNode,
     reach: &NativeBuildReachability, locals: &NativeBuildLocalTable,
     out_target: &i32, out_slot: &i32) i32 {
@@ -920,30 +995,8 @@ fn native_build_resolve_reachable_addr1_i32_call(program: &ASTNode, expr: &ASTNo
        expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER || expr.call_expr_args == null {
         return 0;
     }
-    const arg0: &ASTNode = expr.call_expr_args[0];
-    if arg0 == null || arg0.type != ASTNodeType.AST_UNARY_EXPR ||
-       arg0.unary_expr_operand == null {
-        return 0;
-    }
-    const op_tmp: !TokenType = arg0.unary_expr_op as! TokenType;
-    const op: TokenType = op_tmp catch {
-        return 0;
-    };
-    if op != TokenType.TOKEN_AMPERSAND {
-        return 0;
-    }
-    var addr_name: &byte = null;
-    if arg0.unary_expr_operand.type == ASTNodeType.AST_IDENTIFIER &&
-       arg0.unary_expr_operand.identifier_name != null {
-        addr_name = arg0.unary_expr_operand.identifier_name;
-    } else {
-        _ = native_build_array_index0_identifier(arg0.unary_expr_operand, &addr_name);
-    }
-    if addr_name == null {
-        return 0;
-    }
-    const slot: i32 = native_build_local_find(locals, addr_name);
-    if slot < 0 || locals.kinds == null || locals.kinds[slot] != NATIVE_BUILD_LOCAL_KIND_SCALAR_I32 {
+    var slot: i32 = -1;
+    if native_build_addr_arg_to_local_slot(expr.call_expr_args[0], locals, &slot) == 0 {
         return 0;
     }
     const target_decl: i32 = native_build_find_one_i32_ptr_param_function_decl_index(program,
@@ -957,6 +1010,49 @@ fn native_build_resolve_reachable_addr1_i32_call(program: &ASTNode, expr: &ASTNo
     }
     *out_target = target;
     *out_slot = slot;
+    return 1;
+}
+
+fn native_build_resolve_reachable_addr2_i32_call(program: &ASTNode, expr: &ASTNode,
+    reach: &NativeBuildReachability, locals: &NativeBuildLocalTable,
+    out_target: &i32, out_slot0: &i32, out_slot1: &i32) i32 {
+    if out_target != null {
+        *out_target = -1;
+    }
+    if out_slot0 != null {
+        *out_slot0 = -1;
+    }
+    if out_slot1 != null {
+        *out_slot1 = -1;
+    }
+    if program == null || expr == null || reach == null || locals == null ||
+       out_target == null || out_slot0 == null || out_slot1 == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 2 ||
+       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER || expr.call_expr_args == null {
+        return 0;
+    }
+    var slot0: i32 = -1;
+    var slot1: i32 = -1;
+    if native_build_addr_arg_to_local_slot(expr.call_expr_args[0], locals, &slot0) == 0 ||
+       native_build_addr_arg_to_local_slot(expr.call_expr_args[1], locals, &slot1) == 0 ||
+       slot0 == slot1 {
+        return 0;
+    }
+    const target_decl: i32 = native_build_find_two_i32_ptr_param_function_decl_index(program,
+        expr.call_expr_callee.identifier_name);
+    if target_decl < 0 {
+        return 0;
+    }
+    const target: i32 = native_build_assign_reachable_function(program, reach, target_decl);
+    if target < 0 {
+        return 0;
+    }
+    *out_target = target;
+    *out_slot0 = slot0;
+    *out_slot1 = slot1;
     return 1;
 }
 
@@ -1268,12 +1364,13 @@ fn native_build_expr_to_return_add_params_op(decl: &ASTNode, expr: &ASTNode, out
     return 1;
 }
 
-fn native_build_assign_stmt_to_param0_store_const(decl: &ASTNode, stmt: &ASTNode, out_value: &i32) i32 {
+fn native_build_assign_stmt_to_param_store_const(decl: &ASTNode, stmt: &ASTNode,
+    param_index: i32, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
     }
     if decl == null || stmt == null || out_value == null ||
-       native_build_decl_is_one_i32_ptr_param_fn(decl) == 0 ||
+       param_index < 0 ||
        stmt.type != ASTNodeType.AST_ASSIGN || stmt.assign_dest == null ||
        stmt.assign_src == null || stmt.assign_dest.type != ASTNodeType.AST_ARRAY_ACCESS ||
        stmt.assign_dest.array_access_array == null || stmt.assign_dest.array_access_index == null ||
@@ -1284,10 +1381,10 @@ fn native_build_assign_stmt_to_param0_store_const(decl: &ASTNode, stmt: &ASTNode
        stmt.assign_dest.array_access_array.identifier_name == null ||
        stmt.assign_dest.array_access_index.type != ASTNodeType.AST_NUMBER ||
        stmt.assign_dest.array_access_index.number_value_i64 != 0i64 ||
-       decl.fn_decl_params == null {
+       decl.fn_decl_params == null || param_index >= decl.fn_decl_param_count {
         return 0;
     }
-    const param: &ASTNode = decl.fn_decl_params[0];
+    const param: &ASTNode = decl.fn_decl_params[param_index];
     if param == null || param.var_decl_name == null ||
        str_equals(param.var_decl_name as *byte, stmt.assign_dest.array_access_array.identifier_name as *byte) == 0 {
         return 0;
@@ -1297,6 +1394,21 @@ fn native_build_assign_stmt_to_param0_store_const(decl: &ASTNode, stmt: &ASTNode
         return 0;
     };
     return 1;
+}
+
+fn native_build_assign_stmt_to_param0_store_const(decl: &ASTNode, stmt: &ASTNode, out_value: &i32) i32 {
+    if native_build_decl_is_one_i32_ptr_param_fn(decl) == 0 &&
+       native_build_decl_is_two_i32_ptr_param_fn(decl) == 0 {
+        return 0;
+    }
+    return native_build_assign_stmt_to_param_store_const(decl, stmt, 0, out_value);
+}
+
+fn native_build_assign_stmt_to_param1_store_const(decl: &ASTNode, stmt: &ASTNode, out_value: &i32) i32 {
+    if native_build_decl_is_two_i32_ptr_param_fn(decl) == 0 {
+        return 0;
+    }
+    return native_build_assign_stmt_to_param_store_const(decl, stmt, 1, out_value);
 }
 
 fn native_build_expr_to_return_plan(program: &ASTNode, expr: &ASTNode, plan: &NativeBuildFunctionPlan) i32 {
@@ -1418,6 +1530,8 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
     var emitted_local_ops: i32 = 0;
     var pending_store_param0: i32 = 0;
     var pending_store_value: i32 = 0;
+    var pending_store_param1: i32 = 0;
+    var pending_store_value1: i32 = 0;
     var stmt_index: i32 = 0;
     while stmt_index < body.block_stmt_count {
         const stmt: &ASTNode = body.block_stmts[stmt_index];
@@ -1564,6 +1678,52 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
                 stmt_index = stmt_index + 1;
                 continue;
             }
+            var addr2_call_target: i32 = -1;
+            var addr2_slot0: i32 = -1;
+            var addr2_slot1: i32 = -1;
+            if stmt.var_decl_name != null &&
+               native_build_resolve_reachable_addr2_i32_call(program, stmt.var_decl_init, reach,
+                   &locals, &addr2_call_target, &addr2_slot0, &addr2_slot1) != 0 {
+                var local_init0_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_I32_CONST,
+                    dst: addr2_slot0,
+                    src0: 0,
+                    src1: 0,
+                    target_id: -1,
+                    imm: locals.init_values[addr2_slot0] as i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_init0_op) != 0 {
+                    return 0;
+                }
+                var local_init1_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_I32_CONST,
+                    dst: addr2_slot1,
+                    src0: 0,
+                    src1: 0,
+                    target_id: -1,
+                    imm: locals.init_values[addr2_slot1] as i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_init1_op) != 0 {
+                    return 0;
+                }
+                var local_addr2_call_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_CALL_ADDR2_I32,
+                    dst: 0,
+                    src0: addr2_slot0,
+                    src1: addr2_slot1,
+                    target_id: addr2_call_target,
+                    imm: 0i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_addr2_call_op) != 0 {
+                    return 0;
+                }
+                emitted_local_ops = emitted_local_ops + 3;
+                stmt_index = stmt_index + 1;
+                continue;
+            }
             native_build_print_unsupported_call_expr(stmt.var_decl_init, "unsupported_var_init" as &byte);
             native_build_print_unsupported_function_body(decl, decl_index,
                 "unsupported_var_init" as &byte, stmt, stmt_index);
@@ -1581,6 +1741,18 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
             stmt_index = stmt_index + 1;
             continue;
         }
+        var store_value1: i32 = 0;
+        if native_build_assign_stmt_to_param1_store_const(decl, stmt, &store_value1) != 0 {
+            if pending_store_param1 != 0 {
+                native_build_print_unsupported_function_body(decl, decl_index,
+                    "unsupported_multiple_pointer_stores" as &byte, stmt, stmt_index);
+                return 0;
+            }
+            pending_store_param1 = 1;
+            pending_store_value1 = store_value1;
+            stmt_index = stmt_index + 1;
+            continue;
+        }
         if stmt.type != ASTNodeType.AST_RETURN_STMT || stmt.return_stmt_expr == null {
             native_build_print_unsupported_function_body(decl, decl_index,
                 "unsupported_statement" as &byte, stmt, stmt_index);
@@ -1595,22 +1767,37 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
             imm: 0i64,
             flags: 0,
         };
-        if pending_store_param0 != 0 {
+        if pending_store_param0 != 0 || pending_store_param1 != 0 {
             if stmt.return_stmt_expr.type != ASTNodeType.AST_NUMBER {
                 native_build_print_unsupported_function_body(decl, decl_index,
                     "unsupported_pointer_store_return" as &byte, stmt.return_stmt_expr, stmt_index);
                 return 0;
             }
             const ret_result: !i32 = stmt.return_stmt_expr.number_value_i64 as! i32;
-            body_op.opcode = LOWERED_BODY_OP_STORE_PARAM0_CONST_I32;
-            body_op.dst = 0;
-            body_op.src0 = ret_result catch {
+            const ret_value: i32 = ret_result catch {
                 return 0;
             };
-            body_op.src1 = 0;
-            body_op.target_id = -1;
-            body_op.imm = pending_store_value as i64;
-            body_op.flags = 0;
+            if pending_store_param0 != 0 && pending_store_param1 != 0 {
+                body_op.opcode = LOWERED_BODY_OP_STORE_PARAMS01_CONST_I32;
+                body_op.dst = 0;
+                body_op.src0 = ret_value;
+                body_op.src1 = pending_store_value1;
+                body_op.target_id = -1;
+                body_op.imm = pending_store_value as i64;
+                body_op.flags = 0;
+            } else if pending_store_param0 != 0 {
+                body_op.opcode = LOWERED_BODY_OP_STORE_PARAM0_CONST_I32;
+                body_op.dst = 0;
+                body_op.src0 = ret_value;
+                body_op.src1 = 0;
+                body_op.target_id = -1;
+                body_op.imm = pending_store_value as i64;
+                body_op.flags = 0;
+            } else {
+                native_build_print_unsupported_function_body(decl, decl_index,
+                    "unsupported_pointer_store_return" as &byte, stmt.return_stmt_expr, stmt_index);
+                return 0;
+            }
         } else if native_build_expr_to_body_op(program, stmt.return_stmt_expr, reach, &body_op) == 0 {
             if native_build_expr_to_return_local_op(stmt.return_stmt_expr, &locals, &body_op) == 0 {
                 if native_build_expr_to_return_param_op(decl, stmt.return_stmt_expr, &body_op) == 0 {
