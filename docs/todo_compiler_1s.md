@@ -783,7 +783,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] 实现 `LoweredProgram + CoreBody` 到 `PortableMIR` 的 lowering 合同，覆盖表达式、语句、控制流、
   load/store/address、atomic、SIMD vector/mask、call/return/branch、field/index/slice 地址计算、
   copy/move/drop 和 cleanup path。
-- [ ] MIR lowering 默认不查询 `TypedProgram`；若确实缺少 source/proof/capability metadata，先回补
+- [x] MIR lowering 默认不查询 `TypedProgram`；若确实缺少 source/proof/capability metadata，先回补
   CoreIR 合同。
 - [ ] `PortableMIR` 显式记录 target-neutral layout metadata、calling convention 需求、hosted/freestanding
   runtime capability、address space 预留字段。
@@ -834,6 +834,7 @@ bash tests/verify_lowered_program_responsibility_boundary.sh
 bash tests/verify_portable_mir_structs.sh
 bash tests/verify_portable_mir_dynamic_tables.sh
 bash tests/verify_portable_mir_lowering_contract.sh
+bash tests/verify_portable_mir_no_typed_bypass.sh
 bash tests/verify_portable_mir_golden.sh
 bash tests/verify_portable_mir_verifier.sh
 bash tests/verify_portable_mir_naked_fn.sh

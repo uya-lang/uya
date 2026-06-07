@@ -10,6 +10,13 @@ export const MIR_LOWER_FEATURE_CALL_RETURN_BRANCH: i32 = 64;
 export const MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS: i32 = 128;
 export const MIR_LOWER_FEATURE_COPY_MOVE_DROP: i32 = 256;
 export const MIR_LOWER_FEATURE_CLEANUP_PATH: i32 = 512;
+export const MIR_METADATA_GAP_SOURCE_SPAN: i32 = 1;
+export const MIR_METADATA_GAP_PROOF: i32 = 2;
+export const MIR_METADATA_GAP_CAPABILITY: i32 = 3;
+export const MIR_METADATA_GAP_LAYOUT: i32 = 4;
+export const MIR_METADATA_GAP_CALL_TARGET: i32 = 5;
+export const MIR_METADATA_GAP_FIELD_ID: i32 = 6;
+export const MIR_METADATA_GAP_CLEANUP: i32 = 7;
 export const MIR_INST_OP_ADDR_OF_LOCAL: i32 = 5;
 export const MIR_INST_OP_ADDR_OF_GLOBAL: i32 = 6;
 export const MIR_INST_OP_ADDR_OF_PARAM: i32 = 7;
@@ -54,6 +61,20 @@ export fn portable_mir_lowering_mask_has(mask: i32, feature: i32) i32 {
     if (mask & feature) != 0 {
         return 1;
     }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR lowering metadata 缺口是否必须回补 CoreIR 合同。
+/// 参数说明：`gap_kind` 为 MIR metadata gap 常量。
+/// 返回值说明：已知 source/proof/capability/layout/call/field/cleanup 缺口返回 `1`，未知缺口返回 `0`。
+export fn portable_mir_metadata_gap_requires_coreir_backfill(gap_kind: i32) i32 {
+    if gap_kind == MIR_METADATA_GAP_SOURCE_SPAN { return 1; }
+    if gap_kind == MIR_METADATA_GAP_PROOF { return 1; }
+    if gap_kind == MIR_METADATA_GAP_CAPABILITY { return 1; }
+    if gap_kind == MIR_METADATA_GAP_LAYOUT { return 1; }
+    if gap_kind == MIR_METADATA_GAP_CALL_TARGET { return 1; }
+    if gap_kind == MIR_METADATA_GAP_FIELD_ID { return 1; }
+    if gap_kind == MIR_METADATA_GAP_CLEANUP { return 1; }
     return 0;
 }
 

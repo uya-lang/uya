@@ -89,6 +89,18 @@ PortableMIR lowering 合同必须把完整语言面拆成可验证 feature mask�
 实现声明支持上述全部 feature。某个 feature 未实现时必须表现为缺失合同，而不是让 backend 临时发现语义缺口。
 合同 API 不接受 `TypedProgram` 或 checker state；缺 source/proof/capability/layout metadata 时先回补 CoreIR。
 
+metadata gap 分类：
+
+- source span。
+- proof result。
+- capability requirement。
+- layout metadata。
+- call target。
+- field ID。
+- cleanup plan。
+
+这些缺口在 `portable_mir_metadata_gap_requires_coreir_backfill` 中统一判定为 CoreIR 回补需求。
+
 ### 3.4 Target backend
 
 backend 消费 verifier 通过后的 PortableMIR：
