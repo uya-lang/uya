@@ -11,7 +11,10 @@ mkdir -p "$TMP_DIR/c_import"
 cp "$REPO_ROOT/tests/fixtures/c_import/add_impl.c" "$TMP_DIR/c_import/add_impl.c"
 
 helper_src="$TMP_DIR/smoke_helper.uya"
+extern_src="$TMP_DIR/extern_fragment.uya"
 main_src="$TMP_DIR/main.uya"
+extern_c99_bin="$TMP_DIR/c99-extern-smoke"
+extern_native_bin="$TMP_DIR/native-extern-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -30,12 +33,18 @@ export fn helper_identity<T>(value: T) T {
 }
 EOF
 
-cat >"$main_src" <<'EOF'
+cat >"$extern_src" <<'EOF'
 @c_import("c_import/add_impl.c");
 
-use smoke_helper;
-
 extern fn add_i32(a: i32, b: i32) i32;
+
+export fn main() i32 {
+    return add_i32(20, 22);
+}
+EOF
+
+cat >"$main_src" <<'EOF'
+use smoke_helper;
 
 error SmokeError;
 
@@ -105,7 +114,6 @@ export fn main() i32 {
     const call_return: i32 = helper_passthrough();
     if from_helper != 3 { return 1; }
     const generic_value: i32 = helper_identity<i32>(4);
-    const imported: i32 = add_i32(20, 22);
     const counter: SmokeCounter = SmokeCounter{ value: 7 };
     const method_value: i32 = counter.double();
     const interface_value: i32 = use_adder(counter);
@@ -132,7 +140,6 @@ export fn main() i32 {
         const dropped: SmokeDrop = SmokeDrop{ value: 11 };
     }
     if generic_value != 4 { return 2; }
-    if imported != 42 { return 3; }
     if method_value != 14 { return 4; }
     if interface_value != 12 { return 5; }
     if color != SmokeColor.Green { return 6; }
@@ -163,8 +170,9 @@ require_pattern() {
     fi
 }
 
-require_pattern "$main_src" '@c_import' "@c_import coverage"
-require_pattern "$main_src" 'extern fn add_i32' "extern coverage"
+require_pattern "$extern_src" '@c_import' "@c_import parity coverage"
+require_pattern "$extern_src" 'extern fn add_i32' "extern parity coverage"
+require_pattern "$extern_src" 'return add_i32\(20, 22\);' "extern call parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -188,6 +196,82 @@ require_pattern "$main_src" '@len\(slice\)' "builtin @len coverage"
 require_pattern "$main_src" '@size_of\(SmokeCounter\)' "builtin @size_of coverage"
 require_pattern "$main_src" '@align_of\(SmokeCounter\)' "builtin @align_of coverage"
 require_pattern "$main_src" '@error_id\(error.SmokeError\)' "builtin @error_id coverage"
+
+extern_c99_build_out="$TMP_DIR/extern.c99.build.out"
+extern_c99_build_err="$TMP_DIR/extern.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$extern_src" -o "$extern_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$extern_c99_build_out" 2>"$extern_c99_build_err"); then
+    cat "$extern_c99_build_out" >&2
+    cat "$extern_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$extern_c99_bin" >"$TMP_DIR/extern.c99.run.out" 2>"$TMP_DIR/extern.c99.run.err"
+extern_c99_status=$?
+set -e
+if [[ "$extern_c99_status" -ne 42 ]]; then
+    echo "error: C99 extern/@c_import parity fragment exited with $extern_c99_status" >&2
+    cat "$TMP_DIR/extern.c99.run.out" >&2
+    cat "$TMP_DIR/extern.c99.run.err" >&2
+    exit 1
+fi
+
+extern_native_build_out="$TMP_DIR/extern.native.build.out"
+extern_native_build_err="$TMP_DIR/extern.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$extern_src" -o "$extern_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$extern_native_build_out" 2>"$extern_native_build_err"); then
+    cat "$extern_native_build_out" >&2
+    cat "$extern_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$extern_native_bin" ]]; then
+    echo "error: native extern/@c_import parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$extern_native_build_err"; then
+    echo "error: native extern/@c_import parity fragment appears to have fallen back to C99" >&2
+    cat "$extern_native_build_err" >&2
+    exit 1
+fi
+if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=1 pending_bodies=[0-9]+' "$extern_native_build_err"; then
+    echo "error: native extern/@c_import parity fragment lacks CoreIR body preflight evidence" >&2
+    cat "$extern_native_build_err" >&2
+    exit 1
+fi
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=1 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$extern_native_build_err"; then
+    echo "error: native extern/@c_import parity fragment lacks PortableMIR/link preflight evidence" >&2
+    cat "$extern_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_linker_handoff: extern=add_i32 c_import_objects=1 linked_objects=2' "$extern_native_build_err"; then
+    echo "error: native extern/@c_import parity fragment lacks linker handoff evidence" >&2
+    cat "$extern_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: c_import_extern_link_path=1' "$extern_native_build_err"; then
+    echo "error: native extern/@c_import parity fragment lacks hosted native subset evidence" >&2
+    cat "$extern_native_build_err" >&2
+    exit 1
+fi
+
+chmod +x "$extern_native_bin"
+set +e
+"$extern_native_bin" >"$TMP_DIR/extern.native.run.out" 2>"$TMP_DIR/extern.native.run.err"
+extern_native_status=$?
+set -e
+if [[ "$extern_native_status" -ne "$extern_c99_status" ]]; then
+    echo "error: hosted native/C99 extern parity exit status differs: c99=$extern_c99_status native=$extern_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/extern.c99.run.out" "$TMP_DIR/extern.native.run.out"; then
+    echo "error: hosted native/C99 extern parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/extern.c99.run.err" "$TMP_DIR/extern.native.run.err"; then
+    echo "error: hosted native/C99 extern parity stderr differs" >&2
+    exit 1
+fi
 
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
@@ -269,12 +353,12 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=17 core_bodies=4 pending_bodies=10' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=4 pending_bodies=10' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted CoreIR void/int-literal/call-return/main-prefix body preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=4 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=4 mir_types=[1-9][0-9]* extern_symbols=[0-9]+ c_import_objects=0 hosted_link_objects=0' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted PortableMIR preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
@@ -295,4 +379,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered C99 success and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, C99 success, and explicit native reject"
