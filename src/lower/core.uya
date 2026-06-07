@@ -1891,6 +1891,110 @@ fn lowered_program_dump_enabled() i32 {
     return 0;
 }
 
+fn lowered_program_coreir_dump_enabled() i32 {
+    const value: *byte = getenv("UYA_DUMP_COREIR" as *byte);
+    if value == null {
+        return 0;
+    }
+    if value[0] == 49 as byte && value[1] == 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn lowered_program_dump_coreir_bodies(program: &LoweredProgram) void {
+    var i: usize = 0usize;
+    while i < program.core_bodies.count {
+        const body: &CoreBody = semantic_vector_item_ptr(&program.core_bodies, i) as &CoreBody;
+        if body != null {
+            fprintf(libc.stderr, "body #%d function=%d decl=%d roots=%d+%d exprs=%d+%d places=%d+%d cleanups=%d+%d facts=%d+%d source=%d flags=%d\n" as *byte,
+                body.body_id, body.function_id, body.decl_id, body.root_stmt_start, body.root_stmt_count,
+                body.expr_start, body.expr_count, body.place_start, body.place_count,
+                body.cleanup_edge_start, body.cleanup_edge_count, body.semantic_fact_start,
+                body.semantic_fact_count, body.source_span_id, body.flags);
+        }
+        i = i + 1usize;
+    }
+}
+
+fn lowered_program_dump_coreir_stmts(program: &LoweredProgram) void {
+    var i: usize = 0usize;
+    while i < program.core_stmts.count {
+        const stmt: &CoreStmt = semantic_vector_item_ptr(&program.core_stmts, i) as &CoreStmt;
+        if stmt != null {
+            fprintf(libc.stderr, "stmt #%d body=%d kind=%d parent=%d children=%d+%d expr=%d place=%d cleanup=%d+%d source=%d scope=%d flags=%d\n" as *byte,
+                stmt.stmt_id, stmt.body_id, stmt.kind, stmt.parent_stmt_id, stmt.first_child_stmt,
+                stmt.child_stmt_count, stmt.expr_id, stmt.place_id, stmt.cleanup_edge_start,
+                stmt.cleanup_edge_count, stmt.source_span_id, stmt.cleanup_scope_id, stmt.flags);
+        }
+        i = i + 1usize;
+    }
+}
+
+fn lowered_program_dump_coreir_exprs(program: &LoweredProgram) void {
+    var i: usize = 0usize;
+    while i < program.core_exprs.count {
+        const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, i) as &CoreExpr;
+        if expr != null {
+            fprintf(libc.stderr, "expr #%d body=%d kind=%d source_expr=%d type=%d lhs=%d rhs=%d callee=%d place=%d target_fn=%d target_decl=%d field=%d proof=%d capability=%d source=%d flags=%d\n" as *byte,
+                expr.expr_id, expr.body_id, expr.kind, expr.source_expr_id, expr.type_id,
+                expr.lhs_expr_id, expr.rhs_expr_id, expr.callee_expr_id, expr.place_id,
+                expr.target_function_id, expr.target_decl_id, expr.field_id, expr.proof_result_id,
+                expr.capability_id, expr.source_span_id, expr.flags);
+        }
+        i = i + 1usize;
+    }
+}
+
+fn lowered_program_dump_coreir_places(program: &LoweredProgram) void {
+    var i: usize = 0usize;
+    while i < program.core_places.count {
+        const place: &CorePlace = semantic_vector_item_ptr(&program.core_places, i) as &CorePlace;
+        if place != null {
+            fprintf(libc.stderr, "place #%d body=%d kind=%d source_expr=%d type=%d base=%d index=%d field=%d symbol=%d source=%d flags=%d\n" as *byte,
+                place.place_id, place.body_id, place.kind, place.source_expr_id, place.type_id,
+                place.base_place_id, place.index_expr_id, place.field_id, place.symbol_id,
+                place.source_span_id, place.flags);
+        }
+        i = i + 1usize;
+    }
+}
+
+fn lowered_program_dump_coreir_cleanups(program: &LoweredProgram) void {
+    var i: usize = 0usize;
+    while i < program.core_cleanup_edges.count {
+        const edge: &CoreCleanupEdge = semantic_vector_item_ptr(&program.core_cleanup_edges, i) as &CoreCleanupEdge;
+        if edge != null {
+            fprintf(libc.stderr, "cleanup #%d body=%d kind=%d from=%d to=%d scope=%d drop_defer=%d payload=%d source=%d flags=%d\n" as *byte,
+                edge.edge_id, edge.body_id, edge.kind, edge.from_stmt_id, edge.to_stmt_id,
+                edge.cleanup_scope_id, edge.drop_defer_plan_id, edge.payload_expr_id,
+                edge.source_span_id, edge.flags);
+        }
+        i = i + 1usize;
+    }
+}
+
+fn lowered_program_dump_coreir_facts(program: &LoweredProgram) void {
+    var i: usize = 0usize;
+    while i < program.core_semantic_facts.count {
+        const fact: &CoreSemanticFact = semantic_vector_item_ptr(&program.core_semantic_facts, i) as &CoreSemanticFact;
+        if fact != null {
+            fprintf(libc.stderr, "fact #%d kind=%d body=%d stmt=%d expr=%d source_expr=%d place=%d cleanup=%d\n" as *byte,
+                fact.fact_id, fact.kind, fact.body_id, fact.stmt_id, fact.expr_id,
+                fact.source_expr_id, fact.place_id, fact.cleanup_edge_id);
+            fprintf(libc.stderr, "  call kind=%d target_fn=%d target_decl=%d target_symbol=%d mono=%d receiver_type=%d method_symbol=%d interface_symbol=%d slot=%d\n" as *byte,
+                fact.call_target_kind, fact.target_function_id, fact.target_decl_id, fact.target_symbol_id,
+                fact.mono_instance_id, fact.receiver_type_id, fact.method_symbol_id, fact.interface_symbol_id,
+                fact.vtable_slot);
+            fprintf(libc.stderr, "  meta field=%d type=%d proof=%d proof_status=%d proof_error=%d source=%d drop_defer=%d scope=%d capability=%d flags=%d\n" as *byte,
+                fact.field_id, fact.type_id, fact.proof_result_id, fact.proof_status, fact.proof_error_id,
+                fact.source_span_id, fact.drop_defer_plan_id, fact.cleanup_scope_id, fact.capability_id,
+                fact.flags);
+        }
+        i = i + 1usize;
+    }
+}
+
 /// 功能说明：在设置 `UYA_DUMP_LOWERED_PROGRAM=1` 时向 stderr 打印 LoweredProgram 摘要。
 /// 参数说明：`program` 为目标 LoweredProgram。
 /// 返回值说明：无；默认关闭，不计入性能/内存 KPI。
@@ -1914,4 +2018,27 @@ export fn lowered_program_maybe_dump_summary(program: &LoweredProgram) void {
     fprintf(libc.stderr, "estimated_bytes=%zu peak_bytes=%zu\n" as *byte,
         lowered_program_estimated_bytes(program), lowered_program_peak_bytes(program));
     fprintf(libc.stderr, "=== lowered program end ===\n" as *byte);
+}
+
+/// 功能说明：在设置 `UYA_DUMP_COREIR=1` 时向 stderr 打印稳定 CoreIR / CoreBody 文本摘要。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：无；默认关闭，不计入性能/内存 KPI，输出只包含 CoreIR 稳定 ID 和 metadata。
+export fn lowered_program_maybe_dump_coreir(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    if lowered_program_coreir_dump_enabled() == 0 {
+        return;
+    }
+    fprintf(libc.stderr, "=== coreir ===\n" as *byte);
+    fprintf(libc.stderr, "core_bodies=%zu core_stmts=%zu core_exprs=%zu core_places=%zu core_cleanup_edges=%zu core_semantic_facts=%zu\n" as *byte,
+        program.core_body_count, program.core_stmt_count, program.core_expr_count, program.core_place_count,
+        program.core_cleanup_edge_count, program.core_semantic_fact_count);
+    lowered_program_dump_coreir_bodies(program);
+    lowered_program_dump_coreir_stmts(program);
+    lowered_program_dump_coreir_exprs(program);
+    lowered_program_dump_coreir_places(program);
+    lowered_program_dump_coreir_cleanups(program);
+    lowered_program_dump_coreir_facts(program);
+    fprintf(libc.stderr, "=== coreir end ===\n" as *byte);
 }

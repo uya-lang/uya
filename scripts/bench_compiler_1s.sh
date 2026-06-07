@@ -134,6 +134,7 @@ collect_enabled_dump_vars() {
         UYA_DUMP_SEMANTIC_DB
         UYA_DUMP_FUNCTION_SCOPE
         UYA_DUMP_LOWERED_PROGRAM
+        UYA_DUMP_COREIR
     )
     # 动态发现：任何以 UYA_DUMP_ 开头的环境变量。
     local discovered
