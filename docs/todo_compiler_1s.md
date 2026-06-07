@@ -861,7 +861,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
   - [x] 接入 no-deps hosted native basic parity smoke：非 `--nostdlib` 的 `--native` 对无外部依赖基础程序真实生成 executable，并与 C99 退出码 / stdout / stderr 一致。
   - 用 `CoreBody -> PortableMIR` 函数体 lowering 覆盖 full-language smoke 的 main/helper 函数，不再依赖 build-seed `LoweredBodyOp` 特例：
     - [x] 将 hosted preflight 的 `return <int literal>` CoreBody 降成 PortableMIR body function，带 return operand/value，使 `helper_value() i32 { return 3; }` 与 `void` body 一起计入 MIR body 覆盖。
-    - [ ] 将 `return callee()` / 简单调用返回形状降成 PortableMIR call + return，覆盖 main/helper 的调用骨架。
+    - [x] 将 `return callee()` / 简单调用返回形状降成 PortableMIR call + return，覆盖 main/helper 的调用骨架。
     - [ ] 将 main 函数局部 const/var 初始化、基础 if-return 骨架迁入 CoreBody/MIR，不再依赖 build-seed `LoweredBodyOp` 特例。
   - [ ] 接入 hosted native `@c_import` / extern linker handoff，确保 native link 对象与 C99 oracle 运行结果一致。
   - [ ] 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性。

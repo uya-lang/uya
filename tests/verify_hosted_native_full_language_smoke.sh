@@ -21,6 +21,10 @@ export fn helper_value() i32 {
     return 3;
 }
 
+export fn helper_passthrough() i32 {
+    return helper_value();
+}
+
 export fn helper_identity<T>(value: T) T {
     return value;
 }
@@ -98,6 +102,7 @@ type SmokeVec = @vector(i32, 4);
 
 export fn main() i32 {
     const from_helper: i32 = helper_value();
+    const call_return: i32 = helper_passthrough();
     const generic_value: i32 = helper_identity<i32>(4);
     const imported: i32 = add_i32(20, 22);
     const counter: SmokeCounter = SmokeCounter{ value: 7 };
@@ -143,6 +148,7 @@ export fn main() i32 {
     if defer_value() != 1 { return 16; }
     if smoke_drop_count != 11 { return 17; }
     if @error_id(error.SmokeError) == 0 { return 18; }
+    if call_return != 3 { return 19; }
     return 0;
 }
 EOF
@@ -168,6 +174,7 @@ require_pattern "$main_src" 'fn maybe_value\(flag: i32\) !i32' "error-union cove
 require_pattern "$main_src" 'defer \{' "defer coverage"
 require_pattern "$main_src" 'fn smoke_noop\(\) void' "void CoreBody coverage"
 require_pattern "$helper_src" 'return 3;' "integer literal CoreBody coverage"
+require_pattern "$helper_src" 'return helper_value\(\);' "call-return CoreBody coverage"
 require_pattern "$main_src" 'fn drop\(self: SmokeDrop\)' "drop coverage"
 require_pattern "$main_src" 'const slice: &\[i32\]' "slice coverage"
 require_pattern "$main_src" 'var array: \[i32: 4\]' "array coverage"
@@ -262,12 +269,12 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=16 core_bodies=2 pending_bodies=10' "$native_build_err"; then
-    echo "error: native full-language reject lacks hosted CoreIR void/int-literal body preflight evidence" >&2
+if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=17 core_bodies=3 pending_bodies=10' "$native_build_err"; then
+    echo "error: native full-language reject lacks hosted CoreIR void/int-literal/call-return body preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=2 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=3 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted PortableMIR preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
