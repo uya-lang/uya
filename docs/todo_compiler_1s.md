@@ -777,7 +777,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] 新增 `docs/portable_mir_whitepaper.md`，作为 Phase 9A 实现前的详细 MIR 合同。
 - [x] Phase 5B 的 `CoreBody`、CoreIR dump、CoreIR verifier 和 CoreIR closure contract 门禁全部通过。
 - [x] 定义 `PortableMIR` 顶层 module / function / block / value / type / local / inst / terminator 结构。
-- [ ] `PortableMIR` 所有表动态增长，不引入函数、block、inst、value、local 或 type 的固定语义上限。
+- [x] `PortableMIR` 所有表动态增长，不引入函数、block、inst、value、local 或 type 的固定语义上限。
 - [ ] 明确 `LoweredProgram` 的职责边界：functions、globals、types、interfaces、err_unions、async_frames、
   drop_defer_plans、helpers、worklist 和稳定符号顺序；不把 `LoweredBodyOp` 扩成完整语言 IR。
 - [ ] 实现 `LoweredProgram + CoreBody` 到 `PortableMIR` 的 lowering 合同，覆盖表达式、语句、控制流、
@@ -831,6 +831,7 @@ bash tests/verify_coreir_closure_contract.sh
 bash tests/verify_coreir_naked_fn_contract.sh
 bash tests/verify_coreir_parallel_determinism.sh
 bash tests/verify_portable_mir_structs.sh
+bash tests/verify_portable_mir_dynamic_tables.sh
 bash tests/verify_portable_mir_golden.sh
 bash tests/verify_portable_mir_verifier.sh
 bash tests/verify_portable_mir_naked_fn.sh

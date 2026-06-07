@@ -333,6 +333,184 @@ export fn portable_mir_module_init(module: &PortableMirModule, arena: &CompilerA
     semantic_vector_init(&module.capability_reqs, @size_of(MirCapabilityReq));
 }
 
+fn portable_mir_append_item(vec: &SemanticVector, item: &const void) i32 {
+    if vec == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(vec, item) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR function 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加函数。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_function(module: &PortableMirModule, item: &MirFunction) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.functions, item as &const void) != 0 {
+        return -1;
+    }
+    module.function_count = module.functions.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR block 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 basic block。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_block(module: &PortableMirModule, item: &MirBlock) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.blocks, item as &const void) != 0 {
+        return -1;
+    }
+    module.block_count = module.blocks.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR value 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 typed value。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_value(module: &PortableMirModule, item: &MirValue) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.values, item as &const void) != 0 {
+        return -1;
+    }
+    module.value_count = module.values.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR type 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 lowered type。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_type(module: &PortableMirModule, item: &MirType) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.types, item as &const void) != 0 {
+        return -1;
+    }
+    module.type_count = module.types.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR local 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 local storage。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_local(module: &PortableMirModule, item: &MirLocal) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.locals, item as &const void) != 0 {
+        return -1;
+    }
+    module.local_count = module.locals.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR instruction 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 instruction。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_inst(module: &PortableMirModule, item: &MirInst) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.insts, item as &const void) != 0 {
+        return -1;
+    }
+    module.inst_count = module.insts.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR terminator 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 terminator。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_terminator(module: &PortableMirModule, item: &MirTerminator) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.terminators, item as &const void) != 0 {
+        return -1;
+    }
+    module.terminator_count = module.terminators.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR operand 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 operand。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_operand(module: &PortableMirModule, item: &MirOperand) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.operands, item as &const void) != 0 {
+        return -1;
+    }
+    module.operand_count = module.operands.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR block parameter 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 block parameter。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_block_param(module: &PortableMirModule, item: &MirBlockParam) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.block_params, item as &const void) != 0 {
+        return -1;
+    }
+    module.block_param_count = module.block_params.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR successor 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 control-flow successor。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_successor(module: &PortableMirModule, item: &MirSuccessor) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.successors, item as &const void) != 0 {
+        return -1;
+    }
+    module.successor_count = module.successors.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR debug location 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 source location。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_debug_loc(module: &PortableMirModule, item: &MirDebugLoc) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.debug_locs, item as &const void) != 0 {
+        return -1;
+    }
+    module.debug_loc_count = module.debug_locs.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR capability requirement 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 capability requirement。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_capability_req(module: &PortableMirModule, item: &MirCapabilityReq) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.capability_reqs, item as &const void) != 0 {
+        return -1;
+    }
+    module.capability_req_count = module.capability_reqs.count;
+    return 0;
+}
+
 /// 功能说明：释放 PortableMIR module 的所有动态表。
 /// 参数说明：`module` 为目标 MIR module。
 /// 返回值说明：无。
