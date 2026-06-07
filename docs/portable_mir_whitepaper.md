@@ -658,6 +658,7 @@ function checks：
 - 当前 dominance/block-parameter 模型下不存在未定义使用。
 - local address 和 store type 匹配。
 - aggregate field/index 操作在 layout bounds 内。
+- atomic / vector / mask instruction 受对应 type metadata 约束。
 - return/error/unreachable path 满足 cleanup obligations。
 - extern/builtin/asm capability requirements 已存在。
 - naked function 不含普通 blocks、locals、stack slots、cleanup obligations、implicit return 或非 naked-compatible
@@ -673,6 +674,8 @@ target checks：
 - `naked_function` capability、inline asm capability 和 calling convention 均受 target 支持。
 
 默认报告第一个稳定 diagnostic；dump 模式可报告更多。
+当前实现入口为 `portable_mir_verify_module(module, result)`，`MirVerifierResult` 记录首个稳定错误码和触发的
+function / block / inst / value / type / capability ID，后端入口必须在发射前先消费该 verifier 结论。
 
 ## 23. Dump 和 Golden 格式
 

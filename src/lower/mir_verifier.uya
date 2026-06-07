@@ -1,0 +1,485 @@
+// lower/mir_verifier.uya - Linear PortableMIR verifier shared by future backends.
+
+export const MIR_VERIFY_OK: i32 = 0;
+export const MIR_VERIFY_ERR_INVALID_MODULE: i32 = 1;
+export const MIR_VERIFY_ERR_COUNT_MISMATCH: i32 = 2;
+export const MIR_VERIFY_ERR_INVALID_FUNCTION: i32 = 3;
+export const MIR_VERIFY_ERR_INVALID_BLOCK: i32 = 4;
+export const MIR_VERIFY_ERR_MISSING_TERMINATOR: i32 = 5;
+export const MIR_VERIFY_ERR_INVALID_VALUE: i32 = 6;
+export const MIR_VERIFY_ERR_TYPE_MISMATCH: i32 = 7;
+export const MIR_VERIFY_ERR_INVALID_ADDRESS: i32 = 8;
+export const MIR_VERIFY_ERR_INVALID_ATOMIC: i32 = 9;
+export const MIR_VERIFY_ERR_INVALID_VECTOR_MASK: i32 = 10;
+export const MIR_VERIFY_ERR_INVALID_CLEANUP: i32 = 11;
+export const MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY: i32 = 12;
+export const MIR_VERIFY_ERR_INVALID_NAKED_BODY: i32 = 13;
+export const MIR_VERIFY_ERR_UNDEFINED_USE: i32 = 14;
+export const MIR_VERIFY_ERR_INVALID_OPERAND: i32 = 15;
+export const MIR_VERIFY_ERR_INVALID_LAYOUT: i32 = 16;
+
+const MIR_VERIFY_ADDR_OP_MIN: i32 = 5;
+const MIR_VERIFY_ADDR_OP_MAX: i32 = 12;
+const MIR_VERIFY_ATOMIC_OP_MIN: i32 = 17;
+const MIR_VERIFY_ATOMIC_OP_MAX: i32 = 20;
+const MIR_VERIFY_VECTOR_OP_MIN: i32 = 21;
+const MIR_VERIFY_VECTOR_OP_MAX: i32 = 24;
+
+/// 功能说明：记录 PortableMIR verifier 的首个稳定 diagnostic。
+/// 参数说明：无；字段保存错误码和触发错误的 MIR ID。
+/// 返回值说明：无。
+export struct MirVerifierResult {
+    error_code: i32,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    inst_id: MirInstId,
+    value_id: MirValueId,
+    type_id: MirTypeId,
+    operand_id: MirOperandId,
+    capability_req_id: MirCapabilityReqId,
+    debug_loc_id: MirDebugLocId,
+}
+
+/// 功能说明：初始化 MIR verifier result。
+/// 参数说明：`result` 为待初始化的 result 指针。
+/// 返回值说明：无。
+export fn portable_mir_verifier_result_init(result: &MirVerifierResult) void {
+    if result == null {
+        return;
+    }
+    result.error_code = MIR_VERIFY_OK;
+    result.function_id = MIR_FUNCTION_INVALID_ID;
+    result.block_id = MIR_BLOCK_INVALID_ID;
+    result.inst_id = MIR_INST_INVALID_ID;
+    result.value_id = MIR_VALUE_INVALID_ID;
+    result.type_id = MIR_TYPE_INVALID_ID;
+    result.operand_id = -1;
+    result.capability_req_id = MIR_CAPABILITY_REQ_INVALID_ID;
+    result.debug_loc_id = MIR_DEBUG_LOC_INVALID_ID;
+}
+
+fn portable_mir_verify_fail(result: &MirVerifierResult, error_code: i32, function_id: MirFunctionId,
+    block_id: MirBlockId, inst_id: MirInstId, value_id: MirValueId, type_id: MirTypeId,
+    operand_id: MirOperandId, capability_req_id: MirCapabilityReqId, debug_loc_id: MirDebugLocId) i32 {
+    if result != null && result.error_code == MIR_VERIFY_OK {
+        result.error_code = error_code;
+        result.function_id = function_id;
+        result.block_id = block_id;
+        result.inst_id = inst_id;
+        result.value_id = value_id;
+        result.type_id = type_id;
+        result.operand_id = operand_id;
+        result.capability_req_id = capability_req_id;
+        result.debug_loc_id = debug_loc_id;
+    }
+    return -1;
+}
+
+fn portable_mir_verify_range(start: i32, count: i32, total: usize) i32 {
+    if start < 0 || count < 0 {
+        return 0;
+    }
+    if (start as usize) > total {
+        return 0;
+    }
+    if (count as usize) > total - (start as usize) {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_count_pair(expected: usize, actual: usize, result: &MirVerifierResult) i32 {
+    if expected == actual {
+        return 0;
+    }
+    return portable_mir_verify_fail(result, MIR_VERIFY_ERR_COUNT_MISMATCH, MIR_FUNCTION_INVALID_ID,
+        MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID,
+        -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+}
+
+fn portable_mir_verify_count(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    if portable_mir_verify_count_pair(module.function_count, module.functions.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.block_count, module.blocks.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.value_count, module.values.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.type_count, module.types.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.local_count, module.locals.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.inst_count, module.insts.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.terminator_count, module.terminators.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.operand_count, module.operands.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.capability_req_count, module.capability_reqs.count, result) != 0 { return -1; }
+    return 0;
+}
+
+fn portable_mir_verify_has_mask(mask: i32, required: i32) i32 {
+    if required == 0 {
+        return 1;
+    }
+    if (mask & required) == required {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_address_supported(module: &PortableMirModule, address_space: i32) i32 {
+    return portable_mir_verify_has_mask(module.target_profile.supported_address_spaces, address_space);
+}
+
+fn portable_mir_verify_function_ptr(module: &PortableMirModule, id: MirFunctionId) &MirFunction {
+    if module == null || id < 0 || (id as usize) >= module.functions.count { return null; }
+    return semantic_vector_item_ptr(&module.functions, id as usize) as &MirFunction;
+}
+
+fn portable_mir_verify_block_ptr(module: &PortableMirModule, id: MirBlockId) &MirBlock {
+    if module == null || id < 0 || (id as usize) >= module.blocks.count { return null; }
+    return semantic_vector_item_ptr(&module.blocks, id as usize) as &MirBlock;
+}
+
+fn portable_mir_verify_value_ptr(module: &PortableMirModule, id: MirValueId) &MirValue {
+    if module == null || id < 0 || (id as usize) >= module.values.count { return null; }
+    return semantic_vector_item_ptr(&module.values, id as usize) as &MirValue;
+}
+
+fn portable_mir_verify_type_ptr(module: &PortableMirModule, id: MirTypeId) &MirType {
+    if module == null || id < 0 || (id as usize) >= module.types.count { return null; }
+    return semantic_vector_item_ptr(&module.types, id as usize) as &MirType;
+}
+
+fn portable_mir_verify_inst_ptr(module: &PortableMirModule, id: MirInstId) &MirInst {
+    if module == null || id < 0 || (id as usize) >= module.insts.count { return null; }
+    return semantic_vector_item_ptr(&module.insts, id as usize) as &MirInst;
+}
+
+fn portable_mir_verify_terminator_ptr(module: &PortableMirModule, id: MirTerminatorId) &MirTerminator {
+    if module == null || id < 0 || (id as usize) >= module.terminators.count { return null; }
+    return semantic_vector_item_ptr(&module.terminators, id as usize) as &MirTerminator;
+}
+
+fn portable_mir_verify_operand_ptr(module: &PortableMirModule, id: MirOperandId) &MirOperand {
+    if module == null || id < 0 || (id as usize) >= module.operands.count { return null; }
+    return semantic_vector_item_ptr(&module.operands, id as usize) as &MirOperand;
+}
+
+fn portable_mir_verify_capability_ptr(module: &PortableMirModule, id: MirCapabilityReqId) &MirCapabilityReq {
+    if module == null || id < 0 || (id as usize) >= module.capability_reqs.count { return null; }
+    return semantic_vector_item_ptr(&module.capability_reqs, id as usize) as &MirCapabilityReq;
+}
+
+fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: usize, result: &MirVerifierResult) i32 {
+    if typ == null || typ.type_id != index as i32 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, index as i32, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.kind != MIR_TYPE_KIND_VOID && (typ.size_bytes == 0usize || typ.align_bytes == 0usize) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.kind == MIR_TYPE_KIND_POINTER && portable_mir_verify_type_ptr(module, typ.pointee_type_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.kind == MIR_TYPE_KIND_ATOMIC && typ.atomic_align_bytes == 0usize {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ATOMIC, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.kind == MIR_TYPE_KIND_VECTOR && (typ.lane_count <= 0 || typ.lane_stride_bytes == 0usize) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VECTOR_MASK, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.kind == MIR_TYPE_KIND_MASK && (typ.lane_count <= 0 || typ.mask_representation == 0) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VECTOR_MASK, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.address_space != 0 && portable_mir_verify_address_supported(module, typ.address_space) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_types(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if portable_mir_verify_type(module, typ, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_local(module: &PortableMirModule, local: &MirLocal, index: usize, result: &MirVerifierResult) i32 {
+    if local == null || local.local_id != index as i32 ||
+       portable_mir_verify_function_ptr(module, local.function_id) == null ||
+       portable_mir_verify_type_ptr(module, local.type_id) == null || local.alignment == 0usize {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, local.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, local.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, local.debug_loc_id);
+    }
+    if portable_mir_verify_address_supported(module, local.address_space) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, local.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, local.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, local.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_locals(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.locals.count {
+        const local: &MirLocal = semantic_vector_item_ptr(&module.locals, i) as &MirLocal;
+        if portable_mir_verify_local(module, local, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_value(module: &PortableMirModule, value: &MirValue, index: usize, result: &MirVerifierResult) i32 {
+    if value == null || value.value_id != index as i32 ||
+       portable_mir_verify_type_ptr(module, value.type_id) == null ||
+       portable_mir_verify_function_ptr(module, value.function_id) == null ||
+       portable_mir_verify_block_ptr(module, value.block_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VALUE, value.function_id, value.block_id, value.defining_inst_id, value.value_id, value.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
+    }
+    if value.defining_inst_id == MIR_INST_INVALID_ID && (value.flags & MIR_VALUE_FLAG_PARAM) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNDEFINED_USE, value.function_id, value.block_id, MIR_INST_INVALID_ID, value.value_id, value.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
+    }
+    if value.defining_inst_id != MIR_INST_INVALID_ID &&
+       portable_mir_verify_inst_ptr(module, value.defining_inst_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VALUE, value.function_id, value.block_id, value.defining_inst_id, value.value_id, value.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_values(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.values.count {
+        const value: &MirValue = semantic_vector_item_ptr(&module.values, i) as &MirValue;
+        if portable_mir_verify_value(module, value, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_operand_use(module: &PortableMirModule, inst: &MirInst, operand: &MirOperand,
+    result: &MirVerifierResult) i32 {
+    if operand == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if operand.value_id != MIR_VALUE_INVALID_ID {
+        const value: &MirValue = portable_mir_verify_value_ptr(module, operand.value_id);
+        if value == null {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, operand.value_id, operand.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        if value.defining_inst_id == MIR_INST_INVALID_ID && (value.flags & MIR_VALUE_FLAG_PARAM) == 0 {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNDEFINED_USE, inst.function_id, inst.block_id, inst.inst_id, value.value_id, value.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
+        }
+        if value.defining_inst_id != MIR_INST_INVALID_ID && value.defining_inst_id >= inst.inst_id {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNDEFINED_USE, inst.function_id, inst.block_id, inst.inst_id, value.value_id, value.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
+        }
+    }
+    if operand.local_id != MIR_LOCAL_INVALID_ID && (operand.local_id < 0 || (operand.local_id as usize) >= module.locals.count) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, operand.value_id, operand.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if operand.type_id != MIR_TYPE_INVALID_ID && portable_mir_verify_type_ptr(module, operand.type_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, operand.value_id, operand.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, result: &MirVerifierResult) i32 {
+    const typ: &MirType = portable_mir_verify_type_ptr(module, inst.type_id);
+    if inst.op == MIR_INST_OP_LOAD && (inst.operand_count <= 0 || inst.result_value_id == MIR_VALUE_INVALID_ID) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.op == MIR_INST_OP_STORE && inst.operand_count < 2 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if (inst.op == MIR_INST_OP_LOAD || inst.op == MIR_INST_OP_STORE ||
+        (inst.op >= MIR_VERIFY_ADDR_OP_MIN && inst.op <= MIR_VERIFY_ADDR_OP_MAX)) &&
+       portable_mir_verify_address_supported(module, inst.address_space) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.op >= MIR_VERIFY_ATOMIC_OP_MIN && inst.op <= MIR_VERIFY_ATOMIC_OP_MAX &&
+       (typ == null || typ.kind != MIR_TYPE_KIND_ATOMIC) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ATOMIC, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.op >= MIR_VERIFY_VECTOR_OP_MIN && inst.op <= MIR_VERIFY_VECTOR_OP_MAX &&
+       (typ == null || (typ.kind != MIR_TYPE_KIND_VECTOR && typ.kind != MIR_TYPE_KIND_MASK)) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VECTOR_MASK, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.op == MIR_INST_OP_CALL && portable_mir_verify_has_mask(module.target_profile.supported_calling_conventions, inst.calling_convention) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if portable_mir_verify_has_mask(module.target_profile.runtime_capability_mask, inst.runtime_capability_mask) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_inst(module: &PortableMirModule, inst: &MirInst, index: usize, result: &MirVerifierResult) i32 {
+    if inst == null || inst.inst_id != index as i32 ||
+       portable_mir_verify_function_ptr(module, inst.function_id) == null ||
+       portable_mir_verify_block_ptr(module, inst.block_id) == null ||
+       portable_mir_verify_type_ptr(module, inst.type_id) == null ||
+       portable_mir_verify_range(inst.operand_start, inst.operand_count, module.operands.count) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, index as i32, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.result_value_id != MIR_VALUE_INVALID_ID {
+        const result_value: &MirValue = portable_mir_verify_value_ptr(module, inst.result_value_id);
+        if result_value == null || result_value.type_id != inst.type_id {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+    }
+    if portable_mir_verify_inst_shape(module, inst, result) != 0 { return -1; }
+    var offset: i32 = 0;
+    while offset < inst.operand_count {
+        const operand: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start + offset);
+        if portable_mir_verify_operand_use(module, inst, operand, result) != 0 { return -1; }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_insts(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if portable_mir_verify_inst(module, inst, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_terminator(module: &PortableMirModule, term: &MirTerminator, index: usize,
+    result: &MirVerifierResult) i32 {
+    if term == null || term.terminator_id != index as i32 ||
+       portable_mir_verify_function_ptr(module, term.function_id) == null ||
+       portable_mir_verify_block_ptr(module, term.block_id) == null ||
+       portable_mir_verify_range(term.operand_start, term.operand_count, module.operands.count) == 0 ||
+       portable_mir_verify_range(term.successor_start, term.successor_count, module.successors.count) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_MISSING_TERMINATOR, term.function_id, term.block_id, index as i32, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, term.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_terminators(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.terminators.count {
+        const term: &MirTerminator = semantic_vector_item_ptr(&module.terminators, i) as &MirTerminator;
+        if portable_mir_verify_terminator(module, term, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_block(module: &PortableMirModule, block: &MirBlock, index: usize, result: &MirVerifierResult) i32 {
+    if block == null || block.block_id != index as i32 ||
+       portable_mir_verify_function_ptr(module, block.function_id) == null ||
+       portable_mir_verify_range(block.inst_start, block.inst_count, module.insts.count) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_BLOCK, block.function_id, index as i32, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, block.debug_loc_id);
+    }
+    if block.terminator_id == MIR_TERMINATOR_INVALID_ID ||
+       portable_mir_verify_terminator_ptr(module, block.terminator_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_MISSING_TERMINATOR, block.function_id, block.block_id, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, block.debug_loc_id);
+    }
+    const function: &MirFunction = portable_mir_verify_function_ptr(module, block.function_id);
+    if (block.flags & MIR_BLOCK_FLAG_CLEANUP) != 0 && (function == null || function.cleanup_model == 0) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_CLEANUP, block.function_id, block.block_id, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, block.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_blocks(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.blocks.count {
+        const block: &MirBlock = semantic_vector_item_ptr(&module.blocks, i) as &MirBlock;
+        if portable_mir_verify_block(module, block, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_capability(module: &PortableMirModule, cap: &MirCapabilityReq, index: usize,
+    result: &MirVerifierResult) i32 {
+    if cap == null || cap.capability_req_id != index as i32 ||
+       portable_mir_verify_function_ptr(module, cap.function_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, cap.function_id, MIR_BLOCK_INVALID_ID, cap.inst_id, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, index as i32, cap.debug_loc_id);
+    }
+    if cap.inst_id != MIR_INST_INVALID_ID && portable_mir_verify_inst_ptr(module, cap.inst_id) == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, cap.function_id, MIR_BLOCK_INVALID_ID, cap.inst_id, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, index as i32, cap.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_capabilities(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.capability_reqs.count {
+        const cap: &MirCapabilityReq = semantic_vector_item_ptr(&module.capability_reqs, i) as &MirCapabilityReq;
+        if portable_mir_verify_capability(module, cap, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_function_has_cleanup_block(module: &PortableMirModule, function: &MirFunction) i32 {
+    var offset: i32 = 0;
+    while offset < function.block_count {
+        const block: &MirBlock = portable_mir_verify_block_ptr(module, function.block_start + offset);
+        if block != null && (block.flags & MIR_BLOCK_FLAG_CLEANUP) != 0 {
+            return 1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_function(module: &PortableMirModule, function: &MirFunction, index: usize,
+    result: &MirVerifierResult) i32 {
+    if function == null || function.function_id != index as i32 ||
+       portable_mir_verify_type_ptr(module, function.signature_type_id) == null ||
+       portable_mir_verify_range(function.local_start, function.local_count, module.locals.count) == 0 ||
+       portable_mir_verify_range(function.block_start, function.block_count, module.blocks.count) == 0 ||
+       portable_mir_verify_range(function.capability_req_start, function.capability_req_count, module.capability_reqs.count) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_FUNCTION, index as i32, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
+    }
+    if portable_mir_verify_has_mask(module.target_profile.supported_calling_conventions, function.calling_convention) == 0 ||
+       portable_mir_verify_has_mask(module.target_profile.runtime_capability_mask, function.runtime_capability_mask) == 0 ||
+       portable_mir_verify_has_mask(module.target_profile.supported_address_spaces, function.required_address_space_mask) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, function.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
+    }
+    if portable_mir_function_has_naked_flag(function) != 0 {
+        if portable_mir_function_has_asm_only_naked_body(function) == 0 {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_NAKED_BODY, function.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
+        }
+        return 0;
+    }
+    if (function.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 &&
+       (function.body_kind != MIR_FUNCTION_BODY_KIND_NORMAL || function.entry_block_id == MIR_BLOCK_INVALID_ID ||
+        portable_mir_verify_block_ptr(module, function.entry_block_id) == null) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_FUNCTION, function.function_id, function.entry_block_id, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
+    }
+    if function.cleanup_model != 0 && portable_mir_verify_function_has_cleanup_block(module, function) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_CLEANUP, function.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_functions(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction = semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
+        if portable_mir_verify_function(module, function, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：线性验证 PortableMIR module 是否满足 backend 入口合同。
+/// 参数说明：`module` 为待验证 MIR module，`result` 接收首个稳定 diagnostic。
+/// 返回值说明：验证通过返回 `0`，失败返回 `-1` 并填充 `result.error_code`。
+export fn portable_mir_verify_module(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    if result != null {
+        portable_mir_verifier_result_init(result);
+    }
+    if module == null || module.lifecycle_state != PORTABLE_MIR_LIFECYCLE_ACTIVE {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_MODULE, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if portable_mir_verify_count(module, result) != 0 { return -1; }
+    if portable_mir_verify_types(module, result) != 0 { return -1; }
+    if portable_mir_verify_functions(module, result) != 0 { return -1; }
+    if portable_mir_verify_blocks(module, result) != 0 { return -1; }
+    if portable_mir_verify_locals(module, result) != 0 { return -1; }
+    if portable_mir_verify_values(module, result) != 0 { return -1; }
+    if portable_mir_verify_insts(module, result) != 0 { return -1; }
+    if portable_mir_verify_terminators(module, result) != 0 { return -1; }
+    if portable_mir_verify_capabilities(module, result) != 0 { return -1; }
+    return 0;
+}

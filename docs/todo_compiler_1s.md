@@ -789,7 +789,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
   runtime capability、address space 预留字段。
 - [x] `PortableMIR` 显式记录 `MirFunction.flags.naked` / asm-only naked body，禁止 naked 函数走普通
   prologue/epilogue、stack slot、cleanup、drop、async 或隐式 return lowering。
-- [ ] 实现 MIR verifier，线性检查 block 终结、value 定义/使用、类型匹配、地址/布局、atomic / vector /
+- [x] 实现 MIR verifier，线性检查 block 终结、value 定义/使用、类型匹配、地址/布局、atomic / vector /
   mask 规则、cleanup path 和 target capability。
 - [ ] 明确 PortableMIR 并行构造合同：worker 只消费 frozen `LoweredProgram + CoreBody`，按 stable
   function order 归并 MIR functions、diagnostics、dump 和 backend fragments。
