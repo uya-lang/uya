@@ -428,7 +428,7 @@ make bench-compiler-1s-check
 PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需要新的语义事实，先补
 `LoweredProgram` / `CoreBody` 合同，不能把 `TypedProgram` 当成语义查询旁路。
 
-- [ ] 定义 `CoreBody`，作为 concrete function 的结构化函数体表示。
+- [x] 定义 `CoreBody`，作为 concrete function 的结构化函数体表示。
 - [ ] 定义 `CoreStmt` / `CoreExpr` / `CorePlace` / `CoreCleanupEdge` 等 Core-level 节点。
 - [ ] `CoreBody` 保存 PortableMIR 所需的 resolved call target、method dispatch、field id、type id、
   proof result、source span、drop/defer/errdefer 和 capability metadata。

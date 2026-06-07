@@ -2,9 +2,13 @@
 
 use libc;
 
+export type CoreBodyId = i32;
+
 export const LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const LOWERED_PROGRAM_LIFECYCLE_ACTIVE: i32 = 1;
 export const LOWERED_PROGRAM_LIFECYCLE_RELEASED: i32 = 2;
+export const CORE_BODY_INVALID_ID: CoreBodyId = -1;
+export const CORE_BODY_FLAG_SOURCE_BODY: i32 = 1;
 export const LOWER_WORK_ITEM_FUNCTION: i32 = 1;
 export const LOWER_WORK_ITEM_TYPE: i32 = 2;
 export const LOWER_WORK_ITEM_ERR_UNION: i32 = 3;
@@ -48,6 +52,25 @@ export struct ConcreteFunction {
     mono_instance_id: MonoInstanceId,
     body_start: i32,
     body_count: i32,
+}
+
+/// 功能说明：记录一个 concrete function 的结构化 Core-level 函数体入口。
+/// 参数说明：无；字段用稳定 ID 和 range 指向后续 CoreStmt/CoreExpr/CorePlace/CleanupEdge 表。
+/// 返回值说明：无。
+export struct CoreBody {
+    body_id: CoreBodyId,
+    function_id: FunctionId,
+    decl_id: DeclId,
+    root_stmt_start: i32,
+    root_stmt_count: i32,
+    expr_start: i32,
+    expr_count: i32,
+    place_start: i32,
+    place_count: i32,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    source_span_id: i32,
+    flags: i32,
 }
 
 /// 功能说明：记录一个已经收敛到具体布局的类型。
@@ -180,11 +203,13 @@ export struct LoweredProgram {
     helper_count: usize,
     work_item_count: usize,
     body_op_count: usize,
+    core_body_count: usize,
     estimated_bytes: usize,
     resident_peak_bytes: usize,
     lifecycle_state: i32,
     functions: SemanticVector,
     body_ops: SemanticVector,
+    core_bodies: SemanticVector,
     globals: SemanticVector,
     types: SemanticVector,
     interfaces: SemanticVector,
@@ -209,6 +234,7 @@ fn lowered_program_clear_counts(program: &LoweredProgram) void {
     program.helper_count = 0usize;
     program.work_item_count = 0usize;
     program.body_op_count = 0usize;
+    program.core_body_count = 0usize;
     program.estimated_bytes = 0usize;
 }
 
@@ -247,6 +273,7 @@ export fn lowered_program_init(program: &LoweredProgram, arena: &CompilerArena) 
     program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_ACTIVE;
     semantic_vector_init(&program.functions, @size_of(ConcreteFunction));
     semantic_vector_init(&program.body_ops, @size_of(LoweredBodyOp));
+    semantic_vector_init(&program.core_bodies, @size_of(CoreBody));
     semantic_vector_init(&program.globals, @size_of(GlobalObject));
     semantic_vector_init(&program.types, @size_of(ConcreteType));
     semantic_vector_init(&program.interfaces, @size_of(InterfacePlan));
@@ -269,6 +296,7 @@ export fn lowered_program_reset(program: &LoweredProgram) void {
     program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_ACTIVE;
     semantic_vector_reset(&program.functions);
     semantic_vector_reset(&program.body_ops);
+    semantic_vector_reset(&program.core_bodies);
     semantic_vector_reset(&program.globals);
     semantic_vector_reset(&program.types);
     semantic_vector_reset(&program.interfaces);
@@ -292,6 +320,7 @@ export fn lowered_program_release(program: &LoweredProgram) void {
     }
     semantic_vector_release(&program.functions);
     semantic_vector_release(&program.body_ops);
+    semantic_vector_release(&program.core_bodies);
     semantic_vector_release(&program.globals);
     semantic_vector_release(&program.types);
     semantic_vector_release(&program.interfaces);
@@ -341,6 +370,21 @@ export fn lowered_program_append_body_op(program: &LoweredProgram, item: &Lowere
         return -1;
     }
     program.body_op_count = program.body_ops.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加一个结构化 CoreBody 记录。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 CoreBody。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_core_body(program: &LoweredProgram, item: &CoreBody) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.core_bodies, item as &const void) != 0 {
+        return -1;
+    }
+    program.core_body_count = program.core_bodies.count;
     lowered_program_refresh_bytes(program);
     return 0;
 }
@@ -495,6 +539,21 @@ export fn lowered_program_get_body_op(program: &LoweredProgram, index: usize, ou
     return 1;
 }
 
+/// 功能说明：查询 LoweredProgram CoreBody 表中的指定结构化函数体。
+/// 参数说明：`program` 为目标 LoweredProgram，`index` 为 CoreBody 下标，`out_item` 接收结果。
+/// 返回值说明：命中返回 `1`，越界或参数无效返回 `0`。
+export fn lowered_program_get_core_body(program: &LoweredProgram, index: usize, out_item: &CoreBody) i32 {
+    if program == null || out_item == null {
+        return 0;
+    }
+    const item: &CoreBody = semantic_vector_item_ptr(&program.core_bodies, index) as &CoreBody;
+    if item == null {
+        return 0;
+    }
+    out_item[0] = item[0];
+    return 1;
+}
+
 fn lowered_program_reset_worklist(program: &LoweredProgram) void {
     if program == null {
         return;
@@ -541,6 +600,7 @@ export fn lowered_program_storage_bytes(program: &LoweredProgram) usize {
     return @size_of(LoweredProgram) +
         program.functions.bytes +
         program.body_ops.bytes +
+        program.core_bodies.bytes +
         program.globals.bytes +
         program.types.bytes +
         program.interfaces.bytes +
@@ -622,6 +682,7 @@ export fn lowered_program_stats(program: &LoweredProgram) LoweredProgramStats {
     }
     lowered_program_stats_add(&stats, &program.functions);
     lowered_program_stats_add(&stats, &program.body_ops);
+    lowered_program_stats_add(&stats, &program.core_bodies);
     lowered_program_stats_add(&stats, &program.globals);
     lowered_program_stats_add(&stats, &program.types);
     lowered_program_stats_add(&stats, &program.interfaces);
@@ -1148,8 +1209,8 @@ export fn lowered_program_maybe_dump_summary(program: &LoweredProgram) void {
     }
     const stats: LoweredProgramStats = lowered_program_stats(program);
     fprintf(libc.stderr, "=== lowered program ===\n" as *byte);
-    fprintf(libc.stderr, "functions=%zu body_ops=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
-        program.function_count, program.body_op_count, program.global_count, program.type_count, program.interface_count,
+    fprintf(libc.stderr, "functions=%zu body_ops=%zu core_bodies=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
+        program.function_count, program.body_op_count, program.core_body_count, program.global_count, program.type_count, program.interface_count,
         program.err_union_count, program.async_frame_count, program.drop_defer_count, program.helper_count, program.work_item_count);
     fprintf(libc.stderr, "tables=%d table_items=%zu table_capacity=%zu table_bytes=%zu table_reallocs=%d\n" as *byte,
         stats.table_count, stats.table_items, stats.table_capacity, stats.table_bytes, stats.table_realloc_count);

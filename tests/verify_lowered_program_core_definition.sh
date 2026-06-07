@@ -29,6 +29,7 @@ done
 
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+LoweredProgram' "LoweredProgram 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+ConcreteFunction' "ConcreteFunction 结构"
+require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+CoreBody' "CoreBody 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+LoweredBodyOp' "LoweredBodyOp 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+ConcreteType' "ConcreteType 结构"
 require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+RuntimeHelper' "RuntimeHelper 结构"
@@ -37,6 +38,7 @@ require_pattern "$LOWER_CORE_FILE" '^export[[:space:]]+struct[[:space:]]+AsyncFr
 require_pattern "$LOWER_CORE_FILE" 'arena:[[:space:]]*&CompilerArena' "LoweredProgram 独立 arena 句柄"
 require_pattern "$LOWER_CORE_FILE" 'functions:[[:space:]]*SemanticVector' "functions 动态表"
 require_pattern "$LOWER_CORE_FILE" 'body_ops:[[:space:]]*SemanticVector' "body_ops 动态表"
+require_pattern "$LOWER_CORE_FILE" 'core_bodies:[[:space:]]*SemanticVector' "CoreBody 动态表"
 require_pattern "$LOWER_CORE_FILE" 'globals:[[:space:]]*SemanticVector' "globals 动态表"
 require_pattern "$LOWER_CORE_FILE" 'types:[[:space:]]*SemanticVector' "types 动态表"
 require_pattern "$LOWER_CORE_FILE" 'interfaces:[[:space:]]*SemanticVector' "interfaces 动态表"
@@ -47,7 +49,9 @@ require_pattern "$LOWER_CORE_FILE" 'worklist:[[:space:]]*SemanticVector' "loweri
 require_pattern "$LOWER_CORE_FILE" 'estimated_bytes:[[:space:]]*usize' "LoweredProgram bytes 估算字段"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_function' "function append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_body_op' "body op append API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_core_body' "CoreBody append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_body_op' "body op get API"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_get_core_body' "CoreBody get API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_append_work_item' "worklist append API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_estimated_bytes' "estimated bytes API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_release' "release API"
@@ -89,11 +93,13 @@ fn lower_test_program() LoweredProgram {
         helper_count: 0,
         work_item_count: 0,
         body_op_count: 0usize,
+        core_body_count: 0usize,
         estimated_bytes: 0usize,
         resident_peak_bytes: 0usize,
         lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
         functions: lower_test_vector(),
         body_ops: lower_test_vector(),
+        core_bodies: lower_test_vector(),
         globals: lower_test_vector(),
         types: lower_test_vector(),
         interfaces: lower_test_vector(),
@@ -182,8 +188,24 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
             imm: i as i64,
             flags: 0,
         };
+        var core_body: CoreBody = CoreBody{
+            body_id: i,
+            function_id: i,
+            decl_id: i,
+            root_stmt_start: i * 2,
+            root_stmt_count: 2,
+            expr_start: i * 3,
+            expr_count: 3,
+            place_start: i,
+            place_count: 1,
+            cleanup_edge_start: i,
+            cleanup_edge_count: 0,
+            source_span_id: i,
+            flags: CORE_BODY_FLAG_SOURCE_BODY,
+        };
         try assert_eq_i32(lowered_program_append_function(&lowered, &fn_item), 0);
         try assert_eq_i32(lowered_program_append_body_op(&lowered, &body_op), 0);
+        try assert_eq_i32(lowered_program_append_core_body(&lowered, &core_body), 0);
         try assert_eq_i32(lowered_program_append_global(&lowered, &global_item), 0);
         try assert_eq_i32(lowered_program_append_type(&lowered, &type_item), 0);
         try assert_eq_i32(lowered_program_append_interface(&lowered, &interface_item), 0);
@@ -196,6 +218,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
 
     try assert_eq_i32(lowered.function_count, 40);
     try assert_eq_i32(lowered.body_op_count as i32, 40);
+    try assert_eq_i32(lowered.core_body_count as i32, 40);
     try assert_eq_i32(lowered.global_count, 40);
     try assert_eq_i32(lowered.type_count, 40);
     try assert_eq_i32(lowered.interface_count, 40);
@@ -205,9 +228,11 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(lowered.work_item_count, 40);
     try expect(lowered.functions.capacity >= 40usize);
     try expect(lowered.body_ops.capacity >= 40usize);
+    try expect(lowered.core_bodies.capacity >= 40usize);
     try expect(lowered.worklist.capacity >= 40usize);
     try expect(lowered.functions.realloc_count > 1);
     try expect(lowered.body_ops.realloc_count > 1);
+    try expect(lowered.core_bodies.realloc_count > 1);
     try expect(lowered.worklist.realloc_count > 1);
     try expect(lowered_program_estimated_bytes(&lowered) > @size_of(LoweredProgram));
     try expect(lowered_program_peak_bytes(&lowered) >= lowered_program_current_bytes(&lowered));
@@ -224,10 +249,30 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(got_body_op.opcode, LOWERED_BODY_OP_RETURN_CONST_I32);
     try assert_eq_i32(got_body_op.target_id, 39);
     try assert_eq_i32(got_body_op.imm as i32, 39);
+    var got_core_body: CoreBody = CoreBody{
+        body_id: CORE_BODY_INVALID_ID,
+        function_id: 0,
+        decl_id: 0,
+        root_stmt_start: 0,
+        root_stmt_count: 0,
+        expr_start: 0,
+        expr_count: 0,
+        place_start: 0,
+        place_count: 0,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 0,
+        source_span_id: 0,
+        flags: 0,
+    };
+    try assert_eq_i32(lowered_program_get_core_body(&lowered, 39usize, &got_core_body), 1);
+    try assert_eq_i32(got_core_body.body_id, 39);
+    try assert_eq_i32(got_core_body.function_id, 39);
+    try assert_eq_i32(got_core_body.root_stmt_start, 78);
+    try assert_eq_i32(got_core_body.expr_start, 117);
 
     const stats: LoweredProgramStats = lowered_program_stats(&lowered);
-    try assert_eq_i32(stats.table_count, 10);
-    try expect(stats.table_capacity >= 360usize);
+    try assert_eq_i32(stats.table_count, 11);
+    try expect(stats.table_capacity >= 400usize);
 
     lowered_program_release(&lowered);
     try assert_eq_i32(lowered_program_lifecycle_state(&lowered), LOWERED_PROGRAM_LIFECYCLE_RELEASED);
