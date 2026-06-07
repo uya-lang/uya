@@ -798,7 +798,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] native backend 主路径改为 `PortableMIR -> MachineModule -> object/executable`。
 - [x] hosted native 第一阶段通过宿主 ABI / linker 承接 libc、pthread、filesystem、env、malloc、extern
   和 `@c_import` 链接需求。
-- [ ] freestanding native `cmd/build` 子集保留为回归边界，后续从已经通过 MIR 的能力逐步下沉，不阻塞
+- [x] freestanding native `cmd/build` 子集保留为回归边界，后续从已经通过 MIR 的能力逐步下沉，不阻塞
   hosted native 完整语言 parity。
 - [ ] C99 backend 第一阶段继续作为独立 oracle；暂不强制迁移到 MIR。
 
@@ -843,6 +843,7 @@ bash tests/verify_portable_mir_parallel_contract.sh
 bash tests/verify_portable_mir_backend_interface.sh
 bash tests/verify_native_mir_emitter.sh
 bash tests/verify_native_hosted_link_contract.sh
+bash tests/verify_native_cmd_build_regression_boundary.sh
 bash tests/verify_portable_mir_parallel_determinism.sh
 bash tests/verify_hosted_native_full_language_smoke.sh
 bash tests/verify_native_cmd_build_no_silent_c99.sh

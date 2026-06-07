@@ -579,6 +579,8 @@ native 范围分成两层：
 - hosted native 完整语言 parity：第一阶段完整实现当前 Uya 语言，并以 C99 为 oracle。
 - freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉。
 
+freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity。
+
 `CoreBody` 和 `PortableMIR` 首批必须覆盖完整语言主干：
 
 - 整数、bool、byte、浮点、指针、数组、slice、struct、union、enum、tuple、`atomic T`、

@@ -85,6 +85,19 @@ native 后端主线；完整语言 native parity 转由 `PortableMIR` + hosted n
 | F15 | partial | `tests/test_native_arena_peak_stats.uya` 覆盖 native arena peak snapshot，保留 `arena_peak_bytes` / `ast_arena_peak_bytes` / `check_arena_peak_bytes` / `emit_arena_peak_bytes` 同名字段；table/output/typed program metrics 尚未接入 native-built compiler | native-built compiler 继续输出全部同名 metrics |
 | F16 | done | build seed boundary 已排除 VM/exec、`uya microapp build/pack/inspect/verify/run`、fmt/upm、kernel packaging | 后续保持边界验证，避免重新引入非需求 |
 
+## Regression Boundary Contract
+
+Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边界，不定义完整语言 native
+主线，也不能成为 hosted native 完整语言 parity 的前置条件。
+
+- 只有当同一语言能力已经通过 `CoreBody` / `PortableMIR` lowering、MIR verifier 和 hosted native / C99
+  oracle smoke 后，才允许把该能力下沉到 freestanding build-seed。
+- 历史 `LoweredProgram -> MachineModule` build-seed helper 只能保持已有成功子集和失败诊断，不再为 `compile_files(...)`
+  或其它 compiler 形状新增 one-off `LoweredBodyOp`。
+- `cmd/build` 当前失败卡点必须继续由 `tests/verify_native_cmd_build_no_silent_c99.sh` 固定；失败时必须保留
+  native backend diagnostic，不能生成伪 native 输出，也不能静默回落 C99。
+- native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
+
 ## Release Acceptance Boundary
 
 本文件只定义 Phase 10 freestanding native `cmd/build` 子集，不定义最终语言完备性或长期 native 后端主线。
