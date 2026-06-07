@@ -339,6 +339,37 @@ fn native_build_type_is_i32(type_node: &ASTNode) i32 {
     return 0;
 }
 
+fn native_build_type_named_equals(type_node: &ASTNode, name: &byte) i32 {
+    if type_node == null || name == null ||
+       type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
+        return 0;
+    }
+    if str_equals(type_node.type_named_name as *byte, name as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_decl_returns_param_directly(decl: &ASTNode, param_name: &byte) i32 {
+    if decl == null || param_name == null || decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count != 1 {
+        return 0;
+    }
+    const stmt: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.return_stmt_expr.identifier_name == null {
+        return 0;
+    }
+    if str_equals(stmt.return_stmt_expr.identifier_name as *byte, param_name as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn native_build_type_is_backend_type(type_node: &ASTNode) i32 {
     if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
         return 0;
@@ -427,6 +458,33 @@ fn native_build_decl_is_one_i32_param_fn(decl: &ASTNode) i32 {
         return 0;
     }
     return native_build_type_is_i32(param.var_decl_type);
+}
+
+fn native_build_decl_is_identity_generic_i32_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null ||
+       decl.fn_decl_type_params == null || decl.fn_decl_type_param_count != 1 {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 1 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || decl.fn_decl_params == null {
+        return 0;
+    }
+    const type_param_name: &byte = decl.fn_decl_type_params[0].name;
+    if type_param_name == null {
+        return 0;
+    }
+    const param: &ASTNode = decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null {
+        return 0;
+    }
+    if native_build_type_named_equals(param.var_decl_type, type_param_name) == 0 {
+        return 0;
+    }
+    if native_build_type_named_equals(decl.fn_decl_return_type, type_param_name) == 0 {
+        return 0;
+    }
+    return native_build_decl_returns_param_directly(decl, param.var_decl_name);
 }
 
 fn native_build_decl_is_two_i32_param_fn(decl: &ASTNode) i32 {
@@ -525,6 +583,9 @@ fn native_build_decl_is_supported_i32_fn(decl: &ASTNode) i32 {
         return 1;
     }
     if native_build_decl_is_one_i32_param_fn(decl) != 0 {
+        return 1;
+    }
+    if native_build_decl_is_identity_generic_i32_fn(decl) != 0 {
         return 1;
     }
     if native_build_decl_is_two_i32_param_fn(decl) != 0 {
@@ -827,6 +888,33 @@ fn native_build_find_one_i32_param_function_decl_index(program: &ASTNode, name: 
     return -1;
 }
 
+fn native_build_find_const1_i32_function_decl_index(program: &ASTNode, name: &byte,
+    explicit_i32_type_arg: i32) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name, name as *byte) != 0 {
+            if explicit_i32_type_arg != 0 {
+                if native_build_decl_is_identity_generic_i32_fn(decl) != 0 {
+                    return i;
+                }
+                return -1;
+            }
+            if native_build_decl_is_one_i32_param_fn(decl) != 0 {
+                return i;
+            }
+            return -1;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
 fn native_build_find_two_i32_param_function_decl_index(program: &ASTNode, name: &byte) i32 {
     if program == null || program.type != ASTNodeType.AST_PROGRAM ||
        program.program_decls == null || name == null {
@@ -1016,9 +1104,16 @@ fn native_build_resolve_reachable_const1_i32_call(program: &ASTNode, expr: &ASTN
         return 0;
     }
     if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 1 ||
-       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_type_arg_count > 1 || expr.call_expr_callee == null ||
        expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER || expr.call_expr_args == null {
         return 0;
+    }
+    var explicit_i32_type_arg: i32 = 0;
+    if expr.call_expr_type_arg_count == 1 {
+        if expr.call_expr_type_args == null || native_build_type_is_i32(expr.call_expr_type_args[0]) == 0 {
+            return 0;
+        }
+        explicit_i32_type_arg = 1;
     }
     const arg0: &ASTNode = expr.call_expr_args[0];
     if arg0 == null || arg0.type != ASTNodeType.AST_NUMBER {
@@ -1028,8 +1123,8 @@ fn native_build_resolve_reachable_const1_i32_call(program: &ASTNode, expr: &ASTN
     const arg0_value: i32 = arg0_result catch {
         return 0;
     };
-    const target_decl: i32 = native_build_find_one_i32_param_function_decl_index(program,
-        expr.call_expr_callee.identifier_name);
+    const target_decl: i32 = native_build_find_const1_i32_function_decl_index(program,
+        expr.call_expr_callee.identifier_name, explicit_i32_type_arg);
     if target_decl < 0 {
         return 0;
     }

@@ -5,7 +5,8 @@
 # `return lhs() + rhs();`，一个 direct call 局部初始化后 `return local;`，或最小 `&i32`
 # / `&array[0]` out-param 写回、两个 `&i32` out-param 的最小调用，`get_argc`
 # 的 Linux `_start` 初始栈 argc 读取、基于 argc 的最小条件返回、local <= const 条件赋值、
-# `set_process_stack_limit_bytes` syscall statement，以及 `get_argv(1)[0]` 的 argv 指针读取；
+# `set_process_stack_limit_bytes` syscall statement、`get_argv(1)[0]` 的 argv 指针读取，
+# 以及显式 `<i32>` 泛型 identity direct call 局部初始化；
 # 同时覆盖 `parse_build_args` 形状的 11 参数/栈 out-param 最小调用。
 
 set -euo pipefail
@@ -106,6 +107,29 @@ fn echo(value: i32) i32 {
 
 export fn main() i32 {
     const result: i32 = echo(6);
+    return result;
+}
+EOF
+
+cat >"$TMP_DIR/local_generic_identity_call_return.uya" <<'EOF'
+fn identity<T>(value: T) T {
+    return value;
+}
+
+export fn main() i32 {
+    const result: i32 = identity<i32>(6);
+    return result;
+}
+EOF
+
+cat >"$TMP_DIR/local_generic_identity_extra_body.uya" <<'EOF'
+fn identity<T>(value: T) T {
+    const marker: i32 = 0;
+    return value;
+}
+
+export fn main() i32 {
+    const result: i32 = identity<i32>(6);
     return result;
 }
 EOF
@@ -333,25 +357,27 @@ run_success_check() {
 run_reject_check() {
     local compiler="$1"
     local label="$2"
-    local out="$TMP_DIR/${label}-return1-native"
+    local src="${3:-$TMP_DIR/unsupported.uya}"
+    local case_name="${4:-unsupported}"
+    local out="$TMP_DIR/${label}-${case_name}-native"
 
     set +e
-    "$compiler" build "$TMP_DIR/unsupported.uya" \
+    "$compiler" build "$src" \
         -o "$out" --native --nostdlib --no-split-c --project-root "$TMP_DIR/" \
-        >"$TMP_DIR/${label}.unsupported.out" 2>"$TMP_DIR/${label}.unsupported.err"
+        >"$TMP_DIR/${label}.${case_name}.out" 2>"$TMP_DIR/${label}.${case_name}.err"
     local reject_status=$?
     set -e
     if [[ "$reject_status" -eq 0 ]]; then
-        echo "错误: $label --native 不应把 unsupported 程序伪生成 native executable" >&2
+        echo "错误: $label --native 不应把 $case_name 程序伪生成 native executable" >&2
         exit 1
     fi
     if [[ -e "$out" ]]; then
-        echo "错误: $label --native 拒绝 unsupported 程序时不应生成输出" >&2
+        echo "错误: $label --native 拒绝 $case_name 程序时不应生成输出" >&2
         exit 1
     fi
-    grep -q 'LoweredProgram 到机器码 compiler path 未接入' "$TMP_DIR/${label}.unsupported.err"
-    grep -q '后端类型: Native' "$TMP_DIR/${label}.unsupported.err"
-    if grep -q '后端类型: C99' "$TMP_DIR/${label}.unsupported.err"; then
+    grep -q 'LoweredProgram 到机器码 compiler path 未接入' "$TMP_DIR/${label}.${case_name}.err"
+    grep -q '后端类型: Native' "$TMP_DIR/${label}.${case_name}.err"
+    if grep -q '后端类型: C99' "$TMP_DIR/${label}.${case_name}.err"; then
         echo "错误: $label --native 拒绝路径不应回落 C99" >&2
         exit 1
     fi
@@ -366,6 +392,7 @@ run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/var_then_return.uya" 4 1 
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/var_then_call.uya" 2 0 2
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_call_return.uya" 5 0 2 3 3
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_const_arg_call_return.uya" 6 0 2 3 3
+run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_generic_identity_call_return.uya" 6 0 2 3 3
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_const2_arg_call_return.uya" 15 0 2 3 3
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_addr_call_return.uya" 9 0 2 4 4
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_array_addr_call_return.uya" 9 0 2 4 4
@@ -388,6 +415,7 @@ run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/var_then_retu
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/var_then_call.uya" 2 0 2
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_call_return.uya" 5 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_const_arg_call_return.uya" 6 0 2 3 3
+run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_generic_identity_call_return.uya" 6 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_const2_arg_call_return.uya" 15 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_addr_call_return.uya" 9 0 2 4 4
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_array_addr_call_return.uya" 9 0 2 4 4
@@ -403,5 +431,7 @@ run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argv_first_by
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/parse11_stack_out_return.uya" 91 0 2 3 3
 run_reject_check "$REPO_ROOT/bin/uya" "uya"
 run_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
+run_reject_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_generic_identity_extra_body.uya" "generic-extra-body"
+run_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_generic_identity_extra_body.uya" "generic-extra-body"
 
 echo "verify_native_build_minimal_program: ok"
