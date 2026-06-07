@@ -434,7 +434,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
   proof result、source span、drop/defer/errdefer 和 capability metadata。
 - [x] Core lowering 从 `TypedProgram` 一次性冻结所需语义事实；完成后 MIR lowering 不再常规查询
   `TypedProgram`。
-- [ ] 现有 `LoweredBodyOp` 只保留为过渡兼容输入，不再新增 `RETURN_*`、`LOCAL_CALL_*`、
+- [x] 现有 `LoweredBodyOp` 只保留为过渡兼容输入，不再新增 `RETURN_*`、`LOCAL_CALL_*`、
   `IF_LOCAL_*` 等 one-off opcode。
 - [ ] 新增 `UYA_DUMP_COREIR=1`，输出稳定的 CoreIR / CoreBody 文本摘要。
 - [ ] 新增 CoreIR verifier，检查 concrete function 是否有合法 `CoreBody`、节点 type/call/field/proof
