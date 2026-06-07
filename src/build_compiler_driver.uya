@@ -1586,6 +1586,13 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
     if native_build_backend_member_value(expr, out_value) != 0 {
         return 1;
     }
+    if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
+        if str_equals(expr.identifier_name as *byte, "g_split_c_dir_active" as *byte) != 0 ||
+           str_equals(expr.identifier_name as *byte, "g_split_c_disabled_cli" as *byte) != 0 {
+            *out_value = 0;
+            return 1;
+        }
+    }
     if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
         return native_build_expr_scalar_const_value(expr.cast_expr_expr, locals, out_value);
     }
@@ -2050,8 +2057,15 @@ fn native_build_expr_bool_const_value(expr: &ASTNode, locals: &NativeBuildLocalT
     if op == TokenType.TOKEN_LOGICAL_AND {
         var left_bool: i32 = 0;
         var right_bool: i32 = 0;
-        if native_build_expr_bool_const_value(expr.binary_expr_left, locals, &left_bool) == 0 ||
-           native_build_expr_bool_const_value(expr.binary_expr_right, locals, &right_bool) == 0 {
+        const left_known: i32 = native_build_expr_bool_const_value(expr.binary_expr_left,
+            locals, &left_bool);
+        const right_known: i32 = native_build_expr_bool_const_value(expr.binary_expr_right,
+            locals, &right_bool);
+        if (left_known != 0 && left_bool == 0) || (right_known != 0 && right_bool == 0) {
+            *out_value = 0;
+            return 1;
+        }
+        if left_known == 0 || right_known == 0 {
             return 0;
         }
         if left_bool != 0 && right_bool != 0 {
@@ -2153,6 +2167,23 @@ fn native_build_expr_mentions_identifier(expr: &ASTNode, name: &byte) i32 {
     return 0;
 }
 
+fn native_build_local_static_i32(locals: &NativeBuildLocalTable, name: &byte, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if locals == null || name == null || out_value == null ||
+       locals.kinds == null || locals.init_values == null || locals.static_knowns == null {
+        return 0;
+    }
+    const slot: i32 = native_build_local_find(locals, name);
+    if slot < 0 || locals.kinds[slot] != NATIVE_BUILD_LOCAL_KIND_SCALAR_I32 ||
+       locals.static_knowns[slot] == 0 {
+        return 0;
+    }
+    *out_value = locals.init_values[slot];
+    return 1;
+}
+
 fn native_build_expr_string_literal_equals(expr: &ASTNode, expected: &byte) i32 {
     if expr == null || expected == null {
         return 0;
@@ -2198,6 +2229,75 @@ fn native_build_expr_identifier_eq_zero(expr: &ASTNode, name: &byte) i32 {
         return 1;
     }
     return 0;
+}
+
+fn native_build_call_is_get_argv_identifier(expr: &ASTNode, arg_name: &byte) i32 {
+    if expr == null || arg_name == null ||
+       expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.call_expr_callee.identifier_name == null ||
+       str_equals(expr.call_expr_callee.identifier_name as *byte, "get_argv" as *byte) == 0 ||
+       expr.call_expr_args == null || expr.call_expr_arg_count != 1 ||
+       expr.call_expr_args[0] == null ||
+       expr.call_expr_args[0].type != ASTNodeType.AST_IDENTIFIER ||
+       expr.call_expr_args[0].identifier_name == null ||
+       str_equals(expr.call_expr_args[0].identifier_name as *byte, arg_name as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_if_stmt_is_native_output_path_validation(stmt: &ASTNode,
+    locals: &NativeBuildLocalTable) i32 {
+    if stmt == null || locals == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_condition == null || stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_else_branch != null {
+        return 0;
+    }
+    var output_index: i32 = -1;
+    var backend_value: i32 = 0;
+    if native_build_local_static_i32(locals, "output_file_index" as &byte, &output_index) == 0 ||
+       native_build_local_static_i32(locals, "backend" as &byte, &backend_value) == 0 ||
+       output_index < 0 || backend_value != 2 {
+        return 0;
+    }
+    var cond_value: i32 = 0;
+    if native_build_expr_bool_const_value(stmt.if_stmt_condition, locals, &cond_value) == 0 ||
+       cond_value == 0 ||
+       native_build_expr_mentions_identifier(stmt.if_stmt_condition,
+           "output_file_index" as &byte) == 0 {
+        return 0;
+    }
+    const block: &ASTNode = stmt.if_stmt_then_branch;
+    if block.type != ASTNodeType.AST_BLOCK || block.block_stmts == null ||
+       block.block_stmt_count != 2 {
+        return 0;
+    }
+    const out_decl: &ASTNode = block.block_stmts[0];
+    const out_if: &ASTNode = block.block_stmts[1];
+    if out_decl == null || out_decl.type != ASTNodeType.AST_VAR_DECL ||
+       out_decl.var_decl_name == null ||
+       str_equals(out_decl.var_decl_name as *byte, "out_path" as *byte) == 0 ||
+       native_build_call_is_get_argv_identifier(out_decl.var_decl_init,
+           "output_file_index" as &byte) == 0 ||
+       out_if == null || out_if.type != ASTNodeType.AST_IF_STMT ||
+       out_if.if_stmt_then_branch == null {
+        return 0;
+    }
+    const out_if_block: &ASTNode = out_if.if_stmt_then_branch;
+    if out_if_block.type != ASTNodeType.AST_BLOCK || out_if_block.block_stmts == null ||
+       out_if_block.block_stmt_count != 1 {
+        return 0;
+    }
+    const backend_if: &ASTNode = out_if_block.block_stmts[0];
+    if backend_if == null || backend_if.type != ASTNodeType.AST_IF_STMT ||
+       backend_if.if_stmt_condition == null ||
+       native_build_expr_mentions_identifier(backend_if.if_stmt_condition,
+           "backend" as &byte) == 0 ||
+       backend_if.if_stmt_then_branch == null {
+        return 0;
+    }
+    return 1;
 }
 
 fn native_build_if_stmt_is_split_c_env_setup(stmt: &ASTNode) i32 {
@@ -2391,6 +2491,10 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
             return 0;
         }
         if native_build_if_stmt_static_false(stmt, &locals) != 0 {
+            stmt_index = stmt_index + 1;
+            continue;
+        }
+        if native_build_if_stmt_is_native_output_path_validation(stmt, &locals) != 0 {
             stmt_index = stmt_index + 1;
             continue;
         }
