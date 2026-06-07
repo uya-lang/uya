@@ -443,7 +443,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
   `@asm`、未来 PTX device subset 等限制只能产生 capability diagnostic，不能变成 Uya 方言。
 - [x] CoreIR 冻结 `@naked_fn` 函数属性，并在 verifier 中拒绝非 asm-only naked body、普通局部栈槽、
   cleanup、drop、async、error propagation 和隐式 return。
-- [ ] 明确 CoreLower 并行边界：冻结前的 discovery 必须稳定归并，冻结后的 per-function CoreBody
+- [x] 明确 CoreLower 并行边界：冻结前的 discovery 必须稳定归并，冻结后的 per-function CoreBody
   materialization 不得改变 ID、dump 或 diagnostics 顺序。
 - [ ] C99 可继续直接消费 `LoweredProgram` 作为 oracle，但新增的完整函数体语义必须首先能在
   `CoreBody` 中 dump 和验证。

@@ -657,6 +657,18 @@ PortableMIR 和 backend 可以细化 capability 检查，但源头 requirement �
 
 CoreLower 可以在未来并行化，但并行不能改变语义、ID 或 diagnostics 顺序。
 
+CoreLower 并行边界分三段：
+
+1. discovery 阶段可以并行收集“请求”，但 worker 只能写入线程本地 request buffer，不得分配
+   `FunctionId` / `CoreBodyId` / `CoreStmtId` / `CoreExprId` / `CorePlaceId` / `CoreSemanticFactId`，
+   也不得写共享 `LoweredProgram` 表。
+2. stable merge barrier 由主线程执行：按 stable key 排序、去重、追加 worklist，并在这一点统一分配
+   concrete function/type/helper/interface/error-union/async-frame/drop-defer/core body 相关 ID。
+3. worklist closure 冻结后，per-function CoreBody materialization 才允许并行。worker 只消费 frozen
+   `LoweredProgram`、`TypedProgram` 和 AST 只读视图，输出本地 CoreBody fragment、diagnostic fragment
+   和 dump fragment；主线程按 stable function order 归并，归并结果必须与串行执行的 ID、dump 文本和
+   diagnostic 顺序一致。
+
 允许并行的工作：
 
 - per-function CoreBody 实体化，前提是 worklist closure 已冻结。
@@ -673,6 +685,14 @@ CoreLower 可以在未来并行化，但并行不能改变语义、ID 或 diagno
 如果实现采用并行发现请求，worker 只能产生局部 request buffer；主线程按 stable key 合并后再分配 ID。
 冻结后的并行阶段不得再新增 concrete function、concrete type、helper、vtable、error-union layout 或 async frame。
 每个 worker 使用独立 scratch arena，不得写共享 `LoweredProgram` 表。
+
+禁止模式：
+
+- worker 在 discovery 阶段直接 append `LoweredProgram` 输出表。
+- worker 依据 hash iteration 顺序分配 stable ID。
+- 冻结后的 per-function materialization 追加新 reachable root、generic instance、runtime helper、layout 或
+  async/drop/defer discovery 项。
+- 并行开关改变 CoreIR dump、verifier diagnostic、source span 排序或 CoreBody range。
 
 ## 22. 内存和生命周期
 

@@ -414,6 +414,12 @@ PortableMIR 必须把它降为 asm-only naked body；native backend 不得为它
 并行编译只能发生在冻结边界之后，或通过 stable request merge 归并。并行开关不得改变 ID、dump、
 diagnostic 顺序、symbol order 或 object layout fingerprint。
 
+CoreLower 的并行合同是：冻结前的 discovery worker 只能产出本地 request buffer，主线程按 stable key
+排序、去重并统一分配 ID；冻结后的 per-function CoreBody materialization 只能消费 frozen
+`LoweredProgram + TypedProgram + AST` 只读视图，输出本地 CoreBody / diagnostic / dump fragment，再按
+stable function order 归并。任何并行开关都不得改变 CoreIR IDs、CoreBody ranges、dump 文本或
+diagnostic 顺序。
+
 ---
 
 ## 8. C99 后端重构
@@ -834,7 +840,9 @@ native 与 C99 对照：
 - 从 `TypedProgram` 冻结 resolved call target、field id、type id、proof result、source span 和
   capability metadata。
 - 冻结 `@naked_fn` 函数属性，并在 CoreIR verifier 中拒绝非 asm-only naked body。
-- 若引入并行 CoreLower，只允许 worker 产生局部 request buffer，再按 stable key 串行归并。
+- 若引入并行 CoreLower，只允许 worker 产生局部 request buffer，再按 stable key 串行归并；冻结后的
+  per-function CoreBody materialization 也必须按 stable function order 归并，且不改变 ID、dump 或
+  diagnostics 顺序。
 - 新增 CoreIR dump / verifier / closure contract 门禁。
 - MIR lowering 不得把 `TypedProgram` 当成语义查询旁路。
 
