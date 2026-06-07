@@ -390,6 +390,11 @@ PortableMIR -> ExecBytecode  -> VM
 PortableMIR -> C99Plan       -> C99 text
 ```
 
+接口用 `MirTargetBackendRequest` / `MirTargetBackendOutput` 固定输入输出形状。backend request 只能保存已
+验证 `PortableMirModule`、target profile ID、backend kind 和 verifier 结果码；不能新增 `TypedProgram`、
+`LoweredProgram` 或 `CoreBody` 入口。output kind 固定映射为 `MachineModule`、`PtxModule`、
+`ExecBytecode` 或 `C99Plan`。
+
 C99 迁移到 MIR 是后续选项，不是第一阶段强制要求；在 hosted native parity 稳定前，C99 继续作为独立
 oracle 更有利于差分定位。
 

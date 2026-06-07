@@ -793,7 +793,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
   mask 规则、cleanup path 和 target capability。
 - [x] 明确 PortableMIR 并行构造合同：worker 只消费 frozen `LoweredProgram + CoreBody`，按 stable
   function order 归并 MIR functions、diagnostics、dump 和 backend fragments。
-- [ ] 新增 target backend 接口：后端只消费 `PortableMIR`，再映射到 `MachineModule`、`PtxModule`、
+- [x] 新增 target backend 接口：后端只消费 `PortableMIR`，再映射到 `MachineModule`、`PtxModule`、
   exec bytecode 或 C99 plan。
 - [ ] native backend 主路径改为 `PortableMIR -> MachineModule -> object/executable`。
 - [ ] hosted native 第一阶段通过宿主 ABI / linker 承接 libc、pthread、filesystem、env、malloc、extern
@@ -840,6 +840,7 @@ bash tests/verify_portable_mir_golden.sh
 bash tests/verify_portable_mir_verifier.sh
 bash tests/verify_portable_mir_naked_fn.sh
 bash tests/verify_portable_mir_parallel_contract.sh
+bash tests/verify_portable_mir_backend_interface.sh
 bash tests/verify_portable_mir_parallel_determinism.sh
 bash tests/verify_hosted_native_full_language_smoke.sh
 bash tests/verify_native_cmd_build_no_silent_c99.sh

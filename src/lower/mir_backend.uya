@@ -1,0 +1,129 @@
+// lower/mir_backend.uya - Target backend interface for verified PortableMIR.
+
+export const MIR_TARGET_BACKEND_MACHINE: i32 = 1;
+export const MIR_TARGET_BACKEND_PTX: i32 = 2;
+export const MIR_TARGET_BACKEND_EXEC: i32 = 3;
+export const MIR_TARGET_BACKEND_C99: i32 = 4;
+export const MIR_BACKEND_OUTPUT_NONE: i32 = 0;
+export const MIR_BACKEND_OUTPUT_MACHINE_MODULE: i32 = 1;
+export const MIR_BACKEND_OUTPUT_PTX_MODULE: i32 = 2;
+export const MIR_BACKEND_OUTPUT_EXEC_BYTECODE: i32 = 3;
+export const MIR_BACKEND_OUTPUT_C99_PLAN: i32 = 4;
+
+/// 功能说明：记录 target backend 的唯一输入合同。
+/// 参数说明：无；字段保存已验证 PortableMIR module、目标 backend kind、target profile 和 verifier 错误码。
+/// 返回值说明：无。
+export struct MirTargetBackendRequest {
+    module: &PortableMirModule,
+    backend_kind: i32,
+    target_profile_id: i32,
+    verifier_error_code: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 target backend 对应的输出 payload。
+/// 参数说明：无；字段按 backend kind 绑定 MachineModule、PtxModule、exec bytecode 或 C99Plan 指针。
+/// 返回值说明：无。
+export struct MirTargetBackendOutput {
+    backend_kind: i32,
+    output_kind: i32,
+    machine_module: &void,
+    ptx_module: &void,
+    exec_bytecode: &void,
+    c99_plan: &void,
+    diagnostic_code: i32,
+    flags: i32,
+}
+
+/// 功能说明：判断 PortableMIR target backend kind 是否有效。
+/// 参数说明：`backend_kind` 为 `MIR_TARGET_BACKEND_*` 常量。
+/// 返回值说明：有效返回 `1`，否则返回 `0`。
+export fn portable_mir_backend_kind_is_valid(backend_kind: i32) i32 {
+    if backend_kind == MIR_TARGET_BACKEND_MACHINE { return 1; }
+    if backend_kind == MIR_TARGET_BACKEND_PTX { return 1; }
+    if backend_kind == MIR_TARGET_BACKEND_EXEC { return 1; }
+    if backend_kind == MIR_TARGET_BACKEND_C99 { return 1; }
+    return 0;
+}
+
+/// 功能说明：把 target backend kind 映射为输出 payload kind。
+/// 参数说明：`backend_kind` 为 `MIR_TARGET_BACKEND_*` 常量。
+/// 返回值说明：返回对应 `MIR_BACKEND_OUTPUT_*`；未知 backend 返回 `MIR_BACKEND_OUTPUT_NONE`。
+export fn portable_mir_backend_output_kind_for_backend(backend_kind: i32) i32 {
+    if backend_kind == MIR_TARGET_BACKEND_MACHINE { return MIR_BACKEND_OUTPUT_MACHINE_MODULE; }
+    if backend_kind == MIR_TARGET_BACKEND_PTX { return MIR_BACKEND_OUTPUT_PTX_MODULE; }
+    if backend_kind == MIR_TARGET_BACKEND_EXEC { return MIR_BACKEND_OUTPUT_EXEC_BYTECODE; }
+    if backend_kind == MIR_TARGET_BACKEND_C99 { return MIR_BACKEND_OUTPUT_C99_PLAN; }
+    return MIR_BACKEND_OUTPUT_NONE;
+}
+
+/// 功能说明：初始化 target backend 请求。
+/// 参数说明：`request` 为输出请求，`module` 为 verifier-clean PortableMIR，`result` 为 verifier 结果，`backend_kind` 为目标。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn portable_mir_backend_request_init(request: &MirTargetBackendRequest, module: &PortableMirModule,
+    result: &MirVerifierResult, backend_kind: i32) i32 {
+    if request == null || module == null || result == null ||
+       portable_mir_backend_kind_is_valid(backend_kind) == 0 {
+        return -1;
+    }
+    request.module = module;
+    request.backend_kind = backend_kind;
+    request.target_profile_id = module.target_profile.profile_id;
+    request.verifier_error_code = result.error_code;
+    request.flags = 0;
+    return 0;
+}
+
+/// 功能说明：判断 target backend 请求是否只能消费已验证 PortableMIR。
+/// 参数说明：`request` 为待检查 backend 请求。
+/// 返回值说明：module active、backend kind 有效且 verifier 成功时返回 `1`，否则返回 `0`。
+export fn portable_mir_backend_request_is_verified(request: &MirTargetBackendRequest) i32 {
+    if request == null || request.module == null {
+        return 0;
+    }
+    if request.module.lifecycle_state != PORTABLE_MIR_LIFECYCLE_ACTIVE {
+        return 0;
+    }
+    if portable_mir_backend_kind_is_valid(request.backend_kind) == 0 {
+        return 0;
+    }
+    if request.verifier_error_code != MIR_VERIFY_OK {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：初始化 target backend 输出 payload 描述。
+/// 参数说明：`output` 为输出描述，`backend_kind` 为目标 backend kind。
+/// 返回值说明：成功返回 `0`，未知 backend 返回 `-1`。
+export fn portable_mir_backend_output_init(output: &MirTargetBackendOutput, backend_kind: i32) i32 {
+    if output == null || portable_mir_backend_kind_is_valid(backend_kind) == 0 {
+        return -1;
+    }
+    output.backend_kind = backend_kind;
+    output.output_kind = portable_mir_backend_output_kind_for_backend(backend_kind);
+    output.machine_module = null;
+    output.ptx_module = null;
+    output.exec_bytecode = null;
+    output.c99_plan = null;
+    output.diagnostic_code = 0;
+    output.flags = 0;
+    return 0;
+}
+
+/// 功能说明：判断 target backend 输出 kind 是否与请求 backend kind 匹配。
+/// 参数说明：`request` 为已验证请求，`output` 为待检查输出描述。
+/// 返回值说明：backend kind 和 output kind 都匹配时返回 `1`，否则返回 `0`。
+export fn portable_mir_backend_output_matches_request(request: &MirTargetBackendRequest,
+    output: &MirTargetBackendOutput) i32 {
+    if portable_mir_backend_request_is_verified(request) == 0 || output == null {
+        return 0;
+    }
+    if output.backend_kind != request.backend_kind {
+        return 0;
+    }
+    if output.output_kind != portable_mir_backend_output_kind_for_backend(request.backend_kind) {
+        return 0;
+    }
+    return 1;
+}

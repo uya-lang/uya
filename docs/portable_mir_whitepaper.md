@@ -112,6 +112,12 @@ PortableMIR -> ExecBytecode  -> VM
 PortableMIR -> C99Plan       -> C99 text
 ```
 
+接口层由 `MirTargetBackendRequest` 和 `MirTargetBackendOutput` 表达。`request.module` 是 backend 的唯一 IR
+输入，且必须来自 verifier 通过后的 `PortableMirModule`；`request` 同时携带 target profile ID 和
+`MirVerifierResult.error_code`，由 `portable_mir_backend_request_is_verified` 作为 backend 入口前置门禁。
+`output_kind` 固定映射为 `MachineModule`、`PtxModule`、`ExecBytecode` 或 `C99Plan`，由
+`portable_mir_backend_output_matches_request` 验证 request / output 是否匹配。
+
 backend 可以决定 ABI 细节、寄存器分配、指令选择、文本输出、object layout、runtime linkage。backend 不允许新增 generic instance、
 新增 error-union body、重新进入 checker 或修改 frozen LoweredProgram。
 
