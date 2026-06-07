@@ -1,0 +1,360 @@
+// lower/mir.uya - PortableMIR data model shared by future target backends.
+
+export type MirFunctionId = i32;
+export type MirBlockId = i32;
+export type MirValueId = i32;
+export type MirTypeId = i32;
+export type MirLocalId = i32;
+export type MirInstId = i32;
+export type MirTerminatorId = i32;
+export type MirOperandId = i32;
+export type MirBlockParamId = i32;
+export type MirSuccessorId = i32;
+export type MirDebugLocId = i32;
+export type MirCapabilityReqId = i32;
+
+export const PORTABLE_MIR_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const PORTABLE_MIR_LIFECYCLE_ACTIVE: i32 = 1;
+export const PORTABLE_MIR_LIFECYCLE_RELEASED: i32 = 2;
+export const MIR_FUNCTION_INVALID_ID: MirFunctionId = -1;
+export const MIR_BLOCK_INVALID_ID: MirBlockId = -1;
+export const MIR_VALUE_INVALID_ID: MirValueId = -1;
+export const MIR_TYPE_INVALID_ID: MirTypeId = -1;
+export const MIR_LOCAL_INVALID_ID: MirLocalId = -1;
+export const MIR_INST_INVALID_ID: MirInstId = -1;
+export const MIR_TERMINATOR_INVALID_ID: MirTerminatorId = -1;
+export const MIR_DEBUG_LOC_INVALID_ID: MirDebugLocId = -1;
+export const MIR_CAPABILITY_REQ_INVALID_ID: MirCapabilityReqId = -1;
+export const MIR_FUNCTION_FLAG_NAKED: i32 = 1;
+export const MIR_FUNCTION_FLAG_EXTERN: i32 = 2;
+export const MIR_BLOCK_FLAG_CLEANUP: i32 = 1;
+export const MIR_VALUE_FLAG_PARAM: i32 = 1;
+export const MIR_VALUE_FLAG_ADDRESS: i32 = 2;
+export const MIR_LOCAL_FLAG_ADDRESS_TAKEN: i32 = 1;
+export const MIR_TYPE_KIND_VOID: i32 = 1;
+export const MIR_TYPE_KIND_BOOL: i32 = 2;
+export const MIR_TYPE_KIND_I32: i32 = 3;
+export const MIR_TYPE_KIND_USIZE: i32 = 4;
+export const MIR_TYPE_KIND_POINTER: i32 = 5;
+export const MIR_TYPE_KIND_STRUCT: i32 = 6;
+export const MIR_TYPE_KIND_ATOMIC: i32 = 7;
+export const MIR_TYPE_KIND_VECTOR: i32 = 8;
+export const MIR_TYPE_KIND_MASK: i32 = 9;
+export const MIR_INST_OP_NOP: i32 = 0;
+export const MIR_INST_OP_LOAD: i32 = 1;
+export const MIR_INST_OP_STORE: i32 = 2;
+export const MIR_INST_OP_CALL: i32 = 3;
+export const MIR_INST_OP_ASM_BLOCK: i32 = 4;
+export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
+export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
+export const MIR_TERMINATOR_KIND_BR: i32 = 2;
+export const MIR_TERMINATOR_KIND_COND_BR: i32 = 3;
+export const MIR_TERMINATOR_KIND_UNREACHABLE: i32 = 4;
+export const MIR_ADDRESS_SPACE_GENERIC: i32 = 1;
+export const MIR_ADDRESS_SPACE_HOST: i32 = 2;
+export const MIR_RUNTIME_MODE_HOSTED: i32 = 1;
+export const MIR_RUNTIME_MODE_FREESTANDING: i32 = 2;
+export const MIR_RUNTIME_MODE_DEVICE: i32 = 3;
+
+/// 功能说明：记录 PortableMIR target profile 中与后端无关的基础能力边界。
+/// 参数说明：无；字段保存 profile ID、pointer/layout 形态、runtime mode 和 feature flags。
+/// 返回值说明：无。
+export struct MirTargetProfile {
+    profile_id: i32,
+    pointer_size: i32,
+    endianness: i32,
+    default_address_space: i32,
+    runtime_mode: i32,
+    feature_flags: i32,
+}
+
+/// 功能说明：记录 MIR operand 对 value/local/type/capability 等 ID 的统一引用。
+/// 参数说明：无；`kind` 决定实际引用字段语义。
+/// 返回值说明：无。
+export struct MirOperand {
+    operand_id: MirOperandId,
+    kind: i32,
+    value_id: MirValueId,
+    local_id: MirLocalId,
+    type_id: MirTypeId,
+    capability_req_id: MirCapabilityReqId,
+    immediate_i32: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 block parameter 的稳定 ID、类型和 source 位置。
+/// 参数说明：无；`value_id` 指向该参数对应的 MirValue。
+/// 返回值说明：无。
+export struct MirBlockParam {
+    param_id: MirBlockParamId,
+    block_id: MirBlockId,
+    value_id: MirValueId,
+    type_id: MirTypeId,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 terminator successor 和传给目标 block 的参数范围。
+/// 参数说明：无；`arg_start/count` 指向 module operands 表。
+/// 返回值说明：无。
+export struct MirSuccessor {
+    successor_id: MirSuccessorId,
+    block_id: MirBlockId,
+    arg_start: i32,
+    arg_count: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 MIR dump/verifier/backend 共用的 source location ID。
+/// 参数说明：无；字段保存来自 CoreIR 的 source span 和可选文件行列。
+/// 返回值说明：无。
+export struct MirDebugLoc {
+    debug_loc_id: MirDebugLocId,
+    source_span_id: i32,
+    file_id: FileId,
+    line: i32,
+    column: i32,
+}
+
+/// 功能说明：记录 MIR 构造后、backend 发射前必须验证的 capability requirement。
+/// 参数说明：无；字段保存 capability ID、触发函数/指令和 source 位置。
+/// 返回值说明：无。
+export struct MirCapabilityReq {
+    capability_req_id: MirCapabilityReqId,
+    capability_id: i32,
+    function_id: MirFunctionId,
+    inst_id: MirInstId,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR 中的 lowered concrete type 和 layout metadata。
+/// 参数说明：无；字段保存 kind、layout、element/pointee、lane 和 field range。
+/// 返回值说明：无。
+export struct MirType {
+    type_id: MirTypeId,
+    kind: i32,
+    source_type_id: TypeId,
+    size_bytes: usize,
+    align_bytes: usize,
+    element_type_id: MirTypeId,
+    pointee_type_id: MirTypeId,
+    field_start: i32,
+    field_count: i32,
+    lane_count: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR 显式 local storage。
+/// 参数说明：无；字段保存所属函数、类型、source symbol、alignment 和地址空间。
+/// 返回值说明：无。
+export struct MirLocal {
+    local_id: MirLocalId,
+    function_id: MirFunctionId,
+    type_id: MirTypeId,
+    source_symbol_id: SymbolId,
+    address_space: i32,
+    alignment: usize,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR typed value。
+/// 参数说明：无；字段保存所属函数/block、类型、定义指令、local/param 关联和 source expr。
+/// 返回值说明：无。
+export struct MirValue {
+    value_id: MirValueId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    type_id: MirTypeId,
+    defining_inst_id: MirInstId,
+    local_id: MirLocalId,
+    param_index: i32,
+    source_expr_id: ExprId,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR instruction。
+/// 参数说明：无；字段保存 opcode、结果类型/value、operand range 和 source 位置。
+/// 返回值说明：无。
+export struct MirInst {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    op: i32,
+    type_id: MirTypeId,
+    result_value_id: MirValueId,
+    operand_start: i32,
+    operand_count: i32,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR block terminator。
+/// 参数说明：无；字段保存 terminator kind、operand/successor range 和 source 位置。
+/// 返回值说明：无。
+export struct MirTerminator {
+    terminator_id: MirTerminatorId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    kind: i32,
+    operand_start: i32,
+    operand_count: i32,
+    successor_start: i32,
+    successor_count: i32,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR basic block。
+/// 参数说明：无；字段保存 block params、instruction range、terminator 和 source 位置。
+/// 返回值说明：无。
+export struct MirBlock {
+    block_id: MirBlockId,
+    function_id: MirFunctionId,
+    param_start: i32,
+    param_count: i32,
+    inst_start: i32,
+    inst_count: i32,
+    terminator_id: MirTerminatorId,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR function。
+/// 参数说明：无；字段保存 CoreIR 来源、签名/参数/local/block ranges、entry block 和 capabilities。
+/// 返回值说明：无。
+export struct MirFunction {
+    function_id: MirFunctionId,
+    lowered_function_id: FunctionId,
+    decl_id: DeclId,
+    source_core_body_id: CoreBodyId,
+    symbol_id: SymbolId,
+    signature_type_id: MirTypeId,
+    param_start: i32,
+    param_count: i32,
+    local_start: i32,
+    local_count: i32,
+    block_start: i32,
+    block_count: i32,
+    entry_block_id: MirBlockId,
+    cleanup_model: i32,
+    capability_req_start: i32,
+    capability_req_count: i32,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR module 的所有动态表和生命周期。
+/// 参数说明：无；调用 `portable_mir_module_init` 后使用。
+/// 返回值说明：无。
+export struct PortableMirModule {
+    arena: &CompilerArena,
+    lifecycle_state: i32,
+    target_profile: MirTargetProfile,
+    function_count: usize,
+    block_count: usize,
+    value_count: usize,
+    type_count: usize,
+    local_count: usize,
+    inst_count: usize,
+    terminator_count: usize,
+    operand_count: usize,
+    block_param_count: usize,
+    successor_count: usize,
+    debug_loc_count: usize,
+    capability_req_count: usize,
+    functions: SemanticVector,
+    blocks: SemanticVector,
+    values: SemanticVector,
+    types: SemanticVector,
+    locals: SemanticVector,
+    insts: SemanticVector,
+    terminators: SemanticVector,
+    operands: SemanticVector,
+    block_params: SemanticVector,
+    successors: SemanticVector,
+    debug_locs: SemanticVector,
+    capability_reqs: SemanticVector,
+}
+
+fn portable_mir_default_target_profile() MirTargetProfile {
+    return MirTargetProfile{
+        profile_id: 0,
+        pointer_size: 0,
+        endianness: 0,
+        default_address_space: MIR_ADDRESS_SPACE_GENERIC,
+        runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+        feature_flags: 0,
+    };
+}
+
+fn portable_mir_module_clear_counts(module: &PortableMirModule) void {
+    if module == null {
+        return;
+    }
+    module.function_count = 0usize;
+    module.block_count = 0usize;
+    module.value_count = 0usize;
+    module.type_count = 0usize;
+    module.local_count = 0usize;
+    module.inst_count = 0usize;
+    module.terminator_count = 0usize;
+    module.operand_count = 0usize;
+    module.block_param_count = 0usize;
+    module.successor_count = 0usize;
+    module.debug_loc_count = 0usize;
+    module.capability_req_count = 0usize;
+}
+
+/// 功能说明：初始化 PortableMIR module 的动态表和生命周期。
+/// 参数说明：`module` 为目标 MIR module，`arena` 为 MIR 构造阶段共享 arena。
+/// 返回值说明：无。
+export fn portable_mir_module_init(module: &PortableMirModule, arena: &CompilerArena) void {
+    if module == null {
+        return;
+    }
+    portable_mir_module_clear_counts(module);
+    module.arena = arena;
+    module.lifecycle_state = PORTABLE_MIR_LIFECYCLE_ACTIVE;
+    module.target_profile = portable_mir_default_target_profile();
+    semantic_vector_init(&module.functions, @size_of(MirFunction));
+    semantic_vector_init(&module.blocks, @size_of(MirBlock));
+    semantic_vector_init(&module.values, @size_of(MirValue));
+    semantic_vector_init(&module.types, @size_of(MirType));
+    semantic_vector_init(&module.locals, @size_of(MirLocal));
+    semantic_vector_init(&module.insts, @size_of(MirInst));
+    semantic_vector_init(&module.terminators, @size_of(MirTerminator));
+    semantic_vector_init(&module.operands, @size_of(MirOperand));
+    semantic_vector_init(&module.block_params, @size_of(MirBlockParam));
+    semantic_vector_init(&module.successors, @size_of(MirSuccessor));
+    semantic_vector_init(&module.debug_locs, @size_of(MirDebugLoc));
+    semantic_vector_init(&module.capability_reqs, @size_of(MirCapabilityReq));
+}
+
+/// 功能说明：释放 PortableMIR module 的所有动态表。
+/// 参数说明：`module` 为目标 MIR module。
+/// 返回值说明：无。
+export fn portable_mir_module_release(module: &PortableMirModule) void {
+    if module == null {
+        return;
+    }
+    if module.lifecycle_state == PORTABLE_MIR_LIFECYCLE_ACTIVE {
+        semantic_vector_release(&module.functions);
+        semantic_vector_release(&module.blocks);
+        semantic_vector_release(&module.values);
+        semantic_vector_release(&module.types);
+        semantic_vector_release(&module.locals);
+        semantic_vector_release(&module.insts);
+        semantic_vector_release(&module.terminators);
+        semantic_vector_release(&module.operands);
+        semantic_vector_release(&module.block_params);
+        semantic_vector_release(&module.successors);
+        semantic_vector_release(&module.debug_locs);
+        semantic_vector_release(&module.capability_reqs);
+    }
+    portable_mir_module_clear_counts(module);
+    module.arena = null;
+    module.lifecycle_state = PORTABLE_MIR_LIFECYCLE_RELEASED;
+}
