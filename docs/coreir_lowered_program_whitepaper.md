@@ -119,6 +119,25 @@ CoreLower 禁止：
 
 闭包完成后的 `LoweredProgram` 对 emitter、PortableMIR 和 target backend 只读。
 
+LoweredProgram 责任边界：
+
+- `functions`：冻结 concrete function inventory，包括 source decl、mono instance、body range 和函数级 flags。
+- `globals`：冻结全局对象清单、source symbol 和初始化入口，不承载低级 store/load CFG。
+- `types`：冻结 concrete type / layout identity；PortableMIR 可消费 layout 结果，但不能在这里发现新类型。
+- `interfaces`：冻结 interface / vtable 计划和 dispatch 所需 stable slot，不让 backend 搜索实现。
+- `err_unions`：冻结 error-union tag/payload layout，PortableMIR 只降低 tag check 和控制流。
+- `async_frames`：冻结 async frame layout 和 state identity，PortableMIR 只降低 frame memory 操作。
+- `drop_defer_plans`：冻结 drop/defer/errdefer obligation，PortableMIR 只生成 cleanup control flow。
+- `helpers`：冻结 runtime helper requirement，backend 只能消费或按 capability 拒绝。
+- `worklist`：冻结前用于 closure discovery；冻结后按 stable order 只读，emitter / MIR lowering / backend 不得追加。
+
+stable symbol order 由 `lowered_program_sort_stable` 统一归并：functions、globals、types、interfaces、
+err_unions、async_frames、drop_defer_plans、helpers、worklist 和 CoreBody 相关表都按稳定整数 ID / key 排序。
+PortableMIR 和 target backend 必须消费这个顺序，不能通过 hash iteration、backend-local discovery 或 target 输出顺序重新定义 identity。
+
+`LoweredProgram` 不拥有低级 CFG/value/local/inst/terminator。完整函数体低级形态属于 `PortableMIR`。`LoweredBodyOp`
+只保留为 native bootstrap 的 transition / legacy-only 兼容输入，不能继续扩成完整语言 IR。
+
 ### 4.4 PortableMIR
 
 PortableMIR 拥有低级函数体形态：
