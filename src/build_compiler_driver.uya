@@ -821,6 +821,14 @@ fn native_build_print_unsupported_function_body(decl: &ASTNode, decl_index: i32,
         stmt_index, stmt_kind, stmt_file, stmt_line);
 }
 
+fn native_build_print_hosted_portable_mir_handoff_missing(c_import_count: i32) void {
+    fprintf(libc.stderr,
+        "native_unsupported_hosted_path: reason=native_hosted_portable_mir_handoff_missing required=PortableMIR+MirTargetBackendRequest+NativeHostedLinkPlan c_import_objects=%d\n" as *byte,
+        c_import_count);
+    fprintf(libc.stderr,
+        "错误: hosted native backend 尚未接入 PortableMIR handoff；build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集\n" as *byte);
+}
+
 fn native_build_core_function_flags_from_decl(decl: &ASTNode) i32 {
     var flags: i32 = 0;
     if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_naked != 0 {
@@ -5563,6 +5571,15 @@ fn compile_files(
 
     var c99_output_buffer_peak_bytes: usize = 0usize;
     if backend == BackendType.BACKEND_NATIVE {
+        if is_nostdlib == 0 {
+            var hosted_c_import_count: i32 = 0;
+            if out_artifacts != null {
+                hosted_c_import_count = out_artifacts.c_import_plan.item_count;
+            }
+            codegen_end_time = clock();
+            native_build_print_hosted_portable_mir_handoff_missing(hosted_c_import_count);
+            return 1;
+        }
         var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
         if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
             codegen_end_time = clock();

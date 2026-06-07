@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR="$(mktemp -d /tmp/uya-native-cmd-build-no-silent-c99.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-run_reject_check() {
+run_hosted_reject_check() {
     local compiler="$1"
     local label="$2"
     local out="$TMP_DIR/${label}.bin"
@@ -36,8 +36,18 @@ run_reject_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    if ! grep -Eq 'native backend.*LoweredProgram.*机器码' "$stderr"; then
-        echo "错误: $label --native 缺少 LoweredProgram 到机器码缺口诊断" >&2
+    if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_handoff_missing' "$stderr"; then
+        echo "错误: $label --native 缺少 hosted PortableMIR handoff 缺口诊断" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
+    if ! grep -q 'PortableMIR+MirTargetBackendRequest+NativeHostedLinkPlan' "$stderr"; then
+        echo "错误: $label --native 缺少 hosted native handoff requirements" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
+    if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$stderr"; then
+        echo "错误: $label --native 未排除 build-seed helper" >&2
         cat "$stderr" >&2
         exit 1
     fi
@@ -56,7 +66,7 @@ run_cmd_build_self_reject_check() {
 
     set +e
     "$compiler" build "$REPO_ROOT/src/cmd/build/main.uya" \
-        -o "$out" --native --no-split-c --project-root "$REPO_ROOT/src/" \
+        -o "$out" --native --nostdlib --no-split-c --project-root "$REPO_ROOT/src/" \
         >"$stdout" 2>"$stderr"
     local status=$?
     set -e
@@ -82,8 +92,8 @@ run_cmd_build_self_reject_check() {
     fi
 }
 
-run_reject_check "$REPO_ROOT/bin/uya" "uya"
-run_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
+run_hosted_reject_check "$REPO_ROOT/bin/uya" "uya"
+run_hosted_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
 run_cmd_build_self_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build-self"
 
 echo "verify_native_cmd_build_no_silent_c99: ok"

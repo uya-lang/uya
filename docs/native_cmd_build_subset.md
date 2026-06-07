@@ -94,8 +94,12 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   oracle smoke 后，才允许把该能力下沉到 freestanding build-seed。
 - 历史 `LoweredProgram -> MachineModule` build-seed helper 只能保持已有成功子集和失败诊断，不再为 `compile_files(...)`
   或其它 compiler 形状新增 one-off `LoweredBodyOp`。
+- hosted `build --native` 入口必须先进入 `PortableMIR` / `MirTargetBackendRequest` / `NativeHostedLinkPlan`
+  handoff；在该 handoff 真正接入前，只能报告 `native_hosted_portable_mir_handoff_missing`，不能借用
+  freestanding build-seed helper。
 - `cmd/build` 当前失败卡点必须继续由 `tests/verify_native_cmd_build_no_silent_c99.sh` 固定；失败时必须保留
-  native backend diagnostic，不能生成伪 native 输出，也不能静默回落 C99。
+  native backend diagnostic，不能生成伪 native 输出，也不能静默回落 C99；`compile_files(...)` 16 参数缺口只在
+  `--nostdlib` freestanding self-build reject 中固定。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
 
 ## Release Acceptance Boundary

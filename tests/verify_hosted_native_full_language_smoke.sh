@@ -255,13 +255,18 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_unsupported_(call_expr|fn_body|decl|fn_shape)' "$native_build_err"; then
-    echo "error: native full-language reject lacks explicit unsupported diagnostic" >&2
+if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_handoff_missing' "$native_build_err"; then
+    echo "error: native full-language reject lacks hosted PortableMIR handoff diagnostic" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'LoweredProgram' "$native_build_err"; then
-    echo "error: native full-language reject lacks current LoweredProgram gap diagnostic" >&2
+if ! grep -q 'PortableMIR+MirTargetBackendRequest+NativeHostedLinkPlan' "$native_build_err"; then
+    echo "error: native full-language reject lacks hosted native handoff requirements" >&2
+    cat "$native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$native_build_err"; then
+    echo "error: native full-language reject did not exclude build-seed helper" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
