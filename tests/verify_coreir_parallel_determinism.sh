@@ -33,6 +33,7 @@ require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_exprs' "CoreExpr s
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_places' "CorePlace stable merge sort"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_cleanup_edges' "CoreCleanupEdge stable merge sort"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_semantic_facts' "CoreSemanticFact stable merge sort"
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_work_items' "LowerWorkItem request stable merge sort"
 
 tmp_dir="$(mktemp -d /tmp/uya-coreir-parallel.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -307,6 +308,53 @@ fn append_coreir_parallel_fixture(lowered: &LoweredProgram, parallel: i32, inval
     try append_coreir_parallel_fragment(lowered, 1, 0);
 }
 
+fn append_coreir_parallel_request(lowered: &LoweredProgram, kind: i32, primary_id: i32, secondary_id: i32) !void {
+    var request: LowerWorkItem = LowerWorkItem{
+        kind: kind,
+        primary_id: primary_id,
+        secondary_id: secondary_id,
+    };
+    try assert_eq_i32(lowered_program_append_work_item(lowered, &request), 0);
+}
+
+fn append_coreir_parallel_request_fixture(lowered: &LoweredProgram, parallel: i32) !void {
+    if parallel != 0 {
+        try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_RUNTIME_HELPER, 900, 90);
+        try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_TYPE, 300, 30);
+        try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_FUNCTION, 200, 20);
+        try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_FUNCTION, 100, 10);
+        return;
+    }
+    try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_FUNCTION, 100, 10);
+    try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_FUNCTION, 200, 20);
+    try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_TYPE, 300, 30);
+    try append_coreir_parallel_request(lowered, LOWER_WORK_ITEM_RUNTIME_HELPER, 900, 90);
+}
+
+fn assert_coreir_parallel_requests_sorted(lowered: &LoweredProgram) !void {
+    var work0: LowerWorkItem = LowerWorkItem{ kind: 0, primary_id: 0, secondary_id: 0 };
+    var work1: LowerWorkItem = LowerWorkItem{ kind: 0, primary_id: 0, secondary_id: 0 };
+    var work2: LowerWorkItem = LowerWorkItem{ kind: 0, primary_id: 0, secondary_id: 0 };
+    var work3: LowerWorkItem = LowerWorkItem{ kind: 0, primary_id: 0, secondary_id: 0 };
+    try assert_eq_i32(lowered.work_item_count as i32, 4);
+    try assert_eq_i32(lowered_program_get_work_item(lowered, 0usize, &work0), 1);
+    try assert_eq_i32(lowered_program_get_work_item(lowered, 1usize, &work1), 1);
+    try assert_eq_i32(lowered_program_get_work_item(lowered, 2usize, &work2), 1);
+    try assert_eq_i32(lowered_program_get_work_item(lowered, 3usize, &work3), 1);
+    try assert_eq_i32(work0.kind, LOWER_WORK_ITEM_FUNCTION);
+    try assert_eq_i32(work0.primary_id, 100);
+    try assert_eq_i32(work0.secondary_id, 10);
+    try assert_eq_i32(work1.kind, LOWER_WORK_ITEM_FUNCTION);
+    try assert_eq_i32(work1.primary_id, 200);
+    try assert_eq_i32(work1.secondary_id, 20);
+    try assert_eq_i32(work2.kind, LOWER_WORK_ITEM_TYPE);
+    try assert_eq_i32(work2.primary_id, 300);
+    try assert_eq_i32(work2.secondary_id, 30);
+    try assert_eq_i32(work3.kind, LOWER_WORK_ITEM_RUNTIME_HELPER);
+    try assert_eq_i32(work3.primary_id, 900);
+    try assert_eq_i32(work3.secondary_id, 90);
+}
+
 fn assert_coreir_parallel_sorted(lowered: &LoweredProgram) !void {
     const body0: &CoreBody = semantic_vector_item_ptr(&lowered.core_bodies, 0usize) as &CoreBody;
     const body1: &CoreBody = semantic_vector_item_ptr(&lowered.core_bodies, 1usize) as &CoreBody;
@@ -352,8 +400,10 @@ test "CoreIR stable merge keeps serial and parallel fixtures deterministic" {
     const parallel: i32 = coreir_parallel_enabled();
     const invalid: i32 = coreir_parallel_invalid_enabled();
     try append_coreir_parallel_fixture(&lowered, parallel, invalid);
+    try append_coreir_parallel_request_fixture(&lowered, parallel);
     try assert_eq_i32(lowered_program_sort_stable(&lowered), 0);
     try assert_coreir_parallel_sorted(&lowered);
+    try assert_coreir_parallel_requests_sorted(&lowered);
 
     var result: CoreVerifierResult = lowered_program_coreir_verify_ok_result();
     const verify_result: i32 = lowered_program_verify_coreir_result(&lowered, &result);

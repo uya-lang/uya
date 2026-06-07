@@ -1911,6 +1911,42 @@ export fn lowered_program_sort_helpers(program: &LoweredProgram) i32 {
     return 0;
 }
 
+/// 功能说明：按 (kind, primary_id, secondary_id) 对 LowerWorkItem worklist 做稳定插入排序。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：成功返回 `0`，参数无效或表项无效返回 `-1`。
+export fn lowered_program_sort_work_items(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.worklist;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &LowerWorkItem = semantic_vector_item_ptr(vec, j - 1usize) as &LowerWorkItem;
+            const b: &LowerWorkItem = semantic_vector_item_ptr(vec, j) as &LowerWorkItem;
+            if a == null || b == null {
+                return -1;
+            }
+            var greater: i32 = 0;
+            if a.kind > b.kind {
+                greater = 1;
+            } else if a.kind == b.kind && a.primary_id > b.primary_id {
+                greater = 1;
+            } else if a.kind == b.kind && a.primary_id == b.primary_id && a.secondary_id > b.secondary_id {
+                greater = 1;
+            }
+            if greater == 0 {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 fn lowered_program_sort_core_bodies(program: &LoweredProgram) i32 {
     if program == null {
         return -1;
@@ -2061,7 +2097,7 @@ fn lowered_program_sort_core_semantic_facts(program: &LoweredProgram) i32 {
     return 0;
 }
 
-/// 功能说明：对 LoweredProgram 所有输出表按稳定 ID 排序，保证后端确定性输出。
+/// 功能说明：对 LoweredProgram 所有输出表和 lowering worklist 按稳定 ID 排序，保证后端确定性输出。
 /// 参数说明：`program` 为目标 LoweredProgram。
 /// 返回值说明：成功返回 `0`，任一子表排序失败返回 `-1`。
 export fn lowered_program_sort_stable(program: &LoweredProgram) i32 {
@@ -2090,6 +2126,9 @@ export fn lowered_program_sort_stable(program: &LoweredProgram) i32 {
         return -1;
     }
     if lowered_program_sort_helpers(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_work_items(program) != 0 {
         return -1;
     }
     if lowered_program_sort_core_bodies(program) != 0 {
