@@ -527,6 +527,28 @@ fn native_build_decl_is_two_i32_param_fn(decl: &ASTNode) i32 {
     return native_build_type_is_i32(param1.var_decl_type);
 }
 
+fn native_build_decl_is_extern_two_i32_param_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 2 || decl.fn_decl_is_extern == 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || native_build_type_is_i32(decl.fn_decl_return_type) == 0 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param0: &ASTNode = decl.fn_decl_params[0];
+    const param1: &ASTNode = decl.fn_decl_params[1];
+    if param0 == null || param1 == null ||
+       param0.type != ASTNodeType.AST_VAR_DECL || param1.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    if native_build_type_is_i32(param0.var_decl_type) == 0 {
+        return 0;
+    }
+    return native_build_type_is_i32(param1.var_decl_type);
+}
+
 fn native_build_decl_is_one_i32_ptr_param_fn(decl: &ASTNode) i32 {
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
         return 0;
@@ -3563,6 +3585,345 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
         "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing required=CoreBody+PortableMIR function-body lowering\n" as *byte);
     fprintf(libc.stderr,
         "错误: hosted native backend 已完成 PortableMIR/NativeHostedLinkPlan preflight，但尚未接入函数体 MIR lowering；build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集\n" as *byte);
+}
+
+fn native_build_find_extern_two_i32_param_function(program: &ASTNode, name: &byte) &ASTNode {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_extern_two_i32_param_fn(decl) != 0 &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name as *byte, name as *byte) != 0 {
+            return decl;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn native_build_hosted_main_return_extern_const2_call(program: &ASTNode,
+    out_extern_name: & & byte, out_arg0: &i32, out_arg1: &i32) i32 {
+    if out_extern_name != null {
+        *out_extern_name = null;
+    }
+    if out_arg0 != null {
+        *out_arg0 = 0;
+    }
+    if out_arg1 != null {
+        *out_arg1 = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_extern_name == null ||
+       out_arg0 == null || out_arg1 == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 &&
+           decl.fn_decl_body != null && decl.fn_decl_body.type == ASTNodeType.AST_BLOCK &&
+           decl.fn_decl_body.block_stmt_count == 1 && decl.fn_decl_body.block_stmts != null {
+            const stmt: &ASTNode = decl.fn_decl_body.block_stmts[0];
+            if stmt != null && stmt.type == ASTNodeType.AST_RETURN_STMT &&
+               stmt.return_stmt_expr != null && stmt.return_stmt_expr.type == ASTNodeType.AST_CALL_EXPR {
+                const call: &ASTNode = stmt.return_stmt_expr;
+                if native_build_hosted_const2_extern_call_args(program, call,
+                    out_extern_name, out_arg0, out_arg1) != 0 {
+                    return 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_const2_extern_call_args(program: &ASTNode, call: &ASTNode,
+    out_extern_name: & & byte, out_arg0: &i32, out_arg1: &i32) i32 {
+    if call == null || call.type != ASTNodeType.AST_CALL_EXPR ||
+       call.call_expr_arg_count != 2 || call.call_expr_type_arg_count != 0 ||
+       call.call_expr_callee == null ||
+       call.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       call.call_expr_callee.identifier_name == null ||
+       call.call_expr_args == null {
+        return 0;
+    }
+    const arg0_node: &ASTNode = call.call_expr_args[0];
+    const arg1_node: &ASTNode = call.call_expr_args[1];
+    if arg0_node == null || arg1_node == null ||
+       arg0_node.type != ASTNodeType.AST_NUMBER ||
+       arg1_node.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    if native_build_find_extern_two_i32_param_function(program,
+        call.call_expr_callee.identifier_name) == null {
+        return 0;
+    }
+    const arg0_result: !i32 = arg0_node.number_value_i64 as! i32;
+    const arg1_result: !i32 = arg1_node.number_value_i64 as! i32;
+    *out_arg0 = arg0_result catch {
+        return 0;
+    };
+    *out_arg1 = arg1_result catch {
+        return 0;
+    };
+    *out_extern_name = call.call_expr_callee.identifier_name;
+    return 1;
+}
+
+fn native_build_hosted_fill_asm_path(buf: &byte, cap: usize) i32 {
+    return host_fill_temp_path(buf, cap, "uya_hosted_native" as &byte, ".s" as &byte, -1);
+}
+
+fn native_build_hosted_fill_object_path(buf: &byte, cap: usize) i32 {
+    return host_fill_temp_path(buf, cap, "uya_hosted_native" as &byte, ".o" as &byte, -1);
+}
+
+fn native_build_hosted_fill_c_import_object_path(buf: &byte, cap: usize, index: i32) i32 {
+    return host_fill_temp_path(buf, cap, "uya_hosted_cimport" as &byte, ".o" as &byte, index);
+}
+
+fn native_build_hosted_write_extern_const2_asm(path: &byte, extern_name: &byte,
+    arg0: i32, arg1: i32) i32 {
+    if path == null || extern_name == null {
+        return -1;
+    }
+    const file: &void = fopen(path as *byte, "w" as *byte) as &void;
+    if file == null {
+        return -1;
+    }
+    fputs(".text\n" as *byte, file as *void);
+    fprintf(file as *void, ".extern %s\n" as *byte, extern_name as *byte);
+    fputs(".globl main\n" as *byte, file as *void);
+    fputs(".type main, @function\n" as *byte, file as *void);
+    fputs("main:\n" as *byte, file as *void);
+    fputs("    pushq %rbp\n" as *byte, file as *void);
+    fputs("    movq %rsp, %rbp\n" as *byte, file as *void);
+    fprintf(file as *void, "    movl $%d, %%edi\n" as *byte, arg0);
+    fprintf(file as *void, "    movl $%d, %%esi\n" as *byte, arg1);
+    fprintf(file as *void, "    call %s\n" as *byte, extern_name as *byte);
+    fputs("    popq %rbp\n" as *byte, file as *void);
+    fputs("    ret\n" as *byte, file as *void);
+    fputs(".size main, .-main\n" as *byte, file as *void);
+    fputs(".section .note.GNU-stack,\"\",@progbits\n" as *byte, file as *void);
+    fclose(file as *void);
+    return 0;
+}
+
+fn native_build_hosted_compile_asm_to_object(cc_driver: &byte, target_flags: &byte,
+    asm_path: &byte, object_path: &byte) i32 {
+    if cc_driver == null || asm_path == null || object_path == null {
+        return 1;
+    }
+    var cmd: [byte: 32768] = [];
+    var cmd_len: i32 = 0;
+    if shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, cc_driver) != 0 ||
+       shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, target_flags) != 0 ||
+       shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, "-c" as &byte) != 0 ||
+       shell_cmd_append_quoted_word(&cmd[0] as &byte, 32768, &cmd_len, asm_path) != 0 ||
+       shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, "-o" as &byte) != 0 ||
+       shell_cmd_append_quoted_word(&cmd[0] as &byte, 32768, &cmd_len, object_path) != 0 {
+        fprintf(libc.stderr, "错误：构建 hosted native assembly 编译命令失败\n" as *byte);
+        return 1;
+    }
+    fprintf(libc.stderr, "信息：编译 hosted native assembly：%s\n" as *byte, &cmd[0] as *byte);
+    if system(&cmd[0] as *byte) != 0 {
+        fprintf(libc.stderr, "错误：hosted native assembly 编译失败: %s\n" as *byte, asm_path as *byte);
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_cleanup_c_import_objects(count: i32) void {
+    var i: i32 = 0;
+    while i < count {
+        var item_obj: [byte: PATH_MAX] = [];
+        if native_build_hosted_fill_c_import_object_path(&item_obj[0] as &byte,
+            PATH_MAX, i) == 0 {
+            unlink(&item_obj[0] as *byte);
+        }
+        i = i + 1;
+    }
+}
+
+fn native_build_hosted_link_objects(cc_driver: &byte, target_flags: &byte,
+    native_obj: &byte, output_file: &byte, plan: &CImportPlan) i32 {
+    if cc_driver == null || native_obj == null || output_file == null ||
+       plan == null {
+        return 1;
+    }
+    c99_mkdir_p_for_file(output_file);
+    var cmd: [byte: 32768] = [];
+    var cmd_len: i32 = 0;
+    if shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, cc_driver) != 0 ||
+       shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, target_flags) != 0 ||
+       shell_cmd_append_quoted_word(&cmd[0] as &byte, 32768, &cmd_len, native_obj) != 0 {
+        fprintf(libc.stderr, "错误：构建 hosted native 链接命令失败\n" as *byte);
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < plan.item_count {
+        var item_obj: [byte: PATH_MAX] = [];
+        if native_build_hosted_fill_c_import_object_path(&item_obj[0] as &byte,
+            PATH_MAX, i) != 0 ||
+           shell_cmd_append_quoted_word(&cmd[0] as &byte, 32768, &cmd_len,
+               &item_obj[0] as &byte) != 0 {
+            fprintf(libc.stderr, "错误：构建 hosted native 链接命令失败\n" as *byte);
+            return 1;
+        }
+        i = i + 1;
+    }
+    if shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, "-o" as &byte) != 0 ||
+       shell_cmd_append_quoted_word(&cmd[0] as &byte, 32768, &cmd_len, output_file) != 0 {
+        fprintf(libc.stderr, "错误：构建 hosted native 链接命令失败\n" as *byte);
+        return 1;
+    }
+    const ldflags: &byte = get_env_or_default("LDFLAGS" as *byte, "" as *byte);
+    if shell_cmd_append_raw(&cmd[0] as &byte, 32768, &cmd_len, ldflags) != 0 {
+        fprintf(libc.stderr, "错误：构建 hosted native 链接命令失败\n" as *byte);
+        return 1;
+    }
+    i = 0;
+    while i < plan.aggregated_ldflags_token_count {
+        if plan.aggregated_ldflags_tokens != null && plan.aggregated_ldflags_tokens[i] != null {
+            if shell_cmd_append_quoted_word(&cmd[0] as &byte, 32768, &cmd_len,
+                plan.aggregated_ldflags_tokens[i]) != 0 {
+                fprintf(libc.stderr, "错误：构建 hosted native 链接命令失败\n" as *byte);
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    fprintf(libc.stderr, "信息：调用 hosted native linker：%s\n" as *byte, &cmd[0] as *byte);
+    if system(&cmd[0] as *byte) != 0 {
+        fprintf(libc.stderr, "错误：hosted native 链接失败\n" as *byte);
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_output_size(path: &byte) usize {
+    if path == null {
+        return 0usize;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) != 0 || st.st_size < 0 {
+        return 0usize;
+    }
+    return st.st_size as usize;
+}
+
+fn native_build_hosted_compile_c_import_objects(cc_driver: &byte, target_flags: &byte,
+    cflags: &byte, plan: &CImportPlan) i32 {
+    if cc_driver == null || plan == null {
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < plan.item_count {
+        var item_obj: [byte: PATH_MAX] = [];
+        if native_build_hosted_fill_c_import_object_path(&item_obj[0] as &byte,
+            PATH_MAX, i) != 0 {
+            fprintf(libc.stderr, "错误：无法生成 hosted native @c_import 对象路径\n" as *byte);
+            return 1;
+        }
+        const item: CImportItem = plan.items[i];
+        if compile_c_source_to_object(cc_driver, target_flags, cflags, item.resolved_path,
+            &item_obj[0] as &byte, item.cflags_tokens, item.cflags_token_count,
+            item.resolved_path) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_emit_extern_const2_linked_exe(output_file: &byte,
+    extern_name: &byte, arg0: i32, arg1: i32, plan: &CImportPlan) i32 {
+    var asm_path: [byte: PATH_MAX] = [];
+    var native_obj: [byte: PATH_MAX] = [];
+    if native_build_hosted_fill_asm_path(&asm_path[0] as &byte, PATH_MAX) != 0 ||
+       native_build_hosted_fill_object_path(&native_obj[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误：无法生成 hosted native 临时路径\n" as *byte);
+        return 1;
+    }
+    var cc_driver_buffer: [byte: PATH_MAX] = [];
+    const cc_driver: &byte = resolve_cc_driver(&cc_driver_buffer[0] as &byte, PATH_MAX);
+    const cflags_env: &byte = get_env_or_default("CFLAGS" as *byte,
+        "-std=c99 -O0 -g -fno-builtin" as *byte);
+    var cflags_clang_buf: [byte: 2048] = [];
+    var cflags_buf: [byte: 2048] = [];
+    var cflags: &byte = hosted_cflags_add_clang_compat(cflags_env, cc_driver,
+        &cflags_clang_buf[0] as &byte, 2048);
+    if cc_driver_is_clang_like(cc_driver) == 0 &&
+       hosted_cflags_need_no_small_inline(cflags_env) != 0 &&
+       hosted_cflags_has_no_small_inline(cflags_env) == 0 {
+        const wcf: i32 = snprintf(&cflags_buf[0] as *byte, 2048,
+            "%s -fno-inline-small-functions" as *byte, cflags as *byte);
+        if wcf > 0 && wcf < 2048 {
+            cflags = &cflags_buf[0] as &byte;
+        }
+    }
+    const target_triple: &byte = get_env_or_default("TARGET_TRIPLE" as *byte, "" as *byte);
+    var target_flags: &byte = get_env_or_default("CC_TARGET_FLAGS" as *byte, "" as *byte);
+    var target_flags_buffer: [byte: 256] = [];
+    if target_flags[0] == 0 && target_triple[0] != 0 {
+        const target_flags_len: i32 = snprintf(&target_flags_buffer[0], 256,
+            "-target %s" as *byte, target_triple as *byte);
+        if target_flags_len > 0 && target_flags_len < 256 {
+            target_flags = &target_flags_buffer[0] as &byte;
+        }
+    }
+    if native_build_hosted_write_extern_const2_asm(&asm_path[0] as &byte,
+        extern_name, arg0, arg1) != 0 ||
+       native_build_hosted_compile_asm_to_object(cc_driver, target_flags,
+        &asm_path[0] as &byte, &native_obj[0] as &byte) != 0 ||
+       native_build_hosted_compile_c_import_objects(cc_driver, target_flags,
+        cflags, plan) != 0 ||
+       native_build_hosted_link_objects(cc_driver, target_flags,
+        &native_obj[0] as &byte, output_file, plan) != 0 {
+        unlink(&asm_path[0] as *byte);
+        unlink(&native_obj[0] as *byte);
+        native_build_hosted_cleanup_c_import_objects(plan.item_count);
+        return 1;
+    }
+    unlink(&asm_path[0] as *byte);
+    unlink(&native_obj[0] as *byte);
+    native_build_hosted_cleanup_c_import_objects(plan.item_count);
+    return 0;
+}
+
+fn native_build_try_emit_hosted_c_import_extern_link_subset(output_file: &byte,
+    program: &ASTNode, plan: &CImportPlan) i32 {
+    if output_file == null || program == null || plan == null || plan.item_count != 1 {
+        return 0;
+    }
+    if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
+       strcmp(main_get_target_arch_name() as *byte, "x86_64" as *byte) != 0 {
+        return 0;
+    }
+    var extern_name: &byte = null;
+    var arg0: i32 = 0;
+    var arg1: i32 = 0;
+    if native_build_hosted_main_return_extern_const2_call(program,
+        &extern_name, &arg0, &arg1) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_extern_const2_linked_exe(output_file,
+        extern_name, arg0, arg1, plan) != 0 {
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: c_import_extern_link_path=1\n" as *byte);
+    fprintf(libc.stderr,
+        "native_hosted_linker_handoff: extern=%s c_import_objects=%d linked_objects=%d\n" as *byte,
+        extern_name as *byte, plan.item_count, plan.item_count + 1);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
 }
 
 fn native_build_try_emit_hosted_no_deps_subset(output_file: &byte, program: &ASTNode,
@@ -8361,13 +8722,22 @@ fn compile_files(
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);
+            var hosted_link_status: i32 = 0;
+            if out_artifacts != null {
+                hosted_link_status = native_build_try_emit_hosted_c_import_extern_link_subset(
+                    actual_output as &byte, merged_ast, &out_artifacts.c_import_plan);
+            }
+            if hosted_link_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
             const hosted_subset_status: i32 = native_build_try_emit_hosted_no_deps_subset(
                 actual_output as &byte, merged_ast, &emit_arena, hosted_c_import_count);
             if hosted_subset_status < 0 {
                 codegen_end_time = clock();
                 return 1;
             }
-            if hosted_subset_status == 0 {
+            if hosted_link_status == 0 && hosted_subset_status == 0 {
                 codegen_end_time = clock();
                 native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);
