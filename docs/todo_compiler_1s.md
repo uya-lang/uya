@@ -809,7 +809,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] MIR dump / golden 覆盖 `atomic T`、`@vector(T, N)` 和 `@mask(N)`。
 - [x] 新增 MIR verifier 负例测试，覆盖未终结 block、类型不匹配、非法地址、错误 cleanup、unsupported
   target capability。
-- [ ] 新增 `tests/verify_portable_mir_verifier.sh`。
+- [x] 新增 `tests/verify_portable_mir_verifier.sh`。
 - [ ] 新增 MIR `@naked_fn` golden / verifier 负例，覆盖 asm-only body、unsupported target、禁止普通 local /
   cleanup / implicit return。
 - [ ] 新增 `tests/verify_portable_mir_naked_fn.sh`。
