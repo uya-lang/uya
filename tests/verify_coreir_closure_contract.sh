@@ -19,6 +19,7 @@ run_check "$SCRIPT_DIR/verify_coreir_verifier.sh"
 run_check "$SCRIPT_DIR/verify_coreir_capability_boundary_contract.sh"
 run_check "$SCRIPT_DIR/verify_coreir_naked_fn_contract.sh"
 run_check "$SCRIPT_DIR/verify_coreir_parallel_boundary_contract.sh"
+run_check "$SCRIPT_DIR/verify_coreir_parallel_determinism.sh"
 run_check "$SCRIPT_DIR/verify_coreir_c99_oracle_boundary.sh"
 
 echo "OK: CoreIR closure contract verified"

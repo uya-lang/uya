@@ -1662,16 +1662,19 @@ export fn lowered_program_close_runtime_helper_requirement(program: &LoweredProg
 // ---- Phase 5: 输出稳定排序 ----
 
 fn lowered_program_swap_items(vec: &SemanticVector, i: usize, j: usize) void {
-    var tmp: [byte: 64] = [];
-    const pa: &byte = semantic_vector_item_ptr(vec, i);
-    const pb: &byte = semantic_vector_item_ptr(vec, j);
+    const pa: *byte = semantic_vector_item_ptr(vec, i) as *byte;
+    const pb: *byte = semantic_vector_item_ptr(vec, j) as *byte;
     if pa == null || pb == null {
         return;
     }
     const sz: usize = vec.item_size;
-    _ = memcpy(&tmp[0] as *byte, pa as *const byte, sz);
-    _ = memcpy(pa as *byte, pb as *const byte, sz);
-    _ = memcpy(pb as *byte, &tmp[0] as *const byte, sz);
+    var offset: usize = 0usize;
+    while offset < sz {
+        const tmp: byte = pa[offset];
+        pa[offset] = pb[offset];
+        pb[offset] = tmp;
+        offset = offset + 1usize;
+    }
 }
 
 /// 功能说明：按 function_id 对 ConcreteFunction 表做稳定插入排序。
@@ -1894,6 +1897,156 @@ export fn lowered_program_sort_helpers(program: &LoweredProgram) i32 {
     return 0;
 }
 
+fn lowered_program_sort_core_bodies(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.core_bodies;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &CoreBody = semantic_vector_item_ptr(vec, j - 1usize) as &CoreBody;
+            const b: &CoreBody = semantic_vector_item_ptr(vec, j) as &CoreBody;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.body_id <= b.body_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_sort_core_stmts(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.core_stmts;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &CoreStmt = semantic_vector_item_ptr(vec, j - 1usize) as &CoreStmt;
+            const b: &CoreStmt = semantic_vector_item_ptr(vec, j) as &CoreStmt;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.stmt_id <= b.stmt_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_sort_core_exprs(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.core_exprs;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &CoreExpr = semantic_vector_item_ptr(vec, j - 1usize) as &CoreExpr;
+            const b: &CoreExpr = semantic_vector_item_ptr(vec, j) as &CoreExpr;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.expr_id <= b.expr_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_sort_core_places(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.core_places;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &CorePlace = semantic_vector_item_ptr(vec, j - 1usize) as &CorePlace;
+            const b: &CorePlace = semantic_vector_item_ptr(vec, j) as &CorePlace;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.place_id <= b.place_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_sort_core_cleanup_edges(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.core_cleanup_edges;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &CoreCleanupEdge = semantic_vector_item_ptr(vec, j - 1usize) as &CoreCleanupEdge;
+            const b: &CoreCleanupEdge = semantic_vector_item_ptr(vec, j) as &CoreCleanupEdge;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.edge_id <= b.edge_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_sort_core_semantic_facts(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.core_semantic_facts;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &CoreSemanticFact = semantic_vector_item_ptr(vec, j - 1usize) as &CoreSemanticFact;
+            const b: &CoreSemanticFact = semantic_vector_item_ptr(vec, j) as &CoreSemanticFact;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.fact_id <= b.fact_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 /// 功能说明：对 LoweredProgram 所有输出表按稳定 ID 排序，保证后端确定性输出。
 /// 参数说明：`program` 为目标 LoweredProgram。
 /// 返回值说明：成功返回 `0`，任一子表排序失败返回 `-1`。
@@ -1923,6 +2076,24 @@ export fn lowered_program_sort_stable(program: &LoweredProgram) i32 {
         return -1;
     }
     if lowered_program_sort_helpers(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_core_bodies(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_core_stmts(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_core_exprs(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_core_places(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_core_cleanup_edges(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_core_semantic_facts(program) != 0 {
         return -1;
     }
     return 0;
