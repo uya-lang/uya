@@ -1544,6 +1544,26 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
     if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
         return native_build_expr_scalar_const_value(expr.cast_expr_expr, locals, out_value);
     }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&
+       expr.binary_expr_right != null {
+        const op_tmp2: !TokenType = expr.binary_expr_op as! TokenType;
+        const op2: TokenType = op_tmp2 catch {
+            return 0;
+        };
+        if op2 == TokenType.TOKEN_ASTERISK {
+            var left_value: i32 = 0;
+            var right_value: i32 = 0;
+            if native_build_expr_scalar_const_value(expr.binary_expr_left, locals, &left_value) != 0 &&
+               native_build_expr_scalar_const_value(expr.binary_expr_right, locals, &right_value) != 0 {
+                const product: i64 = (left_value as i64) * (right_value as i64);
+                const product_result: !i32 = product as! i32;
+                *out_value = product_result catch {
+                    return 0;
+                };
+                return 1;
+            }
+        }
+    }
     if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null &&
        locals != null && locals.kinds != null && locals.init_values != null {
         const slot: i32 = native_build_local_find(locals, expr.identifier_name);
@@ -1933,6 +1953,35 @@ fn native_build_if_stmt_local_le_const_assign_const_ops(stmt: &ASTNode,
     out_op.src1 = assign_value;
     out_op.target_id = -1;
     out_op.imm = 0i64;
+    out_op.flags = 0;
+    return 1;
+}
+
+fn native_build_set_stack_limit_call_op(stmt: &ASTNode, locals: &NativeBuildLocalTable,
+    out_op: &LoweredBodyOp) i32 {
+    if stmt == null || locals == null || out_op == null ||
+       stmt.type != ASTNodeType.AST_CALL_EXPR || stmt.call_expr_callee == null ||
+       stmt.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.call_expr_callee.identifier_name == null ||
+       stmt.call_expr_args == null || stmt.call_expr_arg_count != 1 ||
+       stmt.call_expr_type_arg_count != 0 {
+        return 0;
+    }
+    if str_equals(stmt.call_expr_callee.identifier_name as *byte,
+        "set_process_stack_limit_bytes" as *byte) == 0 {
+        return 0;
+    }
+    var limit_bytes: i32 = 0;
+    if native_build_expr_scalar_const_value(stmt.call_expr_args[0], locals, &limit_bytes) == 0 ||
+       limit_bytes <= 0 {
+        return 0;
+    }
+    out_op.opcode = LOWERED_BODY_OP_SET_STACK_LIMIT_BYTES;
+    out_op.dst = 0;
+    out_op.src0 = 0;
+    out_op.src1 = 0;
+    out_op.target_id = -1;
+    out_op.imm = limit_bytes as i64;
     out_op.flags = 0;
     return 1;
 }
@@ -2427,6 +2476,22 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
             }
             emitted_local_ops = emitted_local_ops + 2;
             emitted_branch_ops = emitted_branch_ops + 1;
+            stmt_index = stmt_index + 1;
+            continue;
+        }
+        var stack_limit_op: LoweredBodyOp = LoweredBodyOp{
+            opcode: LOWERED_BODY_OP_NOP,
+            dst: 0,
+            src0: 0,
+            src1: 0,
+            target_id: -1,
+            imm: 0i64,
+            flags: 0,
+        };
+        if native_build_set_stack_limit_call_op(stmt, &locals, &stack_limit_op) != 0 {
+            if lowered_program_append_body_op(lowered, &stack_limit_op) != 0 {
+                return 0;
+            }
             stmt_index = stmt_index + 1;
             continue;
         }
@@ -4937,7 +5002,7 @@ fn compile_files(
         var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
         if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
             codegen_end_time = clock();
-            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param、最小 get_argc/get_argv 函数子集、基于 local 的最小 if-return / if-assign 和 parse_build_args 形状的 11 参数局部初始化，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc/argv/parse11 局部初始化后 `return local;`、`if local <= const { local = const; }` 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
+            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param、最小 get_argc/get_argv 函数子集、基于 local 的最小 if-return / if-assign、set_process_stack_limit_bytes syscall statement 和 parse_build_args 形状的 11 参数局部初始化，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc/argv/parse11 局部初始化后 `return local;`、`if local <= const { local = const; }`、stack-limit call 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
             return 1;
         }
         const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(actual_output as &byte,

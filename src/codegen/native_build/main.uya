@@ -40,6 +40,7 @@ export const NATIVE_BUILD_RETURN_STORE_PARAM_CONST_I32: i32 = 15;
 export const NATIVE_BUILD_RETURN_ARGC_IF_EQ_CONST_I32: i32 = 16;
 export const NATIVE_BUILD_RETURN_ARGC_IF_NE_CONST_I32: i32 = 17;
 export const NATIVE_BUILD_RETURN_LOCAL_IF_LE_ASSIGN_I32: i32 = 18;
+export const NATIVE_BUILD_RETURN_SET_STACK_LIMIT_THEN_CONST_I32: i32 = 19;
 
 const NB_EHDR_SIZE: i32 = 64;
 const NB_PHDR_SIZE: i32 = 56;
@@ -54,6 +55,8 @@ const NB_FUNCTION_CODE_SIZE: usize = 256usize;
 const NB_PARSE11_FRAME_SIZE: i32 = 296;
 const NB_PARSE11_STACK_ARG_BYTES: i32 = 40;
 const NB_PARSE11_MAX_LOCAL_SLOT: i32 = 31;
+const NB_LINUX_RLIMIT_STACK: i32 = 3;
+const NB_LINUX_X86_64_SYS_SETRLIMIT: i32 = 160;
 
 /// 功能说明：build-seed native writer 可编码的极小函数计划。
 /// 参数说明：无；`return_kind` 为常量返回、无参 direct call 或两个 direct call 的 i32 加法；call target 为函数下标。
@@ -253,6 +256,77 @@ fn nb_emit_local_if_le_assign_return(buf: &byte, cap: usize, pos: &usize,
         return -1;
     }
     return nb_emit_add_rsp_8(buf, cap, pos);
+}
+
+fn nb_emit_mov_qword_rsp_disp_imm32(buf: &byte, cap: usize, pos: &usize, disp: i32, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 199) != 0 {
+        return -1;
+    }
+    if disp == 0 {
+        if nb_code_put_u8(buf, cap, pos, 4) != 0 {
+            return -1;
+        }
+        if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+            return -1;
+        }
+    } else if disp >= 0 && disp <= 127 {
+        if nb_code_put_u8(buf, cap, pos, 68) != 0 {
+            return -1;
+        }
+        if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+            return -1;
+        }
+        if nb_code_put_u8(buf, cap, pos, disp) != 0 {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_lea_rsi_rsp(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 141) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 52) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 36);
+}
+
+fn nb_emit_set_stack_limit_bytes(buf: &byte, cap: usize, pos: &usize, limit_bytes: i32) i32 {
+    if limit_bytes <= 0 {
+        return -1;
+    }
+    if nb_emit_sub_rsp_16(buf, cap, pos) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_qword_rsp_disp_imm32(buf, cap, pos, 0, limit_bytes) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_qword_rsp_disp_imm32(buf, cap, pos, 8, limit_bytes) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_edi_imm32(buf, cap, pos, NB_LINUX_RLIMIT_STACK) != 0 {
+        return -1;
+    }
+    if nb_emit_lea_rsi_rsp(buf, cap, pos) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_eax_imm32(buf, cap, pos, NB_LINUX_X86_64_SYS_SETRLIMIT) != 0 {
+        return -1;
+    }
+    if nb_emit_syscall(buf, cap, pos) != 0 {
+        return -1;
+    }
+    return nb_emit_add_rsp_16(buf, cap, pos);
 }
 
 fn nb_emit_mov_rax_argv_index(buf: &byte, cap: usize, pos: &usize, index: i32) i32 {
@@ -949,6 +1023,13 @@ fn native_build_emit_function_code(code: &byte, code_size: usize,
                 plan.return_value, plan.call_arg0_value, plan.call_arg1_value) != 0 {
                 return -1;
             }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_SET_STACK_LIMIT_THEN_CONST_I32 {
+            if nb_emit_set_stack_limit_bytes(code, code_size, &pos, plan.call_arg0_value) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_eax_imm32(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
         } else if plan.return_kind == NATIVE_BUILD_RETURN_ARGV_BYTE_I32 {
             if nb_emit_mov_rax_argv_index(code, code_size, &pos, plan.return_value) != 0 {
                 return -1;
@@ -1363,6 +1444,31 @@ fn native_build_machine_local_call_return_to_plan(first: &MachineInst, second: &
     return 0;
 }
 
+fn native_build_machine_set_stack_limit_return_to_plan(first: &MachineInst, second: &MachineInst,
+    out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || out_plan == null {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_SET_STACK_LIMIT_BYTES ||
+       second.opcode != LOWERED_BODY_OP_RETURN_CONST_I32 ||
+       first.imm <= 0i64 || second.imm < 0i64 || second.imm > 255i64 {
+        return -1;
+    }
+    const limit_result: !i32 = first.imm as! i32;
+    const ret_result: !i32 = second.imm as! i32;
+    out_plan.return_kind = NATIVE_BUILD_RETURN_SET_STACK_LIMIT_THEN_CONST_I32;
+    out_plan.return_value = ret_result catch {
+        return -1;
+    };
+    out_plan.call_target = -1;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = limit_result catch {
+        return -1;
+    };
+    out_plan.call_arg1_value = 0;
+    return 0;
+}
+
 fn native_build_machine_local_argc_return_to_plan(first: &MachineInst, second: &MachineInst,
     out_plan: &NativeBuildFunctionPlan) i32 {
     if first == null || second == null || out_plan == null {
@@ -1631,11 +1737,13 @@ fn native_build_machine_to_function_plans(module: &MachineModule, plans: &Native
             const second: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
             if native_build_machine_local_argv_byte_return_to_plan(first, second, &plans[i]) != 0 {
                 if native_build_machine_local_argc_return_to_plan(first, second, &plans[i]) != 0 {
-                    if native_build_machine_local_parse11_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                        if native_build_machine_local_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                            if native_build_machine_local_call_const_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                                if native_build_machine_local_call_const2_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                                    return -1;
+                    if native_build_machine_set_stack_limit_return_to_plan(first, second, &plans[i]) != 0 {
+                        if native_build_machine_local_parse11_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                            if native_build_machine_local_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                                if native_build_machine_local_call_const_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                                    if native_build_machine_local_call_const2_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                                        return -1;
+                                    }
                                 }
                             }
                         }
