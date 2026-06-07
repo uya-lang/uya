@@ -800,7 +800,13 @@ dump 目标：
 
 ## 26. 与 C99 的关系
 
-第一阶段 C99 可以继续直接消费 `LoweredProgram`。这样 native 迁移到 MIR 时，C99 仍是独立 oracle。
+第一阶段 C99 可以继续直接消费 `LoweredProgram` 作为 oracle。这样 native 迁移到 MIR 时，C99 仍是
+独立 oracle。
+
+新增的完整函数体语义必须先进入 `CoreBody` dump 和 verifier。C99 可以继续把 `LoweredProgram` 作为
+oracle，但不能成为新 body 语义的唯一实现位置；如果需要新的 statement、expression、place 或 cleanup
+形状，先扩展 CoreBody 节点、稳定 dump 和 verifier 负例，再决定 C99 是否直接消费该事实或继续作为差分
+oracle。
 
 C99 必须遵守 CoreIR 合同：
 

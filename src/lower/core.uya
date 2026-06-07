@@ -63,6 +63,7 @@ export const COREIR_VERIFY_ERR_UNFROZEN_PROOF: i32 = 8;
 export const COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP: i32 = 9;
 export const COREIR_VERIFY_ERR_CAPABILITY_SEMANTICS: i32 = 10;
 export const COREIR_VERIFY_ERR_NAKED_BODY: i32 = 11;
+export const COREIR_VERIFY_ERR_UNDUMPED_BODY_SEMANTIC: i32 = 12;
 export const LOWER_WORK_ITEM_FUNCTION: i32 = 1;
 export const LOWER_WORK_ITEM_TYPE: i32 = 2;
 export const LOWER_WORK_ITEM_ERR_UNION: i32 = 3;
@@ -2116,6 +2117,27 @@ fn lowered_program_coreir_is_known_fact_kind(kind: i32) i32 {
     return 0;
 }
 
+fn lowered_program_coreir_stmt_kind_is_dumped_and_verified(kind: i32) i32 {
+    if kind == CORE_STMT_KIND_RETURN { return 1; }
+    if kind == CORE_STMT_KIND_ASM { return 1; }
+    return 0;
+}
+
+fn lowered_program_coreir_expr_kind_is_dumped_and_verified(kind: i32) i32 {
+    if kind == CORE_EXPR_KIND_CALL { return 1; }
+    return 0;
+}
+
+fn lowered_program_coreir_place_kind_is_dumped_and_verified(kind: i32) i32 {
+    if kind == CORE_PLACE_KIND_FIELD { return 1; }
+    return 0;
+}
+
+fn lowered_program_coreir_cleanup_kind_is_dumped_and_verified(kind: i32) i32 {
+    if kind == CORE_CLEANUP_EDGE_KIND_RETURN { return 1; }
+    return 0;
+}
+
 fn lowered_program_coreir_call_payload_is_frozen(fact: &CoreSemanticFact) i32 {
     if fact == null || fact.call_target_kind == TYPED_CALL_TARGET_UNKNOWN {
         return 0;
@@ -2591,6 +2613,11 @@ fn lowered_program_coreir_verify_body_stmts(program: &LoweredProgram, body: &Cor
                 body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
         }
+        if lowered_program_coreir_stmt_kind_is_dumped_and_verified(stmt.kind) == 0 {
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_UNDUMPED_BODY_SEMANTIC,
+                body.body_id, stmt.stmt_id, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+                CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, stmt.source_span_id);
+        }
         if stmt.expr_id != CORE_EXPR_INVALID_ID && lowered_program_coreir_find_expr(program, body.body_id, stmt.expr_id) == null {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INVALID_REFERENCE,
                 body.body_id, stmt.stmt_id, stmt.expr_id, CORE_PLACE_INVALID_ID,
@@ -2625,6 +2652,11 @@ fn lowered_program_coreir_verify_body_exprs(program: &LoweredProgram, body: &Cor
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INVALID_REFERENCE,
                 body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
+        }
+        if lowered_program_coreir_expr_kind_is_dumped_and_verified(expr.kind) == 0 {
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_UNDUMPED_BODY_SEMANTIC,
+                body.body_id, CORE_STMT_INVALID_ID, expr.expr_id, CORE_PLACE_INVALID_ID,
+                CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, expr.source_span_id);
         }
         if expr.type_id == TYPED_PROGRAM_INVALID_ID && lowered_program_coreir_body_has_type_fact(program, body, expr.expr_id) == 0 {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_UNFROZEN_TYPE,
@@ -2685,6 +2717,11 @@ fn lowered_program_coreir_verify_body_places(program: &LoweredProgram, body: &Co
                 body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
         }
+        if lowered_program_coreir_place_kind_is_dumped_and_verified(place.kind) == 0 {
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_UNDUMPED_BODY_SEMANTIC,
+                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, place.place_id,
+                CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, place.source_span_id);
+        }
         if place.type_id == TYPED_PROGRAM_INVALID_ID {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_UNFROZEN_TYPE,
                 body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, place.place_id,
@@ -2721,6 +2758,11 @@ fn lowered_program_coreir_verify_body_cleanups(program: &LoweredProgram, body: &
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP,
                 body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
+        }
+        if lowered_program_coreir_cleanup_kind_is_dumped_and_verified(edge.kind) == 0 {
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_UNDUMPED_BODY_SEMANTIC,
+                body.body_id, edge.from_stmt_id, edge.payload_expr_id, CORE_PLACE_INVALID_ID,
+                edge.edge_id, CORE_SEMANTIC_FACT_INVALID_ID, edge.source_span_id);
         }
         if lowered_program_coreir_find_stmt(program, body.body_id, edge.from_stmt_id) == null {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP,

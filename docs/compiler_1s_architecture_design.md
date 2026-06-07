@@ -330,6 +330,8 @@ LoweredProgram
 method dispatch、field id、type id、proof result、source span、cleanup path 和 capability metadata。
 PortableMIR 实现之前必须先完成 `CoreBody`、CoreIR dump 和 CoreIR verifier；如果 MIR lowering 发现
 缺少语义事实，说明 CoreIR 合同不完整，应先补 CoreIR，而不是直接回查 `TypedProgram`。
+新增完整函数体语义不得只接入 C99 oracle；新增 CoreStmt/CoreExpr/CorePlace/Cleanup 形状必须先被
+CoreBody 稳定 dump 和 CoreIR verifier 白名单接受，之后 C99 才能继续作为独立 oracle 消费冻结事实。
 
 ### 7.3 正确性规则
 
@@ -440,6 +442,7 @@ C99Planner
 - 决定 split-C 单元归属。
 - 生成原型、定义和 include 需求。
 - 输出稳定的 unit fingerprint。
+- 不作为新增完整函数体语义的唯一落点；新增 body 形状先通过 CoreBody dump/verifier 门禁。
 
 ### 8.2 C99UnitPlan
 
