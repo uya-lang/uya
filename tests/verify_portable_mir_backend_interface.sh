@@ -6,7 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
 MIR_VERIFIER_FILE="$REPO_ROOT/src/lower/mir_verifier.uya"
+MIR_CONTRACT_FILE="$REPO_ROOT/src/lower/mir_contract.uya"
 MIR_BACKEND_FILE="$REPO_ROOT/src/lower/mir_backend.uya"
+NATIVE_MIR_EMITTER_FILE="$REPO_ROOT/src/codegen/native/mir_emitter.uya"
 PORTABLE_MIR_DOC="$REPO_ROOT/docs/portable_mir_whitepaper.md"
 ARCH_DOC="$REPO_ROOT/docs/compiler_1s_architecture_design.md"
 
@@ -20,7 +22,8 @@ require_pattern() {
     fi
 }
 
-for file in "$MIR_FILE" "$MIR_VERIFIER_FILE" "$MIR_BACKEND_FILE" "$PORTABLE_MIR_DOC" "$ARCH_DOC"; do
+for file in "$MIR_FILE" "$MIR_VERIFIER_FILE" "$MIR_CONTRACT_FILE" "$MIR_BACKEND_FILE" \
+    "$NATIVE_MIR_EMITTER_FILE" "$PORTABLE_MIR_DOC" "$ARCH_DOC"; do
     if [[ ! -f "$file" ]]; then
         echo "error: missing $file" >&2
         exit 1
@@ -52,15 +55,24 @@ require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_MACHINE_MODULE' "Machine
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_PTX_MODULE' "PtxModule output kind"
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_EXEC_BYTECODE' "ExecBytecode output kind"
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_C99_PLAN' "C99Plan output kind"
+require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_contract_required_features' "single PortableMIR lowering feature contract"
+require_pattern "$MIR_CONTRACT_FILE" 'missing_feature_mask' "lowering feature gaps are reported before backend"
+require_pattern "$NATIVE_MIR_EMITTER_FILE" 'request:[[:space:]]*&MirTargetBackendRequest' "native emitter request input"
+require_pattern "$NATIVE_MIR_EMITTER_FILE" 'portable_mir:[[:space:]]*&PortableMirModule' "native emitter PortableMIR input"
+require_pattern "$NATIVE_MIR_EMITTER_FILE" 'native_mir_emitter_read_portable_mir' "native emitter consumes PortableMIR"
 require_pattern "$PORTABLE_MIR_DOC" 'MirTargetBackendRequest' "whitepaper backend request"
 require_pattern "$PORTABLE_MIR_DOC" 'MirTargetBackendOutput' "whitepaper backend output"
+require_pattern "$PORTABLE_MIR_DOC" '让多个后端复用同一份' "whitepaper single language lowering owner"
+require_pattern "$PORTABLE_MIR_DOC" '语言 lowering，而不是让 native、PTX、exec、C99 各自重新发现 Uya 语义' "whitepaper forbids per-backend semantic rediscovery"
+require_pattern "$PORTABLE_MIR_DOC" '某个 feature 未实现时必须表现为缺失合同' "whitepaper feature gaps surface before backend"
 require_pattern "$PORTABLE_MIR_DOC" 'request\.module` 是 backend 的唯一 IR' "whitepaper PortableMIR-only backend input"
 require_pattern "$PORTABLE_MIR_DOC" '输入，且必须来自 verifier 通过后的 `PortableMirModule`' "whitepaper verified PortableMIR input"
 require_pattern "$PORTABLE_MIR_DOC" 'MachineModule.*PtxModule.*ExecBytecode.*C99Plan' "whitepaper backend output mapping"
+require_pattern "$PORTABLE_MIR_DOC" 'backend 不允许新增 generic instance' "whitepaper backend cannot own language discovery"
 require_pattern "$ARCH_DOC" 'MirTargetBackendRequest' "architecture backend request"
 require_pattern "$ARCH_DOC" '不能新增 `TypedProgram`' "architecture forbids TypedProgram backend entry"
 
-if grep -Eq 'TypedProgram|LoweredProgram|CoreBody' "$MIR_BACKEND_FILE"; then
+if grep -Eq 'TypedProgram|LoweredProgram|CoreBody|TypeChecker|ASTNode' "$MIR_BACKEND_FILE" "$NATIVE_MIR_EMITTER_FILE"; then
     echo "error: target backend interface must not accept pre-MIR compiler IR" >&2
     exit 1
 fi
