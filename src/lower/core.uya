@@ -457,6 +457,16 @@ export struct LoweredProgram {
     worklist: SemanticVector,
 }
 
+/// 功能说明：记录 PortableMIR lowering 允许消费的 frozen CoreIR 输入边界。
+/// 参数说明：无；`program` 是已冻结 LoweredProgram，`body_id` 指向其中一个已验证 CoreBody。
+/// 返回值说明：无。
+export struct PortableMirCoreInput {
+    program: &LoweredProgram,
+    body_id: CoreBodyId,
+    target_profile_id: i32,
+    flags: i32,
+}
+
 fn lowered_program_clear_counts(program: &LoweredProgram) void {
     if program == null {
         return;
@@ -3131,6 +3141,22 @@ export fn lowered_program_verify_coreir_result(program: &LoweredProgram, result:
 export fn lowered_program_verify_coreir(program: &LoweredProgram) i32 {
     var result: CoreVerifierResult = lowered_program_coreir_verify_ok_result();
     return lowered_program_verify_coreir_result(program, &result);
+}
+
+/// 功能说明：检查 PortableMIR lowering 输入是否只依赖已冻结的 LoweredProgram/CoreBody 合同。
+/// 参数说明：`input` 包含 LoweredProgram 和目标 CoreBodyId；不接收 TypeChecker 或 TypedProgram。
+/// 返回值说明：输入存在、CoreBody 存在且 CoreIR verifier 通过时返回 `1`，否则返回 `0`。
+export fn portable_mir_core_input_is_frozen(input: &PortableMirCoreInput) i32 {
+    if input == null || input.program == null {
+        return 0;
+    }
+    if lowered_program_find_core_body(input.program, input.body_id) == null {
+        return 0;
+    }
+    if lowered_program_verify_coreir(input.program) != 0 {
+        return 0;
+    }
+    return 1;
 }
 
 // ---- Phase 5: debug dump ----
