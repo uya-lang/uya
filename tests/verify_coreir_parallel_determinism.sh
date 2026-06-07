@@ -27,6 +27,7 @@ for file in "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$TYPED_PROGRAM_FILE" "$LOWE
     fi
 done
 
+require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_functions' "ConcreteFunction stable ID sort"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_bodies' "CoreBody stable merge sort"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_stmts' "CoreStmt stable merge sort"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_sort_core_exprs' "CoreExpr stable merge sort"
@@ -356,6 +357,8 @@ fn assert_coreir_parallel_requests_sorted(lowered: &LoweredProgram) !void {
 }
 
 fn assert_coreir_parallel_sorted(lowered: &LoweredProgram) !void {
+    const function0: &ConcreteFunction = semantic_vector_item_ptr(&lowered.functions, 0usize) as &ConcreteFunction;
+    const function1: &ConcreteFunction = semantic_vector_item_ptr(&lowered.functions, 1usize) as &ConcreteFunction;
     const body0: &CoreBody = semantic_vector_item_ptr(&lowered.core_bodies, 0usize) as &CoreBody;
     const body1: &CoreBody = semantic_vector_item_ptr(&lowered.core_bodies, 1usize) as &CoreBody;
     const stmt0: &CoreStmt = semantic_vector_item_ptr(&lowered.core_stmts, 0usize) as &CoreStmt;
@@ -364,6 +367,8 @@ fn assert_coreir_parallel_sorted(lowered: &LoweredProgram) !void {
     const edge0: &CoreCleanupEdge = semantic_vector_item_ptr(&lowered.core_cleanup_edges, 0usize) as &CoreCleanupEdge;
     const fact0: &CoreSemanticFact = semantic_vector_item_ptr(&lowered.core_semantic_facts, 0usize) as &CoreSemanticFact;
     const fact9: &CoreSemanticFact = semantic_vector_item_ptr(&lowered.core_semantic_facts, 9usize) as &CoreSemanticFact;
+    try expect(function0 != null);
+    try expect(function1 != null);
     try expect(body0 != null);
     try expect(body1 != null);
     try expect(stmt0 != null);
@@ -372,6 +377,10 @@ fn assert_coreir_parallel_sorted(lowered: &LoweredProgram) !void {
     try expect(edge0 != null);
     try expect(fact0 != null);
     try expect(fact9 != null);
+    try assert_eq_i32(function0.function_id, 100);
+    try assert_eq_i32(function0.decl_id, 200);
+    try assert_eq_i32(function1.function_id, 101);
+    try assert_eq_i32(function1.decl_id, 201);
     try assert_eq_i32(body0.body_id, 0);
     try assert_eq_i32(body1.body_id, 1);
     try assert_eq_i32(stmt0.stmt_id, 0);
@@ -412,6 +421,12 @@ test "CoreIR stable merge keeps serial and parallel fixtures deterministic" {
         try assert_eq_i32(result.ok, 0);
         try assert_eq_i32(result.error_code, COREIR_VERIFY_ERR_INVALID_BODY_RANGE);
         try assert_eq_i32(result.body_id, 1);
+        try assert_eq_i32(result.stmt_id, CORE_STMT_INVALID_ID);
+        try assert_eq_i32(result.expr_id, CORE_EXPR_INVALID_ID);
+        try assert_eq_i32(result.place_id, CORE_PLACE_INVALID_ID);
+        try assert_eq_i32(result.cleanup_edge_id, CORE_CLEANUP_EDGE_INVALID_ID);
+        try assert_eq_i32(result.fact_id, CORE_SEMANTIC_FACT_INVALID_ID);
+        try assert_eq_i32(result.source_span_id, 501);
     } else {
         if verify_result != 0 {
             try assert_eq_i32(result.error_code, COREIR_VERIFY_OK);

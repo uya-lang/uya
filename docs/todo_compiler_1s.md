@@ -481,7 +481,7 @@ bash tests/verify_portable_mir_core_input_contract.sh
   稳定出现。
 - [x] CoreIR verifier 能阻止 MIR 实现绕过 CoreIR 回查 checker / TypedProgram。
 - [x] `@naked_fn` 在 CoreIR dump 中有稳定 flags/capability，且非法 body 先在 CoreIR verifier 被拒绝。
-- [ ] CoreIR 并行开关不改变 IDs、dump 或 diagnostics。
+- [x] CoreIR 并行开关不改变 IDs、dump 或 diagnostics。
 
 ---
 
