@@ -90,6 +90,10 @@ fn defer_value() i32 {
     return value;
 }
 
+fn smoke_noop() void {
+    return;
+}
+
 type SmokeVec = @vector(i32, 4);
 
 export fn main() i32 {
@@ -116,6 +120,7 @@ export fn main() i32 {
     const selected: SmokeVec = @vector.select(mask, vec_b, vec_a);
     const recovered: i32 = maybe_value(5) catch { 0; };
     const failed: i32 = maybe_value(0) catch { 8; };
+    smoke_noop();
     smoke_drop_count = 0;
     {
         const dropped: SmokeDrop = SmokeDrop{ value: 11 };
@@ -161,6 +166,7 @@ require_pattern "$main_src" 'fn double\(self: &Self\)' "method coverage"
 require_pattern "$main_src" 'interface SmokeAdder' "interface coverage"
 require_pattern "$main_src" 'fn maybe_value\(flag: i32\) !i32' "error-union coverage"
 require_pattern "$main_src" 'defer \{' "defer coverage"
+require_pattern "$main_src" 'fn smoke_noop\(\) void' "void CoreBody coverage"
 require_pattern "$main_src" 'fn drop\(self: SmokeDrop\)' "drop coverage"
 require_pattern "$main_src" 'const slice: &\[i32\]' "slice coverage"
 require_pattern "$main_src" 'var array: \[i32: 4\]' "array coverage"
@@ -255,7 +261,7 @@ if grep -q 'C99' "$native_build_err"; then
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=0 pending_bodies=[1-9][0-9]*' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=[1-9][0-9]* pending_bodies=[1-9][0-9]*' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted CoreIR inventory preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1

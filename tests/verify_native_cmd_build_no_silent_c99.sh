@@ -36,7 +36,7 @@ run_hosted_reject_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=0 pending_bodies=[1-9][0-9]*' "$stderr"; then
+    if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=[0-9]+ pending_bodies=[1-9][0-9]*' "$stderr"; then
         echo "错误: $label --native 缺少 hosted CoreIR function inventory preflight 证据" >&2
         cat "$stderr" >&2
         exit 1
