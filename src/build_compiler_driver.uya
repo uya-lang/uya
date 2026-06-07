@@ -1511,6 +1511,40 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
         "错误: hosted native backend 已完成 PortableMIR/NativeHostedLinkPlan preflight，但尚未接入函数体 MIR lowering；build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集\n" as *byte);
 }
 
+fn native_build_try_emit_hosted_no_deps_subset(output_file: &byte, program: &ASTNode,
+    arena: &CompilerArena, c_import_count: i32) i32 {
+    if output_file == null || program == null || arena == null || c_import_count != 0 {
+        return 0;
+    }
+    var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(program, arena);
+    if native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
+        return 0;
+    }
+    const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(output_file,
+        &native_plan.lowered, native_plan.entry_index);
+    if native_result.status != NATIVE_BUILD_EMIT_STATUS_OK {
+        fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
+        lowered_program_release(&native_plan.lowered);
+        return -1;
+    }
+    var native_exit_code: i32 = -1;
+    fprintf(libc.stderr, "native_hosted_subset: no_deps_lowered_program_path=1\n" as *byte);
+    if native_build_lowered_main_const_exit_code(&native_plan, &native_exit_code) != 0 {
+        fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, native_exit_code);
+    }
+    fprintf(libc.stderr, "native_function_count: %zu\n" as *byte, native_plan.lowered.function_count);
+    fprintf(libc.stderr, "native_lowered_body_ops: %zu\n" as *byte, native_plan.lowered.body_op_count);
+    fprintf(libc.stderr, "native_machine_function_count: %zu\n" as *byte, native_result.machine_function_count);
+    fprintf(libc.stderr, "native_machine_inst_count: %zu\n" as *byte, native_result.machine_inst_count);
+    fprintf(libc.stderr, "native_machine_peak_bytes: %zu\n" as *byte, native_result.machine_peak_bytes);
+    fprintf(libc.stderr, "native_entry_index: %d\n" as *byte, native_plan.entry_index);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte, native_result.output_bytes);
+    fprintf(libc.stderr, "native_code_bytes: %zu\n" as *byte, native_result.code_bytes);
+    fprintf(libc.stderr, "native_temp_peak_bytes: %zu\n" as *byte, native_result.temp_peak_bytes);
+    lowered_program_release(&native_plan.lowered);
+    return 1;
+}
+
 fn native_build_core_function_flags_from_decl(decl: &ASTNode) i32 {
     var flags: i32 = 0;
     if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_naked != 0 {
@@ -6253,6 +6287,7 @@ fn compile_files(
 
     var c99_output_buffer_peak_bytes: usize = 0usize;
     if backend == BackendType.BACKEND_NATIVE {
+        var native_codegen_done: i32 = 0;
         if is_nostdlib == 0 {
             var hosted_c_import_count: i32 = 0;
             if out_artifacts != null {
@@ -6272,39 +6307,50 @@ fn compile_files(
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);
-            codegen_end_time = clock();
-            native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,
-                hosted_preflight_status, &hosted_preflight);
-            return 1;
+            const hosted_subset_status: i32 = native_build_try_emit_hosted_no_deps_subset(
+                actual_output as &byte, merged_ast, &emit_arena, hosted_c_import_count);
+            if hosted_subset_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_subset_status == 0 {
+                codegen_end_time = clock();
+                native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+                return 1;
+            }
+            native_codegen_done = 1;
         }
-        var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
-        if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
-            codegen_end_time = clock();
-            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param、最小 get_argc/get_argv 函数子集、基于 local 的最小 if-return / if-assign、set_process_stack_limit_bytes syscall statement 和 parse_build_args 形状的 11 参数局部初始化，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc/argv/parse11 局部初始化后 `return local;`、`if local <= const { local = const; }`、stack-limit call 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
-            return 1;
-        }
-        const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(actual_output as &byte,
-            &native_plan.lowered, native_plan.entry_index);
-        if native_result.status != NATIVE_BUILD_EMIT_STATUS_OK {
-            codegen_end_time = clock();
-            fprintf(libc.stderr, "错误: native executable 输出失败: %s\n" as *byte, actual_output);
+        if native_codegen_done == 0 {
+            var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
+            if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
+                codegen_end_time = clock();
+                fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param、最小 get_argc/get_argv 函数子集、基于 local 的最小 if-return / if-assign、set_process_stack_limit_bytes syscall statement 和 parse_build_args 形状的 11 参数局部初始化，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc/argv/parse11 局部初始化后 `return local;`、`if local <= const { local = const; }`、stack-limit call 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
+                return 1;
+            }
+            const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(actual_output as &byte,
+                &native_plan.lowered, native_plan.entry_index);
+            if native_result.status != NATIVE_BUILD_EMIT_STATUS_OK {
+                codegen_end_time = clock();
+                fprintf(libc.stderr, "错误: native executable 输出失败: %s\n" as *byte, actual_output);
+                lowered_program_release(&native_plan.lowered);
+                return 1;
+            }
+            var native_exit_code: i32 = -1;
+            if native_build_lowered_main_const_exit_code(&native_plan, &native_exit_code) != 0 {
+                fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, native_exit_code);
+            }
+            fprintf(libc.stderr, "native_function_count: %zu\n" as *byte, native_plan.lowered.function_count);
+            fprintf(libc.stderr, "native_lowered_body_ops: %zu\n" as *byte, native_plan.lowered.body_op_count);
+            fprintf(libc.stderr, "native_machine_function_count: %zu\n" as *byte, native_result.machine_function_count);
+            fprintf(libc.stderr, "native_machine_inst_count: %zu\n" as *byte, native_result.machine_inst_count);
+            fprintf(libc.stderr, "native_machine_peak_bytes: %zu\n" as *byte, native_result.machine_peak_bytes);
+            fprintf(libc.stderr, "native_entry_index: %d\n" as *byte, native_plan.entry_index);
+            fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte, native_result.output_bytes);
+            fprintf(libc.stderr, "native_code_bytes: %zu\n" as *byte, native_result.code_bytes);
+            fprintf(libc.stderr, "native_temp_peak_bytes: %zu\n" as *byte, native_result.temp_peak_bytes);
             lowered_program_release(&native_plan.lowered);
-            return 1;
         }
-        var native_exit_code: i32 = -1;
-        if native_build_lowered_main_const_exit_code(&native_plan, &native_exit_code) != 0 {
-            fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, native_exit_code);
-        }
-        fprintf(libc.stderr, "native_function_count: %zu\n" as *byte, native_plan.lowered.function_count);
-        fprintf(libc.stderr, "native_lowered_body_ops: %zu\n" as *byte, native_plan.lowered.body_op_count);
-        fprintf(libc.stderr, "native_machine_function_count: %zu\n" as *byte, native_result.machine_function_count);
-        fprintf(libc.stderr, "native_machine_inst_count: %zu\n" as *byte, native_result.machine_inst_count);
-        fprintf(libc.stderr, "native_machine_peak_bytes: %zu\n" as *byte, native_result.machine_peak_bytes);
-        fprintf(libc.stderr, "native_entry_index: %d\n" as *byte, native_plan.entry_index);
-        fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte, native_result.output_bytes);
-        fprintf(libc.stderr, "native_code_bytes: %zu\n" as *byte, native_result.code_bytes);
-        fprintf(libc.stderr, "native_temp_peak_bytes: %zu\n" as *byte, native_result.temp_peak_bytes);
-        lowered_program_release(&native_plan.lowered);
     } else {
         // C99 后端：生成 C 源代码（与 C 版本保持一致，直接使用 C99 后端）
         var out_file: *void = null;

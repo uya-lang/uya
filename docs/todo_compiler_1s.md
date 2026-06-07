@@ -857,7 +857,12 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 - [x] native 后端新增语言能力时，语言 lowering 只需改 `PortableMIR`，不在每个 target backend 重复实现。
 - [x] `@naked_fn` 通过 CoreIR/MIR verifier 和 native 专用 path，不走普通函数栈帧。
 - [x] MIR 并行构造不改变 dump、diagnostics、IDs 或 symbol order。
-- [ ] hosted native 与 C99 对完整语言 smoke 的成功/失败、退出码、diagnostics 和运行结果一致。
+- hosted native 与 C99 对完整语言 smoke 的成功/失败、退出码、diagnostics 和运行结果一致（拆分执行；原始目标保留）：
+  - [x] 接入 no-deps hosted native basic parity smoke：非 `--nostdlib` 的 `--native` 对无外部依赖基础程序真实生成 executable，并与 C99 退出码 / stdout / stderr 一致。
+  - [ ] 用 `CoreBody -> PortableMIR` 函数体 lowering 覆盖 full-language smoke 的 main/helper 函数，不再依赖 build-seed `LoweredBodyOp` 特例。
+  - [ ] 接入 hosted native `@c_import` / extern linker handoff，确保 native link 对象与 C99 oracle 运行结果一致。
+  - [ ] 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性。
+  - [ ] 将 hosted native full-language smoke 从“允许明确拒绝”推进为默认强制 parity 门禁。
 
 ---
 
