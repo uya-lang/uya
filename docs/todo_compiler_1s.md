@@ -813,7 +813,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] 新增 MIR `@naked_fn` golden / verifier 负例，覆盖 asm-only body、unsupported target、禁止普通 local /
   cleanup / implicit return。
 - [x] 新增 `tests/verify_portable_mir_naked_fn.sh`。
-- [ ] 新增 MIR parallel determinism 测试，覆盖并行构造开关下 dump、diagnostics、IDs 和 symbol order 不变。
+- [x] 新增 MIR parallel determinism 测试，覆盖并行构造开关下 dump、diagnostics、IDs 和 symbol order 不变。
 - [ ] 新增 `tests/verify_portable_mir_parallel_determinism.sh`。
 - [ ] 新增 hosted native / C99 完整语言差分 smoke，先覆盖多文件、泛型、方法、interface、error/defer/drop、
   slice/array/struct/union/enum、atomic、SIMD vector/mask、builtin、extern 和 `@c_import`。
