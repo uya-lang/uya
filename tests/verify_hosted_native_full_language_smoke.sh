@@ -267,7 +267,7 @@ if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functio
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=1 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=2 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
     echo "error: native full-language reject lacks hosted PortableMIR preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
