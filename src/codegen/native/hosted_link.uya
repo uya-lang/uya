@@ -1,0 +1,154 @@
+// codegen/native/hosted_link.uya - Hosted native ABI/linker handoff contract.
+
+export const NATIVE_HOSTED_LINK_PLAN_UNINITIALIZED: i32 = 0;
+export const NATIVE_HOSTED_LINK_PLAN_ACTIVE: i32 = 1;
+
+export const NATIVE_HOSTED_ABI_SYSV: i32 = 1;
+export const NATIVE_HOSTED_LINKER_HOST_CC: i32 = 1;
+
+export const NATIVE_HOSTED_LINK_REQUIRE_LIBC: i32 = 1;
+export const NATIVE_HOSTED_LINK_REQUIRE_PTHREAD: i32 = 2;
+export const NATIVE_HOSTED_LINK_REQUIRE_FILESYSTEM: i32 = 4;
+export const NATIVE_HOSTED_LINK_REQUIRE_ENV: i32 = 8;
+export const NATIVE_HOSTED_LINK_REQUIRE_MALLOC: i32 = 16;
+export const NATIVE_HOSTED_LINK_REQUIRE_EXTERN: i32 = 32;
+export const NATIVE_HOSTED_LINK_REQUIRE_C_IMPORT: i32 = 64;
+
+/// 功能说明：记录 hosted native 第一阶段交给宿主 ABI/linker 的需求集合。
+/// 参数说明：无；字段保存 target profile、ABI/linker 模式、需求 mask 和 extern / c_import 输入计数。
+/// 返回值说明：无。
+export struct NativeHostedLinkPlan {
+    lifecycle_state: i32,
+    target_profile_id: i32,
+    abi_mode: i32,
+    linker_mode: i32,
+    requirement_mask: i32,
+    host_library_mask: i32,
+    extern_symbol_count: i32,
+    c_import_object_count: i32,
+    object_count: i32,
+    flags: i32,
+}
+
+/// 功能说明：返回 hosted native 第一阶段必须由宿主 ABI/linker 承接的需求 mask。
+/// 参数说明：无。
+/// 返回值说明：返回 libc、pthread、filesystem、env、malloc、extern 和 c_import bit 的合集。
+export fn native_hosted_link_required_mask() i32 {
+    return NATIVE_HOSTED_LINK_REQUIRE_LIBC +
+        NATIVE_HOSTED_LINK_REQUIRE_PTHREAD +
+        NATIVE_HOSTED_LINK_REQUIRE_FILESYSTEM +
+        NATIVE_HOSTED_LINK_REQUIRE_ENV +
+        NATIVE_HOSTED_LINK_REQUIRE_MALLOC +
+        NATIVE_HOSTED_LINK_REQUIRE_EXTERN +
+        NATIVE_HOSTED_LINK_REQUIRE_C_IMPORT;
+}
+
+fn native_hosted_link_host_library_mask() i32 {
+    return NATIVE_HOSTED_LINK_REQUIRE_LIBC + NATIVE_HOSTED_LINK_REQUIRE_PTHREAD;
+}
+
+/// 功能说明：构造空 hosted native linker plan。
+/// 参数说明：无。
+/// 返回值说明：返回未初始化的 `NativeHostedLinkPlan`。
+export fn native_hosted_link_plan_empty() NativeHostedLinkPlan {
+    return NativeHostedLinkPlan{
+        lifecycle_state: NATIVE_HOSTED_LINK_PLAN_UNINITIALIZED,
+        target_profile_id: -1,
+        abi_mode: 0,
+        linker_mode: 0,
+        requirement_mask: 0,
+        host_library_mask: 0,
+        extern_symbol_count: 0,
+        c_import_object_count: 0,
+        object_count: 0,
+        flags: 0,
+    };
+}
+
+/// 功能说明：判断 hosted native linker plan 是否包含指定需求 bit。
+/// 参数说明：`plan` 为待检查 plan，`requirement` 为 `NATIVE_HOSTED_LINK_REQUIRE_*` bit。
+/// 返回值说明：包含返回 `1`，否则返回 `0`。
+export fn native_hosted_link_plan_has(plan: &NativeHostedLinkPlan, requirement: i32) i32 {
+    if plan == null || requirement == 0 {
+        return 0;
+    }
+    if (plan.requirement_mask & requirement) == requirement {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：初始化 hosted native linker plan。
+/// 参数说明：`plan` 为输出 plan，`request` 为 verifier-clean Machine backend request。
+/// 返回值说明：成功返回 `0`；request 非 hosted、非 Machine backend 或未通过 verifier 时返回 `-1`。
+export fn native_hosted_link_plan_init(plan: &NativeHostedLinkPlan,
+    request: &MirTargetBackendRequest) i32 {
+    if plan == null || request == null || request.module == null {
+        return -1;
+    }
+    if request.backend_kind != MIR_TARGET_BACKEND_MACHINE ||
+       portable_mir_backend_request_is_verified(request) == 0 ||
+       request.module.target_profile.runtime_mode != MIR_RUNTIME_MODE_HOSTED {
+        return -1;
+    }
+    plan.lifecycle_state = NATIVE_HOSTED_LINK_PLAN_ACTIVE;
+    plan.target_profile_id = request.target_profile_id;
+    plan.abi_mode = NATIVE_HOSTED_ABI_SYSV;
+    plan.linker_mode = NATIVE_HOSTED_LINKER_HOST_CC;
+    plan.requirement_mask = native_hosted_link_required_mask();
+    plan.host_library_mask = native_hosted_link_host_library_mask();
+    plan.extern_symbol_count = 0;
+    plan.c_import_object_count = 0;
+    plan.object_count = 0;
+    plan.flags = 0;
+    return 0;
+}
+
+/// 功能说明：判断 hosted native plan 是否明确使用宿主 ABI 和宿主 linker。
+/// 参数说明：`plan` 为待检查 plan。
+/// 返回值说明：active plan 使用 SysV ABI 与 host cc linker 时返回 `1`，否则返回 `0`。
+export fn native_hosted_link_plan_uses_host_abi_linker(plan: &NativeHostedLinkPlan) i32 {
+    if plan == null || plan.lifecycle_state != NATIVE_HOSTED_LINK_PLAN_ACTIVE {
+        return 0;
+    }
+    if plan.abi_mode != NATIVE_HOSTED_ABI_SYSV || plan.linker_mode != NATIVE_HOSTED_LINKER_HOST_CC {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：判断 hosted native plan 是否覆盖第一阶段全部 host handoff 需求。
+/// 参数说明：`plan` 为待检查 plan。
+/// 返回值说明：host ABI/linker 有效且七类需求 bit 完整时返回 `1`，否则返回 `0`。
+export fn native_hosted_link_plan_is_complete(plan: &NativeHostedLinkPlan) i32 {
+    if native_hosted_link_plan_uses_host_abi_linker(plan) == 0 {
+        return 0;
+    }
+    if (plan.requirement_mask & native_hosted_link_required_mask()) != native_hosted_link_required_mask() {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：记录一个通过宿主 linker 解析的 extern symbol。
+/// 参数说明：`plan` 为 active hosted link plan，`symbol_id` 为 extern symbol 稳定 ID。
+/// 返回值说明：成功返回 `0`，plan 未声明 extern/linker 需求或参数非法返回 `-1`。
+export fn native_hosted_link_plan_add_extern_symbol(plan: &NativeHostedLinkPlan, symbol_id: i32) i32 {
+    if plan == null || symbol_id < 0 || native_hosted_link_plan_has(plan, NATIVE_HOSTED_LINK_REQUIRE_EXTERN) == 0 {
+        return -1;
+    }
+    plan.extern_symbol_count = plan.extern_symbol_count + 1;
+    return 0;
+}
+
+/// 功能说明：记录一个 `@c_import` 生成并交给宿主 linker 的 object。
+/// 参数说明：`plan` 为 active hosted link plan。
+/// 返回值说明：成功返回 `0`，plan 未声明 c_import/linker 需求时返回 `-1`。
+export fn native_hosted_link_plan_add_c_import_object(plan: &NativeHostedLinkPlan) i32 {
+    if plan == null || native_hosted_link_plan_has(plan, NATIVE_HOSTED_LINK_REQUIRE_C_IMPORT) == 0 {
+        return -1;
+    }
+    plan.c_import_object_count = plan.c_import_object_count + 1;
+    plan.object_count = plan.object_count + 1;
+    return 0;
+}

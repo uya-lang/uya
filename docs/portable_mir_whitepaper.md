@@ -594,6 +594,10 @@ hosted native 接受：
 - filesystem / environment operations
 - `@c_import` object/linker integration
 
+`NativeHostedLinkPlan` 是 hosted native v1 的 host handoff 入口。它只从 verifier-clean
+`MIR_TARGET_BACKEND_MACHINE` request 初始化，要求 target profile 为 hosted，并把 libc、pthread、
+filesystem、env、malloc、extern symbol 和 `@c_import` object 全部记录为宿主 ABI/linker 需求。
+
 hosted native 仍然把 Uya 函数体生成 native machine code。它不是 C99 fallback，也不能静默绕回 C99。
 
 ## 18. Freestanding Native 后续推进

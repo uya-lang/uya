@@ -558,6 +558,9 @@ LoweredProgram / CoreIR / CoreBody
 
 完整语言 parity 第一阶段采用 Linux x86_64 hosted native：Uya 函数体生成机器码，libc、pthread、
 filesystem、env、malloc、extern 和 `@c_import` 链接需求交给宿主 ABI / linker 承接。
+该承接由 `NativeHostedLinkPlan` 固定：只从 verifier-clean Machine backend request 初始化，要求 hosted
+runtime profile，并记录 `libc`、`pthread`、filesystem、env、malloc、extern symbol 和 `@c_import`
+object/linker 输入。freestanding profile 必须拒绝该 plan，而不是静默退回 C99。
 
 freestanding / nostdlib build-seed 目标继续保留，但作为 hosted native 已验证能力的后续下沉路径：
 
