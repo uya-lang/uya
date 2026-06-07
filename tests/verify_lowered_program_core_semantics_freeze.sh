@@ -181,6 +181,7 @@ fn append_core_body(lowered: &LoweredProgram) !void {
         body_id: 0,
         source_expr_id: 7,
         type_id: TYPED_PROGRAM_INVALID_ID,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,

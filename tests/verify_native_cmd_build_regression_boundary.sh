@@ -107,7 +107,9 @@ require_pattern "$BUILD_DRIVER_SRC" 'lowered_program_verify_coreir_result' \
 require_pattern "$BUILD_DRIVER_SRC" 'lowered_program_append_function' \
     "build compiler driver 缺少 hosted CoreIR function inventory 记录"
 require_pattern "$BUILD_DRIVER_SRC" 'lowered_program_append_core_body' \
-    "build compiler driver 缺少 hosted void CoreBody materialization"
+    "build compiler driver 缺少 hosted safe CoreBody materialization"
+require_pattern "$BUILD_DRIVER_SRC" 'CORE_EXPR_KIND_INT_LITERAL' \
+    "build compiler driver 缺少 hosted integer literal CoreExpr materialization"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_add_extern_symbol' \
     "build compiler driver 缺少 extern symbol hosted link plan 记录"
 require_pattern "$BUILD_DRIVER_SRC" 'portable_mir_append_function' \

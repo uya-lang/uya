@@ -330,6 +330,9 @@ constants：
 - `const_vector`
 - `const_mask`
 
+CoreIR 的 `CORE_EXPR_KIND_INT_LITERAL` 由 `literal_i64` 携带规范化整数值，是 `const_int` lowering 的最小
+表达式输入之一；对应 `TypeId` 必须在进入 MIR 前冻结。
+
 arithmetic / bit ops：
 
 - `add`, `sub`, `mul`

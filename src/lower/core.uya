@@ -44,6 +44,7 @@ export const CORE_EXPR_KIND_SLICE: i32 = 13;
 export const CORE_EXPR_KIND_ATOMIC: i32 = 14;
 export const CORE_EXPR_KIND_VECTOR: i32 = 15;
 export const CORE_EXPR_KIND_MASK: i32 = 16;
+export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
 export const CORE_EXPR_FLAG_NAKED_ASM_OPERAND: i32 = 1;
 export const CORE_EXPR_FLAG_ERROR_PROPAGATION: i32 = 2;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
@@ -205,6 +206,7 @@ export struct CoreExpr {
     body_id: CoreBodyId,
     source_expr_id: ExprId,
     type_id: TypeId,
+    literal_i64: i64,
     lhs_expr_id: CoreExprId,
     rhs_expr_id: CoreExprId,
     callee_expr_id: CoreExprId,
@@ -2368,6 +2370,7 @@ fn lowered_program_coreir_expr_kind_is_dumped_and_verified(kind: i32) i32 {
     if kind == CORE_EXPR_KIND_ATOMIC { return 1; }
     if kind == CORE_EXPR_KIND_VECTOR { return 1; }
     if kind == CORE_EXPR_KIND_MASK { return 1; }
+    if kind == CORE_EXPR_KIND_INT_LITERAL { return 1; }
     return 0;
 }
 
@@ -3217,9 +3220,9 @@ fn lowered_program_dump_coreir_exprs(program: &LoweredProgram) void {
     while i < program.core_exprs.count {
         const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, i) as &CoreExpr;
         if expr != null {
-            fprintf(libc.stderr, "expr #%d body=%d kind=%d source_expr=%d type=%d lhs=%d rhs=%d callee=%d place=%d target_fn=%d target_decl=%d field=%d proof=%d capability=%d source=%d flags=%d\n" as *byte,
+            fprintf(libc.stderr, "expr #%d body=%d kind=%d source_expr=%d type=%d literal=%ld lhs=%d rhs=%d callee=%d place=%d target_fn=%d target_decl=%d field=%d proof=%d capability=%d source=%d flags=%d\n" as *byte,
                 expr.expr_id, expr.body_id, expr.kind, expr.source_expr_id, expr.type_id,
-                expr.lhs_expr_id, expr.rhs_expr_id, expr.callee_expr_id, expr.place_id,
+                expr.literal_i64, expr.lhs_expr_id, expr.rhs_expr_id, expr.callee_expr_id, expr.place_id,
                 expr.target_function_id, expr.target_decl_id, expr.field_id, expr.proof_result_id,
                 expr.capability_id, expr.source_span_id, expr.flags);
         }

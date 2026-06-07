@@ -315,6 +315,9 @@ export fn portable_mir_lowering_feature_for_expr_kind(kind: i32) i32 {
     if kind == CORE_EXPR_KIND_VECTOR || kind == CORE_EXPR_KIND_MASK {
         return MIR_LOWER_FEATURE_EXPRESSIONS + MIR_LOWER_FEATURE_VECTOR_MASK;
     }
+    if kind == CORE_EXPR_KIND_INT_LITERAL {
+        return MIR_LOWER_FEATURE_EXPRESSIONS;
+    }
     return 0;
 }
 

@@ -65,6 +65,7 @@ export const CORE_EXPR_KIND_SLICE: i32 = 13;
 export const CORE_EXPR_KIND_ATOMIC: i32 = 14;
 export const CORE_EXPR_KIND_VECTOR: i32 = 15;
 export const CORE_EXPR_KIND_MASK: i32 = 16;
+export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
 export const CORE_PLACE_KIND_INDEX: i32 = 5;
 export const CORE_PLACE_KIND_SLICE: i32 = 6;

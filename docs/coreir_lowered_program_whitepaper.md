@@ -345,6 +345,7 @@ backend 在 prologue/epilogue 阶段失败。
 初始 Core expression kind：
 
 - constant
+- integer literal
 - local reference
 - parameter reference
 - global reference
@@ -374,6 +375,7 @@ backend 在 prologue/epilogue 阶段失败。
 
 - 适用时的源 AST `ExprId`
 - `TypeId`
+- literal expression 的规范化值字段，例如 `CORE_EXPR_KIND_INT_LITERAL.literal_i64`
 - source span
 - call / method / interface dispatch 的 resolved target、`MonoInstanceId` 和 typed argument count
 - 可选 proof result ID

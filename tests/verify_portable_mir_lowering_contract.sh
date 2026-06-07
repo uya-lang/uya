@@ -102,6 +102,7 @@ export const CORE_EXPR_KIND_SLICE: i32 = 13;
 export const CORE_EXPR_KIND_ATOMIC: i32 = 14;
 export const CORE_EXPR_KIND_VECTOR: i32 = 15;
 export const CORE_EXPR_KIND_MASK: i32 = 16;
+export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
 export const CORE_PLACE_KIND_INDEX: i32 = 5;
 export const CORE_PLACE_KIND_SLICE: i32 = 6;
@@ -158,6 +159,7 @@ test "PortableMIR lowering contract covers full language CoreBody features" {
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_expr_kind(CORE_EXPR_KIND_ATOMIC), MIR_LOWER_FEATURE_ATOMIC), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_expr_kind(CORE_EXPR_KIND_VECTOR), MIR_LOWER_FEATURE_VECTOR_MASK), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_expr_kind(CORE_EXPR_KIND_MASK), MIR_LOWER_FEATURE_VECTOR_MASK), 1);
+    try assert_eq_i32(portable_mir_lowering_feature_for_expr_kind(CORE_EXPR_KIND_INT_LITERAL), MIR_LOWER_FEATURE_EXPRESSIONS);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_place_kind(CORE_PLACE_KIND_FIELD), MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_place_kind(CORE_PLACE_KIND_INDEX), MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_place_kind(CORE_PLACE_KIND_SLICE), MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS), 1);

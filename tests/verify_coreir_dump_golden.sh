@@ -148,6 +148,7 @@ fn append_coreir_dump_golden_fixture(lowered: &LoweredProgram) !void {
         body_id: 0,
         source_expr_id: 7,
         type_id: 77,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -410,6 +411,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 0,
         source_expr_id: 100,
         type_id: 1000,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -428,6 +430,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 0,
         source_expr_id: 101,
         type_id: 1003,
+        literal_i64: 0i64,
         lhs_expr_id: 0,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -446,6 +449,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 0,
         source_expr_id: 102,
         type_id: 1004,
+        literal_i64: 0i64,
         lhs_expr_id: 1,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -464,6 +468,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 0,
         source_expr_id: 103,
         type_id: 1005,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -482,6 +487,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 1,
         source_expr_id: 200,
         type_id: 2000,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -500,6 +506,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 1,
         source_expr_id: 201,
         type_id: 2001,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -518,6 +525,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 1,
         source_expr_id: 202,
         type_id: 2002,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -536,6 +544,7 @@ fn append_coreir_dump_surface_fixture(lowered: &LoweredProgram) !void {
         body_id: 1,
         source_expr_id: 203,
         type_id: 2003,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
@@ -758,7 +767,7 @@ cat >"$expected_golden" <<'EOF'
 core_bodies=1 core_stmts=1 core_exprs=1 core_places=1 core_cleanup_edges=1 core_semantic_facts=4
 body #0 function=11 decl=12 roots=0+1 exprs=0+1 places=0+1 cleanups=0+1 facts=0+4 source=500 flags=1
 stmt #0 body=0 kind=10 parent=-1 children=-1+0 expr=0 place=-1 cleanup=0+1 source=501 scope=601 flags=0
-expr #0 body=0 kind=11 source_expr=7 type=77 lhs=-1 rhs=-1 callee=-1 place=0 target_fn=101 target_decl=102 field=301 proof=401 capability=801 source=701 flags=0
+expr #0 body=0 kind=11 source_expr=7 type=77 literal=0 lhs=-1 rhs=-1 callee=-1 place=0 target_fn=101 target_decl=102 field=301 proof=401 capability=801 source=701 flags=0
 place #0 body=0 kind=4 source_expr=7 type=77 base=-1 index=-1 field=301 symbol=302 source=702 flags=0
 cleanup #0 body=0 kind=2 from=0 to=-1 scope=601 drop_defer=901 payload=0 source=703 flags=5
 fact #0 kind=1 body=0 stmt=-1 expr=0 source_expr=7 place=-1 cleanup=-1

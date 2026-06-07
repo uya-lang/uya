@@ -208,6 +208,7 @@ fn append_coreir_parallel_fragment(lowered: &LoweredProgram, body_id: CoreBodyId
         body_id: body_id,
         source_expr_id: 30 + body_id,
         type_id: 700 + body_id,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,

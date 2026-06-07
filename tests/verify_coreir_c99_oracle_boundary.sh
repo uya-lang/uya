@@ -192,6 +192,7 @@ fn append_oracle_boundary_program(lowered: &LoweredProgram, mode: i32) !void {
         body_id: 0,
         source_expr_id: 7,
         type_id: 77,
+        literal_i64: 0i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
