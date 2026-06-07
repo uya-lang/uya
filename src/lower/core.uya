@@ -180,6 +180,7 @@ export struct CoreSemanticFact {
     body_id: CoreBodyId,
     stmt_id: CoreStmtId,
     expr_id: CoreExprId,
+    source_expr_id: ExprId,
     place_id: CorePlaceId,
     cleanup_edge_id: CoreCleanupEdgeId,
     call_target_kind: i32,
@@ -195,6 +196,7 @@ export struct CoreSemanticFact {
     type_id: TypeId,
     proof_result_id: i32,
     proof_status: i32,
+    proof_error_id: i32,
     source_span_id: i32,
     drop_defer_plan_id: i32,
     cleanup_scope_id: i32,
@@ -861,6 +863,342 @@ export fn lowered_program_get_core_semantic_fact(program: &LoweredProgram, index
     }
     out_item[0] = item[0];
     return 1;
+}
+
+fn lowered_program_i32_to_usize(value: i32) usize {
+    if value < 0 {
+        return 9223372036854775807usize;
+    }
+    const converted_tmp: !usize = value as! usize;
+    const converted: usize = converted_tmp catch {
+        return 9223372036854775807usize;
+    };
+    return converted;
+}
+
+fn lowered_program_usize_to_i32(value: usize) i32 {
+    const converted_tmp: !i32 = value as! i32;
+    const converted: i32 = converted_tmp catch {
+        return -1;
+    };
+    return converted;
+}
+
+fn lowered_program_find_core_body(program: &LoweredProgram, body_id: CoreBodyId) &CoreBody {
+    if program == null || body_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < program.core_bodies.count {
+        const body: &CoreBody = semantic_vector_item_ptr(&program.core_bodies, i) as &CoreBody;
+        if body != null && body.body_id == body_id {
+            return body;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn lowered_program_empty_semantic_fact(program: &LoweredProgram, body_id: CoreBodyId, kind: i32) CoreSemanticFact {
+    return CoreSemanticFact{
+        fact_id: lowered_program_usize_to_i32(program.core_semantic_facts.count),
+        kind: kind,
+        body_id: body_id,
+        stmt_id: CORE_STMT_INVALID_ID,
+        expr_id: CORE_EXPR_INVALID_ID,
+        source_expr_id: TYPED_PROGRAM_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_id: CORE_CLEANUP_EDGE_INVALID_ID,
+        call_target_kind: TYPED_CALL_TARGET_UNKNOWN,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        target_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+        receiver_type_id: TYPED_PROGRAM_INVALID_ID,
+        method_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        vtable_slot: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        type_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        proof_status: TYPED_PROOF_UNKNOWN,
+        proof_error_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: TYPED_PROGRAM_INVALID_ID,
+        drop_defer_plan_id: TYPED_PROGRAM_INVALID_ID,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+}
+
+fn lowered_program_append_expr_type_fact(program: &LoweredProgram, typed: &TypedProgram, body_id: CoreBodyId, expr: &CoreExpr) i32 {
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if typed_program_get_expr_type(typed, expr.source_expr_id, &type_id) == 0 {
+        return 0;
+    }
+    var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body_id, CORE_SEMANTIC_FACT_TYPE_ID);
+    fact.expr_id = expr.expr_id;
+    fact.source_expr_id = expr.source_expr_id;
+    fact.type_id = type_id;
+    fact.source_span_id = expr.source_span_id;
+    return lowered_program_append_core_semantic_fact(program, &fact);
+}
+
+fn lowered_program_append_expr_call_fact(program: &LoweredProgram, typed: &TypedProgram, body_id: CoreBodyId, expr: &CoreExpr) i32 {
+    var target: TypedCallTarget = TypedCallTarget{
+        kind: TYPED_CALL_TARGET_UNKNOWN,
+        function_id: TYPED_PROGRAM_INVALID_ID,
+        decl_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+    };
+    if typed_program_get_call_target(typed, expr.source_expr_id, &target) == 0 {
+        return 0;
+    }
+    var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body_id, CORE_SEMANTIC_FACT_RESOLVED_CALL);
+    fact.expr_id = expr.expr_id;
+    fact.source_expr_id = expr.source_expr_id;
+    fact.call_target_kind = target.kind;
+    fact.target_function_id = target.function_id;
+    fact.target_decl_id = target.decl_id;
+    fact.target_symbol_id = target.symbol_id;
+    fact.mono_instance_id = target.mono_instance_id;
+    fact.source_span_id = expr.source_span_id;
+    return lowered_program_append_core_semantic_fact(program, &fact);
+}
+
+fn lowered_program_append_expr_method_fact(program: &LoweredProgram, typed: &TypedProgram, body_id: CoreBodyId, expr: &CoreExpr) i32 {
+    var dispatch: TypedMethodDispatch = TypedMethodDispatch{
+        receiver_type_id: TYPED_PROGRAM_INVALID_ID,
+        method_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        vtable_slot: TYPED_PROGRAM_INVALID_ID,
+    };
+    if typed_program_get_method_dispatch(typed, expr.source_expr_id, &dispatch) == 0 {
+        return 0;
+    }
+    var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body_id, CORE_SEMANTIC_FACT_METHOD_DISPATCH);
+    fact.expr_id = expr.expr_id;
+    fact.source_expr_id = expr.source_expr_id;
+    fact.receiver_type_id = dispatch.receiver_type_id;
+    fact.method_symbol_id = dispatch.method_symbol_id;
+    fact.interface_symbol_id = dispatch.interface_symbol_id;
+    fact.vtable_slot = dispatch.vtable_slot;
+    fact.source_span_id = expr.source_span_id;
+    return lowered_program_append_core_semantic_fact(program, &fact);
+}
+
+fn lowered_program_append_expr_field_fact(program: &LoweredProgram, typed: &TypedProgram, body_id: CoreBodyId, expr: &CoreExpr) i32 {
+    var field_id: FieldId = TYPED_PROGRAM_INVALID_ID;
+    if typed_program_get_field_access(typed, expr.source_expr_id, &field_id) == 0 {
+        return 0;
+    }
+    var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body_id, CORE_SEMANTIC_FACT_FIELD_ID);
+    fact.expr_id = expr.expr_id;
+    fact.source_expr_id = expr.source_expr_id;
+    fact.place_id = expr.place_id;
+    fact.field_id = field_id;
+    fact.source_span_id = expr.source_span_id;
+    return lowered_program_append_core_semantic_fact(program, &fact);
+}
+
+fn lowered_program_append_expr_source_fact(program: &LoweredProgram, body_id: CoreBodyId, expr: &CoreExpr) i32 {
+    if expr.source_span_id < 0 {
+        return 0;
+    }
+    var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body_id, CORE_SEMANTIC_FACT_SOURCE_SPAN);
+    fact.expr_id = expr.expr_id;
+    fact.source_expr_id = expr.source_expr_id;
+    fact.source_span_id = expr.source_span_id;
+    return lowered_program_append_core_semantic_fact(program, &fact);
+}
+
+fn lowered_program_append_expr_capability_fact(program: &LoweredProgram, body_id: CoreBodyId, expr: &CoreExpr) i32 {
+    if expr.capability_id <= 0 {
+        return 0;
+    }
+    var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body_id, CORE_SEMANTIC_FACT_CAPABILITY);
+    fact.expr_id = expr.expr_id;
+    fact.source_expr_id = expr.source_expr_id;
+    fact.capability_id = expr.capability_id;
+    fact.source_span_id = expr.source_span_id;
+    return lowered_program_append_core_semantic_fact(program, &fact);
+}
+
+fn lowered_program_freeze_expr_semantics(program: &LoweredProgram, typed: &TypedProgram, body: &CoreBody) i32 {
+    var offset: i32 = 0;
+    while offset < body.expr_count {
+        const index: usize = lowered_program_i32_to_usize(body.expr_start + offset);
+        const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, index) as &CoreExpr;
+        if expr == null {
+            return -1;
+        }
+        if lowered_program_append_expr_type_fact(program, typed, body.body_id, expr) != 0 { return -1; }
+        if lowered_program_append_expr_call_fact(program, typed, body.body_id, expr) != 0 { return -1; }
+        if lowered_program_append_expr_method_fact(program, typed, body.body_id, expr) != 0 { return -1; }
+        if lowered_program_append_expr_field_fact(program, typed, body.body_id, expr) != 0 { return -1; }
+        if lowered_program_append_expr_source_fact(program, body.body_id, expr) != 0 { return -1; }
+        if lowered_program_append_expr_capability_fact(program, body.body_id, expr) != 0 { return -1; }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_body_contains_source_expr(program: &LoweredProgram, body: &CoreBody, expr_id: ExprId) i32 {
+    var offset: i32 = 0;
+    while offset < body.expr_count {
+        const index: usize = lowered_program_i32_to_usize(body.expr_start + offset);
+        const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, index) as &CoreExpr;
+        if expr != null && expr.source_expr_id == expr_id {
+            return 1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_find_core_expr_for_source(program: &LoweredProgram, body: &CoreBody, expr_id: ExprId) CoreExprId {
+    var offset: i32 = 0;
+    while offset < body.expr_count {
+        const index: usize = lowered_program_i32_to_usize(body.expr_start + offset);
+        const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, index) as &CoreExpr;
+        if expr != null && expr.source_expr_id == expr_id {
+            return expr.expr_id;
+        }
+        offset = offset + 1;
+    }
+    return CORE_EXPR_INVALID_ID;
+}
+
+fn lowered_program_freeze_proof_semantics(program: &LoweredProgram, typed: &TypedProgram, body: &CoreBody) i32 {
+    var i: usize = 0usize;
+    while i < typed.proof_results.count {
+        const proof: &TypedProofResult = semantic_vector_item_ptr(&typed.proof_results, i) as &TypedProofResult;
+        if proof == null {
+            return -1;
+        }
+        if lowered_program_body_contains_source_expr(program, body, proof.expr_id) != 0 {
+            var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body.body_id, CORE_SEMANTIC_FACT_PROOF_RESULT);
+            fact.expr_id = lowered_program_find_core_expr_for_source(program, body, proof.expr_id);
+            fact.source_expr_id = proof.expr_id;
+            fact.proof_result_id = lowered_program_usize_to_i32(i);
+            fact.proof_status = proof.status;
+            fact.proof_error_id = proof.error_id;
+            if lowered_program_append_core_semantic_fact(program, &fact) != 0 {
+                return -1;
+            }
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_freeze_stmt_source_semantics(program: &LoweredProgram, body: &CoreBody) i32 {
+    var offset: i32 = 0;
+    while offset < body.root_stmt_count {
+        const index: usize = lowered_program_i32_to_usize(body.root_stmt_start + offset);
+        const stmt: &CoreStmt = semantic_vector_item_ptr(&program.core_stmts, index) as &CoreStmt;
+        if stmt == null {
+            return -1;
+        }
+        var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body.body_id, CORE_SEMANTIC_FACT_SOURCE_SPAN);
+        fact.stmt_id = stmt.stmt_id;
+        fact.source_span_id = stmt.source_span_id;
+        fact.cleanup_scope_id = stmt.cleanup_scope_id;
+        if lowered_program_append_core_semantic_fact(program, &fact) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_freeze_place_source_semantics(program: &LoweredProgram, body: &CoreBody) i32 {
+    var offset: i32 = 0;
+    while offset < body.place_count {
+        const index: usize = lowered_program_i32_to_usize(body.place_start + offset);
+        const place: &CorePlace = semantic_vector_item_ptr(&program.core_places, index) as &CorePlace;
+        if place == null {
+            return -1;
+        }
+        var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body.body_id, CORE_SEMANTIC_FACT_SOURCE_SPAN);
+        fact.place_id = place.place_id;
+        fact.field_id = place.field_id;
+        fact.type_id = place.type_id;
+        fact.source_span_id = place.source_span_id;
+        if lowered_program_append_core_semantic_fact(program, &fact) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_freeze_cleanup_semantics(program: &LoweredProgram, body: &CoreBody) i32 {
+    var offset: i32 = 0;
+    while offset < body.cleanup_edge_count {
+        const index: usize = lowered_program_i32_to_usize(body.cleanup_edge_start + offset);
+        const edge: &CoreCleanupEdge = semantic_vector_item_ptr(&program.core_cleanup_edges, index) as &CoreCleanupEdge;
+        if edge == null {
+            return -1;
+        }
+        var fact: CoreSemanticFact = lowered_program_empty_semantic_fact(program, body.body_id, CORE_SEMANTIC_FACT_CLEANUP);
+        fact.cleanup_edge_id = edge.edge_id;
+        fact.stmt_id = edge.from_stmt_id;
+        fact.expr_id = edge.payload_expr_id;
+        fact.drop_defer_plan_id = edge.drop_defer_plan_id;
+        fact.cleanup_scope_id = edge.cleanup_scope_id;
+        fact.source_span_id = edge.source_span_id;
+        fact.flags = edge.flags;
+        if lowered_program_append_core_semantic_fact(program, &fact) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+/// 功能说明：把一个 CoreBody 需要的 TypedProgram 语义事实一次性冻结到 CoreSemanticFact 表。
+/// 参数说明：`program` 为目标 LoweredProgram，`typed` 为 checker 输出，`body_id` 为待冻结 CoreBody。
+/// 返回值说明：成功返回 `0`，参数无效或追加失败返回 `-1`；冻结后更新 CoreBody 的 metadata range。
+export fn lowered_program_freeze_core_body_semantics_from_typed(program: &LoweredProgram, typed: &TypedProgram, body_id: CoreBodyId) i32 {
+    const body: &CoreBody = lowered_program_find_core_body(program, body_id);
+    if program == null || typed == null || body == null {
+        return -1;
+    }
+    const start: i32 = lowered_program_usize_to_i32(program.core_semantic_facts.count);
+    if start < 0 {
+        return -1;
+    }
+    body.semantic_fact_start = start;
+    if lowered_program_freeze_expr_semantics(program, typed, body) != 0 { return -1; }
+    if lowered_program_freeze_proof_semantics(program, typed, body) != 0 { return -1; }
+    if lowered_program_freeze_stmt_source_semantics(program, body) != 0 { return -1; }
+    if lowered_program_freeze_place_source_semantics(program, body) != 0 { return -1; }
+    if lowered_program_freeze_cleanup_semantics(program, body) != 0 { return -1; }
+    body.semantic_fact_count = lowered_program_usize_to_i32(program.core_semantic_facts.count) - start;
+    return 0;
+}
+
+/// 功能说明：把所有已存在 CoreBody 的 TypedProgram 语义事实冻结到 CoreSemanticFact 表。
+/// 参数说明：`program` 为目标 LoweredProgram，`typed` 为 checker 输出。
+/// 返回值说明：成功返回 `0`，任一 CoreBody 冻结失败返回 `-1`。
+export fn lowered_program_freeze_core_semantics_from_typed(program: &LoweredProgram, typed: &TypedProgram) i32 {
+    if program == null || typed == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.core_bodies.count {
+        const body: &CoreBody = semantic_vector_item_ptr(&program.core_bodies, i) as &CoreBody;
+        if body == null {
+            return -1;
+        }
+        if lowered_program_freeze_core_body_semantics_from_typed(program, typed, body.body_id) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return 0;
 }
 
 fn lowered_program_reset_worklist(program: &LoweredProgram) void {

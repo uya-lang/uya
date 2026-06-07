@@ -156,6 +156,7 @@ fn lower_test_core_semantic_fact(i: i32, offset: i32, kind: i32) CoreSemanticFac
         body_id: i,
         stmt_id: i,
         expr_id: i,
+        source_expr_id: i,
         place_id: i,
         cleanup_edge_id: i,
         call_target_kind: TYPED_CALL_TARGET_FUNCTION,
@@ -171,6 +172,7 @@ fn lower_test_core_semantic_fact(i: i32, offset: i32, kind: i32) CoreSemanticFac
         type_id: i + 600,
         proof_result_id: i + 300,
         proof_status: TYPED_PROOF_OK,
+        proof_error_id: i + 310,
         source_span_id: i + 400,
         drop_defer_plan_id: i + 700,
         cleanup_scope_id: i + 10,
@@ -506,6 +508,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
         body_id: CORE_BODY_INVALID_ID,
         stmt_id: CORE_STMT_INVALID_ID,
         expr_id: CORE_EXPR_INVALID_ID,
+        source_expr_id: 0,
         place_id: CORE_PLACE_INVALID_ID,
         cleanup_edge_id: CORE_CLEANUP_EDGE_INVALID_ID,
         call_target_kind: TYPED_CALL_TARGET_UNKNOWN,
@@ -521,6 +524,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
         type_id: 0,
         proof_result_id: 0,
         proof_status: TYPED_PROOF_UNKNOWN,
+        proof_error_id: 0,
         source_span_id: 0,
         drop_defer_plan_id: 0,
         cleanup_scope_id: 0,
@@ -538,6 +542,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try assert_eq_i32(got_semantic_fact.type_id, 639);
     try assert_eq_i32(got_semantic_fact.proof_result_id, 339);
     try assert_eq_i32(got_semantic_fact.proof_status, TYPED_PROOF_OK);
+    try assert_eq_i32(got_semantic_fact.proof_error_id, 349);
     try assert_eq_i32(got_semantic_fact.source_span_id, 439);
     try assert_eq_i32(got_semantic_fact.drop_defer_plan_id, 739);
     try assert_eq_i32(got_semantic_fact.cleanup_scope_id, 49);
