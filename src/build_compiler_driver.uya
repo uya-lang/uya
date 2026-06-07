@@ -4948,6 +4948,13 @@ fn native_build_expr_to_body_op(program: &ASTNode, expr: &ASTNode,
         out_op.imm = len_value as i64;
         return 1;
     }
+    var error_id_value: i32 = 0;
+    if native_build_expr_error_id_const_value(expr, &error_id_value) != 0 &&
+       error_id_value >= 0 && error_id_value <= 255 {
+        out_op.opcode = LOWERED_BODY_OP_RETURN_CONST_I32;
+        out_op.imm = error_id_value as i64;
+        return 1;
+    }
     if native_build_expr_is_get_argc_call(expr) != 0 {
         out_op.opcode = LOWERED_BODY_OP_RETURN_ARGC_I32;
         return 1;
@@ -5301,6 +5308,45 @@ fn native_build_expr_len_const_value(expr: &ASTNode, locals: &NativeBuildLocalTa
     return 0;
 }
 
+fn native_build_error_name_exit_id(name: &byte, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if name == null || out_value == null {
+        return 0;
+    }
+    var h: u32 = 5381u32;
+    var i: i32 = 0;
+    while name[i] != 0 as byte {
+        const c: u32 = (name[i] as byte) as u32;
+        h = ((h * 32u32) + h) + c;
+        i = i + 1;
+    }
+    if h == 0u32 {
+        h = 1u32;
+    }
+    *out_value = (h & 255u32) as i32;
+    return 1;
+}
+
+fn native_build_expr_error_id_const_value(expr: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if expr == null || out_value == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+        return native_build_expr_error_id_const_value(expr.cast_expr_expr, out_value);
+    }
+    if expr.type != ASTNodeType.AST_ERROR_ID || expr.error_id_operand == null ||
+       expr.error_id_operand.type != ASTNodeType.AST_ERROR_VALUE ||
+       expr.error_id_operand.error_value_name == null {
+        return 0;
+    }
+    return native_build_error_name_exit_id(expr.error_id_operand.error_value_name, out_value);
+}
+
 fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLocalTable, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
@@ -5343,6 +5389,9 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
         return 1;
     }
     if native_build_expr_len_const_value(expr, locals, out_value) != 0 {
+        return 1;
+    }
+    if native_build_expr_error_id_const_value(expr, out_value) != 0 {
         return 1;
     }
     if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&

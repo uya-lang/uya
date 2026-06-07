@@ -15,6 +15,7 @@ extern_src="$TMP_DIR/extern_fragment.uya"
 builtin_src="$TMP_DIR/builtin_fragment.uya"
 array_len_src="$TMP_DIR/array_len_fragment.uya"
 slice_src="$TMP_DIR/slice_fragment.uya"
+error_id_src="$TMP_DIR/error_id_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -24,6 +25,8 @@ array_len_c99_bin="$TMP_DIR/c99-array-len-smoke"
 array_len_native_bin="$TMP_DIR/native-array-len-smoke"
 slice_c99_bin="$TMP_DIR/c99-slice-smoke"
 slice_native_bin="$TMP_DIR/native-slice-smoke"
+error_id_c99_bin="$TMP_DIR/c99-error-id-smoke"
+error_id_native_bin="$TMP_DIR/native-error-id-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -77,6 +80,14 @@ export fn main() i32 {
     var array: [i32: 4] = [1, 2, 3, 4];
     const slice: &[i32] = array[1:2];
     return slice[0] + slice[1];
+}
+EOF
+
+cat >"$error_id_src" <<'EOF'
+error SmokeError;
+
+export fn main() i32 {
+    return @error_id(error.SmokeError) as i32;
 }
 EOF
 
@@ -215,6 +226,7 @@ require_pattern "$builtin_src" '@align_of\(i32\)' "builtin @align_of parity cove
 require_pattern "$array_len_src" '@len\(\[1, 2, 3, 4\]\)' "array literal @len parity coverage"
 require_pattern "$slice_src" 'array\[1:2\]' "slice construction parity coverage"
 require_pattern "$slice_src" 'slice\[0\] \+ slice\[1\]' "slice index parity coverage"
+require_pattern "$error_id_src" '@error_id\(error.SmokeError\)' "builtin @error_id parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -516,6 +528,73 @@ if ! cmp -s "$TMP_DIR/slice.c99.run.err" "$TMP_DIR/slice.native.run.err"; then
     exit 1
 fi
 
+error_id_c99_build_out="$TMP_DIR/error-id.c99.build.out"
+error_id_c99_build_err="$TMP_DIR/error-id.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$error_id_src" -o "$error_id_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$error_id_c99_build_out" 2>"$error_id_c99_build_err"); then
+    cat "$error_id_c99_build_out" >&2
+    cat "$error_id_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$error_id_c99_bin" >"$TMP_DIR/error-id.c99.run.out" 2>"$TMP_DIR/error-id.c99.run.err"
+error_id_c99_status=$?
+set -e
+if [[ "$error_id_c99_status" -ne 206 ]]; then
+    echo "error: C99 @error_id parity fragment exited with $error_id_c99_status" >&2
+    cat "$TMP_DIR/error-id.c99.run.out" >&2
+    cat "$TMP_DIR/error-id.c99.run.err" >&2
+    exit 1
+fi
+
+error_id_native_build_out="$TMP_DIR/error-id.native.build.out"
+error_id_native_build_err="$TMP_DIR/error-id.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$error_id_src" -o "$error_id_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$error_id_native_build_out" 2>"$error_id_native_build_err"); then
+    cat "$error_id_native_build_out" >&2
+    cat "$error_id_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$error_id_native_bin" ]]; then
+    echo "error: native @error_id parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$error_id_native_build_err"; then
+    echo "error: native @error_id parity fragment appears to have fallen back to C99" >&2
+    cat "$error_id_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$error_id_native_build_err"; then
+    echo "error: native @error_id parity fragment used reject path" >&2
+    cat "$error_id_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$error_id_native_build_err"; then
+    echo "error: native @error_id parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$error_id_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$error_id_native_build_err"
+
+chmod +x "$error_id_native_bin"
+set +e
+"$error_id_native_bin" >"$TMP_DIR/error-id.native.run.out" 2>"$TMP_DIR/error-id.native.run.err"
+error_id_native_status=$?
+set -e
+if [[ "$error_id_native_status" -ne "$error_id_c99_status" ]]; then
+    echo "error: hosted native/C99 @error_id parity exit status differs: c99=$error_id_c99_status native=$error_id_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/error-id.c99.run.out" "$TMP_DIR/error-id.native.run.out"; then
+    echo "error: hosted native/C99 @error_id parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/error-id.c99.run.err" "$TMP_DIR/error-id.native.run.err"; then
+    echo "error: hosted native/C99 @error_id parity stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -622,4 +701,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, C99 success, and explicit native reject"
