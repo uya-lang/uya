@@ -1869,6 +1869,74 @@ fn native_build_if_stmt_local_const_return_op(stmt: &ASTNode, locals: &NativeBui
     return 1;
 }
 
+fn native_build_if_stmt_local_le_const_assign_const_ops(stmt: &ASTNode,
+    locals: &NativeBuildLocalTable, out_init_op: &LoweredBodyOp, out_op: &LoweredBodyOp) i32 {
+    if stmt == null || locals == null || out_init_op == null || out_op == null ||
+       stmt.type != ASTNodeType.AST_IF_STMT || stmt.if_stmt_else_branch != null ||
+       stmt.if_stmt_condition == null || stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_condition.type != ASTNodeType.AST_BINARY_EXPR {
+        return 0;
+    }
+    const cond: &ASTNode = stmt.if_stmt_condition;
+    if cond.binary_expr_left == null || cond.binary_expr_right == null {
+        return 0;
+    }
+    const cond_op_tmp: !TokenType = cond.binary_expr_op as! TokenType;
+    const cond_op: TokenType = cond_op_tmp catch {
+        return 0;
+    };
+    if cond_op != TokenType.TOKEN_LESS_EQUAL ||
+       cond.binary_expr_left.type != ASTNodeType.AST_IDENTIFIER ||
+       cond.binary_expr_left.identifier_name == null {
+        return 0;
+    }
+    var compare_value: i32 = 0;
+    if native_build_expr_scalar_const_value(cond.binary_expr_right, locals, &compare_value) == 0 {
+        return 0;
+    }
+    const slot: i32 = native_build_local_find(locals, cond.binary_expr_left.identifier_name);
+    if slot < 0 || locals.kinds == null || locals.init_values == null ||
+       locals.kinds[slot] != NATIVE_BUILD_LOCAL_KIND_SCALAR_I32 {
+        return 0;
+    }
+
+    const then_branch: &ASTNode = stmt.if_stmt_then_branch;
+    if then_branch.type != ASTNodeType.AST_BLOCK || then_branch.block_stmts == null ||
+       then_branch.block_stmt_count != 1 {
+        return 0;
+    }
+    const assign_stmt: &ASTNode = then_branch.block_stmts[0];
+    if assign_stmt == null || assign_stmt.type != ASTNodeType.AST_ASSIGN ||
+       assign_stmt.assign_dest == null || assign_stmt.assign_src == null ||
+       assign_stmt.assign_dest.type != ASTNodeType.AST_IDENTIFIER ||
+       assign_stmt.assign_dest.identifier_name == null ||
+       str_equals(assign_stmt.assign_dest.identifier_name as *byte,
+           cond.binary_expr_left.identifier_name as *byte) == 0 {
+        return 0;
+    }
+    var assign_value: i32 = 0;
+    if native_build_expr_scalar_const_value(assign_stmt.assign_src, locals, &assign_value) == 0 {
+        return 0;
+    }
+
+    out_init_op.opcode = LOWERED_BODY_OP_LOCAL_I32_CONST;
+    out_init_op.dst = slot;
+    out_init_op.src0 = 0;
+    out_init_op.src1 = 0;
+    out_init_op.target_id = -1;
+    out_init_op.imm = locals.init_values[slot] as i64;
+    out_init_op.flags = 0;
+
+    out_op.opcode = LOWERED_BODY_OP_IF_LOCAL_LE_CONST_ASSIGN_CONST_I32;
+    out_op.dst = slot;
+    out_op.src0 = compare_value;
+    out_op.src1 = assign_value;
+    out_op.target_id = -1;
+    out_op.imm = 0i64;
+    out_op.flags = 0;
+    return 1;
+}
+
 fn native_build_expr_to_return_plan(program: &ASTNode, expr: &ASTNode, plan: &NativeBuildFunctionPlan) i32 {
     if program == null || expr == null || plan == null {
         return 0;
@@ -2327,6 +2395,37 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
             if lowered_program_append_body_op(lowered, &if_return_op) != 0 {
                 return 0;
             }
+            emitted_branch_ops = emitted_branch_ops + 1;
+            stmt_index = stmt_index + 1;
+            continue;
+        }
+        var if_assign_init_op: LoweredBodyOp = LoweredBodyOp{
+            opcode: LOWERED_BODY_OP_NOP,
+            dst: 0,
+            src0: 0,
+            src1: 0,
+            target_id: -1,
+            imm: 0i64,
+            flags: 0,
+        };
+        var if_assign_op: LoweredBodyOp = LoweredBodyOp{
+            opcode: LOWERED_BODY_OP_NOP,
+            dst: 0,
+            src0: 0,
+            src1: 0,
+            target_id: -1,
+            imm: 0i64,
+            flags: 0,
+        };
+        if native_build_if_stmt_local_le_const_assign_const_ops(stmt, &locals,
+            &if_assign_init_op, &if_assign_op) != 0 {
+            if lowered_program_append_body_op(lowered, &if_assign_init_op) != 0 {
+                return 0;
+            }
+            if lowered_program_append_body_op(lowered, &if_assign_op) != 0 {
+                return 0;
+            }
+            emitted_local_ops = emitted_local_ops + 2;
             emitted_branch_ops = emitted_branch_ops + 1;
             stmt_index = stmt_index + 1;
             continue;
@@ -4838,7 +4937,7 @@ fn compile_files(
         var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
         if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
             codegen_end_time = clock();
-            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param、最小 get_argc/get_argv 函数子集、基于 local 的最小 if-return 和 parse_build_args 形状的 11 参数局部初始化，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc/argv/parse11 局部初始化后 `return local;` 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
+            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数、单/双 &i32 out-param、最小 get_argc/get_argv 函数子集、基于 local 的最小 if-return / if-assign 和 parse_build_args 形状的 11 参数局部初始化，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return get_argc();`、`return callee();`、`return lhs() + rhs();`、direct call/argc/argv/parse11 局部初始化后 `return local;`、`if local <= const { local = const; }` 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
             return 1;
         }
         const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(actual_output as &byte,

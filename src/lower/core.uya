@@ -36,6 +36,7 @@ export const LOWERED_BODY_OP_LOCAL_CALL_PARSE11_I32: i32 = 19;
 export const LOWERED_BODY_OP_STORE_PARAM_CONST_I32: i32 = 20;
 export const LOWERED_BODY_OP_IF_LOCAL_EQ_CONST_RETURN_I32: i32 = 21;
 export const LOWERED_BODY_OP_IF_LOCAL_NE_CONST_RETURN_I32: i32 = 22;
+export const LOWERED_BODY_OP_IF_LOCAL_LE_CONST_ASSIGN_CONST_I32: i32 = 23;
 
 /// 功能说明：记录一个已经收敛到具体实例的函数。
 /// 参数说明：无；字段均为 SemanticDb/TypedProgram 阶段分配的稳定整数 ID 或 range。
