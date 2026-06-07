@@ -856,7 +856,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
   和 hosted native call ABI 的验收样本。
 - [x] native 后端新增语言能力时，语言 lowering 只需改 `PortableMIR`，不在每个 target backend 重复实现。
 - [x] `@naked_fn` 通过 CoreIR/MIR verifier 和 native 专用 path，不走普通函数栈帧。
-- [ ] MIR 并行构造不改变 dump、diagnostics、IDs 或 symbol order。
+- [x] MIR 并行构造不改变 dump、diagnostics、IDs 或 symbol order。
 - [ ] hosted native 与 C99 对完整语言 smoke 的成功/失败、退出码、diagnostics 和运行结果一致。
 
 ---
