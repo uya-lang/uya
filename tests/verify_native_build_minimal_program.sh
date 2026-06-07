@@ -3,9 +3,9 @@
 # Phase 10：验证 build CLI 的第一个真实 --native 成功路径。
 # 当前允许无参/窄 i32 参数函数，函数体为 `return 0..255;`、`return callee();`、
 # `return lhs() + rhs();`，一个 direct call 局部初始化后 `return local;`，或最小 `&i32`
-# / `&array[0]` out-param 写回、两个 `&i32` out-param 的最小调用，以及 `get_argc`
-# 的 Linux `_start` 初始栈 argc 读取，以及 `get_argv(1)[0]` 的 argv 指针读取；
-# 同时覆盖 `parse_build_args` 形状的 11 参数/栈 out-param 最小调用。
+# / `&array[0]` out-param 写回、两个 `&i32` out-param 的最小调用，`get_argc`
+# 的 Linux `_start` 初始栈 argc 读取、基于 argc 的最小条件返回，以及 `get_argv(1)[0]`
+# 的 argv 指针读取；同时覆盖 `parse_build_args` 形状的 11 参数/栈 out-param 最小调用。
 
 set -euo pipefail
 
@@ -178,6 +178,30 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$TMP_DIR/argc_if_eq_return.uya" <<'EOF'
+use std.runtime.get_argc;
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    if argc == 3 {
+        return 7;
+    }
+    return 1;
+}
+EOF
+
+cat >"$TMP_DIR/argc_if_ne_return.uya" <<'EOF'
+use std.runtime.get_argc;
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    if argc != 3 {
+        return 8;
+    }
+    return 2;
+}
+EOF
+
 cat >"$TMP_DIR/argv_first_byte.uya" <<'EOF'
 use std.runtime.get_argv;
 
@@ -316,6 +340,8 @@ run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_array_addr_call_ret
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_addr2_call_return.uya" 8 0 2 5 5
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_direct.uya" 3 0 1 1 1 first second
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_local_return.uya" 3 0 1 2 2 first second
+run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_if_eq_return.uya" 7 0 1 3 3 first second
+run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_if_ne_return.uya" 8 0 1 3 3
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argv_first_byte.uya" 90 0 1 2 2 Zed
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/parse11_stack_out_return.uya" 91 0 2 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/exit0.uya" 0 1 1
@@ -333,6 +359,8 @@ run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_array_a
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_addr2_call_return.uya" 8 0 2 5 5
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_direct.uya" 3 0 1 1 1 first second
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_local_return.uya" 3 0 1 2 2 first second
+run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_if_eq_return.uya" 7 0 1 3 3 first second
+run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_if_ne_return.uya" 8 0 1 3 3
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argv_first_byte.uya" 90 0 1 2 2 Zed
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/parse11_stack_out_return.uya" 91 0 2 3 3
 run_reject_check "$REPO_ROOT/bin/uya" "uya"

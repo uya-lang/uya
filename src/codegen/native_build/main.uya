@@ -37,6 +37,8 @@ export const NATIVE_BUILD_RETURN_ARGC_I32: i32 = 12;
 export const NATIVE_BUILD_RETURN_ARGV_BYTE_I32: i32 = 13;
 export const NATIVE_BUILD_RETURN_CALL_PARSE11_LOCAL_I32: i32 = 14;
 export const NATIVE_BUILD_RETURN_STORE_PARAM_CONST_I32: i32 = 15;
+export const NATIVE_BUILD_RETURN_ARGC_IF_EQ_CONST_I32: i32 = 16;
+export const NATIVE_BUILD_RETURN_ARGC_IF_NE_CONST_I32: i32 = 17;
 
 const NB_EHDR_SIZE: i32 = 64;
 const NB_PHDR_SIZE: i32 = 56;
@@ -173,6 +175,47 @@ fn nb_emit_mov_edi_stack_argc(buf: &byte, cap: usize, pos: &usize) i32 {
         return -1;
     }
     return nb_code_put_u8(buf, cap, pos, 36);
+}
+
+fn nb_emit_cmp_edi_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 129) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 255) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_jcc_rel8(buf: &byte, cap: usize, pos: &usize, opcode: i32, rel: i32) i32 {
+    if rel < -128 || rel > 127 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, opcode) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, rel & 255);
+}
+
+fn nb_emit_argc_if_const_return_else_const(buf: &byte, cap: usize, pos: &usize,
+    compare_value: i32, then_value: i32, else_value: i32, is_equal: i32) i32 {
+    if nb_emit_cmp_edi_imm32(buf, cap, pos, compare_value) != 0 {
+        return -1;
+    }
+    var skip_opcode: i32 = 117;
+    if is_equal == 0 {
+        skip_opcode = 116;
+    }
+    if nb_emit_jcc_rel8(buf, cap, pos, skip_opcode, 6) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_eax_imm32(buf, cap, pos, then_value) != 0 {
+        return -1;
+    }
+    if nb_emit_ret(buf, cap, pos) != 0 {
+        return -1;
+    }
+    return nb_emit_mov_eax_imm32(buf, cap, pos, else_value);
 }
 
 fn nb_emit_mov_rax_argv_index(buf: &byte, cap: usize, pos: &usize, index: i32) i32 {
@@ -854,6 +897,16 @@ fn native_build_emit_function_code(code: &byte, code_size: usize,
             if nb_emit_mov_eax_edi(code, code_size, &pos) != 0 {
                 return -1;
             }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_ARGC_IF_EQ_CONST_I32 {
+            if nb_emit_argc_if_const_return_else_const(code, code_size, &pos,
+                plan.call_arg0_value, plan.return_value, plan.call_arg1_value, 1) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_ARGC_IF_NE_CONST_I32 {
+            if nb_emit_argc_if_const_return_else_const(code, code_size, &pos,
+                plan.call_arg0_value, plan.return_value, plan.call_arg1_value, 0) != 0 {
+                return -1;
+            }
         } else if plan.return_kind == NATIVE_BUILD_RETURN_ARGV_BYTE_I32 {
             if nb_emit_mov_rax_argv_index(code, code_size, &pos, plan.return_value) != 0 {
                 return -1;
@@ -1289,6 +1342,41 @@ fn native_build_machine_local_argc_return_to_plan(first: &MachineInst, second: &
     return 0;
 }
 
+fn native_build_machine_local_argc_if_return_const_to_plan(first: &MachineInst,
+    second: &MachineInst, third: &MachineInst, out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || third == null || out_plan == null {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_ARGC_I32 ||
+       (second.opcode != LOWERED_BODY_OP_IF_LOCAL_EQ_CONST_RETURN_I32 &&
+        second.opcode != LOWERED_BODY_OP_IF_LOCAL_NE_CONST_RETURN_I32) ||
+       third.opcode != LOWERED_BODY_OP_RETURN_CONST_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.src0 != first.dst ||
+       second.imm < 0i64 || second.imm > 255i64 ||
+       third.imm < 0i64 || third.imm > 255i64 {
+        return -1;
+    }
+    const then_result: !i32 = second.imm as! i32;
+    const else_result: !i32 = third.imm as! i32;
+    if second.opcode == LOWERED_BODY_OP_IF_LOCAL_EQ_CONST_RETURN_I32 {
+        out_plan.return_kind = NATIVE_BUILD_RETURN_ARGC_IF_EQ_CONST_I32;
+    } else {
+        out_plan.return_kind = NATIVE_BUILD_RETURN_ARGC_IF_NE_CONST_I32;
+    }
+    out_plan.return_value = then_result catch {
+        return -1;
+    };
+    out_plan.call_target = -1;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = second.src1;
+    out_plan.call_arg1_value = else_result catch {
+        return -1;
+    };
+    return 0;
+}
+
 fn native_build_machine_local_argv_byte_return_to_plan(first: &MachineInst, second: &MachineInst,
     out_plan: &NativeBuildFunctionPlan) i32 {
     if first == null || second == null || out_plan == null {
@@ -1491,8 +1579,11 @@ fn native_build_machine_to_function_plans(module: &MachineModule, plans: &Native
             const first3: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
             const second3: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
             const third3: &MachineInst = semantic_vector_item_ptr(&block.insts, 2usize) as &MachineInst;
-            if native_build_machine_local_addr_call_return_to_plan(first3, second3, third3, function_count, &plans[i]) != 0 {
-                return -1;
+            if native_build_machine_local_argc_if_return_const_to_plan(first3, second3, third3, &plans[i]) != 0 {
+                if native_build_machine_local_addr_call_return_to_plan(first3, second3, third3,
+                    function_count, &plans[i]) != 0 {
+                    return -1;
+                }
             }
         } else if block.insts.count == 4usize {
             const first4: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
