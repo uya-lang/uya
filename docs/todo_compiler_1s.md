@@ -800,7 +800,7 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
   和 `@c_import` 链接需求。
 - [x] freestanding native `cmd/build` 子集保留为回归边界，后续从已经通过 MIR 的能力逐步下沉，不阻塞
   hosted native 完整语言 parity。
-- [ ] C99 backend 第一阶段继续作为独立 oracle；暂不强制迁移到 MIR。
+- [x] C99 backend 第一阶段继续作为独立 oracle；暂不强制迁移到 MIR。
 
 测试：
 
@@ -844,6 +844,7 @@ bash tests/verify_portable_mir_backend_interface.sh
 bash tests/verify_native_mir_emitter.sh
 bash tests/verify_native_hosted_link_contract.sh
 bash tests/verify_native_cmd_build_regression_boundary.sh
+bash tests/verify_portable_mir_c99_oracle_boundary.sh
 bash tests/verify_portable_mir_parallel_determinism.sh
 bash tests/verify_hosted_native_full_language_smoke.sh
 bash tests/verify_native_cmd_build_no_silent_c99.sh

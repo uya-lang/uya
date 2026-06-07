@@ -634,6 +634,9 @@ C99 第一阶段继续作为独立 oracle：
 - 现有 C99 行为是最强兼容参考。
 - hosted native parity suite 应与当前 C99 比对。
 
+现有 C99 路径在第一阶段不要求导入 PortableMIR；它可以继续消费冻结的 `LoweredProgram` / CoreIR 事实，
+作为独立差分 oracle。
+
 hosted native parity 稳定后，可实验性新增 `PortableMIR -> C99Plan`。生成的 C 可以更低级，使用 labels、temporaries、gotos。可读性次于语义一致。
 
 ## 21. Exec 后端关系

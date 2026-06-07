@@ -479,6 +479,8 @@ C99UnitPlan
 
 当 `PortableMIR` 和 hosted native parity 稳定后，可以新增实验性 `MIR -> C99Plan` 路线；迁移前不能
 删除现有 C99 oracle。
+第一阶段 C99 oracle 不要求依赖 PortableMIR；`MIR -> C99Plan` 只能在 hosted native parity 稳定后作为
+实验路径加入。
 
 ---
 
