@@ -12,9 +12,12 @@ cp "$REPO_ROOT/tests/fixtures/c_import/add_impl.c" "$TMP_DIR/c_import/add_impl.c
 
 helper_src="$TMP_DIR/smoke_helper.uya"
 extern_src="$TMP_DIR/extern_fragment.uya"
+builtin_src="$TMP_DIR/builtin_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
+builtin_c99_bin="$TMP_DIR/c99-builtin-smoke"
+builtin_native_bin="$TMP_DIR/native-builtin-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -40,6 +43,20 @@ extern fn add_i32(a: i32, b: i32) i32;
 
 export fn main() i32 {
     return add_i32(20, 22);
+}
+EOF
+
+cat >"$builtin_src" <<'EOF'
+fn size_i32() i32 {
+    return @size_of(i32) as i32;
+}
+
+fn align_i32() i32 {
+    return @align_of(i32) as i32;
+}
+
+export fn main() i32 {
+    return size_i32() + align_i32();
 }
 EOF
 
@@ -173,6 +190,8 @@ require_pattern() {
 require_pattern "$extern_src" '@c_import' "@c_import parity coverage"
 require_pattern "$extern_src" 'extern fn add_i32' "extern parity coverage"
 require_pattern "$extern_src" 'return add_i32\(20, 22\);' "extern call parity coverage"
+require_pattern "$builtin_src" '@size_of\(i32\)' "builtin @size_of parity coverage"
+require_pattern "$builtin_src" '@align_of\(i32\)' "builtin @align_of parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -270,6 +289,73 @@ if ! cmp -s "$TMP_DIR/extern.c99.run.out" "$TMP_DIR/extern.native.run.out"; then
 fi
 if ! cmp -s "$TMP_DIR/extern.c99.run.err" "$TMP_DIR/extern.native.run.err"; then
     echo "error: hosted native/C99 extern parity stderr differs" >&2
+    exit 1
+fi
+
+builtin_c99_build_out="$TMP_DIR/builtin.c99.build.out"
+builtin_c99_build_err="$TMP_DIR/builtin.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$builtin_src" -o "$builtin_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$builtin_c99_build_out" 2>"$builtin_c99_build_err"); then
+    cat "$builtin_c99_build_out" >&2
+    cat "$builtin_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$builtin_c99_bin" >"$TMP_DIR/builtin.c99.run.out" 2>"$TMP_DIR/builtin.c99.run.err"
+builtin_c99_status=$?
+set -e
+if [[ "$builtin_c99_status" -ne 8 ]]; then
+    echo "error: C99 builtin parity fragment exited with $builtin_c99_status" >&2
+    cat "$TMP_DIR/builtin.c99.run.out" >&2
+    cat "$TMP_DIR/builtin.c99.run.err" >&2
+    exit 1
+fi
+
+builtin_native_build_out="$TMP_DIR/builtin.native.build.out"
+builtin_native_build_err="$TMP_DIR/builtin.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$builtin_src" -o "$builtin_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$builtin_native_build_out" 2>"$builtin_native_build_err"); then
+    cat "$builtin_native_build_out" >&2
+    cat "$builtin_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$builtin_native_bin" ]]; then
+    echo "error: native builtin parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$builtin_native_build_err"; then
+    echo "error: native builtin parity fragment appears to have fallen back to C99" >&2
+    cat "$builtin_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$builtin_native_build_err"; then
+    echo "error: native builtin parity fragment used reject path" >&2
+    cat "$builtin_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$builtin_native_build_err"; then
+    echo "error: native builtin parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$builtin_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$builtin_native_build_err"
+
+chmod +x "$builtin_native_bin"
+set +e
+"$builtin_native_bin" >"$TMP_DIR/builtin.native.run.out" 2>"$TMP_DIR/builtin.native.run.err"
+builtin_native_status=$?
+set -e
+if [[ "$builtin_native_status" -ne "$builtin_c99_status" ]]; then
+    echo "error: hosted native/C99 builtin parity exit status differs: c99=$builtin_c99_status native=$builtin_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/builtin.c99.run.out" "$TMP_DIR/builtin.native.run.out"; then
+    echo "error: hosted native/C99 builtin parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/builtin.c99.run.err" "$TMP_DIR/builtin.native.run.err"; then
+    echo "error: hosted native/C99 builtin parity stderr differs" >&2
     exit 1
 fi
 
@@ -379,4 +465,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, C99 success, and explicit native reject"

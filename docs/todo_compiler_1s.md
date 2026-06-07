@@ -872,7 +872,14 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     - [x] 将 `@c_import` sidecar object 纳入 hosted native link plan，preflight dump 必须记录 object 数量和 extern symbol。
     - [x] 将最小 `extern fn add_i32(...)` call body 经 CoreBody/PortableMIR 降到 hosted native executable，并与 C99 oracle 退出码一致。
     - [x] 把 full-language smoke 中的 extern / `@c_import` 片段从明确 pending 推进为 parity 覆盖。
-  - [ ] 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性。
+  - 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性（拆分执行）：
+    - [x] 新增 `@size_of` / `@align_of` 标量 builtin hosted native/C99 parity shard，要求 native 真实生成 executable 且退出码/stdout/stderr 与 C99 一致。
+    - [ ] 新增 slice/array + `@len` hosted native/C99 parity shard。
+    - [ ] 新增 error union `catch` + `@error_id` hosted native/C99 parity shard。
+    - [ ] 新增 drop/defer hosted native/C99 parity shard。
+    - [ ] 新增 interface/method dispatch hosted native/C99 parity shard。
+    - [ ] 新增 atomic i32 hosted native/C99 parity shard。
+    - [ ] 新增 SIMD vector/mask hosted native/C99 parity shard。
   - [ ] 将 hosted native full-language smoke 从“允许明确拒绝”推进为默认强制 parity 门禁。
 
 ---

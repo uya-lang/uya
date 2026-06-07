@@ -4934,6 +4934,13 @@ fn native_build_expr_to_body_op(program: &ASTNode, expr: &ASTNode,
         out_op.imm = expr.number_value_i64;
         return 1;
     }
+    var size_align_value: i32 = 0;
+    if native_build_expr_size_align_const_value(expr, &size_align_value) != 0 &&
+       size_align_value >= 0 && size_align_value <= 255 {
+        out_op.opcode = LOWERED_BODY_OP_RETURN_CONST_I32;
+        out_op.imm = size_align_value as i64;
+        return 1;
+    }
     if native_build_expr_is_get_argc_call(expr) != 0 {
         out_op.opcode = LOWERED_BODY_OP_RETURN_ARGC_I32;
         return 1;
@@ -5216,6 +5223,44 @@ fn native_build_backend_member_value(expr: &ASTNode, out_value: &i32) i32 {
     return 0;
 }
 
+fn native_build_type_size_align_i32_const(type_node: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if type_node == null || out_value == null {
+        return 0;
+    }
+    if native_build_type_is_i32(type_node) != 0 {
+        *out_value = 4;
+        return 1;
+    }
+    if native_build_type_is_byte(type_node) != 0 ||
+       native_build_type_named_equals(type_node, "bool" as &byte) != 0 {
+        *out_value = 1;
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_expr_size_align_const_value(expr: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if expr == null || out_value == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+        return native_build_expr_size_align_const_value(expr.cast_expr_expr, out_value);
+    }
+    if expr.type == ASTNodeType.AST_SIZEOF && expr.sizeof_expr_is_type != 0 {
+        return native_build_type_size_align_i32_const(expr.sizeof_expr_target, out_value);
+    }
+    if expr.type == ASTNodeType.AST_ALIGNOF && expr.alignof_expr_is_type != 0 {
+        return native_build_type_size_align_i32_const(expr.alignof_expr_target, out_value);
+    }
+    return 0;
+}
+
 fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLocalTable, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
@@ -5253,6 +5298,9 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
     }
     if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
         return native_build_expr_scalar_const_value(expr.cast_expr_expr, locals, out_value);
+    }
+    if native_build_expr_size_align_const_value(expr, out_value) != 0 {
+        return 1;
     }
     if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&
        expr.binary_expr_right != null {
