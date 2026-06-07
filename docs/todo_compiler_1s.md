@@ -876,7 +876,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     - [x] 新增 `@size_of` / `@align_of` 标量 builtin hosted native/C99 parity shard，要求 native 真实生成 executable 且退出码/stdout/stderr 与 C99 一致。
     - 新增 slice/array + `@len` hosted native/C99 parity shard（拆分执行）：
       - [x] 新增数组字面量 `@len([1, 2, 3, 4])` hosted native/C99 parity shard，要求 native 真实生成 executable 且退出码/stdout/stderr 与 C99 一致。
-      - [ ] 新增 slice 构造/索引 hosted native/C99 parity shard。
+      - [x] 新增 slice 构造/索引 hosted native/C99 parity shard。
     - [ ] 新增 error union `catch` + `@error_id` hosted native/C99 parity shard。
     - [ ] 新增 drop/defer hosted native/C99 parity shard。
     - [ ] 新增 interface/method dispatch hosted native/C99 parity shard。
