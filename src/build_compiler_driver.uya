@@ -103,6 +103,8 @@ struct NativeHostedMirPreflightResult {
     entry_pending_callee_name: &byte,
     entry_pending_callee_prefix_covered: i32,
     entry_pending_callee_prefix_stmt_count: i32,
+    entry_pending_callee_next_stmt_index: i32,
+    entry_pending_callee_next_stmt_kind: &byte,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1117,6 +1119,8 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.entry_pending_callee_name = null;
     result.entry_pending_callee_prefix_covered = 0;
     result.entry_pending_callee_prefix_stmt_count = 0;
+    result.entry_pending_callee_next_stmt_index = -1;
+    result.entry_pending_callee_next_stmt_kind = null;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -5715,6 +5719,17 @@ fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &
         result.entry_pending_callee_name = native_build_decl_name_for_diagnostic(pending_decl);
         result.entry_pending_callee_prefix_covered = 1;
         result.entry_pending_callee_prefix_stmt_count = pending_prefix_stmt_count;
+        if pending_decl.fn_decl_body != null &&
+           pending_decl.fn_decl_body.type == ASTNodeType.AST_BLOCK &&
+           pending_decl.fn_decl_body.block_stmts != null &&
+           pending_decl.fn_decl_body.block_stmt_count > pending_prefix_stmt_count {
+            const next_stmt: &ASTNode = pending_decl.fn_decl_body.block_stmts[pending_prefix_stmt_count];
+            if next_stmt != null {
+                result.entry_pending_callee_next_stmt_index = pending_prefix_stmt_count;
+                result.entry_pending_callee_next_stmt_kind =
+                    native_build_ast_kind_name(next_stmt.type);
+            }
+        }
         return;
     }
     if native_build_hosted_decl_can_materialize_safe_core_body(program,
@@ -10232,11 +10247,16 @@ fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_st
         if result.entry_pending_callee_name != null {
             pending_callee = result.entry_pending_callee_name;
         }
+        var next_kind: &byte = "<none>" as &byte;
+        if result.entry_pending_callee_next_stmt_kind != null {
+            next_kind = result.entry_pending_callee_next_stmt_kind;
+        }
         fprintf(libc.stderr,
-            "native_hosted_entry_frontier: wrapper_covered=%d first_pending_callee=%s first_pending_callee_prefix=%d first_pending_callee_prefix_stmts=%d\n" as *byte,
+            "native_hosted_entry_frontier: wrapper_covered=%d first_pending_callee=%s first_pending_callee_prefix=%d first_pending_callee_prefix_stmts=%d first_pending_callee_next_stmt=%d first_pending_callee_next_kind=%s\n" as *byte,
             result.entry_wrapper_covered, pending_callee as *byte,
             result.entry_pending_callee_prefix_covered,
-            result.entry_pending_callee_prefix_stmt_count);
+            result.entry_pending_callee_prefix_stmt_count,
+            result.entry_pending_callee_next_stmt_index, next_kind as *byte);
     }
 }
 
@@ -18179,6 +18199,8 @@ fn compile_files(
                 entry_pending_callee_name: null,
                 entry_pending_callee_prefix_covered: 0,
                 entry_pending_callee_prefix_stmt_count: 0,
+                entry_pending_callee_next_stmt_index: -1,
+                entry_pending_callee_next_stmt_kind: null,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);
