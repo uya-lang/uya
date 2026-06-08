@@ -581,7 +581,8 @@ freestanding executable 路线。
 native 范围分成两层：
 
 - hosted native 完整语言 parity：第一阶段以 C99 为 oracle；已迁 MIR 的 shard 真实运行一致，未迁 MIR 的复杂
-  shard 先保持 explicit reject。当前已迁 MIR shard 包括 `@size_of` / `@align_of` 标量 builtin。
+  shard 先保持 explicit reject。当前已迁 MIR shard 包括 `@size_of` / `@align_of` 标量 builtin，以及
+  数组字面量 `@len([1, 2, 3, 4])`。
 - freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉。
 
 freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity。

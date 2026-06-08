@@ -332,8 +332,8 @@ constants：
 - `const_mask`
 
 CoreIR 的 `CORE_EXPR_KIND_INT_LITERAL` 由 `literal_i64` 携带规范化整数值，是 `const_int` lowering 的最小
-表达式输入之一；对应 `TypeId` 必须在进入 MIR 前冻结。`@size_of` / `@align_of` 等 compile-time-only
-builtin 在 CoreBody 中以规范化整数常量承接，再进入 PortableMIR 常量值。
+表达式输入之一；对应 `TypeId` 必须在进入 MIR 前冻结。`@size_of` / `@align_of`、数组字面量 `@len(...)`
+等 compile-time-only builtin 在 CoreBody 中以规范化整数常量承接，再进入 PortableMIR 常量值。
 
 arithmetic / bit ops：
 
@@ -474,6 +474,7 @@ compile-time-only builtin 在 MIR 前解决：
 
 - `@size_of`
 - `@align_of`
+- 数组字面量 `@len(...)`
 - statically known array 上的 `@len`
 - source location / function name constants
 - 已由 CoreIR materialize 的 type info

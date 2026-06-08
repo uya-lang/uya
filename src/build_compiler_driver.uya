@@ -1005,6 +1005,11 @@ fn native_build_hosted_return_i32_const_expr(decl: &ASTNode, out_value: &i32) &A
         *out_value = size_align_value;
         return expr;
     }
+    var len_value: i32 = 0;
+    if native_build_expr_len_const_value(expr, null, &len_value) != 0 {
+        *out_value = len_value;
+        return expr;
+    }
     return null;
 }
 

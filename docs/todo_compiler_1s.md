@@ -875,7 +875,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
   - 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 C99 行为、已迁 MIR shard 的 hosted native/C99 parity，以及未迁 MIR shard 的明确拒绝语义（拆分执行）：
     - [x] `@size_of` / `@align_of` 标量 builtin shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求 CoreIR/MIR body preflight、真实 executable、退出码/stdout/stderr 一致，且不走 reject 或 C99 fallback。
     - slice/array + `@len` hosted native shard（拆分执行）：
-      - [x] 数组字面量 `@len([1, 2, 3, 4])` shard 先要求 C99 成功、hosted native 明确拒绝。
+      - [x] 数组字面量 `@len([1, 2, 3, 4])` shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求真实 executable、退出码/stdout/stderr 一致，且不走 reject 或 C99 fallback。
       - [x] slice 构造/索引 shard 先要求 C99 成功、hosted native 明确拒绝。
     - error union `catch` + `@error_id` shard（拆分执行）：
       - [x] `@error_id(error.SmokeError)` shard 先要求 C99 成功、hosted native 明确拒绝。
@@ -921,7 +921,7 @@ PortableMIR/native hosted parity 的验收输入。
   - [x] 清理 hosted no-deps 的 pre-MIR `LoweredProgram` helper 成功路径，改为只从 verifier-clean PortableMIR 求出 `return <int>` / `return callee()` 退出码；复杂 no-deps shard 保持明确 reject。
   - [ ] 将 builtin、slice/error/defer/drop/interface/atomic/SIMD 等复杂 no-deps shard 逐项迁入 CoreBody/PortableMIR 后，再恢复真正 hosted native/C99 parity。
     - [x] 将 `@size_of` / `@align_of` 标量 builtin shard 迁入 CoreBody/PortableMIR hosted native/C99 parity，禁止 pre-MIR helper 成功路径。
-    - [ ] 将数组字面量 `@len([1, 2, 3, 4])` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [x] 将数组字面量 `@len([1, 2, 3, 4])` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将 slice 构造/索引 shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将 `@error_id(error.SmokeError)` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将常量输入 error union `catch` success/fallback shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
