@@ -21,6 +21,7 @@ dynamic_catch_src="$TMP_DIR/dynamic_catch_fragment.uya"
 defer_src="$TMP_DIR/defer_fragment.uya"
 drop_src="$TMP_DIR/drop_fragment.uya"
 interface_src="$TMP_DIR/interface_fragment.uya"
+atomic_src="$TMP_DIR/atomic_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -42,6 +43,8 @@ drop_c99_bin="$TMP_DIR/c99-drop-smoke"
 drop_native_bin="$TMP_DIR/native-drop-smoke"
 interface_c99_bin="$TMP_DIR/c99-interface-smoke"
 interface_native_bin="$TMP_DIR/native-interface-smoke"
+atomic_c99_bin="$TMP_DIR/c99-atomic-smoke"
+atomic_native_bin="$TMP_DIR/native-atomic-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -200,6 +203,15 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$atomic_src" <<'EOF'
+export fn main() i32 {
+    var atomic_value: atomic i32 = 5;
+    atomic_value += 2;
+    const atomic_read: i32 = atomic_value;
+    return atomic_read;
+}
+EOF
+
 cat >"$main_src" <<'EOF'
 use smoke_helper;
 
@@ -345,6 +357,8 @@ require_pattern "$drop_src" 'fn drop\(self: SmokeDrop\) void' "lexical drop meth
 require_pattern "$drop_src" 'const dropped: SmokeDrop = SmokeDrop\{ value: 7 \};' "lexical drop scope parity coverage"
 require_pattern "$interface_src" 'interface SmokeAdder' "interface dispatch parity coverage"
 require_pattern "$interface_src" 'const through_interface: i32 = use_adder\(counter\);' "method dispatch via interface parity coverage"
+require_pattern "$atomic_src" 'var atomic_value: atomic i32 = 5;' "atomic i32 declaration parity coverage"
+require_pattern "$atomic_src" 'atomic_value \+= 2;' "atomic i32 compound update parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -1070,6 +1084,73 @@ if ! cmp -s "$TMP_DIR/interface.c99.run.err" "$TMP_DIR/interface.native.run.err"
     exit 1
 fi
 
+atomic_c99_build_out="$TMP_DIR/atomic.c99.build.out"
+atomic_c99_build_err="$TMP_DIR/atomic.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$atomic_src" -o "$atomic_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$atomic_c99_build_out" 2>"$atomic_c99_build_err"); then
+    cat "$atomic_c99_build_out" >&2
+    cat "$atomic_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$atomic_c99_bin" >"$TMP_DIR/atomic.c99.run.out" 2>"$TMP_DIR/atomic.c99.run.err"
+atomic_c99_status=$?
+set -e
+if [[ "$atomic_c99_status" -ne 7 ]]; then
+    echo "error: C99 atomic parity fragment exited with $atomic_c99_status" >&2
+    cat "$TMP_DIR/atomic.c99.run.out" >&2
+    cat "$TMP_DIR/atomic.c99.run.err" >&2
+    exit 1
+fi
+
+atomic_native_build_out="$TMP_DIR/atomic.native.build.out"
+atomic_native_build_err="$TMP_DIR/atomic.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$atomic_src" -o "$atomic_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$atomic_native_build_out" 2>"$atomic_native_build_err"); then
+    cat "$atomic_native_build_out" >&2
+    cat "$atomic_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$atomic_native_bin" ]]; then
+    echo "error: native atomic parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$atomic_native_build_err"; then
+    echo "error: native atomic parity fragment appears to have fallen back to C99" >&2
+    cat "$atomic_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$atomic_native_build_err"; then
+    echo "error: native atomic parity fragment used reject path" >&2
+    cat "$atomic_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$atomic_native_build_err"; then
+    echo "error: native atomic parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$atomic_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$atomic_native_build_err"
+
+chmod +x "$atomic_native_bin"
+set +e
+"$atomic_native_bin" >"$TMP_DIR/atomic.native.run.out" 2>"$TMP_DIR/atomic.native.run.err"
+atomic_native_status=$?
+set -e
+if [[ "$atomic_native_status" -ne "$atomic_c99_status" ]]; then
+    echo "error: hosted native/C99 atomic parity exit status differs: c99=$atomic_c99_status native=$atomic_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/atomic.c99.run.out" "$TMP_DIR/atomic.native.run.out"; then
+    echo "error: hosted native/C99 atomic parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/atomic.c99.run.err" "$TMP_DIR/atomic.native.run.err"; then
+    echo "error: hosted native/C99 atomic parity stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -1176,4 +1257,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, atomic parity, C99 success, and explicit native reject"
