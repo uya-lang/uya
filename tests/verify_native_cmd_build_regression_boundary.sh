@@ -96,7 +96,7 @@ require_pattern "$NO_SILENT_TEST" '[[:space:]]--native --no-split-c' \
     "no-silent-C99 测试缺少 hosted cmd/build self-build 命令"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=' \
     "no-silent-C99 测试缺少 cmd/build self-build verifier-clean CoreIR preflight"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=20 first_pending_callee_next_stmt=20 first_pending_callee_next_kind=var' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=21 first_pending_callee_next_stmt=21 first_pending_callee_next_kind=if' \
     "no-silent-C99 测试缺少 cmd/build entry wrapper 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"

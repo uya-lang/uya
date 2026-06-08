@@ -51,6 +51,9 @@ const NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_CORE_EXPR_COUNT: i32 = 23;
 const NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT: i32 = 20;
 const NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_CORE_STMT_COUNT: i32 = 27;
 const NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_CORE_EXPR_COUNT: i32 = 24;
+const NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT: i32 = 21;
+const NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_CORE_STMT_COUNT: i32 = 28;
+const NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_CORE_EXPR_COUNT: i32 = 25;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -1674,8 +1677,8 @@ fn native_build_hosted_build_driver_run_prefix_stmt(decl: &ASTNode, index: i32) 
        native_build_decl_is_noarg_i32_fn(decl) == 0 ||
        decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null ||
-       decl.fn_decl_body.block_stmt_count < NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT ||
-       index < 0 || index >= NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       decl.fn_decl_body.block_stmt_count < NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT ||
+       index < 0 || index >= NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
         return null;
     }
     return decl.fn_decl_body.block_stmts[index];
@@ -2470,8 +2473,53 @@ fn native_build_hosted_build_driver_run_output_path_prefix_stmt_count(decl: &AST
     return NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT;
 }
 
+fn native_build_hosted_expr_is_null_identifier(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.identifier_name == null ||
+       str_equals(expr.identifier_name as *byte, "null" as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_build_driver_run_user_output_path_stmt_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "user_output_path" as *byte) == 0 ||
+       native_build_type_is_byte_ptr(stmt.var_decl_type) == 0 ||
+       native_build_hosted_expr_is_null_identifier(stmt.var_decl_init) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_build_driver_run_user_output_path_prefix_stmt_count(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_build_driver_run_output_path_prefix_stmt_count(decl,
+        checker, program) != NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    const user_output_path: &ASTNode =
+        native_build_hosted_build_driver_run_prefix_stmt(decl, 20);
+    if native_build_hosted_build_driver_run_user_output_path_stmt_supported(
+        user_output_path, checker) == 0 {
+        return 0;
+    }
+    return NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT;
+}
+
 fn native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(
     program: &ASTNode, decl: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_build_driver_run_user_output_path_prefix_stmt_count(decl,
+        checker, program) == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
+        return 1;
+    }
     if native_build_hosted_build_driver_run_output_path_prefix_stmt_count(decl,
         checker, program) == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
         return 1;
@@ -5487,8 +5535,13 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
     if lowered == null || checker == null || program == null || decl == null {
         return -1;
     }
-    var prefix_count: i32 = native_build_hosted_build_driver_run_output_path_prefix_stmt_count(
-        decl, checker, program);
+    var prefix_count: i32 =
+        native_build_hosted_build_driver_run_user_output_path_prefix_stmt_count(
+            decl, checker, program);
+    if prefix_count == 0 {
+        prefix_count = native_build_hosted_build_driver_run_output_path_prefix_stmt_count(
+            decl, checker, program);
+    }
     if prefix_count == 0 {
         prefix_count = native_build_hosted_build_driver_run_split_env_prefix_stmt_count(
             decl, checker, program);
@@ -5519,7 +5572,8 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count != NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT &&
-       prefix_count != NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT &&
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
         return -1;
     }
     var core_stmt_count: i32 = prefix_count;
@@ -5555,6 +5609,11 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         core_expr_count = NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_CORE_EXPR_COUNT;
         core_place_count = 15;
     }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
+        core_stmt_count = NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_CORE_STMT_COUNT;
+        core_expr_count = NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_CORE_EXPR_COUNT;
+        core_place_count = 16;
+    }
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
     const expr_start: i32 = lowered.core_expr_count as i32;
@@ -5586,12 +5645,12 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
            prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
            prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
            prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-           prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT) &&
+           (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT)) &&
            place_index == 13 {
             source_stmt_index = 15;
         }
         if (prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-           prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT) &&
+           (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT)) &&
            place_index == 14 {
             const split_env: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
                 18);
@@ -5602,11 +5661,15 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
             }
             source_stmt_index = 18;
         }
+        if prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT &&
+           place_index == 15 {
+            source_stmt_index = 20;
+        }
         const stmt: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             source_stmt_index);
         var place_init: &ASTNode = null;
         if (prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-           prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT) &&
+           (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT)) &&
            place_index == 14 {
             const env_decl2: &ASTNode =
                 native_build_hosted_build_driver_run_split_env_decl(stmt);
@@ -5690,7 +5753,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const parse_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             12);
         const help_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
@@ -5860,7 +5923,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const stack_init: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             15);
         if native_build_hosted_build_driver_run_stack_init_stmt_supported(stack_init,
@@ -5900,7 +5963,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         local_stmt_count = 13;
     }
     var stmt_index: i32 = 0;
@@ -5920,7 +5983,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
                   prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
                   prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
                   prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-                  prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT) &&
+                  (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT)) &&
                   stmt_index == 12 {
             stmt_expr_id = expr_start + 10;
         }
@@ -5949,7 +6012,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const help_if2: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             13);
         const error_if2: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
@@ -6031,7 +6094,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const stack_init2: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             15);
         if stack_init2 == null {
@@ -6059,7 +6122,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
     if prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const stack_guard: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             16);
         const assign_stmt: &ASTNode =
@@ -6205,7 +6268,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
     }
     if prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const stack_limit_stmt: &ASTNode =
             native_build_hosted_build_driver_run_prefix_stmt(decl, 17);
         const stack_limit_call: &ASTNode =
@@ -6265,7 +6328,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         }
     }
     if prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const split_env_stmt: &ASTNode =
             native_build_hosted_build_driver_run_prefix_stmt(decl, 18);
         const env_decl: &ASTNode =
@@ -6357,7 +6420,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
             return -1;
         }
     }
-    if prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+    if (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         const output_path_stmt: &ASTNode =
             native_build_hosted_build_driver_run_prefix_stmt(decl, 19);
         const backend_if: &ASTNode =
@@ -6441,6 +6504,58 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
            lowered_program_append_core_stmt(lowered, &output_if_stmt) != 0 ||
            lowered_program_append_core_stmt(lowered, &backend_if_stmt) != 0 ||
            lowered_program_append_core_stmt(lowered, &output_assign_stmt) != 0 {
+            return -1;
+        }
+    }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
+        const user_output_path_stmt: &ASTNode =
+            native_build_hosted_build_driver_run_prefix_stmt(decl, 20);
+        if native_build_hosted_build_driver_run_user_output_path_stmt_supported(
+            user_output_path_stmt, checker) == 0 ||
+           user_output_path_stmt.var_decl_init == null {
+            return -1;
+        }
+        var user_output_path_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_ensure_expr_type_id(checker,
+            user_output_path_stmt.var_decl_init, &user_output_path_type_id) != 0 {
+            return -1;
+        }
+        var user_output_path_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 24,
+            kind: CORE_EXPR_KIND_INT_LITERAL,
+            body_id: body_id,
+            source_expr_id: user_output_path_stmt.var_decl_init.expr_id,
+            type_id: user_output_path_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: place_start + 15,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: user_output_path_stmt.var_decl_init.line,
+            flags: 0,
+        };
+        var user_output_path_core_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 27,
+            kind: CORE_STMT_KIND_LOCAL_DECL,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_start + 24,
+            place_id: place_start + 15,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: user_output_path_stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+        };
+        if lowered_program_append_core_expr(lowered, &user_output_path_expr) != 0 ||
+           lowered_program_append_core_stmt(lowered, &user_output_path_core_stmt) != 0 {
             return -1;
         }
     }
@@ -6791,8 +6906,13 @@ fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &
         return;
     }
     var pending_prefix_stmt_count: i32 =
-        native_build_hosted_build_driver_run_output_path_prefix_stmt_count(pending_decl,
+        native_build_hosted_build_driver_run_user_output_path_prefix_stmt_count(pending_decl,
             checker, program);
+    if pending_prefix_stmt_count == 0 {
+        pending_prefix_stmt_count =
+            native_build_hosted_build_driver_run_output_path_prefix_stmt_count(pending_decl,
+                checker, program);
+    }
     if pending_prefix_stmt_count == 0 {
         pending_prefix_stmt_count =
             native_build_hosted_build_driver_run_split_env_prefix_stmt_count(pending_decl,
@@ -7212,8 +7332,13 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
        decl_index < 0 || source_core_body_id < 0 || decl == null {
         return -1;
     }
-    var prefix_count: i32 = native_build_hosted_build_driver_run_output_path_prefix_stmt_count(
-        decl, checker, program);
+    var prefix_count: i32 =
+        native_build_hosted_build_driver_run_user_output_path_prefix_stmt_count(
+            decl, checker, program);
+    if prefix_count == 0 {
+        prefix_count = native_build_hosted_build_driver_run_output_path_prefix_stmt_count(
+            decl, checker, program);
+    }
     if prefix_count == 0 {
         prefix_count = native_build_hosted_build_driver_run_split_env_prefix_stmt_count(
             decl, checker, program);
@@ -7244,7 +7369,8 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
        prefix_count != NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT &&
-       prefix_count != NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT &&
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
         return -1;
     }
     var mir_local_count: i32 = prefix_count;
@@ -7271,6 +7397,10 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
     }
     if prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
         mir_local_count = 15;
+        mir_block_count = 11;
+    }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT {
+        mir_local_count = 16;
         mir_block_count = 11;
     }
     const array_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 0);
@@ -7307,7 +7437,7 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
     }
     var env_split_type_id: i32 = i32_type_id;
     if prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         env_split_type_id = module.type_count as i32;
         var env_split_type: MirType =
             native_build_hosted_mir_i32_pointer_type(env_split_type_id, i32_type_id);
@@ -7388,6 +7518,9 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         } else if local_index == 14 {
             local_type_id = env_split_type_id;
             local_alignment = 8usize;
+        } else if local_index == 15 {
+            local_type_id = env_split_type_id;
+            local_alignment = 8usize;
         }
         var local: MirLocal = MirLocal{
             local_id: local_id + local_index,
@@ -7409,7 +7542,7 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
        prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-       prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+       (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
         var include_stack_guard: i32 = 0;
         var include_stack_limit_call: i32 = 0;
         var include_split_env: i32 = 0;
@@ -7417,19 +7550,19 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         if prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT ||
            prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
            prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-           prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+           (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
             include_stack_guard = 1;
         }
         if prefix_count == NATIVE_BUILD_DRIVER_RUN_STACK_LIMIT_PREFIX_STMT_COUNT ||
            prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-           prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+           (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
             include_stack_limit_call = 1;
         }
         if prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_ENV_PREFIX_STMT_COUNT ||
-           prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+           (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
             include_split_env = 1;
         }
-        if prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT {
+        if (prefix_count == NATIVE_BUILD_DRIVER_RUN_OUTPUT_PATH_PREFIX_STMT_COUNT || prefix_count == NATIVE_BUILD_DRIVER_RUN_USER_OUTPUT_PATH_PREFIX_STMT_COUNT) {
             include_output_path = 1;
         }
         return native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
