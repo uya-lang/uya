@@ -17,6 +17,7 @@ array_len_src="$TMP_DIR/array_len_fragment.uya"
 slice_src="$TMP_DIR/slice_fragment.uya"
 error_id_src="$TMP_DIR/error_id_fragment.uya"
 catch_src="$TMP_DIR/catch_fragment.uya"
+dynamic_catch_src="$TMP_DIR/dynamic_catch_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -30,6 +31,8 @@ error_id_c99_bin="$TMP_DIR/c99-error-id-smoke"
 error_id_native_bin="$TMP_DIR/native-error-id-smoke"
 catch_c99_bin="$TMP_DIR/c99-catch-smoke"
 catch_native_bin="$TMP_DIR/native-catch-smoke"
+dynamic_catch_c99_bin="$TMP_DIR/c99-dynamic-catch-smoke"
+dynamic_catch_native_bin="$TMP_DIR/native-dynamic-catch-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -108,6 +111,25 @@ export fn main() i32 {
     const recovered: i32 = maybe_value(5) catch { 0; };
     const failed: i32 = maybe_value(0) catch { 8; };
     return recovered + failed;
+}
+EOF
+
+cat >"$dynamic_catch_src" <<'EOF'
+use std.runtime.get_argc;
+
+error SmokeError;
+
+fn maybe_value(flag: i32) !i32 {
+    if flag == 1 {
+        return error.SmokeError;
+    }
+    return 12;
+}
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    const recovered: i32 = maybe_value(argc) catch { 8; };
+    return recovered;
 }
 EOF
 
@@ -249,6 +271,8 @@ require_pattern "$slice_src" 'slice\[0\] \+ slice\[1\]' "slice index parity cove
 require_pattern "$error_id_src" '@error_id\(error.SmokeError\)' "builtin @error_id parity coverage"
 require_pattern "$catch_src" 'maybe_value\(5\) catch \{ 0; \}' "error-union catch success parity coverage"
 require_pattern "$catch_src" 'maybe_value\(0\) catch \{ 8; \}' "error-union catch fallback parity coverage"
+require_pattern "$dynamic_catch_src" 'get_argc\(\)' "dynamic catch runtime input parity coverage"
+require_pattern "$dynamic_catch_src" 'maybe_value\(argc\) catch \{ 8; \}' "dynamic error-union catch parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -684,6 +708,95 @@ if ! cmp -s "$TMP_DIR/catch.c99.run.err" "$TMP_DIR/catch.native.run.err"; then
     exit 1
 fi
 
+dynamic_catch_c99_build_out="$TMP_DIR/dynamic-catch.c99.build.out"
+dynamic_catch_c99_build_err="$TMP_DIR/dynamic-catch.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$dynamic_catch_src" -o "$dynamic_catch_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$dynamic_catch_c99_build_out" 2>"$dynamic_catch_c99_build_err"); then
+    cat "$dynamic_catch_c99_build_out" >&2
+    cat "$dynamic_catch_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$dynamic_catch_c99_bin" >"$TMP_DIR/dynamic-catch.c99.fallback.out" 2>"$TMP_DIR/dynamic-catch.c99.fallback.err"
+dynamic_catch_c99_fallback_status=$?
+"$dynamic_catch_c99_bin" success >"$TMP_DIR/dynamic-catch.c99.success.out" 2>"$TMP_DIR/dynamic-catch.c99.success.err"
+dynamic_catch_c99_success_status=$?
+set -e
+if [[ "$dynamic_catch_c99_fallback_status" -ne 8 ]]; then
+    echo "error: C99 dynamic catch fallback fragment exited with $dynamic_catch_c99_fallback_status" >&2
+    cat "$TMP_DIR/dynamic-catch.c99.fallback.out" >&2
+    cat "$TMP_DIR/dynamic-catch.c99.fallback.err" >&2
+    exit 1
+fi
+if [[ "$dynamic_catch_c99_success_status" -ne 12 ]]; then
+    echo "error: C99 dynamic catch success fragment exited with $dynamic_catch_c99_success_status" >&2
+    cat "$TMP_DIR/dynamic-catch.c99.success.out" >&2
+    cat "$TMP_DIR/dynamic-catch.c99.success.err" >&2
+    exit 1
+fi
+
+dynamic_catch_native_build_out="$TMP_DIR/dynamic-catch.native.build.out"
+dynamic_catch_native_build_err="$TMP_DIR/dynamic-catch.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$dynamic_catch_src" -o "$dynamic_catch_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$dynamic_catch_native_build_out" 2>"$dynamic_catch_native_build_err"); then
+    cat "$dynamic_catch_native_build_out" >&2
+    cat "$dynamic_catch_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$dynamic_catch_native_bin" ]]; then
+    echo "error: native dynamic catch parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$dynamic_catch_native_build_err"; then
+    echo "error: native dynamic catch parity fragment appears to have fallen back to C99" >&2
+    cat "$dynamic_catch_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$dynamic_catch_native_build_err"; then
+    echo "error: native dynamic catch parity fragment used reject path" >&2
+    cat "$dynamic_catch_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$dynamic_catch_native_build_err"; then
+    echo "error: native dynamic catch parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$dynamic_catch_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$dynamic_catch_native_build_err"
+
+chmod +x "$dynamic_catch_native_bin"
+set +e
+"$dynamic_catch_native_bin" >"$TMP_DIR/dynamic-catch.native.fallback.out" 2>"$TMP_DIR/dynamic-catch.native.fallback.err"
+dynamic_catch_native_fallback_status=$?
+"$dynamic_catch_native_bin" success >"$TMP_DIR/dynamic-catch.native.success.out" 2>"$TMP_DIR/dynamic-catch.native.success.err"
+dynamic_catch_native_success_status=$?
+set -e
+if [[ "$dynamic_catch_native_fallback_status" -ne "$dynamic_catch_c99_fallback_status" ]]; then
+    echo "error: hosted native/C99 dynamic catch fallback exit status differs: c99=$dynamic_catch_c99_fallback_status native=$dynamic_catch_native_fallback_status" >&2
+    exit 1
+fi
+if [[ "$dynamic_catch_native_success_status" -ne "$dynamic_catch_c99_success_status" ]]; then
+    echo "error: hosted native/C99 dynamic catch success exit status differs: c99=$dynamic_catch_c99_success_status native=$dynamic_catch_native_success_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/dynamic-catch.c99.fallback.out" "$TMP_DIR/dynamic-catch.native.fallback.out"; then
+    echo "error: hosted native/C99 dynamic catch fallback stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/dynamic-catch.c99.success.out" "$TMP_DIR/dynamic-catch.native.success.out"; then
+    echo "error: hosted native/C99 dynamic catch success stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/dynamic-catch.c99.fallback.err" "$TMP_DIR/dynamic-catch.native.fallback.err"; then
+    echo "error: hosted native/C99 dynamic catch fallback stderr differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/dynamic-catch.c99.success.err" "$TMP_DIR/dynamic-catch.native.success.err"; then
+    echo "error: hosted native/C99 dynamic catch success stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -790,4 +903,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, catch parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, C99 success, and explicit native reject"
