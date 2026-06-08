@@ -96,6 +96,8 @@ require_pattern "$NO_SILENT_TEST" '[[:space:]]--native --no-split-c' \
     "no-silent-C99 测试缺少 hosted cmd/build self-build 命令"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=' \
     "no-silent-C99 测试缺少 cmd/build self-build verifier-clean CoreIR preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
+    "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 cmd/build self-build lowering frontier"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
@@ -138,6 +140,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_lowering_missing
     "build compiler driver 缺少 hosted native MIR lowering 缺口诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_preflight_failed' \
     "build compiler driver 缺少 hosted native self-build preflight 缺口诊断"
+require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_handoff_frontier' \
+    "build compiler driver 缺少 hosted native self-build handoff frontier 诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \
     "build compiler driver 缺少 NativeHostedLinkPlan 初始化"
 require_pattern "$BUILD_DRIVER_SRC" 'is_nostdlib[[:space:]]*==[[:space:]]*0' \

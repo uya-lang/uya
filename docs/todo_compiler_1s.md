@@ -933,7 +933,10 @@ PortableMIR/native hosted parity 的验收输入。
     - [x] 将 SIMD vector/mask shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
   - [x] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
   - [x] 修复 hosted `cmd/build` self-build CoreIR preflight 的 `COREIR_VERIFY_ERR_INVALID_BODY_RANGE` frontier，使 `native_hosted_coreir_preflight` 达到 verifier-clean，并继续保留 pending bodies 统计。
-  - [ ] 接入 hosted `cmd/build` verifier-clean PortableMIR self-build 的真实 emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`，仍不得回落 C99 或 build-seed `LoweredProgram` helper。
+  - 接入 hosted `cmd/build` verifier-clean PortableMIR self-build 的真实 emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`，仍不得回落 C99 或 build-seed `LoweredProgram` helper（拆分执行）：
+    - [x] 固定 verifier-clean self-build handoff 诊断，报告 MIR body / extern / pending body frontier 和 entry callee 覆盖缺口，避免泛泛 `lowering_missing` 掩盖下一步。
+    - [ ] 将 `main -> build_compiler_driver_main` 入口调用链的第一个 pending callee 纳入 CoreBody/PortableMIR 覆盖，并保持 pre-MIR helper 禁止。
+    - [ ] 在 self-build reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`。
 
 测试：
 

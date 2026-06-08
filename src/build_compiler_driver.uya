@@ -8762,6 +8762,12 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
             "错误: hosted native backend 已进入 CoreBody/PortableMIR preflight，但 CoreIR/MIR 尚未 verifier-clean；不能静默回落 C99，也不能使用 build-seed LoweredProgram helper\n" as *byte);
         return;
     }
+    if result.core_pending_body_count > 0 {
+        fprintf(libc.stderr,
+            "native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=%d extern_symbols=%d pending_bodies=%d entry_callee_coverage=not_verified\n" as *byte,
+            result.mir_body_function_count, result.extern_symbol_count,
+            result.core_pending_body_count);
+    }
     fprintf(libc.stderr,
         "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing required=CoreBody+PortableMIR function-body lowering\n" as *byte);
     fprintf(libc.stderr,
