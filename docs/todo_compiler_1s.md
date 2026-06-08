@@ -965,6 +965,8 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 `compile_files(...)` result 初始化继续迁入 PortableMIR frontier。
         - [x] 将 `if result != 0` 错误返回分支继续迁入 PortableMIR frontier。
         - [x] 将 `backend == BackendType.BACKEND_NATIVE` 成功输出分支继续迁入 PortableMIR frontier。
+        - [x] 将 `is_output_c_file` 初始化继续迁入 PortableMIR frontier。
+        - [ ] 将 `is_output_c_file` 的 `output_file_index >= 0` 判定分支继续迁入 PortableMIR frontier。
 
 测试：
 
