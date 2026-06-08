@@ -956,6 +956,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 split-C active + C99 backend 分支继续迁入 PortableMIR frontier。
         - [x] 将 `output_path_for_compile` 初始化继续迁入 PortableMIR frontier。
         - [x] 将 `output_file_index == -2` 输出路径选择分支继续迁入 PortableMIR frontier。
+        - [x] 将 `split_c_arg` 初始化继续迁入 PortableMIR frontier。
 
 测试：
 
