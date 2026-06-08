@@ -96,6 +96,7 @@ const NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_PARENT_STMT_INDEX: i32 = 37;
 const NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_C_FILE_CHILD_PREFIX_STMT_COUNT: i32 = 1;
 const NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_DEFAULT_OUTPUT_CHILD_PREFIX_STMT_COUNT: i32 = 2;
 const NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_USER_OUTPUT_CHILD_PREFIX_STMT_COUNT: i32 = 3;
+const NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT: i32 = 4;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -4224,6 +4225,54 @@ fn native_build_hosted_build_driver_run_link_output_user_output_if_supported(
     return 1;
 }
 
+fn native_build_hosted_addr_member_access_matches(expr: &ASTNode,
+    object_name: &byte, field_name: &byte) i32 {
+    if expr == null || object_name == null || field_name == null ||
+       expr.type != ASTNodeType.AST_UNARY_EXPR ||
+       expr.unary_expr_operand == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_AMPERSAND {
+        return 0;
+    }
+    return native_build_member_access_object_field_equals(expr.unary_expr_operand,
+        object_name, field_name);
+}
+
+fn native_build_hosted_build_driver_run_link_output_link_result_call(
+    stmt: &ASTNode) &ASTNode {
+    if stmt == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "link_result" as *byte) == 0 ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.var_decl_init.call_expr_callee == null ||
+       stmt.var_decl_init.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.var_decl_init.call_expr_callee.identifier_name == null ||
+       str_equals(stmt.var_decl_init.call_expr_callee.identifier_name as *byte,
+        "link_with_toolchain" as *byte) == 0 ||
+       stmt.var_decl_init.call_expr_args == null ||
+       stmt.var_decl_init.call_expr_arg_count != 4 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.var_decl_init.call_expr_args[0], "c_file" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.var_decl_init.call_expr_args[1], "output" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.var_decl_init.call_expr_args[2], "is_nostdlib" as &byte) == 0 ||
+       native_build_hosted_addr_member_access_matches(
+        stmt.var_decl_init.call_expr_args[3],
+        "artifacts" as &byte, "c_import_plan" as &byte) == 0 {
+        return null;
+    }
+    return stmt.var_decl_init;
+}
+
 fn native_build_hosted_build_driver_run_link_output_child_prefix_stmt_count(
     decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
     if native_build_hosted_build_driver_run_final_return_prefix_stmt_count(
@@ -4265,7 +4314,19 @@ fn native_build_hosted_build_driver_run_link_output_child_prefix_stmt_count(
         user_output_stmt.if_stmt_condition, &type_id) != 0 {
         return NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_DEFAULT_OUTPUT_CHILD_PREFIX_STMT_COUNT;
     }
-    return NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_USER_OUTPUT_CHILD_PREFIX_STMT_COUNT;
+    const link_result_stmt: &ASTNode =
+        native_build_hosted_build_driver_run_link_output_child_stmt(decl, 3);
+    const link_result_call: &ASTNode =
+        native_build_hosted_build_driver_run_link_output_link_result_call(
+            link_result_stmt);
+    if link_result_call == null {
+        return NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_USER_OUTPUT_CHILD_PREFIX_STMT_COUNT;
+    }
+    if native_build_hosted_ensure_expr_type_id(checker, link_result_call,
+        &type_id) != 0 {
+        return NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_USER_OUTPUT_CHILD_PREFIX_STMT_COUNT;
+    }
+    return NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT;
 }
 
 fn native_build_hosted_build_driver_run_link_output_c_file_child_prefix_stmt_count(
@@ -7692,6 +7753,12 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         core_expr_count = 62;
         core_place_count = 26;
     }
+    if link_output_child_prefix_stmt_count >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT {
+        core_stmt_count = 69;
+        core_expr_count = 63;
+        core_place_count = 27;
+    }
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
     const expr_start: i32 = lowered.core_expr_count as i32;
@@ -7790,6 +7857,10 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
                   NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_DEFAULT_OUTPUT_CHILD_PREFIX_STMT_COUNT &&
                   place_index == 25 {
             stmt = native_build_hosted_build_driver_run_link_output_child_stmt(decl, 1);
+        } else if link_output_child_prefix_stmt_count >=
+                  NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT &&
+                  place_index == 26 {
+            stmt = native_build_hosted_build_driver_run_link_output_child_stmt(decl, 3);
         } else {
             stmt = native_build_hosted_build_driver_run_prefix_stmt(decl,
                 source_stmt_index);
@@ -10593,6 +10664,67 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
             return -1;
         }
     }
+    if link_output_child_prefix_stmt_count >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT {
+        const link_result_stmt: &ASTNode =
+            native_build_hosted_build_driver_run_link_output_child_stmt(decl, 3);
+        const link_result_call: &ASTNode =
+            native_build_hosted_build_driver_run_link_output_link_result_call(
+                link_result_stmt);
+        if link_result_call == null {
+            return -1;
+        }
+        var link_result_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_ensure_expr_type_id(checker, link_result_call,
+            &link_result_type_id) != 0 {
+            return -1;
+        }
+        var link_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var link_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_find_function_by_name(program,
+            "link_with_toolchain" as &byte, &link_target_function_id,
+            &link_target_decl_index) == 0 {
+            return -1;
+        }
+        var link_result_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 62,
+            kind: CORE_EXPR_KIND_CALL,
+            body_id: body_id,
+            source_expr_id: link_result_call.expr_id,
+            type_id: link_result_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: place_start + 26,
+            target_function_id: link_target_function_id,
+            target_decl_id: link_target_decl_index,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: link_result_call.line,
+            flags: 0,
+        };
+        var link_result_core_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 68,
+            kind: CORE_STMT_KIND_LOCAL_DECL,
+            body_id: body_id,
+            parent_stmt_id: stmt_start + 63,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_start + 62,
+            place_id: place_start + 26,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: link_result_stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+        };
+        if lowered_program_append_core_expr(lowered, &link_result_expr) != 0 ||
+           lowered_program_append_core_stmt(lowered, &link_result_core_stmt) != 0 {
+            return -1;
+        }
+    }
     const appended_stmt_count: i32 = (lowered.core_stmt_count as i32) - stmt_start;
     const appended_expr_count: i32 = (lowered.core_expr_count as i32) - expr_start;
     const appended_place_count: i32 = (lowered.core_place_count as i32) - place_start;
@@ -11796,6 +11928,11 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         mir_local_count = 26;
         mir_block_count = 34;
     }
+    if link_output_child_prefix_stmt_count >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT {
+        mir_local_count = 27;
+        mir_block_count = 34;
+    }
     const array_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 0);
     const path_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 10);
     if array_decl == null || array_decl.var_decl_init == null ||
@@ -12623,6 +12760,16 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         link_output_user_output_stmt.if_stmt_condition == null) {
         return -1;
     }
+    const link_output_link_result_stmt: &ASTNode =
+        native_build_hosted_build_driver_run_link_output_child_stmt(decl, 3);
+    const link_output_link_result_call: &ASTNode =
+        native_build_hosted_build_driver_run_link_output_link_result_call(
+            link_output_link_result_stmt);
+    if include_link_output_c_file >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT &&
+       link_output_link_result_call == null {
+        return -1;
+    }
     const final_return_stmt: &ASTNode =
         native_build_hosted_build_driver_run_prefix_stmt(decl, 38);
     const final_return_expr: &ASTNode =
@@ -12711,6 +12858,7 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     const link_output_c_file_value_id: i32 = value_id + 39;
     const link_output_default_output_value_id: i32 = value_id + 40;
     const link_output_user_output_cond_value_id: i32 = value_id + 41;
+    const link_output_link_result_value_id: i32 = value_id + 42;
     const inst_id: i32 = module.inst_count as i32;
     const call_inst_id: i32 = inst_id;
     const help_cond_inst_id: i32 = inst_id + 1;
@@ -12761,6 +12909,7 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     const link_output_c_file_inst_id: i32 = inst_id + 46;
     const link_output_default_output_inst_id: i32 = inst_id + 47;
     const link_output_user_output_cond_inst_id: i32 = inst_id + 48;
+    const link_output_link_result_inst_id: i32 = inst_id + 49;
     const operand_id: i32 = module.operand_count as i32;
     const help_cond_operand_id: i32 = operand_id + 12;
     const help_term_operand_id: i32 = operand_id + 13;
@@ -12992,6 +13141,12 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
        NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_USER_OUTPUT_CHILD_PREFIX_STMT_COUNT {
         link_output_user_output_cond_source_expr_id =
             link_output_user_output_stmt.if_stmt_condition.expr_id;
+    }
+    var link_output_link_result_source_expr_id: i32 = 0;
+    if include_link_output_c_file >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT {
+        link_output_link_result_source_expr_id =
+            link_output_link_result_call.expr_id;
     }
     var call_value: MirValue = MirValue{
         value_id: call_value_id,
@@ -13494,6 +13649,18 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         local_id: MIR_LOCAL_INVALID_ID,
         param_index: -1,
         source_expr_id: link_output_user_output_cond_source_expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var link_output_link_result_value: MirValue = MirValue{
+        value_id: link_output_link_result_value_id,
+        function_id: function_id,
+        block_id: block_id + 33,
+        type_id: i32_type_id,
+        defining_inst_id: link_output_link_result_inst_id,
+        local_id: local_id + 26,
+        param_index: -1,
+        source_expr_id: link_output_link_result_source_expr_id,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
@@ -14232,6 +14399,21 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
+    var link_output_link_result_inst: MirInst = MirInst{
+        inst_id: link_output_link_result_inst_id,
+        function_id: function_id,
+        block_id: block_id + 33,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: link_output_link_result_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
     if portable_mir_append_value(module, &call_value) != 0 ||
        portable_mir_append_value(module, &help_cond_value) != 0 ||
        portable_mir_append_value(module, &help_return_value) != 0 ||
@@ -14426,6 +14608,13 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
        NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_USER_OUTPUT_CHILD_PREFIX_STMT_COUNT {
         if portable_mir_append_value(module, &link_output_user_output_cond_value) != 0 ||
            portable_mir_append_inst(module, &link_output_user_output_cond_inst) != 0 {
+            return -1;
+        }
+    }
+    if include_link_output_c_file >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT {
+        if portable_mir_append_value(module, &link_output_link_result_value) != 0 ||
+           portable_mir_append_inst(module, &link_output_link_result_inst) != 0 {
             return -1;
         }
     }
@@ -15403,6 +15592,12 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         link_output_body_terminator.successor_count = 2;
         link_output_body_block.inst_start = link_output_c_file_inst_id;
         link_output_body_block.inst_count = 3;
+    }
+    if include_link_output_c_file >=
+       NATIVE_BUILD_DRIVER_RUN_LINK_OUTPUT_LINK_RESULT_CHILD_PREFIX_STMT_COUNT {
+        link_output_user_output_after_block.inst_start =
+            link_output_link_result_inst_id;
+        link_output_user_output_after_block.inst_count = 1;
     }
     if include_final_return != 0 {
         link_output_after_terminator.kind = MIR_TERMINATOR_KIND_RETURN;
