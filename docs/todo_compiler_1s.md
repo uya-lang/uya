@@ -884,7 +884,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
         - [x] 新增动态 error union `catch` hosted native/C99 parity shard。
     - 新增 drop/defer hosted native/C99 parity shard（拆分执行）：
       - [x] 新增最小 `defer { local = const; }` hosted native/C99 parity shard。
-      - [ ] 新增最小 lexical drop hosted native/C99 parity shard。
+      - [x] 新增最小 lexical drop hosted native/C99 parity shard。
     - [ ] 新增 interface/method dispatch hosted native/C99 parity shard。
     - [ ] 新增 atomic i32 hosted native/C99 parity shard。
     - [ ] 新增 SIMD vector/mask hosted native/C99 parity shard。
