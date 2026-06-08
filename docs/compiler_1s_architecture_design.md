@@ -585,7 +585,8 @@ native 范围分成两层：
   数组字面量 `@len([1, 2, 3, 4])`、slice 构造/索引 no-deps shard，以及
   `@error_id(error.SmokeError)` compile-time-only builtin shard、常量输入 error union `catch` success/fallback shard，
   `get_argc()` 驱动的动态 error union `catch` fallback/success shard、最小
-  `defer { local = const; }` return-value 冻结 shard，以及最小 lexical drop cleanup shard。
+  `defer { local = const; }` return-value 冻结 shard、最小 lexical drop cleanup shard，以及
+  interface/method dispatch no-deps shard。
 - freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉。
 
 freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity。

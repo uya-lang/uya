@@ -608,7 +608,10 @@ error-union lowering 已完成。最小 `defer { local = const; }` shard 现在�
 verifier-clean executable，覆盖“return 先求值、defer 后执行”的窄形状语义。最小 lexical drop shard
 同样只覆盖 hosted no-deps smoke 的窄形状：CoreBody 显式记录 `DROP` statement、return cleanup edge 和
 cleanup fact，再由 verified PortableMIR path 生成与 C99 exit status 一致的 executable；这不代表完整
-drop lowering 或通用 drop function call lowering 已完成。
+drop lowering 或通用 drop function call lowering 已完成。interface/method dispatch no-deps shard 现在把
+`counter.double()` 和 `use_adder(counter)` 中的 `adder.add(5)` 冻结为 CoreBody method-dispatch facts 和
+`I32_ADD` return expression，再由 PortableMIR 生成与 C99 exit status 一致的 executable；这仍是单字段
+struct、单方法 interface 和常量参数的窄形状，不代表通用 vtable/interface lowering 已完成。
 
 hosted native 接受：
 
