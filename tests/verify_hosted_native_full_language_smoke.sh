@@ -571,7 +571,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     run_c99_fragment error_id "$error_id_src"
     run_native_parity_fragment error_id "$error_id_src"
     run_c99_fragment catch "$catch_src"
-    run_native_reject_fragment catch "$catch_src"
+    run_native_parity_fragment catch "$catch_src"
     run_c99_fragment dynamic_catch "$dynamic_catch_src"
     run_native_reject_fragment dynamic_catch "$dynamic_catch_src"
     run_c99_fragment defer "$defer_src"

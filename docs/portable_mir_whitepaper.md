@@ -599,6 +599,8 @@ PortableMIR 必须继承 CoreIR 的产品边界：**语言语义统一，target 
 hosted native 是第一个完整语言 target，因为它可复用系统 ABI 和 linker 行为，同时验证 MIR 语义。
 当前已迁入 MIR 的 shard 必须真实生成 native executable；尚未迁入 MIR 的复杂 no-deps shard 必须明确
 报告 lowering gap，不能复用 build-seed `LoweredProgram` helper 伪装成 parity。
+常量输入 error union `catch` success/fallback shard 在 CoreBody 中先规范化为常量结果和 `I32_ADD`
+表达式，再由 hosted PortableMIR 生成 verifier-clean native executable；动态 catch 仍按后续 shard 迁移。
 
 hosted native 接受：
 
