@@ -912,6 +912,10 @@ PortableMIR/native hosted parity 的验收输入。
 - [x] 支持 compiler build 所需 error union / defer。
 - [x] 支持 compiler build 所需泛型实例。
 - [ ] 通过 `PortableMIR` 路径生成 native `bin/cmd/build`。
+  - [x] 修复 `-o ... --native` 被错误覆盖回 C99，保证 `uya build` / `cmd/build build` 的最小 native 成功子集真实进入 Native backend。
+  - [x] 清理 2026-06-08 pre-MIR native self-build WIP：撤掉 `compile_files` / `parse_build_args` 专项摘要、loop/array access one-off `LoweredBodyOp` 扩展，以及 `native_build` direct machine-inst emission WIP。
+  - [x] `bash tests/verify_native_cmd_build_stage1.sh` 只作为 freestanding build-seed 回归边界复验；若失败，仅修边界或迁 MIR，不新增 one-off `LoweredBodyOp`。
+  - [ ] `compile_files(...)`、局部数组索引读取、hosted/freestanding call ABI 和真实 self-build 必须先经 CoreBody/PortableMIR 覆盖，再恢复 native `cmd/build` 生成门禁。
 
 测试：
 
