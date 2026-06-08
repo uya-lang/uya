@@ -947,7 +947,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 冻结 CoreBody/PortableMIR 的 `i32 <=`、局部赋值和裸 call statement surface，并补 verifier/边界测试。
           - [x] 将 `build_compiler_driver_run` partial builder 改为使用上述 surface 表达 stack-limit guard 前置形状。
         - [x] 将 `set_process_stack_limit_bytes(...)` 裸 call statement 迁入 verifier-clean PortableMIR frontier。
-        - [ ] 将 split-dir 环境变量分支继续迁入 PortableMIR frontier。
+        - [x] 将 split-dir 环境变量分支继续迁入 PortableMIR frontier。
         - [ ] 将 `output_file_index < 0` 的 native/C99 输出路径选择分支继续迁入 PortableMIR frontier。
       - [ ] reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`。
 
