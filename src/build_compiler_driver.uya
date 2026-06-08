@@ -94,6 +94,8 @@ struct NativeHostedMirPreflightResult {
     mir_extern_function_count: i32,
     mir_body_function_count: i32,
     mir_type_count: i32,
+    entry_wrapper_covered: i32,
+    entry_pending_callee_name: &byte,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1091,6 +1093,8 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.mir_extern_function_count = 0;
     result.mir_body_function_count = 0;
     result.mir_type_count = 0;
+    result.entry_wrapper_covered = 0;
+    result.entry_pending_callee_name = null;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -4842,7 +4846,58 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
     }
     result.core_function_count = lowered.function_count as i32;
     result.core_body_count = lowered.core_body_count as i32;
+    native_build_hosted_record_entry_chain_frontier(program, checker, result);
     return 0;
+}
+
+fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &TypeChecker,
+    result: &NativeHostedMirPreflightResult) void {
+    if program == null || checker == null || result == null ||
+       program.type != ASTNodeType.AST_PROGRAM || program.program_decls == null {
+        return;
+    }
+    const main_decl: &ASTNode = native_build_find_fn_decl_by_name(program, "main" as &byte);
+    if main_decl == null {
+        return;
+    }
+    const main_call: &ASTNode = native_build_hosted_return_call_expr(main_decl);
+    if main_call == null {
+        return;
+    }
+    var wrapper_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var wrapper_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_return_call_target(program, main_call, &wrapper_function_id,
+        &wrapper_decl_index) == 0 || wrapper_decl_index < 0 {
+        return;
+    }
+    const wrapper_decl: &ASTNode = program.program_decls[wrapper_decl_index];
+    if wrapper_decl == null || wrapper_decl.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if native_build_hosted_decl_can_materialize_safe_core_body(program,
+        wrapper_decl, checker) == 0 {
+        result.entry_pending_callee_name = native_build_decl_name_for_diagnostic(wrapper_decl);
+        return;
+    }
+    result.entry_wrapper_covered = 1;
+    const wrapper_call: &ASTNode = native_build_hosted_return_call_expr(wrapper_decl);
+    if wrapper_call == null {
+        return;
+    }
+    var pending_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var pending_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_return_call_target(program, wrapper_call, &pending_function_id,
+        &pending_decl_index) == 0 || pending_decl_index < 0 {
+        return;
+    }
+    const pending_decl: &ASTNode = program.program_decls[pending_decl_index];
+    if pending_decl == null || pending_decl.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if native_build_hosted_decl_can_materialize_safe_core_body(program,
+        pending_decl, checker) == 0 {
+        result.entry_pending_callee_name = native_build_decl_name_for_diagnostic(pending_decl);
+    }
 }
 
 fn native_build_hosted_coreir_preflight(arena: &CompilerArena, checker: &TypeChecker,
@@ -8739,6 +8794,15 @@ fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_st
         preflight_status, result.verifier_error, result.mir_extern_function_count,
         result.mir_body_function_count, result.mir_type_count, result.extern_symbol_count,
         c_import_count, result.object_count);
+    if result.entry_wrapper_covered != 0 || result.entry_pending_callee_name != null {
+        var pending_callee: &byte = "(none)" as &byte;
+        if result.entry_pending_callee_name != null {
+            pending_callee = result.entry_pending_callee_name;
+        }
+        fprintf(libc.stderr,
+            "native_hosted_entry_frontier: wrapper_covered=%d first_pending_callee=%s\n" as *byte,
+            result.entry_wrapper_covered, pending_callee as *byte);
+    }
 }
 
 fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, preflight_status: i32,
@@ -16660,6 +16724,8 @@ fn compile_files(
                 mir_extern_function_count: 0,
                 mir_body_function_count: 0,
                 mir_type_count: 0,
+                entry_wrapper_covered: 0,
+                entry_pending_callee_name: null,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);
