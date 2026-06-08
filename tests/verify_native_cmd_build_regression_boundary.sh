@@ -51,6 +51,16 @@ require_pattern "$SUBSET_DOC" 'tests/verify_native_cmd_build_no_silent_c99\.sh' 
     "cmd/build subset doc 缺少 no-silent-C99 门禁引用"
 require_pattern "$SUBSET_DOC" '不能生成伪 native 输出，也不能静默回落 C99' \
     "cmd/build subset doc 缺少失败语义"
+require_pattern "$SUBSET_DOC" '^## Hosted Native Handoff First Slice Contract' \
+    "cmd/build subset doc 缺少 hosted native handoff 首切片合同"
+require_pattern "$SUBSET_DOC" '首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body' \
+    "cmd/build subset doc 缺少首切片 verifier-clean 输入边界"
+require_pattern "$SUBSET_DOC" '不得调用历史 `LoweredProgram -> MachineModule` build-seed helper' \
+    "cmd/build subset doc 缺少首切片 pre-MIR helper 禁止规则"
+require_pattern "$SUBSET_DOC" '未实现真实 emitter 前必须继续返回 `native_hosted_portable_mir_lowering_missing`' \
+    "cmd/build subset doc 缺少首切片 explicit reject 语义"
+require_pattern "$SUBSET_DOC" '`NativeHostedLinkPlan` / `MirTargetBackendRequest` handoff' \
+    "cmd/build subset doc 缺少 hosted link plan handoff 边界"
 
 require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
     "architecture doc 缺少 hosted native C99 oracle 范围"

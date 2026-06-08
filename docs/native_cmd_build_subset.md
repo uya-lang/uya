@@ -111,6 +111,14 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   不再把 `compile_files(...)` 16 参数缺口固定为 `--nostdlib` freestanding one-off shape。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
 
+## Hosted Native Handoff First Slice Contract
+
+首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
+
+这个切片的边界是 `NativeHostedLinkPlan` / `MirTargetBackendRequest` handoff：在 `CoreBody` 和
+`PortableMIR` verifier-clean 之后，把已覆盖的 hosted body、extern function symbol、`@c_import`
+object 和目标 backend request 交给真实 native emitter。未实现真实 emitter 前必须继续返回 `native_hosted_portable_mir_lowering_missing`，并保留 no-output / no-silent-C99 失败语义。
+
 ## Release Acceptance Boundary
 
 本文件只定义 Phase 10 freestanding native `cmd/build` 子集，不定义最终语言完备性或长期 native 后端主线。
