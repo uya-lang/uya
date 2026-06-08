@@ -223,6 +223,15 @@ struct NativeBuildDynamicCatchShape {
     ok_value: i32,
 }
 
+struct NativeBuildDeferLocalAssignShape {
+    local_decl: &ASTNode,
+    defer_stmt: &ASTNode,
+    assign_stmt: &ASTNode,
+    return_stmt: &ASTNode,
+    initial_value: i32,
+    deferred_value: i32,
+}
+
 const NATIVE_BUILD_LOCAL_KIND_CALL_I32: i32 = 1;
 const NATIVE_BUILD_LOCAL_KIND_SCALAR_I32: i32 = 2;
 const NATIVE_BUILD_LOCAL_KIND_ARGV_PTR: i32 = 3;
@@ -337,6 +346,17 @@ fn native_build_dynamic_catch_shape_empty() NativeBuildDynamicCatchShape {
         compare_value: 0,
         fallback_value: 0,
         ok_value: 0,
+    };
+}
+
+fn native_build_defer_local_assign_shape_empty() NativeBuildDeferLocalAssignShape {
+    return NativeBuildDeferLocalAssignShape{
+        local_decl: null,
+        defer_stmt: null,
+        assign_stmt: null,
+        return_stmt: null,
+        initial_value: 0,
+        deferred_value: 0,
     };
 }
 
@@ -985,6 +1005,40 @@ fn native_build_empty_core_verifier_result() CoreVerifierResult {
     };
 }
 
+fn native_build_core_semantic_fact_empty(fact_id: i32, body_id: i32,
+    kind: i32) CoreSemanticFact {
+    return CoreSemanticFact{
+        fact_id: fact_id,
+        kind: kind,
+        body_id: body_id,
+        stmt_id: CORE_STMT_INVALID_ID,
+        expr_id: CORE_EXPR_INVALID_ID,
+        source_expr_id: TYPED_PROGRAM_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_id: CORE_CLEANUP_EDGE_INVALID_ID,
+        call_target_kind: TYPED_CALL_TARGET_UNKNOWN,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        target_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+        arg_count: 0,
+        receiver_type_id: TYPED_PROGRAM_INVALID_ID,
+        method_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        vtable_slot: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        type_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        proof_status: TYPED_PROOF_UNKNOWN,
+        proof_error_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: TYPED_PROGRAM_INVALID_ID,
+        drop_defer_plan_id: TYPED_PROGRAM_INVALID_ID,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+}
+
 fn native_build_hosted_core_function_from_decl(function_id: i32,
     decl_index: i32, decl: &ASTNode) ConcreteFunction {
     return ConcreteFunction{
@@ -1526,6 +1580,30 @@ fn native_build_hosted_decl_can_materialize_dynamic_catch_body(program: &ASTNode
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_defer_local_assign_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildDeferLocalAssignShape = native_build_defer_local_assign_shape_empty();
+    if native_build_decl_defer_local_assign_shape(decl, &shape) == 0 ||
+       shape.local_decl == null || shape.local_decl.var_decl_init == null ||
+       shape.assign_stmt == null || shape.assign_stmt.assign_src == null ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.local_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.assign_stmt.assign_src,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        shape.return_stmt.return_stmt_expr, &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, decl: &ASTNode,
     checker: &TypeChecker) i32 {
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_is_extern != 0 ||
@@ -1550,6 +1628,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
     }
     if native_build_hosted_decl_can_materialize_dynamic_catch_body(program,
         decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_defer_local_assign_body(decl,
+        checker) != 0 {
         return 1;
     }
     if decl.fn_decl_body.block_stmt_count == 1 && decl.fn_decl_body.block_stmts != null {
@@ -2673,6 +2755,204 @@ fn native_build_hosted_coreir_append_dynamic_catch_body(lowered: &LoweredProgram
     return 0;
 }
 
+fn native_build_hosted_coreir_append_defer_local_assign_body(lowered: &LoweredProgram,
+    checker: &TypeChecker, function_id: i32, decl_index: i32,
+    decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildDeferLocalAssignShape = native_build_defer_local_assign_shape_empty();
+    if native_build_decl_defer_local_assign_shape(decl, &shape) == 0 ||
+       shape.local_decl == null || shape.local_decl.var_decl_init == null ||
+       shape.assign_stmt == null || shape.assign_stmt.assign_src == null ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    var local_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var deferred_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.local_decl.var_decl_init,
+        &local_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.assign_stmt.assign_src,
+        &deferred_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        shape.return_stmt.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const place_start: i32 = lowered.core_place_count as i32;
+    const cleanup_start: i32 = lowered.core_cleanup_edge_count as i32;
+    const fact_start: i32 = lowered.core_semantic_fact_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 3,
+        expr_start: expr_start,
+        expr_count: 3,
+        place_start: place_start,
+        place_count: 1,
+        cleanup_edge_start: cleanup_start,
+        cleanup_edge_count: 1,
+        semantic_fact_start: fact_start,
+        semantic_fact_count: 1,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY | CORE_BODY_FLAG_CLEANUP,
+    };
+    var place: CorePlace = CorePlace{
+        place_id: place_start,
+        kind: CORE_PLACE_KIND_LOCAL,
+        body_id: body_id,
+        source_expr_id: shape.local_decl.var_decl_init.expr_id,
+        type_id: local_type_id,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.local_decl.line,
+        flags: CORE_PLACE_FLAG_STACK_SLOT,
+    };
+    var initial_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.local_decl.var_decl_init.expr_id,
+        type_id: local_type_id,
+        literal_i64: shape.initial_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.local_decl.var_decl_init.line,
+        flags: 0,
+    };
+    var return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 1,
+        kind: CORE_EXPR_KIND_LOCAL_REF,
+        body_id: body_id,
+        source_expr_id: shape.return_stmt.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: shape.initial_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.return_stmt.return_stmt_expr.line,
+        flags: 0,
+    };
+    var deferred_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 2,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.assign_stmt.assign_src.expr_id,
+        type_id: deferred_type_id,
+        literal_i64: shape.deferred_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.assign_stmt.assign_src.line,
+        flags: 0,
+    };
+    var local_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start,
+        place_id: place_start,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.local_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var defer_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_DEFER,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 2,
+        place_id: place_start,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.defer_stmt.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_CLEANUP,
+    };
+    var return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 2,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 1,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: cleanup_start,
+        cleanup_edge_count: 1,
+        source_span_id: shape.return_stmt.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_CLEANUP,
+    };
+    var cleanup_edge: CoreCleanupEdge = CoreCleanupEdge{
+        edge_id: cleanup_start,
+        kind: CORE_CLEANUP_EDGE_KIND_RETURN,
+        body_id: body_id,
+        from_stmt_id: stmt_start + 2,
+        to_stmt_id: CORE_STMT_INVALID_ID,
+        cleanup_scope_id: 0,
+        drop_defer_plan_id: 0,
+        payload_expr_id: expr_start + 1,
+        source_span_id: shape.return_stmt.line,
+        flags: 0,
+    };
+    var cleanup_fact: CoreSemanticFact = native_build_core_semantic_fact_empty(fact_start,
+        body_id, CORE_SEMANTIC_FACT_CLEANUP);
+    cleanup_fact.stmt_id = stmt_start + 2;
+    cleanup_fact.expr_id = expr_start + 1;
+    cleanup_fact.source_expr_id = shape.return_stmt.return_stmt_expr.expr_id;
+    cleanup_fact.cleanup_edge_id = cleanup_start;
+    cleanup_fact.source_span_id = shape.return_stmt.line;
+    cleanup_fact.drop_defer_plan_id = 0;
+    cleanup_fact.cleanup_scope_id = 0;
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_place(lowered, &place) != 0 ||
+       lowered_program_append_core_expr(lowered, &initial_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &return_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &deferred_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &local_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &defer_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &return_stmt) != 0 ||
+       lowered_program_append_core_cleanup_edge(lowered, &cleanup_edge) != 0 ||
+       lowered_program_append_core_semantic_fact(lowered, &cleanup_fact) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_coreir_append_main_local_if_body(lowered: &LoweredProgram,
     checker: &TypeChecker, program: &ASTNode, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -3347,6 +3627,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_dynamic_catch_body(lowered,
             checker, program, function_id, decl_index, decl);
     }
+    if native_build_hosted_decl_can_materialize_defer_local_assign_body(decl,
+        checker) != 0 {
+        return native_build_hosted_coreir_append_defer_local_assign_body(lowered,
+            checker, function_id, decl_index, decl);
+    }
     var add_left_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_left_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_right_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
@@ -3821,6 +4106,12 @@ fn native_build_hosted_decl_can_lower_dynamic_catch_mir_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_dynamic_catch_body(program,
         decl, checker);
+}
+
+fn native_build_hosted_decl_can_lower_defer_local_assign_mir_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_defer_local_assign_body(decl,
+        checker);
 }
 
 fn native_build_hosted_decl_can_lower_main_local_if_mir_body(program: &ASTNode,
@@ -4416,6 +4707,23 @@ fn native_build_hosted_mir_append_dynamic_catch_body_function(module: &PortableM
         return -1;
     }
     return 0;
+}
+
+fn native_build_hosted_mir_append_defer_local_assign_body_function(module: &PortableMirModule,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode) i32 {
+    if module == null || decl == null || lowered_function_id < 0 ||
+       decl_index < 0 || source_core_body_id < 0 {
+        return -1;
+    }
+    var shape: NativeBuildDeferLocalAssignShape = native_build_defer_local_assign_shape_empty();
+    if native_build_decl_defer_local_assign_shape(decl, &shape) == 0 ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    return native_build_hosted_mir_append_const_return_body_function(module,
+        lowered_function_id, decl_index, source_core_body_id,
+        shape.return_stmt.return_stmt_expr.expr_id, shape.initial_value);
 }
 
 fn native_build_hosted_mir_append_call_body_function(module: &PortableMirModule,
@@ -6537,6 +6845,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     decl, checker) != 0 {
                     if native_build_hosted_mir_append_dynamic_catch_body_function(module,
                         lowered_function_id, i, source_core_body_id, decl, program) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_defer_local_assign_mir_body(decl,
+                    checker) != 0 {
+                    if native_build_hosted_mir_append_defer_local_assign_body_function(module,
+                        lowered_function_id, i, source_core_body_id, decl) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
@@ -9596,11 +9911,12 @@ fn native_build_return_stmt_identifier_equals(stmt: &ASTNode, local_name: &byte)
     return 1;
 }
 
-fn native_build_decl_defer_local_assign_return_value(decl: &ASTNode, out_value: &i32) i32 {
-    if out_value != null {
-        *out_value = 0;
+fn native_build_decl_defer_local_assign_shape(decl: &ASTNode,
+    out_shape: &NativeBuildDeferLocalAssignShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_defer_local_assign_shape_empty();
     }
-    if decl == null || out_value == null ||
+    if decl == null || out_shape == null ||
        native_build_decl_is_noarg_i32_fn(decl) == 0 ||
        decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null ||
@@ -9612,24 +9928,51 @@ fn native_build_decl_defer_local_assign_return_value(decl: &ASTNode, out_value: 
     const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[2];
     if local_decl == null || local_decl.type != ASTNodeType.AST_VAR_DECL ||
        local_decl.var_decl_name == null ||
-       native_build_type_is_i32_like_scalar(local_decl.var_decl_type) == 0 {
+       native_build_type_is_i32_like_scalar(local_decl.var_decl_type) == 0 ||
+       defer_stmt == null || defer_stmt.type != ASTNodeType.AST_DEFER_STMT ||
+       defer_stmt.defer_stmt_body == null ||
+       return_stmt == null {
         return 0;
+    }
+    var assign_stmt: &ASTNode = defer_stmt.defer_stmt_body;
+    if assign_stmt.type == ASTNodeType.AST_BLOCK {
+        if assign_stmt.block_stmts == null || assign_stmt.block_stmt_count != 1 {
+            return 0;
+        }
+        assign_stmt = assign_stmt.block_stmts[0];
     }
     var initial_value: i32 = 0;
-    if native_build_var_decl_scalar_const_value(local_decl, null, &initial_value) == 0 ||
-       initial_value < 0 || initial_value > 255 {
-        return 0;
-    }
     var deferred_value: i32 = 0;
-    if native_build_defer_stmt_local_assign_const(defer_stmt,
-        local_decl.var_decl_name, &deferred_value) == 0 {
+    if native_build_var_decl_scalar_const_value(local_decl, null, &initial_value) == 0 ||
+       native_build_assign_stmt_local_const(assign_stmt, local_decl.var_decl_name,
+        &deferred_value) == 0 ||
+       native_build_return_stmt_identifier_equals(return_stmt,
+        local_decl.var_decl_name) == 0 ||
+       initial_value < 0 || initial_value > 255 ||
+       deferred_value < 0 || deferred_value > 255 {
         return 0;
     }
-    if native_build_return_stmt_identifier_equals(return_stmt,
-        local_decl.var_decl_name) == 0 {
+    out_shape.local_decl = local_decl;
+    out_shape.defer_stmt = defer_stmt;
+    out_shape.assign_stmt = assign_stmt;
+    out_shape.return_stmt = return_stmt;
+    out_shape.initial_value = initial_value;
+    out_shape.deferred_value = deferred_value;
+    return 1;
+}
+
+fn native_build_decl_defer_local_assign_return_value(decl: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if out_value == null {
         return 0;
     }
-    *out_value = initial_value;
+    var shape: NativeBuildDeferLocalAssignShape = native_build_defer_local_assign_shape_empty();
+    if native_build_decl_defer_local_assign_shape(decl, &shape) == 0 {
+        return 0;
+    }
+    *out_value = shape.initial_value;
     return 1;
 }
 

@@ -603,7 +603,9 @@ hosted native 是第一个完整语言 target，因为它可复用系统 ABI 和
 表达式，再由 hosted PortableMIR 生成 verifier-clean native executable。`get_argc()` 驱动的动态
 error union `catch` shard 现在以 CoreBody `IF` 和 PortableMIR `COND_BR` 表达 fallback/success 两条路径，
 再由 verified no-deps hosted native path 生成真实 executable；该实现仍是窄形状 shard，不代表完整
-error-union lowering 已完成。
+error-union lowering 已完成。最小 `defer { local = const; }` shard 现在在 CoreBody 中记录
+`DEFER` statement、return cleanup edge 和 cleanup fact；PortableMIR 侧以已冻结的 return value 生成
+verifier-clean executable，覆盖“return 先求值、defer 后执行”的窄形状语义。
 
 hosted native 接受：
 
