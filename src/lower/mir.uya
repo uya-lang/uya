@@ -54,6 +54,7 @@ export const MIR_INST_OP_LOAD: i32 = 1;
 export const MIR_INST_OP_STORE: i32 = 2;
 export const MIR_INST_OP_CALL: i32 = 3;
 export const MIR_INST_OP_ASM_BLOCK: i32 = 4;
+export const MIR_INST_OP_I32_ADD: i32 = 5;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
 export const MIR_TERMINATOR_KIND_BR: i32 = 2;

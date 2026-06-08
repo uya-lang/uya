@@ -375,6 +375,8 @@ require_pattern "$BUILD_DRIVER_FILE" 'native_build_hosted_verified_mir_local_arr
     "verified PortableMIR local array index return extraction"
 require_pattern "$BUILD_DRIVER_FILE" 'MIR_INST_OP_INDEX_ADDR' "MIR index address lowering evidence"
 require_pattern "$BUILD_DRIVER_FILE" 'MIR_INST_OP_LOAD' "MIR indexed load lowering evidence"
+require_pattern "$BUILD_DRIVER_FILE" 'CORE_EXPR_KIND_I32_ADD' "CoreIR i32 add expression evidence"
+require_pattern "$BUILD_DRIVER_FILE" 'MIR_INST_OP_I32_ADD' "PortableMIR i32 add instruction evidence"
 
 require_pattern "$extern_src" '@c_import' "@c_import parity coverage"
 require_pattern "$extern_src" 'extern fn add_i32' "extern parity coverage"
@@ -446,6 +448,72 @@ run_c99_fragment() {
     echo "$status" >"$TMP_DIR/$name.c99.status"
 }
 
+run_native_parity_fragment() {
+    local name="$1"
+    local src="$2"
+    local bin="$TMP_DIR/$name.native.bin"
+    local build_out="$TMP_DIR/$name.native.build.out"
+    local build_err="$TMP_DIR/$name.native.build.err"
+    local run_out="$TMP_DIR/$name.native.run.out"
+    local run_err="$TMP_DIR/$name.native.run.err"
+
+    if ! (cd "$REPO_ROOT" && ./bin/uya build "$src" -o "$bin" \
+        --native --no-split-c --project-root "$TMP_DIR" >"$build_out" 2>"$build_err"); then
+        cat "$build_out" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if [[ ! -s "$bin" ]]; then
+        echo "error: $name native parity fragment reported success without output" >&2
+        exit 1
+    fi
+    if grep -q '后端类型: C99' "$build_err"; then
+        echo "error: $name native parity fragment fell back to C99" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if grep -q 'native_hosted_portable_mir_lowering_missing' "$build_err"; then
+        echo "error: $name native parity fragment used reject path" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=[1-9][0-9]* pending_bodies=[0-9]+' "$build_err"; then
+        echo "error: $name native parity fragment lacks CoreIR body evidence" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=[1-9][0-9]* mir_types=[1-9][0-9]* extern_symbols=[0-9]+ c_import_objects=0 hosted_link_objects=0' "$build_err"; then
+        echo "error: $name native parity fragment lacks PortableMIR body evidence" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$build_err"; then
+        echo "error: $name native parity fragment lacks hosted no-deps executable evidence" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    grep -q 'native_output_bytes:' "$build_err"
+
+    chmod +x "$bin"
+    set +e
+    "$bin" >"$run_out" 2>"$run_err"
+    local status=$?
+    set -e
+    echo "$status" >"$TMP_DIR/$name.native.status"
+    if [[ "$status" != "$(cat "$TMP_DIR/$name.c99.status")" ]]; then
+        echo "error: hosted native/C99 $name parity exit status differs: c99=$(cat "$TMP_DIR/$name.c99.status") native=$status" >&2
+        exit 1
+    fi
+    if ! cmp -s "$TMP_DIR/$name.c99.run.out" "$run_out"; then
+        echo "error: hosted native/C99 $name parity stdout differs" >&2
+        exit 1
+    fi
+    if ! cmp -s "$TMP_DIR/$name.c99.run.err" "$run_err"; then
+        echo "error: hosted native/C99 $name parity stderr differs" >&2
+        exit 1
+    fi
+}
+
 run_native_reject_fragment() {
     local name="$1"
     local src="$2"
@@ -495,7 +563,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     bash "$SCRIPT_DIR/verify_hosted_native_main_local_if_preflight.sh"
 
     run_c99_fragment builtin "$builtin_src"
-    run_native_reject_fragment builtin "$builtin_src"
+    run_native_parity_fragment builtin "$builtin_src"
     run_c99_fragment array_len "$array_len_src"
     run_native_reject_fragment array_len "$array_len_src"
     run_c99_fragment slice "$slice_src"

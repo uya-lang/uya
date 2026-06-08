@@ -872,8 +872,8 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     - [x] 将 `@c_import` sidecar object 纳入 hosted native link plan，preflight dump 必须记录 object 数量和 extern symbol。
     - [x] 将最小 `extern fn add_i32(...)` call body 经 CoreBody/PortableMIR 降到 hosted native executable，并与 C99 oracle 退出码一致。
     - [x] 把 full-language smoke 中的 extern / `@c_import` 片段从明确 pending 推进为 parity 覆盖。
-  - 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 C99 行为与 hosted native 明确拒绝语义（拆分执行）：
-    - [x] `@size_of` / `@align_of` 标量 builtin shard 先要求 C99 成功、hosted native 不回落 C99 且明确报告 MIR lowering missing。
+  - 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 C99 行为、已迁 MIR shard 的 hosted native/C99 parity，以及未迁 MIR shard 的明确拒绝语义（拆分执行）：
+    - [x] `@size_of` / `@align_of` 标量 builtin shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求 CoreIR/MIR body preflight、真实 executable、退出码/stdout/stderr 一致，且不走 reject 或 C99 fallback。
     - slice/array + `@len` hosted native shard（拆分执行）：
       - [x] 数组字面量 `@len([1, 2, 3, 4])` shard 先要求 C99 成功、hosted native 明确拒绝。
       - [x] slice 构造/索引 shard 先要求 C99 成功、hosted native 明确拒绝。
@@ -920,6 +920,17 @@ PortableMIR/native hosted parity 的验收输入。
   - [x] 明确 hosted/freestanding call ABI profile 在 PortableMIR 中的分流和 verifier 门禁，再迁入 `cmd/build` 所需调用形状。
   - [x] 清理 hosted no-deps 的 pre-MIR `LoweredProgram` helper 成功路径，改为只从 verifier-clean PortableMIR 求出 `return <int>` / `return callee()` 退出码；复杂 no-deps shard 保持明确 reject。
   - [ ] 将 builtin、slice/error/defer/drop/interface/atomic/SIMD 等复杂 no-deps shard 逐项迁入 CoreBody/PortableMIR 后，再恢复真正 hosted native/C99 parity。
+    - [x] 将 `@size_of` / `@align_of` 标量 builtin shard 迁入 CoreBody/PortableMIR hosted native/C99 parity，禁止 pre-MIR helper 成功路径。
+    - [ ] 将数组字面量 `@len([1, 2, 3, 4])` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将 slice 构造/索引 shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将 `@error_id(error.SmokeError)` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将常量输入 error union `catch` success/fallback shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将动态 error union `catch` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将最小 `defer { local = const; }` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将最小 lexical drop shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将 interface/method dispatch shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将 atomic i32 shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [ ] 将 SIMD vector/mask shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
   - [ ] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
 
 测试：

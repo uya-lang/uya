@@ -310,6 +310,11 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     if inst.op == MIR_INST_OP_STORE && inst.operand_count < 2 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
+    if inst.op == MIR_INST_OP_I32_ADD &&
+       (inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+        typ == null || typ.kind != MIR_TYPE_KIND_I32) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
     if (inst.op == MIR_INST_OP_LOAD || inst.op == MIR_INST_OP_STORE ||
         (inst.op >= MIR_VERIFY_ADDR_OP_MIN && inst.op <= MIR_VERIFY_ADDR_OP_MAX)) &&
        portable_mir_verify_address_supported(module, inst.address_space) == 0 {
