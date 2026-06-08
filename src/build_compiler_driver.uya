@@ -6869,6 +6869,269 @@ fn native_build_decl_atomic_i32_return_value(decl: &ASTNode, out_value: &i32) i3
     return 0;
 }
 
+fn native_build_simd_vector_type_i32_lanes(type_node: &ASTNode, out_lanes: &i32) i32 {
+    if out_lanes != null {
+        *out_lanes = 0;
+    }
+    if type_node == null || out_lanes == null ||
+       type_node.type != ASTNodeType.AST_TYPE_VECTOR ||
+       native_build_type_is_i32(type_node.type_vector_element_type) == 0 ||
+       type_node.type_vector_size_expr == null ||
+       type_node.type_vector_size_expr.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    const lanes_result: !i32 = type_node.type_vector_size_expr.number_value_i64 as! i32;
+    *out_lanes = lanes_result catch {
+        return 0;
+    };
+    if *out_lanes > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_simd_mask_type_lanes(type_node: &ASTNode, out_lanes: &i32) i32 {
+    if out_lanes != null {
+        *out_lanes = 0;
+    }
+    if type_node == null || out_lanes == null ||
+       type_node.type != ASTNodeType.AST_TYPE_MASK ||
+       type_node.type_mask_size_expr == null ||
+       type_node.type_mask_size_expr.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    const lanes_result: !i32 = type_node.type_mask_size_expr.number_value_i64 as! i32;
+    *out_lanes = lanes_result catch {
+        return 0;
+    };
+    if *out_lanes > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_simd_call_method_equals(expr: &ASTNode, method_name: &byte) i32 {
+    if expr == null || method_name == null ||
+       expr.type != ASTNodeType.AST_CALL_EXPR ||
+       expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+       expr.call_expr_callee.member_access_object == null ||
+       expr.call_expr_callee.member_access_object.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.call_expr_callee.member_access_object.identifier_name == null ||
+       str_equals(expr.call_expr_callee.member_access_object.identifier_name as *byte,
+        "@vector" as *byte) == 0 ||
+       expr.call_expr_callee.member_access_field_name == null ||
+       str_equals(expr.call_expr_callee.member_access_field_name as *byte,
+        method_name as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_var_decl_simd_splat_i32_const(stmt: &ASTNode,
+    out_name: & & byte, out_lanes: &i32, out_lane_value: &i32) i32 {
+    if out_name != null {
+        *out_name = null;
+    }
+    if out_lanes != null {
+        *out_lanes = 0;
+    }
+    if out_lane_value != null {
+        *out_lane_value = 0;
+    }
+    if stmt == null || out_name == null || out_lanes == null ||
+       out_lane_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       native_build_simd_call_method_equals(stmt.var_decl_init,
+        "splat" as &byte) == 0 ||
+       stmt.var_decl_init.call_expr_arg_count != 1 ||
+       stmt.var_decl_init.call_expr_args == null ||
+       native_build_simd_vector_type_i32_lanes(
+        stmt.var_decl_init.simd_splat_target_type, out_lanes) == 0 ||
+       native_build_expr_scalar_const_value(stmt.var_decl_init.call_expr_args[0],
+        null, out_lane_value) == 0 {
+        return 0;
+    }
+    *out_name = stmt.var_decl_name;
+    return 1;
+}
+
+fn native_build_eval_i32_compare_const(op: TokenType, left_value: i32,
+    right_value: i32, out_truth: &i32) i32 {
+    if out_truth != null {
+        *out_truth = 0;
+    }
+    if out_truth == null {
+        return 0;
+    }
+    if op == TokenType.TOKEN_LESS {
+        if left_value < right_value {
+            *out_truth = 1;
+        }
+        return 1;
+    }
+    if op == TokenType.TOKEN_GREATER {
+        if left_value > right_value {
+            *out_truth = 1;
+        }
+        return 1;
+    }
+    if op == TokenType.TOKEN_EQUAL {
+        if left_value == right_value {
+            *out_truth = 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_var_decl_simd_mask_compare_const(stmt: &ASTNode,
+    left_name: &byte, left_value: i32, right_name: &byte, right_value: i32,
+    expected_lanes: i32, out_name: & & byte, out_truth: &i32) i32 {
+    if out_name != null {
+        *out_name = null;
+    }
+    if out_truth != null {
+        *out_truth = 0;
+    }
+    if stmt == null || left_name == null || right_name == null ||
+       out_name == null || out_truth == null || expected_lanes <= 0 ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_BINARY_EXPR ||
+       native_build_identifier_equals(stmt.var_decl_init.binary_expr_left,
+        left_name) == 0 ||
+       native_build_identifier_equals(stmt.var_decl_init.binary_expr_right,
+        right_name) == 0 {
+        return 0;
+    }
+    var mask_lanes: i32 = 0;
+    if native_build_simd_mask_type_lanes(stmt.var_decl_type, &mask_lanes) == 0 ||
+       mask_lanes != expected_lanes {
+        return 0;
+    }
+    const op_tmp: !TokenType = stmt.var_decl_init.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if native_build_eval_i32_compare_const(op, left_value, right_value,
+        out_truth) == 0 {
+        return 0;
+    }
+    *out_name = stmt.var_decl_name;
+    return 1;
+}
+
+fn native_build_var_decl_simd_select_i32_const(stmt: &ASTNode,
+    mask_name: &byte, mask_truth: i32, true_name: &byte, true_value: i32,
+    false_name: &byte, false_value: i32, expected_lanes: i32,
+    out_name: & & byte, out_lane_value: &i32) i32 {
+    if out_name != null {
+        *out_name = null;
+    }
+    if out_lane_value != null {
+        *out_lane_value = 0;
+    }
+    if stmt == null || mask_name == null || true_name == null || false_name == null ||
+       out_name == null || out_lane_value == null || expected_lanes <= 0 ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       native_build_simd_call_method_equals(stmt.var_decl_init,
+        "select" as &byte) == 0 ||
+       stmt.var_decl_init.call_expr_arg_count != 3 ||
+       stmt.var_decl_init.call_expr_args == null ||
+       native_build_identifier_equals(stmt.var_decl_init.call_expr_args[0],
+        mask_name) == 0 ||
+       native_build_identifier_equals(stmt.var_decl_init.call_expr_args[1],
+        true_name) == 0 ||
+       native_build_identifier_equals(stmt.var_decl_init.call_expr_args[2],
+        false_name) == 0 {
+        return 0;
+    }
+    var lanes: i32 = 0;
+    if native_build_simd_vector_type_i32_lanes(
+        stmt.var_decl_init.simd_splat_target_type, &lanes) == 0 ||
+       lanes != expected_lanes {
+        return 0;
+    }
+    if mask_truth != 0 {
+        *out_lane_value = true_value;
+    } else {
+        *out_lane_value = false_value;
+    }
+    *out_name = stmt.var_decl_name;
+    return 1;
+}
+
+fn native_build_return_simd_reduce_add_i32_const(stmt: &ASTNode, vector_name: &byte,
+    lanes: i32, lane_value: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || vector_name == null || out_value == null || lanes <= 0 ||
+       stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       native_build_simd_call_method_equals(stmt.return_stmt_expr,
+        "reduce_add" as &byte) == 0 ||
+       stmt.return_stmt_expr.call_expr_arg_count != 1 ||
+       stmt.return_stmt_expr.call_expr_args == null ||
+       native_build_identifier_equals(stmt.return_stmt_expr.call_expr_args[0],
+        vector_name) == 0 {
+        return 0;
+    }
+    const total: i64 = (lane_value as i64) * (lanes as i64);
+    const total_result: !i32 = total as! i32;
+    *out_value = total_result catch {
+        return 0;
+    };
+    if *out_value >= 0 && *out_value <= 255 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_decl_simd_vector_mask_return_value(decl: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if decl == null || out_value == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count != 5 {
+        return 0;
+    }
+    var left_name: &byte = null;
+    var lanes: i32 = 0;
+    var left_value: i32 = 0;
+    if native_build_var_decl_simd_splat_i32_const(decl.fn_decl_body.block_stmts[0],
+        &left_name, &lanes, &left_value) == 0 {
+        return 0;
+    }
+    var right_name: &byte = null;
+    var right_lanes: i32 = 0;
+    var right_value: i32 = 0;
+    if native_build_var_decl_simd_splat_i32_const(decl.fn_decl_body.block_stmts[1],
+        &right_name, &right_lanes, &right_value) == 0 ||
+       right_lanes != lanes {
+        return 0;
+    }
+    var mask_name: &byte = null;
+    var mask_truth: i32 = 0;
+    if native_build_var_decl_simd_mask_compare_const(decl.fn_decl_body.block_stmts[2],
+        left_name, left_value, right_name, right_value, lanes,
+        &mask_name, &mask_truth) == 0 {
+        return 0;
+    }
+    var selected_name: &byte = null;
+    var selected_value: i32 = 0;
+    if native_build_var_decl_simd_select_i32_const(decl.fn_decl_body.block_stmts[3],
+        mask_name, mask_truth, right_name, right_value, left_name, left_value,
+        lanes, &selected_name, &selected_value) == 0 {
+        return 0;
+    }
+    return native_build_return_simd_reduce_add_i32_const(decl.fn_decl_body.block_stmts[4],
+        selected_name, lanes, selected_value, out_value);
+}
+
 fn native_build_var_decl_i32_array_zero_value(stmt: &ASTNode, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
@@ -7810,6 +8073,11 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
     if native_build_decl_atomic_i32_return_value(decl, &atomic_return_value) != 0 {
         return native_build_append_const_return_lowered_function(lowered,
             function_index, decl_index, decl, atomic_return_value);
+    }
+    var simd_return_value: i32 = 0;
+    if native_build_decl_simd_vector_mask_return_value(decl, &simd_return_value) != 0 {
+        return native_build_append_const_return_lowered_function(lowered,
+            function_index, decl_index, decl, simd_return_value);
     }
     var locals: NativeBuildLocalTable = native_build_local_table_init(lowered.arena, body.block_stmt_count);
     if locals.names == null || locals.call_targets == null ||

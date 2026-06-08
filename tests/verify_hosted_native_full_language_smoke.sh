@@ -22,6 +22,7 @@ defer_src="$TMP_DIR/defer_fragment.uya"
 drop_src="$TMP_DIR/drop_fragment.uya"
 interface_src="$TMP_DIR/interface_fragment.uya"
 atomic_src="$TMP_DIR/atomic_fragment.uya"
+simd_src="$TMP_DIR/simd_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -45,6 +46,8 @@ interface_c99_bin="$TMP_DIR/c99-interface-smoke"
 interface_native_bin="$TMP_DIR/native-interface-smoke"
 atomic_c99_bin="$TMP_DIR/c99-atomic-smoke"
 atomic_native_bin="$TMP_DIR/native-atomic-smoke"
+simd_c99_bin="$TMP_DIR/c99-simd-smoke"
+simd_native_bin="$TMP_DIR/native-simd-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -212,6 +215,18 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$simd_src" <<'EOF'
+type SmokeVec = @vector(i32, 4);
+
+export fn main() i32 {
+    const vec_a: SmokeVec = @vector.splat(1);
+    const vec_b: SmokeVec = @vector.splat(2);
+    const mask: @mask(4) = vec_a < vec_b;
+    const selected: SmokeVec = @vector.select(mask, vec_b, vec_a);
+    return @vector.reduce_add(selected);
+}
+EOF
+
 cat >"$main_src" <<'EOF'
 use smoke_helper;
 
@@ -359,6 +374,8 @@ require_pattern "$interface_src" 'interface SmokeAdder' "interface dispatch pari
 require_pattern "$interface_src" 'const through_interface: i32 = use_adder\(counter\);' "method dispatch via interface parity coverage"
 require_pattern "$atomic_src" 'var atomic_value: atomic i32 = 5;' "atomic i32 declaration parity coverage"
 require_pattern "$atomic_src" 'atomic_value \+= 2;' "atomic i32 compound update parity coverage"
+require_pattern "$simd_src" 'const mask: @mask\(4\) = vec_a < vec_b;' "SIMD mask parity coverage"
+require_pattern "$simd_src" '@vector.select\(mask, vec_b, vec_a\)' "SIMD vector select parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -1151,6 +1168,73 @@ if ! cmp -s "$TMP_DIR/atomic.c99.run.err" "$TMP_DIR/atomic.native.run.err"; then
     exit 1
 fi
 
+simd_c99_build_out="$TMP_DIR/simd.c99.build.out"
+simd_c99_build_err="$TMP_DIR/simd.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$simd_src" -o "$simd_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$simd_c99_build_out" 2>"$simd_c99_build_err"); then
+    cat "$simd_c99_build_out" >&2
+    cat "$simd_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$simd_c99_bin" >"$TMP_DIR/simd.c99.run.out" 2>"$TMP_DIR/simd.c99.run.err"
+simd_c99_status=$?
+set -e
+if [[ "$simd_c99_status" -ne 8 ]]; then
+    echo "error: C99 SIMD parity fragment exited with $simd_c99_status" >&2
+    cat "$TMP_DIR/simd.c99.run.out" >&2
+    cat "$TMP_DIR/simd.c99.run.err" >&2
+    exit 1
+fi
+
+simd_native_build_out="$TMP_DIR/simd.native.build.out"
+simd_native_build_err="$TMP_DIR/simd.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$simd_src" -o "$simd_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$simd_native_build_out" 2>"$simd_native_build_err"); then
+    cat "$simd_native_build_out" >&2
+    cat "$simd_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$simd_native_bin" ]]; then
+    echo "error: native SIMD parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$simd_native_build_err"; then
+    echo "error: native SIMD parity fragment appears to have fallen back to C99" >&2
+    cat "$simd_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$simd_native_build_err"; then
+    echo "error: native SIMD parity fragment used reject path" >&2
+    cat "$simd_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$simd_native_build_err"; then
+    echo "error: native SIMD parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$simd_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$simd_native_build_err"
+
+chmod +x "$simd_native_bin"
+set +e
+"$simd_native_bin" >"$TMP_DIR/simd.native.run.out" 2>"$TMP_DIR/simd.native.run.err"
+simd_native_status=$?
+set -e
+if [[ "$simd_native_status" -ne "$simd_c99_status" ]]; then
+    echo "error: hosted native/C99 SIMD parity exit status differs: c99=$simd_c99_status native=$simd_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/simd.c99.run.out" "$TMP_DIR/simd.native.run.out"; then
+    echo "error: hosted native/C99 SIMD parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/simd.c99.run.err" "$TMP_DIR/simd.native.run.err"; then
+    echo "error: hosted native/C99 SIMD parity stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -1257,4 +1341,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, atomic parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, atomic parity, SIMD parity, C99 success, and explicit native reject"
