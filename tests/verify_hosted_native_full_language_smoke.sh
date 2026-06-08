@@ -613,7 +613,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     run_c99_fragment atomic "$atomic_src"
     run_native_parity_fragment atomic "$atomic_src"
     run_c99_fragment simd "$simd_src"
-    run_native_reject_fragment simd "$simd_src"
+    run_native_parity_fragment simd "$simd_src"
 
     run_c99_fragment full_language "$main_src"
     if [[ "$(cat "$TMP_DIR/full_language.c99.status")" != "0" ]]; then

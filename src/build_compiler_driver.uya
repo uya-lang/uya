@@ -265,6 +265,20 @@ struct NativeBuildAtomicI32Shape {
     return_value: i32,
 }
 
+struct NativeBuildSimdVectorMaskShape {
+    left_decl: &ASTNode,
+    right_decl: &ASTNode,
+    mask_decl: &ASTNode,
+    selected_decl: &ASTNode,
+    return_stmt: &ASTNode,
+    lanes: i32,
+    left_value: i32,
+    right_value: i32,
+    mask_truth: i32,
+    selected_value: i32,
+    return_value: i32,
+}
+
 const NATIVE_BUILD_LOCAL_KIND_CALL_I32: i32 = 1;
 const NATIVE_BUILD_LOCAL_KIND_SCALAR_I32: i32 = 2;
 const NATIVE_BUILD_LOCAL_KIND_ARGV_PTR: i32 = 3;
@@ -428,6 +442,22 @@ fn native_build_atomic_i32_shape_empty() NativeBuildAtomicI32Shape {
         return_stmt: null,
         initial_value: 0,
         updated_value: 0,
+        return_value: 0,
+    };
+}
+
+fn native_build_simd_vector_mask_shape_empty() NativeBuildSimdVectorMaskShape {
+    return NativeBuildSimdVectorMaskShape{
+        left_decl: null,
+        right_decl: null,
+        mask_decl: null,
+        selected_decl: null,
+        return_stmt: null,
+        lanes: 0,
+        left_value: 0,
+        right_value: 0,
+        mask_truth: 0,
+        selected_value: 0,
         return_value: 0,
     };
 }
@@ -1756,6 +1786,36 @@ fn native_build_hosted_decl_can_materialize_atomic_i32_body(decl: &ASTNode,
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildSimdVectorMaskShape = native_build_simd_vector_mask_shape_empty();
+    if native_build_decl_simd_vector_mask_shape(decl, &shape) == 0 ||
+       shape.left_decl == null || shape.left_decl.var_decl_init == null ||
+       shape.right_decl == null || shape.right_decl.var_decl_init == null ||
+       shape.mask_decl == null || shape.mask_decl.var_decl_init == null ||
+       shape.selected_decl == null || shape.selected_decl.var_decl_init == null ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.left_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.right_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.mask_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.selected_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        shape.return_stmt.return_stmt_expr, &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, decl: &ASTNode,
     checker: &TypeChecker) i32 {
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_is_extern != 0 ||
@@ -1795,6 +1855,9 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_atomic_i32_body(decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl, checker) != 0 {
         return 1;
     }
     if decl.fn_decl_body.block_stmt_count == 1 && decl.fn_decl_body.block_stmts != null {
@@ -3676,6 +3739,243 @@ fn native_build_hosted_coreir_append_atomic_i32_body(lowered: &LoweredProgram,
     return 0;
 }
 
+fn native_build_hosted_coreir_append_simd_vector_mask_body(lowered: &LoweredProgram,
+    checker: &TypeChecker, function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildSimdVectorMaskShape = native_build_simd_vector_mask_shape_empty();
+    if native_build_decl_simd_vector_mask_shape(decl, &shape) == 0 ||
+       shape.left_decl == null || shape.left_decl.var_decl_init == null ||
+       shape.right_decl == null || shape.right_decl.var_decl_init == null ||
+       shape.mask_decl == null || shape.mask_decl.var_decl_init == null ||
+       shape.selected_decl == null || shape.selected_decl.var_decl_init == null ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    var left_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var right_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var mask_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var selected_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.left_decl.var_decl_init,
+        &left_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.right_decl.var_decl_init,
+        &right_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.mask_decl.var_decl_init,
+        &mask_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.selected_decl.var_decl_init,
+        &selected_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        shape.return_stmt.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 5,
+        expr_start: expr_start,
+        expr_count: 5,
+        place_start: CORE_PLACE_INVALID_ID,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    var left_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start,
+        kind: CORE_EXPR_KIND_VECTOR,
+        body_id: body_id,
+        source_expr_id: shape.left_decl.var_decl_init.expr_id,
+        type_id: left_type_id,
+        literal_i64: shape.left_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.left_decl.line,
+        flags: 0,
+    };
+    var right_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 1,
+        kind: CORE_EXPR_KIND_VECTOR,
+        body_id: body_id,
+        source_expr_id: shape.right_decl.var_decl_init.expr_id,
+        type_id: right_type_id,
+        literal_i64: shape.right_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.right_decl.line,
+        flags: 0,
+    };
+    var mask_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 2,
+        kind: CORE_EXPR_KIND_MASK,
+        body_id: body_id,
+        source_expr_id: shape.mask_decl.var_decl_init.expr_id,
+        type_id: mask_type_id,
+        literal_i64: shape.mask_truth as i64,
+        lhs_expr_id: expr_start,
+        rhs_expr_id: expr_start + 1,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.mask_decl.line,
+        flags: 0,
+    };
+    var selected_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 3,
+        kind: CORE_EXPR_KIND_VECTOR,
+        body_id: body_id,
+        source_expr_id: shape.selected_decl.var_decl_init.expr_id,
+        type_id: selected_type_id,
+        literal_i64: shape.selected_value as i64,
+        lhs_expr_id: expr_start + 2,
+        rhs_expr_id: expr_start + 1,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.selected_decl.line,
+        flags: 0,
+    };
+    var return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 4,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.return_stmt.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: shape.return_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.return_stmt.return_stmt_expr.line,
+        flags: 0,
+    };
+    var left_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.left_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var right_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 1,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.right_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var mask_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 2,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 2,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.mask_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var selected_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 3,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 3,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.selected_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 4,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 4,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.return_stmt.line,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_expr(lowered, &left_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &right_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &mask_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &selected_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &return_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &left_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &right_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &mask_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &selected_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_coreir_append_main_local_if_body(lowered: &LoweredProgram,
     checker: &TypeChecker, program: &ASTNode, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -4369,6 +4669,10 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_atomic_i32_body(lowered,
             checker, function_id, decl_index, decl);
     }
+    if native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl, checker) != 0 {
+        return native_build_hosted_coreir_append_simd_vector_mask_body(lowered,
+            checker, function_id, decl_index, decl);
+    }
     var add_left_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_left_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_right_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
@@ -4866,6 +5170,11 @@ fn native_build_hosted_decl_can_lower_interface_method_mir_body(program: &ASTNod
 fn native_build_hosted_decl_can_lower_atomic_i32_mir_body(decl: &ASTNode,
     checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_atomic_i32_body(decl, checker);
+}
+
+fn native_build_hosted_decl_can_lower_simd_vector_mask_mir_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl, checker);
 }
 
 fn native_build_hosted_decl_can_lower_main_local_if_mir_body(program: &ASTNode,
@@ -5523,6 +5832,23 @@ fn native_build_hosted_mir_append_atomic_i32_body_function(module: &PortableMirM
     }
     var shape: NativeBuildAtomicI32Shape = native_build_atomic_i32_shape_empty();
     if native_build_decl_atomic_i32_shape(decl, &shape) == 0 ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    return native_build_hosted_mir_append_const_return_body_function(module,
+        lowered_function_id, decl_index, source_core_body_id,
+        shape.return_stmt.return_stmt_expr.expr_id, shape.return_value);
+}
+
+fn native_build_hosted_mir_append_simd_vector_mask_body_function(module: &PortableMirModule,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode) i32 {
+    if module == null || decl == null || lowered_function_id < 0 ||
+       decl_index < 0 || source_core_body_id < 0 {
+        return -1;
+    }
+    var shape: NativeBuildSimdVectorMaskShape = native_build_simd_vector_mask_shape_empty();
+    if native_build_decl_simd_vector_mask_shape(decl, &shape) == 0 ||
        shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
         return -1;
     }
@@ -7677,6 +8003,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                 } else if native_build_hosted_decl_can_lower_atomic_i32_mir_body(decl,
                     checker) != 0 {
                     if native_build_hosted_mir_append_atomic_i32_body_function(module,
+                        lowered_function_id, i, source_core_body_id, decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_simd_vector_mask_mir_body(decl,
+                    checker) != 0 {
+                    if native_build_hosted_mir_append_simd_vector_mask_body_function(module,
                         lowered_function_id, i, source_core_body_id, decl) != 0 {
                         return -1;
                     }
@@ -11944,11 +12277,12 @@ fn native_build_return_simd_reduce_add_i32_const(stmt: &ASTNode, vector_name: &b
     return 0;
 }
 
-fn native_build_decl_simd_vector_mask_return_value(decl: &ASTNode, out_value: &i32) i32 {
-    if out_value != null {
-        *out_value = 0;
+fn native_build_decl_simd_vector_mask_shape(decl: &ASTNode,
+    out_shape: &NativeBuildSimdVectorMaskShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_simd_vector_mask_shape_empty();
     }
-    if decl == null || out_value == null ||
+    if decl == null || out_shape == null ||
        native_build_decl_is_noarg_i32_fn(decl) == 0 ||
        decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null ||
@@ -11984,8 +12318,23 @@ fn native_build_decl_simd_vector_mask_return_value(decl: &ASTNode, out_value: &i
         lanes, &selected_name, &selected_value) == 0 {
         return 0;
     }
-    return native_build_return_simd_reduce_add_i32_const(decl.fn_decl_body.block_stmts[4],
-        selected_name, lanes, selected_value, out_value);
+    var return_value: i32 = 0;
+    if native_build_return_simd_reduce_add_i32_const(decl.fn_decl_body.block_stmts[4],
+        selected_name, lanes, selected_value, &return_value) == 0 {
+        return 0;
+    }
+    out_shape.left_decl = decl.fn_decl_body.block_stmts[0];
+    out_shape.right_decl = decl.fn_decl_body.block_stmts[1];
+    out_shape.mask_decl = decl.fn_decl_body.block_stmts[2];
+    out_shape.selected_decl = decl.fn_decl_body.block_stmts[3];
+    out_shape.return_stmt = decl.fn_decl_body.block_stmts[4];
+    out_shape.lanes = lanes;
+    out_shape.left_value = left_value;
+    out_shape.right_value = right_value;
+    out_shape.mask_truth = mask_truth;
+    out_shape.selected_value = selected_value;
+    out_shape.return_value = return_value;
+    return 1;
 }
 
 fn native_build_call_expr_identifier_noargs(expr: &ASTNode, name: &byte) i32 {
@@ -13258,11 +13607,6 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
         &defer_return_value) != 0 {
         return native_build_append_const_return_lowered_function(lowered,
             function_index, decl_index, decl, defer_return_value);
-    }
-    var simd_return_value: i32 = 0;
-    if native_build_decl_simd_vector_mask_return_value(decl, &simd_return_value) != 0 {
-        return native_build_append_const_return_lowered_function(lowered,
-            function_index, decl_index, decl, simd_return_value);
     }
     var full_smoke_return_value: i32 = 0;
     if native_build_decl_full_language_smoke_return_value(program, decl,

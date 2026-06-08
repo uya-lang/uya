@@ -614,7 +614,10 @@ drop lowering 或通用 drop function call lowering 已完成。interface/method
 struct、单方法 interface 和常量参数的窄形状，不代表通用 vtable/interface lowering 已完成。atomic i32
 shard 现在把常量初始化、`+= const` 写回和读取记录为 `CORE_EXPR_KIND_ATOMIC`，再由 PortableMIR 生成与
 C99 exit status 一致的 executable；这只是单局部 atomic i32 的常量形状，不代表完整 atomic memory
-ordering 或通用原子指令 lowering 已完成。
+ordering 或通用原子指令 lowering 已完成。SIMD vector/mask shard 现在把 `@vector.splat`、mask compare、
+`@vector.select` 和 `@vector.reduce_add` 的常量形状冻结为 `CORE_EXPR_KIND_VECTOR` / `CORE_EXPR_KIND_MASK`
+表达式，再由 PortableMIR 生成与 C99 exit status 一致的 executable；这不代表通用向量指令或 mask lowering
+已完成。
 
 hosted native 接受：
 
