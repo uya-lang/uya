@@ -218,6 +218,7 @@ export struct C99PreludePlan {
     emit_realloc_decl: i32,
     emit_calloc_decl: i32,
     emit_clock_decl: i32,
+    emit_abort_decl: i32,
     emit_read_decl: i32,
     emit_write_decl: i32,
     emit_opendir_decl: i32,
@@ -615,6 +616,7 @@ fn c99_prelude_plan_empty() C99PreludePlan {
         emit_realloc_decl: 0,
         emit_calloc_decl: 0,
         emit_clock_decl: 0,
+        emit_abort_decl: 0,
         emit_read_decl: 0,
         emit_write_decl: 0,
         emit_opendir_decl: 0,
@@ -625,6 +627,8 @@ fn c99_prelude_plan_empty() C99PreludePlan {
 }
 
 struct C99PreludeDeclScan {
+    has_decl_mem_function: i32,
+    has_decl_string_function: i32,
     has_decl_malloc: i32,
     has_decl_free: i32,
     has_decl_realloc: i32,
@@ -643,6 +647,8 @@ struct C99PreludeDeclScan {
 
 fn c99_prelude_decl_scan_empty() C99PreludeDeclScan {
     return C99PreludeDeclScan{
+        has_decl_mem_function: 0,
+        has_decl_string_function: 0,
         has_decl_malloc: 0,
         has_decl_free: 0,
         has_decl_realloc: 0,
@@ -668,18 +674,24 @@ fn c99_prelude_plan_scan_decl(plan: &C99PreludePlan,
     }
     const name: &byte = decl.fn_decl_name;
     const has_body: i32 = (decl.fn_decl_body != null) as i32;
-    if has_body != 0 {
-        if strcmp(name as *byte, "memcpy" as *byte) == 0 || strcmp(name as *byte, "memset" as *byte) == 0 ||
-           strcmp(name as *byte, "memmove" as *byte) == 0 || strcmp(name as *byte, "memcmp" as *byte) == 0 ||
-           strcmp(name as *byte, "memchr" as *byte) == 0 {
+    if strcmp(name as *byte, "memcpy" as *byte) == 0 || strcmp(name as *byte, "memset" as *byte) == 0 ||
+       strcmp(name as *byte, "memmove" as *byte) == 0 || strcmp(name as *byte, "memcmp" as *byte) == 0 ||
+       strcmp(name as *byte, "memchr" as *byte) == 0 {
+        scan.has_decl_mem_function = 1;
+        if has_body != 0 {
             plan.has_mem_functions = 1;
-        } else if strcmp(name as *byte, "strlen" as *byte) == 0 || strcmp(name as *byte, "strcmp" as *byte) == 0 ||
-           strcmp(name as *byte, "strncmp" as *byte) == 0 || strcmp(name as *byte, "strcpy" as *byte) == 0 ||
-           strcmp(name as *byte, "strncpy" as *byte) == 0 || strcmp(name as *byte, "strcat" as *byte) == 0 ||
-           strcmp(name as *byte, "strchr" as *byte) == 0 || strcmp(name as *byte, "strrchr" as *byte) == 0 ||
-           strcmp(name as *byte, "strstr" as *byte) == 0 {
+        }
+    } else if strcmp(name as *byte, "strlen" as *byte) == 0 || strcmp(name as *byte, "strcmp" as *byte) == 0 ||
+       strcmp(name as *byte, "strncmp" as *byte) == 0 || strcmp(name as *byte, "strcpy" as *byte) == 0 ||
+       strcmp(name as *byte, "strncpy" as *byte) == 0 || strcmp(name as *byte, "strcat" as *byte) == 0 ||
+       strcmp(name as *byte, "strchr" as *byte) == 0 || strcmp(name as *byte, "strrchr" as *byte) == 0 ||
+       strcmp(name as *byte, "strstr" as *byte) == 0 {
+        scan.has_decl_string_function = 1;
+        if has_body != 0 {
             plan.has_string_functions = 1;
         }
+    }
+    if has_body != 0 {
         if strcmp(name as *byte, "labs" as *byte) == 0 ||
            strcmp(name as *byte, "strtoul" as *byte) == 0 ||
            strcmp(name as *byte, "qsort" as *byte) == 0 ||
@@ -747,11 +759,15 @@ export fn c99_prelude_plan_build(input: C99PreludePlanInput) C99PreludePlan {
     if input.is_bootstrap == 0 {
         plan.include_math_h = 1;
     }
-    if input.needs_string_h != 0 && plan.has_string_functions == 0 && plan.has_mem_functions == 0 && input.is_bootstrap == 0 {
+    if (input.needs_string_h != 0 || scan.has_decl_string_function != 0 || scan.has_decl_mem_function != 0) &&
+       plan.has_string_functions == 0 && plan.has_mem_functions == 0 && input.is_bootstrap == 0 {
         plan.include_string_h = 1;
     }
     if input.needs_stdlib_h != 0 && plan.has_stdlib_conflicts == 0 && input.is_bootstrap == 0 {
         plan.include_stdlib_h = 1;
+    }
+    if plan.include_stdlib_h == 0 && input.is_bootstrap == 0 {
+        plan.emit_abort_decl = 1;
     }
     if input.needs_stdio_h != 0 && input.has_stdio_conflicts == 0 && input.is_bootstrap == 0 {
         plan.include_stdio_requested_h = 1;

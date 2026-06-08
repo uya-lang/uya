@@ -865,17 +865,7 @@ fn native_build_empty_portable_mir_module() PortableMirModule {
     return PortableMirModule{
         arena: null,
         lifecycle_state: PORTABLE_MIR_LIFECYCLE_UNINITIALIZED,
-        target_profile: MirTargetProfile{
-            profile_id: 0,
-            pointer_size: 0,
-            endianness: 0,
-            default_address_space: MIR_ADDRESS_SPACE_GENERIC,
-            runtime_mode: MIR_RUNTIME_MODE_HOSTED,
-            supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
-            supported_calling_conventions: 3,
-            runtime_capability_mask: 3,
-            feature_flags: 0,
-        },
+        target_profile: portable_mir_target_profile_hosted_native(),
         function_count: 0usize,
         block_count: 0usize,
         value_count: 0usize,
@@ -4546,6 +4536,15 @@ fn native_build_hosted_mir_inst_ptr(module: &PortableMirModule,
     return semantic_vector_item_ptr(&module.insts, inst_id as usize) as &MirInst;
 }
 
+fn native_build_hosted_mir_value_ptr(module: &PortableMirModule,
+    value_id: i32) &MirValue {
+    if module == null || value_id < 0 ||
+       (value_id as usize) >= module.values.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.values, value_id as usize) as &MirValue;
+}
+
 fn native_build_hosted_mir_operand_ptr(module: &PortableMirModule,
     operand_id: i32) &MirOperand {
     if module == null || operand_id < 0 ||
@@ -4553,6 +4552,103 @@ fn native_build_hosted_mir_operand_ptr(module: &PortableMirModule,
         return null;
     }
     return semantic_vector_item_ptr(&module.operands, operand_id as usize) as &MirOperand;
+}
+
+fn native_build_hosted_mir_function_by_id(module: &PortableMirModule,
+    function_id: i32) &MirFunction {
+    if module == null || function_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction = semantic_vector_item_ptr(&module.functions,
+            i) as &MirFunction;
+        if function != null && function.function_id == function_id {
+            return function;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn native_build_hosted_mir_return_value_id(module: &PortableMirModule,
+    function: &MirFunction, out_value_id: &i32) i32 {
+    if out_value_id != null {
+        *out_value_id = MIR_VALUE_INVALID_ID;
+    }
+    if module == null || function == null || out_value_id == null ||
+       function.block_count != 1 {
+        return 0;
+    }
+    const block: &MirBlock = native_build_hosted_mir_block_ptr(module,
+        function.block_start);
+    if block == null || block.terminator_id < 0 ||
+       (block.terminator_id as usize) >= module.terminators.count {
+        return 0;
+    }
+    const terminator: &MirTerminator = semantic_vector_item_ptr(&module.terminators,
+        block.terminator_id as usize) as &MirTerminator;
+    if terminator == null || terminator.kind != MIR_TERMINATOR_KIND_RETURN ||
+       terminator.operand_count != 1 {
+        return 0;
+    }
+    const operand: &MirOperand = native_build_hosted_mir_operand_ptr(module,
+        terminator.operand_start);
+    if operand == null || operand.value_id == MIR_VALUE_INVALID_ID {
+        return 0;
+    }
+    *out_value_id = operand.value_id;
+    return 1;
+}
+
+fn native_build_hosted_mir_eval_function_exit_code(module: &PortableMirModule,
+    function: &MirFunction, depth: i32, out_code: &i32) i32 {
+    if out_code != null {
+        *out_code = 0;
+    }
+    if module == null || function == null || out_code == null || depth > 16 {
+        return 0;
+    }
+    var value_id: i32 = MIR_VALUE_INVALID_ID;
+    if native_build_hosted_mir_return_value_id(module, function, &value_id) == 0 {
+        return 0;
+    }
+    const value: &MirValue = native_build_hosted_mir_value_ptr(module, value_id);
+    if value == null || value.defining_inst_id == MIR_INST_INVALID_ID {
+        return 0;
+    }
+    const inst: &MirInst = native_build_hosted_mir_inst_ptr(module,
+        value.defining_inst_id);
+    if inst == null || inst.result_value_id != value_id {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_NOP {
+        if inst.flags < 0 || inst.flags > 255 {
+            return 0;
+        }
+        *out_code = inst.flags;
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_CALL && inst.operand_count >= 1 {
+        if inst.flags >= 0 {
+            const callee_by_decl: &MirFunction = native_build_hosted_mir_function_for_decl(module,
+                inst.flags);
+            if callee_by_decl != null {
+                return native_build_hosted_mir_eval_function_exit_code(module,
+                    callee_by_decl, depth + 1, out_code);
+            }
+        }
+        const call_target: &MirOperand = native_build_hosted_mir_operand_ptr(module,
+            inst.operand_start);
+        if call_target == null {
+            return 0;
+        }
+        const callee: &MirFunction = native_build_hosted_mir_function_by_id(module,
+            call_target.immediate_i32);
+        return native_build_hosted_mir_eval_function_exit_code(module, callee,
+            depth + 1, out_code);
+    }
+    return 0;
 }
 
 fn native_build_hosted_mir_local_array_index_return_value(module: &PortableMirModule,
@@ -4671,6 +4767,73 @@ fn native_build_hosted_verified_mir_local_array_index_return_value(arena: &Compi
         main_decl_index);
     const ok: i32 = native_build_hosted_mir_local_array_index_return_value(&module,
         function, out_value);
+    portable_mir_module_release(&module);
+    return ok;
+}
+
+fn native_build_hosted_verified_mir_main_exit_code(arena: &CompilerArena,
+    checker: &TypeChecker, program: &ASTNode, out_code: &i32) i32 {
+    if out_code != null {
+        *out_code = 0;
+    }
+    if arena == null || checker == null || program == null || out_code == null {
+        return -1;
+    }
+    const main_decl_index: i32 = native_build_find_function_decl_index(program,
+        "main" as &byte);
+    if main_decl_index < 0 {
+        return 0;
+    }
+    var module: PortableMirModule = native_build_empty_portable_mir_module();
+    portable_mir_module_init(&module, arena);
+    var extern_count: i32 = 0;
+    if native_build_hosted_mir_append_program_externs(&module, program,
+        &extern_count) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var body_count: i32 = 0;
+    if native_build_hosted_mir_append_program_safe_bodies(&module, checker,
+        program, &body_count) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    if body_count <= 0 {
+        portable_mir_module_release(&module);
+        return 0;
+    }
+    var verifier: MirVerifierResult = MirVerifierResult{
+        error_code: -1,
+        function_id: MIR_FUNCTION_INVALID_ID,
+        block_id: MIR_BLOCK_INVALID_ID,
+        inst_id: MIR_INST_INVALID_ID,
+        value_id: MIR_VALUE_INVALID_ID,
+        type_id: MIR_TYPE_INVALID_ID,
+        operand_id: -1,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+    };
+    portable_mir_verifier_result_init(&verifier);
+    if portable_mir_verify_module(&module, &verifier) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var request: MirTargetBackendRequest = native_build_empty_mir_backend_request();
+    if portable_mir_backend_request_init(&request, &module, &verifier,
+        MIR_TARGET_BACKEND_MACHINE) != 0 ||
+       portable_mir_backend_request_is_verified(&request) == 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var plan: NativeHostedLinkPlan = native_hosted_link_plan_empty();
+    if native_hosted_link_plan_init(&plan, &request) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    const main_function: &MirFunction = native_build_hosted_mir_function_for_decl(&module,
+        main_decl_index);
+    const ok: i32 = native_build_hosted_mir_eval_function_exit_code(&module,
+        main_function, 0, out_code);
     portable_mir_module_release(&module);
     return ok;
 }
@@ -5160,36 +5323,29 @@ fn native_build_try_emit_hosted_core_mir_local_array_index_subset(output_file: &
 }
 
 fn native_build_try_emit_hosted_no_deps_subset(output_file: &byte, program: &ASTNode,
-    arena: &CompilerArena, c_import_count: i32) i32 {
-    if output_file == null || program == null || arena == null || c_import_count != 0 {
+    arena: &CompilerArena, checker: &TypeChecker, c_import_count: i32) i32 {
+    if output_file == null || program == null || arena == null || checker == null ||
+       c_import_count != 0 {
         return 0;
     }
-    var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(program, arena);
-    if native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
-        return 0;
-    }
-    const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(output_file,
-        &native_plan.lowered, native_plan.entry_index);
-    if native_result.status != NATIVE_BUILD_EMIT_STATUS_OK {
-        fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
-        lowered_program_release(&native_plan.lowered);
+    var return_value: i32 = 0;
+    const exit_status: i32 = native_build_hosted_verified_mir_main_exit_code(arena,
+        checker, program, &return_value);
+    if exit_status < 0 {
         return -1;
     }
-    var native_exit_code: i32 = -1;
-    fprintf(libc.stderr, "native_hosted_subset: no_deps_lowered_program_path=1\n" as *byte);
-    if native_build_lowered_main_const_exit_code(&native_plan, &native_exit_code) != 0 {
-        fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, native_exit_code);
+    if exit_status == 0 {
+        return 0;
     }
-    fprintf(libc.stderr, "native_function_count: %zu\n" as *byte, native_plan.lowered.function_count);
-    fprintf(libc.stderr, "native_lowered_body_ops: %zu\n" as *byte, native_plan.lowered.body_op_count);
-    fprintf(libc.stderr, "native_machine_function_count: %zu\n" as *byte, native_result.machine_function_count);
-    fprintf(libc.stderr, "native_machine_inst_count: %zu\n" as *byte, native_result.machine_inst_count);
-    fprintf(libc.stderr, "native_machine_peak_bytes: %zu\n" as *byte, native_result.machine_peak_bytes);
-    fprintf(libc.stderr, "native_entry_index: %d\n" as *byte, native_plan.entry_index);
-    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte, native_result.output_bytes);
-    fprintf(libc.stderr, "native_code_bytes: %zu\n" as *byte, native_result.code_bytes);
-    fprintf(libc.stderr, "native_temp_peak_bytes: %zu\n" as *byte, native_result.temp_peak_bytes);
-    lowered_program_release(&native_plan.lowered);
+    if native_build_hosted_emit_const_return_linked_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: no_deps_portable_mir_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
     return 1;
 }
 
@@ -10161,16 +10317,25 @@ fn split_c_read_lock_owner_pid(lock_dir: &byte, pid_out: &i32) i32 {
     if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
         return 1;
     }
-    const file: &FILE = fopen(&pid_path[0] as *byte, "r" as *byte);
-    if file == null {
+    const fd_result: !i32 = sys_open(&pid_path[0] as *const byte, O_RDONLY as i32, 0);
+    const fd: i32 = fd_result catch {
         return 1;
-    }
+    };
     var buf: [byte: 64] = [];
-    const line: &byte = fgets(&buf[0] as &byte, 64, file);
-    fclose(file);
-    if line == null {
+    const read_result: !isize = sys_read(fd, &buf[0] as *byte, 63usize);
+    const bytes_read: isize = read_result catch {
+        _ = sys_close(fd) catch { 0; };
+        return 1;
+    };
+    _ = sys_close(fd) catch { 0; };
+    if bytes_read <= 0 as isize {
         return 1;
     }
+    var len: usize = bytes_read as usize;
+    if len >= 64usize {
+        len = 63usize;
+    }
+    buf[len] = 0 as byte;
     const pid: i32 = split_c_parse_owner_pid(&buf[0] as &byte);
     if pid <= 0 {
         return 1;
@@ -12348,7 +12513,8 @@ fn compile_files(
             var hosted_subset_status: i32 = 0;
             if hosted_link_status == 0 && hosted_array_index_status == 0 {
                 hosted_subset_status = native_build_try_emit_hosted_no_deps_subset(
-                    actual_output as &byte, merged_ast, &emit_arena, hosted_c_import_count);
+                    actual_output as &byte, merged_ast, &emit_arena, checker,
+                    hosted_c_import_count);
             }
             if hosted_subset_status < 0 {
                 codegen_end_time = clock();

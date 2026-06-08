@@ -10,6 +10,7 @@ COMPILER="$REPO_ROOT/bin/uya"
 export UYA_ROOT="$REPO_ROOT/lib/"
 OUT_C="$SCRIPT_DIR/build/function_reachability_verify.c"
 CALLBACK_OUT_C="$SCRIPT_DIR/build/function_reachability_address_taken.c"
+STRING_INTERP_OUT_C="$SCRIPT_DIR/build/function_reachability_string_interp.c"
 MICROAPP_OUT_C="$SCRIPT_DIR/build/function_reachability_microapp.c"
 IMPORT_MAIN_OUT_C="$SCRIPT_DIR/build/function_reachability_import_main.c"
 IMPORT_MAIN_EXE="$SCRIPT_DIR/build/function_reachability_import_main"
@@ -66,6 +67,26 @@ if ! grep -q 'callback_target(' "$CALLBACK_OUT_C"; then
     exit 1
 fi
 echo "  callback_target 已保留 ✓"
+
+echo ""
+echo "验证 string interpolation callee root：编译 test_function_reachability_string_interp_expr.uya ..."
+COMPILE_OUT=$("$COMPILER" build --c99 "$SCRIPT_DIR/test_function_reachability_string_interp_expr.uya" -o "$STRING_INTERP_OUT_C" 2>&1)
+STATUS=$?
+if [ $STATUS -ne 0 ]; then
+    echo "✗ string interpolation reachability 编译失败"
+    echo "$COMPILE_OUT"
+    exit 1
+fi
+
+if grep -q 'dead_string_interp_helper(' "$STRING_INTERP_OUT_C"; then
+    echo "✗ dead_string_interp_helper 仍出现在 string interpolation C 文件"
+    exit 1
+fi
+if ! grep -q 'live_string_interp_helper(' "$STRING_INTERP_OUT_C"; then
+    echo "✗ string interpolation callee live_string_interp_helper 未出现在 C 文件"
+    exit 1
+fi
+echo "  string interpolation callee 已保留 ✓"
 
 echo ""
 echo "验证导入模块时普通 main 桥接：编译并运行 test_c99_import_main_codegen.uya ..."

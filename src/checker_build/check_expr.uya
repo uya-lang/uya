@@ -1815,6 +1815,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             if seg.is_text != 0 {
                 total = total + (strlen(seg.text as *byte) as i32);
             } else {
+                checker_walk_reachability_expr(checker, seg.expr);
                 const seg_type: Type = checker_infer_type(checker, seg.expr);
                 const w: i32 = checker_interp_format_max_width(copy_type(&seg_type), seg.format_spec);
                 if w < 0 {

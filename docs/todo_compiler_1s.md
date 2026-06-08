@@ -872,23 +872,23 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     - [x] 将 `@c_import` sidecar object 纳入 hosted native link plan，preflight dump 必须记录 object 数量和 extern symbol。
     - [x] 将最小 `extern fn add_i32(...)` call body 经 CoreBody/PortableMIR 降到 hosted native executable，并与 C99 oracle 退出码一致。
     - [x] 把 full-language smoke 中的 extern / `@c_import` 片段从明确 pending 推进为 parity 覆盖。
-  - 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 native/C99 差分运行一致性（拆分执行）：
-    - [x] 新增 `@size_of` / `@align_of` 标量 builtin hosted native/C99 parity shard，要求 native 真实生成 executable 且退出码/stdout/stderr 与 C99 一致。
-    - 新增 slice/array + `@len` hosted native/C99 parity shard（拆分执行）：
-      - [x] 新增数组字面量 `@len([1, 2, 3, 4])` hosted native/C99 parity shard，要求 native 真实生成 executable 且退出码/stdout/stderr 与 C99 一致。
-      - [x] 新增 slice 构造/索引 hosted native/C99 parity shard。
-    - 新增 error union `catch` + `@error_id` hosted native/C99 parity shard（拆分执行）：
-      - [x] 新增 `@error_id(error.SmokeError)` hosted native/C99 parity shard，要求 native 真实生成 executable 且退出码/stdout/stderr 与 C99 一致。
-      - 新增 error union `catch` hosted native/C99 parity shard（拆分执行）：
-        - [x] 新增常量输入 `maybe_value(const) catch { const; }` success/fallback hosted native/C99 parity shard。
-        - [x] 新增动态 error union `catch` hosted native/C99 parity shard。
-    - 新增 drop/defer hosted native/C99 parity shard（拆分执行）：
-      - [x] 新增最小 `defer { local = const; }` hosted native/C99 parity shard。
-      - [x] 新增最小 lexical drop hosted native/C99 parity shard。
-    - [x] 新增 interface/method dispatch hosted native/C99 parity shard。
-    - [x] 新增 atomic i32 hosted native/C99 parity shard。
-    - [x] 新增 SIMD vector/mask hosted native/C99 parity shard。
-  - [x] 将 hosted native full-language smoke 从“允许明确拒绝”推进为默认强制 parity 门禁。
+  - 覆盖 interface、drop/defer、error union、slice/array、atomic、SIMD vector/mask 和 builtin 的 C99 行为与 hosted native 明确拒绝语义（拆分执行）：
+    - [x] `@size_of` / `@align_of` 标量 builtin shard 先要求 C99 成功、hosted native 不回落 C99 且明确报告 MIR lowering missing。
+    - slice/array + `@len` hosted native shard（拆分执行）：
+      - [x] 数组字面量 `@len([1, 2, 3, 4])` shard 先要求 C99 成功、hosted native 明确拒绝。
+      - [x] slice 构造/索引 shard 先要求 C99 成功、hosted native 明确拒绝。
+    - error union `catch` + `@error_id` shard（拆分执行）：
+      - [x] `@error_id(error.SmokeError)` shard 先要求 C99 成功、hosted native 明确拒绝。
+      - error union `catch` shard（拆分执行）：
+        - [x] 常量输入 `maybe_value(const) catch { const; }` success/fallback shard 先要求 C99 成功、hosted native 明确拒绝。
+        - [x] 动态 error union `catch` shard 先要求 C99 成功、hosted native 明确拒绝。
+    - drop/defer shard（拆分执行）：
+      - [x] 最小 `defer { local = const; }` shard 先要求 C99 成功、hosted native 明确拒绝。
+      - [x] 最小 lexical drop shard 先要求 C99 成功、hosted native 明确拒绝。
+    - [x] interface/method dispatch shard 先要求 C99 成功、hosted native 明确拒绝。
+    - [x] atomic i32 shard 先要求 C99 成功、hosted native 明确拒绝。
+    - [x] SIMD vector/mask shard 先要求 C99 成功、hosted native 明确拒绝。
+  - [x] full-language smoke 默认只允许 MIR-backed successes 通过；未迁 MIR 的复杂 no-deps shard 必须明确拒绝，不再计入 parity 成功。
 
 ---
 
@@ -917,7 +917,9 @@ PortableMIR/native hosted parity 的验收输入。
   - [x] `bash tests/verify_native_cmd_build_stage1.sh` 只作为 freestanding build-seed 回归边界复验；若失败，仅修边界或迁 MIR，不新增 one-off `LoweredBodyOp`。
   - [x] 用 PortableMIR verifier/native MIR emitter 固定 `compile_files(...)` 16 参数调用 ABI 样本，要求 call inst 保留 16 个 operand、hosted runtime capability 和 target calling convention，不经 pre-MIR `LoweredBodyOp` 摘要。
   - [x] 用 CoreBody/PortableMIR 覆盖局部数组索引读取，先以 hosted native/C99 parity shard 固定运行结果。
-  - [ ] 明确 hosted/freestanding call ABI profile 在 PortableMIR 中的分流和 verifier 门禁，再迁入 `cmd/build` 所需调用形状。
+  - [x] 明确 hosted/freestanding call ABI profile 在 PortableMIR 中的分流和 verifier 门禁，再迁入 `cmd/build` 所需调用形状。
+  - [x] 清理 hosted no-deps 的 pre-MIR `LoweredProgram` helper 成功路径，改为只从 verifier-clean PortableMIR 求出 `return <int>` / `return callee()` 退出码；复杂 no-deps shard 保持明确 reject。
+  - [ ] 将 builtin、slice/error/defer/drop/interface/atomic/SIMD 等复杂 no-deps shard 逐项迁入 CoreBody/PortableMIR 后，再恢复真正 hosted native/C99 parity。
   - [ ] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
 
 测试：

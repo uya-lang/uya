@@ -130,7 +130,8 @@ backend 可以决定 ABI 细节、寄存器分配、指令选择、文本输出�
 PortableMIR 必须显式记录 target-neutral layout metadata、calling convention、hosted/freestanding runtime capability
 和 address space。layout metadata 包括 size/alignment、layout ID、tag/payload offset、atomic alignment、
 vector lane stride、mask representation 和 ABI class；function / instruction 记录 calling convention 与 runtime
-capability mask，target profile 记录支持的 address space 和 calling convention mask。
+capability mask，target profile 记录 hosted/freestanding call ABI profile、支持的 address space、
+calling convention mask 和 runtime capability mask。
 
 ```text
 MirModule
@@ -588,6 +589,8 @@ PortableMIR 必须继承 CoreIR 的产品边界：**语言语义统一，target 
 ## 17. Hosted Native 优先
 
 hosted native 是第一个完整语言 target，因为它可复用系统 ABI 和 linker 行为，同时验证 MIR 语义。
+当前已迁入 MIR 的 shard 必须真实生成 native executable；尚未迁入 MIR 的复杂 no-deps shard 必须明确
+报告 lowering gap，不能复用 build-seed `LoweredProgram` helper 伪装成 parity。
 
 hosted native 接受：
 
@@ -598,7 +601,8 @@ hosted native 接受：
 - `@c_import` object/linker integration
 
 `NativeHostedLinkPlan` 是 hosted native v1 的 host handoff 入口。它只从 verifier-clean
-`MIR_TARGET_BACKEND_MACHINE` request 初始化，要求 target profile 为 hosted，并把 libc、pthread、
+`MIR_TARGET_BACKEND_MACHINE` request 初始化，要求 target profile 为 hosted 且 call ABI profile 为
+hosted SysV，并把 libc、pthread、
 filesystem、env、malloc、extern symbol 和 `@c_import` object 全部记录为宿主 ABI/linker 需求。
 
 hosted native 仍然把 Uya 函数体生成 native machine code。它不是 C99 fallback，也不能静默绕回 C99。
@@ -610,6 +614,7 @@ freestanding native 对 1 秒 self-build 和 build-seed 仍重要。它消费同
 - 无 hosted libc，除非显式 bridge。
 - 无 `@c_import` linker path，除非 freestanding build plan 支持。
 - syscall/runtime helper 必须显式。
+- call ABI profile 必须是 freestanding syscall，不能复用 hosted SysV/host linker profile。
 - filesystem/process/env/threading 未实现时明确 diagnostic。
 
 当前 `cmd/build` native subset 是回归边界。`compile_files(...)` 缺口应成为 MIR + ABI 验收样本，不再增加 one-off `LoweredBodyOp`。
@@ -755,7 +760,8 @@ PortableMIR 可以在 CoreIR 冻结后并行构造，但并行边界必须清晰
 10. 增加 async frame operations。
 11. 增加 `@naked_fn` asm-only MIR path 和 verifier negative cases。
 12. 增加并行 MIR 构造的 deterministic dump / diagnostic 归并测试。
-13. 增加 hosted native/C99 full-language parity smoke。
+13. 增加 hosted native/C99 full-language smoke：已迁 MIR 的 shard 要求 parity，未迁 MIR 的复杂 shard
+    要求 explicit reject。
 14. 使用 `compile_files(...)` 作为第一个大型真实 MIR 验收样本。
 
 每个 slice 必须增加 verifier test、dump/golden test；backend 行为变化时增加 backend smoke。
@@ -770,7 +776,8 @@ PortableMIR 准备成为 native 主路径的条件：
 - 现有 native minimal tests 通过 MIR 路径。
 - `@naked_fn` 通过 MIR verifier 和 native backend 专用 path，不走普通 prologue/epilogue。
 - 并行 MIR 构造开关不改变 dump、diagnostics、IDs 或 symbol order。
-- hosted native 和 C99 在 full-language smoke suite 上一致。
+- hosted native 和 C99 在已迁 MIR 的 full-language smoke shard 上一致；未迁 MIR 的复杂 no-deps shard
+  明确拒绝且不回落 C99。
 - `compile_files(...)` 16 参数调用通过 CoreBody + MIR lower 到达，而不是特殊 body opcode。
 - native 失败不静默回落 C99。
 - 文档和 TODO 引用本文作为 MIR 合同。

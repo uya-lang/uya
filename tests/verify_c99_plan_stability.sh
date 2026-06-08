@@ -867,10 +867,36 @@ test "c99 prelude plan records hosted header decisions" {
     try assert_eq_i32(hosted.include_stdlib_h, 1);
     try assert_eq_i32(hosted.include_stdio_requested_h, 1);
     try assert_eq_i32(hosted.emit_malloc_decl, 1);
+    try assert_eq_i32(hosted.emit_abort_decl, 0);
     try assert_eq_i32(hosted.emit_read_decl, 1);
     try assert_eq_i32(hosted.emit_write_decl, 0);
     try assert_eq_i32(hosted.emit_opendir_decl, 1);
     try assert_eq_i32(hosted.emit_exit_decl, 1);
+
+    const labs_impl: &ASTNode = ast_new_node(ASTNodeType.AST_FN_DECL, 1, 1, &arena, "c99_plan.uya");
+    labs_impl.fn_decl_name = "labs" as *byte;
+    labs_impl.fn_decl_body = body;
+    var conflict_decls: [&ASTNode: 1] = [];
+    conflict_decls[0] = labs_impl;
+    program.program_decls = &conflict_decls[0] as & & ASTNode;
+    program.program_decl_count = 1;
+    const stdlib_conflict_input: C99PreludePlanInput = C99PreludePlanInput{
+        ast: program,
+        decl_plan: null,
+        decl_count: 1,
+        freestanding: 0,
+        needs_string_h: 0,
+        needs_stdio_h: 0,
+        needs_stdlib_h: 1,
+        has_stdio_conflicts: 0,
+        is_bootstrap: 0,
+        target_os_is_macos: 0,
+    };
+    const stdlib_conflict: C99PreludePlan = c99_prelude_plan_build(stdlib_conflict_input);
+    try assert_eq_i32(stdlib_conflict.include_stdlib_h, 0);
+    try assert_eq_i32(stdlib_conflict.emit_abort_decl, 1);
+    program.program_decls = &decls[0] as & & ASTNode;
+    program.program_decl_count = 4;
 
     const free_input: C99PreludePlanInput = C99PreludePlanInput{
         ast: program,

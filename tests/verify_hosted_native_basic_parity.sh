@@ -53,7 +53,7 @@ run_parity_case() {
 
     test -s "$native_bin"
     grep -q '后端类型: Native' "$TMP_DIR/$name.native.build.err"
-    grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$TMP_DIR/$name.native.build.err"
+    grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$TMP_DIR/$name.native.build.err"
     grep -q 'native_output_bytes:' "$TMP_DIR/$name.native.build.err"
     if grep -q '后端类型: C99' "$TMP_DIR/$name.native.build.err" ||
        grep -q 'native_hosted_portable_mir_lowering_missing' "$TMP_DIR/$name.native.build.err"; then

@@ -1050,6 +1050,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
     } else if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
         // @print/@println 表达式：推断类型以触发类型检查
         if node.print_expr != null {
+            checker_walk_reachability_expr(checker, node.print_expr);
             checker_check_node(checker, node.print_expr);
         }
         _ = checker_infer_type(checker, node);  // 触发类型检查和错误报告

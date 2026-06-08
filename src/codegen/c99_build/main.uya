@@ -451,14 +451,31 @@ fn is_stdio_conflict_name(name: &byte) i32 {
     return 0;
 }
 
+fn is_libc_stdio_source_path(filename: &byte) i32 {
+    if filename == null {
+        return 0;
+    }
+    if strstr(filename as *byte, "/lib/libc/stdio.uya" as *byte) != null ||
+       strstr(filename as *byte, "\\lib\\libc\\stdio.uya" as *byte) != null {
+        return 1;
+    }
+    return 0;
+}
+
 fn precollect_codegen_decl(codegen: &C99CodeGenerator, decl: &ASTNode, collect_hosted_flags: i32) void {
     if codegen == null || decl == null {
         return;
+    }
+    if is_libc_stdio_source_path(decl.filename) != 0 {
+        codegen.has_stdio_conflicts = 1;
     }
     if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
         const is_special_main: i32 = c99_fn_decl_is_c_main(decl) | c99_fn_decl_is_user_entry_main(codegen, decl);
         if is_special_main == 0 && should_emit_top_level_function_decl(codegen, decl) == 0 {
             return;
+        }
+        if is_stdio_conflict_name(decl.fn_decl_name) != 0 {
+            codegen.has_stdio_conflicts = 1;
         }
     }
     if collect_hosted_flags != 0 {
@@ -470,9 +487,6 @@ fn precollect_codegen_decl(codegen: &C99CodeGenerator, decl: &ASTNode, collect_h
             codegen.needs_stdlib_h = 1;
         }
         if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
-            if is_stdio_conflict_name(decl.fn_decl_name) != 0 {
-                codegen.has_stdio_conflicts = 1;
-            }
             collect_stdlib_functions_from_node(codegen, decl.fn_decl_body);
             if decl.fn_decl_is_async != 0 {
                 codegen.needs_stdlib_h = 1;
@@ -2270,6 +2284,132 @@ fn c99_build_helper_plan(codegen: &C99CodeGenerator, plan: &C99Plan) C99HelperPl
     return c99_helper_plan_build(input);
 }
 
+fn c99_mark_async_runtime_helpers_reachable(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    var needs_thread_allocator: i32 = 0;
+    const get_alloc_decl: &ASTNode = find_function_decl_c99(codegen, "get_async_frame_allocator" as &byte);
+    if get_alloc_decl != null {
+        mark_top_level_function_reachable(codegen, get_alloc_decl);
+        needs_thread_allocator = 1;
+    }
+    const box_alloc_decl: &ASTNode = find_function_decl_c99(codegen, "async_box_alloc_current" as &byte);
+    if box_alloc_decl != null {
+        mark_top_level_function_reachable(codegen, box_alloc_decl);
+        needs_thread_allocator = 1;
+    }
+    if needs_thread_allocator == 0 {
+        return;
+    }
+    const pthread_once_decl: &ASTNode = find_function_decl_c99(codegen, "pthread_once" as &byte);
+    mark_top_level_function_reachable(codegen, pthread_once_decl);
+    const pthread_key_create_decl: &ASTNode = find_function_decl_c99(codegen, "pthread_key_create" as &byte);
+    mark_top_level_function_reachable(codegen, pthread_key_create_decl);
+    const pthread_getspecific_decl: &ASTNode = find_function_decl_c99(codegen, "pthread_getspecific" as &byte);
+    mark_top_level_function_reachable(codegen, pthread_getspecific_decl);
+    const pthread_key_value_ptr_decl: &ASTNode = find_function_decl_c99(codegen, "_pthread_key_value_ptr" as &byte);
+    mark_top_level_function_reachable(codegen, pthread_key_value_ptr_decl);
+    const pthread_desc_self_decl: &ASTNode = find_function_decl_c99(codegen, "_pthread_desc_self" as &byte);
+    mark_top_level_function_reachable(codegen, pthread_desc_self_decl);
+    const pthread_registry_find_decl: &ASTNode = find_function_decl_c99(codegen, "_pthread_registry_find" as &byte);
+    mark_top_level_function_reachable(codegen, pthread_registry_find_decl);
+    const sys_gettid_decl: &ASTNode = find_function_decl_c99(codegen, "sys_gettid" as &byte);
+    mark_top_level_function_reachable(codegen, sys_gettid_decl);
+}
+
+fn c99_is_json_encoder_decl(decl: &ASTNode) i32 {
+    if decl == null || decl.filename == null {
+        return 0;
+    }
+    if strstr(decl.filename as *byte, "/lib/std/json/encoder.uya" as *byte) != null ||
+       strstr(decl.filename as *byte, "lib/std/json/encoder.uya" as *byte) != null ||
+       strstr(decl.filename as *byte, "\\lib\\std\\json\\encoder.uya" as *byte) != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_find_json_encoder_function(codegen: &C99CodeGenerator, name: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || name == null {
+        return null;
+    }
+    var fallback: &ASTNode = null;
+    var i: i32 = 0;
+    while i < codegen.program_node.program_decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+           decl.fn_decl_name != null && strcmp(decl.fn_decl_name as *byte, name as *byte) == 0 &&
+           c99_is_json_encoder_decl(decl) != 0 {
+            if decl.fn_decl_body != null {
+                return decl;
+            }
+            if fallback == null {
+                fallback = decl;
+            }
+        }
+        i = i + 1;
+    }
+    return fallback;
+}
+
+fn c99_json_reflect_helpers_needed(codegen: &C99CodeGenerator) i32 {
+    if codegen == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < codegen.mono_instance_count {
+        const name: &byte = codegen.mono_instances[i].generic_name;
+        if name != null && codegen.mono_instances[i].is_function != 0 {
+            if strcmp(name as *byte, "to_json" as *byte) == 0 ||
+               strcmp(name as *byte, "from_json" as *byte) == 0 ||
+               strcmp(name as *byte, "encode_to_to_json" as *byte) == 0 ||
+               strcmp(name as *byte, "__decode_json" as *byte) == 0 ||
+               strstr(name as *byte, "to_json" as *byte) != null ||
+               strstr(name as *byte, "from_json" as *byte) != null ||
+               strstr(name as *byte, "__decode_json" as *byte) != null {
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn c99_mark_json_encoder_function_reachable(codegen: &C99CodeGenerator, name: &byte) void {
+    const decl: &ASTNode = c99_find_json_encoder_function(codegen, name);
+    mark_top_level_function_reachable(codegen, decl);
+}
+
+fn c99_mark_json_reflect_helpers_reachable(codegen: &C99CodeGenerator) void {
+    if c99_json_reflect_helpers_needed(codegen) == 0 {
+        return;
+    }
+    c99_mark_json_encoder_function_reachable(codegen, "write_byte" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_buf_write_bytes" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "write_digit" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_i64_impl" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_f64_impl" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_number_text" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_encode_value_inner" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_value" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_writer_init" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_byte" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_null" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_bool" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_i64" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_f64" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_str_view" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_write_key" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_str_view_eq" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_object_find_index" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_expect_i64" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_expect_str" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_expect_bool" as &byte);
+    c99_mark_json_encoder_function_reachable(codegen, "json_expect_f64" as &byte);
+    mark_top_level_function_reachable(codegen, find_function_decl_c99(codegen, "strtod" as &byte));
+}
+
 fn c99_emit_type_definition_registrations(codegen: &C99CodeGenerator, plan: &C99TypeDefinitionPlan) void {
     if codegen == null || plan == null {
         return;
@@ -2539,6 +2679,7 @@ fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, 
     // 保存程序节点引用
     codegen.program_node = ast;
     c99_qprof_init();  // UYA_PROFILE_QUERIES：初始化声明查询计数（默认关）
+    c99_mark_json_reflect_helpers_reachable(codegen);
     var saved_codegen_diag: i32 = c99_emit_diag_suppress_begin(codegen);
     if g_c99_codegen_has_error != 0 {
         c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
@@ -2645,6 +2786,13 @@ fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, 
         }
     }
 
+    var helper_plan: C99HelperPlan = c99_build_helper_plan(codegen, split_unit_plan);
+    if helper_plan.async_frame_runtime_used != 0 {
+        codegen.needs_stdlib_h = 1;
+        c99_mark_async_runtime_helpers_reachable(codegen);
+        helper_plan = c99_build_helper_plan(codegen, split_unit_plan);
+    }
+
     const prelude_plan_input: C99PreludePlanInput = C99PreludePlanInput{
         ast: ast,
         decl_plan: split_unit_plan,
@@ -2658,7 +2806,6 @@ fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, 
         target_os_is_macos: target_os_is_macos,
     };
     const prelude_plan: C99PreludePlan = c99_prelude_plan_build(prelude_plan_input);
-    var helper_plan: C99HelperPlan = c99_build_helper_plan(codegen, split_unit_plan);
     var type_definition_plan: C99TypeDefinitionPlan = c99_type_definition_plan_empty();
     c99_type_definition_plan_init(&type_definition_plan);
     if c99_type_definition_plan_build_from_c99_plan(&type_definition_plan, codegen, split_unit_plan) != 0 {
@@ -2877,6 +3024,9 @@ fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, 
                 }
                 if prelude_plan.emit_clock_decl != 0 {
                     fputs("extern int64_t clock(void);\n" as *byte, codegen.emit_stream as *void);
+                }
+                if prelude_plan.emit_abort_decl != 0 && codegen.container_mode == 0 {
+                    fputs("extern void abort(void);\n" as *byte, codegen.emit_stream as *void);
                 }
             }
             // macOS hosted 自举单文件（src/build/uya-hosted.c / compiler_bootstrap.c）中，

@@ -1728,6 +1728,8 @@ fn emit_pending_err_union_struct_at(codegen: &C99CodeGenerator, i: i32) void {
     if payload_c == null {
         return;
     }
+    emit_pending_slice_structs(codegen);
+    emit_pending_simd_structs(codegen);
     var value_field_c: &byte = payload_c;
     if is_void == 0 && payload_node.type == ASTNodeType.AST_TYPE_NAMED && payload_node.type_named_name != null {
         const sdv: &ASTNode = find_struct_decl_c99(codegen, payload_node.type_named_name);

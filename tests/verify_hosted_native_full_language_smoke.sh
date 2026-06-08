@@ -423,6 +423,113 @@ require_pattern "$main_src" '@size_of\(SmokeCounter\)' "builtin @size_of coverag
 require_pattern "$main_src" '@align_of\(SmokeCounter\)' "builtin @align_of coverage"
 require_pattern "$main_src" '@error_id\(error.SmokeError\)' "builtin @error_id coverage"
 
+run_c99_fragment() {
+    local name="$1"
+    local src="$2"
+    local bin="$TMP_DIR/$name.c99.bin"
+    local build_out="$TMP_DIR/$name.c99.build.out"
+    local build_err="$TMP_DIR/$name.c99.build.err"
+    local run_out="$TMP_DIR/$name.c99.run.out"
+    local run_err="$TMP_DIR/$name.c99.run.err"
+
+    if ! (cd "$REPO_ROOT" && ./bin/uya build "$src" -o "$bin" \
+        --no-split-c --project-root "$TMP_DIR" >"$build_out" 2>"$build_err"); then
+        cat "$build_out" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    chmod +x "$bin"
+    set +e
+    "$bin" >"$run_out" 2>"$run_err"
+    local status=$?
+    set -e
+    echo "$status" >"$TMP_DIR/$name.c99.status"
+}
+
+run_native_reject_fragment() {
+    local name="$1"
+    local src="$2"
+    local bin="$TMP_DIR/$name.native.bin"
+    local build_out="$TMP_DIR/$name.native.build.out"
+    local build_err="$TMP_DIR/$name.native.build.err"
+
+    set +e
+    (cd "$REPO_ROOT" && ./bin/uya build "$src" -o "$bin" \
+        --native --no-split-c --project-root "$TMP_DIR" >"$build_out" 2>"$build_err")
+    local status=$?
+    set -e
+    if [[ "$status" -eq 0 ]]; then
+        echo "error: $name native fragment should not succeed through a pre-MIR helper" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if [[ -e "$bin" ]]; then
+        echo "error: $name native reject left an output file" >&2
+        exit 1
+    fi
+    if ! grep -q 'Native' "$build_err"; then
+        echo "error: $name native reject did not enter Native backend" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if grep -q '后端类型: C99' "$build_err"; then
+        echo "error: $name native reject fell back to C99" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$build_err"; then
+        echo "error: $name native reject lacks MIR lowering gap" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$build_err"; then
+        echo "error: $name native reject did not exclude build-seed helper" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+}
+
+if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
+    bash "$SCRIPT_DIR/verify_hosted_native_basic_parity.sh"
+    bash "$SCRIPT_DIR/verify_hosted_native_c_import_link_parity.sh"
+    bash "$SCRIPT_DIR/verify_hosted_native_main_local_if_preflight.sh"
+
+    run_c99_fragment builtin "$builtin_src"
+    run_native_reject_fragment builtin "$builtin_src"
+    run_c99_fragment array_len "$array_len_src"
+    run_native_reject_fragment array_len "$array_len_src"
+    run_c99_fragment slice "$slice_src"
+    run_native_reject_fragment slice "$slice_src"
+    run_c99_fragment error_id "$error_id_src"
+    run_native_reject_fragment error_id "$error_id_src"
+    run_c99_fragment catch "$catch_src"
+    run_native_reject_fragment catch "$catch_src"
+    run_c99_fragment dynamic_catch "$dynamic_catch_src"
+    run_native_reject_fragment dynamic_catch "$dynamic_catch_src"
+    run_c99_fragment defer "$defer_src"
+    run_native_reject_fragment defer "$defer_src"
+    run_c99_fragment drop "$drop_src"
+    run_native_reject_fragment drop "$drop_src"
+    run_c99_fragment interface "$interface_src"
+    run_native_reject_fragment interface "$interface_src"
+    run_c99_fragment atomic "$atomic_src"
+    run_native_reject_fragment atomic "$atomic_src"
+    run_c99_fragment simd "$simd_src"
+    run_native_reject_fragment simd "$simd_src"
+
+    run_c99_fragment full_language "$main_src"
+    if [[ "$(cat "$TMP_DIR/full_language.c99.status")" != "0" ]]; then
+        echo "error: C99 full-language smoke did not exit 0" >&2
+        cat "$TMP_DIR/full_language.c99.run.out" >&2
+        cat "$TMP_DIR/full_language.c99.run.err" >&2
+        exit 1
+    fi
+    run_native_reject_fragment full_language "$main_src"
+
+    echo "OK: hosted native full-language smoke uses MIR-backed successes and explicit rejects for pending complex no-deps shards"
+    exit 0
+fi
+
 extern_c99_build_out="$TMP_DIR/extern.c99.build.out"
 extern_c99_build_err="$TMP_DIR/extern.c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$extern_src" -o "$extern_c99_bin" \
@@ -541,7 +648,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$builtin_native_build_
     cat "$builtin_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$builtin_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$builtin_native_build_err"; then
     echo "error: native builtin parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$builtin_native_build_err" >&2
     exit 1
@@ -608,7 +715,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$array_len_native_buil
     cat "$array_len_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$array_len_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$array_len_native_build_err"; then
     echo "error: native array @len parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$array_len_native_build_err" >&2
     exit 1
@@ -752,7 +859,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$slice_native_build_er
     cat "$slice_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$slice_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$slice_native_build_err"; then
     echo "error: native slice parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$slice_native_build_err" >&2
     exit 1
@@ -819,7 +926,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$error_id_native_build
     cat "$error_id_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$error_id_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$error_id_native_build_err"; then
     echo "error: native @error_id parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$error_id_native_build_err" >&2
     exit 1
@@ -886,7 +993,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$catch_native_build_er
     cat "$catch_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$catch_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$catch_native_build_err"; then
     echo "error: native catch parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$catch_native_build_err" >&2
     exit 1
@@ -961,7 +1068,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$dynamic_catch_native_
     cat "$dynamic_catch_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$dynamic_catch_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$dynamic_catch_native_build_err"; then
     echo "error: native dynamic catch parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$dynamic_catch_native_build_err" >&2
     exit 1
@@ -1042,7 +1149,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$defer_native_build_er
     cat "$defer_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$defer_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$defer_native_build_err"; then
     echo "error: native defer parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$defer_native_build_err" >&2
     exit 1
@@ -1109,7 +1216,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$drop_native_build_err
     cat "$drop_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$drop_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$drop_native_build_err"; then
     echo "error: native drop parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$drop_native_build_err" >&2
     exit 1
@@ -1176,7 +1283,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$interface_native_buil
     cat "$interface_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$interface_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$interface_native_build_err"; then
     echo "error: native interface parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$interface_native_build_err" >&2
     exit 1
@@ -1243,7 +1350,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$atomic_native_build_e
     cat "$atomic_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$atomic_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$atomic_native_build_err"; then
     echo "error: native atomic parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$atomic_native_build_err" >&2
     exit 1
@@ -1310,7 +1417,7 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$simd_native_build_err
     cat "$simd_native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$simd_native_build_err"; then
+if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$simd_native_build_err"; then
     echo "error: native SIMD parity fragment lacks hosted no-deps executable evidence" >&2
     cat "$simd_native_build_err" >&2
     exit 1

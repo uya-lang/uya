@@ -143,6 +143,7 @@ fn portable_mir_struct_profile() MirTargetProfile {
         endianness: 0,
         default_address_space: MIR_ADDRESS_SPACE_GENERIC,
         runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+        call_abi_profile: MIR_CALL_ABI_PROFILE_HOSTED_SYSV,
         supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
         supported_calling_conventions: 3,
         runtime_capability_mask: 3,

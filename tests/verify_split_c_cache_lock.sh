@@ -99,6 +99,12 @@ if ! grep -q "正在被另一编译进程使用" "$LOG2"; then
     exit 1
 fi
 
+if grep -q "glibc detected an invalid stdio handle" "$LOG2"; then
+    echo "✗ 第二个编译触发了 hosted stdio 句柄崩溃"
+    cat "$LOG2"
+    exit 1
+fi
+
 if grep -q "代码生成完成" "$LOG2"; then
     echo "✗ 第二个编译在报错前仍继续生成了 split-C 产物"
     cat "$LOG2"

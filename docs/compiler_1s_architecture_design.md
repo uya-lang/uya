@@ -375,7 +375,7 @@ MirBlock
 - 显式表达 basic block、value、local、load/store/address、call、return、branch 和 cleanup path。
 - 统一 field/index/slice 地址计算、aggregate copy/move/drop、error union、defer/errdefer 和 drop path。
 - 保存 target-neutral layout metadata、calling convention 需求、hosted/freestanding runtime capability 和
-  address space 预留字段。
+  address space 预留字段；target profile 还必须显式保存 hosted/freestanding call ABI profile。
 - 不保存 x86_64 寄存器、ELF section、PTX 指令、C 文本等 target-specific 细节。
 - 通过 verifier 在线性扫描中检查 block 终结、value 使用、类型、地址/布局、cleanup path 和 target
   capability。
@@ -561,8 +561,10 @@ LoweredProgram / CoreIR / CoreBody
 完整语言 parity 第一阶段采用 Linux x86_64 hosted native：Uya 函数体生成机器码，libc、pthread、
 filesystem、env、malloc、extern 和 `@c_import` 链接需求交给宿主 ABI / linker 承接。
 该承接由 `NativeHostedLinkPlan` 固定：只从 verifier-clean Machine backend request 初始化，要求 hosted
-runtime profile，并记录 `libc`、`pthread`、filesystem、env、malloc、extern symbol 和 `@c_import`
+runtime profile 和 hosted SysV call ABI profile，并记录 `libc`、`pthread`、filesystem、env、malloc、extern symbol 和 `@c_import`
 object/linker 输入。freestanding profile 必须拒绝该 plan，而不是静默退回 C99。
+已迁入 PortableMIR 的 hosted shard 必须真实生成 executable；尚未迁入 MIR 的复杂 no-deps shard 必须明确
+报告 lowering gap，不能走 build-seed `LoweredProgram` helper。
 
 freestanding / nostdlib build-seed 目标继续保留，但作为 hosted native 已验证能力的后续下沉路径：
 
@@ -578,7 +580,8 @@ freestanding executable 路线。
 
 native 范围分成两层：
 
-- hosted native 完整语言 parity：第一阶段完整实现当前 Uya 语言，并以 C99 为 oracle。
+- hosted native 完整语言 parity：第一阶段以 C99 为 oracle；已迁 MIR 的 shard 真实运行一致，未迁 MIR 的复杂
+  shard 先保持 explicit reject。
 - freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉。
 
 freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity。
@@ -874,7 +877,8 @@ native 与 C99 对照：
 - `@naked_fn` 降为 `MirFunction.flags.naked` + asm-only body，不走普通栈帧、cleanup 或 prologue/epilogue。
 - 支持 per-function 并行 MIR 构造时，按 stable function order 归并 diagnostics、dump 和 backend fragments。
 - native backend 改为 `PortableMIR -> MachineModule`。
-- hosted native 与 C99 建立完整语言 smoke 差分。
+- hosted native 与 C99 建立完整语言 smoke 差分：已迁 MIR 的 shard 比对运行结果，未迁 MIR 的 shard
+  固定明确拒绝语义。
 
 ### Phase 4: 内存生命周期收口
 

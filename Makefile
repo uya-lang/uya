@@ -4,7 +4,7 @@
 # 若出现「没有规则可制作目标 install」：说明当前 Makefile 过旧，请用本仓库最新 Makefile
 # 替换，或从上游同步后再执行：make install PREFIX=$HOME/.local
 
-.PHONY: all from-c from-c-native restore-cmd-build-seed uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s bench-compiler-1s-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-cmd-build-seed backup-cmd-build-blob-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-build cmd-check cmd-run cmd-test cmd-fmt cmd-upm cmd-microapp uya-upm-stage2 upm-check fmt check-fmt
+.PHONY: all from-c from-c-native restore-cmd-build-seed uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s bench-compiler-1s-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-cmd-build-seed backup-cmd-build-blob-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-build cmd-build-current cmd-check cmd-run cmd-test cmd-fmt cmd-upm cmd-microapp uya-upm-stage2 upm-check fmt check-fmt
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
 HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')
@@ -677,6 +677,9 @@ cmds: $(UYA_CMD_BINS) bin/uya-upm-stage2
 
 cmd-build: bin/cmd/build
 
+cmd-build-current: uya
+	@$(MAKE) --no-print-directory -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya
+
 cmd-check: bin/cmd/check
 
 cmd-run: bin/cmd/run
@@ -705,19 +708,19 @@ bin/cmd/build: src/cmd/build/main.uya
 		echo "构建 cmd/build ..."; \
 		tmp="$@.tmp"; \
 		rm -f "$$tmp"; \
-		UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) $< -o "$$tmp" --no-split-c --project-root src/; \
+		UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o "$$tmp" --no-split-c --project-root src/; \
 		mv "$$tmp" $@; \
 	fi
 
 bin/cmd/upm: src/cmd/upm/main.uya $(UYA_CMD_BOOTSTRAP_COMPILER)
 	@mkdir -p bin/cmd
 	@echo "构建 cmd/upm ..."
-	@UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) $< -o $@ --no-split-c --project-root src/cmd/upm/
+	@UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o $@ --no-split-c --project-root src/cmd/upm/
 
 bin/cmd/%: src/cmd/%/main.uya $(UYA_CMD_BOOTSTRAP_COMPILER)
 	@mkdir -p bin/cmd
 	@echo "构建 cmd/$* ..."
-	@UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) $< -o $@ --no-split-c --project-root src/
+	@UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o $@ --no-split-c --project-root src/
 
 upm-check: uya cmd-upm
 	@echo "=========================================="
@@ -728,7 +731,7 @@ upm-check: uya cmd-upm
 	@echo "✓ UPM 验证套件通过"
 
 # 备份 bin/uya.c（依赖自举验证和测试通过）
-check: uya
+check: uya cmd-build-current cmd-check cmd-run cmd-microapp
 	@echo "=========================================="
 	@echo "运行测试验证..."
 	@echo "=========================================="

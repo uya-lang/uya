@@ -2248,19 +2248,29 @@ export extern "libc" fn fgets(buf: &byte, n: i32, stream: &FILE) &byte {
     if buf == null || n <= 0 || stream == null {
         return null as &byte;
     }
+    const fd: i64 = stream.fd;
+    if fd < 0 {
+        return null as &byte;
+    }
     
     var i: i32 = 0;
     while i < n - 1 {
-        const c: i32 = fgetc(stream);
-        if c == 0 - 1 {  // EOF
+        var ch: byte = 0 as byte;
+        const read_result: !isize = sys_read(fd as i32, &ch, 1);
+        var read_failed: i32 = 0;
+        const bytes_read: isize = read_result catch {
+            read_failed = 1;
+            0 as isize;
+        };
+        if read_failed != 0 || bytes_read != 1 as isize {
             if i == 0 {
                 return null as &byte;
             }
             break;
         }
-        buf[i] = c as byte;
+        buf[i] = ch;
         i = i + 1;
-        if c == 10 {  // '\n'
+        if ch == 10 {  // '\n'
             break;
         }
     }

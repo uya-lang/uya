@@ -452,6 +452,9 @@ run_compiled_test_args() {
     if [[ "$base_name" =~ ^error_microapp_mode_ ]]; then
         extra_args=(--app microapp)
     fi
+    if [[ "$base_name" =~ ^test_native_ ]]; then
+        extra_args+=(--project-root "$REPO_ROOT/src/")
+    fi
 
     mkdir -p "$compiler_work_dir"
 
@@ -518,9 +521,9 @@ run_compiled_test_args() {
     esac
     local run_exit=0
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${test_timeout}s" "$exe_file" > /dev/null 2>&1 || run_exit=$?
+        env -u LD_PRELOAD -u _STDBUF_I -u _STDBUF_O -u _STDBUF_E timeout "${test_timeout}s" "$exe_file" > /dev/null 2>&1 || run_exit=$?
     else
-        "$exe_file" > /dev/null 2>&1 || run_exit=$?
+        env -u LD_PRELOAD -u _STDBUF_I -u _STDBUF_O -u _STDBUF_E "$exe_file" > /dev/null 2>&1 || run_exit=$?
     fi
     if [ $run_exit -eq 0 ]; then
         echo "PASS:$base_name:测试通过" > "$result_file"

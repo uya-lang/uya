@@ -52,8 +52,12 @@ require_pattern "$SUBSET_DOC" 'tests/verify_native_cmd_build_no_silent_c99\.sh' 
 require_pattern "$SUBSET_DOC" '不能生成伪 native 输出，也不能静默回落 C99' \
     "cmd/build subset doc 缺少失败语义"
 
-require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段完整实现当前 Uya 语言，并以 C99 为 oracle' \
-    "architecture doc 缺少 hosted native 完整语言范围"
+require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
+    "architecture doc 缺少 hosted native C99 oracle 范围"
+require_pattern "$ARCH_DOC" '已迁 MIR 的 shard 真实运行一致，未迁 MIR 的复杂' \
+    "architecture doc 缺少已迁 MIR shard 的真实运行范围"
+require_pattern "$ARCH_DOC" 'shard 先保持 explicit reject' \
+    "architecture doc 缺少未迁 MIR shard 明确拒绝规则"
 require_pattern "$ARCH_DOC" 'freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉' \
     "architecture doc 缺少 freestanding build-seed 下沉规则"
 require_pattern "$ARCH_DOC" 'freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity' \

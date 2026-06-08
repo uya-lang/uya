@@ -368,6 +368,11 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     // v0.7.3 优化支持：检查是否已优化
     if expr.is_optimized != 0 {
         // 常量折叠：直接输出优化后的值
+        const optimized_i32_min: i32 = @min;
+        if expr.optimized_value == optimized_i32_min {
+            fputs("/* optimized */ (-2147483647LL-1LL)" as *byte, codegen.emit_stream as *void);
+            return;
+        }
         fprintf(codegen.emit_stream as *void, "/* optimized */ %d" as *byte, expr.optimized_value);
         return;
     }
@@ -1619,6 +1624,18 @@ fn c99_type_c_is_const_pointer(type_c: &byte) i32 {
     return 0;
 }
 
+fn c99_find_imported_function_decl_for_unqualified_call(codegen: &C99CodeGenerator, name: &byte) &ASTNode {
+    if codegen == null || codegen.checker == null || name == null {
+        return null;
+    }
+    const import: &ImportedItem = checker_import_table_lookup_local_name(codegen.checker, name);
+    const imported_fn: &ASTNode = checker_find_imported_fn_decl(codegen.checker, import);
+    if imported_fn != null && imported_fn.type == ASTNodeType.AST_FN_DECL {
+        return imported_fn;
+    }
+    return null;
+}
+
 fn c99_find_function_decl_for_unqualified_call(codegen: &C99CodeGenerator, name: &byte) &ASTNode {
     if codegen == null || name == null {
         return null;
@@ -1666,6 +1683,10 @@ fn c99_find_function_decl_for_unqualified_call(codegen: &C99CodeGenerator, name:
                 i = i + 1;
             }
         }
+    }
+    const imported_decl: &ASTNode = c99_find_imported_function_decl_for_unqualified_call(codegen, name);
+    if imported_decl != null {
+        return imported_decl;
     }
     return find_function_decl_c99(codegen, name);
 }

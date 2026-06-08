@@ -383,16 +383,25 @@ fn split_c_read_lock_owner_pid(lock_dir: &byte, pid_out: &i32) i32 {
     if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
         return 1;
     }
-    const file: &FILE = fopen(&pid_path[0] as *byte, "r" as *byte);
-    if file == null {
+    const fd_result: !i32 = sys_open(&pid_path[0] as *const byte, O_RDONLY as i32, 0);
+    const fd: i32 = fd_result catch {
         return 1;
-    }
+    };
     var buf: [byte: 64] = [];
-    const line: &byte = fgets(&buf[0] as &byte, 64, file);
-    fclose(file);
-    if line == null {
+    const read_result: !isize = sys_read(fd, &buf[0] as *byte, 63usize);
+    const bytes_read: isize = read_result catch {
+        _ = sys_close(fd) catch { 0; };
+        return 1;
+    };
+    _ = sys_close(fd) catch { 0; };
+    if bytes_read <= 0 as isize {
         return 1;
     }
+    var len: usize = bytes_read as usize;
+    if len >= 64usize {
+        len = 63usize;
+    }
+    buf[len] = 0 as byte;
     const pid: i32 = split_c_parse_owner_pid(&buf[0] as &byte);
     if pid <= 0 {
         return 1;

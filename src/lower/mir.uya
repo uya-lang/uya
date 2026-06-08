@@ -64,9 +64,18 @@ export const MIR_ADDRESS_SPACE_HOST: i32 = 2;
 export const MIR_RUNTIME_MODE_HOSTED: i32 = 1;
 export const MIR_RUNTIME_MODE_FREESTANDING: i32 = 2;
 export const MIR_RUNTIME_MODE_DEVICE: i32 = 3;
+export const MIR_TARGET_PROFILE_HOSTED_NATIVE: i32 = 1;
+export const MIR_TARGET_PROFILE_FREESTANDING_NATIVE: i32 = 2;
+export const MIR_CALL_ABI_PROFILE_HOSTED_SYSV: i32 = 1;
+export const MIR_CALL_ABI_PROFILE_FREESTANDING_SYSCALL: i32 = 2;
+
+const MIR_PROFILE_CALL_CONV_HOSTED_NATIVE: i32 = 3;
+const MIR_PROFILE_CALL_CONV_FREESTANDING_NATIVE: i32 = 5;
+const MIR_PROFILE_RUNTIME_CAP_HOSTED_NATIVE: i32 = 3;
+const MIR_PROFILE_RUNTIME_CAP_FREESTANDING_NATIVE: i32 = 4;
 
 /// 功能说明：记录 PortableMIR target profile 中与后端无关的基础能力边界。
-/// 参数说明：无；字段保存 profile ID、pointer/layout 形态、runtime mode、address/call/capability masks 和 feature flags。
+/// 参数说明：无；字段保存 profile ID、pointer/layout 形态、runtime mode、call ABI profile、address/call/capability masks 和 feature flags。
 /// 返回值说明：无。
 export struct MirTargetProfile {
     profile_id: i32,
@@ -74,6 +83,7 @@ export struct MirTargetProfile {
     endianness: i32,
     default_address_space: i32,
     runtime_mode: i32,
+    call_abi_profile: i32,
     supported_address_spaces: i32,
     supported_calling_conventions: i32,
     runtime_capability_mask: i32,
@@ -309,18 +319,75 @@ export struct PortableMirModule {
     capability_reqs: SemanticVector,
 }
 
-fn portable_mir_default_target_profile() MirTargetProfile {
+/// 功能说明：返回 hosted native 使用的 PortableMIR target profile。
+/// 参数说明：无。
+/// 返回值说明：返回 Linux x86_64 hosted native 第一阶段 profile，支持 Uya/C 调用和 hosted libc/C extern capability。
+export fn portable_mir_target_profile_hosted_native() MirTargetProfile {
     return MirTargetProfile{
-        profile_id: 0,
+        profile_id: MIR_TARGET_PROFILE_HOSTED_NATIVE,
         pointer_size: 0,
         endianness: 0,
         default_address_space: MIR_ADDRESS_SPACE_GENERIC,
         runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+        call_abi_profile: MIR_CALL_ABI_PROFILE_HOSTED_SYSV,
         supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
-        supported_calling_conventions: 3,
-        runtime_capability_mask: 3,
+        supported_calling_conventions: MIR_PROFILE_CALL_CONV_HOSTED_NATIVE,
+        runtime_capability_mask: MIR_PROFILE_RUNTIME_CAP_HOSTED_NATIVE,
         feature_flags: 0,
     };
+}
+
+/// 功能说明：返回 freestanding native 使用的 PortableMIR target profile。
+/// 参数说明：无。
+/// 返回值说明：返回 nostdlib/build-seed profile，只支持 Uya/syscall 调用和 freestanding runtime capability。
+export fn portable_mir_target_profile_freestanding_native() MirTargetProfile {
+    return MirTargetProfile{
+        profile_id: MIR_TARGET_PROFILE_FREESTANDING_NATIVE,
+        pointer_size: 0,
+        endianness: 0,
+        default_address_space: MIR_ADDRESS_SPACE_GENERIC,
+        runtime_mode: MIR_RUNTIME_MODE_FREESTANDING,
+        call_abi_profile: MIR_CALL_ABI_PROFILE_FREESTANDING_SYSCALL,
+        supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC,
+        supported_calling_conventions: MIR_PROFILE_CALL_CONV_FREESTANDING_NATIVE,
+        runtime_capability_mask: MIR_PROFILE_RUNTIME_CAP_FREESTANDING_NATIVE,
+        feature_flags: 0,
+    };
+}
+
+fn portable_mir_default_target_profile() MirTargetProfile {
+    return portable_mir_target_profile_hosted_native();
+}
+
+/// 功能说明：判断 target profile 是否支持指定 call ABI profile。
+/// 参数说明：`profile` 为待检查 profile，`call_abi_profile` 为 `MIR_CALL_ABI_PROFILE_*` 常量。
+/// 返回值说明：profile 的 call ABI 与请求一致时返回 `1`，否则返回 `0`。
+export fn portable_mir_target_profile_supports_call_abi(profile: &MirTargetProfile,
+    call_abi_profile: i32) i32 {
+    if profile == null || call_abi_profile == 0 {
+        return 0;
+    }
+    if profile.call_abi_profile == call_abi_profile {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 target profile 是否支持指定 runtime capability mask。
+/// 参数说明：`profile` 为待检查 profile，`capability_mask` 为一个或多个 runtime capability bit。
+/// 返回值说明：capability mask 被完整覆盖时返回 `1`，否则返回 `0`。
+export fn portable_mir_target_profile_supports_runtime_capability(profile: &MirTargetProfile,
+    capability_mask: i32) i32 {
+    if profile == null {
+        return 0;
+    }
+    if capability_mask == 0 {
+        return 1;
+    }
+    if (profile.runtime_capability_mask & capability_mask) == capability_mask {
+        return 1;
+    }
+    return 0;
 }
 
 /// 功能说明：返回 naked 函数禁止进入的普通 lowering 阶段集合。

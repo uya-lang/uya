@@ -88,7 +88,9 @@ export fn native_hosted_link_plan_init(plan: &NativeHostedLinkPlan,
     }
     if request.backend_kind != MIR_TARGET_BACKEND_MACHINE ||
        portable_mir_backend_request_is_verified(request) == 0 ||
-       request.module.target_profile.runtime_mode != MIR_RUNTIME_MODE_HOSTED {
+       request.module.target_profile.runtime_mode != MIR_RUNTIME_MODE_HOSTED ||
+       portable_mir_target_profile_supports_call_abi(&request.module.target_profile,
+        MIR_CALL_ABI_PROFILE_HOSTED_SYSV) == 0 {
         return -1;
     }
     plan.lifecycle_state = NATIVE_HOSTED_LINK_PLAN_ACTIVE;

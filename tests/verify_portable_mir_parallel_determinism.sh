@@ -416,6 +416,7 @@ export fn main() i32 {
             endianness: 0,
             default_address_space: MIR_ADDRESS_SPACE_GENERIC,
             runtime_mode: MIR_RUNTIME_MODE_HOSTED,
+            call_abi_profile: MIR_CALL_ABI_PROFILE_HOSTED_SYSV,
             supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC,
             supported_calling_conventions: MIR_CALL_CONV_UYA + MIR_CALL_CONV_C,
             runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC + MIR_RUNTIME_CAP_C_EXTERN,

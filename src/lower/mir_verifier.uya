@@ -124,6 +124,34 @@ fn portable_mir_verify_address_supported(module: &PortableMirModule, address_spa
     return portable_mir_verify_has_mask(module.target_profile.supported_address_spaces, address_space);
 }
 
+fn portable_mir_verify_call_abi_supported(module: &PortableMirModule, calling_convention: i32) i32 {
+    if module == null {
+        return 0;
+    }
+    if portable_mir_verify_has_mask(module.target_profile.supported_calling_conventions,
+        calling_convention) == 0 {
+        return 0;
+    }
+    if module.target_profile.runtime_mode == MIR_RUNTIME_MODE_HOSTED {
+        return portable_mir_target_profile_supports_call_abi(&module.target_profile,
+            MIR_CALL_ABI_PROFILE_HOSTED_SYSV);
+    }
+    if module.target_profile.runtime_mode == MIR_RUNTIME_MODE_FREESTANDING {
+        return portable_mir_target_profile_supports_call_abi(&module.target_profile,
+            MIR_CALL_ABI_PROFILE_FREESTANDING_SYSCALL);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_runtime_capability_supported(module: &PortableMirModule,
+    capability_mask: i32) i32 {
+    if module == null {
+        return 0;
+    }
+    return portable_mir_target_profile_supports_runtime_capability(&module.target_profile,
+        capability_mask);
+}
+
 fn portable_mir_verify_function_ptr(module: &PortableMirModule, id: MirFunctionId) &MirFunction {
     if module == null || id < 0 || (id as usize) >= module.functions.count { return null; }
     return semantic_vector_item_ptr(&module.functions, id as usize) as &MirFunction;
@@ -295,10 +323,10 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
        (typ == null || (typ.kind != MIR_TYPE_KIND_VECTOR && typ.kind != MIR_TYPE_KIND_MASK)) {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VECTOR_MASK, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
-    if inst.op == MIR_INST_OP_CALL && portable_mir_verify_has_mask(module.target_profile.supported_calling_conventions, inst.calling_convention) == 0 {
+    if inst.op == MIR_INST_OP_CALL && portable_mir_verify_call_abi_supported(module, inst.calling_convention) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
-    if portable_mir_verify_has_mask(module.target_profile.runtime_capability_mask, inst.runtime_capability_mask) == 0 {
+    if portable_mir_verify_runtime_capability_supported(module, inst.runtime_capability_mask) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
     return 0;
@@ -396,6 +424,9 @@ fn portable_mir_verify_capability(module: &PortableMirModule, cap: &MirCapabilit
     if cap.inst_id != MIR_INST_INVALID_ID && portable_mir_verify_inst_ptr(module, cap.inst_id) == null {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, cap.function_id, MIR_BLOCK_INVALID_ID, cap.inst_id, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, index as i32, cap.debug_loc_id);
     }
+    if portable_mir_verify_runtime_capability_supported(module, cap.capability_id) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, cap.function_id, MIR_BLOCK_INVALID_ID, cap.inst_id, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, index as i32, cap.debug_loc_id);
+    }
     return 0;
 }
 
@@ -430,8 +461,8 @@ fn portable_mir_verify_function(module: &PortableMirModule, function: &MirFuncti
        portable_mir_verify_range(function.capability_req_start, function.capability_req_count, module.capability_reqs.count) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_FUNCTION, index as i32, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
     }
-    if portable_mir_verify_has_mask(module.target_profile.supported_calling_conventions, function.calling_convention) == 0 ||
-       portable_mir_verify_has_mask(module.target_profile.runtime_capability_mask, function.runtime_capability_mask) == 0 ||
+    if portable_mir_verify_call_abi_supported(module, function.calling_convention) == 0 ||
+       portable_mir_verify_runtime_capability_supported(module, function.runtime_capability_mask) == 0 ||
        portable_mir_verify_has_mask(module.target_profile.supported_address_spaces, function.required_address_space_mask) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, function.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
     }
