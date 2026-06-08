@@ -607,7 +607,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     run_c99_fragment defer "$defer_src"
     run_native_parity_fragment defer "$defer_src"
     run_c99_fragment drop "$drop_src"
-    run_native_reject_fragment drop "$drop_src"
+    run_native_parity_fragment drop "$drop_src"
     run_c99_fragment interface "$interface_src"
     run_native_reject_fragment interface "$interface_src"
     run_c99_fragment atomic "$atomic_src"

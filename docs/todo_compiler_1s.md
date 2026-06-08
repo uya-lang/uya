@@ -884,7 +884,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
         - [x] 动态 error union `catch` shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求 fallback/success 运行路径一致，且不走 reject 或 C99 fallback。
     - drop/defer shard（拆分执行）：
       - [x] 最小 `defer { local = const; }` shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求 return-value 冻结和 cleanup edge/fact 通过 verifier，且不走 reject 或 C99 fallback。
-      - [x] 最小 lexical drop shard 先要求 C99 成功、hosted native 明确拒绝。
+      - [x] 最小 lexical drop shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求 `DROP` statement、return cleanup edge/fact 通过 verifier，且不走 reject 或 C99 fallback。
     - [x] interface/method dispatch shard 先要求 C99 成功、hosted native 明确拒绝。
     - [x] atomic i32 shard 先要求 C99 成功、hosted native 明确拒绝。
     - [x] SIMD vector/mask shard 先要求 C99 成功、hosted native 明确拒绝。
@@ -927,7 +927,7 @@ PortableMIR/native hosted parity 的验收输入。
     - [x] 将常量输入 error union `catch` success/fallback shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [x] 将动态 error union `catch` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [x] 将最小 `defer { local = const; }` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
-    - [ ] 将最小 lexical drop shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [x] 将最小 lexical drop shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将 interface/method dispatch shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将 atomic i32 shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将 SIMD vector/mask shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。

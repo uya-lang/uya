@@ -605,7 +605,10 @@ error union `catch` shard 现在以 CoreBody `IF` 和 PortableMIR `COND_BR` 表�
 再由 verified no-deps hosted native path 生成真实 executable；该实现仍是窄形状 shard，不代表完整
 error-union lowering 已完成。最小 `defer { local = const; }` shard 现在在 CoreBody 中记录
 `DEFER` statement、return cleanup edge 和 cleanup fact；PortableMIR 侧以已冻结的 return value 生成
-verifier-clean executable，覆盖“return 先求值、defer 后执行”的窄形状语义。
+verifier-clean executable，覆盖“return 先求值、defer 后执行”的窄形状语义。最小 lexical drop shard
+同样只覆盖 hosted no-deps smoke 的窄形状：CoreBody 显式记录 `DROP` statement、return cleanup edge 和
+cleanup fact，再由 verified PortableMIR path 生成与 C99 exit status 一致的 executable；这不代表完整
+drop lowering 或通用 drop function call lowering 已完成。
 
 hosted native 接受：
 
