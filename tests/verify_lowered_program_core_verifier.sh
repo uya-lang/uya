@@ -33,6 +33,9 @@ require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_UNFROZEN_CALL' "未冻结 
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_TYPE_MISMATCH' "类型不匹配诊断码"
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP' "cleanup path 不完整诊断码"
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_CAPABILITY_SEMANTICS' "capability 语义污染诊断码"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_ASSIGN' "CoreIR 局部赋值 statement surface"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_EXPR' "CoreIR 裸 call expression statement surface"
+require_pattern "$LOWER_CORE_FILE" 'CORE_EXPR_KIND_I32_LE' "CoreIR i32 <= expression surface"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir_result' "带诊断的 CoreIR verifier API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir' "CoreIR verifier 便捷 API"
 
@@ -101,18 +104,18 @@ fn core_verify_fact(body_id: CoreBodyId, fact_id: CoreSemanticFactId, kind: i32)
 }
 
 fn append_core_verify_body(lowered: &LoweredProgram, mode: i32) !void {
-    var fact_count: i32 = 6;
+    var fact_count: i32 = 7;
     if mode == 4 {
-        fact_count = 5;
+        fact_count = 6;
     }
     var body: CoreBody = CoreBody{
         body_id: 0,
         function_id: 11,
         decl_id: 12,
         root_stmt_start: 0,
-        root_stmt_count: 1,
+        root_stmt_count: 3,
         expr_start: 0,
-        expr_count: 1,
+        expr_count: 2,
         place_start: 0,
         place_count: 1,
         cleanup_edge_start: 0,
@@ -159,6 +162,25 @@ fn append_core_verify_body(lowered: &LoweredProgram, mode: i32) !void {
     if mode == 8 {
         expr.type_id = 78;
     }
+    var le_expr: CoreExpr = CoreExpr{
+        expr_id: 1,
+        kind: CORE_EXPR_KIND_I32_LE,
+        body_id: 0,
+        source_expr_id: 8,
+        type_id: 77,
+        literal_i64: 0i64,
+        lhs_expr_id: 0,
+        rhs_expr_id: 0,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 704,
+        flags: 0,
+    };
     var place: CorePlace = CorePlace{
         place_id: 0,
         kind: CORE_PLACE_KIND_FIELD,
@@ -185,8 +207,41 @@ fn append_core_verify_body(lowered: &LoweredProgram, mode: i32) !void {
         flags: 0,
     };
     try assert_eq_i32(lowered_program_append_core_body(lowered, &body), 0);
+    var assign_stmt: CoreStmt = CoreStmt{
+        stmt_id: 1,
+        kind: CORE_STMT_KIND_ASSIGN,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 1,
+        place_id: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: 502,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var expr_stmt: CoreStmt = CoreStmt{
+        stmt_id: 2,
+        kind: CORE_STMT_KIND_EXPR,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 0,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: 503,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
     try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &assign_stmt), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &expr_stmt), 0);
     try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &le_expr), 0);
     try assert_eq_i32(lowered_program_append_core_place(lowered, &place), 0);
     try assert_eq_i32(lowered_program_append_core_cleanup_edge(lowered, &edge), 0);
 
@@ -247,6 +302,11 @@ fn append_core_verify_body(lowered: &LoweredProgram, mode: i32) !void {
         capability_fact.type_id = 77;
     }
     try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &capability_fact), 0);
+
+    var le_type_fact: CoreSemanticFact = core_verify_fact(0, 6, CORE_SEMANTIC_FACT_TYPE_ID);
+    le_type_fact.expr_id = 1;
+    le_type_fact.type_id = 77;
+    try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &le_type_fact), 0);
 }
 
 fn make_core_verify_program(lowered: &LoweredProgram, arena: &CompilerArena, mode: i32) !void {

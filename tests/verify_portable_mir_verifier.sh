@@ -40,6 +40,11 @@ for symbol in \
     require_pattern "$MIR_VERIFIER_FILE" "$symbol" "verifier symbol $symbol"
 done
 
+require_pattern "$MIR_FILE" 'MIR_INST_OP_I32_LE' "PortableMIR i32 <= opcode"
+require_pattern "$MIR_FILE" 'MIR_INST_OP_LOCAL_SET' "PortableMIR local assignment opcode"
+require_pattern "$MIR_VERIFIER_FILE" 'MIR_INST_OP_I32_LE' "verifier validates i32 <= shape"
+require_pattern "$MIR_VERIFIER_FILE" 'MIR_INST_OP_LOCAL_SET' "verifier validates local assignment shape"
+
 require_pattern "$MIR_VERIFIER_FILE" 'semantic_vector_item_ptr' "linear table traversal"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_function_has_asm_only_naked_body' "naked body verifier hook"
 require_pattern "$PORTABLE_MIR_DOC" 'MIR verifier 是所有 backend 的强制门禁' "whitepaper verifier gate"
@@ -358,7 +363,7 @@ fn verifier_run(mode: i32) i32 {
     var functions: [MirFunction: 1] = [];
     var blocks: [MirBlock: 1] = [];
     var values: [MirValue: 2] = [];
-    var types: [MirType: 5] = [];
+    var types: [MirType: 6] = [];
     var locals: [MirLocal: 1] = [];
     var insts: [MirInst: 1] = [];
     var terminators: [MirTerminator: 1] = [];
@@ -374,6 +379,7 @@ fn verifier_run(mode: i32) i32 {
     types[2] = verifier_type(2, MIR_TYPE_KIND_ATOMIC);
     types[3] = verifier_type(3, MIR_TYPE_KIND_VECTOR);
     types[4] = verifier_type(4, MIR_TYPE_KIND_MASK);
+    types[5] = verifier_type(5, MIR_TYPE_KIND_BOOL);
     locals[0] = verifier_local();
     insts[0] = verifier_inst();
     terminators[0] = verifier_terminator();
@@ -420,12 +426,42 @@ fn verifier_run(mode: i32) i32 {
     if mode == 13 {
         types[4].mask_representation = 0;
     }
+    if mode == 14 {
+        insts[0].op = MIR_INST_OP_I32_LE;
+        insts[0].type_id = 5;
+        insts[0].operand_count = 2;
+        values[1].type_id = 5;
+        operands[0] = verifier_operand(0, 0, 0);
+        operands[1] = verifier_operand(1, 0, 0);
+    }
+    if mode == 15 {
+        insts[0].op = MIR_INST_OP_LOCAL_SET;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        locals[0].type_id = 0;
+        locals[0].address_space = MIR_ADDRESS_SPACE_GENERIC;
+        locals[0].alignment = 4usize;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 0);
+        operands[0].local_id = 0;
+        operands[1] = verifier_operand(1, 0, 0);
+    }
+    if mode == 16 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 0;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
     module.blocks = verifier_vec(&blocks[0] as &byte, @size_of(MirBlock), 1usize);
     module.values = verifier_vec(&values[0] as &byte, @size_of(MirValue), 2usize);
-    module.types = verifier_vec(&types[0] as &byte, @size_of(MirType), 5usize);
+    module.types = verifier_vec(&types[0] as &byte, @size_of(MirType), 6usize);
     module.locals = verifier_vec(&locals[0] as &byte, @size_of(MirLocal), 1usize);
     module.insts = verifier_vec(&insts[0] as &byte, @size_of(MirInst), 1usize);
     module.terminators = verifier_vec(&terminators[0] as &byte, @size_of(MirTerminator), 1usize);
@@ -434,7 +470,7 @@ fn verifier_run(mode: i32) i32 {
     module.function_count = 1usize;
     module.block_count = 1usize;
     module.value_count = 2usize;
-    module.type_count = 5usize;
+    module.type_count = 6usize;
     module.local_count = 1usize;
     module.inst_count = 1usize;
     module.terminator_count = 1usize;
@@ -458,6 +494,12 @@ fn verifier_run(mode: i32) i32 {
 
 test "PortableMIR verifier accepts a complete linear module" {
     try assert_eq_i32(verifier_run(0), MIR_VERIFY_OK);
+}
+
+test "PortableMIR verifier accepts partial surface for compare assign and call statement" {
+    try assert_eq_i32(verifier_run(14), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(15), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(16), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {

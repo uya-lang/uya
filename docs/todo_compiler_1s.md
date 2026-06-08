@@ -943,7 +943,9 @@ PortableMIR/native hosted parity 的验收输入。
       - 将 native 输出路径选择前的 reachable 控制流继续迁入 PortableMIR，收敛 pending body frontier（继续拆分执行）：
         - [x] 固定 `parse_result` 之后的下一条 source stmt frontier 诊断，精确到 `eff_compiler_stack_kb` 初始化，避免输出路径前控制流继续泛化。
         - [x] 将 `eff_compiler_stack_kb` 初始化纳入 CoreBody/PortableMIR partial 覆盖。
-        - [ ] 为 `if <=`、局部赋值和裸 call statement 补齐输出路径前控制流所需的 CoreBody/PortableMIR partial surface。
+        - 为 `if <=`、局部赋值和裸 call statement 补齐输出路径前控制流所需的 CoreBody/PortableMIR partial surface（拆分执行）：
+          - [x] 冻结 CoreBody/PortableMIR 的 `i32 <=`、局部赋值和裸 call statement surface，并补 verifier/边界测试。
+          - [ ] 将 `build_compiler_driver_run` partial builder 改为使用上述 surface 表达 stack-limit guard 前置形状。
         - [ ] 将 stack-limit guard 与 `set_process_stack_limit_bytes(...)` 调用迁入 verifier-clean PortableMIR frontier。
         - [ ] 将 split-dir 环境变量分支继续迁入 PortableMIR frontier。
         - [ ] 将 `output_file_index < 0` 的 native/C99 输出路径选择分支继续迁入 PortableMIR frontier。
