@@ -5928,6 +5928,90 @@ fn native_build_var_decl_scalar_const_value(stmt: &ASTNode, locals: &NativeBuild
     return native_build_expr_scalar_const_value(stmt.var_decl_init, locals, out_value);
 }
 
+fn native_build_assign_stmt_local_const(stmt: &ASTNode, local_name: &byte,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || local_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_ASSIGN ||
+       stmt.assign_dest == null || stmt.assign_src == null ||
+       stmt.assign_dest.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.assign_dest.identifier_name == null ||
+       str_equals(stmt.assign_dest.identifier_name as *byte, local_name as *byte) == 0 {
+        return 0;
+    }
+    return native_build_expr_scalar_const_value(stmt.assign_src, null, out_value);
+}
+
+fn native_build_defer_stmt_local_assign_const(stmt: &ASTNode, local_name: &byte,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || local_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_DEFER_STMT || stmt.defer_stmt_body == null {
+        return 0;
+    }
+    var assign_stmt: &ASTNode = stmt.defer_stmt_body;
+    if assign_stmt.type == ASTNodeType.AST_BLOCK {
+        if assign_stmt.block_stmts == null || assign_stmt.block_stmt_count != 1 {
+            return 0;
+        }
+        assign_stmt = assign_stmt.block_stmts[0];
+    }
+    return native_build_assign_stmt_local_const(assign_stmt, local_name, out_value);
+}
+
+fn native_build_return_stmt_identifier_equals(stmt: &ASTNode, local_name: &byte) i32 {
+    if stmt == null || local_name == null ||
+       stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.return_stmt_expr.identifier_name == null ||
+       str_equals(stmt.return_stmt_expr.identifier_name as *byte, local_name as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_decl_defer_local_assign_return_value(decl: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if decl == null || out_value == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count != 3 {
+        return 0;
+    }
+    const local_decl: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const defer_stmt: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    if local_decl == null || local_decl.type != ASTNodeType.AST_VAR_DECL ||
+       local_decl.var_decl_name == null ||
+       native_build_type_is_i32_like_scalar(local_decl.var_decl_type) == 0 {
+        return 0;
+    }
+    var initial_value: i32 = 0;
+    if native_build_var_decl_scalar_const_value(local_decl, null, &initial_value) == 0 ||
+       initial_value < 0 || initial_value > 255 {
+        return 0;
+    }
+    var deferred_value: i32 = 0;
+    if native_build_defer_stmt_local_assign_const(defer_stmt,
+        local_decl.var_decl_name, &deferred_value) == 0 {
+        return 0;
+    }
+    if native_build_return_stmt_identifier_equals(return_stmt,
+        local_decl.var_decl_name) == 0 {
+        return 0;
+    }
+    *out_value = initial_value;
+    return 1;
+}
+
 fn native_build_var_decl_i32_array_zero_value(stmt: &ASTNode, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
@@ -6846,6 +6930,12 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
         &const_catch_return_value) != 0 {
         return native_build_append_const_return_lowered_function(lowered,
             function_index, decl_index, decl, const_catch_return_value);
+    }
+    var defer_return_value: i32 = 0;
+    if native_build_decl_defer_local_assign_return_value(decl,
+        &defer_return_value) != 0 {
+        return native_build_append_const_return_lowered_function(lowered,
+            function_index, decl_index, decl, defer_return_value);
     }
     var locals: NativeBuildLocalTable = native_build_local_table_init(lowered.arena, body.block_stmt_count);
     if locals.names == null || locals.call_targets == null ||

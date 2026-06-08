@@ -18,6 +18,7 @@ slice_src="$TMP_DIR/slice_fragment.uya"
 error_id_src="$TMP_DIR/error_id_fragment.uya"
 catch_src="$TMP_DIR/catch_fragment.uya"
 dynamic_catch_src="$TMP_DIR/dynamic_catch_fragment.uya"
+defer_src="$TMP_DIR/defer_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -33,6 +34,8 @@ catch_c99_bin="$TMP_DIR/c99-catch-smoke"
 catch_native_bin="$TMP_DIR/native-catch-smoke"
 dynamic_catch_c99_bin="$TMP_DIR/c99-dynamic-catch-smoke"
 dynamic_catch_native_bin="$TMP_DIR/native-dynamic-catch-smoke"
+defer_c99_bin="$TMP_DIR/c99-defer-smoke"
+defer_native_bin="$TMP_DIR/native-defer-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -130,6 +133,14 @@ export fn main() i32 {
     const argc: i32 = get_argc();
     const recovered: i32 = maybe_value(argc) catch { 8; };
     return recovered;
+}
+EOF
+
+cat >"$defer_src" <<'EOF'
+export fn main() i32 {
+    var value: i32 = 1;
+    defer { value = 9; }
+    return value;
 }
 EOF
 
@@ -273,6 +284,7 @@ require_pattern "$catch_src" 'maybe_value\(5\) catch \{ 0; \}' "error-union catc
 require_pattern "$catch_src" 'maybe_value\(0\) catch \{ 8; \}' "error-union catch fallback parity coverage"
 require_pattern "$dynamic_catch_src" 'get_argc\(\)' "dynamic catch runtime input parity coverage"
 require_pattern "$dynamic_catch_src" 'maybe_value\(argc\) catch \{ 8; \}' "dynamic error-union catch parity coverage"
+require_pattern "$defer_src" 'defer \{ value = 9; \}' "defer return-order parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -797,6 +809,73 @@ if ! cmp -s "$TMP_DIR/dynamic-catch.c99.success.err" "$TMP_DIR/dynamic-catch.nat
     exit 1
 fi
 
+defer_c99_build_out="$TMP_DIR/defer.c99.build.out"
+defer_c99_build_err="$TMP_DIR/defer.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$defer_src" -o "$defer_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$defer_c99_build_out" 2>"$defer_c99_build_err"); then
+    cat "$defer_c99_build_out" >&2
+    cat "$defer_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$defer_c99_bin" >"$TMP_DIR/defer.c99.run.out" 2>"$TMP_DIR/defer.c99.run.err"
+defer_c99_status=$?
+set -e
+if [[ "$defer_c99_status" -ne 1 ]]; then
+    echo "error: C99 defer parity fragment exited with $defer_c99_status" >&2
+    cat "$TMP_DIR/defer.c99.run.out" >&2
+    cat "$TMP_DIR/defer.c99.run.err" >&2
+    exit 1
+fi
+
+defer_native_build_out="$TMP_DIR/defer.native.build.out"
+defer_native_build_err="$TMP_DIR/defer.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$defer_src" -o "$defer_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$defer_native_build_out" 2>"$defer_native_build_err"); then
+    cat "$defer_native_build_out" >&2
+    cat "$defer_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$defer_native_bin" ]]; then
+    echo "error: native defer parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$defer_native_build_err"; then
+    echo "error: native defer parity fragment appears to have fallen back to C99" >&2
+    cat "$defer_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$defer_native_build_err"; then
+    echo "error: native defer parity fragment used reject path" >&2
+    cat "$defer_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$defer_native_build_err"; then
+    echo "error: native defer parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$defer_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$defer_native_build_err"
+
+chmod +x "$defer_native_bin"
+set +e
+"$defer_native_bin" >"$TMP_DIR/defer.native.run.out" 2>"$TMP_DIR/defer.native.run.err"
+defer_native_status=$?
+set -e
+if [[ "$defer_native_status" -ne "$defer_c99_status" ]]; then
+    echo "error: hosted native/C99 defer parity exit status differs: c99=$defer_c99_status native=$defer_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/defer.c99.run.out" "$TMP_DIR/defer.native.run.out"; then
+    echo "error: hosted native/C99 defer parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/defer.c99.run.err" "$TMP_DIR/defer.native.run.err"; then
+    echo "error: hosted native/C99 defer parity stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -903,4 +982,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer parity, C99 success, and explicit native reject"
