@@ -600,7 +600,10 @@ hosted native 是第一个完整语言 target，因为它可复用系统 ABI 和
 当前已迁入 MIR 的 shard 必须真实生成 native executable；尚未迁入 MIR 的复杂 no-deps shard 必须明确
 报告 lowering gap，不能复用 build-seed `LoweredProgram` helper 伪装成 parity。
 常量输入 error union `catch` success/fallback shard 在 CoreBody 中先规范化为常量结果和 `I32_ADD`
-表达式，再由 hosted PortableMIR 生成 verifier-clean native executable；动态 catch 仍按后续 shard 迁移。
+表达式，再由 hosted PortableMIR 生成 verifier-clean native executable。`get_argc()` 驱动的动态
+error union `catch` shard 现在以 CoreBody `IF` 和 PortableMIR `COND_BR` 表达 fallback/success 两条路径，
+再由 verified no-deps hosted native path 生成真实 executable；该实现仍是窄形状 shard，不代表完整
+error-union lowering 已完成。
 
 hosted native 接受：
 

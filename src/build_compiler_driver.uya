@@ -213,6 +213,16 @@ struct NativeBuildConstSliceSumShape {
     sum_value: i32,
 }
 
+struct NativeBuildDynamicCatchShape {
+    argc_decl: &ASTNode,
+    catch_decl: &ASTNode,
+    return_stmt: &ASTNode,
+    catch_arg_expr: &ASTNode,
+    compare_value: i32,
+    fallback_value: i32,
+    ok_value: i32,
+}
+
 const NATIVE_BUILD_LOCAL_KIND_CALL_I32: i32 = 1;
 const NATIVE_BUILD_LOCAL_KIND_SCALAR_I32: i32 = 2;
 const NATIVE_BUILD_LOCAL_KIND_ARGV_PTR: i32 = 3;
@@ -315,6 +325,18 @@ fn native_build_const_slice_sum_shape_empty() NativeBuildConstSliceSumShape {
         left_value: 0,
         right_value: 0,
         sum_value: 0,
+    };
+}
+
+fn native_build_dynamic_catch_shape_empty() NativeBuildDynamicCatchShape {
+    return NativeBuildDynamicCatchShape{
+        argc_decl: null,
+        catch_decl: null,
+        return_stmt: null,
+        catch_arg_expr: null,
+        compare_value: 0,
+        fallback_value: 0,
+        ok_value: 0,
     };
 }
 
@@ -1479,6 +1501,31 @@ fn native_build_hosted_decl_can_materialize_const_catch_sum_body(program: &ASTNo
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_dynamic_catch_body(program: &ASTNode,
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if program == null || decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildDynamicCatchShape = native_build_dynamic_catch_shape_empty();
+    if native_build_decl_dynamic_catch_argc_shape(program, decl, &shape) == 0 ||
+       shape.argc_decl == null || shape.catch_decl == null ||
+       shape.return_stmt == null || shape.catch_arg_expr == null {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.argc_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.catch_arg_expr,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.catch_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.return_stmt.return_stmt_expr,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, decl: &ASTNode,
     checker: &TypeChecker) i32 {
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_is_extern != 0 ||
@@ -1498,6 +1545,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_const_catch_sum_body(program,
+        decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_dynamic_catch_body(program,
         decl, checker) != 0 {
         return 1;
     }
@@ -2368,6 +2419,260 @@ fn native_build_hosted_coreir_append_const_catch_sum_body(lowered: &LoweredProgr
     return 0;
 }
 
+fn native_build_hosted_coreir_append_dynamic_catch_body(lowered: &LoweredProgram,
+    checker: &TypeChecker, program: &ASTNode, function_id: i32, decl_index: i32,
+    decl: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildDynamicCatchShape = native_build_dynamic_catch_shape_empty();
+    if native_build_decl_dynamic_catch_argc_shape(program, decl, &shape) == 0 ||
+       shape.argc_decl == null || shape.catch_decl == null ||
+       shape.return_stmt == null || shape.catch_arg_expr == null {
+        return -1;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var local_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var result_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.argc_decl.var_decl_init,
+        &call_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.catch_arg_expr,
+        &local_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.catch_decl.var_decl_init,
+        &result_type_id) != 0 {
+        return -1;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_return_call_target(program, shape.argc_decl.var_decl_init,
+        &target_function_id, &target_decl_index) == 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const place_start: i32 = lowered.core_place_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 4,
+        expr_start: expr_start,
+        expr_count: 6,
+        place_start: place_start,
+        place_count: 1,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    var place: CorePlace = CorePlace{
+        place_id: place_start,
+        kind: CORE_PLACE_KIND_LOCAL,
+        body_id: body_id,
+        source_expr_id: shape.argc_decl.var_decl_init.expr_id,
+        type_id: local_type_id,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.argc_decl.line,
+        flags: 0,
+    };
+    var call_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: body_id,
+        source_expr_id: shape.argc_decl.var_decl_init.expr_id,
+        type_id: call_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: target_function_id,
+        target_decl_id: target_decl_index,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.argc_decl.var_decl_init.line,
+        flags: 0,
+    };
+    var local_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 1,
+        kind: CORE_EXPR_KIND_LOCAL_REF,
+        body_id: body_id,
+        source_expr_id: shape.catch_arg_expr.expr_id,
+        type_id: local_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.catch_arg_expr.line,
+        flags: 0,
+    };
+    var compare_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 2,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.catch_decl.var_decl_init.expr_id,
+        type_id: local_type_id,
+        literal_i64: shape.compare_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.catch_decl.line,
+        flags: 0,
+    };
+    var cond_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 3,
+        kind: CORE_EXPR_KIND_I32_NE,
+        body_id: body_id,
+        source_expr_id: shape.catch_decl.var_decl_init.expr_id,
+        type_id: result_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: expr_start + 1,
+        rhs_expr_id: expr_start + 2,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.catch_decl.var_decl_init.line,
+        flags: 0,
+    };
+    var ok_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 4,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.catch_decl.var_decl_init.expr_id,
+        type_id: result_type_id,
+        literal_i64: shape.ok_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.catch_decl.var_decl_init.line,
+        flags: 0,
+    };
+    var fallback_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 5,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.return_stmt.return_stmt_expr.expr_id,
+        type_id: result_type_id,
+        literal_i64: shape.fallback_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.return_stmt.line,
+        flags: 0,
+    };
+    var local_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start,
+        place_id: place_start,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.argc_decl.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var if_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_IF,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: stmt_start + 2,
+        child_stmt_count: 1,
+        expr_id: expr_start + 3,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.catch_decl.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var ok_return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 2,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: stmt_start + 1,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 4,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.catch_decl.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var fallback_return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 3,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 5,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.return_stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_place(lowered, &place) != 0 ||
+       lowered_program_append_core_expr(lowered, &call_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &local_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &compare_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &cond_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &ok_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &fallback_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &local_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &if_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &ok_return_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &fallback_return_stmt) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_coreir_append_main_local_if_body(lowered: &LoweredProgram,
     checker: &TypeChecker, program: &ASTNode, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -3037,6 +3342,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_const_catch_sum_body(lowered,
             checker, program, function_id, decl_index, decl);
     }
+    if native_build_hosted_decl_can_materialize_dynamic_catch_body(program,
+        decl, checker) != 0 {
+        return native_build_hosted_coreir_append_dynamic_catch_body(lowered,
+            checker, program, function_id, decl_index, decl);
+    }
     var add_left_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_left_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_right_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
@@ -3507,6 +3817,12 @@ fn native_build_hosted_decl_can_lower_const_catch_sum_mir_body(program: &ASTNode
         decl, checker);
 }
 
+fn native_build_hosted_decl_can_lower_dynamic_catch_mir_body(program: &ASTNode,
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_dynamic_catch_body(program,
+        decl, checker);
+}
+
 fn native_build_hosted_decl_can_lower_main_local_if_mir_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_main_local_if_body(program, decl, checker);
@@ -3745,6 +4061,361 @@ fn native_build_hosted_mir_append_const_catch_sum_body_function(module: &Portabl
     return native_build_hosted_mir_append_const_return_body_function(module,
         lowered_function_id, decl_index, source_core_body_id,
         return_stmt.return_stmt_expr.expr_id, return_value);
+}
+
+fn native_build_hosted_mir_append_dynamic_catch_body_function(module: &PortableMirModule,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode, program: &ASTNode) i32 {
+    if module == null || program == null || decl == null ||
+       lowered_function_id < 0 || decl_index < 0 || source_core_body_id < 0 {
+        return -1;
+    }
+    var shape: NativeBuildDynamicCatchShape = native_build_dynamic_catch_shape_empty();
+    if native_build_decl_dynamic_catch_argc_shape(program, decl, &shape) == 0 ||
+       shape.argc_decl == null || shape.catch_decl == null ||
+       shape.return_stmt == null {
+        return -1;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_return_call_target(program, shape.argc_decl.var_decl_init,
+        &target_function_id, &target_decl_index) == 0 {
+        return -1;
+    }
+    var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+        return -1;
+    }
+    var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
+        return -1;
+    }
+    const function_id: i32 = module.function_count as i32;
+    const local_id: i32 = module.local_count as i32;
+    const block_id: i32 = module.block_count as i32;
+    const ok_block_id: i32 = block_id + 1;
+    const fallback_block_id: i32 = block_id + 2;
+    const value_id: i32 = module.value_count as i32;
+    const cond_value_id: i32 = value_id + 1;
+    const ok_value_id: i32 = value_id + 2;
+    const fallback_value_id: i32 = value_id + 3;
+    const inst_id: i32 = module.inst_count as i32;
+    const cond_inst_id: i32 = inst_id + 1;
+    const ok_inst_id: i32 = inst_id + 2;
+    const fallback_inst_id: i32 = inst_id + 3;
+    const operand_id: i32 = module.operand_count as i32;
+    const cond_operand_id: i32 = operand_id + 1;
+    const cond_term_operand_id: i32 = operand_id + 2;
+    const ok_return_operand_id: i32 = operand_id + 3;
+    const fallback_return_operand_id: i32 = operand_id + 4;
+    const successor_id: i32 = module.successor_count as i32;
+    const terminator_id: i32 = module.terminator_count as i32;
+    const ok_terminator_id: i32 = terminator_id + 1;
+    const fallback_terminator_id: i32 = terminator_id + 2;
+    var function: MirFunction = MirFunction{
+        function_id: function_id,
+        lowered_function_id: lowered_function_id,
+        decl_id: decl_index,
+        source_core_body_id: source_core_body_id,
+        symbol_id: decl_index,
+        signature_type_id: signature_type_id,
+        param_start: 0,
+        param_count: 0,
+        local_start: local_id,
+        local_count: 1,
+        block_start: block_id,
+        block_count: 3,
+        entry_block_id: block_id,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var local: MirLocal = MirLocal{
+        local_id: local_id,
+        function_id: function_id,
+        type_id: i32_type_id,
+        source_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        alignment: 4usize,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var call_value: MirValue = MirValue{
+        value_id: value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: inst_id,
+        local_id: local_id,
+        param_index: -1,
+        source_expr_id: shape.argc_decl.var_decl_init.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var cond_value: MirValue = MirValue{
+        value_id: cond_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: cond_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.catch_decl.var_decl_init.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var ok_value: MirValue = MirValue{
+        value_id: ok_value_id,
+        function_id: function_id,
+        block_id: ok_block_id,
+        type_id: i32_type_id,
+        defining_inst_id: ok_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.catch_decl.var_decl_init.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var fallback_value: MirValue = MirValue{
+        value_id: fallback_value_id,
+        function_id: function_id,
+        block_id: fallback_block_id,
+        type_id: i32_type_id,
+        defining_inst_id: fallback_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.return_stmt.return_stmt_expr.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var call_inst: MirInst = MirInst{
+        inst_id: inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_CALL,
+        type_id: i32_type_id,
+        result_value_id: value_id,
+        operand_start: operand_id,
+        operand_count: 1,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: target_decl_index,
+    };
+    var cond_inst: MirInst = MirInst{
+        inst_id: cond_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: cond_value_id,
+        operand_start: cond_operand_id,
+        operand_count: 1,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.compare_value,
+    };
+    var ok_inst: MirInst = MirInst{
+        inst_id: ok_inst_id,
+        function_id: function_id,
+        block_id: ok_block_id,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: ok_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.ok_value,
+    };
+    var fallback_inst: MirInst = MirInst{
+        inst_id: fallback_inst_id,
+        function_id: function_id,
+        block_id: fallback_block_id,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: fallback_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.fallback_value,
+    };
+    var call_operand: MirOperand = MirOperand{
+        operand_id: operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: signature_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: target_function_id,
+        flags: 0,
+    };
+    var cond_operand: MirOperand = MirOperand{
+        operand_id: cond_operand_id,
+        kind: 0,
+        value_id: value_id,
+        local_id: local_id,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: shape.compare_value,
+        flags: 0,
+    };
+    var cond_term_operand: MirOperand = MirOperand{
+        operand_id: cond_term_operand_id,
+        kind: 0,
+        value_id: cond_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var ok_return_operand: MirOperand = MirOperand{
+        operand_id: ok_return_operand_id,
+        kind: 0,
+        value_id: ok_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: shape.ok_value,
+        flags: 0,
+    };
+    var fallback_return_operand: MirOperand = MirOperand{
+        operand_id: fallback_return_operand_id,
+        kind: 0,
+        value_id: fallback_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: shape.fallback_value,
+        flags: 0,
+    };
+    var ok_successor: MirSuccessor = MirSuccessor{
+        successor_id: successor_id,
+        block_id: ok_block_id,
+        arg_start: 0,
+        arg_count: 0,
+        flags: 0,
+    };
+    var fallback_successor: MirSuccessor = MirSuccessor{
+        successor_id: successor_id + 1,
+        block_id: fallback_block_id,
+        arg_start: 0,
+        arg_count: 0,
+        flags: 0,
+    };
+    var entry_terminator: MirTerminator = MirTerminator{
+        terminator_id: terminator_id,
+        function_id: function_id,
+        block_id: block_id,
+        kind: MIR_TERMINATOR_KIND_COND_BR,
+        operand_start: cond_term_operand_id,
+        operand_count: 1,
+        successor_start: successor_id,
+        successor_count: 2,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var ok_terminator: MirTerminator = MirTerminator{
+        terminator_id: ok_terminator_id,
+        function_id: function_id,
+        block_id: ok_block_id,
+        kind: MIR_TERMINATOR_KIND_RETURN,
+        operand_start: ok_return_operand_id,
+        operand_count: 1,
+        successor_start: 0,
+        successor_count: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var fallback_terminator: MirTerminator = MirTerminator{
+        terminator_id: fallback_terminator_id,
+        function_id: function_id,
+        block_id: fallback_block_id,
+        kind: MIR_TERMINATOR_KIND_RETURN,
+        operand_start: fallback_return_operand_id,
+        operand_count: 1,
+        successor_start: 0,
+        successor_count: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var entry_block: MirBlock = MirBlock{
+        block_id: block_id,
+        function_id: function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: inst_id,
+        inst_count: 2,
+        terminator_id: terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var ok_block: MirBlock = MirBlock{
+        block_id: ok_block_id,
+        function_id: function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: ok_inst_id,
+        inst_count: 1,
+        terminator_id: ok_terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var fallback_block: MirBlock = MirBlock{
+        block_id: fallback_block_id,
+        function_id: function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: fallback_inst_id,
+        inst_count: 1,
+        terminator_id: fallback_terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    if portable_mir_append_function(module, &function) != 0 ||
+       portable_mir_append_local(module, &local) != 0 ||
+       portable_mir_append_value(module, &call_value) != 0 ||
+       portable_mir_append_value(module, &cond_value) != 0 ||
+       portable_mir_append_value(module, &ok_value) != 0 ||
+       portable_mir_append_value(module, &fallback_value) != 0 ||
+       portable_mir_append_inst(module, &call_inst) != 0 ||
+       portable_mir_append_inst(module, &cond_inst) != 0 ||
+       portable_mir_append_inst(module, &ok_inst) != 0 ||
+       portable_mir_append_inst(module, &fallback_inst) != 0 ||
+       portable_mir_append_operand(module, &call_operand) != 0 ||
+       portable_mir_append_operand(module, &cond_operand) != 0 ||
+       portable_mir_append_operand(module, &cond_term_operand) != 0 ||
+       portable_mir_append_operand(module, &ok_return_operand) != 0 ||
+       portable_mir_append_operand(module, &fallback_return_operand) != 0 ||
+       portable_mir_append_successor(module, &ok_successor) != 0 ||
+       portable_mir_append_successor(module, &fallback_successor) != 0 ||
+       portable_mir_append_terminator(module, &entry_terminator) != 0 ||
+       portable_mir_append_terminator(module, &ok_terminator) != 0 ||
+       portable_mir_append_terminator(module, &fallback_terminator) != 0 ||
+       portable_mir_append_block(module, &entry_block) != 0 ||
+       portable_mir_append_block(module, &ok_block) != 0 ||
+       portable_mir_append_block(module, &fallback_block) != 0 {
+        return -1;
+    }
+    return 0;
 }
 
 fn native_build_hosted_mir_append_call_body_function(module: &PortableMirModule,
@@ -5862,6 +6533,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_dynamic_catch_mir_body(program,
+                    decl, checker) != 0 {
+                    if native_build_hosted_mir_append_dynamic_catch_body_function(module,
+                        lowered_function_id, i, source_core_body_id, decl, program) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
                 } else if native_build_hosted_decl_can_lower_main_local_if_mir_body(program,
                     decl, checker) != 0 {
                     if native_build_hosted_mir_append_main_local_if_body_function(module,
@@ -6030,6 +6708,26 @@ fn native_build_hosted_mir_operand_ptr(module: &PortableMirModule,
     return semantic_vector_item_ptr(&module.operands, operand_id as usize) as &MirOperand;
 }
 
+fn native_build_hosted_mir_terminator_ptr(module: &PortableMirModule,
+    terminator_id: i32) &MirTerminator {
+    if module == null || terminator_id < 0 ||
+       (terminator_id as usize) >= module.terminators.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.terminators,
+        terminator_id as usize) as &MirTerminator;
+}
+
+fn native_build_hosted_mir_successor_ptr(module: &PortableMirModule,
+    successor_id: i32) &MirSuccessor {
+    if module == null || successor_id < 0 ||
+       (successor_id as usize) >= module.successors.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.successors,
+        successor_id as usize) as &MirSuccessor;
+}
+
 fn native_build_hosted_mir_function_by_id(module: &PortableMirModule,
     function_id: i32) &MirFunction {
     if module == null || function_id < 0 {
@@ -6169,6 +6867,104 @@ fn native_build_hosted_mir_eval_function_exit_code(module: &PortableMirModule,
         return 0;
     }
     return native_build_hosted_mir_eval_value_i32(module, value_id, depth, out_code);
+}
+
+fn native_build_hosted_mir_block_return_const(module: &PortableMirModule,
+    block_id: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if module == null || out_value == null {
+        return 0;
+    }
+    const block: &MirBlock = native_build_hosted_mir_block_ptr(module, block_id);
+    if block == null || block.inst_count != 1 {
+        return 0;
+    }
+    const inst: &MirInst = native_build_hosted_mir_inst_ptr(module,
+        block.inst_start);
+    if inst == null || inst.op != MIR_INST_OP_NOP ||
+       inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       inst.flags < 0 || inst.flags > 255 {
+        return 0;
+    }
+    const terminator: &MirTerminator = native_build_hosted_mir_terminator_ptr(module,
+        block.terminator_id);
+    if terminator == null || terminator.kind != MIR_TERMINATOR_KIND_RETURN ||
+       terminator.operand_count != 1 {
+        return 0;
+    }
+    const operand: &MirOperand = native_build_hosted_mir_operand_ptr(module,
+        terminator.operand_start);
+    if operand == null || operand.value_id != inst.result_value_id {
+        return 0;
+    }
+    *out_value = inst.flags;
+    return 1;
+}
+
+fn native_build_hosted_mir_dynamic_catch_function_shape(module: &PortableMirModule,
+    function: &MirFunction, shape: &NativeBuildDynamicCatchShape) i32 {
+    if module == null || function == null || shape == null ||
+       function.block_count != 3 {
+        return 0;
+    }
+    const entry_block: &MirBlock = native_build_hosted_mir_block_ptr(module,
+        function.entry_block_id);
+    if entry_block == null || entry_block.inst_count != 2 {
+        return 0;
+    }
+    const call_inst: &MirInst = native_build_hosted_mir_inst_ptr(module,
+        entry_block.inst_start);
+    const cond_inst: &MirInst = native_build_hosted_mir_inst_ptr(module,
+        entry_block.inst_start + 1);
+    if call_inst == null || cond_inst == null ||
+       call_inst.op != MIR_INST_OP_CALL ||
+       cond_inst.op != MIR_INST_OP_NOP ||
+       call_inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       cond_inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       cond_inst.operand_count != 1 ||
+       cond_inst.flags != shape.compare_value {
+        return 0;
+    }
+    const cond_operand: &MirOperand = native_build_hosted_mir_operand_ptr(module,
+        cond_inst.operand_start);
+    if cond_operand == null || cond_operand.value_id != call_inst.result_value_id ||
+       cond_operand.local_id == MIR_LOCAL_INVALID_ID ||
+       cond_operand.immediate_i32 != shape.compare_value {
+        return 0;
+    }
+    const entry_terminator: &MirTerminator = native_build_hosted_mir_terminator_ptr(module,
+        entry_block.terminator_id);
+    if entry_terminator == null ||
+       entry_terminator.kind != MIR_TERMINATOR_KIND_COND_BR ||
+       entry_terminator.operand_count != 1 ||
+       entry_terminator.successor_count != 2 {
+        return 0;
+    }
+    const cond_term_operand: &MirOperand = native_build_hosted_mir_operand_ptr(module,
+        entry_terminator.operand_start);
+    if cond_term_operand == null ||
+       cond_term_operand.value_id != cond_inst.result_value_id {
+        return 0;
+    }
+    const ok_successor: &MirSuccessor = native_build_hosted_mir_successor_ptr(module,
+        entry_terminator.successor_start);
+    const fallback_successor: &MirSuccessor = native_build_hosted_mir_successor_ptr(module,
+        entry_terminator.successor_start + 1);
+    if ok_successor == null || fallback_successor == null {
+        return 0;
+    }
+    var ok_value: i32 = 0;
+    var fallback_value: i32 = 0;
+    if native_build_hosted_mir_block_return_const(module, ok_successor.block_id,
+        &ok_value) == 0 ||
+       native_build_hosted_mir_block_return_const(module, fallback_successor.block_id,
+        &fallback_value) == 0 ||
+       ok_value != shape.ok_value || fallback_value != shape.fallback_value {
+        return 0;
+    }
+    return 1;
 }
 
 fn native_build_hosted_mir_local_array_index_return_value(module: &PortableMirModule,
@@ -6358,6 +7154,77 @@ fn native_build_hosted_verified_mir_main_exit_code(arena: &CompilerArena,
     return ok;
 }
 
+fn native_build_hosted_verified_mir_dynamic_catch_shape(arena: &CompilerArena,
+    checker: &TypeChecker, program: &ASTNode,
+    out_shape: &NativeBuildDynamicCatchShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_dynamic_catch_shape_empty();
+    }
+    if arena == null || checker == null || program == null || out_shape == null {
+        return -1;
+    }
+    const main_decl_index: i32 = native_build_find_function_decl_index(program,
+        "main" as &byte);
+    if main_decl_index < 0 || program.program_decls == null {
+        return 0;
+    }
+    const main_decl: &ASTNode = program.program_decls[main_decl_index];
+    var shape: NativeBuildDynamicCatchShape = native_build_dynamic_catch_shape_empty();
+    if native_build_decl_dynamic_catch_argc_shape(program, main_decl, &shape) == 0 {
+        return 0;
+    }
+    var module: PortableMirModule = native_build_empty_portable_mir_module();
+    portable_mir_module_init(&module, arena);
+    var extern_count: i32 = 0;
+    if native_build_hosted_mir_append_program_externs(&module, program,
+        &extern_count) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var body_count: i32 = 0;
+    if native_build_hosted_mir_append_program_safe_bodies(&module, checker,
+        program, &body_count) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    if body_count <= 0 {
+        portable_mir_module_release(&module);
+        return 0;
+    }
+    var verifier: MirVerifierResult = MirVerifierResult{
+        error_code: -1,
+        function_id: MIR_FUNCTION_INVALID_ID,
+        block_id: MIR_BLOCK_INVALID_ID,
+        inst_id: MIR_INST_INVALID_ID,
+        value_id: MIR_VALUE_INVALID_ID,
+        type_id: MIR_TYPE_INVALID_ID,
+        operand_id: -1,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+    };
+    portable_mir_verifier_result_init(&verifier);
+    if portable_mir_verify_module(&module, &verifier) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var request: MirTargetBackendRequest = native_build_empty_mir_backend_request();
+    if portable_mir_backend_request_init(&request, &module, &verifier,
+        MIR_TARGET_BACKEND_MACHINE) != 0 ||
+       portable_mir_backend_request_is_verified(&request) == 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    const main_function: &MirFunction = native_build_hosted_mir_function_for_decl(&module,
+        main_decl_index);
+    const ok: i32 = native_build_hosted_mir_dynamic_catch_function_shape(&module,
+        main_function, &shape);
+    if ok != 0 {
+        *out_shape = shape;
+    }
+    portable_mir_module_release(&module);
+    return ok;
+}
+
 fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_status: i32,
     result: &NativeHostedMirPreflightResult) void {
     if result == null {
@@ -6527,6 +7394,32 @@ fn native_build_hosted_write_const_return_asm(path: &byte, return_value: i32) i3
     fputs(".type main, @function\n" as *byte, file as *void);
     fputs("main:\n" as *byte, file as *void);
     fprintf(file as *void, "    movl $%d, %%eax\n" as *byte, return_value);
+    fputs("    ret\n" as *byte, file as *void);
+    fputs(".size main, .-main\n" as *byte, file as *void);
+    fputs(".section .note.GNU-stack,\"\",@progbits\n" as *byte, file as *void);
+    fclose(file as *void);
+    return 0;
+}
+
+fn native_build_hosted_write_dynamic_catch_asm(path: &byte,
+    compare_value: i32, fallback_value: i32, ok_value: i32) i32 {
+    if path == null {
+        return -1;
+    }
+    const file: &void = fopen(path as *byte, "w" as *byte) as &void;
+    if file == null {
+        return -1;
+    }
+    fputs(".text\n" as *byte, file as *void);
+    fputs(".globl main\n" as *byte, file as *void);
+    fputs(".type main, @function\n" as *byte, file as *void);
+    fputs("main:\n" as *byte, file as *void);
+    fprintf(file as *void, "    cmpl $%d, %%edi\n" as *byte, compare_value);
+    fputs("    je .Luya_dynamic_catch_fallback\n" as *byte, file as *void);
+    fprintf(file as *void, "    movl $%d, %%eax\n" as *byte, ok_value);
+    fputs("    ret\n" as *byte, file as *void);
+    fputs(".Luya_dynamic_catch_fallback:\n" as *byte, file as *void);
+    fprintf(file as *void, "    movl $%d, %%eax\n" as *byte, fallback_value);
     fputs("    ret\n" as *byte, file as *void);
     fputs(".size main, .-main\n" as *byte, file as *void);
     fputs(".section .note.GNU-stack,\"\",@progbits\n" as *byte, file as *void);
@@ -6781,6 +7674,45 @@ fn native_build_hosted_emit_const_return_linked_exe(output_file: &byte,
     return 0;
 }
 
+fn native_build_hosted_emit_dynamic_catch_linked_exe(output_file: &byte,
+    shape: &NativeBuildDynamicCatchShape) i32 {
+    if shape == null {
+        return 1;
+    }
+    var asm_path: [byte: PATH_MAX] = [];
+    var native_obj: [byte: PATH_MAX] = [];
+    if native_build_hosted_fill_asm_path(&asm_path[0] as &byte, PATH_MAX) != 0 ||
+       native_build_hosted_fill_object_path(&native_obj[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误：无法生成 hosted native 临时路径\n" as *byte);
+        return 1;
+    }
+    var cc_driver_buffer: [byte: PATH_MAX] = [];
+    const cc_driver: &byte = resolve_cc_driver(&cc_driver_buffer[0] as &byte, PATH_MAX);
+    const target_triple: &byte = get_env_or_default("TARGET_TRIPLE" as *byte, "" as *byte);
+    var target_flags: &byte = get_env_or_default("CC_TARGET_FLAGS" as *byte, "" as *byte);
+    var target_flags_buffer: [byte: 256] = [];
+    if target_flags[0] == 0 && target_triple[0] != 0 {
+        const target_flags_len: i32 = snprintf(&target_flags_buffer[0], 256,
+            "-target %s" as *byte, target_triple as *byte);
+        if target_flags_len > 0 && target_flags_len < 256 {
+            target_flags = &target_flags_buffer[0] as &byte;
+        }
+    }
+    if native_build_hosted_write_dynamic_catch_asm(&asm_path[0] as &byte,
+        shape.compare_value, shape.fallback_value, shape.ok_value) != 0 ||
+       native_build_hosted_compile_asm_to_object(cc_driver, target_flags,
+        &asm_path[0] as &byte, &native_obj[0] as &byte) != 0 ||
+       native_build_hosted_link_single_object(cc_driver, target_flags,
+        &native_obj[0] as &byte, output_file) != 0 {
+        unlink(&asm_path[0] as *byte);
+        unlink(&native_obj[0] as *byte);
+        return 1;
+    }
+    unlink(&asm_path[0] as *byte);
+    unlink(&native_obj[0] as *byte);
+    return 0;
+}
+
 fn native_build_try_emit_hosted_c_import_extern_link_subset(output_file: &byte,
     program: &ASTNode, plan: &CImportPlan) i32 {
     if output_file == null || program == null || plan == null || plan.item_count != 1 {
@@ -6854,16 +7786,38 @@ fn native_build_try_emit_hosted_no_deps_subset(output_file: &byte, program: &AST
     if exit_status < 0 {
         return -1;
     }
-    if exit_status == 0 {
+    if exit_status != 0 {
+        if native_build_hosted_emit_const_return_linked_exe(output_file,
+            return_value) != 0 {
+            fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
+            return -1;
+        }
+        fprintf(libc.stderr, "native_hosted_subset: no_deps_portable_mir_path=1\n" as *byte);
+        fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+        fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+            native_build_hosted_output_size(output_file));
+        return 1;
+    }
+    var dynamic_shape: NativeBuildDynamicCatchShape = native_build_dynamic_catch_shape_empty();
+    const dynamic_status: i32 = native_build_hosted_verified_mir_dynamic_catch_shape(arena,
+        checker, program, &dynamic_shape);
+    if dynamic_status < 0 {
+        return -1;
+    }
+    if dynamic_status == 0 {
         return 0;
     }
-    if native_build_hosted_emit_const_return_linked_exe(output_file,
-        return_value) != 0 {
+    if native_build_hosted_emit_dynamic_catch_linked_exe(output_file,
+        &dynamic_shape) != 0 {
         fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
         return -1;
     }
     fprintf(libc.stderr, "native_hosted_subset: no_deps_portable_mir_path=1\n" as *byte);
-    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_hosted_subset: dynamic_catch_portable_mir_path=1\n" as *byte);
+    fprintf(libc.stderr,
+        "native_dynamic_catch: compare=%d fallback=%d ok=%d\n" as *byte,
+        dynamic_shape.compare_value, dynamic_shape.fallback_value,
+        dynamic_shape.ok_value);
     fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
         native_build_hosted_output_size(output_file));
     return 1;
@@ -8509,6 +9463,77 @@ fn native_build_var_decl_dynamic_local_catch_const(stmt: &ASTNode, program: &AST
     return native_build_eval_dynamic_local_catch_const_expr(program,
         stmt.var_decl_init, locals, out_arg_slot, out_compare_value,
         out_fallback_value, out_ok_value);
+}
+
+fn native_build_decl_dynamic_catch_argc_shape(program: &ASTNode, decl: &ASTNode,
+    out_shape: &NativeBuildDynamicCatchShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_dynamic_catch_shape_empty();
+    }
+    if program == null || decl == null || out_shape == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null || decl.fn_decl_body.block_stmt_count != 3 {
+        return 0;
+    }
+    const argc_decl: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const catch_decl: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    if argc_decl == null || catch_decl == null || return_stmt == null ||
+       argc_decl.type != ASTNodeType.AST_VAR_DECL ||
+       catch_decl.type != ASTNodeType.AST_VAR_DECL ||
+       return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       argc_decl.var_decl_name == null || catch_decl.var_decl_name == null ||
+       native_build_type_is_i32_like_scalar(argc_decl.var_decl_type) == 0 ||
+       native_build_type_is_i32_like_scalar(catch_decl.var_decl_type) == 0 ||
+       argc_decl.var_decl_init == null || catch_decl.var_decl_init == null ||
+       native_build_expr_is_get_argc_call(argc_decl.var_decl_init) == 0 ||
+       catch_decl.var_decl_init.type != ASTNodeType.AST_CATCH_EXPR ||
+       return_stmt.return_stmt_expr == null ||
+       return_stmt.return_stmt_expr.type != ASTNodeType.AST_IDENTIFIER ||
+       return_stmt.return_stmt_expr.identifier_name == null ||
+       str_equals(return_stmt.return_stmt_expr.identifier_name as *byte,
+        catch_decl.var_decl_name as *byte) == 0 {
+        return 0;
+    }
+    const catch_expr: &ASTNode = catch_decl.var_decl_init;
+    if catch_expr.catch_expr_operand == null ||
+       catch_expr.catch_expr_operand.type != ASTNodeType.AST_CALL_EXPR ||
+       catch_expr.catch_expr_operand.call_expr_callee == null ||
+       catch_expr.catch_expr_operand.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       catch_expr.catch_expr_operand.call_expr_callee.identifier_name == null ||
+       catch_expr.catch_expr_operand.call_expr_args == null ||
+       catch_expr.catch_expr_operand.call_expr_arg_count != 1 {
+        return 0;
+    }
+    const arg: &ASTNode = catch_expr.catch_expr_operand.call_expr_args[0];
+    if arg == null || arg.type != ASTNodeType.AST_IDENTIFIER ||
+       arg.identifier_name == null ||
+       str_equals(arg.identifier_name as *byte, argc_decl.var_decl_name as *byte) == 0 {
+        return 0;
+    }
+    const callee_decl: &ASTNode = native_build_find_fn_decl_by_name(program,
+        catch_expr.catch_expr_operand.call_expr_callee.identifier_name);
+    var compare_value: i32 = 0;
+    var ok_value: i32 = 0;
+    var fallback_value: i32 = 0;
+    if native_build_error_union_param_eq_const_return_const(callee_decl,
+        &compare_value, &ok_value) == 0 ||
+       native_build_catch_block_const_value(catch_expr.catch_expr_catch_block,
+        &fallback_value) == 0 ||
+       compare_value < 0 || compare_value > 255 ||
+       ok_value < 0 || ok_value > 255 ||
+       fallback_value < 0 || fallback_value > 255 {
+        return 0;
+    }
+    out_shape.argc_decl = argc_decl;
+    out_shape.catch_decl = catch_decl;
+    out_shape.return_stmt = return_stmt;
+    out_shape.catch_arg_expr = arg;
+    out_shape.compare_value = compare_value;
+    out_shape.fallback_value = fallback_value;
+    out_shape.ok_value = ok_value;
+    return 1;
 }
 
 fn native_build_var_decl_scalar_const_value(stmt: &ASTNode, locals: &NativeBuildLocalTable,

@@ -512,6 +512,36 @@ run_native_parity_fragment() {
         echo "error: hosted native/C99 $name parity stderr differs" >&2
         exit 1
     fi
+    if [[ "$name" == "dynamic_catch" ]]; then
+        if ! grep -q 'native_hosted_subset: dynamic_catch_portable_mir_path=1' "$build_err"; then
+            echo "error: dynamic catch native parity fragment lacks dynamic MIR handoff evidence" >&2
+            cat "$build_err" >&2
+            exit 1
+        fi
+        local c99_bin="$TMP_DIR/$name.c99.bin"
+        local c99_success_out="$TMP_DIR/$name.c99.success.out"
+        local c99_success_err="$TMP_DIR/$name.c99.success.err"
+        local native_success_out="$TMP_DIR/$name.native.success.out"
+        local native_success_err="$TMP_DIR/$name.native.success.err"
+        set +e
+        "$c99_bin" success >"$c99_success_out" 2>"$c99_success_err"
+        local c99_success_status=$?
+        "$bin" success >"$native_success_out" 2>"$native_success_err"
+        local native_success_status=$?
+        set -e
+        if [[ "$native_success_status" != "$c99_success_status" ]]; then
+            echo "error: hosted native/C99 dynamic catch success exit status differs: c99=$c99_success_status native=$native_success_status" >&2
+            exit 1
+        fi
+        if ! cmp -s "$c99_success_out" "$native_success_out"; then
+            echo "error: hosted native/C99 dynamic catch success stdout differs" >&2
+            exit 1
+        fi
+        if ! cmp -s "$c99_success_err" "$native_success_err"; then
+            echo "error: hosted native/C99 dynamic catch success stderr differs" >&2
+            exit 1
+        fi
+    fi
 }
 
 run_native_reject_fragment() {
@@ -573,7 +603,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     run_c99_fragment catch "$catch_src"
     run_native_parity_fragment catch "$catch_src"
     run_c99_fragment dynamic_catch "$dynamic_catch_src"
-    run_native_reject_fragment dynamic_catch "$dynamic_catch_src"
+    run_native_parity_fragment dynamic_catch "$dynamic_catch_src"
     run_c99_fragment defer "$defer_src"
     run_native_reject_fragment defer "$defer_src"
     run_c99_fragment drop "$drop_src"
