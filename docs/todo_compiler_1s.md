@@ -958,6 +958,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 `output_file_index == -2` 输出路径选择分支继续迁入 PortableMIR frontier。
         - [x] 将 `split_c_arg` 初始化继续迁入 PortableMIR frontier。
         - [x] 将 `g_split_c_dir_active != 0` 的 `split_c_arg` 赋值分支继续迁入 PortableMIR frontier。
+        - [x] 将 `artifacts: CompileArtifacts` 初始化继续迁入 PortableMIR frontier。
 
 测试：
 
