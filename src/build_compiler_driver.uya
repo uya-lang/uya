@@ -1040,6 +1040,11 @@ fn native_build_hosted_return_i32_const_expr(decl: &ASTNode, out_value: &i32) &A
         *out_value = len_value;
         return expr;
     }
+    var error_id_value: i32 = 0;
+    if native_build_expr_error_id_const_value(expr, &error_id_value) != 0 {
+        *out_value = error_id_value;
+        return expr;
+    }
     return null;
 }
 

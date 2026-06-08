@@ -878,7 +878,7 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
       - [x] 数组字面量 `@len([1, 2, 3, 4])` shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求真实 executable、退出码/stdout/stderr 一致，且不走 reject 或 C99 fallback。
       - [x] slice 构造/索引 shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求真实 executable、退出码/stdout/stderr 一致，且不走 reject 或 C99 fallback。
     - error union `catch` + `@error_id` shard（拆分执行）：
-      - [x] `@error_id(error.SmokeError)` shard 先要求 C99 成功、hosted native 明确拒绝。
+      - [x] `@error_id(error.SmokeError)` shard 已迁入 CoreBody/PortableMIR hosted native/C99 parity，要求真实 executable、退出码/stdout/stderr 一致，且不走 reject 或 C99 fallback。
       - error union `catch` shard（拆分执行）：
         - [x] 常量输入 `maybe_value(const) catch { const; }` success/fallback shard 先要求 C99 成功、hosted native 明确拒绝。
         - [x] 动态 error union `catch` shard 先要求 C99 成功、hosted native 明确拒绝。
@@ -923,7 +923,7 @@ PortableMIR/native hosted parity 的验收输入。
     - [x] 将 `@size_of` / `@align_of` 标量 builtin shard 迁入 CoreBody/PortableMIR hosted native/C99 parity，禁止 pre-MIR helper 成功路径。
     - [x] 将数组字面量 `@len([1, 2, 3, 4])` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [x] 将 slice 构造/索引 shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
-    - [ ] 将 `@error_id(error.SmokeError)` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
+    - [x] 将 `@error_id(error.SmokeError)` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将常量输入 error union `catch` success/fallback shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将动态 error union `catch` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [ ] 将最小 `defer { local = const; }` shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。

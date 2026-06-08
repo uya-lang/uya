@@ -337,7 +337,8 @@ constants：
 
 CoreIR 的 `CORE_EXPR_KIND_INT_LITERAL` 由 `literal_i64` 携带规范化整数值，是 `const_int` lowering 的最小
 表达式输入之一；对应 `TypeId` 必须在进入 MIR 前冻结。`@size_of` / `@align_of`、数组字面量 `@len(...)`
-等 compile-time-only builtin 在 CoreBody 中以规范化整数常量承接，再进入 PortableMIR 常量值。
+和静态 `@error_id(...)` 等 compile-time-only builtin 在 CoreBody 中以规范化整数常量承接，再进入 PortableMIR
+常量值。
 
 arithmetic / bit ops：
 
@@ -480,13 +481,14 @@ compile-time-only builtin 在 MIR 前解决：
 - `@align_of`
 - 数组字面量 `@len(...)`
 - statically known array 上的 `@len`
+- 静态 error value 上的 `@error_id(...)`
 - source location / function name constants
 - 已由 CoreIR materialize 的 type info
 
 runtime builtin 降为 MIR 指令或 runtime helper：
 
 - slice 上的 `@len`
-- error ID / name access
+- dynamic error ID / name access
 - varargs operations
 - `atomic T` 的 load / store / fetch-add / fetch-sub / CAS-loop 复合赋值，默认 `seq_cst`
 - `@vector.splat`、`@vector.load`、`@vector.store`、`@vector.select`、`@vector.reduce_*`、`@vector.any`、
