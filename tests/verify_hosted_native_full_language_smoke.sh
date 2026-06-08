@@ -50,7 +50,7 @@ simd_c99_bin="$TMP_DIR/c99-simd-smoke"
 simd_native_bin="$TMP_DIR/native-simd-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
-require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
+require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-1}"
 
 cat >"$helper_src" <<'EOF'
 export fn helper_value() i32 {
