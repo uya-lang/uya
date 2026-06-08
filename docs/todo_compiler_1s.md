@@ -942,7 +942,7 @@ PortableMIR/native hosted parity 的验收输入。
       - [x] 将 `parse_build_args(...)` 调用和 `parse_result` 分支入口纳入 CoreBody/PortableMIR 覆盖，保持 hosted verifier-clean。
       - 将 native 输出路径选择前的 reachable 控制流继续迁入 PortableMIR，收敛 pending body frontier（继续拆分执行）：
         - [x] 固定 `parse_result` 之后的下一条 source stmt frontier 诊断，精确到 `eff_compiler_stack_kb` 初始化，避免输出路径前控制流继续泛化。
-        - [ ] 将 `eff_compiler_stack_kb` 初始化纳入 CoreBody/PortableMIR partial 覆盖。
+        - [x] 将 `eff_compiler_stack_kb` 初始化纳入 CoreBody/PortableMIR partial 覆盖。
         - [ ] 为 `if <=`、局部赋值和裸 call statement 补齐输出路径前控制流所需的 CoreBody/PortableMIR partial surface。
         - [ ] 将 stack-limit guard 与 `set_process_stack_limit_bytes(...)` 调用迁入 verifier-clean PortableMIR frontier。
         - [ ] 将 split-dir 环境变量分支继续迁入 PortableMIR frontier。
