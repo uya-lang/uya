@@ -293,6 +293,10 @@ memory operations：
 - `drop_value`
 - `drop_in_place`
 
+Hosted no-deps smoke 中的 slice 构造/索引 shard 已通过 CoreBody 的 `CORE_EXPR_KIND_SLICE` /
+`CORE_EXPR_KIND_INDEX` 降到 PortableMIR `index_addr` + `load` + `i32_add`，再与 C99 oracle 做真实
+executable parity。
+
 address metadata：
 
 - pointee type

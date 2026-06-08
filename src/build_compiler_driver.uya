@@ -199,6 +199,20 @@ struct NativeBuildLocalTable {
     capacity: i32,
 }
 
+struct NativeBuildConstSliceSumShape {
+    array_decl: &ASTNode,
+    slice_decl: &ASTNode,
+    return_stmt: &ASTNode,
+    add_expr: &ASTNode,
+    left_access: &ASTNode,
+    right_access: &ASTNode,
+    slice_start: i32,
+    slice_len: i32,
+    left_value: i32,
+    right_value: i32,
+    sum_value: i32,
+}
+
 const NATIVE_BUILD_LOCAL_KIND_CALL_I32: i32 = 1;
 const NATIVE_BUILD_LOCAL_KIND_SCALAR_I32: i32 = 2;
 const NATIVE_BUILD_LOCAL_KIND_ARGV_PTR: i32 = 3;
@@ -285,6 +299,22 @@ fn native_build_local_table_empty() NativeBuildLocalTable {
         lengths: null,
         count: 0,
         capacity: 0,
+    };
+}
+
+fn native_build_const_slice_sum_shape_empty() NativeBuildConstSliceSumShape {
+    return NativeBuildConstSliceSumShape{
+        array_decl: null,
+        slice_decl: null,
+        return_stmt: null,
+        add_expr: null,
+        left_access: null,
+        right_access: null,
+        slice_start: 0,
+        slice_len: 0,
+        left_value: 0,
+        right_value: 0,
+        sum_value: 0,
     };
 }
 
@@ -1389,6 +1419,31 @@ fn native_build_hosted_decl_can_materialize_local_array_index_body(decl: &ASTNod
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildConstSliceSumShape = native_build_const_slice_sum_shape_empty();
+    if native_build_decl_const_slice_index_sum_shape(decl, &shape) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.array_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.slice_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.left_access,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.right_access,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.add_expr,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, decl: &ASTNode,
     checker: &TypeChecker) i32 {
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_is_extern != 0 ||
@@ -1402,6 +1457,9 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_local_array_index_body(decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl, checker) != 0 {
         return 1;
     }
     if decl.fn_decl_body.block_stmt_count == 1 && decl.fn_decl_body.block_stmts != null {
@@ -1896,6 +1954,302 @@ fn native_build_hosted_coreir_append_local_array_index_body(lowered: &LoweredPro
        lowered_program_append_core_stmt(lowered, &array_stmt) != 0 ||
        lowered_program_append_core_stmt(lowered, &index_stmt) != 0 ||
        lowered_program_append_core_stmt(lowered, &return_core_stmt) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_const_slice_index_sum_body(lowered: &LoweredProgram,
+    checker: &TypeChecker, function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildConstSliceSumShape = native_build_const_slice_sum_shape_empty();
+    if native_build_decl_const_slice_index_sum_shape(decl, &shape) == 0 ||
+       shape.left_access == null || shape.right_access == null ||
+       shape.left_access.array_access_index == null ||
+       shape.right_access.array_access_index == null {
+        return -1;
+    }
+    var array_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var slice_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var left_index_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var right_index_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var left_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var right_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var add_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.array_decl.var_decl_init,
+        &array_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.slice_decl.var_decl_init,
+        &slice_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.left_access.array_access_index,
+        &left_index_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.right_access.array_access_index,
+        &right_index_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.left_access,
+        &left_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.right_access,
+        &right_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.add_expr,
+        &add_type_id) != 0 {
+        return -1;
+    }
+    var left_index_value: i32 = 0;
+    var right_index_value: i32 = 0;
+    if native_build_expr_scalar_const_value(shape.left_access.array_access_index,
+        null, &left_index_value) == 0 ||
+       native_build_expr_scalar_const_value(shape.right_access.array_access_index,
+        null, &right_index_value) == 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const place_start: i32 = lowered.core_place_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 3,
+        expr_start: expr_start,
+        expr_count: 7,
+        place_start: place_start,
+        place_count: 4,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    var array_place: CorePlace = CorePlace{
+        place_id: place_start,
+        kind: CORE_PLACE_KIND_LOCAL,
+        body_id: body_id,
+        source_expr_id: shape.array_decl.var_decl_init.expr_id,
+        type_id: array_type_id,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.array_decl.line,
+        flags: CORE_PLACE_FLAG_STACK_SLOT,
+    };
+    var slice_place: CorePlace = CorePlace{
+        place_id: place_start + 1,
+        kind: CORE_PLACE_KIND_SLICE,
+        body_id: body_id,
+        source_expr_id: shape.slice_decl.var_decl_init.expr_id,
+        type_id: slice_type_id,
+        base_place_id: place_start,
+        index_expr_id: expr_start + 1,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.slice_decl.line,
+        flags: CORE_PLACE_FLAG_STACK_SLOT,
+    };
+    var left_place: CorePlace = CorePlace{
+        place_id: place_start + 2,
+        kind: CORE_PLACE_KIND_INDEX,
+        body_id: body_id,
+        source_expr_id: shape.left_access.expr_id,
+        type_id: left_type_id,
+        base_place_id: place_start + 1,
+        index_expr_id: expr_start + 2,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.left_access.line,
+        flags: 0,
+    };
+    var right_place: CorePlace = CorePlace{
+        place_id: place_start + 3,
+        kind: CORE_PLACE_KIND_INDEX,
+        body_id: body_id,
+        source_expr_id: shape.right_access.expr_id,
+        type_id: right_type_id,
+        base_place_id: place_start + 1,
+        index_expr_id: expr_start + 4,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.right_access.line,
+        flags: 0,
+    };
+    var array_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start,
+        kind: CORE_EXPR_KIND_LOCAL_REF,
+        body_id: body_id,
+        source_expr_id: shape.array_decl.var_decl_init.expr_id,
+        type_id: array_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.array_decl.var_decl_init.line,
+        flags: 0,
+    };
+    var slice_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 1,
+        kind: CORE_EXPR_KIND_SLICE,
+        body_id: body_id,
+        source_expr_id: shape.slice_decl.var_decl_init.expr_id,
+        type_id: slice_type_id,
+        literal_i64: shape.slice_start as i64,
+        lhs_expr_id: expr_start,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start + 1,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.slice_decl.var_decl_init.line,
+        flags: shape.slice_len,
+    };
+    var left_index_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 2,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.left_access.array_access_index.expr_id,
+        type_id: left_index_type_id,
+        literal_i64: left_index_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.left_access.array_access_index.line,
+        flags: 0,
+    };
+    var left_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 3,
+        kind: CORE_EXPR_KIND_INDEX,
+        body_id: body_id,
+        source_expr_id: shape.left_access.expr_id,
+        type_id: left_type_id,
+        literal_i64: shape.left_value as i64,
+        lhs_expr_id: expr_start + 1,
+        rhs_expr_id: expr_start + 2,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start + 2,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.left_access.line,
+        flags: 0,
+    };
+    var right_index_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 4,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.right_access.array_access_index.expr_id,
+        type_id: right_index_type_id,
+        literal_i64: right_index_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.right_access.array_access_index.line,
+        flags: 0,
+    };
+    var right_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 5,
+        kind: CORE_EXPR_KIND_INDEX,
+        body_id: body_id,
+        source_expr_id: shape.right_access.expr_id,
+        type_id: right_type_id,
+        literal_i64: shape.right_value as i64,
+        lhs_expr_id: expr_start + 1,
+        rhs_expr_id: expr_start + 4,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start + 3,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.right_access.line,
+        flags: 0,
+    };
+    var array_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start,
+        place_id: place_start,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.array_decl.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var slice_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 1,
+        place_id: place_start + 1,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.slice_decl.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 2,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 6,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.return_stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_place(lowered, &array_place) != 0 ||
+       lowered_program_append_core_place(lowered, &slice_place) != 0 ||
+       lowered_program_append_core_place(lowered, &left_place) != 0 ||
+       lowered_program_append_core_place(lowered, &right_place) != 0 ||
+       lowered_program_append_core_expr(lowered, &array_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &slice_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &left_index_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &left_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &right_index_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &right_expr) != 0 ||
+       native_build_hosted_coreir_append_i32_add_expr(lowered, body_id,
+        shape.add_expr, add_type_id, expr_start + 3, expr_start + 5) != 0 ||
+       lowered_program_append_core_stmt(lowered, &array_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &slice_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
         return -1;
     }
     return 0;
@@ -2560,6 +2914,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_local_array_index_body(lowered,
             checker, function_id, decl_index, decl);
     }
+    if native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl,
+        checker) != 0 {
+        return native_build_hosted_coreir_append_const_slice_index_sum_body(lowered,
+            checker, function_id, decl_index, decl);
+    }
     var add_left_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_left_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
     var add_right_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
@@ -3017,6 +3376,11 @@ fn native_build_hosted_decl_can_lower_extern_const2_call_mir_body(program: &ASTN
 fn native_build_hosted_decl_can_lower_local_array_index_mir_body(decl: &ASTNode,
     checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_local_array_index_body(decl, checker);
+}
+
+fn native_build_hosted_decl_can_lower_const_slice_index_sum_mir_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl, checker);
 }
 
 fn native_build_hosted_decl_can_lower_main_local_if_mir_body(program: &ASTNode,
@@ -4049,6 +4413,453 @@ fn native_build_hosted_mir_append_local_array_index_body_function(module: &Porta
     return 0;
 }
 
+fn native_build_hosted_mir_append_const_slice_index_sum_body_function(module: &PortableMirModule,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode) i32 {
+    if module == null || lowered_function_id < 0 || decl_index < 0 ||
+       source_core_body_id < 0 || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildConstSliceSumShape = native_build_const_slice_sum_shape_empty();
+    if native_build_decl_const_slice_index_sum_shape(decl, &shape) == 0 ||
+       shape.left_access == null || shape.right_access == null ||
+       shape.left_access.array_access_index == null ||
+       shape.right_access.array_access_index == null {
+        return -1;
+    }
+    var left_index_value: i32 = 0;
+    var right_index_value: i32 = 0;
+    if native_build_expr_scalar_const_value(shape.left_access.array_access_index,
+        null, &left_index_value) == 0 ||
+       native_build_expr_scalar_const_value(shape.right_access.array_access_index,
+        null, &right_index_value) == 0 {
+        return -1;
+    }
+    var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+        return -1;
+    }
+    var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
+        return -1;
+    }
+    var ptr_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_pointer_type(module, &ptr_type_id) != 0 {
+        return -1;
+    }
+    const function_id: i32 = module.function_count as i32;
+    const array_local_id: i32 = module.local_count as i32;
+    const slice_local_id: i32 = array_local_id + 1;
+    const block_id: i32 = module.block_count as i32;
+    const value_id: i32 = module.value_count as i32;
+    const left_index_value_id: i32 = value_id;
+    const left_addr_value_id: i32 = value_id + 1;
+    const left_load_value_id: i32 = value_id + 2;
+    const right_index_value_id: i32 = value_id + 3;
+    const right_addr_value_id: i32 = value_id + 4;
+    const right_load_value_id: i32 = value_id + 5;
+    const add_value_id: i32 = value_id + 6;
+    const inst_id: i32 = module.inst_count as i32;
+    const left_index_inst_id: i32 = inst_id;
+    const left_addr_inst_id: i32 = inst_id + 1;
+    const left_load_inst_id: i32 = inst_id + 2;
+    const right_index_inst_id: i32 = inst_id + 3;
+    const right_addr_inst_id: i32 = inst_id + 4;
+    const right_load_inst_id: i32 = inst_id + 5;
+    const add_inst_id: i32 = inst_id + 6;
+    const operand_id: i32 = module.operand_count as i32;
+    const left_base_operand_id: i32 = operand_id;
+    const left_index_operand_id: i32 = operand_id + 1;
+    const left_load_operand_id: i32 = operand_id + 2;
+    const right_base_operand_id: i32 = operand_id + 3;
+    const right_index_operand_id: i32 = operand_id + 4;
+    const right_load_operand_id: i32 = operand_id + 5;
+    const add_left_operand_id: i32 = operand_id + 6;
+    const add_right_operand_id: i32 = operand_id + 7;
+    const return_operand_id: i32 = operand_id + 8;
+    const terminator_id: i32 = module.terminator_count as i32;
+    var function: MirFunction = MirFunction{
+        function_id: function_id,
+        lowered_function_id: lowered_function_id,
+        decl_id: decl_index,
+        source_core_body_id: source_core_body_id,
+        symbol_id: decl_index,
+        signature_type_id: signature_type_id,
+        param_start: 0,
+        param_count: 0,
+        local_start: array_local_id,
+        local_count: 2,
+        block_start: block_id,
+        block_count: 1,
+        entry_block_id: block_id,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var array_local: MirLocal = MirLocal{
+        local_id: array_local_id,
+        function_id: function_id,
+        type_id: ptr_type_id,
+        source_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        alignment: 8usize,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: MIR_LOCAL_FLAG_ADDRESS_TAKEN,
+    };
+    var slice_local: MirLocal = MirLocal{
+        local_id: slice_local_id,
+        function_id: function_id,
+        type_id: ptr_type_id,
+        source_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        alignment: 8usize,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: MIR_LOCAL_FLAG_ADDRESS_TAKEN,
+    };
+    var left_index_value_mir: MirValue = MirValue{
+        value_id: left_index_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: left_index_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.left_access.array_access_index.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var left_addr_value: MirValue = MirValue{
+        value_id: left_addr_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: ptr_type_id,
+        defining_inst_id: left_addr_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.left_access.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: MIR_VALUE_FLAG_ADDRESS,
+    };
+    var left_load_value: MirValue = MirValue{
+        value_id: left_load_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: left_load_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.left_access.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var right_index_value_mir: MirValue = MirValue{
+        value_id: right_index_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: right_index_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.right_access.array_access_index.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var right_addr_value: MirValue = MirValue{
+        value_id: right_addr_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: ptr_type_id,
+        defining_inst_id: right_addr_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.right_access.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: MIR_VALUE_FLAG_ADDRESS,
+    };
+    var right_load_value: MirValue = MirValue{
+        value_id: right_load_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: right_load_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.right_access.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var add_value: MirValue = MirValue{
+        value_id: add_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: add_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: shape.add_expr.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var left_index_inst: MirInst = MirInst{
+        inst_id: left_index_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: left_index_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: left_index_value,
+    };
+    var left_addr_inst: MirInst = MirInst{
+        inst_id: left_addr_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_INDEX_ADDR,
+        type_id: ptr_type_id,
+        result_value_id: left_addr_value_id,
+        operand_start: left_base_operand_id,
+        operand_count: 2,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.slice_start,
+    };
+    var left_load_inst: MirInst = MirInst{
+        inst_id: left_load_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_LOAD,
+        type_id: i32_type_id,
+        result_value_id: left_load_value_id,
+        operand_start: left_load_operand_id,
+        operand_count: 1,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.left_value,
+    };
+    var right_index_inst: MirInst = MirInst{
+        inst_id: right_index_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: right_index_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: right_index_value,
+    };
+    var right_addr_inst: MirInst = MirInst{
+        inst_id: right_addr_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_INDEX_ADDR,
+        type_id: ptr_type_id,
+        result_value_id: right_addr_value_id,
+        operand_start: right_base_operand_id,
+        operand_count: 2,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.slice_start,
+    };
+    var right_load_inst: MirInst = MirInst{
+        inst_id: right_load_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_LOAD,
+        type_id: i32_type_id,
+        result_value_id: right_load_value_id,
+        operand_start: right_load_operand_id,
+        operand_count: 1,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: shape.right_value,
+    };
+    var add_inst: MirInst = MirInst{
+        inst_id: add_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_I32_ADD,
+        type_id: i32_type_id,
+        result_value_id: add_value_id,
+        operand_start: add_left_operand_id,
+        operand_count: 2,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var left_base_operand: MirOperand = MirOperand{
+        operand_id: left_base_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: slice_local_id,
+        type_id: ptr_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: shape.slice_start,
+        flags: shape.slice_len,
+    };
+    var left_index_operand: MirOperand = MirOperand{
+        operand_id: left_index_operand_id,
+        kind: 0,
+        value_id: left_index_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: left_index_value,
+        flags: 0,
+    };
+    var left_load_operand: MirOperand = MirOperand{
+        operand_id: left_load_operand_id,
+        kind: 0,
+        value_id: left_addr_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: ptr_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var right_base_operand: MirOperand = MirOperand{
+        operand_id: right_base_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: slice_local_id,
+        type_id: ptr_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: shape.slice_start,
+        flags: shape.slice_len,
+    };
+    var right_index_operand: MirOperand = MirOperand{
+        operand_id: right_index_operand_id,
+        kind: 0,
+        value_id: right_index_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: right_index_value,
+        flags: 0,
+    };
+    var right_load_operand: MirOperand = MirOperand{
+        operand_id: right_load_operand_id,
+        kind: 0,
+        value_id: right_addr_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: ptr_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var add_left_operand: MirOperand = MirOperand{
+        operand_id: add_left_operand_id,
+        kind: 0,
+        value_id: left_load_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var add_right_operand: MirOperand = MirOperand{
+        operand_id: add_right_operand_id,
+        kind: 0,
+        value_id: right_load_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var return_operand: MirOperand = MirOperand{
+        operand_id: return_operand_id,
+        kind: 0,
+        value_id: add_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var terminator: MirTerminator = MirTerminator{
+        terminator_id: terminator_id,
+        function_id: function_id,
+        block_id: block_id,
+        kind: MIR_TERMINATOR_KIND_RETURN,
+        operand_start: return_operand_id,
+        operand_count: 1,
+        successor_start: 0,
+        successor_count: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var block: MirBlock = MirBlock{
+        block_id: block_id,
+        function_id: function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: inst_id,
+        inst_count: 7,
+        terminator_id: terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    if portable_mir_append_function(module, &function) != 0 ||
+       portable_mir_append_local(module, &array_local) != 0 ||
+       portable_mir_append_local(module, &slice_local) != 0 ||
+       portable_mir_append_value(module, &left_index_value_mir) != 0 ||
+       portable_mir_append_value(module, &left_addr_value) != 0 ||
+       portable_mir_append_value(module, &left_load_value) != 0 ||
+       portable_mir_append_value(module, &right_index_value_mir) != 0 ||
+       portable_mir_append_value(module, &right_addr_value) != 0 ||
+       portable_mir_append_value(module, &right_load_value) != 0 ||
+       portable_mir_append_value(module, &add_value) != 0 ||
+       portable_mir_append_inst(module, &left_index_inst) != 0 ||
+       portable_mir_append_inst(module, &left_addr_inst) != 0 ||
+       portable_mir_append_inst(module, &left_load_inst) != 0 ||
+       portable_mir_append_inst(module, &right_index_inst) != 0 ||
+       portable_mir_append_inst(module, &right_addr_inst) != 0 ||
+       portable_mir_append_inst(module, &right_load_inst) != 0 ||
+       portable_mir_append_inst(module, &add_inst) != 0 ||
+       portable_mir_append_operand(module, &left_base_operand) != 0 ||
+       portable_mir_append_operand(module, &left_index_operand) != 0 ||
+       portable_mir_append_operand(module, &left_load_operand) != 0 ||
+       portable_mir_append_operand(module, &right_base_operand) != 0 ||
+       portable_mir_append_operand(module, &right_index_operand) != 0 ||
+       portable_mir_append_operand(module, &right_load_operand) != 0 ||
+       portable_mir_append_operand(module, &add_left_operand) != 0 ||
+       portable_mir_append_operand(module, &add_right_operand) != 0 ||
+       portable_mir_append_operand(module, &return_operand) != 0 ||
+       portable_mir_append_terminator(module, &terminator) != 0 ||
+       portable_mir_append_block(module, &block) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_mir_append_main_local_if_body_function(module: &PortableMirModule,
     lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
     decl: &ASTNode, program: &ASTNode) i32 {
@@ -4887,6 +5698,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_const_slice_index_sum_mir_body(decl,
+                    checker) != 0 {
+                    if native_build_hosted_mir_append_const_slice_index_sum_body_function(module,
+                        lowered_function_id, i, source_core_body_id, decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
                 } else if native_build_hosted_decl_can_lower_main_local_if_mir_body(program,
                     decl, checker) != 0 {
                     if native_build_hosted_mir_append_main_local_if_body_function(module,
@@ -5121,6 +5939,13 @@ fn native_build_hosted_mir_eval_value_i32(module: &PortableMirModule,
         return 0;
     }
     if inst.op == MIR_INST_OP_NOP {
+        if inst.flags < 0 || inst.flags > 255 {
+            return 0;
+        }
+        *out_value = inst.flags;
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_LOAD {
         if inst.flags < 0 || inst.flags > 255 {
             return 0;
         }
@@ -7002,47 +7827,22 @@ fn native_build_expr_slice_index_i32_const(expr: &ASTNode, slice_name: &byte,
         out_value);
 }
 
-fn native_build_return_slice_index_sum_value(stmt: &ASTNode, slice_name: &byte,
-    array_expr: &ASTNode, slice_start: i32, slice_len: i32, out_value: &i32) i32 {
-    if out_value != null {
-        *out_value = 0;
+fn native_build_decl_const_slice_index_sum_shape(decl: &ASTNode,
+    out_shape: &NativeBuildConstSliceSumShape) i32 {
+    if out_shape != null {
+        out_shape.array_decl = null;
+        out_shape.slice_decl = null;
+        out_shape.return_stmt = null;
+        out_shape.add_expr = null;
+        out_shape.left_access = null;
+        out_shape.right_access = null;
+        out_shape.slice_start = 0;
+        out_shape.slice_len = 0;
+        out_shape.left_value = 0;
+        out_shape.right_value = 0;
+        out_shape.sum_value = 0;
     }
-    if stmt == null || slice_name == null || array_expr == null || out_value == null ||
-       stmt.type != ASTNodeType.AST_RETURN_STMT ||
-       stmt.return_stmt_expr == null ||
-       stmt.return_stmt_expr.type != ASTNodeType.AST_BINARY_EXPR ||
-       stmt.return_stmt_expr.binary_expr_left == null ||
-       stmt.return_stmt_expr.binary_expr_right == null {
-        return 0;
-    }
-    const op_tmp: !TokenType = stmt.return_stmt_expr.binary_expr_op as! TokenType;
-    const op: TokenType = op_tmp catch {
-        return 0;
-    };
-    if op != TokenType.TOKEN_PLUS {
-        return 0;
-    }
-    var left_value: i32 = 0;
-    var right_value: i32 = 0;
-    if native_build_expr_slice_index_i32_const(stmt.return_stmt_expr.binary_expr_left,
-        slice_name, array_expr, slice_start, slice_len, &left_value) == 0 ||
-       native_build_expr_slice_index_i32_const(stmt.return_stmt_expr.binary_expr_right,
-        slice_name, array_expr, slice_start, slice_len, &right_value) == 0 {
-        return 0;
-    }
-    const sum: i64 = (left_value as i64) + (right_value as i64);
-    const sum_result: !i32 = sum as! i32;
-    *out_value = sum_result catch {
-        return 0;
-    };
-    return 1;
-}
-
-fn native_build_decl_const_slice_index_sum_return_value(decl: &ASTNode, out_value: &i32) i32 {
-    if out_value != null {
-        *out_value = 0;
-    }
-    if decl == null || out_value == null ||
+    if decl == null || out_shape == null ||
        native_build_decl_is_noarg_i32_fn(decl) == 0 ||
        decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null || decl.fn_decl_body.block_stmt_count != 3 {
@@ -7079,14 +7879,65 @@ fn native_build_decl_const_slice_index_sum_return_value(decl: &ASTNode, out_valu
        slice_start + slice_len > array_decl.var_decl_init.array_literal_element_count {
         return 0;
     }
-    if native_build_return_slice_index_sum_value(return_stmt, slice_decl.var_decl_name,
-        array_decl.var_decl_init, slice_start, slice_len, out_value) == 0 {
+    if return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null ||
+       return_stmt.return_stmt_expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       return_stmt.return_stmt_expr.binary_expr_left == null ||
+       return_stmt.return_stmt_expr.binary_expr_right == null {
         return 0;
     }
-    if *out_value >= 0 && *out_value <= 255 {
-        return 1;
+    const op_tmp: !TokenType = return_stmt.return_stmt_expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS {
+        return 0;
     }
-    return 0;
+    var left_value: i32 = 0;
+    var right_value: i32 = 0;
+    if native_build_expr_slice_index_i32_const(return_stmt.return_stmt_expr.binary_expr_left,
+        slice_decl.var_decl_name, array_decl.var_decl_init, slice_start, slice_len,
+        &left_value) == 0 ||
+       native_build_expr_slice_index_i32_const(return_stmt.return_stmt_expr.binary_expr_right,
+        slice_decl.var_decl_name, array_decl.var_decl_init, slice_start, slice_len,
+        &right_value) == 0 {
+        return 0;
+    }
+    const sum: i64 = (left_value as i64) + (right_value as i64);
+    const sum_result: !i32 = sum as! i32;
+    const sum_value: i32 = sum_result catch {
+        return 0;
+    };
+    if sum_value < 0 || sum_value > 255 {
+        return 0;
+    }
+    out_shape.array_decl = array_decl;
+    out_shape.slice_decl = slice_decl;
+    out_shape.return_stmt = return_stmt;
+    out_shape.add_expr = return_stmt.return_stmt_expr;
+    out_shape.left_access = return_stmt.return_stmt_expr.binary_expr_left;
+    out_shape.right_access = return_stmt.return_stmt_expr.binary_expr_right;
+    out_shape.slice_start = slice_start;
+    out_shape.slice_len = slice_len;
+    out_shape.left_value = left_value;
+    out_shape.right_value = right_value;
+    out_shape.sum_value = sum_value;
+    return 1;
+}
+
+fn native_build_decl_const_slice_index_sum_return_value(decl: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if out_value == null {
+        return 0;
+    }
+    var shape: NativeBuildConstSliceSumShape = native_build_const_slice_sum_shape_empty();
+    if native_build_decl_const_slice_index_sum_shape(decl, &shape) == 0 {
+        return 0;
+    }
+    *out_value = shape.sum_value;
+    return 1;
 }
 
 fn native_build_decl_local_array_index_return_expr(decl: &ASTNode,
