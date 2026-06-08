@@ -33,6 +33,9 @@ use libc.stdlib;  // clock, CLOCKS_PER_SEC
 use libc.unistd;  // system
 
 const NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT: i32 = 12;
+const NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT: i32 = 15;
+const NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_CORE_STMT_COUNT: i32 = 17;
+const NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_CORE_EXPR_COUNT: i32 = 16;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -1335,6 +1338,37 @@ fn native_build_hosted_return_call_target(program: &ASTNode, expr: &ASTNode,
         expr.call_expr_callee.identifier_name, out_function_id, out_decl_index);
 }
 
+fn native_build_hosted_find_function_by_name(program: &ASTNode, name: &byte,
+    out_function_id: &i32, out_decl_index: &i32) i32 {
+    if out_function_id != null {
+        *out_function_id = TYPED_PROGRAM_INVALID_ID;
+    }
+    if out_decl_index != null {
+        *out_decl_index = TYPED_PROGRAM_INVALID_ID;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null ||
+       out_function_id == null || out_decl_index == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    var function_id: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+            if decl.fn_decl_name != null &&
+               str_equals(decl.fn_decl_name as *byte, name as *byte) != 0 {
+                *out_function_id = function_id;
+                *out_decl_index = i;
+                return 1;
+            }
+            function_id = function_id + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_zero_arg_call_target(program: &ASTNode, expr: &ASTNode,
     out_function_id: &i32, out_decl_index: &i32) i32 {
     if expr == null || expr.type != ASTNodeType.AST_CALL_EXPR ||
@@ -1621,8 +1655,8 @@ fn native_build_hosted_build_driver_run_prefix_stmt(decl: &ASTNode, index: i32) 
        native_build_decl_is_noarg_i32_fn(decl) == 0 ||
        decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null ||
-       decl.fn_decl_body.block_stmt_count < NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT ||
-       index < 0 || index >= NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT {
+       decl.fn_decl_body.block_stmt_count < NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT ||
+       index < 0 || index >= NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
         return null;
     }
     return decl.fn_decl_body.block_stmts[index];
@@ -1754,10 +1788,191 @@ fn native_build_hosted_build_driver_run_prefix_stmt_count(decl: &ASTNode,
     return count;
 }
 
+fn native_build_hosted_expr_identifier_matches(expr: &ASTNode, name: &byte) i32 {
+    if expr == null || name == null || expr.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.identifier_name == null ||
+       str_equals(expr.identifier_name as *byte, name as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_addr_arg_name(expr: &ASTNode, out_name: & & byte) i32 {
+    if out_name != null {
+        *out_name = null;
+    }
+    if expr == null || out_name == null || expr.type != ASTNodeType.AST_UNARY_EXPR ||
+       expr.unary_expr_operand == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_AMPERSAND {
+        return 0;
+    }
+    if expr.unary_expr_operand.type == ASTNodeType.AST_IDENTIFIER &&
+       expr.unary_expr_operand.identifier_name != null {
+        *out_name = expr.unary_expr_operand.identifier_name;
+        return 1;
+    }
+    return native_build_array_index0_identifier(expr.unary_expr_operand, out_name);
+}
+
+fn native_build_hosted_parse_arg_addr_matches(expr: &ASTNode, name: &byte) i32 {
+    var actual_name: &byte = null;
+    if native_build_hosted_addr_arg_name(expr, &actual_name) == 0 ||
+       actual_name == null || name == null ||
+       str_equals(actual_name as *byte, name as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_arg_matches(index: i32, expr: &ASTNode) i32 {
+    if index == 0 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "input_file_indices" as &byte);
+    }
+    if index == 1 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "input_file_index_capacity" as &byte);
+    }
+    if index == 2 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "input_file_count" as &byte);
+    }
+    if index == 3 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "output_file_index" as &byte);
+    }
+    if index == 4 {
+        return native_build_hosted_parse_arg_addr_matches(expr, "backend" as &byte);
+    }
+    if index == 5 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "emit_line_directives" as &byte);
+    }
+    if index == 6 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "enable_safety_proof" as &byte);
+    }
+    if index == 7 {
+        return native_build_hosted_parse_arg_addr_matches(expr, "opt_level" as &byte);
+    }
+    if index == 8 {
+        return native_build_hosted_parse_arg_addr_matches(expr, "is_nostdlib" as &byte);
+    }
+    if index == 9 {
+        return native_build_hosted_parse_arg_addr_matches(expr, "stack_size" as &byte);
+    }
+    if index == 10 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "async_frame_heap_fallback" as &byte);
+    }
+    return 0;
+}
+
+fn native_build_hosted_parse_result_call_expr(stmt: &ASTNode) &ASTNode {
+    if stmt == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "parse_result" as *byte) == 0 ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.var_decl_init.call_expr_callee == null ||
+       stmt.var_decl_init.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.var_decl_init.call_expr_callee.identifier_name == null ||
+       str_equals(stmt.var_decl_init.call_expr_callee.identifier_name as *byte,
+           "parse_build_args" as *byte) == 0 ||
+       stmt.var_decl_init.call_expr_arg_count != 11 ||
+       stmt.var_decl_init.call_expr_args == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < 11 {
+        if native_build_hosted_parse_build_args_arg_matches(i,
+            stmt.var_decl_init.call_expr_args[i]) == 0 {
+            return null;
+        }
+        i = i + 1;
+    }
+    return stmt.var_decl_init;
+}
+
+fn native_build_hosted_parse_result_if_return(stmt: &ASTNode, expected_op: TokenType,
+    compare_value: i64, return_value: i64) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_condition == null ||
+       stmt.if_stmt_condition.type != ASTNodeType.AST_BINARY_EXPR ||
+       stmt.if_stmt_condition.binary_expr_left == null ||
+       stmt.if_stmt_condition.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+           stmt.if_stmt_condition.binary_expr_left, "parse_result" as &byte) == 0 ||
+       stmt.if_stmt_condition.binary_expr_right.type != ASTNodeType.AST_NUMBER ||
+       stmt.if_stmt_condition.binary_expr_right.number_value_i64 != compare_value ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 ||
+       stmt.if_stmt_then_branch.block_stmts[0] == null ||
+       stmt.if_stmt_then_branch.block_stmts[0].type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.if_stmt_then_branch.block_stmts[0].return_stmt_expr == null ||
+       stmt.if_stmt_then_branch.block_stmts[0].return_stmt_expr.type != ASTNodeType.AST_NUMBER ||
+       stmt.if_stmt_then_branch.block_stmts[0].return_stmt_expr.number_value_i64 != return_value {
+        return 0;
+    }
+    const op_tmp: !TokenType = stmt.if_stmt_condition.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != expected_op {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_build_driver_run_parse_prefix_stmt_count(decl: &ASTNode,
+    checker: &TypeChecker, program: &ASTNode) i32 {
+    if program == null || checker == null ||
+       native_build_hosted_build_driver_run_prefix_stmt_count(decl, checker) !=
+           NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    const parse_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 12);
+    const parse_call: &ASTNode = native_build_hosted_parse_result_call_expr(parse_decl);
+    const parse_help_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 13);
+    const parse_error_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 14);
+    if parse_call == null ||
+       native_build_hosted_parse_result_if_return(parse_help_if,
+           TokenType.TOKEN_EQUAL, 2i64, 0i64) == 0 ||
+       native_build_hosted_parse_result_if_return(parse_error_if,
+           TokenType.TOKEN_NOT_EQUAL, 0i64, 1i64) == 0 {
+        return 0;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, parse_call,
+        &call_type_id) != 0 {
+        return 0;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program, "parse_build_args" as &byte,
+        &target_function_id, &target_decl_index) == 0 {
+        return 0;
+    }
+    return NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT;
+}
+
 fn native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(
-    decl: &ASTNode, checker: &TypeChecker) i32 {
+    program: &ASTNode, decl: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_build_driver_run_parse_prefix_stmt_count(decl, checker,
+        program) == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
+        return 1;
+    }
     if native_build_hosted_build_driver_run_prefix_stmt_count(decl, checker) ==
-       NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT {
+        NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT {
         return 1;
     }
     return 0;
@@ -4742,15 +4957,28 @@ fn native_build_hosted_coreir_append_main_prefix_body(lowered: &LoweredProgram,
 }
 
 fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
-    lowered: &LoweredProgram, checker: &TypeChecker, function_id: i32,
+    lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode, function_id: i32,
     decl_index: i32, decl: &ASTNode) i32 {
-    if lowered == null || checker == null || decl == null {
+    if lowered == null || checker == null || program == null || decl == null {
         return -1;
     }
-    const prefix_count: i32 = native_build_hosted_build_driver_run_prefix_stmt_count(decl,
-        checker);
-    if prefix_count != NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT {
+    var prefix_count: i32 = native_build_hosted_build_driver_run_parse_prefix_stmt_count(
+        decl, checker, program);
+    if prefix_count == 0 {
+        prefix_count = native_build_hosted_build_driver_run_prefix_stmt_count(decl,
+            checker);
+    }
+    if prefix_count != NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT &&
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
         return -1;
+    }
+    var core_stmt_count: i32 = prefix_count;
+    var core_expr_count: i32 = 10;
+    var core_place_count: i32 = prefix_count;
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
+        core_stmt_count = NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_CORE_STMT_COUNT;
+        core_expr_count = NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_CORE_EXPR_COUNT;
+        core_place_count = 13;
     }
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
@@ -4761,11 +4989,11 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         function_id: function_id,
         decl_id: decl_index,
         root_stmt_start: stmt_start,
-        root_stmt_count: prefix_count,
+        root_stmt_count: core_stmt_count,
         expr_start: expr_start,
-        expr_count: 10,
+        expr_count: core_expr_count,
         place_start: place_start,
-        place_count: prefix_count,
+        place_count: core_place_count,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
         cleanup_edge_count: 0,
         semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
@@ -4777,7 +5005,7 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         return -1;
     }
     var place_index: i32 = 0;
-    while place_index < prefix_count {
+    while place_index < core_place_count {
         const stmt: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             place_index);
         if stmt == null || stmt.var_decl_init == null {
@@ -4849,8 +5077,174 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         }
         expr_index = expr_index + 1;
     }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
+        const parse_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
+            12);
+        const help_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
+            13);
+        const error_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
+            14);
+        const parse_call: &ASTNode = native_build_hosted_parse_result_call_expr(parse_decl);
+        const help_return_expr: &ASTNode = native_build_hosted_if_then_number_return_expr(help_if);
+        const error_return_expr: &ASTNode = native_build_hosted_if_then_number_return_expr(error_if);
+        if parse_decl == null || help_if == null || error_if == null ||
+           parse_call == null || help_return_expr == null || error_return_expr == null ||
+           error_if.if_stmt_condition == null ||
+           error_if.if_stmt_condition.binary_expr_left == null ||
+           error_if.if_stmt_condition.binary_expr_right == null {
+            return -1;
+        }
+        var parse_call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var help_return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var error_local_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var error_compare_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var error_condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var error_return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_ensure_expr_type_id(checker, parse_call,
+            &parse_call_type_id) != 0 ||
+           native_build_hosted_ensure_expr_type_id(checker, help_return_expr,
+            &help_return_type_id) != 0 ||
+           native_build_hosted_ensure_expr_type_id(checker,
+            error_if.if_stmt_condition.binary_expr_left, &error_local_type_id) != 0 ||
+           native_build_hosted_ensure_expr_type_id(checker,
+            error_if.if_stmt_condition.binary_expr_right, &error_compare_type_id) != 0 ||
+           native_build_hosted_ensure_expr_type_id(checker,
+            error_if.if_stmt_condition, &error_condition_type_id) != 0 ||
+           native_build_hosted_ensure_expr_type_id(checker, error_return_expr,
+            &error_return_type_id) != 0 {
+            return -1;
+        }
+        var parse_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var parse_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_find_function_by_name(program, "parse_build_args" as &byte,
+            &parse_target_function_id, &parse_target_decl_index) == 0 {
+            return -1;
+        }
+        var parse_call_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 10,
+            kind: CORE_EXPR_KIND_CALL,
+            body_id: body_id,
+            source_expr_id: parse_call.expr_id,
+            type_id: parse_call_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: place_start + 12,
+            target_function_id: parse_target_function_id,
+            target_decl_id: parse_target_decl_index,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: parse_call.line,
+            flags: 0,
+        };
+        var help_return_core_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 11,
+            kind: CORE_EXPR_KIND_INT_LITERAL,
+            body_id: body_id,
+            source_expr_id: help_return_expr.expr_id,
+            type_id: help_return_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: help_return_expr.line,
+            flags: 0,
+        };
+        var error_local_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 12,
+            kind: CORE_EXPR_KIND_LOCAL_REF,
+            body_id: body_id,
+            source_expr_id: error_if.if_stmt_condition.binary_expr_left.expr_id,
+            type_id: error_local_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: place_start + 12,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: error_if.if_stmt_condition.binary_expr_left.line,
+            flags: 0,
+        };
+        var error_compare_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 13,
+            kind: CORE_EXPR_KIND_INT_LITERAL,
+            body_id: body_id,
+            source_expr_id: error_if.if_stmt_condition.binary_expr_right.expr_id,
+            type_id: error_compare_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: error_if.if_stmt_condition.binary_expr_right.line,
+            flags: 0,
+        };
+        var error_condition_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 14,
+            kind: CORE_EXPR_KIND_I32_NE,
+            body_id: body_id,
+            source_expr_id: error_if.if_stmt_condition.expr_id,
+            type_id: error_condition_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: expr_start + 12,
+            rhs_expr_id: expr_start + 13,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: error_if.if_stmt_condition.line,
+            flags: 0,
+        };
+        var error_return_core_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 15,
+            kind: CORE_EXPR_KIND_INT_LITERAL,
+            body_id: body_id,
+            source_expr_id: error_return_expr.expr_id,
+            type_id: error_return_type_id,
+            literal_i64: 1i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: error_return_expr.line,
+            flags: 0,
+        };
+        if lowered_program_append_core_expr(lowered, &parse_call_expr) != 0 ||
+           lowered_program_append_core_expr(lowered, &help_return_core_expr) != 0 ||
+           lowered_program_append_core_expr(lowered, &error_local_expr) != 0 ||
+           lowered_program_append_core_expr(lowered, &error_compare_expr) != 0 ||
+           lowered_program_append_core_expr(lowered, &error_condition_expr) != 0 ||
+           lowered_program_append_core_expr(lowered, &error_return_core_expr) != 0 {
+            return -1;
+        }
+    }
     var stmt_index: i32 = 0;
-    while stmt_index < prefix_count {
+    while stmt_index < core_place_count {
         const stmt3: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             stmt_index);
         if stmt3 == null {
@@ -4861,6 +5255,9 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
             native_build_hosted_build_driver_run_prefix_expr_offset(stmt_index);
         if stmt_expr_offset != CORE_EXPR_INVALID_ID {
             stmt_expr_id = expr_start + stmt_expr_offset;
+        } else if prefix_count == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT &&
+                  stmt_index == 12 {
+            stmt_expr_id = expr_start + 10;
         }
         var local_stmt: CoreStmt = CoreStmt{
             stmt_id: stmt_start + stmt_index,
@@ -4881,6 +5278,84 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
             return -1;
         }
         stmt_index = stmt_index + 1;
+    }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
+        const help_if2: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
+            13);
+        const error_if2: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
+            14);
+        const help_return_expr2: &ASTNode = native_build_hosted_if_then_number_return_expr(help_if2);
+        const error_return_expr2: &ASTNode = native_build_hosted_if_then_number_return_expr(error_if2);
+        if help_if2 == null || error_if2 == null ||
+           help_return_expr2 == null || error_return_expr2 == null {
+            return -1;
+        }
+        var help_if_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 13,
+            kind: CORE_STMT_KIND_IF,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: stmt_start + 14,
+            child_stmt_count: 1,
+            expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: help_if2.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        var help_return_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 14,
+            kind: CORE_STMT_KIND_RETURN,
+            body_id: body_id,
+            parent_stmt_id: stmt_start + 13,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_start + 11,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: help_return_expr2.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        var error_if_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 15,
+            kind: CORE_STMT_KIND_IF,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: stmt_start + 16,
+            child_stmt_count: 1,
+            expr_id: expr_start + 14,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: error_if2.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        var error_return_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 16,
+            kind: CORE_STMT_KIND_RETURN,
+            body_id: body_id,
+            parent_stmt_id: stmt_start + 15,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_start + 15,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: error_return_expr2.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &help_if_stmt) != 0 ||
+           lowered_program_append_core_stmt(lowered, &help_return_stmt) != 0 ||
+           lowered_program_append_core_stmt(lowered, &error_if_stmt) != 0 ||
+           lowered_program_append_core_stmt(lowered, &error_return_stmt) != 0 {
+            return -1;
+        }
     }
     return 0;
 }
@@ -5144,7 +5619,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const function_id: i32 = lowered.function_count as i32;
             const materialize_prefix_body: i32 = native_build_hosted_decl_can_materialize_main_prefix_body(program, decl, checker);
             const materialize_entry_prefix_body: i32 =
-                native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(decl, checker);
+                native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(program, decl, checker);
             const materialize_safe_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             var function: ConcreteFunction = native_build_hosted_core_function_from_decl(function_id, i, decl);
             if materialize_prefix_body != 0 || materialize_entry_prefix_body != 0 ||
@@ -5163,7 +5638,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                 result.core_pending_body_count = result.core_pending_body_count + 1;
             } else if materialize_entry_prefix_body != 0 {
                 if native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
-                    lowered, checker, function_id, i, decl) != 0 {
+                    lowered, checker, program, function_id, i, decl) != 0 {
                     return -1;
                 }
                 result.core_pending_body_count = result.core_pending_body_count + 1;
@@ -5228,9 +5703,14 @@ fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &
     if pending_decl == null || pending_decl.type != ASTNodeType.AST_FN_DECL {
         return;
     }
-    const pending_prefix_stmt_count: i32 =
-        native_build_hosted_build_driver_run_prefix_stmt_count(pending_decl,
-            checker);
+    var pending_prefix_stmt_count: i32 =
+        native_build_hosted_build_driver_run_parse_prefix_stmt_count(pending_decl,
+            checker, program);
+    if pending_prefix_stmt_count == 0 {
+        pending_prefix_stmt_count =
+            native_build_hosted_build_driver_run_prefix_stmt_count(pending_decl,
+                checker);
+    }
     if pending_prefix_stmt_count > 0 {
         result.entry_pending_callee_name = native_build_decl_name_for_diagnostic(pending_decl);
         result.entry_pending_callee_prefix_covered = 1;
@@ -5562,16 +6042,27 @@ fn native_build_hosted_mir_append_program_externs(module: &PortableMirModule,
 }
 
 fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
-    module: &PortableMirModule, checker: &TypeChecker, lowered_function_id: i32,
+    module: &PortableMirModule, checker: &TypeChecker, program: &ASTNode, lowered_function_id: i32,
     decl_index: i32, source_core_body_id: i32, decl: &ASTNode) i32 {
-    if module == null || checker == null || lowered_function_id < 0 ||
+    if module == null || checker == null || program == null || lowered_function_id < 0 ||
        decl_index < 0 || source_core_body_id < 0 || decl == null {
         return -1;
     }
-    const prefix_count: i32 = native_build_hosted_build_driver_run_prefix_stmt_count(decl,
-        checker);
-    if prefix_count != NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT {
+    var prefix_count: i32 = native_build_hosted_build_driver_run_parse_prefix_stmt_count(
+        decl, checker, program);
+    if prefix_count == 0 {
+        prefix_count = native_build_hosted_build_driver_run_prefix_stmt_count(decl,
+            checker);
+    }
+    if prefix_count != NATIVE_BUILD_DRIVER_RUN_SIMPLE_PREFIX_STMT_COUNT &&
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
         return -1;
+    }
+    var mir_local_count: i32 = prefix_count;
+    var mir_block_count: i32 = 1;
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
+        mir_local_count = 13;
+        mir_block_count = 5;
     }
     const array_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 0);
     const path_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 10);
@@ -5619,9 +6110,9 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         param_start: 0,
         param_count: 0,
         local_start: local_id,
-        local_count: prefix_count,
+        local_count: mir_local_count,
         block_start: block_id,
-        block_count: 1,
+        block_count: mir_block_count,
         entry_block_id: block_id,
         cleanup_model: 0,
         capability_req_start: 0,
@@ -5663,7 +6154,7 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         return -1;
     }
     var local_index: i32 = 0;
-    while local_index < prefix_count {
+    while local_index < mir_local_count {
         var local_type_id: i32 = i32_type_id;
         var local_alignment: usize = 4usize;
         var local_flags: i32 = 0;
@@ -5691,8 +6182,371 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         }
         local_index = local_index + 1;
     }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_PARSE_PREFIX_STMT_COUNT {
+        return native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
+            module, program, decl, function_id, local_id, block_id, i32_type_id,
+            array_type_id, signature_type_id);
+    }
     if portable_mir_append_terminator(module, &terminator) != 0 ||
        portable_mir_append_block(module, &block) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_mir_parse_arg_local_index(arg_index: i32) i32 {
+    if arg_index == 0 {
+        return 0;
+    }
+    if arg_index == 1 {
+        return 11;
+    }
+    if arg_index >= 2 && arg_index < 11 {
+        return arg_index - 1;
+    }
+    return -1;
+}
+
+fn native_build_hosted_mir_append_build_driver_run_parse_call_operands(
+    module: &PortableMirModule, local_id: i32, operand_id: i32,
+    target_function_id: i32, signature_type_id: i32, i32_type_id: i32,
+    array_type_id: i32) i32 {
+    if module == null || local_id < 0 || operand_id < 0 {
+        return -1;
+    }
+    var target_operand: MirOperand = MirOperand{
+        operand_id: operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: signature_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: target_function_id,
+        flags: 0,
+    };
+    if portable_mir_append_operand(module, &target_operand) != 0 {
+        return -1;
+    }
+    var arg_index: i32 = 0;
+    while arg_index < 11 {
+        const local_offset: i32 = native_build_hosted_mir_parse_arg_local_index(arg_index);
+        if local_offset < 0 {
+            return -1;
+        }
+        var arg_type_id: i32 = i32_type_id;
+        if arg_index == 0 {
+            arg_type_id = array_type_id;
+        }
+        var arg_operand: MirOperand = MirOperand{
+            operand_id: operand_id + 1 + arg_index,
+            kind: 0,
+            value_id: MIR_VALUE_INVALID_ID,
+            local_id: local_id + local_offset,
+            type_id: arg_type_id,
+            capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+            immediate_i32: 0,
+            flags: 0,
+        };
+        if portable_mir_append_operand(module, &arg_operand) != 0 {
+            return -1;
+        }
+        arg_index = arg_index + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
+    module: &PortableMirModule, program: &ASTNode, decl: &ASTNode, function_id: i32,
+    local_id: i32, block_id: i32, i32_type_id: i32, array_type_id: i32,
+    signature_type_id: i32) i32 {
+    if module == null || program == null || decl == null || function_id < 0 ||
+       local_id < 0 || block_id < 0 {
+        return -1;
+    }
+    const parse_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 12);
+    const help_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 13);
+    const error_if: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 14);
+    const parse_call: &ASTNode = native_build_hosted_parse_result_call_expr(parse_decl);
+    const help_return_expr: &ASTNode = native_build_hosted_if_then_number_return_expr(help_if);
+    const error_return_expr: &ASTNode = native_build_hosted_if_then_number_return_expr(error_if);
+    if parse_call == null || help_if == null || error_if == null ||
+       help_if.if_stmt_condition == null || error_if.if_stmt_condition == null ||
+       help_return_expr == null || error_return_expr == null {
+        return -1;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program, "parse_build_args" as &byte,
+        &target_function_id, &target_decl_index) == 0 {
+        return -1;
+    }
+    const value_id: i32 = module.value_count as i32;
+    const call_value_id: i32 = value_id;
+    const help_cond_value_id: i32 = value_id + 1;
+    const help_return_value_id: i32 = value_id + 2;
+    const error_cond_value_id: i32 = value_id + 3;
+    const error_return_value_id: i32 = value_id + 4;
+    const inst_id: i32 = module.inst_count as i32;
+    const call_inst_id: i32 = inst_id;
+    const help_cond_inst_id: i32 = inst_id + 1;
+    const help_return_inst_id: i32 = inst_id + 2;
+    const error_cond_inst_id: i32 = inst_id + 3;
+    const error_return_inst_id: i32 = inst_id + 4;
+    const operand_id: i32 = module.operand_count as i32;
+    const help_cond_operand_id: i32 = operand_id + 12;
+    const help_term_operand_id: i32 = operand_id + 13;
+    const help_return_operand_id: i32 = operand_id + 14;
+    const error_cond_operand_id: i32 = operand_id + 15;
+    const error_term_operand_id: i32 = operand_id + 16;
+    const error_return_operand_id: i32 = operand_id + 17;
+    const successor_id: i32 = module.successor_count as i32;
+    const terminator_id: i32 = module.terminator_count as i32;
+    var call_value: MirValue = MirValue{
+        value_id: call_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: call_inst_id,
+        local_id: local_id + 12,
+        param_index: -1,
+        source_expr_id: parse_call.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var help_cond_value: MirValue = MirValue{
+        value_id: help_cond_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: help_cond_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: help_if.if_stmt_condition.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var help_return_value: MirValue = MirValue{
+        value_id: help_return_value_id,
+        function_id: function_id,
+        block_id: block_id + 1,
+        type_id: i32_type_id,
+        defining_inst_id: help_return_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: help_return_expr.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var error_cond_value: MirValue = MirValue{
+        value_id: error_cond_value_id,
+        function_id: function_id,
+        block_id: block_id + 2,
+        type_id: i32_type_id,
+        defining_inst_id: error_cond_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: error_if.if_stmt_condition.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var error_return_value: MirValue = MirValue{
+        value_id: error_return_value_id,
+        function_id: function_id,
+        block_id: block_id + 3,
+        type_id: i32_type_id,
+        defining_inst_id: error_return_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: error_return_expr.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var call_inst: MirInst = MirInst{
+        inst_id: call_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_CALL,
+        type_id: i32_type_id,
+        result_value_id: call_value_id,
+        operand_start: operand_id,
+        operand_count: 12,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: target_decl_index,
+    };
+    var help_cond_inst: MirInst = MirInst{
+        inst_id: help_cond_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: help_cond_value_id,
+        operand_start: help_cond_operand_id,
+        operand_count: 1,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 2,
+    };
+    var help_return_inst: MirInst = MirInst{
+        inst_id: help_return_inst_id,
+        function_id: function_id,
+        block_id: block_id + 1,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: help_return_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var error_cond_inst: MirInst = MirInst{
+        inst_id: error_cond_inst_id,
+        function_id: function_id,
+        block_id: block_id + 2,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: error_cond_value_id,
+        operand_start: error_cond_operand_id,
+        operand_count: 1,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var error_return_inst: MirInst = MirInst{
+        inst_id: error_return_inst_id,
+        function_id: function_id,
+        block_id: block_id + 3,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: error_return_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 1,
+    };
+    if portable_mir_append_value(module, &call_value) != 0 ||
+       portable_mir_append_value(module, &help_cond_value) != 0 ||
+       portable_mir_append_value(module, &help_return_value) != 0 ||
+       portable_mir_append_value(module, &error_cond_value) != 0 ||
+       portable_mir_append_value(module, &error_return_value) != 0 ||
+       portable_mir_append_inst(module, &call_inst) != 0 ||
+       portable_mir_append_inst(module, &help_cond_inst) != 0 ||
+       portable_mir_append_inst(module, &help_return_inst) != 0 ||
+       portable_mir_append_inst(module, &error_cond_inst) != 0 ||
+       portable_mir_append_inst(module, &error_return_inst) != 0 ||
+       native_build_hosted_mir_append_build_driver_run_parse_call_operands(
+           module, local_id, operand_id, target_function_id, signature_type_id,
+           i32_type_id, array_type_id) != 0 {
+        return -1;
+    }
+    var help_cond_operand: MirOperand = MirOperand{
+        operand_id: help_cond_operand_id,
+        kind: 0,
+        value_id: call_value_id,
+        local_id: local_id + 12,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 2,
+        flags: 0,
+    };
+    var help_term_operand: MirOperand = MirOperand{
+        operand_id: help_term_operand_id,
+        kind: 0,
+        value_id: help_cond_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var help_return_operand: MirOperand = MirOperand{
+        operand_id: help_return_operand_id,
+        kind: 0,
+        value_id: help_return_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var error_cond_operand: MirOperand = MirOperand{
+        operand_id: error_cond_operand_id,
+        kind: 0,
+        value_id: call_value_id,
+        local_id: local_id + 12,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var error_term_operand: MirOperand = MirOperand{
+        operand_id: error_term_operand_id,
+        kind: 0,
+        value_id: error_cond_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var error_return_operand: MirOperand = MirOperand{
+        operand_id: error_return_operand_id,
+        kind: 0,
+        value_id: error_return_value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 1,
+        flags: 0,
+    };
+    if portable_mir_append_operand(module, &help_cond_operand) != 0 ||
+       portable_mir_append_operand(module, &help_term_operand) != 0 ||
+       portable_mir_append_operand(module, &help_return_operand) != 0 ||
+       portable_mir_append_operand(module, &error_cond_operand) != 0 ||
+       portable_mir_append_operand(module, &error_term_operand) != 0 ||
+       portable_mir_append_operand(module, &error_return_operand) != 0 {
+        return -1;
+    }
+    var help_successor: MirSuccessor = MirSuccessor{ successor_id: successor_id, block_id: block_id + 1, arg_start: 0, arg_count: 0, flags: 0 };
+    var after_help_successor: MirSuccessor = MirSuccessor{ successor_id: successor_id + 1, block_id: block_id + 2, arg_start: 0, arg_count: 0, flags: 0 };
+    var error_successor: MirSuccessor = MirSuccessor{ successor_id: successor_id + 2, block_id: block_id + 3, arg_start: 0, arg_count: 0, flags: 0 };
+    var tail_successor: MirSuccessor = MirSuccessor{ successor_id: successor_id + 3, block_id: block_id + 4, arg_start: 0, arg_count: 0, flags: 0 };
+    var entry_terminator: MirTerminator = MirTerminator{ terminator_id: terminator_id, function_id: function_id, block_id: block_id, kind: MIR_TERMINATOR_KIND_COND_BR, operand_start: help_term_operand_id, operand_count: 1, successor_start: successor_id, successor_count: 2, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var help_terminator: MirTerminator = MirTerminator{ terminator_id: terminator_id + 1, function_id: function_id, block_id: block_id + 1, kind: MIR_TERMINATOR_KIND_RETURN, operand_start: help_return_operand_id, operand_count: 1, successor_start: 0, successor_count: 0, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var after_help_terminator: MirTerminator = MirTerminator{ terminator_id: terminator_id + 2, function_id: function_id, block_id: block_id + 2, kind: MIR_TERMINATOR_KIND_COND_BR, operand_start: error_term_operand_id, operand_count: 1, successor_start: successor_id + 2, successor_count: 2, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var error_terminator: MirTerminator = MirTerminator{ terminator_id: terminator_id + 3, function_id: function_id, block_id: block_id + 3, kind: MIR_TERMINATOR_KIND_RETURN, operand_start: error_return_operand_id, operand_count: 1, successor_start: 0, successor_count: 0, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var tail_terminator: MirTerminator = MirTerminator{ terminator_id: terminator_id + 4, function_id: function_id, block_id: block_id + 4, kind: MIR_TERMINATOR_KIND_UNREACHABLE, operand_start: 0, operand_count: 0, successor_start: 0, successor_count: 0, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var entry_block: MirBlock = MirBlock{ block_id: block_id, function_id: function_id, param_start: 0, param_count: 0, inst_start: inst_id, inst_count: 2, terminator_id: terminator_id, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var help_block: MirBlock = MirBlock{ block_id: block_id + 1, function_id: function_id, param_start: 0, param_count: 0, inst_start: inst_id + 2, inst_count: 1, terminator_id: terminator_id + 1, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var after_help_block: MirBlock = MirBlock{ block_id: block_id + 2, function_id: function_id, param_start: 0, param_count: 0, inst_start: inst_id + 3, inst_count: 1, terminator_id: terminator_id + 2, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var error_block: MirBlock = MirBlock{ block_id: block_id + 3, function_id: function_id, param_start: 0, param_count: 0, inst_start: inst_id + 4, inst_count: 1, terminator_id: terminator_id + 3, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    var tail_block: MirBlock = MirBlock{ block_id: block_id + 4, function_id: function_id, param_start: 0, param_count: 0, inst_start: inst_id + 5, inst_count: 0, terminator_id: terminator_id + 4, debug_loc_id: MIR_DEBUG_LOC_INVALID_ID, flags: 0 };
+    if portable_mir_append_successor(module, &help_successor) != 0 ||
+       portable_mir_append_successor(module, &after_help_successor) != 0 ||
+       portable_mir_append_successor(module, &error_successor) != 0 ||
+       portable_mir_append_successor(module, &tail_successor) != 0 ||
+       portable_mir_append_terminator(module, &entry_terminator) != 0 ||
+       portable_mir_append_terminator(module, &help_terminator) != 0 ||
+       portable_mir_append_terminator(module, &after_help_terminator) != 0 ||
+       portable_mir_append_terminator(module, &error_terminator) != 0 ||
+       portable_mir_append_terminator(module, &tail_terminator) != 0 ||
+       portable_mir_append_block(module, &entry_block) != 0 ||
+       portable_mir_append_block(module, &help_block) != 0 ||
+       portable_mir_append_block(module, &after_help_block) != 0 ||
+       portable_mir_append_block(module, &error_block) != 0 ||
+       portable_mir_append_block(module, &tail_block) != 0 {
         return -1;
     }
     return 0;
@@ -8562,7 +9416,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             const has_prefix_body: i32 = native_build_hosted_decl_can_materialize_main_prefix_body(program, decl, checker);
             const has_entry_prefix_body: i32 =
-                native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(decl, checker);
+                native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(program, decl, checker);
             const has_safe_core_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             if has_prefix_body != 0 || has_entry_prefix_body != 0 ||
                has_safe_core_body != 0 {
@@ -8574,7 +9428,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     body_function_count = body_function_count + 1;
                 } else if has_entry_prefix_body != 0 {
                     if native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
-                        module, checker, lowered_function_id, i, source_core_body_id,
+                        module, checker, program, lowered_function_id, i, source_core_body_id,
                         decl) != 0 {
                         return -1;
                     }

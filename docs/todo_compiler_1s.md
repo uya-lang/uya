@@ -939,7 +939,7 @@ PortableMIR/native hosted parity 的验收输入。
     - [x] 将 first pending callee `build_compiler_driver_run` 的入口前缀纳入 CoreBody/PortableMIR 覆盖，并保持 pre-MIR helper 禁止。
     - 在 self-build reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`（继续拆分执行）：
       - [x] 将 `build_compiler_driver_run` 的简单局部初始化入口前缀纳入 CoreBody/PortableMIR 覆盖，并在 frontier 中报告覆盖 stmt 数。
-      - [ ] 将 `parse_build_args(...)` 调用和 `parse_result` 分支入口纳入 CoreBody/PortableMIR 覆盖，保持 hosted verifier-clean。
+      - [x] 将 `parse_build_args(...)` 调用和 `parse_result` 分支入口纳入 CoreBody/PortableMIR 覆盖，保持 hosted verifier-clean。
       - [ ] 将 native 输出路径选择前的 reachable 控制流继续迁入 PortableMIR，收敛 pending body frontier。
       - [ ] reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`。
 
