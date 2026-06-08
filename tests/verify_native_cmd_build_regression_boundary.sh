@@ -49,6 +49,8 @@ require_pattern "$SUBSET_DOC" 'call ABI 和 target capability verifier' \
     "cmd/build subset doc 缺少 hosted native call ABI 验收边界"
 require_pattern "$SUBSET_DOC" 'tests/verify_native_cmd_build_no_silent_c99\.sh' \
     "cmd/build subset doc 缺少 no-silent-C99 门禁引用"
+require_pattern "$SUBSET_DOC" 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete' \
+    "cmd/build subset doc 缺少真实 emitter handoff 首个拒绝文案"
 require_pattern "$SUBSET_DOC" '不能生成伪 native 输出，也不能静默回落 C99' \
     "cmd/build subset doc 缺少失败语义"
 require_pattern "$SUBSET_DOC" '^## Hosted Native Handoff First Slice Contract' \
@@ -114,6 +116,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pendin
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \
     "no-silent-C99 测试缺少 cmd/build nested child complete handoff 证据"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete' \
+    "no-silent-C99 测试缺少 cmd/build 真实 emitter handoff 首个拒绝证据"
 require_pattern "$NO_SILENT_TEST" 'entry_callee_coverage=partial_prefix' \
     "no-silent-C99 测试缺少 cmd/build run entry prefix 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
@@ -160,6 +164,10 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_preflight_failed
     "build compiler driver 缺少 hosted native self-build preflight 缺口诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_handoff_frontier' \
     "build compiler driver 缺少 hosted native self-build handoff frontier 诊断"
+require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_emitter_handoff' \
+    "build compiler driver 缺少 hosted native emitter handoff frontier 诊断"
+require_pattern "$BUILD_DRIVER_SRC" 'emitter_handoff_request_verified' \
+    "build compiler driver 缺少 verified backend request handoff 状态"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_entry_frontier' \
     "build compiler driver 缺少 hosted native entry wrapper frontier 诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \

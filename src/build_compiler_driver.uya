@@ -183,6 +183,9 @@ struct NativeHostedMirPreflightResult {
     entry_pending_callee_child_next_stmt_index: i32,
     entry_pending_callee_child_next_stmt_kind: &byte,
     entry_pending_callee_child_complete: i32,
+    emitter_handoff_request_verified: i32,
+    emitter_handoff_backend_kind: i32,
+    emitter_handoff_link_plan_complete: i32,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1213,6 +1216,9 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.entry_pending_callee_child_next_stmt_index = -1;
     result.entry_pending_callee_child_next_stmt_kind = null;
     result.entry_pending_callee_child_complete = 0;
+    result.emitter_handoff_request_verified = 0;
+    result.emitter_handoff_backend_kind = 0;
+    result.emitter_handoff_link_plan_complete = 0;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -19366,6 +19372,9 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
         portable_mir_module_release(&module);
         return -1;
     }
+    result.emitter_handoff_request_verified =
+        portable_mir_backend_request_is_verified(&request);
+    result.emitter_handoff_backend_kind = request.backend_kind;
     var plan: NativeHostedLinkPlan = native_hosted_link_plan_empty();
     if native_hosted_link_plan_init(&plan, &request) != 0 {
         result.verifier_error = verifier.error_code;
@@ -19387,6 +19396,8 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
         }
         imported = imported + 1;
     }
+    result.emitter_handoff_link_plan_complete =
+        native_hosted_link_plan_is_complete(&plan);
     result.verifier_error = verifier.error_code;
     result.object_count = plan.object_count;
     portable_mir_module_release(&module);
@@ -20055,6 +20066,26 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
             "native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=%d extern_symbols=%d pending_bodies=%d entry_callee_coverage=%s entry_child_coverage=%s\n" as *byte,
             result.mir_body_function_count, result.extern_symbol_count,
             result.core_pending_body_count, entry_coverage as *byte,
+            entry_child_coverage as *byte);
+        var link_plan_status: &byte = "incomplete" as &byte;
+        if result.emitter_handoff_link_plan_complete != 0 {
+            link_plan_status = "complete" as &byte;
+        }
+        var backend_kind_name: &byte = "unknown" as &byte;
+        if result.emitter_handoff_backend_kind == MIR_TARGET_BACKEND_MACHINE {
+            backend_kind_name = "machine" as &byte;
+        } else if result.emitter_handoff_backend_kind == MIR_TARGET_BACKEND_PTX {
+            backend_kind_name = "ptx" as &byte;
+        } else if result.emitter_handoff_backend_kind == MIR_TARGET_BACKEND_EXEC {
+            backend_kind_name = "exec" as &byte;
+        } else if result.emitter_handoff_backend_kind == MIR_TARGET_BACKEND_C99 {
+            backend_kind_name = "c99" as &byte;
+        }
+        fprintf(libc.stderr,
+            "native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=%d backend=%s link_plan=%s link_objects=%d extern_symbols=%d entry_child_coverage=%s\n" as *byte,
+            result.emitter_handoff_request_verified,
+            backend_kind_name as *byte, link_plan_status as *byte,
+            result.object_count, result.extern_symbol_count,
             entry_child_coverage as *byte);
     }
     fprintf(libc.stderr,
@@ -28010,6 +28041,9 @@ fn compile_files(
                 entry_pending_callee_child_next_stmt_index: -1,
                 entry_pending_callee_child_next_stmt_kind: null,
                 entry_pending_callee_child_complete: 0,
+                emitter_handoff_request_verified: 0,
+                emitter_handoff_backend_kind: 0,
+                emitter_handoff_link_plan_complete: 0,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);
