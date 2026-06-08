@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_DRIVER_FILE="$REPO_ROOT/src/build_compiler_driver.uya"
 TMP_DIR="$(mktemp -d /tmp/uya-hosted-native-full-language.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -14,6 +15,7 @@ helper_src="$TMP_DIR/smoke_helper.uya"
 extern_src="$TMP_DIR/extern_fragment.uya"
 builtin_src="$TMP_DIR/builtin_fragment.uya"
 array_len_src="$TMP_DIR/array_len_fragment.uya"
+array_index_src="$TMP_DIR/array_index_fragment.uya"
 slice_src="$TMP_DIR/slice_fragment.uya"
 error_id_src="$TMP_DIR/error_id_fragment.uya"
 catch_src="$TMP_DIR/catch_fragment.uya"
@@ -30,6 +32,8 @@ builtin_c99_bin="$TMP_DIR/c99-builtin-smoke"
 builtin_native_bin="$TMP_DIR/native-builtin-smoke"
 array_len_c99_bin="$TMP_DIR/c99-array-len-smoke"
 array_len_native_bin="$TMP_DIR/native-array-len-smoke"
+array_index_c99_bin="$TMP_DIR/c99-array-index-smoke"
+array_index_native_bin="$TMP_DIR/native-array-index-smoke"
 slice_c99_bin="$TMP_DIR/c99-slice-smoke"
 slice_native_bin="$TMP_DIR/native-slice-smoke"
 error_id_c99_bin="$TMP_DIR/c99-error-id-smoke"
@@ -93,6 +97,14 @@ EOF
 cat >"$array_len_src" <<'EOF'
 export fn main() i32 {
     return @len([1, 2, 3, 4]) as i32;
+}
+EOF
+
+cat >"$array_index_src" <<'EOF'
+export fn main() i32 {
+    var array: [i32: 4] = [2, 4, 6, 8];
+    const idx: i32 = 2;
+    return array[idx];
 }
 EOF
 
@@ -354,12 +366,23 @@ require_pattern() {
     fi
 }
 
+if grep -q 'native_build_hosted_main_local_array_index_return_value' "$BUILD_DRIVER_FILE" ||
+   grep -q 'native_build_decl_local_array_index_return_value' "$BUILD_DRIVER_FILE"; then
+    echo "error: local array index native shard must not use pre-MIR AST return-value helpers" >&2
+    exit 1
+fi
+require_pattern "$BUILD_DRIVER_FILE" 'native_build_hosted_verified_mir_local_array_index_return_value' \
+    "verified PortableMIR local array index return extraction"
+require_pattern "$BUILD_DRIVER_FILE" 'MIR_INST_OP_INDEX_ADDR' "MIR index address lowering evidence"
+require_pattern "$BUILD_DRIVER_FILE" 'MIR_INST_OP_LOAD' "MIR indexed load lowering evidence"
+
 require_pattern "$extern_src" '@c_import' "@c_import parity coverage"
 require_pattern "$extern_src" 'extern fn add_i32' "extern parity coverage"
 require_pattern "$extern_src" 'return add_i32\(20, 22\);' "extern call parity coverage"
 require_pattern "$builtin_src" '@size_of\(i32\)' "builtin @size_of parity coverage"
 require_pattern "$builtin_src" '@align_of\(i32\)' "builtin @align_of parity coverage"
 require_pattern "$array_len_src" '@len\(\[1, 2, 3, 4\]\)' "array literal @len parity coverage"
+require_pattern "$array_index_src" 'return array\[idx\];' "local array index read parity coverage"
 require_pattern "$slice_src" 'array\[1:2\]' "slice construction parity coverage"
 require_pattern "$slice_src" 'slice\[0\] \+ slice\[1\]' "slice index parity coverage"
 require_pattern "$error_id_src" '@error_id\(error.SmokeError\)' "builtin @error_id parity coverage"
@@ -607,6 +630,83 @@ if ! cmp -s "$TMP_DIR/array-len.c99.run.out" "$TMP_DIR/array-len.native.run.out"
 fi
 if ! cmp -s "$TMP_DIR/array-len.c99.run.err" "$TMP_DIR/array-len.native.run.err"; then
     echo "error: hosted native/C99 array @len parity stderr differs" >&2
+    exit 1
+fi
+
+array_index_c99_build_out="$TMP_DIR/array-index.c99.build.out"
+array_index_c99_build_err="$TMP_DIR/array-index.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$array_index_src" -o "$array_index_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$array_index_c99_build_out" 2>"$array_index_c99_build_err"); then
+    cat "$array_index_c99_build_out" >&2
+    cat "$array_index_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$array_index_c99_bin" >"$TMP_DIR/array-index.c99.run.out" 2>"$TMP_DIR/array-index.c99.run.err"
+array_index_c99_status=$?
+set -e
+if [[ "$array_index_c99_status" -ne 6 ]]; then
+    echo "error: C99 local array index parity fragment exited with $array_index_c99_status" >&2
+    cat "$TMP_DIR/array-index.c99.run.out" >&2
+    cat "$TMP_DIR/array-index.c99.run.err" >&2
+    exit 1
+fi
+
+array_index_native_build_out="$TMP_DIR/array-index.native.build.out"
+array_index_native_build_err="$TMP_DIR/array-index.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$array_index_src" -o "$array_index_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$array_index_native_build_out" 2>"$array_index_native_build_err"); then
+    cat "$array_index_native_build_out" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$array_index_native_bin" ]]; then
+    echo "error: native local array index parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment appears to have fallen back to C99" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment used reject path" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=1 pending_bodies=[0-9]+' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment lacks CoreIR index body evidence" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=1 mir_types=[1-9][0-9]* extern_symbols=[0-9]+ c_import_objects=0 hosted_link_objects=0' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment lacks PortableMIR index body evidence" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: core_mir_local_array_index_path=1' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment lacks hosted Core/MIR executable evidence" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$array_index_native_build_err"
+
+chmod +x "$array_index_native_bin"
+set +e
+"$array_index_native_bin" >"$TMP_DIR/array-index.native.run.out" 2>"$TMP_DIR/array-index.native.run.err"
+array_index_native_status=$?
+set -e
+if [[ "$array_index_native_status" -ne "$array_index_c99_status" ]]; then
+    echo "error: hosted native/C99 local array index parity exit status differs: c99=$array_index_c99_status native=$array_index_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/array-index.c99.run.out" "$TMP_DIR/array-index.native.run.out"; then
+    echo "error: hosted native/C99 local array index parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/array-index.c99.run.err" "$TMP_DIR/array-index.native.run.err"; then
+    echo "error: hosted native/C99 local array index parity stderr differs" >&2
     exit 1
 fi
 
@@ -1341,4 +1441,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, atomic parity, SIMD parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, local array index parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, atomic parity, SIMD parity, C99 success, and explicit native reject"

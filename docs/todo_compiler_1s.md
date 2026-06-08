@@ -916,7 +916,7 @@ PortableMIR/native hosted parity 的验收输入。
   - [x] 清理 2026-06-08 pre-MIR native self-build WIP：撤掉 `compile_files` / `parse_build_args` 专项摘要、loop/array access one-off `LoweredBodyOp` 扩展，以及 `native_build` direct machine-inst emission WIP。
   - [x] `bash tests/verify_native_cmd_build_stage1.sh` 只作为 freestanding build-seed 回归边界复验；若失败，仅修边界或迁 MIR，不新增 one-off `LoweredBodyOp`。
   - [x] 用 PortableMIR verifier/native MIR emitter 固定 `compile_files(...)` 16 参数调用 ABI 样本，要求 call inst 保留 16 个 operand、hosted runtime capability 和 target calling convention，不经 pre-MIR `LoweredBodyOp` 摘要。
-  - [ ] 用 CoreBody/PortableMIR 覆盖局部数组索引读取，先以 hosted native/C99 parity shard 固定运行结果。
+  - [x] 用 CoreBody/PortableMIR 覆盖局部数组索引读取，先以 hosted native/C99 parity shard 固定运行结果。
   - [ ] 明确 hosted/freestanding call ABI profile 在 PortableMIR 中的分流和 verifier 门禁，再迁入 `cmd/build` 所需调用形状。
   - [ ] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
 
