@@ -984,7 +984,7 @@ PortableMIR/native hosted parity 的验收输入。
 
 - [x] 新增 `tests/verify_native_cmd_build_stage1.sh`。
 - [x] 新增 `tests/verify_native_cmd_build_no_silent_c99.sh`，固定当前失败形状并防止静默回落。
-- [ ] 用 native `cmd/build` 编译最小程序。
+- [x] 用 native `cmd/build` 编译最小程序。
 - [ ] 用 native `cmd/build` 编译一组 compiler regression。
 - [ ] 用 native `cmd/build` 生成 C99 output，并与 C99-built compiler 输出比对。
 
