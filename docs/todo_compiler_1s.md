@@ -954,6 +954,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 `output_file_index >= 0` 显式输出路径分支入口继续迁入 PortableMIR frontier。
         - [x] 将 `backend == BackendType.BACKEND_LLVM` fallback 分支继续迁入 PortableMIR frontier。
         - [x] 将 split-C active + C99 backend 分支继续迁入 PortableMIR frontier。
+        - [x] 将 `output_path_for_compile` 初始化继续迁入 PortableMIR frontier。
 
 测试：
 
