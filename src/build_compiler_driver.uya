@@ -85,6 +85,7 @@ const NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_PREFIX_STMT_COUNT: i32 = 31;
 const NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_CORE_STMT_COUNT: i32 = 51;
 const NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_CORE_EXPR_COUNT: i32 = 41;
 const NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT: i32 = 32;
+const NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT: i32 = 33;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -220,7 +221,7 @@ fn compiler_print_diagnostic_profile(checker: &TypeChecker) void {
 // Host-side reserve constants for older bootstrap compilers whose generated C
 // layout may lag the current Uya struct layout.
 const HOST_SIZE_PTR_BYTES: usize = 8usize;
-const HOST_SIZE_LEXER_BYTES: usize = 1052744usize;
+const HOST_SIZE_LEXER_BYTES: usize = 8192usize;
 // Host-side reserve for TypeChecker. The async metadata tables live near the
 // end of this structure in generated C, so keep slack for bootstrap layout
 // drift when rebuilding from an older compiler.
@@ -1787,9 +1788,9 @@ fn native_build_hosted_build_driver_run_prefix_stmt(decl: &ASTNode, index: i32) 
        decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null ||
        decl.fn_decl_body.block_stmt_count <
-       NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT ||
+       NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT ||
        index < 0 ||
-       index >= NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+       index >= NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
         return null;
     }
     return decl.fn_decl_body.block_stmts[index];
@@ -1873,7 +1874,7 @@ fn native_build_hosted_build_driver_run_prefix_expr_offset(index: i32) i32 {
 fn native_build_hosted_build_driver_run_prefix_covers(prefix_count: i32,
     target_count: i32) i32 {
     if prefix_count >= target_count &&
-       prefix_count <= NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+       prefix_count <= NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
         return 1;
     }
     return 0;
@@ -3788,8 +3789,118 @@ fn native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
     return NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT;
 }
 
+fn native_build_hosted_compile_files_arg_matches(index: i32, expr: &ASTNode) i32 {
+    if index == 0 {
+        return native_build_hosted_parse_arg_addr_matches(expr,
+            "input_file_indices" as &byte);
+    }
+    if index == 2 {
+        return native_build_hosted_expr_is_null_identifier(expr);
+    }
+    if index == 3 || index == 14 {
+        var zero_value: i32 = 0;
+        if native_build_expr_scalar_const_value(expr, null, &zero_value) != 0 &&
+           zero_value == 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if index == 15 {
+        return native_build_hosted_parse_arg_addr_matches(expr, "artifacts" as &byte);
+    }
+    if index == 1 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "input_file_count" as &byte);
+    }
+    if index == 4 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "output_file_index" as &byte);
+    }
+    if index == 5 {
+        return native_build_hosted_expr_identifier_matches(expr, "backend" as &byte);
+    }
+    if index == 6 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "emit_line_directives" as &byte);
+    }
+    if index == 7 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "enable_safety_proof" as &byte);
+    }
+    if index == 8 {
+        return native_build_hosted_expr_identifier_matches(expr, "opt_level" as &byte);
+    }
+    if index == 9 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "output_path_for_compile" as &byte);
+    }
+    if index == 10 {
+        return native_build_hosted_expr_identifier_matches(expr, "is_nostdlib" as &byte);
+    }
+    if index == 11 {
+        return native_build_hosted_expr_identifier_matches(expr, "stack_size" as &byte);
+    }
+    if index == 12 {
+        return native_build_hosted_expr_identifier_matches(expr, "split_c_arg" as &byte);
+    }
+    if index == 13 {
+        return native_build_hosted_expr_identifier_matches(expr,
+            "async_frame_heap_fallback" as &byte);
+    }
+    return 0;
+}
+
+fn native_build_hosted_build_driver_run_result_call_expr(stmt: &ASTNode) &ASTNode {
+    if stmt == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "result" as *byte) == 0 ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.var_decl_init.call_expr_callee == null ||
+       stmt.var_decl_init.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.var_decl_init.call_expr_callee.identifier_name == null ||
+       str_equals(stmt.var_decl_init.call_expr_callee.identifier_name as *byte,
+        "compile_files" as *byte) == 0 ||
+       stmt.var_decl_init.call_expr_arg_count != 16 ||
+       stmt.var_decl_init.call_expr_args == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < 16 {
+        if native_build_hosted_compile_files_arg_matches(i,
+            stmt.var_decl_init.call_expr_args[i]) == 0 {
+            return null;
+        }
+        i = i + 1;
+    }
+    return stmt.var_decl_init;
+}
+
+fn native_build_hosted_build_driver_run_result_prefix_stmt_count(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+        decl, checker, program) !=
+        NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    const result_stmt: &ASTNode =
+        native_build_hosted_build_driver_run_prefix_stmt(decl, 32);
+    const result_call: &ASTNode =
+        native_build_hosted_build_driver_run_result_call_expr(result_stmt);
+    if checker == null || program == null || result_call == null {
+        return 0;
+    }
+    return NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT;
+}
+
 fn native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body(
     program: &ASTNode, decl: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_build_driver_run_result_prefix_stmt_count(
+        decl, checker, program) ==
+        NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
+        return 1;
+    }
     if native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
         decl, checker, program) ==
         NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
@@ -6860,8 +6971,13 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         return -1;
     }
     var prefix_count: i32 =
-        native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+        native_build_hosted_build_driver_run_result_prefix_stmt_count(
             decl, checker, program);
+    if prefix_count == 0 {
+        prefix_count =
+            native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+                decl, checker, program);
+    }
     if prefix_count == 0 {
         prefix_count =
             native_build_hosted_build_driver_run_split_c_lock_defer_prefix_stmt_count(
@@ -6963,7 +7079,8 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
        prefix_count != NATIVE_BUILD_DRIVER_RUN_ARTIFACTS_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_PREFIX_STMT_COUNT &&
-       prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT &&
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
         return -1;
     }
     var core_stmt_count: i32 = prefix_count;
@@ -7056,10 +7173,16 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
         core_expr_count = NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_CORE_EXPR_COUNT;
         core_place_count = 22;
     }
-    if prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+    if native_build_hosted_build_driver_run_prefix_covers(prefix_count,
+       NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT) != 0 {
         core_stmt_count = 55;
         core_expr_count = 47;
         core_place_count = 22;
+    }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
+        core_stmt_count = 56;
+        core_expr_count = 48;
+        core_place_count = 23;
     }
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
@@ -7139,6 +7262,11 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
            NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_PREFIX_STMT_COUNT) != 0 &&
            place_index == 21 {
             source_stmt_index = 29;
+        }
+        if native_build_hosted_build_driver_run_prefix_covers(prefix_count,
+           NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT) != 0 &&
+           place_index == 22 {
+            source_stmt_index = 32;
         }
         const stmt: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl,
             source_stmt_index);
@@ -8964,7 +9092,8 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
             return -1;
         }
     }
-    if prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+    if native_build_hosted_build_driver_run_prefix_covers(prefix_count,
+       NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT) != 0 {
         const acquire_stmt_node: &ASTNode =
             native_build_hosted_build_driver_run_prefix_stmt(decl, 31);
         var acquire_inner_if: &ASTNode = null;
@@ -9192,6 +9321,64 @@ fn native_build_hosted_coreir_append_build_driver_run_entry_prefix_body(
            lowered_program_append_core_stmt(lowered, &acquire_inner_if_stmt) != 0 ||
            lowered_program_append_core_stmt(lowered, &acquire_return_stmt) != 0 ||
            lowered_program_append_core_stmt(lowered, &acquire_assign_stmt) != 0 {
+            return -1;
+        }
+    }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
+        const result_stmt: &ASTNode =
+            native_build_hosted_build_driver_run_prefix_stmt(decl, 32);
+        const result_call: &ASTNode =
+            native_build_hosted_build_driver_run_result_call_expr(result_stmt);
+        if result_stmt == null || result_call == null {
+            return -1;
+        }
+        var result_call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_ensure_expr_type_id(checker, result_call,
+            &result_call_type_id) != 0 {
+            return -1;
+        }
+        var compile_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var compile_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_find_function_by_name(program, "compile_files" as &byte,
+            &compile_target_function_id, &compile_target_decl_index) == 0 {
+            return -1;
+        }
+        var result_call_expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + 47,
+            kind: CORE_EXPR_KIND_CALL,
+            body_id: body_id,
+            source_expr_id: result_call.expr_id,
+            type_id: result_call_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: place_start + 22,
+            target_function_id: compile_target_function_id,
+            target_decl_id: compile_target_decl_index,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: result_call.line,
+            flags: 0,
+        };
+        var result_core_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + 55,
+            kind: CORE_STMT_KIND_LOCAL_DECL,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_start + 47,
+            place_id: place_start + 22,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: result_stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+        };
+        if lowered_program_append_core_expr(lowered, &result_call_expr) != 0 ||
+           lowered_program_append_core_stmt(lowered, &result_core_stmt) != 0 {
             return -1;
         }
     }
@@ -9553,8 +9740,13 @@ fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &
         return;
     }
     var pending_prefix_stmt_count: i32 =
-        native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+        native_build_hosted_build_driver_run_result_prefix_stmt_count(
             pending_decl, checker, program);
+    if pending_prefix_stmt_count == 0 {
+        pending_prefix_stmt_count =
+            native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+                pending_decl, checker, program);
+    }
     if pending_prefix_stmt_count == 0 {
         pending_prefix_stmt_count =
             native_build_hosted_build_driver_run_split_c_lock_defer_prefix_stmt_count(
@@ -10061,8 +10253,13 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         return -1;
     }
     var prefix_count: i32 =
-        native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+        native_build_hosted_build_driver_run_result_prefix_stmt_count(
             decl, checker, program);
+    if prefix_count == 0 {
+        prefix_count =
+            native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count(
+                decl, checker, program);
+    }
     if prefix_count == 0 {
         prefix_count =
             native_build_hosted_build_driver_run_split_c_lock_defer_prefix_stmt_count(
@@ -10164,7 +10361,8 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
        prefix_count != NATIVE_BUILD_DRIVER_RUN_ARTIFACTS_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_PREFIX_STMT_COUNT &&
        prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_PREFIX_STMT_COUNT &&
-       prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT &&
+       prefix_count != NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
         return -1;
     }
     var mir_local_count: i32 = prefix_count;
@@ -10239,6 +10437,10 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
     }
     if prefix_count == NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT {
         mir_local_count = 22;
+        mir_block_count = 24;
+    }
+    if prefix_count == NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
+        mir_local_count = 23;
         mir_block_count = 24;
     }
     const array_decl: &ASTNode = native_build_hosted_build_driver_run_prefix_stmt(decl, 0);
@@ -10427,6 +10629,7 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         var include_split_c_lock: i32 = 0;
         var include_split_c_lock_defer: i32 = 0;
         var include_split_c_lock_acquire: i32 = 0;
+        var include_compile_result: i32 = 0;
         if native_build_hosted_build_driver_run_prefix_covers(prefix_count,
            NATIVE_BUILD_DRIVER_RUN_STACK_GUARD_PREFIX_STMT_COUNT) != 0 {
             include_stack_guard = 1;
@@ -10522,6 +10725,19 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
             include_split_c_lock_defer = 1;
             include_split_c_lock_acquire = 1;
         }
+        if prefix_count == NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT {
+            include_backend_fallback = 1;
+            include_split_c_default = 1;
+            include_output_path_for_compile = 1;
+            include_output_path_selection = 1;
+            include_split_c_arg = 1;
+            include_split_c_arg_assign = 1;
+            include_artifacts = 1;
+            include_split_c_lock = 1;
+            include_split_c_lock_defer = 1;
+            include_split_c_lock_acquire = 1;
+            include_compile_result = 1;
+        }
         return native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
             module, program, decl, function_id, local_id, block_id, i32_type_id,
             array_type_id, env_split_type_id, artifacts_type_id, signature_type_id,
@@ -10531,7 +10747,7 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
             include_output_path_for_compile, include_output_path_selection,
             include_split_c_arg, include_split_c_arg_assign, include_artifacts,
             include_split_c_lock, include_split_c_lock_defer,
-            include_split_c_lock_acquire);
+            include_split_c_lock_acquire, include_compile_result);
     }
     if portable_mir_append_terminator(module, &terminator) != 0 ||
        portable_mir_append_block(module, &block) != 0 {
@@ -10611,7 +10827,7 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     include_output_path_selection: i32, include_split_c_arg: i32,
     include_split_c_arg_assign: i32, include_artifacts: i32,
     include_split_c_lock: i32, include_split_c_lock_defer: i32,
-    include_split_c_lock_acquire: i32) i32 {
+    include_split_c_lock_acquire: i32, include_compile_result: i32) i32 {
     if module == null || program == null || decl == null || function_id < 0 ||
        local_id < 0 || block_id < 0 {
         return -1;
@@ -10821,6 +11037,13 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         split_c_lock_acquire_stmt.if_stmt_condition == null) {
         return -1;
     }
+    const result_stmt: &ASTNode =
+        native_build_hosted_build_driver_run_prefix_stmt(decl, 32);
+    const result_call: &ASTNode =
+        native_build_hosted_build_driver_run_result_call_expr(result_stmt);
+    if include_compile_result != 0 && result_call == null {
+        return -1;
+    }
     var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
     var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
     if native_build_hosted_find_function_by_name(program, "parse_build_args" as &byte,
@@ -10886,6 +11109,7 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     const split_c_lock_value_id: i32 = value_id + 26;
     const split_c_lock_defer_value_id: i32 = value_id + 27;
     const split_c_lock_acquire_value_id: i32 = value_id + 28;
+    const compile_result_value_id: i32 = value_id + 29;
     const inst_id: i32 = module.inst_count as i32;
     const call_inst_id: i32 = inst_id;
     const help_cond_inst_id: i32 = inst_id + 1;
@@ -10923,6 +11147,7 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     const split_c_lock_inst_id: i32 = inst_id + 33;
     const split_c_lock_defer_inst_id: i32 = inst_id + 34;
     const split_c_lock_acquire_inst_id: i32 = inst_id + 35;
+    const compile_result_inst_id: i32 = inst_id + 36;
     const operand_id: i32 = module.operand_count as i32;
     const help_cond_operand_id: i32 = operand_id + 12;
     const help_term_operand_id: i32 = operand_id + 13;
@@ -11080,6 +11305,10 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     if include_split_c_lock_acquire != 0 {
         split_c_lock_acquire_source_expr_id =
             split_c_lock_acquire_stmt.if_stmt_condition.expr_id;
+    }
+    var compile_result_source_expr_id: i32 = 0;
+    if include_compile_result != 0 {
+        compile_result_source_expr_id = result_call.expr_id;
     }
     var call_value: MirValue = MirValue{
         value_id: call_value_id,
@@ -11426,6 +11655,18 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         local_id: MIR_LOCAL_INVALID_ID,
         param_index: -1,
         source_expr_id: split_c_lock_acquire_source_expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var compile_result_value: MirValue = MirValue{
+        value_id: compile_result_value_id,
+        function_id: function_id,
+        block_id: block_id + 23,
+        type_id: i32_type_id,
+        defining_inst_id: compile_result_inst_id,
+        local_id: local_id + 22,
+        param_index: -1,
+        source_expr_id: compile_result_source_expr_id,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
@@ -11969,6 +12210,21 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
+    var compile_result_inst: MirInst = MirInst{
+        inst_id: compile_result_inst_id,
+        function_id: function_id,
+        block_id: block_id + 23,
+        op: MIR_INST_OP_NOP,
+        type_id: i32_type_id,
+        result_value_id: compile_result_value_id,
+        operand_start: 0,
+        operand_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
     if portable_mir_append_value(module, &call_value) != 0 ||
        portable_mir_append_value(module, &help_cond_value) != 0 ||
        portable_mir_append_value(module, &help_return_value) != 0 ||
@@ -12095,6 +12351,12 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     if include_split_c_lock_acquire != 0 {
         if portable_mir_append_value(module, &split_c_lock_acquire_value) != 0 ||
            portable_mir_append_inst(module, &split_c_lock_acquire_inst) != 0 {
+            return -1;
+        }
+    }
+    if include_compile_result != 0 {
+        if portable_mir_append_value(module, &compile_result_value) != 0 ||
+           portable_mir_append_inst(module, &compile_result_inst) != 0 {
             return -1;
         }
     }
@@ -12809,6 +13071,10 @@ fn native_build_hosted_mir_append_build_driver_run_parse_prefix_control(
     if include_split_c_lock_acquire != 0 {
         split_c_arg_assign_after_block.inst_start = artifacts_inst_id;
         split_c_arg_assign_after_block.inst_count = 4;
+    }
+    if include_compile_result != 0 {
+        split_c_arg_assign_after_block.inst_start = artifacts_inst_id;
+        split_c_arg_assign_after_block.inst_count = 5;
     }
     if portable_mir_append_successor(module, &help_successor) != 0 ||
        portable_mir_append_successor(module, &after_help_successor) != 0 ||
@@ -22272,7 +22538,7 @@ fn native_build_plan_main_const_exit_code(plan: &NativeBuildAstPlan, out_code: &
 }
 
 // 文件读取缓冲区大小（与 Lexer 一致）
-const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
+const FILE_BUFFER_SIZE: i32 = 2 * 1024 * 1024;
 
 // Arena 缓冲区大小（v2.0: 动态增长 Arena）
 // 初始缓冲区 64MB，不足时自动分配新 chunk

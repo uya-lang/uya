@@ -142,7 +142,7 @@ fn compiler_print_diagnostic_profile(checker: &TypeChecker) void {
 // 当前 exec vm 自举路径仍缺少部分大型命名类型的 @size_of 折叠，
 // 先用宿主 x86_64 布局常量打通编译器本体的 staged run --vm 路径。
 const HOST_SIZE_PTR_BYTES: usize = 8usize;
-const HOST_SIZE_LEXER_BYTES: usize = 1052744usize;
+const HOST_SIZE_LEXER_BYTES: usize = 8192usize;
 // Host-side reserve for TypeChecker. The async metadata tables live near the
 // end of this structure in generated C, so keep slack for bootstrap layout
 // drift when rebuilding from an older compiler.
@@ -175,7 +175,7 @@ enum CommandType {
 }
 
 // 文件读取缓冲区大小（与 Lexer 一致）
-const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
+const FILE_BUFFER_SIZE: i32 = 2 * 1024 * 1024;
 
 // Arena 缓冲区大小（v2.0: 动态增长 Arena）
 // 初始缓冲区 64MB，不足时自动分配新 chunk

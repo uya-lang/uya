@@ -111,7 +111,7 @@ struct Token {
     column: i32,
 }
 
-// 1MB 缓冲区大小（与 C 版本 LEXER_BUFFER_SIZE 一致）
+// Lexer 直接引用调用者提供的 source buffer；该值只保留给旧边界检查兼容。
 const LEXER_BUFFER_SIZE: i32 = 1024 * 1024;
 
 // 字符串插值内部缓冲区大小（read_string 也复用此缓冲，避免栈上再分配 4096）
@@ -119,7 +119,7 @@ const LEXER_STRING_INTERP_BUFFER_SIZE: i32 = 4096;
 
 // Lexer 结构体
 struct Lexer {
-    buffer: [byte: LEXER_BUFFER_SIZE],
+    buffer: &byte,
     buffer_size: usize,
     position: usize,
     line: i32,
@@ -143,7 +143,7 @@ fn peek_char(lexer: &Lexer, offset: usize) byte {
     if pos >= lexer.buffer_size {
         return 0 as byte;
     }
-    return lexer.buffer[pos] as byte;
+    return lexer_buffer_at(lexer, pos);
 }
 
 // 辅助：前进一个字符，更新位置信息
@@ -159,10 +159,8 @@ fn lexer_buffer_ptr_at(lexer: &Lexer, idx: usize) &byte {
     if lexer == null {
         return null;
     }
-    if idx < lexer.buffer_size {
-        if idx < LEXER_BUFFER_SIZE as usize {
-            return &lexer.buffer[idx] as &byte;
-        }
+    if idx < lexer.buffer_size && lexer.buffer != null {
+        return &lexer.buffer[idx] as &byte;
     }
     return null;
 }
@@ -170,9 +168,6 @@ fn lexer_buffer_ptr_at(lexer: &Lexer, idx: usize) &byte {
 fn advance_char(lexer: &Lexer) byte {
     const pos: usize = lexer.position;
     if pos >= lexer.buffer_size {
-        return 0 as byte;
-    }
-    if pos >= @len(lexer.buffer) {
         return 0 as byte;
     }
     const c: byte = lexer_buffer_at(lexer, pos);
@@ -386,9 +381,6 @@ fn read_identifier_or_keyword(lexer: &Lexer, arena: &CompilerArena) &Token {
     }
     const token_start_idx: usize = start_index;
     if token_start_idx >= lexer.buffer_size {
-        return null;
-    }
-    if token_start_idx >= @len(lexer.buffer) {
         return null;
     }
     const start_ptr: &byte = lexer_buffer_ptr_at(lexer, token_start_idx);
@@ -1406,15 +1398,7 @@ fn lexer_init(lexer: &Lexer, source: &byte, source_len: usize, filename: &byte, 
     if lexer == null || source == null || arena == null {
         return -1;
     }
-    if source_len >= LEXER_BUFFER_SIZE as usize {
-        return -1;
-    }
-    var i: usize = 0;
-    while i < source_len {
-        lexer.buffer[i] = source[i];
-        i = i + 1;
-    }
-    lexer.buffer[source_len] = 0;
+    lexer.buffer = source;
     lexer.buffer_size = source_len;
     lexer.position = 0;
     lexer.line = 1;
