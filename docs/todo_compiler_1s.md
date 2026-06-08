@@ -936,7 +936,7 @@ PortableMIR/native hosted parity 的验收输入。
   - 接入 hosted `cmd/build` verifier-clean PortableMIR self-build 的真实 emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`，仍不得回落 C99 或 build-seed `LoweredProgram` helper（拆分执行）：
     - [x] 固定 verifier-clean self-build handoff 诊断，报告 MIR body / extern / pending body frontier 和 entry callee 覆盖缺口，避免泛泛 `lowering_missing` 掩盖下一步。
     - [x] 固定 `main -> build_compiler_driver_main` wrapper 已纳入 CoreBody/PortableMIR 的证据，并把 first pending callee 精确到 `build_compiler_driver_run`，保持 pre-MIR helper 禁止。
-    - [ ] 将 first pending callee `build_compiler_driver_run` 的入口前缀纳入 CoreBody/PortableMIR 覆盖，并保持 pre-MIR helper 禁止。
+    - [x] 将 first pending callee `build_compiler_driver_run` 的入口前缀纳入 CoreBody/PortableMIR 覆盖，并保持 pre-MIR helper 禁止。
     - [ ] 在 self-build reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`。
 
 测试：
