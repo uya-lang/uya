@@ -6292,6 +6292,477 @@ fn native_build_decl_lexical_drop_return_value(program: &ASTNode, decl: &ASTNode
     return 0;
 }
 
+fn native_build_method_list_find_by_name(methods: & & ASTNode, method_count: i32,
+    name: &byte) &ASTNode {
+    if methods == null || name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < method_count {
+        const method: &ASTNode = methods[i];
+        if method != null && method.type == ASTNodeType.AST_FN_DECL &&
+           method.fn_decl_name != null &&
+           str_equals(method.fn_decl_name as *byte, name as *byte) != 0 {
+            return method;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn native_build_find_method_decl_by_name(program: &ASTNode, struct_name: &byte,
+    method_name: &byte) &ASTNode {
+    if program == null || struct_name == null || method_name == null ||
+       program.type != ASTNodeType.AST_PROGRAM || program.program_decls == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL &&
+           decl.struct_decl_name != null &&
+           str_equals(decl.struct_decl_name as *byte, struct_name as *byte) != 0 {
+            const found: &ASTNode = native_build_method_list_find_by_name(
+                decl.struct_decl_methods, decl.struct_decl_method_count, method_name);
+            if found != null {
+                return found;
+            }
+        }
+        if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK &&
+           decl.method_block_struct_name != null &&
+           str_equals(decl.method_block_struct_name as *byte, struct_name as *byte) != 0 {
+            const found2: &ASTNode = native_build_method_list_find_by_name(
+                decl.method_block_methods, decl.method_block_method_count, method_name);
+            if found2 != null {
+                return found2;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn native_build_type_is_self_or_struct(type_node: &ASTNode, struct_name: &byte) i32 {
+    if type_node == null || struct_name == null {
+        return 0;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_POINTER {
+        return native_build_type_is_self_or_struct(type_node.type_pointer_pointed_type,
+            struct_name);
+    }
+    if type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
+        return 0;
+    }
+    if str_equals(type_node.type_named_name as *byte, "Self" as *byte) != 0 {
+        return 1;
+    }
+    if str_equals(type_node.type_named_name as *byte, struct_name as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_method_self_param_matches(param: &ASTNode, struct_name: &byte) i32 {
+    if param == null || struct_name == null || param.type != ASTNodeType.AST_VAR_DECL ||
+       param.var_decl_name == null {
+        return 0;
+    }
+    return native_build_type_is_self_or_struct(param.var_decl_type, struct_name);
+}
+
+fn native_build_member_access_object_field_equals(expr: &ASTNode, object_name: &byte,
+    field_name: &byte) i32 {
+    if expr == null || object_name == null || field_name == null ||
+       expr.type != ASTNodeType.AST_MEMBER_ACCESS ||
+       expr.member_access_object == null ||
+       expr.member_access_object.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.member_access_object.identifier_name == null ||
+       expr.member_access_field_name == null ||
+       str_equals(expr.member_access_object.identifier_name as *byte,
+        object_name as *byte) == 0 ||
+       str_equals(expr.member_access_field_name as *byte, field_name as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_eval_i32_binary_const(op: TokenType, left_value: i32,
+    right_value: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if out_value == null {
+        return 0;
+    }
+    var value: i64 = 0i64;
+    if op == TokenType.TOKEN_PLUS {
+        value = (left_value as i64) + (right_value as i64);
+    } else if op == TokenType.TOKEN_ASTERISK {
+        value = (left_value as i64) * (right_value as i64);
+    } else {
+        return 0;
+    }
+    const value_result: !i32 = value as! i32;
+    *out_value = value_result catch {
+        return 0;
+    };
+    return 1;
+}
+
+fn native_build_var_decl_struct_single_i32_field_const(stmt: &ASTNode,
+    out_local_name: & & byte, out_struct_name: & & byte, out_field_name: & & byte,
+    out_field_value: &i32) i32 {
+    if out_local_name != null {
+        *out_local_name = null;
+    }
+    if out_struct_name != null {
+        *out_struct_name = null;
+    }
+    if out_field_name != null {
+        *out_field_name = null;
+    }
+    if out_field_value != null {
+        *out_field_value = 0;
+    }
+    if stmt == null || out_local_name == null || out_struct_name == null ||
+       out_field_name == null || out_field_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       stmt.var_decl_type == null ||
+       stmt.var_decl_type.type != ASTNodeType.AST_TYPE_NAMED ||
+       stmt.var_decl_type.type_named_name == null ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_STRUCT_INIT ||
+       stmt.var_decl_init.struct_init_struct_name == null ||
+       str_equals(stmt.var_decl_type.type_named_name as *byte,
+        stmt.var_decl_init.struct_init_struct_name as *byte) == 0 ||
+       stmt.var_decl_init.struct_init_field_names == null ||
+       stmt.var_decl_init.struct_init_field_values == null ||
+       stmt.var_decl_init.struct_init_field_count != 1 ||
+       stmt.var_decl_init.struct_init_field_names[0] == null {
+        return 0;
+    }
+    if native_build_expr_scalar_const_value(stmt.var_decl_init.struct_init_field_values[0],
+        null, out_field_value) == 0 {
+        return 0;
+    }
+    *out_local_name = stmt.var_decl_name;
+    *out_struct_name = stmt.var_decl_type.type_named_name;
+    *out_field_name = stmt.var_decl_init.struct_init_field_names[0];
+    return 1;
+}
+
+fn native_build_method_body_return_binary(method: &ASTNode, out_op: &TokenType,
+    out_left: & & ASTNode, out_right: & & ASTNode) i32 {
+    if out_left != null {
+        *out_left = null;
+    }
+    if out_right != null {
+        *out_right = null;
+    }
+    if method == null || out_op == null || out_left == null || out_right == null ||
+       native_build_type_is_i32(method.fn_decl_return_type) == 0 ||
+       method.fn_decl_body == null ||
+       method.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       method.fn_decl_body.block_stmts == null ||
+       method.fn_decl_body.block_stmt_count != 1 {
+        return 0;
+    }
+    const return_stmt: &ASTNode = method.fn_decl_body.block_stmts[0];
+    if return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null ||
+       return_stmt.return_stmt_expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       return_stmt.return_stmt_expr.binary_expr_left == null ||
+       return_stmt.return_stmt_expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = return_stmt.return_stmt_expr.binary_expr_op as! TokenType;
+    *out_op = op_tmp catch {
+        return 0;
+    };
+    *out_left = return_stmt.return_stmt_expr.binary_expr_left;
+    *out_right = return_stmt.return_stmt_expr.binary_expr_right;
+    return 1;
+}
+
+fn native_build_eval_noarg_method_i32_const(method: &ASTNode, struct_name: &byte,
+    field_name: &byte, field_value: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if method == null || struct_name == null || field_name == null || out_value == null ||
+       method.fn_decl_params == null || method.fn_decl_param_count != 1 {
+        return 0;
+    }
+    const self_param: &ASTNode = method.fn_decl_params[0];
+    if native_build_method_self_param_matches(self_param, struct_name) == 0 {
+        return 0;
+    }
+    var op: TokenType = TokenType.TOKEN_PLUS;
+    var left: &ASTNode = null;
+    var right: &ASTNode = null;
+    if native_build_method_body_return_binary(method, &op, &left, &right) == 0 {
+        return 0;
+    }
+    var const_value: i32 = 0;
+    if native_build_member_access_object_field_equals(left, self_param.var_decl_name,
+        field_name) != 0 &&
+       native_build_expr_scalar_const_value(right, null, &const_value) != 0 {
+        return native_build_eval_i32_binary_const(op, field_value, const_value, out_value);
+    }
+    if native_build_member_access_object_field_equals(right, self_param.var_decl_name,
+        field_name) != 0 &&
+       native_build_expr_scalar_const_value(left, null, &const_value) != 0 {
+        return native_build_eval_i32_binary_const(op, const_value, field_value, out_value);
+    }
+    return 0;
+}
+
+fn native_build_eval_one_i32_method_i32_const(method: &ASTNode, struct_name: &byte,
+    field_name: &byte, field_value: i32, arg_value: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if method == null || struct_name == null || field_name == null || out_value == null ||
+       method.fn_decl_params == null || method.fn_decl_param_count != 2 {
+        return 0;
+    }
+    const self_param: &ASTNode = method.fn_decl_params[0];
+    const arg_param: &ASTNode = method.fn_decl_params[1];
+    if native_build_method_self_param_matches(self_param, struct_name) == 0 ||
+       arg_param == null || arg_param.type != ASTNodeType.AST_VAR_DECL ||
+       arg_param.var_decl_name == null ||
+       native_build_type_is_i32(arg_param.var_decl_type) == 0 {
+        return 0;
+    }
+    var op: TokenType = TokenType.TOKEN_PLUS;
+    var left: &ASTNode = null;
+    var right: &ASTNode = null;
+    if native_build_method_body_return_binary(method, &op, &left, &right) == 0 {
+        return 0;
+    }
+    if native_build_member_access_object_field_equals(left, self_param.var_decl_name,
+        field_name) != 0 &&
+       native_build_identifier_equals(right, arg_param.var_decl_name) != 0 {
+        return native_build_eval_i32_binary_const(op, field_value, arg_value, out_value);
+    }
+    if native_build_member_access_object_field_equals(right, self_param.var_decl_name,
+        field_name) != 0 &&
+       native_build_identifier_equals(left, arg_param.var_decl_name) != 0 {
+        return native_build_eval_i32_binary_const(op, arg_value, field_value, out_value);
+    }
+    return 0;
+}
+
+fn native_build_var_decl_direct_method_const(stmt: &ASTNode, program: &ASTNode,
+    receiver_name: &byte, struct_name: &byte, field_name: &byte, field_value: i32,
+    out_local_name: & & byte, out_value: &i32) i32 {
+    if out_local_name != null {
+        *out_local_name = null;
+    }
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || program == null || receiver_name == null || struct_name == null ||
+       field_name == null || out_local_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.var_decl_init.call_expr_arg_count != 0 ||
+       stmt.var_decl_init.call_expr_callee == null ||
+       stmt.var_decl_init.call_expr_callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+       native_build_identifier_equals(
+        stmt.var_decl_init.call_expr_callee.member_access_object, receiver_name) == 0 ||
+       stmt.var_decl_init.call_expr_callee.member_access_field_name == null {
+        return 0;
+    }
+    const method: &ASTNode = native_build_find_method_decl_by_name(program, struct_name,
+        stmt.var_decl_init.call_expr_callee.member_access_field_name);
+    if native_build_eval_noarg_method_i32_const(method, struct_name, field_name,
+        field_value, out_value) == 0 {
+        return 0;
+    }
+    *out_local_name = stmt.var_decl_name;
+    return 1;
+}
+
+fn native_build_struct_decl_implements_interface(decl: &ASTNode, interface_name: &byte) i32 {
+    if decl == null || interface_name == null || decl.type != ASTNodeType.AST_STRUCT_DECL ||
+       decl.struct_decl_interface_names == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < decl.struct_decl_interface_count {
+        if decl.struct_decl_interface_names[i] != null &&
+           str_equals(decl.struct_decl_interface_names[i] as *byte,
+            interface_name as *byte) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_eval_interface_function_call_const(callee_decl: &ASTNode,
+    program: &ASTNode, struct_name: &byte, field_name: &byte, field_value: i32,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if callee_decl == null || program == null || struct_name == null ||
+       field_name == null || out_value == null ||
+       native_build_type_is_i32(callee_decl.fn_decl_return_type) == 0 ||
+       callee_decl.fn_decl_params == null || callee_decl.fn_decl_param_count != 1 ||
+       callee_decl.fn_decl_body == null ||
+       callee_decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       callee_decl.fn_decl_body.block_stmts == null ||
+       callee_decl.fn_decl_body.block_stmt_count != 1 {
+        return 0;
+    }
+    const param: &ASTNode = callee_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL ||
+       param.var_decl_name == null || param.var_decl_type == null ||
+       param.var_decl_type.type != ASTNodeType.AST_TYPE_NAMED ||
+       param.var_decl_type.type_named_name == null {
+        return 0;
+    }
+    const struct_decl: &ASTNode = native_build_find_struct_decl_by_name(program, struct_name);
+    if native_build_struct_decl_implements_interface(struct_decl,
+        param.var_decl_type.type_named_name) == 0 {
+        return 0;
+    }
+    const return_stmt: &ASTNode = callee_decl.fn_decl_body.block_stmts[0];
+    if return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null ||
+       return_stmt.return_stmt_expr.type != ASTNodeType.AST_CALL_EXPR ||
+       return_stmt.return_stmt_expr.call_expr_arg_count != 1 ||
+       return_stmt.return_stmt_expr.call_expr_args == null ||
+       return_stmt.return_stmt_expr.call_expr_callee == null ||
+       return_stmt.return_stmt_expr.call_expr_callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+       native_build_identifier_equals(
+        return_stmt.return_stmt_expr.call_expr_callee.member_access_object,
+        param.var_decl_name) == 0 ||
+       return_stmt.return_stmt_expr.call_expr_callee.member_access_field_name == null {
+        return 0;
+    }
+    var arg_value: i32 = 0;
+    if native_build_expr_scalar_const_value(return_stmt.return_stmt_expr.call_expr_args[0],
+        null, &arg_value) == 0 {
+        return 0;
+    }
+    const method: &ASTNode = native_build_find_method_decl_by_name(program, struct_name,
+        return_stmt.return_stmt_expr.call_expr_callee.member_access_field_name);
+    return native_build_eval_one_i32_method_i32_const(method, struct_name, field_name,
+        field_value, arg_value, out_value);
+}
+
+fn native_build_var_decl_interface_call_const(stmt: &ASTNode, program: &ASTNode,
+    receiver_name: &byte, struct_name: &byte, field_name: &byte, field_value: i32,
+    out_local_name: & & byte, out_value: &i32) i32 {
+    if out_local_name != null {
+        *out_local_name = null;
+    }
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || program == null || receiver_name == null || struct_name == null ||
+       field_name == null || out_local_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.var_decl_init.call_expr_arg_count != 1 ||
+       stmt.var_decl_init.call_expr_args == null ||
+       stmt.var_decl_init.call_expr_args[0] == null ||
+       native_build_identifier_equals(stmt.var_decl_init.call_expr_args[0],
+        receiver_name) == 0 ||
+       stmt.var_decl_init.call_expr_callee == null ||
+       stmt.var_decl_init.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.var_decl_init.call_expr_callee.identifier_name == null {
+        return 0;
+    }
+    const callee_decl: &ASTNode = native_build_find_fn_decl_by_name(program,
+        stmt.var_decl_init.call_expr_callee.identifier_name);
+    if native_build_eval_interface_function_call_const(callee_decl, program,
+        struct_name, field_name, field_value, out_value) == 0 {
+        return 0;
+    }
+    *out_local_name = stmt.var_decl_name;
+    return 1;
+}
+
+fn native_build_return_stmt_identifier_sum_equals(stmt: &ASTNode, left_name: &byte,
+    right_name: &byte) i32 {
+    if stmt == null || left_name == null || right_name == null ||
+       stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       stmt.return_stmt_expr.binary_expr_left == null ||
+       stmt.return_stmt_expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = stmt.return_stmt_expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS {
+        return 0;
+    }
+    if native_build_identifier_equals(stmt.return_stmt_expr.binary_expr_left,
+        left_name) != 0 &&
+       native_build_identifier_equals(stmt.return_stmt_expr.binary_expr_right,
+        right_name) != 0 {
+        return 1;
+    }
+    if native_build_identifier_equals(stmt.return_stmt_expr.binary_expr_left,
+        right_name) != 0 &&
+       native_build_identifier_equals(stmt.return_stmt_expr.binary_expr_right,
+        left_name) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_decl_interface_method_return_value(program: &ASTNode, decl: &ASTNode,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if program == null || decl == null || out_value == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count != 4 {
+        return 0;
+    }
+    var receiver_name: &byte = null;
+    var struct_name: &byte = null;
+    var field_name: &byte = null;
+    var field_value: i32 = 0;
+    if native_build_var_decl_struct_single_i32_field_const(decl.fn_decl_body.block_stmts[0],
+        &receiver_name, &struct_name, &field_name, &field_value) == 0 {
+        return 0;
+    }
+    var direct_name: &byte = null;
+    var direct_value: i32 = 0;
+    if native_build_var_decl_direct_method_const(decl.fn_decl_body.block_stmts[1],
+        program, receiver_name, struct_name, field_name, field_value,
+        &direct_name, &direct_value) == 0 {
+        return 0;
+    }
+    var interface_name: &byte = null;
+    var interface_value: i32 = 0;
+    if native_build_var_decl_interface_call_const(decl.fn_decl_body.block_stmts[2],
+        program, receiver_name, struct_name, field_name, field_value,
+        &interface_name, &interface_value) == 0 ||
+       native_build_return_stmt_identifier_sum_equals(decl.fn_decl_body.block_stmts[3],
+        direct_name, interface_name) == 0 {
+        return 0;
+    }
+    return native_build_eval_i32_binary_const(TokenType.TOKEN_PLUS,
+        direct_value, interface_value, out_value);
+}
+
 fn native_build_var_decl_i32_array_zero_value(stmt: &ASTNode, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
@@ -7222,6 +7693,12 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
         &lexical_drop_return_value) != 0 {
         return native_build_append_const_return_lowered_function(lowered,
             function_index, decl_index, decl, lexical_drop_return_value);
+    }
+    var interface_method_return_value: i32 = 0;
+    if native_build_decl_interface_method_return_value(program, decl,
+        &interface_method_return_value) != 0 {
+        return native_build_append_const_return_lowered_function(lowered,
+            function_index, decl_index, decl, interface_method_return_value);
     }
     var locals: NativeBuildLocalTable = native_build_local_table_init(lowered.arena, body.block_stmt_count);
     if locals.names == null || locals.call_targets == null ||

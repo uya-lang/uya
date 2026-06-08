@@ -20,6 +20,7 @@ catch_src="$TMP_DIR/catch_fragment.uya"
 dynamic_catch_src="$TMP_DIR/dynamic_catch_fragment.uya"
 defer_src="$TMP_DIR/defer_fragment.uya"
 drop_src="$TMP_DIR/drop_fragment.uya"
+interface_src="$TMP_DIR/interface_fragment.uya"
 main_src="$TMP_DIR/main.uya"
 extern_c99_bin="$TMP_DIR/c99-extern-smoke"
 extern_native_bin="$TMP_DIR/native-extern-smoke"
@@ -39,6 +40,8 @@ defer_c99_bin="$TMP_DIR/c99-defer-smoke"
 defer_native_bin="$TMP_DIR/native-defer-smoke"
 drop_c99_bin="$TMP_DIR/c99-drop-smoke"
 drop_native_bin="$TMP_DIR/native-drop-smoke"
+interface_c99_bin="$TMP_DIR/c99-interface-smoke"
+interface_native_bin="$TMP_DIR/native-interface-smoke"
 c99_bin="$TMP_DIR/c99-smoke"
 native_bin="$TMP_DIR/native-smoke"
 require_parity="${UYA_REQUIRE_HOSTED_NATIVE_PARITY:-0}"
@@ -163,6 +166,37 @@ export fn main() i32 {
         const dropped: SmokeDrop = SmokeDrop{ value: 7 };
     }
     return drop_count;
+}
+EOF
+
+cat >"$interface_src" <<'EOF'
+interface SmokeAdder {
+    fn add(self: &Self, x: i32) i32;
+}
+
+struct SmokeCounter : SmokeAdder {
+    value: i32,
+}
+
+SmokeCounter {
+    fn add(self: &Self, x: i32) i32 {
+        return self.value + x;
+    }
+
+    fn double(self: &Self) i32 {
+        return self.value * 2;
+    }
+}
+
+fn use_adder(adder: SmokeAdder) i32 {
+    return adder.add(5);
+}
+
+export fn main() i32 {
+    const counter: SmokeCounter = SmokeCounter{ value: 7 };
+    const direct: i32 = counter.double();
+    const through_interface: i32 = use_adder(counter);
+    return direct + through_interface;
 }
 EOF
 
@@ -309,6 +343,8 @@ require_pattern "$dynamic_catch_src" 'maybe_value\(argc\) catch \{ 8; \}' "dynam
 require_pattern "$defer_src" 'defer \{ value = 9; \}' "defer return-order parity coverage"
 require_pattern "$drop_src" 'fn drop\(self: SmokeDrop\) void' "lexical drop method parity coverage"
 require_pattern "$drop_src" 'const dropped: SmokeDrop = SmokeDrop\{ value: 7 \};' "lexical drop scope parity coverage"
+require_pattern "$interface_src" 'interface SmokeAdder' "interface dispatch parity coverage"
+require_pattern "$interface_src" 'const through_interface: i32 = use_adder\(counter\);' "method dispatch via interface parity coverage"
 require_pattern "$main_src" 'use smoke_helper' "multi-file coverage"
 require_pattern "$helper_src" 'helper_identity<T>' "generic helper coverage"
 require_pattern "$main_src" 'helper_identity<i32>' "generic instantiation coverage"
@@ -967,6 +1003,73 @@ if ! cmp -s "$TMP_DIR/drop.c99.run.err" "$TMP_DIR/drop.native.run.err"; then
     exit 1
 fi
 
+interface_c99_build_out="$TMP_DIR/interface.c99.build.out"
+interface_c99_build_err="$TMP_DIR/interface.c99.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$interface_src" -o "$interface_c99_bin" \
+    --no-split-c --project-root "$TMP_DIR" >"$interface_c99_build_out" 2>"$interface_c99_build_err"); then
+    cat "$interface_c99_build_out" >&2
+    cat "$interface_c99_build_err" >&2
+    exit 1
+fi
+
+set +e
+"$interface_c99_bin" >"$TMP_DIR/interface.c99.run.out" 2>"$TMP_DIR/interface.c99.run.err"
+interface_c99_status=$?
+set -e
+if [[ "$interface_c99_status" -ne 26 ]]; then
+    echo "error: C99 interface parity fragment exited with $interface_c99_status" >&2
+    cat "$TMP_DIR/interface.c99.run.out" >&2
+    cat "$TMP_DIR/interface.c99.run.err" >&2
+    exit 1
+fi
+
+interface_native_build_out="$TMP_DIR/interface.native.build.out"
+interface_native_build_err="$TMP_DIR/interface.native.build.err"
+if ! (cd "$REPO_ROOT" && ./bin/uya build "$interface_src" -o "$interface_native_bin" \
+    --native --no-split-c --project-root "$TMP_DIR" >"$interface_native_build_out" 2>"$interface_native_build_err"); then
+    cat "$interface_native_build_out" >&2
+    cat "$interface_native_build_err" >&2
+    exit 1
+fi
+if [[ ! -s "$interface_native_bin" ]]; then
+    echo "error: native interface parity fragment reported success without output" >&2
+    exit 1
+fi
+if grep -q 'C99' "$interface_native_build_err"; then
+    echo "error: native interface parity fragment appears to have fallen back to C99" >&2
+    cat "$interface_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'native_hosted_portable_mir_lowering_missing' "$interface_native_build_err"; then
+    echo "error: native interface parity fragment used reject path" >&2
+    cat "$interface_native_build_err" >&2
+    exit 1
+fi
+if ! grep -q 'native_hosted_subset: no_deps_lowered_program_path=1' "$interface_native_build_err"; then
+    echo "error: native interface parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$interface_native_build_err" >&2
+    exit 1
+fi
+grep -q 'native_output_bytes:' "$interface_native_build_err"
+
+chmod +x "$interface_native_bin"
+set +e
+"$interface_native_bin" >"$TMP_DIR/interface.native.run.out" 2>"$TMP_DIR/interface.native.run.err"
+interface_native_status=$?
+set -e
+if [[ "$interface_native_status" -ne "$interface_c99_status" ]]; then
+    echo "error: hosted native/C99 interface parity exit status differs: c99=$interface_c99_status native=$interface_native_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/interface.c99.run.out" "$TMP_DIR/interface.native.run.out"; then
+    echo "error: hosted native/C99 interface parity stdout differs" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/interface.c99.run.err" "$TMP_DIR/interface.native.run.err"; then
+    echo "error: hosted native/C99 interface parity stderr differs" >&2
+    exit 1
+fi
+
 c99_build_out="$TMP_DIR/c99.build.out"
 c99_build_err="$TMP_DIR/c99.build.err"
 if ! (cd "$REPO_ROOT" && ./bin/uya build "$main_src" -o "$c99_bin" \
@@ -1073,4 +1176,4 @@ if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding �
     exit 1
 fi
 
-echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, C99 success, and explicit native reject"
+echo "OK: hosted native full-language smoke covered extern/@c_import parity, builtin parity, array @len parity, slice parity, @error_id parity, constant/dynamic catch parity, defer/drop parity, interface/method parity, C99 success, and explicit native reject"
