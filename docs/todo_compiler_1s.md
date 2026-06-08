@@ -974,7 +974,8 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将链接输出分支内部 `user_output_path != null` 分支继续迁入 PortableMIR frontier。
         - [x] 将链接输出分支内部 `link_result` 初始化继续迁入 PortableMIR frontier。
         - [x] 将链接输出分支内部 `if link_result != 0` 错误分支继续迁入 PortableMIR frontier。
-        - [ ] 将链接输出分支内部成功 `fprintf(...)` 继续迁入 PortableMIR frontier。
+        - [x] 将链接输出分支内部成功 `fprintf(...)` 继续迁入 PortableMIR frontier。
+        - [ ] 将链接输出分支内部 `return 0` 继续迁入 PortableMIR frontier。
 
 测试：
 
