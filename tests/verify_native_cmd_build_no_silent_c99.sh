@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-# Phase 10：防止 --native 未接入时静默回落到 C99 并产出伪 native cmd/build。
+# Phase 10：防止 --native 未接入时静默回落到 C99，并让 cmd/build self-build
+# 从 hosted CoreBody/PortableMIR preflight 开始，而不是回到 freestanding LoweredProgram 特例。
 
 set -euo pipefail
 
@@ -62,7 +63,7 @@ run_hosted_reject_check() {
     fi
 }
 
-run_cmd_build_self_reject_check() {
+run_cmd_build_self_preflight_check() {
     local compiler="$1"
     local label="$2"
     local out="$TMP_DIR/${label}.bin"
@@ -71,26 +72,38 @@ run_cmd_build_self_reject_check() {
 
     set +e
     "$compiler" build "$REPO_ROOT/src/cmd/build/main.uya" \
-        -o "$out" --native --nostdlib --no-split-c --project-root "$REPO_ROOT/src/" \
+        -o "$out" --native --no-split-c --project-root "$REPO_ROOT/src/" \
         >"$stdout" 2>"$stderr"
     local status=$?
     set -e
 
     if [[ "$status" -eq 0 ]]; then
-        echo "错误: $label --native 当前不应伪生成 native cmd/build" >&2
+        echo "错误: $label --native 当前不应伪报告 native cmd/build self-build 完成" >&2
         exit 1
     fi
     if [[ -e "$out" ]]; then
-        echo "错误: $label --native 拒绝生成 cmd/build 时不应留下输出文件: $out" >&2
+        echo "错误: $label --native self-build preflight 失败时不应留下输出文件: $out" >&2
         exit 1
     fi
-    grep -q '输入文件数量: 88' "$stderr"
+    grep -Eq '输入文件数量: [1-9][0-9]*' "$stderr"
     grep -q 'src/cmd/build/main.uya' "$stderr"
     grep -q '后端类型: Native' "$stderr"
-    grep -Eq 'native_unsupported_call_expr: name=compile_files.*args=16' "$stderr"
-    grep -Eq 'native_unsupported_fn_body: .*name=build_compiler_driver_run.*reason=unsupported_var_init.*stmt_index=32.*stmt_kind=var' "$stderr"
-    grep -Eq 'native_unsupported_fn_shape: .*body_stmts=39' "$stderr"
-    grep -Eq 'native backend.*LoweredProgram.*机器码' "$stderr"
+    grep -q '类型检查通过' "$stderr"
+    grep -q '=== 代码生成阶段 ===' "$stderr"
+    grep -Eq 'native_hosted_coreir_preflight: status=-1 verifier_error=3 functions=[1-9][0-9]* core_bodies=[1-9][0-9]* pending_bodies=[1-9][0-9]*' "$stderr"
+    grep -Eq 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=0 mir_body_functions=0 mir_types=0 extern_symbols=0 c_import_objects=0 hosted_link_objects=0' "$stderr"
+    grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$stderr"
+    grep -q 'native_hosted_portable_mir_frontier: coreir_error=COREIR_VERIFY_ERR_INVALID_BODY_RANGE' "$stderr"
+    if grep -Eq 'native_unsupported_(call_expr|fn_body|fn_shape)' "$stderr"; then
+        echo "错误: $label self-build 不应再落回 pre-MIR freestanding shape 诊断" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
+    if grep -Eq 'native backend.*LoweredProgram.*机器码' "$stderr"; then
+        echo "错误: $label self-build 不应再使用 freestanding LoweredProgram 机器码缺口" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -q '后端类型: C99' "$stderr"; then
         echo "错误: $label --native 生成 cmd/build 时被静默回落到了 C99" >&2
         exit 1
@@ -99,6 +112,6 @@ run_cmd_build_self_reject_check() {
 
 run_hosted_reject_check "$REPO_ROOT/bin/uya" "uya"
 run_hosted_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
-run_cmd_build_self_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build-self"
+run_cmd_build_self_preflight_check "$REPO_ROOT/bin/cmd/build" "cmd-build-self"
 
 echo "verify_native_cmd_build_no_silent_c99: ok"

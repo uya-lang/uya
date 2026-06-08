@@ -43,9 +43,9 @@ require_pattern "$SUBSET_DOC" '已经通过 `CoreBody` / `PortableMIR` lowering�
     "cmd/build subset doc 缺少 MIR 通过后再下沉规则"
 require_pattern "$SUBSET_DOC" '不再为 `compile_files\(\.\.\.\)`' \
     "cmd/build subset doc 缺少 compile_files one-off 禁止规则"
-require_pattern "$SUBSET_DOC" '16 参数 parser/checker/native-codegen 主调用' \
+require_pattern "$SUBSET_DOC" '`compile_files\(\.\.\.\)` 16 参数' \
     "cmd/build subset doc 缺少 compile_files 16 参数验收输入"
-require_pattern "$SUBSET_DOC" 'hosted native call ABI 和 target capability verifier' \
+require_pattern "$SUBSET_DOC" 'call ABI 和 target capability verifier' \
     "cmd/build subset doc 缺少 hosted native call ABI 验收边界"
 require_pattern "$SUBSET_DOC" 'tests/verify_native_cmd_build_no_silent_c99\.sh' \
     "cmd/build subset doc 缺少 no-silent-C99 门禁引用"
@@ -90,14 +90,24 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_lowering_missing' 
     "no-silent-C99 测试缺少 hosted 函数体 MIR lowering 缺口"
 require_pattern "$NO_SILENT_TEST" 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' \
     "no-silent-C99 测试缺少 hosted/build-seed 分界"
-require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_reject_check' \
-    "no-silent-C99 测试缺少 cmd/build self reject"
-require_pattern "$NO_SILENT_TEST" 'native --nostdlib --no-split-c' \
-    "no-silent-C99 测试缺少 freestanding cmd/build self reject"
-require_pattern "$NO_SILENT_TEST" 'native_unsupported_call_expr: name=compile_files\.\*args=16' \
-    "no-silent-C99 测试缺少 compile_files 16 参数缺口"
+require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_preflight_check' \
+    "no-silent-C99 测试缺少 hosted cmd/build self-build preflight"
+require_pattern "$NO_SILENT_TEST" '[[:space:]]--native --no-split-c' \
+    "no-silent-C99 测试缺少 hosted cmd/build self-build 命令"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_preflight_failed' \
+    "no-silent-C99 测试缺少 cmd/build self-build preflight 缺口"
+require_pattern "$NO_SILENT_TEST" 'COREIR_VERIFY_ERR_INVALID_BODY_RANGE' \
+    "no-silent-C99 测试缺少 cmd/build self-build CoreIR frontier"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
     "no-silent-C99 测试缺少 C99 fallback 反向检查"
+if grep -q 'native_unsupported_call_expr: name=compile_files' "$NO_SILENT_TEST"; then
+    echo "错误: no-silent-C99 测试不应再固定 pre-MIR compile_files one-off 缺口" >&2
+    exit 1
+fi
+if grep -q -- '--native --nostdlib' "$NO_SILENT_TEST"; then
+    echo "错误: no-silent-C99 测试不应再把 cmd/build self-build 退回 freestanding --nostdlib" >&2
+    exit 1
+fi
 require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'opcode 清单已变化' \
     "LoweredBodyOp transition 测试缺少 opcode 冻结门禁"
 require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'CoreBody/PortableMIR' \
@@ -124,6 +134,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_void_body_fu
     "build compiler driver 缺少 hosted void CoreBody 到 PortableMIR 函数体 lower"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_lowering_missing' \
     "build compiler driver 缺少 hosted native MIR lowering 缺口诊断"
+require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_preflight_failed' \
+    "build compiler driver 缺少 hosted native self-build preflight 缺口诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \
     "build compiler driver 缺少 NativeHostedLinkPlan 初始化"
 require_pattern "$BUILD_DRIVER_SRC" 'is_nostdlib[[:space:]]*==[[:space:]]*0' \

@@ -8721,6 +8721,21 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
         return;
     }
     native_build_print_hosted_preflight_summary(c_import_count, preflight_status, result);
+    if preflight_status != 0 || result.core_verifier_error != 0 || result.verifier_error != 0 {
+        fprintf(libc.stderr,
+            "native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed required=verifier-clean CoreBody+PortableMIR self-build coverage\n" as *byte);
+        fprintf(libc.stderr,
+            "native_hosted_portable_mir_frontier: preflight_status=%d core_verifier_error=%d mir_verifier_error=%d core_bodies=%d pending_bodies=%d\n" as *byte,
+            preflight_status, result.core_verifier_error, result.verifier_error,
+            result.core_body_count, result.core_pending_body_count);
+        if result.core_verifier_error == COREIR_VERIFY_ERR_INVALID_BODY_RANGE {
+            fprintf(libc.stderr,
+                "native_hosted_portable_mir_frontier: coreir_error=COREIR_VERIFY_ERR_INVALID_BODY_RANGE\n" as *byte);
+        }
+        fprintf(libc.stderr,
+            "错误: hosted native backend 已进入 CoreBody/PortableMIR preflight，但 CoreIR/MIR 尚未 verifier-clean；不能静默回落 C99，也不能使用 build-seed LoweredProgram helper\n" as *byte);
+        return;
+    }
     fprintf(libc.stderr,
         "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing required=CoreBody+PortableMIR function-body lowering\n" as *byte);
     fprintf(libc.stderr,

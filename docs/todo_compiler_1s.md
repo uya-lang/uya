@@ -931,7 +931,8 @@ PortableMIR/native hosted parity 的验收输入。
     - [x] 将 interface/method dispatch shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [x] 将 atomic i32 shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
     - [x] 将 SIMD vector/mask shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
-  - [ ] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
+  - [x] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
+  - [ ] 修复 hosted `cmd/build` self-build CoreIR preflight 的 `COREIR_VERIFY_ERR_INVALID_BODY_RANGE` frontier，使 `native_hosted_coreir_preflight` 达到 verifier-clean，并继续保留 pending bodies 统计。
 
 测试：
 
