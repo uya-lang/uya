@@ -1823,7 +1823,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 0;
     }
     if decl.fn_decl_body.block_stmt_count == 0 {
-        return 1;
+        if native_build_type_named_equals(decl.fn_decl_return_type, "void" as &byte) != 0 {
+            return 1;
+        }
+        return 0;
     }
     if native_build_hosted_decl_can_materialize_main_local_if_body(program, decl, checker) != 0 {
         return 1;
@@ -4707,7 +4710,12 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
     var return_call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
     var return_call_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
     var return_call_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
-    if decl.fn_decl_body.block_stmt_count == 1 {
+    var body_flags: i32 = CORE_BODY_FLAG_SOURCE_BODY;
+    if decl.fn_decl_body.block_stmt_count == 0 {
+        root_stmt_start = lowered.core_stmt_count as i32;
+        root_stmt_count = 1;
+        body_flags = body_flags | CORE_BODY_FLAG_IMPLICIT_RETURN;
+    } else if decl.fn_decl_body.block_stmt_count == 1 {
         root_stmt_start = lowered.core_stmt_count as i32;
         root_stmt_count = 1;
         stmt_node = decl.fn_decl_body.block_stmts[0];
@@ -4753,10 +4761,28 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
         semantic_fact_count: 0,
         source_span_id: decl.line,
-        flags: CORE_BODY_FLAG_SOURCE_BODY,
+        flags: body_flags,
     };
     if lowered_program_append_core_body(lowered, &body) != 0 {
         return -1;
+    }
+    if decl.fn_decl_body.block_stmt_count == 0 {
+        var implicit_return_stmt: CoreStmt = CoreStmt{
+            stmt_id: root_stmt_start,
+            kind: CORE_STMT_KIND_RETURN,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: decl.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: CORE_STMT_FLAG_IMPLICIT_RETURN,
+        };
+        return lowered_program_append_core_stmt(lowered, &implicit_return_stmt);
     }
     if root_stmt_count == 1 {
         if native_build_hosted_coreir_append_return_stmt(lowered, body_id, stmt_node,

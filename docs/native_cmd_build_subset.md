@@ -80,7 +80,7 @@ native 后端主线；完整语言 native parity 转由 `PortableMIR` + hosted n
 | F10 | partial | `tests/test_native_hash_intern_memory_ops.uya` 覆盖 i64 hash entry、intern entry、FNV hash、byte compare 和开放寻址 probe/update；`tests/test_native_memory_string_primitives.uya` 覆盖 `strlen`/`strcmp` 最小 native primitive；完整字符串/libc bridge 仍未 native 化 | 把 hash/intern 操作和字符串 primitive 接入 native-lowered compiler path，并补齐剩余字符串运行时 bridge |
 | F11 | partial | `tests/test_native_malloc_arena.uya` 覆盖 malloc/realloc/free facade、静态 buffer arena、动态 chunk 增长、reset/release；`tests/test_native_memory_string_primitives.uya` 覆盖 `memcpy`/`memset` 最小 native primitive | native malloc/arena/memory primitives 接入 compiler tables，并补齐剩余 libc memory primitives |
 | F12 | partial | `tests/test_native_diagnostic_output.uya` 覆盖 diagnostics growable byte buffer；`tests/test_native_format_minimal.uya` 覆盖 `%s/%d/%u/%ld/%zu/%%` 最小 `snprintf` 替代与截断语义；完整 `fprintf`/stderr bridge 仍未 native 化 | 将 buffer/formatter 接入 parser/checker diagnostic path，并补齐 stderr/file 输出 bridge |
-| F13 | partial | NativeEmitter 的历史 `LoweredProgram -> MachineModule` 窄子集仍只作为 freestanding build-seed 回归边界；hosted native 主线已经转到 CoreBody/PortableMIR preflight。`tests/verify_native_build_minimal_program.sh` 继续验证无参/最多两个 `i32` 参数、单/双 out-param、`get_argc()`、`get_argv(1)[0]`、条件返回/赋值、`set_process_stack_limit_bytes(...)` syscall 和 `parse_like(...)` 11 参数写回等旧窄 executable 子集不回归。当前 `src/cmd/build/main.uya --native` self-build 门禁不再使用 `--nostdlib` 或 `compile_files(...)` one-off 形状，而是以 hosted 路径解析/检查 88 个依赖后进入 CoreIR/PortableMIR preflight；实测 frontier 为 `native_hosted_portable_mir_preflight_failed`，`COREIR_VERIFY_ERR_INVALID_BODY_RANGE`，`core_bodies=3`，`pending_bodies=2713`，且不生成伪 native 输出、不回落 C99。 | hosted CoreBody/PortableMIR self-build preflight clean 后，再生成 native `bin/cmd/build` |
+| F13 | partial | NativeEmitter 的历史 `LoweredProgram -> MachineModule` 窄子集仍只作为 freestanding build-seed 回归边界；hosted native 主线已经转到 CoreBody/PortableMIR preflight。`tests/verify_native_build_minimal_program.sh` 继续验证无参/最多两个 `i32` 参数、单/双 out-param、`get_argc()`、`get_argv(1)[0]`、条件返回/赋值、`set_process_stack_limit_bytes(...)` syscall 和 `parse_like(...)` 11 参数写回等旧窄 executable 子集不回归。当前 `src/cmd/build/main.uya --native` self-build 门禁不再使用 `--nostdlib` 或 `compile_files(...)` one-off 形状，而是以 hosted 路径解析/检查 88 个依赖后进入 verifier-clean CoreIR/PortableMIR preflight；实测 frontier 为 `native_hosted_portable_mir_lowering_missing`，`core_bodies=3`，`pending_bodies=2713`，`mir_body_functions=2`，`extern_symbols=478`，且不生成伪 native 输出、不回落 C99。 | hosted PortableMIR body lowering 接入真实 emitter/handoff 后，再生成 native `bin/cmd/build` |
 | F14 | missing | host toolchain/file system bridge 未 native 化；只有最小 syscall encoding | native file IO 和 host C toolchain 调用路径可用 |
 | F15 | partial | `tests/test_native_arena_peak_stats.uya` 覆盖 native arena peak snapshot，保留 `arena_peak_bytes` / `ast_arena_peak_bytes` / `check_arena_peak_bytes` / `emit_arena_peak_bytes` 同名字段；table/output/typed program metrics 尚未接入 native-built compiler | native-built compiler 继续输出全部同名 metrics |
 | F16 | done | build seed boundary 已排除 VM/exec、`uya microapp build/pack/inspect/verify/run`、fmt/upm、kernel packaging | 后续保持边界验证，避免重新引入非需求 |
@@ -103,9 +103,9 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `native_hosted_portable_mir_lowering_missing`，不能借用 freestanding build-seed helper。
 - `cmd/build` 当前失败卡点必须继续由 `tests/verify_native_cmd_build_no_silent_c99.sh` 固定；失败时必须保留
   native backend diagnostic，不能生成伪 native 输出，也不能静默回落 C99。self-build 门禁现在走 hosted
-  `CoreBody` / `PortableMIR` preflight，并固定 `native_hosted_portable_mir_preflight_failed` /
-  `COREIR_VERIFY_ERR_INVALID_BODY_RANGE` frontier；不再把 `compile_files(...)` 16 参数缺口固定为
-  `--nostdlib` freestanding one-off shape。
+  `CoreBody` / `PortableMIR` preflight，并要求 CoreIR 与 PortableMIR verifier-clean；当前 frontier 固定为
+  `native_hosted_portable_mir_lowering_missing`。不再把 `compile_files(...)` 16 参数缺口固定为 `--nostdlib`
+  freestanding one-off shape。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
 
 ## Release Acceptance Boundary
@@ -124,10 +124,10 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
 冻结当前 native subset 特例增长，先补齐 `CoreBody` / CoreIR verifier，再转向 `PortableMIR`；CoreIR 合同见
 `docs/coreir_lowered_program_whitepaper.md`，详细 MIR 合同见 `docs/portable_mir_whitepaper.md`。
 当前只有 build CLI 的极小 freestanding 输出路径；hosted `cmd/build` self-build 已恢复真实门禁：它会解析并
-类型检查 build seed 的完整 88 文件依赖图，然后进入 CoreBody/PortableMIR preflight。当前下一道真实门槛是
-把已识别出的 safe CoreBody 从 `COREIR_VERIFY_ERR_INVALID_BODY_RANGE` 修到 verifier-clean，并继续把
+类型检查 build seed 的完整 88 文件依赖图，然后进入 verifier-clean CoreBody/PortableMIR preflight。当前下一道
+真实门槛是把 `mir_body_functions=2` 的 self-build MIR 覆盖接入真实 native emitter/handoff，并继续把
 pending bodies 逐步纳入 CoreBody / PortableMIR。`compile_files(...)` 16 参数 parser/checker/native-codegen
 主调用仍是大型验收样本，但只能通过 CoreBody dump/verifier、PortableMIR function body lowering、hosted native
 call ABI 和 target capability verifier 到达；不能再通过新增 `RETURN_*`、`LOCAL_CALL_*`、`IF_LOCAL_*`
 等 one-off `LoweredBodyOp` 解决。在这之前，不能声明已经生成 native `bin/cmd/build`。
-`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续固定该 preflight frontier，确保 native 失败不会静默回落 C99。
+`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续固定该 lowering frontier，确保 native 失败不会静默回落 C99。

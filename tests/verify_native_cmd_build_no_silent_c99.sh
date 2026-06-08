@@ -90,10 +90,16 @@ run_cmd_build_self_preflight_check() {
     grep -q '后端类型: Native' "$stderr"
     grep -q '类型检查通过' "$stderr"
     grep -q '=== 代码生成阶段 ===' "$stderr"
-    grep -Eq 'native_hosted_coreir_preflight: status=-1 verifier_error=3 functions=[1-9][0-9]* core_bodies=[1-9][0-9]* pending_bodies=[1-9][0-9]*' "$stderr"
-    grep -Eq 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=0 mir_body_functions=0 mir_types=0 extern_symbols=0 c_import_objects=0 hosted_link_objects=0' "$stderr"
-    grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$stderr"
-    grep -q 'native_hosted_portable_mir_frontier: coreir_error=COREIR_VERIFY_ERR_INVALID_BODY_RANGE' "$stderr"
+    grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=[1-9][0-9]* pending_bodies=[1-9][0-9]*' "$stderr"
+    grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=[1-9][0-9]* mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"
+    grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$stderr"
+    grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$stderr"
+    if grep -q 'native_hosted_portable_mir_preflight_failed' "$stderr" ||
+       grep -q 'COREIR_VERIFY_ERR_INVALID_BODY_RANGE' "$stderr"; then
+        echo "错误: $label self-build CoreIR/PortableMIR preflight 应为 verifier-clean" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -Eq 'native_unsupported_(call_expr|fn_body|fn_shape)' "$stderr"; then
         echo "错误: $label self-build 不应再落回 pre-MIR freestanding shape 诊断" >&2
         cat "$stderr" >&2

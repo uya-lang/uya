@@ -94,16 +94,18 @@ require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_preflight_check' \
     "no-silent-C99 测试缺少 hosted cmd/build self-build preflight"
 require_pattern "$NO_SILENT_TEST" '[[:space:]]--native --no-split-c' \
     "no-silent-C99 测试缺少 hosted cmd/build self-build 命令"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_preflight_failed' \
-    "no-silent-C99 测试缺少 cmd/build self-build preflight 缺口"
-require_pattern "$NO_SILENT_TEST" 'COREIR_VERIFY_ERR_INVALID_BODY_RANGE' \
-    "no-silent-C99 测试缺少 cmd/build self-build CoreIR frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=' \
+    "no-silent-C99 测试缺少 cmd/build self-build verifier-clean CoreIR preflight"
+require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
+    "no-silent-C99 测试缺少 cmd/build self-build lowering frontier"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
     "no-silent-C99 测试缺少 C99 fallback 反向检查"
 if grep -q 'native_unsupported_call_expr: name=compile_files' "$NO_SILENT_TEST"; then
     echo "错误: no-silent-C99 测试不应再固定 pre-MIR compile_files one-off 缺口" >&2
     exit 1
 fi
+require_pattern "$NO_SILENT_TEST" 'self-build CoreIR/PortableMIR preflight 应为 verifier-clean' \
+    "no-silent-C99 测试缺少 cmd/build self-build preflight failed 反向检查"
 if grep -q -- '--native --nostdlib' "$NO_SILENT_TEST"; then
     echo "错误: no-silent-C99 测试不应再把 cmd/build self-build 退回 freestanding --nostdlib" >&2
     exit 1
