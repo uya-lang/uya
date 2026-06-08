@@ -112,6 +112,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_child_frontier: first_pen
     "no-silent-C99 测试缺少 cmd/build link-output child frontier 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
+require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \
+    "no-silent-C99 测试缺少 cmd/build nested child complete handoff 证据"
 require_pattern "$NO_SILENT_TEST" 'entry_callee_coverage=partial_prefix' \
     "no-silent-C99 测试缺少 cmd/build run entry prefix 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \

@@ -977,7 +977,8 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将链接输出分支内部成功 `fprintf(...)` 继续迁入 PortableMIR frontier。
         - [x] 将链接输出分支内部 `return 0` 继续迁入 PortableMIR frontier。
         - [x] 冻结真实 hosted native emitter/handoff 的首个最小切片合同，继续禁止 pre-MIR native helper 回流。
-        - [ ] 将 `build_compiler_driver_run` nested child complete 状态纳入 hosted handoff frontier 诊断。
+        - [x] 将 `build_compiler_driver_run` nested child complete 状态纳入 hosted handoff frontier 诊断。
+        - [ ] 将 nested child complete 的 hosted handoff frontier 转入真实 emitter/handoff 首个拒绝或接线切片。
 
 测试：
 

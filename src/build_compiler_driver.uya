@@ -182,6 +182,7 @@ struct NativeHostedMirPreflightResult {
     entry_pending_callee_child_prefix_stmt_count: i32,
     entry_pending_callee_child_next_stmt_index: i32,
     entry_pending_callee_child_next_stmt_kind: &byte,
+    entry_pending_callee_child_complete: i32,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1211,6 +1212,7 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.entry_pending_callee_child_prefix_stmt_count = 0;
     result.entry_pending_callee_child_next_stmt_index = -1;
     result.entry_pending_callee_child_next_stmt_kind = null;
+    result.entry_pending_callee_child_complete = 0;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -11504,15 +11506,20 @@ fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &
                    link_output_stmt.if_stmt_then_branch != null &&
                    link_output_stmt.if_stmt_then_branch.type == ASTNodeType.AST_BLOCK &&
                    link_output_stmt.if_stmt_then_branch.block_stmts != null &&
-                   link_output_stmt.if_stmt_then_branch.block_stmt_count >
+                   link_output_stmt.if_stmt_then_branch.block_stmt_count >=
                    child_prefix_stmt_count {
-                    const child_next_stmt: &ASTNode =
-                        link_output_stmt.if_stmt_then_branch.block_stmts[child_prefix_stmt_count];
-                    if child_next_stmt != null {
-                        result.entry_pending_callee_child_next_stmt_index =
-                            child_prefix_stmt_count;
-                        result.entry_pending_callee_child_next_stmt_kind =
-                            native_build_ast_kind_name(child_next_stmt.type);
+                    if link_output_stmt.if_stmt_then_branch.block_stmt_count <=
+                       child_prefix_stmt_count {
+                        result.entry_pending_callee_child_complete = 1;
+                    } else {
+                        const child_next_stmt: &ASTNode =
+                            link_output_stmt.if_stmt_then_branch.block_stmts[child_prefix_stmt_count];
+                        if child_next_stmt != null {
+                            result.entry_pending_callee_child_next_stmt_index =
+                                child_prefix_stmt_count;
+                            result.entry_pending_callee_child_next_stmt_kind =
+                                native_build_ast_kind_name(child_next_stmt.type);
+                        }
                     }
                 }
             }
@@ -20037,10 +20044,18 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
         if result.entry_pending_callee_prefix_covered != 0 {
             entry_coverage = "partial_prefix" as &byte;
         }
+        var entry_child_coverage: &byte = "none" as &byte;
+        if result.entry_pending_callee_child_prefix_covered != 0 {
+            entry_child_coverage = "partial" as &byte;
+            if result.entry_pending_callee_child_complete != 0 {
+                entry_child_coverage = "complete" as &byte;
+            }
+        }
         fprintf(libc.stderr,
-            "native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=%d extern_symbols=%d pending_bodies=%d entry_callee_coverage=%s\n" as *byte,
+            "native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=%d extern_symbols=%d pending_bodies=%d entry_callee_coverage=%s entry_child_coverage=%s\n" as *byte,
             result.mir_body_function_count, result.extern_symbol_count,
-            result.core_pending_body_count, entry_coverage as *byte);
+            result.core_pending_body_count, entry_coverage as *byte,
+            entry_child_coverage as *byte);
     }
     fprintf(libc.stderr,
         "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing required=CoreBody+PortableMIR function-body lowering\n" as *byte);
@@ -27989,6 +28004,12 @@ fn compile_files(
                 entry_pending_callee_prefix_stmt_count: 0,
                 entry_pending_callee_next_stmt_index: -1,
                 entry_pending_callee_next_stmt_kind: null,
+                entry_pending_callee_child_parent_stmt_index: -1,
+                entry_pending_callee_child_prefix_covered: 0,
+                entry_pending_callee_child_prefix_stmt_count: 0,
+                entry_pending_callee_child_next_stmt_index: -1,
+                entry_pending_callee_child_next_stmt_kind: null,
+                entry_pending_callee_child_complete: 0,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);
