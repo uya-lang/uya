@@ -2911,7 +2911,7 @@ fn lowered_program_coreir_verify_body_stmts(program: &LoweredProgram, body: &Cor
         const stmt: &CoreStmt = semantic_vector_item_ptr(&program.core_stmts, index) as &CoreStmt;
         if stmt == null || stmt.stmt_id < 0 || stmt.body_id != body.body_id {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INVALID_REFERENCE,
-                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+                body.body_id, body.root_stmt_start + offset, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
         }
         if lowered_program_coreir_stmt_kind_is_dumped_and_verified(stmt.kind) == 0 {
@@ -2951,7 +2951,7 @@ fn lowered_program_coreir_verify_body_exprs(program: &LoweredProgram, body: &Cor
         const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, index) as &CoreExpr;
         if expr == null || expr.expr_id < 0 || expr.body_id != body.body_id {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INVALID_REFERENCE,
-                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+                body.body_id, CORE_STMT_INVALID_ID, body.expr_start + offset, CORE_PLACE_INVALID_ID,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
         }
         if lowered_program_coreir_expr_kind_is_dumped_and_verified(expr.kind) == 0 {
@@ -3011,7 +3011,7 @@ fn lowered_program_coreir_verify_body_places(program: &LoweredProgram, body: &Co
         const place: &CorePlace = semantic_vector_item_ptr(&program.core_places, index) as &CorePlace;
         if place == null || place.place_id < 0 || place.body_id != body.body_id {
             return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INVALID_REFERENCE,
-                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, body.place_start + offset,
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
         }
         if lowered_program_coreir_place_kind_is_dumped_and_verified(place.kind) == 0 {
