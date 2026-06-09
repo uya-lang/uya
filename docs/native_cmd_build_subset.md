@@ -400,6 +400,31 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=9 next_stmt=9 next_kind=AST_CALL_EXPR reason=partial_core_body`。
    下一步才能迁入 `typed_program_accumulate_table_stats(&checker.typed_program, &table_agg)`。
 
+## `compile_stats_record_and_release_typed_program(...)` TypedProgram Agg Slice Contract
+
+SemanticDb aggregate 切片迁入后的真实 reachable body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=9 next_stmt=9 next_kind=AST_CALL_EXPR reason=partial_core_body
+```
+
+下一条源码语句是
+`typed_program_accumulate_table_stats(&checker.typed_program, &table_agg);`。该切片只允许追加
+TypedProgram aggregate call，不得提前迁入任何 `stats.table_*` 写回。
+
+CoreBody/PortableMIR 合同：
+
+1. 该调用必须作为 `CORE_STMT_KIND_EXPR` / `CORE_EXPR_KIND_CALL` 表达，并带
+   `CORE_SEMANTIC_FACT_RESOLVED_CALL` 记录 `typed_program_accumulate_table_stats` 的真实 callee 和
+   `arg_count=2`。
+2. 第一个参数 `&checker.typed_program` 必须保留 checker field-address surface，CoreIR 记录
+   `CORE_PLACE_KIND_FIELD` / `CORE_SEMANTIC_FACT_FIELD_ID`，PortableMIR 追加独立
+   `MIR_INST_OP_FIELD_ADDR` surface。
+3. 第二个参数 `&table_agg` 必须复用 table_agg local stack slot，不能新造匿名 aggregate。
+4. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=10 next_stmt=10 next_kind=AST_ASSIGN reason=partial_core_body`。
+   下一步才能迁入 `stats.table_items = table_agg.items` 写回。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

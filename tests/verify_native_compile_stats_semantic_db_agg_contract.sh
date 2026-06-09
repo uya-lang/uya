@@ -55,8 +55,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_compile_
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_compile_stats_semantic_db_agg_slice_body_function' \
     "build driver 缺少 compile_stats SemanticDb aggregate PortableMIR builder"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=9 next_stmt=9 next_kind=AST_CALL_EXPR reason=partial_core_body' \
-    "no-silent-C99 测试缺少 compile_stats SemanticDb aggregate frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program' \
+    "no-silent-C99 测试缺少 compile_stats SemanticDb aggregate 后续 frontier"
 require_pattern "$NO_SILENT_TEST" '不应在 compile_stats semantic_db aggregate 迁入后继续报告 prefix_stmts=8' \
     "no-silent-C99 测试缺少旧 compile_stats prefix=8 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_compile_stats_semantic_db_agg_contract\.sh' \
