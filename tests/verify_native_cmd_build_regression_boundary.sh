@@ -97,6 +97,10 @@ require_pattern "$SUBSET_DOC" 'covered_branch=--stack-size-digit-loop next_branc
     "cmd/build subset doc 缺少 stack-size digit-loop 后的 write frontier"
 require_pattern "$SUBSET_DOC" 'covered_branch=--stack-size next_branch=--async-frame-heap=on' \
     "cmd/build subset doc 缺少 stack-size 完成后的 async-frame frontier"
+require_pattern "$SUBSET_DOC" 'covered_branch=--async-frame-heap=on next_branch=--no-split-c' \
+    "cmd/build subset doc 缺少 async-frame 后的 no-split-c frontier"
+require_pattern "$SUBSET_DOC" 'covered_branch=--split-c-dir next_branch=positional-input' \
+    "cmd/build subset doc 缺少 split-c 后的位置输入 frontier"
 require_pattern "$SUBSET_DOC" '`--stack-size` 数字扫描' \
     "cmd/build subset doc 缺少 parse_build_args stack-size 审计"
 require_pattern "$SUBSET_DOC" '`arg \+ 14` pointer arithmetic' \
@@ -252,6 +256,10 @@ require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_project_root_cont
     "stage1 native cmd/build 验证未纳入 parse_build_args --project-root 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_seed_reject_contract\.sh' \
     "stage1 native cmd/build 验证未纳入 parse_build_args build-seed reject 合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_stack_size_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args --stack-size 合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_split_c_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args split-C / async-frame 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_stack_size_contract\.sh' \
     "stage1 native cmd/build 验证未纳入 parse_build_args --stack-size 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \

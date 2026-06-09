@@ -285,6 +285,12 @@ native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args par
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=13 covered_branch=--stack-size-arg-read next_branch=--stack-size-digit-loop next_kind=AST_VAR_DECL reason=partial_else_if_chain
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=13 covered_branch=--stack-size-digit-loop next_branch=--stack-size-write next_kind=AST_IF_STMT reason=partial_else_if_chain
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=13 covered_branch=--stack-size next_branch=--async-frame-heap=on next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=14 covered_branch=--async-frame-heap=on next_branch=--no-split-c next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=15 covered_branch=--no-split-c next_branch=--split-c-dir-inline-disabled next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=16 covered_branch=--split-c-dir-inline-disabled next_branch=--split-c-dir-inline-success next_kind=AST_VAR_DECL reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=16 covered_branch=--split-c-dir-inline next_branch=--split-c-dir-separate-disabled next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=17 covered_branch=--split-c-dir-separate-disabled next_branch=--split-c-dir-separate-success next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=17 covered_branch=--split-c-dir next_branch=positional-input next_kind=AST_VAR_DECL reason=partial_else_if_chain
 ```
 
 ## Hosted Native Handoff First Slice Contract
