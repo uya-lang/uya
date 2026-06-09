@@ -997,7 +997,7 @@ MIR -> Native 首个目标：
 
 完整语言 parity 门禁：
 
-- [ ] 整理 `tests/verify_full_language_backend_parity.sh`，以 main 分支语言规范为输入清单，覆盖多文件模块、
+- [~] 整理 `tests/verify_full_language_backend_parity.sh`，以 main 分支语言规范为输入清单，覆盖多文件模块、
   泛型、方法、接口、error union、`try/catch`、`defer/errdefer`、async、struct/union/enum、slice/array、
   pointer、atomic、vector/mask、`@c_import`、builtin、标准库入口和 `@print` / `@println`。
 - [ ] 所有 parity case 都记录 C99 result、native result、stdout/stderr、diagnostic normalized diff 和 allowlist。
