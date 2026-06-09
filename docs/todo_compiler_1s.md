@@ -1088,7 +1088,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 迁入 `--async-frame-heap=on` 分支：覆盖 `async_frame_heap_fallback[0] = 1`。
           - [x] 迁入 `--no-split-c` 分支：覆盖 `g_split_c_disabled_cli`、`g_split_c_dir_active` 和
             `g_split_c_dir[0]` 写入。
-          - [ ] 迁入 inline `--split-c-dir=<dir>` disabled 分支：覆盖 `strncmp`、`arg + 14`
+          - [x] 迁入 inline `--split-c-dir=<dir>` disabled 分支：覆盖 `strncmp`、`arg + 14`
             surface 前的 disabled warning。
           - [ ] 迁入 inline `--split-c-dir=<dir>` 成功/default 分支：覆盖 `arg + 14` pointer arithmetic、
             `strlen`、`PATH_MAX - 1`、`strcpy`、active 写入和 `split_c_set_default_dir()`。
@@ -1373,8 +1373,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：固定 async-frame、`--no-split-c`、inline/separate `--split-c-dir` 和 default-dir。
    - 已完成叶子：`--async-frame-heap=on`。
    - 已完成叶子：`--no-split-c`。
-   - 下一个叶子：inline `--split-c-dir=<dir>` disabled warning。
-   - 实现叶子：inline `--split-c-dir=<dir>` 成功/default。
+   - 已完成叶子：inline `--split-c-dir=<dir>` disabled warning。
+   - 下一个叶子：inline `--split-c-dir=<dir>` 成功/default。
    - 实现叶子：separate `--split-c-dir <dir>` disabled-skip。
    - 实现叶子：separate `--split-c-dir <dir>` 成功/default。
 5. PBA-INPUTS：完成位置输入文件收集。

@@ -134,6 +134,7 @@ const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_OUTLIBC_BRANCH_STMT_INDEX: i32 = 12;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_STACK_SIZE_BRANCH_STMT_INDEX: i32 = 13;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_ASYNC_FRAME_BRANCH_STMT_INDEX: i32 = 14;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_NO_SPLIT_C_BRANCH_STMT_INDEX: i32 = 15;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SPLIT_C_INLINE_BRANCH_STMT_INDEX: i32 = 16;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -5227,6 +5228,118 @@ fn native_build_hosted_parse_build_args_no_split_c_body(
     }
     return native_build_hosted_parse_build_args_no_split_c_if_supported(
         native_build_hosted_parse_build_args_no_split_c_branch_stmt(decl),
+        checker);
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_branch_stmt(
+    decl: &ASTNode) &ASTNode {
+    const no_split_if: &ASTNode =
+        native_build_hosted_parse_build_args_no_split_c_branch_stmt(decl);
+    if no_split_if == null || no_split_if.type != ASTNodeType.AST_IF_STMT ||
+       no_split_if.if_stmt_else_branch == null ||
+       no_split_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return null;
+    }
+    return no_split_if.if_stmt_else_branch;
+}
+
+fn native_build_hosted_parse_build_args_split_c_disabled_condition(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, "g_split_c_disabled_cli" as &byte) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != TokenType.TOKEN_NOT_EQUAL ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 ||
+       value != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_disabled_warning_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.call_expr_callee == null || stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count < 2 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.call_expr_callee, "fprintf" as &byte) == 0 ||
+       native_build_expr_string_literal_equals(stmt.call_expr_args[1],
+        "警告: 已指定 --no-split-c，忽略 --split-c-dir\n" as &byte) == 0 {
+        return 0;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt, &call_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_disabled_guard_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_split_c_disabled_condition(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_disabled_warning_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_else_branch.block_stmts == null ||
+       stmt.if_stmt_else_branch.block_stmt_count < 1 ||
+       stmt.if_stmt_else_branch.block_stmts[0] == null ||
+       stmt.if_stmt_else_branch.block_stmts[0].type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_disabled_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strncmp_prefix_zero_expr(
+        stmt.if_stmt_condition, "arg" as &byte,
+        "--split-c-dir=" as &byte, 14) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count < 1 ||
+       native_build_hosted_parse_build_args_split_c_inline_disabled_guard_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_disabled_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_no_split_c_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_split_c_inline_disabled_if_supported(
+        native_build_hosted_parse_build_args_split_c_inline_branch_stmt(decl),
         checker);
 }
 
@@ -15143,7 +15256,17 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_no_split_c_body(
+                if native_build_hosted_parse_build_args_split_c_inline_disabled_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SPLIT_C_INLINE_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "--split-c-dir-inline-disabled" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "--split-c-dir-inline-success" as &byte;
+                    result.entry_reachable_loop_body_branch_next_kind =
+                        "AST_VAR_DECL" as &byte;
+                } else if native_build_hosted_parse_build_args_no_split_c_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_NO_SPLIT_C_BRANCH_STMT_INDEX;
