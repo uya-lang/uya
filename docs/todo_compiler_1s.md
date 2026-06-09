@@ -1134,30 +1134,48 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为 `set_process_stack_limit_bytes(...)` 的首个最小切片补 CoreBody/PortableMIR
             golden/verifier 合同：先固定 Linux x86_64 `EntryRLimit` 初始化、`SYS_setrlimit_x86_64 = 160`、
             `@syscall(... ENTRY_RLIMIT_STACK ... &rlim ...)` 和 `catch { 0i64; }`；不改生产实现。
-          - [ ] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
+          - [x] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
             helper 的下一条 body-prefix 或下一个 reachable callee。
-          - [ ] 按同一节奏完成该 helper 剩余 body-prefix：每次只扩大一个可验证切片，禁止摘要、
-            direct native machine emission、C99 fallback 或 build-seed `LoweredProgram` helper。
+          - [ ] 首切片迁入后重建 `cmd-build` 并复跑 self-build frontier：只记录真实诊断中的下一处
+            body-prefix / callee，不猜测 `compile_files(...)` 或其它 helper。
+          - [ ] 若 frontier 仍指向 `set_process_stack_limit_bytes(...)`，为下一条真实 body-prefix 补
+            CoreBody/PortableMIR golden/verifier 合同；不改生产实现。
+          - [ ] 迁入 `set_process_stack_limit_bytes(...)` 的下一条真实 body-prefix，并再次推进 frontier；
+            每次只扩大一个可验证切片，禁止摘要、direct native machine emission、C99 fallback 或
+            build-seed `LoweredProgram` helper。
+          - [ ] 重复同 helper 的“补合同 -> 迁实现 -> 复测 frontier”循环，直到真实诊断报告该 helper
+            `body_complete` 或转向下一个 reachable callee。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
-            同一 helper，则继续拆该 helper 的下一 body-prefix，不得跳到其它函数。
+            同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
-          - [ ] 重复 helper 队列，候选只在真实 frontier 指向时进入：`print_usage`、
+          - [ ] 为下一个 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同；候选只在
+            真实 frontier 指向时进入，不从静态猜测中选函数。
+          - [ ] 迁入下一个 helper 的首切片并复测 frontier，然后按同一 helper 循环继续推进。
+          - [ ] 候选示例仅作排队提醒，不能作为实现顺序来源：`print_usage`、
             `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
             `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。
         - `compile_files(...)` 到达前置门槛：
-          - [ ] 当真实 frontier 指向 `compile_files(...)` 时，先固定 16 参数调用 ABI 和 entry frontier：
-            参数 operand 数、hosted runtime capability、target calling convention、out-artifacts 指针和
-            no-silent-C99 失败形状都必须可验证。
+          - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
+            pending reason 和 no-silent-C99 失败形状；不改生产实现。
+          - [ ] 为 `compile_files(...)` 16 参数 ABI 补合同：固定参数数量、源码顺序、每个 operand 的
+            typed 类型、null / scalar / pointer 参数边界和 out-artifacts 指针。
+          - [ ] 为 `compile_files(...)` PortableMIR call surface 补合同：固定 hosted runtime capability、
+            target calling convention、call result、cleanup edge 和 handoff frontier；不改生产实现。
+          - [ ] 迁入 `compile_files(...)` 调用 ABI / entry frontier，不进入函数体；self-build 仍必须因
+            `compile_files(...)` pending body 明确拒绝写出。
           - [ ] 审计 `compile_files(...)` body surface，写入分层清单：artifact reset、arena 初始化、
             `get_argv(0)` / `get_uya_root`、路径规范化、输入收集、依赖扫描、lexer/parser、AST merge、
             SemanticDb/checker/TypedProgram、C99/native handoff、stats 和 cleanup。
         - `compile_files(...)` artifact/path 入口切片：
-          - [ ] 为 `compile_files(...)` artifact/path 入口补合同：固定 `compile_artifacts_reset`、
-            transient arena 初始化、argv0/root/lib 路径和 early return frontier；不改生产实现。
-          - [ ] 迁入 `compile_artifacts_reset` 与 out-artifacts 初始写入。
-          - [ ] 迁入临时 arena / compiler arena 初始化和失败 diagnostic。
+          - [ ] 为 `compile_artifacts_reset` 与 out-artifacts 初始写入补 CoreBody/PortableMIR 合同；不改生产实现。
+          - [ ] 迁入 `compile_artifacts_reset` 与 out-artifacts 初始写入，并冻结下一 frontier。
+          - [ ] 为 transient arena / compiler arena 初始化补合同：固定成功路径、失败 diagnostic 和 cleanup
+            frontier；不改生产实现。
+          - [ ] 迁入 transient arena / compiler arena 初始化和失败 diagnostic。
+          - [ ] 为 `get_argv(0)` / `get_uya_root` / project-root override / lib-root 规范化入口补合同；
+            不改生产实现。
           - [ ] 迁入 `get_argv(0)`、`get_uya_root`、project-root override 和 lib/root 路径规范化入口。
         - `compile_files(...)` 输入与依赖收集切片：
           - [ ] 为输入与依赖收集补合同：固定 input argv/override 选择、目录/文件路径、module root
@@ -1192,14 +1210,20 @@ PortableMIR/native hosted parity 的验收输入。
           - [ ] 迁入 compile stats、arena/table/typed program 释放和 output bytes 统计。
           - [ ] 迁入 success/failure return，标记 `compile_files(...)` body complete 并推进真实 frontier。
         - hosted executable writer 解锁与 Phase 10 收口：
-          - [ ] 当 reachable pending body 数收敛到 0 时，补 writer 解锁合同：`can_write=1`、
-            pending body 为 0、link plan complete 和 no-silent-C99 反向检查；不改生产实现。
+          - [ ] 当 reachable pending body 数收敛到 0 时，补 writer 解锁合同：固定 `pending_core_bodies=0`、
+            imported/output preflight ready、link plan complete 和 `can_write=1` 预期；不改生产实现。
+          - [ ] 为 no-silent-C99 反向检查补合同：`--native` 写出失败时仍不得生成 C99 oracle 输出、不得
+            使用 pre-MIR helper、不得吞掉 native diagnostic；不改生产实现。
           - [ ] 解锁 hosted executable writer：允许 `NativeHostedExecutableWriterPlan.can_write=1`，
             移除 `pending_core_bodies` 阻塞，但仍保留 `--native` 不回落 C99 的反向检查。
-          - [ ] 真正消除 `native_hosted_portable_mir_lowering_missing`：`cmd/build --native` self-build 生成
-            executable，输出文件存在且可执行，stderr 不含 C99 fallback、pre-MIR helper 或 lowering-missing 诊断。
-          - [ ] 用新生成的 native `bin/cmd/build` 复跑 self-build / compiler regression / C99 output parity
-            相关门禁，并记录 native `cmd/build` 自身构建耗时与 peak RSS，为 Phase 10 KPI 收口。
+          - [ ] 消除 `native_hosted_portable_mir_lowering_missing` 诊断：self-build stderr 不再包含
+            lowering-missing / pending-core-body / pre-MIR helper 信息，且失败时仍有明确 native diagnostic。
+          - [ ] 证明 `cmd/build --native` self-build 生成 executable：输出文件存在、可执行、ELF/header 合法，
+            且不是 C99 fallback 产物。
+          - [ ] 用新生成的 native `bin/cmd/build` 复跑 self-build 门禁，确认新二进制仍走 PortableMIR hosted
+            handoff。
+          - [ ] 用新生成的 native `bin/cmd/build` 复跑 compiler regression 和 C99 output parity 门禁。
+          - [ ] 记录 native `cmd/build` 自身构建耗时与 peak RSS，为 Phase 10 KPI 收口。
 
 测试：
 
@@ -1444,8 +1468,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
    - 已完成叶子：审计 `set_process_stack_limit_bytes(...)` body surface。
    - 已完成叶子：为 `set_process_stack_limit_bytes(...)` 的 Linux x86_64 首切片补合同。
-   - 当前 helper：`set_process_stack_limit_bytes(...)`；下一步迁首切片，再继续后续
-     body-prefix。
+   - `set_process_stack_limit_bytes(...)` 首切片已迁入；下一步重建 `cmd-build` 并复跑
+     self-build frontier，只记录真实诊断中的下一处 body-prefix / callee。
    - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
      `compile_files(...)`、toolchain helper 或其它大函数。
 9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。

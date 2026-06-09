@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
 # Phase 10：固定 set_process_stack_limit_bytes(...) 首个 Linux x86_64
-# CoreBody/PortableMIR 合同切片。该脚本只冻结合同和现有 source surface；
-# 不声明生产 lowering 已实现。
+# CoreBody/PortableMIR 合同切片，并验证生产 preflight lowering 已接线。
 
 set -euo pipefail
 
@@ -11,6 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
 ENTRY_SRC="$REPO_ROOT/lib/std/runtime/entry/entry.uya"
+BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
 MIR_VERIFIER_FILE="$REPO_ROOT/src/lower/mir_verifier.uya"
@@ -31,7 +31,7 @@ require_pattern() {
     fi
 }
 
-for file in "$TODO_DOC" "$SUBSET_DOC" "$ENTRY_SRC" "$CORE_FILE" "$MIR_FILE" \
+for file in "$TODO_DOC" "$SUBSET_DOC" "$ENTRY_SRC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FILE" \
     "$MIR_VERIFIER_FILE" "$COREIR_GOLDEN_TEST" "$MIR_GOLDEN_TEST" \
     "$MIR_VERIFIER_TEST" "$NO_SILENT_TEST" "$STAGE1_TEST"; do
     if [[ ! -f "$file" ]]; then
@@ -95,6 +95,16 @@ require_pattern "$CORE_FILE" 'CORE_EXPR_KIND_CALL' \
     "CoreIR 缺少 call expression kind"
 require_pattern "$CORE_FILE" 'CORE_SEMANTIC_FACT_CAPABILITY' \
     "CoreIR 缺少 capability semantic fact"
+require_pattern "$CORE_FILE" 'CORE_CAPABILITY_SYSCALL' \
+    "CoreIR 缺少 syscall capability 常量"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_stack_limit_body' \
+    "build driver 缺少 stack-limit CoreBody materialize 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_stack_limit_body' \
+    "build driver 缺少 stack-limit CoreIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_stack_limit_body_function' \
+    "build driver 缺少 stack-limit PortableMIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'CORE_CAPABILITY_SYSCALL' \
+    "build driver stack-limit CoreIR 未记录 syscall capability"
 require_pattern "$COREIR_GOLDEN_TEST" 'CORE_SEMANTIC_FACT_CAPABILITY' \
     "CoreIR golden 缺少 capability fact 覆盖"
 require_pattern "$COREIR_GOLDEN_TEST" 'CORE_EXPR_KIND_CALL' \
@@ -119,8 +129,12 @@ require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_runtime_capability_sup
 require_pattern "$MIR_VERIFIER_TEST" 'MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY' \
     "PortableMIR verifier 测试缺少 unsupported capability 覆盖"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body' \
-    "no-silent-C99 测试缺少 stack-limit helper frontier"
+require_pattern "$NO_SILENT_TEST" 'core_bodies=6' \
+    "no-silent-C99 测试缺少 stack-limit CoreBody 计数"
+require_pattern "$NO_SILENT_TEST" 'mir_body_functions=5' \
+    "no-silent-C99 测试缺少 stack-limit MIR body 计数"
+require_pattern "$NO_SILENT_TEST" '不应在 stack-limit helper 首切片迁入后继续报告 set_process_stack_limit_bytes pending callee' \
+    "no-silent-C99 测试缺少旧 stack-limit frontier 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_stack_limit_helper_contract\.sh' \
     "stage1 未纳入 stack-limit helper 合同"
 
