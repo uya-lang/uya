@@ -91,6 +91,10 @@ require_pattern "$SUBSET_DOC" '收尾输出路径检查' \
     "cmd/build subset doc 缺少 parse_build_args output path 审计"
 require_pattern "$SUBSET_DOC" 'no-output、no-silent-C99' \
     "cmd/build subset doc 缺少 parse_build_args no-silent-C99 迁移要求"
+require_pattern "$SUBSET_DOC" '^## `parse_build_args\(\.\.\.\)` Scalar Option Frontier Contract' \
+    "cmd/build subset doc 缺少 scalar option frontier 合同"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_frontier: function=parse_build_args parent_stmt=23' \
+    "cmd/build subset doc 缺少 scalar option loop-body child frontier 诊断形状"
 
 require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
     "architecture doc 缺少 hosted native C99 oracle 范围"
@@ -142,6 +146,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_child_frontier: first_pen
     "no-silent-C99 测试缺少 cmd/build link-output child frontier 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_frontier' \
+    "no-silent-C99 测试缺少 scalar option loop-body child frontier 合同锚点"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \
@@ -190,6 +196,8 @@ require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'CoreBody/PortableMIR' \
     "LoweredBodyOp transition 测试缺少 CoreBody/PortableMIR 迁移要求"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_regression_boundary\.sh' \
     "stage1 native cmd/build 验证未纳入回归边界合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_scalar_options_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args scalar option 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
     "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_c99_output_parity\.sh' \

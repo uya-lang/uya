@@ -1027,7 +1027,7 @@ PortableMIR/native hosted parity 的验收输入。
           `get_argv(i)` null diagnostic、循环尾 `i = i + 1` 和 no-fallback self-build frontier 更新。
         - 基础 flag / scalar option 切片（当前 frontier；先建 loop-body child frontier，不得伪装
           root body prefix 已完成）：
-          - [ ] 为基础 flag / scalar option 补 CoreBody/PortableMIR golden/verifier 合同：固定 `-o`、
+          - [x] 为基础 flag / scalar option 补 CoreBody/PortableMIR golden/verifier 合同：固定 `-o`、
             backend、line-directives、safety-proof、opt-level、`--nostdlib` 的源码 surface、loop-body
             child frontier 诊断和 stage1 纳入点；不改生产实现。
           - [ ] 将 `-o` 分支迁入 verifier-clean PortableMIR：覆盖缺参 diagnostic / `return -1`、

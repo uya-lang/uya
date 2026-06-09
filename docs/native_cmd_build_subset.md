@@ -160,6 +160,28 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
 每个切片完成后，`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续证明 self-build verifier-clean、
 no-output、no-silent-C99，并把 reachable callee/body frontier 推进到真实的下一处未迁 body。
 
+## `parse_build_args(...)` Scalar Option Frontier Contract
+
+当前 root body frontier 仍固定为：
+
+```text
+native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body
+```
+
+这表示 root body 已覆盖到 `while i < argc` 这一条 source stmt 的 partial loop stub；它不能被当成
+option loop body 已完成。基础 flag / scalar option 迁入时，必须先报告 loop-body child frontier，
+不能把 root body prefix 伪推进到收尾 `input_file_count[0] == 0` 或后续 helper：
+
+```text
+native_hosted_reachable_loop_body_frontier: function=parse_build_args parent_stmt=23 loop_body_prefix_stmts=2 loop_body_next_stmt=2 loop_body_next_kind=AST_IF_STMT reason=partial_loop_body
+```
+
+其中 `parent_stmt=23` 是 `while i < argc`，`loop_body_prefix_stmts=2` 只表示已覆盖
+`const arg: *byte = get_argv(i)` 和 `if arg == null`，下一处真实缺口仍是基础 flag / scalar option
+的 `else if` 链。后续 `-o`、backend、line-directives、safety-proof、opt-level 和 `--nostdlib`
+每个切片都必须推进这个 child frontier 或更深的 branch frontier；直到整个 while body 完整前，
+不得借 root body prefix 宣称 `parse_build_args(...)` complete。
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
