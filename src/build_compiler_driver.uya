@@ -16838,6 +16838,58 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
     return 0;
 }
 
+fn native_build_hosted_decl_has_pending_core_body(program: &ASTNode,
+    checker: &TypeChecker, decl: &ASTNode) i32 {
+    if program == null || checker == null || decl == null ||
+       decl.type != ASTNodeType.AST_FN_DECL ||
+       decl.fn_decl_is_extern != 0 || decl.fn_decl_body == null {
+        return 0;
+    }
+    if native_build_hosted_decl_can_materialize_safe_core_body(program,
+        decl, checker) != 0 {
+        return 0;
+    }
+    if native_build_hosted_decl_can_materialize_parse_build_args_default_init_body(
+        program, decl, checker) != 0 &&
+       native_build_hosted_parse_build_args_tail_return_body(
+        decl, checker, program) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_record_reachable_call_callee_frontier(program: &ASTNode,
+    checker: &TypeChecker, parent_decl: &ASTNode, stmt_index: i32,
+    call_expr: &ASTNode, result: &NativeHostedMirPreflightResult) i32 {
+    if program == null || checker == null || parent_decl == null ||
+       call_expr == null || result == null ||
+       call_expr.type != ASTNodeType.AST_CALL_EXPR ||
+       call_expr.call_expr_callee == null ||
+       call_expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       call_expr.call_expr_callee.identifier_name == null {
+        return 0;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program,
+        call_expr.call_expr_callee.identifier_name, &target_function_id,
+        &target_decl_index) == 0 ||
+       target_decl_index < 0 {
+        return 0;
+    }
+    const target_decl: &ASTNode = program.program_decls[target_decl_index];
+    if native_build_hosted_decl_has_pending_core_body(program, checker,
+        target_decl) == 0 {
+        return 0;
+    }
+    result.entry_reachable_callee_parent_name =
+        native_build_decl_name_for_diagnostic(parent_decl);
+    result.entry_reachable_callee_name =
+        native_build_decl_name_for_diagnostic(target_decl);
+    result.entry_reachable_callee_stmt_index = stmt_index;
+    return 1;
+}
+
 fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
     checker: &TypeChecker, decl: &ASTNode, result: &NativeHostedMirPreflightResult) void {
     if program == null || checker == null || decl == null || result == null {
@@ -16903,6 +16955,15 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
         result.entry_reachable_body_complete_function_name =
             native_build_decl_name_for_diagnostic(target_decl);
         result.entry_reachable_body_complete_stmt_count = parse_prefix_count;
+        const stack_limit_stmt: &ASTNode =
+            native_build_hosted_build_driver_run_prefix_stmt(decl, 17);
+        const stack_limit_call: &ASTNode =
+            native_build_hosted_build_driver_run_stack_limit_call_expr(
+                stack_limit_stmt);
+        if native_build_hosted_record_reachable_call_callee_frontier(program,
+            checker, decl, 17, stack_limit_call, result) != 0 {
+            return;
+        }
         return;
     }
     if parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_TAIL_OUTPUT_READ_PREFIX_STMT_COUNT ||

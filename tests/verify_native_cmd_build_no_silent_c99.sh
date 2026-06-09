@@ -95,6 +95,12 @@ run_cmd_build_self_preflight_check() {
     grep -q 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' "$stderr"
+    grep -q 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body' "$stderr"
+    if grep -q 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args' "$stderr"; then
+        echo "错误: $label self-build 不应在 parse_build_args complete 后继续报告 parse_build_args pending callee" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -q 'native_hosted_reachable_tail_branch_frontier: function=parse_build_args' "$stderr"; then
         echo "错误: $label self-build 不应在 parse_build_args complete 后继续报告 tail branch frontier" >&2
         cat "$stderr" >&2

@@ -67,8 +67,10 @@ require_pattern "$SUBSET_DOC" '`NativeHostedLinkPlan` / `MirTargetBackendRequest
     "cmd/build subset doc 缺少 hosted link plan handoff 边界"
 require_pattern "$SUBSET_DOC" '^## `parse_build_args\(\.\.\.\)` PortableMIR Surface Audit' \
     "cmd/build subset doc 缺少 parse_build_args surface audit"
-require_pattern "$SUBSET_DOC" '当前 reachable body frontier 是 `build_compiler_driver_run` 第 12 条语句调用到的' \
-    "cmd/build subset doc 缺少 parse_build_args 当前 frontier"
+require_pattern "$SUBSET_DOC" '当前 self-build reachable callee frontier 是' \
+    "cmd/build subset doc 缺少 parse_build_args complete 后的真实 callee frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body' \
+    "cmd/build subset doc 缺少 set_process_stack_limit_bytes frontier"
 require_pattern "$SUBSET_DOC" '入口 argv/argc 和 early return' \
     "cmd/build subset doc 缺少 parse_build_args argv/argc early return 审计"
 require_pattern "$SUBSET_DOC" '默认 out-param 写入和全局状态初始化' \
@@ -186,6 +188,10 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_child_frontier: first_pen
     "no-silent-C99 测试缺少 cmd/build link-output child frontier 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' \
     "no-silent-C99 测试缺少 parse_build_args body complete 证据"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body' \
+    "no-silent-C99 测试缺少 set_process_stack_limit_bytes reachable callee frontier"
+require_pattern "$NO_SILENT_TEST" 'self-build 不应在 parse_build_args complete 后继续报告 parse_build_args pending callee' \
+    "no-silent-C99 测试缺少 parse_build_args pending callee 反向检查"
 require_pattern "$NO_SILENT_TEST" 'self-build 不应在 parse_build_args complete 后继续报告 tail branch frontier' \
     "no-silent-C99 测试缺少 parse_build_args tail frontier 反向检查"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \

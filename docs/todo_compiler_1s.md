@@ -1118,15 +1118,16 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 迁入末尾 `return 0`，标记 `parse_build_args(...)` CoreBody/PortableMIR body complete，
             并删除/更新该函数的 loop-body child frontier。
         - `parse_build_args(...)` complete 后的真实 reachable frontier：
-          - [ ] 更新 self-build frontier：不再报告 `parse_build_args` pending，改为只报告诊断中真实出现的
-            下一个 reachable callee，并同步 `tests/verify_native_cmd_build_no_silent_c99.sh` 与
-            `docs/native_cmd_build_subset.md`。
-          - [ ] 固定 `parse_build_args(...)` 之后的真实 reachable callee frontier：只接受诊断实际报告的
-            下一个 callee，不按猜测提前跳到 `compile_files(...)`。
+          - [x] 更新 self-build frontier：不再报告 `parse_build_args` pending，改为只报告诊断中真实出现的
+            下一个 reachable callee `set_process_stack_limit_bytes(...)`，并同步
+            `tests/verify_native_cmd_build_no_silent_c99.sh` 与 `docs/native_cmd_build_subset.md`。
+          - [ ] 为 `set_process_stack_limit_bytes(...)` 补 helper frontier 合同：固定
+            `parent=build_compiler_driver_run`、`stmt=17`、
+            `first_unresolved_callee=set_process_stack_limit_bytes` 和 `reason=pending_core_body`，
+            不按猜测提前跳到 `compile_files(...)`。
         - frontier-driven helper 队列（每个 helper 到达后按同一模板执行；候选只能来自真实诊断）：
-          - [ ] 在 `parse_build_args(...)` complete 后冻结首个真实 helper 名称：从 self-build 诊断提取
-            `native_hosted_reachable_callee_frontier` / body frontier，写入本 todo；不按猜测选择
-            `compile_files(...)` 或其它 helper。
+          - [ ] 审计 `set_process_stack_limit_bytes(...)` 的 body surface，写入本 todo 和
+            `docs/native_cmd_build_subset.md`；不按猜测选择 `compile_files(...)` 或其它 helper。
           - [ ] 审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
@@ -1378,7 +1379,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前 PBA-TAIL 已完成；下一可执行叶子是 FRONTIER-RESET，开始时只把该主清单叶子标成 `[~]`。
+- 当前 FRONTIER-RESET 已完成；下一可执行叶子是 `set_process_stack_limit_bytes(...)` helper frontier
+  合同，开始时只把该主清单叶子标成 `[~]`。
 - helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
 - 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
@@ -1429,10 +1431,14 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成实现叶子：`--native` 输出 `.c` 拒绝。
    - 已完成实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。
 7. FRONTIER-RESET：`parse_build_args(...)` complete 后重建 `cmd-build` 并重新跑 self-build frontier。
-   - 只把诊断实际报告的下一个 reachable callee 写入 todo 和 `docs/native_cmd_build_subset.md`。
+   - 已完成叶子：只把诊断实际报告的下一个 reachable callee 写入 todo 和
+     `docs/native_cmd_build_subset.md`。
+   - 实测下一个 reachable callee：`build_compiler_driver_run` stmt 17 的
+     `set_process_stack_limit_bytes(...)`。
    - 同步 `tests/verify_native_cmd_build_no_silent_c99.sh`，继续要求 no-output / no-silent-C99。
 8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
-   - 每个 helper 先审计 body surface，再补合同，再迁首切片和后续 body-prefix。
+   - 下一个 helper：`set_process_stack_limit_bytes(...)`；先审计 body surface，再补合同，
+     再迁首切片和后续 body-prefix。
    - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
      `compile_files(...)`、toolchain helper 或其它大函数。
 9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。
