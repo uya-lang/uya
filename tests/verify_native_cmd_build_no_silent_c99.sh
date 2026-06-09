@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=12 next_stmt=12 next_kind=AST_ASSIGN reason=partial_core_body' "$stderr"
+    grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=13 next_stmt=13 next_kind=AST_ASSIGN reason=partial_core_body' "$stderr"
+    if grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=12 next_stmt=12 next_kind=AST_ASSIGN reason=partial_core_body' "$stderr"; then
+        echo "错误: $label self-build 不应在 compile_stats table_used_bytes 迁入后继续报告 prefix_stmts=12" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=11 next_stmt=11 next_kind=AST_ASSIGN reason=partial_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 compile_stats table_capacity 迁入后继续报告 prefix_stmts=11" >&2
         cat "$stderr" >&2

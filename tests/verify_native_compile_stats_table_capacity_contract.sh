@@ -55,8 +55,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_compile_
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_compile_stats_table_capacity_slice_body_function' \
     "build driver 缺少 compile_stats table_capacity PortableMIR builder"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=12 next_stmt=12 next_kind=AST_ASSIGN reason=partial_core_body' \
-    "no-silent-C99 测试缺少 compile_stats table_capacity frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program' \
+    "no-silent-C99 测试缺少 compile_stats table_capacity 后续 frontier"
 require_pattern "$NO_SILENT_TEST" '不应在 compile_stats table_capacity 迁入后继续报告 prefix_stmts=11' \
     "no-silent-C99 测试缺少旧 compile_stats prefix=11 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_compile_stats_table_capacity_contract\.sh' \
