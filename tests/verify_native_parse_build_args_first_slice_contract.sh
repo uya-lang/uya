@@ -72,8 +72,8 @@ require_pattern "$MIR_GOLDEN_TEST" 'MIR_TERMINATOR_KIND_COND_BR' \
 require_pattern "$MIR_VERIFIER_SRC" 'portable_mir_verify_range\(term\.successor_start, term\.successor_count' \
     "PortableMIR verifier 缺少 successor range 合同"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args reason=pending_core_body' \
-    "no-silent-C99 测试缺少 parse_build_args reachable frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=18 next_stmt=18 next_kind=AST_VAR_DECL reason=partial_core_body' \
+    "no-silent-C99 测试缺少 parse_build_args body-prefix frontier"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_first_slice_contract\.sh' \
     "stage1 未纳入 parse_build_args 首切片合同"
 
