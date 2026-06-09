@@ -933,11 +933,14 @@ PortableMIR/native hosted parity 的验收输入。
     - [x] 将 SIMD vector/mask shard 迁入 CoreBody/PortableMIR hosted native/C99 parity。
   - [x] 上述 MIR/CoreBody 覆盖通过后，恢复 native `cmd/build` 生成门禁并开始真实 self-build 验证。
   - [x] 修复 hosted `cmd/build` self-build CoreIR preflight 的 `COREIR_VERIFY_ERR_INVALID_BODY_RANGE` frontier，使 `native_hosted_coreir_preflight` 达到 verifier-clean，并继续保留 pending bodies 统计。
-  - 接入 hosted `cmd/build` verifier-clean PortableMIR self-build 的真实 emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`，仍不得回落 C99 或 build-seed `LoweredProgram` helper（拆分执行）：
+  - 阶段目标（epic，不作为单个实现任务）：接入 hosted `cmd/build` verifier-clean PortableMIR self-build 的真实
+    emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`，仍不得回落 C99 或 build-seed
+    `LoweredProgram` helper。
     - [x] 固定 verifier-clean self-build handoff 诊断，报告 MIR body / extern / pending body frontier 和 entry callee 覆盖缺口，避免泛泛 `lowering_missing` 掩盖下一步。
     - [x] 固定 `main -> build_compiler_driver_main` wrapper 已纳入 CoreBody/PortableMIR 的证据，并把 first pending callee 精确到 `build_compiler_driver_run`，保持 pre-MIR helper 禁止。
     - [x] 将 first pending callee `build_compiler_driver_run` 的入口前缀纳入 CoreBody/PortableMIR 覆盖，并保持 pre-MIR helper 禁止。
-    - 在 self-build reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`（继续拆分执行）：
+    - 阶段目标（epic，不作为单个实现任务）：在 self-build reachable body 覆盖足够后，接入真实 hosted native
+      emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`。
       - [x] 将 `build_compiler_driver_run` 的简单局部初始化入口前缀纳入 CoreBody/PortableMIR 覆盖，并在 frontier 中报告覆盖 stmt 数。
       - [x] 将 `parse_build_args(...)` 调用和 `parse_result` 分支入口纳入 CoreBody/PortableMIR 覆盖，保持 hosted verifier-clean。
       - 将 native 输出路径选择前的 reachable 控制流继续迁入 PortableMIR，收敛 pending body frontier（继续拆分执行）：
@@ -950,7 +953,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 split-dir 环境变量分支继续迁入 PortableMIR frontier。
         - [x] 将 `output_file_index < 0` 的 native/C99 输出路径选择分支继续迁入 PortableMIR frontier。
         - [x] 将 `user_output_path` 初始化继续迁入 PortableMIR frontier。
-      - [ ] reachable body 覆盖足够后，接入真实 hosted native emitter/handoff，消除 `native_hosted_portable_mir_lowering_missing`。
+      - 已完成的 entry / handoff 切片：
         - [x] 将 `output_file_index >= 0` 显式输出路径分支入口继续迁入 PortableMIR frontier。
         - [x] 将 `backend == BackendType.BACKEND_LLVM` fallback 分支继续迁入 PortableMIR frontier。
         - [x] 将 split-C active + C99 backend 分支继续迁入 PortableMIR frontier。
@@ -988,6 +991,58 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 dynamic catch hosted 输出从手写 asm/link helper 改到 `NativeMirEmitter` executable stream，并保留 `argc` 分支语义。
         - [x] 将 `build_compiler_driver_run` full-prefix complete 状态接入 hosted handoff frontier，避免已覆盖入口仍报告 `partial_prefix`。
         - [x] 在 entry complete 后报告首个未 lower reachable callee frontier，先精确到 `parse_build_args(...)`。
+      - 剩余任务差分（按 `native_hosted_reachable_callee_frontier` 顺序执行；每个切片只跑相关测试，不跑
+        `make backup-all`）：
+        - [ ] 将当前 reachable callee frontier 固定为推进门禁：self-build 必须报告
+          `parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args reason=pending_core_body`，
+          且 handoff 仍因 `pending_core_bodies` / `native_hosted_portable_mir_lowering_missing` 明确拒绝输出。
+        - [ ] 审计 `parse_build_args(...)` 的 CoreBody/PortableMIR surface，按 body 顺序列出 argv/argc、out-param
+          写入、全局状态写入、`strcmp`/`strncmp`、`strlen`/`strcpy`、while 扫描、else-if 链、pointer
+          arithmetic、byte index、诊断输出和 early return 缺口。
+        - [ ] 为 `parse_build_args(...)` 首切片补 CoreBody/PortableMIR golden/verifier 合同：覆盖
+          `get_argc()`、`get_argv(0)`、`argc < 2`、`program_name != null`、`print_usage(...)` 和
+          `input_file_capacity <= 0` 的 early-return 形状。
+        - [ ] 将 `parse_build_args(...)` 默认输出参数和全局状态初始化切片迁入 verifier-clean PortableMIR，覆盖
+          `input_file_count[0]`、`output_file_index[0]`、`backend_type[0]`、line/proof/opt/nostdlib/stack
+          默认值、split-C/module-root 全局清零和 `async_frame_heap_fallback[0]`。
+        - [ ] 将 `parse_build_args(...)` 首参数处理切片迁入 PortableMIR：覆盖 `--help` / `-h` /
+          `--version` / `-v`、`build` 子命令起始索引，以及对应 stdout/stderr/return 行为。
+        - [ ] 将 `parse_build_args(...)` option loop 骨架迁入 PortableMIR：覆盖 `while i < argc`、
+          `get_argv(i)` null diagnostic、循环尾 `i = i + 1` 和 no-fallback self-build frontier 更新。
+        - [ ] 将基础 flag / scalar option 切片迁入 PortableMIR：覆盖 `-o`、`--c99`、`--native`、
+          line-directives、safety-proof、`--opt=0..3` / `-O0..3` 和 `--nostdlib` 的 out-param 写入。
+        - [ ] 将 `--project-root` 切片迁入 PortableMIR：覆盖缺参、空参数、`PATH_MAX` 长度检查、
+          `strcpy(&g_module_root_override[0], root_arg)` 和 `g_module_root_override_active`。
+        - [ ] 将 build-seed 明确拒绝选项切片迁入 PortableMIR：覆盖 `--manifest-path`、exec/vm/dump/trace、
+          microapp profile、`--outlibc` 的 diagnostic 和 return `-1`，保持 seed 边界清晰。
+        - [ ] 将 `--stack-size` 数字扫描切片迁入 PortableMIR：覆盖 `size_str[j]` byte index、
+          ASCII digit while、`size_val` 累积、有效值写入、无效值 warning 和缺参 error。
+        - [ ] 将 split-C CLI 切片迁入 PortableMIR：覆盖 `--no-split-c`、`--split-c-dir=<dir>`、
+          `--split-c-dir <dir>`、`strncmp`、`arg + 14`、路径长度分支、忽略 warning 和
+          `split_c_set_default_dir()` 调用。
+        - [ ] 将位置输入文件收集切片迁入 PortableMIR：覆盖 `arg[0] != '-'`、容量检查、
+          `input_file_indices[idx] = i`、`input_file_count[0] = idx + 1` 和未知 dash option 的现有行为。
+        - [ ] 将 `parse_build_args(...)` 收尾切片迁入 PortableMIR：覆盖未指定输入文件 diagnostic /
+          `print_usage`，显式输出路径 `get_argv(out_idx)`，`.c` 输出推断 C99，以及 `--native` 输出 `.c`
+          的明确拒绝。
+        - [ ] `parse_build_args(...)` body complete 后更新 self-build frontier：不再报告
+          `first_unresolved_callee=parse_build_args`，改为报告诊断中真实出现的下一个 reachable callee，并同步
+          `tests/verify_native_cmd_build_no_silent_c99.sh` 与 `docs/native_cmd_build_subset.md`。
+        - [ ] 按新的 reachable callee frontier 逐个迁移 driver/runtime helper；每个 helper 都先审计 body surface，
+          再补 CoreBody/PortableMIR 合同，再迁 body，并只在真实 frontier 指向时进入。候选包括
+          `print_usage`、`split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
+          `host_fill_temp_c_compile_path`、`is_c_output`、`compile_files`、`link_with_toolchain` 及其实际
+          reachable 子调用。
+        - [ ] 为 `compile_files(...)` 16 参数主调用建立分层迁移计划：先 CLI/path/artifact/c_import 入口，
+          再 lexer/parser/AST merge，再 semantic/checker/TypedProgram，再 C99/native codegen handoff，最后
+          stats/arena cleanup；每层都必须 verifier-clean 且不新增 one-off `LoweredBodyOp`。
+        - [ ] 当 reachable pending body 数收敛到 0 时，解锁 hosted executable writer：允许
+          `NativeHostedExecutableWriterPlan.can_write=1`，移除 `pending_core_bodies` 阻塞，但仍保留
+          `--native` 不回落 C99 的反向检查。
+        - [ ] 真正消除 `native_hosted_portable_mir_lowering_missing`：`cmd/build --native` self-build 生成
+          executable，输出文件存在且可执行，stderr 不含 C99 fallback、pre-MIR helper 或 lowering-missing 诊断。
+        - [ ] 用新生成的 native `bin/cmd/build` 复跑 self-build / compiler regression / C99 output parity
+          相关门禁，并记录 native `cmd/build` 自身构建耗时与 peak RSS，为 Phase 10 KPI 收口。
 
 测试：
 
@@ -999,10 +1054,19 @@ PortableMIR/native hosted parity 的验收输入。
 - [x] 新增 `tests/verify_native_cmd_build_c99_output_parity.sh`。
 - [x] 用 native `cmd/build` 生成 C99 output，并与 C99-built compiler 输出比对。
 
-验证：
+开发阶段相关验证（单个切片完成时优先运行；不把 `make backup-all` 作为每任务门禁）：
 
 ```bash
+git diff --check
+make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya
+bash tests/verify_native_cmd_build_no_silent_c99.sh
+bash tests/verify_native_cmd_build_regression_boundary.sh
 bash tests/verify_native_cmd_build_stage1.sh
+```
+
+阶段收口验证：
+
+```bash
 make check
 ```
 
@@ -1126,14 +1190,15 @@ make backup-all
 
 ## 当前下一步
 
-建议下一次实施从 Phase 5B 开始：
+下一次实施不要直接接那个 epic。先从 Phase 10 的第一个叶子任务开始：
 
-1. 定义 `CoreBody` / `CoreStmt` / `CoreExpr`，并从 `TypedProgram` 冻结 resolved call target、field id、
-   type id、proof 和 cleanup metadata。
-2. 新增 CoreIR dump / verifier / closure contract 门禁。
-3. 补 `@naked_fn` CoreIR 合同和并行 CoreLower deterministic merge 门禁。
-4. 把当前 native subset 的简单函数体从 ad hoc `LoweredBodyOp` 迁到 `CoreBody`。
-5. 在 CoreIR 门禁通过后新增 `PortableMIR` 基础数据结构和动态表生命周期。
-6. 让 native backend 从 `PortableMIR` 导入 `MachineModule`。
-7. 将 `compile_files(...)` 16 参数调用固定为 CoreIR、MIR lowering、hosted native call ABI 和
-   target capability verifier 的首个真实验收样本。
+1. 固定当前 `native_hosted_reachable_callee_frontier` 推进门禁，确认 self-build 仍 verifier-clean、仍明确拒绝
+   `native_hosted_portable_mir_lowering_missing`、仍不回落 C99 或 build-seed `LoweredProgram` helper。
+2. 审计 `parse_build_args(...)` body surface，按实际语句顺序拆出 CoreBody/PortableMIR 需要补的表达式、语句、
+   out-param、全局写入、CLI loop、字符串和诊断能力。
+3. 从 `parse_build_args(...)` 首切片开始 TDD：先补 golden/verifier/边界测试，再迁 CoreBody/PortableMIR body，
+   最后运行本切片相关门禁。
+4. 每完成一个 reachable callee，都用诊断里的下一个 `first_unresolved_callee` 选择下一项；不要预设
+   `compile_files(...)`、toolchain helper 或其它大函数的顺序。
+5. 只有当 reachable pending body 全部收敛后，才解锁 hosted executable writer 并真正移除
+   `native_hosted_portable_mir_lowering_missing`。
