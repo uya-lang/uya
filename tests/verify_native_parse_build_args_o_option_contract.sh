@@ -44,8 +44,8 @@ require_pattern "$BUILD_DRIVER_SRC" '错误: -o 选项需要指定输出文件�
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_reachable_loop_body_branch_frontier' \
     "生产代码缺少 loop-body branch frontier 诊断"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=2 covered_branch=-o next_branch=--c99 next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 -o 后的 branch frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23' \
+    "no-silent-C99 测试缺少 loop-body branch frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_o_option_contract\.sh' \

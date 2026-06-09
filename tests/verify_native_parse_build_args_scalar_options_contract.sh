@@ -74,8 +74,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'is_nostdlib\[0\] = 1;' \
 
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
     "no-silent-C99 测试缺少当前 root body frontier"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_frontier' \
-    "no-silent-C99 测试缺少后续 loop-body child frontier 合同锚点"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier' \
+    "no-silent-C99 测试缺少后续 loop-body branch frontier 合同锚点"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_scalar_options_contract\.sh' \
     "stage1 未纳入 parse_build_args scalar option 合同"
 

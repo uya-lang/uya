@@ -150,10 +150,10 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_child_frontier: first_pen
     "no-silent-C99 测试缺少 cmd/build link-output child frontier 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_frontier' \
-    "no-silent-C99 测试缺少 scalar option loop-body child frontier 合同锚点"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=2 covered_branch=-o next_branch=--c99 next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 -o 后的 backend frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier' \
+    "no-silent-C99 测试缺少 scalar option loop-body branch frontier 合同锚点"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=3 covered_branch=backend next_branch=--no-line-directives next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试缺少 backend 后的 line-directives frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \

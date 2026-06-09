@@ -121,6 +121,7 @@ const NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX: i32 = 23;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_ARG_DECL_STMT_COUNT: i32 = 1;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_ARG_NULL_GUARD_STMT_COUNT: i32 = 2;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX: i32 = 2;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_BACKEND_BRANCH_STMT_INDEX: i32 = 3;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -3050,6 +3051,107 @@ fn native_build_hosted_parse_build_args_o_option_body(decl: &ASTNode,
         loop_stmt.while_stmt_body.block_stmts[
             NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX],
         checker);
+}
+
+fn native_build_hosted_parse_build_args_backend_assign_supported(stmt: &ASTNode,
+    checker: &TypeChecker, expected_value: i32) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
+       stmt.assign_dest == null || stmt.assign_src == null {
+        return 0;
+    }
+    var actual_name: &byte = null;
+    var backend_value: i32 = -1;
+    if native_build_array_index0_identifier(stmt.assign_dest, &actual_name) == 0 ||
+       actual_name == null ||
+       str_equals(actual_name as *byte, "backend_type" as *byte) == 0 ||
+       native_build_backend_member_value(stmt.assign_src, &backend_value) == 0 ||
+       backend_value != expected_value {
+        return 0;
+    }
+    var dest_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var src_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.assign_dest,
+        &dest_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.assign_src,
+        &src_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_backend_then_supported(stmt: &ASTNode,
+    checker: &TypeChecker, expected_value: i32) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_BLOCK ||
+       stmt.block_stmts == null || stmt.block_stmt_count != 1 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_backend_assign_supported(
+        stmt.block_stmts[0], checker, expected_value);
+}
+
+fn native_build_hosted_parse_build_args_backend_option_if_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        stmt.if_stmt_condition, "arg" as &byte, "--c99" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const native_if: &ASTNode = stmt.if_stmt_else_branch;
+    if native_if == null ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        native_if.if_stmt_condition, "arg" as &byte, "--native" as &byte) == 0 ||
+       native_if.if_stmt_then_branch == null ||
+       native_if.if_stmt_else_branch == null ||
+       native_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        native_if.if_stmt_else_branch.if_stmt_condition,
+        "arg" as &byte, "--no-line-directives" as &byte) == 0 {
+        return 0;
+    }
+    var c99_condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var native_condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &c99_condition_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, native_if.if_stmt_condition,
+        &native_condition_type_id) != 0 {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_backend_then_supported(
+        stmt.if_stmt_then_branch, checker, 1) == 0 ||
+       native_build_hosted_parse_build_args_backend_then_supported(
+        native_if.if_stmt_then_branch, checker, 2) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_backend_options_body(decl: &ASTNode,
+    checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_o_option_body(decl, checker, program) == 0 {
+        return 0;
+    }
+    const loop_stmt: &ASTNode =
+        native_build_hosted_parse_build_args_prefix_stmt(decl,
+            NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX);
+    if loop_stmt == null || loop_stmt.type != ASTNodeType.AST_WHILE_STMT ||
+       loop_stmt.while_stmt_body == null ||
+       loop_stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK ||
+       loop_stmt.while_stmt_body.block_stmts == null ||
+       loop_stmt.while_stmt_body.block_stmt_count <
+       NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX + 2 {
+        return 0;
+    }
+    const o_if: &ASTNode = loop_stmt.while_stmt_body.block_stmts[
+        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX];
+    if o_if == null || o_if.type != ASTNodeType.AST_IF_STMT ||
+       o_if.if_stmt_else_branch == null {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_backend_option_if_supported(
+        o_if.if_stmt_else_branch, checker);
 }
 
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
@@ -12965,12 +13067,22 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                result.entry_reachable_loop_body_branch_stmt_index =
-                    NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX;
-                result.entry_reachable_loop_body_branch_covered_name =
-                    "-o" as &byte;
-                result.entry_reachable_loop_body_branch_next_name =
-                    "--c99" as &byte;
+                if native_build_hosted_parse_build_args_backend_options_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_BACKEND_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "backend" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "--no-line-directives" as &byte;
+                } else {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "-o" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "--c99" as &byte;
+                }
                 result.entry_reachable_loop_body_branch_next_kind =
                     "AST_IF_STMT" as &byte;
             } else {
