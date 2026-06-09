@@ -5875,6 +5875,194 @@ fn native_build_hosted_parse_build_args_split_c_separate_disabled_body(
         checker);
 }
 
+fn native_build_hosted_parse_build_args_sd_decl_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "sd" as *byte) == 0 ||
+       native_build_type_is_byte_ptr(stmt.var_decl_type) == 0 ||
+       native_build_hosted_parse_build_args_get_argv_i_plus_one_expr(
+        stmt.var_decl_init) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_sd_len_decl_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "sl" as *byte) == 0 ||
+       native_build_type_is_usize(stmt.var_decl_type) == 0 ||
+       native_build_hosted_parse_build_args_strlen_call_expr(
+        stmt.var_decl_init, "sd" as &byte) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_sl_valid_and_fits_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_AND ||
+       native_build_hosted_parse_build_args_identifier_compare_const(
+        expr.binary_expr_left, "sl" as &byte, TokenType.TOKEN_GREATER, 0) == 0 ||
+       native_build_hosted_parse_build_args_sl_lt_path_max_minus_one(
+        expr.binary_expr_right) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_separate_copy_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_sl_valid_and_fits_expr(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 ||
+       native_build_hosted_parse_build_args_split_c_inline_strcpy_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker, "sd" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_scalar_global_assign_supported(
+        stmt.if_stmt_then_branch.block_stmts[1], checker,
+        "g_split_c_dir_active" as &byte, 1) == 0 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_else_branch.block_stmts == null ||
+       stmt.if_stmt_else_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_default_call_supported(
+        stmt.if_stmt_else_branch.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_separate_sd_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_identifier_not_null_condition(
+        stmt.if_stmt_condition, "sd" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 ||
+       native_build_hosted_parse_build_args_sd_len_decl_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_split_c_separate_copy_if_supported(
+        stmt.if_stmt_then_branch.block_stmts[1], checker) == 0 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_else_branch.block_stmts == null ||
+       stmt.if_stmt_else_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_default_call_supported(
+        stmt.if_stmt_else_branch.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_separate_arg_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_o_inner_condition(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 3 ||
+       native_build_hosted_parse_build_args_sd_decl_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_split_c_separate_sd_if_supported(
+        stmt.if_stmt_then_branch.block_stmts[1], checker) == 0 ||
+       native_build_hosted_parse_build_args_stack_size_i_increment_supported(
+        stmt.if_stmt_then_branch.block_stmts[2], checker) == 0 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_else_branch.block_stmts == null ||
+       stmt.if_stmt_else_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_default_call_supported(
+        stmt.if_stmt_else_branch.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_separate_success_block_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_BLOCK ||
+       stmt.block_stmts == null || stmt.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_separate_arg_if_supported(
+        stmt.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_separate_success_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_parse_build_args_split_c_separate_disabled_if_supported(
+        stmt, checker) == 0 ||
+       stmt == null || stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count < 1 {
+        return 0;
+    }
+    const disabled_guard: &ASTNode = stmt.if_stmt_then_branch.block_stmts[0];
+    if disabled_guard == null || disabled_guard.type != ASTNodeType.AST_IF_STMT ||
+       disabled_guard.if_stmt_else_branch == null ||
+       native_build_hosted_parse_build_args_split_c_separate_success_block_supported(
+        disabled_guard.if_stmt_else_branch, checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_separate_success_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_split_c_separate_disabled_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_split_c_separate_success_if_supported(
+        native_build_hosted_parse_build_args_split_c_separate_branch_stmt(decl),
+        checker);
+}
+
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
     checker: &TypeChecker) i32 {
     if stmt == null || checker == null || stmt.type != ASTNodeType.AST_WHILE_STMT ||
@@ -15788,7 +15976,17 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_split_c_separate_disabled_body(
+                if native_build_hosted_parse_build_args_split_c_separate_success_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SPLIT_C_SEPARATE_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "--split-c-dir" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "positional-input" as &byte;
+                    result.entry_reachable_loop_body_branch_next_kind =
+                        "AST_VAR_DECL" as &byte;
+                } else if native_build_hosted_parse_build_args_split_c_separate_disabled_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SPLIT_C_SEPARATE_BRANCH_STMT_INDEX;
