@@ -65,12 +65,14 @@ fi
 tmp_dir="$(mktemp -d /tmp/uya-native-mir-emitter.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 output_path="$tmp_dir/native-mir-emitter.bin"
+mkdir -p "$tmp_dir/codegen/native"
+cp "$ELF64_FILE" "$tmp_dir/codegen/native/elf64.uya"
 cat "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" >"$tmp_dir/main.uya"
 cat >>"$tmp_dir/main.uya" <<'EOF'
 export type CoreBodyId = i32;
 EOF
 cat "$MIR_FILE" "$MIR_VERIFIER_FILE" \
-    "$MIR_BACKEND_FILE" "$MACHINE_FILE" "$ELF64_FILE" "$MIR_EMITTER_FILE" >>"$tmp_dir/main.uya"
+    "$MIR_BACKEND_FILE" "$MACHINE_FILE" "$MIR_EMITTER_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<EOF
 use std.testing.assert_eq_i32;
@@ -687,6 +689,6 @@ test "native MIR emitter gates request kind verifier and streaming executable ou
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c --project-root "$tmp_dir/")
 
 echo "verify_native_mir_emitter: ok"

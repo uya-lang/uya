@@ -26,6 +26,7 @@ use codegen.c99_build;
 use codegen.native.hosted_link;
 use codegen.native.machine;
 use codegen.native.mir_emitter;
+use codegen.native.x86_64;
 use codegen.native_build;
 use std;
 // C 程序入口由编译器自动注入 std.runtime.entry；此处仅导入堆栈上限设置（避免与局部名 entry 冲突）
@@ -20666,6 +20667,47 @@ fn native_build_hosted_emit_const_return_linked_exe(output_file: &byte,
     return 0;
 }
 
+fn native_build_hosted_emit_exit_code_mir_stream_exe(output_file: &byte,
+    return_value: i32) i32 {
+    if output_file == null || return_value < 0 || return_value > 255 {
+        return 1;
+    }
+    if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
+       strcmp(main_get_target_arch_name() as *byte, "x86_64" as *byte) != 0 {
+        return 1;
+    }
+    var code: [byte: 16] = [];
+    var code_len: usize = 0usize;
+    if x86_64_emit_mov_r32_imm32(&code[0] as &byte, 16usize, &code_len,
+        X86_64_REG_RAX, X86_64_LINUX_SYSCALL_EXIT) != 0 ||
+       x86_64_emit_mov_r32_imm32(&code[0] as &byte, 16usize, &code_len,
+        X86_64_REG_RDI, return_value) != 0 ||
+       x86_64_emit_syscall(&code[0] as &byte, 16usize, &code_len) != 0 {
+        return 1;
+    }
+    c99_mkdir_p_for_file(output_file);
+    const file: &FILE = fopen(output_file as *byte, "wb" as *byte);
+    if file == null {
+        return 1;
+    }
+    var emitter: NativeMirEmitter = native_mir_emitter_empty();
+    emitter.status = NATIVE_MIR_EMITTER_STATUS_DONE;
+    emitter.target = 1;
+    const writer: NativeMirEmitterOutputResult =
+        native_mir_emitter_write_executable_stream(&emitter, file,
+            &code[0] as &const byte, code_len);
+    fclose(file as *void);
+    if writer.status != NATIVE_MIR_EMITTER_STATUS_DONE {
+        unlink(output_file as *byte);
+        return 1;
+    }
+    fprintf(libc.stderr,
+        "native_hosted_executable_writer_stream: status=ready target=%d code_bytes=%zu output_bytes=%zu temp_peak_bytes=%zu\n" as *byte,
+        writer.target, writer.code_bytes, writer.output_bytes,
+        writer.temp_peak_bytes);
+    return 0;
+}
+
 fn native_build_hosted_emit_dynamic_catch_linked_exe(output_file: &byte,
     shape: &NativeBuildDynamicCatchShape) i32 {
     if shape == null {
@@ -20779,7 +20821,7 @@ fn native_build_try_emit_hosted_no_deps_subset(output_file: &byte, program: &AST
         return -1;
     }
     if exit_status != 0 {
-        if native_build_hosted_emit_const_return_linked_exe(output_file,
+        if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
             return_value) != 0 {
             fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
             return -1;

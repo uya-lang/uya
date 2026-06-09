@@ -1,5 +1,6 @@
 // codegen/native/mir_emitter.uya - Native backend main path from verified PortableMIR.
 
+use codegen.native.elf64;
 use libc.FILE;
 
 export const NATIVE_MIR_EMITTER_STATUS_ERROR: i32 = -1;

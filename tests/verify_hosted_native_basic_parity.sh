@@ -54,10 +54,16 @@ run_parity_case() {
     test -s "$native_bin"
     grep -q '后端类型: Native' "$TMP_DIR/$name.native.build.err"
     grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$TMP_DIR/$name.native.build.err"
+    grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$TMP_DIR/$name.native.build.err"
     grep -q 'native_output_bytes:' "$TMP_DIR/$name.native.build.err"
     if grep -q '后端类型: C99' "$TMP_DIR/$name.native.build.err" ||
        grep -q 'native_hosted_portable_mir_lowering_missing' "$TMP_DIR/$name.native.build.err"; then
         echo "error: hosted native basic parity used C99 fallback or reject path for $name" >&2
+        cat "$TMP_DIR/$name.native.build.err" >&2
+        exit 1
+    fi
+    if grep -q 'hosted native assembly' "$TMP_DIR/$name.native.build.err"; then
+        echo "error: hosted native basic parity still used assembly helper for $name" >&2
         cat "$TMP_DIR/$name.native.build.err" >&2
         exit 1
     fi
