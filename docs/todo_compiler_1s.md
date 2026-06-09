@@ -979,6 +979,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 冻结真实 hosted native emitter/handoff 的首个最小切片合同，继续禁止 pre-MIR native helper 回流。
         - [x] 将 `build_compiler_driver_run` nested child complete 状态纳入 hosted handoff frontier 诊断。
         - [x] 将 nested child complete 的 hosted handoff frontier 转入真实 emitter/handoff 首个拒绝或接线切片。
+        - [x] 将 verified PortableMIR partial body 接入 `NativeMirEmitter` import preflight，报告 imported function/block/inst 计数，仍因 pending bodies 拒绝 executable emission。
 
 测试：
 

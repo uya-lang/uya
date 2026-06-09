@@ -24,6 +24,8 @@ use lower.mir_backend;
 // C99 build seed 专用代码生成（子目录，整体导入该目录模块）
 use codegen.c99_build;
 use codegen.native.hosted_link;
+use codegen.native.machine;
+use codegen.native.mir_emitter;
 use codegen.native_build;
 use std;
 // C 程序入口由编译器自动注入 std.runtime.entry；此处仅导入堆栈上限设置（避免与局部名 entry 冲突）
@@ -186,6 +188,10 @@ struct NativeHostedMirPreflightResult {
     emitter_handoff_request_verified: i32,
     emitter_handoff_backend_kind: i32,
     emitter_handoff_link_plan_complete: i32,
+    emitter_import_ready: i32,
+    emitter_imported_function_count: i32,
+    emitter_imported_block_count: i32,
+    emitter_imported_inst_count: i32,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1219,6 +1225,10 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.emitter_handoff_request_verified = 0;
     result.emitter_handoff_backend_kind = 0;
     result.emitter_handoff_link_plan_complete = 0;
+    result.emitter_import_ready = 0;
+    result.emitter_imported_function_count = 0;
+    result.emitter_imported_block_count = 0;
+    result.emitter_imported_inst_count = 0;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -19398,6 +19408,33 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     }
     result.emitter_handoff_link_plan_complete =
         native_hosted_link_plan_is_complete(&plan);
+    var machine: MachineModule = MachineModule{
+        arena: null,
+        function_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: MACHINE_LIFECYCLE_UNINITIALIZED,
+        functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        relocs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        symbols: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        strings: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        sections: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+    };
+    machine_module_init(&machine, arena);
+    var emitter: NativeMirEmitter = native_mir_emitter_empty();
+    if native_mir_emitter_begin(&emitter, &request, &machine, 1) != 0 ||
+       native_mir_emitter_read_portable_mir(&emitter) != 0 {
+        machine_module_release(&machine);
+        result.verifier_error = verifier.error_code;
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    result.emitter_import_ready = 1;
+    result.emitter_imported_function_count =
+        emitter.imported_function_count as i32;
+    result.emitter_imported_block_count = emitter.imported_block_count as i32;
+    result.emitter_imported_inst_count = emitter.imported_inst_count as i32;
+    machine_module_release(&machine);
     result.verifier_error = verifier.error_code;
     result.object_count = plan.object_count;
     portable_mir_module_release(&module);
@@ -20087,6 +20124,14 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
             backend_kind_name as *byte, link_plan_status as *byte,
             result.object_count, result.extern_symbol_count,
             entry_child_coverage as *byte);
+        if result.emitter_import_ready != 0 {
+            fprintf(libc.stderr,
+                "native_hosted_emitter_import_preflight: status=ready imported_functions=%d imported_blocks=%d imported_insts=%d pending_bodies=%d\n" as *byte,
+                result.emitter_imported_function_count,
+                result.emitter_imported_block_count,
+                result.emitter_imported_inst_count,
+                result.core_pending_body_count);
+        }
     }
     fprintf(libc.stderr,
         "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing required=CoreBody+PortableMIR function-body lowering\n" as *byte);
@@ -28044,6 +28089,10 @@ fn compile_files(
                 emitter_handoff_request_verified: 0,
                 emitter_handoff_backend_kind: 0,
                 emitter_handoff_link_plan_complete: 0,
+                emitter_import_ready: 0,
+                emitter_imported_function_count: 0,
+                emitter_imported_block_count: 0,
+                emitter_imported_inst_count: 0,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);

@@ -120,6 +120,8 @@ require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \
     "no-silent-C99 测试缺少 cmd/build nested child complete handoff 证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete' \
     "no-silent-C99 测试缺少 cmd/build 真实 emitter handoff 首个拒绝证据"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_import_preflight: status=ready imported_functions=' \
+    "no-silent-C99 测试缺少 cmd/build NativeMirEmitter import preflight 证据"
 require_pattern "$NO_SILENT_TEST" 'entry_callee_coverage=partial_prefix' \
     "no-silent-C99 测试缺少 cmd/build run entry prefix 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
@@ -190,6 +192,12 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_emitter_handoff' \
     "build compiler driver 缺少 hosted native emitter handoff frontier 诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'emitter_handoff_request_verified' \
     "build compiler driver 缺少 verified backend request handoff 状态"
+require_pattern "$BUILD_DRIVER_SRC" 'use[[:space:]]+codegen\.native\.mir_emitter;' \
+    "build compiler driver 缺少 NativeMirEmitter 主路径导入"
+require_pattern "$BUILD_DRIVER_SRC" 'native_mir_emitter_read_portable_mir' \
+    "build compiler driver 缺少 NativeMirEmitter import preflight 接线"
+require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_emitter_import_preflight' \
+    "build compiler driver 缺少 NativeMirEmitter import preflight 诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_entry_frontier' \
     "build compiler driver 缺少 hosted native entry wrapper frontier 诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \
