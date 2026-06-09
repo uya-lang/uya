@@ -1131,9 +1131,6 @@ PortableMIR/native hosted parity 的验收输入。
             - surface：`EntryRLimit` 局部结构体初始化、`ENTRY_RLIMIT_STACK = 3`、
               Linux-only `std.cfg`、x86_64/arm64/arm/riscv64 syscall 号、`@syscall(... )`
               返回 `!i64`、`catch { 0i64; }` 忽略失败和非 Linux/unknown target no-op。
-          - [ ] 审计下一个 reachable driver/runtime helper 的 body surface，写入
-            `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
-            diagnostics、IO/环境能力和 early return。
           - [ ] 为 `set_process_stack_limit_bytes(...)` 的首个最小切片补 CoreBody/PortableMIR
             golden/verifier 合同：先固定 Linux x86_64 `EntryRLimit` 初始化、`SYS_setrlimit_x86_64 = 160`、
             `@syscall(... ENTRY_RLIMIT_STACK ... &rlim ...)` 和 `catch { 0i64; }`；不改生产实现。
@@ -1143,6 +1140,9 @@ PortableMIR/native hosted parity 的验收输入。
             direct native machine emission、C99 fallback 或 build-seed `LoweredProgram` helper。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则继续拆该 helper 的下一 body-prefix，不得跳到其它函数。
+          - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
+            `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
+            diagnostics、IO/环境能力和 early return。
           - [ ] 重复 helper 队列，候选只在真实 frontier 指向时进入：`print_usage`、
             `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
             `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。
