@@ -1051,7 +1051,7 @@ PortableMIR/native hosted parity 的验收输入。
             不改生产实现。
           - [x] 将 opt-level 标量分支迁入 PortableMIR：覆盖 `--opt=0..3` / `-O0..3` 的
             `strcmp || strcmp` 条件和 `opt_level[0]` 写入。
-          - [ ] 为 `--nostdlib` 标量分支补独立合同脚本：固定 `is_nostdlib[0] = 1`、
+          - [x] 为 `--nostdlib` 标量分支补独立合同脚本：固定 `is_nostdlib[0] = 1`、
             scalar-option loop-body 完成边界、下一 frontier 到 `--project-root` 和 no-silent-C99 预期；
             不改生产实现。
           - [ ] 将 `--nostdlib` 标量分支迁入 PortableMIR：覆盖 `is_nostdlib[0] = 1`，并把
@@ -1363,10 +1363,9 @@ make backup-all
 
 当前可执行叶子：
 
-1. 下一个未完成叶子是“为 `--nostdlib` 标量分支补独立合同脚本”；固定
-   `is_nostdlib[0] = 1`、scalar-option loop-body 完成边界、下一 frontier 到
-   `--project-root` 和 no-silent-C99 预期；不改生产实现。
-2. `--nostdlib` 合同通过后，才进入 `--nostdlib` 标量分支实现叶子。
+1. 下一个未完成叶子是“将 `--nostdlib` 标量分支迁入 PortableMIR”；覆盖
+   `is_nostdlib[0] = 1`，并把 scalar-option loop-body frontier 推进到 `--project-root`。
+2. `--nostdlib` 实现通过后，才进入 `--project-root` 合同/实现叶子。
 3. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
    parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`
    作为每任务门禁。

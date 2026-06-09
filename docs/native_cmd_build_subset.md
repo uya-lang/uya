@@ -222,6 +222,14 @@ opt-level 标量分支完成后必须继续报告 branch frontier，证明 `--op
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=6 covered_branch=opt-level next_branch=--nostdlib next_kind=AST_IF_STMT reason=partial_else_if_chain
 ```
 
+nostdlib 标量分支完成后必须继续报告 branch frontier，证明 `--nostdlib` 的
+`is_nostdlib[0] = 1` 写入已纳入 verifier-clean partial body，下一处缺口推进到
+`--project-root`：
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=7 covered_branch=--nostdlib next_branch=--project-root next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
