@@ -230,6 +230,16 @@ nostdlib 标量分支完成后必须继续报告 branch frontier，证明 `--nos
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=7 covered_branch=--nostdlib next_branch=--project-root next_kind=AST_IF_STMT reason=partial_else_if_chain
 ```
 
+project-root 分支完成后必须继续报告 branch frontier，证明 `--project-root` 的缺参
+diagnostic、`get_argv(i)` 参数读取、空参数检查、`strlen(root_arg)` / `PATH_MAX`
+长度检查、`strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
+`g_module_root_override_active = 1` 已纳入 verifier-clean partial body，下一处缺口
+推进到 build-seed reject group 的 `--manifest-path`：
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root next_branch=--manifest-path next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。

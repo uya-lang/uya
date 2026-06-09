@@ -107,6 +107,8 @@ require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier
     "cmd/build subset doc 缺少 opt-level branch frontier 诊断形状"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=7 covered_branch=--nostdlib next_branch=--project-root next_kind=AST_IF_STMT reason=partial_else_if_chain' \
     "cmd/build subset doc 缺少 --nostdlib branch frontier 诊断形状"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root next_branch=--manifest-path next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "cmd/build subset doc 缺少 --project-root branch frontier 诊断形状"
 
 require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
     "architecture doc 缺少 hosted native C99 oracle 范围"
@@ -224,6 +226,8 @@ require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_opt_level_contrac
     "stage1 native cmd/build 验证未纳入 parse_build_args opt-level 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_nostdlib_contract\.sh' \
     "stage1 native cmd/build 验证未纳入 parse_build_args --nostdlib 合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_project_root_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args --project-root 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
     "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_c99_output_parity\.sh' \
