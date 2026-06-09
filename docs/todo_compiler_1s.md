@@ -1183,8 +1183,20 @@ PortableMIR/native hosted parity 的验收输入。
               `bash tests/verify_coreir_dump_golden.sh`、
               `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
               `bash tests/verify_native_cmd_build_stage1.sh` 通过。
-          - [ ] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
+          - [x] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
             helper 的下一条 body-prefix 或下一个真实 pending body/helper。
+            - 已接入 `compile_stats_record_and_release_typed_program(...)` 首切片生产实现：
+              `stats == null` / `checker == null` early return、typed-program 三字段清零和首个
+              `typed_program_current_bytes(&checker.typed_program)` field-address call surface 进入
+              verifier-clean CoreBody/PortableMIR；`cmd/build --native` self-build 真实 frontier 推进到
+              `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=6 next_stmt=6 next_kind=AST_ASSIGN reason=partial_core_body`，
+              whole-body pending frontier 为
+              `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=165 function_id=5 body_stmts=4 reason=pending_core_body`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_compile_stats_first_slice_contract.sh`、
+              `bash tests/verify_native_stack_limit_helper_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过。
           - [ ] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)`，继续按真实
             body-prefix 补合同并迁入下一切片；每次只扩大一个可验证切片。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向

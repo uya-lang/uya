@@ -108,18 +108,22 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`、
   `native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete`、
   stack-limit helper 首切片已进入 verifier-clean CoreBody/PortableMIR，因此不再报告
-  `set_process_stack_limit_bytes` pending callee；当前计数为 `core_bodies=6`、`mir_body_functions=5`、
-  且本轮 stderr 未输出新的 `native_hosted_reachable_callee_frontier` / `native_hosted_reachable_body_frontier`
-  / loop body-prefix frontier、
+  `set_process_stack_limit_bytes` pending callee；`compile_stats_record_and_release_typed_program(...)`
+  首切片迁入后，当前计数为 `core_bodies=7`、`mir_body_functions=6`、
+  本轮 stderr 输出的 reachable body frontier 是 compile-stats partial body-prefix，未输出新的
+  `native_hosted_reachable_callee_frontier` / loop body-prefix frontier、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
-  `native_hosted_emitter_import_preflight: status=ready imported_functions=483 imported_blocks=40 imported_insts=56 ...`、
-  `native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=483 ...` 和
+  `native_hosted_emitter_import_preflight: status=ready imported_functions=484 imported_blocks=41 imported_insts=61 ...`、
+  `native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=484 ...` 和
   `native_hosted_portable_mir_lowering_missing`。
   不再把 `compile_files(...)` 16 参数缺口固定为 `--nostdlib` freestanding one-off shape。
-- handoff-only pending body frontier 已接入：当前真实下一处 pending body 是
-  `native_hosted_pending_body_frontier: function=compile_stats_record_and_release_typed_program decl=159 function_id=4 body_stmts=18 reason=pending_core_body`。
-  后续必须先审计该函数 body surface，不得从静态候选列表猜 `compile_files(...)` 或其它 helper。
+- `compile_stats_record_and_release_typed_program(...)` 首切片已接入 verifier-clean CoreBody/PortableMIR：
+  `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=6 next_stmt=6 next_kind=AST_ASSIGN reason=partial_core_body`。
+  当前 whole-body pending frontier 已推进到
+  `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=165 function_id=5 body_stmts=4 reason=pending_core_body`；
+  后续若继续处理 compile-stats，必须按同 helper 的真实下一 body-prefix 推进，不得从静态候选列表猜
+  `compile_files(...)` 或其它 helper。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
 
 ## `parse_build_args(...)` PortableMIR Surface Audit

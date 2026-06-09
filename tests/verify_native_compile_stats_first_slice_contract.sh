@@ -96,6 +96,16 @@ require_pattern "$BUILD_DRIVER_SRC" 'stats\.typed_program_bytes = typed_program_
     "compile_stats 源码缺少 first field-address current-bytes call"
 require_pattern "$BUILD_DRIVER_SRC" 'stats\.typed_program_peak_bytes = typed_program_peak_bytes\(&checker\.typed_program\);' \
     "compile_stats 源码缺少 peak-bytes call"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_compile_stats_first_slice_body' \
+    "build driver 缺少 compile_stats CoreBody materialize 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_compile_stats_first_slice_body' \
+    "build driver 缺少 compile_stats CoreIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_compile_stats_first_slice_mir_body' \
+    "build driver 缺少 compile_stats PortableMIR 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_compile_stats_first_slice_body_function' \
+    "build driver 缺少 compile_stats PortableMIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'CORE_BODY_FLAG_SOURCE_BODY \| CORE_BODY_FLAG_PARTIAL' \
+    "build driver compile_stats CoreBody 未标记 partial"
 
 require_pattern "$CORE_FILE" 'CORE_STMT_KIND_RETURN' \
     "CoreIR 缺少 return statement kind"
@@ -135,8 +145,14 @@ require_pattern "$MIR_VERIFIER_SRC" 'MIR_INST_OP_CALL' \
 require_pattern "$MIR_VERIFIER_TEST" 'MIR_INST_OP_CALL' \
     "PortableMIR verifier 测试缺少 call 覆盖"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_pending_body_frontier: function=compile_stats_record_and_release_typed_program decl=159 function_id=4 body_stmts=18 reason=pending_core_body' \
-    "no-silent-C99 测试缺少 compile_stats pending body frontier"
+require_pattern "$NO_SILENT_TEST" 'core_bodies=7' \
+    "no-silent-C99 测试缺少 compile_stats CoreBody 计数"
+require_pattern "$NO_SILENT_TEST" 'mir_body_functions=6' \
+    "no-silent-C99 测试缺少 compile_stats MIR body 计数"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=6 next_stmt=6 next_kind=AST_ASSIGN reason=partial_core_body' \
+    "no-silent-C99 测试缺少 compile_stats partial body frontier"
+require_pattern "$NO_SILENT_TEST" '不应在 compile_stats 首切片迁入后继续报告整个 helper pending' \
+    "no-silent-C99 测试缺少旧 compile_stats pending 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_compile_stats_first_slice_contract\.sh' \
     "stage1 未纳入 compile_stats 首切片合同"
 
