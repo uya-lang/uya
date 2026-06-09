@@ -1064,7 +1064,7 @@ PortableMIR/native hosted parity 的验收输入。
             `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
           - [x] 迁入 `--project-root` 长度检查分支：覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
             和路径过长 diagnostic。
-          - [ ] 迁入 `--project-root` 成功写入分支：覆盖
+          - [x] 迁入 `--project-root` 成功写入分支：覆盖
             `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和 `g_module_root_override_active = 1`。
         - build-seed 明确拒绝选项切片：
           - [ ] 为 build-seed reject group 补 CoreBody/PortableMIR 合同：固定所有拒绝项 diagnostic、
@@ -1353,10 +1353,10 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
      `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
    - 已完成叶子：长度检查，覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
      和路径过长 diagnostic。
-   - 下一个叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
+   - 已完成叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
      `g_module_root_override_active = 1`。
 2. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
-   - 合同叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
+   - 下一个叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
      diagnostic、`return -1` 和 seed 边界。
    - 实现叶子：`--manifest-path` / `--outlibc`。
    - 实现叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
