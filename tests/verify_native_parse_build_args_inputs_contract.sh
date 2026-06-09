@@ -84,7 +84,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_positi
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_positional_input_body' \
     "生产代码缺少位置输入完整 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' \
     "no-silent-C99 测试必须固定显式输出路径读取后的 return frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"

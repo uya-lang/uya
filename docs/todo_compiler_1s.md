@@ -1115,7 +1115,7 @@ PortableMIR/native hosted parity 的验收输入。
             `strrchr(out_path, 46)`、`.c` 比较和 `backend_type[0] = BACKEND_C99`。
           - [x] 迁入 `--native` 输出 `.c` 拒绝分支：覆盖 `is_c_output(out_path as &byte)`、
             diagnostic 和 `return -1`。
-          - [ ] 迁入末尾 `return 0`，标记 `parse_build_args(...)` CoreBody/PortableMIR body complete，
+          - [x] 迁入末尾 `return 0`，标记 `parse_build_args(...)` CoreBody/PortableMIR body complete，
             并删除/更新该函数的 loop-body child frontier。
         - `parse_build_args(...)` complete 后的真实 reachable frontier：
           - [ ] 更新 self-build frontier：不再报告 `parse_build_args` pending，改为只报告诊断中真实出现的
@@ -1233,24 +1233,37 @@ make check
 
 ## Phase 11: `make uya` native 主路径
 
-- [ ] 增加 `UYA_BUILD_BACKEND=native|c99`。
-- [ ] 新增 `make uya-c99` 保留旧路径。
-- [ ] `make uya` 默认走 hosted native path。
-- [ ] freestanding native path 保留为 build-seed / 下沉目标，不作为 hosted native 完整语言 parity 的阻塞项。
-- [ ] `make uya` 输出：
+Phase 11 只在 Phase 10 的 hosted native `bin/cmd/build` self-build executable 真实通过后开始。
+本阶段目标是切换构建入口，不再扩展 MIR 语言面；任何 native 失败都必须显式报错，不得静默回落 C99。
+
+- 构建入口合同切片：
+  - [ ] 为 `UYA_BUILD_BACKEND=native|c99` 补 Makefile/脚本合同测试：默认 native、显式 C99、
+    非法值 diagnostic、native 失败 no-silent-fallback 和手动 C99 fallback。
+  - [ ] 为 `make uya-c99` 补合同测试：必须保留旧 C99 路径，输出 `bin/uya`，且不调用 hosted native
+    `cmd/build`。
+  - [ ] 为 `make uya` 输出布局补合同测试，固定必须生成：
 
 ```text
 bin/uya
 bin/cmd/build
 ```
 
-- [ ] native path 失败时不静默 fallback；必须显式报错。
-- [ ] `make uya-c99` 可作为手动 fallback。
-- [ ] release flow 同时验证 native 与 C99。
-- [ ] release flow 区分 hosted native 完整语言结论与 freestanding native build-seed 结论。
-- [ ] backup flow 纳入 native seed。
-- [ ] install flow 安装 `bin/cmd/build`。
-- [ ] install flow 安装 `bin/cmd/microapp`（若 Phase 7A 已完成）。
+- 构建入口实现切片：
+  - [ ] 接入 `UYA_BUILD_BACKEND` 选择器：`native` 使用 Phase 10 的 hosted native `cmd/build`，
+    `c99` 使用旧 C99 seed 路径，非法值明确失败。
+  - [ ] 新增 `make uya-c99`，保留旧路径作为手动 fallback。
+  - [ ] 将 `make uya` 默认切到 hosted native path，并确保同时落地 `bin/uya` 和 `bin/cmd/build`。
+  - [ ] 保留 freestanding native path 作为 build-seed / 下沉目标，不作为 hosted native 完整语言 parity
+    的阻塞项。
+- 命令安装与 release/backup 切片：
+  - [ ] `make cmds` / install flow 安装 `bin/cmd/build`。
+  - [ ] `make cmds` / install flow 安装 `bin/cmd/microapp`（若 Phase 7A 已完成）。
+  - [ ] release flow 同时验证 native 与 C99，并区分 hosted native 完整语言结论与 freestanding native
+    build-seed 结论。
+  - [ ] backup flow 纳入 native seed，但保留 C99 seed fallback 和明确失败诊断。
+- Phase 11 收口切片：
+  - [ ] 运行 `make clean && make uya`、`make cmds`、`bin/uya microapp --help` 和 native path
+    no-silent-fallback 门禁，只跑本阶段相关验证。
 
 验证：
 
@@ -1274,41 +1287,55 @@ make backup-all
 
 ## Phase 12: 差分与发布收口
 
-- [ ] native-built compiler 跑 `make check`。
-- [ ] C99-built compiler 跑 `make check`。
-- [ ] 对比核心测试输出与退出码。
-- [ ] 对比 diagnostics 文案。
-- [ ] 对比 `src/main.uya` C99 output 的结构性摘要。
-- [ ] 对 native 自举二轮产物做 normalized section hash。
-- [ ] 文档更新：
-  - [ ] `docs/compiler_1s_speed_assessment.md`
-  - [ ] `docs/compiler_1s_architecture_design.md`
-  - [ ] `docs/todo_compiler_1s.md`
-  - [ ] `docs/UYA_BUILD_RUN.md`
-  - [ ] `docs/TESTING.md`
-  - [ ] `docs/c99_codegen_hotpath_benchmark.md`
-- [ ] release 文档说明 native path 与 C99 fallback。
-- [ ] release 文档说明 microapp 命名空间命令：
+Phase 12 是发布前差分验收，不再承载新的后端语言特性；若差分暴露缺口，回到对应 Phase 10/11
+叶子修复后再回来收口。
+
+- native/C99 差分门禁切片：
+  - [ ] 为 native-built 与 C99-built compiler 的 `make check` 输出/退出码对比补脚本合同。
+  - [ ] native-built compiler 跑 `make check` 并保存 normalized 结果。
+  - [ ] C99-built compiler 跑 `make check` 并保存 normalized 结果。
+  - [ ] 对比核心测试输出、退出码和 diagnostics 文案，差异必须有明确 allowlist 或修复项。
+- 自举产物差分切片：
+  - [ ] 为 `src/main.uya` C99 output 结构性摘要补比对脚本，避免依赖非稳定空白或路径。
+  - [ ] 对比 native-built 与 C99-built 的 `src/main.uya` C99 output 结构性摘要。
+  - [ ] 为 native 自举二轮产物 normalized section hash 补合同和记录格式。
+  - [ ] 对 native 自举二轮产物做 normalized section hash，并记录差异结论。
+- 文档收口切片：
+  - [ ] 更新 `docs/compiler_1s_speed_assessment.md`，记录 native cold build 三次中位数、P95、
+    peak RSS、arena peak 和 output bytes。
+  - [ ] 更新 `docs/compiler_1s_architecture_design.md`，同步 hosted native / C99 / freestanding native
+    的职责边界。
+  - [ ] 更新 `docs/todo_compiler_1s.md`，确保已完成项都有验证证据，剩余项不是隐藏 epic。
+  - [ ] 更新 `docs/UYA_BUILD_RUN.md`、`docs/TESTING.md` 和
+    `docs/c99_codegen_hotpath_benchmark.md`。
+  - [ ] release 文档说明 native path 与 C99 fallback。
+  - [ ] release 文档说明 microapp 命名空间命令：
   `uya microapp build|pack|inspect|verify|run`。
 
 语言兼容与后端完备性验收：
 
-- [ ] 明确 main 分支语言兼容基线：以 main 分支的 `docs/uya.md`、`docs/grammar_formal.md`、
-  `docs/grammar_quick.md`、`docs/builtin_functions.md` 和完整语言回归测试为准。
-- [ ] C99 backend 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / build seed 子集。
-- [ ] Hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
-- [ ] Freestanding native 能力按 hosted native 已验证的 MIR 能力逐步下沉，不阻塞完整语言 hosted parity。
-- [ ] C99 与 native 对同一套完整语言回归输入给出一致的成功/失败、退出码、diagnostics 和可执行行为。
-- [ ] 新增或整理完整语言后端差分套件，覆盖 parser/checker/codegen 主语言面：多文件模块、泛型、方法、
-  接口、error union、`try/catch`、`defer/errdefer`、async、结构体/union/enum、slice/数组、指针、
-  `atomic T`、`@vector(T, N)`、`@mask(N)`、`@c_import`、内建函数和标准库入口。
-- [ ] Microapp / microcontainer 在语言层面完全兼容 main 分支，不引入 microapp 专属语法、关键字、
-  内建函数或 checker 方言。
-- [ ] Microapp 的限制只能是 capability / runtime / profile / host API 层面的限制；对不支持能力的拒绝必须是
-  明确 diagnostic，不能表现为语言语义与 main 分支不兼容。
-- [ ] `uya microapp build` 使用与普通 `uya build` 同源的 parser/checker 语言语义；差异只允许发生在
-  microapp 安全策略、ABI、镜像格式和运行时能力裁决层。
-- [ ] 发布说明记录 C99、native、microapp 三条路径相对 main 分支的语言兼容结论和已知非语言限制。
+- 完整语言基线合同切片：
+  - [ ] 明确 main 分支语言兼容基线：以 main 分支的 `docs/uya.md`、`docs/grammar_formal.md`、
+    `docs/grammar_quick.md`、`docs/builtin_functions.md` 和完整语言回归测试为准。
+  - [ ] 固定完整语言后端差分套件的输入清单、normalized 输出格式和 allowlist 规则。
+- 完整语言后端差分切片：
+  - [ ] 确认 C99 backend 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / build seed 子集。
+  - [ ] 确认 hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native
+    `cmd/build` 子集。
+  - [ ] 确认 freestanding native 能力按 hosted native 已验证的 MIR 能力逐步下沉，不阻塞完整语言
+    hosted parity。
+  - [ ] C99 与 native 对同一套完整语言回归输入给出一致的成功/失败、退出码、diagnostics 和可执行行为。
+  - [ ] 新增或整理完整语言后端差分套件，覆盖 parser/checker/codegen 主语言面：多文件模块、泛型、方法、
+    接口、error union、`try/catch`、`defer/errdefer`、async、结构体/union/enum、slice/数组、指针、
+    `atomic T`、`@vector(T, N)`、`@mask(N)`、`@c_import`、内建函数和标准库入口。
+- microapp 兼容切片：
+  - [ ] 确认 microapp / microcontainer 在语言层面完全兼容 main 分支，不引入 microapp 专属语法、
+    关键字、内建函数或 checker 方言。
+  - [ ] 确认 microapp 的限制只来自 capability / runtime / profile / host API 层；对不支持能力的拒绝必须是
+    明确 diagnostic，不能表现为语言语义与 main 分支不兼容。
+  - [ ] 确认 `uya microapp build` 使用与普通 `uya build` 同源的 parser/checker 语言语义；差异只允许发生在
+    microapp 安全策略、ABI、镜像格式和运行时能力裁决层。
+  - [ ] 发布说明记录 C99、native、microapp 三条路径相对 main 分支的语言兼容结论和已知非语言限制。
 
 最终验收：
 
@@ -1351,7 +1378,7 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前可执行叶子是 PBA-TAIL 的末尾 `return 0` 实现；开始前需先标记该主清单叶子为 `[~]`。
+- 当前 PBA-TAIL 已完成；下一可执行叶子是 FRONTIER-RESET，开始时只把该主清单叶子标成 `[~]`。
 - helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
 - 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
@@ -1400,7 +1427,7 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成实现叶子：显式输出路径读取。
    - 已完成实现叶子：`.c` 输出推断 C99。
    - 已完成实现叶子：`--native` 输出 `.c` 拒绝。
-   - 下一个实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。
+   - 已完成实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。
 7. FRONTIER-RESET：`parse_build_args(...)` complete 后重建 `cmd-build` 并重新跑 self-build frontier。
    - 只把诊断实际报告的下一个 reachable callee 写入 todo 和 `docs/native_cmd_build_subset.md`。
    - 同步 `tests/verify_native_cmd_build_no_silent_c99.sh`，继续要求 no-output / no-silent-C99。

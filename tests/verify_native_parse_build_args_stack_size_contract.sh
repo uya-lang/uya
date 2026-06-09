@@ -92,7 +92,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_stack_
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_stack_size_write_body' \
     "生产代码缺少 --stack-size 写入/警告/跳参 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' \
     "no-silent-C99 测试必须固定位置输入容量检查后的 store frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"

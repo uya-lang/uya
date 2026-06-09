@@ -80,7 +80,7 @@ native 后端主线；完整语言 native parity 转由 `PortableMIR` + hosted n
 | F10 | partial | `tests/test_native_hash_intern_memory_ops.uya` 覆盖 i64 hash entry、intern entry、FNV hash、byte compare 和开放寻址 probe/update；`tests/test_native_memory_string_primitives.uya` 覆盖 `strlen`/`strcmp` 最小 native primitive；完整字符串/libc bridge 仍未 native 化 | 把 hash/intern 操作和字符串 primitive 接入 native-lowered compiler path，并补齐剩余字符串运行时 bridge |
 | F11 | partial | `tests/test_native_malloc_arena.uya` 覆盖 malloc/realloc/free facade、静态 buffer arena、动态 chunk 增长、reset/release；`tests/test_native_memory_string_primitives.uya` 覆盖 `memcpy`/`memset` 最小 native primitive | native malloc/arena/memory primitives 接入 compiler tables，并补齐剩余 libc memory primitives |
 | F12 | partial | `tests/test_native_diagnostic_output.uya` 覆盖 diagnostics growable byte buffer；`tests/test_native_format_minimal.uya` 覆盖 `%s/%d/%u/%ld/%zu/%%` 最小 `snprintf` 替代与截断语义；完整 `fprintf`/stderr bridge 仍未 native 化 | 将 buffer/formatter 接入 parser/checker diagnostic path，并补齐 stderr/file 输出 bridge |
-| F13 | partial | NativeEmitter 的历史 `LoweredProgram -> MachineModule` 窄子集仍只作为 freestanding build-seed 回归边界；hosted native 主线已经转到 CoreBody/PortableMIR preflight。`tests/verify_native_build_minimal_program.sh` 继续验证无参/最多两个 `i32` 参数、单/双 out-param、`get_argc()`、`get_argv(1)[0]`、条件返回/赋值、`set_process_stack_limit_bytes(...)` syscall 和 `parse_like(...)` 11 参数写回等旧窄 executable 子集不回归；`tests/verify_native_cmd_build_compiler_regressions.sh` 用 `bin/cmd/build --native --nostdlib` 覆盖泛型 identity、local array out-param、stack-limit call 和 compiler-like parse out-param regression 组；`tests/verify_native_cmd_build_c99_output_parity.sh` 用 `bin/cmd/build` 生成 C99 output，并与 C99-built `bin/uya` oracle 做归一化输出和运行结果比对。当前 `src/cmd/build/main.uya --native` self-build 门禁不再使用 `--nostdlib` 或 `compile_files(...)` one-off 形状，而是以 hosted 路径解析/检查 91 个依赖后进入 verifier-clean CoreIR/PortableMIR preflight；实测 frontier 为 `native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>`，已覆盖 `build_compiler_driver_run` 的顶层入口前缀至末尾 `return 0`，包括 `parse_build_args(...)`、输出路径选择、`compile_files(...)` result、native 成功返回、C 输出检测分支入口、链接输出分支入口和最终返回；链接输出分支内部 nested frontier 为 `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`，已覆盖 `const c_file: &byte = artifacts.generated_c_path`、`var output: &byte = "a.out" as *byte`、`if user_output_path != null` 条件入口、`const link_result: i32 = link_with_toolchain(...)` 初始化、`if link_result != 0` 错误分支条件入口、链接输出分支内部成功 `fprintf(...)` 和 `return 0`，链接输出子块内部已无下一条 child frontier。entry complete 后的下一层 reachable body frontier 固定为 `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body`，证明 `parse_build_args(...)` 已覆盖到 option loop 骨架、`get_argv(i)` null diagnostic 和循环尾递增，下一步从基础 flag/scalar option 分支继续。handoff 现在固定为 `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`，继续输出 `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`，并通过 `native_hosted_emitter_import_preflight: status=ready imported_functions=482 imported_blocks=39 imported_insts=55 ...` 和 `native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=482 ...` 证明 verified partial MIR 已进入 `NativeMirEmitter` import preflight 和 `MirTargetBackendOutput` payload；最终仍后接 `native_hosted_portable_mir_lowering_missing`，且不生成伪 native 输出、不回落 C99。 | hosted PortableMIR body lowering 接入真实 emitter/handoff 后，再生成 native `bin/cmd/build` |
+| F13 | partial | NativeEmitter 的历史 `LoweredProgram -> MachineModule` 窄子集仍只作为 freestanding build-seed 回归边界；hosted native 主线已经转到 CoreBody/PortableMIR preflight。`tests/verify_native_build_minimal_program.sh` 继续验证无参/最多两个 `i32` 参数、单/双 out-param、`get_argc()`、`get_argv(1)[0]`、条件返回/赋值、`set_process_stack_limit_bytes(...)` syscall 和 `parse_like(...)` 11 参数写回等旧窄 executable 子集不回归；`tests/verify_native_cmd_build_compiler_regressions.sh` 用 `bin/cmd/build --native --nostdlib` 覆盖泛型 identity、local array out-param、stack-limit call 和 compiler-like parse out-param regression 组；`tests/verify_native_cmd_build_c99_output_parity.sh` 用 `bin/cmd/build` 生成 C99 output，并与 C99-built `bin/uya` oracle 做归一化输出和运行结果比对。当前 `src/cmd/build/main.uya --native` self-build 门禁不再使用 `--nostdlib` 或 `compile_files(...)` one-off 形状，而是以 hosted 路径解析/检查 91 个依赖后进入 verifier-clean CoreIR/PortableMIR preflight；实测 frontier 为 `native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>`，已覆盖 `build_compiler_driver_run` 的顶层入口前缀至末尾 `return 0`，包括 `parse_build_args(...)`、输出路径选择、`compile_files(...)` result、native 成功返回、C 输出检测分支入口、链接输出分支入口和最终返回；链接输出分支内部 nested frontier 为 `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`，已覆盖 `const c_file: &byte = artifacts.generated_c_path`、`var output: &byte = "a.out" as *byte`、`if user_output_path != null` 条件入口、`const link_result: i32 = link_with_toolchain(...)` 初始化、`if link_result != 0` 错误分支条件入口、链接输出分支内部成功 `fprintf(...)` 和 `return 0`，链接输出子块内部已无下一条 child frontier。entry complete 后的下一层 reachable body coverage 已推进到 `native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete`，证明 `parse_build_args(...)` root body 已覆盖到 tail return；下一步必须由重新运行 self-build frontier 后的真实 reachable callee 或 body frontier 驱动。handoff 现在固定为 `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`，继续输出 `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`，并通过 `native_hosted_emitter_import_preflight: status=ready imported_functions=482 imported_blocks=39 imported_insts=55 ...` 和 `native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=482 ...` 证明 verified partial MIR 已进入 `NativeMirEmitter` import preflight 和 `MirTargetBackendOutput` payload；最终仍后接 `native_hosted_portable_mir_lowering_missing`，且不生成伪 native 输出、不回落 C99。 | hosted PortableMIR body lowering 接入真实 emitter/handoff 后，再生成 native `bin/cmd/build` |
 | F14 | missing | host toolchain/file system bridge 未 native 化；只有最小 syscall encoding | native file IO 和 host C toolchain 调用路径可用 |
 | F15 | partial | `tests/test_native_arena_peak_stats.uya` 覆盖 native arena peak snapshot，保留 `arena_peak_bytes` / `ast_arena_peak_bytes` / `check_arena_peak_bytes` / `emit_arena_peak_bytes` 同名字段；table/output/typed program metrics 尚未接入 native-built compiler | native-built compiler 继续输出全部同名 metrics |
 | F16 | done | build seed boundary 已排除 VM/exec、`uya microapp build/pack/inspect/verify/run`、fmt/upm、kernel packaging | 后续保持边界验证，避免重新引入非需求 |
@@ -106,8 +106,7 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `CoreBody` / `PortableMIR` preflight，并要求 CoreIR 与 PortableMIR verifier-clean；当前 frontier 固定为
   `native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>`、
   `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`、
-  `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body`、
-  `native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-native-c-reject next_branch=parse-tail-return next_kind=return reason=partial_tail_branch`、
+  `native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete`、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
   `native_hosted_emitter_import_preflight: status=ready imported_functions=482 imported_blocks=39 imported_insts=55 ...`、
@@ -164,15 +163,15 @@ no-output、no-silent-C99，并把 reachable callee/body frontier 推进到真�
 
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
-当前 root body frontier 已推进到收尾输出路径读取入口：
+`parse_build_args(...)` root body 已推进到 body complete：
 
 ```text
-native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body
+native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete
 ```
 
-这表示 root body 已覆盖到 option loop 和无输入文件分支的 partial stub；它不能被当成
-整个 tail body 已完成。早期基础 flag / scalar option 迁入时使用过 loop-body child frontier，
-后续 tail 分支必须继续按源码顺序推进：
+这表示 root body 已覆盖 option loop、位置输入文件收集和 tail return。早期基础 flag /
+scalar option 迁入时使用过 loop-body child frontier；这些历史 frontier 只能作为迁移背景，
+不能再作为当前 no-silent-C99 期望：
 
 ```text
 native_hosted_reachable_loop_body_frontier: function=parse_build_args parent_stmt=23 loop_body_prefix_stmts=2 loop_body_next_stmt=2 loop_body_next_kind=AST_IF_STMT reason=partial_loop_body
@@ -180,9 +179,8 @@ native_hosted_reachable_loop_body_frontier: function=parse_build_args parent_stm
 
 其中 `parent_stmt=23` 是 `while i < argc`，`loop_body_prefix_stmts=2` 只表示已覆盖
 `const arg: *byte = get_argv(i)` 和 `if arg == null`，下一处真实缺口仍是基础 flag / scalar option
-的 `else if` 链。后续 `-o`、backend、line-directives、safety-proof、opt-level 和 `--nostdlib`
-每个切片都必须推进这个 child frontier 或更深的 branch frontier；直到整个 while body 完整前，
-不得借 root body prefix 宣称 `parse_build_args(...)` complete。
+的 `else if` 链。当前这些分支已经按切片迁入；`parse_build_args(...)` complete 后，下一步必须
+重新运行 self-build frontier，只接受诊断实际报告的下一个 reachable callee 或 body frontier。
 
 `-o` 分支完成后必须报告更深一层的 branch frontier，证明缺参 diagnostic / `return -1`、
 `output_file_index[0] = i + 1` 和 `i = i + 1` 已纳入 verifier-clean partial body，下一处缺口
@@ -328,12 +326,11 @@ self-build 的 no-output / no-silent-C99 语义：在这些 tail 分支全部迁
    diagnostic 和 `return -1`。
 5. 收尾成功：上述检查完成后保留末尾 `return 0`。
 
-native `.c` 拒绝实现后，当前 root frontier 仍固定在末尾 `return 0`；`out_idx >= 0` 子分支已覆盖
-显式输出路径读取、`.c` 输出推断和 native `.c` 拒绝，后续实现叶子必须继续完成末尾 `return 0`：
+末尾 `return 0` 实现后，`parse_build_args(...)` 的 source-order root body 已覆盖 28 条语句并标记
+body complete；后续任务必须重跑 self-build frontier，只接受诊断实际报告的下一个 reachable callee：
 
 ```text
-native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body
-native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-native-c-reject next_branch=parse-tail-return next_kind=return reason=partial_tail_branch
+native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete
 ```
 
 ## Hosted Native Handoff First Slice Contract
