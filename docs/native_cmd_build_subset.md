@@ -107,7 +107,7 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>`、
   `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`、
   `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body`、
-  `native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-c-output-infer next_branch=tail-native-c-reject next_kind=AST_IF_STMT reason=partial_tail_branch`、
+  `native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-native-c-reject next_branch=parse-tail-return next_kind=return reason=partial_tail_branch`、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
   `native_hosted_emitter_import_preflight: status=ready imported_functions=482 imported_blocks=39 imported_insts=55 ...`、
@@ -328,12 +328,12 @@ self-build 的 no-output / no-silent-C99 语义：在这些 tail 分支全部迁
    diagnostic 和 `return -1`。
 5. 收尾成功：上述检查完成后保留末尾 `return 0`。
 
-`.c` 输出推断实现后，当前 root frontier 仍固定在末尾 `return 0`；`out_idx >= 0` 子分支已覆盖
-显式输出路径读取和 `.c` 输出推断，后续实现叶子必须继续完成 native `.c` 拒绝：
+native `.c` 拒绝实现后，当前 root frontier 仍固定在末尾 `return 0`；`out_idx >= 0` 子分支已覆盖
+显式输出路径读取、`.c` 输出推断和 native `.c` 拒绝，后续实现叶子必须继续完成末尾 `return 0`：
 
 ```text
 native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body
-native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-c-output-infer next_branch=tail-native-c-reject next_kind=AST_IF_STMT reason=partial_tail_branch
+native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-native-c-reject next_branch=parse-tail-return next_kind=return reason=partial_tail_branch
 ```
 
 ## Hosted Native Handoff First Slice Contract

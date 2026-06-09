@@ -6779,6 +6779,112 @@ fn native_build_hosted_parse_build_args_tail_c_output_infer_body(
     return 1;
 }
 
+fn native_build_hosted_parse_build_args_is_c_output_nonzero_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       expr.binary_expr_right.type != ASTNodeType.AST_NUMBER ||
+       expr.binary_expr_right.number_value_i64 != 0i64 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_NOT_EQUAL {
+        return 0;
+    }
+    const call: &ASTNode = expr.binary_expr_left;
+    if call == null || call.type != ASTNodeType.AST_CALL_EXPR ||
+       call.call_expr_callee == null || call.call_expr_args == null ||
+       call.call_expr_arg_count != 1 ||
+       native_build_hosted_expr_identifier_matches(
+        call.call_expr_callee, "is_c_output" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_casted_identifier_matches(
+        call.call_expr_args[0], "out_path" as &byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_native_c_reject_condition(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_AND ||
+       native_build_hosted_parse_build_args_backend_array_eq_expr(
+        expr.binary_expr_left, 2) == 0 ||
+       native_build_hosted_parse_build_args_is_c_output_nonzero_expr(
+        expr.binary_expr_right) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_native_c_reject_diagnostic_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.call_expr_callee == null || stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count < 2 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.call_expr_callee, "fprintf" as &byte) == 0 ||
+       native_build_expr_string_literal_equals(stmt.call_expr_args[1],
+        "错误: --native 不能输出 .c 文件；C 输出请使用 --c99\n" as &byte) == 0 {
+        return 0;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt, &call_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_native_c_reject_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_else_branch != null ||
+       native_build_hosted_parse_build_args_tail_native_c_reject_condition(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 ||
+       native_build_hosted_parse_build_args_native_c_reject_diagnostic_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_return_value(
+        stmt.if_stmt_then_branch.block_stmts[1], -1) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_native_c_reject_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_tail_c_output_infer_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    const block: &ASTNode =
+        native_build_hosted_parse_build_args_tail_output_block(decl);
+    if block == null || block.block_stmts == null || block.block_stmt_count < 4 ||
+       native_build_hosted_parse_build_args_tail_native_c_reject_if_supported(
+        block.block_stmts[3], checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
     checker: &TypeChecker) i32 {
     if stmt == null || checker == null || stmt.type != ASTNodeType.AST_WHILE_STMT ||
@@ -16737,7 +16843,15 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
             result.entry_reachable_tail_branch_function_name =
                 native_build_decl_name_for_diagnostic(target_decl);
             result.entry_reachable_tail_branch_parent_stmt_index = 26;
-            if native_build_hosted_parse_build_args_tail_c_output_infer_body(
+            if native_build_hosted_parse_build_args_tail_native_c_reject_body(
+                target_decl, checker, program) != 0 {
+                result.entry_reachable_tail_branch_covered_name =
+                    "tail-native-c-reject" as &byte;
+                result.entry_reachable_tail_branch_next_name =
+                    "parse-tail-return" as &byte;
+                result.entry_reachable_tail_branch_next_kind =
+                    "return" as &byte;
+            } else if native_build_hosted_parse_build_args_tail_c_output_infer_body(
                 target_decl, checker, program) != 0 {
                 result.entry_reachable_tail_branch_covered_name =
                     "tail-c-output-infer" as &byte;

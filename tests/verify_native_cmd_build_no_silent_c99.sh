@@ -95,7 +95,7 @@ run_cmd_build_self_preflight_check() {
     grep -q 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' "$stderr"
-    grep -q 'native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-c-output-infer next_branch=tail-native-c-reject next_kind=AST_IF_STMT reason=partial_tail_branch' "$stderr"
+    grep -q 'native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-native-c-reject next_branch=parse-tail-return next_kind=return reason=partial_tail_branch' "$stderr"
     if grep -q 'covered_branch=positional-input next_branch=parse-tail-input-count' "$stderr"; then
         echo "错误: $label self-build 不应停留在位置输入后的 tail 首分支 frontier" >&2
         cat "$stderr" >&2
