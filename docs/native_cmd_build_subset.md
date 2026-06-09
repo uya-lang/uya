@@ -309,6 +309,31 @@ native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args par
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT reason=partial_else_if_chain
 ```
 
+## `parse_build_args(...)` Tail Output Contract
+
+收尾输出路径检查合同固定 source-order surface，后续实现切片必须继续保持当前 native hosted
+self-build 的 no-output / no-silent-C99 语义：在这些 tail 分支全部迁入 CoreBody/PortableMIR
+之前，`cmd/build --native` self-build 仍只能以
+`native_hosted_portable_mir_lowering_missing` 明确拒绝写出 executable。
+
+1. 无输入文件分支：`input_file_count[0] == 0`、`错误: 未指定输入文件\n` diagnostic、
+   `program_name != null`、`print_usage(program_name as &byte)` 和 `return -1`。
+2. 显式输出路径读取：`const out_idx: i32 = output_file_index[0]`、`out_idx >= 0`、
+   `get_argv(out_idx)`、null 输出路径 diagnostic 和 `return -1`。
+3. `.c` 输出推断 C99：`backend_type[0] == BackendType.BACKEND_LLVM`、`strrchr(out_path, 46)`、
+   `ext != null && strcmp(ext, ".c" as *byte) == 0` 和 `backend_type[0] = BackendType.BACKEND_C99`。
+4. `--native` 输出 `.c` 拒绝：`backend_type[0] == BackendType.BACKEND_NATIVE`、
+   `is_c_output(out_path as &byte) != 0`、`错误: --native 不能输出 .c 文件；C 输出请使用 --c99`
+   diagnostic 和 `return -1`。
+5. 收尾成功：上述检查完成后保留末尾 `return 0`。
+
+当前 frontier 仍固定在 tail 首分支入口，后续实现叶子必须从这里开始推进：
+
+```text
+native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
