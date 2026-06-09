@@ -109,6 +109,8 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete`、
   stack-limit helper 首切片已进入 verifier-clean CoreBody/PortableMIR，因此不再报告
   `set_process_stack_limit_bytes` pending callee；当前计数为 `core_bodies=6`、`mir_body_functions=5`、
+  且本轮 stderr 未输出新的 `native_hosted_reachable_callee_frontier` / `native_hosted_reachable_body_frontier`
+  / loop body-prefix frontier、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
   `native_hosted_emitter_import_preflight: status=ready imported_functions=483 imported_blocks=40 imported_insts=56 ...`、

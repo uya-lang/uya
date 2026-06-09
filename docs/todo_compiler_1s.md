@@ -1136,8 +1136,16 @@ PortableMIR/native hosted parity 的验收输入。
             `@syscall(... ENTRY_RLIMIT_STACK ... &rlim ...)` 和 `catch { 0i64; }`；不改生产实现。
           - [x] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
             helper 的下一条 body-prefix 或下一个 reachable callee。
-          - [ ] 首切片迁入后重建 `cmd-build` 并复跑 self-build frontier：只记录真实诊断中的下一处
+          - [x] 首切片迁入后重建 `cmd-build` 并复跑 self-build frontier：只记录真实诊断中的下一处
             body-prefix / callee，不猜测 `compile_files(...)` 或其它 helper。
+            - 实测命令：`make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；
+              `./bin/cmd/build src/cmd/build/main.uya -o /tmp/cb-native-frontier-task2 --project-root ./src/ --no-split-c --native`
+              失败退出但保持 no-output/no-silent-C99。
+            - 实测 frontier：`core_bodies=6`、`mir_body_functions=5`、`pending_bodies=3156`；
+              stderr 不再包含 `set_process_stack_limit_bytes reason=pending_core_body`。
+            - 本轮 stderr 未输出新的 `native_hosted_reachable_callee_frontier`、
+              `native_hosted_reachable_body_frontier` 或 loop/body-prefix frontier；真实可记录的下一状态仍是
+              `native_hosted_handoff_frontier: reason=pending_core_bodies ...`。
           - [ ] 若 frontier 仍指向 `set_process_stack_limit_bytes(...)`，为下一条真实 body-prefix 补
             CoreBody/PortableMIR golden/verifier 合同；不改生产实现。
           - [ ] 迁入 `set_process_stack_limit_bytes(...)` 的下一条真实 body-prefix，并再次推进 frontier；
@@ -1468,8 +1476,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
    - 已完成叶子：审计 `set_process_stack_limit_bytes(...)` body surface。
    - 已完成叶子：为 `set_process_stack_limit_bytes(...)` 的 Linux x86_64 首切片补合同。
-   - `set_process_stack_limit_bytes(...)` 首切片已迁入；下一步重建 `cmd-build` 并复跑
-     self-build frontier，只记录真实诊断中的下一处 body-prefix / callee。
+   - `set_process_stack_limit_bytes(...)` 首切片已迁入，且已复跑 self-build frontier；当前 stderr 未输出新的
+     reachable callee/body-prefix frontier，只剩 `pending_core_bodies` handoff 阻塞。
    - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
      `compile_files(...)`、toolchain helper 或其它大函数。
 9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。
