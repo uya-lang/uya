@@ -993,7 +993,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 在 entry complete 后报告首个未 lower reachable callee frontier，先精确到 `parse_build_args(...)`。
       - 剩余任务差分（按 `native_hosted_reachable_callee_frontier` 顺序执行；每个切片只跑相关测试，不跑
         `make backup-all`）：
-        - [ ] 将当前 reachable callee frontier 固定为推进门禁：self-build 必须报告
+        - [x] 将当前 reachable callee frontier 固定为推进门禁：self-build 必须报告
           `parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args reason=pending_core_body`，
           且 handoff 仍因 `pending_core_bodies` / `native_hosted_portable_mir_lowering_missing` 明确拒绝输出。
         - [ ] 审计 `parse_build_args(...)` 的 CoreBody/PortableMIR surface，按 body 顺序列出 argv/argc、out-param
