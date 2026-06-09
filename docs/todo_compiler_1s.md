@@ -1010,6 +1010,29 @@ MIR -> Native 首个目标：
         下放到 `CORE_STMT_KIND_EXPR` + `CORE_EXPR_KIND_CALL`，call target 是 L994.A 注册的
         `uya_write_str` / `uya_write_newline` extern。要求 `native_hosted_preflight` 报告
         `mir_body_functions > 0`（helloworld 程序）。
+        #
+        # 2026-06-10 进一步拆分：L994.B 单叶过大（涉及 HIR 检测 + CoreIR 发射 +
+        # MIR 发射 + wiring，每块 ~100 行），拆为 4 个子子叶子：
+        # - [ ] L994.B.1 模式识别：在 `can_materialize_safe_core_body` 内检测
+        #       `main()` 2-stmt body（`@println(string_lit)` + `return N`），
+        #       返回 1 命中。TDD 红：`verify_hosted_native_print_hir_lowering.sh`
+        #       增加模式识别 diagnostic 断言（即使 body 不 lowering 也先识别到）。
+        # - [ ] L994.B.2 CoreIR body 发射：新增 `coreir_append_print_helloworld_body`
+        #       把 2-stmt body 转成 CoreBody（`CORE_STMT_KIND_EXPR` +
+        #       `CORE_EXPR_KIND_CALL` × 2：先 `uya_write_str`，后
+        #       `uya_write_newline`），与 `can_materialize_safe_core_body` 配合。
+        # - [ ] L994.B.3 MIR body 发射：新增 `mir_append_print_helloworld_body_function`
+        #       把 CoreBody 转成 PortableMIR（1 function，1 block，2 inst
+        #       `MIR_INST_OP_CALL` + 1 terminator `MIR_TERMINATOR_KIND_RETURN`）。
+        #       关键：call inst 的 `flags` 是 `MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR/NEWLINE`
+        #       负数 synth_decl_id；operand 0 是 call target（type=signature_type_id，
+        #       immediate=mir_function_id），operand 1..N 是 fd/ptr/len 参数。
+        # - [ ] L994.B.4 wiring：在 `native_build_hosted_mir_append_program_safe_bodies`
+        #       把 `mir_append_print_helloworld_body_function` 串到主路由。L994.B 完成
+        #       后 `verify_hosted_native_print_hir_lowering.sh` 全部转绿。
+        # 完成 L994.B.1 + B.2 之后，最小"first slice"是 main body 调
+        # `uya_write_newline(1)` + return 0（输出 `\n` 而非 `Hello, World!`）；
+        # L994.B.3 完成后才输出 `Hello, World!`。
   - [ ] L994.C MIR verifier ABI 校验：在 `src/lower/mir_verifier.uya` 的
         `CORE_EXPR_KIND_CALL` 路径上验证 print helper extern 的 ABI（参数 i32/i64 寄存器、
         ret i32、non-naked）。
