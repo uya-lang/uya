@@ -189,6 +189,32 @@ no-output、no-silent-C99，并把 reachable callee/body frontier 推进到真�
    surface；hosted native 不得调用 libc `setrlimit`、不得把它当作已完成 executable writer 条件，
    也不得静默回落 C99。
 
+## `set_process_stack_limit_bytes(...)` First Slice Contract
+
+Linux x86_64 首切片只冻结 `set_process_stack_limit_bytes(...)` 中最小可验证路径：
+`EntryRLimit` 局部初始化、`SYS_setrlimit_x86_64 = 160`、
+`@syscall(SYS_setrlimit_x86_64, ENTRY_RLIMIT_STACK as i64, &rlim as i64)` 和
+`setrlimit_result_x86_64 catch { 0i64; };`。该合同不代表 helper body complete，也不允许提前跳到
+`compile_files(...)`。
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR body 必须以 source body 记录 `EntryRLimit` 局部结构初始化；局部声明使用
+   `CORE_STMT_KIND_LOCAL_DECL`，字段来源必须仍是 `limit_bytes`，不得压成不透明 helper。
+2. x86_64 `@syscall` 必须作为 `CORE_EXPR_KIND_CALL` 或等价 syscall-call surface 进入 CoreIR，
+   并附带 `CORE_SEMANTIC_FACT_CAPABILITY`，表示 target-gated syscall capability。
+3. `ENTRY_RLIMIT_STACK` 的值必须保持 `3`，`SYS_setrlimit_x86_64` 的值必须保持 `160`；
+   `&rlim as i64` 必须保留地址语义，不能替换成 libc `setrlimit`。
+4. PortableMIR 必须用 `MIR_INST_OP_CALL` 或后续正式 syscall inst 表达该调用；在正式 syscall inst
+   落地前，call inst 必须带 `MIR_CALL_ABI_PROFILE_FREESTANDING_SYSCALL` 和 runtime capability metadata。
+5. `MirCapabilityReq` / `runtime_capability_mask` 必须让 `MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY`
+   在不支持 syscall 的 target profile 下可触发；不能让 backend 到发射阶段才发现能力缺口。
+6. `catch { 0i64; }` 必须作为 error-union cleanup/fallback 语义保留：失败被忽略、不输出 diagnostic、
+   函数保持 `void` 返回。
+7. hosted self-build 在该首切片未实现前必须继续报告
+   `native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body`
+   和 `native_hosted_portable_mir_lowering_missing`，并继续 no-output / no-silent-C99。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
