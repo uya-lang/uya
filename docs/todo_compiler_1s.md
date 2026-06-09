@@ -766,7 +766,7 @@ make tests-uya
 
 ---
 
-## Phase 9A: PortableMIR 完整语言主干
+## Phase 9A: PortableMIR 架构主干
 
 路线调整：Phase 10 的 native `cmd/build` 子集已经证明了最小 native writer、ELF、调用约定和
 no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特例集合，而是先建立
@@ -774,15 +774,18 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 完整函数体语义先由 Phase 5B 的 `CoreBody` 冻结，再由 `PortableMIR` 承接为低级 CFG/value/memory IR，
 并作为后续 native、PTX、exec、C99 等后端的共享入口。
 
+本阶段只表示 `PortableMIR` 架构、合同、verifier 和后端入口已经建立；不表示完整 Uya 语言已经都能
+降到 MIR。完整语言到 `CoreBody` / `PortableMIR` 的实现覆盖和用户可见 native parity 由 Phase 9B 承接。
+
 - [x] 新增 `docs/portable_mir_whitepaper.md`，作为 Phase 9A 实现前的详细 MIR 合同。
 - [x] Phase 5B 的 `CoreBody`、CoreIR dump、CoreIR verifier 和 CoreIR closure contract 门禁全部通过。
 - [x] 定义 `PortableMIR` 顶层 module / function / block / value / type / local / inst / terminator 结构。
 - [x] `PortableMIR` 所有表动态增长，不引入函数、block、inst、value、local 或 type 的固定语义上限。
 - [x] 明确 `LoweredProgram` 的职责边界：functions、globals、types、interfaces、err_unions、async_frames、
   drop_defer_plans、helpers、worklist 和稳定符号顺序；不把 `LoweredBodyOp` 扩成完整语言 IR。
-- [x] 实现 `LoweredProgram + CoreBody` 到 `PortableMIR` 的 lowering 合同，覆盖表达式、语句、控制流、
-  load/store/address、atomic、SIMD vector/mask、call/return/branch、field/index/slice 地址计算、
-  copy/move/drop 和 cleanup path。
+- [x] 定义 `LoweredProgram + CoreBody` 到 `PortableMIR` 的 lowering 合同和 feature mask，作为表达式、
+  语句、控制流、load/store/address、atomic、SIMD vector/mask、call/return/branch、
+  field/index/slice 地址计算、copy/move/drop 和 cleanup path 的实现覆盖依据。
 - [x] MIR lowering 默认不查询 `TypedProgram`；若确实缺少 source/proof/capability metadata，先回补
   CoreIR 合同。
 - [x] `PortableMIR` 显式记录 target-neutral layout metadata、calling convention 需求、hosted/freestanding
@@ -815,8 +818,8 @@ no-silent-C99 fallback 边界；下一步不再继续扩大 `LoweredBodyOp` 特�
 - [x] 新增 `tests/verify_portable_mir_naked_fn.sh`。
 - [x] 新增 MIR parallel determinism 测试，覆盖并行构造开关下 dump、diagnostics、IDs 和 symbol order 不变。
 - [x] 新增 `tests/verify_portable_mir_parallel_determinism.sh`。
-- [x] 新增 hosted native / C99 完整语言差分 smoke，先覆盖多文件、泛型、方法、interface、error/defer/drop、
-  slice/array/struct/union/enum、atomic、SIMD vector/mask、builtin、extern 和 `@c_import`。
+- [x] 新增 hosted native / C99 差分 smoke 框架，用 MIR-backed success shard 和明确 reject 固定当前边界；
+  完整语言覆盖清单转入 Phase 9B。
 - [x] 新增 `tests/verify_hosted_native_full_language_smoke.sh`。
 - [x] 新增 `tests/verify_hosted_native_c_import_link_parity.sh`，覆盖最小 extern C object hosted linker handoff parity。
 - [x] 保留 `tests/verify_native_cmd_build_no_silent_c99.sh`，确保 native 失败不会静默回落 C99。
@@ -859,7 +862,8 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 - [x] native 后端新增语言能力时，语言 lowering 只需改 `PortableMIR`，不在每个 target backend 重复实现。
 - [x] `@naked_fn` 通过 CoreIR/MIR verifier 和 native 专用 path，不走普通函数栈帧。
 - [x] MIR 并行构造不改变 dump、diagnostics、IDs 或 symbol order。
-- hosted native 与 C99 对完整语言 smoke 的成功/失败、退出码、diagnostics 和运行结果一致（拆分执行；原始目标保留）：
+- hosted native 与 C99 对已迁 MIR shard 的成功/失败、退出码、diagnostics 和运行结果一致；完整语言 parity
+  转入 Phase 9B：
   - [x] 接入 no-deps hosted native basic parity smoke：非 `--nostdlib` 的 `--native` 对无外部依赖基础程序真实生成 executable，并与 C99 退出码 / stdout / stderr 一致。
   - 用 `CoreBody -> PortableMIR` 函数体 lowering 覆盖 full-language smoke 的 main/helper 函数，不再依赖 build-seed `LoweredBodyOp` 特例：
     - [x] 将 hosted preflight 的 `return <int literal>` CoreBody 降成 PortableMIR body function，带 return operand/value，使 `helper_value() i32 { return 3; }` 与 `void` body 一起计入 MIR body 覆盖。
@@ -892,11 +896,137 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 
 ---
 
+## Phase 9B: 完整语言到 CoreBody / PortableMIR
+
+Phase 9B 是 Phase 10 的前置阶段。本阶段目标是让普通 Uya 程序按通用规则进入
+`CoreBody -> PortableMIR -> NativeMirEmitter`，而不是继续围绕 `cmd/build` 或某个 smoke 手写特殊
+lowering。Phase 10 只能消费本阶段已经验证过的 MIR 语言能力；如果 `cmd/build` 需要新的语法、builtin、
+标准库入口或 runtime capability，先回到本阶段补通用 lowering 和 C99 parity，再推进 self-build。
+
+执行原则：
+
+- 每个叶子先补 hosted native / C99 parity 或明确 reject 门禁，再改 CoreBody / PortableMIR lowering。
+- 以 C99 backend 作为 oracle；native 成功时必须真实生成 executable，不允许 C99 fallback、pre-MIR helper
+  或 one-off `LoweredBodyOp`。
+- 按 AST / CoreStmt / CoreExpr / CorePlace / builtin / 标准库入口建立覆盖矩阵，不能只靠单个 smoke 名称。
+- `@print` / `@println` 和标准库入口属于完整语言到 MIR 的基础语言面，不得推迟到 `cmd/build` self-build
+  后再处理；HelloWorld 是 MIR -> Native 的首个端到端目标，不作为 Phase 9B 的第一个执行叶子。
+
+MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执行叶子从“覆盖矩阵合同”开始）：
+
+- 结构层：继续用 `tests/verify_portable_mir_structs.sh` 和
+  `tests/verify_portable_mir_dynamic_tables.sh` 固定 module/function/block/value/type/local/inst 表、
+  动态增长、stable id 和释放路径。
+- Dump/golden 层：继续用 `tests/verify_portable_mir_golden.sh` 和
+  `tests/verify_portable_mir_naked_fn.sh` 固定 MIR 文本格式、函数体 CFG、naked fn 边界和跨平台稳定性。
+- Verifier 层：继续用 `tests/verify_portable_mir_verifier.sh` 覆盖正例和负例；负例至少覆盖未终结
+  block、value 定义/使用错误、类型不匹配、非法地址、cleanup edge、atomic/vector/mask/capability 错误。
+- CoreBody -> MIR lowering 层：每迁入一个 AST/Core/builtin 叶子，先补最小 source shard，检查
+  CoreBody surface、PortableMIR dump、verifier clean 和 diagnostic；禁止 lowering 过程回查 `TypedProgram`、
+  走 C99 fallback、pre-MIR helper 或 one-off `LoweredBodyOp`。
+- MIR -> backend import 层：继续用 `tests/verify_native_mir_emitter.sh` 和 hosted import preflight 固定
+  `NativeMirEmitter` 消费 verifier-clean MIR 的 function/block/inst/import 计数；后端不得直接消费 AST/Core
+  或手写旧 native helper。
+- 端到端 parity 层：每个成功 shard 都必须 native/C99 stdout、stderr、退出码一致，native 必须真实生成并运行
+  executable；新增 Phase 9B shard 和已迁 MIR success shard 不得出现
+  `native_hosted_portable_mir_lowering_missing`、C99 fallback 或 pre-MIR helper 成功路径。
+- reject shard 在覆盖矩阵和专用 diagnostic 落地后，必须与覆盖矩阵中的 `reject` 状态一致；在该迁移完成前，
+  现有 `tests/verify_hosted_native_full_language_smoke.sh` 中复杂 no-deps shard 的
+  `native_hosted_portable_mir_lowering_missing` 只作为 legacy 边界，不作为 Phase 9B 新增 shard 的通过条件。
+- HelloWorld 是 MIR -> Native 的第一条端到端 parity 目标；它通过前，不把 Phase 10 self-build 当作当前主驱动。
+
+覆盖矩阵合同：
+
+- [ ] 新增 `docs/portable_mir_language_coverage.md`，按 `ASTNodeType`、`CoreStmtKind`、`CoreExprKind`、
+  `CorePlaceKind`、builtin、标准库入口和 runtime capability 列出状态：`done`、`partial`、`reject`、
+  `missing`。
+- [ ] 新增 coverage verifier / 脚本，扫描 `src/ast.uya`、`src/lower/core.uya`、`src/lower/mir_contract.uya`
+  和 native lowering 实现，要求新增 AST/Core kind 必须在覆盖矩阵中有状态。
+- [ ] 将现有 Phase 9A shard 写入覆盖矩阵：return literal、return call、局部初始化、基础 if-return、
+  extern / `@c_import`、builtin shard、slice/array、error union、defer/drop、interface、atomic、SIMD。
+- [ ] 把当前明确 reject 的复杂 shard 写入覆盖矩阵，记录 reject diagnostic 和 C99 oracle 行为。
+
+语言面迁移叶子：
+
+- [ ] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
+  保留字符串字面量、字符串插值、标量格式化和返回值语义。
+- [ ] print/println MIR lowering：将 `AST_PRINT` / `AST_PRINTLN` 降成 PortableMIR；hosted profile 走
+  stdout / libc / runtime capability，freestanding profile 走明确 capability gate 或 syscall/write bridge，
+  不支持时必须明确 diagnostic。
+- [ ] statements：覆盖 expression statement、var/const decl、assign、if/else、while、for、break/continue、
+  return、block、defer/errdefer/drop、try/catch 和裸 call statement 的通用 lowering。
+- [ ] expressions：覆盖 literal、identifier、local/global load、binary/unary、logical short-circuit、call、
+  method call、field access、index/slice、cast/as、address-of、dereference、enum/union/error construction、
+  struct/array/slice literal、string literal、string interpolation 和 builtin expression。
+- [ ] places/addressing：覆盖 local、global、field、index、slice ptr/len、pointer arithmetic、out-param、
+  optional/null-like pointer 比较和 nested aggregate address。
+- [ ] types/layout：覆盖 integer/float/bool/byte、pointer、array、slice、struct、union、enum、error union、
+  function type、interface/vtable、generic instance、atomic、vector/mask 和 naked function layout/capability。
+- [ ] builtins：覆盖 `@len`、`@size_of`、`@align_of`、`@error_id`、`@error_name`、`@print`、`@println`、
+  `@syscall`、`@ptr_from_usize`、`@usize_from_ptr`、`@c_import`、`@naked_fn`、`@vector`、`@mask` 和
+  已在规范中启用的其它 builtin；未支持 builtin 必须明确 reject。
+- [ ] std/runtime entry：覆盖 `std.runtime.entry`、`get_argc`、`get_argv`、stdout/stderr、malloc/free、
+  file IO、env、toolchain/linker handoff 和 hosted/freestanding capability 分流。
+
+MIR -> Native 首个目标：
+
+- [ ] 新增 `tests/verify_hosted_native_helloworld_parity.sh`，覆盖：
+  - `@println("Hello, World!")`。
+  - `@print("Hello")` + `@println("")`。
+  - `@println` 返回值可作为 `i32` 使用。
+  - native/C99 stdout、stderr、退出码一致。
+  - native build stderr 必须包含 CoreBody、PortableMIR verifier 和 NativeMirEmitter 证据。
+  - native build stderr 不得包含 `native_hosted_portable_mir_lowering_missing`、C99 fallback 或
+    pre-MIR helper 成功路径。
+- [ ] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
+  vararg/format 或 runtime helper handoff。
+- [ ] HelloWorld native executable 真实运行并输出 `Hello, World!\n`，与 C99 oracle 一致。
+
+完整语言 parity 门禁：
+
+- [ ] 整理 `tests/verify_full_language_backend_parity.sh`，以 main 分支语言规范为输入清单，覆盖多文件模块、
+  泛型、方法、接口、error union、`try/catch`、`defer/errdefer`、async、struct/union/enum、slice/array、
+  pointer、atomic、vector/mask、`@c_import`、builtin、标准库入口和 `@print` / `@println`。
+- [ ] 所有 parity case 都记录 C99 result、native result、stdout/stderr、diagnostic normalized diff 和 allowlist。
+- [ ] native 成功 case 必须真实运行 executable；native reject case 必须和覆盖矩阵中的 `reject` 状态一致。
+- [ ] Phase 9B 收口时，普通 HelloWorld、基础标准库程序和完整语言 smoke 不再出现
+  `native_hosted_portable_mir_lowering_missing`。
+
+验证：
+
+下面是阶段收口验证；单叶子验证以“当前下一步”为准。覆盖矩阵和专用 reject diagnostic 落地前，
+`tests/verify_hosted_native_full_language_smoke.sh` 只固定 legacy reject 边界，不能抵消 Phase 9B 收口的
+no-lowering-missing 要求。
+
+```bash
+git diff --check
+bash tests/verify_portable_mir_structs.sh
+bash tests/verify_portable_mir_dynamic_tables.sh
+bash tests/verify_portable_mir_golden.sh
+bash tests/verify_portable_mir_verifier.sh
+bash tests/verify_portable_mir_naked_fn.sh
+bash tests/verify_native_mir_emitter.sh
+bash tests/verify_hosted_native_helloworld_parity.sh
+bash tests/verify_hosted_native_full_language_smoke.sh
+bash tests/verify_full_language_backend_parity.sh
+bash tests/verify_native_cmd_build_no_silent_c99.sh
+```
+
+阶段 KPI：
+
+- [ ] 覆盖矩阵中所有 main 分支已启用语言面都有 `done` 或明确 `reject` 状态。
+- [ ] `reject` 状态都有可复现 diagnostic，且不是 C99 fallback 或 pre-MIR helper。
+- [ ] HelloWorld 作为 MIR -> Native 首个目标完成 native/C99 parity。
+- [ ] Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
+
+---
+
 ## Phase 10: Native build compiler 子集
 
-本阶段保留为 freestanding/build-seed 子集清单和回归边界。Phase 9A 完成前，不继续扩展 ad hoc
-`LoweredBodyOp` 来追 `cmd/build` 的下一个特殊形状；当前 `compile_files(...)` 缺口改为
-PortableMIR/native hosted parity 的验收输入。
+本阶段保留为 freestanding/build-seed 子集清单和回归边界。Phase 9B 的覆盖矩阵、语言面首切片和
+MIR -> Native 首目标通过前，不继续扩展 ad hoc `LoweredBodyOp` 或 `cmd/build` 专项 shape。`cmd/build` 只作为普通
+Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-build frontier 暴露新的语言面缺口，
+先回 Phase 9B 补通用 lowering 和 parity，再回到本阶段推进。
 
 - [x] 统计 `cmd/build` 所需 language/runtime feature。
 - [x] 为每类 feature 标注 native 支持状态。
@@ -1538,8 +1668,8 @@ make backup-all
 
 ## Phase 12: 差分与发布收口
 
-Phase 12 是发布前差分验收，不再承载新的后端语言特性；若差分暴露缺口，回到对应 Phase 10/11
-叶子修复后再回来收口。
+Phase 12 是发布前差分验收，不再承载新的后端语言特性；若差分暴露语言 lowering 缺口，回到
+Phase 9B；若暴露 self-build / 构建入口缺口，回到对应 Phase 10/11 叶子修复后再回来收口。
 
 - native/C99 差分门禁切片：
   - [ ] 为 native-built 与 C99-built compiler 的 `make check` 输出/退出码对比补脚本合同。
@@ -1563,21 +1693,23 @@ Phase 12 是发布前差分验收，不再承载新的后端语言特性；若�
   - [ ] release 文档说明 microapp 命名空间命令：
   `uya microapp build|pack|inspect|verify|run`。
 
-语言兼容与后端完备性验收：
+语言兼容与后端完备性发布复验：
 
-- 完整语言基线合同切片：
-  - [ ] 明确 main 分支语言兼容基线：以 main 分支的 `docs/uya.md`、`docs/grammar_formal.md`、
-    `docs/grammar_quick.md`、`docs/builtin_functions.md` 和完整语言回归测试为准。
-  - [ ] 固定完整语言后端差分套件的输入清单、normalized 输出格式和 allowlist 规则。
-- 完整语言后端差分切片：
-  - [ ] 确认 C99 backend 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / build seed 子集。
-  - [ ] 确认 hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native
+Phase 12 只复验 Phase 9B 已落地的完整语言到 MIR 产物，不承载新的完整语言 lowering 合同或实现叶子。
+
+- 完整语言基线复验切片：
+  - [ ] 复验 Phase 9B 已明确 main 分支语言兼容基线：以 main 分支的 `docs/uya.md`、
+    `docs/grammar_formal.md`、`docs/grammar_quick.md`、`docs/builtin_functions.md` 和完整语言回归测试为准。
+  - [ ] 复验 Phase 9B 已固定完整语言后端差分套件的输入清单、normalized 输出格式和 allowlist 规则。
+- 完整语言后端差分复验切片：
+  - [ ] 复验 C99 backend 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / build seed 子集。
+  - [ ] 复验 hosted native backend 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native
     `cmd/build` 子集。
-  - [ ] 确认 freestanding native 能力按 hosted native 已验证的 MIR 能力逐步下沉，不阻塞完整语言
+  - [ ] 复验 freestanding native 能力按 hosted native 已验证的 MIR 能力逐步下沉，不阻塞完整语言
     hosted parity。
-  - [ ] C99 与 native 对同一套完整语言回归输入给出一致的成功/失败、退出码、diagnostics 和可执行行为。
-  - [ ] 新增或整理完整语言后端差分套件，覆盖 parser/checker/codegen 主语言面：多文件模块、泛型、方法、
-    接口、error union、`try/catch`、`defer/errdefer`、async、结构体/union/enum、slice/数组、指针、
+  - [ ] 复验 C99 与 native 对同一套完整语言回归输入给出一致的成功/失败、退出码、diagnostics 和可执行行为。
+  - [ ] 复验 Phase 9B 已整理的完整语言后端差分套件覆盖 parser/checker/codegen 主语言面：多文件模块、泛型、
+    方法、接口、error union、`try/catch`、`defer/errdefer`、async、结构体/union/enum、slice/数组、指针、
     `atomic T`、`@vector(T, N)`、`@mask(N)`、`@c_import`、内建函数和标准库入口。
 - microapp 兼容切片：
   - [ ] 确认 microapp / microcontainer 在语言层面完全兼容 main 分支，不引入 microapp 专属语法、
@@ -1620,7 +1752,8 @@ make backup-all
 
 ## 当前下一步
 
-剩余工作已一次性差分为下面的执行队列。原始 hosted `cmd/build` self-build emitter/handoff 是
+剩余工作已一次性差分为下面的执行队列。完整语言到 MIR 是 Phase 10 的前置，不再把
+`cmd/build` self-build frontier 当作当前唯一驱动。原始 hosted `cmd/build` self-build emitter/handoff 是
 epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第一个未完成叶子。主清单里的
 `[x]` / `[~]` / `[ ]` 是唯一状态来源；本段只做执行索引，避免把 epic 当成一个大任务直接实现。
 每个叶子先补合同/边界测试，再改实现，验证只跑任务相关测试和必要的 `cmd-build` 重建，不把
@@ -1629,38 +1762,71 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前 `set_process_stack_limit_bytes(...)` Linux x86_64 首切片合同已完成；下一可执行叶子是迁入
-  该 helper 首切片，开始时只把该主清单叶子标成 `[~]`。
-- helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
+- 当前下一可执行叶子是 Phase 9B 覆盖矩阵合同：新增 `docs/portable_mir_language_coverage.md`。开始时只把
+  覆盖矩阵合同中的对应主清单叶子标成 `[~]`。
+- Phase 10 的 helper、`compile_files(...)` 和 writer 解锁仍必须由真实 self-build frontier 诊断驱动；
+  但只有在 Phase 9B 覆盖矩阵、语言面首切片和 MIR -> Native 首目标通过后才恢复推进。诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
-- 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
-  UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、本叶子合同脚本、`verify_native_cmd_build_no_silent_c99.sh`、
-  `verify_native_cmd_build_regression_boundary.sh` 和必要的 stage1 边界。
+- 单叶子验证优先使用：`git diff --check`、todo checker、本叶子合同脚本和必要的相关基线。当前
+  覆盖矩阵合同是文档/脚本合同叶子；HelloWorld 进入 MIR -> Native 目标后再优先跑
+  `verify_hosted_native_helloworld_parity.sh`。`verify_hosted_native_full_language_smoke.sh`
+  在覆盖矩阵和专用 reject diagnostic 落地前只作为 legacy 边界回归，不作为新增 shard 的 no-missing 证据。
+- Phase 10 恢复后，相关单叶子再使用 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+  `verify_native_cmd_build_no_silent_c99.sh`、`verify_native_cmd_build_regression_boundary.sh` 和必要的 stage1 边界。
 - `make check` 只作为阶段收口或高风险共享行为验证；`make backup-all` 只放到发布/最终收口，不作为每个
   叶子的提交门槛。
 
 差分队列：
 
-1. PBA-PROJECT-ROOT：完成 `parse_build_args(...)` 的 `--project-root` 分支。
+0. PHASE9B-COVERAGE-MATRIX：先建立完整语言到 MIR 覆盖矩阵。
+   - 合同叶子：新增 `docs/portable_mir_language_coverage.md`。
+   - 合同叶子：新增 coverage verifier，要求 AST/Core/MIR kind 新增时同步覆盖矩阵。
+   - 整理叶子：把现有 done / partial / reject / missing shard 写入矩阵，尤其记录 MIR -> Native HelloWorld
+     目标前的真实缺口。
+1. PHASE9B-LANGUAGE-SURFACE：按覆盖矩阵补通用 lowering，不再绕 `cmd/build` 特例推进。
+   - print/println 首切片：冻结 `AST_PRINT` / `AST_PRINTLN` 的 CoreBody surface、PortableMIR call/write surface、
+     hosted/freestanding capability 和返回值语义。
+   - statements 组：expr stmt、decl、assign、if/else、while/for、break/continue、return、defer/drop、
+     try/catch。
+   - expressions 组：literal、identifier、binary/unary、short-circuit、call/method、field/index/slice、
+     cast/address/deref、aggregate literal、string interp、builtin。
+   - types/layout 组：pointer、array、slice、struct、union、enum、error union、interface、generic、
+     atomic、vector/mask、naked fn。
+   - runtime/builtin 组：stdout/stderr、malloc/free、file/env/toolchain、`@syscall`、`@c_import` 和规范启用的
+     builtin。
+2. PHASE9B-MIR-NATIVE-HELLOWORLD：MIR -> Native 的第一个端到端目标。
+   - 合同叶子：新增 `tests/verify_hosted_native_helloworld_parity.sh`，固定 `@println("Hello, World!")`
+     native/C99 stdout、stderr、退出码和 no-fallback 预期。
+   - 实现叶子：NativeMirEmitter 支持 `@print` / `@println` 的 string constant、stdout/write 或 hosted libc handoff。
+   - 收口叶子：HelloWorld native executable 真实输出 `Hello, World!\n`，stderr 不再包含
+     `native_hosted_portable_mir_lowering_missing`。
+3. PHASE9B-FULL-LANGUAGE-PARITY：完整语言后端差分套件前移到 Phase 10 前。
+   - 合同叶子：整理 `tests/verify_full_language_backend_parity.sh` 输入清单和 normalized diff。
+   - 实现叶子：C99 与 hosted native 对同一套完整语言回归给出一致结果；native reject 必须与覆盖矩阵一致。
+   - 收口叶子：普通 HelloWorld、基础标准库程序和完整语言 smoke 不再出现 lowering-missing。
+4. PHASE10-RESUME：Phase 9B 覆盖矩阵、语言面首切片和 MIR -> Native 首目标通过后，再恢复 `cmd/build` self-build frontier。
+   - 只处理真实 frontier 指向的 helper/body-prefix。
+   - 若 frontier 暴露新的通用语言面缺口，先回 Phase 9B，不在 Phase 10 追加 one-off shape。
+5. PBA-PROJECT-ROOT：完成 `parse_build_args(...)` 的 `--project-root` 分支。
    - 已完成叶子：参数读取，覆盖 `i = i + 1`、`get_argv(i)`、
      `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
    - 已完成叶子：长度检查，覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
      和路径过长 diagnostic。
    - 已完成叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
      `g_module_root_override_active = 1`。
-2. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
+6. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
    - 已完成合同叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
      diagnostic、`return -1` 和 seed 边界。
    - 已完成叶子：`--manifest-path`。
    - 已完成叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
    - 已完成叶子：`--app`、`--microapp-profile`、`strncmp("--microapp-profile=", 19)`。
    - 已完成叶子：`--outlibc`。
-3. PBA-STACK-SIZE：完成 `--stack-size` 数字扫描。
+7. PBA-STACK-SIZE：完成 `--stack-size` 数字扫描。
    - 已完成叶子：固定缺参、byte index、digit while、累积、有效写入、无效 warning。
    - 已完成叶子：缺参和 `get_argv(i + 1)`。
    - 已完成叶子：`size_str[j]`、ASCII digit 条件、累积表达式和 `j = j + 1`。
    - 已完成叶子：`stack_size[0]` 写入、warning 和跳参。
-4. PBA-SPLIT-C：完成 split-C / async-frame CLI。
+8. PBA-SPLIT-C：完成 split-C / async-frame CLI。
    - 已完成叶子：固定 async-frame、`--no-split-c`、inline/separate `--split-c-dir` 和 default-dir。
    - 已完成叶子：`--async-frame-heap=on`。
    - 已完成叶子：`--no-split-c`。
@@ -1668,26 +1834,26 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：inline `--split-c-dir=<dir>` 成功/default。
    - 已完成叶子：separate `--split-c-dir <dir>` disabled-skip。
    - 已完成叶子：separate `--split-c-dir <dir>` 成功/default。
-5. PBA-INPUTS：完成位置输入文件收集。
+9. PBA-INPUTS：完成位置输入文件收集。
    - 已完成合同叶子：固定 `arg[0]`、容量检查、index/count 写入和未知 dash option no-op。
    - 已完成实现叶子：`arg[0]` / 非 dash 判定。
    - 已完成实现叶子：输入容量检查 diagnostic。
    - 已完成实现叶子：`input_file_indices[idx]` 和 `input_file_count[0]` 写入。
-6. PBA-TAIL：完成 `parse_build_args(...)` 收尾。
+10. PBA-TAIL：完成 `parse_build_args(...)` 收尾。
    - 已完成合同叶子：固定无输入 diagnostic、`print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝。
    - 已完成实现叶子：未指定输入文件。
    - 已完成实现叶子：显式输出路径读取。
    - 已完成实现叶子：`.c` 输出推断 C99。
    - 已完成实现叶子：`--native` 输出 `.c` 拒绝。
    - 已完成实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。
-7. FRONTIER-RESET：`parse_build_args(...)` complete 后重建 `cmd-build` 并重新跑 self-build frontier。
+11. FRONTIER-RESET：`parse_build_args(...)` complete 后重建 `cmd-build` 并重新跑 self-build frontier。
    - 已完成叶子：只把诊断实际报告的下一个 reachable callee 写入 todo 和
      `docs/native_cmd_build_subset.md`。
    - 实测下一个 reachable callee：`build_compiler_driver_run` stmt 17 的
      `set_process_stack_limit_bytes(...)`。
    - 已完成叶子：固定 `set_process_stack_limit_bytes(...)` helper frontier 合同。
    - 同步 `tests/verify_native_cmd_build_no_silent_c99.sh`，继续要求 no-output / no-silent-C99。
-8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
+12. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
    - 已完成叶子：审计 `set_process_stack_limit_bytes(...)` body surface。
    - 已完成叶子：为 `set_process_stack_limit_bytes(...)` 的 Linux x86_64 首切片补合同。
    - `set_process_stack_limit_bytes(...)` 首切片已迁入，且已复跑 self-build frontier；当前 stderr 未输出新的
@@ -1696,16 +1862,16 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
      `compile_stats_record_and_release_typed_program(...)`。
    - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
      `compile_files(...)`、toolchain helper 或其它大函数。
-9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。
+13. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。
    - 先固定 16 参数 ABI 和 entry frontier。
    - 再按 artifact/path、输入依赖、lexer/parser/AST、SemanticDb/checker/TypedProgram、
      codegen handoff、cleanup 六组切片推进。
-10. WRITER-UNLOCK：只有 reachable pending body 收敛到 0 时才进入。
+14. WRITER-UNLOCK：只有 reachable pending body 收敛到 0 时才进入。
     - 先补 writer 解锁合同，证明 `can_write=1`、pending body 为 0、link plan complete。
     - 再允许 hosted executable writer 写出。
     - 最后消除 `native_hosted_portable_mir_lowering_missing`，并用新 native `bin/cmd/build`
       复跑 self-build、compiler regression、C99 output parity 和 KPI 记录。
-11. MAKE-NATIVE-PATH：Phase 10 self-build executable 真实通过后，再切 `make uya` 主路径。
+15. MAKE-NATIVE-PATH：Phase 10 self-build executable 真实通过后，再切 `make uya` 主路径。
     - 合同叶子：固定 `UYA_BUILD_BACKEND=native|c99`、`make uya-c99`、native 失败不静默 fallback、
       手动 C99 fallback 和 release flow 双路径语义。
     - 实现叶子：Makefile 接入 `UYA_BUILD_BACKEND`，保留 `make uya-c99`。
@@ -1714,34 +1880,35 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
     - 实现叶子：backup / release flow 纳入 native seed，但仍保留 C99 seed fallback。
     - 收口叶子：跑 `make clean && make uya`、`make cmds`、microapp help、相关 regression 和
       native path no-silent-fallback 门禁。
-12. NATIVE-KPI：`make uya` native 主路径稳定后再做性能收口。
+16. NATIVE-KPI：`make uya` native 主路径稳定后再做性能收口。
     - benchmark 合同叶子：固定三次中位数、P95、peak RSS、arena peak 和 output bytes 字段。
     - 实测叶子：跑 `make bench-compiler-1s-check` 和三次 native cold build，记录结果到评估文档。
     - 修复叶子：只针对已测出的 native 主路径热点/内存回归拆分实现，不提前泛化优化。
-13. RELEASE-PARITY：native/C99 差分验证和自举二轮收口。
+17. RELEASE-PARITY：native/C99 差分验证和自举二轮收口。
     - 合同叶子：固定 native-built 与 C99-built `make check` 的输出/退出码/diagnostic 比对格式。
     - 实现叶子：整理核心测试输出与 diagnostics 比对脚本。
     - 实现叶子：整理 `src/main.uya` C99 output 结构摘要比对。
     - 实现叶子：整理 native 自举二轮产物 normalized section hash。
-14. FULL-LANGUAGE-PARITY：完整语言后端差分套件。
+18. RELEASE-FULL-LANGUAGE-VERIFY：发布前复验完整语言后端差分套件。
     - 合同叶子：固定 main 分支语言兼容基线来自 `docs/uya.md`、formal/quick grammar、builtin 文档和
       完整语言回归。
     - 套件叶子：覆盖多文件模块、泛型、方法、接口、error union、`try/catch`、defer/errdefer、
       async、struct/union/enum、slice/array、pointer、atomic、vector/mask、`@c_import`、builtin 和标准库入口。
-    - 实现叶子：Hosted native 经由 PortableMIR 与 C99 给出一致成功/失败、退出码、diagnostics 和行为。
+    - 验收叶子：确认 Phase 9B 的 hosted native / PortableMIR 完整语言覆盖与 C99 给出一致成功/失败、
+      退出码、diagnostics 和行为。
     - 实现叶子：freestanding native 只按 hosted 已验证 MIR 能力逐步下沉，保持 capability diagnostic。
-15. MICROAPP-COMPAT：microapp 语言兼容收口。
+19. MICROAPP-COMPAT：microapp 语言兼容收口。
     - 合同叶子：确认 microapp 不引入专属语法、关键字、builtin 或 checker 方言。
     - 实现叶子：`uya microapp build` 使用普通 `uya build` 同源 parser/checker，差异只在安全策略、
       ABI、镜像格式和 runtime capability 裁决。
     - 文档叶子：发布说明记录 microapp 限制都是 runtime/capability/profile 限制。
-16. DOCS-RELEASE：最终文档和发布说明。
+20. DOCS-RELEASE：最终文档和发布说明。
     - 文档叶子：更新 `docs/compiler_1s_speed_assessment.md`。
     - 文档叶子：更新 `docs/compiler_1s_architecture_design.md`。
     - 文档叶子：更新 `docs/UYA_BUILD_RUN.md`、`docs/TESTING.md` 和
       `docs/c99_codegen_hotpath_benchmark.md`。
     - 文档叶子：release 文档说明 native path、C99 fallback 和 microapp 命名空间命令。
-17. FINAL-GATE：最终验收。
+21. FINAL-GATE：最终验收。
     - 收口叶子：跑 `git diff --check`、bench check、三次 bench、`make check`、`make check-hosted`、
       `make microapp-check` 和完整语言后端差分门禁。
     - 发布叶子：最终才跑 `make backup-all`，同步生成的 seed/backup，并完成最后提交/推送。
