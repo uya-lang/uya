@@ -125,6 +125,7 @@ const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_BACKEND_BRANCH_STMT_INDEX: i32 = 3;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_LINE_DIRECTIVES_BRANCH_STMT_INDEX: i32 = 4;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SAFETY_PROOF_BRANCH_STMT_INDEX: i32 = 5;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_OPT_LEVEL_BRANCH_STMT_INDEX: i32 = 6;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_NOSTDLIB_BRANCH_STMT_INDEX: i32 = 7;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -3493,6 +3494,105 @@ fn native_build_hosted_parse_build_args_opt_level_body(decl: &ASTNode,
     }
     return native_build_hosted_parse_build_args_opt_level_option_if_supported(
         no_safety_if.if_stmt_else_branch, checker);
+}
+
+fn native_build_hosted_parse_build_args_nostdlib_option_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        stmt.if_stmt_condition, "arg" as &byte, "--nostdlib" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        stmt.if_stmt_else_branch.if_stmt_condition,
+        "arg" as &byte, "--project-root" as &byte) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_i32_then_supported(
+        stmt.if_stmt_then_branch, checker, "is_nostdlib" as &byte, 1);
+}
+
+fn native_build_hosted_parse_build_args_nostdlib_body(decl: &ASTNode,
+    checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_opt_level_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    const loop_stmt: &ASTNode =
+        native_build_hosted_parse_build_args_prefix_stmt(decl,
+            NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX);
+    if loop_stmt == null || loop_stmt.type != ASTNodeType.AST_WHILE_STMT ||
+       loop_stmt.while_stmt_body == null ||
+       loop_stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK ||
+       loop_stmt.while_stmt_body.block_stmts == null ||
+       loop_stmt.while_stmt_body.block_stmt_count <
+       NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX + 2 {
+        return 0;
+    }
+    const o_if: &ASTNode = loop_stmt.while_stmt_body.block_stmts[
+        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX];
+    if o_if == null || o_if.type != ASTNodeType.AST_IF_STMT ||
+       o_if.if_stmt_else_branch == null ||
+       o_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const c99_if: &ASTNode = o_if.if_stmt_else_branch;
+    if c99_if.if_stmt_else_branch == null ||
+       c99_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const native_if: &ASTNode = c99_if.if_stmt_else_branch;
+    if native_if.if_stmt_else_branch == null ||
+       native_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const no_line_if: &ASTNode = native_if.if_stmt_else_branch;
+    if no_line_if.if_stmt_else_branch == null ||
+       no_line_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const line_if: &ASTNode = no_line_if.if_stmt_else_branch;
+    if line_if.if_stmt_else_branch == null ||
+       line_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const safety_if: &ASTNode = line_if.if_stmt_else_branch;
+    if safety_if.if_stmt_else_branch == null ||
+       safety_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const no_safety_if: &ASTNode = safety_if.if_stmt_else_branch;
+    if no_safety_if.if_stmt_else_branch == null ||
+       no_safety_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const opt0_if: &ASTNode = no_safety_if.if_stmt_else_branch;
+    if opt0_if.if_stmt_else_branch == null ||
+       opt0_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const opt1_if: &ASTNode = opt0_if.if_stmt_else_branch;
+    if opt1_if.if_stmt_else_branch == null ||
+       opt1_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const opt2_if: &ASTNode = opt1_if.if_stmt_else_branch;
+    if opt2_if.if_stmt_else_branch == null ||
+       opt2_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const opt3_if: &ASTNode = opt2_if.if_stmt_else_branch;
+    if opt3_if.if_stmt_else_branch == null {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_nostdlib_option_if_supported(
+        opt3_if.if_stmt_else_branch, checker);
 }
 
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
@@ -13408,7 +13508,15 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_opt_level_body(
+                if native_build_hosted_parse_build_args_nostdlib_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_NOSTDLIB_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "--nostdlib" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "--project-root" as &byte;
+                } else if native_build_hosted_parse_build_args_opt_level_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_OPT_LEVEL_BRANCH_STMT_INDEX;
