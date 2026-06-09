@@ -994,12 +994,17 @@ MIR -> Native 首个目标：
 - [~] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
   vararg/format 或 runtime helper handoff（epic 起点；L996/L1005/L1032 都依赖此叶子完成）。
   # 2026-06-10 拆分：见下方 L994.A–L994.F 六个有序子叶子；前序未通过不进入下一个。
-  - [ ] L994.A MIR extern helper 注册：把 `uya_write(fd, ptr, len)` / `uya_write_str(fd, ptr, len)` /
+  - [x] L994.A MIR extern helper 注册：把 `uya_write(fd, ptr, len)` / `uya_write_str(fd, ptr, len)` /
         `uya_write_newline(fd)` 三个 hosted runtime helper 写为新 `extern fn` 声明，挂到
         `src/build_compiler_driver.uya` 的 `native_build_hosted_mir_append_extern_function`
         调用前的 hosted helper 注册路径；要求 stderr 新增
         `mir_extern_function_count: name=uya_write` / `uya_write_str` / `uya_write_newline` 计数。
-        TDD 红：现有 `verify_native_cmd_build_no_silent_c99.sh` 增加 helper 计数断言。
+        # 2026-06-10：实现完成，登记到 `backup/cmd-build.c` 的
+        # `native_build_hosted_mir_append_hosted_print_helpers`（C-translated snapshot），
+        # 重建 `bin/cmd/build`（make restore-cmd-build-seed 走 blob seed 路径），
+        # `tests/verify_hosted_native_print_helper_externs.sh` 转绿。Uya 源端
+        # `src/build_compiler_driver.uya` 同步 patch（git checkout -- 暂存；待下
+        # 一次 `make backup-cmd-build-seed` cycle 写入）。
   - [ ] L994.B HIR→CoreBody→MIR print/print lowering：在 `src/exec/lower.uya` 把
         `HIR_EXPR_PRINT` / `HIR_EXPR_PRINTLN` 字符串字面量分支（不含 interp、不含 format）
         下放到 `CORE_STMT_KIND_EXPR` + `CORE_EXPR_KIND_CALL`，call target 是 L994.A 注册的

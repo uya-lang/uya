@@ -9079,6 +9079,8 @@ static __attribute__((used)) int32_t native_build_hosted_mir_ensure_signature_ty
 static __attribute__((used)) int32_t native_build_hosted_mir_ensure_i32_type(struct PortableMirModule * module, int32_t * out_type_id);
 static __attribute__((used)) int32_t native_build_hosted_mir_ensure_i32_pointer_type(struct PortableMirModule * module, int32_t * out_type_id);
 static __attribute__((used)) int32_t native_build_hosted_mir_append_extern_function(struct PortableMirModule * module, int32_t decl_index);
+static __attribute__((used)) int32_t native_build_hosted_mir_append_synthesized_hosted_helper(struct PortableMirModule * module, int32_t synth_decl_id, const char * name);
+static __attribute__((used)) int32_t native_build_hosted_mir_append_hosted_print_helpers(struct PortableMirModule * module);
 static __attribute__((used)) int32_t native_build_hosted_mir_append_program_externs(struct PortableMirModule * module, struct ASTNode * program, int32_t * out_mir_extern_function_count);
 static __attribute__((used)) int32_t native_build_hosted_decl_can_lower_void_mir_body(struct ASTNode * decl);
 static __attribute__((used)) int32_t native_build_hosted_decl_can_lower_int_literal_mir_body(struct ASTNode * decl);
@@ -12058,6 +12060,10 @@ const MirDebugLocId MIR_DEBUG_LOC_INVALID_ID = (-1);
 const MirCapabilityReqId MIR_CAPABILITY_REQ_INVALID_ID = (-1);
 const int32_t MIR_FUNCTION_FLAG_NAKED = 1;
 const int32_t MIR_FUNCTION_FLAG_EXTERN = 2;
+// L994.A: synthesized hosted runtime print helper decl_id range (negative reserved)
+const int32_t MIR_EXTERN_HOSTED_HELPER_UYA_WRITE = (-2);
+const int32_t MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR = (-3);
+const int32_t MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE = (-4);
 const int32_t MIR_FUNCTION_FLAG_PARTIAL_BODY = 4;
 const int32_t MIR_FUNCTION_BODY_KIND_NORMAL = 0;
 const int32_t MIR_FUNCTION_BODY_KIND_ASM_ONLY_NAKED = 1;
@@ -15105,6 +15111,72 @@ static __attribute__((used)) int32_t native_build_hosted_mir_append_extern_funct
         }
 }
 
+// L994.A: synthesized hosted runtime print helper MIR extern function
+static __attribute__((used)) int32_t native_build_hosted_mir_append_synthesized_hosted_helper(struct PortableMirModule * module, int32_t synth_decl_id, const char * name) {
+    (void)module;
+    (void)synth_decl_id;
+    (void)name;
+    if (((module == NULL) || (synth_decl_id >= 0)) || (name == NULL)) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t signature_type_id = MIR_TYPE_INVALID_ID;
+    if (native_build_hosted_mir_ensure_signature_type(module, (&signature_type_id)) != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    const int32_t function_id = (int32_t)module->function_count;
+    struct MirFunction function = (struct MirFunction){.function_id = function_id, .lowered_function_id = function_id, .decl_id = synth_decl_id, .source_core_body_id = CORE_BODY_INVALID_ID, .symbol_id = synth_decl_id, .signature_type_id = signature_type_id, .param_start = 0, .param_count = 0, .local_start = 0, .local_count = 0, .block_start = 0, .block_count = 0, .entry_block_id = MIR_BLOCK_INVALID_ID, .cleanup_model = 0, .capability_req_start = 0, .capability_req_count = 0, .calling_convention = MIR_CALL_CONV_C, .runtime_capability_mask = MIR_RUNTIME_CAP_C_EXTERN, .required_address_space_mask = MIR_ADDRESS_SPACE_GENERIC, .body_kind = MIR_FUNCTION_BODY_KIND_NORMAL, .naked_asm_inst_start = (-1), .naked_asm_inst_count = 0, .naked_forbidden_lowering_mask = 0, .debug_loc_id = MIR_DEBUG_LOC_INVALID_ID, .flags = MIR_FUNCTION_FLAG_EXTERN};
+    if (lower_mir_portable_mir_append_function(module, (&function)) != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    (void)(fprintf(stderr, "mir_extern_function_count: name=%s synth_decl_id=%d mir_function_id=%d\n", name, synth_decl_id, function_id)    );
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+// L994.A: append the three hosted runtime print helpers
+static __attribute__((used)) int32_t native_build_hosted_mir_append_hosted_print_helpers(struct PortableMirModule * module) {
+    (void)module;
+    if (module == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    if (native_build_hosted_mir_append_synthesized_hosted_helper(module, MIR_EXTERN_HOSTED_HELPER_UYA_WRITE, "uya_write") != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    if (native_build_hosted_mir_append_synthesized_hosted_helper(module, MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR, "uya_write_str") != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    if (native_build_hosted_mir_append_synthesized_hosted_helper(module, MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE, "uya_write_newline") != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t native_build_hosted_mir_append_program_externs(struct PortableMirModule * module, struct ASTNode * program, int32_t * out_mir_extern_function_count) {
     (void)module;
     (void)program;
@@ -15130,6 +15202,13 @@ static __attribute__((used)) int32_t native_build_hosted_mir_append_program_exte
             }
         }
         i = (i + 1);
+    }
+    // L994.A: append hosted runtime print helpers (synthesized, not from source decls)
+    if (native_build_hosted_mir_append_hosted_print_helpers(module) != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
     }
     (*out_mir_extern_function_count) = (int32_t)module->function_count;
         {
