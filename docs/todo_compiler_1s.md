@@ -1121,7 +1121,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 更新 self-build frontier：不再报告 `parse_build_args` pending，改为只报告诊断中真实出现的
             下一个 reachable callee `set_process_stack_limit_bytes(...)`，并同步
             `tests/verify_native_cmd_build_no_silent_c99.sh` 与 `docs/native_cmd_build_subset.md`。
-          - [ ] 为 `set_process_stack_limit_bytes(...)` 补 helper frontier 合同：固定
+          - [x] 为 `set_process_stack_limit_bytes(...)` 补 helper frontier 合同：固定
             `parent=build_compiler_driver_run`、`stmt=17`、
             `first_unresolved_callee=set_process_stack_limit_bytes` 和 `reason=pending_core_body`，
             不按猜测提前跳到 `compile_files(...)`。
@@ -1379,8 +1379,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前 FRONTIER-RESET 已完成；下一可执行叶子是 `set_process_stack_limit_bytes(...)` helper frontier
-  合同，开始时只把该主清单叶子标成 `[~]`。
+- 当前 `set_process_stack_limit_bytes(...)` helper frontier 合同已完成；下一可执行叶子是该 helper
+  body surface 审计，开始时只把该主清单叶子标成 `[~]`。
 - helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
 - 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
@@ -1435,6 +1435,7 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
      `docs/native_cmd_build_subset.md`。
    - 实测下一个 reachable callee：`build_compiler_driver_run` stmt 17 的
      `set_process_stack_limit_bytes(...)`。
+   - 已完成叶子：固定 `set_process_stack_limit_bytes(...)` helper frontier 合同。
    - 同步 `tests/verify_native_cmd_build_no_silent_c99.sh`，继续要求 no-output / no-silent-C99。
 8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
    - 下一个 helper：`set_process_stack_limit_bytes(...)`；先审计 body surface，再补合同，
