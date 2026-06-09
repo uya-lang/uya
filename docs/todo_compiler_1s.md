@@ -1233,6 +1233,25 @@ PortableMIR/native hosted parity 的验收输入。
               `bash tests/verify_native_stack_limit_helper_contract.sh`、
               `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
               `bash tests/verify_native_cmd_build_stage1.sh` 通过。
+          - [x] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
+            `semantic_db_accumulate_table_stats(&checker.semantic_db, &table_agg)` 调用，
+            继续按真实 body-prefix 补合同并迁入该单条 SemanticDb aggregate call 切片。
+            - 已新增 `tests/verify_native_compile_stats_semantic_db_agg_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；生产实现为同一 partial CoreBody/PortableMIR
+              追加 `semantic_db_accumulate_table_stats` expr stmt、`&checker.semantic_db` field-address
+              fact、`&table_agg` local-address operand surface 和 resolved call fact。
+            - self-build 真实 frontier 推进到
+              `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=9 next_stmt=9 next_kind=AST_CALL_EXPR reason=partial_core_body`，
+              whole-body pending frontier 为
+              `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=180 function_id=5 body_stmts=4 reason=pending_core_body`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_compile_stats_first_slice_contract.sh`、
+              `bash tests/verify_native_compile_stats_peak_bytes_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_agg_contract.sh`、
+              `bash tests/verify_native_compile_stats_semantic_db_agg_contract.sh`、
+              `bash tests/verify_native_stack_limit_helper_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
