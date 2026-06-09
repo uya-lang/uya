@@ -944,11 +944,11 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
   和 native lowering 实现，要求新增 AST/Core kind 必须在覆盖矩阵中有状态。
 - [x] 将现有 Phase 9A shard 写入覆盖矩阵：return literal、return call、局部初始化、基础 if-return、
   extern / `@c_import`、builtin shard、slice/array、error union、defer/drop、interface、atomic、SIMD。
-- [~] 把当前明确 reject 的复杂 shard 写入覆盖矩阵，记录 reject diagnostic 和 C99 oracle 行为。
+- [x] 把当前明确 reject 的复杂 shard 写入覆盖矩阵，记录 reject diagnostic 和 C99 oracle 行为。
 
 语言面迁移叶子：
 
-- [ ] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
+- [~] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
   保留字符串字面量、字符串插值、标量格式化和返回值语义。
 - [ ] print/println MIR lowering：将 `AST_PRINT` / `AST_PRINTLN` 降成 PortableMIR；hosted profile 走
   stdout / libc / runtime capability，freestanding profile 走明确 capability gate 或 syscall/write bridge，
@@ -1014,8 +1014,8 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 
 阶段 KPI：
 
-- [ ] 覆盖矩阵中所有 main 分支已启用语言面都有 `done` 或明确 `reject` 状态。
-- [ ] `reject` 状态都有可复现 diagnostic，且不是 C99 fallback 或 pre-MIR helper。
+- [x] 覆盖矩阵中所有 main 分支已启用语言面都有 `done` 或明确 `reject` 状态。
+- [x] `reject` 状态都有可复现 diagnostic，且不是 C99 fallback 或 pre-MIR helper。
 - [ ] HelloWorld 作为 MIR -> Native 首个目标完成 native/C99 parity。
 - [ ] Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
 
