@@ -1062,7 +1062,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 迁入 `--project-root` 缺参分支：覆盖 `i + 1 >= argc`、diagnostic 和 `return -1`。
           - [x] 迁入 `--project-root` 参数读取分支：覆盖 `i = i + 1`、`get_argv(i)`、
             `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
-          - [ ] 迁入 `--project-root` 长度检查分支：覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
+          - [x] 迁入 `--project-root` 长度检查分支：覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
             和路径过长 diagnostic。
           - [ ] 迁入 `--project-root` 成功写入分支：覆盖
             `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和 `g_module_root_override_active = 1`。
@@ -1351,8 +1351,9 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 1. PBA-PROJECT-ROOT：完成 `parse_build_args(...)` 的 `--project-root` 分支。
    - 已完成叶子：参数读取，覆盖 `i = i + 1`、`get_argv(i)`、
      `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
-   - 下一个叶子：长度检查，覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX` 和路径过长 diagnostic。
-   - 后续叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
+   - 已完成叶子：长度检查，覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
+     和路径过长 diagnostic。
+   - 下一个叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
      `g_module_root_override_active = 1`。
 2. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
    - 合同叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
