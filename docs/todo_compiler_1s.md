@@ -1070,7 +1070,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为 build-seed reject group 补 CoreBody/PortableMIR 合同：固定所有拒绝项 diagnostic、
             `return -1` 和 seed 边界文档；不改生产实现。
           - [x] 迁入 `--manifest-path` 直接拒绝分支，保持现有 diagnostic 文案。
-          - [ ] 迁入 exec/vm/dump/trace 拒绝分支：覆盖多重 `strcmp ||` 条件和 exec backend diagnostic。
+          - [x] 迁入 exec/vm/dump/trace 拒绝分支：覆盖多重 `strcmp ||` 条件和 exec backend diagnostic。
           - [ ] 迁入 microapp profile 拒绝分支：覆盖 `--app`、`--microapp-profile` 和
             `strncmp("--microapp-profile=", 19)`。
           - [ ] 迁入 `--outlibc` 直接拒绝分支，保持现有 diagnostic 文案。
@@ -1343,9 +1343,10 @@ make backup-all
 ## 当前下一步
 
 剩余工作已一次性差分为下面的执行队列。原始 hosted `cmd/build` self-build emitter/handoff 是
-epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第一个未完成叶子。每个叶子先补合同
-/边界测试，再改实现，验证只跑任务相关测试和必要的 `cmd-build` 重建，不把 `make backup-all`
-作为每任务门禁。
+epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第一个未完成叶子。主清单里的
+`[x]` / `[~]` / `[ ]` 是唯一状态来源；本段只做执行索引，避免把 epic 当成一个大任务直接实现。
+每个叶子先补合同/边界测试，再改实现，验证只跑任务相关测试和必要的 `cmd-build` 重建，不把
+`make backup-all` 作为每任务门禁。
 
 差分队列：
 
@@ -1357,11 +1358,11 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
      `g_module_root_override_active = 1`。
 2. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
-   - 已完成叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
+   - 已完成合同叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
      diagnostic、`return -1` 和 seed 边界。
    - 已完成叶子：`--manifest-path`。
-   - 下一个叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
-   - 实现叶子：`--app`、`--microapp-profile`、`strncmp("--microapp-profile=", 19)`。
+   - 已完成叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
+   - 下一个叶子：`--app`、`--microapp-profile`、`strncmp("--microapp-profile=", 19)`。
    - 实现叶子：`--outlibc`。
 3. PBA-STACK-SIZE：完成 `--stack-size` 数字扫描。
    - 合同叶子：固定缺参、byte index、digit while、累积、有效写入、无效 warning。

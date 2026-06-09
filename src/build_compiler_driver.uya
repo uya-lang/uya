@@ -128,6 +128,7 @@ const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_OPT_LEVEL_BRANCH_STMT_INDEX: i32 = 6;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_NOSTDLIB_BRANCH_STMT_INDEX: i32 = 7;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_PROJECT_ROOT_BRANCH_STMT_INDEX: i32 = 8;
 const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_MANIFEST_PATH_BRANCH_STMT_INDEX: i32 = 9;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_EXEC_REJECT_BRANCH_STMT_INDEX: i32 = 10;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -4237,6 +4238,99 @@ fn native_build_hosted_parse_build_args_manifest_path_body(
     }
     return native_build_hosted_parse_build_args_manifest_path_if_supported(
         project_root_if.if_stmt_else_branch, checker);
+}
+
+fn native_build_hosted_parse_build_args_exec_reject_condition(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_OR {
+        return 0;
+    }
+    const left_outer: &ASTNode = expr.binary_expr_left;
+    const trace_expr: &ASTNode = expr.binary_expr_right;
+    if left_outer == null || left_outer.type != ASTNodeType.AST_BINARY_EXPR ||
+       left_outer.binary_expr_left == null || left_outer.binary_expr_right == null ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        trace_expr, "arg" as &byte, "--trace-vm" as &byte) == 0 {
+        return 0;
+    }
+    const left_outer_op_tmp: !TokenType = left_outer.binary_expr_op as! TokenType;
+    const left_outer_op: TokenType = left_outer_op_tmp catch {
+        return 0;
+    };
+    if left_outer_op != TokenType.TOKEN_LOGICAL_OR {
+        return 0;
+    }
+    const left_inner: &ASTNode = left_outer.binary_expr_left;
+    const dump_bytecode_expr: &ASTNode = left_outer.binary_expr_right;
+    if left_inner == null || left_inner.type != ASTNodeType.AST_BINARY_EXPR ||
+       left_inner.binary_expr_left == null || left_inner.binary_expr_right == null ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        dump_bytecode_expr, "arg" as &byte, "--dump-bytecode" as &byte) == 0 {
+        return 0;
+    }
+    const left_inner_op_tmp: !TokenType = left_inner.binary_expr_op as! TokenType;
+    const left_inner_op: TokenType = left_inner_op_tmp catch {
+        return 0;
+    };
+    if left_inner_op != TokenType.TOKEN_LOGICAL_OR ||
+       native_build_hosted_parse_build_args_strcmp_or_expr(
+        left_inner.binary_expr_left, "arg" as &byte,
+        "--exec" as &byte, "--vm" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        left_inner.binary_expr_right, "arg" as &byte,
+        "--dump-exec-hir" as &byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_exec_reject_then_supported(
+    stmt: &ASTNode) i32 {
+    return native_build_hosted_parse_build_args_project_root_empty_arg_then_supported(
+        stmt);
+}
+
+fn native_build_hosted_parse_build_args_exec_reject_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_exec_reject_condition(
+        stmt.if_stmt_condition) == 0 ||
+       native_build_hosted_parse_build_args_exec_reject_then_supported(
+        stmt.if_stmt_then_branch) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_exec_reject_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_manifest_path_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    const project_root_if: &ASTNode =
+        native_build_hosted_parse_build_args_project_root_branch_stmt(decl);
+    if project_root_if == null || project_root_if.type != ASTNodeType.AST_IF_STMT ||
+       project_root_if.if_stmt_else_branch == null ||
+       project_root_if.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT ||
+       project_root_if.if_stmt_else_branch.if_stmt_else_branch == null {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_exec_reject_if_supported(
+        project_root_if.if_stmt_else_branch.if_stmt_else_branch, checker);
 }
 
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
@@ -14152,7 +14246,17 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_manifest_path_body(
+                if native_build_hosted_parse_build_args_exec_reject_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_EXEC_REJECT_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "exec-reject" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "microapp-reject" as &byte;
+                    result.entry_reachable_loop_body_branch_next_kind =
+                        "AST_IF_STMT" as &byte;
+                } else if native_build_hosted_parse_build_args_manifest_path_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_MANIFEST_PATH_BRANCH_STMT_INDEX;
