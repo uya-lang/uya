@@ -211,27 +211,17 @@
 
 ## 7. 复杂 no-deps shard 显式 reject 清单
 
-以下 shard 是 `verify_hosted_native_full_language_smoke.sh` 中当前 C99 通过、hosted
-native 显式 `reject` 的复杂 no-deps 项。每一项都通过
-`native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing` 失败
-并退出码非 0；不视为 Phase 9B 已"完成"。
+`tests/verify_hosted_native_full_language_smoke.sh` 在 Phase 9A 收口时只把
+`full_language` 综合集成体显式标注为 hosted native `reject`。其余 12 个 shard
+（`builtin` / `array_len` / `array_index` / `slice` / `error_id` / `catch` /
+`dynamic_catch` / `defer` / `drop` / `interface` / `atomic` / `simd`）走
+`run_native_parity_fragment`，要求 hosted native 真实生成 executable、退出码与
+C99 oracle 一致；它们的状态记录在 §3 与 §7A。Phase 9B 期间如果某 shard 在新
+通用 lowering 落地前回退到 reject，必须先在本节登记。
 
-| shard | 状态 | reject diagnostic | C99 oracle 行为 |
-|-------|------|-------------------|-----------------|
-| `full_language`（多文件 + 泛型 + interface + match + error union + atomic + SIMD） | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0；output 验证同 baseline。 |
-| `interface` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `atomic` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `simd` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `dynamic_catch` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0（两个状态分支）。 |
-| `defer` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `drop` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `array_index` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `catch` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `slice` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `error_id` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `builtin` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `array_len` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
-| `extern` | reject | `native_hosted_portable_mir_lowering_missing` | C99 退出 0。 |
+| shard | 状态 | reject diagnostic | C99 oracle 行为 | 当前所在脚本位置 |
+|-------|------|-------------------|-----------------|------------------|
+| `full_language`（多文件 + 泛型 + interface + match + error union + atomic + SIMD） | reject | `native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing` | C99 退出 0；stdout/stderr 与 baseline 一致 | `tests/verify_hosted_native_full_language_smoke.sh:635` `run_native_reject_fragment full_language` |
 
 `reject` 行的"可复现 diagnostic"指的是：在不修改 production 代码的前提下，运行
 `./bin/uya build <shard> --native --no-split-c --project-root <tmp>`，sterr 必须包含
@@ -239,9 +229,53 @@ native 显式 `reject` 的复杂 no-deps 项。每一项都通过
 不包含 `后端类型: C99`、必须不包含 `hosted native assembly`、必须不包含
 `build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集`，且不生成
 executable。`tests/verify_hosted_native_full_language_smoke.sh` 的
-`run_native_reject_fragment` 守住这些约束。
+`run_native_reject_fragment`（行 557）守住这些约束。
+
+新增 reject 行的合同：
+
+- 在 `tests/verify_hosted_native_full_language_smoke.sh` 中注册
+  `run_native_reject_fragment <name> "$<name>_src"`；
+- C99 fragment 必须先通过 `run_c99_fragment` 验证 oracle 行为；
+- §7A 索引中必须列出该 shard 的 reject 状态、C99 oracle 行为和对应 ASTNode 行；
+- §3 ASTNode 矩阵中相关 kind 的状态从 `done`（C99 端）降级为 `partial` 或保留
+  `done` 但在备注中显式说明 hosted native 走 reject 路径。
 
 ---
+
+## 7A. Phase 9A Shard 索引
+
+`tests/` 中已经存在并通过 Phase 9A 验证的 hosted-native 路径 shard。每行都对应 §3
+ASTNode 矩阵中至少一个 `done` 行；新增 Phase 9B leaf 时，shard 必须先出现在本节
+才能在 §3 把相关 ASTNode 升级为 `done`。
+
+| shard 名称 | 验证脚本 | 覆盖 ASTNode（§3 中对应行） |
+|------------|----------|-----------------------------|
+| `exit0` | `tests/verify_hosted_native_basic_parity.sh` | `AST_RETURN_STMT` (return literal, 0) |
+| `return7` | `tests/verify_hosted_native_basic_parity.sh` | `AST_RETURN_STMT` (return literal, 7) |
+| `call_value` | `tests/verify_hosted_native_basic_parity.sh` | `AST_RETURN_STMT`, `AST_CALL_EXPR` (return call) |
+| `main_local_if` | `tests/verify_hosted_native_main_local_if_preflight.sh` | `AST_VAR_DECL`, `AST_LOCAL_DECL`, `AST_IF_STMT`, `AST_RETURN_STMT` |
+| `extern_c_import` | `tests/verify_hosted_native_c_import_link_parity.sh` | `AST_C_IMPORT_DECL`, `AST_FN_DECL` (extern), `AST_CALL_EXPR` (extern) |
+| `builtin` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_SIZEOF`, `AST_ALIGNOF` |
+| `array_len` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_LEN` |
+| `array_index` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_ARRAY_ACCESS` |
+| `slice` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_SLICE_EXPR` |
+| `error_id` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_ERROR_ID`, `AST_ERROR_VALUE` |
+| `catch` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_CATCH_EXPR` |
+| `dynamic_catch` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_MATCH_EXPR`, `AST_TRY_EXPR` |
+| `defer` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_DEFER_STMT` |
+| `drop` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_METHOD_BLOCK` (drop fn) |
+| `interface` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_INTERFACE_DECL` |
+| `atomic` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_TYPE_ATOMIC`, `AST_ASSIGN` (atomic op) |
+| `simd` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_TYPE_VECTOR`, `AST_TYPE_MASK` |
+| `full_language` | `tests/verify_hosted_native_full_language_smoke.sh` | `AST_ENUM_DECL`, `AST_UNION_DECL`, `AST_STRUCT_DECL`, `AST_METHOD_BLOCK`, `AST_TYPE_ALIAS`, `AST_EXTERN_VAR_DECL`, `AST_ARRAY_LITERAL`, `AST_STRUCT_INIT`, `AST_BINARY_EXPR`, `AST_TYPE_ERROR_UNION` |
+
+`builtin` / `array_len` / `array_index` / `slice` / `error_id` / `catch` / `dynamic_catch`
+/ `defer` / `drop` / `interface` / `atomic` / `simd` 在 C99 后端均能真实生成可运行
+executable；hosted native 路径在 Phase 9A 收口时只有 `exit0` / `return7` / `call_value`
+/ `main_local_if` / `extern_c_import` / `full_language`（作为综合集成体）达到端到端
+parity，其余 12 个 shard 在 §7 表格中显式 `reject`。Phase 9B leaf 必须先
+把对应 shard 从 §7 移除、然后在 hosted native 下真实运行成功，再回到 §3 / §3A
+把相关 ASTNode 状态从 `done`（C99 端）升级为 `done`（C99 + native 双端）。
 
 ## 8. builtin 覆盖
 
