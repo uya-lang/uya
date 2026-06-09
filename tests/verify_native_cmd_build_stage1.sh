@@ -33,6 +33,7 @@ bash "$SCRIPT_DIR/verify_native_compile_stats_table_agg_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_semantic_db_agg_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_typed_program_agg_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_table_items_contract.sh"
+bash "$SCRIPT_DIR/verify_native_compile_stats_table_capacity_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
