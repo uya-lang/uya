@@ -992,11 +992,33 @@ MIR -> Native 首个目标：
   - native build stderr 不得包含 `native_hosted_portable_mir_lowering_missing`、C99 fallback 或
     pre-MIR helper 成功路径。
 - [~] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
-  vararg/format 或 runtime helper handoff。
-  # 2026-06-10: 当前 epic 起点；L996/L1005/L1032 都依赖此叶子完成。
-  # TDD 计划：先补 hosted native helloworld 期望成功的 contract 子句；当前
-  # `verify_hosted_native_helloworld_parity.sh` 只断言 reject，下一切片把
-  # 成功子句补上并实测。
+  vararg/format 或 runtime helper handoff（epic 起点；L996/L1005/L1032 都依赖此叶子完成）。
+  # 2026-06-10 拆分：见下方 L994.A–L994.F 六个有序子叶子；前序未通过不进入下一个。
+  - [ ] L994.A MIR extern helper 注册：把 `uya_write(fd, ptr, len)` / `uya_write_str(fd, ptr, len)` /
+        `uya_write_newline(fd)` 三个 hosted runtime helper 写为新 `extern fn` 声明，挂到
+        `src/build_compiler_driver.uya` 的 `native_build_hosted_mir_append_extern_function`
+        调用前的 hosted helper 注册路径；要求 stderr 新增
+        `mir_extern_function_count: name=uya_write` / `uya_write_str` / `uya_write_newline` 计数。
+        TDD 红：现有 `verify_native_cmd_build_no_silent_c99.sh` 增加 helper 计数断言。
+  - [ ] L994.B HIR→CoreBody→MIR print/print lowering：在 `src/exec/lower.uya` 把
+        `HIR_EXPR_PRINT` / `HIR_EXPR_PRINTLN` 字符串字面量分支（不含 interp、不含 format）
+        下放到 `CORE_STMT_KIND_EXPR` + `CORE_EXPR_KIND_CALL`，call target 是 L994.A 注册的
+        `uya_write_str` / `uya_write_newline` extern。要求 `native_hosted_preflight` 报告
+        `mir_body_functions > 0`（helloworld 程序）。
+  - [ ] L994.C MIR verifier ABI 校验：在 `src/lower/mir_verifier.uya` 的
+        `CORE_EXPR_KIND_CALL` 路径上验证 print helper extern 的 ABI（参数 i32/i64 寄存器、
+        ret i32、non-naked）。
+  - [ ] L994.D NativeMirEmitter extern call emission：NativeMirEmitter 接受
+        verifier-clean 的 `CORE_EXPR_KIND_CALL`→`uya_write_str` 并 emit x86_64
+        `call <extern>`；ABI 用 SysV i32/i64 寄存器约定（fd → EDI，ptr → RSI，len → EDX）。
+  - [ ] L994.E hosted link plan 拉入 helper C 实现：hosted link plan 在
+        `native_hosted_executable_writer_*` 阶段把 print helper C 实现
+        （`src/codegen/c99_build/main.uya:3091-3097` 现有的 `uya_write` / `uya_strlen` 静态
+        函数）作为额外 link object 拉入。
+  - [ ] L994.F 端到端 parity gate：把 `verify_hosted_native_helloworld_parity.sh` 顶部
+        期望成功子句打开（不再走 reject 分支），并把
+        `verify_full_language_backend_parity.sh` 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1`
+        路径覆盖到 hello world（case 01）@println 场景。
 - [ ] HelloWorld native executable 真实运行并输出 `Hello, World!\n`，与 C99 oracle 一致。
 
 完整语言 parity 门禁：
@@ -1815,6 +1837,27 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 合同叶子：新增 `tests/verify_hosted_native_helloworld_parity.sh`，固定 `@println("Hello, World!")`
      native/C99 stdout、stderr、退出码和 no-fallback 预期。
    - 实现叶子：NativeMirEmitter 支持 `@print` / `@println` 的 string constant、stdout/write 或 hosted libc handoff。
+     - TDD 子叶子 L994.A：把 `uya_write(fd, ptr, len)` / `uya_write_str(fd, ptr, len)` /
+       `uya_write_newline(fd)` 三个 hosted runtime helper 写为新 `extern fn` 声明，挂到
+       `src/build_compiler_driver.uya` 的 `native_build_hosted_mir_append_extern_function`
+       调用前的 hosted helper 注册路径；要求 stderr 新增
+       `mir_extern_function_count: name=uya_write`/`uya_write_str`/`uya_write_newline` 计数。
+     - TDD 子叶子 L994.B：在 `src/exec/lower.uya` 把 `HIR_EXPR_PRINT`/`HIR_EXPR_PRINTLN` 字符串
+       字面量分支（不含 interp、不含 format）下放到 `CORE_STMT_KIND_EXPR` +
+       `CORE_EXPR_KIND_CALL`，call target 是 L994.A 注册的 `uya_write_str` / `uya_write_newline`
+       extern。要求 `native_hosted_preflight` 报告 `mir_body_functions > 0`。
+     - TDD 子叶子 L994.C：补全 `src/lower/mir_verifier.uya` 中 `CORE_EXPR_KIND_CALL` 路径对
+       print helper extern 的 ABI 校验（参数 i32/i64 寄存器、ret i32、non-naked）。
+     - TDD 子叶子 L994.D：NativeMirEmitter 接受 verifier-clean 的
+       `CORE_EXPR_KIND_CALL`→`uya_write_str` 并 emit x86_64 `call <extern>`；
+       ABI 用 SysV i32/i64 寄存器约定（fd → EDI，ptr → RSI，len → EDX）。
+     - TDD 子叶子 L994.E：hosted link plan 在 `native_hosted_executable_writer_*` 阶段
+       把 print helper C 实现（`src/codegen/c99_build/main.uya:3091-3097` 现有的
+       `uya_write`/`uya_strlen` 静态函数）作为额外 link object 拉入。
+     - TDD 子叶子 L994.F：把 `verify_hosted_native_helloworld_parity.sh` 顶部的
+       期望成功子句打开（不再走 reject 分支），并把
+       `verify_full_language_backend_parity.sh` 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1`
+       路径覆盖到 hello world（case 01）@println 场景。
    - 收口叶子：HelloWorld native executable 真实输出 `Hello, World!\n`，stderr 不再包含
      `native_hosted_portable_mir_lowering_missing`。
 3. PHASE9B-FULL-LANGUAGE-PARITY：完整语言后端差分套件前移到 Phase 10 前。
