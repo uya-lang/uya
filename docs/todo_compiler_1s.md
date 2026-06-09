@@ -1092,7 +1092,7 @@ PortableMIR/native hosted parity 的验收输入。
             surface 前的 disabled warning。
           - [x] 迁入 inline `--split-c-dir=<dir>` 成功/default 分支：覆盖 `arg + 14` pointer arithmetic、
             `strlen`、`PATH_MAX - 1`、`strcpy`、active 写入和 `split_c_set_default_dir()`。
-          - [ ] 迁入 separate `--split-c-dir <dir>` disabled-skip 分支：覆盖 warning、可选
+          - [x] 迁入 separate `--split-c-dir <dir>` disabled-skip 分支：覆盖 warning、可选
             `get_argv(i + 1)`、`sd_skip[0] != 45` 和 `i = i + 1`。
           - [ ] 迁入 separate `--split-c-dir <dir>` 成功/default 分支：覆盖缺参默认、null 默认、
             长度默认、成功 `strcpy` 和 `i = i + 1`。
@@ -1375,8 +1375,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：`--no-split-c`。
    - 已完成叶子：inline `--split-c-dir=<dir>` disabled warning。
    - 已完成叶子：inline `--split-c-dir=<dir>` 成功/default。
-   - 下一个叶子：separate `--split-c-dir <dir>` disabled-skip。
-   - 实现叶子：separate `--split-c-dir <dir>` 成功/default。
+   - 已完成叶子：separate `--split-c-dir <dir>` disabled-skip。
+   - 下一个叶子：separate `--split-c-dir <dir>` 成功/default。
 5. PBA-INPUTS：完成位置输入文件收集。
    - 合同叶子：固定 `arg[0]`、容量检查、index/count 写入和未知 dash option no-op。
    - 实现叶子：`arg[0]` / 非 dash 判定。
