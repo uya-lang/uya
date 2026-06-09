@@ -1032,7 +1032,7 @@ PortableMIR/native hosted parity 的验收输入。
             child frontier 诊断和 stage1 纳入点；不改生产实现。
           - [x] 将 `-o` 分支迁入 verifier-clean PortableMIR：覆盖缺参 diagnostic / `return -1`、
             `output_file_index[0] = i + 1` 和 `i = i + 1`，self-build 仍以 lowering-missing 明确拒绝写出。
-          - [ ] 为 backend 标量分支补独立合同脚本：固定 `--c99` / `--native` 的 enum store surface、
+          - [x] 为 backend 标量分支补独立合同脚本：固定 `--c99` / `--native` 的 enum store surface、
             branch frontier、stage1 纳入点和 no-silent-C99 预期；不改生产实现。
           - [ ] 将 backend 标量分支迁入 PortableMIR：覆盖 `--c99` / `--native` 的
             `BackendType` out-param 写入，更新 loop-body frontier 到下一未覆盖选项。

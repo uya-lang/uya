@@ -97,6 +97,8 @@ require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_frontier: funct
     "cmd/build subset doc 缺少 scalar option loop-body child frontier 诊断形状"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=2 covered_branch=-o next_branch=--c99 next_kind=AST_IF_STMT reason=partial_else_if_chain' \
     "cmd/build subset doc 缺少 -o branch frontier 诊断形状"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=3 covered_branch=backend next_branch=--no-line-directives next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "cmd/build subset doc 缺少 backend branch frontier 诊断形状"
 
 require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
     "architecture doc 缺少 hosted native C99 oracle 范围"
@@ -204,6 +206,8 @@ require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_scalar_options_co
     "stage1 native cmd/build 验证未纳入 parse_build_args scalar option 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_o_option_contract\.sh' \
     "stage1 native cmd/build 验证未纳入 parse_build_args -o 合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_backend_options_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args backend options 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
     "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_c99_output_parity\.sh' \

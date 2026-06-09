@@ -15,6 +15,7 @@ bash "$SCRIPT_DIR/verify_native_parse_build_args_first_arg_contract.sh"
 bash "$SCRIPT_DIR/verify_native_parse_build_args_option_loop_contract.sh"
 bash "$SCRIPT_DIR/verify_native_parse_build_args_scalar_options_contract.sh"
 bash "$SCRIPT_DIR/verify_native_parse_build_args_o_option_contract.sh"
+bash "$SCRIPT_DIR/verify_native_parse_build_args_backend_options_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
