@@ -288,6 +288,37 @@ C99 fallback 或直接跳到 `compile_files(...)`。
 field-address surface。只有该 helper body complete 后，才能重新运行 self-build frontier 并接受真实诊断中的
 下一个 pending body/helper 名称。
 
+## `compile_stats_record_and_release_typed_program(...)` First Slice Contract
+
+首个最小切片只冻结 `compile_stats_record_and_release_typed_program(...)` 的入口防护和第一处
+`TypedProgram` 字节统计读取：`stats == null` return、三个 typed-program 统计字段清零、
+`checker == null` return，以及
+`typed_program_current_bytes(&checker.typed_program)` 的 field-address call surface。该合同不代表
+helper body complete，也不覆盖 `SemanticTableAgg` 聚合、release 调用或 release 后 bytes。
+
+CoreBody/PortableMIR 合同：
+
+1. `stats == null` 必须进入 CoreIR 条件分支，并在 true 分支用 `CORE_STMT_KIND_RETURN`
+   表达无值 early return。该路径不得读取 `checker`，不得写任何 `CompileStats` 字段。
+2. 三个清零写入必须保持源码顺序：`typed_program_bytes = 0usize`、
+   `typed_program_peak_bytes = 0usize`、`typed_program_released_bytes = 0usize`。
+   CoreIR 使用 `CORE_STMT_KIND_ASSIGN` 表达字段 store，目标 place 必须是
+   `CORE_PLACE_KIND_FIELD`，并带 `CORE_SEMANTIC_FACT_FIELD_ID` 冻结字段身份，不能把这些写入压成
+   summary metrics helper。
+3. `checker == null` 必须在三个清零写入之后进入第二个 early return。该 true 分支同样使用
+   `CORE_STMT_KIND_RETURN`，并且不能写 `table_*` 字段或调用 release helper。
+4. 首个 bytes 调用必须保留 `&checker.typed_program` 的 field-address surface。CoreIR 中该字段取址
+   至少需要 field place/fact 记录；PortableMIR 必须通过 `MIR_INST_OP_FIELD_ADDR` 或后续等价
+   field-address inst 表达 `checker.typed_program` 地址，再用 `MIR_INST_OP_CALL` 调用
+   `typed_program_current_bytes(...)`。
+5. 三个清零写入在 PortableMIR 中必须进入 verifier-clean store surface，使用 `MIR_INST_OP_STORE`；
+   early return 使用 `MIR_TERMINATOR_KIND_RETURN`，不能依赖 C99 fallback 或生产统计摘要。
+6. 该切片需要 `usize` 常量 `0usize`、指针 null 比较、struct field load/store、field-address、
+   顺序 call 和无值 return。函数本身仍无 diagnostics、无 IO、无环境读取、无全局写入。
+7. 首切片实现后，self-build frontier 不得继续只报告该 helper 完全 pending；若 helper 尚未
+   body complete，必须报告同一 helper 的下一条 body-prefix，或者在 helper complete 后转向真实的下一个
+   pending body/helper。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

@@ -115,9 +115,9 @@ fn append_coreir_dump_golden_fixture(lowered: &LoweredProgram) !void {
         function_id: 11,
         decl_id: 12,
         root_stmt_start: 0,
-        root_stmt_count: 1,
+        root_stmt_count: 2,
         expr_start: 0,
-        expr_count: 1,
+        expr_count: 2,
         place_start: 0,
         place_count: 1,
         cleanup_edge_start: 0,
@@ -142,6 +142,21 @@ fn append_coreir_dump_golden_fixture(lowered: &LoweredProgram) !void {
         cleanup_scope_id: 601,
         flags: 0,
     };
+    var assign_stmt: CoreStmt = CoreStmt{
+        stmt_id: 1,
+        kind: CORE_STMT_KIND_ASSIGN,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 1,
+        place_id: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: 502,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
     var expr: CoreExpr = CoreExpr{
         expr_id: 0,
         kind: CORE_EXPR_KIND_CALL,
@@ -159,6 +174,25 @@ fn append_coreir_dump_golden_fixture(lowered: &LoweredProgram) !void {
         proof_result_id: 401,
         capability_id: 801,
         source_span_id: 701,
+        flags: 0,
+    };
+    var zero_expr: CoreExpr = CoreExpr{
+        expr_id: 1,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: 0,
+        source_expr_id: 8,
+        type_id: 77,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: 704,
         flags: 0,
     };
     var place: CorePlace = CorePlace{
@@ -216,7 +250,9 @@ fn append_coreir_dump_golden_fixture(lowered: &LoweredProgram) !void {
 
     try assert_eq_i32(lowered_program_append_core_body(lowered, &body), 0);
     try assert_eq_i32(lowered_program_append_core_stmt(lowered, &stmt), 0);
+    try assert_eq_i32(lowered_program_append_core_stmt(lowered, &assign_stmt), 0);
     try assert_eq_i32(lowered_program_append_core_expr(lowered, &expr), 0);
+    try assert_eq_i32(lowered_program_append_core_expr(lowered, &zero_expr), 0);
     try assert_eq_i32(lowered_program_append_core_place(lowered, &place), 0);
     try assert_eq_i32(lowered_program_append_core_cleanup_edge(lowered, &edge), 0);
     try assert_eq_i32(lowered_program_append_core_semantic_fact(lowered, &call_fact), 0);
@@ -764,10 +800,12 @@ awk '
 
 cat >"$expected_golden" <<'EOF'
 === coreir ===
-core_bodies=1 core_stmts=1 core_exprs=1 core_places=1 core_cleanup_edges=1 core_semantic_facts=4
-body #0 function=11 decl=12 roots=0+1 exprs=0+1 places=0+1 cleanups=0+1 facts=0+4 source=500 flags=1
+core_bodies=1 core_stmts=2 core_exprs=2 core_places=1 core_cleanup_edges=1 core_semantic_facts=4
+body #0 function=11 decl=12 roots=0+2 exprs=0+2 places=0+1 cleanups=0+1 facts=0+4 source=500 flags=1
 stmt #0 body=0 kind=10 parent=-1 children=-1+0 expr=0 place=-1 cleanup=0+1 source=501 scope=601 flags=0
+stmt #1 body=0 kind=18 parent=-1 children=-1+0 expr=1 place=0 cleanup=-1+0 source=502 scope=-1 flags=0
 expr #0 body=0 kind=11 source_expr=7 type=77 literal=0 lhs=-1 rhs=-1 callee=-1 place=0 target_fn=101 target_decl=102 field=301 proof=401 capability=801 source=701 flags=0
+expr #1 body=0 kind=17 source_expr=8 type=77 literal=0 lhs=-1 rhs=-1 callee=-1 place=-1 target_fn=-1 target_decl=-1 field=-1 proof=-1 capability=-1 source=704 flags=0
 place #0 body=0 kind=4 source_expr=7 type=77 base=-1 index=-1 field=301 symbol=302 source=702 flags=0
 cleanup #0 body=0 kind=2 from=0 to=-1 scope=601 drop_defer=901 payload=0 source=703 flags=5
 fact #0 kind=1 body=0 stmt=-1 expr=0 source_expr=7 place=-1 cleanup=-1

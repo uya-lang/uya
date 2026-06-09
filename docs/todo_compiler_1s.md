@@ -1173,6 +1173,20 @@ PortableMIR/native hosted parity 的验收输入。
               `stats == null` / `checker == null` early return、typed-program 三字段清零、
               `SemanticTableAgg` 聚合、SemanticDb/TypedProgram 表统计、`typed_program_release` /
               `semantic_vector_release` 顺序和 field-address / lifetime capability 边界。
+          - [x] 为 `compile_stats_record_and_release_typed_program(...)` 的首个最小切片补
+            CoreBody/PortableMIR golden/verifier 合同：固定 `stats == null` return、
+            typed-program 三字段清零、`checker == null` return 和首个
+            `typed_program_current_bytes(&checker.typed_program)` field-address call surface；不改生产实现。
+            - 合同进入 `tests/verify_native_compile_stats_first_slice_contract.sh` 和
+              `tests/verify_native_cmd_build_stage1.sh`；实测
+              `bash tests/verify_native_compile_stats_first_slice_contract.sh`、
+              `bash tests/verify_coreir_dump_golden.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过。
+          - [ ] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
+            helper 的下一条 body-prefix 或下一个真实 pending body/helper。
+          - [ ] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)`，继续按真实
+            body-prefix 补合同并迁入下一切片；每次只扩大一个可验证切片。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
