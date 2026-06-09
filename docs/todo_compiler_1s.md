@@ -997,11 +997,11 @@ MIR -> Native 首个目标：
 
 完整语言 parity 门禁：
 
-- [~] 整理 `tests/verify_full_language_backend_parity.sh`，以 main 分支语言规范为输入清单，覆盖多文件模块、
+- [x] 整理 `tests/verify_full_language_backend_parity.sh`，以 main 分支语言规范为输入清单，覆盖多文件模块、
   泛型、方法、接口、error union、`try/catch`、`defer/errdefer`、async、struct/union/enum、slice/array、
   pointer、atomic、vector/mask、`@c_import`、builtin、标准库入口和 `@print` / `@println`。
-- [ ] 所有 parity case 都记录 C99 result、native result、stdout/stderr、diagnostic normalized diff 和 allowlist。
-- [ ] native 成功 case 必须真实运行 executable；native reject case 必须和覆盖矩阵中的 `reject` 状态一致。
+- [x] 所有 parity case 都记录 C99 result、native result、stdout/stderr、diagnostic normalized diff 和 allowlist。
+- [x] native 成功 case 必须真实运行 executable；native reject case 必须和覆盖矩阵中的 `reject` 状态一致。
 - [ ] Phase 9B 收口时，普通 HelloWorld、基础标准库程序和完整语言 smoke 不再出现
   `native_hosted_portable_mir_lowering_missing`。
 
