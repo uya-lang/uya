@@ -198,6 +198,14 @@ line-directives scalar option：
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=3 covered_branch=backend next_branch=--no-line-directives next_kind=AST_IF_STMT reason=partial_else_if_chain
 ```
 
+line-directives 标量分支完成后必须继续报告 branch frontier，证明 `--no-line-directives` /
+`--line-directives` 的 out-param 写入已纳入 verifier-clean partial body，下一处缺口推进到
+safety-proof scalar option：
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=4 covered_branch=line-directives next_branch=--safety-proof next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
