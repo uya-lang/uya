@@ -1039,7 +1039,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为 line-directives 标量分支补独立合同脚本：固定 `--no-line-directives` /
             `--line-directives` 的 out-param store surface、branch frontier 和 no-silent-C99 预期；
             不改生产实现。
-          - [ ] 将 line-directives 标量分支迁入 PortableMIR：覆盖 `--no-line-directives` /
+          - [x] 将 line-directives 标量分支迁入 PortableMIR：覆盖 `--no-line-directives` /
             `--line-directives` 的 `emit_line_directives[0]` 写入。
           - [ ] 为 safety-proof 标量分支补独立合同脚本：固定 `--safety-proof` /
             `--no-safety-proof` 的 out-param store surface、branch frontier 和 no-silent-C99 预期；
@@ -1344,10 +1344,10 @@ make backup-all
 剩余工作已差分到 Phase 10 叶子队列。下一次实施不要直接接原始 epic，也不要预设
 `compile_files(...)`、toolchain helper 或其它大函数顺序；先把第一个未完成叶子标为 `[~]`：
 
-1. 下一个未完成叶子是“将 line-directives 标量分支迁入 PortableMIR”；覆盖
-   `--no-line-directives` / `--line-directives` 的 `emit_line_directives[0]` 写入，并把
-   loop-body frontier 推进到 `--safety-proof`。
-2. line-directives 实现通过后，才进入 safety-proof 合同；之后按已列出的 safety-proof、
+1. 下一个未完成叶子是“为 safety-proof 标量分支补独立合同脚本”；该叶子只写合同/测试/文档，
+   固定 `--safety-proof` / `--no-safety-proof` 的 out-param store surface、branch frontier 和
+   no-silent-C99 预期，不改生产实现。
+2. safety-proof 合同通过后，才进入“将 safety-proof 标量分支迁入 PortableMIR”；之后按已列出的
    opt-level、`--nostdlib` 合同/实现叶子逐个推进。
 3. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
    parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`

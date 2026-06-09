@@ -154,8 +154,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: functi
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier' \
     "no-silent-C99 测试缺少 scalar option loop-body branch frontier 合同锚点"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=3 covered_branch=backend next_branch=--no-line-directives next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 backend 后的 line-directives frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=4 covered_branch=line-directives next_branch=--safety-proof next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试缺少 line-directives 后的 safety-proof frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \

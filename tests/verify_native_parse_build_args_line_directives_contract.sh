@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
 # Phase 10：固定 parse_build_args(...) line-directives 标量分支迁入合同。
-# 该叶子只冻结 `--no-line-directives` / `--line-directives` out-param
-# store surface、下一段 branch frontier 和 stage1 接入点；生产 recognizer /
-# MIR lowering 由后续叶子完成。
+# 该切片覆盖 `--no-line-directives` / `--line-directives` out-param
+# 写入，并把 frontier 推进到 safety-proof scalar option 分支。
 
 set -euo pipefail
 
@@ -43,9 +42,13 @@ require_pattern "$BUILD_DRIVER_SRC" 'else if strcmp\(arg, "--line-directives" as
     "parse_build_args 源码缺少 --line-directives 分支"
 require_pattern "$BUILD_DRIVER_SRC" 'emit_line_directives\[0\] = 1;' \
     "parse_build_args 源码缺少 emit_line_directives=1 out-param 写入"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_line_directives_option_if_supported' \
+    "生产代码缺少 line-directives 分支 shape recognizer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_line_directives_body' \
+    "生产代码缺少 line-directives 分支 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=3 covered_branch=backend next_branch=--no-line-directives next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须继续固定当前 backend 后 frontier，直到 line-directives 实现叶子推进它"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=4 covered_branch=line-directives next_branch=--safety-proof next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试缺少 line-directives 后的 safety-proof frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
