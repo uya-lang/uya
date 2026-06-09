@@ -895,6 +895,16 @@ if ! grep -q 'native_hosted_subset: core_mir_local_array_index_path=1' "$array_i
     cat "$array_index_native_build_err" >&2
     exit 1
 fi
+if ! grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment did not use NativeMirEmitter stream writer" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'hosted native assembly' "$array_index_native_build_err"; then
+    echo "error: native local array index parity fragment still used assembly helper" >&2
+    cat "$array_index_native_build_err" >&2
+    exit 1
+fi
 grep -q 'native_output_bytes:' "$array_index_native_build_err"
 
 chmod +x "$array_index_native_bin"

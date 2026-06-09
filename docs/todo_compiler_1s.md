@@ -984,6 +984,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 `MirTargetBackendOutput` machine module 接到 hosted executable writer preflight 边界，明确只因 pending bodies 阻止写出。
         - [x] 将 hosted executable writer preflight 下沉为 `NativeHostedExecutableWriterPlan` 合同，避免 driver 内联散落 handoff 判定。
         - [x] 将 hosted no-deps const-return 输出从手写 asm/link helper 改到 `NativeMirEmitter` executable stream，并保留 MIR verifier 证据。
+        - [x] 将 local-array index hosted 输出从 const-return asm/link helper 改到 `NativeMirEmitter` executable stream。
 
 测试：
 

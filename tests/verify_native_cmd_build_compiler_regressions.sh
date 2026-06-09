@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Phase 10: verify bin/cmd/build can compile a small compiler-regression group
-# through the freestanding native build-seed path.
+# through the native build-seed path and hosted MIR-backed stream shards.
 
 set -euo pipefail
 
@@ -73,6 +73,14 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$TMP_DIR/hosted_array_index.uya" <<'EOF'
+export fn main() i32 {
+    var array: [i32: 4] = [2, 4, 6, 8];
+    const idx: i32 = 2;
+    return array[idx];
+}
+EOF
+
 run_cmd_build_regression() {
     local name="$1"
     local expected_status="$2"
@@ -119,9 +127,44 @@ run_cmd_build_regression() {
     fi
 }
 
+run_cmd_build_hosted_array_index() {
+    local out="$TMP_DIR/hosted_array_index.native"
+    local build_out="$TMP_DIR/hosted_array_index.build.out"
+    local build_err="$TMP_DIR/hosted_array_index.build.err"
+    local run_out="$TMP_DIR/hosted_array_index.run.out"
+    local run_err="$TMP_DIR/hosted_array_index.run.err"
+
+    "$REPO_ROOT/bin/cmd/build" build "$TMP_DIR/hosted_array_index.uya" \
+        -o "$out" --native --no-split-c --project-root "$TMP_DIR/" \
+        >"$build_out" 2>"$build_err"
+
+    test -s "$out"
+    grep -q '后端类型: Native' "$build_err"
+    grep -q 'native_hosted_subset: core_mir_local_array_index_path=1' "$build_err"
+    grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$build_err"
+    if grep -q 'hosted native assembly' "$build_err" ||
+       grep -q 'native_hosted_portable_mir_lowering_missing' "$build_err" ||
+       grep -q '后端类型: C99' "$build_err"; then
+        echo "error: cmd/build hosted array-index regression used fallback or assembly helper" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+
+    chmod +x "$out"
+    set +e
+    "$out" >"$run_out" 2>"$run_err"
+    local run_status=$?
+    set -e
+    if [[ "$run_status" -ne 6 ]]; then
+        echo "error: cmd/build hosted array-index regression exit=$run_status expected=6" >&2
+        exit 1
+    fi
+}
+
 run_cmd_build_regression generic_identity 6
 run_cmd_build_regression local_array_outparam 9
 run_cmd_build_regression stack_limit_call 4
 run_cmd_build_regression parse_like_outparam 91
+run_cmd_build_hosted_array_index
 
 echo "verify_native_cmd_build_compiler_regressions: ok"

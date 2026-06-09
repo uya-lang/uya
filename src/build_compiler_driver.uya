@@ -20796,7 +20796,7 @@ fn native_build_try_emit_hosted_core_mir_local_array_index_subset(output_file: &
        return_value < 0 || return_value > 255 {
         return 0;
     }
-    if native_build_hosted_emit_const_return_linked_exe(output_file,
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
         return_value) != 0 {
         return -1;
     }
