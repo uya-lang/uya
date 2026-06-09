@@ -1086,7 +1086,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为 split-C / async-frame CLI 补 CoreBody/PortableMIR 合同：固定 `--async-frame-heap=on`、
             `--no-split-c`、inline/separate `--split-c-dir`、warning/default-dir 调用和 frontier 预期；不改生产实现。
           - [x] 迁入 `--async-frame-heap=on` 分支：覆盖 `async_frame_heap_fallback[0] = 1`。
-          - [ ] 迁入 `--no-split-c` 分支：覆盖 `g_split_c_disabled_cli`、`g_split_c_dir_active` 和
+          - [x] 迁入 `--no-split-c` 分支：覆盖 `g_split_c_disabled_cli`、`g_split_c_dir_active` 和
             `g_split_c_dir[0]` 写入。
           - [ ] 迁入 inline `--split-c-dir=<dir>` disabled 分支：覆盖 `strncmp`、`arg + 14`
             surface 前的 disabled warning。
@@ -1372,8 +1372,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 4. PBA-SPLIT-C：完成 split-C / async-frame CLI。
    - 已完成叶子：固定 async-frame、`--no-split-c`、inline/separate `--split-c-dir` 和 default-dir。
    - 已完成叶子：`--async-frame-heap=on`。
-   - 下一个叶子：`--no-split-c`。
-   - 实现叶子：inline `--split-c-dir=<dir>` disabled warning。
+   - 已完成叶子：`--no-split-c`。
+   - 下一个叶子：inline `--split-c-dir=<dir>` disabled warning。
    - 实现叶子：inline `--split-c-dir=<dir>` 成功/default。
    - 实现叶子：separate `--split-c-dir <dir>` disabled-skip。
    - 实现叶子：separate `--split-c-dir <dir>` 成功/default。

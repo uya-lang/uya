@@ -188,8 +188,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: functi
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier' \
     "no-silent-C99 测试缺少 scalar option loop-body branch frontier 合同锚点"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=14 covered_branch=--async-frame-heap=on next_branch=--no-split-c next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 async-frame 完成后的 --no-split-c frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=15 covered_branch=--no-split-c next_branch=--split-c-dir-inline-disabled next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试缺少 --no-split-c 完成后的 inline split-c disabled frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \

@@ -114,8 +114,12 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_async_
     "生产代码缺少 async-frame branch shape recognizer"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_async_frame_body' \
     "生产代码缺少 async-frame body/frontier 判定"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=14 covered_branch=--async-frame-heap=on next_branch=--no-split-c next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须固定 async-frame 完成后的 --no-split-c frontier"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_no_split_c_if_supported' \
+    "生产代码缺少 --no-split-c branch shape recognizer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_no_split_c_body' \
+    "生产代码缺少 --no-split-c body/frontier 判定"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=15 covered_branch=--no-split-c next_branch=--split-c-dir-inline-disabled next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试必须固定 --no-split-c 完成后的 inline split-c disabled frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_split_c_contract\.sh' \
