@@ -196,6 +196,8 @@ struct NativeHostedMirPreflightResult {
     emitter_output_matches_request: i32,
     emitter_output_kind: i32,
     emitter_machine_function_count: i32,
+    emitter_executable_writer_ready: i32,
+    emitter_executable_writer_blocked_by_pending_bodies: i32,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1237,6 +1239,8 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.emitter_output_matches_request = 0;
     result.emitter_output_kind = MIR_BACKEND_OUTPUT_NONE;
     result.emitter_machine_function_count = 0;
+    result.emitter_executable_writer_ready = 0;
+    result.emitter_executable_writer_blocked_by_pending_bodies = 0;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -19464,6 +19468,14 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     result.emitter_output_kind = backend_output.output_kind;
     result.emitter_machine_function_count =
         machine_module_function_count(&machine) as i32;
+    if result.emitter_output_matches_request != 0 &&
+       result.emitter_output_kind == MIR_BACKEND_OUTPUT_MACHINE_MODULE &&
+       result.emitter_handoff_link_plan_complete != 0 {
+        result.emitter_executable_writer_ready = 1;
+        if result.core_pending_body_count > 0 {
+            result.emitter_executable_writer_blocked_by_pending_bodies = 1;
+        }
+    }
     machine_module_release(&machine);
     result.verifier_error = verifier.error_code;
     result.object_count = plan.object_count;
@@ -20181,6 +20193,17 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
                 output_kind_name as *byte,
                 result.emitter_machine_function_count,
                 result.core_pending_body_count);
+            if result.emitter_executable_writer_ready != 0 &&
+               result.emitter_executable_writer_blocked_by_pending_bodies != 0 {
+                fprintf(libc.stderr,
+                    "native_hosted_executable_writer_preflight: status=blocked reason=pending_core_bodies output_kind=%s machine_functions=%d link_plan=%s link_objects=%d c_import_objects=%d pending_bodies=%d\n" as *byte,
+                    output_kind_name as *byte,
+                    result.emitter_machine_function_count,
+                    link_plan_status as *byte,
+                    result.object_count,
+                    c_import_count,
+                    result.core_pending_body_count);
+            }
         }
     }
     fprintf(libc.stderr,
@@ -28147,6 +28170,8 @@ fn compile_files(
                 emitter_output_matches_request: 0,
                 emitter_output_kind: MIR_BACKEND_OUTPUT_NONE,
                 emitter_machine_function_count: 0,
+                emitter_executable_writer_ready: 0,
+                emitter_executable_writer_blocked_by_pending_bodies: 0,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);

@@ -981,6 +981,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 nested child complete 的 hosted handoff frontier 转入真实 emitter/handoff 首个拒绝或接线切片。
         - [x] 将 verified PortableMIR partial body 接入 `NativeMirEmitter` import preflight，报告 imported function/block/inst 计数，仍因 pending bodies 拒绝 executable emission。
         - [x] 将 `NativeMirEmitter` import 结果接入 `MirTargetBackendOutput` payload preflight，报告 machine module output 计数，仍因 pending bodies 拒绝 executable emission。
+        - [x] 将 `MirTargetBackendOutput` machine module 接到 hosted executable writer preflight 边界，明确只因 pending bodies 阻止写出。
 
 测试：
 
