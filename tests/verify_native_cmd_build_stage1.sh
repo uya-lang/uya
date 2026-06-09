@@ -29,6 +29,7 @@ bash "$SCRIPT_DIR/verify_native_parse_build_args_tail_contract.sh"
 bash "$SCRIPT_DIR/verify_native_stack_limit_helper_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_first_slice_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_peak_bytes_contract.sh"
+bash "$SCRIPT_DIR/verify_native_compile_stats_table_agg_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 

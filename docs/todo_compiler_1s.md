@@ -1214,6 +1214,25 @@ PortableMIR/native hosted parity 的验收输入。
               `bash tests/verify_native_stack_limit_helper_contract.sh`、
               `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
               `bash tests/verify_native_cmd_build_stage1.sh` 通过。
+          - [x] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
+            `SemanticTableAgg` 局部初始化，继续按真实 body-prefix 补合同并迁入该单条
+            `var table_agg: SemanticTableAgg = semantic_table_agg_init()` 切片。
+            - 已新增 `tests/verify_native_compile_stats_table_agg_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；生产实现为同一 partial CoreBody/PortableMIR
+              追加 `table_agg` local stack slot、`semantic_table_agg_init()` resolved call fact 和
+              MIR call surface。重建时暴露 `src/build_compiler_driver.uya` 中裸 `F_OK` 生成 C 未声明，
+              已在当前 build-seed 文件内改为 POSIX `F_OK` 数值 `0`，恢复 `cmd-build` 硬门。
+            - self-build 真实 frontier 推进到
+              `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=8 next_stmt=8 next_kind=AST_CALL_EXPR reason=partial_core_body`，
+              whole-body pending frontier 为
+              `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=175 function_id=5 body_stmts=4 reason=pending_core_body`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_compile_stats_first_slice_contract.sh`、
+              `bash tests/verify_native_compile_stats_peak_bytes_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_agg_contract.sh`、
+              `bash tests/verify_native_stack_limit_helper_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入

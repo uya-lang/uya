@@ -59,7 +59,7 @@ require_pattern "$NO_SILENT_TEST" 'core_bodies=7' \
     "no-silent-C99 测试缺少 compile_stats peak slice CoreBody 计数"
 require_pattern "$NO_SILENT_TEST" 'mir_body_functions=6' \
     "no-silent-C99 测试缺少 compile_stats peak slice MIR body 计数"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=7 next_stmt=7 next_kind=AST_VAR_DECL reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program' \
     "no-silent-C99 测试缺少 compile_stats peak slice frontier"
 require_pattern "$NO_SILENT_TEST" '不应在 compile_stats peak-bytes 迁入后继续报告 prefix_stmts=6' \
     "no-silent-C99 测试缺少旧 compile_stats prefix=6 反向检查"

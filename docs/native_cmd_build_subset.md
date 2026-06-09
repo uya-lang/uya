@@ -109,19 +109,19 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete`、
   stack-limit helper 首切片已进入 verifier-clean CoreBody/PortableMIR，因此不再报告
   `set_process_stack_limit_bytes` pending callee；`compile_stats_record_and_release_typed_program(...)`
-  peak-bytes 切片迁入后，当前计数为 `core_bodies=7`、`mir_body_functions=6`、
+  table-agg init 切片迁入后，当前计数为 `core_bodies=7`、`mir_body_functions=6`、
   本轮 stderr 输出的 reachable body frontier 是 compile-stats partial body-prefix，未输出新的
   `native_hosted_reachable_callee_frontier` / loop body-prefix frontier、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
-  `native_hosted_emitter_import_preflight: status=ready imported_functions=484 imported_blocks=41 imported_insts=63 ...`、
+  `native_hosted_emitter_import_preflight: status=ready imported_functions=484 imported_blocks=41 imported_insts=64 ...`、
   `native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=484 ...` 和
   `native_hosted_portable_mir_lowering_missing`。
   不再把 `compile_files(...)` 16 参数缺口固定为 `--nostdlib` freestanding one-off shape。
-- `compile_stats_record_and_release_typed_program(...)` peak-bytes 切片已接入 verifier-clean CoreBody/PortableMIR：
-  `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=7 next_stmt=7 next_kind=AST_VAR_DECL reason=partial_core_body`。
+- `compile_stats_record_and_release_typed_program(...)` table-agg init 切片已接入 verifier-clean CoreBody/PortableMIR：
+  `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=8 next_stmt=8 next_kind=AST_CALL_EXPR reason=partial_core_body`。
   当前 whole-body pending frontier 已推进到
-  `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=170 function_id=5 body_stmts=4 reason=pending_core_body`；
+  `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=175 function_id=5 body_stmts=4 reason=pending_core_body`；
   后续若继续处理 compile-stats，必须按同 helper 的真实下一 body-prefix 推进，不得从静态候选列表猜
   `compile_files(...)` 或其它 helper。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
@@ -347,6 +347,31 @@ CoreBody/PortableMIR 合同：
 3. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
    `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=7 next_stmt=7 next_kind=AST_VAR_DECL reason=partial_core_body`。
    下一步才能审计并迁入 `var table_agg: SemanticTableAgg = semantic_table_agg_init()`。
+
+## `compile_stats_record_and_release_typed_program(...)` Table Agg Init Slice Contract
+
+peak-bytes 切片迁入后的真实 reachable body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=7 next_stmt=7 next_kind=AST_VAR_DECL reason=partial_core_body
+```
+
+下一条源码语句是
+`var table_agg: SemanticTableAgg = semantic_table_agg_init();`。该切片只允许追加
+`SemanticTableAgg` 局部 stack slot 和 `semantic_table_agg_init()` 零参数 call initializer，
+不得提前迁入 `semantic_db_accumulate_table_stats(...)`、`typed_program_accumulate_table_stats(...)`
+或任何 `stats.table_*` 写回。
+
+CoreBody/PortableMIR 合同：
+
+1. `table_agg` 必须以 `CORE_STMT_KIND_LOCAL_DECL` / `CORE_PLACE_KIND_LOCAL` 表达，
+   并带 stack-slot flag，不能把后续 table 聚合压缩为匿名摘要值。
+2. `semantic_table_agg_init()` 必须作为零参数 `CORE_EXPR_KIND_CALL` 进入 CoreIR，并带
+   `CORE_SEMANTIC_FACT_RESOLVED_CALL` 记录真实 callee；PortableMIR 侧追加独立
+   `MIR_INST_OP_CALL` surface。
+3. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=8 next_stmt=8 next_kind=AST_CALL_EXPR reason=partial_core_body`。
+   下一步才能迁入 `semantic_db_accumulate_table_stats(&checker.semantic_db, &table_agg)`。
 
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
