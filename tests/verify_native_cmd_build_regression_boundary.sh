@@ -124,8 +124,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_import_preflight: statu
     "no-silent-C99 测试缺少 cmd/build NativeMirEmitter import preflight 证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module' \
     "no-silent-C99 测试缺少 cmd/build NativeMirEmitter output payload preflight 证据"
-require_pattern "$NO_SILENT_TEST" 'entry_callee_coverage=partial_prefix' \
-    "no-silent-C99 测试缺少 cmd/build run entry prefix 覆盖证据"
+require_pattern "$NO_SILENT_TEST" 'entry_callee_coverage=complete' \
+    "no-silent-C99 测试缺少 cmd/build run entry complete 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 cmd/build self-build lowering frontier"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \

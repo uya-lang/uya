@@ -986,6 +986,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 hosted no-deps const-return 输出从手写 asm/link helper 改到 `NativeMirEmitter` executable stream，并保留 MIR verifier 证据。
         - [x] 将 local-array index hosted 输出从 const-return asm/link helper 改到 `NativeMirEmitter` executable stream。
         - [x] 将 dynamic catch hosted 输出从手写 asm/link helper 改到 `NativeMirEmitter` executable stream，并保留 `argc` 分支语义。
+        - [x] 将 `build_compiler_driver_run` full-prefix complete 状态接入 hosted handoff frontier，避免已覆盖入口仍报告 `partial_prefix`。
 
 测试：
 

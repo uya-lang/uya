@@ -20147,6 +20147,9 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
         var entry_coverage: &byte = "not_verified" as &byte;
         if result.entry_pending_callee_prefix_covered != 0 {
             entry_coverage = "partial_prefix" as &byte;
+            if result.entry_pending_callee_next_stmt_index < 0 {
+                entry_coverage = "complete" as &byte;
+            }
         }
         var entry_child_coverage: &byte = "none" as &byte;
         if result.entry_pending_callee_child_prefix_covered != 0 {
