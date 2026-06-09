@@ -1342,6 +1342,31 @@ PortableMIR/native hosted parity 的验收输入。
               `bash tests/verify_native_stack_limit_helper_contract.sh`、
               `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
               `bash tests/verify_native_cmd_build_stage1.sh` 通过。
+          - [x] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
+            `stats.table_capacity_bytes = table_agg.capacity_bytes` 写回，继续按真实 body-prefix 补合同并迁入
+            该单条 table_capacity_bytes aggregate writeback 切片。
+            - 已新增 `tests/verify_native_compile_stats_table_capacity_bytes_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；生产实现为同一 partial CoreBody/PortableMIR
+              追加 `stats.table_capacity_bytes = table_agg.capacity_bytes` assign stmt、目标
+              `stats.table_capacity_bytes` field-address fact/MIR surface、右值
+              `table_agg.capacity_bytes` field-address fact/MIR surface 和 store 写回。
+            - self-build 真实 frontier 推进到
+              `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=14 next_stmt=14 next_kind=AST_ASSIGN reason=partial_core_body`，
+              whole-body pending frontier 为
+              `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=205 function_id=5 body_stmts=4 reason=pending_core_body`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_compile_stats_first_slice_contract.sh`、
+              `bash tests/verify_native_compile_stats_peak_bytes_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_agg_contract.sh`、
+              `bash tests/verify_native_compile_stats_semantic_db_agg_contract.sh`、
+              `bash tests/verify_native_compile_stats_typed_program_agg_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_items_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_capacity_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_used_bytes_contract.sh`、
+              `bash tests/verify_native_compile_stats_table_capacity_bytes_contract.sh`、
+              `bash tests/verify_native_stack_limit_helper_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
