@@ -139,8 +139,8 @@
 | `AST_VA_COPY` | missing | 同上。 |
 | `AST_ASM` | missing | `@asm { ... }` 内联汇编仅 microapp / freestanding 路径。 |
 | `AST_ASM_TARGET` | missing | `@asm_target()` 平台检测。 |
-| `AST_PRINT` | done | `@print(expr)` 由 `verify_hosted_native_helloworld_parity.sh`（Phase 9B 收口）覆盖；C99 已完整 codegen（`c99/expr.uya:9167`）。 |
-| `AST_PRINTLN` | done | `@println(expr)` 同上。 |
+| `AST_PRINT` | done | `@print(expr)` 由 `verify_hosted_native_helloworld_parity.sh`（Phase 9B 收口）覆盖；C99 已完整 codegen（`c99/expr.uya:9167`）；hosted native 目标合同见 `docs/helloworld_parity_target.md` §2-3。 |
+| `AST_PRINTLN` | done | `@println(expr)` 同上；目标合同 `docs/helloworld_parity_target.md` 锁定 bare / split / return-as-expr 三变体。 |
 | `AST_TYPE_NAMED` | done | Phase 9A 验证。 |
 | `AST_TYPE_POINTER` | done | `&T` 指针类型。 |
 | `AST_TYPE_ARRAY` | done | `[T: N]` 数组类型。 |
