@@ -518,6 +518,16 @@ run_native_parity_fragment() {
             cat "$build_err" >&2
             exit 1
         fi
+        if ! grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$build_err"; then
+            echo "error: dynamic catch native parity fragment did not use NativeMirEmitter stream writer" >&2
+            cat "$build_err" >&2
+            exit 1
+        fi
+        if grep -q 'hosted native assembly' "$build_err"; then
+            echo "error: dynamic catch native parity fragment still used assembly helper" >&2
+            cat "$build_err" >&2
+            exit 1
+        fi
         local c99_bin="$TMP_DIR/$name.c99.bin"
         local c99_success_out="$TMP_DIR/$name.c99.success.out"
         local c99_success_err="$TMP_DIR/$name.c99.success.err"
@@ -1178,6 +1188,16 @@ if grep -q 'native_hosted_portable_mir_lowering_missing' "$dynamic_catch_native_
 fi
 if ! grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$dynamic_catch_native_build_err"; then
     echo "error: native dynamic catch parity fragment lacks hosted no-deps executable evidence" >&2
+    cat "$dynamic_catch_native_build_err" >&2
+    exit 1
+fi
+if ! grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$dynamic_catch_native_build_err"; then
+    echo "error: native dynamic catch parity fragment did not use NativeMirEmitter stream writer" >&2
+    cat "$dynamic_catch_native_build_err" >&2
+    exit 1
+fi
+if grep -q 'hosted native assembly' "$dynamic_catch_native_build_err"; then
+    echo "error: native dynamic catch parity fragment still used assembly helper" >&2
     cat "$dynamic_catch_native_build_err" >&2
     exit 1
 fi

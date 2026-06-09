@@ -28,6 +28,8 @@ require_pattern 'x86_64_emit_sub_r64_r64' "寄存器 sub"
 require_pattern 'x86_64_emit_cmp_r64_r64' "寄存器 cmp"
 require_pattern 'x86_64_emit_add_r64_imm32' "imm32 add"
 require_pattern 'x86_64_emit_sub_r64_imm32' "imm32 sub"
+require_pattern 'x86_64_emit_cmp_r64_imm32' "imm32 cmp"
+require_pattern 'x86_64_emit_je_rel32' "je rel32"
 require_pattern 'x86_64_emit_load_r64_base_disp32' "指针 load"
 require_pattern 'x86_64_emit_store_r64_base_disp32' "指针 store"
 require_pattern 'x86_64_emit_lea_r64_base_disp32' "指针 lea"
@@ -98,6 +100,42 @@ test "x86_64 immediate integer operations encode exact bytes" {
     try assert_eq_i32(ip_bval(&buf[0], 4usize), 255);
     try assert_eq_i32(ip_bval(&buf[0], 5usize), 255);
     try assert_eq_i32(ip_bval(&buf[0], 6usize), 255);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_cmp_r64_imm32(&buf[0], 64usize, &pos, X86_64_REG_R11, -2), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(ip_bval(&buf[0], 0usize), 73);   // REX.W|B
+    try assert_eq_i32(ip_bval(&buf[0], 1usize), 129);  // 81
+    try assert_eq_i32(ip_bval(&buf[0], 2usize), 251);  // /7 r11
+    try assert_eq_i32(ip_bval(&buf[0], 3usize), 254);
+    try assert_eq_i32(ip_bval(&buf[0], 4usize), 255);
+    try assert_eq_i32(ip_bval(&buf[0], 5usize), 255);
+    try assert_eq_i32(ip_bval(&buf[0], 6usize), 255);
+}
+
+test "x86_64 conditional branch encodes exact bytes" {
+    var buf: [byte: 16] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_je_rel32(&buf[0], 16usize, &pos, 18), 0);
+    try expect(pos == 6usize);
+    try assert_eq_i32(ip_bval(&buf[0], 0usize), 15);   // 0f
+    try assert_eq_i32(ip_bval(&buf[0], 1usize), 132);  // 84
+    try assert_eq_i32(ip_bval(&buf[0], 2usize), 18);
+    try assert_eq_i32(ip_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(ip_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(ip_bval(&buf[0], 5usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_je_rel32(&buf[0], 16usize, &pos, -4), 0);
+    try assert_eq_i32(ip_bval(&buf[0], 2usize), 252);
+    try assert_eq_i32(ip_bval(&buf[0], 3usize), 255);
+    try assert_eq_i32(ip_bval(&buf[0], 4usize), 255);
+    try assert_eq_i32(ip_bval(&buf[0], 5usize), 255);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_je_rel32(&buf[0], 5usize, &pos, 0), -1);
+    try expect(pos == 0usize);
 }
 
 test "x86_64 pointer load store and lea encode exact bytes" {

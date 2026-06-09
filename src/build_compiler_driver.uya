@@ -20374,52 +20374,6 @@ fn native_build_hosted_write_extern_const2_asm(path: &byte, extern_name: &byte,
     return 0;
 }
 
-fn native_build_hosted_write_const_return_asm(path: &byte, return_value: i32) i32 {
-    if path == null {
-        return -1;
-    }
-    const file: &void = fopen(path as *byte, "w" as *byte) as &void;
-    if file == null {
-        return -1;
-    }
-    fputs(".text\n" as *byte, file as *void);
-    fputs(".globl main\n" as *byte, file as *void);
-    fputs(".type main, @function\n" as *byte, file as *void);
-    fputs("main:\n" as *byte, file as *void);
-    fprintf(file as *void, "    movl $%d, %%eax\n" as *byte, return_value);
-    fputs("    ret\n" as *byte, file as *void);
-    fputs(".size main, .-main\n" as *byte, file as *void);
-    fputs(".section .note.GNU-stack,\"\",@progbits\n" as *byte, file as *void);
-    fclose(file as *void);
-    return 0;
-}
-
-fn native_build_hosted_write_dynamic_catch_asm(path: &byte,
-    compare_value: i32, fallback_value: i32, ok_value: i32) i32 {
-    if path == null {
-        return -1;
-    }
-    const file: &void = fopen(path as *byte, "w" as *byte) as &void;
-    if file == null {
-        return -1;
-    }
-    fputs(".text\n" as *byte, file as *void);
-    fputs(".globl main\n" as *byte, file as *void);
-    fputs(".type main, @function\n" as *byte, file as *void);
-    fputs("main:\n" as *byte, file as *void);
-    fprintf(file as *void, "    cmpl $%d, %%edi\n" as *byte, compare_value);
-    fputs("    je .Luya_dynamic_catch_fallback\n" as *byte, file as *void);
-    fprintf(file as *void, "    movl $%d, %%eax\n" as *byte, ok_value);
-    fputs("    ret\n" as *byte, file as *void);
-    fputs(".Luya_dynamic_catch_fallback:\n" as *byte, file as *void);
-    fprintf(file as *void, "    movl $%d, %%eax\n" as *byte, fallback_value);
-    fputs("    ret\n" as *byte, file as *void);
-    fputs(".size main, .-main\n" as *byte, file as *void);
-    fputs(".section .note.GNU-stack,\"\",@progbits\n" as *byte, file as *void);
-    fclose(file as *void);
-    return 0;
-}
-
 fn native_build_hosted_compile_asm_to_object(cc_driver: &byte, target_flags: &byte,
     asm_path: &byte, object_path: &byte) i32 {
     if cc_driver == null || asm_path == null || object_path == null {
@@ -20631,39 +20585,31 @@ fn native_build_hosted_emit_extern_const2_linked_exe(output_file: &byte,
     return 0;
 }
 
-fn native_build_hosted_emit_const_return_linked_exe(output_file: &byte,
-    return_value: i32) i32 {
-    var asm_path: [byte: PATH_MAX] = [];
-    var native_obj: [byte: PATH_MAX] = [];
-    if native_build_hosted_fill_asm_path(&asm_path[0] as &byte, PATH_MAX) != 0 ||
-       native_build_hosted_fill_object_path(&native_obj[0] as &byte, PATH_MAX) != 0 {
-        fprintf(libc.stderr, "错误：无法生成 hosted native 临时路径\n" as *byte);
+fn native_build_hosted_emit_mir_stream_exe_code(output_file: &byte,
+    code: &const byte, code_len: usize) i32 {
+    if output_file == null || code == null || code_len == 0usize {
         return 1;
     }
-    var cc_driver_buffer: [byte: PATH_MAX] = [];
-    const cc_driver: &byte = resolve_cc_driver(&cc_driver_buffer[0] as &byte, PATH_MAX);
-    const target_triple: &byte = get_env_or_default("TARGET_TRIPLE" as *byte, "" as *byte);
-    var target_flags: &byte = get_env_or_default("CC_TARGET_FLAGS" as *byte, "" as *byte);
-    var target_flags_buffer: [byte: 256] = [];
-    if target_flags[0] == 0 && target_triple[0] != 0 {
-        const target_flags_len: i32 = snprintf(&target_flags_buffer[0], 256,
-            "-target %s" as *byte, target_triple as *byte);
-        if target_flags_len > 0 && target_flags_len < 256 {
-            target_flags = &target_flags_buffer[0] as &byte;
-        }
-    }
-    if native_build_hosted_write_const_return_asm(&asm_path[0] as &byte,
-        return_value) != 0 ||
-       native_build_hosted_compile_asm_to_object(cc_driver, target_flags,
-        &asm_path[0] as &byte, &native_obj[0] as &byte) != 0 ||
-       native_build_hosted_link_single_object(cc_driver, target_flags,
-        &native_obj[0] as &byte, output_file) != 0 {
-        unlink(&asm_path[0] as *byte);
-        unlink(&native_obj[0] as *byte);
+    c99_mkdir_p_for_file(output_file);
+    const file: &FILE = fopen(output_file as *byte, "wb" as *byte);
+    if file == null {
         return 1;
     }
-    unlink(&asm_path[0] as *byte);
-    unlink(&native_obj[0] as *byte);
+    var emitter: NativeMirEmitter = native_mir_emitter_empty();
+    emitter.status = NATIVE_MIR_EMITTER_STATUS_DONE;
+    emitter.target = 1;
+    const writer: NativeMirEmitterOutputResult =
+        native_mir_emitter_write_executable_stream(&emitter, file,
+            code, code_len);
+    fclose(file as *void);
+    if writer.status != NATIVE_MIR_EMITTER_STATUS_DONE {
+        unlink(output_file as *byte);
+        return 1;
+    }
+    fprintf(libc.stderr,
+        "native_hosted_executable_writer_stream: status=ready target=%d code_bytes=%zu output_bytes=%zu temp_peak_bytes=%zu\n" as *byte,
+        writer.target, writer.code_bytes, writer.output_bytes,
+        writer.temp_peak_bytes);
     return 0;
 }
 
@@ -20685,66 +20631,42 @@ fn native_build_hosted_emit_exit_code_mir_stream_exe(output_file: &byte,
        x86_64_emit_syscall(&code[0] as &byte, 16usize, &code_len) != 0 {
         return 1;
     }
-    c99_mkdir_p_for_file(output_file);
-    const file: &FILE = fopen(output_file as *byte, "wb" as *byte);
-    if file == null {
-        return 1;
-    }
-    var emitter: NativeMirEmitter = native_mir_emitter_empty();
-    emitter.status = NATIVE_MIR_EMITTER_STATUS_DONE;
-    emitter.target = 1;
-    const writer: NativeMirEmitterOutputResult =
-        native_mir_emitter_write_executable_stream(&emitter, file,
-            &code[0] as &const byte, code_len);
-    fclose(file as *void);
-    if writer.status != NATIVE_MIR_EMITTER_STATUS_DONE {
-        unlink(output_file as *byte);
-        return 1;
-    }
-    fprintf(libc.stderr,
-        "native_hosted_executable_writer_stream: status=ready target=%d code_bytes=%zu output_bytes=%zu temp_peak_bytes=%zu\n" as *byte,
-        writer.target, writer.code_bytes, writer.output_bytes,
-        writer.temp_peak_bytes);
-    return 0;
+    return native_build_hosted_emit_mir_stream_exe_code(output_file,
+        &code[0] as &const byte, code_len);
 }
 
-fn native_build_hosted_emit_dynamic_catch_linked_exe(output_file: &byte,
+fn native_build_hosted_emit_dynamic_catch_mir_stream_exe(output_file: &byte,
     shape: &NativeBuildDynamicCatchShape) i32 {
-    if shape == null {
+    if output_file == null || shape == null ||
+       shape.fallback_value < 0 || shape.fallback_value > 255 ||
+       shape.ok_value < 0 || shape.ok_value > 255 {
         return 1;
     }
-    var asm_path: [byte: PATH_MAX] = [];
-    var native_obj: [byte: PATH_MAX] = [];
-    if native_build_hosted_fill_asm_path(&asm_path[0] as &byte, PATH_MAX) != 0 ||
-       native_build_hosted_fill_object_path(&native_obj[0] as &byte, PATH_MAX) != 0 {
-        fprintf(libc.stderr, "错误：无法生成 hosted native 临时路径\n" as *byte);
+    if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
+       strcmp(main_get_target_arch_name() as *byte, "x86_64" as *byte) != 0 {
         return 1;
     }
-    var cc_driver_buffer: [byte: PATH_MAX] = [];
-    const cc_driver: &byte = resolve_cc_driver(&cc_driver_buffer[0] as &byte, PATH_MAX);
-    const target_triple: &byte = get_env_or_default("TARGET_TRIPLE" as *byte, "" as *byte);
-    var target_flags: &byte = get_env_or_default("CC_TARGET_FLAGS" as *byte, "" as *byte);
-    var target_flags_buffer: [byte: 256] = [];
-    if target_flags[0] == 0 && target_triple[0] != 0 {
-        const target_flags_len: i32 = snprintf(&target_flags_buffer[0], 256,
-            "-target %s" as *byte, target_triple as *byte);
-        if target_flags_len > 0 && target_flags_len < 256 {
-            target_flags = &target_flags_buffer[0] as &byte;
-        }
-    }
-    if native_build_hosted_write_dynamic_catch_asm(&asm_path[0] as &byte,
-        shape.compare_value, shape.fallback_value, shape.ok_value) != 0 ||
-       native_build_hosted_compile_asm_to_object(cc_driver, target_flags,
-        &asm_path[0] as &byte, &native_obj[0] as &byte) != 0 ||
-       native_build_hosted_link_single_object(cc_driver, target_flags,
-        &native_obj[0] as &byte, output_file) != 0 {
-        unlink(&asm_path[0] as *byte);
-        unlink(&native_obj[0] as *byte);
+    var code: [byte: 64] = [];
+    var code_len: usize = 0usize;
+    if x86_64_emit_load_r64_base_disp32(&code[0] as &byte, 64usize, &code_len,
+        X86_64_REG_RAX, X86_64_REG_RSP, 0) != 0 ||
+       x86_64_emit_cmp_r64_imm32(&code[0] as &byte, 64usize, &code_len,
+        X86_64_REG_RAX, shape.compare_value) != 0 ||
+       x86_64_emit_je_rel32(&code[0] as &byte, 64usize, &code_len, 12) != 0 ||
+       x86_64_emit_mov_r32_imm32(&code[0] as &byte, 64usize, &code_len,
+        X86_64_REG_RAX, X86_64_LINUX_SYSCALL_EXIT) != 0 ||
+       x86_64_emit_mov_r32_imm32(&code[0] as &byte, 64usize, &code_len,
+        X86_64_REG_RDI, shape.ok_value) != 0 ||
+       x86_64_emit_syscall(&code[0] as &byte, 64usize, &code_len) != 0 ||
+       x86_64_emit_mov_r32_imm32(&code[0] as &byte, 64usize, &code_len,
+        X86_64_REG_RAX, X86_64_LINUX_SYSCALL_EXIT) != 0 ||
+       x86_64_emit_mov_r32_imm32(&code[0] as &byte, 64usize, &code_len,
+        X86_64_REG_RDI, shape.fallback_value) != 0 ||
+       x86_64_emit_syscall(&code[0] as &byte, 64usize, &code_len) != 0 {
         return 1;
     }
-    unlink(&asm_path[0] as *byte);
-    unlink(&native_obj[0] as *byte);
-    return 0;
+    return native_build_hosted_emit_mir_stream_exe_code(output_file,
+        &code[0] as &const byte, code_len);
 }
 
 fn native_build_try_emit_hosted_c_import_extern_link_subset(output_file: &byte,
@@ -20841,7 +20763,7 @@ fn native_build_try_emit_hosted_no_deps_subset(output_file: &byte, program: &AST
     if dynamic_status == 0 {
         return 0;
     }
-    if native_build_hosted_emit_dynamic_catch_linked_exe(output_file,
+    if native_build_hosted_emit_dynamic_catch_mir_stream_exe(output_file,
         &dynamic_shape) != 0 {
         fprintf(libc.stderr, "错误: hosted native executable 输出失败: %s\n" as *byte, output_file);
         return -1;

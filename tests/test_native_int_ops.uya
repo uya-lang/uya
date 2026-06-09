@@ -64,6 +64,42 @@ test "native x86_64 immediate integer ops encode exact bytes" {
     try assert_eq_i32(native_int_bval(&buf[0], 6usize), 255);
 
     pos = 0usize;
+    try assert_eq_i32(x86_64_emit_cmp_r64_imm32(&buf[0], 64usize, &pos, X86_64_REG_R11, -2), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 73);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 129);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 251);
+    try assert_eq_i32(native_int_bval(&buf[0], 3usize), 254);
+    try assert_eq_i32(native_int_bval(&buf[0], 4usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 5usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 6usize), 255);
+
+    pos = 0usize;
     try assert_eq_i32(x86_64_emit_add_r64_imm32(&buf[0], 6usize, &pos, X86_64_REG_RAX, 1), -1);
+    try expect(pos == 0usize);
+}
+
+test "native x86_64 conditional branch encodes exact bytes" {
+    var buf: [byte: 16] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_je_rel32(&buf[0], 16usize, &pos, 18), 0);
+    try expect(pos == 6usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 15);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 132);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 18);
+    try assert_eq_i32(native_int_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(native_int_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_int_bval(&buf[0], 5usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_je_rel32(&buf[0], 16usize, &pos, -4), 0);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 252);
+    try assert_eq_i32(native_int_bval(&buf[0], 3usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 4usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 5usize), 255);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_je_rel32(&buf[0], 5usize, &pos, 0), -1);
     try expect(pos == 0usize);
 }

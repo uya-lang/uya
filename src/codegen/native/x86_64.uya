@@ -35,6 +35,8 @@ export const X86_64_OP_ADD_RM64_R64: i32 = 1;     // 0x01 /r
 export const X86_64_OP_SUB_RM64_R64: i32 = 41;    // 0x29 /r
 export const X86_64_OP_CMP_RM64_R64: i32 = 57;    // 0x39 /r
 export const X86_64_OP_GROUP1_RM64_IMM32: i32 = 129; // 0x81 /digit id
+export const X86_64_OP_JCC_ESCAPE: i32 = 15;      // 0x0f
+export const X86_64_OP_JE_REL32: i32 = 132;       // 0x84 cd
 export const X86_64_OP_CALL_REL32: i32 = 232;     // 0xe8 cd
 export const X86_64_OP_GROUP5_RM64: i32 = 255;    // 0xff /digit
 export const X86_64_OP_XOR_RM32_R32: i32 = 49;    // 0x31 /r
@@ -498,6 +500,13 @@ export fn x86_64_emit_cmp_r64_r64(buf: &byte, cap: usize, pos: &usize, left_reg:
     return x86_64_emit_reg_reg64(buf, cap, pos, X86_64_OP_CMP_RM64_R64, left_reg, right_reg);
 }
 
+/// 功能说明：编码 `cmp left_r64, imm32`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`left_reg` 为 GPR；`imm` 为符号扩展立即数。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_cmp_r64_imm32(buf: &byte, cap: usize, pos: &usize, left_reg: i32, imm: i32) i32 {
+    return x86_64_emit_reg_imm32_group1(buf, cap, pos, left_reg, 7, imm);
+}
+
 /// 功能说明：编码 `add dst_r64, imm32`。
 /// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg` 为 GPR；`imm` 为立即数。
 /// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
@@ -558,6 +567,22 @@ export fn x86_64_emit_store_r64_base_index_scale_disp32(buf: &byte, cap: usize, 
 export fn x86_64_emit_lea_r64_base_index_scale_disp32(buf: &byte, cap: usize, pos: &usize,
     dst_reg: i32, base_reg: i32, index_reg: i32, scale: i32, disp: i32) i32 {
     return x86_64_emit_mem_sib_disp32(buf, cap, pos, X86_64_OP_LEA_R64_M, dst_reg, base_reg, index_reg, scale, disp);
+}
+
+/// 功能说明：编码 `je rel32` 条件跳转。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`rel32` 为相对下一条指令偏移。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn x86_64_emit_je_rel32(buf: &byte, cap: usize, pos: &usize, rel32: i32) i32 {
+    if x86_64_ensure_space(buf, cap, pos, 6usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_JCC_ESCAPE) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_JE_REL32) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, rel32 as i64);
 }
 
 /// 功能说明：编码 `call rel32` 直接调用。
