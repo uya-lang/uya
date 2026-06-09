@@ -293,6 +293,22 @@ native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args par
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=17 covered_branch=--split-c-dir next_branch=positional-input next_kind=AST_VAR_DECL reason=partial_else_if_chain
 ```
 
+位置输入文件收集合同固定 source-order surface，后续实现切片必须继续保持未知 dash option no-op
+的既有语义：只有 `arg[0]` 不是 `45`（`'-'`）时才把该 argv 位置登记为输入文件；未知 dash option
+当前保持忽略，不在本合同叶子中改成 error。
+
+1. `arg[0]` / 非 dash 判定：`const c: byte = arg[0]` 和 `c != 45`。
+2. 容量检查：`input_file_count[0] >= input_file_capacity`，失败时保留现有
+   `错误: 输入文件数量超过最大限制 (%d)` diagnostic 和 `return -1`。
+3. index/count 写入：`const idx: i32 = input_file_count[0]`、
+   `input_file_indices[idx] = i`、`input_file_count[0] = idx + 1`。
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input-arg next_branch=positional-input-capacity next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input-capacity next_branch=positional-input-store next_kind=AST_VAR_DECL reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。

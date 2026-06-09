@@ -24,6 +24,7 @@ bash "$SCRIPT_DIR/verify_native_parse_build_args_project_root_contract.sh"
 bash "$SCRIPT_DIR/verify_native_parse_build_args_seed_reject_contract.sh"
 bash "$SCRIPT_DIR/verify_native_parse_build_args_stack_size_contract.sh"
 bash "$SCRIPT_DIR/verify_native_parse_build_args_split_c_contract.sh"
+bash "$SCRIPT_DIR/verify_native_parse_build_args_inputs_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
