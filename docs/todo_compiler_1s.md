@@ -1100,7 +1100,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为位置输入文件收集补 CoreBody/PortableMIR 合同：固定 `arg[0]` byte index、
             容量检查、index 写入、count 写入和未知 dash option no-op；不改生产实现。
           - [x] 迁入 `arg[0]` / 非 dash 判定分支，保持未知 dash option 继续忽略的既有行为。
-          - [ ] 迁入输入容量检查分支：覆盖 `input_file_count[0] >= input_file_capacity`、
+          - [x] 迁入输入容量检查分支：覆盖 `input_file_count[0] >= input_file_capacity`、
             diagnostic 和 `return -1`。
           - [ ] 迁入输入索引写入分支：覆盖 `const idx`、`input_file_indices[idx] = i` 和
             `input_file_count[0] = idx + 1`。
@@ -1392,8 +1392,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 5. PBA-INPUTS：完成位置输入文件收集。
    - 已完成合同叶子：固定 `arg[0]`、容量检查、index/count 写入和未知 dash option no-op。
    - 已完成实现叶子：`arg[0]` / 非 dash 判定。
-   - 下一个实现叶子：输入容量检查 diagnostic。
-   - 实现叶子：`input_file_indices[idx]` 和 `input_file_count[0]` 写入。
+   - 已完成实现叶子：输入容量检查 diagnostic。
+   - 下一个实现叶子：`input_file_indices[idx]` 和 `input_file_count[0]` 写入。
 6. PBA-TAIL：完成 `parse_build_args(...)` 收尾。
    - 合同叶子：固定无输入 diagnostic、`print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝。
    - 实现叶子：未指定输入文件。
