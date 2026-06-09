@@ -52,8 +52,8 @@ require_pattern "$SUBSET_DOC" '`backend_type\[0\] = BackendType\.BACKEND_C99`' \
     "subset doc 缺少 C99 backend 写入 surface"
 require_pattern "$SUBSET_DOC" '`is_c_output\(out_path as &byte\) != 0`' \
     "subset doc 缺少 native .c 拒绝 surface"
-require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
-    "subset doc 缺少 parse_build_args tail root frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body' \
+    "subset doc 缺少 parse_build_args tail out_idx frontier"
 require_pattern "$SUBSET_DOC" 'covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT' \
     "subset doc 缺少 parse tail loop-body frontier"
 
@@ -89,11 +89,13 @@ require_pattern "$BUILD_DRIVER_SRC" '错误: --native 不能输出 \.c 文件；
     "parse_build_args 源码缺少 native .c 拒绝 diagnostic"
 require_pattern "$BUILD_DRIVER_SRC" 'return 0;' \
     "parse_build_args 源码缺少收尾 return 0"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_tail_no_input_if_supported' \
+    "生产代码缺少 tail 无输入文件 recognizer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_tail_no_input_body' \
+    "生产代码缺少 tail 无输入文件 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
-    "no-silent-C99 测试缺少 parse_build_args tail root frontier"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 parse tail loop-body frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body' \
+    "no-silent-C99 测试缺少 parse_build_args tail out_idx frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_tail_contract\.sh' \

@@ -1107,7 +1107,7 @@ PortableMIR/native hosted parity 的验收输入。
         - `parse_build_args(...)` 收尾切片：
           - [x] 为收尾输出路径检查补 CoreBody/PortableMIR 合同：固定无输入 diagnostic、
             `print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝；不改生产实现。
-          - [ ] 迁入未指定输入文件分支：覆盖 `input_file_count[0] == 0`、diagnostic、
+          - [x] 迁入未指定输入文件分支：覆盖 `input_file_count[0] == 0`、diagnostic、
             `program_name != null`、`print_usage` 和 `return -1`。
           - [ ] 迁入显式输出路径读取分支：覆盖 `out_idx`、`out_idx >= 0`、`get_argv(out_idx)`、
             null diagnostic 和 `return -1`。
@@ -1351,7 +1351,7 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前可执行叶子是 PBA-TAIL 的未指定输入文件分支实现；开始前需先标记该主清单叶子为 `[~]`。
+- 当前可执行叶子是 PBA-TAIL 的显式输出路径读取分支实现；开始前需先标记该主清单叶子为 `[~]`。
 - helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
 - 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
@@ -1396,8 +1396,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成实现叶子：`input_file_indices[idx]` 和 `input_file_count[0]` 写入。
 6. PBA-TAIL：完成 `parse_build_args(...)` 收尾。
    - 已完成合同叶子：固定无输入 diagnostic、`print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝。
-   - 下一个实现叶子：未指定输入文件。
-   - 实现叶子：显式输出路径读取。
+   - 已完成实现叶子：未指定输入文件。
+   - 下一个实现叶子：显式输出路径读取。
    - 实现叶子：`.c` 输出推断 C99。
    - 实现叶子：`--native` 输出 `.c` 拒绝。
    - 实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。

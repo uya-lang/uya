@@ -50,7 +50,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'return -1;' \
 require_pattern "$BUILD_DRIVER_SRC" 'i = i \+ 1;' \
     "parse_build_args 源码缺少 loop 尾部递增"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body' \
     "no-silent-C99 测试缺少 parse_build_args option-loop frontier"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_option_loop_contract\.sh' \
     "stage1 未纳入 parse_build_args option loop 合同"

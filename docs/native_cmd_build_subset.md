@@ -106,7 +106,7 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `CoreBody` / `PortableMIR` preflight，并要求 CoreIR 与 PortableMIR verifier-clean；当前 frontier 固定为
   `native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>`、
   `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`、
-  `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body`、
+  `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body`、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
   `native_hosted_emitter_import_preflight: status=ready imported_functions=482 imported_blocks=39 imported_insts=55 ...`、
@@ -163,15 +163,15 @@ no-output、no-silent-C99，并把 reachable callee/body frontier 推进到真�
 
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
-当前 root body frontier 仍固定为：
+当前 root body frontier 已推进到收尾输出路径读取入口：
 
 ```text
-native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body
+native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body
 ```
 
-这表示 root body 已覆盖到 `while i < argc` 这一条 source stmt 的 partial loop stub；它不能被当成
-option loop body 已完成。基础 flag / scalar option 迁入时，必须先报告 loop-body child frontier，
-不能把 root body prefix 伪推进到收尾 `input_file_count[0] == 0` 或后续 helper：
+这表示 root body 已覆盖到 option loop 和无输入文件分支的 partial stub；它不能被当成
+整个 tail body 已完成。早期基础 flag / scalar option 迁入时使用过 loop-body child frontier，
+后续 tail 分支必须继续按源码顺序推进：
 
 ```text
 native_hosted_reachable_loop_body_frontier: function=parse_build_args parent_stmt=23 loop_body_prefix_stmts=2 loop_body_next_stmt=2 loop_body_next_kind=AST_IF_STMT reason=partial_loop_body
@@ -327,11 +327,10 @@ self-build 的 no-output / no-silent-C99 语义：在这些 tail 分支全部迁
    diagnostic 和 `return -1`。
 5. 收尾成功：上述检查完成后保留末尾 `return 0`。
 
-当前 frontier 仍固定在 tail 首分支入口，后续实现叶子必须从这里开始推进：
+无输入文件分支实现后，当前 frontier 固定在 `out_idx` 输出路径读取入口，后续实现叶子必须从这里开始推进：
 
 ```text
-native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body
-native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body
 ```
 
 ## Hosted Native Handoff First Slice Contract
