@@ -999,7 +999,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 审计 `parse_build_args(...)` 的 CoreBody/PortableMIR surface，按 body 顺序列出 argv/argc、out-param
           写入、全局状态写入、`strcmp`/`strncmp`、`strlen`/`strcpy`、while 扫描、else-if 链、pointer
           arithmetic、byte index、诊断输出和 early return 缺口。
-        - [ ] 为 `parse_build_args(...)` 首切片补 CoreBody/PortableMIR golden/verifier 合同：覆盖
+        - [x] 为 `parse_build_args(...)` 首切片补 CoreBody/PortableMIR golden/verifier 合同：覆盖
           `get_argc()`、`get_argv(0)`、`argc < 2`、`program_name != null`、`print_usage(...)` 和
           `input_file_capacity <= 0` 的 early-return 形状。
         - [ ] 将 `parse_build_args(...)` 默认输出参数和全局状态初始化切片迁入 verifier-clean PortableMIR，覆盖
