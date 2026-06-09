@@ -1,7 +1,7 @@
 # Uya 编译器 1 秒冷构建 TODO
 
 **状态**: executable TODO, implementation pending
-**更新日期**: 2026-06-07
+**更新日期**: 2026-06-09
 **配套设计**: `docs/compiler_1s_architecture_design.md`
 **配套评估**: `docs/compiler_1s_speed_assessment.md`
 
@@ -992,7 +992,7 @@ PortableMIR/native hosted parity 的验收输入。
         - [x] 将 `build_compiler_driver_run` full-prefix complete 状态接入 hosted handoff frontier，避免已覆盖入口仍报告 `partial_prefix`。
         - [x] 在 entry complete 后报告首个未 lower reachable callee frontier，先精确到 `parse_build_args(...)`。
       - 剩余任务差分（按 `native_hosted_reachable_callee_frontier` 顺序执行；每个切片只跑相关测试，不跑
-        `make backup-all`）：
+        `make backup-all`；先补合同/边界测试，再改实现，完成后每个叶子单独提交并推送）：
         - [x] 将当前 reachable callee frontier 固定为推进门禁：self-build 必须报告
           `parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args reason=pending_core_body`，
           且 handoff 仍因 `pending_core_bodies` / `native_hosted_portable_mir_lowering_missing` 明确拒绝输出。
@@ -1025,65 +1025,156 @@ PortableMIR/native hosted parity 的验收输入。
           `--version` / `-v`、`build` 子命令起始索引，以及对应 stdout/stderr/return 行为。
         - [x] 将 `parse_build_args(...)` option loop 骨架迁入 PortableMIR：覆盖 `while i < argc`、
           `get_argv(i)` null diagnostic、循环尾 `i = i + 1` 和 no-fallback self-build frontier 更新。
-        - [ ] 将基础 flag / scalar option 切片迁入 PortableMIR：覆盖 `-o`、`--c99`、`--native`、
-          line-directives、safety-proof、`--opt=0..3` / `-O0..3` 和 `--nostdlib` 的 out-param 写入。
-        - [ ] 将 `--project-root` 切片迁入 PortableMIR：覆盖缺参、空参数、`PATH_MAX` 长度检查、
-          `strcpy(&g_module_root_override[0], root_arg)` 和 `g_module_root_override_active`。
-        - [ ] 将 build-seed 明确拒绝选项切片迁入 PortableMIR：覆盖 `--manifest-path`、exec/vm/dump/trace、
-          microapp profile、`--outlibc` 的 diagnostic 和 return `-1`，保持 seed 边界清晰。
-        - [ ] 将 `--stack-size` 数字扫描切片迁入 PortableMIR：覆盖 `size_str[j]` byte index、
-          ASCII digit while、`size_val` 累积、有效值写入、无效值 warning 和缺参 error。
-        - [ ] 将 split-C CLI 切片迁入 PortableMIR：覆盖 `--no-split-c`、`--split-c-dir=<dir>`、
-          `--split-c-dir <dir>`、`strncmp`、`arg + 14`、路径长度分支、忽略 warning 和
-          `split_c_set_default_dir()` 调用。
-        - [ ] 将位置输入文件收集切片迁入 PortableMIR：覆盖 `arg[0] != '-'`、容量检查、
-          `input_file_indices[idx] = i`、`input_file_count[0] = idx + 1` 和未知 dash option 的现有行为。
-        - [ ] 将 `parse_build_args(...)` 收尾切片迁入 PortableMIR：覆盖未指定输入文件 diagnostic /
-          `print_usage`，显式输出路径 `get_argv(out_idx)`，`.c` 输出推断 C99，以及 `--native` 输出 `.c`
-          的明确拒绝。
-        - [ ] `parse_build_args(...)` body complete 后更新 self-build frontier：不再报告
-          `first_unresolved_callee=parse_build_args`，改为报告诊断中真实出现的下一个 reachable callee，并同步
-          `tests/verify_native_cmd_build_no_silent_c99.sh` 与 `docs/native_cmd_build_subset.md`。
-        - [ ] 固定 `parse_build_args(...)` 之后的真实 reachable callee frontier：只接受诊断实际报告的
-          下一个 callee，不按猜测提前跳到 `compile_files(...)`。
-        - [ ] 审计下一个 reachable driver/runtime helper 的 body surface，写入
-          `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
-          diagnostics、IO/环境能力和 early return。
-        - [ ] 为该 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同，并更新
-          no-silent-C99 frontier 预期；不改生产实现。
-        - [ ] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
-          helper 的下一条 body-prefix 或下一个 reachable callee。
-        - [ ] 按同一节奏完成该 helper 剩余 body-prefix：每次只扩大一个可验证切片，禁止摘要、
-          direct native machine emission、C99 fallback 或 build-seed `LoweredProgram` helper。
-        - [ ] 重复 helper 队列，候选只在真实 frontier 指向时进入：`print_usage`、
-          `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
-          `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。
-        - [ ] 当真实 frontier 指向 `compile_files(...)` 时，先固定 16 参数调用 ABI 和 entry frontier：
-          参数 operand 数、hosted runtime capability、target calling convention、out-artifacts 指针和
-          no-silent-C99 失败形状都必须可验证。
-        - [ ] 审计 `compile_files(...)` body surface，写入分层清单：artifact reset、arena 初始化、
-          `get_argv(0)` / `get_uya_root`、路径规范化、输入收集、依赖扫描、lexer/parser、AST merge、
-          SemanticDb/checker/TypedProgram、C99/native handoff、stats 和 cleanup。
-        - [ ] 迁入 `compile_files(...)` artifact/path 入口切片：`compile_artifacts_reset`、临时 arena 初始化、
-          argv0/root/lib 路径处理和对应 diagnostic/early return。
-        - [ ] 迁入 `compile_files(...)` 输入与依赖收集切片：输入 argv/override 选择、目录/文件路径、
-          module root override、依赖去重和 `@c_import` sidecar 计划入口。
-        - [ ] 迁入 `compile_files(...)` lexer/parser/AST merge 切片：源码读取、tokenize、parse、merge
-          diagnostics 和失败 cleanup，保持 C99 oracle 差分输入不变。
-        - [ ] 迁入 `compile_files(...)` SemanticDb/checker/TypedProgram 切片：semantic build、
-          checker_build、typed program lifetime stats、safety proof flag 和错误路径释放。
-        - [ ] 迁入 `compile_files(...)` codegen handoff 切片：C99 output path、hosted native
-          PortableMIR request、`out_artifacts` 写入、split-C/c_import link plan 和 backend-specific
-          diagnostics。
-        - [ ] 迁入 `compile_files(...)` 收尾切片：compile stats、arena/table/typed program 释放、
-          generated output bytes、success/failure return 和 frontier complete 诊断。
-        - [ ] 当 reachable pending body 数收敛到 0 时，解锁 hosted executable writer：允许
-          `NativeHostedExecutableWriterPlan.can_write=1`，移除 `pending_core_bodies` 阻塞，但仍保留
-          `--native` 不回落 C99 的反向检查。
-        - [ ] 真正消除 `native_hosted_portable_mir_lowering_missing`：`cmd/build --native` self-build 生成
-          executable，输出文件存在且可执行，stderr 不含 C99 fallback、pre-MIR helper 或 lowering-missing 诊断。
-        - [ ] 用新生成的 native `bin/cmd/build` 复跑 self-build / compiler regression / C99 output parity
-          相关门禁，并记录 native `cmd/build` 自身构建耗时与 peak RSS，为 Phase 10 KPI 收口。
+        - 基础 flag / scalar option 切片（当前 frontier；先建 loop-body child frontier，不得伪装
+          root body prefix 已完成）：
+          - [ ] 为基础 flag / scalar option 补 CoreBody/PortableMIR golden/verifier 合同：固定 `-o`、
+            backend、line-directives、safety-proof、opt-level、`--nostdlib` 的源码 surface、loop-body
+            child frontier 诊断和 stage1 纳入点；不改生产实现。
+          - [ ] 将 `-o` 分支迁入 verifier-clean PortableMIR：覆盖缺参 diagnostic / `return -1`、
+            `output_file_index[0] = i + 1` 和 `i = i + 1`，self-build 仍以 lowering-missing 明确拒绝写出。
+          - [ ] 将 backend 标量分支迁入 PortableMIR：覆盖 `--c99` / `--native` 的
+            `BackendType` out-param 写入，更新 loop-body frontier 到下一未覆盖选项。
+          - [ ] 将 line-directives 标量分支迁入 PortableMIR：覆盖 `--no-line-directives` /
+            `--line-directives` 的 `emit_line_directives[0]` 写入。
+          - [ ] 将 safety-proof 标量分支迁入 PortableMIR：覆盖 `--safety-proof` /
+            `--no-safety-proof` 的 `enable_safety_proof[0]` 写入。
+          - [ ] 将 opt-level 标量分支迁入 PortableMIR：覆盖 `--opt=0..3` / `-O0..3` 的
+            `strcmp || strcmp` 条件和 `opt_level[0]` 写入。
+          - [ ] 将 `--nostdlib` 标量分支迁入 PortableMIR：覆盖 `is_nostdlib[0] = 1`，并把
+            scalar-option loop-body frontier 推进到 `--project-root`。
+        - `--project-root` 切片：
+          - [ ] 为 `--project-root` 补 CoreBody/PortableMIR 合同：覆盖缺参、空参数、`PATH_MAX`、
+            `strcpy`、global active 写入和 no-silent-C99 frontier 预期；不改生产实现。
+          - [ ] 迁入 `--project-root` 缺参分支：覆盖 `i + 1 >= argc`、diagnostic 和 `return -1`。
+          - [ ] 迁入 `--project-root` 参数读取分支：覆盖 `i = i + 1`、`get_argv(i)`、
+            `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
+          - [ ] 迁入 `--project-root` 长度检查分支：覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
+            和路径过长 diagnostic。
+          - [ ] 迁入 `--project-root` 成功写入分支：覆盖
+            `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和 `g_module_root_override_active = 1`。
+        - build-seed 明确拒绝选项切片：
+          - [ ] 为 build-seed reject group 补 CoreBody/PortableMIR 合同：固定所有拒绝项 diagnostic、
+            `return -1` 和 seed 边界文档；不改生产实现。
+          - [ ] 迁入 `--manifest-path` 与 `--outlibc` 直接拒绝分支，保持现有 diagnostic 文案。
+          - [ ] 迁入 exec/vm/dump/trace 拒绝分支：覆盖多重 `strcmp ||` 条件和 exec backend diagnostic。
+          - [ ] 迁入 microapp profile 拒绝分支：覆盖 `--app`、`--microapp-profile` 和
+            `strncmp("--microapp-profile=", 19)`。
+        - `--stack-size` 数字扫描切片：
+          - [ ] 为 `--stack-size` 补 CoreBody/PortableMIR 合同：固定缺参、byte index、digit while、
+            累积、有效写入、无效 warning 和 no-silent-C99 frontier 预期；不改生产实现。
+          - [ ] 迁入 `--stack-size` 缺参和 `get_argv(i + 1)` 分支，覆盖 error / null 参数保留语义。
+          - [ ] 迁入 `--stack-size` 数字扫描 loop：覆盖 `size_str[j]` byte index、ASCII digit 条件、
+            `size_val = size_val * 10 + (...)` 和 `j = j + 1`。
+          - [ ] 迁入 `--stack-size` 写入/警告/跳参分支：覆盖 `stack_size[0] = size_val`、
+            无效值 warning 和 `i = i + 1`。
+        - split-C / async frame CLI 切片：
+          - [ ] 为 split-C / async-frame CLI 补 CoreBody/PortableMIR 合同：固定 `--async-frame-heap=on`、
+            `--no-split-c`、inline/separate `--split-c-dir`、warning/default-dir 调用和 frontier 预期；不改生产实现。
+          - [ ] 迁入 `--async-frame-heap=on` 分支：覆盖 `async_frame_heap_fallback[0] = 1`。
+          - [ ] 迁入 `--no-split-c` 分支：覆盖 `g_split_c_disabled_cli`、`g_split_c_dir_active` 和
+            `g_split_c_dir[0]` 写入。
+          - [ ] 迁入 inline `--split-c-dir=<dir>` disabled 分支：覆盖 `strncmp`、`arg + 14`
+            surface 前的 disabled warning。
+          - [ ] 迁入 inline `--split-c-dir=<dir>` 成功/default 分支：覆盖 `arg + 14` pointer arithmetic、
+            `strlen`、`PATH_MAX - 1`、`strcpy`、active 写入和 `split_c_set_default_dir()`。
+          - [ ] 迁入 separate `--split-c-dir <dir>` disabled-skip 分支：覆盖 warning、可选
+            `get_argv(i + 1)`、`sd_skip[0] != 45` 和 `i = i + 1`。
+          - [ ] 迁入 separate `--split-c-dir <dir>` 成功/default 分支：覆盖缺参默认、null 默认、
+            长度默认、成功 `strcpy` 和 `i = i + 1`。
+        - 位置输入文件收集切片：
+          - [ ] 为位置输入文件收集补 CoreBody/PortableMIR 合同：固定 `arg[0]` byte index、
+            容量检查、index 写入、count 写入和未知 dash option no-op；不改生产实现。
+          - [ ] 迁入 `arg[0]` / 非 dash 判定分支，保持未知 dash option 继续忽略的既有行为。
+          - [ ] 迁入输入容量检查分支：覆盖 `input_file_count[0] >= input_file_capacity`、
+            diagnostic 和 `return -1`。
+          - [ ] 迁入输入索引写入分支：覆盖 `const idx`、`input_file_indices[idx] = i` 和
+            `input_file_count[0] = idx + 1`。
+        - `parse_build_args(...)` 收尾切片：
+          - [ ] 为收尾输出路径检查补 CoreBody/PortableMIR 合同：固定无输入 diagnostic、
+            `print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝；不改生产实现。
+          - [ ] 迁入未指定输入文件分支：覆盖 `input_file_count[0] == 0`、diagnostic、
+            `program_name != null`、`print_usage` 和 `return -1`。
+          - [ ] 迁入显式输出路径读取分支：覆盖 `out_idx`、`out_idx >= 0`、`get_argv(out_idx)`、
+            null diagnostic 和 `return -1`。
+          - [ ] 迁入 `.c` 输出推断 C99 分支：覆盖 `backend_type[0] == BACKEND_LLVM`、
+            `strrchr(out_path, 46)`、`.c` 比较和 `backend_type[0] = BACKEND_C99`。
+          - [ ] 迁入 `--native` 输出 `.c` 拒绝分支：覆盖 `is_c_output(out_path as &byte)`、
+            diagnostic 和 `return -1`。
+          - [ ] 迁入末尾 `return 0`，标记 `parse_build_args(...)` CoreBody/PortableMIR body complete，
+            并删除/更新该函数的 loop-body child frontier。
+        - `parse_build_args(...)` complete 后的真实 reachable frontier：
+          - [ ] 更新 self-build frontier：不再报告 `parse_build_args` pending，改为只报告诊断中真实出现的
+            下一个 reachable callee，并同步 `tests/verify_native_cmd_build_no_silent_c99.sh` 与
+            `docs/native_cmd_build_subset.md`。
+          - [ ] 固定 `parse_build_args(...)` 之后的真实 reachable callee frontier：只接受诊断实际报告的
+            下一个 callee，不按猜测提前跳到 `compile_files(...)`。
+        - frontier-driven helper 队列（每个 helper 到达后按同一模板执行；候选只能来自真实诊断）：
+          - [ ] 审计下一个 reachable driver/runtime helper 的 body surface，写入
+            `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
+            diagnostics、IO/环境能力和 early return。
+          - [ ] 为该 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同，并更新
+            no-silent-C99 frontier 预期；不改生产实现。
+          - [ ] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
+            helper 的下一条 body-prefix 或下一个 reachable callee。
+          - [ ] 按同一节奏完成该 helper 剩余 body-prefix：每次只扩大一个可验证切片，禁止摘要、
+            direct native machine emission、C99 fallback 或 build-seed `LoweredProgram` helper。
+          - [ ] 重复 helper 队列，候选只在真实 frontier 指向时进入：`print_usage`、
+            `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
+            `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。
+        - `compile_files(...)` 到达前置门槛：
+          - [ ] 当真实 frontier 指向 `compile_files(...)` 时，先固定 16 参数调用 ABI 和 entry frontier：
+            参数 operand 数、hosted runtime capability、target calling convention、out-artifacts 指针和
+            no-silent-C99 失败形状都必须可验证。
+          - [ ] 审计 `compile_files(...)` body surface，写入分层清单：artifact reset、arena 初始化、
+            `get_argv(0)` / `get_uya_root`、路径规范化、输入收集、依赖扫描、lexer/parser、AST merge、
+            SemanticDb/checker/TypedProgram、C99/native handoff、stats 和 cleanup。
+        - `compile_files(...)` artifact/path 入口切片：
+          - [ ] 为 `compile_files(...)` artifact/path 入口补合同：固定 `compile_artifacts_reset`、
+            transient arena 初始化、argv0/root/lib 路径和 early return frontier；不改生产实现。
+          - [ ] 迁入 `compile_artifacts_reset` 与 out-artifacts 初始写入。
+          - [ ] 迁入临时 arena / compiler arena 初始化和失败 diagnostic。
+          - [ ] 迁入 `get_argv(0)`、`get_uya_root`、project-root override 和 lib/root 路径规范化入口。
+        - `compile_files(...)` 输入与依赖收集切片：
+          - [ ] 为输入与依赖收集补合同：固定 input argv/override 选择、目录/文件路径、module root
+            override、依赖去重和 `@c_import` sidecar frontier；不改生产实现。
+          - [ ] 迁入输入 argv / output override 选择和基础路径 diagnostic。
+          - [ ] 迁入目录/文件路径分支与 module root override 应用。
+          - [ ] 迁入依赖收集队列、去重和超过动态表容量的明确 diagnostic。
+          - [ ] 迁入 `@c_import` sidecar plan 入口和 hosted link object 统计。
+        - `compile_files(...)` lexer/parser/AST merge 切片：
+          - [ ] 为 lexer/parser/AST merge 补合同：固定源码读取、tokenize、parse、merge diagnostics
+            和失败 cleanup；不改生产实现。
+          - [ ] 迁入源码读取和 read failure cleanup。
+          - [ ] 迁入 tokenize 入口、token buffer lifetime 和 lexer diagnostic。
+          - [ ] 迁入 parse 入口、AST node arena/range 和 parser diagnostic。
+          - [ ] 迁入 AST merge、entry auto-inject 和 merge failure cleanup。
+        - `compile_files(...)` SemanticDb/checker/TypedProgram 切片：
+          - [ ] 为 SemanticDb/checker/TypedProgram 补合同：固定 semantic build、checker_build、
+            typed program stats/lifetime、safety proof flag 和错误路径释放；不改生产实现。
+          - [ ] 迁入 SemanticDb build/reset、动态表 stats 和失败 diagnostic。
+          - [ ] 迁入 checker_build 主调用、diagnostic profile 和 safety-proof flag。
+          - [ ] 迁入 TypedProgram lifetime stats、peak/release 统计和错误路径释放。
+        - `compile_files(...)` codegen handoff 切片：
+          - [ ] 为 codegen handoff 补合同：固定 C99 output path、hosted native PortableMIR request、
+            `out_artifacts` 写入、split-C/c_import link plan 和 backend-specific diagnostics；不改生产实现。
+          - [ ] 迁入 C99 output path、split-C request 和 generated C path 写入。
+          - [ ] 迁入 hosted native PortableMIR request / target backend request handoff。
+          - [ ] 迁入 `out_artifacts` 的 generated output、c_import sidecar 和 link plan 写入。
+          - [ ] 迁入 backend-specific diagnostics，继续禁止 native 静默回落 C99。
+        - `compile_files(...)` 收尾切片：
+          - [ ] 为收尾补合同：固定 compile stats、arena/table/typed program 释放、generated bytes、
+            success/failure return 和 frontier complete 诊断；不改生产实现。
+          - [ ] 迁入 compile stats、arena/table/typed program 释放和 output bytes 统计。
+          - [ ] 迁入 success/failure return，标记 `compile_files(...)` body complete 并推进真实 frontier。
+        - hosted executable writer 解锁与 Phase 10 收口：
+          - [ ] 当 reachable pending body 数收敛到 0 时，补 writer 解锁合同：`can_write=1`、
+            pending body 为 0、link plan complete 和 no-silent-C99 反向检查；不改生产实现。
+          - [ ] 解锁 hosted executable writer：允许 `NativeHostedExecutableWriterPlan.can_write=1`，
+            移除 `pending_core_bodies` 阻塞，但仍保留 `--native` 不回落 C99 的反向检查。
+          - [ ] 真正消除 `native_hosted_portable_mir_lowering_missing`：`cmd/build --native` self-build 生成
+            executable，输出文件存在且可执行，stderr 不含 C99 fallback、pre-MIR helper 或 lowering-missing 诊断。
+          - [ ] 用新生成的 native `bin/cmd/build` 复跑 self-build / compiler regression / C99 output parity
+            相关门禁，并记录 native `cmd/build` 自身构建耗时与 peak RSS，为 Phase 10 KPI 收口。
 
 测试：
 
@@ -1232,14 +1323,16 @@ make backup-all
 ## 当前下一步
 
 剩余工作已差分到 Phase 10 叶子队列。下一次实施不要直接接原始 epic，也不要预设
-`compile_files(...)`、toolchain helper 或其它大函数顺序；先继续当前 `[~]` 叶子：
+`compile_files(...)`、toolchain helper 或其它大函数顺序；先把第一个未完成叶子标为 `[~]`：
 
-1. 完成 `parse_build_args(...)` 默认输出参数和全局状态初始化切片的红灯合同、AST 边界核对、
-   verifier-clean CoreBody、PortableMIR partial body、frontier 文档同步和相关测试。
-2. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、parse-build-args contract、
-   stage1、todo checker 和 `git diff --check`；不要把 `make backup-all` 作为每任务门禁。
-3. `parse_build_args(...)` 后续按已列出的首参数、option loop、基础 flag、`--project-root`、seed 拒绝项、
-   `--stack-size`、split-C、位置输入和收尾切片逐个推进。
+1. 为基础 flag / scalar option 补 CoreBody/PortableMIR golden/verifier 合同，固定 `-o`、backend、
+   line-directives、safety-proof、opt-level、`--nostdlib` 的源码 surface、loop-body child frontier
+   诊断和 stage1 纳入点；该叶子只写合同/测试/文档，不改生产实现。
+2. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
+   parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`
+   作为每任务门禁。
+3. `parse_build_args(...)` 后续按已列出的 `-o`、backend、line-directives、safety-proof、opt-level、
+   `--nostdlib`、`--project-root`、seed 拒绝项、`--stack-size`、split-C、位置输入和收尾叶子逐个推进。
 4. `parse_build_args(...)` complete 后，只根据诊断里的真实 reachable frontier 选择下一个 helper；
    每个 helper 都先审计、再补合同、再迁首切片和后续 body-prefix。
 5. 只有当 reachable pending body 全部收敛后，才解锁 hosted executable writer 并真正移除
