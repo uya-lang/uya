@@ -72,7 +72,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'strcmp\(arg, "--nostdlib" as \*byte\) == 0'
 require_pattern "$BUILD_DRIVER_SRC" 'is_nostdlib\[0\] = 1;' \
     "parse_build_args 源码缺少 is_nostdlib 写入"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' \
     "no-silent-C99 测试缺少当前 root body frontier"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_scalar_options_contract\.sh' \
     "stage1 未纳入 parse_build_args scalar option 合同"

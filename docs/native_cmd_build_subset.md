@@ -106,7 +106,7 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `CoreBody` / `PortableMIR` preflight，并要求 CoreIR 与 PortableMIR verifier-clean；当前 frontier 固定为
   `native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>`、
   `native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>`、
-  `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body`、
+  `native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body`、
   `native_hosted_handoff_frontier: reason=pending_core_bodies ... entry_callee_coverage=complete entry_child_coverage=complete`、
   `native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete ... entry_child_coverage=complete`、
   `native_hosted_emitter_import_preflight: status=ready imported_functions=482 imported_blocks=39 imported_insts=55 ...`、
@@ -166,7 +166,7 @@ no-output、no-silent-C99，并把 reachable callee/body frontier 推进到真�
 当前 root body frontier 已推进到收尾输出路径读取入口：
 
 ```text
-native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body
+native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body
 ```
 
 这表示 root body 已覆盖到 option loop 和无输入文件分支的 partial stub；它不能被当成
@@ -327,10 +327,11 @@ self-build 的 no-output / no-silent-C99 语义：在这些 tail 分支全部迁
    diagnostic 和 `return -1`。
 5. 收尾成功：上述检查完成后保留末尾 `return 0`。
 
-无输入文件分支实现后，当前 frontier 固定在 `out_idx` 输出路径读取入口，后续实现叶子必须从这里开始推进：
+显式输出路径读取实现后，当前 frontier 固定在末尾 `return 0`，后续实现叶子必须继续完成 `out_idx`
+分支内部的 `.c` 输出推断和 native `.c` 拒绝：
 
 ```text
-native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body
+native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body
 ```
 
 ## Hosted Native Handoff First Slice Contract

@@ -184,10 +184,10 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_frontier: wrapper_covered
     "no-silent-C99 测试缺少 cmd/build entry wrapper 覆盖证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' \
     "no-silent-C99 测试缺少 cmd/build link-output child frontier 覆盖证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' \
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=25 next_stmt=25 next_kind=AST_VAR_DECL reason=partial_core_body' \
-    "no-silent-C99 测试缺少 tail 无输入分支后的 out_idx frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' \
+    "no-silent-C99 测试缺少显式输出路径读取后的 return frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \
