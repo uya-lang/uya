@@ -144,8 +144,9 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
 7. build-seed 明确拒绝选项：`--manifest-path`、exec/vm/dump/trace、microapp profile /
    `strncmp("--microapp-profile=", 19)`、`--outlibc`，都必须保留现有 diagnostic 和
    `return -1`。
-8. `--stack-size` 数字扫描：`get_argv(i + 1)`、`size_str[j]` byte index、ASCII digit
-   `while`、`size_val = size_val * 10 + (...)`、有效值写入、无效 warning、缺参 error。
+8. `--stack-size` 数字扫描：`get_argv(i + 1)`、`size_str[j]` byte index、
+   `while size_str[j] >= 48 && size_str[j] <= 57`、`size_val = size_val * 10 + (size_str[j] - 48)`、
+   `j = j + 1`、`stack_size[0] = size_val`、无效 warning、缺参 error。
 9. split-C CLI：`--async-frame-heap=on`、`--no-split-c`、`strncmp("--split-c-dir=", 14)`、
    `arg + 14` pointer arithmetic、`strlen`、`PATH_MAX - 1`、`strcpy`、忽略 warning、
    `--split-c-dir <dir>` 的可选参数跳过和 `split_c_set_default_dir()` 调用。

@@ -246,6 +246,8 @@ require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_project_root_cont
     "stage1 native cmd/build 验证未纳入 parse_build_args --project-root 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_seed_reject_contract\.sh' \
     "stage1 native cmd/build 验证未纳入 parse_build_args build-seed reject 合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_stack_size_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args --stack-size 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
     "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_c99_output_parity\.sh' \
