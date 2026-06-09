@@ -115,6 +115,51 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   不再把 `compile_files(...)` 16 参数缺口固定为 `--nostdlib` freestanding one-off shape。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
 
+## `parse_build_args(...)` PortableMIR Surface Audit
+
+当前 reachable body frontier 是 `build_compiler_driver_run` 第 12 条语句调用到的
+`parse_build_args(...)`。该函数必须按源码顺序迁入 CoreBody/PortableMIR；不能用摘要、专用
+`LoweredBodyOp`、手写 native helper 或 C99 fallback 跳过函数体。
+
+按 `src/build_compiler_driver.uya` 中的 body 顺序，`parse_build_args(...)` 需要覆盖以下 surface：
+
+1. 入口 argv/argc 和 early return：`get_argc()`、`get_argv(0)`、`argc < 2`、
+   `program_name != null`、`print_usage(program_name as &byte)`、`return -1`，
+   以及 `input_file_capacity <= 0` 时的 `fprintf(libc.stderr, ...)`。
+2. 默认 out-param 写入和全局状态初始化：`input_file_count[0]`、`output_file_index[0]`、
+   `backend_type[0]`、`emit_line_directives[0]`、`enable_safety_proof[0]`、`opt_level[0]`、
+   `is_nostdlib[0]`、`stack_size[0]`、`async_frame_heap_fallback[0]`，以及
+   `g_split_c_dir_active`、`g_split_c_dir[0]`、`g_split_c_disabled_cli`、
+   `g_module_root_override_active`、`g_module_root_override[0]` 的全局写入。
+3. 首参数命令处理：`get_argv(1)`、`first_arg != null`、`strcmp` 的 `--help` / `-h`、
+   `--version` / `-v` 和 `build` 子命令分支，含 stdout/stderr 输出和 return `2`。
+4. 主 option loop 骨架：`var start_idx`、`var i`、`while i < argc`、`get_argv(i)`、
+   null 参数 diagnostic、loop 尾部 `i = i + 1`，以及 `else if` 链的稳定控制流。
+5. 基础 flag / scalar option：`-o` 缺参与 `output_file_index[0] = i + 1`、`i = i + 1`，
+   `--c99` / `--native` backend enum 写入，line-directives、safety-proof、
+   `--opt=0..3` / `-O0..3` 和 `--nostdlib`。
+6. `--project-root`：缺参、空参数、`root_arg[0]` byte index、`strlen(root_arg)`、
+   `PATH_MAX` 比较、`strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
+   `g_module_root_override_active = 1`。
+7. build-seed 明确拒绝选项：`--manifest-path`、exec/vm/dump/trace、microapp profile /
+   `strncmp("--microapp-profile=", 19)`、`--outlibc`，都必须保留现有 diagnostic 和
+   `return -1`。
+8. `--stack-size` 数字扫描：`get_argv(i + 1)`、`size_str[j]` byte index、ASCII digit
+   `while`、`size_val = size_val * 10 + (...)`、有效值写入、无效 warning、缺参 error。
+9. split-C CLI：`--async-frame-heap=on`、`--no-split-c`、`strncmp("--split-c-dir=", 14)`、
+   `arg + 14` pointer arithmetic、`strlen`、`PATH_MAX - 1`、`strcpy`、忽略 warning、
+   `--split-c-dir <dir>` 的可选参数跳过和 `split_c_set_default_dir()` 调用。
+10. 位置输入文件收集：`arg[0]` byte index、`c != 45`、容量检查、
+    `input_file_indices[idx] = i`、`input_file_count[0] = idx + 1`，以及当前未知 dash
+    option 被忽略的既有行为。
+11. 收尾输出路径检查：`input_file_count[0] == 0`、未指定输入 diagnostic、可选
+    `print_usage`、`out_idx >= 0`、`get_argv(out_idx)` null error、`strrchr(out_path, 46)`、
+    `.c` 后缀推断 C99、`is_c_output(out_path as &byte)` 和 `--native` 输出 `.c` 的明确拒绝。
+
+迁移顺序应先补对应 CoreBody/PortableMIR golden/verifier surface，再逐段扩大 self-build body 覆盖。
+每个切片完成后，`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续证明 self-build verifier-clean、
+no-output、no-silent-C99，并把 `native_hosted_reachable_callee_frontier` 推进到真实的下一处未迁 body。
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
@@ -136,14 +181,10 @@ object 和目标 backend request 交给真实 native emitter。未实现真实 e
 
 ## Next Step
 
-冻结当前 native subset 特例增长，先补齐 `CoreBody` / CoreIR verifier，再转向 `PortableMIR`；CoreIR 合同见
-`docs/coreir_lowered_program_whitepaper.md`，详细 MIR 合同见 `docs/portable_mir_whitepaper.md`。
-当前只有 build CLI 的极小 freestanding 输出路径；hosted `cmd/build` self-build 已恢复真实门禁：它会解析并
-类型检查 build seed 的完整 88 文件依赖图，然后进入 verifier-clean CoreBody/PortableMIR preflight。当前下一道
-nested frontier 是链接输出分支内部的 `if link_result != 0` 错误分支；更大的真实门槛仍是把 `mir_body_functions=3`
-的 self-build MIR 覆盖接入真实 native emitter/handoff，并继续把 pending bodies 逐步纳入 CoreBody / PortableMIR。
-`compile_files(...)` 16 参数 parser/checker/native-codegen
-主调用仍是大型验收样本，但只能通过 CoreBody dump/verifier、PortableMIR function body lowering、hosted native
-call ABI 和 target capability verifier 到达；不能再通过新增 `RETURN_*`、`LOCAL_CALL_*`、`IF_LOCAL_*`
-等 one-off `LoweredBodyOp` 解决。在这之前，不能声明已经生成 native `bin/cmd/build`。
-`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续固定该 lowering frontier，确保 native 失败不会静默回落 C99。
+下一步从 `parse_build_args(...)` 的 first reachable callee frontier 开始。先按上面的 surface audit 补
+CoreBody/PortableMIR golden/verifier 合同，再逐段迁入函数体。`compile_files(...)` 16 参数
+parser/checker/native-codegen 主调用仍是大型验收样本，但只能在真实 reachable frontier 指向它时进入；它必须通过
+CoreBody dump/verifier、PortableMIR function body lowering、hosted native call ABI 和 target capability verifier
+到达，不能再通过新增 `RETURN_*`、`LOCAL_CALL_*`、`IF_LOCAL_*` 等 one-off `LoweredBodyOp`
+解决。在这之前，不能声明已经生成 native `bin/cmd/build`。`tests/verify_native_cmd_build_no_silent_c99.sh`
+必须继续固定该 lowering frontier，确保 native 失败不会静默回落 C99。

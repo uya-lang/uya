@@ -65,6 +65,32 @@ require_pattern "$SUBSET_DOC" '未实现真实 emitter 前必须继续返回 `na
     "cmd/build subset doc 缺少首切片 explicit reject 语义"
 require_pattern "$SUBSET_DOC" '`NativeHostedLinkPlan` / `MirTargetBackendRequest` handoff' \
     "cmd/build subset doc 缺少 hosted link plan handoff 边界"
+require_pattern "$SUBSET_DOC" '^## `parse_build_args\(\.\.\.\)` PortableMIR Surface Audit' \
+    "cmd/build subset doc 缺少 parse_build_args surface audit"
+require_pattern "$SUBSET_DOC" '当前 reachable body frontier 是 `build_compiler_driver_run` 第 12 条语句调用到的' \
+    "cmd/build subset doc 缺少 parse_build_args 当前 frontier"
+require_pattern "$SUBSET_DOC" '入口 argv/argc 和 early return' \
+    "cmd/build subset doc 缺少 parse_build_args argv/argc early return 审计"
+require_pattern "$SUBSET_DOC" '默认 out-param 写入和全局状态初始化' \
+    "cmd/build subset doc 缺少 parse_build_args out-param/global 审计"
+require_pattern "$SUBSET_DOC" '`strcmp` 的 `--help` / `-h`' \
+    "cmd/build subset doc 缺少 parse_build_args first-arg strcmp 审计"
+require_pattern "$SUBSET_DOC" '主 option loop 骨架' \
+    "cmd/build subset doc 缺少 parse_build_args option loop 审计"
+require_pattern "$SUBSET_DOC" '`--project-root`' \
+    "cmd/build subset doc 缺少 parse_build_args project-root 审计"
+require_pattern "$SUBSET_DOC" 'build-seed 明确拒绝选项' \
+    "cmd/build subset doc 缺少 parse_build_args build-seed reject 审计"
+require_pattern "$SUBSET_DOC" '`--stack-size` 数字扫描' \
+    "cmd/build subset doc 缺少 parse_build_args stack-size 审计"
+require_pattern "$SUBSET_DOC" '`arg \+ 14` pointer arithmetic' \
+    "cmd/build subset doc 缺少 parse_build_args pointer arithmetic 审计"
+require_pattern "$SUBSET_DOC" '位置输入文件收集' \
+    "cmd/build subset doc 缺少 parse_build_args input collection 审计"
+require_pattern "$SUBSET_DOC" '收尾输出路径检查' \
+    "cmd/build subset doc 缺少 parse_build_args output path 审计"
+require_pattern "$SUBSET_DOC" 'no-output、no-silent-C99' \
+    "cmd/build subset doc 缺少 parse_build_args no-silent-C99 迁移要求"
 
 require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
     "architecture doc 缺少 hosted native C99 oracle 范围"
