@@ -182,6 +182,14 @@ native_hosted_reachable_loop_body_frontier: function=parse_build_args parent_stm
 每个切片都必须推进这个 child frontier 或更深的 branch frontier；直到整个 while body 完整前，
 不得借 root body prefix 宣称 `parse_build_args(...)` complete。
 
+`-o` 分支完成后必须报告更深一层的 branch frontier，证明缺参 diagnostic / `return -1`、
+`output_file_index[0] = i + 1` 和 `i = i + 1` 已纳入 verifier-clean partial body，下一处缺口
+推进到 backend scalar option：
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=2 covered_branch=-o next_branch=--c99 next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。

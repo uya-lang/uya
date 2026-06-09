@@ -117,6 +117,10 @@ const NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_CORE_STMT_COUNT: i32 = 24;
 const NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_CORE_EXPR_COUNT: i32 = 30;
 const NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_CORE_PLACE_COUNT: i32 = 30;
 const NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_MIR_LOCAL_COUNT: i32 = 16;
+const NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX: i32 = 23;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_ARG_DECL_STMT_COUNT: i32 = 1;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_ARG_NULL_GUARD_STMT_COUNT: i32 = 2;
+const NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX: i32 = 2;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -207,6 +211,17 @@ struct NativeHostedMirPreflightResult {
     entry_reachable_body_prefix_stmt_count: i32,
     entry_reachable_body_next_stmt_index: i32,
     entry_reachable_body_next_stmt_kind: &byte,
+    entry_reachable_loop_body_function_name: &byte,
+    entry_reachable_loop_body_parent_stmt_index: i32,
+    entry_reachable_loop_body_prefix_stmt_count: i32,
+    entry_reachable_loop_body_next_stmt_index: i32,
+    entry_reachable_loop_body_next_stmt_kind: &byte,
+    entry_reachable_loop_body_branch_function_name: &byte,
+    entry_reachable_loop_body_branch_parent_stmt_index: i32,
+    entry_reachable_loop_body_branch_stmt_index: i32,
+    entry_reachable_loop_body_branch_covered_name: &byte,
+    entry_reachable_loop_body_branch_next_name: &byte,
+    entry_reachable_loop_body_branch_next_kind: &byte,
     emitter_handoff_request_verified: i32,
     emitter_handoff_backend_kind: i32,
     emitter_handoff_link_plan_complete: i32,
@@ -1269,6 +1284,17 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.entry_reachable_body_prefix_stmt_count = 0;
     result.entry_reachable_body_next_stmt_index = -1;
     result.entry_reachable_body_next_stmt_kind = null;
+    result.entry_reachable_loop_body_function_name = null;
+    result.entry_reachable_loop_body_parent_stmt_index = -1;
+    result.entry_reachable_loop_body_prefix_stmt_count = 0;
+    result.entry_reachable_loop_body_next_stmt_index = -1;
+    result.entry_reachable_loop_body_next_stmt_kind = null;
+    result.entry_reachable_loop_body_branch_function_name = null;
+    result.entry_reachable_loop_body_branch_parent_stmt_index = -1;
+    result.entry_reachable_loop_body_branch_stmt_index = -1;
+    result.entry_reachable_loop_body_branch_covered_name = null;
+    result.entry_reachable_loop_body_branch_next_name = null;
+    result.entry_reachable_loop_body_branch_next_kind = null;
     result.emitter_handoff_request_verified = 0;
     result.emitter_handoff_backend_kind = 0;
     result.emitter_handoff_link_plan_complete = 0;
@@ -2867,6 +2893,163 @@ fn native_build_hosted_parse_build_args_loop_tail_increment_supported(stmt: &AST
         return 0;
     }
     return 1;
+}
+
+fn native_build_hosted_parse_build_args_i_plus_one_expr(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(expr.binary_expr_left,
+        "i" as &byte) == 0 ||
+       expr.binary_expr_right.type != ASTNodeType.AST_NUMBER ||
+       expr.binary_expr_right.number_value_i64 != 1i64 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_o_output_assign_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
+       stmt.assign_dest == null || stmt.assign_src == null {
+        return 0;
+    }
+    var actual_name: &byte = null;
+    if native_build_array_index0_identifier(stmt.assign_dest, &actual_name) == 0 ||
+       actual_name == null ||
+       str_equals(actual_name as *byte, "output_file_index" as *byte) == 0 ||
+       native_build_hosted_parse_build_args_i_plus_one_expr(stmt.assign_src) == 0 {
+        return 0;
+    }
+    var dest_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var src_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.assign_dest,
+        &dest_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.assign_src,
+        &src_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_o_inner_condition(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_parse_build_args_i_plus_one_expr(
+        expr.binary_expr_left) == 0 ||
+       native_build_hosted_expr_identifier_matches(expr.binary_expr_right,
+        "argc" as &byte) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LESS {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_o_missing_arg_branch_supported(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_BLOCK ||
+       stmt.block_stmts == null || stmt.block_stmt_count != 2 {
+        return 0;
+    }
+    const fprintf_stmt: &ASTNode = stmt.block_stmts[0];
+    if fprintf_stmt == null || fprintf_stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       fprintf_stmt.call_expr_callee == null ||
+       fprintf_stmt.call_expr_args == null ||
+       fprintf_stmt.call_expr_arg_count < 2 ||
+       native_build_hosted_expr_identifier_matches(
+        fprintf_stmt.call_expr_callee, "fprintf" as &byte) == 0 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_return_value(
+        stmt.block_stmts[1], -1);
+}
+
+fn native_build_hosted_parse_build_args_o_success_branch_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_BLOCK ||
+       stmt.block_stmts == null || stmt.block_stmt_count != 2 {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_o_output_assign_supported(
+        stmt.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_loop_tail_increment_supported(
+        stmt.block_stmts[1], checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_o_option_if_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        stmt.if_stmt_condition, "arg" as &byte, "-o" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    const inner_if: &ASTNode = stmt.if_stmt_then_branch.block_stmts[0];
+    if inner_if == null || inner_if.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_o_inner_condition(
+        inner_if.if_stmt_condition) == 0 ||
+       inner_if.if_stmt_then_branch == null ||
+       inner_if.if_stmt_else_branch == null {
+        return 0;
+    }
+    var outer_condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var inner_condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &outer_condition_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, inner_if.if_stmt_condition,
+        &inner_condition_type_id) != 0 {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_o_success_branch_supported(
+        inner_if.if_stmt_then_branch, checker) == 0 ||
+       native_build_hosted_parse_build_args_o_missing_arg_branch_supported(
+        inner_if.if_stmt_else_branch) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_o_option_body(decl: &ASTNode,
+    checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_option_loop_prefix_stmt_count(
+        decl, checker, program) !=
+       NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    const loop_stmt: &ASTNode =
+        native_build_hosted_parse_build_args_prefix_stmt(decl,
+            NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX);
+    if loop_stmt == null || loop_stmt.type != ASTNodeType.AST_WHILE_STMT ||
+       loop_stmt.while_stmt_body == null ||
+       loop_stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK ||
+       loop_stmt.while_stmt_body.block_stmts == null ||
+       loop_stmt.while_stmt_body.block_stmt_count <
+       NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX + 2 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_o_option_if_supported(
+        loop_stmt.while_stmt_body.block_stmts[
+            NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX],
+        checker);
 }
 
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
@@ -12775,6 +12958,34 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
             result.entry_reachable_body_next_stmt_kind =
                 native_build_ast_kind_enum_name(next_stmt.type);
         }
+        if parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PREFIX_STMT_COUNT {
+            if native_build_hosted_parse_build_args_o_option_body(target_decl,
+                checker, program) != 0 {
+                result.entry_reachable_loop_body_branch_function_name =
+                    native_build_decl_name_for_diagnostic(target_decl);
+                result.entry_reachable_loop_body_branch_parent_stmt_index =
+                    NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
+                result.entry_reachable_loop_body_branch_stmt_index =
+                    NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX;
+                result.entry_reachable_loop_body_branch_covered_name =
+                    "-o" as &byte;
+                result.entry_reachable_loop_body_branch_next_name =
+                    "--c99" as &byte;
+                result.entry_reachable_loop_body_branch_next_kind =
+                    "AST_IF_STMT" as &byte;
+            } else {
+                result.entry_reachable_loop_body_function_name =
+                    native_build_decl_name_for_diagnostic(target_decl);
+                result.entry_reachable_loop_body_parent_stmt_index =
+                    NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
+                result.entry_reachable_loop_body_prefix_stmt_count =
+                    NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_ARG_NULL_GUARD_STMT_COUNT;
+                result.entry_reachable_loop_body_next_stmt_index =
+                    NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_O_OPTION_BRANCH_STMT_INDEX;
+                result.entry_reachable_loop_body_next_stmt_kind =
+                    "AST_IF_STMT" as &byte;
+            }
+        }
         return;
     }
     result.entry_reachable_callee_parent_name =
@@ -21714,6 +21925,43 @@ fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_st
                 result.entry_reachable_body_prefix_stmt_count,
                 result.entry_reachable_body_next_stmt_index,
                 body_next_kind as *byte);
+            if result.entry_reachable_loop_body_function_name != null {
+                var loop_body_next_kind: &byte = "<none>" as &byte;
+                if result.entry_reachable_loop_body_next_stmt_kind != null {
+                    loop_body_next_kind =
+                        result.entry_reachable_loop_body_next_stmt_kind;
+                }
+                fprintf(libc.stderr,
+                    "native_hosted_reachable_loop_body_frontier: function=%s parent_stmt=%d loop_body_prefix_stmts=%d loop_body_next_stmt=%d loop_body_next_kind=%s reason=partial_loop_body\n" as *byte,
+                    result.entry_reachable_loop_body_function_name as *byte,
+                    result.entry_reachable_loop_body_parent_stmt_index,
+                    result.entry_reachable_loop_body_prefix_stmt_count,
+                    result.entry_reachable_loop_body_next_stmt_index,
+                    loop_body_next_kind as *byte);
+            }
+            if result.entry_reachable_loop_body_branch_function_name != null {
+                var covered_branch: &byte = "<none>" as &byte;
+                var next_branch: &byte = "<none>" as &byte;
+                var branch_next_kind: &byte = "<none>" as &byte;
+                if result.entry_reachable_loop_body_branch_covered_name != null {
+                    covered_branch =
+                        result.entry_reachable_loop_body_branch_covered_name;
+                }
+                if result.entry_reachable_loop_body_branch_next_name != null {
+                    next_branch = result.entry_reachable_loop_body_branch_next_name;
+                }
+                if result.entry_reachable_loop_body_branch_next_kind != null {
+                    branch_next_kind =
+                        result.entry_reachable_loop_body_branch_next_kind;
+                }
+                fprintf(libc.stderr,
+                    "native_hosted_reachable_loop_body_branch_frontier: function=%s parent_stmt=%d loop_stmt=%d covered_branch=%s next_branch=%s next_kind=%s reason=partial_else_if_chain\n" as *byte,
+                    result.entry_reachable_loop_body_branch_function_name as *byte,
+                    result.entry_reachable_loop_body_branch_parent_stmt_index,
+                    result.entry_reachable_loop_body_branch_stmt_index,
+                    covered_branch as *byte, next_branch as *byte,
+                    branch_next_kind as *byte);
+            }
         } else if result.entry_reachable_callee_parent_name != null &&
            result.entry_reachable_callee_name != null {
             fprintf(libc.stderr,
@@ -29773,6 +30021,21 @@ fn compile_files(
                 entry_reachable_callee_parent_name: null,
                 entry_reachable_callee_name: null,
                 entry_reachable_callee_stmt_index: -1,
+                entry_reachable_body_function_name: null,
+                entry_reachable_body_prefix_stmt_count: 0,
+                entry_reachable_body_next_stmt_index: -1,
+                entry_reachable_body_next_stmt_kind: null,
+                entry_reachable_loop_body_function_name: null,
+                entry_reachable_loop_body_parent_stmt_index: -1,
+                entry_reachable_loop_body_prefix_stmt_count: 0,
+                entry_reachable_loop_body_next_stmt_index: -1,
+                entry_reachable_loop_body_next_stmt_kind: null,
+                entry_reachable_loop_body_branch_function_name: null,
+                entry_reachable_loop_body_branch_parent_stmt_index: -1,
+                entry_reachable_loop_body_branch_stmt_index: -1,
+                entry_reachable_loop_body_branch_covered_name: null,
+                entry_reachable_loop_body_branch_next_name: null,
+                entry_reachable_loop_body_branch_next_kind: null,
                 emitter_handoff_request_verified: 0,
                 emitter_handoff_backend_kind: 0,
                 emitter_handoff_link_plan_complete: 0,

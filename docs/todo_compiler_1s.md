@@ -1030,7 +1030,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为基础 flag / scalar option 补 CoreBody/PortableMIR golden/verifier 合同：固定 `-o`、
             backend、line-directives、safety-proof、opt-level、`--nostdlib` 的源码 surface、loop-body
             child frontier 诊断和 stage1 纳入点；不改生产实现。
-          - [ ] 将 `-o` 分支迁入 verifier-clean PortableMIR：覆盖缺参 diagnostic / `return -1`、
+          - [x] 将 `-o` 分支迁入 verifier-clean PortableMIR：覆盖缺参 diagnostic / `return -1`、
             `output_file_index[0] = i + 1` 和 `i = i + 1`，self-build 仍以 lowering-missing 明确拒绝写出。
           - [ ] 将 backend 标量分支迁入 PortableMIR：覆盖 `--c99` / `--native` 的
             `BackendType` out-param 写入，更新 loop-body frontier 到下一未覆盖选项。
