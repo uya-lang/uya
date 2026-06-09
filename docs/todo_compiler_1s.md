@@ -1049,7 +1049,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为 opt-level 标量分支补独立合同脚本：固定 `--opt=0..3` / `-O0..3` 的
             `strcmp || strcmp` surface、four-way store surface、branch frontier 和 no-silent-C99 预期；
             不改生产实现。
-          - [ ] 将 opt-level 标量分支迁入 PortableMIR：覆盖 `--opt=0..3` / `-O0..3` 的
+          - [x] 将 opt-level 标量分支迁入 PortableMIR：覆盖 `--opt=0..3` / `-O0..3` 的
             `strcmp || strcmp` 条件和 `opt_level[0]` 写入。
           - [ ] 为 `--nostdlib` 标量分支补独立合同脚本：固定 `is_nostdlib[0] = 1`、
             scalar-option loop-body 完成边界、下一 frontier 到 `--project-root` 和 no-silent-C99 预期；
@@ -1341,13 +1341,32 @@ make backup-all
 
 ## 当前下一步
 
-剩余工作已差分到 Phase 10 叶子队列。下一次实施不要直接接原始 epic，也不要预设
-`compile_files(...)`、toolchain helper 或其它大函数顺序；先把第一个未完成叶子标为 `[~]`：
+剩余工作先按下面的差分队列推进。原始 hosted `cmd/build` self-build emitter/handoff 是 epic，
+不是单个实现任务；每次只做当前诊断已经暴露的一个叶子切片。下一次实施不要直接接原始 epic，
+也不要预设 `compile_files(...)`、toolchain helper 或其它大函数顺序；先处理文档中唯一的 `[~]`
+或第一个未完成叶子。
 
-1. 下一个未完成叶子是“将 opt-level 标量分支迁入 PortableMIR”；覆盖
-   `--opt=0..3` / `-O0..3` 的 `strcmp || strcmp` 条件和 `opt_level[0]` 写入，并把
-   loop-body frontier 推进到 `--nostdlib`。
-2. opt-level 实现通过后，才进入 `--nostdlib` 合同/实现叶子。
+差分层级：
+
+1. 当前已暴露 frontier：完成 `parse_build_args(...)` loop-body 中基础 flag / scalar option。
+   只允许按源码 else-if 顺序推进 `opt-level -> --nostdlib -> --project-root`。
+2. `parse_build_args(...)` 主体收敛：继续迁入 `--project-root`、build-seed reject group、
+   `--stack-size`、split-C / async-frame CLI、位置输入文件收集和收尾输出路径检查。
+3. `parse_build_args(...)` complete 后重新跑 self-build frontier；只把诊断实际报告的下一个
+   reachable callee 写入 todo，不提前选择 `compile_files(...)`。
+4. 真实 helper 队列：每个 helper 都先审计 body surface，再补合同，再迁首切片和后续 body-prefix；
+   候选 helper 只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier。
+5. 只有真实 frontier 指向 `compile_files(...)` 时，才进入 16 参数 ABI、artifact/path、输入依赖、
+   lexer/parser/AST、SemanticDb/checker/TypedProgram、codegen handoff 和 cleanup 切片。
+6. 只有 reachable pending body 收敛到 0 时，才补 writer 解锁合同、允许 hosted executable writer
+   写出，并最终消除 `native_hosted_portable_mir_lowering_missing`。
+
+当前可执行叶子：
+
+1. 下一个未完成叶子是“为 `--nostdlib` 标量分支补独立合同脚本”；固定
+   `is_nostdlib[0] = 1`、scalar-option loop-body 完成边界、下一 frontier 到
+   `--project-root` 和 no-silent-C99 预期；不改生产实现。
+2. `--nostdlib` 合同通过后，才进入 `--nostdlib` 标量分支实现叶子。
 3. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
    parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`
    作为每任务门禁。

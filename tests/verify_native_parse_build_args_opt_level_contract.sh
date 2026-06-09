@@ -42,8 +42,13 @@ for level in 0 1 2 3; do
         "parse_build_args 源码缺少 opt level $level out-param 写入"
 done
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=5 covered_branch=safety-proof next_branch=--opt=0 next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须继续固定当前 safety-proof 后 frontier，直到 opt-level 实现叶子推进它"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_opt_level_option_if_supported' \
+    "生产代码缺少 opt-level 分支 shape recognizer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_opt_level_body' \
+    "生产代码缺少 opt-level 分支 body/frontier 判定"
+
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=6 covered_branch=opt-level next_branch=--nostdlib next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试必须固定 opt-level 后的 nostdlib frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
