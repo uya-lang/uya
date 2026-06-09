@@ -948,9 +948,9 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
 
 语言面迁移叶子：
 
-- [ ] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
+- [x] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
   保留字符串字面量、字符串插值、标量格式化和返回值语义。
-- [ ] print/println MIR lowering：将 `AST_PRINT` / `AST_PRINTLN` 降成 PortableMIR；hosted profile 走
+- [~] print/println MIR lowering：将 `AST_PRINT` / `AST_PRINTLN` 降成 PortableMIR；hosted profile 走
   stdout / libc / runtime capability，freestanding profile 走明确 capability gate 或 syscall/write bridge，
   不支持时必须明确 diagnostic。
 - [ ] statements：覆盖 expression statement、var/const decl、assign、if/else、while、for、break/continue、
