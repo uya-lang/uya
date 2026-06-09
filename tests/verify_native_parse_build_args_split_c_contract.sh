@@ -134,7 +134,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_split_
     "生产代码缺少 separate --split-c-dir success/default branch shape recognizer"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_split_c_separate_success_body' \
     "生产代码缺少 separate --split-c-dir success/default body/frontier 判定"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input-capacity next_branch=positional-input-store next_kind=AST_VAR_DECL reason=partial_else_if_chain' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=18 covered_branch=positional-input next_branch=parse-tail-input-count next_kind=AST_IF_STMT reason=partial_else_if_chain' \
     "no-silent-C99 测试必须固定位置输入容量检查后的 store frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"

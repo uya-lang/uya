@@ -6246,6 +6246,119 @@ fn native_build_hosted_parse_build_args_positional_input_capacity_body(
     return 1;
 }
 
+fn native_build_hosted_parse_build_args_positional_input_idx_decl_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "idx" as *byte) == 0 ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null {
+        return 0;
+    }
+    var actual_name: &byte = null;
+    if native_build_array_index0_identifier(stmt.var_decl_init, &actual_name) == 0 ||
+       actual_name == null ||
+       str_equals(actual_name as *byte, "input_file_count" as *byte) == 0 {
+        return 0;
+    }
+    var init_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &init_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_positional_input_index_assign_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
+       stmt.assign_dest == null || stmt.assign_src == null ||
+       stmt.assign_dest.type != ASTNodeType.AST_ARRAY_ACCESS ||
+       stmt.assign_dest.array_access_array == null ||
+       stmt.assign_dest.array_access_index == null ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.assign_dest.array_access_array, "input_file_indices" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.assign_dest.array_access_index, "idx" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(stmt.assign_src,
+        "i" as &byte) == 0 {
+        return 0;
+    }
+    var dest_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var index_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var src_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.assign_dest,
+        &dest_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        stmt.assign_dest.array_access_index, &index_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.assign_src,
+        &src_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_positional_input_count_assign_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
+       stmt.assign_dest == null || stmt.assign_src == null ||
+       native_build_hosted_parse_build_args_identifier_plus_one_expr(
+        stmt.assign_src, "idx" as &byte) == 0 {
+        return 0;
+    }
+    var actual_name: &byte = null;
+    if native_build_array_index0_identifier(stmt.assign_dest, &actual_name) == 0 ||
+       actual_name == null ||
+       str_equals(actual_name as *byte, "input_file_count" as *byte) == 0 {
+        return 0;
+    }
+    var dest_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var src_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.assign_dest,
+        &dest_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.assign_src,
+        &src_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_positional_input_store_supported(
+    block: &ASTNode, checker: &TypeChecker) i32 {
+    if block == null || checker == null || block.type != ASTNodeType.AST_BLOCK ||
+       block.block_stmts == null || block.block_stmt_count != 4 ||
+       native_build_hosted_parse_build_args_positional_input_capacity_if_supported(
+        block.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_positional_input_idx_decl_supported(
+        block.block_stmts[1], checker) == 0 ||
+       native_build_hosted_parse_build_args_positional_input_index_assign_supported(
+        block.block_stmts[2], checker) == 0 ||
+       native_build_hosted_parse_build_args_positional_input_count_assign_supported(
+        block.block_stmts[3], checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_positional_input_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_positional_input_capacity_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    const block: &ASTNode =
+        native_build_hosted_parse_build_args_positional_input_block(decl);
+    if block == null || block.block_stmts == null || block.block_stmt_count != 2 ||
+       block.block_stmts[1] == null ||
+       block.block_stmts[1].type != ASTNodeType.AST_IF_STMT ||
+       block.block_stmts[1].if_stmt_then_branch == null ||
+       native_build_hosted_parse_build_args_positional_input_store_supported(
+        block.block_stmts[1].if_stmt_then_branch, checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
     checker: &TypeChecker) i32 {
     if stmt == null || checker == null || stmt.type != ASTNodeType.AST_WHILE_STMT ||
@@ -16159,7 +16272,17 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_positional_input_capacity_body(
+                if native_build_hosted_parse_build_args_positional_input_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_POSITIONAL_INPUT_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "positional-input" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "parse-tail-input-count" as &byte;
+                    result.entry_reachable_loop_body_branch_next_kind =
+                        "AST_IF_STMT" as &byte;
+                } else if native_build_hosted_parse_build_args_positional_input_capacity_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_POSITIONAL_INPUT_BRANCH_STMT_INDEX;
