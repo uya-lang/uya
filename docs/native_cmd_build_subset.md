@@ -225,6 +225,69 @@ CoreBody/PortableMIR 合同：
    writer 仍必须保持 `native_hosted_portable_mir_lowering_missing`、no-output 和 no-silent-C99，直到后续
    pending CoreBody 队列继续收敛。
 
+## `compile_stats_record_and_release_typed_program(...)` PortableMIR Surface Audit
+
+当前 handoff-only pending body frontier 固定为：
+
+```text
+native_hosted_pending_body_frontier: function=compile_stats_record_and_release_typed_program decl=159 function_id=4 body_stmts=18 reason=pending_core_body
+```
+
+该 helper 定义在 `src/build_compiler_driver.uya`，负责在 checker 生命周期收尾时记录
+`TypedProgram` 常驻/峰值/释放后字节数，聚合 `SemanticDb` 和 `TypedProgram` 动态表统计，并释放
+checker 持有的 typed/lifetime 表。迁移时必须按真实 body surface 表达，不能用摘要统计 helper、
+C99 fallback 或直接跳到 `compile_files(...)`。
+
+按源码顺序，`compile_stats_record_and_release_typed_program(...)` 需要覆盖以下 surface：
+
+1. 函数签名与参数：`fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void`。
+   `stats` 是输出统计结构体指针，`checker` 是已完成类型检查后的 `TypeChecker` 指针。
+2. `stats == null` early return：参数无效时必须直接 `return`，不写任何 `CompileStats` 字段，
+   不读取 `checker`，也不触发 release。
+3. TypedProgram 统计字段清零：非空 `stats` 先写
+   `typed_program_bytes = 0usize`、`typed_program_peak_bytes = 0usize`、
+   `typed_program_released_bytes = 0usize`。该清零发生在 `checker == null` 判断之前。
+4. `checker == null` early return：checker 为空时只保留上一步三个 typed-program 字段为零，
+   不写 `table_items` / `table_capacity` / `table_used_bytes` / `table_capacity_bytes` /
+   `table_realloc_count`，也不释放 `typed_program` 或 `typed_type_records`。
+5. TypedProgram pre-release bytes：非空 checker 下，按顺序读取
+   `typed_program_current_bytes(&checker.typed_program)` 和
+   `typed_program_peak_bytes(&checker.typed_program)`，分别写入
+   `stats.typed_program_bytes` 与 `stats.typed_program_peak_bytes`。
+6. 动态表聚合局部：声明 `var table_agg: SemanticTableAgg = semantic_table_agg_init()`。
+   `SemanticTableAgg` 包含 `table_count`、`items`、`capacity`、`used_bytes`、
+   `capacity_bytes` 和 `realloc_count`，初始化值全部为零。
+7. SemanticDb 表统计：调用
+   `semantic_db_accumulate_table_stats(&checker.semantic_db, &table_agg)`，覆盖 name intern
+   entries/string pool、全部 SemanticDb vector，以及 `name_range_index`、`decls_by_name`、
+   `functions_by_name`、`types_by_name`、`global_vars_by_name`、`enum_variants_by_name`、
+   `exports_by_module_name`、`aliases_by_file_name`、`use_items_by_file_name` 等 hash 表。
+8. TypedProgram 表统计：调用
+   `typed_program_accumulate_table_stats(&checker.typed_program, &table_agg)`，覆盖
+   `expr_types`、`identifier_bindings`、`call_targets`、`method_dispatch`、`field_access`、
+   `global_init_order`、`reachable_roots`、`proof_results` 八张动态 vector。
+9. 聚合结果写回 `CompileStats`：按源码顺序把 `table_agg.items`、`capacity`、`used_bytes`、
+   `capacity_bytes`、`realloc_count` 写入 `stats.table_items`、`stats.table_capacity`、
+   `stats.table_used_bytes`、`stats.table_capacity_bytes` 和 `stats.table_realloc_count`。
+   当前 body 不写 `table_count` 到 `CompileStats`。
+10. release 顺序：先调用 `typed_program_release(&checker.typed_program)`，再调用
+    `semantic_vector_release(&checker.typed_type_records)`。该顺序保证 table 聚合和 pre-release
+    bytes 已经读取，且 release 只发生在 checker 非空路径。
+11. release 后 bytes：最后再次调用
+    `typed_program_current_bytes(&checker.typed_program)`，写入
+    `stats.typed_program_released_bytes`。`typed_program_release(...)` 会清空 typed counts、
+    释放内部 vector，并把生命周期状态置为 released，因此该字段应反映释放后的常驻估算字节数。
+12. capability 边界：该 helper 需要 PortableMIR 支持指针空值比较、struct field load/store、
+    field 取址（`&checker.typed_program` / `&checker.semantic_db` /
+    `&checker.typed_type_records`）、`usize` 立即数与统计字段写入、局部 struct 初始化、
+    顺序函数调用和无值 early return。函数本身无 diagnostics、无 IO、无环境读取、无全局写入；
+    可能的 arena/table lifetime 影响只来自被调用的聚合与 release helper。
+
+下一步合同应先冻结上述 body 的最小前缀，尤其是 `stats == null` return、typed-program 三字段清零、
+`checker == null` return，以及首个 `typed_program_current_bytes(&checker.typed_program)` 调用的
+field-address surface。只有该 helper body complete 后，才能重新运行 self-build frontier 并接受真实诊断中的
+下一个 pending body/helper 名称。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

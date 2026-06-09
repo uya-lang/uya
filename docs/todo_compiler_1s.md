@@ -1165,9 +1165,14 @@ PortableMIR/native hosted parity 的验收输入。
             - 实测命令：`./bin/cmd/build src/cmd/build/main.uya -o /tmp/cb-native-pending-frontier --project-root ./src/ --no-split-c --native`。
             - 真实 pending body frontier：
               `native_hosted_pending_body_frontier: function=compile_stats_record_and_release_typed_program decl=159 function_id=4 body_stmts=18 reason=pending_core_body`。
-          - [ ] 审计 `compile_stats_record_and_release_typed_program(...)` body surface，写入
+          - [x] 审计 `compile_stats_record_and_release_typed_program(...)` body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、TypedProgram/SemanticDb/table stats、
             release 调用、global/table aggregation、错误/空指针 early return 和 arena/lifetime 能力。
+            - 已写入 `docs/native_cmd_build_subset.md` 的
+              `compile_stats_record_and_release_typed_program(...)` PortableMIR surface audit，冻结
+              `stats == null` / `checker == null` early return、typed-program 三字段清零、
+              `SemanticTableAgg` 聚合、SemanticDb/TypedProgram 表统计、`typed_program_release` /
+              `semantic_vector_release` 顺序和 field-address / lifetime capability 边界。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
