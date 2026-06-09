@@ -192,6 +192,10 @@ struct NativeHostedMirPreflightResult {
     emitter_imported_function_count: i32,
     emitter_imported_block_count: i32,
     emitter_imported_inst_count: i32,
+    emitter_output_ready: i32,
+    emitter_output_matches_request: i32,
+    emitter_output_kind: i32,
+    emitter_machine_function_count: i32,
 }
 
 fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
@@ -1229,6 +1233,10 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.emitter_imported_function_count = 0;
     result.emitter_imported_block_count = 0;
     result.emitter_imported_inst_count = 0;
+    result.emitter_output_ready = 0;
+    result.emitter_output_matches_request = 0;
+    result.emitter_output_kind = MIR_BACKEND_OUTPUT_NONE;
+    result.emitter_machine_function_count = 0;
 }
 
 fn native_build_empty_core_verifier_result() CoreVerifierResult {
@@ -19434,6 +19442,28 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
         emitter.imported_function_count as i32;
     result.emitter_imported_block_count = emitter.imported_block_count as i32;
     result.emitter_imported_inst_count = emitter.imported_inst_count as i32;
+    var backend_output: MirTargetBackendOutput = MirTargetBackendOutput{
+        backend_kind: 0,
+        output_kind: MIR_BACKEND_OUTPUT_NONE,
+        machine_module: null,
+        ptx_module: null,
+        exec_bytecode: null,
+        c99_plan: null,
+        diagnostic_code: 0,
+        flags: 0,
+    };
+    if native_mir_emitter_finish_output(&emitter, &backend_output) != 0 {
+        machine_module_release(&machine);
+        result.verifier_error = verifier.error_code;
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    result.emitter_output_ready = 1;
+    result.emitter_output_matches_request =
+        portable_mir_backend_output_matches_request(&request, &backend_output);
+    result.emitter_output_kind = backend_output.output_kind;
+    result.emitter_machine_function_count =
+        machine_module_function_count(&machine) as i32;
     machine_module_release(&machine);
     result.verifier_error = verifier.error_code;
     result.object_count = plan.object_count;
@@ -20130,6 +20160,26 @@ fn native_build_print_hosted_portable_mir_lowering_missing(c_import_count: i32, 
                 result.emitter_imported_function_count,
                 result.emitter_imported_block_count,
                 result.emitter_imported_inst_count,
+                result.core_pending_body_count);
+        }
+        if result.emitter_output_ready != 0 {
+            var output_kind_name: &byte = "unknown" as &byte;
+            if result.emitter_output_kind == MIR_BACKEND_OUTPUT_MACHINE_MODULE {
+                output_kind_name = "machine_module" as &byte;
+            } else if result.emitter_output_kind == MIR_BACKEND_OUTPUT_PTX_MODULE {
+                output_kind_name = "ptx_module" as &byte;
+            } else if result.emitter_output_kind == MIR_BACKEND_OUTPUT_EXEC_BYTECODE {
+                output_kind_name = "exec_bytecode" as &byte;
+            } else if result.emitter_output_kind == MIR_BACKEND_OUTPUT_C99_PLAN {
+                output_kind_name = "c99_plan" as &byte;
+            } else if result.emitter_output_kind == MIR_BACKEND_OUTPUT_NONE {
+                output_kind_name = "none" as &byte;
+            }
+            fprintf(libc.stderr,
+                "native_hosted_emitter_output_preflight: status=ready output_matches_request=%d output_kind=%s machine_functions=%d pending_bodies=%d\n" as *byte,
+                result.emitter_output_matches_request,
+                output_kind_name as *byte,
+                result.emitter_machine_function_count,
                 result.core_pending_body_count);
         }
     }
@@ -28093,6 +28143,10 @@ fn compile_files(
                 emitter_imported_function_count: 0,
                 emitter_imported_block_count: 0,
                 emitter_imported_inst_count: 0,
+                emitter_output_ready: 0,
+                emitter_output_matches_request: 0,
+                emitter_output_kind: MIR_BACKEND_OUTPUT_NONE,
+                emitter_machine_function_count: 0,
             };
             const hosted_preflight_status: i32 = native_build_hosted_portable_mir_preflight(&emit_arena,
                 checker, merged_ast, hosted_c_import_count, &hosted_preflight);

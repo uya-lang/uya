@@ -97,6 +97,7 @@ run_cmd_build_self_preflight_check() {
     grep -Eq 'native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=[1-9][0-9]* extern_symbols=[1-9][0-9]* pending_bodies=[1-9][0-9]* entry_callee_coverage=partial_prefix entry_child_coverage=complete' "$stderr"
     grep -Eq 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete link_objects=0 extern_symbols=[1-9][0-9]* entry_child_coverage=complete' "$stderr"
     grep -Eq 'native_hosted_emitter_import_preflight: status=ready imported_functions=[1-9][0-9]* imported_blocks=[1-9][0-9]* imported_insts=[0-9]+ pending_bodies=[1-9][0-9]*' "$stderr"
+    grep -Eq 'native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=[1-9][0-9]* pending_bodies=[1-9][0-9]*' "$stderr"
     grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$stderr"
     grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$stderr"
     if grep -q 'native_hosted_portable_mir_preflight_failed' "$stderr" ||
