@@ -282,6 +282,7 @@ native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args par
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=10 covered_branch=exec-reject next_branch=microapp-reject next_kind=AST_IF_STMT reason=partial_else_if_chain
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=11 covered_branch=microapp-reject next_branch=--outlibc next_kind=AST_IF_STMT reason=partial_else_if_chain
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=12 covered_branch=--outlibc next_branch=--stack-size next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=13 covered_branch=--stack-size-arg-read next_branch=--stack-size-digit-loop next_kind=AST_VAR_DECL reason=partial_else_if_chain
 ```
 
 ## Hosted Native Handoff First Slice Contract

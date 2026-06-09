@@ -91,6 +91,8 @@ require_pattern "$SUBSET_DOC" 'covered_branch=microapp-reject next_branch=--outl
     "cmd/build subset doc 缺少 microapp reject 后的 outlibc frontier"
 require_pattern "$SUBSET_DOC" 'covered_branch=--outlibc next_branch=--stack-size' \
     "cmd/build subset doc 缺少 outlibc 后的 stack-size frontier"
+require_pattern "$SUBSET_DOC" 'covered_branch=--stack-size-arg-read next_branch=--stack-size-digit-loop' \
+    "cmd/build subset doc 缺少 stack-size 参数读取后的 digit-loop frontier"
 require_pattern "$SUBSET_DOC" '`--stack-size` 数字扫描' \
     "cmd/build subset doc 缺少 parse_build_args stack-size 审计"
 require_pattern "$SUBSET_DOC" '`arg \+ 14` pointer arithmetic' \
@@ -178,8 +180,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: functi
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier' \
     "no-silent-C99 测试缺少 scalar option loop-body branch frontier 合同锚点"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=12 covered_branch=--outlibc next_branch=--stack-size next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 --outlibc 完成后的 --stack-size frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=13 covered_branch=--stack-size-arg-read next_branch=--stack-size-digit-loop next_kind=AST_VAR_DECL reason=partial_else_if_chain' \
+    "no-silent-C99 测试缺少 --stack-size 参数读取后的 digit-loop frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \

@@ -94,8 +94,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_projec
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_project_root_success_body' \
     "生产代码缺少 --project-root 成功写入 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=12 covered_branch=--outlibc next_branch=--stack-size next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须固定 --outlibc 完成后的 --stack-size frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=13 covered_branch=--stack-size-arg-read next_branch=--stack-size-digit-loop next_kind=AST_VAR_DECL reason=partial_else_if_chain' \
+    "no-silent-C99 测试必须固定 --stack-size 参数读取后的 digit-loop frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \

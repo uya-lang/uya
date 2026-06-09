@@ -1077,7 +1077,7 @@ PortableMIR/native hosted parity 的验收输入。
         - `--stack-size` 数字扫描切片：
           - [x] 为 `--stack-size` 补 CoreBody/PortableMIR 合同：固定缺参、byte index、digit while、
             累积、有效写入、无效 warning 和 no-silent-C99 frontier 预期；不改生产实现。
-          - [ ] 迁入 `--stack-size` 缺参和 `get_argv(i + 1)` 分支，覆盖 error / null 参数保留语义。
+          - [x] 迁入 `--stack-size` 缺参和 `get_argv(i + 1)` 分支，覆盖 error / null 参数保留语义。
           - [ ] 迁入 `--stack-size` 数字扫描 loop：覆盖 `size_str[j]` byte index、ASCII digit 条件、
             `size_val = size_val * 10 + (...)` 和 `j = j + 1`。
           - [ ] 迁入 `--stack-size` 写入/警告/跳参分支：覆盖 `stack_size[0] = size_val`、
@@ -1366,8 +1366,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：`--outlibc`。
 3. PBA-STACK-SIZE：完成 `--stack-size` 数字扫描。
    - 已完成叶子：固定缺参、byte index、digit while、累积、有效写入、无效 warning。
-   - 下一个叶子：缺参和 `get_argv(i + 1)`。
-   - 实现叶子：`size_str[j]`、ASCII digit 条件、累积表达式和 `j = j + 1`。
+   - 已完成叶子：缺参和 `get_argv(i + 1)`。
+   - 下一个叶子：`size_str[j]`、ASCII digit 条件、累积表达式和 `j = j + 1`。
    - 实现叶子：`stack_size[0]` 写入、warning 和跳参。
 4. PBA-SPLIT-C：完成 split-C / async-frame CLI。
    - 合同叶子：固定 async-frame、`--no-split-c`、inline/separate `--split-c-dir` 和 default-dir。
