@@ -186,6 +186,9 @@ struct NativeHostedMirPreflightResult {
     entry_pending_callee_child_next_stmt_index: i32,
     entry_pending_callee_child_next_stmt_kind: &byte,
     entry_pending_callee_child_complete: i32,
+    entry_reachable_callee_parent_name: &byte,
+    entry_reachable_callee_name: &byte,
+    entry_reachable_callee_stmt_index: i32,
     emitter_handoff_request_verified: i32,
     emitter_handoff_backend_kind: i32,
     emitter_handoff_link_plan_complete: i32,
@@ -1231,6 +1234,9 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.entry_pending_callee_child_next_stmt_index = -1;
     result.entry_pending_callee_child_next_stmt_kind = null;
     result.entry_pending_callee_child_complete = 0;
+    result.entry_reachable_callee_parent_name = null;
+    result.entry_reachable_callee_name = null;
+    result.entry_reachable_callee_stmt_index = -1;
     result.emitter_handoff_request_verified = 0;
     result.emitter_handoff_backend_kind = 0;
     result.emitter_handoff_link_plan_complete = 0;
@@ -11334,6 +11340,43 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
     return 0;
 }
 
+fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
+    checker: &TypeChecker, decl: &ASTNode, result: &NativeHostedMirPreflightResult) void {
+    if program == null || checker == null || decl == null || result == null {
+        return;
+    }
+    if native_build_hosted_build_driver_run_final_return_prefix_stmt_count(
+        decl, checker, program) !=
+        NATIVE_BUILD_DRIVER_RUN_FINAL_RETURN_PREFIX_STMT_COUNT {
+        return;
+    }
+    const parse_stmt: &ASTNode =
+        native_build_hosted_build_driver_run_prefix_stmt(decl, 12);
+    const parse_call: &ASTNode = native_build_hosted_parse_result_call_expr(parse_stmt);
+    if parse_call == null {
+        return;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program, "parse_build_args" as &byte,
+        &target_function_id, &target_decl_index) == 0 ||
+       target_decl_index < 0 {
+        return;
+    }
+    const target_decl: &ASTNode = program.program_decls[target_decl_index];
+    if target_decl == null || target_decl.type != ASTNodeType.AST_FN_DECL ||
+       target_decl.fn_decl_is_extern != 0 || target_decl.fn_decl_body == null ||
+       native_build_hosted_decl_can_materialize_safe_core_body(program,
+        target_decl, checker) != 0 {
+        return;
+    }
+    result.entry_reachable_callee_parent_name =
+        native_build_decl_name_for_diagnostic(decl);
+    result.entry_reachable_callee_name =
+        native_build_decl_name_for_diagnostic(target_decl);
+    result.entry_reachable_callee_stmt_index = 12;
+}
+
 fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &TypeChecker,
     result: &NativeHostedMirPreflightResult) void {
     if program == null || checker == null || result == null ||
@@ -11556,6 +11599,12 @@ fn native_build_hosted_record_entry_chain_frontier(program: &ASTNode, checker: &
                     }
                 }
             }
+        }
+        if pending_prefix_stmt_count ==
+           NATIVE_BUILD_DRIVER_RUN_FINAL_RETURN_PREFIX_STMT_COUNT &&
+           result.entry_pending_callee_next_stmt_index < 0 {
+            native_build_hosted_record_entry_reachable_callee_frontier(program,
+                checker, pending_decl, result);
         }
         return;
     }
@@ -20111,6 +20160,14 @@ fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_st
                 result.entry_pending_callee_child_next_stmt_index,
                 child_next_kind as *byte);
         }
+        if result.entry_reachable_callee_parent_name != null &&
+           result.entry_reachable_callee_name != null {
+            fprintf(libc.stderr,
+                "native_hosted_reachable_callee_frontier: parent=%s stmt=%d first_unresolved_callee=%s reason=pending_core_body\n" as *byte,
+                result.entry_reachable_callee_parent_name as *byte,
+                result.entry_reachable_callee_stmt_index,
+                result.entry_reachable_callee_name as *byte);
+        }
     }
 }
 
@@ -28159,6 +28216,9 @@ fn compile_files(
                 entry_pending_callee_child_next_stmt_index: -1,
                 entry_pending_callee_child_next_stmt_kind: null,
                 entry_pending_callee_child_complete: 0,
+                entry_reachable_callee_parent_name: null,
+                entry_reachable_callee_name: null,
+                entry_reachable_callee_stmt_index: -1,
                 emitter_handoff_request_verified: 0,
                 emitter_handoff_backend_kind: 0,
                 emitter_handoff_link_plan_complete: 0,

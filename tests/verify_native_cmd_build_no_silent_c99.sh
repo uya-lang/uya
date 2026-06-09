@@ -94,6 +94,7 @@ run_cmd_build_self_preflight_check() {
     grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=[1-9][0-9]* mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"
     grep -q 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' "$stderr"
+    grep -q 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args reason=pending_core_body' "$stderr"
     grep -Eq 'native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=[1-9][0-9]* extern_symbols=[1-9][0-9]* pending_bodies=[1-9][0-9]* entry_callee_coverage=complete entry_child_coverage=complete' "$stderr"
     grep -Eq 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete link_objects=0 extern_symbols=[1-9][0-9]* entry_child_coverage=complete' "$stderr"
     grep -Eq 'native_hosted_emitter_import_preflight: status=ready imported_functions=[1-9][0-9]* imported_blocks=[1-9][0-9]* imported_insts=[0-9]+ pending_bodies=[1-9][0-9]*' "$stderr"
