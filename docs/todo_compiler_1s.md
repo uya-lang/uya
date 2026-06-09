@@ -950,9 +950,22 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
 
 - [x] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
   保留字符串字面量、字符串插值、标量格式化和返回值语义。
-- [~] print/println MIR lowering：将 `AST_PRINT` / `AST_PRINTLN` 降成 PortableMIR；hosted profile 走
-  stdout / libc / runtime capability，freestanding profile 走明确 capability gate 或 syscall/write bridge，
-  不支持时必须明确 diagnostic。
+- print/println MIR lowering：拆分实现链，第一步先写 C99 oracle 验证壳子。
+  - [~] 新增 `tests/verify_hosted_native_helloworld_parity.sh`：C99 oracle 端先
+    跑通（`@println("Hello, World!")` C99 退出 0、stdout 一致、stderr 不含
+    fallback 路径），hosted native 端可先 reject。
+  - [ ] 在 `src/lower/mir.uya` 中新增 `portable_mir_lower_core_body_to_module`：
+    把 `LoweredProgram.core_stmts` + `core_exprs` + `core_places` 序列落成
+    `PortableMirModule` 的 function/block/inst/terminator（~500 行）。
+  - [ ] 在 `src/codegen/native/mir_emitter.uya` 扩展 MIR→MachineModule 支持
+    `MIR_INST_OP_CALL` 指向 `__uya_print_*` extern，并新增 sysv x86_64
+    write/call inst 序列（~300 行）。
+  - [ ] 在 `lib/std/runtime/` 内补 hosted profile 的 `__uya_print_i32` /
+    `__uya_print_str` / `__uya_write_newline` helper（~200 行），并接入
+    `bin/uya` 链接流程。
+  - [ ] 修 `src/build_compiler_driver.uya` 的 hosted native 主路径，把
+    `native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing`
+    替换为真实 lowering 调用。
 - [ ] statements：覆盖 expression statement、var/const decl、assign、if/else、while、for、break/continue、
   return、block、defer/errdefer/drop、try/catch 和裸 call statement 的通用 lowering。
 - [ ] expressions：覆盖 literal、identifier、local/global load、binary/unary、logical short-circuit、call、
