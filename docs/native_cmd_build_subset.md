@@ -163,6 +163,32 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
 每个切片完成后，`tests/verify_native_cmd_build_no_silent_c99.sh` 必须继续证明 self-build verifier-clean、
 no-output、no-silent-C99，并把 reachable callee/body frontier 推进到真实的下一处未迁 body。
 
+## `set_process_stack_limit_bytes(...)` PortableMIR Surface Audit
+
+当前 self-build frontier 是 `build_compiler_driver_run` 第 17 条语句的
+`set_process_stack_limit_bytes(eff_compiler_stack_kb as u64 * 1024)` 调用，目标函数定义在
+`lib/std/runtime/entry/entry.uya`。该 helper 必须按真实 runtime body 迁入，不得跳到
+`compile_files(...)` 或恢复 freestanding `LoweredProgram` stack-limit helper。
+
+按源码顺序，`set_process_stack_limit_bytes(...)` 需要覆盖以下 surface：
+
+1. 函数签名与输入：`export fn set_process_stack_limit_bytes(limit_bytes: u64) void`，
+   hosted self-build caller 已在 `build_compiler_driver_run` 中冻结 `i32 -> u64` cast 和 `* 1024`
+   调用参数。
+2. 运行时结构体与常量：`EntryRLimit { rlim_cur: u64, rlim_max: u64 }`、
+   `ENTRY_RLIMIT_STACK = 3`，以及局部 `var rlim` 两个字段都由 `limit_bytes` 初始化。
+3. target gating：外层 `std.cfg(std.target_os == .tos_linux, ...)`；非 Linux / unknown / Web target
+   保持 no-op，不引入宿主 syscall。
+4. Linux arch 分流：`ta_x86_64` 使用 syscall 号 `160`，`ta_arm64` 使用 `164`，
+   `ta_arm` 使用 `75`，`ta_riscv64` 使用 `164`；其它 Linux arch 继续 no-op。
+5. syscall expression：每个已支持 arch 都构造
+   `@syscall(SYS_setrlimit_*, ENTRY_RLIMIT_STACK as i64, &rlim as i64)`，结果类型为 `!i64`。
+6. error-union cleanup：每个 `setrlimit_result_* catch { 0i64; };` 都必须保留“失败忽略”的现有语义，
+   不输出 diagnostic，不改变函数 `void` 返回。
+7. capability 边界：该 helper 只允许通过 PortableMIR 表达 target-gated `@syscall` / error-union
+   surface；hosted native 不得调用 libc `setrlimit`、不得把它当作已完成 executable writer 条件，
+   也不得静默回落 C99。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

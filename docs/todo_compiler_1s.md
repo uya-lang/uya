@@ -1126,13 +1126,17 @@ PortableMIR/native hosted parity 的验收输入。
             `first_unresolved_callee=set_process_stack_limit_bytes` 和 `reason=pending_core_body`，
             不按猜测提前跳到 `compile_files(...)`。
         - frontier-driven helper 队列（每个 helper 到达后按同一模板执行；候选只能来自真实诊断）：
-          - [ ] 审计 `set_process_stack_limit_bytes(...)` 的 body surface，写入本 todo 和
+          - [x] 审计 `set_process_stack_limit_bytes(...)` 的 body surface，写入本 todo 和
             `docs/native_cmd_build_subset.md`；不按猜测选择 `compile_files(...)` 或其它 helper。
+            - surface：`EntryRLimit` 局部结构体初始化、`ENTRY_RLIMIT_STACK = 3`、
+              Linux-only `std.cfg`、x86_64/arm64/arm/riscv64 syscall 号、`@syscall(... )`
+              返回 `!i64`、`catch { 0i64; }` 忽略失败和非 Linux/unknown target no-op。
           - [ ] 审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
-          - [ ] 为该 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同，并更新
-            no-silent-C99 frontier 预期；不改生产实现。
+          - [ ] 为 `set_process_stack_limit_bytes(...)` 的首个最小切片补 CoreBody/PortableMIR
+            golden/verifier 合同：先固定 Linux x86_64 `EntryRLimit` 初始化、`SYS_setrlimit_x86_64 = 160`、
+            `@syscall(... ENTRY_RLIMIT_STACK ... &rlim ...)` 和 `catch { 0i64; }`；不改生产实现。
           - [ ] 将该 helper 首切片迁入 verifier-clean CoreBody/PortableMIR，并让 frontier 推进到同一
             helper 的下一条 body-prefix 或下一个 reachable callee。
           - [ ] 按同一节奏完成该 helper 剩余 body-prefix：每次只扩大一个可验证切片，禁止摘要、
@@ -1379,8 +1383,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前 `set_process_stack_limit_bytes(...)` helper frontier 合同已完成；下一可执行叶子是该 helper
-  body surface 审计，开始时只把该主清单叶子标成 `[~]`。
+- 当前 `set_process_stack_limit_bytes(...)` body surface 审计已完成；下一可执行叶子是该 helper 的
+  Linux x86_64 首切片合同，开始时只把该主清单叶子标成 `[~]`。
 - helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
 - 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
@@ -1438,8 +1442,10 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：固定 `set_process_stack_limit_bytes(...)` helper frontier 合同。
    - 同步 `tests/verify_native_cmd_build_no_silent_c99.sh`，继续要求 no-output / no-silent-C99。
 8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
-   - 下一个 helper：`set_process_stack_limit_bytes(...)`；先审计 body surface，再补合同，
-     再迁首切片和后续 body-prefix。
+   - 已完成叶子：审计 `set_process_stack_limit_bytes(...)` body surface。
+   - 下一个叶子：为 `set_process_stack_limit_bytes(...)` 的 Linux x86_64 首切片补合同。
+   - 当前 helper：`set_process_stack_limit_bytes(...)`；下一步补首切片合同，再迁首切片和后续
+     body-prefix。
    - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
      `compile_files(...)`、toolchain helper 或其它大函数。
 9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。

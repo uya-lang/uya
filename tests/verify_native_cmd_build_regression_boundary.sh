@@ -71,6 +71,24 @@ require_pattern "$SUBSET_DOC" '当前 self-build reachable callee frontier 是' 
     "cmd/build subset doc 缺少 parse_build_args complete 后的真实 callee frontier"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body' \
     "cmd/build subset doc 缺少 set_process_stack_limit_bytes frontier"
+require_pattern "$SUBSET_DOC" '^## `set_process_stack_limit_bytes\(\.\.\.\)` PortableMIR Surface Audit' \
+    "cmd/build subset doc 缺少 set_process_stack_limit_bytes surface audit"
+require_pattern "$SUBSET_DOC" 'EntryRLimit \{ rlim_cur: u64, rlim_max: u64 \}' \
+    "cmd/build subset doc 缺少 EntryRLimit surface"
+require_pattern "$SUBSET_DOC" 'std\.cfg\(std\.target_os == \.tos_linux' \
+    "cmd/build subset doc 缺少 Linux target gating surface"
+require_pattern "$SUBSET_DOC" 'ta_x86_64.*160' \
+    "cmd/build subset doc 缺少 x86_64 setrlimit syscall surface"
+require_pattern "$SUBSET_DOC" 'ta_arm64.*164' \
+    "cmd/build subset doc 缺少 arm64 setrlimit syscall surface"
+require_pattern "$SUBSET_DOC" 'ta_arm.*75' \
+    "cmd/build subset doc 缺少 arm setrlimit syscall surface"
+require_pattern "$SUBSET_DOC" 'ta_riscv64.*164' \
+    "cmd/build subset doc 缺少 riscv64 setrlimit syscall surface"
+require_pattern "$SUBSET_DOC" '@syscall\(SYS_setrlimit_\*, ENTRY_RLIMIT_STACK as i64, &rlim as i64\)' \
+    "cmd/build subset doc 缺少 setrlimit syscall expression surface"
+require_pattern "$SUBSET_DOC" 'setrlimit_result_\* catch \{ 0i64; \}' \
+    "cmd/build subset doc 缺少 setrlimit catch-ignore surface"
 require_pattern "$SUBSET_DOC" '入口 argv/argc 和 early return' \
     "cmd/build subset doc 缺少 parse_build_args argv/argc early return 审计"
 require_pattern "$SUBSET_DOC" '默认 out-param 写入和全局状态初始化' \
