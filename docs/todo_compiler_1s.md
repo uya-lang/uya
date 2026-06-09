@@ -1059,7 +1059,7 @@ PortableMIR/native hosted parity 的验收输入。
         - `--project-root` 切片：
           - [x] 为 `--project-root` 补 CoreBody/PortableMIR 合同：覆盖缺参、空参数、`PATH_MAX`、
             `strcpy`、global active 写入和 no-silent-C99 frontier 预期；不改生产实现。
-          - [ ] 迁入 `--project-root` 缺参分支：覆盖 `i + 1 >= argc`、diagnostic 和 `return -1`。
+          - [x] 迁入 `--project-root` 缺参分支：覆盖 `i + 1 >= argc`、diagnostic 和 `return -1`。
           - [ ] 迁入 `--project-root` 参数读取分支：覆盖 `i = i + 1`、`get_argv(i)`、
             `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
           - [ ] 迁入 `--project-root` 长度检查分支：覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
@@ -1363,9 +1363,9 @@ make backup-all
 
 当前可执行叶子：
 
-1. 下一个未完成叶子是“迁入 `--project-root` 缺参分支”；覆盖 `i + 1 >= argc`、
-   diagnostic 和 `return -1`。
-2. 缺参分支通过后，才进入 `--project-root` 参数读取、长度检查和成功写入叶子。
+1. 下一个未完成叶子是“迁入 `--project-root` 参数读取分支”；覆盖 `i = i + 1`、
+   `get_argv(i)`、`root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
+2. 参数读取分支通过后，才进入 `--project-root` 长度检查和成功写入叶子。
 3. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
    parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`
    作为每任务门禁。

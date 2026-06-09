@@ -109,6 +109,8 @@ require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier
     "cmd/build subset doc 缺少 --nostdlib branch frontier 诊断形状"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root next_branch=--manifest-path next_kind=AST_IF_STMT reason=partial_else_if_chain' \
     "cmd/build subset doc 缺少 --project-root branch frontier 诊断形状"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-missing-arg next_branch=--project-root-arg-read next_kind=AST_ASSIGN reason=partial_else_if_chain' \
+    "cmd/build subset doc 缺少 --project-root 缺参子切片 frontier 诊断形状"
 
 require_pattern "$ARCH_DOC" 'hosted native 完整语言 parity：第一阶段以 C99 为 oracle' \
     "architecture doc 缺少 hosted native C99 oracle 范围"
@@ -162,8 +164,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: functi
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier' \
     "no-silent-C99 测试缺少 scalar option loop-body branch frontier 合同锚点"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=7 covered_branch=--nostdlib next_branch=--project-root next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试缺少 --nostdlib 后的 project-root frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-missing-arg next_branch=--project-root-arg-read next_kind=AST_ASSIGN reason=partial_else_if_chain' \
+    "no-silent-C99 测试缺少 --project-root 缺参后的参数读取 frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \

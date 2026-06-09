@@ -43,8 +43,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_nostdl
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_nostdlib_body' \
     "生产代码缺少 --nostdlib 分支 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=7 covered_branch=--nostdlib next_branch=--project-root next_kind=AST_IF_STMT reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须固定 --nostdlib 后的 project-root frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23' \
+    "no-silent-C99 测试缺少 scalar option loop-body branch frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \

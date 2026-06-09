@@ -230,6 +230,14 @@ nostdlib 标量分支完成后必须继续报告 branch frontier，证明 `--nos
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=7 covered_branch=--nostdlib next_branch=--project-root next_kind=AST_IF_STMT reason=partial_else_if_chain
 ```
 
+project-root 缺参子切片完成后必须继续报告 branch frontier，证明 `--project-root`
+条件、`i + 1 >= argc`、缺参 diagnostic 和 `return -1` 已纳入 verifier-clean partial
+body；此时仍不得把后续参数读取、空参数检查、长度检查或全局写入伪装成完成：
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-missing-arg next_branch=--project-root-arg-read next_kind=AST_ASSIGN reason=partial_else_if_chain
+```
+
 project-root 分支完成后必须继续报告 branch frontier，证明 `--project-root` 的缺参
 diagnostic、`get_argv(i)` 参数读取、空参数检查、`strlen(root_arg)` / `PATH_MAX`
 长度检查、`strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
