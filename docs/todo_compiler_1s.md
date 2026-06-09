@@ -1348,6 +1348,18 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 每个叶子先补合同/边界测试，再改实现，验证只跑任务相关测试和必要的 `cmd-build` 重建，不把
 `make backup-all` 作为每任务门禁。
 
+执行规则：
+
+- 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
+- 当前可执行叶子是 PBA-SPLIT-C 的 separate `--split-c-dir <dir>` 成功/default 分支。
+- helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
+  只允许补审计/合同，不允许提前实现猜测中的 helper。
+- 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
+  UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、本叶子合同脚本、`verify_native_cmd_build_no_silent_c99.sh`、
+  `verify_native_cmd_build_regression_boundary.sh` 和必要的 stage1 边界。
+- `make check` 只作为阶段收口或高风险共享行为验证；`make backup-all` 只放到发布/最终收口，不作为每个
+  叶子的提交门槛。
+
 差分队列：
 
 1. PBA-PROJECT-ROOT：完成 `parse_build_args(...)` 的 `--project-root` 分支。
@@ -1405,3 +1417,43 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
     - 再允许 hosted executable writer 写出。
     - 最后消除 `native_hosted_portable_mir_lowering_missing`，并用新 native `bin/cmd/build`
       复跑 self-build、compiler regression、C99 output parity 和 KPI 记录。
+11. MAKE-NATIVE-PATH：Phase 10 self-build executable 真实通过后，再切 `make uya` 主路径。
+    - 合同叶子：固定 `UYA_BUILD_BACKEND=native|c99`、`make uya-c99`、native 失败不静默 fallback、
+      手动 C99 fallback 和 release flow 双路径语义。
+    - 实现叶子：Makefile 接入 `UYA_BUILD_BACKEND`，保留 `make uya-c99`。
+    - 实现叶子：`make uya` 默认走 hosted native path，并确保输出 `bin/uya` 与 `bin/cmd/build`。
+    - 实现叶子：`make cmds` / install 安装 `bin/cmd/build` 和 `bin/cmd/microapp`。
+    - 实现叶子：backup / release flow 纳入 native seed，但仍保留 C99 seed fallback。
+    - 收口叶子：跑 `make clean && make uya`、`make cmds`、microapp help、相关 regression 和
+      native path no-silent-fallback 门禁。
+12. NATIVE-KPI：`make uya` native 主路径稳定后再做性能收口。
+    - benchmark 合同叶子：固定三次中位数、P95、peak RSS、arena peak 和 output bytes 字段。
+    - 实测叶子：跑 `make bench-compiler-1s-check` 和三次 native cold build，记录结果到评估文档。
+    - 修复叶子：只针对已测出的 native 主路径热点/内存回归拆分实现，不提前泛化优化。
+13. RELEASE-PARITY：native/C99 差分验证和自举二轮收口。
+    - 合同叶子：固定 native-built 与 C99-built `make check` 的输出/退出码/diagnostic 比对格式。
+    - 实现叶子：整理核心测试输出与 diagnostics 比对脚本。
+    - 实现叶子：整理 `src/main.uya` C99 output 结构摘要比对。
+    - 实现叶子：整理 native 自举二轮产物 normalized section hash。
+14. FULL-LANGUAGE-PARITY：完整语言后端差分套件。
+    - 合同叶子：固定 main 分支语言兼容基线来自 `docs/uya.md`、formal/quick grammar、builtin 文档和
+      完整语言回归。
+    - 套件叶子：覆盖多文件模块、泛型、方法、接口、error union、`try/catch`、defer/errdefer、
+      async、struct/union/enum、slice/array、pointer、atomic、vector/mask、`@c_import`、builtin 和标准库入口。
+    - 实现叶子：Hosted native 经由 PortableMIR 与 C99 给出一致成功/失败、退出码、diagnostics 和行为。
+    - 实现叶子：freestanding native 只按 hosted 已验证 MIR 能力逐步下沉，保持 capability diagnostic。
+15. MICROAPP-COMPAT：microapp 语言兼容收口。
+    - 合同叶子：确认 microapp 不引入专属语法、关键字、builtin 或 checker 方言。
+    - 实现叶子：`uya microapp build` 使用普通 `uya build` 同源 parser/checker，差异只在安全策略、
+      ABI、镜像格式和 runtime capability 裁决。
+    - 文档叶子：发布说明记录 microapp 限制都是 runtime/capability/profile 限制。
+16. DOCS-RELEASE：最终文档和发布说明。
+    - 文档叶子：更新 `docs/compiler_1s_speed_assessment.md`。
+    - 文档叶子：更新 `docs/compiler_1s_architecture_design.md`。
+    - 文档叶子：更新 `docs/UYA_BUILD_RUN.md`、`docs/TESTING.md` 和
+      `docs/c99_codegen_hotpath_benchmark.md`。
+    - 文档叶子：release 文档说明 native path、C99 fallback 和 microapp 命名空间命令。
+17. FINAL-GATE：最终验收。
+    - 收口叶子：跑 `git diff --check`、bench check、三次 bench、`make check`、`make check-hosted`、
+      `make microapp-check` 和完整语言后端差分门禁。
+    - 发布叶子：最终才跑 `make backup-all`，同步生成的 seed/backup，并完成最后提交/推送。
