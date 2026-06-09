@@ -2,7 +2,7 @@
 
 # Phase 10：固定 parse_build_args(...) --project-root 分支迁入合同。
 # 该叶子冻结 project-root 的全分支目标，同时随着实现推进固定当前已
-# 完成的缺参子切片 frontier。
+# 完成的子切片 frontier。
 
 set -euo pipefail
 
@@ -44,6 +44,10 @@ require_pattern "$SUBSET_DOC" 'project-root 缺参子切片完成后必须继续
     "subset doc 缺少 --project-root 缺参子切片 frontier 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-missing-arg next_branch=--project-root-arg-read next_kind=AST_ASSIGN reason=partial_else_if_chain' \
     "subset doc 缺少 --project-root 缺参后的参数读取 frontier 诊断形状"
+require_pattern "$SUBSET_DOC" 'project-root 参数读取子切片完成后必须继续报告 branch frontier' \
+    "subset doc 缺少 --project-root 参数读取子切片 frontier 合同"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-arg-read next_branch=--project-root-length next_kind=AST_VAR_DECL reason=partial_else_if_chain' \
+    "subset doc 缺少 --project-root 参数读取后的长度检查 frontier 诊断形状"
 
 require_pattern "$BUILD_DRIVER_SRC" 'else if strcmp\(arg, "--project-root" as \*byte\) == 0' \
     "parse_build_args 源码缺少 --project-root 分支"
@@ -73,9 +77,13 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_projec
     "生产代码缺少 --project-root 缺参分支 shape recognizer"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_project_root_missing_arg_body' \
     "生产代码缺少 --project-root 缺参分支 body/frontier 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_project_root_arg_read_if_supported' \
+    "生产代码缺少 --project-root 参数读取分支 shape recognizer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_project_root_arg_read_body' \
+    "生产代码缺少 --project-root 参数读取分支 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-missing-arg next_branch=--project-root-arg-read next_kind=AST_ASSIGN reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须固定 --project-root 缺参后的参数读取 frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root-arg-read next_branch=--project-root-length next_kind=AST_VAR_DECL reason=partial_else_if_chain' \
+    "no-silent-C99 测试必须固定 --project-root 参数读取后的长度检查 frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \

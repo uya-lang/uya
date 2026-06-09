@@ -1060,7 +1060,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 为 `--project-root` 补 CoreBody/PortableMIR 合同：覆盖缺参、空参数、`PATH_MAX`、
             `strcpy`、global active 写入和 no-silent-C99 frontier 预期；不改生产实现。
           - [x] 迁入 `--project-root` 缺参分支：覆盖 `i + 1 >= argc`、diagnostic 和 `return -1`。
-          - [ ] 迁入 `--project-root` 参数读取分支：覆盖 `i = i + 1`、`get_argv(i)`、
+          - [x] 迁入 `--project-root` 参数读取分支：覆盖 `i = i + 1`、`get_argv(i)`、
             `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
           - [ ] 迁入 `--project-root` 长度检查分支：覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX`
             和路径过长 diagnostic。
@@ -1341,37 +1341,63 @@ make backup-all
 
 ## 当前下一步
 
-剩余工作先按下面的差分队列推进。原始 hosted `cmd/build` self-build emitter/handoff 是 epic，
-不是单个实现任务；每次只做当前诊断已经暴露的一个叶子切片。下一次实施不要直接接原始 epic，
-也不要预设 `compile_files(...)`、toolchain helper 或其它大函数顺序；先处理文档中唯一的 `[~]`
-或第一个未完成叶子。
+剩余工作已一次性差分为下面的执行队列。原始 hosted `cmd/build` self-build emitter/handoff 是
+epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第一个未完成叶子。每个叶子先补合同
+/边界测试，再改实现，验证只跑任务相关测试和必要的 `cmd-build` 重建，不把 `make backup-all`
+作为每任务门禁。
 
-差分层级：
+差分队列：
 
-1. 当前已暴露 frontier：完成 `parse_build_args(...)` loop-body 中基础 flag / scalar option。
-   只允许按源码 else-if 顺序推进 `opt-level -> --nostdlib -> --project-root`。
-2. `parse_build_args(...)` 主体收敛：继续迁入 `--project-root`、build-seed reject group、
-   `--stack-size`、split-C / async-frame CLI、位置输入文件收集和收尾输出路径检查。
-3. `parse_build_args(...)` complete 后重新跑 self-build frontier；只把诊断实际报告的下一个
-   reachable callee 写入 todo，不提前选择 `compile_files(...)`。
-4. 真实 helper 队列：每个 helper 都先审计 body surface，再补合同，再迁首切片和后续 body-prefix；
-   候选 helper 只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier。
-5. 只有真实 frontier 指向 `compile_files(...)` 时，才进入 16 参数 ABI、artifact/path、输入依赖、
-   lexer/parser/AST、SemanticDb/checker/TypedProgram、codegen handoff 和 cleanup 切片。
-6. 只有 reachable pending body 收敛到 0 时，才补 writer 解锁合同、允许 hosted executable writer
-   写出，并最终消除 `native_hosted_portable_mir_lowering_missing`。
-
-当前可执行叶子：
-
-1. 下一个未完成叶子是“迁入 `--project-root` 参数读取分支”；覆盖 `i = i + 1`、
-   `get_argv(i)`、`root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
-2. 参数读取分支通过后，才进入 `--project-root` 长度检查和成功写入叶子。
-3. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
-   parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`
-   作为每任务门禁。
-4. `parse_build_args(...)` 后续按已列出的 `--project-root`、seed 拒绝项、`--stack-size`、
-   split-C、位置输入和收尾叶子逐个推进。
-5. `parse_build_args(...)` complete 后，只根据诊断里的真实 reachable frontier 选择下一个 helper；
-   每个 helper 都先审计、再补合同、再迁首切片和后续 body-prefix。
-6. 只有当 reachable pending body 全部收敛后，才解锁 hosted executable writer 并真正移除
-   `native_hosted_portable_mir_lowering_missing`。
+1. PBA-PROJECT-ROOT：完成 `parse_build_args(...)` 的 `--project-root` 分支。
+   - 已完成叶子：参数读取，覆盖 `i = i + 1`、`get_argv(i)`、
+     `root_arg == null || root_arg[0] == 0` 和空参数 diagnostic。
+   - 下一个叶子：长度检查，覆盖 `strlen(root_arg)`、`root_len >= PATH_MAX` 和路径过长 diagnostic。
+   - 后续叶子：成功写入，覆盖 `strcpy(&g_module_root_override[0] as *byte, root_arg)` 和
+     `g_module_root_override_active = 1`。
+2. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
+   - 合同叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
+     diagnostic、`return -1` 和 seed 边界。
+   - 实现叶子：`--manifest-path` / `--outlibc`。
+   - 实现叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
+   - 实现叶子：`--app`、`--microapp-profile`、`strncmp("--microapp-profile=", 19)`。
+3. PBA-STACK-SIZE：完成 `--stack-size` 数字扫描。
+   - 合同叶子：固定缺参、byte index、digit while、累积、有效写入、无效 warning。
+   - 实现叶子：缺参和 `get_argv(i + 1)`。
+   - 实现叶子：`size_str[j]`、ASCII digit 条件、累积表达式和 `j = j + 1`。
+   - 实现叶子：`stack_size[0]` 写入、warning 和跳参。
+4. PBA-SPLIT-C：完成 split-C / async-frame CLI。
+   - 合同叶子：固定 async-frame、`--no-split-c`、inline/separate `--split-c-dir` 和 default-dir。
+   - 实现叶子：`--async-frame-heap=on`。
+   - 实现叶子：`--no-split-c`。
+   - 实现叶子：inline `--split-c-dir=<dir>` disabled warning。
+   - 实现叶子：inline `--split-c-dir=<dir>` 成功/default。
+   - 实现叶子：separate `--split-c-dir <dir>` disabled-skip。
+   - 实现叶子：separate `--split-c-dir <dir>` 成功/default。
+5. PBA-INPUTS：完成位置输入文件收集。
+   - 合同叶子：固定 `arg[0]`、容量检查、index/count 写入和未知 dash option no-op。
+   - 实现叶子：`arg[0]` / 非 dash 判定。
+   - 实现叶子：输入容量检查 diagnostic。
+   - 实现叶子：`input_file_indices[idx]` 和 `input_file_count[0]` 写入。
+6. PBA-TAIL：完成 `parse_build_args(...)` 收尾。
+   - 合同叶子：固定无输入 diagnostic、`print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝。
+   - 实现叶子：未指定输入文件。
+   - 实现叶子：显式输出路径读取。
+   - 实现叶子：`.c` 输出推断 C99。
+   - 实现叶子：`--native` 输出 `.c` 拒绝。
+   - 实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。
+7. FRONTIER-RESET：`parse_build_args(...)` complete 后重建 `cmd-build` 并重新跑 self-build frontier。
+   - 只把诊断实际报告的下一个 reachable callee 写入 todo 和 `docs/native_cmd_build_subset.md`。
+   - 同步 `tests/verify_native_cmd_build_no_silent_c99.sh`，继续要求 no-output / no-silent-C99。
+8. HELPER-QUEUE：真实 helper 队列只由 frontier 诊断驱动。
+   - 每个 helper 先审计 body surface，再补合同，再迁首切片和后续 body-prefix。
+   - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
+     `compile_files(...)`、toolchain helper 或其它大函数。
+9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。
+   - 先固定 16 参数 ABI 和 entry frontier。
+   - 再按 artifact/path、输入依赖、lexer/parser/AST、SemanticDb/checker/TypedProgram、
+     codegen handoff、cleanup 六组切片推进。
+10. WRITER-UNLOCK：只有 reachable pending body 收敛到 0 时才进入。
+    - 先补 writer 解锁合同，证明 `can_write=1`、pending body 为 0、link plan complete。
+    - 再允许 hosted executable writer 写出。
+    - 最后消除 `native_hosted_portable_mir_lowering_missing`，并用新 native `bin/cmd/build`
+      复跑 self-build、compiler regression、C99 output parity 和 KPI 记录。
