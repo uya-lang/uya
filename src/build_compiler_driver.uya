@@ -5343,6 +5343,328 @@ fn native_build_hosted_parse_build_args_split_c_inline_disabled_body(
         checker);
 }
 
+fn native_build_hosted_parse_build_args_arg_plus_const_expr(
+    expr: &ASTNode, name: &byte, expected_value: i32) i32 {
+    if expr == null || name == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, name) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != TokenType.TOKEN_PLUS ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 ||
+       value != expected_value {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_dir_decl_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "split_dir_inline" as *byte) == 0 ||
+       native_build_type_is_byte_ptr(stmt.var_decl_type) == 0 ||
+       native_build_hosted_parse_build_args_arg_plus_const_expr(
+        stmt.var_decl_init, "arg" as &byte, 14) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_strlen_call_expr(
+    expr: &ASTNode, arg_name: &byte) i32 {
+    if expr == null || arg_name == null || expr.type != ASTNodeType.AST_CALL_EXPR ||
+       expr.call_expr_callee == null || expr.call_expr_args == null ||
+       expr.call_expr_arg_count != 1 ||
+       native_build_hosted_expr_identifier_matches(
+        expr.call_expr_callee, "strlen" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        expr.call_expr_args[0], arg_name) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_len_decl_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "sl" as *byte) == 0 ||
+       native_build_type_is_usize(stmt.var_decl_type) == 0 ||
+       native_build_hosted_parse_build_args_strlen_call_expr(
+        stmt.var_decl_init, "split_dir_inline" as &byte) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_identifier_compare_const(
+    expr: &ASTNode, name: &byte, expected_op: TokenType,
+    expected_value: i32) i32 {
+    if expr == null || name == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, name) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != expected_op ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 ||
+       value != expected_value {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_path_max_minus_one_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, "PATH_MAX" as &byte) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != TokenType.TOKEN_MINUS ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 ||
+       value != 1 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_sl_lt_path_max_minus_one(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, "sl" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_path_max_minus_one_expr(
+        expr.binary_expr_right) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LESS {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_dir_buffer_expr(
+    expr: &ASTNode) i32 {
+    var inner: &ASTNode = expr;
+    if inner != null && inner.type == ASTNodeType.AST_CAST_EXPR &&
+       inner.cast_expr_expr != null {
+        inner = inner.cast_expr_expr;
+    }
+    if inner == null || inner.type != ASTNodeType.AST_UNARY_EXPR ||
+       inner.unary_expr_operand == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = inner.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_AMPERSAND ||
+       inner.unary_expr_operand.type != ASTNodeType.AST_ARRAY_ACCESS ||
+       inner.unary_expr_operand.array_access_array == null ||
+       inner.unary_expr_operand.array_access_index == null ||
+       native_build_hosted_expr_identifier_matches(
+        inner.unary_expr_operand.array_access_array,
+        "g_split_c_dir" as &byte) == 0 {
+        return 0;
+    }
+    var index_value: i32 = -1;
+    if native_build_expr_scalar_const_value(
+        inner.unary_expr_operand.array_access_index, null, &index_value) == 0 ||
+       index_value != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_strcpy_supported(
+    stmt: &ASTNode, checker: &TypeChecker, source_name: &byte) i32 {
+    if stmt == null || checker == null || source_name == null ||
+       stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.call_expr_callee == null || stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count != 2 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.call_expr_callee, "strcpy" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_split_c_dir_buffer_expr(
+        stmt.call_expr_args[0]) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.call_expr_args[1], source_name) == 0 {
+        return 0;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt, &call_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_default_call_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null ||
+       native_build_call_expr_identifier_noargs(
+        stmt, "split_c_set_default_dir" as &byte) == 0 {
+        return 0;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt, &call_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_copy_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_sl_lt_path_max_minus_one(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 ||
+       native_build_hosted_parse_build_args_split_c_inline_strcpy_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker,
+        "split_dir_inline" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_scalar_global_assign_supported(
+        stmt.if_stmt_then_branch.block_stmts[1], checker,
+        "g_split_c_dir_active" as &byte, 1) == 0 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_else_branch.block_stmts == null ||
+       stmt.if_stmt_else_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_default_call_supported(
+        stmt.if_stmt_else_branch.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_value_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_identifier_compare_const(
+        stmt.if_stmt_condition, "sl" as &byte, TokenType.TOKEN_GREATER, 0) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_inline_copy_if_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_else_branch.block_stmts == null ||
+       stmt.if_stmt_else_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_split_c_default_call_supported(
+        stmt.if_stmt_else_branch.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_success_block_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_BLOCK ||
+       stmt.block_stmts == null || stmt.block_stmt_count != 3 ||
+       native_build_hosted_parse_build_args_split_c_inline_dir_decl_supported(
+        stmt.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_split_c_inline_len_decl_supported(
+        stmt.block_stmts[1], checker) == 0 ||
+       native_build_hosted_parse_build_args_split_c_inline_value_if_supported(
+        stmt.block_stmts[2], checker) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_success_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strncmp_prefix_zero_expr(
+        stmt.if_stmt_condition, "arg" as &byte,
+        "--split-c-dir=" as &byte, 14) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count < 1 ||
+       stmt.if_stmt_else_branch == null ||
+       stmt.if_stmt_else_branch.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        stmt.if_stmt_else_branch.if_stmt_condition,
+        "arg" as &byte, "--split-c-dir" as &byte) == 0 {
+        return 0;
+    }
+    const disabled_guard: &ASTNode = stmt.if_stmt_then_branch.block_stmts[0];
+    if disabled_guard == null || disabled_guard.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_split_c_inline_disabled_guard_supported(
+        disabled_guard, checker) == 0 ||
+       native_build_hosted_parse_build_args_split_c_inline_success_block_supported(
+        disabled_guard.if_stmt_else_branch, checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_split_c_inline_success_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_split_c_inline_disabled_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    return native_build_hosted_parse_build_args_split_c_inline_success_if_supported(
+        native_build_hosted_parse_build_args_split_c_inline_branch_stmt(decl),
+        checker);
+}
+
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
     checker: &TypeChecker) i32 {
     if stmt == null || checker == null || stmt.type != ASTNodeType.AST_WHILE_STMT ||
@@ -15256,7 +15578,17 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_split_c_inline_disabled_body(
+                if native_build_hosted_parse_build_args_split_c_inline_success_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SPLIT_C_INLINE_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "--split-c-dir-inline" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "--split-c-dir-separate-disabled" as &byte;
+                    result.entry_reachable_loop_body_branch_next_kind =
+                        "AST_IF_STMT" as &byte;
+                } else if native_build_hosted_parse_build_args_split_c_inline_disabled_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_SPLIT_C_INLINE_BRANCH_STMT_INDEX;

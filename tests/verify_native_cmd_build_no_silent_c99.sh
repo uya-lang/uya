@@ -97,7 +97,7 @@ run_cmd_build_self_preflight_check() {
     grep -q 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' "$stderr"
     # Scalar-option lowering must keep the root body frontier honest while
     # advancing each option branch in source order.
-    grep -q 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=16 covered_branch=--split-c-dir-inline-disabled next_branch=--split-c-dir-inline-success next_kind=AST_VAR_DECL reason=partial_else_if_chain' "$stderr"
+    grep -q 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=16 covered_branch=--split-c-dir-inline next_branch=--split-c-dir-separate-disabled next_kind=AST_IF_STMT reason=partial_else_if_chain' "$stderr"
     grep -Eq 'native_hosted_handoff_frontier: reason=pending_core_bodies mir_body_functions=[1-9][0-9]* extern_symbols=[1-9][0-9]* pending_bodies=[1-9][0-9]* entry_callee_coverage=complete entry_child_coverage=complete' "$stderr"
     grep -Eq 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete link_objects=0 extern_symbols=[1-9][0-9]* entry_child_coverage=complete' "$stderr"
     grep -Eq 'native_hosted_emitter_import_preflight: status=ready imported_functions=[1-9][0-9]* imported_blocks=[1-9][0-9]* imported_insts=[0-9]+ pending_bodies=[1-9][0-9]*' "$stderr"

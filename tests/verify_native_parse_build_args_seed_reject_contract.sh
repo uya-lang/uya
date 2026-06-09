@@ -100,8 +100,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_outlib
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_outlibc_body' \
     "生产代码缺少 --outlibc 拒绝分支 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=16 covered_branch=--split-c-dir-inline-disabled next_branch=--split-c-dir-inline-success next_kind=AST_VAR_DECL reason=partial_else_if_chain' \
-    "no-silent-C99 测试必须固定 inline split-c disabled 完成后的 success frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=16 covered_branch=--split-c-dir-inline next_branch=--split-c-dir-separate-disabled next_kind=AST_IF_STMT reason=partial_else_if_chain' \
+    "no-silent-C99 测试必须固定 inline split-c 完成后的 separate disabled frontier"
 require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_seed_reject_contract\.sh' \
