@@ -4654,6 +4654,269 @@ fn native_build_hosted_parse_build_args_stack_size_arg_read_body(
         native_build_hosted_parse_build_args_stack_size_branch_stmt(decl), checker);
 }
 
+fn native_build_hosted_parse_build_args_i32_zero_decl_supported(
+    stmt: &ASTNode, name: &byte, checker: &TypeChecker) i32 {
+    if stmt == null || name == null || checker == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, name as *byte) == 0 ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 {
+        return 0;
+    }
+    var value: i32 = -1;
+    if native_build_expr_scalar_const_value(stmt.var_decl_init, null, &value) == 0 ||
+       value != 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_size_str_j_access(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_ARRAY_ACCESS ||
+       expr.array_access_array == null || expr.array_access_index == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.array_access_array, "size_str" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        expr.array_access_index, "j" as &byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_size_str_j_compare(
+    expr: &ASTNode, expected_op: TokenType, expected_value: i32) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_parse_build_args_size_str_j_access(
+        expr.binary_expr_left) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != expected_op ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 ||
+       value != expected_value {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_stack_size_digit_condition(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_AND ||
+       native_build_hosted_parse_build_args_size_str_j_compare(
+        expr.binary_expr_left, TokenType.TOKEN_GREATER_EQUAL, 48) == 0 ||
+       native_build_hosted_parse_build_args_size_str_j_compare(
+        expr.binary_expr_right, TokenType.TOKEN_LESS_EQUAL, 57) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_size_val_times_ten_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, "size_val" as &byte) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != TokenType.TOKEN_ASTERISK ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 || value != 10 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_size_str_j_minus_48_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_parse_build_args_size_str_j_access(
+        expr.binary_expr_left) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != TokenType.TOKEN_MINUS ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 || value != 48 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_size_val_accumulate_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS ||
+       native_build_hosted_parse_build_args_size_val_times_ten_expr(
+        expr.binary_expr_left) == 0 ||
+       native_build_hosted_parse_build_args_size_str_j_minus_48_expr(
+        expr.binary_expr_right) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_stack_size_accumulate_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.assign_dest, "size_val" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_size_val_accumulate_expr(
+        stmt.assign_src) == 0 {
+        return 0;
+    }
+    var dest_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var src_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.assign_dest,
+        &dest_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.assign_src,
+        &src_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_identifier_plus_one_expr(
+    expr: &ASTNode, name: &byte) i32 {
+    if expr == null || name == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, name) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    var value: i32 = -1;
+    if op != TokenType.TOKEN_PLUS ||
+       native_build_expr_scalar_const_value(expr.binary_expr_right, null,
+        &value) == 0 || value != 1 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_stack_size_j_increment_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.assign_dest, "j" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_identifier_plus_one_expr(
+        stmt.assign_src, "j" as &byte) == 0 {
+        return 0;
+    }
+    var src_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.assign_src,
+        &src_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_stack_size_digit_loop_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_WHILE_STMT ||
+       native_build_hosted_parse_build_args_stack_size_digit_condition(
+        stmt.while_stmt_condition) == 0 ||
+       stmt.while_stmt_body == null ||
+       stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK ||
+       stmt.while_stmt_body.block_stmts == null ||
+       stmt.while_stmt_body.block_stmt_count != 2 ||
+       native_build_hosted_parse_build_args_stack_size_accumulate_supported(
+        stmt.while_stmt_body.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_stack_size_j_increment_supported(
+        stmt.while_stmt_body.block_stmts[1], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.while_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_stack_size_digit_loop_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_stack_size_arg_read_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    const stack_if: &ASTNode =
+        native_build_hosted_parse_build_args_stack_size_branch_stmt(decl);
+    if stack_if == null || stack_if.type != ASTNodeType.AST_IF_STMT ||
+       stack_if.if_stmt_then_branch == null ||
+       stack_if.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stack_if.if_stmt_then_branch.block_stmts == null ||
+       stack_if.if_stmt_then_branch.block_stmt_count < 1 {
+        return 0;
+    }
+    const inner_if: &ASTNode = stack_if.if_stmt_then_branch.block_stmts[0];
+    if inner_if == null || inner_if.type != ASTNodeType.AST_IF_STMT ||
+       inner_if.if_stmt_then_branch == null ||
+       inner_if.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       inner_if.if_stmt_then_branch.block_stmts == null ||
+       inner_if.if_stmt_then_branch.block_stmt_count < 2 {
+        return 0;
+    }
+    const null_if: &ASTNode = inner_if.if_stmt_then_branch.block_stmts[1];
+    if null_if == null || null_if.type != ASTNodeType.AST_IF_STMT ||
+       null_if.if_stmt_then_branch == null ||
+       null_if.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       null_if.if_stmt_then_branch.block_stmts == null ||
+       null_if.if_stmt_then_branch.block_stmt_count < 4 ||
+       native_build_hosted_parse_build_args_i32_zero_decl_supported(
+        null_if.if_stmt_then_branch.block_stmts[0], "j" as &byte, checker) == 0 ||
+       native_build_hosted_parse_build_args_i32_zero_decl_supported(
+        null_if.if_stmt_then_branch.block_stmts[1], "size_val" as &byte,
+        checker) == 0 ||
+       native_build_hosted_parse_build_args_stack_size_digit_loop_supported(
+        null_if.if_stmt_then_branch.block_stmts[2], checker) == 0 ||
+       null_if.if_stmt_then_branch.block_stmts[3] == null ||
+       null_if.if_stmt_then_branch.block_stmts[3].type != ASTNodeType.AST_IF_STMT {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
     checker: &TypeChecker) i32 {
     if stmt == null || checker == null || stmt.type != ASTNodeType.AST_WHILE_STMT ||
@@ -14567,7 +14830,17 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
                     native_build_decl_name_for_diagnostic(target_decl);
                 result.entry_reachable_loop_body_branch_parent_stmt_index =
                     NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PARENT_STMT_INDEX;
-                if native_build_hosted_parse_build_args_stack_size_arg_read_body(
+                if native_build_hosted_parse_build_args_stack_size_digit_loop_body(
+                    target_decl, checker, program) != 0 {
+                    result.entry_reachable_loop_body_branch_stmt_index =
+                        NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_STACK_SIZE_BRANCH_STMT_INDEX;
+                    result.entry_reachable_loop_body_branch_covered_name =
+                        "--stack-size-digit-loop" as &byte;
+                    result.entry_reachable_loop_body_branch_next_name =
+                        "--stack-size-write" as &byte;
+                    result.entry_reachable_loop_body_branch_next_kind =
+                        "AST_IF_STMT" as &byte;
+                } else if native_build_hosted_parse_build_args_stack_size_arg_read_body(
                     target_decl, checker, program) != 0 {
                     result.entry_reachable_loop_body_branch_stmt_index =
                         NATIVE_PARSE_BUILD_ARGS_LOOP_BODY_STACK_SIZE_BRANCH_STMT_INDEX;
