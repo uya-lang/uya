@@ -2,6 +2,9 @@
 
 export const NATIVE_HOSTED_LINK_PLAN_UNINITIALIZED: i32 = 0;
 export const NATIVE_HOSTED_LINK_PLAN_ACTIVE: i32 = 1;
+export const NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_UNINITIALIZED: i32 = 0;
+export const NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_READY: i32 = 1;
+export const NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_BLOCKED: i32 = 2;
 
 export const NATIVE_HOSTED_ABI_SYSV: i32 = 1;
 export const NATIVE_HOSTED_LINKER_HOST_CC: i32 = 1;
@@ -28,6 +31,20 @@ export struct NativeHostedLinkPlan {
     c_import_object_count: i32,
     object_count: i32,
     flags: i32,
+}
+
+/// 功能说明：记录 hosted native executable writer 的 MIR 后置 handoff 计划。
+/// 参数说明：无；字段保存 MachineModule output、hosted link plan 摘要和 pending body 阻塞状态。
+/// 返回值说明：无。
+export struct NativeHostedExecutableWriterPlan {
+    lifecycle_state: i32,
+    output_kind: i32,
+    machine_module: &void,
+    link_plan_complete: i32,
+    link_object_count: i32,
+    c_import_object_count: i32,
+    pending_body_count: i32,
+    blocked_by_pending_bodies: i32,
 }
 
 /// 功能说明：返回 hosted native 第一阶段必须由宿主 ABI/linker 承接的需求 mask。
@@ -62,6 +79,22 @@ export fn native_hosted_link_plan_empty() NativeHostedLinkPlan {
         c_import_object_count: 0,
         object_count: 0,
         flags: 0,
+    };
+}
+
+/// 功能说明：构造空 hosted native executable writer plan。
+/// 参数说明：无。
+/// 返回值说明：返回未初始化的 writer plan。
+export fn native_hosted_executable_writer_plan_empty() NativeHostedExecutableWriterPlan {
+    return NativeHostedExecutableWriterPlan{
+        lifecycle_state: NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_UNINITIALIZED,
+        output_kind: MIR_BACKEND_OUTPUT_NONE,
+        machine_module: null,
+        link_plan_complete: 0,
+        link_object_count: 0,
+        c_import_object_count: 0,
+        pending_body_count: 0,
+        blocked_by_pending_bodies: 0,
     };
 }
 
@@ -153,4 +186,47 @@ export fn native_hosted_link_plan_add_c_import_object(plan: &NativeHostedLinkPla
     plan.c_import_object_count = plan.c_import_object_count + 1;
     plan.object_count = plan.object_count + 1;
     return 0;
+}
+
+/// 功能说明：用 verified Machine backend output 和 hosted link plan 初始化 executable writer handoff。
+/// 参数说明：`writer` 为输出计划，`plan` 为完整 hosted linker plan，`output` 为 MachineModule output，`pending_body_count` 为尚未迁入 CoreBody/PortableMIR 的函数体数量。
+/// 返回值说明：成功返回 `0`；参数、输出类型或 link plan 非法返回 `-1`。pending body 存在时 plan 进入 blocked 状态但仍返回成功。
+export fn native_hosted_executable_writer_plan_init(writer: &NativeHostedExecutableWriterPlan,
+    plan: &NativeHostedLinkPlan, output: &MirTargetBackendOutput,
+    pending_body_count: i32) i32 {
+    if writer == null || plan == null || output == null || pending_body_count < 0 {
+        return -1;
+    }
+    if native_hosted_link_plan_is_complete(plan) == 0 ||
+       output.output_kind != MIR_BACKEND_OUTPUT_MACHINE_MODULE ||
+       output.machine_module == null {
+        return -1;
+    }
+    writer.lifecycle_state = NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_READY;
+    writer.output_kind = output.output_kind;
+    writer.machine_module = output.machine_module;
+    writer.link_plan_complete = 1;
+    writer.link_object_count = plan.object_count;
+    writer.c_import_object_count = plan.c_import_object_count;
+    writer.pending_body_count = pending_body_count;
+    writer.blocked_by_pending_bodies = 0;
+    if pending_body_count > 0 {
+        writer.lifecycle_state = NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_BLOCKED;
+        writer.blocked_by_pending_bodies = 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 hosted native executable writer plan 当前是否允许真实写出。
+/// 参数说明：`writer` 为待检查 writer plan。
+/// 返回值说明：plan ready 且没有 pending body 阻塞时返回 `1`，否则返回 `0`。
+export fn native_hosted_executable_writer_plan_can_write(writer: &NativeHostedExecutableWriterPlan) i32 {
+    if writer == null || writer.lifecycle_state != NATIVE_HOSTED_EXECUTABLE_WRITER_PLAN_READY {
+        return 0;
+    }
+    if writer.machine_module == null || writer.link_plan_complete == 0 ||
+       writer.blocked_by_pending_bodies != 0 {
+        return 0;
+    }
+    return 1;
 }
