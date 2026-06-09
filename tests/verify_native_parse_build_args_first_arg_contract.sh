@@ -52,7 +52,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'if first_arg != null && strcmp\(first_arg, 
 require_pattern "$BUILD_DRIVER_SRC" 'start_idx = 2;' \
     "parse_build_args 源码缺少 build 子命令 start_idx 写入"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=22 next_stmt=22 next_kind=AST_VAR_DECL reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=24 next_stmt=24 next_kind=AST_IF_STMT reason=partial_core_body' \
     "no-silent-C99 测试缺少 parse_build_args first-arg frontier"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_first_arg_contract\.sh' \
     "stage1 未纳入 parse_build_args 首参数合同"

@@ -1023,7 +1023,7 @@ PortableMIR/native hosted parity 的验收输入。
             `make backup-all`。
         - [x] 将 `parse_build_args(...)` 首参数处理切片迁入 PortableMIR：覆盖 `--help` / `-h` /
           `--version` / `-v`、`build` 子命令起始索引，以及对应 stdout/stderr/return 行为。
-        - [ ] 将 `parse_build_args(...)` option loop 骨架迁入 PortableMIR：覆盖 `while i < argc`、
+        - [x] 将 `parse_build_args(...)` option loop 骨架迁入 PortableMIR：覆盖 `while i < argc`、
           `get_argv(i)` null diagnostic、循环尾 `i = i + 1` 和 no-fallback self-build frontier 更新。
         - [ ] 将基础 flag / scalar option 切片迁入 PortableMIR：覆盖 `-o`、`--c99`、`--native`、
           line-directives、safety-proof、`--opt=0..3` / `-O0..3` 和 `--nostdlib` 的 out-param 写入。
