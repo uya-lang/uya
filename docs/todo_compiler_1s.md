@@ -1032,14 +1032,28 @@ PortableMIR/native hosted parity 的验收输入。
             child frontier 诊断和 stage1 纳入点；不改生产实现。
           - [x] 将 `-o` 分支迁入 verifier-clean PortableMIR：覆盖缺参 diagnostic / `return -1`、
             `output_file_index[0] = i + 1` 和 `i = i + 1`，self-build 仍以 lowering-missing 明确拒绝写出。
+          - [ ] 为 backend 标量分支补独立合同脚本：固定 `--c99` / `--native` 的 enum store surface、
+            branch frontier、stage1 纳入点和 no-silent-C99 预期；不改生产实现。
           - [ ] 将 backend 标量分支迁入 PortableMIR：覆盖 `--c99` / `--native` 的
             `BackendType` out-param 写入，更新 loop-body frontier 到下一未覆盖选项。
+          - [ ] 为 line-directives 标量分支补独立合同脚本：固定 `--no-line-directives` /
+            `--line-directives` 的 out-param store surface、branch frontier 和 no-silent-C99 预期；
+            不改生产实现。
           - [ ] 将 line-directives 标量分支迁入 PortableMIR：覆盖 `--no-line-directives` /
             `--line-directives` 的 `emit_line_directives[0]` 写入。
+          - [ ] 为 safety-proof 标量分支补独立合同脚本：固定 `--safety-proof` /
+            `--no-safety-proof` 的 out-param store surface、branch frontier 和 no-silent-C99 预期；
+            不改生产实现。
           - [ ] 将 safety-proof 标量分支迁入 PortableMIR：覆盖 `--safety-proof` /
             `--no-safety-proof` 的 `enable_safety_proof[0]` 写入。
+          - [ ] 为 opt-level 标量分支补独立合同脚本：固定 `--opt=0..3` / `-O0..3` 的
+            `strcmp || strcmp` surface、four-way store surface、branch frontier 和 no-silent-C99 预期；
+            不改生产实现。
           - [ ] 将 opt-level 标量分支迁入 PortableMIR：覆盖 `--opt=0..3` / `-O0..3` 的
             `strcmp || strcmp` 条件和 `opt_level[0]` 写入。
+          - [ ] 为 `--nostdlib` 标量分支补独立合同脚本：固定 `is_nostdlib[0] = 1`、
+            scalar-option loop-body 完成边界、下一 frontier 到 `--project-root` 和 no-silent-C99 预期；
+            不改生产实现。
           - [ ] 将 `--nostdlib` 标量分支迁入 PortableMIR：覆盖 `is_nostdlib[0] = 1`，并把
             scalar-option loop-body frontier 推进到 `--project-root`。
         - `--project-root` 切片：
@@ -1109,6 +1123,9 @@ PortableMIR/native hosted parity 的验收输入。
           - [ ] 固定 `parse_build_args(...)` 之后的真实 reachable callee frontier：只接受诊断实际报告的
             下一个 callee，不按猜测提前跳到 `compile_files(...)`。
         - frontier-driven helper 队列（每个 helper 到达后按同一模板执行；候选只能来自真实诊断）：
+          - [ ] 在 `parse_build_args(...)` complete 后冻结首个真实 helper 名称：从 self-build 诊断提取
+            `native_hosted_reachable_callee_frontier` / body frontier，写入本 todo；不按猜测选择
+            `compile_files(...)` 或其它 helper。
           - [ ] 审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
@@ -1118,6 +1135,8 @@ PortableMIR/native hosted parity 的验收输入。
             helper 的下一条 body-prefix 或下一个 reachable callee。
           - [ ] 按同一节奏完成该 helper 剩余 body-prefix：每次只扩大一个可验证切片，禁止摘要、
             direct native machine emission、C99 fallback 或 build-seed `LoweredProgram` helper。
+          - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
+            同一 helper，则继续拆该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 重复 helper 队列，候选只在真实 frontier 指向时进入：`print_usage`、
             `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
             `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。
@@ -1325,15 +1344,17 @@ make backup-all
 剩余工作已差分到 Phase 10 叶子队列。下一次实施不要直接接原始 epic，也不要预设
 `compile_files(...)`、toolchain helper 或其它大函数顺序；先把第一个未完成叶子标为 `[~]`：
 
-1. 为基础 flag / scalar option 补 CoreBody/PortableMIR golden/verifier 合同，固定 `-o`、backend、
-   line-directives、safety-proof、opt-level、`--nostdlib` 的源码 surface、loop-body child frontier
-   诊断和 stage1 纳入点；该叶子只写合同/测试/文档，不改生产实现。
-2. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
+1. 下一个未完成叶子是“为 backend 标量分支补独立合同脚本”；该叶子只写合同/测试/文档，
+   固定 `--c99` / `--native` 的 enum store surface、branch frontier、stage1 纳入点和
+   no-silent-C99 预期，不改生产实现。
+2. backend 合同通过后，才进入“将 backend 标量分支迁入 PortableMIR”；之后按已列出的
+   line-directives、safety-proof、opt-level、`--nostdlib` 合同/实现叶子逐个推进。
+3. 当前叶子验证只跑 `cmd-build` 重建、no-silent-C99、regression-boundary、对应
    parse-build-args contract、stage1、todo checker 和 `git diff --check`；不要把 `make backup-all`
    作为每任务门禁。
-3. `parse_build_args(...)` 后续按已列出的 `-o`、backend、line-directives、safety-proof、opt-level、
-   `--nostdlib`、`--project-root`、seed 拒绝项、`--stack-size`、split-C、位置输入和收尾叶子逐个推进。
-4. `parse_build_args(...)` complete 后，只根据诊断里的真实 reachable frontier 选择下一个 helper；
+4. `parse_build_args(...)` 后续按已列出的 `--project-root`、seed 拒绝项、`--stack-size`、
+   split-C、位置输入和收尾叶子逐个推进。
+5. `parse_build_args(...)` complete 后，只根据诊断里的真实 reachable frontier 选择下一个 helper；
    每个 helper 都先审计、再补合同、再迁首切片和后续 body-prefix。
-5. 只有当 reachable pending body 全部收敛后，才解锁 hosted executable writer 并真正移除
+6. 只有当 reachable pending body 全部收敛后，才解锁 hosted executable writer 并真正移除
    `native_hosted_portable_mir_lowering_missing`。
