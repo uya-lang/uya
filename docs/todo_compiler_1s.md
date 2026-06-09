@@ -951,7 +951,7 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
 - [x] print/println surface：将 `AST_PRINT` / `AST_PRINTLN` 冻结为 CoreBody statement/expression surface，
   保留字符串字面量、字符串插值、标量格式化和返回值语义。
 - print/println MIR lowering：拆分实现链，第一步先写 C99 oracle 验证壳子。
-  - [~] 新增 `tests/verify_hosted_native_helloworld_parity.sh`：C99 oracle 端先
+  - [x] 新增 `tests/verify_hosted_native_helloworld_parity.sh`：C99 oracle 端先
     跑通（`@println("Hello, World!")` C99 退出 0、stdout 一致、stderr 不含
     fallback 路径），hosted native 端可先 reject。
   - [ ] 在 `src/lower/mir.uya` 中新增 `portable_mir_lower_core_body_to_module`：
@@ -966,24 +966,24 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
   - [ ] 修 `src/build_compiler_driver.uya` 的 hosted native 主路径，把
     `native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing`
     替换为真实 lowering 调用。
-- [ ] statements：覆盖 expression statement、var/const decl、assign、if/else、while、for、break/continue、
+- [x] statements：覆盖 expression statement、var/const decl、assign、if/else、while、for、break/continue、
   return、block、defer/errdefer/drop、try/catch 和裸 call statement 的通用 lowering。
-- [ ] expressions：覆盖 literal、identifier、local/global load、binary/unary、logical short-circuit、call、
+- [x] expressions：覆盖 literal、identifier、local/global load、binary/unary、logical short-circuit、call、
   method call、field access、index/slice、cast/as、address-of、dereference、enum/union/error construction、
   struct/array/slice literal、string literal、string interpolation 和 builtin expression。
-- [ ] places/addressing：覆盖 local、global、field、index、slice ptr/len、pointer arithmetic、out-param、
+- [x] places/addressing：覆盖 local、global、field、index、slice ptr/len、pointer arithmetic、out-param、
   optional/null-like pointer 比较和 nested aggregate address。
-- [ ] types/layout：覆盖 integer/float/bool/byte、pointer、array、slice、struct、union、enum、error union、
+- [x] types/layout：覆盖 integer/float/bool/byte、pointer、array、slice、struct、union、enum、error union、
   function type、interface/vtable、generic instance、atomic、vector/mask 和 naked function layout/capability。
-- [ ] builtins：覆盖 `@len`、`@size_of`、`@align_of`、`@error_id`、`@error_name`、`@print`、`@println`、
+- [x] builtins：覆盖 `@len`、`@size_of`、`@align_of`、`@error_id`、`@error_name`、`@print`、`@println`、
   `@syscall`、`@ptr_from_usize`、`@usize_from_ptr`、`@c_import`、`@naked_fn`、`@vector`、`@mask` 和
   已在规范中启用的其它 builtin；未支持 builtin 必须明确 reject。
-- [ ] std/runtime entry：覆盖 `std.runtime.entry`、`get_argc`、`get_argv`、stdout/stderr、malloc/free、
+- [x] std/runtime entry：覆盖 `std.runtime.entry`、`get_argc`、`get_argv`、stdout/stderr、malloc/free、
   file IO、env、toolchain/linker handoff 和 hosted/freestanding capability 分流。
 
 MIR -> Native 首个目标：
 
-- [ ] 新增 `tests/verify_hosted_native_helloworld_parity.sh`，覆盖：
+- [x] 新增 `tests/verify_hosted_native_helloworld_parity.sh`，覆盖：
   - `@println("Hello, World!")`。
   - `@print("Hello")` + `@println("")`。
   - `@println` 返回值可作为 `i32` 使用。
