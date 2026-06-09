@@ -937,10 +937,10 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
 
 覆盖矩阵合同：
 
-- [ ] 新增 `docs/portable_mir_language_coverage.md`，按 `ASTNodeType`、`CoreStmtKind`、`CoreExprKind`、
+- [x] 新增 `docs/portable_mir_language_coverage.md`，按 `ASTNodeType`、`CoreStmtKind`、`CoreExprKind`、
   `CorePlaceKind`、builtin、标准库入口和 runtime capability 列出状态：`done`、`partial`、`reject`、
   `missing`。
-- [ ] 新增 coverage verifier / 脚本，扫描 `src/ast.uya`、`src/lower/core.uya`、`src/lower/mir_contract.uya`
+- [x] 新增 coverage verifier / 脚本，扫描 `src/ast.uya`、`src/lower/core.uya`、`src/lower/mir_contract.uya`
   和 native lowering 实现，要求新增 AST/Core kind 必须在覆盖矩阵中有状态。
 - [ ] 将现有 Phase 9A shard 写入覆盖矩阵：return literal、return call、局部初始化、基础 if-return、
   extern / `@c_import`、builtin shard、slice/array、error union、defer/drop、interface、atomic、SIMD。
