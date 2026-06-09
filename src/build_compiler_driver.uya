@@ -107,6 +107,11 @@ const NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_PREFIX_STMT_COUNT: i32 = 18;
 const NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_STMT_COUNT: i32 = 18;
 const NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_EXPR_COUNT: i32 = 27;
 const NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_PLACE_COUNT: i32 = 27;
+const NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_PREFIX_STMT_COUNT: i32 = 22;
+const NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_CORE_STMT_COUNT: i32 = 22;
+const NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_CORE_EXPR_COUNT: i32 = 29;
+const NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_CORE_PLACE_COUNT: i32 = 29;
+const NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_MIR_LOCAL_COUNT: i32 = 15;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -2471,6 +2476,266 @@ fn native_build_hosted_parse_build_args_first_arg_stmt_supported(stmt: &ASTNode,
         return 0;
     }
     return 1;
+}
+
+fn native_build_hosted_parse_build_args_first_arg_not_null_expr(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       native_build_hosted_expr_identifier_matches(
+        expr.binary_expr_left, "first_arg" as &byte) == 0 ||
+       native_build_hosted_expr_is_null_identifier(expr.binary_expr_right) == 0 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_NOT_EQUAL {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_strcmp_zero_expr(expr: &ASTNode,
+    name: &byte, expected: &byte) i32 {
+    if expr == null || name == null || expected == null ||
+       expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null ||
+       expr.binary_expr_right.type != ASTNodeType.AST_NUMBER ||
+       expr.binary_expr_right.number_value_i64 != 0i64 {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_EQUAL {
+        return 0;
+    }
+    const call: &ASTNode = expr.binary_expr_left;
+    if call == null || call.type != ASTNodeType.AST_CALL_EXPR ||
+       call.call_expr_callee == null || call.call_expr_args == null ||
+       call.call_expr_arg_count != 2 ||
+       native_build_hosted_expr_identifier_matches(
+        call.call_expr_callee, "strcmp" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        call.call_expr_args[0], name) == 0 ||
+       native_build_expr_string_literal_equals(call.call_expr_args[1],
+        expected) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_strcmp_or_expr(expr: &ASTNode,
+    name: &byte, left_expected: &byte, right_expected: &byte) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_OR {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_strcmp_zero_expr(
+        expr.binary_expr_left, name, left_expected) == 0 ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        expr.binary_expr_right, name, right_expected) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_print_usage_call_supported(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.call_expr_callee == null || stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count != 1 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.call_expr_callee, "print_usage" as &byte) == 0 {
+        return 0;
+    }
+    var arg: &ASTNode = stmt.call_expr_args[0];
+    if arg != null && arg.type == ASTNodeType.AST_CAST_EXPR {
+        arg = arg.cast_expr_expr;
+    }
+    return native_build_hosted_expr_identifier_matches(arg, "program_name" as &byte);
+}
+
+fn native_build_hosted_parse_build_args_stdout_fprintf_supported(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.call_expr_callee == null || stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count < 2 ||
+       native_build_hosted_expr_identifier_matches(
+        stmt.call_expr_callee, "fprintf" as &byte) == 0 {
+        return 0;
+    }
+    const out_arg: &ASTNode = stmt.call_expr_args[0];
+    if out_arg == null || out_arg.type != ASTNodeType.AST_MEMBER_ACCESS ||
+       out_arg.member_access_object == null ||
+       native_build_hosted_expr_identifier_matches(
+        out_arg.member_access_object, "libc" as &byte) == 0 ||
+       out_arg.member_access_field_name == null ||
+       str_equals(out_arg.member_access_field_name as *byte,
+        "stdout" as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_first_arg_help_if_supported(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_or_expr(
+        stmt.if_stmt_condition, "first_arg" as &byte,
+        "--help" as &byte, "-h" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_print_usage_call_supported(
+        stmt.if_stmt_then_branch.block_stmts[0]) == 0 ||
+       native_build_hosted_parse_build_args_return_value(
+        stmt.if_stmt_then_branch.block_stmts[1], 2) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_first_arg_version_if_supported(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_strcmp_or_expr(
+        stmt.if_stmt_condition, "first_arg" as &byte,
+        "--version" as &byte, "-v" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_stdout_fprintf_supported(
+        stmt.if_stmt_then_branch.block_stmts[0]) == 0 ||
+       native_build_hosted_parse_build_args_return_value(
+        stmt.if_stmt_then_branch.block_stmts[1], 2) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_first_arg_if_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       native_build_hosted_parse_build_args_first_arg_not_null_expr(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    if native_build_hosted_parse_build_args_first_arg_help_if_supported(
+        stmt.if_stmt_then_branch.block_stmts[0]) == 0 ||
+       native_build_hosted_parse_build_args_first_arg_version_if_supported(
+        stmt.if_stmt_then_branch.block_stmts[1]) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_start_idx_decl_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "start_idx" as *byte) == 0 ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null || stmt.var_decl_init.type != ASTNodeType.AST_NUMBER ||
+       stmt.var_decl_init.number_value_i64 != 1i64 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_build_if_supported(stmt: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_condition == null ||
+       stmt.if_stmt_condition.type != ASTNodeType.AST_BINARY_EXPR ||
+       stmt.if_stmt_condition.binary_expr_left == null ||
+       stmt.if_stmt_condition.binary_expr_right == null ||
+       native_build_hosted_parse_build_args_first_arg_not_null_expr(
+        stmt.if_stmt_condition.binary_expr_left) == 0 ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        stmt.if_stmt_condition.binary_expr_right, "first_arg" as &byte,
+        "build" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 {
+        return 0;
+    }
+    const op_tmp: !TokenType = stmt.if_stmt_condition.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_AND {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    const assign_stmt: &ASTNode = stmt.if_stmt_then_branch.block_stmts[0];
+    if assign_stmt == null || assign_stmt.type != ASTNodeType.AST_ASSIGN ||
+       assign_stmt.assign_dest == null || assign_stmt.assign_src == null ||
+       native_build_hosted_expr_identifier_matches(assign_stmt.assign_dest,
+        "start_idx" as &byte) == 0 ||
+       assign_stmt.assign_src.type != ASTNodeType.AST_NUMBER ||
+       assign_stmt.assign_src.number_value_i64 != 2i64 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_first_arg_prefix_stmt_count(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_default_init_prefix_stmt_count(
+        decl, checker, program) !=
+       NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_PREFIX_STMT_COUNT ||
+       native_build_hosted_parse_build_args_first_arg_stmt_supported(
+        native_build_hosted_parse_build_args_prefix_stmt(decl, 18), checker) == 0 ||
+       native_build_hosted_parse_build_args_first_arg_if_supported(
+        native_build_hosted_parse_build_args_prefix_stmt(decl, 19), checker) == 0 ||
+       native_build_hosted_parse_build_args_start_idx_decl_supported(
+        native_build_hosted_parse_build_args_prefix_stmt(decl, 20), checker) == 0 ||
+       native_build_hosted_parse_build_args_build_if_supported(
+        native_build_hosted_parse_build_args_prefix_stmt(decl, 21), checker) == 0 {
+        return 0;
+    }
+    return NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_PREFIX_STMT_COUNT;
+}
+
+fn native_build_hosted_decl_can_materialize_parse_build_args_first_arg_body(
+    program: &ASTNode, decl: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_parse_build_args_first_arg_prefix_stmt_count(
+        decl, checker, program) ==
+       NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_PREFIX_STMT_COUNT {
+        return 1;
+    }
+    return 0;
 }
 
 fn native_build_hosted_parse_build_args_default_init_prefix_stmt_count(
@@ -11685,6 +11950,73 @@ fn native_build_hosted_coreir_append_parse_build_args_if_stub(
     return lowered_program_append_core_stmt(lowered, &core_stmt);
 }
 
+fn native_build_hosted_coreir_append_parse_build_args_int_decl(
+    lowered: &LoweredProgram, checker: &TypeChecker, body_id: i32,
+    stmt_id: i32, expr_id: i32, place_id: i32, stmt: &ASTNode) i32 {
+    if lowered == null || checker == null || stmt == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_init == null {
+        return -1;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &type_id) != 0 {
+        return -1;
+    }
+    var place: CorePlace = CorePlace{
+        place_id: place_id,
+        kind: CORE_PLACE_KIND_LOCAL,
+        body_id: body_id,
+        source_expr_id: stmt.expr_id,
+        type_id: type_id,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: stmt.line,
+        flags: CORE_PLACE_FLAG_STACK_SLOT,
+    };
+    var expr: CoreExpr = CoreExpr{
+        expr_id: expr_id,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: stmt.var_decl_init.expr_id,
+        type_id: type_id,
+        literal_i64: stmt.var_decl_init.number_value_i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_id,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: stmt.var_decl_init.line,
+        flags: 0,
+    };
+    var core_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_id,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_id,
+        place_id: place_id,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    if lowered_program_append_core_place(lowered, &place) != 0 ||
+       lowered_program_append_core_expr(lowered, &expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &core_stmt) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_coreir_append_parse_build_args_scalar_assign(
     lowered: &LoweredProgram, checker: &TypeChecker, body_id: i32,
     stmt_id: i32, expr_id: i32, place_id: i32, stmt: &ASTNode,
@@ -11905,6 +12237,17 @@ fn native_build_hosted_coreir_append_parse_build_args_default_init_body(
         program, decl, checker) == 0 {
         return -1;
     }
+    const include_first_arg: i32 =
+        native_build_hosted_decl_can_materialize_parse_build_args_first_arg_body(
+            program, decl, checker);
+    var root_stmt_count: i32 = NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_STMT_COUNT;
+    var expr_count: i32 = NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_EXPR_COUNT;
+    var place_count: i32 = NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_PLACE_COUNT;
+    if include_first_arg != 0 {
+        root_stmt_count = NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_CORE_STMT_COUNT;
+        expr_count = NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_CORE_EXPR_COUNT;
+        place_count = NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_CORE_PLACE_COUNT;
+    }
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
     const expr_start: i32 = lowered.core_expr_count as i32;
@@ -11914,11 +12257,11 @@ fn native_build_hosted_coreir_append_parse_build_args_default_init_body(
         function_id: function_id,
         decl_id: decl_index,
         root_stmt_start: stmt_start,
-        root_stmt_count: NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_STMT_COUNT,
+        root_stmt_count: root_stmt_count,
         expr_start: expr_start,
-        expr_count: NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_EXPR_COUNT,
+        expr_count: expr_count,
         place_start: place_start,
-        place_count: NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_PLACE_COUNT,
+        place_count: place_count,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
         cleanup_edge_count: 0,
         semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
@@ -11967,12 +12310,39 @@ fn native_build_hosted_coreir_append_parse_build_args_default_init_body(
         }
         stmt_index = stmt_index + 1;
     }
-    if expr_cursor != NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_EXPR_COUNT ||
-       place_cursor != NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_PLACE_COUNT {
+    if include_first_arg != 0 {
+        if native_build_hosted_coreir_append_parse_build_args_local_call_decl(
+            lowered, checker, body_id, stmt_start + 18,
+            expr_start + expr_cursor, place_start + place_cursor,
+            native_build_hosted_parse_build_args_prefix_stmt(decl, 18),
+            get_argv_function_id, get_argv_decl_index) != 0 {
+            return -1;
+        }
+        expr_cursor = expr_cursor + 1;
+        place_cursor = place_cursor + 1;
+        if native_build_hosted_coreir_append_parse_build_args_if_stub(
+            lowered, body_id, stmt_start + 19,
+            native_build_hosted_parse_build_args_prefix_stmt(decl, 19)) != 0 {
+            return -1;
+        }
+        if native_build_hosted_coreir_append_parse_build_args_int_decl(
+            lowered, checker, body_id, stmt_start + 20,
+            expr_start + expr_cursor, place_start + place_cursor,
+            native_build_hosted_parse_build_args_prefix_stmt(decl, 20)) != 0 {
+            return -1;
+        }
+        expr_cursor = expr_cursor + 1;
+        place_cursor = place_cursor + 1;
+        if native_build_hosted_coreir_append_parse_build_args_if_stub(
+            lowered, body_id, stmt_start + 21,
+            native_build_hosted_parse_build_args_prefix_stmt(decl, 21)) != 0 {
+            return -1;
+        }
+    }
+    if expr_cursor != expr_count || place_cursor != place_count {
         fprintf(libc.stderr,
             "native_build_parse_build_args_coreir_mismatch: expected_exprs=%d actual_exprs=%d expected_places=%d actual_places=%d\n" as *byte,
-            NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_EXPR_COUNT, expr_cursor,
-            NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_CORE_PLACE_COUNT, place_cursor);
+            expr_count, expr_cursor, place_count, place_cursor);
         return -1;
     }
     return 0;
@@ -12070,10 +12440,16 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
         target_decl, checker) != 0 {
         return;
     }
-    const parse_prefix_count: i32 =
-        native_build_hosted_parse_build_args_default_init_prefix_stmt_count(
+    var parse_prefix_count: i32 =
+        native_build_hosted_parse_build_args_first_arg_prefix_stmt_count(
             target_decl, checker, program);
-    if parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_PREFIX_STMT_COUNT {
+    if parse_prefix_count == 0 {
+        parse_prefix_count =
+            native_build_hosted_parse_build_args_default_init_prefix_stmt_count(
+                target_decl, checker, program);
+    }
+    if parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_PREFIX_STMT_COUNT ||
+       parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_DEFAULT_INIT_PREFIX_STMT_COUNT {
         const next_stmt: &ASTNode =
             native_build_hosted_parse_build_args_prefix_stmt(target_decl,
                 parse_prefix_count);
@@ -17257,6 +17633,11 @@ fn native_build_hosted_mir_append_parse_build_args_default_init_body_function(
         program, decl, checker) == 0 {
         return -1;
     }
+    var local_count: i32 = 13;
+    if native_build_hosted_decl_can_materialize_parse_build_args_first_arg_body(
+        program, decl, checker) != 0 {
+        local_count = NATIVE_PARSE_BUILD_ARGS_FIRST_ARG_MIR_LOCAL_COUNT;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
     if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
         return -1;
@@ -17283,7 +17664,7 @@ fn native_build_hosted_mir_append_parse_build_args_default_init_body_function(
         param_start: 0,
         param_count: 0,
         local_start: local_id,
-        local_count: 13,
+        local_count: local_count,
         block_start: block_id,
         block_count: 1,
         entry_block_id: block_id,
@@ -17327,11 +17708,11 @@ fn native_build_hosted_mir_append_parse_build_args_default_init_body_function(
         return -1;
     }
     var local_index: i32 = 0;
-    while local_index < 13 {
+    while local_index < local_count {
         var local_type_id: i32 = ptr_type_id;
         var local_alignment: usize = 8usize;
         var local_flags: i32 = MIR_LOCAL_FLAG_ADDRESS_TAKEN;
-        if local_index == 1 || local_index == 11 {
+        if local_index == 1 || local_index == 11 || local_index == 14 {
             local_type_id = i32_type_id;
             local_alignment = 4usize;
             local_flags = 0;

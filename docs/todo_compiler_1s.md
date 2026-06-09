@@ -1021,7 +1021,7 @@ PortableMIR/native hosted parity 的验收输入。
           - [x] 只运行本切片相关验证：重建 `cmd-build`、no-silent-C99、regression-boundary、
             parse-build-args first-slice contract、stage1、todo checker 和 `git diff --check`；不跑
             `make backup-all`。
-        - [ ] 将 `parse_build_args(...)` 首参数处理切片迁入 PortableMIR：覆盖 `--help` / `-h` /
+        - [x] 将 `parse_build_args(...)` 首参数处理切片迁入 PortableMIR：覆盖 `--help` / `-h` /
           `--version` / `-v`、`build` 子命令起始索引，以及对应 stdout/stderr/return 行为。
         - [ ] 将 `parse_build_args(...)` option loop 骨架迁入 PortableMIR：覆盖 `while i < argc`、
           `get_argv(i)` null diagnostic、循环尾 `i = i + 1` 和 no-fallback self-build frontier 更新。
