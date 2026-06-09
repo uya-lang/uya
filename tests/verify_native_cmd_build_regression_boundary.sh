@@ -12,6 +12,7 @@ ARCH_DOC="$REPO_ROOT/docs/compiler_1s_architecture_design.md"
 COREIR_DOC="$REPO_ROOT/docs/coreir_lowered_program_whitepaper.md"
 PORTABLE_MIR_DOC="$REPO_ROOT/docs/portable_mir_whitepaper.md"
 NO_SILENT_TEST="$REPO_ROOT/tests/verify_native_cmd_build_no_silent_c99.sh"
+CMD_BUILD_REGRESSION_TEST="$REPO_ROOT/tests/verify_native_cmd_build_compiler_regressions.sh"
 LOWERED_BODY_CONTRACT_TEST="$REPO_ROOT/tests/verify_lowered_body_op_transition_contract.sh"
 STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
 DRIVER_SRC="$REPO_ROOT/src/compiler_driver.uya"
@@ -124,6 +125,16 @@ require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native
     "no-silent-C99 测试缺少 cmd/build self-build lowering frontier"
 require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
     "no-silent-C99 测试缺少 C99 fallback 反向检查"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'bin/cmd/build' \
+    "cmd/build compiler regression 测试没有使用 native cmd/build"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'generic_identity' \
+    "cmd/build compiler regression 测试缺少 generic identity 形状"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'local_array_outparam' \
+    "cmd/build compiler regression 测试缺少 local array out-param 形状"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'parse_like_outparam' \
+    "cmd/build compiler regression 测试缺少 compiler-like parse out-param 形状"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'native_hosted_portable_mir_lowering_missing' \
+    "cmd/build compiler regression 测试缺少 hosted reject 反向检查"
 if grep -q 'native_unsupported_call_expr: name=compile_files' "$NO_SILENT_TEST"; then
     echo "错误: no-silent-C99 测试不应再固定 pre-MIR compile_files one-off 缺口" >&2
     exit 1
@@ -140,6 +151,8 @@ require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'CoreBody/PortableMIR' \
     "LoweredBodyOp transition 测试缺少 CoreBody/PortableMIR 迁移要求"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_regression_boundary\.sh' \
     "stage1 native cmd/build 验证未纳入回归边界合同"
+require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
+    "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$DRIVER_SRC" 'compile_files\(&input_file_indices\[0\], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts\)' \
     "compiler driver 缺少真实 compile_files 16 参数调用输入"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_portable_mir_preflight' \
