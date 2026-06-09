@@ -1111,7 +1111,7 @@ PortableMIR/native hosted parity 的验收输入。
             `program_name != null`、`print_usage` 和 `return -1`。
           - [x] 迁入显式输出路径读取分支：覆盖 `out_idx`、`out_idx >= 0`、`get_argv(out_idx)`、
             null diagnostic 和 `return -1`。
-          - [ ] 迁入 `.c` 输出推断 C99 分支：覆盖 `backend_type[0] == BACKEND_LLVM`、
+          - [x] 迁入 `.c` 输出推断 C99 分支：覆盖 `backend_type[0] == BACKEND_LLVM`、
             `strrchr(out_path, 46)`、`.c` 比较和 `backend_type[0] = BACKEND_C99`。
           - [ ] 迁入 `--native` 输出 `.c` 拒绝分支：覆盖 `is_c_output(out_path as &byte)`、
             diagnostic 和 `return -1`。
@@ -1351,7 +1351,7 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 当前可执行叶子是 PBA-TAIL 的 `.c` 输出推断 C99 分支实现；开始前需先标记该主清单叶子为 `[~]`。
+- 当前可执行叶子是 PBA-TAIL 的 `--native` 输出 `.c` 拒绝分支实现；开始前需先标记该主清单叶子为 `[~]`。
 - helper、`compile_files(...)` 和 writer 解锁都必须由真实 self-build frontier 诊断驱动；诊断未到达前，
   只允许补审计/合同，不允许提前实现猜测中的 helper。
 - 单叶子验证优先使用：`git diff --check`、todo checker、`make -B cmd-build
@@ -1398,8 +1398,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成合同叶子：固定无输入 diagnostic、`print_usage`、out path 获取、`.c` 推断和 native `.c` 拒绝。
    - 已完成实现叶子：未指定输入文件。
    - 已完成实现叶子：显式输出路径读取。
-   - 下一个实现叶子：`.c` 输出推断 C99。
-   - 实现叶子：`--native` 输出 `.c` 拒绝。
+   - 已完成实现叶子：`.c` 输出推断 C99。
+   - 下一个实现叶子：`--native` 输出 `.c` 拒绝。
    - 实现叶子：末尾 `return 0`，标记 `parse_build_args(...)` body complete。
 7. FRONTIER-RESET：`parse_build_args(...)` complete 后重建 `cmd-build` 并重新跑 self-build frontier。
    - 只把诊断实际报告的下一个 reachable callee 写入 todo 和 `docs/native_cmd_build_subset.md`。

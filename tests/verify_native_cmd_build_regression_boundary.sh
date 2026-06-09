@@ -188,6 +188,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: functi
     "no-silent-C99 测试缺少 cmd/build reachable body frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=parse_build_args prefix_stmts=27 next_stmt=27 next_kind=return reason=partial_core_body' \
     "no-silent-C99 测试缺少显式输出路径读取后的 return frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_tail_branch_frontier: function=parse_build_args parent_stmt=26 covered_branch=tail-c-output-infer next_branch=tail-native-c-reject next_kind=AST_IF_STMT reason=partial_tail_branch' \
+    "no-silent-C99 测试缺少 .c 输出推断后的 native .c 拒绝 tail frontier"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
     "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
 require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \

@@ -247,6 +247,11 @@ struct NativeHostedMirPreflightResult {
     entry_reachable_loop_body_branch_covered_name: &byte,
     entry_reachable_loop_body_branch_next_name: &byte,
     entry_reachable_loop_body_branch_next_kind: &byte,
+    entry_reachable_tail_branch_function_name: &byte,
+    entry_reachable_tail_branch_parent_stmt_index: i32,
+    entry_reachable_tail_branch_covered_name: &byte,
+    entry_reachable_tail_branch_next_name: &byte,
+    entry_reachable_tail_branch_next_kind: &byte,
     emitter_handoff_request_verified: i32,
     emitter_handoff_backend_kind: i32,
     emitter_handoff_link_plan_complete: i32,
@@ -1331,6 +1336,11 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.entry_reachable_loop_body_branch_covered_name = null;
     result.entry_reachable_loop_body_branch_next_name = null;
     result.entry_reachable_loop_body_branch_next_kind = null;
+    result.entry_reachable_tail_branch_function_name = null;
+    result.entry_reachable_tail_branch_parent_stmt_index = -1;
+    result.entry_reachable_tail_branch_covered_name = null;
+    result.entry_reachable_tail_branch_next_name = null;
+    result.entry_reachable_tail_branch_next_kind = null;
     result.emitter_handoff_request_verified = 0;
     result.emitter_handoff_backend_kind = 0;
     result.emitter_handoff_link_plan_complete = 0;
@@ -6611,6 +6621,162 @@ fn native_build_hosted_parse_build_args_tail_output_read_body(
         return 1;
     }
     return 0;
+}
+
+fn native_build_hosted_parse_build_args_tail_output_block(
+    decl: &ASTNode) &ASTNode {
+    const stmt: &ASTNode = native_build_hosted_parse_build_args_prefix_stmt(
+        decl, 26);
+    if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK {
+        return null;
+    }
+    return stmt.if_stmt_then_branch;
+}
+
+fn native_build_hosted_parse_build_args_backend_array_eq_expr(
+    expr: &ASTNode, expected_value: i32) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_EQUAL {
+        return 0;
+    }
+    var actual_name: &byte = null;
+    var actual_value: i32 = -1;
+    if native_build_array_index0_identifier(expr.binary_expr_left, &actual_name) == 0 ||
+       actual_name == null ||
+       str_equals(actual_name as *byte, "backend_type" as *byte) == 0 ||
+       native_build_backend_member_value(expr.binary_expr_right, &actual_value) == 0 ||
+       actual_value != expected_value {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_strrchr_out_path_dot_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_CALL_EXPR ||
+       expr.call_expr_callee == null || expr.call_expr_args == null ||
+       expr.call_expr_arg_count != 2 ||
+       native_build_hosted_expr_identifier_matches(
+        expr.call_expr_callee, "strrchr" as &byte) == 0 ||
+       native_build_hosted_expr_identifier_matches(
+        expr.call_expr_args[0], "out_path" as &byte) == 0 {
+        return 0;
+    }
+    var dot_value: i32 = -1;
+    if native_build_expr_scalar_const_value(expr.call_expr_args[1], null,
+        &dot_value) == 0 || dot_value != 46 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_ext_decl_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null ||
+       str_equals(stmt.var_decl_name as *byte, "ext" as *byte) == 0 ||
+       native_build_type_is_byte_ptr(stmt.var_decl_type) == 0 ||
+       native_build_hosted_parse_build_args_strrchr_out_path_dot_expr(
+        stmt.var_decl_init) == 0 {
+        return 0;
+    }
+    var init_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.var_decl_init,
+        &init_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_ext_is_c_expr(
+    expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       expr.binary_expr_left == null || expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_LOGICAL_AND ||
+       native_build_hosted_parse_build_args_identifier_not_null_condition(
+        expr.binary_expr_left, "ext" as &byte) == 0 ||
+       native_build_hosted_parse_build_args_strcmp_zero_expr(
+        expr.binary_expr_right, "ext" as &byte, ".c" as &byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_ext_is_c_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_else_branch != null ||
+       native_build_hosted_parse_build_args_tail_ext_is_c_expr(
+        stmt.if_stmt_condition) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_backend_assign_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker, 1) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_c_output_infer_if_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_else_branch != null ||
+       native_build_hosted_parse_build_args_backend_array_eq_expr(
+        stmt.if_stmt_condition, 0) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 2 ||
+       native_build_hosted_parse_build_args_tail_ext_decl_supported(
+        stmt.if_stmt_then_branch.block_stmts[0], checker) == 0 ||
+       native_build_hosted_parse_build_args_tail_ext_is_c_if_supported(
+        stmt.if_stmt_then_branch.block_stmts[1], checker) == 0 {
+        return 0;
+    }
+    var condition_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.if_stmt_condition,
+        &condition_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_parse_build_args_tail_c_output_infer_body(
+    decl: &ASTNode, checker: &TypeChecker, program: &ASTNode) i32 {
+    if native_build_hosted_parse_build_args_tail_output_read_body(
+        decl, checker, program) == 0 {
+        return 0;
+    }
+    const block: &ASTNode =
+        native_build_hosted_parse_build_args_tail_output_block(decl);
+    if block == null || block.block_stmts == null || block.block_stmt_count < 3 ||
+       native_build_hosted_parse_build_args_tail_c_output_infer_if_supported(
+        block.block_stmts[2], checker) == 0 {
+        return 0;
+    }
+    return 1;
 }
 
 fn native_build_hosted_parse_build_args_option_loop_supported(stmt: &ASTNode,
@@ -16567,6 +16733,27 @@ fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
             result.entry_reachable_body_next_stmt_kind =
                 native_build_ast_kind_enum_name(next_stmt.type);
         }
+        if parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_TAIL_OUTPUT_READ_PREFIX_STMT_COUNT {
+            result.entry_reachable_tail_branch_function_name =
+                native_build_decl_name_for_diagnostic(target_decl);
+            result.entry_reachable_tail_branch_parent_stmt_index = 26;
+            if native_build_hosted_parse_build_args_tail_c_output_infer_body(
+                target_decl, checker, program) != 0 {
+                result.entry_reachable_tail_branch_covered_name =
+                    "tail-c-output-infer" as &byte;
+                result.entry_reachable_tail_branch_next_name =
+                    "tail-native-c-reject" as &byte;
+                result.entry_reachable_tail_branch_next_kind =
+                    "AST_IF_STMT" as &byte;
+            } else {
+                result.entry_reachable_tail_branch_covered_name =
+                    "tail-output-read" as &byte;
+                result.entry_reachable_tail_branch_next_name =
+                    "tail-c-output-infer" as &byte;
+                result.entry_reachable_tail_branch_next_kind =
+                    "AST_IF_STMT" as &byte;
+            }
+        }
         if parse_prefix_count == NATIVE_PARSE_BUILD_ARGS_OPTION_LOOP_PREFIX_STMT_COUNT {
             if native_build_hosted_parse_build_args_o_option_body(target_decl,
                 checker, program) != 0 {
@@ -25818,6 +26005,28 @@ fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_st
                     covered_branch as *byte, next_branch as *byte,
                     branch_next_kind as *byte);
             }
+            if result.entry_reachable_tail_branch_function_name != null {
+                var tail_covered_branch: &byte = "<none>" as &byte;
+                var tail_next_branch: &byte = "<none>" as &byte;
+                var tail_branch_next_kind: &byte = "<none>" as &byte;
+                if result.entry_reachable_tail_branch_covered_name != null {
+                    tail_covered_branch =
+                        result.entry_reachable_tail_branch_covered_name;
+                }
+                if result.entry_reachable_tail_branch_next_name != null {
+                    tail_next_branch = result.entry_reachable_tail_branch_next_name;
+                }
+                if result.entry_reachable_tail_branch_next_kind != null {
+                    tail_branch_next_kind =
+                        result.entry_reachable_tail_branch_next_kind;
+                }
+                fprintf(libc.stderr,
+                    "native_hosted_reachable_tail_branch_frontier: function=%s parent_stmt=%d covered_branch=%s next_branch=%s next_kind=%s reason=partial_tail_branch\n" as *byte,
+                    result.entry_reachable_tail_branch_function_name as *byte,
+                    result.entry_reachable_tail_branch_parent_stmt_index,
+                    tail_covered_branch as *byte, tail_next_branch as *byte,
+                    tail_branch_next_kind as *byte);
+            }
         } else if result.entry_reachable_callee_parent_name != null &&
            result.entry_reachable_callee_name != null {
             fprintf(libc.stderr,
@@ -33892,6 +34101,11 @@ fn compile_files(
                 entry_reachable_loop_body_branch_covered_name: null,
                 entry_reachable_loop_body_branch_next_name: null,
                 entry_reachable_loop_body_branch_next_kind: null,
+                entry_reachable_tail_branch_function_name: null,
+                entry_reachable_tail_branch_parent_stmt_index: -1,
+                entry_reachable_tail_branch_covered_name: null,
+                entry_reachable_tail_branch_next_name: null,
+                entry_reachable_tail_branch_next_kind: null,
                 emitter_handoff_request_verified: 0,
                 emitter_handoff_backend_kind: 0,
                 emitter_handoff_link_plan_complete: 0,
