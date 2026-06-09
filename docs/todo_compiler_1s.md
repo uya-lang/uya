@@ -991,8 +991,12 @@ MIR -> Native 首个目标：
   - native build stderr 必须包含 CoreBody、PortableMIR verifier 和 NativeMirEmitter 证据。
   - native build stderr 不得包含 `native_hosted_portable_mir_lowering_missing`、C99 fallback 或
     pre-MIR helper 成功路径。
-- [ ] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
+- [~] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
   vararg/format 或 runtime helper handoff。
+  # 2026-06-10: 当前 epic 起点；L996/L1005/L1032 都依赖此叶子完成。
+  # TDD 计划：先补 hosted native helloworld 期望成功的 contract 子句；当前
+  # `verify_hosted_native_helloworld_parity.sh` 只断言 reject，下一切片把
+  # 成功子句补上并实测。
 - [ ] HelloWorld native executable 真实运行并输出 `Hello, World!\n`，与 C99 oracle 一致。
 
 完整语言 parity 门禁：
@@ -1751,15 +1755,15 @@ make backup-all
 
 - [ ] 冷构建 KPI 达标。
 - [ ] 内存 KPI 达标。
-- [ ] 默认安全证明路径保留。
+- [x] 默认安全证明路径保留。  # 2026-06-10: `src/compile.sh:335` `USE_SAFETY_PROOF=true`；`make uya`/`make uya-hosted`/`make b` 全部硬编码 `--safety-proof`；`make check` 主线未变。
 - [ ] C99 backend 完整支持 Uya 语言，并与 main 分支语言行为兼容。
 - [ ] Hosted native backend 经由 `PortableMIR` 完整支持 Uya 语言，并与 C99 / main 分支语言行为兼容。
-- [ ] Freestanding native build-seed 子集保持 no-silent-C99 fallback 和明确 capability diagnostic。
+- [x] Freestanding native build-seed 子集保持 no-silent-C99 fallback 和明确 capability diagnostic。  # 2026-06-10: 合同文档 `docs/native_cmd_build_subset.md` 与 `tests/verify_native_cmd_build_regression_boundary.sh` 固化边界；`bin/uya --native`/`bin/cmd/build --native` 对不支持子集都显式 reject with `native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing`，不静默回退 C99。
 - [ ] Microapp / microcontainer 语言层面完全兼容 main 分支；仅允许 runtime/capability/profile 限制。
 - [ ] native/C99 差分验证通过。
 - [ ] release/backup 流程无死锁。
 - [ ] 文档与 TODO 已同步。
-- [ ] microapp CLI 不再依赖旧顶层 `pack-image` / `inspect-image` / `verify-image` 作为主入口。
+- [x] microapp CLI 不再依赖旧顶层 `pack-image` / `inspect-image` / `verify-image` 作为主入口。  # 2026-06-10: `bin/cmd/microapp --help` 只接受 `pack/inspect/verify`；`bin/cmd/microapp pack-image` 报 `未知 microapp 子命令: pack-image`。`bin/uya pack-image` 报 `顶层 \`pack-image\` 已迁移，请使用 \`bin/uya microapp pack ...\``。
 
 ---
 
