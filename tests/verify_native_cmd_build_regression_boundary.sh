@@ -81,6 +81,16 @@ require_pattern "$SUBSET_DOC" '`--project-root`' \
     "cmd/build subset doc 缺少 parse_build_args project-root 审计"
 require_pattern "$SUBSET_DOC" 'build-seed 明确拒绝选项' \
     "cmd/build subset doc 缺少 parse_build_args build-seed reject 审计"
+require_pattern "$SUBSET_DOC" 'build-seed reject group 合同固定 source-order frontier' \
+    "cmd/build subset doc 缺少 build-seed reject group 合同"
+require_pattern "$SUBSET_DOC" 'covered_branch=--manifest-path next_branch=exec-reject' \
+    "cmd/build subset doc 缺少 manifest-path 后的 exec reject frontier"
+require_pattern "$SUBSET_DOC" 'covered_branch=exec-reject next_branch=microapp-reject' \
+    "cmd/build subset doc 缺少 exec reject 后的 microapp frontier"
+require_pattern "$SUBSET_DOC" 'covered_branch=microapp-reject next_branch=--outlibc' \
+    "cmd/build subset doc 缺少 microapp reject 后的 outlibc frontier"
+require_pattern "$SUBSET_DOC" 'covered_branch=--outlibc next_branch=--stack-size' \
+    "cmd/build subset doc 缺少 outlibc 后的 stack-size frontier"
 require_pattern "$SUBSET_DOC" '`--stack-size` 数字扫描' \
     "cmd/build subset doc 缺少 parse_build_args stack-size 审计"
 require_pattern "$SUBSET_DOC" '`arg \+ 14` pointer arithmetic' \
@@ -234,6 +244,8 @@ require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_nostdlib_contract
     "stage1 native cmd/build 验证未纳入 parse_build_args --nostdlib 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_project_root_contract\.sh' \
     "stage1 native cmd/build 验证未纳入 parse_build_args --project-root 合同"
+require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_seed_reject_contract\.sh' \
+    "stage1 native cmd/build 验证未纳入 parse_build_args build-seed reject 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
     "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_c99_output_parity\.sh' \

@@ -266,6 +266,23 @@ diagnostic、`get_argv(i)` 参数读取、空参数检查、`strlen(root_arg)` /
 native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=8 covered_branch=--project-root next_branch=--manifest-path next_kind=AST_IF_STMT reason=partial_else_if_chain
 ```
 
+build-seed reject group 合同固定 source-order frontier，所有分支都必须保留现有
+diagnostic 和 `return -1`，且不得把 seed 拒绝项伪装成 native backend 能力：
+
+1. `--manifest-path`：拒绝并提示通过 `upm build` 解析包 manifest。
+2. exec/vm/dump/trace group：`--exec`、`--vm`、`--dump-exec-hir`、`--dump-bytecode`、
+   `--trace-vm` 都拒绝并提示 seed 不包含 exec backend。
+3. microapp profile group：`--app`、`--microapp-profile`、
+   `strncmp("--microapp-profile=", 19)` 都拒绝并提示使用 `uya microapp build ...`。
+4. `--outlibc`：拒绝并提示 seed 不包含 `--outlibc` 生成器。
+
+```text
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=9 covered_branch=--manifest-path next_branch=exec-reject next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=10 covered_branch=exec-reject next_branch=microapp-reject next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=11 covered_branch=microapp-reject next_branch=--outlibc next_kind=AST_IF_STMT reason=partial_else_if_chain
+native_hosted_reachable_loop_body_branch_frontier: function=parse_build_args parent_stmt=23 loop_stmt=12 covered_branch=--outlibc next_branch=--stack-size next_kind=AST_IF_STMT reason=partial_else_if_chain
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
