@@ -215,6 +215,10 @@ struct NativeHostedMirPreflightResult {
     core_function_count: i32,
     core_body_count: i32,
     core_pending_body_count: i32,
+    pending_body_function_name: &byte,
+    pending_body_decl_index: i32,
+    pending_body_function_id: i32,
+    pending_body_stmt_count: i32,
     verifier_error: i32,
     object_count: i32,
     extern_symbol_count: i32,
@@ -1306,6 +1310,10 @@ fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightR
     result.core_function_count = 0;
     result.core_body_count = 0;
     result.core_pending_body_count = 0;
+    result.pending_body_function_name = null;
+    result.pending_body_decl_index = -1;
+    result.pending_body_function_id = TYPED_PROGRAM_INVALID_ID;
+    result.pending_body_stmt_count = -1;
     result.verifier_error = -1;
     result.object_count = 0;
     result.extern_symbol_count = 0;
@@ -17234,6 +17242,8 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                     return -1;
                 }
             } else if decl.fn_decl_is_extern == 0 && decl.fn_decl_body != null {
+                native_build_hosted_record_pending_body_frontier(result, decl, i,
+                    function_id);
                 result.core_pending_body_count = result.core_pending_body_count + 1;
             }
         }
@@ -17295,6 +17305,21 @@ fn native_build_hosted_record_reachable_call_callee_frontier(program: &ASTNode,
         native_build_decl_name_for_diagnostic(target_decl);
     result.entry_reachable_callee_stmt_index = stmt_index;
     return 1;
+}
+
+fn native_build_hosted_record_pending_body_frontier(result: &NativeHostedMirPreflightResult,
+    decl: &ASTNode, decl_index: i32, function_id: i32) void {
+    if result == null || result.pending_body_function_name != null ||
+       decl == null || decl.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    result.pending_body_function_name = native_build_decl_name_for_diagnostic(decl);
+    result.pending_body_decl_index = decl_index;
+    result.pending_body_function_id = function_id;
+    result.pending_body_stmt_count = -1;
+    if decl.fn_decl_body != null && decl.fn_decl_body.type == ASTNodeType.AST_BLOCK {
+        result.pending_body_stmt_count = decl.fn_decl_body.block_stmt_count;
+    }
 }
 
 fn native_build_hosted_record_entry_reachable_callee_frontier(program: &ASTNode,
@@ -26825,6 +26850,14 @@ fn native_build_print_hosted_preflight_summary(c_import_count: i32, preflight_st
                 result.entry_reachable_callee_stmt_index,
                 result.entry_reachable_callee_name as *byte);
         }
+    }
+    if result.pending_body_function_name != null {
+        fprintf(libc.stderr,
+            "native_hosted_pending_body_frontier: function=%s decl=%d function_id=%d body_stmts=%d reason=pending_core_body\n" as *byte,
+            result.pending_body_function_name as *byte,
+            result.pending_body_decl_index,
+            result.pending_body_function_id,
+            result.pending_body_stmt_count);
     }
 }
 

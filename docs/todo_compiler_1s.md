@@ -1146,13 +1146,28 @@ PortableMIR/native hosted parity 的验收输入。
             - 本轮 stderr 未输出新的 `native_hosted_reachable_callee_frontier`、
               `native_hosted_reachable_body_frontier` 或 loop/body-prefix frontier；真实可记录的下一状态仍是
               `native_hosted_handoff_frontier: reason=pending_core_bodies ...`。
-          - [ ] 若 frontier 仍指向 `set_process_stack_limit_bytes(...)`，为下一条真实 body-prefix 补
+          - [x] 若 frontier 仍指向 `set_process_stack_limit_bytes(...)`，为下一条真实 body-prefix 补
             CoreBody/PortableMIR golden/verifier 合同；不改生产实现。
-          - [ ] 迁入 `set_process_stack_limit_bytes(...)` 的下一条真实 body-prefix，并再次推进 frontier；
+            - 条件未成立：复测 stderr 不再报告 `set_process_stack_limit_bytes reason=pending_core_body`。
+          - [x] 迁入 `set_process_stack_limit_bytes(...)` 的下一条真实 body-prefix，并再次推进 frontier；
             每次只扩大一个可验证切片，禁止摘要、direct native machine emission、C99 fallback 或
             build-seed `LoweredProgram` helper。
-          - [ ] 重复同 helper 的“补合同 -> 迁实现 -> 复测 frontier”循环，直到真实诊断报告该 helper
+            - 条件未成立：当前没有该 helper 的下一条真实 body-prefix 诊断。
+          - [x] 重复同 helper 的“补合同 -> 迁实现 -> 复测 frontier”循环，直到真实诊断报告该 helper
             `body_complete` 或转向下一个 reachable callee。
+            - 本轮状态转向 handoff-only `pending_core_bodies`：stderr 未报告新的 reachable callee/body-prefix。
+          - [x] 为 handoff-only `pending_core_bodies` 补 frontier 诊断合同：输出第一个 pending CoreBody
+            函数名、decl index、function id、body statement 数和 pending reason；不改生产实现。
+            - 合同进入 `tests/verify_native_cmd_build_no_silent_c99.sh`：
+              `native_hosted_pending_body_frontier: function=... decl=... function_id=... body_stmts=... reason=pending_core_body`。
+          - [x] 接入 handoff-only pending body frontier 诊断，并复跑 self-build：只记录真实诊断中的下一处
+            pending body，不猜测 `compile_files(...)` 或其它 helper。
+            - 实测命令：`./bin/cmd/build src/cmd/build/main.uya -o /tmp/cb-native-pending-frontier --project-root ./src/ --no-split-c --native`。
+            - 真实 pending body frontier：
+              `native_hosted_pending_body_frontier: function=compile_stats_record_and_release_typed_program decl=159 function_id=4 body_stmts=18 reason=pending_core_body`。
+          - [ ] 审计 `compile_stats_record_and_release_typed_program(...)` body surface，写入
+            `docs/native_cmd_build_subset.md`：按源码顺序列出参数、TypedProgram/SemanticDb/table stats、
+            release 调用、global/table aggregation、错误/空指针 early return 和 arena/lifetime 能力。
           - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
@@ -1478,6 +1493,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
    - 已完成叶子：为 `set_process_stack_limit_bytes(...)` 的 Linux x86_64 首切片补合同。
    - `set_process_stack_limit_bytes(...)` 首切片已迁入，且已复跑 self-build frontier；当前 stderr 未输出新的
      reachable callee/body-prefix frontier，只剩 `pending_core_bodies` handoff 阻塞。
+   - 已新增 handoff-only pending body frontier 诊断；实测下一个 pending body 是
+     `compile_stats_record_and_release_typed_program(...)`。
    - 候选只能来自 `native_hosted_reachable_callee_frontier` 或 body frontier，不提前指定
      `compile_files(...)`、toolchain helper 或其它大函数。
 9. COMPILE-FILES：只有真实 frontier 指向 `compile_files(...)` 时才进入。

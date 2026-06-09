@@ -100,6 +100,7 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
+    grep -Eq 'native_hosted_pending_body_frontier: function=[A-Za-z_][A-Za-z0-9_]* decl=[0-9]+ function_id=[0-9]+ body_stmts=[0-9]+ reason=pending_core_body' "$stderr"
     if grep -q 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=12 first_unresolved_callee=parse_build_args' "$stderr"; then
         echo "错误: $label self-build 不应在 parse_build_args complete 后继续报告 parse_build_args pending callee" >&2
         cat "$stderr" >&2

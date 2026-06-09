@@ -117,6 +117,9 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
   `native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module machine_functions=483 ...` 和
   `native_hosted_portable_mir_lowering_missing`。
   不再把 `compile_files(...)` 16 参数缺口固定为 `--nostdlib` freestanding one-off shape。
+- handoff-only pending body frontier 已接入：当前真实下一处 pending body 是
+  `native_hosted_pending_body_frontier: function=compile_stats_record_and_release_typed_program decl=159 function_id=4 body_stmts=18 reason=pending_core_body`。
+  后续必须先审计该函数 body surface，不得从静态候选列表猜 `compile_files(...)` 或其它 helper。
 - native `bin/cmd/build` 仍是 freestanding build-seed 里程碑，不是 hosted native 完整语言 parity 的前置条件。
 
 ## `parse_build_args(...)` PortableMIR Surface Audit
