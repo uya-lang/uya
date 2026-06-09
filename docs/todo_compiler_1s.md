@@ -1069,7 +1069,7 @@ PortableMIR/native hosted parity 的验收输入。
         - build-seed 明确拒绝选项切片：
           - [x] 为 build-seed reject group 补 CoreBody/PortableMIR 合同：固定所有拒绝项 diagnostic、
             `return -1` 和 seed 边界文档；不改生产实现。
-          - [ ] 迁入 `--manifest-path` 直接拒绝分支，保持现有 diagnostic 文案。
+          - [x] 迁入 `--manifest-path` 直接拒绝分支，保持现有 diagnostic 文案。
           - [ ] 迁入 exec/vm/dump/trace 拒绝分支：覆盖多重 `strcmp ||` 条件和 exec backend diagnostic。
           - [ ] 迁入 microapp profile 拒绝分支：覆盖 `--app`、`--microapp-profile` 和
             `strncmp("--microapp-profile=", 19)`。
@@ -1359,8 +1359,8 @@ epic，不是单个实现任务；后续只处理文档中唯一的 `[~]` 或第
 2. PBA-SEED-REJECT：完成 build-seed 明确拒绝选项。
    - 已完成叶子：固定 `--manifest-path`、exec/vm/dump/trace、microapp profile、`--outlibc`
      diagnostic、`return -1` 和 seed 边界。
-   - 下一个叶子：`--manifest-path`。
-   - 实现叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
+   - 已完成叶子：`--manifest-path`。
+   - 下一个叶子：exec/vm/dump/trace 多重 `strcmp ||` 条件。
    - 实现叶子：`--app`、`--microapp-profile`、`strncmp("--microapp-profile=", 19)`。
    - 实现叶子：`--outlibc`。
 3. PBA-STACK-SIZE：完成 `--stack-size` 数字扫描。
