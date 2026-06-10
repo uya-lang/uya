@@ -51,6 +51,16 @@ set +e
 HW_NATIVE_STATUS=$?
 set -e
 
+# 断言 0（L994.B.1）：println helloworld 模式已被 CoreBody 模式识别前端检测到
+if ! grep -q 'native_hosted_print_hir_pattern: declared' "$HW_NATIVE_ERR"; then
+    echo "error: println helloworld pattern not recognized (L994.B.1 not implemented)" >&2
+    echo "----- stderr -----" >&2
+    cat "$HW_NATIVE_ERR" >&2
+    echo "----- end -----" >&2
+    exit 1
+fi
+echo "L994.B.1 OK: println helloworld pattern recognized by CoreBody frontend"
+
 # 断言 1：mir_body_functions 至少为 1（helloworld main body 已被 lowering）
 if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=[1-9][0-9]* mir_types=[1-9][0-9]*' "$HW_NATIVE_ERR"; then
     echo "error: stderr does not show mir_body_functions >= 1 (L994.B not implemented)" >&2

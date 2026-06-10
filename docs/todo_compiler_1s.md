@@ -1013,7 +1013,7 @@ MIR -> Native 首个目标：
         #
         # 2026-06-10 进一步拆分：L994.B 单叶过大（涉及 HIR 检测 + CoreIR 发射 +
         # MIR 发射 + wiring，每块 ~100 行），拆为 4 个子子叶子：
-        # - [ ] L994.B.1 模式识别：在 `can_materialize_safe_core_body` 内检测
+        # - [~] L994.B.1 模式识别：在 `can_materialize_safe_core_body` 内检测
         #       `main()` 2-stmt body（`@println(string_lit)` + `return N`），
         #       返回 1 命中。TDD 红：`verify_hosted_native_print_hir_lowering.sh`
         #       增加模式识别 diagnostic 断言（即使 body 不 lowering 也先识别到）。
