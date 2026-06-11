@@ -2417,6 +2417,54 @@ native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28
 native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i32_param_fn decl=400 function_id=41 body_stmts=7 reason=pending_core_body
 ```
 
+## `native_build_decl_is_extern_two_i32_param_fn(...)` Body Complete Contract
+
+当前真实 frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i32_param_fn decl=400 function_id=41 body_stmts=7 reason=pending_core_body
+```
+
+当前源码 body surface 必须保持为 7 条顶层 statement：
+
+```uya
+fn native_build_decl_is_extern_two_i32_param_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 2 || decl.fn_decl_is_extern == 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || native_build_type_is_i32(decl.fn_decl_return_type) == 0 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param0: &ASTNode = decl.fn_decl_params[0];
+    const param1: &ASTNode = decl.fn_decl_params[1];
+    if param0 == null || param1 == null ||
+       param0.type != ASTNodeType.AST_VAR_DECL || param1.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    if native_build_type_is_i32(param0.var_decl_type) == 0 {
+        return 0;
+    }
+    return native_build_type_is_i32(param1.var_decl_type);
+}
+```
+
+合同：
+
+1. CoreBody 必须覆盖完整 7 statement body surface：decl guard、
+   two-param/extern-required/non-async/non-naked/non-varargs/return-type/params
+   guard、param0/param1 locals、param shape guard、param0 type helper-call guard
+   和 tail param1 type helper-call return。
+2. guard 分支必须保持失败返回 `0`；三个 type helper-call surface 必须保留
+   resolved call target。
+3. PortableMIR 必须保留 tail helper-call return，不得把该 helper 降成单一常量
+   return 或 pending body。
+4. 该切片迁入后 `native_build_decl_is_extern_two_i32_param_fn(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_decl_is_extern_two_i32_param_fn prefix_stmts=7 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
