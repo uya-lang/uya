@@ -678,6 +678,218 @@ export fn portable_mir_append_capability_req(module: &PortableMirModule, item: &
     return 0;
 }
 
+fn portable_mir_lower_find_core_body(program: &LoweredProgram,
+    body_id: CoreBodyId) &CoreBody {
+    if program == null || body_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < program.core_bodies.count {
+        const body: &CoreBody = semantic_vector_item_ptr(&program.core_bodies, i) as &CoreBody;
+        if body != null && body.body_id == body_id {
+            return body;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn portable_mir_lower_find_core_stmt(program: &LoweredProgram,
+    body_id: CoreBodyId, stmt_id: CoreStmtId) &CoreStmt {
+    if program == null || body_id < 0 || stmt_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < program.core_stmts.count {
+        const stmt: &CoreStmt = semantic_vector_item_ptr(&program.core_stmts, i) as &CoreStmt;
+        if stmt != null && stmt.body_id == body_id && stmt.stmt_id == stmt_id {
+            return stmt;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn portable_mir_lower_find_core_expr(program: &LoweredProgram,
+    body_id: CoreBodyId, expr_id: CoreExprId) &CoreExpr {
+    if program == null || body_id < 0 || expr_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < program.core_exprs.count {
+        const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, i) as &CoreExpr;
+        if expr != null && expr.body_id == body_id && expr.expr_id == expr_id {
+            return expr;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn portable_mir_lower_find_function(program: &LoweredProgram,
+    function_id: FunctionId) &ConcreteFunction {
+    if program == null || function_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < program.functions.count {
+        const function: &ConcreteFunction = semantic_vector_item_ptr(&program.functions, i) as &ConcreteFunction;
+        if function != null && function.function_id == function_id {
+            return function;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn portable_mir_lower_i32_type(type_id: MirTypeId, source_type_id: TypeId) MirType {
+    return MirType{
+        type_id: type_id,
+        kind: MIR_TYPE_KIND_I32,
+        source_type_id: source_type_id,
+        size_bytes: 4usize,
+        align_bytes: 4usize,
+        layout_id: source_type_id,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 0usize,
+        element_type_id: MIR_TYPE_INVALID_ID,
+        pointee_type_id: MIR_TYPE_INVALID_ID,
+        field_start: 0,
+        field_count: 0,
+        lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: 1,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        flags: 0,
+    };
+}
+
+/// 功能说明：将一个已冻结 CoreBody 的最小 return-int-literal 形状 lower 到 PortableMIR module。
+/// 参数说明：`program` 提供 LoweredProgram 的 CoreBody/CoreStmt/CoreExpr 表；`body_id` 指向待 lowering 的 CoreBody；`module` 为已初始化的输出 PortableMIR module。
+/// 返回值说明：支持的单 `return` i32 字面量形状成功返回 `0`；参数无效、形状未覆盖或追加失败返回 `-1`。
+export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
+    body_id: CoreBodyId, module: &PortableMirModule) i32 {
+    if program == null || body_id < 0 || module == null ||
+       module.lifecycle_state != PORTABLE_MIR_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    const body: &CoreBody = portable_mir_lower_find_core_body(program, body_id);
+    if body == null || body.root_stmt_count != 1 || body.cleanup_edge_count != 0 {
+        return -1;
+    }
+    const function_source: &ConcreteFunction = portable_mir_lower_find_function(program,
+        body.function_id);
+    if function_source == null {
+        return -1;
+    }
+    const stmt: &CoreStmt = portable_mir_lower_find_core_stmt(program, body.body_id,
+        body.root_stmt_start);
+    if stmt == null || stmt.kind != CORE_STMT_KIND_RETURN ||
+       stmt.child_stmt_count != 0 || stmt.expr_id < 0 {
+        return -1;
+    }
+    const expr: &CoreExpr = portable_mir_lower_find_core_expr(program, body.body_id,
+        stmt.expr_id);
+    if expr == null || expr.kind != CORE_EXPR_KIND_INT_LITERAL {
+        return -1;
+    }
+    const return_value_result: !i32 = expr.literal_i64 as! i32;
+    const return_value: i32 = return_value_result catch {
+        return -1;
+    };
+    const i32_type_id_result: !i32 = module.type_count as! i32;
+    const i32_type_id: i32 = i32_type_id_result catch {
+        return -1;
+    };
+    const function_id_result: !i32 = module.function_count as! i32;
+    const function_id: i32 = function_id_result catch {
+        return -1;
+    };
+    const block_id_result: !i32 = module.block_count as! i32;
+    const block_id: i32 = block_id_result catch {
+        return -1;
+    };
+    const operand_id_result: !i32 = module.operand_count as! i32;
+    const operand_id: i32 = operand_id_result catch {
+        return -1;
+    };
+    const terminator_id_result: !i32 = module.terminator_count as! i32;
+    const terminator_id: i32 = terminator_id_result catch {
+        return -1;
+    };
+    var typ: MirType = portable_mir_lower_i32_type(i32_type_id, expr.type_id);
+    var function: MirFunction = MirFunction{
+        function_id: function_id,
+        lowered_function_id: function_source.function_id,
+        decl_id: function_source.decl_id,
+        source_core_body_id: body.body_id,
+        symbol_id: function_source.decl_id,
+        signature_type_id: i32_type_id,
+        param_start: 0,
+        param_count: 0,
+        local_start: 0,
+        local_count: 0,
+        block_start: block_id,
+        block_count: 1,
+        entry_block_id: block_id,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var operand: MirOperand = MirOperand{
+        operand_id: operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: return_value,
+        flags: 0,
+    };
+    var terminator: MirTerminator = MirTerminator{
+        terminator_id: terminator_id,
+        function_id: function_id,
+        block_id: block_id,
+        kind: MIR_TERMINATOR_KIND_RETURN,
+        operand_start: operand_id,
+        operand_count: 1,
+        successor_start: 0,
+        successor_count: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var block: MirBlock = MirBlock{
+        block_id: block_id,
+        function_id: function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: 0,
+        inst_count: 0,
+        terminator_id: terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    if portable_mir_append_type(module, &typ) != 0 ||
+       portable_mir_append_function(module, &function) != 0 ||
+       portable_mir_append_operand(module, &operand) != 0 ||
+       portable_mir_append_terminator(module, &terminator) != 0 ||
+       portable_mir_append_block(module, &block) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 /// 功能说明：释放 PortableMIR module 的所有动态表。
 /// 参数说明：`module` 为目标 MIR module。
 /// 返回值说明：无。

@@ -68,8 +68,94 @@ trap 'rm -rf "$tmp_dir"' EXIT
 cat "$IDS_FILE" >"$tmp_dir/main.uya"
 cat >>"$tmp_dir/main.uya" <<'EOF'
 export type CoreBodyId = i32;
+export type CoreStmtId = i32;
+export type CoreExprId = i32;
+export type CorePlaceId = i32;
+export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
+export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
+export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
+export const CORE_STMT_KIND_RETURN: i32 = 10;
+export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
+export const MIR_CALL_CONV_UYA: i32 = 1;
+export const MIR_CALL_CONV_C: i32 = 2;
+export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
+export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
 EOF
-cat "$ARENA_FILE" "$TABLE_FILE" "$MIR_FILE" "$MIR_VERIFIER_FILE" >>"$tmp_dir/main.uya"
+cat "$ARENA_FILE" "$TABLE_FILE" >>"$tmp_dir/main.uya"
+
+cat >>"$tmp_dir/main.uya" <<'EOF'
+export struct ConcreteFunction {
+    function_id: FunctionId,
+    decl_id: DeclId,
+    mono_instance_id: MonoInstanceId,
+    body_start: i32,
+    body_count: i32,
+    flags: i32,
+}
+
+export struct CoreBody {
+    body_id: CoreBodyId,
+    function_id: FunctionId,
+    decl_id: DeclId,
+    root_stmt_start: CoreStmtId,
+    root_stmt_count: i32,
+    expr_start: CoreExprId,
+    expr_count: i32,
+    place_start: CorePlaceId,
+    place_count: i32,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    semantic_fact_start: i32,
+    semantic_fact_count: i32,
+    source_span_id: i32,
+    flags: i32,
+}
+
+export struct CoreStmt {
+    stmt_id: CoreStmtId,
+    kind: i32,
+    body_id: CoreBodyId,
+    parent_stmt_id: CoreStmtId,
+    first_child_stmt: CoreStmtId,
+    child_stmt_count: i32,
+    expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    source_span_id: i32,
+    cleanup_scope_id: i32,
+    flags: i32,
+}
+
+export struct CoreExpr {
+    expr_id: CoreExprId,
+    kind: i32,
+    body_id: CoreBodyId,
+    source_expr_id: ExprId,
+    type_id: TypeId,
+    literal_i64: i64,
+    lhs_expr_id: CoreExprId,
+    rhs_expr_id: CoreExprId,
+    callee_expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    target_function_id: FunctionId,
+    target_decl_id: DeclId,
+    field_id: i32,
+    proof_result_id: i32,
+    capability_id: i32,
+    source_span_id: i32,
+    flags: i32,
+}
+
+export struct LoweredProgram {
+    functions: SemanticVector,
+    core_bodies: SemanticVector,
+    core_stmts: SemanticVector,
+    core_exprs: SemanticVector,
+}
+EOF
+
+cat "$MIR_FILE" "$MIR_VERIFIER_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
 const GOLDEN_OP_FIELD_ADDR: i32 = 8;

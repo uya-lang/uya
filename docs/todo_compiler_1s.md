@@ -954,9 +954,18 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
   - [x] 新增 `tests/verify_hosted_native_helloworld_parity.sh`：C99 oracle 端先
     跑通（`@println("Hello, World!")` C99 退出 0、stdout 一致、stderr 不含
     fallback 路径），hosted native 端可先 reject。
-  - [ ] 在 `src/lower/mir.uya` 中新增 `portable_mir_lower_core_body_to_module`：
+  - 在 `src/lower/mir.uya` 中新增 `portable_mir_lower_core_body_to_module`：
     把 `LoweredProgram.core_stmts` + `core_exprs` + `core_places` 序列落成
-    `PortableMirModule` 的 function/block/inst/terminator（~500 行）。
+    `PortableMirModule` 的 function/block/inst/terminator（~500 行），分片推进：
+    - [x] 最小 `CORE_STMT_KIND_RETURN` + `CORE_EXPR_KIND_INT_LITERAL` lowering，
+          生成 verifier-clean 的单函数/单 block/i32 return PortableMIR。
+          # 2026-06-11: `tests/verify_portable_mir_core_body_lowering.sh`、
+          # PortableMIR focused gates、`git diff --check` 和
+          # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
+    - [ ] 扩展 return/local/binary i32 CoreExpr lowering，覆盖 value/use operand 和
+          `MIR_INST_OP_I32_ADD`。
+    - [ ] 扩展 print/println string literal CoreStmt lowering，生成 hosted helper extern call
+          和 newline writer 所需 MIR call surface。
   - [ ] 在 `src/codegen/native/mir_emitter.uya` 扩展 MIR→MachineModule 支持
     `MIR_INST_OP_CALL` 指向 `__uya_print_*` extern，并新增 sysv x86_64
     write/call inst 序列（~300 行）。

@@ -44,7 +44,18 @@ export type SymbolId = i32;
 export type TypeId = i32;
 export type ExprId = i32;
 export type FunctionId = i32;
+export type MonoInstanceId = i32;
 export type CoreBodyId = i32;
+export type CoreStmtId = i32;
+export type CoreExprId = i32;
+export type CorePlaceId = i32;
+export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
+export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
+export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
+export const CORE_STMT_KIND_RETURN: i32 = 10;
+export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
+export const MIR_CALL_CONV_UYA: i32 = 1;
+export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
 
 export struct CompilerArena {
     marker: i32,
@@ -57,6 +68,76 @@ export struct SemanticVector {
     capacity: usize,
     bytes: usize,
     realloc_count: i32,
+}
+
+export struct ConcreteFunction {
+    function_id: FunctionId,
+    decl_id: DeclId,
+    mono_instance_id: MonoInstanceId,
+    body_start: i32,
+    body_count: i32,
+    flags: i32,
+}
+
+export struct CoreBody {
+    body_id: CoreBodyId,
+    function_id: FunctionId,
+    decl_id: DeclId,
+    root_stmt_start: CoreStmtId,
+    root_stmt_count: i32,
+    expr_start: CoreExprId,
+    expr_count: i32,
+    place_start: CorePlaceId,
+    place_count: i32,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    semantic_fact_start: i32,
+    semantic_fact_count: i32,
+    source_span_id: i32,
+    flags: i32,
+}
+
+export struct CoreStmt {
+    stmt_id: CoreStmtId,
+    kind: i32,
+    body_id: CoreBodyId,
+    parent_stmt_id: CoreStmtId,
+    first_child_stmt: CoreStmtId,
+    child_stmt_count: i32,
+    expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    source_span_id: i32,
+    cleanup_scope_id: i32,
+    flags: i32,
+}
+
+export struct CoreExpr {
+    expr_id: CoreExprId,
+    kind: i32,
+    body_id: CoreBodyId,
+    source_expr_id: ExprId,
+    type_id: TypeId,
+    literal_i64: i64,
+    lhs_expr_id: CoreExprId,
+    rhs_expr_id: CoreExprId,
+    callee_expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    target_function_id: FunctionId,
+    target_decl_id: DeclId,
+    field_id: i32,
+    proof_result_id: i32,
+    capability_id: i32,
+    source_span_id: i32,
+    flags: i32,
+}
+
+export struct LoweredProgram {
+    functions: SemanticVector,
+    core_bodies: SemanticVector,
+    core_stmts: SemanticVector,
+    core_exprs: SemanticVector,
 }
 
 export fn compiler_arena_init(arena: &CompilerArena, buffer: &byte, size: usize) void {
@@ -100,6 +181,14 @@ export fn semantic_vector_append(vec: &SemanticVector, item: &const void) i32 {
     vec.count = vec.count + 1usize;
     vec.bytes = vec.count * vec.item_size;
     return 0;
+}
+
+export fn semantic_vector_item_ptr(vec: &SemanticVector, index: usize) &byte {
+    if vec == null || vec.data == null || vec.item_size == 0usize || index >= vec.count {
+        return null;
+    }
+    const addr: usize = @usize_from_ptr(vec.data) + index * vec.item_size;
+    return @ptr_from_usize(addr) as &byte;
 }
 
 export fn semantic_vector_release(vec: &SemanticVector) void {

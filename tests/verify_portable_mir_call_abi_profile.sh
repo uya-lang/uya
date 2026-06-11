@@ -71,14 +71,25 @@ export type SymbolId = i32;
 export type TypeId = i32;
 export type ExprId = i32;
 export type FunctionId = i32;
+export type MonoInstanceId = i32;
 export type CoreBodyId = i32;
+export type CoreStmtId = i32;
+export type CoreExprId = i32;
+export type CorePlaceId = i32;
 export const CORE_BODY_INVALID_ID: CoreBodyId = -1;
+export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
+export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
+export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
 export const CORE_STMT_KIND_ASM: i32 = 11;
 export const CORE_STMT_KIND_DEFER: i32 = 12;
 export const CORE_STMT_KIND_ERRDEFER: i32 = 13;
 export const CORE_STMT_KIND_DROP: i32 = 14;
 export const CORE_STMT_KIND_ERROR_PROPAGATION: i32 = 15;
+export const CORE_STMT_KIND_LOCAL_DECL: i32 = 16;
+export const CORE_STMT_KIND_IF: i32 = 17;
+export const CORE_STMT_KIND_ASSIGN: i32 = 18;
+export const CORE_STMT_KIND_EXPR: i32 = 19;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INDEX: i32 = 12;
 export const CORE_EXPR_KIND_SLICE: i32 = 13;
@@ -86,13 +97,21 @@ export const CORE_EXPR_KIND_ATOMIC: i32 = 14;
 export const CORE_EXPR_KIND_VECTOR: i32 = 15;
 export const CORE_EXPR_KIND_MASK: i32 = 16;
 export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
+export const CORE_EXPR_KIND_LOCAL_REF: i32 = 18;
+export const CORE_EXPR_KIND_I32_NE: i32 = 19;
+export const CORE_EXPR_KIND_I32_ADD: i32 = 20;
+export const CORE_EXPR_KIND_I32_LE: i32 = 21;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
 export const CORE_PLACE_KIND_INDEX: i32 = 5;
 export const CORE_PLACE_KIND_SLICE: i32 = 6;
+export const CORE_PLACE_KIND_LOCAL: i32 = 7;
 export const CORE_CLEANUP_EDGE_KIND_RETURN: i32 = 2;
 
-struct LoweredProgram {
-    marker: i32,
+export struct LoweredProgram {
+    functions: SemanticVector,
+    core_bodies: SemanticVector,
+    core_stmts: SemanticVector,
+    core_exprs: SemanticVector,
 }
 
 export struct PortableMirCoreInput {
@@ -161,6 +180,69 @@ export fn semantic_vector_release(vec: &SemanticVector) void {
     vec.count = 0usize;
     vec.capacity = 0usize;
     vec.bytes = 0usize;
+}
+
+export struct ConcreteFunction {
+    function_id: FunctionId,
+    decl_id: DeclId,
+    mono_instance_id: MonoInstanceId,
+    body_start: i32,
+    body_count: i32,
+    flags: i32,
+}
+
+export struct CoreBody {
+    body_id: CoreBodyId,
+    function_id: FunctionId,
+    decl_id: DeclId,
+    root_stmt_start: CoreStmtId,
+    root_stmt_count: i32,
+    expr_start: CoreExprId,
+    expr_count: i32,
+    place_start: CorePlaceId,
+    place_count: i32,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    semantic_fact_start: i32,
+    semantic_fact_count: i32,
+    source_span_id: i32,
+    flags: i32,
+}
+
+export struct CoreStmt {
+    stmt_id: CoreStmtId,
+    kind: i32,
+    body_id: CoreBodyId,
+    parent_stmt_id: CoreStmtId,
+    first_child_stmt: CoreStmtId,
+    child_stmt_count: i32,
+    expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    cleanup_edge_start: i32,
+    cleanup_edge_count: i32,
+    source_span_id: i32,
+    cleanup_scope_id: i32,
+    flags: i32,
+}
+
+export struct CoreExpr {
+    expr_id: CoreExprId,
+    kind: i32,
+    body_id: CoreBodyId,
+    source_expr_id: ExprId,
+    type_id: TypeId,
+    literal_i64: i64,
+    lhs_expr_id: CoreExprId,
+    rhs_expr_id: CoreExprId,
+    callee_expr_id: CoreExprId,
+    place_id: CorePlaceId,
+    target_function_id: FunctionId,
+    target_decl_id: DeclId,
+    field_id: i32,
+    proof_result_id: i32,
+    capability_id: i32,
+    source_span_id: i32,
+    flags: i32,
 }
 EOF
 
