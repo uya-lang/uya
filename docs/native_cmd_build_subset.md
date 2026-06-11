@@ -1603,6 +1603,15 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=native_build_local_table_init prefix_stmts=15 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+2026-06-11 实测迁入后，hosted native self-build frontier 前进为：
+
+```text
+native_hosted_coreir_preflight: status=0 verifier_error=0 functions=3976 core_bodies=26 pending_bodies=3473
+native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=481 mir_body_functions=25 mir_types=8 extern_symbols=478 c_import_objects=0 hosted_link_objects=0
+native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete
+native_hosted_pending_body_frontier: function=native_build_reachability_init decl=332 function_id=24 body_stmts=12 reason=pending_core_body
+```
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`

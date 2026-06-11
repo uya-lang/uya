@@ -175,7 +175,7 @@ enum CommandType {
 }
 
 // 文件读取缓冲区大小（与 Lexer 一致）
-const FILE_BUFFER_SIZE: i32 = 2 * 1024 * 1024;
+const FILE_BUFFER_SIZE: i32 = 3 * 1024 * 1024;
 
 // Arena 缓冲区大小（v2.0: 动态增长 Arena）
 // 初始缓冲区 64MB，不足时自动分配新 chunk

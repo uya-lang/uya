@@ -2445,8 +2445,19 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 迁入 `native_build_local_table_init(...)` 的完整初始化 body，使该 helper
+          - [x] 迁入 `native_build_local_table_init(...)` 的完整初始化 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
+            - 2026-06-11：新增 `native_build_hosted_decl_can_materialize_local_table_init_body`
+              与 `native_build_hosted_coreir_append_local_table_init_body`，用 15 条 root
+              statement 固定 locals 初始化、guard、alloc、while 和 final return surface；
+              hosted PortableMIR preflight 同步覆盖该 helper body function。
+            - 同步将 build seed 文件读取缓冲提升到 3MiB，并机械删除 build seed 普通 `//`
+              注释行，使旧 `bin/cmd/build` 仍可读取当前 `src/build_compiler_driver.uya`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；
+              self-build native preflight 前进为 `core_bodies=26`、`mir_body_functions=25`，
+              新 frontier 为 `native_hosted_pending_body_frontier:
+              function=native_build_reachability_init decl=332 function_id=24 body_stmts=12
+              reason=pending_core_body`。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。

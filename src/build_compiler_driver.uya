@@ -1,10 +1,4 @@
-// build_compiler_driver.uya - build-only compiler CLI driver
-// Uya 自举编译器
-// 架构：export fn main 编译为 main_main，由 std.runtime.entry 的 C main 调用
-// 命令行参数通过 get_argc/get_argv 获取
 
-// ===== 模块导入（按依赖顺序）=====
-// build_compiler_driver 只保留 C99 build/link 所需依赖，作为 Phase 8 build seed 根。
 use arena;
 use ast;
 use lexer;
@@ -21,7 +15,6 @@ use lower.mir;
 use lower.mir_contract;
 use lower.mir_verifier;
 use lower.mir_backend;
-// C99 build seed 专用代码生成（子目录，整体导入该目录模块）
 use codegen.c99_build;
 use codegen.native.hosted_link;
 use codegen.native.machine;
@@ -29,7 +22,6 @@ use codegen.native.mir_emitter;
 use codegen.native.x86_64;
 use codegen.native_build;
 use std;
-// C 程序入口由编译器自动注入 std.runtime.entry；此处仅导入堆栈上限设置（避免与局部名 entry 冲突）
 use std.runtime.entry.set_process_stack_limit_bytes;
 use libc;
 use libc.stdlib;  // clock, CLOCKS_PER_SEC
@@ -270,6 +262,9 @@ const NATIVE_REACHABILITY_EMPTY_CORE_EXPR_COUNT: i32 = 1;
 const NATIVE_LOCAL_TABLE_EMPTY_PREFIX_STMT_COUNT: i32 = 1;
 const NATIVE_LOCAL_TABLE_EMPTY_CORE_STMT_COUNT: i32 = 1;
 const NATIVE_LOCAL_TABLE_EMPTY_CORE_EXPR_COUNT: i32 = 1;
+const NATIVE_LOCAL_TABLE_INIT_PREFIX_STMT_COUNT: i32 = 15;
+const NATIVE_LOCAL_TABLE_INIT_CORE_STMT_COUNT: i32 = 15;
+const NATIVE_LOCAL_TABLE_INIT_CORE_EXPR_COUNT: i32 = 15;
 const NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_PREFIX_STMT_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_CORE_STMT_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_CORE_EXPR_COUNT: i32 = 1;
@@ -277,10 +272,7 @@ const NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_PREFIX_STMT_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_CORE_STMT_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_CORE_EXPR_COUNT: i32 = 1;
 
-// ===== 计时函数 =====
-// 暂时禁用精确计时，使用简单计数器
 
-// 编译统计结构体
 struct CompileStats {
     parse_time_ms: i64,      // 解析阶段耗时（毫秒）
     merge_time_ms: i64,      // AST 合并耗时
@@ -458,21 +450,12 @@ fn compiler_print_diagnostic_profile(checker: &TypeChecker) void {
     fprintf(libc.stderr, "diagnostic_format_count: %d\n" as *byte, count);
 }
 
-// Host-side reserve constants for older bootstrap compilers whose generated C
-// layout may lag the current Uya struct layout.
 const HOST_SIZE_PTR_BYTES: usize = 8usize;
 const HOST_SIZE_LEXER_BYTES: usize = 8192usize;
-// Host-side reserve for TypeChecker. The async metadata tables live near the
-// end of this structure in generated C, so keep slack for bootstrap layout
-// drift when rebuilding from an older compiler.
 const HOST_SIZE_TYPECHECKER_BYTES: usize = 8388608usize;
-// Host-side reserve for C99CodeGenerator. The generated C layout can change as
-// backend caches grow; keep this above the exact current sizeof to avoid arena
-// overlap when bootstrapping from an older compiler.
 const HOST_SIZE_C99_CODEGENERATOR_BYTES: usize = 2097152usize;
 const HOST_SIZE_CIMPORT_ITEM_BYTES: usize = 48usize;
 
-// 后端类型
 enum BackendType {
     BACKEND_LLVM,
     BACKEND_C99,
@@ -11834,6 +11817,65 @@ fn native_build_hosted_decl_can_materialize_local_table_empty_body(
     return 0;
 }
 
+fn native_build_hosted_core_stmt_kind_from_ast(stmt: &ASTNode) i32 {
+    if stmt == null {
+        return CORE_STMT_INVALID_ID;
+    }
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        return CORE_STMT_KIND_LOCAL_DECL;
+    }
+    if stmt.type == ASTNodeType.AST_IF_STMT {
+        return CORE_STMT_KIND_IF;
+    }
+    if stmt.type == ASTNodeType.AST_ASSIGN {
+        return CORE_STMT_KIND_ASSIGN;
+    }
+    if stmt.type == ASTNodeType.AST_WHILE_STMT {
+        return CORE_STMT_KIND_WHILE;
+    }
+    if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        return CORE_STMT_KIND_RETURN;
+    }
+    return CORE_STMT_INVALID_ID;
+}
+
+fn native_build_hosted_local_table_init_prefix_stmt_count(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if decl == null || checker == null ||
+       decl.fn_decl_name == null ||
+       str_equals(decl.fn_decl_name as *byte,
+        "native_build_local_table_init" as *byte) == 0 ||
+       decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count !=
+        NATIVE_LOCAL_TABLE_INIT_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[14];
+    const while_stmt: &ASTNode = decl.fn_decl_body.block_stmts[13];
+    if return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null ||
+       while_stmt == null || while_stmt.type != ASTNodeType.AST_WHILE_STMT {
+        return 0;
+    }
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker,
+        return_stmt.return_stmt_expr, &return_type_id) != 0 {
+        return 0;
+    }
+    return NATIVE_LOCAL_TABLE_INIT_PREFIX_STMT_COUNT;
+}
+
+fn native_build_hosted_decl_can_materialize_local_table_init_body(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_local_table_init_prefix_stmt_count(
+        decl, checker) == NATIVE_LOCAL_TABLE_INIT_PREFIX_STMT_COUNT {
+        return 1;
+    }
+    return 0;
+}
+
 fn native_build_const_slice_sum_shape_empty_return_supported(
     stmt: &ASTNode, checker: &TypeChecker) i32 {
     if stmt == null || checker == null ||
@@ -12502,7 +12544,6 @@ fn native_build_hosted_print_sequence_shape(decl: &ASTNode,
     return 0;
 }
 
-// L994.B.1：检测 main() print/println string body + return N 模式
 fn native_build_hosted_decl_can_materialize_println_body(decl: &ASTNode) i32 {
     var print_stmt_count: i32 = 0;
     var return_stmt: &ASTNode = null;
@@ -12510,7 +12551,6 @@ fn native_build_hosted_decl_can_materialize_println_body(decl: &ASTNode) i32 {
         &return_stmt);
 }
 
-// L994.B.2：把 println/print string body 转成 CoreBody
 fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
     checker: &TypeChecker, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -17380,6 +17420,102 @@ fn native_build_hosted_coreir_append_local_table_empty_body(
        lowered_program_append_core_expr(lowered, &return_expr) != 0 ||
        lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
         return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_local_table_init_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, function_id: i32,
+    decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null ||
+       native_build_hosted_decl_can_materialize_local_table_init_body(
+        decl, checker) == 0 {
+        return -1;
+    }
+    const return_stmt_ast: &ASTNode = decl.fn_decl_body.block_stmts[14];
+    if return_stmt_ast == null || return_stmt_ast.return_stmt_expr == null {
+        return -1;
+    }
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker,
+        return_stmt_ast.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: NATIVE_LOCAL_TABLE_INIT_CORE_STMT_COUNT,
+        expr_start: expr_start,
+        expr_count: NATIVE_LOCAL_TABLE_INIT_CORE_EXPR_COUNT,
+        place_start: lowered.core_place_count as i32,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < NATIVE_LOCAL_TABLE_INIT_CORE_STMT_COUNT {
+        const stmt_ast: &ASTNode = decl.fn_decl_body.block_stmts[i];
+        const stmt_kind: i32 = native_build_hosted_core_stmt_kind_from_ast(
+            stmt_ast);
+        if stmt_kind == CORE_STMT_INVALID_ID {
+            return -1;
+        }
+        var expr_type_id: TypeId = return_type_id;
+        var source_expr_id: ExprId = TYPED_PROGRAM_INVALID_ID;
+        if stmt_kind == CORE_STMT_KIND_RETURN {
+            source_expr_id = return_stmt_ast.return_stmt_expr.expr_id;
+        }
+        var expr: CoreExpr = CoreExpr{
+            expr_id: expr_start + i,
+            kind: CORE_EXPR_KIND_INT_LITERAL,
+            body_id: body_id,
+            source_expr_id: source_expr_id,
+            type_id: expr_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: stmt_ast.line,
+            flags: 0,
+        };
+        var stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_start + i,
+            kind: stmt_kind,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_start + i,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt_ast.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_expr(lowered, &expr) != 0 ||
+           lowered_program_append_core_stmt(lowered, &stmt) != 0 {
+            return -1;
+        }
+        i = i + 1;
     }
     return 0;
 }
@@ -24299,6 +24435,9 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const materialize_local_table_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_local_table_empty_body(
                     decl, checker);
+            const materialize_local_table_init_body: i32 =
+                native_build_hosted_decl_can_materialize_local_table_init_body(
+                    decl, checker);
             const materialize_const_slice_sum_shape_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_const_slice_sum_shape_empty_body(
                     decl, checker);
@@ -24337,6 +24476,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                materialize_lowered_plan_empty_body != 0 ||
                materialize_reachability_empty_body != 0 ||
                materialize_local_table_empty_body != 0 ||
+               materialize_local_table_init_body != 0 ||
                materialize_const_slice_sum_shape_empty_body != 0 ||
                materialize_const_slice_len_index_shape_empty_body != 0 ||
                materialize_ptr_empty != 0 ||
@@ -24725,6 +24865,15 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                     native_build_decl_name_for_diagnostic(decl);
                 result.entry_reachable_body_complete_stmt_count =
                     NATIVE_LOCAL_TABLE_EMPTY_PREFIX_STMT_COUNT;
+            } else if materialize_local_table_init_body != 0 {
+                if native_build_hosted_coreir_append_local_table_init_body(
+                    lowered, checker, function_id, i, decl) != 0 {
+                    return -1;
+                }
+                result.entry_reachable_body_complete_function_name =
+                    native_build_decl_name_for_diagnostic(decl);
+                result.entry_reachable_body_complete_stmt_count =
+                    NATIVE_LOCAL_TABLE_INIT_PREFIX_STMT_COUNT;
             } else if materialize_const_slice_sum_shape_empty_body != 0 {
                 if native_build_hosted_coreir_append_const_slice_len_index_shape_empty_body(
                     lowered, checker, function_id, i, decl) != 0 {
@@ -24911,6 +25060,10 @@ fn native_build_hosted_decl_has_pending_core_body(program: &ASTNode,
         return 0;
     }
     if native_build_hosted_decl_can_materialize_local_table_empty_body(
+        decl, checker) != 0 {
+        return 0;
+    }
+    if native_build_hosted_decl_can_materialize_local_table_init_body(
         decl, checker) != 0 {
         return 0;
     }
@@ -25942,7 +26095,6 @@ fn native_build_hosted_mir_append_stack_byte_path_max_array_type(
     return 0;
 }
 
-// L994.A：追加一条 synthesized hosted runtime helper extern function 到 PortableMIR
 fn native_build_hosted_mir_append_synthesized_hosted_helper(module: &PortableMirModule,
     synth_decl_id: i32, name: &byte) i32 {
     if module == null || synth_decl_id >= 0 || name == null {
@@ -25989,7 +26141,6 @@ fn native_build_hosted_mir_append_synthesized_hosted_helper(module: &PortableMir
     return 0;
 }
 
-// L994.A：追加 hosted runtime 的三个 print helper extern
 fn native_build_hosted_mir_append_hosted_print_helpers(module: &PortableMirModule) i32 {
     if module == null {
         return -1;
@@ -36455,8 +36606,6 @@ fn native_build_hosted_mir_append_main_prefix_body_function(module: &PortableMir
     return 0;
 }
 
-// L994.B.3：把 println helloworld CoreBody 转成 PortableMIR
-// 1 function，1 block，2 inst MIR_INST_OP_CALL + 1 terminator MIR_TERMINATOR_KIND_RETURN
 fn native_build_hosted_mir_append_print_helloworld_body_function(
     module: &PortableMirModule, lowered_function_id: i32,
     decl_index: i32, source_core_body_id: i32,
@@ -36918,6 +37067,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
             const has_local_table_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_local_table_empty_body(
                     decl, checker);
+            const has_local_table_init_body: i32 =
+                native_build_hosted_decl_can_materialize_local_table_init_body(
+                    decl, checker);
             const has_const_slice_sum_shape_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_const_slice_sum_shape_empty_body(
                     decl, checker);
@@ -36958,6 +37110,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                has_lowered_plan_empty_body != 0 ||
                has_reachability_empty_body != 0 ||
                has_local_table_empty_body != 0 ||
+               has_local_table_init_body != 0 ||
                has_const_slice_sum_shape_empty_body != 0 ||
                has_const_slice_len_index_shape_empty_body != 0 ||
                has_ptr_empty != 0 ||
@@ -37207,6 +37360,18 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                        native_build_hosted_mir_append_const_return_body_function(
                         module, lowered_function_id, i, source_core_body_id,
                         decl.fn_decl_body.block_stmts[0].return_stmt_expr.expr_id,
+                        0) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if has_local_table_init_body != 0 {
+                    if decl.fn_decl_body == null ||
+                       decl.fn_decl_body.block_stmts == null ||
+                       decl.fn_decl_body.block_stmts[14] == null ||
+                       decl.fn_decl_body.block_stmts[14].return_stmt_expr == null ||
+                       native_build_hosted_mir_append_const_return_body_function(
+                        module, lowered_function_id, i, source_core_body_id,
+                        decl.fn_decl_body.block_stmts[14].return_stmt_expr.expr_id,
                         0) != 0 {
                         return -1;
                     }
@@ -45120,34 +45285,23 @@ fn native_build_plan_main_const_exit_code(plan: &NativeBuildAstPlan, out_code: &
     return 1;
 }
 
-// 文件读取缓冲区大小（与 Lexer 一致）
-const FILE_BUFFER_SIZE: i32 = 2 * 1024 * 1024;
+const FILE_BUFFER_SIZE: i32 = 3 * 1024 * 1024;
 
-// Arena 缓冲区大小（v2.0: 动态增长 Arena）
-// 初始缓冲区 64MB，不足时自动分配新 chunk
 const ARENA_BUFFER_SIZE: i32 = 64 * 1024 * 1024;  // 64MB 初始
 
-// 最大输入文件数
 const MAX_INPUT_FILES: i32 = 128;
 
-// --split-c-dir / UYA_SPLIT_C_DIR：多文件 C 输出目录；非空时链接阶段走 make -j
-// C99 且非「显式 -o xxx.c」时默认目录 .uyacache（与显式 --split-c-dir 省略路径一致）；UYA_SPLIT_C=0 或 --no-split-c 可关闭
 var g_split_c_dir: [byte: PATH_MAX] = [];
 var g_split_c_dir_active: i32 = 0;
-// 命令行 --no-split-c：强制单文件 C，忽略默认多文件、UYA_SPLIT_C_DIR 与 --split-c-dir
 var g_split_c_disabled_cli: i32 = 0;
-// split-C 共享输出目录锁：同一目录一次只允许一个编译进程写入，避免 .c/.h 生成物交错损坏
 var g_split_c_lock_dir: [byte: PATH_MAX] = [];
 var g_split_c_lock_active: i32 = 0;
 const NATIVE_CMD_BUILD_O_RDONLY_LINUX: i64 = 0;
 
-// --async-frame-heap=on：async frame pool 满时回退到调试 heap
 var g_async_frame_heap_fallback: i32 = 0;
 
-// build seed 不启用 microapp/container 限制；相关 image/payload 逻辑由完整命令或外置工具承担。
 const BUILD_CONTAINER_MODE: i32 = 0;
 
-// package mode / command split 预留：允许显式覆盖模块根。
 var g_module_root_override: [byte: PATH_MAX] = [];
 var g_module_root_override_active: i32 = 0;
 
@@ -45462,18 +45616,12 @@ fn split_c_release_lock() void {
     split_c_lock_reset();
 }
 
-// 编译器全局缓冲区（替代 C 的 static 数组，零初始化）
 var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
 var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
-// 临时 Arena 缓冲区（用于依赖收集，全局变量避免栈溢出）
-// v2.0: 动态增长，初始 16MB
 var temp_arena_buffer: [byte: 16 * 1024 * 1024] = [];
-// 大数组移到全局变量避免栈溢出（main_file_paths 是 64 * 4096 = 262KB）
 var main_file_paths_global: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
-// 将 resolved_files 也移到全局变量，避免栈溢出
 var resolved_files_global: [&byte: MAX_INPUT_FILES] = [];
 
-// 大数组移到全局变量避免 compile_files/build driver 主栈帧膨胀（macOS x86_64 hosted seed 会在 ___chkstk_darwin 崩）
 var all_files_global: [&byte: MAX_INPUT_FILES] = [];
 var processed_files_global: [&byte: MAX_INPUT_FILES] = [];
 var main_files_global: [&byte: MAX_INPUT_FILES] = [];
@@ -45530,9 +45678,6 @@ fn resolved_file_set(files: [&byte: MAX_INPUT_FILES], idx: i32, value: &byte) vo
     files[slot] = value;
 }
 
-// 读取文件内容到缓冲区
-// 成功返回读取字节数，失败返回 -1
-// 注意：filename 用 &byte，调用 fopen 时转为 *byte
 fn read_file_content(filename: &byte, buffer: &byte, buffer_size: usize) i32 {
     const file: &FILE = fopen(filename as *byte, "rb" as *byte);
     if file == null {
@@ -45552,7 +45697,6 @@ fn read_file_content(filename: &byte, buffer: &byte, buffer_size: usize) i32 {
     return bytes_read as i32;
 }
 
-// system(3) 返回值为 wait 状态字；转为与 shell 类似的退出码（段错误等为 128+信号，便于压测与 if 判断）
 fn exit_code_from_system_status(wstatus: i32) i32 {
     if wstatus < 0 {
         return 1;
@@ -45614,13 +45758,8 @@ fn shell_quote_append(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
     return 0;
 }
 
-// 常量定义
 const PATH_MAX: usize = 4096;
 
-// 比较两个路径是否指向同一个文件（考虑路径格式差异）
-// 参数：path1 - 第一个路径
-//       path2 - 第二个路径
-// 返回：相同返回1，不同返回0
 fn paths_equal(path1: &byte, path2: &byte) i32 {
     if path1 == null || path2 == null {
         return 0;
@@ -45664,9 +45803,6 @@ fn paths_equal(path1: &byte, path2: &byte) i32 {
     return 0;
 }
 
-// 原地稳定去重路径数组，保留首次出现顺序。
-// 依赖收集阶段可能因为目录模块与单文件模块交叉命中，把同一文件放进 all_files 多次；
-// 若不在最终编译列表收口，会导致同一源文件被重复解析并在 split-C 下重复发射定义。
 fn dedupe_paths_in_place(paths: &(&byte), count: i32) i32 {
     if paths == null || count <= 0 {
         return 0;
@@ -45702,9 +45838,7 @@ fn dedupe_paths_in_place(paths: &(&byte), count: i32) i32 {
     return unique_count;
 }
 
-// 注意：arena_strdup 函数在 parser.uya 中定义，这里不再重复定义
 
-// 检查路径是否为目录
 fn is_directory(path: &byte) i32 {
     if path == null {
         return 0;
@@ -45718,7 +45852,6 @@ fn is_directory(path: &byte) i32 {
     return 0;
 }
 
-// 检查路径是否为文件
 fn is_file(path: &byte) i32 {
     if path == null {
         return 0;
@@ -45732,7 +45865,6 @@ fn is_file(path: &byte) i32 {
     return 0;
 }
 
-// 仅 Darwin 宿主进 AST；Linux 自举时整段裁剪，不链接 _NSGetExecutablePath
 std.cfg(std.host_os == .hos_macos, {
 extern fn _NSGetExecutablePath(buf: *byte, bufsize: *u32) i32;
 extern fn realpath(path: *byte, resolved_path: *byte) *byte;
@@ -45766,7 +45898,6 @@ fn main_darwin_get_compiler_dir(buffer: &byte, buffer_size: usize) i32 {
 }
 }, {})
 
-// 获取编译器程序所在目录
 fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     if argv0 == null || buffer == null || buffer_size == 0 {
         return -1;
@@ -45817,7 +45948,6 @@ fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     return -1;
 }
 
-// 从「含末尾 / 的绝对或相对目录路径」得到父目录，写入 dst（带尾 /）。用于 bin/ → 源码树根。
 fn path_get_parent_dir(src: &byte, dst: &byte, dst_cap: usize) i32 {
     if src == null || dst == null || dst_cap < 4 {
         return -1;
@@ -45877,7 +46007,6 @@ fn path_is_cmd_dir(src: &byte) i32 {
     return 0;
 }
 
-// 获取 UYA_ROOT 环境变量或默认目录
 fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     if buffer == null || buffer_size == 0 {
         return -1;
@@ -45914,7 +46043,6 @@ fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     return path_get_parent_dir(&comp_dir[0] as &byte, buffer, buffer_size);
 }
 
-// 打印使用说明（program_name 用 &byte，传给 fprintf 时转为 *byte；若为 null 则用默认名避免 %s 段错误）
 fn print_usage(program_name: &byte) void {
     var name: &byte = program_name;
     if name == null { name = "cmd/build" as *byte; }
@@ -46053,8 +46181,6 @@ fn detect_main_match_ident_after(buf: &byte, file_size: usize, pos: usize, text:
     return 1;
 }
 
-// 检测文件是否包含 main 函数
-// 返回值：0=无main，1=fn main / test，2=export fn main，3=export extern fn main
 fn detect_main_function(filename: &byte) i32 {
     if filename == null {
         return 0;
@@ -46328,9 +46454,6 @@ fn seed_function_reachability_roots(checker: &TypeChecker, program: &ASTNode) vo
     seed_function_reachability_core_std_roots(checker);
 }
 
-// 注意：这里访问的是 Uya `libc.Dirent` 抽象，不是宿主 libc 的原生 `struct dirent`。
-// `libc.stdlib.readdir` 已将平台原生目录项收敛到统一布局：
-// d_ino(8) d_off(8) d_reclen(2) d_type(1) d_name[]
 const DIRENT_OFF_D_TYPE: usize = 18;
 const DIRENT_OFF_D_NAME: usize = 19;
 
@@ -46344,7 +46467,6 @@ fn dirent_get_name(entry_ptr: &byte) &byte {
     return p;
 }
 
-// 是否为「普通文件」语义（.uya 扫描等，仅 DT_REG）
 fn dirent_is_regular_file(entry_ptr: &byte) i32 {
     if dirent_get_type(entry_ptr) == DT_REG as byte {
         return 1;
@@ -46352,7 +46474,6 @@ fn dirent_is_regular_file(entry_ptr: &byte) i32 {
     return 0;
 }
 
-// DT_REG 或 DT_UNKNOWN（NFS 等可能未知类型，需后续 stat）
 fn dirent_may_be_regular_file(entry_ptr: &byte) i32 {
     const t: byte = dirent_get_type(entry_ptr);
     if t == DT_REG as byte || t == DT_UNKNOWN as byte {
@@ -46413,7 +46534,6 @@ fn host_append_temp_path_i32(buf: &byte, cap: usize, pos: &usize, value: i32) i3
     return 0;
 }
 
-// 默认临时路径：$TMPDIR/<prefix>_<pid>[_<extra_index>]<suffix>，否则 /tmp/...（Darwin/Linux 通用）
 fn host_fill_temp_path(buf: &byte, cap: usize, prefix: &byte, suffix: &byte, extra_index: i32) i32 {
     if buf == null || cap < 32 || prefix == null {
         return -1;
@@ -46467,24 +46587,12 @@ fn host_fill_temp_c_compile_path(buf: &byte, cap: usize) i32 {
     return host_fill_temp_path(buf, cap, "uya_output" as *byte, ".c" as *byte, -1);
 }
 
-// run/test 临时可执行路径：$TMPDIR/uya_out_<pid><suffix> 或 /tmp/uya_out_<pid><suffix>
 fn host_fill_temp_run_exe_path(buf: &byte, cap: usize, exe_suffix: &byte) i32 {
     return host_fill_temp_path(buf, cap, "uya_out" as *byte, exe_suffix, -1);
 }
 
 
 
-// 解析命令行参数
-// default_command: 未显式写子命令时采用的命令
-// allow_all_subcommands: 非 0 时按 bin/uya 兼容入口识别所有公开子命令
-// command: 输出命令类型
-// input_file_indices: 填充前 *input_file_count 个为输入文件在 argv 中的下标
-// input_file_capacity: input_file_indices 可写入的元素数
-// outlibc_index: --outlibc 选项的参数索引（-1 表示未指定）
-// run_arg_start: run 命令的运行时参数起始索引（-1 表示无运行时参数）
-// is_nostdlib: --nostdlib 选项（生成 _start 入口）
-// stack_size: 堆栈大小（KB），0 表示自动设置
-// 返回：0 成功，-1 失败
 fn parse_build_args(
     input_file_indices: &i32,
     input_file_capacity: i32,
@@ -46731,10 +46839,7 @@ fn parse_build_args(
 }
 
 
-// 检测输出路径是否为 C 文件
 
-// 检测输出路径是否为 C 文件（以 .c 结尾）
-// 返回：1 表示 C 文件，0 表示其他
 fn is_c_output(output_path: &byte) i32 {
     if output_path == null { return 0; }
     const len: usize = strlen(output_path as *byte);
@@ -46766,11 +46871,6 @@ fn compile_files_maybe_release_transient_arenas(arena: &CompilerArena, temp_aren
     compiler_arena_free_all(temp_arena);
 }
 
-// 主编译函数：词法 → 语法 → AST 合并 → 类型检查 → 代码生成
-// 支持目录输入和自动依赖收集
-// output_path_override: 如果非 null，使用此路径替代 get_argv(output_file_index)
-// is_nostdlib: 生成 _start 入口（无 C 标准库链接）
-// stack_size: 堆栈大小（KB），0 表示默认
 fn compile_files(
     input_file_indices: &i32,
     input_file_count: i32,
