@@ -1773,6 +1773,16 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR`。
             - 实测 `bash tests/verify_native_compile_stats_typed_program_release_contract.sh` 和
               `bash tests/verify_native_cmd_build_stage1.sh` 通过；本叶子未改生产 lowering。
+          - [x] 迁入 `typed_program_release(&checker.typed_program)` 单调用切片并复测 frontier。
+            - 2026-06-11：为该调用接入 verifier-clean CoreBody/PortableMIR 前缀；
+              `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。复跑
+              `bash tests/verify_native_compile_stats_typed_program_release_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过；直接 self-build repro 仍以
+              status 1 明确拒绝写出，真实 frontier 推进到
+              `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR reason=partial_core_body`，
+              后续 pending body 首项为
+              `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=215 function_id=5 body_stmts=4 reason=pending_core_body`。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。

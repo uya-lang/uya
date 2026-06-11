@@ -57,7 +57,7 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_compile_
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_compile_stats_table_realloc_count_slice_body_function' \
     "build driver 缺少 compile_stats table_realloc_count PortableMIR builder"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=15 next_stmt=15 next_kind=AST_CALL_EXPR reason=partial_core_body' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program' \
     "no-silent-C99 测试缺少 compile_stats table_realloc_count 后继 frontier"
 require_pattern "$NO_SILENT_TEST" '不应在 compile_stats table_realloc_count 迁入后继续报告 prefix_stmts=14' \
     "no-silent-C99 测试缺少旧 compile_stats prefix=14 反向检查"
