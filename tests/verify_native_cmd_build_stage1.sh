@@ -67,6 +67,7 @@ bash "$SCRIPT_DIR/verify_native_simd_vector_mask_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_local_table_init_contract.sh"
 bash "$SCRIPT_DIR/verify_native_local_table_init_control_flow_gap_contract.sh"
 bash "$SCRIPT_DIR/verify_native_reachability_init_contract.sh"
+bash "$SCRIPT_DIR/verify_native_type_is_i32_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
