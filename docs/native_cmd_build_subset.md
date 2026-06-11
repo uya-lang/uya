@@ -833,7 +833,7 @@ CoreBody/PortableMIR 合同：
 4. then body 必须只执行 `return;`，不得提前初始化 `count`、读取 `checker` 或调用 `fprintf`。
 5. PortableMIR 必须保留 conditional branch 和 void return terminator surface。
 6. 该 guard 切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
-   `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=var reason=partial_core_body`。
+   `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL reason=partial_core_body`。
    下一步才能迁入 `var count: i32 = 0`。
 
 ## `parse_build_args(...)` Scalar Option Frontier Contract

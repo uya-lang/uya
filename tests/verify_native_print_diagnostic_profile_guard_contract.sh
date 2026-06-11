@@ -51,7 +51,7 @@ require_pattern "$SUBSET_DOC" '必须保持 global/field 读取 surface' \
     "subset doc 缺少 stderr global/field surface"
 require_pattern "$SUBSET_DOC" 'MIR_TERMINATOR_KIND_COND_BR|conditional branch' \
     "subset doc 缺少 PortableMIR conditional branch 合同"
-require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=var reason=partial_core_body' \
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL reason=partial_core_body' \
     "subset doc 缺少 guard 迁入后 frontier"
 
 require_pattern "$BUILD_DRIVER_SRC" 'fn compiler_print_diagnostic_profile\(checker: &TypeChecker\) void' \
