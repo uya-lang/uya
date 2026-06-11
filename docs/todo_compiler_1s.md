@@ -2791,6 +2791,25 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               新 frontier 为 `native_hosted_pending_body_frontier:
               function=native_build_decl_is_noarg_i32_fn decl=384 function_id=37
               body_stmts=3 reason=pending_core_body`。
+          - [x] 为 `native_build_decl_is_noarg_i32_fn(...)` 补 CoreBody/PortableMIR
+            body-complete 合同；固定当前 3 statement body surface、decl shape guard、
+            no-arg/non-extern/non-async/non-naked/non-varargs guard 和 tail
+            `native_build_type_is_i32(...)` helper-call return；不改生产 lowering。
+            - 2026-06-11：新增
+              `tests/verify_native_decl_is_noarg_i32_fn_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
+              新增 `native_build_decl_is_noarg_i32_fn(...)` Body Complete Contract，
+              冻结当前 3 statement body surface、两个 guard 和 tail return-type
+              helper-call。
+            - 红灯：新增合同脚本后先运行
+              `bash tests/verify_native_decl_is_noarg_i32_fn_contract.sh`，按预期失败于
+              `todo 缺少 native_build_decl_is_noarg_i32_fn 合同任务`。
+            - 实测 `bash tests/verify_native_decl_is_noarg_i32_fn_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              均通过。
+          - [ ] 迁入 `native_build_decl_is_noarg_i32_fn(...)` 的完整 body，使该 helper
+            达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
           - [x] 迁入 `native_build_type_is_i32_like_ptr(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
             - 2026-06-11：在 `src/build_compiler_driver.uya` 中加入
