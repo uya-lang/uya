@@ -1731,8 +1731,18 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_stack_limit_helper_contract.sh`、
               `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
               `bash tests/verify_native_cmd_build_stage1.sh` 通过。
-          - [ ] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
+          - [x] 当前 helper complete 后重新运行 self-build frontier，冻结下一 helper 名称；若诊断仍指向
             同一 helper，则回到该 helper 的下一 body-prefix，不得跳到其它函数。
+            - 2026-06-11：`bash tests/verify_native_cmd_build_no_silent_c99.sh` 通过；
+              直接复跑 `./bin/cmd/build build src/cmd/build/main.uya -o <tmp> --native --no-split-c --project-root src/`
+              仍以 status 1 明确拒绝写出，真实 frontier 仍指向同一 helper：
+              `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=14 next_stmt=14 next_kind=AST_ASSIGN reason=partial_core_body`。
+              因此下一步继续该 helper 的 `stats.table_realloc_count = table_agg.realloc_count` 写回切片，
+              不进入下一个 helper。
+          - [ ] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
+            `stats.table_realloc_count = table_agg.realloc_count` 写回，先补 CoreBody/PortableMIR 合同；
+            不改生产实现。
+          - [ ] 迁入 `stats.table_realloc_count = table_agg.realloc_count` 单条写回切片并复测 frontier。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
