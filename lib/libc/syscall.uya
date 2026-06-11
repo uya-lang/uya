@@ -1177,7 +1177,19 @@ export extern "libc" fn sys_write(fd: i32, buf: *const byte, count: usize) !isiz
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_write(fd, buf, count) as! isize;
     }, {
-        return @syscall(SYS_write, fd as i64, buf as i64, count as i64) as! isize;
+        std.cfg(std.target_arch == .ta_arm64, {
+            return @syscall(64 as i64, fd as i64, buf as i64, count as i64) as! isize;
+        }, {
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(64 as i64, fd as i64, buf as i64, count as i64) as! isize;
+            }, {
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(4 as i64, fd as i64, buf as i64, count as i64) as! isize;
+                }, {
+                    return @syscall(1 as i64, fd as i64, buf as i64, count as i64) as! isize;
+                })
+            })
+        })
     })
 }
 
@@ -1186,7 +1198,19 @@ export extern "libc" fn sys_read(fd: i32, buf: *byte, count: usize) !isize {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_read(fd, buf, count) as! isize;
     }, {
-        return @syscall(SYS_read, fd as i64, buf as i64, count as i64) as! isize;
+        std.cfg(std.target_arch == .ta_arm64, {
+            return @syscall(63 as i64, fd as i64, buf as i64, count as i64) as! isize;
+        }, {
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(63 as i64, fd as i64, buf as i64, count as i64) as! isize;
+            }, {
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(3 as i64, fd as i64, buf as i64, count as i64) as! isize;
+                }, {
+                    return @syscall(0 as i64, fd as i64, buf as i64, count as i64) as! isize;
+                })
+            })
+        })
     })
 }
 
