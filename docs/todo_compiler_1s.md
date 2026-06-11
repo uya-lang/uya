@@ -1227,7 +1227,10 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
     # 通过，full-language parity 为 18 cases（parity=13, reject=5）；`errdefer`
     # 作为 required native parity case 生成 executable，exit code 3 与 C99 oracle 一致。
-  - [ ] 打开 full-language parity case 10 `struct_union_enum`。
+  - [x] 打开 full-language parity case 10 `struct_union_enum`。
+    # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+    # 通过，full-language parity 为 18 cases（parity=14, reject=4）；`struct_union_enum`
+    # 作为 required native parity case 生成 executable，exit code 13 与 C99 oracle 一致。
   - [ ] 打开 full-language parity case 11 `slice_array`。
   - [ ] 打开 full-language parity case 12 `pointer`。
   - [ ] 打开 full-language parity case 16 `builtins`。

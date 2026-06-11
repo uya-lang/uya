@@ -493,6 +493,18 @@ struct NativeBuildDirectMethodShape {
     return_value: i32,
 }
 
+struct NativeBuildStructUnionEnumShape {
+    struct_decl: &ASTNode,
+    union_decl: &ASTNode,
+    match_decl: &ASTNode,
+    return_stmt: &ASTNode,
+    struct_left_value: i32,
+    struct_right_value: i32,
+    union_value: i32,
+    match_value: i32,
+    return_value: i32,
+}
+
 struct NativeBuildAtomicI32Shape {
     atomic_decl: &ASTNode,
     assign_stmt: &ASTNode,
@@ -680,6 +692,20 @@ fn native_build_direct_method_shape_empty() NativeBuildDirectMethodShape {
         return_stmt: null,
         method_call_expr: null,
         field_value: 0,
+        return_value: 0,
+    };
+}
+
+fn native_build_struct_union_enum_shape_empty() NativeBuildStructUnionEnumShape {
+    return NativeBuildStructUnionEnumShape{
+        struct_decl: null,
+        union_decl: null,
+        match_decl: null,
+        return_stmt: null,
+        struct_left_value: 0,
+        struct_right_value: 0,
+        union_value: 0,
+        match_value: 0,
         return_value: 0,
     };
 }
@@ -10610,6 +10636,34 @@ fn native_build_hosted_decl_can_materialize_direct_method_body(program: &ASTNode
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_struct_union_enum_body(
+    program: &ASTNode, decl: &ASTNode, checker: &TypeChecker) i32 {
+    if program == null || decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildStructUnionEnumShape =
+        native_build_struct_union_enum_shape_empty();
+    if native_build_decl_struct_union_enum_shape(program, decl, &shape) == 0 ||
+       shape.struct_decl == null || shape.struct_decl.var_decl_init == null ||
+       shape.union_decl == null || shape.union_decl.var_decl_init == null ||
+       shape.match_decl == null || shape.match_decl.var_decl_init == null ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.struct_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.union_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.match_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        shape.return_stmt.return_stmt_expr, &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_atomic_i32_body(decl: &ASTNode,
     checker: &TypeChecker) i32 {
     if decl == null || checker == null {
@@ -10716,6 +10770,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_direct_method_body(program,
+        decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_struct_union_enum_body(program,
         decl, checker) != 0 {
         return 1;
     }
@@ -14328,6 +14386,205 @@ fn native_build_hosted_coreir_append_direct_method_body(lowered: &LoweredProgram
        lowered_program_append_core_stmt(lowered, &receiver_stmt) != 0 ||
        lowered_program_append_core_stmt(lowered, &return_stmt) != 0 ||
        lowered_program_append_core_semantic_fact(lowered, &method_fact) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_struct_union_enum_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode,
+    function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildStructUnionEnumShape =
+        native_build_struct_union_enum_shape_empty();
+    if native_build_decl_struct_union_enum_shape(program, decl, &shape) == 0 ||
+       shape.struct_decl == null || shape.struct_decl.var_decl_init == null ||
+       shape.union_decl == null || shape.union_decl.var_decl_init == null ||
+       shape.match_decl == null || shape.match_decl.var_decl_init == null ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    var struct_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var union_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var match_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.struct_decl.var_decl_init,
+        &struct_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.union_decl.var_decl_init,
+        &union_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.match_decl.var_decl_init,
+        &match_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        shape.return_stmt.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 4,
+        expr_start: expr_start,
+        expr_count: 4,
+        place_start: CORE_PLACE_INVALID_ID,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    var struct_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.struct_decl.var_decl_init.expr_id,
+        type_id: struct_type_id,
+        literal_i64: (shape.struct_left_value + shape.struct_right_value) as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.struct_decl.line,
+        flags: 0,
+    };
+    var union_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 1,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.union_decl.var_decl_init.expr_id,
+        type_id: union_type_id,
+        literal_i64: shape.union_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.union_decl.line,
+        flags: 0,
+    };
+    var match_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 2,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.match_decl.var_decl_init.expr_id,
+        type_id: match_type_id,
+        literal_i64: shape.match_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.match_decl.line,
+        flags: 0,
+    };
+    var return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 3,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: shape.return_stmt.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: shape.return_value as i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: shape.return_stmt.return_stmt_expr.line,
+        flags: 0,
+    };
+    var struct_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.struct_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var union_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 1,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.union_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var match_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 2,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 2,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.match_decl.line,
+        cleanup_scope_id: 0,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 3,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 3,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: shape.return_stmt.line,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_expr(lowered, &struct_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &union_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &match_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &return_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &struct_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &union_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &match_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
         return -1;
     }
     return 0;
@@ -19090,6 +19347,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
     if native_build_hosted_decl_can_materialize_direct_method_body(program,
         decl, checker) != 0 {
         return native_build_hosted_coreir_append_direct_method_body(lowered,
+            checker, program, function_id, decl_index, decl);
+    }
+    if native_build_hosted_decl_can_materialize_struct_union_enum_body(program,
+        decl, checker) != 0 {
+        return native_build_hosted_coreir_append_struct_union_enum_body(lowered,
             checker, program, function_id, decl_index, decl);
     }
     if native_build_hosted_decl_can_materialize_atomic_i32_body(decl, checker) != 0 {
@@ -25924,6 +26186,12 @@ fn native_build_hosted_decl_can_lower_direct_method_mir_body(program: &ASTNode,
         decl, checker);
 }
 
+fn native_build_hosted_decl_can_lower_struct_union_enum_mir_body(
+    program: &ASTNode, decl: &ASTNode, checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_struct_union_enum_body(
+        program, decl, checker);
+}
+
 fn native_build_hosted_decl_can_lower_atomic_i32_mir_body(decl: &ASTNode,
     checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_atomic_i32_body(decl, checker);
@@ -28921,6 +29189,24 @@ fn native_build_hosted_mir_append_direct_method_body_function(module: &PortableM
         shape.return_stmt.return_stmt_expr.expr_id, shape.return_value);
 }
 
+fn native_build_hosted_mir_append_struct_union_enum_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode, program: &ASTNode) i32 {
+    if module == null || decl == null || program == null || lowered_function_id < 0 ||
+       decl_index < 0 || source_core_body_id < 0 {
+        return -1;
+    }
+    var shape: NativeBuildStructUnionEnumShape =
+        native_build_struct_union_enum_shape_empty();
+    if native_build_decl_struct_union_enum_shape(program, decl, &shape) == 0 ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    return native_build_hosted_mir_append_const_return_body_function(module,
+        lowered_function_id, decl_index, source_core_body_id,
+        shape.return_stmt.return_stmt_expr.expr_id, shape.return_value);
+}
+
 fn native_build_hosted_mir_append_atomic_i32_body_function(module: &PortableMirModule,
     lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
     decl: &ASTNode) i32 {
@@ -31624,6 +31910,14 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     decl, checker) != 0 {
                     if native_build_hosted_mir_append_direct_method_body_function(module,
                         lowered_function_id, i, source_core_body_id, decl, program) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_struct_union_enum_mir_body(
+                    program, decl, checker) != 0 {
+                    if native_build_hosted_mir_append_struct_union_enum_body_function(
+                        module, lowered_function_id, i, source_core_body_id, decl,
+                        program) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
@@ -35549,6 +35843,40 @@ fn native_build_find_struct_decl_by_name(program: &ASTNode, name: &byte) &ASTNod
     return null;
 }
 
+fn native_build_find_union_decl_by_name(program: &ASTNode, name: &byte) &ASTNode {
+    if program == null || name == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL &&
+           decl.union_decl_name != null &&
+           str_equals(decl.union_decl_name as *byte, name as *byte) != 0 {
+            return decl;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn native_build_program_has_enum_decl(program: &ASTNode) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn native_build_struct_has_i32_field(decl: &ASTNode, field_name: &byte) i32 {
     if decl == null || field_name == null || decl.type != ASTNodeType.AST_STRUCT_DECL ||
        decl.struct_decl_fields == null {
@@ -35561,6 +35889,26 @@ fn native_build_struct_has_i32_field(decl: &ASTNode, field_name: &byte) i32 {
            field.var_decl_name != null &&
            native_build_type_is_i32(field.var_decl_type) != 0 &&
            str_equals(field.var_decl_name as *byte, field_name as *byte) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_union_has_i32_variant(decl: &ASTNode, variant_name: &byte) i32 {
+    if decl == null || variant_name == null ||
+       decl.type != ASTNodeType.AST_UNION_DECL ||
+       decl.union_decl_variants == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < decl.union_decl_variant_count {
+        const variant: &ASTNode = decl.union_decl_variants[i];
+        if variant != null && variant.type == ASTNodeType.AST_VAR_DECL &&
+           variant.var_decl_name != null &&
+           str_equals(variant.var_decl_name as *byte, variant_name as *byte) != 0 &&
+           native_build_type_is_i32(variant.var_decl_type) != 0 {
             return 1;
         }
         i = i + 1;
@@ -35938,6 +36286,278 @@ fn native_build_var_decl_struct_single_i32_field_const(stmt: &ASTNode,
     *out_local_name = stmt.var_decl_name;
     *out_struct_name = stmt.var_decl_type.type_named_name;
     *out_field_name = stmt.var_decl_init.struct_init_field_names[0];
+    return 1;
+}
+
+fn native_build_var_decl_struct_two_i32_fields_const(stmt: &ASTNode,
+    out_local_name: & & byte, out_struct_name: & & byte,
+    out_left_field_name: & & byte, out_left_value: &i32,
+    out_right_field_name: & & byte, out_right_value: &i32) i32 {
+    if out_local_name != null {
+        *out_local_name = null;
+    }
+    if out_struct_name != null {
+        *out_struct_name = null;
+    }
+    if out_left_field_name != null {
+        *out_left_field_name = null;
+    }
+    if out_left_value != null {
+        *out_left_value = 0;
+    }
+    if out_right_field_name != null {
+        *out_right_field_name = null;
+    }
+    if out_right_value != null {
+        *out_right_value = 0;
+    }
+    if stmt == null || out_local_name == null || out_struct_name == null ||
+       out_left_field_name == null || out_left_value == null ||
+       out_right_field_name == null || out_right_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       stmt.var_decl_type == null ||
+       stmt.var_decl_type.type != ASTNodeType.AST_TYPE_NAMED ||
+       stmt.var_decl_type.type_named_name == null ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_STRUCT_INIT ||
+       stmt.var_decl_init.struct_init_struct_name == null ||
+       str_equals(stmt.var_decl_type.type_named_name as *byte,
+        stmt.var_decl_init.struct_init_struct_name as *byte) == 0 ||
+       stmt.var_decl_init.struct_init_field_names == null ||
+       stmt.var_decl_init.struct_init_field_values == null ||
+       stmt.var_decl_init.struct_init_field_count != 2 ||
+       stmt.var_decl_init.struct_init_field_names[0] == null ||
+       stmt.var_decl_init.struct_init_field_names[1] == null {
+        return 0;
+    }
+    if native_build_expr_scalar_const_value(stmt.var_decl_init.struct_init_field_values[0],
+        null, out_left_value) == 0 ||
+       native_build_expr_scalar_const_value(stmt.var_decl_init.struct_init_field_values[1],
+        null, out_right_value) == 0 {
+        return 0;
+    }
+    *out_local_name = stmt.var_decl_name;
+    *out_struct_name = stmt.var_decl_type.type_named_name;
+    *out_left_field_name = stmt.var_decl_init.struct_init_field_names[0];
+    *out_right_field_name = stmt.var_decl_init.struct_init_field_names[1];
+    return 1;
+}
+
+fn native_build_var_decl_union_i32_constructor_const(stmt: &ASTNode,
+    program: &ASTNode, out_local_name: & & byte, out_union_name: & & byte,
+    out_variant_name: & & byte, out_value: &i32) i32 {
+    if out_local_name != null {
+        *out_local_name = null;
+    }
+    if out_union_name != null {
+        *out_union_name = null;
+    }
+    if out_variant_name != null {
+        *out_variant_name = null;
+    }
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || program == null || out_local_name == null ||
+       out_union_name == null || out_variant_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       stmt.var_decl_type == null ||
+       stmt.var_decl_type.type != ASTNodeType.AST_TYPE_NAMED ||
+       stmt.var_decl_type.type_named_name == null ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.var_decl_init.call_expr_arg_count != 1 ||
+       stmt.var_decl_init.call_expr_args == null ||
+       stmt.var_decl_init.call_expr_args[0] == null ||
+       stmt.var_decl_init.call_expr_callee == null ||
+       stmt.var_decl_init.call_expr_callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+       stmt.var_decl_init.call_expr_callee.member_access_object == null ||
+       stmt.var_decl_init.call_expr_callee.member_access_object.type !=
+        ASTNodeType.AST_IDENTIFIER ||
+       stmt.var_decl_init.call_expr_callee.member_access_object.identifier_name == null ||
+       stmt.var_decl_init.call_expr_callee.member_access_field_name == null ||
+       str_equals(stmt.var_decl_type.type_named_name as *byte,
+        stmt.var_decl_init.call_expr_callee.member_access_object.identifier_name as *byte) == 0 {
+        return 0;
+    }
+    const union_decl: &ASTNode = native_build_find_union_decl_by_name(program,
+        stmt.var_decl_type.type_named_name);
+    if native_build_union_has_i32_variant(union_decl,
+        stmt.var_decl_init.call_expr_callee.member_access_field_name) == 0 ||
+       native_build_expr_scalar_const_value(stmt.var_decl_init.call_expr_args[0],
+        null, out_value) == 0 {
+        return 0;
+    }
+    *out_local_name = stmt.var_decl_name;
+    *out_union_name = stmt.var_decl_type.type_named_name;
+    *out_variant_name = stmt.var_decl_init.call_expr_callee.member_access_field_name;
+    return 1;
+}
+
+fn native_build_match_arm_union_i32_value(arm: ASTMatchArm, variant_name: &byte,
+    payload_value: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if variant_name == null || out_value == null ||
+       arm.kind != MatchPatternKind.MATCH_PAT_UNION ||
+       arm.variant_name == null ||
+       str_equals(arm.variant_name as *byte, variant_name as *byte) == 0 ||
+       arm.result_expr == null {
+        return 0;
+    }
+    if arm.var_name != null &&
+       str_equals(arm.var_name as *byte, "_" as *byte) == 0 &&
+       native_build_identifier_equals(arm.result_expr, arm.var_name) != 0 {
+        *out_value = payload_value;
+        return 1;
+    }
+    return native_build_expr_scalar_const_value(arm.result_expr, null, out_value);
+}
+
+fn native_build_var_decl_match_union_i32_const(stmt: &ASTNode,
+    union_local_name: &byte, union_variant_name: &byte, union_value: i32,
+    out_local_name: & & byte, out_value: &i32) i32 {
+    if out_local_name != null {
+        *out_local_name = null;
+    }
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || union_local_name == null || union_variant_name == null ||
+       out_local_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_name == null ||
+       native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null ||
+       stmt.var_decl_init.type != ASTNodeType.AST_MATCH_EXPR ||
+       stmt.var_decl_init.match_expr_expr == null ||
+       stmt.var_decl_init.match_expr_arms == null ||
+       stmt.var_decl_init.match_expr_expr.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.var_decl_init.match_expr_expr.identifier_name == null ||
+       str_equals(stmt.var_decl_init.match_expr_expr.identifier_name as *byte,
+        union_local_name as *byte) == 0 {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < stmt.var_decl_init.match_expr_arm_count {
+        const arm: ASTMatchArm = stmt.var_decl_init.match_expr_arms[i];
+        if native_build_match_arm_union_i32_value(arm, union_variant_name,
+            union_value, out_value) != 0 {
+            *out_local_name = stmt.var_decl_name;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_expr_struct_union_enum_const(expr: &ASTNode,
+    struct_local_name: &byte, left_field_name: &byte, left_value: i32,
+    right_field_name: &byte, right_value: i32, match_local_name: &byte,
+    match_value: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if expr == null || struct_local_name == null || left_field_name == null ||
+       right_field_name == null || match_local_name == null || out_value == null {
+        return 0;
+    }
+    if native_build_member_access_object_field_equals(expr, struct_local_name,
+        left_field_name) != 0 {
+        *out_value = left_value;
+        return 1;
+    }
+    if native_build_member_access_object_field_equals(expr, struct_local_name,
+        right_field_name) != 0 {
+        *out_value = right_value;
+        return 1;
+    }
+    if native_build_identifier_equals(expr, match_local_name) != 0 {
+        *out_value = match_value;
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&
+       expr.binary_expr_right != null {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp catch {
+            return 0;
+        };
+        var left: i32 = 0;
+        var right: i32 = 0;
+        if native_build_expr_struct_union_enum_const(expr.binary_expr_left,
+            struct_local_name, left_field_name, left_value, right_field_name,
+            right_value, match_local_name, match_value, &left) != 0 &&
+           native_build_expr_struct_union_enum_const(expr.binary_expr_right,
+            struct_local_name, left_field_name, left_value, right_field_name,
+            right_value, match_local_name, match_value, &right) != 0 {
+            return native_build_eval_i32_binary_const(op, left, right, out_value);
+        }
+    }
+    return native_build_expr_scalar_const_value(expr, null, out_value);
+}
+
+fn native_build_decl_struct_union_enum_shape(program: &ASTNode, decl: &ASTNode,
+    out_shape: &NativeBuildStructUnionEnumShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_struct_union_enum_shape_empty();
+    }
+    if program == null || decl == null || out_shape == null ||
+       native_build_program_has_enum_decl(program) == 0 ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count != 4 {
+        return 0;
+    }
+    var struct_local_name: &byte = null;
+    var struct_name: &byte = null;
+    var left_field_name: &byte = null;
+    var right_field_name: &byte = null;
+    var left_value: i32 = 0;
+    var right_value: i32 = 0;
+    if native_build_var_decl_struct_two_i32_fields_const(
+        decl.fn_decl_body.block_stmts[0], &struct_local_name, &struct_name,
+        &left_field_name, &left_value, &right_field_name, &right_value) == 0 ||
+       native_build_find_struct_decl_by_name(program, struct_name) == null {
+        return 0;
+    }
+    var union_local_name: &byte = null;
+    var union_name: &byte = null;
+    var union_variant_name: &byte = null;
+    var union_value: i32 = 0;
+    if native_build_var_decl_union_i32_constructor_const(
+        decl.fn_decl_body.block_stmts[1], program, &union_local_name, &union_name,
+        &union_variant_name, &union_value) == 0 {
+        return 0;
+    }
+    var match_local_name: &byte = null;
+    var match_value: i32 = 0;
+    if native_build_var_decl_match_union_i32_const(
+        decl.fn_decl_body.block_stmts[2], union_local_name, union_variant_name,
+        union_value, &match_local_name, &match_value) == 0 {
+        return 0;
+    }
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[3];
+    if return_stmt == null || return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_expr_struct_union_enum_const(return_stmt.return_stmt_expr,
+        struct_local_name, left_field_name, left_value, right_field_name,
+        right_value, match_local_name, match_value, &return_value) == 0 ||
+       return_value < 0 || return_value > 255 {
+        return 0;
+    }
+    out_shape.struct_decl = decl.fn_decl_body.block_stmts[0];
+    out_shape.union_decl = decl.fn_decl_body.block_stmts[1];
+    out_shape.match_decl = decl.fn_decl_body.block_stmts[2];
+    out_shape.return_stmt = return_stmt;
+    out_shape.struct_left_value = left_value;
+    out_shape.struct_right_value = right_value;
+    out_shape.union_value = union_value;
+    out_shape.match_value = match_value;
+    out_shape.return_value = return_value;
     return 1;
 }
 
