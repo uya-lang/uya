@@ -766,6 +766,55 @@ fn portable_mir_lower_i32_type(type_id: MirTypeId, source_type_id: TypeId) MirTy
     };
 }
 
+fn portable_mir_lower_void_type(type_id: MirTypeId, source_type_id: TypeId) MirType {
+    return MirType{
+        type_id: type_id,
+        kind: MIR_TYPE_KIND_VOID,
+        source_type_id: source_type_id,
+        size_bytes: 0usize,
+        align_bytes: 0usize,
+        layout_id: source_type_id,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 0usize,
+        element_type_id: MIR_TYPE_INVALID_ID,
+        pointee_type_id: MIR_TYPE_INVALID_ID,
+        field_start: 0,
+        field_count: 0,
+        lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: 0,
+        address_space: 0,
+        flags: 0,
+    };
+}
+
+fn portable_mir_lower_i32_pointer_type(type_id: MirTypeId,
+    source_type_id: TypeId, pointee_type_id: MirTypeId) MirType {
+    return MirType{
+        type_id: type_id,
+        kind: MIR_TYPE_KIND_POINTER,
+        source_type_id: source_type_id,
+        size_bytes: 8usize,
+        align_bytes: 8usize,
+        layout_id: source_type_id,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 0usize,
+        element_type_id: MIR_TYPE_INVALID_ID,
+        pointee_type_id: pointee_type_id,
+        field_start: 0,
+        field_count: 0,
+        lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: 2,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        flags: 0,
+    };
+}
+
 struct PortableMirLowerContext {
     program: &LoweredProgram,
     module: &PortableMirModule,
@@ -773,6 +822,8 @@ struct PortableMirLowerContext {
     function_id: MirFunctionId,
     block_id: MirBlockId,
     i32_type_id: MirTypeId,
+    void_type_id: MirTypeId,
+    pointer_type_id: MirTypeId,
 }
 
 fn portable_mir_lower_count_to_i32(count: usize) i32 {
@@ -797,15 +848,129 @@ fn portable_mir_lower_count_delta_to_i32(count: usize, start: i32) i32 {
     return portable_mir_lower_count_to_i32(count - start_usize);
 }
 
-fn portable_mir_lower_append_literal_operand(ctx: &PortableMirLowerContext,
-    expr: &CoreExpr) i32 {
-    if ctx == null || ctx.module == null || expr == null {
+fn portable_mir_lower_function_ptr(module: &PortableMirModule,
+    function_id: MirFunctionId) &MirFunction {
+    if module == null || function_id < 0 {
+        return null;
+    }
+    const index_result: !usize = function_id as! usize;
+    const index: usize = index_result catch {
+        return null;
+    };
+    return semantic_vector_item_ptr(&module.functions, index) as &MirFunction;
+}
+
+fn portable_mir_lower_ensure_void_type(ctx: &PortableMirLowerContext,
+    source_type_id: TypeId) i32 {
+    if ctx == null || ctx.module == null {
         return -1;
     }
-    const value_result: !i32 = expr.literal_i64 as! i32;
-    const value: i32 = value_result catch {
+    if ctx.void_type_id != MIR_TYPE_INVALID_ID {
+        return ctx.void_type_id;
+    }
+    const type_id: i32 = portable_mir_lower_count_to_i32(ctx.module.type_count);
+    if type_id < 0 {
         return -1;
+    }
+    var typ: MirType = portable_mir_lower_void_type(type_id, source_type_id);
+    if portable_mir_append_type(ctx.module, &typ) != 0 {
+        return -1;
+    }
+    ctx.void_type_id = type_id;
+    return type_id;
+}
+
+fn portable_mir_lower_ensure_pointer_type(ctx: &PortableMirLowerContext,
+    source_type_id: TypeId) i32 {
+    if ctx == null || ctx.module == null {
+        return -1;
+    }
+    if ctx.pointer_type_id != MIR_TYPE_INVALID_ID {
+        return ctx.pointer_type_id;
+    }
+    const type_id: i32 = portable_mir_lower_count_to_i32(ctx.module.type_count);
+    if type_id < 0 {
+        return -1;
+    }
+    var typ: MirType = portable_mir_lower_i32_pointer_type(type_id,
+        source_type_id, ctx.i32_type_id);
+    if portable_mir_append_type(ctx.module, &typ) != 0 {
+        return -1;
+    }
+    ctx.pointer_type_id = type_id;
+    return type_id;
+}
+
+fn portable_mir_lower_find_extern_helper_function(module: &PortableMirModule,
+    helper_decl_id: DeclId) i32 {
+    if module == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction = semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
+        if function != null && function.decl_id == helper_decl_id &&
+           (function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+            return function.function_id;
+        }
+        i = i + 1usize;
+    }
+    return -1;
+}
+
+fn portable_mir_lower_ensure_extern_helper(ctx: &PortableMirLowerContext,
+    helper_decl_id: DeclId, signature_type_id: MirTypeId) i32 {
+    if ctx == null || ctx.module == null || helper_decl_id >= 0 ||
+       signature_type_id < 0 {
+        return -1;
+    }
+    const existing: i32 = portable_mir_lower_find_extern_helper_function(
+        ctx.module, helper_decl_id);
+    if existing >= 0 {
+        return existing;
+    }
+    const function_id: i32 = portable_mir_lower_count_to_i32(ctx.module.function_count);
+    if function_id < 0 {
+        return -1;
+    }
+    var function: MirFunction = MirFunction{
+        function_id: function_id,
+        lowered_function_id: helper_decl_id,
+        decl_id: helper_decl_id,
+        source_core_body_id: -1,
+        symbol_id: helper_decl_id,
+        signature_type_id: signature_type_id,
+        param_start: 0,
+        param_count: 0,
+        local_start: 0,
+        local_count: 0,
+        block_start: 0,
+        block_count: 0,
+        entry_block_id: MIR_BLOCK_INVALID_ID,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: MIR_FUNCTION_FLAG_EXTERN,
     };
+    if portable_mir_append_function(ctx.module, &function) != 0 {
+        return -1;
+    }
+    return function_id;
+}
+
+fn portable_mir_lower_append_immediate_operand(ctx: &PortableMirLowerContext,
+    type_id: MirTypeId, immediate: i32) i32 {
+    if ctx == null || ctx.module == null || type_id < 0 {
+        return -1;
+    }
     const operand_id: i32 = portable_mir_lower_count_to_i32(ctx.module.operand_count);
     if operand_id < 0 {
         return -1;
@@ -815,15 +980,28 @@ fn portable_mir_lower_append_literal_operand(ctx: &PortableMirLowerContext,
         kind: 0,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: ctx.i32_type_id,
+        type_id: type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: value,
+        immediate_i32: immediate,
         flags: 0,
     };
     if portable_mir_append_operand(ctx.module, &operand) != 0 {
         return -1;
     }
     return operand_id;
+}
+
+fn portable_mir_lower_append_literal_operand(ctx: &PortableMirLowerContext,
+    expr: &CoreExpr) i32 {
+    if ctx == null || ctx.module == null || expr == null {
+        return -1;
+    }
+    const value_result: !i32 = expr.literal_i64 as! i32;
+    const value: i32 = value_result catch {
+        return -1;
+    };
+    return portable_mir_lower_append_immediate_operand(ctx, ctx.i32_type_id,
+        value);
 }
 
 fn portable_mir_lower_append_local_ref_operand(ctx: &PortableMirLowerContext,
@@ -990,6 +1168,139 @@ fn portable_mir_lower_binary_operand_start(ctx: &PortableMirLowerContext,
     return lhs_copy;
 }
 
+fn portable_mir_lower_i32_literal_value(ctx: &PortableMirLowerContext,
+    expr_id: CoreExprId) i32 {
+    if ctx == null || expr_id < 0 {
+        return -1;
+    }
+    const expr: &CoreExpr = portable_mir_lower_find_core_expr(ctx.program,
+        ctx.body_id, expr_id);
+    if expr == null || expr.kind != CORE_EXPR_KIND_INT_LITERAL {
+        return -1;
+    }
+    const value_result: !i32 = expr.literal_i64 as! i32;
+    const value: i32 = value_result catch {
+        return -1;
+    };
+    return value;
+}
+
+fn portable_mir_lower_append_call_result(ctx: &PortableMirLowerContext,
+    expr: &CoreExpr, operand_start: i32, operand_count: i32,
+    helper_decl_id: DeclId) i32 {
+    if ctx == null || ctx.module == null || expr == null ||
+       operand_start < 0 || operand_count <= 0 {
+        return -1;
+    }
+    const value_id: i32 = portable_mir_lower_count_to_i32(ctx.module.value_count);
+    const inst_id: i32 = portable_mir_lower_count_to_i32(ctx.module.inst_count);
+    if value_id < 0 || inst_id < 0 {
+        return -1;
+    }
+    var value: MirValue = MirValue{
+        value_id: value_id,
+        function_id: ctx.function_id,
+        block_id: ctx.block_id,
+        type_id: ctx.i32_type_id,
+        defining_inst_id: inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: expr.source_expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var inst: MirInst = MirInst{
+        inst_id: inst_id,
+        function_id: ctx.function_id,
+        block_id: ctx.block_id,
+        op: MIR_INST_OP_CALL,
+        type_id: ctx.i32_type_id,
+        result_value_id: value_id,
+        operand_start: operand_start,
+        operand_count: operand_count,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: helper_decl_id,
+    };
+    if portable_mir_append_value(ctx.module, &value) != 0 ||
+       portable_mir_append_inst(ctx.module, &inst) != 0 {
+        return -1;
+    }
+    return value_id;
+}
+
+fn portable_mir_lower_call_stmt_to_module(ctx: &PortableMirLowerContext,
+    stmt: &CoreStmt) i32 {
+    if ctx == null || stmt == null || stmt.expr_id < 0 {
+        return -1;
+    }
+    const expr: &CoreExpr = portable_mir_lower_find_core_expr(ctx.program,
+        ctx.body_id, stmt.expr_id);
+    if expr == null || expr.kind != CORE_EXPR_KIND_CALL {
+        return -1;
+    }
+    const helper_decl_id: DeclId = expr.target_decl_id;
+    if helper_decl_id != MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR &&
+       helper_decl_id != MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        return -1;
+    }
+    const void_type_id: i32 = portable_mir_lower_ensure_void_type(ctx,
+        expr.type_id);
+    if void_type_id < 0 {
+        return -1;
+    }
+    const helper_function_id: i32 = portable_mir_lower_ensure_extern_helper(ctx,
+        helper_decl_id, void_type_id);
+    if helper_function_id < 0 {
+        return -1;
+    }
+    const operand_start: i32 = portable_mir_lower_append_immediate_operand(ctx,
+        void_type_id, helper_function_id);
+    if operand_start < 0 {
+        return -1;
+    }
+    const fd_value: i32 = portable_mir_lower_i32_literal_value(ctx,
+        expr.lhs_expr_id);
+    if fd_value < 0 ||
+       portable_mir_lower_append_immediate_operand(ctx, ctx.i32_type_id,
+        fd_value) != operand_start + 1 {
+        return -1;
+    }
+    var operand_count: i32 = 2;
+    if helper_decl_id == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR {
+        const pointer_type_id: i32 = portable_mir_lower_ensure_pointer_type(ctx,
+            expr.type_id);
+        const len_value: i32 = portable_mir_lower_i32_literal_value(ctx,
+            expr.rhs_expr_id);
+        if pointer_type_id < 0 || len_value < 0 ||
+           portable_mir_lower_append_immediate_operand(ctx, pointer_type_id,
+            expr.source_expr_id) != operand_start + 2 ||
+           portable_mir_lower_append_immediate_operand(ctx, ctx.i32_type_id,
+            len_value) != operand_start + 3 {
+            return -1;
+        }
+        operand_count = 4;
+    }
+    if portable_mir_lower_append_call_result(ctx, expr, operand_start,
+       operand_count, helper_decl_id) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn portable_mir_lower_stmt_to_module(ctx: &PortableMirLowerContext,
+    stmt: &CoreStmt) i32 {
+    if ctx == null || stmt == null || stmt.child_stmt_count != 0 {
+        return -1;
+    }
+    if stmt.kind == CORE_STMT_KIND_EXPR {
+        return portable_mir_lower_call_stmt_to_module(ctx, stmt);
+    }
+    return -1;
+}
+
 fn portable_mir_lower_expr_to_operand(ctx: &PortableMirLowerContext,
     expr_id: CoreExprId) i32 {
     if ctx == null || expr_id < 0 {
@@ -1035,7 +1346,7 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         return -1;
     }
     const body: &CoreBody = portable_mir_lower_find_core_body(program, body_id);
-    if body == null || body.root_stmt_count != 1 || body.cleanup_edge_count != 0 {
+    if body == null || body.root_stmt_count <= 0 || body.cleanup_edge_count != 0 {
         return -1;
     }
     const function_source: &ConcreteFunction = portable_mir_lower_find_function(program,
@@ -1043,15 +1354,17 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
     if function_source == null {
         return -1;
     }
-    const stmt: &CoreStmt = portable_mir_lower_find_core_stmt(program, body.body_id,
-        body.root_stmt_start);
-    if stmt == null || stmt.kind != CORE_STMT_KIND_RETURN ||
-       stmt.child_stmt_count != 0 || stmt.expr_id < 0 {
+    const return_stmt_id: CoreStmtId = body.root_stmt_start +
+        body.root_stmt_count - 1;
+    const return_stmt: &CoreStmt = portable_mir_lower_find_core_stmt(program,
+        body.body_id, return_stmt_id);
+    if return_stmt == null || return_stmt.kind != CORE_STMT_KIND_RETURN ||
+       return_stmt.child_stmt_count != 0 || return_stmt.expr_id < 0 {
         return -1;
     }
-    const expr: &CoreExpr = portable_mir_lower_find_core_expr(program, body.body_id,
-        stmt.expr_id);
-    if expr == null {
+    const return_expr: &CoreExpr = portable_mir_lower_find_core_expr(program,
+        body.body_id, return_stmt.expr_id);
+    if return_expr == null {
         return -1;
     }
     const i32_type_id: i32 = portable_mir_lower_count_to_i32(module.type_count);
@@ -1063,30 +1376,9 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
        local_start < 0 || inst_start < 0 {
         return -1;
     }
-    var typ: MirType = portable_mir_lower_i32_type(i32_type_id, expr.type_id);
+    var typ: MirType = portable_mir_lower_i32_type(i32_type_id,
+        return_expr.type_id);
     if portable_mir_append_type(module, &typ) != 0 {
-        return -1;
-    }
-    var ctx: PortableMirLowerContext = PortableMirLowerContext{
-        program: program,
-        module: module,
-        body_id: body.body_id,
-        function_id: function_id,
-        block_id: block_id,
-        i32_type_id: i32_type_id,
-    };
-    const return_operand_id: i32 = portable_mir_lower_expr_to_operand(&ctx,
-        stmt.expr_id);
-    if return_operand_id < 0 {
-        return -1;
-    }
-    const terminator_id: i32 =
-        portable_mir_lower_count_to_i32(module.terminator_count);
-    const local_count: i32 =
-        portable_mir_lower_count_delta_to_i32(module.local_count, local_start);
-    const inst_count: i32 =
-        portable_mir_lower_count_delta_to_i32(module.inst_count, inst_start);
-    if terminator_id < 0 || local_count < 0 || inst_count < 0 {
         return -1;
     }
     var function: MirFunction = MirFunction{
@@ -1099,7 +1391,7 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         param_start: 0,
         param_count: 0,
         local_start: local_start,
-        local_count: local_count,
+        local_count: 0,
         block_start: block_id,
         block_count: 1,
         entry_block_id: block_id,
@@ -1116,6 +1408,63 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
+    if portable_mir_append_function(module, &function) != 0 {
+        return -1;
+    }
+    var ctx: PortableMirLowerContext = PortableMirLowerContext{
+        program: program,
+        module: module,
+        body_id: body.body_id,
+        function_id: function_id,
+        block_id: block_id,
+        i32_type_id: i32_type_id,
+        void_type_id: MIR_TYPE_INVALID_ID,
+        pointer_type_id: MIR_TYPE_INVALID_ID,
+    };
+    var return_operand_id: i32 = MIR_VALUE_INVALID_ID;
+    var stmt_offset: i32 = 0;
+    while stmt_offset < body.root_stmt_count {
+        const current_stmt_id: CoreStmtId = body.root_stmt_start + stmt_offset;
+        const current_stmt: &CoreStmt = portable_mir_lower_find_core_stmt(program,
+            body.body_id, current_stmt_id);
+        if current_stmt == null {
+            return -1;
+        }
+        if current_stmt.kind == CORE_STMT_KIND_RETURN {
+            if stmt_offset != body.root_stmt_count - 1 || return_operand_id >= 0 {
+                return -1;
+            }
+            return_operand_id = portable_mir_lower_expr_to_operand(&ctx,
+                current_stmt.expr_id);
+            if return_operand_id < 0 {
+                return -1;
+            }
+        } else {
+            if return_operand_id >= 0 ||
+               portable_mir_lower_stmt_to_module(&ctx, current_stmt) != 0 {
+                return -1;
+            }
+        }
+        stmt_offset = stmt_offset + 1;
+    }
+    if return_operand_id < 0 {
+        return -1;
+    }
+    const terminator_id: i32 =
+        portable_mir_lower_count_to_i32(module.terminator_count);
+    const local_count: i32 =
+        portable_mir_lower_count_delta_to_i32(module.local_count, local_start);
+    const inst_count: i32 =
+        portable_mir_lower_count_delta_to_i32(module.inst_count, inst_start);
+    if terminator_id < 0 || local_count < 0 || inst_count < 0 {
+        return -1;
+    }
+    const function_out: &MirFunction = portable_mir_lower_function_ptr(module,
+        function_id);
+    if function_out == null {
+        return -1;
+    }
+    function_out.local_count = local_count;
     var terminator: MirTerminator = MirTerminator{
         terminator_id: terminator_id,
         function_id: function_id,
@@ -1139,8 +1488,7 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
-    if portable_mir_append_function(module, &function) != 0 ||
-       portable_mir_append_terminator(module, &terminator) != 0 ||
+    if portable_mir_append_terminator(module, &terminator) != 0 ||
        portable_mir_append_block(module, &block) != 0 {
         return -1;
     }

@@ -968,8 +968,11 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
           # literal/local/add；`verify_portable_mir_verifier`、`verify_native_mir_emitter`、
           # `verify_portable_mir_golden`、`verify_portable_mir_no_typed_bypass`、
           # `git diff --check` 和 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
-    - [ ] 扩展 print/println string literal CoreStmt lowering，生成 hosted helper extern call
-          和 newline writer 所需 MIR call surface。
+	    - [x] 扩展 print/println string literal CoreStmt lowering，生成 hosted helper extern call
+	          和 newline writer 所需 MIR call surface。
+	          # 2026-06-11: `tests/verify_portable_mir_core_body_lowering.sh` 覆盖
+	          # print/println string helper call lowering；PortableMIR focused gates、
+	          # `git diff --check` 和 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
   - [ ] 在 `src/codegen/native/mir_emitter.uya` 扩展 MIR→MachineModule 支持
     `MIR_INST_OP_CALL` 指向 `__uya_print_*` extern，并新增 sysv x86_64
     write/call inst 序列（~300 行）。

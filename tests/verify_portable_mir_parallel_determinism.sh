@@ -72,6 +72,7 @@ export const CORE_STMT_KIND_DEFER: i32 = 12;
 export const CORE_STMT_KIND_ERRDEFER: i32 = 13;
 export const CORE_STMT_KIND_DROP: i32 = 14;
 export const CORE_STMT_KIND_ERROR_PROPAGATION: i32 = 15;
+export const CORE_STMT_KIND_EXPR: i32 = 19;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INDEX: i32 = 12;
 export const CORE_EXPR_KIND_SLICE: i32 = 13;
