@@ -6,12 +6,6 @@ use libc.sys_open;
 use libc.sys_close;
 use libc.sys_read;
 use libc.sys_write;
-use libc.O_RDONLY;
-use libc.O_WRONLY;
-use libc.O_RDWR;
-use libc.O_CREAT;
-use libc.O_TRUNC;
-use libc.O_APPEND;
 use std.string.strlen;
 
 export struct File {
@@ -30,6 +24,12 @@ export struct FILE {
 
 var std_io_fopen_fd_storage: [FILE: 128] = [];
 const STD_IO_CREATE_MODE_USER_RWX: i64 = 0o700;
+const STD_IO_O_RDONLY_LINUX: i64 = 0;
+const STD_IO_O_WRONLY_LINUX: i64 = 1;
+const STD_IO_O_RDWR_LINUX: i64 = 2;
+const STD_IO_O_CREAT_LINUX: i64 = 0x40;
+const STD_IO_O_TRUNC_LINUX: i64 = 0x200;
+const STD_IO_O_APPEND_LINUX: i64 = 0x400;
 
 export fn file_open(path: &const byte, flags: i32, mode: u32) !File {
     const raw_fd: i32 = try sys_open(path as *const byte, flags, mode as i32);
@@ -157,17 +157,17 @@ export fn fopen(path: &const byte, mode: &const byte) &FILE {
 
     var flags: i64 = 0;
     var create_mode: i64 = 0;
-    const w_flags: i64 = O_WRONLY | O_CREAT | O_TRUNC;
-    const a_flags: i64 = O_WRONLY | O_CREAT | O_APPEND;
-    const w_plus_flags: i64 = O_RDWR | O_CREAT | O_TRUNC;
-    const a_plus_flags: i64 = O_RDWR | O_CREAT | O_APPEND;
+    const w_flags: i64 = STD_IO_O_WRONLY_LINUX | STD_IO_O_CREAT_LINUX | STD_IO_O_TRUNC_LINUX;
+    const a_flags: i64 = STD_IO_O_WRONLY_LINUX | STD_IO_O_CREAT_LINUX | STD_IO_O_APPEND_LINUX;
+    const w_plus_flags: i64 = STD_IO_O_RDWR_LINUX | STD_IO_O_CREAT_LINUX | STD_IO_O_TRUNC_LINUX;
+    const a_plus_flags: i64 = STD_IO_O_RDWR_LINUX | STD_IO_O_CREAT_LINUX | STD_IO_O_APPEND_LINUX;
     var i: usize = 0;
     const mode_len: usize = strlen(mode);
 
     while i < mode_len {
         const c: byte = mode[i];
         if c == 114 as byte {  // 'r'
-            flags = O_RDONLY;
+            flags = STD_IO_O_RDONLY_LINUX;
         } else if c == 119 as byte {  // 'w'
             flags = w_flags;
             create_mode = STD_IO_CREATE_MODE_USER_RWX;
@@ -175,14 +175,14 @@ export fn fopen(path: &const byte, mode: &const byte) &FILE {
             flags = a_flags;
             create_mode = STD_IO_CREATE_MODE_USER_RWX;
         } else if c == 43 as byte {  // '+'
-            if flags == O_RDONLY {
-                flags = O_RDWR;
+            if flags == STD_IO_O_RDONLY_LINUX {
+                flags = STD_IO_O_RDWR_LINUX;
             } else if flags == w_flags {
                 flags = w_plus_flags;
             } else if flags == a_flags {
                 flags = a_plus_flags;
             } else {
-                flags = O_RDWR;
+                flags = STD_IO_O_RDWR_LINUX;
             }
         }
         i = i + 1;

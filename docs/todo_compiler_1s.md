@@ -1845,7 +1845,20 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT`。
             - 实测 `bash tests/verify_native_profile_diagnostics_first_slice_contract.sh` 和
               `bash tests/verify_native_cmd_build_stage1.sh` 通过；本叶子未改生产 lowering。
-          - [ ] 迁入下一个 helper 的首切片并复测 frontier，然后按同一 helper 循环继续推进。
+          - [x] 迁入下一个 helper 的首切片并复测 frontier，然后按同一 helper 循环继续推进。
+            - 2026-06-11：迁入 `compiler_should_profile_diagnostics(...)` 首句
+              `const value: *byte = getenv("UYA_PROFILE_DIAGNOSTICS" as *byte)` 的
+              verifier-clean CoreBody/PortableMIR partial body；`make -B cmd-build
+              UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。期间 `cmd-build` 暴露
+              `lib/std/io/file.uya` 与 `lib/libc/stdlib.uya` 中部分 libc open flags 生成裸 C 宏，
+              已改为本地 Linux 数值常量以保持 C99 seed 可链接。
+            - 复跑 `bash tests/verify_native_profile_diagnostics_first_slice_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过；直接 self-build repro 仍以
+              status 1 明确拒绝写出，真实 frontier 推进到
+              `native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body`，
+              后续 pending body 首项为
+              `native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile decl=231 function_id=6 body_stmts=4 reason=pending_core_body`。
           - [ ] 候选示例仅作排队提醒，不能作为实现顺序来源：`print_usage`、
             `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
             `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。

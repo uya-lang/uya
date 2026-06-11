@@ -57,6 +57,18 @@ require_pattern "$BUILD_DRIVER_SRC" 'const value: \*byte = getenv\("UYA_PROFILE_
     "源码缺少 getenv local-decl 首语句"
 require_pattern "$BUILD_DRIVER_SRC" 'if value == null \|\| value\[0\] == 0 as byte' \
     "源码缺少首切片后的 null/empty branch"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_PROFILE_DIAGNOSTICS_FIRST_SLICE_PREFIX_STMT_COUNT: i32 = 1' \
+    "build driver 缺少 profile diagnostics 首切片 prefix 常量"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_profile_diagnostics_getenv_decl_supported' \
+    "build driver 缺少 profile diagnostics getenv 声明支持判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_profile_diagnostics_first_slice_body' \
+    "build driver 缺少 profile diagnostics CoreBody 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_profile_diagnostics_first_slice_body' \
+    "build driver 缺少 profile diagnostics CoreIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_profile_diagnostics_first_slice_mir_body' \
+    "build driver 缺少 profile diagnostics PortableMIR 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_profile_diagnostics_first_slice_body_function' \
+    "build driver 缺少 profile diagnostics PortableMIR builder"
 require_pattern "$CORE_FILE" 'CORE_STMT_KIND_LOCAL_DECL' \
     "CoreIR 缺少 local decl statement kind"
 require_pattern "$CORE_FILE" 'CORE_EXPR_KIND_CALL' \
@@ -64,8 +76,10 @@ require_pattern "$CORE_FILE" 'CORE_EXPR_KIND_CALL' \
 require_pattern "$MIR_FILE" 'MIR_INST_OP_CALL' \
     "PortableMIR 缺少 call inst kind"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics' \
-    "no-silent-C99 测试缺少当前 profile diagnostics pending frontier"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body' \
+    "no-silent-C99 测试缺少 profile diagnostics 首切片后继 frontier"
+require_pattern "$NO_SILENT_TEST" '不应在 profile diagnostics 首切片迁入后继续报告整个 helper pending' \
+    "no-silent-C99 测试缺少旧 profile diagnostics pending 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_profile_diagnostics_first_slice_contract\.sh' \
     "stage1 未纳入 profile diagnostics 首切片合同"
 

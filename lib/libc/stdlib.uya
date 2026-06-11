@@ -1054,6 +1054,7 @@ fn dir_state_buf_ptr_at(state: &DirState, idx: usize) &byte {
 
 var opendir_storage: [DirState: 64] = [];
 var readdir_result: Dirent = Dirent { d_ino: 0, d_off: 0, d_reclen: 0, d_type: 0, d_name: [] };
+const LIBC_OPENDIR_O_DIRECTORY_LINUX: i64 = 0x10000;
 
 // opendir - 打开目录（C 标准库兼容）
 // 返回：DIR*，失败返回 null
@@ -1069,7 +1070,7 @@ export extern "libc" fn opendir(name: &const byte) &DIR {
         }
         return host_dir as &DIR;
     }, {
-        const result: !i32 = sys_open(name, (O_RDONLY | O_DIRECTORY) as i32, 0);
+        const result: !i32 = sys_open(name, (O_RDONLY | LIBC_OPENDIR_O_DIRECTORY_LINUX) as i32, 0);
         const fd: i32 = result catch {
             return null;
         };

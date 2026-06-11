@@ -90,8 +90,8 @@ run_cmd_build_self_preflight_check() {
     grep -q '后端类型: Native' "$stderr"
     grep -q '类型检查通过' "$stderr"
     grep -q '=== 代码生成阶段 ===' "$stderr"
-    grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=7 pending_bodies=[1-9][0-9]*' "$stderr"
-    grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=6 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"
+    grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=8 pending_bodies=[1-9][0-9]*' "$stderr"
+    grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=7 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"
     grep -q 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' "$stderr"
@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -q 'native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics' "$stderr"
+    grep -q 'native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body' "$stderr"
+    if grep -q 'native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics' "$stderr"; then
+        echo "错误: $label self-build 不应在 profile diagnostics 首切片迁入后继续报告整个 helper pending" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 compile_stats released-bytes 迁入后继续报告 prefix_stmts=17" >&2
         cat "$stderr" >&2
