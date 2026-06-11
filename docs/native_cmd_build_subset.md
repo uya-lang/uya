@@ -2242,6 +2242,15 @@ fn native_build_decl_is_noarg_i32_fn(decl: &ASTNode) i32 {
    `native_hosted_reachable_body_complete: function=native_build_decl_is_noarg_i32_fn prefix_stmts=3 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+2026-06-11 实测迁入后，hosted native self-build frontier 前进为：
+
+```text
+native_hosted_coreir_preflight: status=0 verifier_error=0 functions=4022 core_bodies=40 pending_bodies=3505
+native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=481 mir_body_functions=39 mir_types=8 extern_symbols=478 c_import_objects=0 hosted_link_objects=0
+native_hosted_reachable_body_complete: function=native_build_decl_is_noarg_i32_fn prefix_stmts=3 reason=body_complete
+native_hosted_pending_body_frontier: function=native_build_decl_is_one_i32_param_fn decl=388 function_id=38 body_stmts=5 reason=pending_core_body
+```
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`

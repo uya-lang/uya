@@ -1387,9 +1387,17 @@ export extern "libc" fn sys_mmap(addr: *void, length: usize, prot: i32, flags: i
     std.cfg(std.target_arch == .ta_arm, {
         const page: i64 = 4096;
         const pgoff: i64 = offset / page;
-        return @syscall(SYS_mmap, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, pgoff) as! *void;
+        return @syscall(192 as i64, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, pgoff) as! *void;
     }, {
-        return @syscall(SYS_mmap, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset as i64) as! *void;
+        std.cfg(std.target_arch == .ta_arm64, {
+            return @syscall(222 as i64, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset as i64) as! *void;
+        }, {
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(222 as i64, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset as i64) as! *void;
+            }, {
+                return @syscall(9 as i64, addr as i64, length as i64, prot as i64, flags as i64, fd as i64, offset as i64) as! *void;
+            })
+        })
     })
 }
 

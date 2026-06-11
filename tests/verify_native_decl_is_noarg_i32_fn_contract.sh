@@ -48,6 +48,12 @@ require_pattern "$SUBSET_DOC" 'return native_build_type_is_i32\(decl\.fn_decl_re
     "subset doc 缺少 tail return type helper-call"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_complete: function=native_build_decl_is_noarg_i32_fn prefix_stmts=3 reason=body_complete' \
     "subset doc 缺少 body-complete frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[0-9]+ core_bodies=40 pending_bodies=[0-9]+' \
+    "subset doc 缺少 native_build_decl_is_noarg_i32_fn 迁入后的 CoreBody 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=39' \
+    "subset doc 缺少 native_build_decl_is_noarg_i32_fn 迁入后的 MIR body 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_decl_is_one_i32_param_fn .*body_stmts=5 reason=pending_core_body' \
+    "subset doc 缺少 native_build_decl_is_noarg_i32_fn 迁入后的下一 frontier"
 
 require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_decl_is_noarg_i32_fn\(decl: &ASTNode\) i32' \
     "源码缺少 native_build_decl_is_noarg_i32_fn helper"

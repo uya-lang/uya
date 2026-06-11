@@ -2808,8 +2808,20 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 迁入 `native_build_decl_is_noarg_i32_fn(...)` 的完整 body，使该 helper
+          - [x] 迁入 `native_build_decl_is_noarg_i32_fn(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
+            - 2026-06-11：在 `src/build_compiler_driver.uya` 中加入
+              `native_build_hosted_decl_can_materialize_decl_is_noarg_i32_fn_body(...)`、
+              `native_build_hosted_coreir_append_decl_is_noarg_i32_fn_body(...)`，
+              并让已有一参数 helper-call MIR emitter 覆盖该 helper 的 tail
+              `native_build_type_is_i32(decl.fn_decl_return_type)` call；`lib/libc/syscall.uya`
+              同步把 Linux `sys_mmap` fallback 改为 target-gated syscall number literal，
+              避免旧 build generator 发射裸 `SYS_mmap`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；
+              self-build native preflight 前进为 `core_bodies=40`、`mir_body_functions=39`，
+              新 frontier 为 `native_hosted_pending_body_frontier:
+              function=native_build_decl_is_one_i32_param_fn decl=388 function_id=38
+              body_stmts=5 reason=pending_core_body`。
           - [x] 迁入 `native_build_type_is_i32_like_ptr(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
             - 2026-06-11：在 `src/build_compiler_driver.uya` 中加入
