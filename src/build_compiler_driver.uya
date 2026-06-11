@@ -11011,38 +11011,72 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
     return 0;
 }
 
-// L994.B.1：检测 main() 2-stmt body 模式（@println(string_lit) + return N）
-fn native_build_hosted_decl_can_materialize_println_body(decl: &ASTNode) i32 {
-    if decl == null || decl.fn_decl_body == null {
-        return 0;
-    }
-    if decl.fn_decl_body.type != ASTNodeType.AST_BLOCK {
-        return 0;
-    }
-    if decl.fn_decl_body.block_stmt_count != 2 || decl.fn_decl_body.block_stmts == null {
-        return 0;
-    }
-    const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
-    if stmt0 == null {
-        return 0;
-    }
-    if stmt0.type != ASTNodeType.AST_PRINTLN && stmt0.type != ASTNodeType.AST_PRINT {
-        return 0;
-    }
-    if stmt0.print_expr == null || stmt0.print_expr.type != ASTNodeType.AST_STRING {
-        return 0;
-    }
-    const stmt1: &ASTNode = decl.fn_decl_body.block_stmts[1];
-    if stmt1 == null || stmt1.type != ASTNodeType.AST_RETURN_STMT {
-        return 0;
-    }
-    if stmt1.return_stmt_expr == null || stmt1.return_stmt_expr.type != ASTNodeType.AST_NUMBER {
+fn native_build_hosted_print_stmt_is_string(stmt: &ASTNode) i32 {
+    if stmt == null ||
+       (stmt.type != ASTNodeType.AST_PRINT && stmt.type != ASTNodeType.AST_PRINTLN) ||
+       stmt.print_expr == null || stmt.print_expr.type != ASTNodeType.AST_STRING ||
+       stmt.print_expr.string_literal_value == null {
         return 0;
     }
     return 1;
 }
 
-// L994.B.2：把 println/print 2-stmt body 转成 CoreBody
+fn native_build_hosted_print_sequence_shape(decl: &ASTNode,
+    out_print_stmt_count: &i32, out_return_stmt: & & ASTNode) i32 {
+    if out_print_stmt_count != null {
+        *out_print_stmt_count = 0;
+    }
+    if out_return_stmt != null {
+        *out_return_stmt = null;
+    }
+    if decl == null || decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       out_print_stmt_count == null || out_return_stmt == null {
+        return 0;
+    }
+    if decl.fn_decl_body.block_stmt_count == 2 {
+        const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
+        const ret0: &ASTNode = decl.fn_decl_body.block_stmts[1];
+        if native_build_hosted_print_stmt_is_string(stmt0) == 0 ||
+           ret0 == null || ret0.type != ASTNodeType.AST_RETURN_STMT ||
+           ret0.return_stmt_expr == null ||
+           ret0.return_stmt_expr.type != ASTNodeType.AST_NUMBER {
+            return 0;
+        }
+        *out_print_stmt_count = 1;
+        *out_return_stmt = ret0;
+        return 1;
+    }
+    if decl.fn_decl_body.block_stmt_count == 3 {
+        const stmt0b: &ASTNode = decl.fn_decl_body.block_stmts[0];
+        const stmt1b: &ASTNode = decl.fn_decl_body.block_stmts[1];
+        const ret1: &ASTNode = decl.fn_decl_body.block_stmts[2];
+        if native_build_hosted_print_stmt_is_string(stmt0b) == 0 ||
+           native_build_hosted_print_stmt_is_string(stmt1b) == 0 ||
+           stmt0b.type != ASTNodeType.AST_PRINT ||
+           stmt1b.type != ASTNodeType.AST_PRINTLN ||
+           ret1 == null || ret1.type != ASTNodeType.AST_RETURN_STMT ||
+           ret1.return_stmt_expr == null ||
+           ret1.return_stmt_expr.type != ASTNodeType.AST_NUMBER {
+            return 0;
+        }
+        *out_print_stmt_count = 2;
+        *out_return_stmt = ret1;
+        return 1;
+    }
+    return 0;
+}
+
+// L994.B.1：检测 main() print/println string body + return N 模式
+fn native_build_hosted_decl_can_materialize_println_body(decl: &ASTNode) i32 {
+    var print_stmt_count: i32 = 0;
+    var return_stmt: &ASTNode = null;
+    return native_build_hosted_print_sequence_shape(decl, &print_stmt_count,
+        &return_stmt);
+}
+
+// L994.B.2：把 println/print string body 转成 CoreBody
 fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
     checker: &TypeChecker, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -11050,38 +11084,53 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
        decl.fn_decl_body == null || decl.fn_decl_body.block_stmts == null {
         return -1;
     }
-    if native_build_hosted_decl_can_materialize_println_body(decl) == 0 {
+    var print_stmt_count: i32 = 0;
+    var return_stmt: &ASTNode = null;
+    if native_build_hosted_print_sequence_shape(decl, &print_stmt_count,
+        &return_stmt) == 0 {
         return -1;
     }
     const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
-    const stmt1: &ASTNode = decl.fn_decl_body.block_stmts[1];
-    if stmt0 == null || stmt1 == null {
+    var stmt1: &ASTNode = null;
+    if print_stmt_count == 2 {
+        stmt1 = decl.fn_decl_body.block_stmts[1];
+    }
+    if stmt0 == null || return_stmt == null || return_stmt.return_stmt_expr == null ||
+       stmt0.print_expr == null {
         return -1;
     }
-    const print_expr: &ASTNode = stmt0.print_expr;
-    if print_expr == null || print_expr.type != ASTNodeType.AST_STRING ||
-       print_expr.string_literal_value == null {
-        return -1;
+    const print_expr0: &ASTNode = stmt0.print_expr;
+    var print_expr1: &ASTNode = null;
+    if print_stmt_count == 2 {
+        if stmt1 == null || stmt1.print_expr == null {
+            return -1;
+        }
+        print_expr1 = stmt1.print_expr;
     }
-    const return_stmt_expr: &ASTNode = stmt1.return_stmt_expr;
+    const return_stmt_expr: &ASTNode = return_stmt.return_stmt_expr;
     var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
     if native_build_hosted_ensure_expr_type_id(checker, return_stmt_expr,
         &return_type_id) != 0 {
         return -1;
     }
-    const string_len: i32 = strlen(print_expr.string_literal_value as *byte) as! i32 catch {
+    const string_len0: i32 = strlen(print_expr0.string_literal_value as *byte) as! i32 catch {
         return -1;
     };
-    var has_newline: i32 = 0;
+    var string_len1: i32 = 0;
+    if print_stmt_count == 2 {
+        string_len1 = strlen(print_expr1.string_literal_value as *byte) as! i32 catch {
+            return -1;
+        };
+    }
+    var newline_count: i32 = 0;
     if stmt0.type == ASTNodeType.AST_PRINTLN {
-        has_newline = 1;
+        newline_count = newline_count + 1;
     }
-    var root_stmt_count: i32 = 2;
-    var expr_count: i32 = 4;
-    if has_newline != 0 {
-        root_stmt_count = 3;
-        expr_count = 5;
+    if print_stmt_count == 2 && stmt1.type == ASTNodeType.AST_PRINTLN {
+        newline_count = newline_count + 1;
     }
+    const root_stmt_count: i32 = print_stmt_count + newline_count + 1;
+    const expr_count: i32 = 1 + (print_stmt_count * 2) + newline_count + 1;
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
     const expr_start: i32 = lowered.core_expr_count as i32;
@@ -11107,21 +11156,21 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         return_stmt_expr, return_type_id, 1) != 0 {
         return -1;
     }
-    const len_expr_id: i32 = lowered.core_expr_count as i32;
+    const len_expr0_id: i32 = lowered.core_expr_count as i32;
     if native_build_hosted_coreir_append_i32_const_expr(lowered, body_id,
-        print_expr, return_type_id, string_len) != 0 {
+        print_expr0, return_type_id, string_len0) != 0 {
         return -1;
     }
-    const write_str_call_expr_id: i32 = lowered.core_expr_count as i32;
-    var write_str_call_expr: CoreExpr = CoreExpr{
-        expr_id: write_str_call_expr_id,
+    const write0_call_expr_id: i32 = lowered.core_expr_count as i32;
+    var write0_call_expr: CoreExpr = CoreExpr{
+        expr_id: write0_call_expr_id,
         kind: CORE_EXPR_KIND_CALL,
         body_id: body_id,
-        source_expr_id: print_expr.expr_id,
+        source_expr_id: print_expr0.expr_id,
         type_id: return_type_id,
         literal_i64: 0i64,
         lhs_expr_id: fd_expr_id,
-        rhs_expr_id: len_expr_id,
+        rhs_expr_id: len_expr0_id,
         callee_expr_id: CORE_EXPR_INVALID_ID,
         place_id: CORE_PLACE_INVALID_ID,
         target_function_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
@@ -11129,17 +11178,17 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         field_id: TYPED_PROGRAM_INVALID_ID,
         proof_result_id: TYPED_PROGRAM_INVALID_ID,
         capability_id: TYPED_PROGRAM_INVALID_ID,
-        source_span_id: print_expr.line,
+        source_span_id: print_expr0.line,
         flags: 0,
     };
-    if lowered_program_append_core_expr(lowered, &write_str_call_expr) != 0 {
+    if lowered_program_append_core_expr(lowered, &write0_call_expr) != 0 {
         return -1;
     }
-    var newline_call_expr_id: i32 = CORE_EXPR_INVALID_ID;
-    if has_newline != 0 {
-        newline_call_expr_id = lowered.core_expr_count as i32;
-        var newline_call_expr: CoreExpr = CoreExpr{
-            expr_id: newline_call_expr_id,
+    var newline0_call_expr_id: i32 = CORE_EXPR_INVALID_ID;
+    if stmt0.type == ASTNodeType.AST_PRINTLN {
+        newline0_call_expr_id = lowered.core_expr_count as i32;
+        var newline0_call_expr: CoreExpr = CoreExpr{
+            expr_id: newline0_call_expr_id,
             kind: CORE_EXPR_KIND_CALL,
             body_id: body_id,
             source_expr_id: stmt0.expr_id,
@@ -11157,8 +11206,65 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
             source_span_id: stmt0.line,
             flags: 0,
         };
-        if lowered_program_append_core_expr(lowered, &newline_call_expr) != 0 {
+        if lowered_program_append_core_expr(lowered, &newline0_call_expr) != 0 {
             return -1;
+        }
+    }
+    var write1_call_expr_id: i32 = CORE_EXPR_INVALID_ID;
+    var newline1_call_expr_id: i32 = CORE_EXPR_INVALID_ID;
+    if print_stmt_count == 2 {
+        const len_expr1_id: i32 = lowered.core_expr_count as i32;
+        if native_build_hosted_coreir_append_i32_const_expr(lowered, body_id,
+            print_expr1, return_type_id, string_len1) != 0 {
+            return -1;
+        }
+        write1_call_expr_id = lowered.core_expr_count as i32;
+        var write1_call_expr: CoreExpr = CoreExpr{
+            expr_id: write1_call_expr_id,
+            kind: CORE_EXPR_KIND_CALL,
+            body_id: body_id,
+            source_expr_id: print_expr1.expr_id,
+            type_id: return_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: fd_expr_id,
+            rhs_expr_id: len_expr1_id,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
+            target_decl_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: print_expr1.line,
+            flags: 0,
+        };
+        if lowered_program_append_core_expr(lowered, &write1_call_expr) != 0 {
+            return -1;
+        }
+        if stmt1.type == ASTNodeType.AST_PRINTLN {
+            newline1_call_expr_id = lowered.core_expr_count as i32;
+            var newline1_call_expr: CoreExpr = CoreExpr{
+                expr_id: newline1_call_expr_id,
+                kind: CORE_EXPR_KIND_CALL,
+                body_id: body_id,
+                source_expr_id: stmt1.expr_id,
+                type_id: return_type_id,
+                literal_i64: 0i64,
+                lhs_expr_id: fd_expr_id,
+                rhs_expr_id: CORE_EXPR_INVALID_ID,
+                callee_expr_id: CORE_EXPR_INVALID_ID,
+                place_id: CORE_PLACE_INVALID_ID,
+                target_function_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+                target_decl_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+                field_id: TYPED_PROGRAM_INVALID_ID,
+                proof_result_id: TYPED_PROGRAM_INVALID_ID,
+                capability_id: TYPED_PROGRAM_INVALID_ID,
+                source_span_id: stmt1.line,
+                flags: 0,
+            };
+            if lowered_program_append_core_expr(lowered, &newline1_call_expr) != 0 {
+                return -1;
+            }
         }
     }
     const ret_expr_id: i32 = lowered.core_expr_count as i32;
@@ -11166,14 +11272,18 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         return_stmt_expr, return_type_id) != 0 {
         return -1;
     }
-    var call_stmt: CoreStmt = CoreStmt{
+    if lowered_program_append_core_body(lowered, &body) != 0 {
+        return -1;
+    }
+    var stmt_cursor: i32 = stmt_start;
+    var call0_stmt: CoreStmt = CoreStmt{
         stmt_id: stmt_start,
         kind: CORE_STMT_KIND_EXPR,
         body_id: body_id,
         parent_stmt_id: CORE_STMT_INVALID_ID,
         first_child_stmt: CORE_STMT_INVALID_ID,
         child_stmt_count: 0,
-        expr_id: write_str_call_expr_id,
+        expr_id: write0_call_expr_id,
         place_id: CORE_PLACE_INVALID_ID,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
         cleanup_edge_count: 0,
@@ -11181,27 +11291,75 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
         flags: 0,
     };
-    var newline_stmt: CoreStmt = CoreStmt{
-        stmt_id: stmt_start + 1,
-        kind: CORE_STMT_KIND_EXPR,
-        body_id: body_id,
-        parent_stmt_id: CORE_STMT_INVALID_ID,
-        first_child_stmt: CORE_STMT_INVALID_ID,
-        child_stmt_count: 0,
-        expr_id: newline_call_expr_id,
-        place_id: CORE_PLACE_INVALID_ID,
-        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
-        cleanup_edge_count: 0,
-        source_span_id: stmt0.line,
-        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
-        flags: 0,
-    };
-    var ret_stmt_id: i32 = stmt_start + 1;
-    if has_newline != 0 {
-        ret_stmt_id = stmt_start + 2;
+    if lowered_program_append_core_stmt(lowered, &call0_stmt) != 0 {
+        return -1;
+    }
+    stmt_cursor = stmt_cursor + 1;
+    if newline0_call_expr_id != CORE_EXPR_INVALID_ID {
+        var newline0_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_cursor,
+            kind: CORE_STMT_KIND_EXPR,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: newline0_call_expr_id,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt0.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &newline0_stmt) != 0 {
+            return -1;
+        }
+        stmt_cursor = stmt_cursor + 1;
+    }
+    if print_stmt_count == 2 {
+        var call1_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_cursor,
+            kind: CORE_STMT_KIND_EXPR,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: write1_call_expr_id,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt1.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &call1_stmt) != 0 {
+            return -1;
+        }
+        stmt_cursor = stmt_cursor + 1;
+        if newline1_call_expr_id != CORE_EXPR_INVALID_ID {
+            var newline1_stmt: CoreStmt = CoreStmt{
+                stmt_id: stmt_cursor,
+                kind: CORE_STMT_KIND_EXPR,
+                body_id: body_id,
+                parent_stmt_id: CORE_STMT_INVALID_ID,
+                first_child_stmt: CORE_STMT_INVALID_ID,
+                child_stmt_count: 0,
+                expr_id: newline1_call_expr_id,
+                place_id: CORE_PLACE_INVALID_ID,
+                cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+                cleanup_edge_count: 0,
+                source_span_id: stmt1.line,
+                cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+                flags: 0,
+            };
+            if lowered_program_append_core_stmt(lowered, &newline1_stmt) != 0 {
+                return -1;
+            }
+            stmt_cursor = stmt_cursor + 1;
+        }
     }
     var ret_stmt: CoreStmt = CoreStmt{
-        stmt_id: ret_stmt_id,
+        stmt_id: stmt_cursor,
         kind: CORE_STMT_KIND_RETURN,
         body_id: body_id,
         parent_stmt_id: CORE_STMT_INVALID_ID,
@@ -11211,24 +11369,17 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         place_id: CORE_PLACE_INVALID_ID,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
         cleanup_edge_count: 0,
-        source_span_id: stmt1.line,
+        source_span_id: return_stmt.line,
         cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
         flags: 0,
     };
-    if lowered_program_append_core_body(lowered, &body) != 0 ||
-       lowered_program_append_core_stmt(lowered, &call_stmt) != 0 {
-        return -1;
-    }
-    if has_newline != 0 &&
-       lowered_program_append_core_stmt(lowered, &newline_stmt) != 0 {
-        return -1;
-    }
     if lowered_program_append_core_stmt(lowered, &ret_stmt) != 0 {
         return -1;
     }
     fprintf(libc.stderr,
         "native_hosted_print_coreir_body: calls=%d write_str=1 newline=%d exprs=%d stmts=%d bytes=%d\n" as *byte,
-        1 + has_newline, has_newline, expr_count, root_stmt_count, string_len);
+        print_stmt_count + newline_count, newline_count, expr_count, root_stmt_count,
+        string_len0 + string_len1);
     return 0;
 }
 
@@ -33914,29 +34065,54 @@ fn native_build_hosted_main_print_helloworld(program: &ASTNode,
         if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
            decl.fn_decl_name != null &&
            str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 &&
-           native_build_hosted_decl_can_materialize_println_body(decl) != 0 &&
            decl.fn_decl_body != null &&
            decl.fn_decl_body.block_stmts != null {
+            var print_stmt_count: i32 = 0;
+            var return_stmt: &ASTNode = null;
+            if native_build_hosted_print_sequence_shape(decl, &print_stmt_count,
+                &return_stmt) == 0 || return_stmt == null ||
+               return_stmt.return_stmt_expr == null {
+                return 0;
+            }
+            const return_value: i32 = return_stmt.return_stmt_expr.number_value_i64 as! i32 catch {
+                return 0;
+            };
+            if return_value != 0 {
+                return 0;
+            }
             const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
-            const stmt1: &ASTNode = decl.fn_decl_body.block_stmts[1];
-            if stmt0 != null && stmt1 != null &&
+            if print_stmt_count == 1 && stmt0 != null &&
                stmt0.type == ASTNodeType.AST_PRINTLN &&
                stmt0.print_expr != null &&
                stmt0.print_expr.string_literal_value != null &&
                str_equals(stmt0.print_expr.string_literal_value as *byte,
-                "Hello, World!" as *byte) != 0 &&
-               stmt1.return_stmt_expr != null {
-                const return_value: i32 = stmt1.return_stmt_expr.number_value_i64 as! i32 catch {
-                    return 0;
-                };
-                if return_value != 0 {
-                    return 0;
-                }
+                "Hello, World!" as *byte) != 0 {
                 const string_len: i32 = strlen(stmt0.print_expr.string_literal_value as *byte) as! i32 catch {
                     return 0;
                 };
                 *out_text = stmt0.print_expr.string_literal_value as &byte;
                 *out_text_len = string_len;
+                *out_has_newline = 1;
+                *out_return_value = return_value;
+                return 1;
+            }
+            const stmt1: &ASTNode = decl.fn_decl_body.block_stmts[1];
+            if print_stmt_count == 2 && stmt0 != null && stmt1 != null &&
+               stmt0.type == ASTNodeType.AST_PRINT &&
+               stmt1.type == ASTNodeType.AST_PRINTLN &&
+               stmt0.print_expr != null && stmt1.print_expr != null &&
+               stmt0.print_expr.string_literal_value != null &&
+               stmt1.print_expr.string_literal_value != null &&
+               str_equals(stmt0.print_expr.string_literal_value as *byte,
+                "Hello" as *byte) != 0 &&
+               str_equals(stmt1.print_expr.string_literal_value as *byte,
+                ", World!" as *byte) != 0 {
+                const combined_text: &byte = "Hello, World!" as &byte;
+                const combined_len: i32 = strlen(combined_text as *byte) as! i32 catch {
+                    return 0;
+                };
+                *out_text = combined_text;
+                *out_text_len = combined_len;
                 *out_has_newline = 1;
                 *out_return_value = return_value;
                 return 1;
