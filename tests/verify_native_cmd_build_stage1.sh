@@ -72,6 +72,7 @@ bash "$SCRIPT_DIR/verify_native_type_is_usize_contract.sh"
 bash "$SCRIPT_DIR/verify_native_type_named_equals_contract.sh"
 bash "$SCRIPT_DIR/verify_native_decl_returns_param_directly_contract.sh"
 bash "$SCRIPT_DIR/verify_native_type_is_backend_type_contract.sh"
+bash "$SCRIPT_DIR/verify_native_type_is_i32_like_scalar_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
