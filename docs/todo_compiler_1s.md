@@ -1195,7 +1195,10 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 
 - [x] 覆盖矩阵中所有 main 分支已启用语言面都有 `done` 或明确 `reject` 状态。
 - [x] `reject` 状态都有可复现 diagnostic，且不是 C99 fallback 或 pre-MIR helper。
-- [ ] HelloWorld 作为 MIR -> Native 首个目标完成 native/C99 parity。
+- [x] HelloWorld 作为 MIR -> Native 首个目标完成 native/C99 parity。
+  # 2026-06-11：`bash tests/verify_hosted_native_helloworld_parity.sh` 验证
+  # hw1 hosted native 真实生成 executable、运行 exit 0，stdout 与 C99 oracle
+  # 字节级一致，并固定 CoreBody / PortableMIR / print writer path 证据。
 - [ ] Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
 
 ---
