@@ -984,6 +984,49 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=native_build_empty_vector prefix_stmts=1 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+## `native_build_lowered_plan_empty()` Body Complete Contract
+
+`native_build_empty_vector()` body complete 后，当前真实 pending frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_lowered_plan_empty decl=299 function_id=9 body_stmts=1 reason=pending_core_body
+```
+
+函数源码返回嵌套 `NativeBuildLoweredPlan`：
+
+```text
+fn native_build_lowered_plan_empty() NativeBuildLoweredPlan {
+    return NativeBuildLoweredPlan{
+        lowered: LoweredProgram{
+            arena: null,
+            function_count: 0usize,
+            global_count: 0usize,
+            ...
+            functions: native_build_empty_vector(),
+            body_ops: native_build_empty_vector(),
+            ...
+            worklist: native_build_empty_vector(),
+        },
+        entry_index: -1,
+    };
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须生成单条 `CORE_STMT_KIND_RETURN`，返回表达式保持 `NativeBuildLoweredPlan`
+   struct literal surface，且 `lowered` 字段保持嵌套 `LoweredProgram` struct literal。
+2. `LoweredProgram` 的 scalar 字段必须保持空值语义：`arena = null`、所有 count/bytes 字段为
+   `0usize`、`lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED`。
+3. 所有 vector 字段必须保持 `native_build_empty_vector()` call surface，不得提前内联成不完整
+   placeholder，也不得丢失字段顺序：`functions`、`body_ops`、`core_bodies`、`core_stmts`、
+   `core_exprs`、`core_places`、`core_cleanup_edges`、`core_semantic_facts`、`globals`、`types`、
+   `interfaces`、`err_unions`、`async_frames`、`drop_defer_plans`、`helpers`、`worklist`。
+4. 外层 `entry_index` 必须保持 `-1`，不得改成 `0`。
+5. 该切片迁入后 `native_build_lowered_plan_empty()` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_lowered_plan_empty prefix_stmts=1 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

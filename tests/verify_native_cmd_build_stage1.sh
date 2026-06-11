@@ -50,6 +50,7 @@ bash "$SCRIPT_DIR/verify_native_print_diagnostic_profile_checker_branch_contract
 bash "$SCRIPT_DIR/verify_native_print_diagnostic_profile_tail_fprintf_contract.sh"
 bash "$SCRIPT_DIR/verify_native_ast_plan_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_empty_vector_contract.sh"
+bash "$SCRIPT_DIR/verify_native_lowered_plan_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
