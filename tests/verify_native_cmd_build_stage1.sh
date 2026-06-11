@@ -63,6 +63,7 @@ bash "$SCRIPT_DIR/verify_native_interface_method_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_direct_method_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_struct_union_enum_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_atomic_i32_shape_empty_contract.sh"
+bash "$SCRIPT_DIR/verify_native_simd_vector_mask_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
