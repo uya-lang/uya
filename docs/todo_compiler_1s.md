@@ -980,9 +980,15 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
     # `__uya_write_newline` two-operand SysV call 序列；`verify_portable_mir_verifier`、
     # `verify_portable_mir_backend_interface`、`verify_native_hosted_link_contract`、
     # `verify_portable_mir_core_body_lowering` 和 `git diff --check` 通过。
-  - [ ] 在 `lib/std/runtime/` 内补 hosted profile 的 `__uya_print_i32` /
+  - [x] 在 `lib/std/runtime/` 内补 hosted profile 的 `__uya_print_i32` /
     `__uya_print_str` / `__uya_write_newline` helper（~200 行），并接入
     `bin/uya` 链接流程。
+    # 2026-06-11: 新增 `lib/std/runtime/hosted_print_helpers.c` 与
+    # `tests/verify_hosted_native_runtime_print_helpers.sh`，host cc 编译/链接/运行
+    # canonical `__uya_*` helper 和 `uya_write*` bridge；`verify_native_hosted_link_contract`、
+    # `verify_hosted_native_print_helper_link_plan`、`verify_hosted_native_helloworld_parity`、
+    # `verify_hosted_native_print_native_emitter_call`、`git diff --check` 和
+    # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
   - [ ] 修 `src/build_compiler_driver.uya` 的 hosted native 主路径，把
     `native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing`
     替换为真实 lowering 调用。

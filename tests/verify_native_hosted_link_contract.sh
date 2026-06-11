@@ -46,10 +46,14 @@ for symbol in \
     native_hosted_link_plan_is_complete \
     native_hosted_link_plan_add_extern_symbol \
     native_hosted_link_plan_add_print_helper_object \
-    native_hosted_link_plan_add_c_import_object; do
+    native_hosted_link_plan_add_c_import_object \
+    native_hosted_print_helper_runtime_source_path \
+    native_hosted_print_helper_runtime_object_count \
+    native_hosted_print_helper_runtime_symbol_count; do
     require_pattern "$HOSTED_LINK_FILE" "$symbol" "hosted link symbol $symbol"
 done
 
+require_pattern "$HOSTED_LINK_FILE" 'std/runtime/hosted_print_helpers\.c' "hosted print helper runtime source path"
 require_pattern "$HOSTED_LINK_FILE" 'request\.backend_kind[[:space:]]*!=[[:space:]]*MIR_TARGET_BACKEND_MACHINE' "Machine backend request gate"
 require_pattern "$HOSTED_LINK_FILE" 'portable_mir_backend_request_is_verified' "verifier-clean request gate"
 require_pattern "$HOSTED_LINK_FILE" 'runtime_mode[[:space:]]*!=[[:space:]]*MIR_RUNTIME_MODE_HOSTED' "hosted runtime gate"
@@ -316,6 +320,8 @@ test "hosted native link plan records host ABI linker requirements" {
     try assert_eq_i32(native_hosted_link_plan_has(&plan, NATIVE_HOSTED_LINK_REQUIRE_MALLOC), 1);
     try assert_eq_i32(native_hosted_link_plan_has(&plan, NATIVE_HOSTED_LINK_REQUIRE_EXTERN), 1);
     try assert_eq_i32(native_hosted_link_plan_has(&plan, NATIVE_HOSTED_LINK_REQUIRE_C_IMPORT), 1);
+    try assert_eq_i32(native_hosted_print_helper_runtime_object_count(), 1);
+    try assert_eq_i32(native_hosted_print_helper_runtime_symbol_count(), 6);
     try assert_eq_i32(native_hosted_link_plan_add_extern_symbol(&plan, 77), 0);
     try assert_eq_i32(native_hosted_link_plan_add_print_helper_object(&plan), 0);
     try assert_eq_i32(native_hosted_link_plan_add_print_helper_object(&plan), 0);
