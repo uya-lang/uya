@@ -2075,6 +2075,39 @@ native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28
 native_hosted_pending_body_frontier: function=native_build_type_is_i32_like_ptr decl=372 function_id=34 body_stmts=2 reason=pending_core_body
 ```
 
+## `native_build_type_is_i32_like_ptr(...)` Body Complete Contract
+
+当前真实 frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_type_is_i32_like_ptr decl=372 function_id=34 body_stmts=2 reason=pending_core_body
+```
+
+当前源码 body surface 必须保持为 2 条顶层 statement：
+
+```uya
+fn native_build_type_is_i32_like_ptr(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_POINTER ||
+       type_node.type_pointer_is_ffi_pointer != 0 || type_node.type_pointer_is_const != 0 {
+        return 0;
+    }
+    return native_build_type_is_i32_like_scalar(type_node.type_pointer_pointed_type);
+}
+```
+
+合同：
+
+1. CoreBody 必须覆盖完整 2 statement body surface：pointer null/type guard、
+   FFI pointer / const pointer 排除，以及
+   `native_build_type_is_i32_like_scalar(type_node.type_pointer_pointed_type)` helper-call return。
+2. guard 分支必须保持失败返回 `0`；tail return 必须保留 pointed-type 读取和 helper-call
+   surface，不得压成常量或跳过被调 helper。
+3. PortableMIR 必须保留 helper-to-helper call surface，不得把该 helper 降成单一常量
+   return 或 pending body。
+4. 该切片迁入后 `native_build_type_is_i32_like_ptr(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_type_is_i32_like_ptr prefix_stmts=2 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
