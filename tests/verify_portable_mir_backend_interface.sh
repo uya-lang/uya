@@ -67,7 +67,7 @@ require_pattern "$PORTABLE_MIR_DOC" '语言 lowering，而不是让 native、PTX
 require_pattern "$PORTABLE_MIR_DOC" '某个 feature 未实现时必须表现为缺失合同' "whitepaper feature gaps surface before backend"
 require_pattern "$PORTABLE_MIR_DOC" 'request\.module` 是 backend 的唯一 IR' "whitepaper PortableMIR-only backend input"
 require_pattern "$PORTABLE_MIR_DOC" '输入，且必须来自 verifier 通过后的 `PortableMirModule`' "whitepaper verified PortableMIR input"
-require_pattern "$PORTABLE_MIR_DOC" 'MachineModule.*PtxModule.*ExecBytecode.*C99Plan' "whitepaper backend output mapping"
+require_pattern "$PORTABLE_MIR_DOC" 'MachineModule.*PtxModule.*ExecBytecode.*MirC99Plan' "whitepaper backend output mapping"
 require_pattern "$PORTABLE_MIR_DOC" 'backend 不允许新增 generic instance' "whitepaper backend cannot own language discovery"
 require_pattern "$ARCH_DOC" 'MirTargetBackendRequest' "architecture backend request"
 require_pattern "$ARCH_DOC" '不能新增 `TypedProgram`' "architecture forbids TypedProgram backend entry"

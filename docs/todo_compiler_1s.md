@@ -898,19 +898,22 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
 
 ## Phase 9B: 完整语言到 CoreBody / PortableMIR
 
-Phase 9B 是 native self-build 的通用语言基础。本阶段目标是让普通 Uya 程序按通用规则进入
-`CoreBody -> PortableMIR -> NativeMirEmitter`，而不是继续围绕 `cmd/build` 或某个 smoke 手写特殊
-lowering。self-build 只能消费本阶段已经验证过的 MIR 语言能力；如果 `cmd/build` 需要新的语法、builtin、
-标准库入口或 runtime capability，先回到本阶段补通用 lowering 和 C99 parity，再复验 self-build。
+Phase 9B 是所有后端的通用语言基础。本阶段目标是让普通 Uya 程序按通用规则进入
+`CoreBody -> PortableMIR`，再由 target backend 消费；第一优先级改为独立
+`PortableMIR -> minimal C99`，native 后端随后作为另一个 MIR consumer 补齐。self-build 只能消费本阶段
+已经验证过的 MIR 语言能力；如果 `cmd/build` 需要新的语法、builtin、标准库入口或 runtime capability，
+先回到本阶段补通用 lowering 和 MIR-C99 / 现有 C99 oracle parity，再复验 self-build。
 
 执行原则：
 
-- 每个叶子先补 hosted native / C99 parity 或明确 reject 门禁，再改 CoreBody / PortableMIR lowering。
-- 以 C99 backend 作为 oracle；native 成功时必须真实生成 executable，不允许 C99 fallback、pre-MIR helper
-  或 one-off `LoweredBodyOp`。
+- 每个叶子先补 MIR-C99 / 现有 C99 oracle parity 或明确 reject 门禁，再改 CoreBody / PortableMIR lowering；
+  native parity 作为 MIR-C99 稳定后的后续验证。
+- 现有 AST/LoweredProgram C99 backend 只作为 oracle、fallback 和 release 兜底；新的 MIR-C99 后端必须独立，
+  不得混用现有 `src/codegen/c99*` 的 AST planner/emitter 成功路径，也不得把 AST/LoweredProgram 回查当成
+  MIR lowering 的一部分。
 - 按 AST / CoreStmt / CoreExpr / CorePlace / builtin / 标准库入口建立覆盖矩阵，不能只靠单个 smoke 名称。
 - `@print` / `@println` 和标准库入口属于完整语言到 MIR 的基础语言面，不得推迟到 `cmd/build` self-build
-  后再处理；HelloWorld 是 MIR -> Native 的首个端到端目标，不作为 Phase 9B 的第一个执行叶子。
+  后再处理；HelloWorld 先作为 MIR -> minimal C99 的端到端目标，native 版本不作为 Phase 9B 的第一个执行叶子。
 
 MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执行叶子从“覆盖矩阵合同”开始）：
 
@@ -924,16 +927,16 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
 - CoreBody -> MIR lowering 层：每迁入一个 AST/Core/builtin 叶子，先补最小 source shard，检查
   CoreBody surface、PortableMIR dump、verifier clean 和 diagnostic；禁止 lowering 过程回查 `TypedProgram`、
   走 C99 fallback、pre-MIR helper 或 one-off `LoweredBodyOp`。
-- MIR -> backend import 层：继续用 `tests/verify_native_mir_emitter.sh` 和 hosted import preflight 固定
-  `NativeMirEmitter` 消费 verifier-clean MIR 的 function/block/inst/import 计数；后端不得直接消费 AST/Core
-  或手写旧 native helper。
-- 端到端 parity 层：每个成功 shard 都必须 native/C99 stdout、stderr、退出码一致，native 必须真实生成并运行
-  executable；新增 Phase 9B shard 和已迁 MIR success shard 不得出现
-  `native_hosted_portable_mir_lowering_missing`、C99 fallback 或 pre-MIR helper 成功路径。
+- MIR -> backend import 层：先新增独立 MIR-C99 后端的 import/preflight gate，固定 verifier-clean MIR 的
+  function/block/inst/import 计数和最小 C99 text 生成证据；后续再用 `tests/verify_native_mir_emitter.sh` 和
+  hosted import preflight 固定 `NativeMirEmitter`。任一后端都不得直接消费 AST/Core 或手写旧 native helper。
+- 端到端 parity 层：每个成功 shard 都必须 MIR-C99 / 现有 C99 oracle 的 stdout、stderr、退出码一致；
+  MIR-C99 必须真实生成可由 host C99 compiler 编译、链接、运行的产物。新增 Phase 9B shard 和已迁 MIR success
+  shard 不得出现现有 C99 backend 混用、C99 fallback 或 pre-MIR helper 成功路径。
 - reject shard 在覆盖矩阵和专用 diagnostic 落地后，必须与覆盖矩阵中的 `reject` 状态一致；在该迁移完成前，
   现有 `tests/verify_hosted_native_full_language_smoke.sh` 中复杂 no-deps shard 的
   `native_hosted_portable_mir_lowering_missing` 只作为 legacy 边界，不作为 Phase 9B 新增 shard 的通过条件。
-- HelloWorld 是 MIR -> Native 的第一条端到端 parity 目标；它通过前，不把 self-build 当作当前主驱动。
+- HelloWorld 是 MIR -> minimal C99 的第一条端到端 parity 目标；它通过前，不把 self-build 或 native 当作当前主驱动。
 
 覆盖矩阵合同：
 
@@ -1383,6 +1386,8 @@ make backup-all
 - [ ] 内存 KPI 达标。
 - [x] 默认安全证明路径保留。  # 2026-06-10: `src/compile.sh:335` `USE_SAFETY_PROOF=true`；`make uya`/`make uya-hosted`/`make b` 全部硬编码 `--safety-proof`；`make check` 主线未变。
 - [ ] C99 backend 完整支持 Uya 语言，并与 main 分支语言行为兼容。
+- [ ] 独立 MIR-C99 backend 经由 `PortableMIR` 完整支持 Uya 语言，并与现有 C99 oracle 行为兼容；该后端只能输出
+  最小低级 C99，不得混用现有 AST/LoweredProgram C99 planner/emitter 成功路径。
 - [ ] Hosted native backend 经由 `PortableMIR` 完整支持 Uya 语言，并与 C99 / main 分支语言行为兼容。
 - [x] Freestanding native build-seed 子集只作为 legacy no-silent-C99 fallback / capability diagnostic 边界保留，
   不再作为发布成功标准或后续任务来源。  # 2026-06-10: 合同文档 `docs/native_cmd_build_subset.md` 与
@@ -1401,7 +1406,8 @@ make backup-all
 
 ## 当前下一步
 
-剩余工作按通用语言结构和 native 主路径推进。`cmd/build` 只作为普通合法 Uya 程序的验收输入；
+剩余工作按通用语言结构和独立 MIR-C99 主路径推进，native 作为 MIR-C99 完整验证后的后续 target；
+`cmd/build` 只作为普通合法 Uya 程序的验收输入；
 文档不再设置单独的 helper 子集阶段。主清单里的 `[x]` / `[~]` / `[ ]` 仍是唯一状态来源；
 本段只做执行索引。
 
@@ -1416,13 +1422,21 @@ make backup-all
   `native_build_*shape*` 这类生产成功路径。
 - 如果 `cmd/build --native` 暴露缺口，缺口必须归类到通用语言结构（CFG、place/memory、call ABI、
   cleanup/error、runtime capability、MIR 指令选择等），先补通用覆盖，再复验自举。
-- 验收必须同时满足：旧 helper-specific 成功路径已删除或不可达、`cmd/build --native` 自举成功、
-  新 native `cmd/build` 能复跑自举/回归，并且 `tests/` 下相关及最终全量测试通过。
+- `MIR -> C99` 优先于 `MIR -> native`：新 C99 后端把 C99 当 portable assembly，只要求 host C99 compiler
+  能编译、链接、运行，不追求可读性、源码结构还原或原始变量名。
+- 新 C99 后端必须独立于现有 AST/LoweredProgram C99 后端；现有 C99 只能作为 oracle/fallback/release 兜底，
+  不能作为 MIR-C99 的内部实现、成功路径或语义补丁来源。
+- MIR-C99 阶段验收必须满足：旧 helper-specific 成功路径已删除或不可达，合法程序可经
+  `CoreBody -> PortableMIR -> minimal C99` 生成 host C99 compiler 可编译运行的产物，MIR-C99-built
+  compiler 能复跑自举/回归，并且相关 `tests/` 通过。
+- 后续 native 阶段验收必须满足：`cmd/build --native` 自举成功，新 native `cmd/build` 能复跑自举/回归，
+  并且最终全量测试通过。
 
 执行规则：
 
 - 每次只把一个主清单叶子标成 `[~]`；本索引里的分组名不单独标状态。
-- 每个实现叶子都先补通用合同和差分测试，再改 generic lowering / NativeMirEmitter。
+- 每个实现叶子都先补通用合同和差分测试，再改 generic lowering / MIR-C99 后端；NativeMirEmitter 只在
+  MIR-C99 证明对应语言面后跟进。
 - 可以运行 self-build 来收集 frontier，但 frontier 必须归因到通用语言结构；不能按 helper 名称、
   固定 statement count 或 `cmd/build` 特定 body shape 生成成功路径。
 - 单叶子验证优先使用：`git diff --check`、coverage verifier、PortableMIR focused gate、full-language
@@ -1431,38 +1445,51 @@ make backup-all
 
 差分队列：
 
-0. GENERIC-LANGUAGE-NATIVE：继续补齐合法 Uya 程序到 `CoreBody -> PortableMIR -> NativeMirEmitter` 的通用路径。
+0. MIR-C99-INDEPENDENT-BACKEND：新增独立 `PortableMIR -> minimal C99` target，作为 native 前的第一主路径。
+   - 合同叶子：定义 `MirC99Plan` / `MirC99Unit` / `MirC99Emitter` 的最小结构，命名上与现有 `C99Plan`
+     区分；明确禁止调用现有 AST/LoweredProgram C99 planner/emitter 来通过 MIR-C99 测试。
+   - 合同叶子：固定最小 C99 子集：function、prototype、extern、global、local temp、assignment、label、
+     `goto`、`if (...) goto`、`return`、helper call、pointer load/store、field/index address。
+   - 合同叶子：新增 absence gate，扫描 MIR-C99 后端不得依赖 AST body、`LoweredProgram` body、
+     `src/codegen/c99*` 生产 emitter 或 helper-specific 成功路径。
+   - 实现叶子：先输出单个 `.c` unit 跑通 return literal / call / local / branch HelloWorld parity；之后再扩到
+     `MirC99Unit[]` 和 split-C，不能把单文件写成架构上限。
+1. GENERIC-LANGUAGE-MIR：继续补齐合法 Uya 程序到 `CoreBody -> PortableMIR` 的通用路径。
    - 合同叶子：覆盖矩阵区分 sample parity、partial 和 generic done。
-   - 合同叶子：新增/更新 absence gate，禁止 helper-specific 成功路径作为 native parity 证据。
+   - 合同叶子：新增/更新 absence gate，禁止 helper-specific 成功路径作为 MIR-C99 或 native parity 证据。
    - 实现叶子：修通用 AST/Core/MIR lowering，不新增按函数名或固定 body shape 命中的生产路径。
-1. GENERIC-CFG-MIR：通用控制流 lowering。
+2. GENERIC-CFG-MIR：通用控制流 lowering。
    - 合同叶子：固定 CoreBody block/if/while/for/break/continue/return 到 PortableMIR CFG 的 dump/verifier。
    - 实现叶子：`portable_mir_lower_core_body_to_module(...)` 支持多 block、branch、backedge、exit edge。
-2. GENERIC-MEMORY-PLACE：通用 place/memory lowering。
+3. GENERIC-MEMORY-PLACE：通用 place/memory lowering。
    - 合同叶子：固定 local slot、field、index、slice ptr/len、pointer address、load/store 和 aggregate literal。
    - 实现叶子：PortableMIR 生成地址计算、load/store、copy/move/drop 所需 op。
-3. GENERIC-CALL-ABI-RUNTIME：通用调用和 runtime capability。
+4. GENERIC-CALL-RUNTIME：通用调用和 runtime capability。
    - 合同叶子：固定 Uya call、extern call、method call、hosted helper、`@c_import` object 和 `@syscall` capability。
-   - 实现叶子：NativeMirEmitter 按 MIR call ABI 通用发射参数、返回值、reloc 和 link plan。
-4. GENERIC-CLEANUP-ERROR：通用 cleanup / error lowering。
+   - 实现叶子：MIR-C99 先用 C call ABI 表达参数、返回值和 extern/link plan；native ABI emission 后续跟进。
+5. GENERIC-CLEANUP-ERROR：通用 cleanup / error lowering。
    - 合同叶子：固定 `try`、`catch`、error union、`defer`、`errdefer`、lexical drop 和 cleanup edge。
-   - 实现叶子：PortableMIR verifier 和 NativeMirEmitter 消费 cleanup CFG，不依赖 helper shape。
-5. GENERIC-NATIVE-EMITTER：补齐 MIR -> native 通用指令选择。
+   - 实现叶子：PortableMIR verifier 和 MIR-C99 backend 消费 cleanup CFG，不依赖 helper shape。
+6. GENERIC-NATIVE-EMITTER：MIR-C99 完整语言面稳定后，补齐 MIR -> native 通用指令选择。
    - 合同叶子：每个 MIR op/type/ABI 要么有 native emission，要么有明确 target/capability diagnostic。
    - 实现叶子：移除成功路径中的 AST/Core/function-name 回查。
-6. DIFFERENTIAL-PROGRAMS：合法程序组合差分。
+7. DIFFERENTIAL-PROGRAMS：合法程序组合差分。
    - 合同叶子：生成/维护嵌套控制流、循环、aggregate、call chain、cleanup、runtime 组合用例。
-   - 验收叶子：所有 parser/checker 通过的用例都必须 native/C99 行为一致。
-7. SCAFFOLD-RETIREMENT：清理 helper-specific 脚手架。
+   - 验收叶子：所有 parser/checker 通过的用例都必须 MIR-C99 / 现有 C99 oracle 行为一致；native parity 后续跟进。
+8. SCAFFOLD-RETIREMENT：清理 helper-specific 脚手架。
    - 合同叶子：所有 helper-specific 代码只能作为明确 reject/diagnostic 或待删除遗留；不能作为 successful
-     native executable emission 的依据。
+     MIR-C99 output 或 native executable emission 的依据。
    - 实现叶子：被 generic lowering 覆盖后，删除或禁用对应
      `native_build_hosted_decl_can_materialize_*` / `native_build_hosted_decl_can_lower_*_mir_body` 成功路径。
    - 验收叶子：新增测试防止按函数名或固定 body shape 成功编译。
-8. SELF-BUILD-ACCEPTANCE：generic lowering 覆盖后执行。
+9. SELF-BUILD-C99-ACCEPTANCE：generic lowering 覆盖后先执行 MIR-C99 自举验收。
+   - 验收叶子：编译器源码作为普通合法程序经 `CoreBody -> PortableMIR -> minimal C99` 生成 C99，可由 host C
+     compiler 编译出 compiler binary。
+   - 验收叶子：MIR-C99-built compiler 复跑 self-build、compiler regression 和现有 C99 output parity。
+10. SELF-BUILD-NATIVE-ACCEPTANCE：MIR-C99 自举通过后执行。
    - 验收叶子：`cmd/build --native` 作为普通合法程序生成 executable，不能使用 helper-specific fallback。
    - 验收叶子：新 native `bin/cmd/build` 复跑 self-build、compiler regression 和 C99 output parity。
-9. MAKE-NATIVE-PATH：self-build executable 真实通过后，再切 `make uya` 主路径。
+11. MAKE-NATIVE-PATH：self-build executable 真实通过后，再切 `make uya` 主路径。
    - 合同叶子：固定 `UYA_BUILD_BACKEND=native|c99`、`make uya-c99`、native 失败不静默 fallback、
      手动 C99 fallback 和 release flow 双路径语义。
    - 实现叶子：Makefile 接入 `UYA_BUILD_BACKEND`，保留 `make uya-c99`。
@@ -1471,6 +1498,6 @@ make backup-all
    - 实现叶子：backup / release flow 纳入 native seed，但仍保留 C99 seed fallback。
    - 收口叶子：跑 `make clean && make uya`、`make cmds`、microapp help、相关 regression 和
      native path no-silent-fallback 门禁。
-10. NATIVE-KPI：`make uya` native 主路径稳定后再做性能收口。
+12. NATIVE-KPI：`make uya` native 主路径稳定后再做性能收口。
     - benchmark 合同叶子：固定三次中位数、P95、peak RSS、arena peak 和 output bytes 字段。
     - 实测叶子：跑 `make bench-compiler-1s-check` 和三次 native cold build，记录结果到评估文档。

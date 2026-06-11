@@ -839,7 +839,9 @@ C99 必须遵守 CoreIR 合同：
 - emission 阶段不新增 helper discovery。
 - 不修改冻结的 `LoweredProgram`。
 
-后续可以实验性引入 `PortableMIR -> C99Plan`，但在 parity 证明前不能删除现有 C99 oracle。
+后续主线优先引入独立 `PortableMIR -> MirC99Plan`，把 C99 当 portable assembly 验证完整 MIR 语义；
+该路线不得混用现有 AST/LoweredProgram `C99Plan` / `C99Emitter` 作为生产成功路径，且在 parity 证明前
+不能删除现有 C99 oracle。
 
 ## 27. 与 PortableMIR 的关系
 

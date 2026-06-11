@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Phase 9A：验证 C99 第一阶段继续作为独立 oracle，
-# 不被 PortableMIR 迁移提前绑死。
+# Phase 9A/9B：验证现有 C99 继续作为独立 oracle，
+# 新 MIR-C99 后端必须独立于现有 AST/LoweredProgram C99 路线。
 
 set -euo pipefail
 
@@ -35,16 +35,26 @@ done
 require_pattern "$PORTABLE_MIR_DOC" '^## 20\. C99 后端关系' "PortableMIR C99 关系章节"
 require_pattern "$PORTABLE_MIR_DOC" 'C99 第一阶段继续作为独立 oracle' "PortableMIR 白皮书独立 oracle 规则"
 require_pattern "$PORTABLE_MIR_DOC" '现有 C99 路径在第一阶段不要求导入 PortableMIR' "PortableMIR 白皮书未强制迁移规则"
-require_pattern "$PORTABLE_MIR_DOC" 'hosted native parity 稳定后，可实验性新增 `PortableMIR -> C99Plan`' \
-    "PortableMIR 白皮书实验性 MIR->C99Plan 规则"
+require_pattern "$PORTABLE_MIR_DOC" '新增独立 MIR-C99 target 作为 native 前的优先输出路线' \
+    "PortableMIR 白皮书缺少 MIR-C99 优先路线"
+require_pattern "$PORTABLE_MIR_DOC" '`PortableMIR -> MirC99Plan` 后端不得混用现有 AST/LoweredProgram `C99Plan`' \
+    "PortableMIR 白皮书缺少 MirC99 / 现有 C99 分界"
 require_pattern "$COREIR_DOC" '第一阶段 C99 可以继续直接消费 `LoweredProgram` 作为 oracle' \
     "CoreIR 白皮书 C99 可继续消费 LoweredProgram"
-require_pattern "$COREIR_DOC" '在 parity 证明前不能删除现有 C99 oracle' \
+require_pattern "$COREIR_DOC" '优先引入独立 `PortableMIR -> MirC99Plan`' \
+    "CoreIR 白皮书缺少 MirC99 优先路线"
+require_pattern "$COREIR_DOC" 'parity 证明前' \
+    "CoreIR 白皮书缺少 parity 证明边界"
+require_pattern "$COREIR_DOC" '不能删除现有 C99 oracle' \
     "CoreIR 白皮书禁止提前删除 C99 oracle"
-require_pattern "$ARCH_DOC" 'C99 迁移到 MIR 是后续选项，不是第一阶段强制要求' \
-    "架构文档未声明 C99 迁移不是第一阶段强制项"
-require_pattern "$ARCH_DOC" '第一阶段 C99 oracle 不要求依赖 PortableMIR' \
-    "架构文档未声明 C99 oracle 独立于 PortableMIR"
+require_pattern "$ARCH_DOC" '`PortableMIR -> MirC99Plan` 是 native 前的优先 target' \
+    "架构文档缺少 MirC99 优先路线"
+require_pattern "$ARCH_DOC" '现有 AST/LoweredProgram C99' \
+    "架构文档缺少现有 C99 路线命名"
+require_pattern "$ARCH_DOC" 'backend 继续作为 oracle、fallback 和 release 兜底' \
+    "架构文档未声明现有 C99 oracle 独立保留"
+require_pattern "$ARCH_DOC" '不能作为 MirC99 的内部实现、成功路径或语义补丁来源' \
+    "架构文档缺少 MirC99 / 现有 C99 分界"
 require_pattern "$MIR_BACKEND_FILE" 'MIR_TARGET_BACKEND_C99' "MIR backend 缺少 C99 backend kind"
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_C99_PLAN' "MIR backend 缺少 C99Plan 输出 kind"
 require_pattern "$C99_PLAN_FILE" '^export[[:space:]]+struct[[:space:]]+C99Plan' "C99Plan 合同结构"

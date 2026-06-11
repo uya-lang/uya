@@ -157,7 +157,7 @@ Parse
 | 区域 | 临时角色标注 | 不能计入 hard path 的原因 | 退出条件 |
 | --- | --- | --- | --- |
 | `src/main.uya` 旧驱动输入图 | legacy driver fallback | 输入/依赖/program 列表仍有固定容量，当前仅用于旧入口兼容和自举兜底 | `FileId`/dependency worklist/program range 迁为动态 vector |
-| `src/codegen/c99/` 固定 codegen 表 | C99 oracle / fallback | C99 是差分 oracle 与跨平台 fallback，不是 1 秒主路径；固定 registry/cache/worklist 不能作为成功容量 | C99Plan/C99Emitter 改为动态 plan/table 后保留 oracle，后续可增加 MIR->C99Plan |
+| `src/codegen/c99/` 固定 codegen 表 | C99 oracle / fallback | C99 是差分 oracle 与跨平台 fallback，不是 1 秒主路径；固定 registry/cache/worklist 不能作为成功容量 | C99Plan/C99Emitter 改为动态 plan/table 后保留 oracle；另行新增独立 MIR->MirC99Plan |
 | `src/checker/` 固定 checker 表 | legacy checker oracle until SemanticDb | checker hash/cache/proof/worklist 仍由固定容量承载，只能作为 SemanticDb 迁移前的对照实现 | SemanticDb/TypedProgram 动态索引接管 lookup、mono、proof 和 reachability |
 | `src/exec/` 固定 VM 表 | staged exec fallback | exec VM 仍是 staged backend，locals/bytecode/frame/cleanup/call args 固定表不能定义自举容量 | PortableMIR + bytecode/frame dynamic vector 或 native path 替换固定 staging 表 |
 
@@ -387,16 +387,17 @@ MirBlock
 PortableMIR -> MachineModule -> object / executable
 PortableMIR -> PtxModule     -> PTX / cubin
 PortableMIR -> ExecBytecode  -> VM
-PortableMIR -> C99Plan       -> C99 text
+PortableMIR -> MirC99Plan    -> minimal C99 text
 ```
 
 接口用 `MirTargetBackendRequest` / `MirTargetBackendOutput` 固定输入输出形状。backend request 只能保存已
 验证 `PortableMirModule`、target profile ID、backend kind 和 verifier 结果码；不能新增 `TypedProgram`、
 `LoweredProgram` 或 `CoreBody` 入口。output kind 固定映射为 `MachineModule`、`PtxModule`、
-`ExecBytecode` 或 `C99Plan`。
+`ExecBytecode` 或 `MirC99Plan`。
 
-C99 迁移到 MIR 是后续选项，不是第一阶段强制要求；在 hosted native parity 稳定前，C99 继续作为独立
-oracle 更有利于差分定位。
+`PortableMIR -> MirC99Plan` 是 native 前的优先 target。它把 C99 当 portable assembly：只要求 host C99
+compiler 能编译、链接和运行，不追求可读性、源码结构还原或原始变量名。现有 AST/LoweredProgram C99
+backend 继续作为 oracle、fallback 和 release 兜底，但不能作为 MirC99 的内部实现、成功路径或语义补丁来源。
 
 ### 7.5 语言语义与 Target Capability
 
@@ -477,10 +478,11 @@ C99UnitPlan
 
 这样 C99 虽未作为 1 秒硬路径，也能成为稳定 oracle。
 
-当 `PortableMIR` 和 hosted native parity 稳定后，可以新增实验性 `MIR -> C99Plan` 路线；迁移前不能
-删除现有 C99 oracle。
-第一阶段 C99 oracle 不要求依赖 PortableMIR；`MIR -> C99Plan` 只能在 hosted native parity 稳定后作为
-实验路径加入。
+独立 MIR-C99 后端不复用本节的 AST/LoweredProgram `C99Planner` / `C99Emitter` 作为生产成功路径。
+它应定义单独的 `MirC99Plan` / `MirC99Unit` / `MirC99Emitter`，从 verifier-clean `PortableMIR` 生成低级 C：
+MIR block 变成 C label，terminator 变成 `goto` / `if (...) goto` / `return`，value/place 变成 temp、
+load/store、field/index address 和 helper call。初期可以只生成一个 C unit；split-C 只是 `MirC99Unit[]`
+的扩展，不能把单文件输出写成架构上限。迁移前不能删除现有 C99 oracle。
 
 ---
 
@@ -832,7 +834,7 @@ native 与 C99 对照：
 | 风险 | 说明 | 缓解 |
 | --- | --- | --- |
 | 语义数据库引入错误 | 旧代码依赖 AST 扫描顺序 | 先为 lookup 建对照测试，再逐类替换 |
-| C99 后端与 native 后端漂移 | 双后端容易语义不一致 | native 统一消费 `PortableMIR`，C99 做 oracle |
+| MirC99、现有 C99 与 native 后端漂移 | 多后端容易语义不一致 | MirC99 和 native 都统一消费 `PortableMIR`，现有 C99 只做 oracle / fallback |
 | native ABI 错误 | hosted/freestanding、调用约定、栈对齐出错 | hosted parity 先用系统 ABI 对齐，freestanding 下沉时做 ABI smoke |
 | seed 死锁 | dispatcher 无法生成 build compiler | 阶段内保留旧入口和 C99 fallback |
 | KPI 误报 | 热缓存或 daemon 混入冷测 | benchmark 脚本主动清理并报告状态 |

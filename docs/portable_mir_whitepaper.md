@@ -109,13 +109,13 @@ backend 消费 verifier 通过后的 PortableMIR：
 PortableMIR -> MachineModule -> object / executable
 PortableMIR -> PtxModule     -> PTX / cubin
 PortableMIR -> ExecBytecode  -> VM
-PortableMIR -> C99Plan       -> C99 text
+PortableMIR -> MirC99Plan    -> minimal C99 text
 ```
 
 接口层由 `MirTargetBackendRequest` 和 `MirTargetBackendOutput` 表达。`request.module` 是 backend 的唯一 IR
 输入，且必须来自 verifier 通过后的 `PortableMirModule`；`request` 同时携带 target profile ID 和
 `MirVerifierResult.error_code`，由 `portable_mir_backend_request_is_verified` 作为 backend 入口前置门禁。
-`output_kind` 固定映射为 `MachineModule`、`PtxModule`、`ExecBytecode` 或 `C99Plan`，由
+`output_kind` 固定映射为 `MachineModule`、`PtxModule`、`ExecBytecode` 或独立 `MirC99Plan`，由
 `portable_mir_backend_output_matches_request` 验证 request / output 是否匹配。
 native backend 的主入口是 `NativeMirEmitter`：只接收 `MIR_TARGET_BACKEND_MACHINE` request，将 MIR
 function / block / inst range 导入 `MachineModule`，再交给 object / executable writer。
@@ -663,16 +663,18 @@ PTX 应在 target capability pass 筛出 device subset 后消费同一份 MIR。
 
 ## 20. C99 后端关系
 
-C99 第一阶段继续作为独立 oracle：
+C99 第一阶段继续作为独立 oracle，同时新增独立 MIR-C99 target 作为 native 前的优先输出路线：
 
-- MIR lowering 出 bug 时，native 和 MIR->C99 不应一起错而隐藏问题。
+- MIR lowering 出 bug 时，MirC99、native 和现有 C99 oracle 的差分不应一起错而隐藏问题。
 - 现有 C99 行为是最强兼容参考。
-- hosted native parity suite 应与当前 C99 比对。
+- MIR-C99 parity suite 应先与当前 C99 比对；hosted native parity 在 MIR-C99 证明相同语言面后跟进。
 
 现有 C99 路径在第一阶段不要求导入 PortableMIR；它可以继续消费冻结的 `LoweredProgram` / CoreIR 事实，
 作为独立差分 oracle。
 
-hosted native parity 稳定后，可实验性新增 `PortableMIR -> C99Plan`。生成的 C 可以更低级，使用 labels、temporaries、gotos。可读性次于语义一致。
+新的 `PortableMIR -> MirC99Plan` 后端不得混用现有 AST/LoweredProgram `C99Plan` / `C99Emitter` 作为生产
+成功路径。它把 C99 当 portable assembly：生成的 C 可以使用 labels、temporaries、gotos、低级 load/store
+和 helper calls；可读性、源码结构还原和原始变量名都次于语义一致与 host C99 compiler 可编译运行。
 
 ## 21. Exec 后端关系
 
@@ -815,7 +817,8 @@ PortableMIR 准备成为 native 主路径的条件：
 
 - v1 block-parameter MIR 稳定后，是否值得引入严格 SSA。
 - MIR 是否保留高层 `cleanup_return` terminator，还是总是展开 cleanup blocks。
-- native parity 完成后，`MIR -> C99Plan` 是否替代当前 C99 默认路径。
+- `MIR -> MirC99Plan` 完整自举后，是否替代当前 C99 默认路径，或只作为 native 前的 portable-assembly
+  验证后端。
 - async lowering v1 多少 helper-based，多少 fully expanded。
 - target-independent optimization 应放多少，才不会拖慢编译器。
 
