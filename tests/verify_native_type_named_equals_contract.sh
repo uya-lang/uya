@@ -36,6 +36,12 @@ require_pattern "$SUBSET_DOC" '^## `native_build_type_named_equals\(\.\.\.\)` Bo
     "subset doc 缺少 native_build_type_named_equals 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_named_equals .*body_stmts=3 reason=pending_core_body' \
     "subset doc 缺少当前 native_build_type_named_equals pending frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[0-9]+ core_bodies=30 pending_bodies=[0-9]+' \
+    "subset doc 缺少 native_build_type_named_equals 迁入后的 CoreIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=29' \
+    "subset doc 缺少 native_build_type_named_equals 迁入后的 PortableMIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_decl_returns_param_directly .*body_stmts=5 reason=pending_core_body' \
+    "subset doc 缺少 native_build_type_named_equals 迁入后的下一 frontier"
 require_pattern "$SUBSET_DOC" 'type_node == null \|\| name == null' \
     "subset doc 缺少 type/name null guard"
 require_pattern "$SUBSET_DOC" 'type_node\.type != ASTNodeType\.AST_TYPE_NAMED' \
