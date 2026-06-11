@@ -1996,6 +1996,19 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               通过。
+          - [x] 为 `compiler_print_diagnostic_profile(...)` 的尾部 `fprintf` 补
+            CoreBody/PortableMIR body-complete 合同；固定 stderr、格式字符串和 `count` 参数
+            surface，迁入后该 helper 不再报告 partial frontier。
+            - 2026-06-11：新增
+              `tests/verify_native_print_diagnostic_profile_tail_fprintf_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
+              新增 Tail Fprintf Contract，冻结当前 `prefix_stmts=3` frontier，并要求迁入
+              `fprintf(libc.stderr, "diagnostic_format_count: %d\n" as *byte, count)` 后达到
+              `body_complete`。
+            - 实测 `bash tests/verify_native_print_diagnostic_profile_tail_fprintf_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过；本叶子未改生产 lowering。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。

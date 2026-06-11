@@ -890,6 +890,32 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=3 next_stmt=3 next_kind=AST_CALL_EXPR reason=partial_core_body`。
    下一步才能迁入尾部 `fprintf(libc.stderr, ...)`。
 
+## `compiler_print_diagnostic_profile(...)` Tail Fprintf Contract
+
+checker branch 切片迁入后，当前真实 body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=3 next_stmt=3 next_kind=AST_CALL_EXPR reason=partial_core_body
+```
+
+本合同冻结第 3 条顶层语句：
+
+```text
+fprintf(libc.stderr, "diagnostic_format_count: %d\n" as *byte, count);
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须追加 `CORE_STMT_KIND_EXPR`，表达式保持 `fprintf` resolved call surface。
+2. 第 0 个参数必须保持 `libc.stderr` field read surface；第 1 个参数必须保持
+   `"diagnostic_format_count: %d\n" as *byte` 字符串 surface；第 2 个参数必须保持 `count`
+   local read surface。
+3. PortableMIR 必须追加 hosted libc call surface，runtime capability 覆盖 hosted libc，不得折叠
+   为 noop，也不得提前把 helper 标记完成但丢失 stderr 输出。
+4. 该切片迁入后 `compiler_print_diagnostic_profile(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=compiler_print_diagnostic_profile prefix_stmts=4 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier，再选择后续 helper。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

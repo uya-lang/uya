@@ -47,6 +47,7 @@ bash "$SCRIPT_DIR/verify_native_profile_diagnostics_tail_return_contract.sh"
 bash "$SCRIPT_DIR/verify_native_print_diagnostic_profile_guard_contract.sh"
 bash "$SCRIPT_DIR/verify_native_print_diagnostic_profile_count_contract.sh"
 bash "$SCRIPT_DIR/verify_native_print_diagnostic_profile_checker_branch_contract.sh"
+bash "$SCRIPT_DIR/verify_native_print_diagnostic_profile_tail_fprintf_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
