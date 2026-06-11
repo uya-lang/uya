@@ -1211,7 +1211,10 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
     # 通过，full-language parity 为 18 cases（parity=9, reject=9）；`method`
     # 经 CoreBody / PortableMIR hosted native 生成 executable，exit code 42 与 C99 oracle 一致。
-  - [ ] 打开 full-language parity case 06 `error_union_try`：`!i32` success return + catch fallback surface。
+  - [x] 打开 full-language parity case 06 `error_union_try`：`!i32` success return + catch fallback surface。
+    # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+    # 通过，full-language parity 为 18 cases（parity=11, reject=7）；`error_union_try`
+    # 经 CoreBody / PortableMIR hosted native 生成 executable，exit code 10 与 C99 oracle 一致。
   - [ ] 打开 full-language parity case 07 `try_catch`：`might_fail(7) catch { 99; }`。
   - [ ] 打开 full-language parity case 08 `defer`。
   - [ ] 打开 full-language parity case 09 `errdefer`。
