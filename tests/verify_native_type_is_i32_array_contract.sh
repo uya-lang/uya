@@ -48,6 +48,12 @@ require_pattern "$SUBSET_DOC" 'return 1;' \
     "subset doc 缺少 tail return 1"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_complete: function=native_build_type_is_i32_array prefix_stmts=2 reason=body_complete' \
     "subset doc 缺少 body-complete frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[0-9]+ core_bodies=38 pending_bodies=[0-9]+' \
+    "subset doc 缺少 native_build_type_is_i32_array 迁入后的 CoreBody 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=37' \
+    "subset doc 缺少 native_build_type_is_i32_array 迁入后的 MIR body 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_byte_path_max_array .*body_stmts=2 reason=pending_core_body' \
+    "subset doc 缺少 native_build_type_is_i32_array 迁入后的下一 pending frontier"
 
 require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_type_is_i32_array\(type_node: &ASTNode\) i32' \
     "源码缺少 native_build_type_is_i32_array helper"

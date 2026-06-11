@@ -2752,8 +2752,17 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 迁入 `native_build_type_is_i32_array(...)` 的完整 body，使该 helper
+          - [x] 迁入 `native_build_type_is_i32_array(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
+            - 2026-06-11：在 `src/build_compiler_driver.uya` 中加入
+              `native_build_hosted_decl_can_materialize_type_is_i32_array_body(...)`、
+              `native_build_hosted_coreir_append_type_is_i32_array_body(...)` 和对应
+              PortableMIR const-return lowering。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；
+              self-build native preflight 前进为 `core_bodies=38`、`mir_body_functions=37`，
+              新 frontier 为 `native_hosted_pending_body_frontier:
+              function=native_build_type_is_byte_path_max_array decl=380 function_id=36
+              body_stmts=2 reason=pending_core_body`。
           - [x] 迁入 `native_build_type_is_i32_like_ptr(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
             - 2026-06-11：在 `src/build_compiler_driver.uya` 中加入
