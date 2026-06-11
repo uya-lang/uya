@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR reason=partial_core_body' "$stderr"
+    grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body' "$stderr"
+    if grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR reason=partial_core_body' "$stderr"; then
+        echo "错误: $label self-build 不应在 compile_stats typed_type_records release 迁入后继续报告 prefix_stmts=16" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -q 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=15 next_stmt=15 next_kind=AST_CALL_EXPR reason=partial_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 compile_stats typed_program_release 迁入后继续报告 prefix_stmts=15" >&2
         cat "$stderr" >&2

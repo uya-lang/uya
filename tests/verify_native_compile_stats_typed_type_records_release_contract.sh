@@ -44,8 +44,23 @@ require_pattern "$SUBSET_DOC" 'prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN
 
 require_pattern "$BUILD_DRIVER_SRC" 'semantic_vector_release\(&checker\.typed_type_records\);' \
     "compile_stats 源码缺少 typed_type_records release 调用"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR reason=partial_core_body' \
-    "no-silent-C99 测试缺少 compile_stats typed_type_records release 当前 frontier"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT: i32 = 17' \
+    "build driver 缺少 compile_stats typed_type_records release prefix 常量"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_compile_stats_typed_type_records_release_call_supported' \
+    "build driver 缺少 compile_stats typed_type_records release 支持判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body' \
+    "build driver 缺少 compile_stats typed_type_records release CoreBody 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_compile_stats_typed_type_records_release_call' \
+    "build driver 缺少 compile_stats typed_type_records release CoreIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_compile_stats_typed_type_records_release_slice_mir_body' \
+    "build driver 缺少 compile_stats typed_type_records release PortableMIR 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_compile_stats_typed_type_records_release_slice_body_function' \
+    "build driver 缺少 compile_stats typed_type_records release PortableMIR builder"
+
+require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body' \
+    "no-silent-C99 测试缺少 compile_stats typed_type_records release 后继 frontier"
+require_pattern "$NO_SILENT_TEST" '不应在 compile_stats typed_type_records release 迁入后继续报告 prefix_stmts=16' \
+    "no-silent-C99 测试缺少旧 compile_stats prefix=16 反向检查"
 require_pattern "$NO_SILENT_TEST" '不应在 compile_stats typed_program_release 迁入后继续报告 prefix_stmts=15' \
     "no-silent-C99 测试缺少旧 compile_stats prefix=15 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_compile_stats_typed_type_records_release_contract\.sh' \

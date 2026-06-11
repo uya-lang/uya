@@ -205,6 +205,11 @@ const NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_CORE_STMT_COUNT: i32 = 16
 const NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_CORE_EXPR_COUNT: i32 = 14;
 const NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_CORE_PLACE_COUNT: i32 = 19;
 const NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_CORE_FACT_COUNT: i32 = 24;
+const NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT: i32 = 17;
+const NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_STMT_COUNT: i32 = 17;
+const NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_EXPR_COUNT: i32 = 15;
+const NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_PLACE_COUNT: i32 = 20;
+const NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_FACT_COUNT: i32 = 26;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -10353,6 +10358,38 @@ fn native_build_hosted_compile_stats_typed_program_release_call_supported(
     return 1;
 }
 
+fn native_build_hosted_compile_stats_typed_type_records_release_call_supported(
+    stmt: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || program == null || checker == null ||
+       stmt.type != ASTNodeType.AST_CALL_EXPR ||
+       stmt.call_expr_callee == null ||
+       stmt.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.call_expr_callee.identifier_name == null ||
+       str_equals(stmt.call_expr_callee.identifier_name as *byte,
+        "semantic_vector_release" as *byte) == 0 ||
+       stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count != 1 ||
+       native_build_hosted_addr_member_access_matches(stmt.call_expr_args[0],
+        "checker" as &byte, "typed_type_records" as &byte) == 0 {
+        return 0;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program,
+        "semantic_vector_release" as &byte, &target_function_id,
+        &target_decl_index) == 0 {
+        return 0;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var arg_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt, &call_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.call_expr_args[0],
+        &arg_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_compile_stats_table_items_assign_supported(
     stmt: &ASTNode, checker: &TypeChecker) i32 {
     if stmt == null || checker == null || stmt.type != ASTNodeType.AST_ASSIGN ||
@@ -10645,6 +10682,22 @@ fn native_build_hosted_compile_stats_typed_program_release_slice_prefix_stmt_cou
     return NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_PREFIX_STMT_COUNT;
 }
 
+fn native_build_hosted_compile_stats_typed_type_records_release_slice_prefix_stmt_count(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_compile_stats_typed_program_release_slice_prefix_stmt_count(
+        decl, program, checker) !=
+       NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    if native_build_hosted_compile_stats_typed_type_records_release_call_supported(
+        native_build_hosted_compile_stats_prefix_stmt(decl,
+        NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_PREFIX_STMT_COUNT),
+        program, checker) == 0 {
+        return 0;
+    }
+    return NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT;
+}
+
 fn native_build_hosted_decl_can_materialize_compile_stats_first_slice_body(
     decl: &ASTNode, checker: &TypeChecker) i32 {
     if native_build_hosted_compile_stats_first_slice_prefix_stmt_count(decl,
@@ -10739,6 +10792,16 @@ fn native_build_hosted_decl_can_materialize_compile_stats_typed_program_release_
     decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
     if native_build_hosted_compile_stats_typed_program_release_slice_prefix_stmt_count(
         decl, program, checker) == NATIVE_COMPILE_STATS_TYPED_PROGRAM_RELEASE_SLICE_PREFIX_STMT_COUNT {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_compile_stats_typed_type_records_release_slice_prefix_stmt_count(
+        decl, program, checker) ==
+       NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT {
         return 1;
     }
     return 0;
@@ -13286,6 +13349,91 @@ fn native_build_hosted_coreir_append_compile_stats_typed_program_release_call(
     return 0;
 }
 
+fn native_build_hosted_coreir_append_compile_stats_typed_type_records_release_call(
+    lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode,
+    body_id: i32, stmt_id: i32, expr_id: i32, typed_records_place_id: i32,
+    typed_records_fact_id: i32, call_fact_id: i32, stmt: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null || stmt == null ||
+       stmt.type != ASTNodeType.AST_CALL_EXPR || stmt.call_expr_args == null ||
+       stmt.call_expr_arg_count != 1 {
+        return -1;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var arg_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt, &call_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, stmt.call_expr_args[0],
+        &arg_type_id) != 0 {
+        return -1;
+    }
+    const typed_arg: &ASTNode = stmt.call_expr_args[0];
+    if typed_arg == null || typed_arg.type != ASTNodeType.AST_UNARY_EXPR ||
+       typed_arg.unary_expr_operand == null {
+        return -1;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program,
+        "semantic_vector_release" as &byte, &target_function_id,
+        &target_decl_index) == 0 {
+        return -1;
+    }
+    if native_build_hosted_coreir_append_compile_stats_field_place(lowered,
+        checker, body_id, typed_records_place_id, typed_arg.unary_expr_operand,
+        typed_records_fact_id, arg_type_id) != 0 {
+        return -1;
+    }
+    var call_expr: CoreExpr = CoreExpr{
+        expr_id: expr_id,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: body_id,
+        source_expr_id: stmt.expr_id,
+        type_id: call_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: typed_records_place_id,
+        target_function_id: target_function_id,
+        target_decl_id: target_decl_index,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: stmt.line,
+        flags: 0,
+    };
+    var core_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_id,
+        kind: CORE_STMT_KIND_EXPR,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_id,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var call_fact: CoreSemanticFact = native_build_core_semantic_fact_empty(
+        call_fact_id, body_id, CORE_SEMANTIC_FACT_RESOLVED_CALL);
+    call_fact.expr_id = expr_id;
+    call_fact.source_expr_id = stmt.expr_id;
+    call_fact.call_target_kind = TYPED_CALL_TARGET_FUNCTION;
+    call_fact.target_function_id = target_function_id;
+    call_fact.target_decl_id = target_decl_index;
+    call_fact.arg_count = 1;
+    call_fact.type_id = call_type_id;
+    call_fact.source_span_id = stmt.line;
+    if lowered_program_append_core_expr(lowered, &call_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &core_stmt) != 0 ||
+       lowered_program_append_core_semantic_fact(lowered, &call_fact) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_coreir_append_compile_stats_table_items_assign(
     lowered: &LoweredProgram, checker: &TypeChecker, body_id: i32,
     stmt_id: i32, expr_id: i32, stats_place_id: i32, table_items_place_id: i32,
@@ -14212,6 +14360,105 @@ fn native_build_hosted_coreir_append_compile_stats_typed_program_release_slice_b
         lowered, checker, program, body_id, stmt_start + 15, expr_start + 13,
         place_start + 18, fact_start + 22, fact_start + 23,
         native_build_hosted_compile_stats_prefix_stmt(decl, 15)) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_compile_stats_typed_type_records_release_slice_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode,
+    function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null ||
+       native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body(
+        decl, program, checker) == 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const place_start: i32 = lowered.core_place_count as i32;
+    const fact_start: i32 = lowered.core_semantic_fact_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_STMT_COUNT,
+        expr_start: expr_start,
+        expr_count: NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_EXPR_COUNT,
+        place_start: place_start,
+        place_count: NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_PLACE_COUNT,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: fact_start,
+        semantic_fact_count: NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_CORE_FACT_COUNT,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY | CORE_BODY_FLAG_PARTIAL,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       native_build_hosted_coreir_append_parse_build_args_if_stub(lowered,
+        body_id, stmt_start,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 0)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_zero_assign(lowered,
+        checker, body_id, stmt_start + 1, expr_start, place_start, fact_start,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 1)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_zero_assign(lowered,
+        checker, body_id, stmt_start + 2, expr_start + 1, place_start + 1,
+        fact_start + 1, native_build_hosted_compile_stats_prefix_stmt(decl, 2)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_zero_assign(lowered,
+        checker, body_id, stmt_start + 3, expr_start + 2, place_start + 2,
+        fact_start + 2, native_build_hosted_compile_stats_prefix_stmt(decl, 3)) != 0 ||
+       native_build_hosted_coreir_append_parse_build_args_if_stub(lowered,
+        body_id, stmt_start + 4,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 4)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_current_bytes_assign(
+        lowered, checker, program, body_id, stmt_start + 5, expr_start + 3,
+        place_start, place_start + 3, fact_start + 3, fact_start + 4,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 5)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_peak_bytes_assign(
+        lowered, checker, program, body_id, stmt_start + 6, expr_start + 4,
+        place_start + 1, place_start + 4, fact_start + 5, fact_start + 6,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 6)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_table_agg_decl(
+        lowered, checker, program, body_id, stmt_start + 7, expr_start + 5,
+        place_start + 5, fact_start + 7,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 7)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_semantic_db_agg_call(
+        lowered, checker, program, body_id, stmt_start + 8, expr_start + 6,
+        place_start + 6, place_start + 5, fact_start + 8, fact_start + 9,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 8)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_typed_program_agg_call(
+        lowered, checker, program, body_id, stmt_start + 9, expr_start + 7,
+        place_start + 7, place_start + 5, fact_start + 10, fact_start + 11,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 9)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_table_items_assign(
+        lowered, checker, body_id, stmt_start + 10, expr_start + 8,
+        place_start + 8, place_start + 9, fact_start + 12, fact_start + 13,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 10)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_table_capacity_assign(
+        lowered, checker, body_id, stmt_start + 11, expr_start + 9,
+        place_start + 10, place_start + 11, fact_start + 14, fact_start + 15,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 11)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_table_used_bytes_assign(
+        lowered, checker, body_id, stmt_start + 12, expr_start + 10,
+        place_start + 12, place_start + 13, fact_start + 16, fact_start + 17,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 12)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_table_capacity_bytes_assign(
+        lowered, checker, body_id, stmt_start + 13, expr_start + 11,
+        place_start + 14, place_start + 15, fact_start + 18, fact_start + 19,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 13)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_table_realloc_count_assign(
+        lowered, checker, body_id, stmt_start + 14, expr_start + 12,
+        place_start + 16, place_start + 17, fact_start + 20, fact_start + 21,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 14)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_typed_program_release_call(
+        lowered, checker, program, body_id, stmt_start + 15, expr_start + 13,
+        place_start + 18, fact_start + 22, fact_start + 23,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 15)) != 0 ||
+       native_build_hosted_coreir_append_compile_stats_typed_type_records_release_call(
+        lowered, checker, program, body_id, stmt_start + 16, expr_start + 14,
+        place_start + 19, fact_start + 24, fact_start + 25,
+        native_build_hosted_compile_stats_prefix_stmt(decl, 16)) != 0 {
         return -1;
     }
     return 0;
@@ -20974,6 +21221,9 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const materialize_parse_args_prefix_body: i32 =
                 native_build_hosted_decl_can_materialize_parse_build_args_default_init_body(
                     program, decl, checker);
+            const materialize_compile_stats_typed_type_records_release_body: i32 =
+                native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body(
+                    decl, program, checker);
             const materialize_compile_stats_typed_program_release_body: i32 =
                 native_build_hosted_decl_can_materialize_compile_stats_typed_program_release_slice_body(
                     decl, program, checker);
@@ -21011,6 +21261,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             var function: ConcreteFunction = native_build_hosted_core_function_from_decl(function_id, i, decl);
             if materialize_prefix_body != 0 || materialize_entry_prefix_body != 0 ||
                materialize_parse_args_prefix_body != 0 ||
+               materialize_compile_stats_typed_type_records_release_body != 0 ||
                materialize_compile_stats_typed_program_release_body != 0 ||
                materialize_compile_stats_table_realloc_count_body != 0 ||
                materialize_compile_stats_table_capacity_bytes_body != 0 ||
@@ -21048,6 +21299,25 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                 if native_build_hosted_parse_build_args_tail_return_body(
                     decl, checker, program) == 0 {
                     result.core_pending_body_count = result.core_pending_body_count + 1;
+                }
+            } else if materialize_compile_stats_typed_type_records_release_body != 0 {
+                if native_build_hosted_coreir_append_compile_stats_typed_type_records_release_slice_body(
+                    lowered, checker, program, function_id, i, decl) != 0 {
+                    return -1;
+                }
+                result.core_pending_body_count = result.core_pending_body_count + 1;
+                result.entry_reachable_body_function_name =
+                    native_build_decl_name_for_diagnostic(decl);
+                result.entry_reachable_body_prefix_stmt_count =
+                    NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT;
+                result.entry_reachable_body_next_stmt_index =
+                    NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT;
+                const next_stmt: &ASTNode =
+                    native_build_hosted_compile_stats_prefix_stmt(decl,
+                        NATIVE_COMPILE_STATS_TYPED_TYPE_RECORDS_RELEASE_SLICE_PREFIX_STMT_COUNT);
+                if next_stmt != null {
+                    result.entry_reachable_body_next_stmt_kind =
+                        native_build_ast_kind_enum_name(next_stmt.type);
                 }
             } else if materialize_compile_stats_typed_program_release_body != 0 {
                 if native_build_hosted_coreir_append_compile_stats_typed_program_release_slice_body(
@@ -21287,6 +21557,10 @@ fn native_build_hosted_decl_has_pending_core_body(program: &ASTNode,
     if native_build_hosted_decl_can_materialize_safe_core_body(program,
         decl, checker) != 0 {
         return 0;
+    }
+    if native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body(
+        decl, program, checker) != 0 {
+        return 1;
     }
     if native_build_hosted_decl_can_materialize_compile_stats_typed_program_release_slice_body(
         decl, program, checker) != 0 {
@@ -27436,6 +27710,12 @@ fn native_build_hosted_decl_can_lower_compile_stats_typed_program_release_slice_
         decl, program, checker);
 }
 
+fn native_build_hosted_decl_can_lower_compile_stats_typed_type_records_release_slice_mir_body(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body(
+        decl, program, checker);
+}
+
 fn native_build_hosted_compile_stats_mir_operand(operand_id: i32,
     type_id: i32) MirOperand {
     return MirOperand{
@@ -28909,12 +29189,18 @@ fn native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_
     module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
     source_core_body_id: i32, decl: &ASTNode, program: &ASTNode,
     checker: &TypeChecker, include_realloc_count: i32,
-    include_typed_program_release: i32) i32 {
+    include_typed_program_release: i32,
+    include_typed_type_records_release: i32) i32 {
     if module == null || lowered_function_id < 0 || decl_index < 0 ||
        source_core_body_id < 0 {
         return -1;
     }
-    if include_typed_program_release != 0 {
+    if include_typed_type_records_release != 0 {
+        if native_build_hosted_decl_can_lower_compile_stats_typed_type_records_release_slice_mir_body(
+            decl, program, checker) == 0 {
+            return -1;
+        }
+    } else if include_typed_program_release != 0 {
         if native_build_hosted_decl_can_lower_compile_stats_typed_program_release_slice_mir_body(
             decl, program, checker) == 0 {
             return -1;
@@ -29068,6 +29354,14 @@ fn native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_
         native_build_hosted_compile_stats_mir_inst(inst_id + 28, function_id,
         block_id, MIR_INST_OP_CALL, signature_type_id, operand_id + 38, 1,
         MIR_ADDRESS_SPACE_GENERIC);
+    var typed_type_records_release_field_addr: MirInst =
+        native_build_hosted_compile_stats_mir_inst(inst_id + 29, function_id,
+        block_id, MIR_INST_OP_FIELD_ADDR, i32_type_id, operand_id + 39, 1,
+        MIR_ADDRESS_SPACE_HOST);
+    var typed_type_records_release_call: MirInst =
+        native_build_hosted_compile_stats_mir_inst(inst_id + 30, function_id,
+        block_id, MIR_INST_OP_CALL, signature_type_id, operand_id + 40, 1,
+        MIR_ADDRESS_SPACE_GENERIC);
     var op0: MirOperand = native_build_hosted_compile_stats_mir_operand(operand_id,
         i32_type_id);
     var op1: MirOperand = native_build_hosted_compile_stats_mir_operand(operand_id + 1,
@@ -29146,6 +29440,10 @@ fn native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_
         i32_type_id);
     var op38: MirOperand = native_build_hosted_compile_stats_mir_operand(operand_id + 38,
         signature_type_id);
+    var op39: MirOperand = native_build_hosted_compile_stats_mir_operand(operand_id + 39,
+        i32_type_id);
+    var op40: MirOperand = native_build_hosted_compile_stats_mir_operand(operand_id + 40,
+        signature_type_id);
     var terminator: MirTerminator = MirTerminator{
         terminator_id: terminator_id,
         function_id: function_id,
@@ -29164,6 +29462,9 @@ fn native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_
     }
     if include_typed_program_release != 0 {
         block_inst_count = 29;
+    }
+    if include_typed_type_records_release != 0 {
+        block_inst_count = 31;
     }
     var block: MirBlock = MirBlock{
         block_id: block_id,
@@ -29255,6 +29556,14 @@ fn native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_
             return -1;
         }
     }
+    if include_typed_type_records_release != 0 {
+        if portable_mir_append_inst(module, &typed_type_records_release_field_addr) != 0 ||
+           portable_mir_append_inst(module, &typed_type_records_release_call) != 0 ||
+           portable_mir_append_operand(module, &op39) != 0 ||
+           portable_mir_append_operand(module, &op40) != 0 {
+            return -1;
+        }
+    }
     if portable_mir_append_terminator(module, &terminator) != 0 {
         return -1;
     }
@@ -29267,7 +29576,7 @@ fn native_build_hosted_mir_append_compile_stats_table_capacity_bytes_slice_body_
     checker: &TypeChecker) i32 {
     return native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_count_slice_body_function(
         module, lowered_function_id, decl_index, source_core_body_id, decl,
-        program, checker, 0, 0);
+        program, checker, 0, 0, 0);
 }
 
 fn native_build_hosted_mir_append_compile_stats_table_realloc_count_slice_body_function(
@@ -29276,7 +29585,7 @@ fn native_build_hosted_mir_append_compile_stats_table_realloc_count_slice_body_f
     checker: &TypeChecker) i32 {
     return native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_count_slice_body_function(
         module, lowered_function_id, decl_index, source_core_body_id, decl,
-        program, checker, 1, 0);
+        program, checker, 1, 0, 0);
 }
 
 fn native_build_hosted_mir_append_compile_stats_typed_program_release_slice_body_function(
@@ -29285,7 +29594,16 @@ fn native_build_hosted_mir_append_compile_stats_typed_program_release_slice_body
     checker: &TypeChecker) i32 {
     return native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_count_slice_body_function(
         module, lowered_function_id, decl_index, source_core_body_id, decl,
-        program, checker, 1, 1);
+        program, checker, 1, 1, 0);
+}
+
+fn native_build_hosted_mir_append_compile_stats_typed_type_records_release_slice_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode, program: &ASTNode,
+    checker: &TypeChecker) i32 {
+    return native_build_hosted_mir_append_compile_stats_table_capacity_bytes_or_realloc_count_slice_body_function(
+        module, lowered_function_id, decl_index, source_core_body_id, decl,
+        program, checker, 1, 1, 1);
 }
 
 fn native_build_hosted_mir_append_int_literal_body_function(module: &PortableMirModule,
@@ -32658,6 +32976,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
             const has_parse_args_prefix_body: i32 =
                 native_build_hosted_decl_can_materialize_parse_build_args_default_init_body(
                     program, decl, checker);
+            const has_compile_stats_typed_type_records_release_body: i32 =
+                native_build_hosted_decl_can_materialize_compile_stats_typed_type_records_release_slice_body(
+                    decl, program, checker);
             const has_compile_stats_typed_program_release_body: i32 =
                 native_build_hosted_decl_can_materialize_compile_stats_typed_program_release_slice_body(
                     decl, program, checker);
@@ -32697,6 +33018,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     program, decl, checker);
             if has_prefix_body != 0 || has_entry_prefix_body != 0 ||
                has_parse_args_prefix_body != 0 ||
+               has_compile_stats_typed_type_records_release_body != 0 ||
                has_compile_stats_typed_program_release_body != 0 ||
                has_compile_stats_table_realloc_count_body != 0 ||
                has_compile_stats_table_capacity_bytes_body != 0 ||
@@ -32726,6 +33048,14 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     if native_build_hosted_mir_append_parse_build_args_default_init_body_function(
                         module, checker, program, lowered_function_id, i, source_core_body_id,
                         decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_compile_stats_typed_type_records_release_slice_mir_body(
+                    decl, program, checker) != 0 {
+                    if native_build_hosted_mir_append_compile_stats_typed_type_records_release_slice_body_function(
+                        module, lowered_function_id, i, source_core_body_id, decl,
+                        program, checker) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
