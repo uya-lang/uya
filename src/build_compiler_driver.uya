@@ -30375,6 +30375,82 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
     return 0;
 }
 
+fn native_build_hosted_mir_lower_print_helloworld_core_body_function(
+    module: &PortableMirModule, checker: &TypeChecker,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode) i32 {
+    if module == null || module.arena == null || checker == null ||
+       lowered_function_id < 0 || decl_index < 0 ||
+       source_core_body_id < 0 || decl == null {
+        return -1;
+    }
+    if native_build_hosted_decl_can_materialize_println_body(decl) == 0 {
+        return -1;
+    }
+    const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    if stmt0 == null || stmt0.print_expr == null ||
+       stmt0.print_expr.type != ASTNodeType.AST_STRING ||
+       stmt0.print_expr.string_literal_value == null {
+        return -1;
+    }
+    const string_len: i32 = strlen(stmt0.print_expr.string_literal_value as *byte) as! i32 catch {
+        return -1;
+    };
+    var has_newline: i32 = 0;
+    if stmt0.type == ASTNodeType.AST_PRINTLN {
+        has_newline = 1;
+    }
+    var lowered_plan: NativeBuildLoweredPlan = native_build_lowered_plan_empty();
+    lowered_program_init(&lowered_plan.lowered, module.arena);
+    var function: ConcreteFunction = native_build_hosted_core_function_from_decl(
+        lowered_function_id, decl_index, decl);
+    function.body_start = lowered_plan.lowered.core_body_count as i32;
+    function.body_count = 1;
+    if lowered_program_append_function(&lowered_plan.lowered, &function) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    const body_id: i32 = lowered_plan.lowered.core_body_count as i32;
+    if native_build_hosted_coreir_append_println_body(&lowered_plan.lowered,
+        checker, lowered_function_id, decl_index, decl) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    var core_result: CoreVerifierResult = native_build_empty_core_verifier_result();
+    if lowered_program_verify_coreir_result(&lowered_plan.lowered,
+        &core_result) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    const function_count_before: usize = module.function_count;
+    const inst_count_before: usize = module.inst_count;
+    const operand_count_before: usize = module.operand_count;
+    const mir_function_id: i32 = module.function_count as i32;
+    if portable_mir_lower_core_body_to_module(&lowered_plan.lowered,
+        body_id, module) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    const mir_function: &MirFunction = native_build_hosted_mir_function_by_id(
+        module, mir_function_id);
+    if mir_function == null {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    mir_function.source_core_body_id = source_core_body_id;
+    const function_delta: i32 = (module.function_count - function_count_before) as i32;
+    const inst_delta: i32 = (module.inst_count - inst_count_before) as i32;
+    const operand_delta: i32 = (module.operand_count - operand_count_before) as i32;
+    fprintf(libc.stderr,
+        "native_hosted_print_mir_lower_core_body: status=ok body=%d functions=%d insts=%d operands=%d source_body=%d\n" as *byte,
+        body_id, function_delta, inst_delta, operand_delta, source_core_body_id);
+    fprintf(libc.stderr,
+        "native_hosted_print_mir_body: calls=%d write_str=1 newline=%d operands=%d insts=%d bytes=%d\n" as *byte,
+        inst_delta, has_newline, operand_delta, inst_delta, string_len);
+    lowered_program_release(&lowered_plan.lowered);
+    return 0;
+}
+
 fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule,
     checker: &TypeChecker, program: &ASTNode, out_mir_body_function_count: &i32) i32 {
     if out_mir_body_function_count != null {
@@ -30639,8 +30715,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     }
                     body_function_count = body_function_count + 1;
                 } else if native_build_hosted_decl_can_materialize_println_body(decl) != 0 {
-                    if native_build_hosted_mir_append_print_helloworld_body_function(module,
-                        lowered_function_id, i, source_core_body_id, decl) != 0 {
+                    if native_build_hosted_mir_lower_print_helloworld_core_body_function(
+                        module, checker, lowered_function_id, i,
+                        source_core_body_id, decl) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;

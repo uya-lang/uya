@@ -989,9 +989,16 @@ MIR 测试分层（阶段门禁说明，不作为当前执行叶子；当前执�
     # `verify_hosted_native_print_helper_link_plan`、`verify_hosted_native_helloworld_parity`、
     # `verify_hosted_native_print_native_emitter_call`、`git diff --check` 和
     # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
-  - [ ] 修 `src/build_compiler_driver.uya` 的 hosted native 主路径，把
+  - [x] 修 `src/build_compiler_driver.uya` 的 hosted native 主路径，把
     `native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing`
     替换为真实 lowering 调用。
+    # 2026-06-11: print helloworld hosted native MIR 主路径改为构造 CoreBody 后调用
+    # `portable_mir_lower_core_body_to_module`，stderr 固定
+    # `native_hosted_print_mir_lower_core_body: status=ok ...`；`verify_hosted_native_print_mir_body`、
+    # `verify_hosted_native_print_hir_lowering`、`verify_hosted_native_helloworld_parity`、
+    # `verify_hosted_native_print_helper_link_plan`、`verify_hosted_native_print_native_emitter_call`、
+    # `verify_portable_mir_core_body_lowering`、`verify_native_mir_emitter`、`git diff --check` 和
+    # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
 - [x] statements：覆盖 expression statement、var/const decl、assign、if/else、while、for、break/continue、
   return、block、defer/errdefer/drop、try/catch 和裸 call statement 的通用 lowering。
 - [x] expressions：覆盖 literal、identifier、local/global load、binary/unary、logical short-circuit、call、

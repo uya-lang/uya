@@ -44,6 +44,12 @@ if ! grep -q 'native_hosted_print_coreir_body: calls=2 write_str=1 newline=1' "$
     exit 1
 fi
 
+if ! grep -q 'native_hosted_print_mir_lower_core_body: status=ok body=0 functions=' "$HW_NATIVE_ERR"; then
+    echo "error: print MIR body was not produced through CoreBody lowering" >&2
+    cat "$HW_NATIVE_ERR" >&2
+    exit 1
+fi
+
 if ! grep -q 'native_hosted_print_mir_body: calls=2 write_str=1 newline=1 operands=7 insts=2' "$HW_NATIVE_ERR"; then
     echo "error: print MIR body did not emit write_str + write_newline call instructions" >&2
     cat "$HW_NATIVE_ERR" >&2
