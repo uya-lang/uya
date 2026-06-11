@@ -10670,7 +10670,6 @@ fn native_build_hosted_decl_can_materialize_println_body(decl: &ASTNode) i32 {
 }
 
 // L994.B.2：把 println/print 2-stmt body 转成 CoreBody
-// 第一切片：仅生成 uya_write_newline(fd=1) + return N 的 CoreIR
 fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
     checker: &TypeChecker, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -10686,11 +10685,29 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
     if stmt0 == null || stmt1 == null {
         return -1;
     }
+    const print_expr: &ASTNode = stmt0.print_expr;
+    if print_expr == null || print_expr.type != ASTNodeType.AST_STRING ||
+       print_expr.string_literal_value == null {
+        return -1;
+    }
     const return_stmt_expr: &ASTNode = stmt1.return_stmt_expr;
     var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
     if native_build_hosted_ensure_expr_type_id(checker, return_stmt_expr,
         &return_type_id) != 0 {
         return -1;
+    }
+    const string_len: i32 = strlen(print_expr.string_literal_value as *byte) as! i32 catch {
+        return -1;
+    };
+    var has_newline: i32 = 0;
+    if stmt0.type == ASTNodeType.AST_PRINTLN {
+        has_newline = 1;
+    }
+    var root_stmt_count: i32 = 2;
+    var expr_count: i32 = 4;
+    if has_newline != 0 {
+        root_stmt_count = 3;
+        expr_count = 5;
     }
     const body_id: i32 = lowered.core_body_count as i32;
     const stmt_start: i32 = lowered.core_stmt_count as i32;
@@ -10700,9 +10717,9 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         function_id: function_id,
         decl_id: decl_index,
         root_stmt_start: stmt_start,
-        root_stmt_count: 2,
+        root_stmt_count: root_stmt_count,
         expr_start: expr_start,
-        expr_count: 3,
+        expr_count: expr_count,
         place_start: CORE_PLACE_INVALID_ID,
         place_count: 0,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
@@ -10717,28 +10734,59 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         return_stmt_expr, return_type_id, 1) != 0 {
         return -1;
     }
-    const call_expr_id: i32 = lowered.core_expr_count as i32;
-    var call_expr: CoreExpr = CoreExpr{
-        expr_id: call_expr_id,
+    const len_expr_id: i32 = lowered.core_expr_count as i32;
+    if native_build_hosted_coreir_append_i32_const_expr(lowered, body_id,
+        print_expr, return_type_id, string_len) != 0 {
+        return -1;
+    }
+    const write_str_call_expr_id: i32 = lowered.core_expr_count as i32;
+    var write_str_call_expr: CoreExpr = CoreExpr{
+        expr_id: write_str_call_expr_id,
         kind: CORE_EXPR_KIND_CALL,
         body_id: body_id,
-        source_expr_id: stmt0.expr_id,
+        source_expr_id: print_expr.expr_id,
         type_id: return_type_id,
         literal_i64: 0i64,
         lhs_expr_id: fd_expr_id,
-        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: len_expr_id,
         callee_expr_id: CORE_EXPR_INVALID_ID,
         place_id: CORE_PLACE_INVALID_ID,
-        target_function_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
-        target_decl_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+        target_function_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
+        target_decl_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
         field_id: TYPED_PROGRAM_INVALID_ID,
         proof_result_id: TYPED_PROGRAM_INVALID_ID,
         capability_id: TYPED_PROGRAM_INVALID_ID,
-        source_span_id: stmt0.line,
+        source_span_id: print_expr.line,
         flags: 0,
     };
-    if lowered_program_append_core_expr(lowered, &call_expr) != 0 {
+    if lowered_program_append_core_expr(lowered, &write_str_call_expr) != 0 {
         return -1;
+    }
+    var newline_call_expr_id: i32 = CORE_EXPR_INVALID_ID;
+    if has_newline != 0 {
+        newline_call_expr_id = lowered.core_expr_count as i32;
+        var newline_call_expr: CoreExpr = CoreExpr{
+            expr_id: newline_call_expr_id,
+            kind: CORE_EXPR_KIND_CALL,
+            body_id: body_id,
+            source_expr_id: stmt0.expr_id,
+            type_id: return_type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: fd_expr_id,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            target_function_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+            target_decl_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: stmt0.line,
+            flags: 0,
+        };
+        if lowered_program_append_core_expr(lowered, &newline_call_expr) != 0 {
+            return -1;
+        }
     }
     const ret_expr_id: i32 = lowered.core_expr_count as i32;
     if native_build_hosted_coreir_append_int_literal_expr(lowered, body_id,
@@ -10752,7 +10800,7 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         parent_stmt_id: CORE_STMT_INVALID_ID,
         first_child_stmt: CORE_STMT_INVALID_ID,
         child_stmt_count: 0,
-        expr_id: call_expr_id,
+        expr_id: write_str_call_expr_id,
         place_id: CORE_PLACE_INVALID_ID,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
         cleanup_edge_count: 0,
@@ -10760,8 +10808,27 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
         flags: 0,
     };
-    var ret_stmt: CoreStmt = CoreStmt{
+    var newline_stmt: CoreStmt = CoreStmt{
         stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_EXPR,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: newline_call_expr_id,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: stmt0.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var ret_stmt_id: i32 = stmt_start + 1;
+    if has_newline != 0 {
+        ret_stmt_id = stmt_start + 2;
+    }
+    var ret_stmt: CoreStmt = CoreStmt{
+        stmt_id: ret_stmt_id,
         kind: CORE_STMT_KIND_RETURN,
         body_id: body_id,
         parent_stmt_id: CORE_STMT_INVALID_ID,
@@ -10776,10 +10843,19 @@ fn native_build_hosted_coreir_append_println_body(lowered: &LoweredProgram,
         flags: 0,
     };
     if lowered_program_append_core_body(lowered, &body) != 0 ||
-       lowered_program_append_core_stmt(lowered, &call_stmt) != 0 ||
-       lowered_program_append_core_stmt(lowered, &ret_stmt) != 0 {
+       lowered_program_append_core_stmt(lowered, &call_stmt) != 0 {
         return -1;
     }
+    if has_newline != 0 &&
+       lowered_program_append_core_stmt(lowered, &newline_stmt) != 0 {
+        return -1;
+    }
+    if lowered_program_append_core_stmt(lowered, &ret_stmt) != 0 {
+        return -1;
+    }
+    fprintf(libc.stderr,
+        "native_hosted_print_coreir_body: calls=%d write_str=1 newline=%d exprs=%d stmts=%d bytes=%d\n" as *byte,
+        1 + has_newline, has_newline, expr_count, root_stmt_count, string_len);
     return 0;
 }
 
