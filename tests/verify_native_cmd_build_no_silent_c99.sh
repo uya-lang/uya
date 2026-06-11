@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -q 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=3 next_stmt=3 next_kind=AST_CALL_EXPR reason=partial_core_body' "$stderr"
+    grep -Eq 'native_hosted_pending_body_frontier: function=native_build_ast_plan_empty .*reason=pending_core_body' "$stderr"
+    if grep -q 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=3 next_stmt=3 next_kind=AST_CALL_EXPR reason=partial_core_body' "$stderr"; then
+        echo "错误: $label self-build 不应在 diagnostic profile tail fprintf 迁入后继续报告 prefix_stmts=3" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -q 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 diagnostic profile checker branch 迁入后继续报告 prefix_stmts=2" >&2
         cat "$stderr" >&2
