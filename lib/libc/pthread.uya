@@ -11,8 +11,8 @@ use std;
 use libc.SYS_clone;
 use libc.sys_clone;
 use libc.sys_futex;
-use libc.FUTEX_WAIT;
-use libc.FUTEX_WAKE;
+const PTHREAD_FUTEX_WAIT_LINUX: i32 = 0;
+const PTHREAD_FUTEX_WAKE_LINUX: i32 = 1;
 use libc.gettimeofday;
 use libc.sys_clock_gettime;
 use libc.SYS_clock_gettime;
@@ -351,7 +351,7 @@ fn _pthread_thread_exit(desc: &pthread_desc, retval: &void) void {
             if state == PTHREAD_JOINSTATE_JOINABLE {
                 var expected: i32 = PTHREAD_JOINSTATE_JOINABLE;
                 if __atomic_compare_exchange_n((&desc.joinstate) as &i32, &expected, PTHREAD_JOINSTATE_EXITED, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) != 0 {
-                    sys_futex((&desc.joinstate) as &i32, FUTEX_WAKE, 1, null);
+                    sys_futex((&desc.joinstate) as &i32, PTHREAD_FUTEX_WAKE_LINUX, 1, null);
                     break;
                 }
                 continue;
@@ -653,7 +653,7 @@ export extern "libc" fn pthread_join(thread: &pthread_t, retval: & &void) i32 {
         if state == PTHREAD_JOINSTATE_DETACHED || state == PTHREAD_JOINSTATE_JOINED {
             return 22; // EINVAL
         }
-        sys_futex((&desc.joinstate) as &i32, FUTEX_WAIT, state, null);
+        sys_futex((&desc.joinstate) as &i32, PTHREAD_FUTEX_WAIT_LINUX, state, null);
     }
 }
 
@@ -679,7 +679,7 @@ export extern "libc" fn pthread_detach(thread: &pthread_t) i32 {
             var expected: i32 = PTHREAD_JOINSTATE_JOINABLE;
             if __atomic_compare_exchange_n((&desc.joinstate) as &i32, &expected, PTHREAD_JOINSTATE_DETACHED, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) != 0 {
                 thread.detached = 1;
-                sys_futex((&desc.joinstate) as &i32, FUTEX_WAKE, 1, null);
+                sys_futex((&desc.joinstate) as &i32, PTHREAD_FUTEX_WAKE_LINUX, 1, null);
                 return 0;
             }
             continue;
@@ -715,7 +715,7 @@ export extern "libc" fn pthread_once(once_control: &pthread_once_t, init_routine
             _pthread_call_start(init_routine, null);
         }, {
             _pthread_call_start(init_routine, null);
-            sys_futex((&once_control.state) as &i32, FUTEX_WAKE, 2147483647, null);
+            sys_futex((&once_control.state) as &i32, PTHREAD_FUTEX_WAKE_LINUX, 2147483647, null);
         })
         once_control.state = 2;
         return;
@@ -723,7 +723,7 @@ export extern "libc" fn pthread_once(once_control: &pthread_once_t, init_routine
 
     // Another thread is initializing; wait on futex
     while once_control.state != 2 {
-        sys_futex((&once_control.state) as &i32, FUTEX_WAIT, 1, null);
+        sys_futex((&once_control.state) as &i32, PTHREAD_FUTEX_WAIT_LINUX, 1, null);
     }
 }
 
@@ -812,7 +812,7 @@ export extern "libc" fn pthread_mutex_lock(mutex: &pthread_mutex_t) i32 {
         }
         var expected: i32 = 0;
         while __atomic_compare_exchange_n((&mutex.state) as &i32, &expected, 1, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) == 0 {
-            sys_futex((&mutex.state) as &i32, FUTEX_WAIT, 1, null);
+            sys_futex((&mutex.state) as &i32, PTHREAD_FUTEX_WAIT_LINUX, 1, null);
             expected = 0;
         }
         mutex.owner = tid;
@@ -837,7 +837,7 @@ export extern "libc" fn pthread_mutex_lock(mutex: &pthread_mutex_t) i32 {
     // slow path
     while true {
         if (c == 2) || (__atomic_compare_exchange_n((&mutex.state) as &i32, &c, 2, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) == 0 && c != 1) {
-            sys_futex((&mutex.state) as &i32, FUTEX_WAIT, 2, null);
+            sys_futex((&mutex.state) as &i32, PTHREAD_FUTEX_WAIT_LINUX, 2, null);
         }
         c = 0;
         if __atomic_compare_exchange_n((&mutex.state) as &i32, &c, 2, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) != 0 {
@@ -881,7 +881,7 @@ export extern "libc" fn pthread_mutex_unlock(mutex: &pthread_mutex_t) i32 {
     var prev: i32 = __sync_fetch_and_sub((&mutex.state) as &i32, 1);
     if prev != 1 {
         mutex.state = 0;
-        sys_futex((&mutex.state) as &i32, FUTEX_WAKE, 1, null);
+        sys_futex((&mutex.state) as &i32, PTHREAD_FUTEX_WAKE_LINUX, 1, null);
     }
     return 0;
 }
@@ -984,7 +984,7 @@ export extern "libc" fn pthread_mutex_timedlock(mutex: &pthread_mutex_t, abstime
             }
             var timeout: timespec = timespec{ tv_sec: rel_sec, tv_nsec: rel_nsec };
 
-            const r: i32 = sys_futex((&mutex.state) as &i32, FUTEX_WAIT, 2, &timeout);
+            const r: i32 = sys_futex((&mutex.state) as &i32, PTHREAD_FUTEX_WAIT_LINUX, 2, &timeout);
             if r < 0 {
                 return 110; // ETIMEDOUT（简化处理：把负返回值统一视为超时）
             }
@@ -1130,7 +1130,7 @@ export extern "libc" fn pthread_cond_wait(cond: &pthread_cond_t, mutex: &pthread
     _ = pthread_mutex_unlock(mutex);
 
     // futex_wait 等待 seq 变化
-    sys_futex((&cond.seq) as &i32, FUTEX_WAIT, seq, null);
+    sys_futex((&cond.seq) as &i32, PTHREAD_FUTEX_WAIT_LINUX, seq, null);
 
     // 重新获取 mutex
     _ = pthread_mutex_lock(mutex);
@@ -1202,7 +1202,7 @@ export extern "libc" fn pthread_cond_timedwait(cond: &pthread_cond_t, mutex: &pt
     _ = pthread_mutex_unlock(mutex);
 
     // futex_wait 等待 seq 变化（带超时）
-    const futex_ret: i32 = sys_futex((&cond.seq) as &i32, FUTEX_WAIT, seq, &timeout);
+    const futex_ret: i32 = sys_futex((&cond.seq) as &i32, PTHREAD_FUTEX_WAIT_LINUX, seq, &timeout);
 
     // 重新获取 mutex
     _ = pthread_mutex_lock(mutex);
@@ -1230,7 +1230,7 @@ export extern "libc" fn pthread_cond_signal(cond: &pthread_cond_t) i32 {
 
     // 增加 seq，唤醒一个等待线程
     cond.seq = cond.seq + 1;
-    sys_futex((&cond.seq) as &i32, FUTEX_WAKE, 1, null);
+    sys_futex((&cond.seq) as &i32, PTHREAD_FUTEX_WAKE_LINUX, 1, null);
 
     return 0;
 }
@@ -1247,7 +1247,7 @@ export extern "libc" fn pthread_cond_broadcast(cond: &pthread_cond_t) i32 {
     if n > 0 {
         // 增加 seq，唤醒所有等待线程
         cond.seq = cond.seq + 1;
-        sys_futex((&cond.seq) as &i32, FUTEX_WAKE, n, null);
+        sys_futex((&cond.seq) as &i32, PTHREAD_FUTEX_WAKE_LINUX, n, null);
     }
 
     return 0;

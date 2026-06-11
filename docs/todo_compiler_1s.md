@@ -1901,6 +1901,20 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               通过。
+          - [x] 迁入 `compiler_should_profile_diagnostics(...)` 的 tail `return 1`，使该 helper
+            达到 body complete。
+            - 2026-06-11：新增 tail-return 合同与 prefix-4 CoreBody/PortableMIR
+              body-complete 切片；`compiler_should_profile_diagnostics(...)` 不再报告
+              partial frontier，self-build frontier 推进到
+              `native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile ... reason=pending_core_body`。
+            - 同步修复 `lib/libc/pthread.uya` 中阻塞 cmd-build C99 重建的裸
+              `FUTEX_WAIT` / `FUTEX_WAKE` 输出。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_profile_diagnostics_tail_return_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。

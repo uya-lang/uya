@@ -230,6 +230,11 @@ const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_STMT_COUNT: i32 = 5;
 const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_EXPR_COUNT: i32 = 5;
 const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_PLACE_COUNT: i32 = 2;
 const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_FACT_COUNT: i32 = 2;
+const NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_PREFIX_STMT_COUNT: i32 = 4;
+const NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_CORE_STMT_COUNT: i32 = 6;
+const NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_CORE_EXPR_COUNT: i32 = 6;
+const NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_CORE_PLACE_COUNT: i32 = 2;
+const NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_CORE_FACT_COUNT: i32 = 2;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -11019,6 +11024,24 @@ fn native_build_hosted_profile_diagnostics_false_like_branch_prefix_stmt_count(
     return NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT;
 }
 
+fn native_build_hosted_profile_diagnostics_tail_return_supported(
+    stmt: &ASTNode) i32 {
+    return native_build_hosted_parse_build_args_return_value(stmt, 1);
+}
+
+fn native_build_hosted_profile_diagnostics_tail_return_prefix_stmt_count(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_profile_diagnostics_false_like_branch_prefix_stmt_count(
+        decl, program, checker) !=
+       NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT ||
+       decl.fn_decl_body.block_stmt_count != 4 ||
+       native_build_hosted_profile_diagnostics_tail_return_supported(
+        decl.fn_decl_body.block_stmts[3]) == 0 {
+        return 0;
+    }
+    return NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_PREFIX_STMT_COUNT;
+}
+
 fn native_build_hosted_decl_can_materialize_profile_diagnostics_first_slice_body(
     decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
     if native_build_hosted_profile_diagnostics_first_slice_prefix_stmt_count(
@@ -11043,6 +11066,16 @@ fn native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branc
     if native_build_hosted_profile_diagnostics_false_like_branch_prefix_stmt_count(
         decl, program, checker) ==
        NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_decl_can_materialize_profile_diagnostics_tail_return_body(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_profile_diagnostics_tail_return_prefix_stmt_count(
+        decl, program, checker) ==
+       NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_PREFIX_STMT_COUNT {
         return 1;
     }
     return 0;
@@ -15435,6 +15468,79 @@ fn native_build_hosted_coreir_append_profile_diagnostics_false_like_branch_body(
        lowered_program_append_core_stmt(lowered, &false_ret_stmt) != 0 ||
        lowered_program_append_core_semantic_fact(lowered, &getenv_fact) != 0 ||
        lowered_program_append_core_semantic_fact(lowered, &strcmp_fact) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_profile_diagnostics_tail_return_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode,
+    function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null ||
+       native_build_hosted_decl_can_materialize_profile_diagnostics_tail_return_body(
+        decl, program, checker) == 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    if native_build_hosted_coreir_append_profile_diagnostics_false_like_branch_body(
+        lowered, checker, program, function_id, decl_index, decl) != 0 {
+        return -1;
+    }
+    const tail_return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[3];
+    if tail_return_stmt == null || tail_return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker,
+        tail_return_stmt.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    const expr_id: i32 = lowered.core_expr_count as i32;
+    const stmt_id: i32 = lowered.core_stmt_count as i32;
+    var return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_id,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: tail_return_stmt.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: 1i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: tail_return_stmt.return_stmt_expr.line,
+        flags: 0,
+    };
+    var return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_id,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_id,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: tail_return_stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    const body: &CoreBody = semantic_vector_item_ptr(&lowered.core_bodies,
+        body_id as usize) as &CoreBody;
+    if body == null {
+        return -1;
+    }
+    body.root_stmt_count = NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_CORE_STMT_COUNT;
+    body.expr_count = NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_CORE_EXPR_COUNT;
+    body.flags = CORE_BODY_FLAG_SOURCE_BODY;
+    if lowered_program_append_core_expr(lowered, &return_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
         return -1;
     }
     return 0;
@@ -22245,6 +22351,9 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const materialize_profile_diagnostics_false_like_body: i32 =
                 native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
                     decl, program, checker);
+            const materialize_profile_diagnostics_tail_body: i32 =
+                native_build_hosted_decl_can_materialize_profile_diagnostics_tail_return_body(
+                    decl, program, checker);
             const materialize_safe_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             var function: ConcreteFunction = native_build_hosted_core_function_from_decl(function_id, i, decl);
             if materialize_prefix_body != 0 || materialize_entry_prefix_body != 0 ||
@@ -22262,6 +22371,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                materialize_compile_stats_table_agg_body != 0 ||
                materialize_compile_stats_peak_body != 0 ||
                materialize_compile_stats_first_body != 0 ||
+               materialize_profile_diagnostics_tail_body != 0 ||
                materialize_profile_diagnostics_false_like_body != 0 ||
                materialize_profile_diagnostics_null_empty_body != 0 ||
                materialize_profile_diagnostics_first_body != 0 ||
@@ -22530,6 +22640,15 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                     result.entry_reachable_body_next_stmt_kind =
                         native_build_ast_kind_enum_name(next_stmt.type);
                 }
+            } else if materialize_profile_diagnostics_tail_body != 0 {
+                if native_build_hosted_coreir_append_profile_diagnostics_tail_return_body(
+                    lowered, checker, program, function_id, i, decl) != 0 {
+                    return -1;
+                }
+                result.entry_reachable_body_complete_function_name =
+                    native_build_decl_name_for_diagnostic(decl);
+                result.entry_reachable_body_complete_stmt_count =
+                    NATIVE_PROFILE_DIAGNOSTICS_TAIL_RETURN_PREFIX_STMT_COUNT;
             } else if materialize_profile_diagnostics_false_like_body != 0 {
                 if native_build_hosted_coreir_append_profile_diagnostics_false_like_branch_body(
                     lowered, checker, program, function_id, i, decl) != 0 {
@@ -28807,6 +28926,12 @@ fn native_build_hosted_decl_can_lower_profile_diagnostics_false_like_branch_mir_
         decl, program, checker);
 }
 
+fn native_build_hosted_decl_can_lower_profile_diagnostics_tail_return_mir_body(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_profile_diagnostics_tail_return_body(
+        decl, program, checker);
+}
+
 fn native_build_hosted_compile_stats_mir_operand(operand_id: i32,
     type_id: i32) MirOperand {
     return MirOperand{
@@ -30919,6 +31044,19 @@ fn native_build_hosted_mir_append_profile_diagnostics_false_like_branch_body_fun
     source_core_body_id: i32, decl: &ASTNode, program: &ASTNode,
     checker: &TypeChecker) i32 {
     if native_build_hosted_decl_can_lower_profile_diagnostics_false_like_branch_mir_body(
+        decl, program, checker) == 0 {
+        return -1;
+    }
+    return native_build_hosted_mir_append_profile_diagnostics_first_slice_body_function(
+        module, lowered_function_id, decl_index, source_core_body_id, decl,
+        program, checker);
+}
+
+fn native_build_hosted_mir_append_profile_diagnostics_tail_return_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode, program: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if native_build_hosted_decl_can_lower_profile_diagnostics_tail_return_mir_body(
         decl, program, checker) == 0 {
         return -1;
     }
@@ -34345,6 +34483,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
             const has_profile_diagnostics_false_like_body: i32 =
                 native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
                     decl, program, checker);
+            const has_profile_diagnostics_tail_body: i32 =
+                native_build_hosted_decl_can_materialize_profile_diagnostics_tail_return_body(
+                    decl, program, checker);
             const has_safe_core_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             const has_direct_method_body: i32 =
                 native_build_hosted_decl_can_materialize_direct_method_body(
@@ -34364,6 +34505,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                has_compile_stats_table_agg_body != 0 ||
                has_compile_stats_peak_body != 0 ||
                has_compile_stats_first_body != 0 ||
+               has_profile_diagnostics_tail_body != 0 ||
                has_profile_diagnostics_false_like_body != 0 ||
                has_profile_diagnostics_null_empty_body != 0 ||
                has_profile_diagnostics_first_body != 0 ||
@@ -34490,6 +34632,14 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     if native_build_hosted_mir_append_compile_stats_first_slice_body_function(
                         module, lowered_function_id, i, source_core_body_id, decl,
                         checker) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_profile_diagnostics_tail_return_mir_body(
+                    decl, program, checker) != 0 {
+                    if native_build_hosted_mir_append_profile_diagnostics_tail_return_body_function(
+                        module, lowered_function_id, i, source_core_body_id, decl,
+                        program, checker) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;

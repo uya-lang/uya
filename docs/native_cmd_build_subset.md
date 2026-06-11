@@ -742,6 +742,31 @@ CoreBody/PortableMIR 合同：
 6. 实现叶子应新增 `NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT = 3`，
    并同步 `tests/verify_native_cmd_build_no_silent_c99.sh` 反向拒绝继续报告 `prefix_stmts=2`。
 
+## `compiler_should_profile_diagnostics(...)` Tail Return Contract
+
+false-like branch 迁入后，当前真实 body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=3 next_stmt=3 next_kind=return reason=partial_core_body
+```
+
+本合同冻结第 3 条顶层语句：
+
+```text
+return 1;
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须追加 `CORE_STMT_KIND_RETURN`，返回表达式为 `CORE_EXPR_KIND_INT_LITERAL`
+   且值为 `1`。
+2. PortableMIR 必须保留 `MIR_TERMINATOR_KIND_RETURN` surface，返回 i32 1。
+3. 该切片迁入后 `compiler_should_profile_diagnostics(...)` 不得继续报告 partial frontier；
+   self-build frontier 必须推进到下一个真实 pending body：
+   `native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile ... reason=pending_core_body`。
+4. 迁入后 self-build 仍必须因后续 pending bodies 拒绝写出，且下一个可观测 pending body
+   继续由真实 reachable/pending frontier 诊断驱动。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
