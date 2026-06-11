@@ -2302,6 +2302,57 @@ native_hosted_reachable_body_complete: function=native_build_decl_is_one_i32_par
 native_hosted_pending_body_frontier: function=native_build_decl_is_identity_generic_i32_fn decl=392 function_id=39 body_stmts=9 reason=pending_core_body
 ```
 
+## `native_build_decl_is_identity_generic_i32_fn(...)` Body Complete Contract
+
+当前真实 frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_decl_is_identity_generic_i32_fn decl=392 function_id=39 body_stmts=9 reason=pending_core_body
+```
+
+当前源码 body surface 必须保持为 9 条顶层 statement：
+
+```uya
+fn native_build_decl_is_identity_generic_i32_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null ||
+       decl.fn_decl_type_params == null || decl.fn_decl_type_param_count != 1 {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 1 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || decl.fn_decl_params == null {
+        return 0;
+    }
+    const type_param_name: &byte = decl.fn_decl_type_params[0].name;
+    if type_param_name == null {
+        return 0;
+    }
+    const param: &ASTNode = decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null {
+        return 0;
+    }
+    if native_build_type_named_equals(param.var_decl_type, type_param_name) == 0 {
+        return 0;
+    }
+    if native_build_type_named_equals(decl.fn_decl_return_type, type_param_name) == 0 {
+        return 0;
+    }
+    return native_build_decl_returns_param_directly(decl, param.var_decl_name);
+}
+```
+
+合同：
+
+1. CoreBody 必须覆盖完整 9 statement body surface：decl/type-param guard、
+   one-param/non-extern/non-async/non-naked/non-varargs/params guard、type-param local、
+   type-param null guard、param local、param var/name guard、两个 type-name helper-call
+   guard 和 tail identity helper-call return。
+2. guard 分支必须保持失败返回 `0`；三个 helper-call surface 必须保留 resolved call target。
+3. PortableMIR 必须保留 tail helper-call return，不得把该 helper 降成单一常量 return 或 pending body。
+4. 该切片迁入后 `native_build_decl_is_identity_generic_i32_fn(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_decl_is_identity_generic_i32_fn prefix_stmts=9 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
