@@ -58,6 +58,7 @@ bash "$SCRIPT_DIR/verify_native_const_slice_len_index_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_pointer_deref_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_dynamic_catch_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_defer_local_assign_shape_empty_contract.sh"
+bash "$SCRIPT_DIR/verify_native_lexical_drop_shape_empty_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
