@@ -1536,6 +1536,73 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=native_build_simd_vector_mask_shape_empty prefix_stmts=1 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+## `native_build_local_table_init(...)` Body Complete Contract
+
+`native_build_simd_vector_mask_shape_empty()` body complete 后，当前真实 pending frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_local_table_init decl=328 function_id=23 body_stmts=15 reason=pending_core_body
+```
+
+函数源码：
+
+```text
+fn native_build_local_table_init(arena: &CompilerArena, capacity: i32) NativeBuildLocalTable {
+    var locals: NativeBuildLocalTable = native_build_local_table_empty();
+    if arena == null || capacity <= 0 {
+        return locals;
+    }
+    const cap_usize_result: !usize = capacity as! usize;
+    const cap_usize: usize = cap_usize_result catch {
+        return locals;
+    };
+    locals.names = compiler_arena_alloc(arena, @size_of(&byte) * cap_usize) as & & byte;
+    locals.call_targets = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    locals.kinds = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    locals.init_values = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    locals.static_knowns = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    locals.lengths = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    if locals.names == null || locals.call_targets == null ||
+       locals.kinds == null || locals.init_values == null ||
+       locals.static_knowns == null || locals.lengths == null {
+        return native_build_local_table_empty();
+    }
+    locals.capacity = capacity;
+    var i: i32 = 0;
+    while i < capacity {
+        locals.names[i] = null;
+        locals.call_targets[i] = -1;
+        locals.kinds[i] = 0;
+        locals.init_values[i] = 0;
+        locals.static_knowns[i] = 0;
+        locals.lengths[i] = 0;
+        i = i + 1;
+    }
+    return locals;
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须覆盖当前 top-level 15 statement body surface：
+   locals empty 初始化、arena/capacity guard、`capacity as! usize` checked cast、
+   `cap_usize_result catch` fallback、6 个 `compiler_arena_alloc(...)` 字段写入、
+   复合 null fallback、`locals.capacity = capacity`、`var i: i32 = 0`、
+   `while i < capacity` loop 和 final `return locals`。
+2. 6 个 arena allocation 字段必须保持源码顺序和类型 cast：`locals.names`、
+   `locals.call_targets`、`locals.kinds`、`locals.init_values`、
+   `locals.static_knowns`、`locals.lengths`；任一 alloc 为 null 时必须返回
+   `native_build_local_table_empty()`。
+3. loop body 必须保持 per-slot 初始化语义：`locals.names[i] = null`、
+   `locals.call_targets[i] = -1`、`locals.kinds[i] = 0`、
+   `locals.init_values[i] = 0`、`locals.static_knowns[i] = 0`、
+   `locals.lengths[i] = 0`、`i = i + 1`。
+4. PortableMIR 必须保留完整初始化 control-flow surface，不得把该 helper 降成 noop、
+   单 return empty table 或 pending body。
+5. 该切片迁入后 `native_build_local_table_init(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_local_table_init prefix_stmts=15 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
