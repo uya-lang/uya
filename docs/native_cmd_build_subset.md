@@ -767,6 +767,75 @@ CoreBody/PortableMIR 合同：
 4. 迁入后 self-build 仍必须因后续 pending bodies 拒绝写出，且下一个可观测 pending body
    继续由真实 reachable/pending frontier 诊断驱动。
 
+## `compiler_print_diagnostic_profile(...)` Surface Audit
+
+`compiler_should_profile_diagnostics(...)` 达到 body complete 后，当前 self-build pending frontier
+推进到：
+
+```text
+native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile decl=246 function_id=6 body_stmts=4 reason=pending_core_body
+```
+
+函数源码：
+
+```text
+fn compiler_print_diagnostic_profile(checker: &TypeChecker) void {
+    if compiler_should_profile_diagnostics() == 0 || libc.stderr == null {
+        return;
+    }
+    var count: i32 = 0;
+    if checker != null {
+        count = checker.diagnostic_format_count;
+    }
+    fprintf(libc.stderr, "diagnostic_format_count: %d\n" as *byte, count);
+}
+```
+
+Surface 审计：
+
+1. 参数：`checker: &TypeChecker`；返回 `void`。
+2. 局部：`count: i32`，初始值为 0；当 `checker != null` 时读取
+   `checker.diagnostic_format_count` 写回 `count`。
+3. Global / 外部调用：读取 `libc.stderr`；调用
+   `compiler_should_profile_diagnostics()`；尾部调用 `fprintf` 向 stderr 输出
+   `diagnostic_format_count: %d\n`。
+4. 控制流：4 条顶层语句。先执行 guard；当 profile 未启用或 stderr 为空时 early return；
+   再初始化 `count`；非空 checker 分支读取计数；最后 fprintf 输出。
+5. diagnostics / IO：该 helper 是 diagnostics profile 的实际 stderr 输出点；首个 guard
+   切片必须保持 `compiler_should_profile_diagnostics()` 和 `libc.stderr` 的短路判断，不能提前
+   执行 `fprintf` 或读取 `checker`。
+6. lowering 顺序：首个最小切片只迁入第 0 条 guard early-return；后续再按真实 frontier
+   迁入 `count` 局部、`checker != null` 分支和尾部 `fprintf`。
+
+## `compiler_print_diagnostic_profile(...)` Guard Slice Contract
+
+当前真实 pending frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile decl=246 function_id=6 body_stmts=4 reason=pending_core_body
+```
+
+首个最小切片只覆盖第 0 条顶层语句：
+
+```text
+if compiler_should_profile_diagnostics() == 0 || libc.stderr == null {
+    return;
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须生成 `CORE_STMT_KIND_IF`，条件保留
+   `compiler_should_profile_diagnostics() == 0 || libc.stderr == null` 的源码顺序。
+2. `compiler_should_profile_diagnostics()` 必须保持 resolved local call surface；`libc.stderr`
+   必须保持 global/field 读取 surface，不得常量化为非空或折叠整个 guard。
+3. `||` 必须保持 short-circuit 语义：当 profile helper 返回 0 时不能读取或使用后续输出路径。
+4. then body 必须只执行 `return;`，不得提前初始化 `count`、读取 `checker` 或调用 `fprintf`。
+5. PortableMIR 必须保留 conditional branch 和 void return terminator surface。
+6. 该 guard 切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=var reason=partial_core_body`。
+   下一步才能迁入 `var count: i32 = 0`。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
