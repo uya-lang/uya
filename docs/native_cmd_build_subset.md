@@ -1220,6 +1220,44 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=native_build_pointer_deref_shape_empty prefix_stmts=1 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+## `native_build_dynamic_catch_shape_empty()` Body Complete Contract
+
+`native_build_pointer_deref_shape_empty()` body complete 后，当前真实 pending frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_dynamic_catch_shape_empty decl=320 function_id=15 body_stmts=1 reason=pending_core_body
+```
+
+函数源码：
+
+```text
+fn native_build_dynamic_catch_shape_empty() NativeBuildDynamicCatchShape {
+    return NativeBuildDynamicCatchShape{
+        argc_decl: null,
+        catch_decl: null,
+        return_stmt: null,
+        catch_arg_expr: null,
+        compare_value: 0,
+        fallback_value: 0,
+        ok_value: 0,
+    };
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须生成单条 `CORE_STMT_KIND_RETURN`，返回表达式保持
+   `NativeBuildDynamicCatchShape` struct literal surface。
+2. struct literal 的字段必须保持源码顺序和语义：`argc_decl = null`、
+   `catch_decl = null`、`return_stmt = null`、`catch_arg_expr = null`、
+   `compare_value = 0`、`fallback_value = 0`、`ok_value = 0`；不得省略任一 AST
+   指针字段，也不得把任一 i32 字段改成非零。
+3. PortableMIR 必须保留 aggregate return surface，返回类型为
+   `NativeBuildDynamicCatchShape`，不得把该 helper 降成 noop 或 pending body。
+4. 该切片迁入后 `native_build_dynamic_catch_shape_empty()` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_dynamic_catch_shape_empty prefix_stmts=1 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
