@@ -568,6 +568,28 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR reason=partial_core_body`。
    下一步才能迁入 `semantic_vector_release(&checker.typed_type_records)` 调用。
 
+## `compile_stats_record_and_release_typed_program(...)` Typed Type Records Release Slice Contract
+
+TypedProgram release 切片迁入后的真实 reachable body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=16 next_stmt=16 next_kind=AST_CALL_EXPR reason=partial_core_body
+```
+
+下一条源码语句是 `semantic_vector_release(&checker.typed_type_records);`。该切片只允许追加
+typed type records release 单个调用，不得提前迁入 released-bytes 统计写回。
+
+CoreBody/PortableMIR 合同：
+
+1. 该调用必须作为 `CORE_STMT_KIND_EXPR` 或等价 call statement surface，callee 保持
+   `semantic_vector_release` 的 resolved target。
+2. 参数必须保留 `&checker.typed_type_records` 的 address-of/member-access surface；CoreIR 记录
+   `checker.typed_type_records` 独立 field place，PortableMIR 追加独立 address/field/call surface。
+3. PortableMIR 必须追加该释放调用对应的 `MIR_INST_OP_CALL`，不能把 release 折叠为 noop。
+4. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body`。
+   下一步才能迁入 `stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program)` 写回。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
