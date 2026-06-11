@@ -991,7 +991,7 @@ MIR -> Native 首个目标：
   - native build stderr 必须包含 CoreBody、PortableMIR verifier 和 NativeMirEmitter 证据。
   - native build stderr 不得包含 `native_hosted_portable_mir_lowering_missing`、C99 fallback 或
     pre-MIR helper 成功路径。
-- [~] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
+- [ ] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
   vararg/format 或 runtime helper handoff（epic 起点；L996/L1005/L1032 都依赖此叶子完成）。
   # 2026-06-10 拆分：见下方 L994.A–L994.F 六个有序子叶子；前序未通过不进入下一个。
   - [x] L994.A MIR extern helper 注册：把 `uya_write(fd, ptr, len)` / `uya_write_str(fd, ptr, len)` /
@@ -1047,10 +1047,14 @@ MIR -> Native 首个目标：
         # 完成 L994.B.1 + B.2 之后，最小"first slice"是 main body 调
         # `uya_write_newline(1)` + return 0（输出 `\n` 而非 `Hello, World!`）；
         # L994.B.3 完成后才输出 `Hello, World!`。
-  - [ ] L994.C MIR verifier ABI 校验：在 `src/lower/mir_verifier.uya` 的
+  - [x] L994.C MIR verifier ABI 校验：在 `src/lower/mir_verifier.uya` 的
         `CORE_EXPR_KIND_CALL` 路径上验证 print helper extern 的 ABI（参数 i32/i64 寄存器、
         ret i32、non-naked）。
-  - [ ] L994.D NativeMirEmitter extern call emission：NativeMirEmitter 接受
+        # 2026-06-11：新增 `tests/verify_hosted_native_print_mir_verifier_abi.sh`
+        # 并通过；同步修正 `tests/verify_portable_mir_verifier.sh` 的 verifier
+        # standalone shim。验证：`bash tests/verify_hosted_native_print_mir_verifier_abi.sh`
+        # 与 `bash tests/verify_portable_mir_verifier.sh`。
+  - [~] L994.D NativeMirEmitter extern call emission：NativeMirEmitter 接受
         verifier-clean 的 `CORE_EXPR_KIND_CALL`→`uya_write_str` 并 emit x86_64
         `call <extern>`；ABI 用 SysV i32/i64 寄存器约定（fd → EDI，ptr → RSI，len → EDX）。
   - [ ] L994.E hosted link plan 拉入 helper C 实现：hosted link plan 在

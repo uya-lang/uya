@@ -115,6 +115,11 @@ export fn semantic_vector_release(vec: &SemanticVector) void {
 }
 EOF
 
+cat >>"$tmp_dir/main.uya" <<'EOF'
+export const MIR_CALL_CONV_C: i32 = 2;
+export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
+EOF
+
 cat "$MIR_FILE" "$MIR_VERIFIER_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
