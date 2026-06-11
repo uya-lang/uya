@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 compile_stats_record_and_release_typed_program(...)
+# Native build-seed 边界：固定 compile_stats_record_and_release_typed_program(...)
 # 首个最小切片的 CoreBody/PortableMIR golden/verifier 合同输入面。
 # 该脚本不声明函数体已经迁入；它保证下一步实现必须从真实
 # stats/checker early-return 与 field-address call surface 开始。

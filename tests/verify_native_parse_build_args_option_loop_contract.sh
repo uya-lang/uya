@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) option loop 骨架切片合同。
+# Native build-seed 边界：固定 parse_build_args(...) option loop 骨架切片合同。
 # 该切片覆盖 i 初始化、while i < argc、get_argv(i) null diagnostic 和 loop 尾部递增。
 
 set -euo pipefail

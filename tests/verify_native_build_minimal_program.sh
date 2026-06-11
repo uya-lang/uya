@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 build CLI 的第一个真实 --native 成功路径。
+# Native build-seed 边界：验证 build CLI 的第一个真实 --native 成功路径。
 # 当前允许无参/窄 i32 参数函数，函数体为 `return 0..255;`、`return callee();`、
 # `return lhs() + rhs();`，一个 direct call 局部初始化后 `return local;`，或最小 `&i32`
 # / `&array[0]` out-param 写回、两个 `&i32` out-param 的最小调用，`get_argc`

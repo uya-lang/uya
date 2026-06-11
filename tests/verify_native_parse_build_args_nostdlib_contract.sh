@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) --nostdlib 标量分支迁入合同。
+# Native build-seed 边界：固定 parse_build_args(...) --nostdlib 标量分支迁入合同。
 # 该叶子固定 `is_nostdlib[0] = 1` store surface、下一段 branch frontier、
 # 生产 recognizer 和 stage1 接入点。
 

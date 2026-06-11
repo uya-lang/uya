@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10: hosted/freestanding call ABI profile 必须在 PortableMIR 中显式分流，
+# Native build-seed boundary: hosted/freestanding call ABI profile 必须在 PortableMIR 中显式分流，
 # 并由 verifier 阻止 hosted-only capability 进入 freestanding native。
 
 set -euo pipefail

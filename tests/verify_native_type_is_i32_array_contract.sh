@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 native_build_type_is_i32_array(...)
+# Native build-seed 边界：固定 native_build_type_is_i32_array(...)
 # 2 statement helper 的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail

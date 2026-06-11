@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) --stack-size 数字扫描合同。
+# Native build-seed 边界：固定 parse_build_args(...) --stack-size 数字扫描合同。
 # 该叶子只冻结缺参、byte index、digit loop、累积、写入和 warning surface，
 # 不迁入生产 CoreBody/PortableMIR recognizer。
 

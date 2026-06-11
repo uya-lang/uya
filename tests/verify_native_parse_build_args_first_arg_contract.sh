@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) 首参数处理切片合同。
+# Native build-seed 边界：固定 parse_build_args(...) 首参数处理切片合同。
 # 该切片把 body frontier 从默认初始化后的 first_arg 声明推进到 option loop 的 i 初始化。
 
 set -euo pipefail

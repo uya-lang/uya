@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) 收尾输出路径检查合同。
+# Native build-seed 边界：固定 parse_build_args(...) 收尾输出路径检查合同。
 # 该合同只冻结无输入、显式输出路径、.c 推断和 native .c 拒绝的源码 surface
 # 与当前 frontier；不要求本叶子改生产 lowering 实现。
 

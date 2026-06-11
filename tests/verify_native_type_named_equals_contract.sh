@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 native_build_type_named_equals(...)
+# Native build-seed 边界：固定 native_build_type_named_equals(...)
 # 3 statement helper 的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail

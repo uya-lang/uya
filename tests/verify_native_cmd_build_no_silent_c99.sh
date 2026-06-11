@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：防止 --native 未接入时静默回落到 C99，并让 cmd/build self-build
+# Native build-seed 边界：防止 --native 未接入时静默回落到 C99，并让 cmd/build self-build
 # 从 hosted CoreBody/PortableMIR preflight 开始，而不是回到 freestanding LoweredProgram 特例。
 
 set -euo pipefail

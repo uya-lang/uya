@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native build compiler 子集所需最小 file IO 读取。
+# Native build-seed 边界：验证 native build compiler 子集所需最小 file IO 读取。
 
 set -euo pipefail
 

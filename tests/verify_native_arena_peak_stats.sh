@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native-built compiler 需要的 arena peak 统计契约。
+# Native build-seed 边界：验证 native-built compiler 需要的 arena peak 统计契约。
 
 set -euo pipefail
 

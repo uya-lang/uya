@@ -23,6 +23,11 @@
 - `missing`：尚未开始 lowering。`missing` 行在 Phase 9B 收口前必须全部转入
   `done` 或带可复现 diagnostic 的 `reject`。
 
+`done` 必须代表通用语言结构已经被覆盖，而不是某个文件名、函数名、helper 名或固定 body shape
+命中。编译器自举、`cmd/build` 和 full-language smoke 都只能作为样本输入；它们不能定义新的
+language kind，也不能把 `native_build_hosted_decl_can_*` / `native_build_*shape*` 成功路径计入
+generic coverage。
+
 矩阵由 `tests/verify_portable_mir_language_coverage.sh` 强制：
 
 - 矩阵文件存在且每行可解析；
@@ -325,7 +330,7 @@ parity，其余 12 个 shard 在 §7 表格中显式 `reject`。Phase 9B leaf �
 - [x] 覆盖矩阵中所有 main 分支已启用语言面都有 `done` 或 `reject` 状态。
 - [x] `reject` 状态都有可复现 diagnostic，且不是 C99 fallback 或 pre-MIR helper。
 - [ ] HelloWorld 作为 MIR -> Native 首个目标完成 native/C99 parity。
-- [ ] Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
+- [ ] Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 native `cmd/build` / build seed 子集。
 
 前两条由本文件 + `tests/verify_hosted_native_full_language_smoke.sh` 联合守门；后两条
 属于 Phase 9B 收口叶子，与 `docs/todo_compiler_1s.md` 的 `HelloWorld` / 完整语言 parity

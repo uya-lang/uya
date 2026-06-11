@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native build compiler 子集所需 diagnostics 字符串输出缓冲。
+# Native build-seed 边界：验证 native build compiler 子集所需 diagnostics 字符串输出缓冲。
 
 set -euo pipefail
 

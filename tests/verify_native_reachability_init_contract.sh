@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 native_build_reachability_init(...)
+# Native build-seed 边界：固定 native_build_reachability_init(...)
 # 完整初始化 body 的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) line-directives 标量分支迁入合同。
+# Native build-seed 边界：固定 parse_build_args(...) line-directives 标量分支迁入合同。
 # 该切片覆盖 `--no-line-directives` / `--line-directives` out-param
 # 写入，并把 frontier 推进到 safety-proof scalar option 分支。
 

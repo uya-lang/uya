@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) backend 标量分支迁入合同。
+# Native build-seed 边界：固定 parse_build_args(...) backend 标量分支迁入合同。
 # 该切片覆盖 `--c99` / `--native` enum out-param 写入，并把 frontier
 # 推进到 line-directives scalar option 分支。
 

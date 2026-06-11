@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 native_build_local_table_init(...)
+# Native build-seed 边界：固定 native_build_local_table_init(...)
 # 完整迁入前必须先补 while/control-flow surface，不得用单 return 伪装完成。
 
 set -euo pipefail

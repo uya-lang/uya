@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10: compare build-only cmd/build C99 output against the C99-built
+# Native build-seed boundary: compare build-only cmd/build C99 output against the C99-built
 # compiler oracle for small regression programs.
 
 set -euo pipefail

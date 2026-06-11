@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) split-C / async-frame CLI 合同。
+# Native build-seed 边界：固定 parse_build_args(...) split-C / async-frame CLI 合同。
 # 该叶子只冻结 async-frame、--no-split-c、inline/separate --split-c-dir
 # 的源码 surface、warning/default-dir 调用和 source-order frontier。
 

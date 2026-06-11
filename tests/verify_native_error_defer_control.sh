@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native build compiler 子集所需 error union / defer 控制流清理契约。
+# Native build-seed 边界：验证 native build compiler 子集所需 error union / defer 控制流清理契约。
 
 set -euo pipefail
 

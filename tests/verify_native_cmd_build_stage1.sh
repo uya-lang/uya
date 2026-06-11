@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10 stage1：统一验证 build-only --native 的真实成功子集，
+# Native cmd/build stage1：统一验证 build-only --native 的真实成功子集，
 # 并固定 native cmd/build 尚未自举时不能静默回落 C99。
 
 set -euo pipefail

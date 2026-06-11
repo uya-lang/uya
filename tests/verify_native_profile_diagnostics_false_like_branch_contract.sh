@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 compiler_should_profile_diagnostics(...)
+# Native build-seed 边界：固定 compiler_should_profile_diagnostics(...)
 # false-like strcmp early-return branch 的 CoreBody/PortableMIR 合同。
 
 set -euo pipefail

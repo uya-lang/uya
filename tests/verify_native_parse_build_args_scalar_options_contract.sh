@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) 基础 flag / scalar option
+# Native build-seed 边界：固定 parse_build_args(...) 基础 flag / scalar option
 # CoreBody/PortableMIR 合同。该脚本只冻结源码 surface、文档化的
 # loop-body child frontier 形状和 stage1 接入点；具体分支 lower 由后续
 # 叶子逐项完成。

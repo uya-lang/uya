@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) build-seed 明确拒绝选项合同。
+# Native build-seed 边界：固定 parse_build_args(...) build-seed 明确拒绝选项合同。
 # 该叶子只冻结 seed 边界、diagnostic、return -1 和 source-order frontier，
 # 不迁入生产 CoreBody/PortableMIR recognizer。
 

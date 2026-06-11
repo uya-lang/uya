@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) opt-level 标量分支迁入合同。
+# Native build-seed 边界：固定 parse_build_args(...) opt-level 标量分支迁入合同。
 # 该叶子只冻结 `--opt=0..3` / `-O0..3` 的 OR 条件 surface、four-way
 # store surface、下一段 branch frontier 和 stage1 接入点；生产 recognizer /
 # MIR lowering 由后续叶子完成。

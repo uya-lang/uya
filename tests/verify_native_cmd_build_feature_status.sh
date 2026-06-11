@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native cmd/build 子集 feature 状态矩阵覆盖每个 inventory 项。
+# Native build-seed 边界：验证 native cmd/build 子集 feature 状态矩阵覆盖每个 inventory 项。
 
 set -euo pipefail
 

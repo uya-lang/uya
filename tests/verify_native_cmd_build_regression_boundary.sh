@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Phase 9A/10：固定 freestanding native cmd/build 只是 build-seed 回归边界，
-# hosted native 完整语言 parity 不依赖该子集继续扩张。
+# 固定早期 freestanding native cmd/build 只是 build-seed 历史边界；
+# hosted native / self-build 必须走通用 CoreBody -> PortableMIR -> NativeMirEmitter 路径。
 
 set -euo pipefail
 
@@ -31,13 +31,19 @@ require_pattern() {
     fi
 }
 
-require_pattern "$SUBSET_DOC" 'Phase 10 的 native 子集只面向 freestanding `cmd/build` seed，不定义完整' \
-    "cmd/build subset doc 缺少 freestanding seed 范围"
+require_pattern "$SUBSET_DOC" 'legacy build-seed feature inventory；已退役为历史边界，不作为当前任务来源' \
+    "cmd/build subset doc 缺少退役状态"
+require_pattern "$SUBSET_DOC" '`cmd/build` / 编译器自举只能作为普通合法 Uya' \
+    "cmd/build subset doc 缺少 self-build 普通程序边界"
+require_pattern "$SUBSET_DOC" '固定 statement count、固定 AST/body shape 或 build-seed frontier 扩展 native 成功路径' \
+    "cmd/build subset doc 缺少 helper/body-shape 特例禁止规则"
+require_pattern "$SUBSET_DOC" '这个 native 子集只面向 freestanding `cmd/build` seed，不定义完整' \
+    "cmd/build subset doc 缺少历史 freestanding seed 范围"
 require_pattern "$SUBSET_DOC" '完整语言 native parity 转由 `PortableMIR` \+ hosted native 路线承接' \
     "cmd/build subset doc 缺少 hosted native 主线路径"
 require_pattern "$SUBSET_DOC" '^## Regression Boundary Contract' \
     "cmd/build subset doc 缺少回归边界合同章节"
-require_pattern "$SUBSET_DOC" 'freestanding native `cmd/build` seed 只记录 build-seed 回归边界' \
+require_pattern "$SUBSET_DOC" 'Freestanding native `cmd/build` seed 只记录 build-seed 回归边界' \
     "cmd/build subset doc 缺少 build-seed 回归边界说明"
 require_pattern "$SUBSET_DOC" '不能成为 hosted native 完整语言 parity 的前置条件' \
     "cmd/build subset doc 缺少不阻塞 hosted parity 说明"
@@ -47,8 +53,10 @@ require_pattern "$SUBSET_DOC" '不再为 `compile_files\(\.\.\.\)`' \
     "cmd/build subset doc 缺少 compile_files one-off 禁止规则"
 require_pattern "$SUBSET_DOC" '`compile_files\(\.\.\.\)` 16 参数' \
     "cmd/build subset doc 缺少 compile_files 16 参数验收输入"
-require_pattern "$SUBSET_DOC" 'call ABI 和 target capability verifier' \
-    "cmd/build subset doc 缺少 hosted native call ABI 验收边界"
+require_pattern "$SUBSET_DOC" '真正的缺口是' \
+    "cmd/build subset doc 缺少 hosted native 通用 MIR 缺口说明"
+require_pattern "$SUBSET_DOC" '`native_hosted_portable_mir_lowering_missing`，不能借用 freestanding build-seed helper' \
+    "cmd/build subset doc 缺少 hosted native build-seed helper 禁止边界"
 require_pattern "$SUBSET_DOC" 'tests/verify_native_cmd_build_no_silent_c99\.sh' \
     "cmd/build subset doc 缺少 no-silent-C99 门禁引用"
 require_pattern "$SUBSET_DOC" 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete' \
@@ -162,11 +170,15 @@ require_pattern "$ARCH_DOC" '已迁 MIR 的 shard 真实运行一致，未迁 MI
     "architecture doc 缺少已迁 MIR shard 的真实运行范围"
 require_pattern "$ARCH_DOC" 'shard 先保持 explicit reject' \
     "architecture doc 缺少未迁 MIR shard 明确拒绝规则"
-require_pattern "$ARCH_DOC" 'freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉' \
+require_pattern "$ARCH_DOC" 'native 后端按“合法 Uya 程序”工作，而不是按“编译器源码特例”工作' \
+    "architecture doc 缺少 native 通用语言裁定"
+require_pattern "$ARCH_DOC" '函数名白名单、固定 statement count 白名单、固定 body shape 白名单或' \
+    "architecture doc 缺少 compiler/self-build 特例禁止规则"
+require_pattern "$ARCH_DOC" 'freestanding native build-seed：只保留已有 no-silent-fallback / capability diagnostic 边界' \
     "architecture doc 缺少 freestanding build-seed 下沉规则"
 require_pattern "$ARCH_DOC" 'freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity' \
     "architecture doc 缺少 freestanding 不阻塞 hosted parity 规则"
-require_pattern "$ARCH_DOC" 'helper 只作为 Phase 10 freestanding 回归边界保留，不能作为 hosted native 完整语言主路径' \
+require_pattern "$ARCH_DOC" 'helper 只作为 freestanding build-seed 回归边界保留，不能作为 hosted native 完整语言主路径' \
     "architecture doc 缺少 LoweredProgram helper 边界"
 
 require_pattern "$COREIR_DOC" '`compile_files\(\.\.\.\)` 16 参数缺口必须通过 CoreBody \+ PortableMIR 解决' \

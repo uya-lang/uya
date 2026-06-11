@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 compile_stats_record_and_release_typed_program(...)
+# Native build-seed 边界：固定 compile_stats_record_and_release_typed_program(...)
 # table_items aggregate writeback 的 CoreBody/PortableMIR 切片合同。
 
 set -euo pipefail

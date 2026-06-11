@@ -558,13 +558,19 @@ LoweredProgram / CoreIR / CoreBody
   -> object / executable
 ```
 
+核心裁定：native 后端按“合法 Uya 程序”工作，而不是按“编译器源码特例”工作。编译器自举只是
+`cmd/build` 这个普通 Uya 程序经过同一套 parser、checker、CoreBody、PortableMIR 和 NativeMirEmitter
+后的验收结果；它不能拥有函数名白名单、固定 statement count 白名单、固定 body shape 白名单或
+独立 lowering。任何 self-build frontier 都必须还原为通用语言结构缺口，例如 CFG、place/memory、
+call ABI、cleanup/error、runtime capability 或 MIR 指令选择。
+
 完整语言 parity 第一阶段采用 Linux x86_64 hosted native：Uya 函数体生成机器码，libc、pthread、
 filesystem、env、malloc、extern 和 `@c_import` 链接需求交给宿主 ABI / linker 承接。
 该承接由 `NativeHostedLinkPlan` 固定：只从 verifier-clean Machine backend request 初始化，要求 hosted
 runtime profile 和 hosted SysV call ABI profile，并记录 `libc`、`pthread`、filesystem、env、malloc、extern symbol 和 `@c_import`
 object/linker 输入。freestanding profile 必须拒绝该 plan，而不是静默退回 C99。
 已迁入 PortableMIR 的 hosted shard 必须真实生成 executable；尚未迁入 MIR 的复杂 no-deps shard 必须明确
-报告 lowering gap，不能走 build-seed `LoweredProgram` helper。
+报告 lowering gap，不能走 build-seed `LoweredProgram` helper，也不能走 `cmd/build`/compiler 专项 helper。
 
 freestanding / nostdlib build-seed 目标继续保留，但作为 hosted native 已验证能力的后续下沉路径：
 
@@ -573,8 +579,8 @@ PortableMIR -> MachineModule -> ELF64 executable
 PortableMIR -> MachineModule -> relocatable .o -> tiny internal linker -> executable
 ```
 
-这避免为了追 `cmd/build` 某个新形状继续堆 ad hoc `LoweredBodyOp`，同时仍保留 1 秒冷构建最终所需的
-freestanding executable 路线。
+这避免为了追 `cmd/build` 某个新形状继续堆 ad hoc `LoweredBodyOp` 或 body-shape helper，同时仍保留
+1 秒冷构建最终所需的 freestanding executable 路线。
 
 ### 10.2 v1 范围
 
@@ -587,7 +593,8 @@ native 范围分成两层：
   `get_argc()` 驱动的动态 error union `catch` fallback/success shard、最小
   `defer { local = const; }` return-value 冻结 shard、最小 lexical drop cleanup shard、
   interface/method dispatch no-deps shard、atomic i32 init/write/read shard，以及 SIMD vector/mask no-deps shard。
-- freestanding native build-seed：保留 Phase 10 `cmd/build` 子集，后续从已通过 MIR 的能力逐步下沉。
+- freestanding native build-seed：只保留已有 no-silent-fallback / capability diagnostic 边界；后续能力只能从
+  已通过 hosted MIR parity 的通用语言能力下沉，不能从 `cmd/build` 函数名或 helper frontier 反向扩展。
 
 freestanding native build-seed 失败只能阻塞 build-seed 里程碑，不能阻塞 hosted native 完整语言 parity。
 
@@ -626,7 +633,8 @@ PortableMIR
 当前 native 主合同由 `NativeMirEmitter` 表达：入口接收 `MirTargetBackendRequest`，确认其 backend kind 为
 `MIR_TARGET_BACKEND_MACHINE` 且 verifier-clean，然后按 MIR function / block / inst range 导入
 `MachineModule`，再交给 object/executable writer。历史 build-seed 子集里的 `LoweredProgram -> MachineModule`
-helper 只作为 Phase 10 freestanding 回归边界保留，不能作为 hosted native 完整语言主路径。
+helper 只作为 freestanding build-seed 回归边界保留，不能作为 hosted native 完整语言主路径；按函数名、
+固定 body 前缀或固定 AST shape 命中的 helper-specific 成功路径必须退役。
 
 v1 可采用简单策略：
 

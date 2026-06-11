@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 native_build_decl_is_one_i32_param_fn(...)
+# Native build-seed 边界：固定 native_build_decl_is_one_i32_param_fn(...)
 # 5 statement helper 的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail

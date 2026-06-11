@@ -48656,7 +48656,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  %s build <文件|目录> [-o <输出>] [选项]\n" as *byte, name as *byte);
     fprintf(libc.stderr, "\n选项:\n" as *byte);
     fprintf(libc.stderr, "  --c99                使用 C99 后端生成 C 代码\n" as *byte);
-    fprintf(libc.stderr, "  --native             使用 native 后端（Phase 10，当前缺 LoweredProgram 到机器码接线）\n" as *byte);
+    fprintf(libc.stderr, "  --native             使用 native 后端（当前缺 PortableMIR 到 native executable 完整接线）\n" as *byte);
     fprintf(libc.stderr, "  --line-directives    启用 #line 指令生成\n" as *byte);
     fprintf(libc.stderr, "  --no-line-directives 禁用 #line 指令生成\n" as *byte);
     fprintf(libc.stderr, "  --opt=<0-3>, -O0..3  优化级别\n" as *byte);

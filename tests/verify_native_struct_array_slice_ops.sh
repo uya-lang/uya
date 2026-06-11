@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native build compiler 子集所需 struct/array/slice 基础内存操作。
+# Native build-seed 边界：验证 native build compiler 子集所需 struct/array/slice 基础内存操作。
 
 set -euo pipefail
 

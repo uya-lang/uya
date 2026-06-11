@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 native_build_ast_plan_empty()
+# Native build-seed 边界：固定 native_build_ast_plan_empty()
 # struct literal return 的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail

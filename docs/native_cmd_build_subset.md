@@ -1,8 +1,15 @@
 # Native `cmd/build` 子集清单
 
-**状态**: Phase 10 feature inventory，PortableMIR 前冻结
-**更新日期**: 2026-06-09
-**范围**: 统计把 `src/cmd/build/main.uya` 变成 freestanding native build-seed compiler 所需的语言、运行时和宿主能力。
+**状态**: legacy build-seed feature inventory；已退役为历史边界，不作为当前任务来源
+**更新日期**: 2026-06-11
+**范围**: 记录早期把 `src/cmd/build/main.uya` 变成 freestanding native build-seed compiler 时统计过的语言、
+运行时和宿主能力。
+
+> 2026-06-11 路线裁定：本文件不是 active TODO。`cmd/build` / 编译器自举只能作为普通合法 Uya
+> 程序，通过通用 `CoreBody -> PortableMIR -> NativeMirEmitter` 路径验收。不得继续按 helper 名称、
+> 固定 statement count、固定 AST/body shape 或 build-seed frontier 扩展 native 成功路径。下面的
+> feature/status/frontier/contract 内容只作为历史记录和 no-silent-fallback 边界参考；新的工作必须回到
+> `docs/todo_compiler_1s.md` 的 GENERIC-* 队列。
 
 ## Evidence Snapshot
 
@@ -23,7 +30,7 @@ UYA_ROOT="$PWD" ./bin/uya build src/cmd/build/main.uya \
 - `src/codegen/c99_build/*.uya`
 
 当前 build-only root 明确不包含 `exec`、`uya microapp build/pack/inspect/verify/run`、`fmt`、`upm`、kernel packaging 和完整
-`checker` / `codegen.c99` 路径。Phase 10 的 native 子集只面向 freestanding `cmd/build` seed，不定义完整
+`checker` / `codegen.c99` 路径。这个 native 子集只面向 freestanding `cmd/build` seed，不定义完整
 native 后端主线；完整语言 native parity 转由 `PortableMIR` + hosted native 路线承接。
 
 ## Feature Inventory
@@ -87,7 +94,7 @@ native 后端主线；完整语言 native parity 转由 `PortableMIR` + hosted n
 
 ## Regression Boundary Contract
 
-Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边界，不定义完整语言 native
+Freestanding native `cmd/build` seed 只记录 build-seed 回归边界，不定义完整语言 native
 主线，也不能成为 hosted native 完整语言 parity 的前置条件。
 
 - 只有当同一语言能力已经通过 `CoreBody` / `PortableMIR` lowering、MIR verifier 和 hosted native / C99
@@ -2667,7 +2674,7 @@ object 和目标 backend request 交给真实 native emitter。未实现真实 e
 
 ## Release Acceptance Boundary
 
-本文件只定义 Phase 10 freestanding native `cmd/build` 子集，不定义最终语言完备性或长期 native 后端主线。
+本文件只定义 freestanding native `cmd/build` build-seed 子集，不定义最终语言完备性或长期 native 后端主线。
 发布验收仍必须满足：
 
 - C99 backend 支持完整 Uya 语言，并与 main 分支语言行为兼容。
@@ -2678,10 +2685,11 @@ object 和目标 backend request 交给真实 native emitter。未实现真实 e
 
 ## Next Step
 
-下一步从 `parse_build_args(...)` 的基础 flag / scalar option frontier 开始。先按上面的 surface audit 补
-CoreBody/PortableMIR golden/verifier 合同，再逐段迁入函数体。`compile_files(...)` 16 参数
-parser/checker/native-codegen 主调用仍是大型验收样本，但只能在真实 reachable frontier 指向它时进入；它必须通过
-CoreBody dump/verifier、PortableMIR function body lowering、hosted native call ABI 和 target capability verifier
-到达，不能再通过新增 `RETURN_*`、`LOCAL_CALL_*`、`IF_LOCAL_*` 等 one-off `LoweredBodyOp`
-解决。在这之前，不能声明已经生成 native `bin/cmd/build`。`tests/verify_native_cmd_build_no_silent_c99.sh`
-必须继续固定该 lowering frontier，确保 native 失败不会静默回落 C99。
+无 active next step。本文件的旧 frontier 不再驱动开发。
+
+当前下一步见 `docs/todo_compiler_1s.md` 的“当前下一步”：
+
+- 先补通用语言结构到 `CoreBody -> PortableMIR -> NativeMirEmitter`。
+- self-build frontier 只能用于定位通用语言缺口，不能作为 helper 队列。
+- `cmd/build --native` 只有在旧 helper-specific 成功路径不可达、通用 lowering 覆盖足够、真实生成 executable
+  并能复跑自举/回归后，才算通过。

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10: verify bin/cmd/build can compile a small compiler-regression group
+# Native build-seed boundary: verify bin/cmd/build can compile a small compiler-regression group
 # through the native build-seed path and hosted MIR-backed stream shards.
 
 set -euo pipefail

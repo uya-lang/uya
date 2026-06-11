@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native cmd/build 子集 feature inventory 文档存在且覆盖关键需求类别。
+# Native build-seed 边界：验证 native cmd/build 子集 feature inventory 文档存在且覆盖关键需求类别。
 
 set -euo pipefail
 

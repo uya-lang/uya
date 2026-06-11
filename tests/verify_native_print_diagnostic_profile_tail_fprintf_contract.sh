@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 compiler_print_diagnostic_profile(...)
+# Native build-seed 边界：固定 compiler_print_diagnostic_profile(...)
 # tail fprintf 输出切片的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail

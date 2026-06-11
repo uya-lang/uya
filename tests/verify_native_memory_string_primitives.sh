@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native build compiler 子集所需 memcpy/memset/strcmp/strlen。
+# Native build-seed 边界：验证 native build compiler 子集所需 memcpy/memset/strcmp/strlen。
 
 set -euo pipefail
 

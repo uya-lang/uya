@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) 首切片的 CoreBody/PortableMIR
+# Native build-seed 边界：固定 parse_build_args(...) 首切片的 CoreBody/PortableMIR
 # golden/verifier 合同输入面。该脚本不声明函数体已经迁入；它保证下一步
 # 实现必须从这些已审计 surface 开始，并继续保持 no-silent-C99 frontier。
 

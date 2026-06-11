@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 set_process_stack_limit_bytes(...) 首个 Linux x86_64
+# Native build-seed 边界：固定 set_process_stack_limit_bytes(...) 首个 Linux x86_64
 # CoreBody/PortableMIR 合同切片，并验证生产 preflight lowering 已接线。
 
 set -euo pipefail

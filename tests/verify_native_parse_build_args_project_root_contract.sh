@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) --project-root 分支迁入合同。
+# Native build-seed 边界：固定 parse_build_args(...) --project-root 分支迁入合同。
 # 该叶子冻结 project-root 的全分支目标，同时随着实现推进固定当前已
 # 完成的子切片 frontier。
 

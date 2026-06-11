@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) `-o` 分支迁入合同。
+# Native build-seed 边界：固定 parse_build_args(...) `-o` 分支迁入合同。
 # 该切片覆盖 `-o` 缺参 diagnostic / return -1、成功分支
 # output_file_index[0] = i + 1 和 i = i + 1，并把 frontier 推进到
 # backend scalar option 分支。

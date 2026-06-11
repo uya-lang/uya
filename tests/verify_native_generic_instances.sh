@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：验证 native build compiler 子集所需泛型实例 registry / worklist 能力。
+# Native build-seed 边界：验证 native build compiler 子集所需泛型实例 registry / worklist 能力。
 
 set -euo pipefail
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 parse_build_args(...) 位置输入文件收集合同。
+# Native build-seed 边界：固定 parse_build_args(...) 位置输入文件收集合同。
 # 该叶子只冻结 arg[0] byte index、容量检查、index/count 写入、
 # 未知 dash option no-op 和后续 source-order frontier；不改生产实现。
 

@@ -138,5 +138,5 @@ hosted native 路径**禁止**通过以下任一方式达成 §2 合同：
 - `docs/portable_mir_language_coverage.md` §10 阶段 KPI 中
   "HelloWorld 作为 MIR -> Native 首个目标完成 native/C99 parity" 勾选上。
 
-但 `full_language` 综合集成体的完整 parity 仍需 Phase 10 / 11 推进，HelloWorld
+但 `full_language` 综合集成体的完整 parity 仍需完整语言 parity 与 native 主路径推进，HelloWorld
 只是首个端到端目标。

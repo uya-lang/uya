@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Phase 10：固定 compiler_should_profile_diagnostics(...)
+# Native build-seed 边界：固定 compiler_should_profile_diagnostics(...)
 # tail return 1 的 CoreBody/PortableMIR body-complete 合同。
 
 set -euo pipefail
