@@ -458,6 +458,8 @@ struct NativeBuildDeferLocalAssignShape {
     return_stmt: &ASTNode,
     initial_value: i32,
     deferred_value: i32,
+    return_value: i32,
+    return_is_local_ref: i32,
 }
 
 struct NativeBuildLexicalDropShape {
@@ -640,6 +642,8 @@ fn native_build_defer_local_assign_shape_empty() NativeBuildDeferLocalAssignShap
         return_stmt: null,
         initial_value: 0,
         deferred_value: 0,
+        return_value: 0,
+        return_is_local_ref: 0,
     };
 }
 
@@ -13713,17 +13717,23 @@ fn native_build_hosted_coreir_append_defer_local_assign_body(lowered: &LoweredPr
         source_span_id: shape.local_decl.var_decl_init.line,
         flags: 0,
     };
+    var return_kind: i32 = CORE_EXPR_KIND_INT_LITERAL;
+    var return_place_id: i32 = CORE_PLACE_INVALID_ID;
+    if shape.return_is_local_ref != 0 {
+        return_kind = CORE_EXPR_KIND_LOCAL_REF;
+        return_place_id = place_start;
+    }
     var return_expr: CoreExpr = CoreExpr{
         expr_id: expr_start + 1,
-        kind: CORE_EXPR_KIND_LOCAL_REF,
+        kind: return_kind,
         body_id: body_id,
         source_expr_id: shape.return_stmt.return_stmt_expr.expr_id,
         type_id: return_type_id,
-        literal_i64: shape.initial_value as i64,
+        literal_i64: shape.return_value as i64,
         lhs_expr_id: CORE_EXPR_INVALID_ID,
         rhs_expr_id: CORE_EXPR_INVALID_ID,
         callee_expr_id: CORE_EXPR_INVALID_ID,
-        place_id: place_start,
+        place_id: return_place_id,
         target_function_id: TYPED_PROGRAM_INVALID_ID,
         target_decl_id: TYPED_PROGRAM_INVALID_ID,
         field_id: TYPED_PROGRAM_INVALID_ID,
@@ -28857,7 +28867,7 @@ fn native_build_hosted_mir_append_defer_local_assign_body_function(module: &Port
     }
     return native_build_hosted_mir_append_const_return_body_function(module,
         lowered_function_id, decl_index, source_core_body_id,
-        shape.return_stmt.return_stmt_expr.expr_id, shape.initial_value);
+        shape.return_stmt.return_stmt_expr.expr_id, shape.return_value);
 }
 
 fn native_build_hosted_mir_append_lexical_drop_body_function(module: &PortableMirModule,
@@ -35382,13 +35392,28 @@ fn native_build_decl_defer_local_assign_shape(decl: &ASTNode,
     }
     var initial_value: i32 = 0;
     var deferred_value: i32 = 0;
+    var return_value: i32 = 0;
+    var return_is_local_ref: i32 = 0;
     if native_build_var_decl_scalar_const_value(local_decl, null, &initial_value) == 0 ||
        native_build_assign_stmt_local_const(assign_stmt, local_decl.var_decl_name,
         &deferred_value) == 0 ||
-       native_build_return_stmt_identifier_equals(return_stmt,
-        local_decl.var_decl_name) == 0 ||
        initial_value < 0 || initial_value > 255 ||
        deferred_value < 0 || deferred_value > 255 {
+        return 0;
+    }
+    if native_build_return_stmt_identifier_equals(return_stmt,
+        local_decl.var_decl_name) != 0 {
+        return_value = initial_value;
+        return_is_local_ref = 1;
+    } else if return_stmt.type == ASTNodeType.AST_RETURN_STMT &&
+       return_stmt.return_stmt_expr != null &&
+       native_build_expr_scalar_const_value(return_stmt.return_stmt_expr, null,
+        &return_value) != 0 {
+        return_is_local_ref = 0;
+    } else {
+        return 0;
+    }
+    if return_value < 0 || return_value > 255 {
         return 0;
     }
     out_shape.local_decl = local_decl;
@@ -35397,6 +35422,8 @@ fn native_build_decl_defer_local_assign_shape(decl: &ASTNode,
     out_shape.return_stmt = return_stmt;
     out_shape.initial_value = initial_value;
     out_shape.deferred_value = deferred_value;
+    out_shape.return_value = return_value;
+    out_shape.return_is_local_ref = return_is_local_ref;
     return 1;
 }
 
@@ -35411,7 +35438,7 @@ fn native_build_decl_defer_local_assign_return_value(decl: &ASTNode, out_value: 
     if native_build_decl_defer_local_assign_shape(decl, &shape) == 0 {
         return 0;
     }
-    *out_value = shape.initial_value;
+    *out_value = shape.return_value;
     return 1;
 }
 
