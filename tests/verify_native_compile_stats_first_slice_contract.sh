@@ -145,9 +145,9 @@ require_pattern "$MIR_VERIFIER_SRC" 'MIR_INST_OP_CALL' \
 require_pattern "$MIR_VERIFIER_TEST" 'MIR_INST_OP_CALL' \
     "PortableMIR verifier 测试缺少 call 覆盖"
 
-require_pattern "$NO_SILENT_TEST" 'core_bodies=22' \
+require_pattern "$NO_SILENT_TEST" 'core_bodies=23' \
     "no-silent-C99 测试缺少 compile_stats CoreBody 计数"
-require_pattern "$NO_SILENT_TEST" 'mir_body_functions=21' \
+require_pattern "$NO_SILENT_TEST" 'mir_body_functions=22' \
     "no-silent-C99 测试缺少 compile_stats MIR body 计数"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program' \
     "no-silent-C99 测试缺少 compile_stats partial body frontier"
