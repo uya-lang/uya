@@ -836,6 +836,32 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL reason=partial_core_body`。
    下一步才能迁入 `var count: i32 = 0`。
 
+## `compiler_print_diagnostic_profile(...)` Count Local Contract
+
+guard 切片迁入后，当前真实 body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL reason=partial_core_body
+```
+
+本合同只冻结第 1 条顶层语句：
+
+```text
+var count: i32 = 0;
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须在 guard if/return 之后追加 `CORE_STMT_KIND_LOCAL_DECL`，声明名为 `count`，
+   类型保持 `i32`。
+2. 初始化表达式必须保持 `CORE_EXPR_KIND_INT_LITERAL`，值为 0；不得从 `checker` 推导初值，
+   也不得把后续 `checker != null` 分支合并进本切片。
+3. PortableMIR 必须为 `count` 建立 i32 local/stack slot 和常量 0 写入 surface；该 partial body
+   的 fallthrough 仍必须停在下一条源码语句。
+4. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body`。
+   下一步才能迁入 `if checker != null { count = checker.diagnostic_format_count; }`。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
