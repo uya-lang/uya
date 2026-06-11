@@ -6,17 +6,11 @@
 #   - C99 oracle 端：每个语言面 case 必须编译、链接、运行成功，stdout 与
 #     显式 baseline 一致（baseline 在脚本顶部内联为常量字符串）。
 #   - Hosted native 端：
-#       * 当前 hosted native 仍处于 lowering-missing 阶段：脚本默认
-#         `UYA_REQUIRE_HOSTED_NATIVE_PARITY=1` 时所有 case 走
-#         `run_native_reject_fragment` 守门，要求 stderr 含
-#         `native_hosted_portable_mir_lowering_missing`、不生成
-#         executable、不含 `后端类型: C99`。
-#       * 当前 Phase 9B 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1` 先把
-#         hello world（case 01，`@println("Hello, World!")`）和
-#         stdlib entry（case 17，`get_argc()`）切到
-#         `run_native_parity_fragment` 路径，要求 native 真实生成
-#         executable、exit status 和 stdout 与 C99 oracle 一致；其余 case
-#         仍沿用 try-then-reject 边界，等待后续语言面逐项打开。
+#       * 默认模式仍允许未打开 case 走 try-then-reject 边界，用来守住
+#         lowering-missing diagnostic 与 no-C99-fallback 合同。
+#       * `UYA_FULL_LANGUAGE_PARITY_NATIVE=1` 是 Phase 9B 的硬收口模式：
+#         18 个语言面 case 全部必须走 native executable parity，exit status
+#         和 stdout 均需与 C99 oracle 一致。
 #   - 每个 case 记录：C99 result、native result、stdout/stderr、diagnostic
 #     normalized diff、allowlist。允许的差异只限于 allowlist 列出的字符串
 #     （如 native build 信息行）。
@@ -252,12 +246,14 @@ run_case() {
     local expected_exit="${4:-0}"
     run_c99_case "$case_id" "$src" "$expected_stdout" "$expected_exit"
     if [[ "$REQUIRE_NATIVE_PARITY" == "1" &&
-        ( "$case_id" == "hello" || "$case_id" == "generic" ||
-          "$case_id" == "method" || "$case_id" == "error_union_try" ||
+        ( "$case_id" == "hello" || "$case_id" == "multi_file_use" ||
+          "$case_id" == "generic" || "$case_id" == "method" ||
+          "$case_id" == "interface" || "$case_id" == "error_union_try" ||
           "$case_id" == "try_catch" || "$case_id" == "defer" ||
           "$case_id" == "errdefer" || "$case_id" == "struct_union_enum" ||
           "$case_id" == "slice_array" || "$case_id" == "pointer" ||
-          "$case_id" == "builtins" ||
+          "$case_id" == "atomic" || "$case_id" == "vector_mask" ||
+          "$case_id" == "c_import" || "$case_id" == "builtins" ||
           "$case_id" == "stdlib_entry" || "$case_id" == "print_pair" ) ]]; then
         run_native_parity_case "$case_id" "$src" "$expected_exit"
     else
@@ -643,7 +639,7 @@ fi
 case_count=$((rejected_count + parity_count))
 echo "OK: full language backend parity: $case_count cases (parity=$parity_count, reject=$rejected_count)"
 if [[ "$REQUIRE_NATIVE_PARITY" == "1" ]]; then
-    for required_case in hello generic method error_union_try try_catch defer errdefer struct_union_enum slice_array pointer builtins stdlib_entry print_pair; do
+    for required_case in hello multi_file_use generic method interface error_union_try try_catch defer errdefer struct_union_enum slice_array pointer atomic vector_mask c_import builtins stdlib_entry print_pair; do
         required_summary="$RESULTS_DIR/${required_case}.summary.tsv"
         if [[ ! -f "$required_summary" ]] || ! awk -F'\t' -v case_id="$required_case" 'NR>1 && $1==case_id && $5=="parity" { found=1 } END { exit found ? 0 : 1 }' "$required_summary"; then
             echo "error: UYA_FULL_LANGUAGE_PARITY_NATIVE=1 requires $required_case case native parity" >&2

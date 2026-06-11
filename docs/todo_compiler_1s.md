@@ -1248,7 +1248,10 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     # 通过，full-language parity 为 18 cases（parity=18, reject=0）；`print_pair`
     # 作为 required native parity case 生成 executable，exit code 0 且 stdout `Hello, World!\n`
     # 与 C99 oracle 一致。
-  - [ ] 全部 18 个 full-language parity cases 均为 native/C99 parity 后，收口本 KPI。
+  - [x] 全部 18 个 full-language parity cases 均为 native/C99 parity 后，收口本 KPI。
+    # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+    # 在 hard-required 18 case 列表下通过，输出 `18 cases (parity=18, reject=0)`；
+    # `tests/verify_full_language_backend_parity.sh` 头部合同已同步为 18/18 native executable parity。
 
 ---
 
