@@ -2168,6 +2168,19 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               function=native_build_pointer_deref_shape_empty decl=319 function_id=14 body_stmts=1
               reason=pending_core_body`；preflight 计数同步为 `core_bodies=16`、
               `mir_body_functions=15`。
+          - [x] 为 `native_build_pointer_deref_shape_empty()` 补 CoreBody/PortableMIR
+            body-complete 合同；固定 `NativeBuildPointerDerefShape{ value_decl/pointer_decl/
+            return_stmt/address_expr/deref_expr: null, value: 0 }` return surface，不改生产 lowering。
+            - 2026-06-11：新增 `tests/verify_native_pointer_deref_shape_empty_contract.sh`
+              并接入 `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
+              新增 `native_build_pointer_deref_shape_empty()` Body Complete Contract，冻结当前
+              pending frontier，并要求迁入后达到 `body_complete`。
+            - 实测 `bash tests/verify_native_pointer_deref_shape_empty_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过；本叶子未改生产 lowering。
+          - [ ] 迁入 `native_build_pointer_deref_shape_empty()` 的 struct literal return，使该 helper
+            达到 body complete；复测真实 frontier 后再选择下一个 helper。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
