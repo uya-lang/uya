@@ -36,11 +36,11 @@ require_pattern "$SUBSET_DOC" '^## `compiler_should_profile_diagnostics\(\.\.\.\
     "subset doc 缺少 compiler_should_profile_diagnostics null/empty branch 合同"
 require_pattern "$SUBSET_DOC" 'if value == null \|\| value\[0\] == 0 as byte' \
     "subset doc 缺少 null/empty branch 源码"
-require_pattern "$SUBSET_DOC" 'CORE_EXPR_KIND_BINARY' \
-    "subset doc 缺少 null/empty branch binary/compare CoreIR 合同"
+require_pattern "$SUBSET_DOC" 'CORE_EXPR_KIND_I32_NE' \
+    "subset doc 缺少 null/empty branch compare CoreIR 合同"
 require_pattern "$SUBSET_DOC" 'CORE_PLACE_KIND_INDEX' \
     "subset doc 缺少 value[0] byte index place 合同"
-require_pattern "$SUBSET_DOC" 'MIR_TERMINATOR_KIND_COND_BRANCH' \
+require_pattern "$SUBSET_DOC" 'MIR_TERMINATOR_KIND_COND_BR' \
     "subset doc 缺少 null/empty branch PortableMIR 条件分支合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body' \
     "subset doc 缺少 null/empty branch 迁入后的 next frontier"
