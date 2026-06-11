@@ -2628,8 +2628,23 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 迁入 `native_build_type_is_i32_like_scalar(...)` 的完整 body，使该 helper
+          - [x] 迁入 `native_build_type_is_i32_like_scalar(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
+            - 2026-06-11：新增
+              `native_build_hosted_decl_can_materialize_type_is_i32_like_scalar_body`
+              与 `native_build_hosted_coreir_append_type_is_i32_like_scalar_body`，用 2 条
+              root statement 固定 i32 early branch 和 BackendType tail call return；
+              hosted PortableMIR preflight 同步覆盖该 helper body function，并用
+              `MIR_INST_OP_CALL` 保留 helper-to-helper call surface。
+            - 同步 `lib/libc/syscall.uya` 的 Linux `sys_unlink` / `sys_readlink` /
+              `sys_rename` fallback 路径使用 target-gated syscall number literal，避免旧
+              build generator 发射裸 `SYS_unlink`、`SYS_readlink`、`SYS_rename` 导致
+              host C 编译失败。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；
+              self-build native preflight 前进为 `core_bodies=33`、`mir_body_functions=32`，
+              新 frontier 为 `native_hosted_pending_body_frontier:
+              function=native_build_type_is_byte decl=360 function_id=31 body_stmts=3
+              reason=pending_core_body`。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。

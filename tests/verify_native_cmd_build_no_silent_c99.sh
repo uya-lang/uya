@@ -90,8 +90,8 @@ run_cmd_build_self_preflight_check() {
     grep -q '后端类型: Native' "$stderr"
     grep -q '类型检查通过' "$stderr"
     grep -q '=== 代码生成阶段 ===' "$stderr"
-    grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=32 pending_bodies=[1-9][0-9]*' "$stderr"
-    grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=31 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"
+    grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=33 pending_bodies=[1-9][0-9]*' "$stderr"
+    grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=32 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=0 hosted_link_objects=0' "$stderr"
     grep -q 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' "$stderr"
     grep -q 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' "$stderr"
@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -Eq 'native_hosted_pending_body_frontier: function=native_build_type_is_i32_like_scalar .*reason=pending_core_body' "$stderr"
+    grep -Eq 'native_hosted_pending_body_frontier: function=native_build_type_is_byte .*reason=pending_core_body' "$stderr"
+    if grep -Eq 'native_hosted_pending_body_frontier: function=native_build_type_is_i32_like_scalar .*reason=pending_core_body' "$stderr"; then
+        echo "错误: $label self-build 不应在 native_build_type_is_i32_like_scalar 迁入后继续报告 pending" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -Eq 'native_hosted_pending_body_frontier: function=native_build_type_is_backend_type .*reason=pending_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 native_build_type_is_backend_type 迁入后继续报告 pending" >&2
         cat "$stderr" >&2

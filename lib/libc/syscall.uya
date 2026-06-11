@@ -1281,7 +1281,11 @@ export extern "libc" fn sys_unlink(pathname: *const byte) !i32 {
         std.cfg(std.target_arch == .ta_riscv64, {
             return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, 0 as i64) as! i32;
         }, {
-            return @syscall(SYS_unlink, pathname as i64) as! i32;
+            std.cfg(std.target_arch == .ta_arm, {
+                return @syscall(10 as i64, pathname as i64) as! i32;
+            }, {
+                return @syscall(87 as i64, pathname as i64) as! i32;
+            })
         })
     })
 }
@@ -1445,7 +1449,11 @@ export extern "libc" fn sys_readlink(pathname: *const byte, buf: *byte, bufsiz: 
             std.cfg(std.target_arch == .ta_riscv64, {
                 return @syscall(SYS_readlinkat, AT_FDCWD as i64, pathname as i64, buf as i64, bufsiz as i64) as! isize;
             }, {
-                return @syscall(SYS_readlink, pathname as i64, buf as i64, bufsiz as i64) as! isize;
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(85 as i64, pathname as i64, buf as i64, bufsiz as i64) as! isize;
+                }, {
+                    return @syscall(89 as i64, pathname as i64, buf as i64, bufsiz as i64) as! isize;
+                })
             })
         })
     })
@@ -1585,7 +1593,11 @@ export extern "libc" fn sys_rename(oldpath: &const byte, newpath: &const byte) !
         std.cfg(std.target_arch == .ta_riscv64, {
             return @syscall(SYS_renameat, AT_FDCWD as i64, oldpath as i64, AT_FDCWD as i64, newpath as i64) as! i32;
         }, {
-            return @syscall(SYS_rename, oldpath as i64, newpath as i64) as! i32;
+            std.cfg(std.target_arch == .ta_arm, {
+                return @syscall(38 as i64, oldpath as i64, newpath as i64) as! i32;
+            }, {
+                return @syscall(82 as i64, oldpath as i64, newpath as i64) as! i32;
+            })
         })
     })
 }
