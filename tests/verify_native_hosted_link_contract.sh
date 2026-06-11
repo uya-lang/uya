@@ -45,6 +45,7 @@ for symbol in \
     native_hosted_link_plan_init \
     native_hosted_link_plan_is_complete \
     native_hosted_link_plan_add_extern_symbol \
+    native_hosted_link_plan_add_print_helper_object \
     native_hosted_link_plan_add_c_import_object; do
     require_pattern "$HOSTED_LINK_FILE" "$symbol" "hosted link symbol $symbol"
 done
@@ -67,6 +68,8 @@ export type TypeId = i32;
 export type ExprId = i32;
 export type FunctionId = i32;
 export type CoreBodyId = i32;
+export const MIR_CALL_CONV_C: i32 = 2;
+export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
 
 export struct CompilerArena {
     marker: i32,
@@ -229,10 +232,12 @@ test "hosted native link plan records host ABI linker requirements" {
     try assert_eq_i32(native_hosted_link_plan_has(&plan, NATIVE_HOSTED_LINK_REQUIRE_EXTERN), 1);
     try assert_eq_i32(native_hosted_link_plan_has(&plan, NATIVE_HOSTED_LINK_REQUIRE_C_IMPORT), 1);
     try assert_eq_i32(native_hosted_link_plan_add_extern_symbol(&plan, 77), 0);
+    try assert_eq_i32(native_hosted_link_plan_add_print_helper_object(&plan), 0);
+    try assert_eq_i32(native_hosted_link_plan_add_print_helper_object(&plan), 0);
     try assert_eq_i32(native_hosted_link_plan_add_c_import_object(&plan), 0);
     try assert_eq_i32(plan.extern_symbol_count, 1);
     try assert_eq_i32(plan.c_import_object_count, 1);
-    try assert_eq_i32(plan.object_count, 1);
+    try assert_eq_i32(plan.object_count, 2);
 
     plan.requirement_mask = plan.requirement_mask - NATIVE_HOSTED_LINK_REQUIRE_C_IMPORT;
     try assert_eq_i32(native_hosted_link_plan_is_complete(&plan), 0);

@@ -30678,6 +30678,33 @@ fn native_build_hosted_link_plan_add_program_externs(plan: &NativeHostedLinkPlan
     return 0;
 }
 
+fn native_build_hosted_mir_inst_is_print_helper_call(inst: &MirInst) i32 {
+    if inst == null || inst.op != MIR_INST_OP_CALL {
+        return 0;
+    }
+    if inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE ||
+       inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR ||
+       inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_mir_module_needs_print_helper_object(module: &PortableMirModule) i32 {
+    if module == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if native_build_hosted_mir_inst_is_print_helper_call(inst) != 0 {
+            return 1;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &TypeChecker,
     program: &ASTNode, c_import_count: i32, result: &NativeHostedMirPreflightResult) i32 {
     native_build_hosted_preflight_result_reset(result);
@@ -30747,6 +30774,16 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
             return -1;
         }
         imported = imported + 1;
+    }
+    if native_build_hosted_mir_module_needs_print_helper_object(&module) != 0 {
+        if native_hosted_link_plan_add_print_helper_object(&plan) != 0 {
+            result.verifier_error = verifier.error_code;
+            portable_mir_module_release(&module);
+            return -1;
+        }
+        fprintf(libc.stderr,
+            "native_hosted_print_helper_link_object: status=planned objects=%d\n" as *byte,
+            plan.object_count);
     }
     result.emitter_handoff_link_plan_complete =
         native_hosted_link_plan_is_complete(&plan);

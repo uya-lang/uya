@@ -1065,10 +1065,19 @@ MIR -> Native 首个目标：
         # `bash tests/verify_hosted_native_print_hir_lowering.sh`、
         # `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
         # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`。
-  - [ ] L994.E hosted link plan 拉入 helper C 实现：hosted link plan 在
+  - [x] L994.E hosted link plan 拉入 helper C 实现：hosted link plan 在
         `native_hosted_executable_writer_*` 阶段把 print helper C 实现
         （`src/codegen/c99_build/main.uya:3091-3097` 现有的 `uya_write` / `uya_strlen` 静态
         函数）作为额外 link object 拉入。
+        # 2026-06-11：新增 `tests/verify_hosted_native_print_helper_link_plan.sh`
+        # 并扩展 hosted link contract，按实际 PortableMIR `uya_write*` helper call
+        # 去重登记 print helper runtime object；HelloWorld preflight / writer plan
+        # 均报告 `link_objects=1`，无 print 的 cmd/build no-silent 路径仍保持原边界。
+        # 验证：`bash tests/verify_hosted_native_print_helper_link_plan.sh`、
+        # `bash tests/verify_native_hosted_link_contract.sh`、
+        # `bash tests/verify_hosted_native_print_hir_lowering.sh`、
+        # `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+        # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`。
   - [ ] L994.F 端到端 parity gate：把 `verify_hosted_native_helloworld_parity.sh` 顶部
         期望成功子句打开（不再走 reject 分支），并把
         `verify_full_language_backend_parity.sh` 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1`
