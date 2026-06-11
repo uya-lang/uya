@@ -1298,7 +1298,11 @@ export extern "libc" fn sys_mkdir(pathname: *const byte, mode: i32) !i32 {
         std.cfg(std.target_arch == .ta_riscv64, {
             return @syscall(SYS_mkdirat, AT_FDCWD as i64, pathname as i64, mode as i64) as! i32;
         }, {
-            return @syscall(SYS_mkdir, pathname as i64, mode as i64) as! i32;
+            std.cfg(std.target_arch == .ta_arm, {
+                return @syscall(39 as i64, pathname as i64, mode as i64) as! i32;
+            }, {
+                return @syscall(83 as i64, pathname as i64, mode as i64) as! i32;
+            })
         })
     })
 }
@@ -1311,7 +1315,11 @@ export extern "libc" fn sys_rmdir(pathname: *const byte) !i32 {
         std.cfg(std.target_arch == .ta_riscv64, {
             return @syscall(SYS_unlinkat, AT_FDCWD as i64, pathname as i64, AT_REMOVEDIR as i64) as! i32;
         }, {
-            return @syscall(SYS_rmdir, pathname as i64) as! i32;
+            std.cfg(std.target_arch == .ta_arm, {
+                return @syscall(40 as i64, pathname as i64) as! i32;
+            }, {
+                return @syscall(84 as i64, pathname as i64) as! i32;
+            })
         })
     })
 }
