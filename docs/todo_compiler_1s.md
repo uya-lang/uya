@@ -2557,6 +2557,22 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               新 frontier 为 `native_hosted_pending_body_frontier:
               function=native_build_decl_returns_param_directly decl=348 function_id=28
               body_stmts=5 reason=pending_core_body`。
+          - [x] 为 `native_build_decl_returns_param_directly(...)` 补 CoreBody/PortableMIR
+            body-complete 合同；固定当前 5 statement body surface、decl/param/body guard、
+            single-return-body guard、identifier return guard、`str_equals(identifier_name,
+            param_name)` branch 和 tail `return 0`；不改生产 lowering。
+            - 2026-06-11：新增
+              `tests/verify_native_decl_returns_param_directly_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
+              新增 `native_build_decl_returns_param_directly(...)` Body Complete Contract，
+              冻结当前 5 statement body surface、decl/param/body guard、single-return-body
+              guard、identifier return guard、string compare branch 和 tail return。
+            - 实测 `bash tests/verify_native_decl_returns_param_directly_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              均通过。
+          - [ ] 迁入 `native_build_decl_returns_param_directly(...)` 的完整 body，使该 helper
+            达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
