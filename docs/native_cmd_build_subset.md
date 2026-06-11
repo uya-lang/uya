@@ -677,6 +677,39 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body`。
    下一步才能迁入 `value == null || value[0] == 0 as byte` early-return branch。
 
+## `compiler_should_profile_diagnostics(...)` Null/Empty Branch Contract
+
+首切片迁入后，当前真实 body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body
+```
+
+本合同只冻结第 1 条顶层语句：
+
+```text
+if value == null || value[0] == 0 as byte {
+    return 0;
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须保留 `AST_IF_STMT` 对应的条件和 then-return surface，不得把整个 branch
+   折叠为 noop，也不得把环境变量值常量化。
+2. `value == null` 必须以 `CORE_EXPR_KIND_BINARY` 表示指针 null 比较；`value[0] == 0 as byte`
+   必须通过 `CORE_PLACE_KIND_INDEX` / byte load surface 表示，再以 `CORE_EXPR_KIND_BINARY`
+   表示 byte 等值比较。
+3. `||` 必须保持 short-circuit 语义：null 分支命中时不能读取 `value[0]`。
+4. PortableMIR 必须生成 `MIR_TERMINATOR_KIND_COND_BRANCH` 形状，至少包含 null-test block、
+   byte-load/test block、early-return-0 block 和 fallthrough block；then block 返回 i32 0。
+5. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body`。
+6. 实现叶子应新增 `NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_PREFIX_STMT_COUNT = 2`，
+   并使用独立 shape/support/builder 命名，避免复用首切片函数掩盖 branch 语义。
+7. 实现叶子应同步 `tests/verify_native_cmd_build_no_silent_c99.sh`：要求迁入后出现
+   `prefix_stmts=2` frontier，并反向拒绝继续报告 `prefix_stmts=1`。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

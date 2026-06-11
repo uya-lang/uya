@@ -41,6 +41,7 @@ bash "$SCRIPT_DIR/verify_native_compile_stats_typed_program_release_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_typed_type_records_release_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_released_bytes_contract.sh"
 bash "$SCRIPT_DIR/verify_native_profile_diagnostics_first_slice_contract.sh"
+bash "$SCRIPT_DIR/verify_native_profile_diagnostics_null_empty_branch_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 

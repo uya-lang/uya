@@ -1862,6 +1862,18 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
           - [ ] 候选示例仅作排队提醒，不能作为实现顺序来源：`print_usage`、
             `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、
             `host_fill_temp_c_compile_path`、`is_c_output`、`link_with_toolchain` 及其实际 reachable 子调用。
+          - [x] 为 `compiler_should_profile_diagnostics(...)` 的 null/empty branch 补
+            CoreBody/PortableMIR 合同；固定 `value == null || value[0] == 0 as byte`
+            early return 0 的 surface、verifier-clean body prefix 和迁入后 frontier。
+            - 2026-06-11：新增
+              `tests/verify_native_profile_diagnostics_null_empty_branch_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md` 新增
+              Null/Empty Branch Contract，固定 short-circuit、byte index load、conditional branch
+              和迁入后 `prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT` frontier。
+            - 实测 `bash tests/verify_native_profile_diagnostics_null_empty_branch_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过；本叶子未改生产 lowering。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
