@@ -2738,6 +2738,22 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
+          - [x] 为 `native_build_type_is_i32_array(...)` 补 CoreBody/PortableMIR
+            body-complete 合同；固定当前 2 statement body surface、array guard、
+            element `native_build_type_is_i32(...)` helper-call、size number/positive
+            checks 和 tail `return 1`；不改生产 lowering。
+            - 2026-06-11：新增 `tests/verify_native_type_is_i32_array_contract.sh`
+              并接入 `tests/verify_native_cmd_build_stage1.sh`；
+              `docs/native_cmd_build_subset.md` 新增
+              `native_build_type_is_i32_array(...)` Body Complete Contract，冻结当前
+              2 statement body surface、array guard、element helper-call、size number
+              / positive checks 和 tail return。
+            - 实测 `bash tests/verify_native_type_is_i32_array_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              均通过。
+          - [ ] 迁入 `native_build_type_is_i32_array(...)` 的完整 body，使该 helper
+            达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
           - [x] 迁入 `native_build_type_is_i32_like_ptr(...)` 的完整 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
             - 2026-06-11：在 `src/build_compiler_driver.uya` 中加入

@@ -2117,6 +2117,41 @@ native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28
 native_hosted_pending_body_frontier: function=native_build_type_is_i32_array decl=376 function_id=35 body_stmts=2 reason=pending_core_body
 ```
 
+## `native_build_type_is_i32_array(...)` Body Complete Contract
+
+当前真实 frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_type_is_i32_array decl=376 function_id=35 body_stmts=2 reason=pending_core_body
+```
+
+当前源码 body surface 必须保持为 2 条顶层 statement：
+
+```uya
+fn native_build_type_is_i32_array(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_ARRAY ||
+       native_build_type_is_i32(type_node.type_array_element_type) == 0 ||
+       type_node.type_array_size_expr == null ||
+       type_node.type_array_size_expr.type != ASTNodeType.AST_NUMBER ||
+       type_node.type_array_size_expr.number_value_i64 <= 0i64 {
+        return 0;
+    }
+    return 1;
+}
+```
+
+合同：
+
+1. CoreBody 必须覆盖完整 2 statement body surface：array null/type guard、
+   `native_build_type_is_i32(type_node.type_array_element_type)` helper-call guard、
+   array size expr null/number/positive checks 和 tail `return 1`。
+2. guard 分支必须保持失败返回 `0`；tail return 必须保持成功返回 `1`。
+3. PortableMIR 必须保留 guard 中的 element helper-call surface 和 tail return，不得把该 helper
+   降成单一常量 return 或 pending body。
+4. 该切片迁入后 `native_build_type_is_i32_array(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_type_is_i32_array prefix_stmts=2 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
