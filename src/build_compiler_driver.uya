@@ -30105,23 +30105,43 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
     const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
     const stmt1: &ASTNode = decl.fn_decl_body.block_stmts[1];
     if stmt0 == null || stmt1 == null ||
+       stmt0.print_expr == null ||
+       stmt0.print_expr.type != ASTNodeType.AST_STRING ||
+       stmt0.print_expr.string_literal_value == null ||
        stmt1.return_stmt_expr == null ||
        stmt1.return_stmt_expr.type != ASTNodeType.AST_NUMBER {
         return -1;
     }
+    const print_expr: &ASTNode = stmt0.print_expr;
     const return_value: i32 = stmt1.return_stmt_expr.number_value_i64 as! i32 catch { return -1; };
+    const string_len: i32 = strlen(print_expr.string_literal_value as *byte) as! i32 catch {
+        return -1;
+    };
+    var has_newline: i32 = 0;
+    if stmt0.type == ASTNodeType.AST_PRINTLN {
+        has_newline = 1;
+    }
+    var call_count: i32 = 1;
+    var operand_total: i32 = 5;
+    if has_newline != 0 {
+        call_count = 2;
+        operand_total = 7;
+    }
     // 查找 synth helper 的 mir_function_id
+    var write_str_mir_id: i32 = MIR_FUNCTION_INVALID_ID;
     var write_newline_mir_id: i32 = MIR_FUNCTION_INVALID_ID;
     var i: usize = 0usize;
     while i < module.functions.count {
         const fn_item: &MirFunction = semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
-        if fn_item != null && fn_item.decl_id == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        if fn_item != null && fn_item.decl_id == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR {
+            write_str_mir_id = fn_item.function_id;
+        } else if fn_item != null && fn_item.decl_id == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
             write_newline_mir_id = fn_item.function_id;
-            break;
         }
         i = i + 1usize;
     }
-    if write_newline_mir_id == MIR_FUNCTION_INVALID_ID {
+    if write_str_mir_id == MIR_FUNCTION_INVALID_ID ||
+       (has_newline != 0 && write_newline_mir_id == MIR_FUNCTION_INVALID_ID) {
         return -1;
     }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
@@ -30132,13 +30152,26 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
     if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
         return -1;
     }
+    var ptr_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_pointer_type(module, &ptr_type_id) != 0 {
+        return -1;
+    }
     const function_id: i32 = module.function_count as i32;
     const block_id: i32 = module.block_count as i32;
-    const inst_id: i32 = module.inst_count as i32;
-    const value_id: i32 = module.value_count as i32;
-    const call_operand_id: i32 = module.operand_count as i32;
-    const arg0_operand_id: i32 = call_operand_id + 1;
-    const return_operand_id: i32 = call_operand_id + 2;
+    const write_str_inst_id: i32 = module.inst_count as i32;
+    const newline_inst_id: i32 = write_str_inst_id + 1;
+    const write_str_value_id: i32 = module.value_count as i32;
+    const newline_value_id: i32 = write_str_value_id + 1;
+    const write_str_call_operand_id: i32 = module.operand_count as i32;
+    const write_str_fd_operand_id: i32 = write_str_call_operand_id + 1;
+    const write_str_ptr_operand_id: i32 = write_str_call_operand_id + 2;
+    const write_str_len_operand_id: i32 = write_str_call_operand_id + 3;
+    const newline_call_operand_id: i32 = write_str_call_operand_id + 4;
+    const newline_fd_operand_id: i32 = write_str_call_operand_id + 5;
+    var return_operand_id: i32 = write_str_call_operand_id + 4;
+    if has_newline != 0 {
+        return_operand_id = write_str_call_operand_id + 6;
+    }
     const terminator_id: i32 = module.terminator_count as i32;
     var function: MirFunction = MirFunction{
         function_id: function_id,
@@ -30167,26 +30200,53 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
-    var value: MirValue = MirValue{
-        value_id: value_id,
+    var write_str_value: MirValue = MirValue{
+        value_id: write_str_value_id,
         function_id: function_id,
         block_id: block_id,
         type_id: i32_type_id,
-        defining_inst_id: inst_id,
+        defining_inst_id: write_str_inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: print_expr.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var newline_value: MirValue = MirValue{
+        value_id: newline_value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: newline_inst_id,
         local_id: MIR_LOCAL_INVALID_ID,
         param_index: -1,
         source_expr_id: stmt0.expr_id,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
-    var inst: MirInst = MirInst{
-        inst_id: inst_id,
+    var write_str_inst: MirInst = MirInst{
+        inst_id: write_str_inst_id,
         function_id: function_id,
         block_id: block_id,
         op: MIR_INST_OP_CALL,
         type_id: i32_type_id,
-        result_value_id: value_id,
-        operand_start: call_operand_id,
+        result_value_id: write_str_value_id,
+        operand_start: write_str_call_operand_id,
+        operand_count: 4,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
+    };
+    var newline_inst: MirInst = MirInst{
+        inst_id: newline_inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_CALL,
+        type_id: i32_type_id,
+        result_value_id: newline_value_id,
+        operand_start: newline_call_operand_id,
         operand_count: 2,
         calling_convention: MIR_CALL_CONV_C,
         runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
@@ -30194,8 +30254,48 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
     };
-    var call_operand: MirOperand = MirOperand{
-        operand_id: call_operand_id,
+    var write_str_call_operand: MirOperand = MirOperand{
+        operand_id: write_str_call_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: signature_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: write_str_mir_id,
+        flags: 0,
+    };
+    var write_str_fd_operand: MirOperand = MirOperand{
+        operand_id: write_str_fd_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 1,
+        flags: 0,
+    };
+    var write_str_ptr_operand: MirOperand = MirOperand{
+        operand_id: write_str_ptr_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: ptr_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: print_expr.expr_id,
+        flags: 0,
+    };
+    var write_str_len_operand: MirOperand = MirOperand{
+        operand_id: write_str_len_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: string_len,
+        flags: 0,
+    };
+    var newline_call_operand: MirOperand = MirOperand{
+        operand_id: newline_call_operand_id,
         kind: 0,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
@@ -30204,8 +30304,8 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
         immediate_i32: write_newline_mir_id,
         flags: 0,
     };
-    var arg0_operand: MirOperand = MirOperand{
-        operand_id: arg0_operand_id,
+    var newline_fd_operand: MirOperand = MirOperand{
+        operand_id: newline_fd_operand_id,
         kind: 0,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
@@ -30217,7 +30317,7 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
     var return_operand: MirOperand = MirOperand{
         operand_id: return_operand_id,
         kind: 0,
-        value_id: value_id,
+        value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
         type_id: i32_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
@@ -30241,22 +30341,37 @@ fn native_build_hosted_mir_append_print_helloworld_body_function(
         function_id: function_id,
         param_start: 0,
         param_count: 0,
-        inst_start: inst_id,
-        inst_count: 1,
+        inst_start: write_str_inst_id,
+        inst_count: call_count,
         terminator_id: terminator_id,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
     if portable_mir_append_function(module, &function) != 0 ||
-       portable_mir_append_value(module, &value) != 0 ||
-       portable_mir_append_inst(module, &inst) != 0 ||
-       portable_mir_append_operand(module, &call_operand) != 0 ||
-       portable_mir_append_operand(module, &arg0_operand) != 0 ||
-       portable_mir_append_operand(module, &return_operand) != 0 ||
+       portable_mir_append_value(module, &write_str_value) != 0 ||
+       portable_mir_append_inst(module, &write_str_inst) != 0 ||
+       portable_mir_append_operand(module, &write_str_call_operand) != 0 ||
+       portable_mir_append_operand(module, &write_str_fd_operand) != 0 ||
+       portable_mir_append_operand(module, &write_str_ptr_operand) != 0 ||
+       portable_mir_append_operand(module, &write_str_len_operand) != 0 {
+        return -1;
+    }
+    if has_newline != 0 {
+        if portable_mir_append_value(module, &newline_value) != 0 ||
+           portable_mir_append_inst(module, &newline_inst) != 0 ||
+           portable_mir_append_operand(module, &newline_call_operand) != 0 ||
+           portable_mir_append_operand(module, &newline_fd_operand) != 0 {
+            return -1;
+        }
+    }
+    if portable_mir_append_operand(module, &return_operand) != 0 ||
        portable_mir_append_terminator(module, &terminator) != 0 ||
        portable_mir_append_block(module, &block) != 0 {
         return -1;
     }
+    fprintf(libc.stderr,
+        "native_hosted_print_mir_body: calls=%d write_str=1 newline=%d operands=%d insts=%d bytes=%d\n" as *byte,
+        call_count, has_newline, operand_total, call_count, string_len);
     return 0;
 }
 

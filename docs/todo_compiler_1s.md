@@ -1027,13 +1027,16 @@ MIR -> Native 首个目标：
         #       # 2026-06-11：新增并通过
         #       # `bash tests/verify_hosted_native_print_coreir_body.sh`，stderr 包含
         #       # `native_hosted_print_coreir_body: calls=2 write_str=1 newline=1`。
-        # - [~] L994.B.3 MIR body 发射：新增 `mir_append_print_helloworld_body_function`
+        # - [x] L994.B.3 MIR body 发射：新增 `mir_append_print_helloworld_body_function`
         #       把 CoreBody 转成 PortableMIR（1 function，1 block，2 inst
         #       `MIR_INST_OP_CALL` + 1 terminator `MIR_TERMINATOR_KIND_RETURN`）。
         #       关键：call inst 的 `flags` 是 `MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR/NEWLINE`
         #       负数 synth_decl_id；operand 0 是 call target（type=signature_type_id，
         #       immediate=mir_function_id），operand 1..N 是 fd/ptr/len 参数。
-        # - [ ] L994.B.4 wiring：在 `native_build_hosted_mir_append_program_safe_bodies`
+        #       # 2026-06-11：新增并通过
+        #       # `bash tests/verify_hosted_native_print_mir_body.sh`，stderr 包含
+        #       # `native_hosted_print_mir_body: calls=2 write_str=1 newline=1 operands=7 insts=2`。
+        # - [~] L994.B.4 wiring：在 `native_build_hosted_mir_append_program_safe_bodies`
         #       把 `mir_append_print_helloworld_body_function` 串到主路由。L994.B 完成
         #       后 `verify_hosted_native_print_hir_lowering.sh` 全部转绿。
         # 完成 L994.B.1 + B.2 之后，最小"first slice"是 main body 调
