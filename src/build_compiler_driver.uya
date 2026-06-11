@@ -455,6 +455,15 @@ struct NativeBuildConstSliceLenIndexShape {
     sum_value: i32,
 }
 
+struct NativeBuildPointerDerefShape {
+    value_decl: &ASTNode,
+    pointer_decl: &ASTNode,
+    return_stmt: &ASTNode,
+    address_expr: &ASTNode,
+    deref_expr: &ASTNode,
+    value: i32,
+}
+
 struct NativeBuildDynamicCatchShape {
     argc_decl: &ASTNode,
     catch_decl: &ASTNode,
@@ -661,6 +670,17 @@ fn native_build_const_slice_len_index_shape_empty() NativeBuildConstSliceLenInde
         len_value: 0,
         indexed_value: 0,
         sum_value: 0,
+    };
+}
+
+fn native_build_pointer_deref_shape_empty() NativeBuildPointerDerefShape {
+    return NativeBuildPointerDerefShape{
+        value_decl: null,
+        pointer_decl: null,
+        return_stmt: null,
+        address_expr: null,
+        deref_expr: null,
+        value: 0,
     };
 }
 
@@ -9907,6 +9927,30 @@ fn native_build_hosted_decl_can_materialize_const_slice_len_index_body(
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_pointer_deref_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildPointerDerefShape = native_build_pointer_deref_shape_empty();
+    if native_build_decl_pointer_deref_shape(decl, &shape) == 0 ||
+       shape.value_decl == null || shape.value_decl.var_decl_init == null ||
+       shape.pointer_decl == null || shape.address_expr == null ||
+       shape.return_stmt == null || shape.deref_expr == null {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.value_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.address_expr,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.deref_expr,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_const_catch_sum_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     if program == null || decl == null || checker == null {
@@ -10803,6 +10847,9 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
     }
     if native_build_hosted_decl_can_materialize_const_slice_len_index_body(decl,
         checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_pointer_deref_body(decl, checker) != 0 {
         return 1;
     }
     if native_build_hosted_decl_can_materialize_const_catch_return_body(program,
@@ -11975,6 +12022,51 @@ fn native_build_hosted_coreir_append_const_slice_len_index_body(
         shape.index_access, index_type_id, shape.indexed_value) != 0 ||
        native_build_hosted_coreir_append_i32_add_expr(lowered, body_id,
         shape.add_expr, add_type_id, expr_start, expr_start + 1) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_pointer_deref_body(lowered: &LoweredProgram,
+    checker: &TypeChecker, function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildPointerDerefShape = native_build_pointer_deref_shape_empty();
+    if native_build_decl_pointer_deref_shape(decl, &shape) == 0 ||
+       shape.return_stmt == null || shape.deref_expr == null {
+        return -1;
+    }
+    var deref_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.deref_expr,
+        &deref_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 1,
+        expr_start: expr_start,
+        expr_count: 1,
+        place_start: CORE_PLACE_INVALID_ID,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       native_build_hosted_coreir_append_return_stmt(lowered, body_id,
+        shape.return_stmt, expr_start) != 0 ||
+       native_build_hosted_coreir_append_i32_const_expr(lowered, body_id,
+        shape.deref_expr, deref_type_id, shape.value) != 0 {
         return -1;
     }
     return 0;
@@ -19437,6 +19529,10 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_const_slice_len_index_body(lowered,
             checker, function_id, decl_index, decl);
     }
+    if native_build_hosted_decl_can_materialize_pointer_deref_body(decl, checker) != 0 {
+        return native_build_hosted_coreir_append_pointer_deref_body(lowered,
+            checker, function_id, decl_index, decl);
+    }
     if native_build_hosted_decl_can_materialize_const_catch_return_body(program,
         decl, checker) != 0 {
         return native_build_hosted_coreir_append_const_catch_return_body(lowered,
@@ -26268,6 +26364,11 @@ fn native_build_hosted_decl_can_lower_const_slice_len_index_mir_body(
         decl, checker);
 }
 
+fn native_build_hosted_decl_can_lower_pointer_deref_mir_body(decl: &ASTNode,
+    checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_pointer_deref_body(decl, checker);
+}
+
 fn native_build_hosted_decl_can_lower_const_catch_sum_mir_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_const_catch_sum_body(program,
@@ -30651,6 +30752,23 @@ fn native_build_hosted_mir_append_const_slice_len_index_body_function(
         shape.return_stmt.return_stmt_expr.expr_id, shape.sum_value);
 }
 
+fn native_build_hosted_mir_append_pointer_deref_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode) i32 {
+    if module == null || decl == null || lowered_function_id < 0 ||
+       decl_index < 0 || source_core_body_id < 0 {
+        return -1;
+    }
+    var shape: NativeBuildPointerDerefShape = native_build_pointer_deref_shape_empty();
+    if native_build_decl_pointer_deref_shape(decl, &shape) == 0 ||
+       shape.deref_expr == null {
+        return -1;
+    }
+    return native_build_hosted_mir_append_const_return_body_function(module,
+        lowered_function_id, decl_index, source_core_body_id,
+        shape.deref_expr.expr_id, shape.value);
+}
+
 fn native_build_hosted_mir_append_main_local_if_body_function(module: &PortableMirModule,
     lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
     decl: &ASTNode, program: &ASTNode) i32 {
@@ -32015,6 +32133,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     decl, checker) != 0 {
                     if native_build_hosted_mir_append_const_slice_len_index_body_function(
                         module, lowered_function_id, i, source_core_body_id, decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_pointer_deref_mir_body(decl,
+                    checker) != 0 {
+                    if native_build_hosted_mir_append_pointer_deref_body_function(module,
+                        lowered_function_id, i, source_core_body_id, decl) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
@@ -35387,6 +35512,92 @@ fn native_build_decl_const_slice_len_index_return_value(decl: &ASTNode,
         return 0;
     }
     *out_value = shape.sum_value;
+    return 1;
+}
+
+fn native_build_expr_address_of_identifier(expr: &ASTNode, name: &byte) i32 {
+    if expr == null || name == null ||
+       expr.type != ASTNodeType.AST_UNARY_EXPR || expr.unary_expr_operand == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_AMPERSAND ||
+       native_build_identifier_equals(expr.unary_expr_operand, name) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_return_deref_identifier(stmt: &ASTNode, pointer_name: &byte,
+    out_deref_expr: & & ASTNode) i32 {
+    if out_deref_expr != null {
+        *out_deref_expr = null;
+    }
+    if stmt == null || pointer_name == null || out_deref_expr == null ||
+       stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_UNARY_EXPR ||
+       stmt.return_stmt_expr.unary_expr_operand == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = stmt.return_stmt_expr.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_ASTERISK ||
+       native_build_identifier_equals(stmt.return_stmt_expr.unary_expr_operand,
+        pointer_name) == 0 {
+        return 0;
+    }
+    *out_deref_expr = stmt.return_stmt_expr;
+    return 1;
+}
+
+fn native_build_decl_pointer_deref_shape(decl: &ASTNode,
+    out_shape: &NativeBuildPointerDerefShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_pointer_deref_shape_empty();
+    }
+    if decl == null || out_shape == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null || decl.fn_decl_body.block_stmt_count != 3 {
+        return 0;
+    }
+    const value_decl: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const pointer_decl: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    if value_decl == null || pointer_decl == null || return_stmt == null ||
+       value_decl.type != ASTNodeType.AST_VAR_DECL ||
+       pointer_decl.type != ASTNodeType.AST_VAR_DECL ||
+       value_decl.var_decl_name == null ||
+       pointer_decl.var_decl_name == null ||
+       native_build_type_is_i32(value_decl.var_decl_type) == 0 ||
+       native_build_type_is_i32_ptr(pointer_decl.var_decl_type) == 0 ||
+       value_decl.var_decl_init == null || pointer_decl.var_decl_init == null ||
+       native_build_expr_address_of_identifier(pointer_decl.var_decl_init,
+        value_decl.var_decl_name) == 0 {
+        return 0;
+    }
+    var deref_expr: &ASTNode = null;
+    if native_build_return_deref_identifier(return_stmt, pointer_decl.var_decl_name,
+        &deref_expr) == 0 {
+        return 0;
+    }
+    var value: i32 = 0;
+    if native_build_var_decl_scalar_const_value(value_decl, null, &value) == 0 ||
+       value < 0 || value > 255 {
+        return 0;
+    }
+    out_shape.value_decl = value_decl;
+    out_shape.pointer_decl = pointer_decl;
+    out_shape.return_stmt = return_stmt;
+    out_shape.address_expr = pointer_decl.var_decl_init;
+    out_shape.deref_expr = deref_expr;
+    out_shape.value = value;
     return 1;
 }
 

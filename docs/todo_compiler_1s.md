@@ -1235,7 +1235,10 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
     # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
     # 通过，full-language parity 为 18 cases（parity=15, reject=3）；`slice_array`
     # 作为 required native parity case 生成 executable，exit code 4 与 C99 oracle 一致。
-  - [ ] 打开 full-language parity case 12 `pointer`。
+  - [x] 打开 full-language parity case 12 `pointer`。
+    # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+    # 通过，full-language parity 为 18 cases（parity=16, reject=2）；`pointer`
+    # 作为 required native parity case 生成 executable，exit code 42 与 C99 oracle 一致。
   - [ ] 打开 full-language parity case 16 `builtins`。
   - [ ] 打开 full-language parity case 18 `print_pair`。
   - [ ] 全部 18 个 full-language parity cases 均为 native/C99 parity 后，收口本 KPI。
