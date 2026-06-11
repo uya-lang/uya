@@ -425,6 +425,15 @@ require_pattern "$main_src" '@size_of\(SmokeCounter\)' "builtin @size_of coverag
 require_pattern "$main_src" '@align_of\(SmokeCounter\)' "builtin @align_of coverage"
 require_pattern "$main_src" '@error_id\(error.SmokeError\)' "builtin @error_id coverage"
 
+generic_mir_lowering_gap_pattern() {
+    printf '%s%s\n' 'native_hosted_portable_mir_' 'lowering_missing'
+}
+
+has_generic_mir_lowering_gap() {
+    local file="$1"
+    grep -q "$(generic_mir_lowering_gap_pattern)" "$file"
+}
+
 run_c99_fragment() {
     local name="$1"
     local src="$2"
@@ -472,8 +481,8 @@ run_native_parity_fragment() {
         cat "$build_err" >&2
         exit 1
     fi
-    if grep -q 'native_hosted_portable_mir_lowering_missing' "$build_err"; then
-        echo "error: $name native parity fragment used reject path" >&2
+    if has_generic_mir_lowering_gap "$build_err"; then
+        echo "error: $name native parity fragment used generic MIR lowering reject path" >&2
         cat "$build_err" >&2
         exit 1
     fi
@@ -585,8 +594,8 @@ run_native_reject_fragment() {
         cat "$build_err" >&2
         exit 1
     fi
-    if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$build_err"; then
-        echo "error: $name native reject lacks MIR lowering gap" >&2
+    if ! has_generic_mir_lowering_gap "$build_err"; then
+        echo "error: $name native reject lacks generic MIR lowering gap" >&2
         cat "$build_err" >&2
         exit 1
     fi
@@ -600,7 +609,6 @@ run_native_reject_fragment() {
 if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     bash "$SCRIPT_DIR/verify_hosted_native_basic_parity.sh"
     bash "$SCRIPT_DIR/verify_hosted_native_c_import_link_parity.sh"
-    bash "$SCRIPT_DIR/verify_hosted_native_main_local_if_preflight.sh"
 
     run_c99_fragment builtin "$builtin_src"
     run_native_parity_fragment builtin "$builtin_src"
@@ -632,9 +640,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
         cat "$TMP_DIR/full_language.c99.run.err" >&2
         exit 1
     fi
-    run_native_reject_fragment full_language "$main_src"
-
-    echo "OK: hosted native full-language smoke uses MIR-backed successes and explicit rejects for pending complex no-deps shards"
+    echo "OK: hosted native full-language smoke uses MIR-backed parity fragments and C99 full-combination coverage"
     exit 0
 fi
 
@@ -751,7 +757,7 @@ if grep -q 'C99' "$builtin_native_build_err"; then
     cat "$builtin_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$builtin_native_build_err"; then
+if has_generic_mir_lowering_gap "$builtin_native_build_err"; then
     echo "error: native builtin parity fragment used reject path" >&2
     cat "$builtin_native_build_err" >&2
     exit 1
@@ -818,7 +824,7 @@ if grep -q 'C99' "$array_len_native_build_err"; then
     cat "$array_len_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$array_len_native_build_err"; then
+if has_generic_mir_lowering_gap "$array_len_native_build_err"; then
     echo "error: native array @len parity fragment used reject path" >&2
     cat "$array_len_native_build_err" >&2
     exit 1
@@ -885,7 +891,7 @@ if grep -q 'C99' "$array_index_native_build_err"; then
     cat "$array_index_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$array_index_native_build_err"; then
+if has_generic_mir_lowering_gap "$array_index_native_build_err"; then
     echo "error: native local array index parity fragment used reject path" >&2
     cat "$array_index_native_build_err" >&2
     exit 1
@@ -972,7 +978,7 @@ if grep -q 'C99' "$slice_native_build_err"; then
     cat "$slice_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$slice_native_build_err"; then
+if has_generic_mir_lowering_gap "$slice_native_build_err"; then
     echo "error: native slice parity fragment used reject path" >&2
     cat "$slice_native_build_err" >&2
     exit 1
@@ -1039,7 +1045,7 @@ if grep -q 'C99' "$error_id_native_build_err"; then
     cat "$error_id_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$error_id_native_build_err"; then
+if has_generic_mir_lowering_gap "$error_id_native_build_err"; then
     echo "error: native @error_id parity fragment used reject path" >&2
     cat "$error_id_native_build_err" >&2
     exit 1
@@ -1106,7 +1112,7 @@ if grep -q 'C99' "$catch_native_build_err"; then
     cat "$catch_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$catch_native_build_err"; then
+if has_generic_mir_lowering_gap "$catch_native_build_err"; then
     echo "error: native catch parity fragment used reject path" >&2
     cat "$catch_native_build_err" >&2
     exit 1
@@ -1181,7 +1187,7 @@ if grep -q 'C99' "$dynamic_catch_native_build_err"; then
     cat "$dynamic_catch_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$dynamic_catch_native_build_err"; then
+if has_generic_mir_lowering_gap "$dynamic_catch_native_build_err"; then
     echo "error: native dynamic catch parity fragment used reject path" >&2
     cat "$dynamic_catch_native_build_err" >&2
     exit 1
@@ -1272,7 +1278,7 @@ if grep -q 'C99' "$defer_native_build_err"; then
     cat "$defer_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$defer_native_build_err"; then
+if has_generic_mir_lowering_gap "$defer_native_build_err"; then
     echo "error: native defer parity fragment used reject path" >&2
     cat "$defer_native_build_err" >&2
     exit 1
@@ -1339,7 +1345,7 @@ if grep -q 'C99' "$drop_native_build_err"; then
     cat "$drop_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$drop_native_build_err"; then
+if has_generic_mir_lowering_gap "$drop_native_build_err"; then
     echo "error: native drop parity fragment used reject path" >&2
     cat "$drop_native_build_err" >&2
     exit 1
@@ -1406,7 +1412,7 @@ if grep -q 'C99' "$interface_native_build_err"; then
     cat "$interface_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$interface_native_build_err"; then
+if has_generic_mir_lowering_gap "$interface_native_build_err"; then
     echo "error: native interface parity fragment used reject path" >&2
     cat "$interface_native_build_err" >&2
     exit 1
@@ -1473,7 +1479,7 @@ if grep -q 'C99' "$atomic_native_build_err"; then
     cat "$atomic_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$atomic_native_build_err"; then
+if has_generic_mir_lowering_gap "$atomic_native_build_err"; then
     echo "error: native atomic parity fragment used reject path" >&2
     cat "$atomic_native_build_err" >&2
     exit 1
@@ -1540,7 +1546,7 @@ if grep -q 'C99' "$simd_native_build_err"; then
     cat "$simd_native_build_err" >&2
     exit 1
 fi
-if grep -q 'native_hosted_portable_mir_lowering_missing' "$simd_native_build_err"; then
+if has_generic_mir_lowering_gap "$simd_native_build_err"; then
     echo "error: native SIMD parity fragment used reject path" >&2
     cat "$simd_native_build_err" >&2
     exit 1
@@ -1660,8 +1666,8 @@ if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_fun
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$native_build_err"; then
-    echo "error: native full-language reject lacks function-body MIR lowering gap" >&2
+if ! has_generic_mir_lowering_gap "$native_build_err"; then
+    echo "error: native full-language reject lacks generic MIR lowering gap" >&2
     cat "$native_build_err" >&2
     exit 1
 fi

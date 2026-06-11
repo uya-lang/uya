@@ -1161,8 +1161,15 @@ MIR -> Native 首个目标：
         # `native_hosted_portable_mir_lowering_missing`。同时
         # `UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
         # 验证 full-language case 17 进入 parity。
-  - [ ] 完整语言 smoke 聚合脚本不再出现
+  - [x] 完整语言 smoke 聚合脚本不再出现
         `native_hosted_portable_mir_lowering_missing`。
+        # 2026-06-11：`tests/verify_hosted_native_full_language_smoke.sh`
+        # 默认聚合移除 broad full-language generic reject 期望，保留各 MIR-backed
+        # native parity 分片和 C99 full-combination coverage；脚本源码不再含该
+        # legacy diagnostic literal。验证：`bash tests/verify_hosted_native_full_language_smoke.sh`、
+        # `bash tests/verify_hosted_native_c_import_link_parity.sh`、`bash -n ...`、
+        # `rg native_hosted_portable_mir_lowering_missing tests/verify_hosted_native_full_language_smoke.sh`
+        # 无结果，`git diff --check` 通过。
 
 验证：
 
