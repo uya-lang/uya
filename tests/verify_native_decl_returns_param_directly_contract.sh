@@ -36,6 +36,12 @@ require_pattern "$SUBSET_DOC" '^## `native_build_decl_returns_param_directly\(\.
     "subset doc 缺少 native_build_decl_returns_param_directly 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_decl_returns_param_directly .*body_stmts=5 reason=pending_core_body' \
     "subset doc 缺少当前 native_build_decl_returns_param_directly pending frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[0-9]+ core_bodies=31 pending_bodies=[0-9]+' \
+    "subset doc 缺少 native_build_decl_returns_param_directly 迁入后的 CoreIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=30' \
+    "subset doc 缺少 native_build_decl_returns_param_directly 迁入后的 PortableMIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_backend_type .*body_stmts=3 reason=pending_core_body' \
+    "subset doc 缺少 native_build_decl_returns_param_directly 迁入后的下一 frontier"
 require_pattern "$SUBSET_DOC" 'decl == null \|\| param_name == null \|\| decl\.fn_decl_body == null' \
     "subset doc 缺少 decl/param/body guard"
 require_pattern "$SUBSET_DOC" 'decl\.fn_decl_body\.block_stmt_count != 1' \

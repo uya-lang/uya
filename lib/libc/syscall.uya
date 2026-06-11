@@ -1403,9 +1403,35 @@ export extern "libc" fn sys_waitpid(pid: i32, status: &i32, options: i32) !i32 {
 // uaddr: 用户态原子变量地址, op: FUTEX_WAIT(0)/FUTEX_WAKE(1), val: 含义依 op
 // timeout: FUTEX_WAIT 时可为 null；返回 0 成功，负为 -errno
 export extern "libc" fn sys_futex(uaddr: &i32, op: i32, val: i32, timeout: &void) i32 {
-    const r: !i64 = @syscall(SYS_futex, uaddr as i64, op as i64, val as i64, timeout as i64, 0, 0);
-    const v: i64 = r catch { return -1; };
-    return v as i32;
+    std.cfg(std.target_os == .tos_linux, {
+        std.cfg(std.target_arch == .ta_x86_64, {
+            const r: !i64 = @syscall(202 as i64, uaddr as i64, op as i64, val as i64, timeout as i64, 0, 0);
+            const v: i64 = r catch { return -1; };
+            return v as i32;
+        }, {
+            std.cfg(std.target_arch == .ta_arm64, {
+                const r: !i64 = @syscall(98 as i64, uaddr as i64, op as i64, val as i64, timeout as i64, 0, 0);
+                const v: i64 = r catch { return -1; };
+                return v as i32;
+            }, {
+                std.cfg(std.target_arch == .ta_arm, {
+                    const r: !i64 = @syscall(240 as i64, uaddr as i64, op as i64, val as i64, timeout as i64, 0, 0);
+                    const v: i64 = r catch { return -1; };
+                    return v as i32;
+                }, {
+                    std.cfg(std.target_arch == .ta_riscv64, {
+                        const r: !i64 = @syscall(98 as i64, uaddr as i64, op as i64, val as i64, timeout as i64, 0, 0);
+                        const v: i64 = r catch { return -1; };
+                        return v as i32;
+                    }, {
+                        return -1;
+                    })
+                })
+            })
+        })
+    }, {
+        return -1;
+    })
 }
 
 // sys_readlink - 读取符号链接（AArch64/RISC-V：readlinkat）
