@@ -1414,6 +1414,47 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=native_build_direct_method_shape_empty prefix_stmts=1 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+## `native_build_struct_union_enum_shape_empty()` Body Complete Contract
+
+`native_build_direct_method_shape_empty()` body complete 后，当前真实 pending frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_struct_union_enum_shape_empty decl=325 function_id=20 body_stmts=1 reason=pending_core_body
+```
+
+函数源码：
+
+```text
+fn native_build_struct_union_enum_shape_empty() NativeBuildStructUnionEnumShape {
+    return NativeBuildStructUnionEnumShape{
+        struct_decl: null,
+        union_decl: null,
+        match_decl: null,
+        return_stmt: null,
+        struct_left_value: 0,
+        struct_right_value: 0,
+        union_value: 0,
+        match_value: 0,
+        return_value: 0,
+    };
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须生成单条 `CORE_STMT_KIND_RETURN`，返回表达式保持
+   `NativeBuildStructUnionEnumShape` struct literal surface。
+2. struct literal 的字段必须保持源码顺序和语义：`struct_decl = null`、
+   `union_decl = null`、`match_decl = null`、`return_stmt = null`、
+   `struct_left_value = 0`、`struct_right_value = 0`、`union_value = 0`、
+   `match_value = 0`、`return_value = 0`；不得省略任一 AST 指针字段，也不得把任一
+   i32 字段改成非零。
+3. PortableMIR 必须保留 aggregate return surface，返回类型为
+   `NativeBuildStructUnionEnumShape`，不得把该 helper 降成 noop 或 pending body。
+4. 该切片迁入后 `native_build_struct_union_enum_shape_empty()` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_struct_union_enum_shape_empty prefix_stmts=1 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
