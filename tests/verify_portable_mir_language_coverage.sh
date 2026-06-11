@@ -150,9 +150,9 @@ for anchor in '^## 8\.[[:space:]]+builtin' '^## 9\.[[:space:]]+标准库'; do
     fi
 done
 
-# Reject rows in §7 must reference the canonical diagnostic prefix.
-if ! grep -Eq 'native_hosted_portable_mir_lowering_missing' "$MATRIX_DOC"; then
-    echo "error: coverage matrix §7 must reference native_hosted_portable_mir_lowering_missing" >&2
+# MIR-C99 status section must stay present after removing legacy backend shards.
+if ! grep -Eq 'MIR-C99 全局状态' "$MATRIX_DOC"; then
+    echo "error: coverage matrix must include MIR-C99 global status" >&2
     failures=$((failures+1))
 fi
 
