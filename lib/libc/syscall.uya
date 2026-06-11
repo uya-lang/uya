@@ -1634,7 +1634,7 @@ export fn sys_gettimeofday(tv: &TimeVal, tz: &void) !i32 {
     std.cfg(std.target_os == .tos_macos, {
         return @syscall(SYS_gettimeofday, tv as i64, tz as i64, 0 as i64) as! i32;
     }, {
-        return @syscall(SYS_gettimeofday, tv as i64, tz as i64) as! i32;
+        return @syscall(96 as i64, tv as i64, tz as i64) as! i32;
     })
 }
 

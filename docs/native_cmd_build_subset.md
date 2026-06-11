@@ -1710,6 +1710,15 @@ fn native_build_type_is_i32(type_node: &ASTNode) i32 {
    `native_hosted_reachable_body_complete: function=native_build_type_is_i32 prefix_stmts=3 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+2026-06-11 实测迁入后，hosted native self-build frontier 前进为：
+
+```text
+native_hosted_coreir_preflight: status=0 verifier_error=0 functions=3982 core_bodies=28 pending_bodies=3477
+native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=481 mir_body_functions=27 mir_types=8 extern_symbols=478 c_import_objects=0 hosted_link_objects=0
+native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete
+native_hosted_pending_body_frontier: function=native_build_type_is_usize decl=340 function_id=26 body_stmts=3 reason=pending_core_body
+```
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
