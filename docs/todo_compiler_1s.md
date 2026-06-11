@@ -1095,7 +1095,10 @@ MIR -> Native 首个目标：
         # `bash tests/verify_native_mir_emitter.sh`、
         # `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
         # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`。
-- [ ] HelloWorld native executable 真实运行并输出 `Hello, World!\n`，与 C99 oracle 一致。
+- [x] HelloWorld native executable 真实运行并输出 `Hello, World!\n`，与 C99 oracle 一致。
+  # 2026-06-11：`bash tests/verify_hosted_native_helloworld_parity.sh`
+  # 验证 hosted native hw1 真实生成 executable、运行 exit 0，stdout 与 C99 oracle
+  # 字节级一致。
 
 完整语言 parity 门禁：
 
