@@ -12058,6 +12058,10 @@ fn native_build_ptr_empty(decl: &ASTNode) i32 {
         "native_build_atomic_i32_shape_empty" as *byte) != 0 {
         return 1;
     }
+    if str_equals(decl.fn_decl_name as *byte,
+        "native_build_simd_vector_mask_shape_empty" as *byte) != 0 {
+        return 1;
+    }
     return 0;
 }
 

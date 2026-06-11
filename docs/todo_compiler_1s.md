@@ -2393,8 +2393,27 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 迁入 `native_build_simd_vector_mask_shape_empty()` 的 struct literal return，使该 helper
+          - [x] 迁入 `native_build_simd_vector_mask_shape_empty()` 的 struct literal return，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper。
+            - 2026-06-11：扩展 `src/build_compiler_driver.uya` 中的空 shape helper
+              body-complete 识别，使 `native_build_simd_vector_mask_shape_empty()` 复用单 return
+              CoreBody/PortableMIR lowering；实测 `make -B cmd-build
+              UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_simd_vector_mask_shape_empty_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过。
+            - 真实 self-build frontier 前进为 `native_hosted_pending_body_frontier:
+              function=native_build_local_table_init decl=328 function_id=23 body_stmts=15
+              reason=pending_core_body`；preflight 计数同步为 `core_bodies=25`、
+              `mir_body_functions=24`。
+          - [ ] 为 `native_build_local_table_init(...)` 补 CoreBody/PortableMIR
+            body-complete 合同；固定当前 15 statement body surface、arena/capacity guard、
+            capacity cast/catch、6 个 arena alloc 字段、null fallback、capacity 写入和 return
+            形状，不改生产 lowering。
+          - [ ] 迁入 `native_build_local_table_init(...)` 的完整初始化 body，使该 helper
+            达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
