@@ -1865,6 +1865,41 @@ native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28
 native_hosted_pending_body_frontier: function=native_build_type_is_backend_type decl=352 function_id=29 body_stmts=3 reason=pending_core_body
 ```
 
+## `native_build_type_is_backend_type(...)` Body Complete Contract
+
+当前真实 frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_type_is_backend_type decl=352 function_id=29 body_stmts=3 reason=pending_core_body
+```
+
+当前源码 body surface 必须保持为 3 条顶层 statement：
+
+```uya
+fn native_build_type_is_backend_type(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
+        return 0;
+    }
+    if str_equals(type_node.type_named_name, "BackendType" as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+```
+
+合同：
+
+1. CoreBody 必须覆盖完整 3 statement body surface：null/type/name guard、
+   `str_equals(type_node.type_named_name, "BackendType" as *byte) != 0` branch 和 tail
+   `return 0`。
+2. guard 分支必须保持失败返回 `0`，string compare 成功分支必须返回 `1`，tail fallback
+   必须返回 `0`。
+3. PortableMIR 必须保留两个 branch 和 tail return surface，不得把该 helper 降成单一常量
+   return 或 pending body。
+4. 该切片迁入后 `native_build_type_is_backend_type(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_type_is_backend_type prefix_stmts=3 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
