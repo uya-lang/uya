@@ -21,7 +21,6 @@ use libc.sched_getaffinity;
 use libc.sys_exit;
 use libc.sys_getpid;
 use libc.sys_gettid;
-use libc.SYS_sched_yield;
 use libc.sys_set_tid_address;
 
 std.cfg(std.target_os == .tos_unknown, {
@@ -1255,17 +1254,45 @@ export extern "libc" fn pthread_cond_broadcast(cond: &pthread_cond_t) i32 {
 
 // pthread_yield - 让出 CPU
 // 说明：
-// - 使用 SYS_sched_yield 系统调用
+// - 使用 sched_yield 系统调用
 // - 提示调度器切换到其他线程
 export extern "libc" fn pthread_yield() i32 {
     std.cfg(std.target_os == .tos_macos, {
         return 0;
     }, {
-        const ret: !i64 = @syscall(SYS_sched_yield, 0, 0, 0, 0, 0, 0);
-        _ = ret catch {
-            return 1;
-        };
-        return 0;
+        std.cfg(std.target_arch == .ta_x86_64, {
+            const ret: !i64 = @syscall(24 as i64, 0, 0, 0, 0, 0, 0);
+            _ = ret catch {
+                return 1;
+            };
+            return 0;
+        }, {
+            std.cfg(std.target_arch == .ta_arm64, {
+                const ret: !i64 = @syscall(124 as i64, 0, 0, 0, 0, 0, 0);
+                _ = ret catch {
+                    return 1;
+                };
+                return 0;
+            }, {
+                std.cfg(std.target_arch == .ta_arm, {
+                    const ret: !i64 = @syscall(124 as i64, 0, 0, 0, 0, 0, 0);
+                    _ = ret catch {
+                        return 1;
+                    };
+                    return 0;
+                }, {
+                    std.cfg(std.target_arch == .ta_riscv64, {
+                        const ret: !i64 = @syscall(124 as i64, 0, 0, 0, 0, 0, 0);
+                        _ = ret catch {
+                            return 1;
+                        };
+                        return 0;
+                    }, {
+                        return 0;
+                    })
+                })
+            })
+        })
     })
 }
 

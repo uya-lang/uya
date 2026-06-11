@@ -2518,8 +2518,19 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
             - 实测 `bash tests/verify_native_type_is_usize_contract.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 迁入 `native_build_type_is_usize(...)` 的完整 body，使该 helper 达到 body
+          - [x] 迁入 `native_build_type_is_usize(...)` 的完整 body，使该 helper 达到 body
             complete；复测真实 frontier 后再选择下一个 helper 或 callee。
+            - 2026-06-11：新增 `native_build_hosted_decl_can_materialize_type_is_usize_body`
+              与 `native_build_hosted_coreir_append_type_is_usize_body`，用 3 条 root statement
+              固定 guard、string compare branch 和 tail return surface；hosted PortableMIR
+              preflight 同步覆盖该 helper body function。
+            - 同步 `lib/libc/pthread.uya` 的 Linux `pthread_yield` 路径使用 syscall number
+              literal，避免旧 build generator 发射裸 `SYS_sched_yield` 导致 host C 编译失败。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；
+              self-build native preflight 前进为 `core_bodies=29`、`mir_body_functions=28`，
+              新 frontier 为 `native_hosted_pending_body_frontier:
+              function=native_build_type_named_equals decl=344 function_id=27 body_stmts=3
+              reason=pending_core_body`。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
