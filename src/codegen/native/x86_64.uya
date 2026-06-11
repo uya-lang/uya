@@ -45,6 +45,7 @@ export const X86_64_OP_SYSCALL0: i32 = 15;        // 0x0f
 export const X86_64_OP_SYSCALL1: i32 = 5;         // 0x05
 
 export const X86_64_LINUX_SYSCALL_EXIT: i32 = 60;
+export const X86_64_LINUX_SYSCALL_WRITE: i32 = 1;
 export const X86_64_LINUX_EXIT0_SIZE: i32 = 9;
 export const X86_64_LINUX_SYSCALL_MAX_ARGS: i32 = 6;
 export const X86_64_LINUX_SYSCALL_NR_REG: i32 = X86_64_REG_RAX;
@@ -543,6 +544,27 @@ export fn x86_64_emit_store_r64_base_disp32(buf: &byte, cap: usize, pos: &usize,
 export fn x86_64_emit_lea_r64_base_disp32(buf: &byte, cap: usize, pos: &usize,
     dst_reg: i32, base_reg: i32, disp: i32) i32 {
     return x86_64_emit_mem_disp32(buf, cap, pos, X86_64_OP_LEA_R64_M, dst_reg, base_reg, disp);
+}
+
+/// 功能说明：编码 `lea dst_r64, [rip + disp32]`，用于同一代码段内静态数据寻址。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg` 为目标 GPR；`disp` 为相对下一条指令的位移。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_lea_r64_rip_disp32(buf: &byte, cap: usize, pos: &usize,
+    dst_reg: i32, disp: i32) i32 {
+    const low: i32 = x86_64_gpr_low3(dst_reg);
+    if low < 0 {
+        return -1;
+    }
+    const rex_r: i32 = x86_64_gpr_needs_rex(dst_reg);
+    if rex_r < 0 || x86_64_ensure_space(buf, cap, pos, 7usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, x86_64_rex(1, rex_r, 0, 0)) != 0 ||
+       x86_64_emit_u8(buf, cap, pos, X86_64_OP_LEA_R64_M) != 0 ||
+       x86_64_emit_u8(buf, cap, pos, x86_64_modrm(0, low, 5)) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, disp as i64);
 }
 
 /// 功能说明：编码 `mov dst_r64, [base_r64 + index_r64 * scale + disp32]`。

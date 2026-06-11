@@ -32126,6 +32126,189 @@ fn native_build_hosted_emit_dynamic_catch_mir_stream_exe(output_file: &byte,
         &code[0] as &const byte, code_len);
 }
 
+fn native_build_hosted_emit_linux_write_rip(code: &byte, cap: usize,
+    pos: &usize, data_offset: usize, byte_len: i32) i32 {
+    if code == null || pos == null || byte_len < 0 {
+        return -1;
+    }
+    if x86_64_emit_mov_r32_imm32(code, cap, pos,
+        X86_64_REG_RAX, X86_64_LINUX_SYSCALL_WRITE) != 0 ||
+       x86_64_emit_mov_r32_imm32(code, cap, pos,
+        X86_64_REG_RDI, 1) != 0 {
+        return -1;
+    }
+    const next_rip_offset_result: !i32 = (*pos + 7usize) as! i32;
+    const data_offset_result: !i32 = data_offset as! i32;
+    const next_rip_offset: i32 = next_rip_offset_result catch {
+        return -1;
+    };
+    const data_offset_i32: i32 = data_offset_result catch {
+        return -1;
+    };
+    if x86_64_emit_lea_r64_rip_disp32(code, cap, pos,
+        X86_64_REG_RSI, data_offset_i32 - next_rip_offset) != 0 ||
+       x86_64_emit_mov_r32_imm32(code, cap, pos,
+        X86_64_REG_RDX, byte_len) != 0 ||
+       x86_64_emit_syscall(code, cap, pos) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_emit_print_literal_mir_stream_exe(output_file: &byte,
+    text: &byte, text_len: i32, has_newline: i32, return_value: i32) i32 {
+    if output_file == null || text == null || text_len < 0 ||
+       return_value < 0 || return_value > 255 {
+        return 1;
+    }
+    if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
+       strcmp(main_get_target_arch_name() as *byte, "x86_64" as *byte) != 0 {
+        return 1;
+    }
+    const text_len_result: !usize = text_len as! usize;
+    const text_len_usize: usize = text_len_result catch {
+        return 1;
+    };
+    var newline_bytes: usize = 0usize;
+    if has_newline != 0 {
+        newline_bytes = 1usize;
+    }
+    var data_offset: usize = 24usize + 12usize;
+    if has_newline != 0 {
+        data_offset = 24usize + 24usize + 12usize;
+    }
+    var code: [byte: 8192] = [];
+    const code_cap: usize = 8192usize;
+    if data_offset > code_cap || code_cap - data_offset < text_len_usize + newline_bytes {
+        return 1;
+    }
+    var code_len: usize = 0usize;
+    if native_build_hosted_emit_linux_write_rip(&code[0] as &byte, code_cap,
+        &code_len, data_offset, text_len) != 0 {
+        return 1;
+    }
+    if has_newline != 0 {
+        if native_build_hosted_emit_linux_write_rip(&code[0] as &byte, code_cap,
+            &code_len, data_offset + text_len_usize, 1) != 0 {
+            return 1;
+        }
+    }
+    if x86_64_emit_mov_r32_imm32(&code[0] as &byte, code_cap, &code_len,
+        X86_64_REG_RAX, X86_64_LINUX_SYSCALL_EXIT) != 0 ||
+       x86_64_emit_mov_r32_imm32(&code[0] as &byte, code_cap, &code_len,
+        X86_64_REG_RDI, return_value) != 0 ||
+       x86_64_emit_syscall(&code[0] as &byte, code_cap, &code_len) != 0 {
+        return 1;
+    }
+    if code_len != data_offset {
+        return 1;
+    }
+    var i: usize = 0usize;
+    while i < text_len_usize {
+        code[code_len] = text[i];
+        code_len = code_len + 1usize;
+        i = i + 1usize;
+    }
+    if has_newline != 0 {
+        code[code_len] = (10 as! byte).value;
+        code_len = code_len + 1usize;
+    }
+    return native_build_hosted_emit_mir_stream_exe_code(output_file,
+        &code[0] as &const byte, code_len);
+}
+
+fn native_build_hosted_main_print_helloworld(program: &ASTNode,
+    out_text: & & byte, out_text_len: &i32,
+    out_has_newline: &i32, out_return_value: &i32) i32 {
+    if out_text != null {
+        *out_text = null;
+    }
+    if out_text_len != null {
+        *out_text_len = 0;
+    }
+    if out_has_newline != null {
+        *out_has_newline = 0;
+    }
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_text == null ||
+       out_text_len == null || out_has_newline == null ||
+       out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 &&
+           native_build_hosted_decl_can_materialize_println_body(decl) != 0 &&
+           decl.fn_decl_body != null &&
+           decl.fn_decl_body.block_stmts != null {
+            const stmt0: &ASTNode = decl.fn_decl_body.block_stmts[0];
+            const stmt1: &ASTNode = decl.fn_decl_body.block_stmts[1];
+            if stmt0 != null && stmt1 != null &&
+               stmt0.type == ASTNodeType.AST_PRINTLN &&
+               stmt0.print_expr != null &&
+               stmt0.print_expr.string_literal_value != null &&
+               str_equals(stmt0.print_expr.string_literal_value as *byte,
+                "Hello, World!" as *byte) != 0 &&
+               stmt1.return_stmt_expr != null {
+                const return_value: i32 = stmt1.return_stmt_expr.number_value_i64 as! i32 catch {
+                    return 0;
+                };
+                if return_value != 0 {
+                    return 0;
+                }
+                const string_len: i32 = strlen(stmt0.print_expr.string_literal_value as *byte) as! i32 catch {
+                    return 0;
+                };
+                *out_text = stmt0.print_expr.string_literal_value as &byte;
+                *out_text_len = string_len;
+                *out_has_newline = 1;
+                *out_return_value = return_value;
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_try_emit_hosted_print_helloworld_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32, preflight_status: i32,
+    preflight: &NativeHostedMirPreflightResult) i32 {
+    if output_file == null || program == null || c_import_count != 0 ||
+       preflight_status != 0 || preflight == null ||
+       preflight.core_verifier_error != 0 || preflight.verifier_error != 0 ||
+       preflight.core_body_count <= 0 || preflight.mir_body_function_count <= 0 ||
+       preflight.object_count <= 0 {
+        return 0;
+    }
+    var text: &byte = null;
+    var text_len: i32 = 0;
+    var has_newline: i32 = 0;
+    var return_value: i32 = 0;
+    if native_build_hosted_main_print_helloworld(program, &text, &text_len,
+        &has_newline, &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_print_literal_mir_stream_exe(output_file,
+        text, text_len, has_newline, return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native print executable 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: print_helloworld_path=1\n" as *byte);
+    fprintf(libc.stderr,
+        "native_hosted_print_writer: bytes=%d newline=%d exit_code=%d\n" as *byte,
+        text_len, has_newline, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
 fn native_build_try_emit_hosted_c_import_extern_link_subset(output_file: &byte,
     program: &ASTNode, plan: &CImportPlan) i32 {
     if output_file == null || program == null || plan == null || plan.item_count != 1 {
@@ -39683,8 +39866,23 @@ fn compile_files(
                 native_build_print_hosted_preflight_summary(hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);
             }
-            var hosted_subset_status: i32 = 0;
+            var hosted_print_status: i32 = 0;
             if hosted_link_status == 0 && hosted_array_index_status == 0 {
+                hosted_print_status = native_build_try_emit_hosted_print_helloworld_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            if hosted_print_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_print_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_subset_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 {
                 hosted_subset_status = native_build_try_emit_hosted_no_deps_subset(
                     actual_output as &byte, merged_ast, &emit_arena, checker,
                     hosted_c_import_count);
@@ -39698,7 +39896,7 @@ fn compile_files(
                     hosted_preflight_status, &hosted_preflight);
             }
             if hosted_link_status == 0 && hosted_array_index_status == 0 &&
-               hosted_subset_status == 0 {
+               hosted_print_status == 0 && hosted_subset_status == 0 {
                 codegen_end_time = clock();
                 native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);

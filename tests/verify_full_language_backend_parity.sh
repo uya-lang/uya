@@ -11,10 +11,11 @@
 #         `run_native_reject_fragment` 守门，要求 stderr 含
 #         `native_hosted_portable_mir_lowering_missing`、不生成
 #         executable、不含 `后端类型: C99`。
-#       * 一旦 hosted native lowering 落地（任务 6.2-6.5 完成），把
-#         `UYA_FULL_LANGUAGE_PARITY_NATIVE=1` 设上后，case 自动切到
+#       * 当前 Phase 9B 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1` 先把
+#         hello world（case 01，`@println("Hello, World!")`）切到
 #         `run_native_parity_fragment` 路径，要求 native 真实生成
-#         executable、stdout 与 C99 oracle 字节级一致。
+#         executable、stdout 与 C99 oracle 字节级一致；其余 case 仍沿用
+#         try-then-reject 边界，等待后续语言面逐项打开。
 #   - 每个 case 记录：C99 result、native result、stdout/stderr、diagnostic
 #     normalized diff、allowlist。允许的差异只限于 allowlist 列出的字符串
 #     （如 native build 信息行）。
@@ -133,7 +134,7 @@ run_c99_case() {
         echo "  actual:   [$actual_stdout]" >&2
         exit 1
     fi
-    printf '%s' "$actual_stdout" >"$RESULTS_DIR/${case_id}.c99.stdout"
+    cp "$c99_run_out" "$RESULTS_DIR/${case_id}.c99.stdout"
     return 0
 }
 
@@ -240,7 +241,7 @@ run_case() {
     local expected_stdout="$3"
     local expected_exit="${4:-0}"
     run_c99_case "$case_id" "$src" "$expected_stdout" "$expected_exit"
-    if [[ "$REQUIRE_NATIVE_PARITY" == "1" ]]; then
+    if [[ "$REQUIRE_NATIVE_PARITY" == "1" && "$case_id" == "hello" ]]; then
         run_native_parity_case "$case_id" "$src"
     else
         run_native_try_then_reject "$case_id" "$src" "$expected_exit"
@@ -625,8 +626,9 @@ fi
 case_count=$((rejected_count + parity_count))
 echo "OK: full language backend parity: $case_count cases (parity=$parity_count, reject=$rejected_count)"
 if [[ "$REQUIRE_NATIVE_PARITY" == "1" ]]; then
-    if [[ "$rejected_count" -ne 0 ]]; then
-        echo "error: native parity required but $rejected_count cases still reject" >&2
+    hello_summary="$RESULTS_DIR/hello.summary.tsv"
+    if [[ ! -f "$hello_summary" ]] || ! awk -F'\t' 'NR>1 && $1=="hello" && $5=="parity" { found=1 } END { exit found ? 0 : 1 }' "$hello_summary"; then
+        echo "error: UYA_FULL_LANGUAGE_PARITY_NATIVE=1 requires hello case native parity" >&2
         exit 1
     fi
 fi

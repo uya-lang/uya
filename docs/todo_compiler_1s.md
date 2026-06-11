@@ -1078,10 +1078,23 @@ MIR -> Native 首个目标：
         # `bash tests/verify_hosted_native_print_hir_lowering.sh`、
         # `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
         # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`。
-  - [ ] L994.F 端到端 parity gate：把 `verify_hosted_native_helloworld_parity.sh` 顶部
+  - [x] L994.F 端到端 parity gate：把 `verify_hosted_native_helloworld_parity.sh` 顶部
         期望成功子句打开（不再走 reject 分支），并把
         `verify_full_language_backend_parity.sh` 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1`
         路径覆盖到 hello world（case 01）@println 场景。
+        # 2026-06-11：hosted native HelloWorld 走 `native_hosted_subset:
+        # print_helloworld_path=1` 写出真实 Linux x86_64 ELF，stdout 与 C99 oracle
+        # 字节级一致；full-language parity 在 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1`
+        # 下强制 hello case 进入 native parity。验证：
+        # `bash tests/verify_hosted_native_helloworld_parity.sh`、
+        # `UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`、
+        # `bash tests/verify_hosted_native_print_helper_link_plan.sh`、
+        # `bash tests/verify_hosted_native_print_hir_lowering.sh`、
+        # `bash tests/verify_hosted_native_print_mir_verifier_abi.sh`、
+        # `bash tests/verify_hosted_native_print_native_emitter_call.sh`、
+        # `bash tests/verify_native_mir_emitter.sh`、
+        # `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+        # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`。
 - [ ] HelloWorld native executable 真实运行并输出 `Hello, World!\n`，与 C99 oracle 一致。
 
 完整语言 parity 门禁：
