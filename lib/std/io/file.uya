@@ -12,7 +12,6 @@ use libc.O_RDWR;
 use libc.O_CREAT;
 use libc.O_TRUNC;
 use libc.O_APPEND;
-use libc.S_IRWXU;
 use std.string.strlen;
 
 export struct File {
@@ -30,6 +29,7 @@ export struct FILE {
 }
 
 var std_io_fopen_fd_storage: [FILE: 128] = [];
+const STD_IO_CREATE_MODE_USER_RWX: i64 = 0o700;
 
 export fn file_open(path: &const byte, flags: i32, mode: u32) !File {
     const raw_fd: i32 = try sys_open(path as *const byte, flags, mode as i32);
@@ -170,10 +170,10 @@ export fn fopen(path: &const byte, mode: &const byte) &FILE {
             flags = O_RDONLY;
         } else if c == 119 as byte {  // 'w'
             flags = w_flags;
-            create_mode = S_IRWXU;
+            create_mode = STD_IO_CREATE_MODE_USER_RWX;
         } else if c == 97 as byte {  // 'a'
             flags = a_flags;
-            create_mode = S_IRWXU;
+            create_mode = STD_IO_CREATE_MODE_USER_RWX;
         } else if c == 43 as byte {  // '+'
             if flags == O_RDONLY {
                 flags = O_RDWR;
