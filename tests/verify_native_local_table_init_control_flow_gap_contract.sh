@@ -37,26 +37,26 @@ require_pattern "$TODO_DOC" '不得用 noop/单 return 伪装完成' \
     "todo 缺少禁止伪完成说明"
 require_pattern "$SUBSET_DOC" '^## `native_build_local_table_init\(\.\.\.\)` Control-Flow Gap Contract' \
     "subset doc 缺少 local_table_init control-flow gap 合同"
-require_pattern "$SUBSET_DOC" 'CoreIR 当前没有 `CORE_STMT_KIND_WHILE`' \
-    "subset doc 缺少 CoreIR while 缺口"
+require_pattern "$SUBSET_DOC" 'CoreIR 已引入 `CORE_STMT_KIND_WHILE`' \
+    "subset doc 缺少 CoreIR while surface"
 require_pattern "$SUBSET_DOC" 'PortableMIR generic lowering 当前只接受 call expr statements 和 final return' \
     "subset doc 缺少 PortableMIR generic lowering 缺口"
 require_pattern "$SUBSET_DOC" '不得把 `native_build_local_table_init\(\.\.\.\)` 降成 noop、单 return empty table 或 pending body complete 假阳性' \
     "subset doc 缺少禁止伪完成规则"
 require_pattern "$SUBSET_DOC" '必须先引入可验证的 while/control-flow surface' \
     "subset doc 缺少 while/control-flow 前置要求"
-require_pattern "$CORE_FILE" 'CORE_STMT_KIND_ASSIGN' \
-    "CoreIR 缺少当前 statement kind baseline"
-if grep -Eq 'CORE_STMT_KIND_WHILE' "$CORE_FILE"; then
-    echo "错误: CoreIR 已出现 CORE_STMT_KIND_WHILE，请更新本 gap 合同为 while surface 验证" >&2
-    exit 1
-fi
+require_pattern "$CORE_FILE" 'export const CORE_STMT_KIND_WHILE' \
+    "CoreIR 缺少 CORE_STMT_KIND_WHILE"
+require_pattern "$CORE_FILE" 'if kind == CORE_STMT_KIND_WHILE' \
+    "CoreIR verifier 未接受 CORE_STMT_KIND_WHILE"
 require_pattern "$MIR_FILE" 'portable_mir_lower_stmt_to_module' \
     "PortableMIR 缺少 generic stmt lowering 入口"
 require_pattern "$MIR_FILE" 'if stmt.kind == CORE_STMT_KIND_EXPR' \
     "PortableMIR generic lowering baseline 不再只显式接受 expr stmt"
 require_pattern "$MIR_FILE" 'if current_stmt.kind == CORE_STMT_KIND_RETURN' \
     "PortableMIR generic lowering baseline 缺少 final return"
+require_pattern "$REPO_ROOT/src/lower/mir_contract.uya" 'CORE_STMT_KIND_WHILE' \
+    "PortableMIR lowering contract 缺少 while statement feature mapping"
 require_pattern "$STAGE1_TEST" 'verify_native_local_table_init_control_flow_gap_contract\.sh' \
     "stage1 未纳入 local_table_init control-flow gap 合同"
 

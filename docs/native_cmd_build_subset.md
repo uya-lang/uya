@@ -1611,9 +1611,9 @@ CoreBody/PortableMIR 合同：
 
 当前前置缺口：
 
-1. CoreIR 当前没有 `CORE_STMT_KIND_WHILE`，只有 return / asm / defer /
-   errdefer / drop / error propagation / local decl / if / assign / expr 等
-  已转储并验证的 statement kind。
+1. CoreIR 已引入 `CORE_STMT_KIND_WHILE`，可把 loop condition 放入 `expr_id`，
+   loop body 放入 `first_child_stmt` / `child_stmt_count` range；该 kind 必须通过
+   CoreIR verifier 的 statement kind 白名单。
 2. PortableMIR generic lowering 当前只接受 call expr statements 和 final return；
    `portable_mir_lower_stmt_to_module(...)` 只显式接受 `CORE_STMT_KIND_EXPR`，
    `portable_mir_lower_core_body_to_module(...)` 只把最后一条

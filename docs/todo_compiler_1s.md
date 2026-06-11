@@ -2433,8 +2433,18 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
-          - [ ] 为 CoreIR/PortableMIR 增加可验证的 `while i < capacity` control-flow surface，
+          - [x] 为 CoreIR/PortableMIR 增加可验证的 `while i < capacity` control-flow surface，
             覆盖 loop condition、loop body statement range、backedge 和 exit edge。
+            - 2026-06-11：新增 `CORE_STMT_KIND_WHILE`，纳入 CoreIR verifier statement
+              kind 白名单，并在 `src/lower/mir_contract.uya` 中把 while statement 映射到
+              `MIR_LOWER_FEATURE_CONTROL_FLOW` / branch feature surface；同步
+              `tests/verify_portable_mir_lowering_contract.sh` 和
+              `tests/verify_native_local_table_init_control_flow_gap_contract.sh`。
+            - 实测 `bash tests/verify_native_local_table_init_control_flow_gap_contract.sh`、
+              `bash tests/verify_portable_mir_lowering_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              均通过。
           - [ ] 迁入 `native_build_local_table_init(...)` 的完整初始化 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
         - `compile_files(...)` 到达前置门槛：

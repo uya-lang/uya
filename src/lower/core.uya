@@ -37,6 +37,7 @@ export const CORE_STMT_KIND_LOCAL_DECL: i32 = 16;
 export const CORE_STMT_KIND_IF: i32 = 17;
 export const CORE_STMT_KIND_ASSIGN: i32 = 18;
 export const CORE_STMT_KIND_EXPR: i32 = 19;
+export const CORE_STMT_KIND_WHILE: i32 = 20;
 export const CORE_STMT_FLAG_LOCAL_STACK_SLOT: i32 = 1;
 export const CORE_STMT_FLAG_CLEANUP: i32 = 2;
 export const CORE_STMT_FLAG_DROP: i32 = 4;
@@ -2375,6 +2376,7 @@ fn lowered_program_coreir_stmt_kind_is_dumped_and_verified(kind: i32) i32 {
     if kind == CORE_STMT_KIND_IF { return 1; }
     if kind == CORE_STMT_KIND_ASSIGN { return 1; }
     if kind == CORE_STMT_KIND_EXPR { return 1; }
+    if kind == CORE_STMT_KIND_WHILE { return 1; }
     return 0;
 }
 
