@@ -862,6 +862,34 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body`。
    下一步才能迁入 `if checker != null { count = checker.diagnostic_format_count; }`。
 
+## `compiler_print_diagnostic_profile(...)` Checker Branch Contract
+
+count local 切片迁入后，当前真实 body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body
+```
+
+本合同只冻结第 2 条顶层语句：
+
+```text
+if checker != null {
+    count = checker.diagnostic_format_count;
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须追加 `CORE_STMT_KIND_IF`，条件保持 `checker != null` 的 pointer null compare
+   surface。
+2. then body 必须只包含 `count = checker.diagnostic_format_count` 写回；`checker.diagnostic_format_count`
+   必须保持 field read surface，destination 必须保持 `count` local place。
+3. PortableMIR 必须保留 conditional branch、field read 和 local write surface；不得把
+   null branch 或 field 值常量化。
+4. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=3 next_stmt=3 next_kind=AST_CALL_EXPR reason=partial_core_body`。
+   下一步才能迁入尾部 `fprintf(libc.stderr, ...)`。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
