@@ -441,6 +441,20 @@ struct NativeBuildConstSliceSumShape {
     sum_value: i32,
 }
 
+struct NativeBuildConstSliceLenIndexShape {
+    array_decl: &ASTNode,
+    slice_decl: &ASTNode,
+    return_stmt: &ASTNode,
+    add_expr: &ASTNode,
+    len_expr: &ASTNode,
+    index_access: &ASTNode,
+    slice_start: i32,
+    slice_len: i32,
+    len_value: i32,
+    indexed_value: i32,
+    sum_value: i32,
+}
+
 struct NativeBuildDynamicCatchShape {
     argc_decl: &ASTNode,
     catch_decl: &ASTNode,
@@ -630,6 +644,22 @@ fn native_build_const_slice_sum_shape_empty() NativeBuildConstSliceSumShape {
         slice_len: 0,
         left_value: 0,
         right_value: 0,
+        sum_value: 0,
+    };
+}
+
+fn native_build_const_slice_len_index_shape_empty() NativeBuildConstSliceLenIndexShape {
+    return NativeBuildConstSliceLenIndexShape{
+        array_decl: null,
+        slice_decl: null,
+        return_stmt: null,
+        add_expr: null,
+        len_expr: null,
+        index_access: null,
+        slice_start: 0,
+        slice_len: 0,
+        len_value: 0,
+        indexed_value: 0,
         sum_value: 0,
     };
 }
@@ -9851,6 +9881,32 @@ fn native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl: &AS
     return 1;
 }
 
+fn native_build_hosted_decl_can_materialize_const_slice_len_index_body(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if decl == null || checker == null {
+        return 0;
+    }
+    var shape: NativeBuildConstSliceLenIndexShape =
+        native_build_const_slice_len_index_shape_empty();
+    if native_build_decl_const_slice_len_index_shape(decl, &shape) == 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.array_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.slice_decl.var_decl_init,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.len_expr,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.index_access,
+        &type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.add_expr,
+        &type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_hosted_decl_can_materialize_const_catch_sum_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     if program == null || decl == null || checker == null {
@@ -10743,6 +10799,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_const_slice_len_index_body(decl,
+        checker) != 0 {
         return 1;
     }
     if native_build_hosted_decl_can_materialize_const_catch_return_body(program,
@@ -11857,6 +11917,64 @@ fn native_build_hosted_coreir_append_const_slice_index_sum_body(lowered: &Lowere
        lowered_program_append_core_stmt(lowered, &array_stmt) != 0 ||
        lowered_program_append_core_stmt(lowered, &slice_stmt) != 0 ||
        lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_const_slice_len_index_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, function_id: i32,
+    decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null {
+        return -1;
+    }
+    var shape: NativeBuildConstSliceLenIndexShape =
+        native_build_const_slice_len_index_shape_empty();
+    if native_build_decl_const_slice_len_index_shape(decl, &shape) == 0 ||
+       shape.len_expr == null || shape.index_access == null ||
+       shape.add_expr == null || shape.return_stmt == null {
+        return -1;
+    }
+    var len_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var index_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var add_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, shape.len_expr,
+        &len_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.index_access,
+        &index_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, shape.add_expr,
+        &add_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 1,
+        expr_start: expr_start,
+        expr_count: 3,
+        place_start: CORE_PLACE_INVALID_ID,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       native_build_hosted_coreir_append_return_stmt(lowered, body_id,
+        shape.return_stmt, expr_start + 2) != 0 ||
+       native_build_hosted_coreir_append_i32_const_expr(lowered, body_id,
+        shape.len_expr, len_type_id, shape.len_value) != 0 ||
+       native_build_hosted_coreir_append_i32_const_expr(lowered, body_id,
+        shape.index_access, index_type_id, shape.indexed_value) != 0 ||
+       native_build_hosted_coreir_append_i32_add_expr(lowered, body_id,
+        shape.add_expr, add_type_id, expr_start, expr_start + 1) != 0 {
         return -1;
     }
     return 0;
@@ -19314,6 +19432,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_const_slice_index_sum_body(lowered,
             checker, function_id, decl_index, decl);
     }
+    if native_build_hosted_decl_can_materialize_const_slice_len_index_body(decl,
+        checker) != 0 {
+        return native_build_hosted_coreir_append_const_slice_len_index_body(lowered,
+            checker, function_id, decl_index, decl);
+    }
     if native_build_hosted_decl_can_materialize_const_catch_return_body(program,
         decl, checker) != 0 {
         return native_build_hosted_coreir_append_const_catch_return_body(lowered,
@@ -26139,6 +26262,12 @@ fn native_build_hosted_decl_can_lower_const_slice_index_sum_mir_body(decl: &ASTN
     return native_build_hosted_decl_can_materialize_const_slice_index_sum_body(decl, checker);
 }
 
+fn native_build_hosted_decl_can_lower_const_slice_len_index_mir_body(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_const_slice_len_index_body(
+        decl, checker);
+}
+
 fn native_build_hosted_decl_can_lower_const_catch_sum_mir_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     return native_build_hosted_decl_can_materialize_const_catch_sum_body(program,
@@ -30504,6 +30633,24 @@ fn native_build_hosted_mir_append_const_slice_index_sum_body_function(module: &P
     return 0;
 }
 
+fn native_build_hosted_mir_append_const_slice_len_index_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode) i32 {
+    if module == null || decl == null || lowered_function_id < 0 ||
+       decl_index < 0 || source_core_body_id < 0 {
+        return -1;
+    }
+    var shape: NativeBuildConstSliceLenIndexShape =
+        native_build_const_slice_len_index_shape_empty();
+    if native_build_decl_const_slice_len_index_shape(decl, &shape) == 0 ||
+       shape.return_stmt == null || shape.return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    return native_build_hosted_mir_append_const_return_body_function(module,
+        lowered_function_id, decl_index, source_core_body_id,
+        shape.return_stmt.return_stmt_expr.expr_id, shape.sum_value);
+}
+
 fn native_build_hosted_mir_append_main_local_if_body_function(module: &PortableMirModule,
     lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
     decl: &ASTNode, program: &ASTNode) i32 {
@@ -31861,6 +32008,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     checker) != 0 {
                     if native_build_hosted_mir_append_const_slice_index_sum_body_function(module,
                         lowered_function_id, i, source_core_body_id, decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_const_slice_len_index_mir_body(
+                    decl, checker) != 0 {
+                    if native_build_hosted_mir_append_const_slice_len_index_body_function(
+                        module, lowered_function_id, i, source_core_body_id, decl) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
@@ -35062,6 +35216,174 @@ fn native_build_decl_const_slice_index_sum_return_value(decl: &ASTNode, out_valu
     }
     var shape: NativeBuildConstSliceSumShape = native_build_const_slice_sum_shape_empty();
     if native_build_decl_const_slice_index_sum_shape(decl, &shape) == 0 {
+        return 0;
+    }
+    *out_value = shape.sum_value;
+    return 1;
+}
+
+fn native_build_expr_slice_len_const(expr: &ASTNode, slice_name: &byte,
+    slice_len: i32, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if expr == null || slice_name == null || out_value == null || slice_len <= 0 {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+        return native_build_expr_slice_len_const(expr.cast_expr_expr, slice_name,
+            slice_len, out_value);
+    }
+    if expr.type != ASTNodeType.AST_LEN || expr.len_expr_array == null ||
+       expr.len_expr_array.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.len_expr_array.identifier_name == null ||
+       str_equals(expr.len_expr_array.identifier_name as *byte,
+        slice_name as *byte) == 0 {
+        return 0;
+    }
+    *out_value = slice_len;
+    return 1;
+}
+
+fn native_build_expr_slice_len_index_sum_parts(add_expr: &ASTNode,
+    slice_name: &byte, array_expr: &ASTNode, slice_start: i32, slice_len: i32,
+    out_len_expr: & & ASTNode, out_index_access: & & ASTNode,
+    out_len_value: &i32, out_indexed_value: &i32) i32 {
+    if out_len_expr != null {
+        *out_len_expr = null;
+    }
+    if out_index_access != null {
+        *out_index_access = null;
+    }
+    if out_len_value != null {
+        *out_len_value = 0;
+    }
+    if out_indexed_value != null {
+        *out_indexed_value = 0;
+    }
+    if add_expr == null || slice_name == null || array_expr == null ||
+       out_len_expr == null || out_index_access == null ||
+       out_len_value == null || out_indexed_value == null ||
+       add_expr.type != ASTNodeType.AST_BINARY_EXPR ||
+       add_expr.binary_expr_left == null || add_expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = add_expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS {
+        return 0;
+    }
+    var len_value: i32 = 0;
+    var indexed_value: i32 = 0;
+    if native_build_expr_slice_len_const(add_expr.binary_expr_left,
+        slice_name, slice_len, &len_value) != 0 &&
+       native_build_expr_slice_index_i32_const(add_expr.binary_expr_right,
+        slice_name, array_expr, slice_start, slice_len, &indexed_value) != 0 {
+        *out_len_expr = add_expr.binary_expr_left;
+        *out_index_access = add_expr.binary_expr_right;
+        *out_len_value = len_value;
+        *out_indexed_value = indexed_value;
+        return 1;
+    }
+    if native_build_expr_slice_len_const(add_expr.binary_expr_right,
+        slice_name, slice_len, &len_value) != 0 &&
+       native_build_expr_slice_index_i32_const(add_expr.binary_expr_left,
+        slice_name, array_expr, slice_start, slice_len, &indexed_value) != 0 {
+        *out_len_expr = add_expr.binary_expr_right;
+        *out_index_access = add_expr.binary_expr_left;
+        *out_len_value = len_value;
+        *out_indexed_value = indexed_value;
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_decl_const_slice_len_index_shape(decl: &ASTNode,
+    out_shape: &NativeBuildConstSliceLenIndexShape) i32 {
+    if out_shape != null {
+        *out_shape = native_build_const_slice_len_index_shape_empty();
+    }
+    if decl == null || out_shape == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null || decl.fn_decl_body.block_stmt_count != 3 {
+        return 0;
+    }
+    const array_decl: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const slice_decl: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const return_stmt: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    if array_decl == null || slice_decl == null || return_stmt == null ||
+       array_decl.type != ASTNodeType.AST_VAR_DECL ||
+       slice_decl.type != ASTNodeType.AST_VAR_DECL ||
+       array_decl.var_decl_name == null || slice_decl.var_decl_name == null ||
+       native_build_type_is_i32_array(array_decl.var_decl_type) == 0 ||
+       array_decl.var_decl_init == null ||
+       array_decl.var_decl_init.type != ASTNodeType.AST_ARRAY_LITERAL ||
+       slice_decl.var_decl_init == null ||
+       slice_decl.var_decl_init.type != ASTNodeType.AST_SLICE_EXPR ||
+       slice_decl.var_decl_init.slice_expr_base == null ||
+       slice_decl.var_decl_init.slice_expr_start_expr == null ||
+       slice_decl.var_decl_init.slice_expr_len_expr == null ||
+       slice_decl.var_decl_init.slice_expr_base.type != ASTNodeType.AST_IDENTIFIER ||
+       slice_decl.var_decl_init.slice_expr_base.identifier_name == null ||
+       str_equals(slice_decl.var_decl_init.slice_expr_base.identifier_name as *byte,
+        array_decl.var_decl_name as *byte) == 0 ||
+       return_stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       return_stmt.return_stmt_expr == null {
+        return 0;
+    }
+    var slice_start: i32 = 0;
+    var slice_len: i32 = 0;
+    if native_build_expr_scalar_const_value(slice_decl.var_decl_init.slice_expr_start_expr,
+        null, &slice_start) == 0 ||
+       native_build_expr_scalar_const_value(slice_decl.var_decl_init.slice_expr_len_expr,
+        null, &slice_len) == 0 ||
+       slice_start < 0 || slice_len <= 0 ||
+       slice_start + slice_len > array_decl.var_decl_init.array_literal_element_count {
+        return 0;
+    }
+    var len_expr: &ASTNode = null;
+    var index_access: &ASTNode = null;
+    var len_value: i32 = 0;
+    var indexed_value: i32 = 0;
+    if native_build_expr_slice_len_index_sum_parts(return_stmt.return_stmt_expr,
+        slice_decl.var_decl_name, array_decl.var_decl_init, slice_start, slice_len,
+        &len_expr, &index_access, &len_value, &indexed_value) == 0 {
+        return 0;
+    }
+    var sum_value: i32 = 0;
+    if native_build_eval_i32_binary_const(TokenType.TOKEN_PLUS, len_value,
+        indexed_value, &sum_value) == 0 ||
+       sum_value < 0 || sum_value > 255 {
+        return 0;
+    }
+    out_shape.array_decl = array_decl;
+    out_shape.slice_decl = slice_decl;
+    out_shape.return_stmt = return_stmt;
+    out_shape.add_expr = return_stmt.return_stmt_expr;
+    out_shape.len_expr = len_expr;
+    out_shape.index_access = index_access;
+    out_shape.slice_start = slice_start;
+    out_shape.slice_len = slice_len;
+    out_shape.len_value = len_value;
+    out_shape.indexed_value = indexed_value;
+    out_shape.sum_value = sum_value;
+    return 1;
+}
+
+fn native_build_decl_const_slice_len_index_return_value(decl: &ASTNode,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if out_value == null {
+        return 0;
+    }
+    var shape: NativeBuildConstSliceLenIndexShape =
+        native_build_const_slice_len_index_shape_empty();
+    if native_build_decl_const_slice_len_index_shape(decl, &shape) == 0 {
         return 0;
     }
     *out_value = shape.sum_value;
