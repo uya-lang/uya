@@ -82,6 +82,7 @@ bash "$SCRIPT_DIR/verify_native_type_is_byte_path_max_array_contract.sh"
 bash "$SCRIPT_DIR/verify_native_decl_is_noarg_i32_fn_contract.sh"
 bash "$SCRIPT_DIR/verify_native_decl_is_one_i32_param_fn_contract.sh"
 bash "$SCRIPT_DIR/verify_native_decl_is_identity_generic_i32_fn_contract.sh"
+bash "$SCRIPT_DIR/verify_native_decl_is_two_i32_param_fn_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 
