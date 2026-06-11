@@ -590,6 +590,29 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body`。
    下一步才能迁入 `stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program)` 写回。
 
+## `compile_stats_record_and_release_typed_program(...)` Released Bytes Writeback Slice Contract
+
+Typed type records release 切片迁入后的真实 reachable body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body
+```
+
+下一条源码语句是
+`stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program);`。
+该切片只允许追加 released-bytes 单条写回；迁入后该 helper 应达到 body complete，不得提前选择
+后续 helper。
+
+CoreBody/PortableMIR 合同：
+
+1. 该写回必须保持 `stats.typed_program_released_bytes` destination field surface。
+2. RHS 必须保持 `typed_program_current_bytes(&checker.typed_program)` 的 field-address call
+   surface，不能复用释放前的 `typed_program_bytes` 结果。
+3. PortableMIR 必须追加 RHS field address、call 和 destination store surface。
+4. 该切片迁入后 self-build frontier 必须推进到 helper 完成：
+   `native_hosted_reachable_body_complete: function=compile_stats_record_and_release_typed_program prefix_stmts=18 reason=body_complete`。
+   下一步才能审计真实 frontier 指向的下一个 reachable helper。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

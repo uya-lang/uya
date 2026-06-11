@@ -1804,6 +1804,17 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body`，
               后续 pending body 首项为
               `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=220 function_id=5 body_stmts=4 reason=pending_core_body`。
+          - [x] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
+            `stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program)` 写回，
+            先补 CoreBody/PortableMIR 合同；不改生产实现。
+            - 2026-06-11：新增
+              `tests/verify_native_compile_stats_released_bytes_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md` 新增
+              Released Bytes Writeback Slice Contract，冻结当前 frontier
+              `prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN`，并要求迁入后
+              `compile_stats_record_and_release_typed_program(...)` 达到 body complete。
+            - 实测 `bash tests/verify_native_compile_stats_released_bytes_contract.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过；本叶子未改生产 lowering。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
