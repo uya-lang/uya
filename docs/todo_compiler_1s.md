@@ -2458,6 +2458,20 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               新 frontier 为 `native_hosted_pending_body_frontier:
               function=native_build_reachability_init decl=332 function_id=24 body_stmts=12
               reason=pending_core_body`。
+          - [x] 为 `native_build_reachability_init(...)` 补 CoreBody/PortableMIR
+            body-complete 合同；固定当前 12 statement body surface、arena/decl_count guard、
+            count cast/catch、bytes 计算、2 个 arena alloc 字段、null fallback、capacity 写入、
+            `while i < decl_count` loop 初始化和 final return；不改生产 lowering。
+            - 2026-06-11：新增 `tests/verify_native_reachability_init_contract.sh`
+              并接入 `tests/verify_native_cmd_build_stage1.sh`；
+              `docs/native_cmd_build_subset.md` 新增
+              `native_build_reachability_init(...)` Body Complete Contract，冻结当前 12
+              statement body surface、alloc/null fallback、loop 初始化和 final return。
+            - 实测 `bash tests/verify_native_reachability_init_contract.sh`、`git diff --check`、
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              均通过。
+          - [ ] 迁入 `native_build_reachability_init(...)` 的完整初始化 body，使该 helper
+            达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。

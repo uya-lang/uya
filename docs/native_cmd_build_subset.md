@@ -1612,6 +1612,61 @@ native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28
 native_hosted_pending_body_frontier: function=native_build_reachability_init decl=332 function_id=24 body_stmts=12 reason=pending_core_body
 ```
 
+## `native_build_reachability_init(...)` Body Complete Contract
+
+当前真实 frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=native_build_reachability_init decl=332 function_id=24 body_stmts=12 reason=pending_core_body
+```
+
+当前源码 body surface 必须保持为 12 条顶层 statement：
+
+```uya
+fn native_build_reachability_init(arena: &CompilerArena, decl_count: i32) NativeBuildReachability {
+    var reach: NativeBuildReachability = native_build_reachability_empty();
+    if arena == null || decl_count <= 0 {
+        return reach;
+    }
+    const count_usize_result: !usize = decl_count as! usize;
+    const count_usize: usize = count_usize_result catch {
+        return reach;
+    };
+    const bytes: usize = @size_of(i32) * count_usize;
+    reach.decl_to_function_index = compiler_arena_alloc(arena, bytes) as &i32;
+    reach.function_decl_indices = compiler_arena_alloc(arena, bytes) as &i32;
+    if reach.decl_to_function_index == null || reach.function_decl_indices == null {
+        return native_build_reachability_empty();
+    }
+    reach.capacity = decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        reach.decl_to_function_index[i] = -1;
+        reach.function_decl_indices[i] = -1;
+        i = i + 1;
+    }
+    return reach;
+}
+```
+
+合同：
+
+1. CoreBody 必须覆盖完整 12 statement body surface：reach empty 初始化、
+   arena/decl_count guard、`decl_count as! usize` checked cast、
+   `count_usize_result catch` fallback、`const bytes: usize = @size_of(i32) * count_usize`、
+   2 个 `compiler_arena_alloc(...)` 字段写入、复合 null fallback、
+   `reach.capacity = decl_count`、`while i < decl_count` loop 和 final `return reach`。
+2. 2 个 arena allocation 字段必须保持源码顺序和类型 cast：
+   `reach.decl_to_function_index`、`reach.function_decl_indices`；任一 alloc 为 null
+   时必须返回 `native_build_reachability_empty()`。
+3. loop body 必须保持 per-decl 初始化语义：`reach.decl_to_function_index[i] = -1`、
+   `reach.function_decl_indices[i] = -1`、`i = i + 1`。
+4. PortableMIR 必须保留完整初始化 control-flow surface，不得把该 helper 降成 noop、
+   单 return empty reachability 或 pending body。
+5. 该切片迁入后 `native_build_reachability_init(...)` 必须达到 body complete：
+   `native_hosted_reachable_body_complete: function=native_build_reachability_init prefix_stmts=12 reason=body_complete`。
+   下一步必须重新读取真实 self-build frontier。
+
 ## `native_build_local_table_init(...)` Control-Flow Gap Contract
 
 `native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
