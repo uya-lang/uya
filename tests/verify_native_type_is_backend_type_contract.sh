@@ -36,6 +36,12 @@ require_pattern "$SUBSET_DOC" '^## `native_build_type_is_backend_type\(\.\.\.\)`
     "subset doc 缺少 native_build_type_is_backend_type 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_backend_type .*body_stmts=3 reason=pending_core_body' \
     "subset doc 缺少当前 native_build_type_is_backend_type pending frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[0-9]+ core_bodies=32 pending_bodies=[0-9]+' \
+    "subset doc 缺少 native_build_type_is_backend_type 迁入后的 CoreIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=31' \
+    "subset doc 缺少 native_build_type_is_backend_type 迁入后的 PortableMIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_i32_like_scalar .*body_stmts=2 reason=pending_core_body' \
+    "subset doc 缺少 native_build_type_is_backend_type 迁入后的下一 frontier"
 require_pattern "$SUBSET_DOC" 'type_node == null \|\| type_node\.type != ASTNodeType\.AST_TYPE_NAMED' \
     "subset doc 缺少 null/type guard"
 require_pattern "$SUBSET_DOC" 'type_node\.type_named_name == null' \
