@@ -273,6 +273,9 @@ const NATIVE_LOCAL_TABLE_EMPTY_CORE_EXPR_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_PREFIX_STMT_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_CORE_STMT_COUNT: i32 = 1;
 const NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_CORE_EXPR_COUNT: i32 = 1;
+const NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_PREFIX_STMT_COUNT: i32 = 1;
+const NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_CORE_STMT_COUNT: i32 = 1;
+const NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_CORE_EXPR_COUNT: i32 = 1;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -11925,6 +11928,100 @@ fn native_build_hosted_decl_can_materialize_const_slice_sum_shape_empty_body(
     return 0;
 }
 
+fn native_build_const_slice_len_index_shape_empty_return_supported(
+    stmt: &ASTNode, checker: &TypeChecker) i32 {
+    if stmt == null || checker == null ||
+       stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_STRUCT_INIT ||
+       stmt.return_stmt_expr.struct_init_struct_name == null ||
+       str_equals(stmt.return_stmt_expr.struct_init_struct_name as *byte,
+        "NativeBuildConstSliceLenIndexShape" as *byte) == 0 ||
+       stmt.return_stmt_expr.struct_init_field_names == null ||
+       stmt.return_stmt_expr.struct_init_field_values == null ||
+       stmt.return_stmt_expr.struct_init_field_count != 11 {
+        return 0;
+    }
+    if native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 0,
+        "array_decl" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 1,
+        "slice_decl" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 2,
+        "return_stmt" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 3,
+        "add_expr" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 4,
+        "len_expr" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 5,
+        "index_access" as &byte) == 0 {
+        return 0;
+    }
+    var index: i32 = 0;
+    while index < 6 {
+        if native_build_hosted_expr_is_null_identifier(
+            stmt.return_stmt_expr.struct_init_field_values[index]) == 0 {
+            return 0;
+        }
+        index = index + 1;
+    }
+    while index < 11 {
+        var scalar_value: i32 = -1;
+        if native_build_expr_scalar_const_value(
+            stmt.return_stmt_expr.struct_init_field_values[index], null,
+            &scalar_value) == 0 ||
+           scalar_value != 0 {
+            return 0;
+        }
+        index = index + 1;
+    }
+    if native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 6,
+        "slice_start" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 7,
+        "slice_len" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 8,
+        "len_value" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 9,
+        "indexed_value" as &byte) == 0 ||
+       native_build_hosted_struct_init_field_name(stmt.return_stmt_expr, 10,
+        "sum_value" as &byte) == 0 {
+        return 0;
+    }
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, stmt.return_stmt_expr,
+        &return_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_const_slice_len_index_shape_empty_prefix_stmt_count(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if decl == null || checker == null ||
+       decl.fn_decl_name == null ||
+       str_equals(decl.fn_decl_name as *byte,
+        "native_build_const_slice_len_index_shape_empty" as *byte) == 0 ||
+       decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count !=
+        NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_PREFIX_STMT_COUNT ||
+       native_build_const_slice_len_index_shape_empty_return_supported(
+        decl.fn_decl_body.block_stmts[0], checker) == 0 {
+        return 0;
+    }
+    return NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_PREFIX_STMT_COUNT;
+}
+
+fn native_build_hosted_decl_can_materialize_const_slice_len_index_shape_empty_body(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_const_slice_len_index_shape_empty_prefix_stmt_count(
+        decl, checker) ==
+        NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_PREFIX_STMT_COUNT {
+        return 1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_decl_can_materialize_dynamic_catch_body(program: &ASTNode,
     decl: &ASTNode, checker: &TypeChecker) i32 {
     if program == null || decl == null || checker == null {
@@ -17272,6 +17369,87 @@ fn native_build_hosted_coreir_append_const_slice_sum_shape_empty_body(
         root_stmt_count: NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_CORE_STMT_COUNT,
         expr_start: expr_id,
         expr_count: NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_CORE_EXPR_COUNT,
+        place_start: lowered.core_place_count as i32,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    var return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_id,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: return_stmt_ast.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: return_stmt_ast.return_stmt_expr.line,
+        flags: 0,
+    };
+    var return_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_id,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_id,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: return_stmt_ast.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_expr(lowered, &return_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_const_slice_len_index_shape_empty_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, function_id: i32,
+    decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null ||
+       native_build_hosted_decl_can_materialize_const_slice_len_index_shape_empty_body(
+        decl, checker) == 0 {
+        return -1;
+    }
+    const return_stmt_ast: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    if return_stmt_ast == null || return_stmt_ast.return_stmt_expr == null {
+        return -1;
+    }
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker,
+        return_stmt_ast.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_id: i32 = lowered.core_stmt_count as i32;
+    const expr_id: i32 = lowered.core_expr_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_id,
+        root_stmt_count:
+            NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_CORE_STMT_COUNT,
+        expr_start: expr_id,
+        expr_count:
+            NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_CORE_EXPR_COUNT,
         place_start: lowered.core_place_count as i32,
         place_count: 0,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
@@ -24161,6 +24339,9 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const materialize_const_slice_sum_shape_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_const_slice_sum_shape_empty_body(
                     decl, checker);
+            const materialize_const_slice_len_index_shape_empty_body: i32 =
+                native_build_hosted_decl_can_materialize_const_slice_len_index_shape_empty_body(
+                    decl, checker);
             const materialize_safe_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             var function: ConcreteFunction = native_build_hosted_core_function_from_decl(function_id, i, decl);
             if materialize_prefix_body != 0 || materialize_entry_prefix_body != 0 ||
@@ -24192,6 +24373,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                materialize_reachability_empty_body != 0 ||
                materialize_local_table_empty_body != 0 ||
                materialize_const_slice_sum_shape_empty_body != 0 ||
+               materialize_const_slice_len_index_shape_empty_body != 0 ||
                materialize_safe_body != 0 {
                 function.body_start = lowered.core_body_count as i32;
                 function.body_count = 1;
@@ -24586,6 +24768,15 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                     native_build_decl_name_for_diagnostic(decl);
                 result.entry_reachable_body_complete_stmt_count =
                     NATIVE_CONST_SLICE_SUM_SHAPE_EMPTY_PREFIX_STMT_COUNT;
+            } else if materialize_const_slice_len_index_shape_empty_body != 0 {
+                if native_build_hosted_coreir_append_const_slice_len_index_shape_empty_body(
+                    lowered, checker, function_id, i, decl) != 0 {
+                    return -1;
+                }
+                result.entry_reachable_body_complete_function_name =
+                    native_build_decl_name_for_diagnostic(decl);
+                result.entry_reachable_body_complete_stmt_count =
+                    NATIVE_CONST_SLICE_LEN_INDEX_SHAPE_EMPTY_PREFIX_STMT_COUNT;
             } else if materialize_print_diagnostic_profile_checker_body != 0 {
                 if native_build_hosted_coreir_append_print_diagnostic_profile_checker_body(
                     lowered, checker, program, function_id, i, decl) != 0 {
@@ -24750,6 +24941,10 @@ fn native_build_hosted_decl_has_pending_core_body(program: &ASTNode,
         return 0;
     }
     if native_build_hosted_decl_can_materialize_const_slice_sum_shape_empty_body(
+        decl, checker) != 0 {
+        return 0;
+    }
+    if native_build_hosted_decl_can_materialize_const_slice_len_index_shape_empty_body(
         decl, checker) != 0 {
         return 0;
     }
@@ -36749,6 +36944,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
             const has_const_slice_sum_shape_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_const_slice_sum_shape_empty_body(
                     decl, checker);
+            const has_const_slice_len_index_shape_empty_body: i32 =
+                native_build_hosted_decl_can_materialize_const_slice_len_index_shape_empty_body(
+                    decl, checker);
             const has_safe_core_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             const has_direct_method_body: i32 =
                 native_build_hosted_decl_can_materialize_direct_method_body(
@@ -36782,6 +36980,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                has_reachability_empty_body != 0 ||
                has_local_table_empty_body != 0 ||
                has_const_slice_sum_shape_empty_body != 0 ||
+               has_const_slice_len_index_shape_empty_body != 0 ||
                has_safe_core_body != 0 ||
                has_direct_method_body != 0 {
                 if has_prefix_body != 0 {
@@ -37033,6 +37232,18 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     }
                     body_function_count = body_function_count + 1;
                 } else if has_const_slice_sum_shape_empty_body != 0 {
+                    if decl.fn_decl_body == null ||
+                       decl.fn_decl_body.block_stmts == null ||
+                       decl.fn_decl_body.block_stmts[0] == null ||
+                       decl.fn_decl_body.block_stmts[0].return_stmt_expr == null ||
+                       native_build_hosted_mir_append_const_return_body_function(
+                        module, lowered_function_id, i, source_core_body_id,
+                        decl.fn_decl_body.block_stmts[0].return_stmt_expr.expr_id,
+                        0) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if has_const_slice_len_index_shape_empty_body != 0 {
                     if decl.fn_decl_body == null ||
                        decl.fn_decl_body.block_stmts == null ||
                        decl.fn_decl_body.block_stmts[0] == null ||
