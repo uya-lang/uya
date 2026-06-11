@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -q 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL reason=partial_core_body' "$stderr"
+    grep -q 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body' "$stderr"
+    if grep -q 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL reason=partial_core_body' "$stderr"; then
+        echo "错误: $label self-build 不应在 diagnostic profile count local 迁入后继续报告 prefix_stmts=1" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -Eq 'native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile .*reason=pending_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 diagnostic profile print guard 迁入后继续报告整个 helper pending" >&2
         cat "$stderr" >&2

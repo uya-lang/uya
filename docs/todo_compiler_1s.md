@@ -1957,6 +1957,20 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               通过；本叶子未改生产 lowering。
+          - [x] 迁入 `compiler_print_diagnostic_profile(...)` 的 `count` 局部初始化并复测
+            frontier；迁入后应推进到 `prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT`，
+            不提前迁入 `checker` 分支或 `fprintf`。
+            - 2026-06-11：新增
+              `NATIVE_PRINT_DIAGNOSTIC_PROFILE_COUNT_*` CoreBody/PortableMIR partial body
+              识别与分发；`var count: i32 = 0` 迁入后，self-build frontier 从
+              `prefix_stmts=1 next_stmt=1 next_kind=AST_VAR_DECL` 推进到
+              `native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_print_diagnostic_profile_count_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
