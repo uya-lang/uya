@@ -1199,7 +1199,25 @@ bash tests/verify_native_cmd_build_no_silent_c99.sh
   # 2026-06-11：`bash tests/verify_hosted_native_helloworld_parity.sh` 验证
   # hw1 hosted native 真实生成 executable、运行 exit 0，stdout 与 C99 oracle
   # 字节级一致，并固定 CoreBody / PortableMIR / print writer path 证据。
-- [ ] Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
+- Hosted native 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集：
+  # 2026-06-11 拆分：`bash tests/verify_full_language_backend_parity.sh`
+  # 当前为 18 cases（parity=7, reject=11）。父项不是执行叶子；按脚本顺序逐个把
+  # reject case 打开为 native/C99 parity，最后再做总收口。
+  - [x] 打开 full-language parity case 03 `generic`：`id<T>(value: T) T` + `id<i32>(3)`。
+    # 2026-06-11：`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+    # 通过，full-language parity 为 18 cases（parity=8, reject=10）；`generic`
+    # 经 CoreBody / PortableMIR hosted native 生成 executable，exit code 与 C99 oracle 一致。
+  - [ ] 打开 full-language parity case 04 `method`：struct method call `counter.inc()`。
+  - [ ] 打开 full-language parity case 06 `error_union_try`：`!i32` success return + catch fallback surface。
+  - [ ] 打开 full-language parity case 07 `try_catch`：`might_fail(7) catch { 99; }`。
+  - [ ] 打开 full-language parity case 08 `defer`。
+  - [ ] 打开 full-language parity case 09 `errdefer`。
+  - [ ] 打开 full-language parity case 10 `struct_union_enum`。
+  - [ ] 打开 full-language parity case 11 `slice_array`。
+  - [ ] 打开 full-language parity case 12 `pointer`。
+  - [ ] 打开 full-language parity case 16 `builtins`。
+  - [ ] 打开 full-language parity case 18 `print_pair`。
+  - [ ] 全部 18 个 full-language parity cases 均为 native/C99 parity 后，收口本 KPI。
 
 ---
 
