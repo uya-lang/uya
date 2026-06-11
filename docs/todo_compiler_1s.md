@@ -2022,6 +2022,17 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               通过。
+          - [x] 为 `native_build_ast_plan_empty()` 补 CoreBody/PortableMIR body-complete 合同；
+            固定 `NativeBuildAstPlan{ plans: null, function_count: 0, entry_index: -1 }`
+            return surface，不改生产 lowering。
+            - 2026-06-11：新增 `tests/verify_native_ast_plan_empty_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
+              新增 `native_build_ast_plan_empty()` Body Complete Contract，冻结当前 pending
+              frontier，并要求迁入后达到 `body_complete`。
+            - 实测 `bash tests/verify_native_ast_plan_empty_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过；本叶子未改生产 lowering。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。
