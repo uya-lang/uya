@@ -44,8 +44,23 @@ require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_complete: function=c
 
 require_pattern "$BUILD_DRIVER_SRC" 'stats\.typed_program_released_bytes = typed_program_current_bytes\(&checker\.typed_program\);' \
     "compile_stats 源码缺少 released-bytes 写回"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=17 next_stmt=17 next_kind=AST_ASSIGN reason=partial_core_body' \
-    "no-silent-C99 测试缺少 compile_stats released-bytes 当前 frontier"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_COMPILE_STATS_RELEASED_BYTES_SLICE_PREFIX_STMT_COUNT: i32 = 18' \
+    "build driver 缺少 compile_stats released-bytes prefix 常量"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_compile_stats_released_bytes_assign_supported' \
+    "build driver 缺少 compile_stats released-bytes 支持判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_compile_stats_released_bytes_slice_body' \
+    "build driver 缺少 compile_stats released-bytes CoreBody 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_compile_stats_released_bytes_slice_body' \
+    "build driver 缺少 compile_stats released-bytes CoreIR builder"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_lower_compile_stats_released_bytes_slice_mir_body' \
+    "build driver 缺少 compile_stats released-bytes PortableMIR 判定"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_compile_stats_released_bytes_slice_body_function' \
+    "build driver 缺少 compile_stats released-bytes PortableMIR builder"
+
+require_pattern "$NO_SILENT_TEST" 'native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics' \
+    "no-silent-C99 测试缺少 released-bytes 迁入后的下一 pending frontier"
+require_pattern "$NO_SILENT_TEST" '不应在 compile_stats released-bytes 迁入后继续报告 prefix_stmts=17' \
+    "no-silent-C99 测试缺少旧 compile_stats prefix=17 反向检查"
 require_pattern "$NO_SILENT_TEST" '不应在 compile_stats typed_type_records release 迁入后继续报告 prefix_stmts=16' \
     "no-silent-C99 测试缺少旧 compile_stats prefix=16 反向检查"
 require_pattern "$STAGE1_TEST" 'verify_native_compile_stats_released_bytes_contract\.sh' \
