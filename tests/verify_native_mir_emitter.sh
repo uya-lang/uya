@@ -329,6 +329,36 @@ fn native_mir_print_helper_extern_function() MirFunction {
     };
 }
 
+fn native_mir_print_newline_extern_function() MirFunction {
+    return MirFunction{
+        function_id: 0,
+        lowered_function_id: 0,
+        decl_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+        source_core_body_id: CORE_BODY_INVALID_ID,
+        symbol_id: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
+        signature_type_id: 1,
+        param_start: 0,
+        param_count: 0,
+        local_start: 0,
+        local_count: 0,
+        block_start: 0,
+        block_count: 0,
+        entry_block_id: MIR_BLOCK_INVALID_ID,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
+        debug_loc_id: 0,
+        flags: MIR_FUNCTION_FLAG_EXTERN,
+    };
+}
+
 fn native_mir_print_body_function() MirFunction {
     return MirFunction{
         function_id: 1,
@@ -454,6 +484,24 @@ fn native_mir_print_write_str_call_inst() MirInst {
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: 1700,
         flags: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR,
+    };
+}
+
+fn native_mir_print_newline_call_inst() MirInst {
+    return MirInst{
+        inst_id: 0,
+        function_id: 1,
+        block_id: 0,
+        op: MIR_INST_OP_CALL,
+        type_id: 0,
+        result_value_id: 0,
+        operand_start: 0,
+        operand_count: 2,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: 1701,
+        flags: MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE,
     };
 }
 
@@ -693,6 +741,120 @@ test "native MIR emitter lowers print helper call to SysV x86_64 extern call" {
     try assert_eq_i32(got_reloc.symbol_id, 0);
     try assert_eq_i32(got_reloc.kind, MACHINE_RELOC_KIND_X86_64_PC32);
     try assert_eq_i32(got_reloc.offset as i32, 21);
+    try assert_eq_i32(got_reloc.addend as i32, -4);
+
+    machine_module_release(&machine);
+    compiler_arena_free_all(&arena);
+}
+
+test "native MIR emitter lowers newline helper call to SysV x86_64 extern call" {
+    var arena_buf: [byte: 8192] = [];
+    var arena: CompilerArena = CompilerArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+    };
+    compiler_arena_init(&arena, &arena_buf[0], @len(arena_buf) as usize);
+
+    var functions: [MirFunction: 2] = [];
+    var blocks: [MirBlock: 1] = [];
+    var values: [MirValue: 1] = [];
+    var insts: [MirInst: 1] = [];
+    var terminators: [MirTerminator: 1] = [];
+    var operands: [MirOperand: 2] = [];
+    var types: [MirType: 2] = [];
+    functions[0] = native_mir_print_newline_extern_function();
+    functions[1] = native_mir_print_body_function();
+    blocks[0] = native_mir_block();
+    blocks[0].function_id = 1;
+    insts[0] = native_mir_print_newline_call_inst();
+    terminators[0] = native_mir_terminator();
+    terminators[0].function_id = 1;
+    values[0] = native_mir_print_result_value();
+    types[0] = native_mir_type_i32();
+    types[1] = native_mir_type_void(1);
+    operands[0] = native_mir_print_operand(0, 1, 0);
+    operands[1] = native_mir_print_operand(1, 0, 1);
+
+    var module: PortableMirModule = native_mir_empty_module();
+    module.arena = &arena;
+    module.functions = SemanticVector{ data: &functions[0] as &byte, item_size: @size_of(MirFunction), count: 2usize, capacity: 2usize, bytes: @size_of(MirFunction) * 2usize, realloc_count: 0 };
+    module.blocks = SemanticVector{ data: &blocks[0] as &byte, item_size: @size_of(MirBlock), count: 1usize, capacity: 1usize, bytes: @size_of(MirBlock), realloc_count: 0 };
+    module.values = SemanticVector{ data: &values[0] as &byte, item_size: @size_of(MirValue), count: 1usize, capacity: 1usize, bytes: @size_of(MirValue), realloc_count: 0 };
+    module.insts = SemanticVector{ data: &insts[0] as &byte, item_size: @size_of(MirInst), count: 1usize, capacity: 1usize, bytes: @size_of(MirInst), realloc_count: 0 };
+    module.terminators = SemanticVector{ data: &terminators[0] as &byte, item_size: @size_of(MirTerminator), count: 1usize, capacity: 1usize, bytes: @size_of(MirTerminator), realloc_count: 0 };
+    module.operands = SemanticVector{ data: &operands[0] as &byte, item_size: @size_of(MirOperand), count: 2usize, capacity: 2usize, bytes: @size_of(MirOperand) * 2usize, realloc_count: 0 };
+    module.types = SemanticVector{ data: &types[0] as &byte, item_size: @size_of(MirType), count: 2usize, capacity: 2usize, bytes: @size_of(MirType) * 2usize, realloc_count: 0 };
+    module.function_count = 2usize;
+    module.block_count = 1usize;
+    module.value_count = 1usize;
+    module.inst_count = 1usize;
+    module.terminator_count = 1usize;
+    module.operand_count = 2usize;
+    module.type_count = 2usize;
+
+    var verifier: MirVerifierResult = native_mir_result(MIR_VERIFY_ERR_INVALID_MODULE);
+    try assert_eq_i32(portable_mir_verify_module(&module, &verifier), 0);
+    try assert_eq_i32(verifier.error_code, MIR_VERIFY_OK);
+
+    var request: MirTargetBackendRequest = MirTargetBackendRequest{
+        module: null,
+        backend_kind: 0,
+        target_profile_id: 0,
+        verifier_error_code: -1,
+        flags: 0,
+    };
+    try assert_eq_i32(portable_mir_backend_request_init(&request, &module, &verifier,
+        MIR_TARGET_BACKEND_MACHINE), 0);
+
+    var machine: MachineModule = MachineModule{
+        arena: null,
+        function_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: MACHINE_LIFECYCLE_UNINITIALIZED,
+        functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        relocs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        symbols: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        strings: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        sections: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+    };
+    machine_module_init(&machine, &arena);
+    var emitter: NativeMirEmitter = native_mir_emitter_empty();
+    try assert_eq_i32(native_mir_emitter_begin(&emitter, &request, &machine, 1), 0);
+    try assert_eq_i32(native_mir_emitter_read_portable_mir(&emitter), 0);
+    try assert_eq_i32(emitter.imported_function_count as i32, 2);
+    try assert_eq_i32(emitter.imported_block_count as i32, 1);
+    try assert_eq_i32(emitter.imported_inst_count as i32, 2);
+
+    const got_block: &MachineBlock = machine_function_block_ptr(&machine, 1, 0);
+    try expect(got_block != null);
+    try assert_eq_i32(got_block.insts.count as i32, 2);
+    const got_fd: &MachineInst = semantic_vector_item_ptr(&got_block.insts, 0usize) as &MachineInst;
+    const got_call: &MachineInst = semantic_vector_item_ptr(&got_block.insts, 1usize) as &MachineInst;
+    try expect(got_fd != null && got_call != null);
+    try assert_eq_i32(got_fd.opcode, X86_64_OP_MOV_R32_IMM32);
+    try assert_eq_i32(got_fd.dst, native_abi_sysv_gpr_arg_reg(0));
+    try assert_eq_i32(got_fd.imm as i32, 1);
+    try assert_eq_i32(got_call.opcode, X86_64_OP_CALL_REL32);
+    try assert_eq_i32(got_call.dst, 0);
+    try assert_eq_i32(got_call.target_id, MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE);
+    try assert_eq_i32(got_call.flags, MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE);
+    try assert_eq_i32(machine.symbols.count as i32, 1);
+    try assert_eq_i32(machine.relocs.count as i32, 1);
+    const got_symbol: &MachineSymbol = semantic_vector_item_ptr(&machine.symbols, 0usize) as &MachineSymbol;
+    const got_reloc: &MachineReloc = semantic_vector_item_ptr(&machine.relocs, 0usize) as &MachineReloc;
+    try expect(got_symbol != null && got_reloc != null);
+    try assert_eq_i32(got_symbol.name_id, MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE);
+    try assert_eq_i32(got_symbol.kind, MACHINE_SYMBOL_KIND_FUNC);
+    try assert_eq_i32(got_symbol.binding, MACHINE_SYMBOL_BIND_GLOBAL);
+    try assert_eq_i32(got_reloc.symbol_id, 0);
+    try assert_eq_i32(got_reloc.kind, MACHINE_RELOC_KIND_X86_64_PC32);
+    try assert_eq_i32(got_reloc.offset as i32, 6);
     try assert_eq_i32(got_reloc.addend as i32, -4);
 
     machine_module_release(&machine);
