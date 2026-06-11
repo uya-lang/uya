@@ -2421,6 +2421,20 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
+          - [x] 为 `native_build_local_table_init(...)` 的 loop/control-flow 缺口补前置合同：
+            固定当前 CoreIR 尚无 `CORE_STMT_KIND_WHILE`、generic PortableMIR lowering 尚不支持
+            loop/branch body，因此完整迁入不得用 noop/单 return 伪装完成。
+            - 2026-06-11：新增
+              `tests/verify_native_local_table_init_control_flow_gap_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
+              新增 Control-Flow Gap Contract，固定 while/control-flow surface 是
+              `native_build_local_table_init(...)` 完整迁入前置条件。
+            - 实测 `bash tests/verify_native_local_table_init_control_flow_gap_contract.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check`、
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              均通过。
+          - [ ] 为 CoreIR/PortableMIR 增加可验证的 `while i < capacity` control-flow surface，
+            覆盖 loop condition、loop body statement range、backedge 和 exit edge。
           - [ ] 迁入 `native_build_local_table_init(...)` 的完整初始化 body，使该 helper
             达到 body complete；复测真实 frontier 后再选择下一个 helper 或 callee。
         - `compile_files(...)` 到达前置门槛：

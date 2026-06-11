@@ -1603,6 +1603,26 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=native_build_local_table_init prefix_stmts=15 reason=body_complete`。
    下一步必须重新读取真实 self-build frontier。
 
+## `native_build_local_table_init(...)` Control-Flow Gap Contract
+
+`native_build_local_table_init(...)` 的 body-complete 合同包含 `while i < capacity`
+和 loop body 内 6 个 indexed store。该函数不能继续复用前面 empty helper 的单 return
+路径。
+
+当前前置缺口：
+
+1. CoreIR 当前没有 `CORE_STMT_KIND_WHILE`，只有 return / asm / defer /
+   errdefer / drop / error propagation / local decl / if / assign / expr 等
+  已转储并验证的 statement kind。
+2. PortableMIR generic lowering 当前只接受 call expr statements 和 final return；
+   `portable_mir_lower_stmt_to_module(...)` 只显式接受 `CORE_STMT_KIND_EXPR`，
+   `portable_mir_lower_core_body_to_module(...)` 只把最后一条
+   `CORE_STMT_KIND_RETURN` 作为 terminator 输入。
+3. 因此在补齐 while/control-flow surface 前，不得把 `native_build_local_table_init(...)` 降成 noop、单 return empty table 或 pending body complete 假阳性。
+
+下一步必须先引入可验证的 while/control-flow surface，覆盖 loop condition、loop body
+statement range、backedge 和 exit edge；之后才能迁入该 helper 的 15 statement body。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
