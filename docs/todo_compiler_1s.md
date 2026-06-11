@@ -1005,11 +1005,14 @@ MIR -> Native 首个目标：
         # `tests/verify_hosted_native_print_helper_externs.sh` 转绿。Uya 源端
         # `src/build_compiler_driver.uya` 同步 patch（git checkout -- 暂存；待下
         # 一次 `make backup-cmd-build-seed` cycle 写入）。
-  - [ ] L994.B HIR→CoreBody→MIR print/print lowering：在 `src/exec/lower.uya` 把
+  - [x] L994.B HIR→CoreBody→MIR print/print lowering：在 `src/exec/lower.uya` 把
         `HIR_EXPR_PRINT` / `HIR_EXPR_PRINTLN` 字符串字面量分支（不含 interp、不含 format）
         下放到 `CORE_STMT_KIND_EXPR` + `CORE_EXPR_KIND_CALL`，call target 是 L994.A 注册的
         `uya_write_str` / `uya_write_newline` extern。要求 `native_hosted_preflight` 报告
         `mir_body_functions > 0`（helloworld 程序）。
+        # 2026-06-11：`bash tests/verify_hosted_native_print_hir_lowering.sh` 转绿；
+        # print HIR/CoreIR/MIR 主路由完成，剩余 `native_hosted_portable_mir_lowering_missing`
+        # frontier 指向非 print runtime entry body `get_argc`。
         #
         # 2026-06-10 进一步拆分：L994.B 单叶过大（涉及 HIR 检测 + CoreIR 发射 +
         # MIR 发射 + wiring，每块 ~100 行），拆为 4 个子子叶子：
@@ -1036,9 +1039,11 @@ MIR -> Native 首个目标：
         #       # 2026-06-11：新增并通过
         #       # `bash tests/verify_hosted_native_print_mir_body.sh`，stderr 包含
         #       # `native_hosted_print_mir_body: calls=2 write_str=1 newline=1 operands=7 insts=2`。
-        # - [~] L994.B.4 wiring：在 `native_build_hosted_mir_append_program_safe_bodies`
+        # - [x] L994.B.4 wiring：在 `native_build_hosted_mir_append_program_safe_bodies`
         #       把 `mir_append_print_helloworld_body_function` 串到主路由。L994.B 完成
         #       后 `verify_hosted_native_print_hir_lowering.sh` 全部转绿。
+        #       # 2026-06-11：`bash tests/verify_hosted_native_print_hir_lowering.sh`
+        #       # 聚合门禁转绿；脚本允许后续非 print pending body 继续阻塞 writer。
         # 完成 L994.B.1 + B.2 之后，最小"first slice"是 main body 调
         # `uya_write_newline(1)` + return 0（输出 `\n` 而非 `Hello, World!`）；
         # L994.B.3 完成后才输出 `Hello, World!`。

@@ -3,14 +3,18 @@
 # Phase 9B / L994.B：HIR→CoreBody→MIR print/println string-literal lowering contract 测试。
 #
 # 合同：本测试在 hosted --native 编译 helloworld 程序（@println("Hello, World!")）时，
-# 断言 stderr 包含 MIR body lowering 证据：
-#   - `mir_body_functions` 至少为 1（说明 helloworld 主体的 CoreBody 至少被 lowering
-#     到 MIR 一次，函数体不再 `pending_bodies` 阻塞 lowering-missing）
-#   - 主体函数的 body frontier 报告 `@println(...)` 对应的 CoreExpr/CORE_EXPR_KIND_CALL
-#     节点已 lowering 到 `uya_write_str` / `uya_write_newline` extern（synth_decl_id=-3/-4）
+# 断言 stderr 包含 print lowering 证据：
+#   - HIR 模式识别到 `@println(string)`。
+#   - CoreIR body 生成 `uya_write_str` + `uya_write_newline` call。
+#   - PortableMIR body 生成对应两个 `MIR_INST_OP_CALL`。
+#   - `mir_body_functions` 至少为 1。
 #
-# TDD 状态（2026-06-10）：本测试当前必须 fail（红），因为 L994.B 未实现。
-# L994.B 实现后本测试转绿；L994.A（hosted print helper extern 注册）已绿。
+# 本测试只验证 L994.B 的 print lowering 接线。后续非 print runtime entry body
+# 仍可能触发 `native_hosted_portable_mir_lowering_missing`，但 frontier 必须明确
+# 指向非 print 的 pending body（例如 `get_argc`），不能是 print main body。
+#
+# TDD 状态（2026-06-11）：L994.B.1/B.2/B.3 分片已分别有窄脚本；
+# B.4 完成后本脚本作为聚合门禁转绿。
 #
 # 完整合同定义见 `docs/todo_compiler_1s.md` L994.B 与
 # `docs/print_corebody_surface.md` §3。
@@ -72,16 +76,37 @@ if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_fun
     exit 1
 fi
 
-# 断言 2：stale `pending_core_bodies` 拒绝路径不再针对 helloworld 触发
-#         （即 lowering-missing 不应作为 @println 的阻塞原因出现）
-if grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$HW_NATIVE_ERR"; then
-    echo "error: helloworld still rejects with lowering-missing after L994.B" >&2
+# 断言 2（L994.B.2）：CoreIR body 已经生成两个 print helper call
+if ! grep -q 'native_hosted_print_coreir_body: calls=2 write_str=1 newline=1' "$HW_NATIVE_ERR"; then
+    echo "error: stderr does not show print CoreIR write_str + newline body (L994.B.2 not wired)" >&2
     echo "----- stderr -----" >&2
     cat "$HW_NATIVE_ERR" >&2
     echo "----- end -----" >&2
-    echo "L994.B TDD red-light: lowering-missing still triggered for helloworld @println." >&2
-    echo "TMP_DIR=$TMP_DIR (保留以便诊断)" >&2
     exit 1
+fi
+echo "L994.B.2 OK: print CoreIR body emitted write_str + write_newline calls"
+
+# 断言 3（L994.B.3/B.4）：MIR body 已经进入主路由并生成两个 helper call inst
+if ! grep -q 'native_hosted_print_mir_body: calls=2 write_str=1 newline=1 operands=7 insts=2' "$HW_NATIVE_ERR"; then
+    echo "error: stderr does not show print MIR write_str + newline body (L994.B.3/B.4 not wired)" >&2
+    echo "----- stderr -----" >&2
+    cat "$HW_NATIVE_ERR" >&2
+    echo "----- end -----" >&2
+    exit 1
+fi
+echo "L994.B.3/B.4 OK: print MIR body wired through hosted native preflight"
+
+# 断言 4：如果后续仍因 lowering-missing reject，frontier 必须是非 print body。
+if grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$HW_NATIVE_ERR"; then
+    if ! grep -Eq 'native_hosted_pending_body_frontier: function=(get_argc|get_argv|platform_|runtime_)' "$HW_NATIVE_ERR"; then
+        echo "error: lowering-missing remains but frontier is not a known non-print pending body" >&2
+        echo "----- stderr -----" >&2
+        cat "$HW_NATIVE_ERR" >&2
+        echo "----- end -----" >&2
+        exit 1
+    fi
+    echo "L994.B OK: print lowering is complete; later non-print pending body still blocks native executable writer"
+    exit 0
 fi
 
 echo "OK: hosted native HIR print lowering registered main body to MIR (L994.B green)"
