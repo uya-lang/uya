@@ -2422,8 +2422,8 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               均通过。
           - [x] 为 `native_build_local_table_init(...)` 的 loop/control-flow 缺口补前置合同：
-            固定当前 CoreIR 尚无 `CORE_STMT_KIND_WHILE`、generic PortableMIR lowering 尚不支持
-            loop/branch body，因此完整迁入不得用 noop/单 return 伪装完成。
+            固定迁入前 CoreIR 尚无 `CORE_STMT_KIND_WHILE`、generic PortableMIR lowering 尚不支持
+            loop/branch body的缺口，因此完整迁入不得用 noop/单 return 伪装完成。
             - 2026-06-11：新增
               `tests/verify_native_local_table_init_control_flow_gap_contract.sh` 并接入
               `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md`
