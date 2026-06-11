@@ -12042,6 +12042,10 @@ fn native_build_ptr_empty(decl: &ASTNode) i32 {
         "native_build_lexical_drop_shape_empty" as *byte) != 0 {
         return 1;
     }
+    if str_equals(decl.fn_decl_name as *byte,
+        "native_build_interface_method_shape_empty" as *byte) != 0 {
+        return 1;
+    }
     return 0;
 }
 
