@@ -1286,12 +1286,16 @@ export extern "libc" fn sys_access(pathname: *const byte, mode: i32) !i32 {
         return uya_macos_access(pathname, mode);
     }, {
         std.cfg(std.target_arch == .ta_arm64, {
-            return @syscall(SYS_faccessat, AT_FDCWD as i64, pathname as i64, mode as i64, 0 as i64) as! i32;
+            return @syscall(48 as i64, AT_FDCWD as i64, pathname as i64, mode as i64, 0 as i64) as! i32;
         }, {
             std.cfg(std.target_arch == .ta_riscv64, {
-                return @syscall(SYS_faccessat, AT_FDCWD as i64, pathname as i64, mode as i64, 0 as i64) as! i32;
+                return @syscall(48 as i64, AT_FDCWD as i64, pathname as i64, mode as i64, 0 as i64) as! i32;
             }, {
-                return @syscall(SYS_access, pathname as i64, mode as i64) as! i32;
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(33 as i64, pathname as i64, mode as i64) as! i32;
+                }, {
+                    return @syscall(21 as i64, pathname as i64, mode as i64) as! i32;
+                })
             })
         })
     })
