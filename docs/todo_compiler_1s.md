@@ -1107,8 +1107,22 @@ MIR -> Native 首个目标：
   pointer、atomic、vector/mask、`@c_import`、builtin、标准库入口和 `@print` / `@println`。
 - [x] 所有 parity case 都记录 C99 result、native result、stdout/stderr、diagnostic normalized diff 和 allowlist。
 - [x] native 成功 case 必须真实运行 executable；native reject case 必须和覆盖矩阵中的 `reject` 状态一致。
-- [ ] Phase 9B 收口时，普通 HelloWorld、基础标准库程序和完整语言 smoke 不再出现
-  `native_hosted_portable_mir_lowering_missing`。
+- Phase 9B 收口时，普通 HelloWorld、基础标准库程序和完整语言 smoke 不再出现
+  `native_hosted_portable_mir_lowering_missing`：
+  - [x] 普通 HelloWorld 不再出现 `native_hosted_portable_mir_lowering_missing`。
+        # 2026-06-11：`bash tests/verify_hosted_native_helloworld_parity.sh`
+        # 已固定 hw1 native 成功路径。
+  - [x] 基础标准库程序（full-language case 17 `stdlib_entry` / `get_argc()`）
+        不再出现 `native_hosted_portable_mir_lowering_missing`。
+        # 2026-06-11：`bash tests/verify_hosted_native_stdlib_entry_parity.sh`
+        # 验证 hosted native `return get_argc()` 真实生成 Linux x86_64 executable；
+        # argc=1 和 argc=3 均与 C99 oracle exit status/stdout 一致，stderr
+        # 固定 `native_hosted_subset: stdlib_get_argc_path=1` 且无
+        # `native_hosted_portable_mir_lowering_missing`。同时
+        # `UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+        # 验证 full-language case 17 进入 parity。
+  - [ ] 完整语言 smoke 聚合脚本不再出现
+        `native_hosted_portable_mir_lowering_missing`。
 
 验证：
 

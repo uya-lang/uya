@@ -12,10 +12,11 @@
 #         `native_hosted_portable_mir_lowering_missing`、不生成
 #         executable、不含 `后端类型: C99`。
 #       * 当前 Phase 9B 的 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1` 先把
-#         hello world（case 01，`@println("Hello, World!")`）切到
+#         hello world（case 01，`@println("Hello, World!")`）和
+#         stdlib entry（case 17，`get_argc()`）切到
 #         `run_native_parity_fragment` 路径，要求 native 真实生成
-#         executable、stdout 与 C99 oracle 字节级一致；其余 case 仍沿用
-#         try-then-reject 边界，等待后续语言面逐项打开。
+#         executable、exit status 和 stdout 与 C99 oracle 一致；其余 case
+#         仍沿用 try-then-reject 边界，等待后续语言面逐项打开。
 #   - 每个 case 记录：C99 result、native result、stdout/stderr、diagnostic
 #     normalized diff、allowlist。允许的差异只限于 allowlist 列出的字符串
 #     （如 native build 信息行）。
@@ -187,17 +188,26 @@ run_native_reject_case() {
 }
 
 run_native_parity_case() {
-    # run_native_parity_case <case_id> <source_file>
+    # run_native_parity_case <case_id> <source_file> <expected_exit>
     local case_id="$1"
     local src="$2"
+    local expected_exit="${3:-0}"
     local native_bin="$TMP_DIR/${case_id}.native"
     local native_build_out="$TMP_DIR/${case_id}.native.build.out"
     local native_build_err="$TMP_DIR/${case_id}.native.build.err"
     local native_run_out="$TMP_DIR/${case_id}.native.run.out"
     local native_run_err="$TMP_DIR/${case_id}.native.run.err"
+    set +e
     (cd "$REPO_ROOT" && "$UYA_BIN" build "$src" -o "$native_bin" \
         --native --no-split-c --project-root "$TMP_DIR" \
         >"$native_build_out" 2>"$native_build_err")
+    local native_build_status=$?
+    set -e
+    if [[ "$native_build_status" -ne 0 ]]; then
+        echo "error: $case_id native parity build failed with $native_build_status" >&2
+        cat "$native_build_err" >&2
+        exit 1
+    fi
     if [[ ! -s "$native_bin" ]]; then
         echo "error: $case_id native parity build reported success without output" >&2
         cat "$native_build_err" >&2
@@ -219,8 +229,8 @@ run_native_parity_case() {
     "$native_bin" >"$native_run_out" 2>"$native_run_err"
     local native_status=$?
     set -e
-    if [[ "$native_status" -ne 0 ]]; then
-        echo "error: $case_id native executable exited with $native_status" >&2
+    if [[ "$native_status" -ne "$expected_exit" ]]; then
+        echo "error: $case_id native executable exited with $native_status (expected $expected_exit)" >&2
         cat "$native_run_out" >&2
         cat "$native_run_err" >&2
         exit 1
@@ -230,7 +240,7 @@ run_native_parity_case() {
         diff "$RESULTS_DIR/${case_id}.c99.stdout" "$native_run_out" >&2 || true
         exit 1
     fi
-    write_case_summary "$case_id" 0 "" 0 "parity" "$(cat "$native_run_out")"
+    write_case_summary "$case_id" 0 "" "$native_status" "parity" "$(cat "$native_run_out")"
     return 0
 }
 
@@ -241,8 +251,9 @@ run_case() {
     local expected_stdout="$3"
     local expected_exit="${4:-0}"
     run_c99_case "$case_id" "$src" "$expected_stdout" "$expected_exit"
-    if [[ "$REQUIRE_NATIVE_PARITY" == "1" && "$case_id" == "hello" ]]; then
-        run_native_parity_case "$case_id" "$src"
+    if [[ "$REQUIRE_NATIVE_PARITY" == "1" &&
+        ( "$case_id" == "hello" || "$case_id" == "stdlib_entry" ) ]]; then
+        run_native_parity_case "$case_id" "$src" "$expected_exit"
     else
         run_native_try_then_reject "$case_id" "$src" "$expected_exit"
     fi
@@ -626,9 +637,11 @@ fi
 case_count=$((rejected_count + parity_count))
 echo "OK: full language backend parity: $case_count cases (parity=$parity_count, reject=$rejected_count)"
 if [[ "$REQUIRE_NATIVE_PARITY" == "1" ]]; then
-    hello_summary="$RESULTS_DIR/hello.summary.tsv"
-    if [[ ! -f "$hello_summary" ]] || ! awk -F'\t' 'NR>1 && $1=="hello" && $5=="parity" { found=1 } END { exit found ? 0 : 1 }' "$hello_summary"; then
-        echo "error: UYA_FULL_LANGUAGE_PARITY_NATIVE=1 requires hello case native parity" >&2
-        exit 1
-    fi
+    for required_case in hello stdlib_entry; do
+        required_summary="$RESULTS_DIR/${required_case}.summary.tsv"
+        if [[ ! -f "$required_summary" ]] || ! awk -F'\t' -v case_id="$required_case" 'NR>1 && $1==case_id && $5=="parity" { found=1 } END { exit found ? 0 : 1 }' "$required_summary"; then
+            echo "error: UYA_FULL_LANGUAGE_PARITY_NATIVE=1 requires $required_case case native parity" >&2
+            exit 1
+        fi
+    done
 fi

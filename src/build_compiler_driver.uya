@@ -32092,6 +32092,27 @@ fn native_build_hosted_emit_exit_code_mir_stream_exe(output_file: &byte,
         &code[0] as &const byte, code_len);
 }
 
+fn native_build_hosted_emit_argc_exit_mir_stream_exe(output_file: &byte) i32 {
+    if output_file == null {
+        return 1;
+    }
+    if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
+       strcmp(main_get_target_arch_name() as *byte, "x86_64" as *byte) != 0 {
+        return 1;
+    }
+    var code: [byte: 32] = [];
+    var code_len: usize = 0usize;
+    if x86_64_emit_mov_r32_imm32(&code[0] as &byte, 32usize, &code_len,
+        X86_64_REG_RAX, X86_64_LINUX_SYSCALL_EXIT) != 0 ||
+       x86_64_emit_load_r64_base_disp32(&code[0] as &byte, 32usize, &code_len,
+        X86_64_REG_RDI, X86_64_REG_RSP, 0) != 0 ||
+       x86_64_emit_syscall(&code[0] as &byte, 32usize, &code_len) != 0 {
+        return 1;
+    }
+    return native_build_hosted_emit_mir_stream_exe_code(output_file,
+        &code[0] as &const byte, code_len);
+}
+
 fn native_build_hosted_emit_dynamic_catch_mir_stream_exe(output_file: &byte,
     shape: &NativeBuildDynamicCatchShape) i32 {
     if output_file == null || shape == null ||
@@ -32277,6 +32298,28 @@ fn native_build_hosted_main_print_helloworld(program: &ASTNode,
     return 0;
 }
 
+fn native_build_hosted_main_return_get_argc(program: &ASTNode) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            const call_expr: &ASTNode = native_build_hosted_return_call_expr(decl);
+            if native_build_expr_is_get_argc_call(call_expr) != 0 {
+                return 1;
+            }
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn native_build_try_emit_hosted_print_helloworld_subset(output_file: &byte,
     program: &ASTNode, c_import_count: i32, preflight_status: i32,
     preflight: &NativeHostedMirPreflightResult) i32 {
@@ -32304,6 +32347,33 @@ fn native_build_try_emit_hosted_print_helloworld_subset(output_file: &byte,
     fprintf(libc.stderr,
         "native_hosted_print_writer: bytes=%d newline=%d exit_code=%d\n" as *byte,
         text_len, has_newline, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_stdlib_entry_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32, preflight_status: i32,
+    preflight: &NativeHostedMirPreflightResult) i32 {
+    if output_file == null || program == null || c_import_count != 0 ||
+       preflight_status != 0 || preflight == null ||
+       preflight.core_verifier_error != 0 || preflight.verifier_error != 0 ||
+       preflight.core_body_count <= 0 || preflight.mir_body_function_count <= 0 {
+        return 0;
+    }
+    if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
+       strcmp(main_get_target_arch_name() as *byte, "x86_64" as *byte) != 0 {
+        return 0;
+    }
+    if native_build_hosted_main_return_get_argc(program) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_argc_exit_mir_stream_exe(output_file) != 0 {
+        fprintf(libc.stderr, "错误: hosted native stdlib entry executable 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: stdlib_get_argc_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: argc\n" as *byte);
     fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
         native_build_hosted_output_size(output_file));
     return 1;
@@ -39880,9 +39950,24 @@ fn compile_files(
                 native_build_print_hosted_preflight_summary(hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);
             }
-            var hosted_subset_status: i32 = 0;
+            var hosted_stdlib_status: i32 = 0;
             if hosted_link_status == 0 && hosted_array_index_status == 0 &&
                hosted_print_status == 0 {
+                hosted_stdlib_status = native_build_try_emit_hosted_stdlib_entry_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            if hosted_stdlib_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_stdlib_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_subset_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_stdlib_status == 0 {
                 hosted_subset_status = native_build_try_emit_hosted_no_deps_subset(
                     actual_output as &byte, merged_ast, &emit_arena, checker,
                     hosted_c_import_count);
@@ -39896,7 +39981,8 @@ fn compile_files(
                     hosted_preflight_status, &hosted_preflight);
             }
             if hosted_link_status == 0 && hosted_array_index_status == 0 &&
-               hosted_print_status == 0 && hosted_subset_status == 0 {
+               hosted_print_status == 0 && hosted_stdlib_status == 0 &&
+               hosted_subset_status == 0 {
                 codegen_end_time = clock();
                 native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);
