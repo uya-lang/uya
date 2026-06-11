@@ -1338,7 +1338,19 @@ export extern "libc" fn sys_getcwd(buf: *byte, size: usize) !isize {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_getcwd(buf, size) as! isize;
     }, {
-        return @syscall(SYS_getcwd, buf as i64, size as i64) as! isize;
+        std.cfg(std.target_arch == .ta_arm, {
+            return @syscall(183 as i64, buf as i64, size as i64) as! isize;
+        }, {
+            std.cfg(std.target_arch == .ta_arm64, {
+                return @syscall(17 as i64, buf as i64, size as i64) as! isize;
+            }, {
+                std.cfg(std.target_arch == .ta_riscv64, {
+                    return @syscall(17 as i64, buf as i64, size as i64) as! isize;
+                }, {
+                    return @syscall(79 as i64, buf as i64, size as i64) as! isize;
+                })
+            })
+        })
     })
 }
 
@@ -1385,7 +1397,19 @@ export extern "libc" fn sys_kill(pid: i64, sig: i32) !i32 {
     std.cfg(std.target_os == .tos_macos, {
         return @syscall(SYS_kill, pid, sig as i64, 0 as i64) as! i32;
     }, {
-        return @syscall(SYS_kill, pid, sig as i64) as! i32;
+        std.cfg(std.target_arch == .ta_arm, {
+            return @syscall(37 as i64, pid, sig as i64) as! i32;
+        }, {
+            std.cfg(std.target_arch == .ta_arm64, {
+                return @syscall(129 as i64, pid, sig as i64) as! i32;
+            }, {
+                std.cfg(std.target_arch == .ta_riscv64, {
+                    return @syscall(129 as i64, pid, sig as i64) as! i32;
+                }, {
+                    return @syscall(62 as i64, pid, sig as i64) as! i32;
+                })
+            })
+        })
     })
 }
 
