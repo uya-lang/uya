@@ -1,6 +1,8 @@
 // codegen/native/mir_emitter.uya - Native backend main path from verified PortableMIR.
 
+use codegen.native.abi;
 use codegen.native.elf64;
+use codegen.native.x86_64;
 use libc.FILE;
 
 export const NATIVE_MIR_EMITTER_STATUS_ERROR: i32 = -1;
@@ -117,6 +119,250 @@ fn native_mir_machine_inst_from_mir(inst: &MirInst) MachineInst {
     };
 }
 
+fn native_mir_inst_is_print_helper_call(inst: &MirInst) i32 {
+    if inst == null || inst.op != MIR_INST_OP_CALL {
+        return 0;
+    }
+    if inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE ||
+       inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR ||
+       inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_mir_expected_print_helper_operand_count(inst: &MirInst) i32 {
+    if inst == null {
+        return -1;
+    }
+    if inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        return 2;
+    }
+    if inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE ||
+       inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR {
+        return 4;
+    }
+    return -1;
+}
+
+fn native_mir_operand_ptr(emitter: &NativeMirEmitter, operand_id: i32) &MirOperand {
+    if emitter == null || emitter.portable_mir == null ||
+       operand_id < 0 || (operand_id as usize) >= emitter.portable_mir.operands.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&emitter.portable_mir.operands,
+        operand_id as usize) as &MirOperand;
+}
+
+fn native_mir_function_ptr(emitter: &NativeMirEmitter, function_id: i32) &MirFunction {
+    if emitter == null || emitter.portable_mir == null ||
+       function_id < 0 || (function_id as usize) >= emitter.portable_mir.functions.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&emitter.portable_mir.functions,
+        function_id as usize) as &MirFunction;
+}
+
+fn native_mir_type_ptr(emitter: &NativeMirEmitter, type_id: i32) &MirType {
+    if emitter == null || emitter.portable_mir == null ||
+       type_id < 0 || (type_id as usize) >= emitter.portable_mir.types.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&emitter.portable_mir.types,
+        type_id as usize) as &MirType;
+}
+
+fn native_mir_emitter_append_machine_inst(emitter: &NativeMirEmitter,
+    function_index: i32, block_index: i32, inst: &MachineInst) i32 {
+    if machine_block_add_inst(emitter.machine_module, function_index, block_index, inst) != 0 {
+        return -1;
+    }
+    emitter.imported_inst_count = emitter.imported_inst_count + 1usize;
+    return 0;
+}
+
+fn native_mir_emitter_append_i32_arg(emitter: &NativeMirEmitter,
+    function_index: i32, block_index: i32, arg_index: i32,
+    operand: &MirOperand, helper_flag: i32) i32 {
+    if operand == null {
+        return -1;
+    }
+    const reg: i32 = native_abi_sysv_gpr_arg_reg(arg_index);
+    if reg == NATIVE_ABI_REG_NONE {
+        return -1;
+    }
+    var machine_inst: MachineInst = MachineInst{
+        opcode: X86_64_OP_MOV_R32_IMM32,
+        dst: reg,
+        src0: operand.operand_id,
+        src1: arg_index,
+        target_id: operand.type_id,
+        imm: operand.immediate_i32 as i64,
+        flags: helper_flag,
+    };
+    return native_mir_emitter_append_machine_inst(emitter, function_index, block_index,
+        &machine_inst);
+}
+
+fn native_mir_emitter_append_ptr_arg(emitter: &NativeMirEmitter,
+    function_index: i32, block_index: i32, arg_index: i32,
+    operand: &MirOperand, helper_flag: i32) i32 {
+    if operand == null {
+        return -1;
+    }
+    const reg: i32 = native_abi_sysv_gpr_arg_reg(arg_index);
+    if reg == NATIVE_ABI_REG_NONE {
+        return -1;
+    }
+    var machine_inst: MachineInst = MachineInst{
+        opcode: X86_64_OP_MOV_R64_IMM64,
+        dst: reg,
+        src0: operand.operand_id,
+        src1: arg_index,
+        target_id: operand.type_id,
+        imm: operand.immediate_i32 as i64,
+        flags: helper_flag,
+    };
+    return native_mir_emitter_append_machine_inst(emitter, function_index, block_index,
+        &machine_inst);
+}
+
+fn native_mir_emitter_find_or_add_extern_symbol(emitter: &NativeMirEmitter,
+    callee: &MirFunction) i32 {
+    if emitter == null || emitter.machine_module == null || callee == null {
+        return -1;
+    }
+    const found: i32 = machine_module_find_symbol(emitter.machine_module, callee.symbol_id);
+    if found >= 0 {
+        return found;
+    }
+    var symbol: MachineSymbol = machine_symbol_make(callee.symbol_id, -1, 0i64, 0i64,
+        MACHINE_SYMBOL_KIND_FUNC, MACHINE_SYMBOL_BIND_GLOBAL);
+    return machine_module_add_symbol(emitter.machine_module, &symbol);
+}
+
+fn native_mir_machine_inst_encoded_size(emitter: &NativeMirEmitter, inst: &MachineInst) i32 {
+    if inst == null {
+        return -1;
+    }
+    if inst.opcode == X86_64_OP_CALL_REL32 {
+        return 5;
+    }
+    if inst.opcode == X86_64_OP_MOV_R32_IMM32 {
+        const typ: &MirType = native_mir_type_ptr(emitter, inst.target_id);
+        if typ != null && typ.kind == MIR_TYPE_KIND_POINTER {
+            return 10;
+        }
+        const rex_b: i32 = x86_64_gpr_needs_rex(inst.dst);
+        if rex_b < 0 {
+            return -1;
+        }
+        if rex_b != 0 {
+            return 6;
+        }
+        return 5;
+    }
+    return 0;
+}
+
+fn native_mir_machine_block_code_size(emitter: &NativeMirEmitter, block: &MachineBlock) i64 {
+    if block == null {
+        return -1i64;
+    }
+    var total: i64 = 0i64;
+    var i: usize = 0usize;
+    while i < block.insts.count {
+        const inst: &MachineInst = semantic_vector_item_ptr(&block.insts, i) as &MachineInst;
+        const size: i32 = native_mir_machine_inst_encoded_size(emitter, inst);
+        if size < 0 {
+            return -1i64;
+        }
+        total = total + (size as i64);
+        i = i + 1usize;
+    }
+    return total;
+}
+
+fn native_mir_emitter_append_extern_call(emitter: &NativeMirEmitter,
+    function_index: i32, block_index: i32, inst: &MirInst, callee: &MirFunction) i32 {
+    if emitter == null || emitter.machine_module == null || inst == null || callee == null {
+        return -1;
+    }
+    const symbol_index: i32 = native_mir_emitter_find_or_add_extern_symbol(emitter, callee);
+    if symbol_index < 0 {
+        return -1;
+    }
+    const block: &MachineBlock = machine_function_block_ptr(emitter.machine_module,
+        function_index, block_index);
+    if block == null {
+        return -1;
+    }
+    const call_opcode_offset: i64 = native_mir_machine_block_code_size(emitter, block);
+    if call_opcode_offset < 0i64 {
+        return -1;
+    }
+    var reloc: MachineReloc = machine_reloc_make(call_opcode_offset + 1i64, symbol_index,
+        MACHINE_RELOC_KIND_X86_64_PC32, -4i64);
+    if machine_module_add_reloc(emitter.machine_module, &reloc) != 0 {
+        return -1;
+    }
+    var machine_inst: MachineInst = MachineInst{
+        opcode: X86_64_OP_CALL_REL32,
+        dst: callee.function_id,
+        src0: inst.operand_start,
+        src1: inst.operand_count,
+        target_id: callee.symbol_id,
+        imm: symbol_index as i64,
+        flags: inst.flags,
+    };
+    return native_mir_emitter_append_machine_inst(emitter, function_index, block_index,
+        &machine_inst);
+}
+
+fn native_mir_emitter_import_print_helper_call(emitter: &NativeMirEmitter,
+    function_index: i32, block_index: i32, inst: &MirInst) i32 {
+    if emitter == null || inst == null || native_mir_inst_is_print_helper_call(inst) == 0 {
+        return -1;
+    }
+    if inst.calling_convention != MIR_CALL_CONV_C ||
+       (inst.runtime_capability_mask & MIR_RUNTIME_CAP_C_EXTERN) == 0 ||
+       inst.operand_count != native_mir_expected_print_helper_operand_count(inst) {
+        return -1;
+    }
+    const call_operand: &MirOperand = native_mir_operand_ptr(emitter, inst.operand_start);
+    if call_operand == null {
+        return -1;
+    }
+    const callee: &MirFunction = native_mir_function_ptr(emitter,
+        call_operand.immediate_i32);
+    if callee == null || callee.decl_id != inst.flags ||
+       (callee.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 {
+        return -1;
+    }
+    const fd_operand: &MirOperand = native_mir_operand_ptr(emitter,
+        inst.operand_start + 1);
+    if native_mir_emitter_append_i32_arg(emitter, function_index, block_index,
+        0, fd_operand, inst.flags) != 0 {
+        return -1;
+    }
+    if inst.flags != MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        const ptr_operand: &MirOperand = native_mir_operand_ptr(emitter,
+            inst.operand_start + 2);
+        const len_operand: &MirOperand = native_mir_operand_ptr(emitter,
+            inst.operand_start + 3);
+        if native_mir_emitter_append_ptr_arg(emitter, function_index, block_index,
+            1, ptr_operand, inst.flags) != 0 {
+            return -1;
+        }
+        if native_mir_emitter_append_i32_arg(emitter, function_index, block_index,
+            2, len_operand, inst.flags) != 0 {
+            return -1;
+        }
+    }
+    return native_mir_emitter_append_extern_call(emitter, function_index, block_index,
+        inst, callee);
+}
+
 fn native_mir_emitter_import_block(emitter: &NativeMirEmitter,
     function_index: i32, block: &MirBlock) i32 {
     if emitter == null || emitter.portable_mir == null || emitter.machine_module == null ||
@@ -142,11 +388,18 @@ fn native_mir_emitter_import_block(emitter: &NativeMirEmitter,
         if mir_inst == null {
             return -1;
         }
-        var machine_inst: MachineInst = native_mir_machine_inst_from_mir(mir_inst);
-        if machine_block_add_inst(emitter.machine_module, function_index, block_index, &machine_inst) != 0 {
-            return -1;
+        if native_mir_inst_is_print_helper_call(mir_inst) != 0 {
+            if native_mir_emitter_import_print_helper_call(emitter, function_index,
+                block_index, mir_inst) != 0 {
+                return -1;
+            }
+        } else {
+            var machine_inst: MachineInst = native_mir_machine_inst_from_mir(mir_inst);
+            if native_mir_emitter_append_machine_inst(emitter, function_index,
+                block_index, &machine_inst) != 0 {
+                return -1;
+            }
         }
-        emitter.imported_inst_count = emitter.imported_inst_count + 1usize;
         offset = offset + 1;
     }
     return 0;

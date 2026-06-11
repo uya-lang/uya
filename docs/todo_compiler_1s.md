@@ -1054,9 +1054,17 @@ MIR -> Native 首个目标：
         # 并通过；同步修正 `tests/verify_portable_mir_verifier.sh` 的 verifier
         # standalone shim。验证：`bash tests/verify_hosted_native_print_mir_verifier_abi.sh`
         # 与 `bash tests/verify_portable_mir_verifier.sh`。
-  - [~] L994.D NativeMirEmitter extern call emission：NativeMirEmitter 接受
+  - [x] L994.D NativeMirEmitter extern call emission：NativeMirEmitter 接受
         verifier-clean 的 `CORE_EXPR_KIND_CALL`→`uya_write_str` 并 emit x86_64
         `call <extern>`；ABI 用 SysV i32/i64 寄存器约定（fd → EDI，ptr → RSI，len → EDX）。
+        # 2026-06-11：新增 `tests/verify_hosted_native_print_native_emitter_call.sh`
+        # 并扩展 `tests/verify_native_mir_emitter.sh`，验证 `uya_write_str` helper
+        # lowered 为 fd/ptr/len SysV GPR 参数装载、`X86_64_OP_CALL_REL32` 和
+        # `MACHINE_RELOC_KIND_X86_64_PC32` extern relocation。验证：
+        # `bash tests/verify_hosted_native_print_native_emitter_call.sh`、
+        # `bash tests/verify_hosted_native_print_hir_lowering.sh`、
+        # `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+        # `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`。
   - [ ] L994.E hosted link plan 拉入 helper C 实现：hosted link plan 在
         `native_hosted_executable_writer_*` 阶段把 print helper C 实现
         （`src/codegen/c99_build/main.uya:3091-3097` 现有的 `uya_write` / `uya_strlen` 静态
