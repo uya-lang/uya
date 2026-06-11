@@ -34946,6 +34946,26 @@ fn native_build_return_param_plus_const(stmt: &ASTNode, param_name: &byte,
     return 1;
 }
 
+fn native_build_errdefer_stmt_local_const(stmt: &ASTNode, local_name: &byte,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || local_name == null || out_value == null ||
+       stmt.type != ASTNodeType.AST_ERRDEFER_STMT ||
+       stmt.errdefer_stmt_body == null {
+        return 0;
+    }
+    var assign_stmt: &ASTNode = stmt.errdefer_stmt_body;
+    if assign_stmt.type == ASTNodeType.AST_BLOCK {
+        if assign_stmt.block_stmts == null || assign_stmt.block_stmt_count != 1 {
+            return 0;
+        }
+        assign_stmt = assign_stmt.block_stmts[0];
+    }
+    return native_build_assign_stmt_local_const(assign_stmt, local_name, out_value);
+}
+
 fn native_build_eval_const_error_union_call(callee_decl: &ASTNode, arg_value: i32,
     out_is_error: &i32, out_value: &i32) i32 {
     if out_is_error != null {
@@ -34958,8 +34978,7 @@ fn native_build_eval_const_error_union_call(callee_decl: &ASTNode, arg_value: i3
        callee_decl.fn_decl_params == null || callee_decl.fn_decl_param_count != 1 ||
        callee_decl.fn_decl_body == null ||
        callee_decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
-       callee_decl.fn_decl_body.block_stmts == null ||
-       callee_decl.fn_decl_body.block_stmt_count != 2 {
+       callee_decl.fn_decl_body.block_stmts == null {
         return 0;
     }
     const param: &ASTNode = callee_decl.fn_decl_params[0];
@@ -34967,15 +34986,30 @@ fn native_build_eval_const_error_union_call(callee_decl: &ASTNode, arg_value: i3
        param.var_decl_name == null || native_build_type_is_i32(param.var_decl_type) == 0 {
         return 0;
     }
-    var compare_value: i32 = 0;
-    if native_build_if_param_eq_error_return(callee_decl.fn_decl_body.block_stmts[0],
-        param.var_decl_name, &compare_value) == 0 {
+    var if_stmt_index: i32 = 0;
+    var success_return_index: i32 = 1;
+    if callee_decl.fn_decl_body.block_stmt_count == 4 {
+        const local_decl: &ASTNode = callee_decl.fn_decl_body.block_stmts[0];
+        const errdefer_stmt: &ASTNode = callee_decl.fn_decl_body.block_stmts[1];
+        var local_value: i32 = 0;
+        var errdefer_value: i32 = 0;
+        if local_decl == null || local_decl.type != ASTNodeType.AST_VAR_DECL ||
+           local_decl.var_decl_name == null ||
+           native_build_type_is_i32_like_scalar(local_decl.var_decl_type) == 0 ||
+           native_build_var_decl_scalar_const_value(local_decl, null, &local_value) == 0 ||
+           native_build_errdefer_stmt_local_const(errdefer_stmt,
+            local_decl.var_decl_name, &errdefer_value) == 0 {
+            return 0;
+        }
+        if_stmt_index = 2;
+        success_return_index = 3;
+    } else if callee_decl.fn_decl_body.block_stmt_count != 2 {
         return 0;
     }
-    var op: TokenType = TokenType.TOKEN_PLUS;
-    var rhs_value: i32 = 0;
-    if native_build_return_param_binary_const(callee_decl.fn_decl_body.block_stmts[1],
-        param.var_decl_name, &op, &rhs_value) == 0 {
+    var compare_value: i32 = 0;
+    if native_build_if_param_eq_error_return(
+        callee_decl.fn_decl_body.block_stmts[if_stmt_index],
+        param.var_decl_name, &compare_value) == 0 {
         return 0;
     }
     if arg_value == compare_value {
@@ -34983,7 +35017,21 @@ fn native_build_eval_const_error_union_call(callee_decl: &ASTNode, arg_value: i3
         *out_value = 0;
         return 1;
     }
-    return native_build_eval_i32_binary_const(op, arg_value, rhs_value, out_value);
+    const success_return: &ASTNode =
+        callee_decl.fn_decl_body.block_stmts[success_return_index];
+    var op: TokenType = TokenType.TOKEN_PLUS;
+    var rhs_value: i32 = 0;
+    if native_build_return_param_binary_const(success_return,
+        param.var_decl_name, &op, &rhs_value) != 0 {
+        return native_build_eval_i32_binary_const(op, arg_value, rhs_value,
+            out_value);
+    }
+    if native_build_return_stmt_identifier_equals(success_return,
+        param.var_decl_name) != 0 {
+        *out_value = arg_value;
+        return 1;
+    }
+    return 0;
 }
 
 fn native_build_catch_block_const_value(block: &ASTNode, out_value: &i32) i32 {

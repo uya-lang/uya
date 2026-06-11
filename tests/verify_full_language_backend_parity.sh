@@ -255,7 +255,7 @@ run_case() {
         ( "$case_id" == "hello" || "$case_id" == "generic" ||
           "$case_id" == "method" || "$case_id" == "error_union_try" ||
           "$case_id" == "try_catch" || "$case_id" == "defer" ||
-          "$case_id" == "stdlib_entry" ) ]]; then
+          "$case_id" == "errdefer" || "$case_id" == "stdlib_entry" ) ]]; then
         run_native_parity_case "$case_id" "$src" "$expected_exit"
     else
         run_native_try_then_reject "$case_id" "$src" "$expected_exit"
@@ -640,7 +640,7 @@ fi
 case_count=$((rejected_count + parity_count))
 echo "OK: full language backend parity: $case_count cases (parity=$parity_count, reject=$rejected_count)"
 if [[ "$REQUIRE_NATIVE_PARITY" == "1" ]]; then
-    for required_case in hello generic method error_union_try try_catch defer stdlib_entry; do
+    for required_case in hello generic method error_union_try try_catch defer errdefer stdlib_entry; do
         required_summary="$RESULTS_DIR/${required_case}.summary.tsv"
         if [[ ! -f "$required_summary" ]] || ! awk -F'\t' -v case_id="$required_case" 'NR>1 && $1==case_id && $5=="parity" { found=1 } END { exit found ? 0 : 1 }' "$required_summary"; then
             echo "error: UYA_FULL_LANGUAGE_PARITY_NATIVE=1 requires $required_case case native parity" >&2
