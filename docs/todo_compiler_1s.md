@@ -1024,9 +1024,16 @@ MIR -> Native 首个目标：
   - native build stderr 必须包含 CoreBody、PortableMIR verifier 和 NativeMirEmitter 证据。
   - native build stderr 不得包含 `native_hosted_portable_mir_lowering_missing`、C99 fallback 或
     pre-MIR helper 成功路径。
-- [ ] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
+- [x] NativeMirEmitter 支持 `@print` / `@println` 所需 string constant、stdout write / hosted libc call、
   vararg/format 或 runtime helper handoff（epic 起点；L996/L1005/L1032 都依赖此叶子完成）。
   # 2026-06-10 拆分：见下方 L994.A–L994.F 六个有序子叶子；前序未通过不进入下一个。
+  # 2026-06-11 聚合验收：L994.A-F 子叶均为 `[x]`，并在当前工作树复跑
+  # `verify_native_string_constants`、`verify_hosted_native_runtime_print_helpers`、
+  # `verify_hosted_native_print_helper_externs`、`verify_hosted_native_print_mir_verifier_abi`、
+  # `verify_hosted_native_print_native_emitter_call`、`verify_hosted_native_print_helper_link_plan`、
+  # `verify_hosted_native_print_hir_lowering`、`verify_hosted_native_helloworld_parity`、
+  # `verify_native_cmd_build_no_silent_c99`、`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 verify_full_language_backend_parity`、
+  # `git diff --check` 和 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过。
   - [x] L994.A MIR extern helper 注册：把 `uya_write(fd, ptr, len)` / `uya_write_str(fd, ptr, len)` /
         `uya_write_newline(fd)` 三个 hosted runtime helper 写为新 `extern fn` 声明，挂到
         `src/build_compiler_driver.uya` 的 `native_build_hosted_mir_append_extern_function`
