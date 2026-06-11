@@ -1835,8 +1835,16 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
             - 实测 `git diff --check` 和
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               通过；本叶子未改生产 lowering。
-          - [ ] 为下一个 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同；候选只在
+          - [x] 为下一个 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同；候选只在
             真实 frontier 指向时进入，不从静态猜测中选函数。
+            - 2026-06-11：新增
+              `tests/verify_native_profile_diagnostics_first_slice_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md` 新增
+              `compiler_should_profile_diagnostics(...)` First Slice Contract，冻结当前 pending
+              frontier，并要求迁入首句 `const value = getenv(...)` 后推进到
+              `prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT`。
+            - 实测 `bash tests/verify_native_profile_diagnostics_first_slice_contract.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过；本叶子未改生产 lowering。
           - [ ] 迁入下一个 helper 的首切片并复测 frontier，然后按同一 helper 循环继续推进。
           - [ ] 候选示例仅作排队提醒，不能作为实现顺序来源：`print_usage`、
             `split_c_set_default_dir`、`split_c_acquire_lock`、`env_disables_auto_split_c`、

@@ -652,6 +652,31 @@ Surface 审计：
 6. lowering 顺序：首个最小切片应先迁入 `const value = getenv(...)` 声明和对应 hosted libc call
    surface；后续再按真实 frontier 迁入空值/空串 branch、false-like branch 和 tail return。
 
+## `compiler_should_profile_diagnostics(...)` First Slice Contract
+
+当前真实 pending frontier 是：
+
+```text
+native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=225 function_id=5 body_stmts=4 reason=pending_core_body
+```
+
+首个最小切片只覆盖第 0 条顶层语句：
+
+```text
+const value: *byte = getenv("UYA_PROFILE_DIAGNOSTICS" as *byte);
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须生成 `CORE_STMT_KIND_LOCAL_DECL`，声明名为 `value`，类型保持 `*byte`。
+2. 初始化表达式必须保持 `CORE_EXPR_KIND_CALL`，callee resolved target 为 libc `getenv`，参数为
+   `"UYA_PROFILE_DIAGNOSTICS" as *byte` 字符串字面量 surface。
+3. PortableMIR 必须追加 `MIR_INST_OP_CALL`，runtime capability 覆盖 hosted libc / C extern，不得把
+   `getenv` 折叠为常量或 noop。
+4. 该首切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body`。
+   下一步才能迁入 `value == null || value[0] == 0 as byte` early-return branch。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
