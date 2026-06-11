@@ -1739,9 +1739,17 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=14 next_stmt=14 next_kind=AST_ASSIGN reason=partial_core_body`。
               因此下一步继续该 helper 的 `stats.table_realloc_count = table_agg.realloc_count` 写回切片，
               不进入下一个 helper。
-          - [ ] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
+          - [x] 若 frontier 仍指向 `compile_stats_record_and_release_typed_program(...)` 的
             `stats.table_realloc_count = table_agg.realloc_count` 写回，先补 CoreBody/PortableMIR 合同；
             不改生产实现。
+            - 2026-06-11：新增
+              `tests/verify_native_compile_stats_table_realloc_count_contract.sh` 并接入
+              `tests/verify_native_cmd_build_stage1.sh`；`docs/native_cmd_build_subset.md` 新增
+              Table Realloc Count Writeback Slice Contract，冻结当前 frontier
+              `prefix_stmts=14 next_stmt=14 next_kind=AST_ASSIGN`，并要求迁入后推进到
+              `prefix_stmts=15 next_stmt=15 next_kind=AST_CALL_EXPR`。
+            - 实测 `bash tests/verify_native_compile_stats_table_realloc_count_contract.sh` 和
+              `bash tests/verify_native_cmd_build_stage1.sh` 通过；本叶子未改生产 lowering。
           - [ ] 迁入 `stats.table_realloc_count = table_agg.realloc_count` 单条写回切片并复测 frontier。
           - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、

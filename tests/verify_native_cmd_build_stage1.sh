@@ -36,6 +36,7 @@ bash "$SCRIPT_DIR/verify_native_compile_stats_table_items_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_table_capacity_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_table_used_bytes_contract.sh"
 bash "$SCRIPT_DIR/verify_native_compile_stats_table_capacity_bytes_contract.sh"
+bash "$SCRIPT_DIR/verify_native_compile_stats_table_realloc_count_contract.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_regression_boundary.sh"
 bash "$SCRIPT_DIR/verify_native_cmd_build_no_silent_c99.sh"
 

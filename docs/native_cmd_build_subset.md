@@ -521,6 +521,30 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=14 next_stmt=14 next_kind=AST_ASSIGN reason=partial_core_body`。
    下一步才能迁入 `stats.table_realloc_count = table_agg.realloc_count` 写回。
 
+## `compile_stats_record_and_release_typed_program(...)` Table Realloc Count Writeback Slice Contract
+
+Table capacity bytes writeback 切片迁入后的真实 reachable body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=14 next_stmt=14 next_kind=AST_ASSIGN reason=partial_core_body
+```
+
+下一条源码语句是 `stats.table_realloc_count = table_agg.realloc_count;`。该切片只允许追加
+`table_realloc_count` 单个 aggregate writeback，不得提前迁入 `typed_program_release(...)` 或后续释放路径。
+
+CoreBody/PortableMIR 合同：
+
+1. 该赋值必须作为 `CORE_STMT_KIND_ASSIGN`，目标 place 为 `stats.table_realloc_count` 的
+   `CORE_PLACE_KIND_FIELD` / `CORE_SEMANTIC_FACT_FIELD_ID`。
+2. 右值 `table_agg.realloc_count` 必须保留 source field surface，CoreIR 记录独立
+   `CORE_PLACE_KIND_FIELD` / `CORE_EXPR_KIND_LOCAL_REF`，PortableMIR 追加独立
+   `MIR_INST_OP_FIELD_ADDR` surface。
+3. PortableMIR 必须追加该写回对应的 `MIR_INST_OP_STORE`，不能把 table aggregate
+   结果折叠为常量或匿名临时。
+4. 该切片迁入后 self-build frontier 必须推进到下一条真实源码语句：
+   `native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program prefix_stmts=15 next_stmt=15 next_kind=AST_CALL_EXPR reason=partial_core_body`。
+   下一步才能迁入 `typed_program_release(&checker.typed_program)` 调用。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
