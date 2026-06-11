@@ -225,6 +225,11 @@ const NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_CORE_STMT_COUNT: i32 = 3;
 const NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_CORE_EXPR_COUNT: i32 = 3;
 const NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_CORE_PLACE_COUNT: i32 = 2;
 const NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_CORE_FACT_COUNT: i32 = 1;
+const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT: i32 = 3;
+const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_STMT_COUNT: i32 = 5;
+const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_EXPR_COUNT: i32 = 5;
+const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_PLACE_COUNT: i32 = 2;
+const NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_FACT_COUNT: i32 = 2;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
@@ -10961,6 +10966,59 @@ fn native_build_hosted_profile_diagnostics_null_empty_branch_prefix_stmt_count(
     return NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_PREFIX_STMT_COUNT;
 }
 
+fn native_build_hosted_expr_tree_contains_call_name(expr: &ASTNode,
+    name: &byte) i32 {
+    if expr == null || name == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CALL_EXPR &&
+       expr.call_expr_callee != null &&
+       expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER &&
+       expr.call_expr_callee.identifier_name != null &&
+       str_equals(expr.call_expr_callee.identifier_name as *byte, name as *byte) != 0 {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        if native_build_hosted_expr_tree_contains_call_name(expr.binary_expr_left,
+            name) != 0 ||
+           native_build_hosted_expr_tree_contains_call_name(expr.binary_expr_right,
+            name) != 0 {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn native_build_hosted_profile_diagnostics_false_like_branch_supported(
+    stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_IF_STMT ||
+       stmt.if_stmt_condition == null ||
+       native_build_hosted_expr_tree_contains_call_name(stmt.if_stmt_condition,
+        "strcmp" as &byte) == 0 ||
+       stmt.if_stmt_then_branch == null ||
+       stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK ||
+       stmt.if_stmt_then_branch.block_stmts == null ||
+       stmt.if_stmt_then_branch.block_stmt_count != 1 ||
+       native_build_hosted_parse_build_args_return_value(
+        stmt.if_stmt_then_branch.block_stmts[0], 0) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_hosted_profile_diagnostics_false_like_branch_prefix_stmt_count(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_profile_diagnostics_null_empty_branch_prefix_stmt_count(
+        decl, program, checker) !=
+       NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_PREFIX_STMT_COUNT ||
+       decl.fn_decl_body.block_stmt_count != 4 ||
+       native_build_hosted_profile_diagnostics_false_like_branch_supported(
+        decl.fn_decl_body.block_stmts[2]) == 0 {
+        return 0;
+    }
+    return NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT;
+}
+
 fn native_build_hosted_decl_can_materialize_profile_diagnostics_first_slice_body(
     decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
     if native_build_hosted_profile_diagnostics_first_slice_prefix_stmt_count(
@@ -10975,6 +11033,16 @@ fn native_build_hosted_decl_can_materialize_profile_diagnostics_null_empty_branc
     if native_build_hosted_profile_diagnostics_null_empty_branch_prefix_stmt_count(
         decl, program, checker) ==
        NATIVE_PROFILE_DIAGNOSTICS_NULL_EMPTY_BRANCH_PREFIX_STMT_COUNT {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    if native_build_hosted_profile_diagnostics_false_like_branch_prefix_stmt_count(
+        decl, program, checker) ==
+       NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT {
         return 1;
     }
     return 0;
@@ -15059,6 +15127,314 @@ fn native_build_hosted_coreir_append_profile_diagnostics_null_empty_branch_body(
        lowered_program_append_core_stmt(lowered, &if_stmt) != 0 ||
        lowered_program_append_core_stmt(lowered, &ret_stmt) != 0 ||
        lowered_program_append_core_semantic_fact(lowered, &call_fact) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_coreir_append_profile_diagnostics_false_like_branch_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode,
+    function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null ||
+       native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
+        decl, program, checker) == 0 {
+        return -1;
+    }
+    const getenv_decl: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const null_empty_if: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const false_like_if: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    if getenv_decl == null || getenv_decl.var_decl_init == null ||
+       null_empty_if == null || null_empty_if.if_stmt_condition == null ||
+       false_like_if == null || false_like_if.if_stmt_condition == null ||
+       null_empty_if.if_stmt_then_branch == null ||
+       null_empty_if.if_stmt_then_branch.block_stmts == null ||
+       false_like_if.if_stmt_then_branch == null ||
+       false_like_if.if_stmt_then_branch.block_stmts == null {
+        return -1;
+    }
+    const null_return_stmt: &ASTNode = null_empty_if.if_stmt_then_branch.block_stmts[0];
+    const false_return_stmt: &ASTNode = false_like_if.if_stmt_then_branch.block_stmts[0];
+    if null_return_stmt == null || null_return_stmt.return_stmt_expr == null ||
+       false_return_stmt == null || false_return_stmt.return_stmt_expr == null {
+        return -1;
+    }
+    var getenv_call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var null_cond_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var false_cond_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, getenv_decl.var_decl_init,
+        &getenv_call_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        null_empty_if.if_stmt_condition, &null_cond_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        false_like_if.if_stmt_condition, &false_cond_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker,
+        false_return_stmt.return_stmt_expr, &return_type_id) != 0 {
+        return -1;
+    }
+    var getenv_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var getenv_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    var strcmp_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var strcmp_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_find_function_by_name(program, "getenv" as &byte,
+        &getenv_target_function_id, &getenv_target_decl_index) == 0 ||
+       native_build_hosted_find_function_by_name(program, "strcmp" as &byte,
+        &strcmp_target_function_id, &strcmp_target_decl_index) == 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const place_start: i32 = lowered.core_place_count as i32;
+    const fact_start: i32 = lowered.core_semantic_fact_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_STMT_COUNT,
+        expr_start: expr_start,
+        expr_count: NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_EXPR_COUNT,
+        place_start: place_start,
+        place_count: NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_PLACE_COUNT,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: fact_start,
+        semantic_fact_count: NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_CORE_FACT_COUNT,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY | CORE_BODY_FLAG_PARTIAL,
+    };
+    var value_place: CorePlace = CorePlace{
+        place_id: place_start,
+        kind: CORE_PLACE_KIND_LOCAL,
+        body_id: body_id,
+        source_expr_id: getenv_decl.var_decl_init.expr_id,
+        type_id: getenv_call_type_id,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: getenv_decl.line,
+        flags: CORE_PLACE_FLAG_STACK_SLOT,
+    };
+    var byte_index_place: CorePlace = CorePlace{
+        place_id: place_start + 1,
+        kind: CORE_PLACE_KIND_INDEX,
+        body_id: body_id,
+        source_expr_id: null_empty_if.if_stmt_condition.expr_id,
+        type_id: return_type_id,
+        base_place_id: place_start,
+        index_expr_id: expr_start + 2,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: null_empty_if.line,
+        flags: 0,
+    };
+    var getenv_call_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: body_id,
+        source_expr_id: getenv_decl.var_decl_init.expr_id,
+        type_id: getenv_call_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start,
+        target_function_id: getenv_target_function_id,
+        target_decl_id: getenv_target_decl_index,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: getenv_decl.var_decl_init.line,
+        flags: 0,
+    };
+    var null_cond_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 1,
+        kind: CORE_EXPR_KIND_I32_NE,
+        body_id: body_id,
+        source_expr_id: null_empty_if.if_stmt_condition.expr_id,
+        type_id: null_cond_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: expr_start,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: place_start + 1,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: null_empty_if.line,
+        flags: 0,
+    };
+    var null_return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 2,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: null_return_stmt.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: null_return_stmt.return_stmt_expr.line,
+        flags: 0,
+    };
+    var strcmp_call_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 3,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: body_id,
+        source_expr_id: false_like_if.if_stmt_condition.expr_id,
+        type_id: false_cond_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: strcmp_target_function_id,
+        target_decl_id: strcmp_target_decl_index,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: false_like_if.line,
+        flags: 0,
+    };
+    var false_return_expr: CoreExpr = CoreExpr{
+        expr_id: expr_start + 4,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: body_id,
+        source_expr_id: false_return_stmt.return_stmt_expr.expr_id,
+        type_id: return_type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: TYPED_PROGRAM_INVALID_ID,
+        target_decl_id: TYPED_PROGRAM_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: false_return_stmt.return_stmt_expr.line,
+        flags: 0,
+    };
+    var local_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start,
+        kind: CORE_STMT_KIND_LOCAL_DECL,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start,
+        place_id: place_start,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: getenv_decl.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+    };
+    var null_if_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 1,
+        kind: CORE_STMT_KIND_IF,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: stmt_start + 2,
+        child_stmt_count: 1,
+        expr_id: expr_start + 1,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: null_empty_if.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var null_ret_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 2,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: stmt_start + 1,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 2,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: null_return_stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var false_if_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 3,
+        kind: CORE_STMT_KIND_IF,
+        body_id: body_id,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: stmt_start + 4,
+        child_stmt_count: 1,
+        expr_id: expr_start + 3,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: false_like_if.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var false_ret_stmt: CoreStmt = CoreStmt{
+        stmt_id: stmt_start + 4,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: body_id,
+        parent_stmt_id: stmt_start + 3,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: expr_start + 4,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        source_span_id: false_return_stmt.line,
+        cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+        flags: 0,
+    };
+    var getenv_fact: CoreSemanticFact = native_build_core_semantic_fact_empty(
+        fact_start, body_id, CORE_SEMANTIC_FACT_RESOLVED_CALL);
+    getenv_fact.expr_id = expr_start;
+    getenv_fact.source_expr_id = getenv_decl.var_decl_init.expr_id;
+    getenv_fact.call_target_kind = TYPED_CALL_TARGET_FUNCTION;
+    getenv_fact.target_function_id = getenv_target_function_id;
+    getenv_fact.target_decl_id = getenv_target_decl_index;
+    getenv_fact.arg_count = 1;
+    getenv_fact.type_id = getenv_call_type_id;
+    getenv_fact.source_span_id = getenv_decl.var_decl_init.line;
+    var strcmp_fact: CoreSemanticFact = native_build_core_semantic_fact_empty(
+        fact_start + 1, body_id, CORE_SEMANTIC_FACT_RESOLVED_CALL);
+    strcmp_fact.expr_id = expr_start + 3;
+    strcmp_fact.source_expr_id = false_like_if.if_stmt_condition.expr_id;
+    strcmp_fact.call_target_kind = TYPED_CALL_TARGET_FUNCTION;
+    strcmp_fact.target_function_id = strcmp_target_function_id;
+    strcmp_fact.target_decl_id = strcmp_target_decl_index;
+    strcmp_fact.arg_count = 2;
+    strcmp_fact.type_id = false_cond_type_id;
+    strcmp_fact.source_span_id = false_like_if.line;
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       lowered_program_append_core_place(lowered, &value_place) != 0 ||
+       lowered_program_append_core_place(lowered, &byte_index_place) != 0 ||
+       lowered_program_append_core_expr(lowered, &getenv_call_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &null_cond_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &null_return_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &strcmp_call_expr) != 0 ||
+       lowered_program_append_core_expr(lowered, &false_return_expr) != 0 ||
+       lowered_program_append_core_stmt(lowered, &local_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &null_if_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &null_ret_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &false_if_stmt) != 0 ||
+       lowered_program_append_core_stmt(lowered, &false_ret_stmt) != 0 ||
+       lowered_program_append_core_semantic_fact(lowered, &getenv_fact) != 0 ||
+       lowered_program_append_core_semantic_fact(lowered, &strcmp_fact) != 0 {
         return -1;
     }
     return 0;
@@ -21866,6 +22242,9 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const materialize_profile_diagnostics_null_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_profile_diagnostics_null_empty_branch_body(
                     decl, program, checker);
+            const materialize_profile_diagnostics_false_like_body: i32 =
+                native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
+                    decl, program, checker);
             const materialize_safe_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             var function: ConcreteFunction = native_build_hosted_core_function_from_decl(function_id, i, decl);
             if materialize_prefix_body != 0 || materialize_entry_prefix_body != 0 ||
@@ -21883,6 +22262,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                materialize_compile_stats_table_agg_body != 0 ||
                materialize_compile_stats_peak_body != 0 ||
                materialize_compile_stats_first_body != 0 ||
+               materialize_profile_diagnostics_false_like_body != 0 ||
                materialize_profile_diagnostics_null_empty_body != 0 ||
                materialize_profile_diagnostics_first_body != 0 ||
                materialize_safe_body != 0 {
@@ -22146,6 +22526,25 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                 const next_stmt: &ASTNode =
                     native_build_hosted_compile_stats_prefix_stmt(decl,
                         NATIVE_COMPILE_STATS_FIRST_SLICE_PREFIX_STMT_COUNT);
+                if next_stmt != null {
+                    result.entry_reachable_body_next_stmt_kind =
+                        native_build_ast_kind_enum_name(next_stmt.type);
+                }
+            } else if materialize_profile_diagnostics_false_like_body != 0 {
+                if native_build_hosted_coreir_append_profile_diagnostics_false_like_branch_body(
+                    lowered, checker, program, function_id, i, decl) != 0 {
+                    return -1;
+                }
+                result.core_pending_body_count = result.core_pending_body_count + 1;
+                result.entry_reachable_body_function_name =
+                    native_build_decl_name_for_diagnostic(decl);
+                result.entry_reachable_body_prefix_stmt_count =
+                    NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT;
+                result.entry_reachable_body_next_stmt_index =
+                    NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT;
+                const next_stmt: &ASTNode =
+                    native_build_hosted_compile_stats_prefix_stmt(decl,
+                        NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT);
                 if next_stmt != null {
                     result.entry_reachable_body_next_stmt_kind =
                         native_build_ast_kind_enum_name(next_stmt.type);
@@ -28402,6 +28801,12 @@ fn native_build_hosted_decl_can_lower_profile_diagnostics_null_empty_branch_mir_
         decl, program, checker);
 }
 
+fn native_build_hosted_decl_can_lower_profile_diagnostics_false_like_branch_mir_body(
+    decl: &ASTNode, program: &ASTNode, checker: &TypeChecker) i32 {
+    return native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
+        decl, program, checker);
+}
+
 fn native_build_hosted_compile_stats_mir_operand(operand_id: i32,
     type_id: i32) MirOperand {
     return MirOperand{
@@ -30501,6 +30906,19 @@ fn native_build_hosted_mir_append_profile_diagnostics_null_empty_branch_body_fun
     source_core_body_id: i32, decl: &ASTNode, program: &ASTNode,
     checker: &TypeChecker) i32 {
     if native_build_hosted_decl_can_lower_profile_diagnostics_null_empty_branch_mir_body(
+        decl, program, checker) == 0 {
+        return -1;
+    }
+    return native_build_hosted_mir_append_profile_diagnostics_first_slice_body_function(
+        module, lowered_function_id, decl_index, source_core_body_id, decl,
+        program, checker);
+}
+
+fn native_build_hosted_mir_append_profile_diagnostics_false_like_branch_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode, program: &ASTNode,
+    checker: &TypeChecker) i32 {
+    if native_build_hosted_decl_can_lower_profile_diagnostics_false_like_branch_mir_body(
         decl, program, checker) == 0 {
         return -1;
     }
@@ -33924,6 +34342,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
             const has_profile_diagnostics_null_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_profile_diagnostics_null_empty_branch_body(
                     decl, program, checker);
+            const has_profile_diagnostics_false_like_body: i32 =
+                native_build_hosted_decl_can_materialize_profile_diagnostics_false_like_branch_body(
+                    decl, program, checker);
             const has_safe_core_body: i32 = native_build_hosted_decl_can_materialize_safe_core_body(program, decl, checker);
             const has_direct_method_body: i32 =
                 native_build_hosted_decl_can_materialize_direct_method_body(
@@ -33943,6 +34364,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                has_compile_stats_table_agg_body != 0 ||
                has_compile_stats_peak_body != 0 ||
                has_compile_stats_first_body != 0 ||
+               has_profile_diagnostics_false_like_body != 0 ||
                has_profile_diagnostics_null_empty_body != 0 ||
                has_profile_diagnostics_first_body != 0 ||
                has_safe_core_body != 0 ||
@@ -34068,6 +34490,14 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     if native_build_hosted_mir_append_compile_stats_first_slice_body_function(
                         module, lowered_function_id, i, source_core_body_id, decl,
                         checker) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_profile_diagnostics_false_like_branch_mir_body(
+                    decl, program, checker) != 0 {
+                    if native_build_hosted_mir_append_profile_diagnostics_false_like_branch_body_function(
+                        module, lowered_function_id, i, source_core_body_id, decl,
+                        program, checker) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;

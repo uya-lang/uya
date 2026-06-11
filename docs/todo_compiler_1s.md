@@ -1888,6 +1888,19 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
               `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
               通过。
+          - [x] 迁入 `compiler_should_profile_diagnostics(...)` 的 false-like `strcmp(...) == 0`
+            branch 并复测 frontier。
+            - 2026-06-11：新增 false-like branch 合同与 prefix-3 CoreBody/PortableMIR
+              partial 切片识别；`strcmp(value, "0"/"false"/"no"/"off") == 0`
+              branch 迁入后，self-build frontier 从
+              `prefix_stmts=2 next_stmt=2` 推进到
+              `prefix_stmts=3 next_stmt=3 next_kind=return`。
+            - 实测 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya`、
+              `bash tests/verify_native_profile_diagnostics_false_like_branch_contract.sh`、
+              `bash tests/verify_native_cmd_build_no_silent_c99.sh`、
+              `bash tests/verify_native_cmd_build_stage1.sh`、`git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过。
         - `compile_files(...)` 到达前置门槛：
           - [ ] 当真实 frontier 首次指向 `compile_files(...)` 时，固定 callee 名称、caller stmt、
             pending reason 和 no-silent-C99 失败形状；不改生产实现。

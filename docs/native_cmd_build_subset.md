@@ -710,6 +710,38 @@ CoreBody/PortableMIR 合同：
 7. 实现叶子应同步 `tests/verify_native_cmd_build_no_silent_c99.sh`：要求迁入后出现
    `prefix_stmts=2` frontier，并反向拒绝继续报告 `prefix_stmts=1`。
 
+## `compiler_should_profile_diagnostics(...)` False-Like Branch Contract
+
+null/empty branch 迁入后，当前真实 body frontier 是：
+
+```text
+native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body
+```
+
+本合同冻结第 2 条顶层语句：
+
+```text
+if strcmp(value, "0" as *byte) == 0 ||
+   strcmp(value, "false" as *byte) == 0 ||
+   strcmp(value, "no" as *byte) == 0 ||
+   strcmp(value, "off" as *byte) == 0 {
+    return 0;
+}
+```
+
+CoreBody/PortableMIR 合同：
+
+1. CoreIR 必须保留 `CORE_STMT_KIND_IF` 和 then `CORE_STMT_KIND_RETURN` surface。
+2. 每个 `strcmp(...) == 0` 项必须以 `CORE_EXPR_KIND_CALL` 表示 libc call surface；
+   参数顺序保持 `value` 在前、字符串字面量在后，不能折叠为常量或跳过。
+3. `||` 必须保持 short-circuit 语义；实现可以先以 partial CoreBody 标记该 branch，
+   但不得把 false-like branch 标为 body complete。
+4. PortableMIR 必须保留 `MIR_INST_OP_CALL` surface 和 hosted libc runtime capability。
+5. 该切片迁入后 self-build frontier 必须推进到 tail return：
+   `native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=3 next_stmt=3 next_kind=return reason=partial_core_body`。
+6. 实现叶子应新增 `NATIVE_PROFILE_DIAGNOSTICS_FALSE_LIKE_BRANCH_PREFIX_STMT_COUNT = 3`，
+   并同步 `tests/verify_native_cmd_build_no_silent_c99.sh` 反向拒绝继续报告 `prefix_stmts=2`。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：
