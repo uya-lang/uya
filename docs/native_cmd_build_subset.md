@@ -613,6 +613,45 @@ CoreBody/PortableMIR 合同：
    `native_hosted_reachable_body_complete: function=compile_stats_record_and_release_typed_program prefix_stmts=18 reason=body_complete`。
    下一步才能审计真实 frontier 指向的下一个 reachable helper。
 
+## `compiler_should_profile_diagnostics(...)` Surface Audit
+
+`compile_stats_record_and_release_typed_program(...)` 达到 body complete 后，当前 self-build
+pending frontier 推进到：
+
+```text
+native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=225 function_id=5 body_stmts=4 reason=pending_core_body
+```
+
+函数源码：
+
+```text
+fn compiler_should_profile_diagnostics() i32 {
+    const value: *byte = getenv("UYA_PROFILE_DIAGNOSTICS" as *byte);
+    if value == null || value[0] == 0 as byte {
+        return 0;
+    }
+    if strcmp(value, "0" as *byte) == 0 ||
+       strcmp(value, "false" as *byte) == 0 ||
+       strcmp(value, "no" as *byte) == 0 ||
+       strcmp(value, "off" as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+```
+
+Surface 审计：
+
+1. 参数：无参数；返回 `i32`。
+2. 局部：`value: *byte`，由 `getenv("UYA_PROFILE_DIAGNOSTICS" as *byte)` 初始化。
+3. Global / 外部调用：读取进程环境变量 `UYA_PROFILE_DIAGNOSTICS`；调用 libc `getenv` 和
+   `strcmp`。无文件、网络、进程启动或 stderr/stdout 输出。
+4. 控制流：4 条顶层语句。先声明 `value`；若 `value == null` 或首字节为 0，early return 0；
+   若值等于 `"0"`、`"false"`、`"no"` 或 `"off"`，early return 0；否则 return 1。
+5. diagnostics：该 helper 本身不打印 diagnostic；它只控制后续 diagnostics profiling 是否启用。
+6. lowering 顺序：首个最小切片应先迁入 `const value = getenv(...)` 声明和对应 hosted libc call
+   surface；后续再按真实 frontier 迁入空值/空串 branch、false-like branch 和 tail return。
+
 ## `parse_build_args(...)` Scalar Option Frontier Contract
 
 `parse_build_args(...)` root body 已推进到 body complete：

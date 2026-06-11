@@ -1825,9 +1825,16 @@ Uya 程序经 `CoreBody -> PortableMIR -> NativeMirEmitter` 编译；若 self-bu
               status 1 明确拒绝写出，`compile_stats_record_and_release_typed_program(...)`
               不再报告 partial frontier，当前可观测 pending frontier 推进到
               `native_hosted_pending_body_frontier: function=compiler_should_profile_diagnostics decl=225 function_id=5 body_stmts=4 reason=pending_core_body`。
-          - [ ] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
+          - [x] 当前 helper complete 后，审计下一个 reachable driver/runtime helper 的 body surface，写入
             `docs/native_cmd_build_subset.md`：按源码顺序列出参数、局部、global、外部调用、控制流、
             diagnostics、IO/环境能力和 early return。
+            - 2026-06-11：当前真实 pending frontier 为
+              `compiler_should_profile_diagnostics`；已在 `docs/native_cmd_build_subset.md` 新增
+              `compiler_should_profile_diagnostics(...)` Surface Audit，记录无参数、`value: *byte`
+              局部、`getenv`/`strcmp` 外部调用、两段 early return 和 tail return。
+            - 实测 `git diff --check` 和
+              `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_compiler_1s.md`
+              通过；本叶子未改生产 lowering。
           - [ ] 为下一个 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同；候选只在
             真实 frontier 指向时进入，不从静态猜测中选函数。
           - [ ] 迁入下一个 helper 的首切片并复测 frontier，然后按同一 helper 循环继续推进。
