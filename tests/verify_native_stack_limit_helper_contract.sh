@@ -129,9 +129,9 @@ require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_runtime_capability_sup
 require_pattern "$MIR_VERIFIER_TEST" 'MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY' \
     "PortableMIR verifier 测试缺少 unsupported capability 覆盖"
 
-require_pattern "$NO_SILENT_TEST" 'core_bodies=36' \
+require_pattern "$NO_SILENT_TEST" 'core_bodies=37' \
     "no-silent-C99 测试缺少 stack-limit 之后的 CoreBody 计数"
-require_pattern "$NO_SILENT_TEST" 'mir_body_functions=35' \
+require_pattern "$NO_SILENT_TEST" 'mir_body_functions=36' \
     "no-silent-C99 测试缺少 stack-limit 之后的 MIR body 计数"
 require_pattern "$NO_SILENT_TEST" '不应在 stack-limit helper 首切片迁入后继续报告 set_process_stack_limit_bytes pending callee' \
     "no-silent-C99 测试缺少旧 stack-limit frontier 反向检查"

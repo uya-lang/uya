@@ -1246,7 +1246,19 @@ export extern "libc" fn sys_getpid() !i64 {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_getpid() as i64;
     }, {
-        return @syscall(SYS_getpid);
+        std.cfg(std.target_arch == .ta_arm, {
+            return @syscall(20 as i64);
+        }, {
+            std.cfg(std.target_arch == .ta_arm64, {
+                return @syscall(172 as i64);
+            }, {
+                std.cfg(std.target_arch == .ta_riscv64, {
+                    return @syscall(172 as i64);
+                }, {
+                    return @syscall(39 as i64);
+                })
+            })
+        })
     })
 }
 
@@ -1696,7 +1708,11 @@ export extern "libc" fn sys_fork() !i64 {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_fork();
     }, {
-        return @syscall(SYS_fork);
+        std.cfg(std.target_arch == .ta_arm, {
+            return @syscall(2 as i64);
+        }, {
+            return @syscall(57 as i64);
+        })
     })
 }
 
