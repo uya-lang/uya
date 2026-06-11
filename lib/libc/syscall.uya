@@ -1200,12 +1200,16 @@ export extern "libc" fn sys_open(pathname: *const byte, flags: i32, mode: i32) !
         return uya_macos_open(pathname, flags, mode);
     }, {
         std.cfg(std.target_arch == .ta_arm64, {
-            return @syscall(SYS_openat, AT_FDCWD as i64, pathname as i64, flags as i64, mode as i64) as! i32;
+            return @syscall(56 as i64, AT_FDCWD as i64, pathname as i64, flags as i64, mode as i64) as! i32;
         }, {
             std.cfg(std.target_arch == .ta_riscv64, {
-                return @syscall(SYS_openat, AT_FDCWD as i64, pathname as i64, flags as i64, mode as i64) as! i32;
+                return @syscall(56 as i64, AT_FDCWD as i64, pathname as i64, flags as i64, mode as i64) as! i32;
             }, {
-                return @syscall(SYS_open, pathname as i64, flags as i64, mode as i64) as! i32;
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(5 as i64, pathname as i64, flags as i64, mode as i64) as! i32;
+                }, {
+                    return @syscall(2 as i64, pathname as i64, flags as i64, mode as i64) as! i32;
+                })
             })
         })
     })
@@ -1216,7 +1220,19 @@ export extern "libc" fn sys_close(fd: i32) !i32 {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_close(fd);
     }, {
-        return @syscall(SYS_close, fd as i64) as! i32;
+        std.cfg(std.target_arch == .ta_arm64, {
+            return @syscall(57 as i64, fd as i64) as! i32;
+        }, {
+            std.cfg(std.target_arch == .ta_riscv64, {
+                return @syscall(57 as i64, fd as i64) as! i32;
+            }, {
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(6 as i64, fd as i64) as! i32;
+                }, {
+                    return @syscall(3 as i64, fd as i64) as! i32;
+                })
+            })
+        })
     })
 }
 
@@ -1417,12 +1433,16 @@ export extern "libc" fn sys_stat(pathname: *const byte, statbuf: &Stat) !i32 {
         return uya_macos_stat(pathname, statbuf);
     }, {
         std.cfg(std.target_arch == .ta_arm64, {
-            return @syscall(SYS_newfstatat, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
+            return @syscall(79 as i64, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
         }, {
             std.cfg(std.target_arch == .ta_riscv64, {
-                return @syscall(SYS_newfstatat, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
+                return @syscall(79 as i64, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
             }, {
-                return @syscall(SYS_stat, pathname as i64, statbuf as i64) as! i32;
+                std.cfg(std.target_arch == .ta_arm, {
+                    return @syscall(106 as i64, pathname as i64, statbuf as i64) as! i32;
+                }, {
+                    return @syscall(4 as i64, pathname as i64, statbuf as i64) as! i32;
+                })
             })
         })
     })
