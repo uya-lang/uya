@@ -263,6 +263,7 @@ fn portable_mir_struct_module() PortableMirModule {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: portable_mir_struct_vec(),
         blocks: portable_mir_struct_vec(),
         values: portable_mir_struct_vec(),
@@ -275,6 +276,7 @@ fn portable_mir_struct_module() PortableMirModule {
         successors: portable_mir_struct_vec(),
         debug_locs: portable_mir_struct_vec(),
         capability_reqs: portable_mir_struct_vec(),
+        field_layouts: portable_mir_struct_vec(),
     };
 }
 

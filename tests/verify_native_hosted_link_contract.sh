@@ -260,6 +260,7 @@ fn hosted_link_module(mode: i32) PortableMirModule {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: hosted_link_empty_vec(@size_of(MirFunction)),
         blocks: hosted_link_empty_vec(@size_of(MirBlock)),
         values: hosted_link_empty_vec(@size_of(MirValue)),
@@ -272,6 +273,7 @@ fn hosted_link_module(mode: i32) PortableMirModule {
         successors: hosted_link_empty_vec(@size_of(MirSuccessor)),
         debug_locs: hosted_link_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: hosted_link_empty_vec(@size_of(MirCapabilityReq)),
+        field_layouts: hosted_link_empty_vec(@size_of(MirFieldLayout)),
     };
 }
 

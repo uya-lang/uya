@@ -607,6 +607,7 @@ fn native_mir_empty_module() PortableMirModule {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: SemanticVector{ data: null, item_size: @size_of(MirFunction), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         blocks: SemanticVector{ data: null, item_size: @size_of(MirBlock), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         values: SemanticVector{ data: null, item_size: @size_of(MirValue), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
@@ -619,6 +620,7 @@ fn native_mir_empty_module() PortableMirModule {
         successors: SemanticVector{ data: null, item_size: @size_of(MirSuccessor), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         debug_locs: SemanticVector{ data: null, item_size: @size_of(MirDebugLoc), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         capability_reqs: SemanticVector{ data: null, item_size: @size_of(MirCapabilityReq), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        field_layouts: SemanticVector{ data: null, item_size: @size_of(MirFieldLayout), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
     };
 }
 

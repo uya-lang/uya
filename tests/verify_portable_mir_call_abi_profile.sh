@@ -418,6 +418,7 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: abi_empty_vec(@size_of(MirFunction)),
         blocks: abi_empty_vec(@size_of(MirBlock)),
         values: abi_empty_vec(@size_of(MirValue)),
@@ -430,6 +431,7 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         successors: abi_empty_vec(@size_of(MirSuccessor)),
         debug_locs: abi_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: abi_empty_vec(@size_of(MirCapabilityReq)),
+        field_layouts: abi_empty_vec(@size_of(MirFieldLayout)),
     };
 }
 
@@ -461,7 +463,7 @@ fn abi_fill_module(module: &PortableMirModule, runtime_cap: i32, call_conv: i32,
     module.types = abi_vec(types as &byte, @size_of(MirType), 1usize);
     module.insts = abi_vec(insts as &byte, @size_of(MirInst), 1usize);
     module.terminators = abi_vec(terms as &byte, @size_of(MirTerminator), 1usize);
-    module.capability_reqs = abi_vec(caps as &byte, @size_of(MirCapabilityReq), 1usize);
+    module.capability_reqs = abi_vec(caps as &byte, @size_of(MirFieldLayout), 1usize);
 }
 
 fn abi_result(error_code: i32) MirVerifierResult {

@@ -107,6 +107,7 @@ fn portable_mir_verify_count(module: &PortableMirModule, result: &MirVerifierRes
     if portable_mir_verify_count_pair(module.terminator_count, module.terminators.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.operand_count, module.operands.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.capability_req_count, module.capability_reqs.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.field_layout_count, module.field_layouts.count, result) != 0 { return -1; }
     return 0;
 }
 
@@ -249,6 +250,73 @@ fn portable_mir_verify_capability_ptr(module: &PortableMirModule, id: MirCapabil
     return semantic_vector_item_ptr(&module.capability_reqs, id as usize) as &MirCapabilityReq;
 }
 
+fn portable_mir_verify_field_layout_ptr(module: &PortableMirModule, id: MirFieldLayoutId) &MirFieldLayout {
+    if module == null || id < 0 || (id as usize) >= module.field_layouts.count { return null; }
+    return semantic_vector_item_ptr(&module.field_layouts, id as usize) as &MirFieldLayout;
+}
+
+fn portable_mir_verify_field_layout(module: &PortableMirModule, field: &MirFieldLayout,
+    index: usize, result: &MirVerifierResult) i32 {
+    if field == null || field.field_layout_id != index as i32 ||
+       portable_mir_verify_type_ptr(module, field.owner_type_id) == null ||
+       portable_mir_verify_type_ptr(module, field.field_type_id) == null ||
+       field.size_bytes == 0usize || field.align_bytes == 0usize {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, field.owner_type_id, -1,
+            MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_field_layouts(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.field_layouts.count {
+        const field: &MirFieldLayout = semantic_vector_item_ptr(&module.field_layouts, i) as &MirFieldLayout;
+        if portable_mir_verify_field_layout(module, field, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_aggregate_field_layout(module: &PortableMirModule,
+    owner: &MirType, result: &MirVerifierResult) i32 {
+    if owner == null {
+        return -1;
+    }
+    if owner.kind != MIR_TYPE_KIND_STRUCT && owner.kind != MIR_TYPE_KIND_UNION && owner.kind != MIR_TYPE_KIND_ENUM {
+        return 0;
+    }
+    if owner.field_count <= 0 ||
+       portable_mir_verify_range(owner.field_start, owner.field_count, module.field_layouts.count) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, owner.type_id, -1,
+            MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    var offset: i32 = 0;
+    var previous_offset: usize = 0usize;
+    while offset < owner.field_count {
+        const field: &MirFieldLayout = portable_mir_verify_field_layout_ptr(module,
+            owner.field_start + offset);
+        if field == null || field.owner_type_id != owner.type_id || field.field_index != offset {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+                MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+                MIR_VALUE_INVALID_ID, owner.type_id, -1,
+                MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+        }
+        if owner.kind == MIR_TYPE_KIND_STRUCT && offset > 0 && field.offset_bytes < previous_offset {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+                MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+                MIR_VALUE_INVALID_ID, owner.type_id, -1,
+                MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+        }
+        previous_offset = field.offset_bytes;
+        offset = offset + 1;
+    }
+    return 0;
+}
+
 fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: usize, result: &MirVerifierResult) i32 {
     if typ == null || typ.type_id != index as i32 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, index as i32, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
@@ -261,6 +329,9 @@ fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: us
     }
     if portable_mir_verify_array_slice_layout(module, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if portable_mir_verify_aggregate_field_layout(module, typ, result) != 0 {
+        return -1;
     }
     if typ.kind == MIR_TYPE_KIND_POINTER && portable_mir_verify_type_ptr(module, typ.pointee_type_id) == null {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
@@ -714,6 +785,7 @@ export fn portable_mir_verify_module(module: &PortableMirModule, result: &MirVer
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_MODULE, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
     }
     if portable_mir_verify_count(module, result) != 0 { return -1; }
+    if portable_mir_verify_field_layouts(module, result) != 0 { return -1; }
     if portable_mir_verify_types(module, result) != 0 { return -1; }
     if portable_mir_verify_functions(module, result) != 0 { return -1; }
     if portable_mir_verify_blocks(module, result) != 0 { return -1; }

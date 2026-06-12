@@ -70,6 +70,10 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [x] array / slice type kind：包含 element type、length/capacity/ptr/len layout metadata，并同步 verifier。
     - 验证：`bash tests/verify_mir_c99_type_array_slice_gap.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_type_scalar_gap.sh` 通过；`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] struct / union / enum field layout metadata：字段顺序、offset、size、align、tag/payload offset 可由 MIR-C99 直接消费。
+    - [x] 新增 PortableMIR aggregate field layout 表、append API 和 verifier range/field 规则。
+      - 验证：`bash tests/verify_mir_c99_type_field_layout.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_backend_interface.sh` 通过；`bash tests/verify_portable_mir_structs.sh` 通过；`bash tests/verify_portable_mir_dynamic_tables.sh` 通过；`bash tests/verify_portable_mir_core_body_lowering.sh` 通过；`bash tests/verify_portable_mir_parallel_determinism.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
+    - [ ] MIR-C99 type plan 保留 struct / union / enum field layout range 和 tag/payload metadata。
+    - [ ] 更新覆盖证据，证明 backend 不再只能看到 `field_start/field_count` 占位。
   - [ ] error union layout metadata：success/error tag、payload offset、ABI class 可由 MIR-C99 直接消费。
   - [ ] function type / function pointer type metadata：参数、返回值、calling convention、ABI class 和可调用 symbol/value 关系。
 

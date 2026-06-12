@@ -12,6 +12,7 @@ export type MirBlockParamId = i32;
 export type MirSuccessorId = i32;
 export type MirDebugLocId = i32;
 export type MirCapabilityReqId = i32;
+export type MirFieldLayoutId = i32;
 
 export const PORTABLE_MIR_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const PORTABLE_MIR_LIFECYCLE_ACTIVE: i32 = 1;
@@ -66,6 +67,8 @@ export const MIR_TYPE_KIND_F32: i32 = 19;
 export const MIR_TYPE_KIND_F64: i32 = 20;
 export const MIR_TYPE_KIND_ARRAY: i32 = 21;
 export const MIR_TYPE_KIND_SLICE: i32 = 22;
+export const MIR_TYPE_KIND_UNION: i32 = 23;
+export const MIR_TYPE_KIND_ENUM: i32 = 24;
 export const MIR_INST_OP_NOP: i32 = 0;
 export const MIR_INST_OP_LOAD: i32 = 1;
 export const MIR_INST_OP_STORE: i32 = 2;
@@ -167,6 +170,20 @@ export struct MirCapabilityReq {
     function_id: MirFunctionId,
     inst_id: MirInstId,
     debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 aggregate type 的字段布局，供 MIR verifier 和后端直接消费。
+/// 参数说明：无；字段保存 owner type、field 顺序、field type、byte offset、size、align 和 flags。
+/// 返回值说明：无。
+export struct MirFieldLayout {
+    field_layout_id: MirFieldLayoutId,
+    owner_type_id: MirTypeId,
+    field_index: i32,
+    field_type_id: MirTypeId,
+    offset_bytes: usize,
+    size_bytes: usize,
+    align_bytes: usize,
     flags: i32,
 }
 
@@ -325,6 +342,7 @@ export struct PortableMirModule {
     successor_count: usize,
     debug_loc_count: usize,
     capability_req_count: usize,
+    field_layout_count: usize,
     functions: SemanticVector,
     blocks: SemanticVector,
     values: SemanticVector,
@@ -337,6 +355,7 @@ export struct PortableMirModule {
     successors: SemanticVector,
     debug_locs: SemanticVector,
     capability_reqs: SemanticVector,
+    field_layouts: SemanticVector,
 }
 
 /// 功能说明：返回 hosted native 使用的 PortableMIR target profile。
@@ -486,6 +505,7 @@ fn portable_mir_module_clear_counts(module: &PortableMirModule) void {
     module.successor_count = 0usize;
     module.debug_loc_count = 0usize;
     module.capability_req_count = 0usize;
+    module.field_layout_count = 0usize;
 }
 
 /// 功能说明：初始化 PortableMIR module 的动态表和生命周期。
@@ -511,6 +531,7 @@ export fn portable_mir_module_init(module: &PortableMirModule, arena: &CompilerA
     semantic_vector_init(&module.successors, @size_of(MirSuccessor));
     semantic_vector_init(&module.debug_locs, @size_of(MirDebugLoc));
     semantic_vector_init(&module.capability_reqs, @size_of(MirCapabilityReq));
+    semantic_vector_init(&module.field_layouts, @size_of(MirFieldLayout));
 }
 
 fn portable_mir_append_item(vec: &SemanticVector, item: &const void) i32 {
@@ -576,6 +597,20 @@ export fn portable_mir_append_type(module: &PortableMirModule, item: &MirType) i
         return -1;
     }
     module.type_count = module.types.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR aggregate field layout 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加字段布局。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_field_layout(module: &PortableMirModule, item: &MirFieldLayout) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.field_layouts, item as &const void) != 0 {
+        return -1;
+    }
+    module.field_layout_count = module.field_layouts.count;
     return 0;
 }
 
@@ -1528,6 +1563,7 @@ export fn portable_mir_module_release(module: &PortableMirModule) void {
         semantic_vector_release(&module.successors);
         semantic_vector_release(&module.debug_locs);
         semantic_vector_release(&module.capability_reqs);
+        semantic_vector_release(&module.field_layouts);
     }
     portable_mir_module_clear_counts(module);
     module.arena = null;

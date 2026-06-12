@@ -471,6 +471,7 @@ fn verifier_empty_module() PortableMirModule {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: verifier_empty_vec(@size_of(MirFunction)),
         blocks: verifier_empty_vec(@size_of(MirBlock)),
         values: verifier_empty_vec(@size_of(MirValue)),
@@ -483,6 +484,7 @@ fn verifier_empty_module() PortableMirModule {
         successors: verifier_empty_vec(@size_of(MirSuccessor)),
         debug_locs: verifier_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: verifier_empty_vec(@size_of(MirCapabilityReq)),
+        field_layouts: verifier_empty_vec(@size_of(MirFieldLayout)),
     };
 }
 
@@ -606,7 +608,7 @@ fn verifier_run(mode: i32) i32 {
     module.insts = verifier_vec(&insts[0] as &byte, @size_of(MirInst), 1usize);
     module.terminators = verifier_vec(&terminators[0] as &byte, @size_of(MirTerminator), 1usize);
     module.operands = verifier_vec(&operands[0] as &byte, @size_of(MirOperand), 2usize);
-    module.capability_reqs = verifier_vec(&caps[0] as &byte, @size_of(MirCapabilityReq), 1usize);
+    module.capability_reqs = verifier_vec(&caps[0] as &byte, @size_of(MirFieldLayout), 1usize);
     module.function_count = 1usize;
     module.block_count = 1usize;
     module.value_count = 2usize;

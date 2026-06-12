@@ -218,6 +218,19 @@ fn golden_type(id: i32, kind: i32, pointee: i32, field_count: i32) MirType {
     return typ;
 }
 
+fn golden_field_layout(id: i32, owner_type_id: i32, field_index: i32, offset_bytes: usize) MirFieldLayout {
+    return MirFieldLayout{
+        field_layout_id: id,
+        owner_type_id: owner_type_id,
+        field_index: field_index,
+        field_type_id: 0,
+        offset_bytes: offset_bytes,
+        size_bytes: 4usize,
+        align_bytes: 4usize,
+        flags: 0,
+    };
+}
+
 fn golden_local(id: i32, type_id: i32) MirLocal {
     return MirLocal{
         local_id: id,
@@ -344,6 +357,11 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     if portable_mir_append_type(module, &t4) != 0 { return -1; }
     if portable_mir_append_type(module, &t5) != 0 { return -1; }
     if portable_mir_append_type(module, &t6) != 0 { return -1; }
+
+    var field0: MirFieldLayout = golden_field_layout(0, 2, 0, 0usize);
+    var field1: MirFieldLayout = golden_field_layout(1, 2, 1, 4usize);
+    if portable_mir_append_field_layout(module, &field0) != 0 { return -1; }
+    if portable_mir_append_field_layout(module, &field1) != 0 { return -1; }
 
     var local0: MirLocal = golden_local(0, 0);
     var local1: MirLocal = golden_local(1, 2);
@@ -640,6 +658,7 @@ export fn main() i32 {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         blocks: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         values: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
@@ -652,6 +671,7 @@ export fn main() i32 {
         successors: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         debug_locs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         capability_reqs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        field_layouts: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
     };
     portable_mir_module_init(&module, &arena);
     module.target_profile.profile_id = 7;

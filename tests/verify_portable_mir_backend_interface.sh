@@ -277,6 +277,7 @@ fn backend_module(profile_id: i32, lifecycle_state: i32) PortableMirModule {
         successor_count: 0usize,
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
+        field_layout_count: 0usize,
         functions: backend_empty_vec(@size_of(MirFunction)),
         blocks: backend_empty_vec(@size_of(MirBlock)),
         values: backend_empty_vec(@size_of(MirValue)),
@@ -289,6 +290,7 @@ fn backend_module(profile_id: i32, lifecycle_state: i32) PortableMirModule {
         successors: backend_empty_vec(@size_of(MirSuccessor)),
         debug_locs: backend_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: backend_empty_vec(@size_of(MirCapabilityReq)),
+        field_layouts: backend_empty_vec(@size_of(MirFieldLayout)),
     };
 }
 
