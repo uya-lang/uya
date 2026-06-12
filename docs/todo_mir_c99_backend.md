@@ -60,6 +60,52 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ## 4. 任务清单
 
+### 4.0 PortableMIR 前置缺口清单
+
+以下任务必须优先于对应 MIR-C99 backend leaf 完成；后端只能消费实际 `src/lower/mir.uya` / `src/lower/mir_verifier.uya` 中存在并可验证的 MIR type、opcode、metadata 和 capability，不能消费 `src/lower/mir_contract.uya` 中 contract-only 常量伪装支持。
+
+- [ ] MIR-C99-PREMIR-TYPES：补齐后端需要的 PortableMIR type/layout metadata。
+  - [ ] 标量 type kind：`i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64`，并同步 verifier size/align 规则。
+  - [ ] array / slice type kind：包含 element type、length/capacity/ptr/len layout metadata，并同步 verifier。
+  - [ ] struct / union / enum field layout metadata：字段顺序、offset、size、align、tag/payload offset 可由 MIR-C99 直接消费。
+  - [ ] error union layout metadata：success/error tag、payload offset、ABI class 可由 MIR-C99 直接消费。
+  - [ ] function type / function pointer type metadata：参数、返回值、calling convention、ABI class 和可调用 symbol/value 关系。
+
+- [ ] MIR-C99-PREMIR-VALUE-OPS：补齐表达式和转换 opcode。
+  - [ ] 整数一元、逻辑、非 i32 算术/比较 opcode，并在 verifier 中校验 operand/result type。
+  - [ ] bool 组合 opcode：`and` / `or` / `not` 或等价短路/非短路 MIR 表达形式。
+  - [ ] cast / sign extend / zero extend / truncate / int-float / float-int / float-double conversion opcode。
+  - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。
+
+- [ ] MIR-C99-PREMIR-PLACE-OPS：补齐 place/address opcode。
+  - [ ] local/global/param address opcode，并明确 address value 与 local slot 的生命周期约束。
+  - [ ] field address / load / store opcode：field id/index、base operand、result pointer type、bounds verifier。
+  - [ ] array index address / load / store opcode：index operand、element type、bounds/capability metadata。
+  - [ ] slice ptr / len / index address opcode：ptr/len field access、indexing、result type verifier。
+  - [ ] pointer offset opcode：element stride、signed/usize offset、overflow/capability 策略。
+  - [ ] aggregate copy / move opcode 或显式 memcpy helper capability：size/align/source/dest overlap 语义必须可验证。
+
+- [ ] MIR-C99-PREMIR-CALL-ABI：补齐 call 和 ABI metadata。
+  - [ ] direct call、extern call、method/monomorphized call、function pointer call 的 callee 表达形式。
+  - [ ] 多参数、aggregate return、out-param writeback、error union return、float/double ABI class metadata。
+  - [ ] call ABI 缺失时 verifier 必须 reject，不能留给 MIR-C99 后端猜测。
+
+- [ ] MIR-C99-PREMIR-RUNTIME-CAPABILITY：补齐 runtime helper/capability refs。
+  - [ ] `memcpy` / `memset` / `memcmp` / string primitive helper refs。
+  - [ ] print/println、malloc/free、env/file IO、syscall capability refs。
+  - [ ] atomic init/load/store/RMW/CMPXCHG opcode 或 helper capability；普通 load/store 不得伪装原子。
+  - [ ] SIMD vector/mask load/store/splat/select opcode 或明确 capability reject。
+
+- [ ] MIR-C99-PREMIR-CLEANUP-ASYNC：补齐 cleanup/error/async MIR 表达。
+  - [ ] `defer` / `errdefer` / lexical drop 的 cleanup edge、drop opcode 和 unwind/error path metadata。
+  - [ ] `try` / `catch` / error union success/failure CFG 形态和 verifier 规则。
+  - [ ] async frame metadata：state tag、result slot、await child slot、captured locals、poll/resume edge、frame allocation/free capability。
+
+- [ ] MIR-C99-PREMIR-GLOBALS-IMPORTS：补齐 global/import MIR 表达。
+  - [ ] global scalar / aggregate initializer、string constants、dedupe id 和 section/linkage metadata。
+  - [ ] extern globals、C import object/link inputs、symbol visibility 和 target profile metadata。
+  - [ ] split-C 多 unit 所需的 cross-unit symbol/export/import/ref metadata。
+
 ### 4.1 合同与边界
 
 - [x] MIR-C99-BACKEND-CONTRACTS：冻结独立 MIR-C99 合同。
