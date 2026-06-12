@@ -103,6 +103,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - [x] 支持 include / typedef / extern prototype / function prototype section 的低级 C bytes 输出。
       - 验证：`bash tests/verify_mir_c99_unit_output_sections.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
     - [ ] 支持 global / function body section 的低级 C bytes 输出。
+      - [x] 支持 global section 的低级 C bytes 输出。
+        - 验证：`bash tests/verify_mir_c99_unit_output_sections.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
+      - [ ] 支持 function body section 的低级 C bytes 输出；不得输出固定 `return 0;` 伪函数体，需等待 CFG/return 语义接入。
     - [ ] 单 `.c` 输出接入 emitter output result，并记录 no-fallback 验证。
   - [ ] 支持 `MirC99Unit[]` 数据结构和 unit fingerprint，即使首版只生成一个 unit。
   - [ ] 支持 `.c` 输出编译命令和临时文件生命周期，不接入现有 split-C makefile writer。

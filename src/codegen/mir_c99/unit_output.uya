@@ -300,6 +300,39 @@ export fn mir_c99_unit_output_write_declaration_sections(writer: &MirC99UnitOutp
     return 4;
 }
 
+/// 功能说明：输出 MIR-C99 单 unit 的 global section。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出条目数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_global_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "\n/* mir-c99 globals */\n" as &byte) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.globals,
+        "static int32_t uya_mir_global_" as &byte, ";\n" as &byte) != 0 {
+        return -1;
+    }
+    return writer.unit.globals.count as i32;
+}
+
+/// 功能说明：按固定顺序输出 MIR-C99 单 unit 的所有已建模 sections。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回 section 数，任一 section 失败返回 `-1`。
+export fn mir_c99_unit_output_write_all_sections(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.status != MIR_C99_OUTPUT_STATUS_READY || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write_declaration_sections(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_global_section(writer, stream) < 0 {
+        return -1;
+    }
+    return 5;
+}
+
 /// 功能说明：完成 MIR-C99 单 unit 输出 writer 的统计阶段。
 /// 参数说明：`writer` 为已初始化 writer。
 /// 返回值说明：成功返回 output bytes 估算，状态非法返回 `-1`。

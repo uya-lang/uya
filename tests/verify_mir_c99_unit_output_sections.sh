@@ -29,6 +29,7 @@ for symbol in \
     mir_c99_unit_output_write_typedef_section \
     mir_c99_unit_output_write_extern_prototype_section \
     mir_c99_unit_output_write_function_prototype_section \
+    mir_c99_unit_output_write_global_section \
     mir_c99_unit_output_write_declaration_sections; do
     require_pattern "$OUTPUT_FILE" "$symbol" "section writer $symbol"
 done
@@ -40,6 +41,12 @@ require_pattern "$OUTPUT_FILE" '#include <stdint\.h>\\n#include <stddef\.h>\\n#i
 require_pattern "$OUTPUT_FILE" 'typedef int32_t uya_mir_ty_' "typedef bytes"
 require_pattern "$OUTPUT_FILE" 'extern void uya_mir_helper_' "extern helper prototype bytes"
 require_pattern "$OUTPUT_FILE" 'static int32_t uya_mir_fn_' "function prototype bytes"
+require_pattern "$OUTPUT_FILE" 'static int32_t uya_mir_global_' "global bytes"
+
+if grep -Eq 'return 0;.*uya_mir_fn_|uya_mir_fn_.*return 0;' "$OUTPUT_FILE"; then
+    echo "error: MIR-C99 unit output must not emit fixed return-0 function bodies" >&2
+    exit 1
+fi
 
 line_include="$(grep -n 'mir_c99_unit_output_write_include_section(writer, stream)' "$OUTPUT_FILE" | head -1 | cut -d: -f1)"
 line_typedef="$(grep -n 'mir_c99_unit_output_write_typedef_section(writer, stream)' "$OUTPUT_FILE" | head -1 | cut -d: -f1)"
@@ -57,4 +64,4 @@ trap 'rm -f "$tmp"' EXIT
 sed '/^use codegen\.mir_c99\./d' "$PLAN_FILE" "$OUTPUT_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 
-echo "OK: MIR-C99 unit declaration-section output contract verified"
+echo "OK: MIR-C99 unit declaration/global-section output contract verified"
