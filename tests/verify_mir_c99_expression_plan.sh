@@ -34,6 +34,7 @@ for symbol in \
     MIR_C99_EXPR_KIND_INT_COMPARE \
     MIR_C99_EXPR_KIND_INT_UNARY \
     MIR_C99_EXPR_KIND_BOOL_LOGIC \
+    MIR_C99_EXPR_KIND_CONVERSION \
     mir_c99_value_plan_build_expressions \
     mir_c99_value_plan_expression_ptr; do
     require_pattern "$VALUE_FILE" "$symbol" "expression symbol $symbol"
@@ -65,6 +66,8 @@ require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_integer_unary' \
     "integer unary opcode family handled"
 require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_logic' \
     "bool logic opcode family handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_conversion' \
+    "conversion opcode family handled"
 require_pattern "$VALUE_FILE" 'operand_count == 2' \
     "binary expression requires two operands"
 require_pattern "$VALUE_FILE" 'operand_count == 1' \
@@ -93,4 +96,4 @@ sed '/^use codegen\.mir_c99\./d' \
     "$DRIVER_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 
-echo "OK: MIR-C99 integer expression plan verified"
+echo "OK: MIR-C99 value expression plan verified"

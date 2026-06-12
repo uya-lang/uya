@@ -32,6 +32,7 @@ export const MIR_C99_EXPR_KIND_INT_ARITH: i32 = 3;
 export const MIR_C99_EXPR_KIND_INT_COMPARE: i32 = 4;
 export const MIR_C99_EXPR_KIND_INT_UNARY: i32 = 5;
 export const MIR_C99_EXPR_KIND_BOOL_LOGIC: i32 = 6;
+export const MIR_C99_EXPR_KIND_CONVERSION: i32 = 7;
 
 export const MIR_C99_EXPR_STATUS_MISSING: i32 = 0;
 export const MIR_C99_EXPR_STATUS_READY: i32 = 1;
@@ -172,6 +173,9 @@ fn mir_c99_expression_kind_for_inst(inst: &MirInst) i32 {
     if portable_mir_inst_op_is_logic(inst.op) != 0 {
         return MIR_C99_EXPR_KIND_BOOL_LOGIC;
     }
+    if portable_mir_inst_op_is_conversion(inst.op) != 0 {
+        return MIR_C99_EXPR_KIND_CONVERSION;
+    }
     return MIR_C99_EXPR_KIND_UNSUPPORTED;
 }
 
@@ -184,6 +188,7 @@ fn mir_c99_expression_has_shape(inst: &MirInst, expr_kind: i32) i32 {
         return 0;
     }
     if expr_kind == MIR_C99_EXPR_KIND_INT_UNARY ||
+       expr_kind == MIR_C99_EXPR_KIND_CONVERSION ||
        (expr_kind == MIR_C99_EXPR_KIND_BOOL_LOGIC &&
         inst.op == MIR_INST_OP_BOOL_NOT) {
         if inst.operand_count == 1 {
@@ -256,6 +261,7 @@ fn mir_c99_expression_entry_from_inst(inst: &MirInst) MirC99ExpressionEntry {
     }
     var rhs_operand_id: MirOperandId = inst.operand_start + 1;
     if expr_kind == MIR_C99_EXPR_KIND_INT_UNARY ||
+       expr_kind == MIR_C99_EXPR_KIND_CONVERSION ||
        (expr_kind == MIR_C99_EXPR_KIND_BOOL_LOGIC &&
         inst.op == MIR_INST_OP_BOOL_NOT) {
         rhs_operand_id = -1;
