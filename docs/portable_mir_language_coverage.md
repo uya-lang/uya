@@ -136,7 +136,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_MC_INTERP` | partial | missing | 宏内插值。 |
 | `AST_MC_TYPE` | partial | missing | 宏内类型反射。 |
 | `AST_MC_SOURCE` | partial | missing | 宏内源码字符串序列化。 |
-| `AST_AWAIT_EXPR` | partial | missing | 异步表达式；C99 走 async transform。 |
+| `AST_AWAIT_EXPR` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow、frame/pool 和 cleanup/resource await 仍在后续 full-language async shards 收口。 |
 | `AST_SRC_NAME` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `AST_SRC_PATH` | done | missing | C99 builtin。 |
 | `AST_SRC_LINE` | done | missing | C99 builtin。 |
@@ -162,7 +162,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取。 |
+| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取；async basic parity shard 覆盖 async error union return。 |
 | `AST_TYPE_ATOMIC` | done | reject | atomic compound-add reject shard 确认 `atomic i32` init/read/compound add 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 portable atomic helper 或 target capability 后必须改为真实 parity。 |
 | `AST_TYPE_VECTOR` | done | reject | SIMD vector/mask reject shard 确认 `@vector(T, N)` 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
 | `AST_TYPE_MASK` | done | reject | SIMD vector/mask reject shard 确认 `@mask(N)` 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
@@ -249,7 +249,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |
 | `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | missing | `c_import` 边界。 |
 | `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
-| `@await` | partial | missing | 异步表达式。 |
+| `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow、frame/pool 和 cleanup/resource await 仍在后续 full-language async shards 收口。 |
 
 ---
 
