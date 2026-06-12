@@ -50,3 +50,7 @@ src/.uyacache-macos-new/
 src/.uyacache-macos-x86_64/
 src/.uyacache-native-refresh/
 .mcp.json
+
+.agent/logs/*
+.agent/state*.json
+loop.log
