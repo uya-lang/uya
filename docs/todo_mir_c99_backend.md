@@ -109,7 +109,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。
     - [x] 建立 f32/f64 value opcode inventory / 分类 helper，覆盖浮点算术、比较和常量族，并让 verifier 使用分类入口。
       - 验证：`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `CONST_F32` 正例和非 float result 反例，断言数 40）；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
-    - [ ] f32/f64 算术 opcode：校验 operand/result type 同为 f32 或同为 f64。
+    - [x] f32/f64 算术 opcode：校验 operand/result type 同为 f32 或同为 f64。
+      - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `F64_ADD` 同型正例和 operand 类型错配反例，断言数 42）；`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [ ] f32/f64 比较 opcode：校验 operand type 同为 f32/f64 且 result type 为 bool。
     - [ ] f32/f64 常量 literal：MIR operand/value plan 能记录 f32/f64 常量类别并明确当前 payload 边界。
     - [ ] return/call value verifier：f32/f64 return/call result/argument type 必须由 MIR type 和 ABI metadata 明确校验。

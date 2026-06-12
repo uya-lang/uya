@@ -723,8 +723,20 @@ fn portable_mir_verify_integer_value_inst(module: &PortableMirModule,
 
 fn portable_mir_verify_float_value_inst(module: &PortableMirModule,
     inst: &MirInst, typ: &MirType) i32 {
-    if portable_mir_inst_op_is_float_arithmetic(inst.op) != 0 ||
-       portable_mir_inst_op_is_float_compare(inst.op) != 0 {
+    if portable_mir_inst_op_is_float_arithmetic(inst.op) != 0 {
+        if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+           typ == null || portable_mir_type_kind_is_float(typ.kind) == 0 {
+            return 0;
+        }
+        const lhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+        const rhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start + 1);
+        if portable_mir_verify_operand_type_id(module, lhs, inst.type_id) == 0 ||
+           portable_mir_verify_operand_type_id(module, rhs, inst.type_id) == 0 {
+            return 0;
+        }
+        return 1;
+    }
+    if portable_mir_inst_op_is_float_compare(inst.op) != 0 {
         if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
            typ == null {
             return 0;
