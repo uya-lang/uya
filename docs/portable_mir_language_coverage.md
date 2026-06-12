@@ -78,14 +78,14 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_PROGRAM` | done | missing | 模块入口；`tests/verify_portable_mir_structs.sh` 固定。 |
 | `AST_ENUM_DECL` | done | partial | MIR-C99 full-language enum parity shard 覆盖 enum tag、显式/自动值、比较、cast 和 enum match arms。 |
 | `AST_ERROR_DECL` | done | missing | `error SmokeError;` 由 Phase 9A 验证。 |
-| `AST_INTERFACE_DECL` | done | partial | MIR-C99 full-language interface dispatch parity shard 覆盖基础 interface value + vtable method dispatch；generic interface parity shard 覆盖 `Scorer<i32>` / `Scorer<f64>` concrete interface instances。 |
-| `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call；generic struct parity shard 覆盖 `Box<T>` 的 i32/f64 concrete instances；generic method parity shard 覆盖 `Box<T>` concrete method instances；interface dispatch parity shard 覆盖 `Counter : IAdd` concrete implementation；generic interface parity shard 覆盖 `IntScorer : Scorer<i32>` 与 `FloatScorer : Scorer<f64>` concrete implementations。 |
+| `AST_INTERFACE_DECL` | done | partial | MIR-C99 full-language interface dispatch parity shard 覆盖基础 interface value + vtable method dispatch；generic interface parity shard 覆盖 `Scorer<i32>` / `Scorer<f64>` concrete interface instances；interface composition/field/global init parity shard 覆盖组合接口、接口字段和全局接口初始化。 |
+| `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call；generic struct parity shard 覆盖 `Box<T>` 的 i32/f64 concrete instances；generic method parity shard 覆盖 `Box<T>` concrete method instances；interface dispatch parity shard 覆盖 `Counter : IAdd` concrete implementation；generic interface parity shard 覆盖 `IntScorer : Scorer<i32>` 与 `FloatScorer : Scorer<f64>` concrete implementations；interface composition/field/global init parity shard 覆盖带 interface 字段的 struct 和全局 aggregate initializer。 |
 | `AST_UNION_DECL` | done | partial | MIR-C99 full-language union parity shard 覆盖 tagged union layout、构造和 payload match 解包。 |
-| `AST_METHOD_BLOCK` | partial | partial | MIR-C99 full-language struct parity shard 覆盖 method-style aggregate call；generic method parity shard 覆盖 owner 泛型实参和方法泛型实参的 concrete method calls；interface dispatch parity shard 覆盖基础 vtable method lowering；generic interface parity shard 覆盖泛型 interface concrete vtable method lowering。 |
+| `AST_METHOD_BLOCK` | partial | partial | MIR-C99 full-language struct parity shard 覆盖 method-style aggregate call；generic method parity shard 覆盖 owner 泛型实参和方法泛型实参的 concrete method calls；interface dispatch parity shard 覆盖基础 vtable method lowering；generic interface parity shard 覆盖泛型 interface concrete vtable method lowering；interface composition/field/global init parity shard 覆盖组合接口的 read/write/flush vtable method lowering。 |
 | `AST_FN_DECL` | done | missing | 主路径；`export fn` / `fn` 已走 CoreBody。 |
 | `AST_MACRO_DECL` | partial | missing | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
 | `AST_TYPE_ALIAS` | done | missing | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
-| `AST_VAR_DECL` | done | missing | `var array`/`var atomic_value` 等。 |
+| `AST_VAR_DECL` | done | partial | MIR-C99 interface composition/field/global init parity shard 覆盖全局 `const` aggregate initializer 内的 interface value 初始化；`var array`/`var atomic_value` 等仍待专用 shard。 |
 | `AST_EXTERN_VAR_DECL` | done | partial | MIR-C99 已支持 extern global plan/output 的 declaration-only 路径；extern global parity 待后续 shard。 |
 | `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
 | `AST_USE_STMT` | done | partial | MIR-C99 full-language multi-file module item use parity shard 覆盖跨文件 item import；whole-module alias parity 待补。 |
@@ -104,11 +104,11 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | partial | MIR-C99 full-language pointer parity shard 覆盖 `&local` 取地址和 `*ptr` 解引用 load/store；其他一元运算由后续 shard 覆盖。 |
-| `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call，struct parity shard 覆盖 method-style aggregate call；generic function parity shard 覆盖 i32/f64 concrete function instances；generic method parity shard 覆盖 `Box<T>.make/get` 和 `tag_with<U>` concrete calls；interface dispatch parity shard 覆盖基础 vtable interface call；generic interface parity shard 覆盖 generic interface concrete vtable calls。 |
-| `AST_MEMBER_ACCESS` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field access 和 method member call；generic struct parity shard 覆盖 generic struct field access；generic method parity shard 覆盖 concrete generic owner/member method access；union parity shard 覆盖 payload field access；tuple parity shard 覆盖 `.0/.1` numeric member access。 |
+| `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call，struct parity shard 覆盖 method-style aggregate call；generic function parity shard 覆盖 i32/f64 concrete function instances；generic method parity shard 覆盖 `Box<T>.make/get` 和 `tag_with<U>` concrete calls；interface dispatch parity shard 覆盖基础 vtable interface call；generic interface parity shard 覆盖 generic interface concrete vtable calls；interface composition/field/global init parity shard 覆盖组合接口字段上的 vtable calls。 |
+| `AST_MEMBER_ACCESS` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field access 和 method member call；generic struct parity shard 覆盖 generic struct field access；generic method parity shard 覆盖 concrete generic owner/member method access；union parity shard 覆盖 payload field access；tuple parity shard 覆盖 `.0/.1` numeric member access；interface composition/field/global init parity shard 覆盖 interface 字段 member access。 |
 | `AST_ARRAY_ACCESS` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice shard 覆盖 slice index load。 |
 | `AST_SLICE_EXPR` | done | partial | MIR-C99 full-language slice parity shard 覆盖 array-to-slice 和 slice-to-slice 表达式。 |
-| `AST_STRUCT_INIT` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal 初始化；generic struct parity shard 覆盖 `Box<T>` concrete init。 |
+| `AST_STRUCT_INIT` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal 初始化；generic struct parity shard 覆盖 `Box<T>` concrete init；interface composition/field/global init parity shard 覆盖含 interface value 字段的全局 struct initializer。 |
 | `AST_ARRAY_LITERAL` | done | partial | MIR-C99 full-language array parity shard 覆盖 `[i32: N]` 字面量和空数组初始化。 |
 | `AST_TUPLE_LITERAL` | partial | partial | MIR-C99 full-language tuple parity shard 覆盖 `(i32, i32)` 字面量、`.0/.1` numeric member access 和由 tuple field 构造新 tuple。 |
 | `AST_SIZEOF` | done | missing | `@size_of` 由 `builtin` shard 验证。 |
@@ -198,7 +198,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_EXPR_KIND_CALL` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local call 和 extern C call，struct parity shard 覆盖 method-style aggregate call；generic function parity shard 覆盖 i32/f64 concrete function instances；generic method parity shard 覆盖 owner/method 泛型 concrete calls；interface dispatch parity shard 覆盖基础 vtable interface call；generic interface parity shard 覆盖 concrete generic interface vtable calls。 |
+| `CORE_EXPR_KIND_CALL` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local call 和 extern C call，struct parity shard 覆盖 method-style aggregate call；generic function parity shard 覆盖 i32/f64 concrete function instances；generic method parity shard 覆盖 owner/method 泛型 concrete calls；interface dispatch parity shard 覆盖基础 vtable interface call；generic interface parity shard 覆盖 concrete generic interface vtable calls；interface composition/field/global init parity shard 覆盖组合接口字段上的 concrete vtable calls。 |
 | `CORE_EXPR_KIND_INDEX` | done | missing | `array_index` shard。 |
 | `CORE_EXPR_KIND_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 array-to-slice 和 slice-to-slice lowering。 |
 | `CORE_EXPR_KIND_ATOMIC` | done | missing | `atomic` shard。 |
@@ -218,7 +218,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_PLACE_KIND_FIELD` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field load/store；generic struct parity shard 覆盖 generic struct field load；union parity shard 覆盖 match payload field load；tuple parity shard 覆盖 tuple numeric member load。 |
+| `CORE_PLACE_KIND_FIELD` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field load/store；generic struct parity shard 覆盖 generic struct field load；union parity shard 覆盖 match payload field load；tuple parity shard 覆盖 tuple numeric member load；interface composition/field/global init parity shard 覆盖 interface 字段 load 和 offset 字段 load。 |
 | `CORE_PLACE_KIND_INDEX` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice shard 覆盖 slice index load。 |
 | `CORE_PLACE_KIND_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 slice place 构造。 |
 | `CORE_PLACE_KIND_LOCAL` | done | partial | MIR-C99 full-language pointer parity shard 覆盖 local address-of 和经 local pointer 的 deref load/store。 |
