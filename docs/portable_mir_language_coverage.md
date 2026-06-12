@@ -164,8 +164,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
 | `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取。 |
 | `AST_TYPE_ATOMIC` | done | reject | atomic compound-add reject shard 确认 `atomic i32` init/read/compound add 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 portable atomic helper 或 target capability 后必须改为真实 parity。 |
-| `AST_TYPE_VECTOR` | done | missing | `@vector(T, N)` 由 `simd` shard 验证。 |
-| `AST_TYPE_MASK` | done | missing | `@mask(N)` 由 `simd` shard 验证。 |
+| `AST_TYPE_VECTOR` | done | reject | SIMD vector/mask reject shard 确认 `@vector(T, N)` 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
+| `AST_TYPE_MASK` | done | reject | SIMD vector/mask reject shard 确认 `@mask(N)` 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
 | `AST_TYPE_FRAME` | partial | missing | `@frame(foo)` 异步帧类型走 async transform。 |
 
 注：`done` 行不必然代表 MIR-C99 已经端到端 parity；MIR-C99 状态以 §2.1 和 TODO 详细任务列表为准。
@@ -202,8 +202,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `CORE_EXPR_KIND_INDEX` | done | missing | `array_index` shard。 |
 | `CORE_EXPR_KIND_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 array-to-slice 和 slice-to-slice lowering。 |
 | `CORE_EXPR_KIND_ATOMIC` | done | missing | `atomic` shard。 |
-| `CORE_EXPR_KIND_VECTOR` | done | missing | `simd` shard。 |
-| `CORE_EXPR_KIND_MASK` | done | missing | `simd` shard。 |
+| `CORE_EXPR_KIND_VECTOR` | done | reject | SIMD vector/mask reject shard 确认 vector splat/arithmetic/compare/all 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
+| `CORE_EXPR_KIND_MASK` | done | reject | SIMD vector/mask reject shard 确认 mask compare/all 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
 | `CORE_EXPR_KIND_INT_LITERAL` | done | missing | Phase 9A 验证。 |
 | `CORE_EXPR_KIND_LOCAL_REF` | done | missing | Phase 9A 验证。 |
 | `CORE_EXPR_KIND_I32_NE` | done | missing | Phase 9A 验证。 |

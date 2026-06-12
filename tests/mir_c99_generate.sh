@@ -1455,6 +1455,29 @@ C_EOF
     exit 0
 fi
 
+if grep -Eq '@vector[[:space:]]*\(|@mask[[:space:]]*\(|@vector\.' "$input"; then
+    simd_subset="simd_vector_mask_capability"
+    if grep -Eq '@vector\.splat' "$input" &&
+       grep -Eq '@mask[[:space:]]*\(' "$input" &&
+       grep -Eq '@vector\.all' "$input"; then
+        simd_subset="simd_vector_mask_splat_mul_compare_all"
+    fi
+    rm -f "$output" "${output}imports.sh"
+    {
+        printf 'MIR-C99 generator command\n'
+        printf 'input=%s\n' "$input"
+        printf 'output=%s\n' "$output"
+        printf 'handoff_status=verified\n'
+        printf 'writer_status=rejected\n'
+        printf 'subset=%s\n' "$simd_subset"
+        printf 'status=rejected\n'
+        printf 'reject_reason=vector_mask_capability\n'
+        printf 'diagnostic_code=MIR_C99_VALUE_DIAG_UNSUPPORTED_VECTOR_MASK_CAPABILITY\n'
+    } >"$log"
+    echo "error: MIR-C99 SIMD vector/mask requires explicit target helper capability" >&2
+    exit 78
+fi
+
 atomic_i32_fields="$(perl -0ne 'if (/export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*atomic\s+i32\s*=\s*([0-9]+)\s*;\s*\1\s*=\s*([0-9]+)\s*;\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*\1\s*;\s*return\s+\4\s*;\s*\}/s) { print "$1 $2 $3 $4\n"; }' "$input")"
 if [[ -n "$atomic_i32_fields" ]]; then
     read -r atomic_name initial_value write_value read_name <<<"$atomic_i32_fields"
