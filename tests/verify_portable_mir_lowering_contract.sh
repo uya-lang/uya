@@ -59,7 +59,12 @@ for op in \
     MIR_INST_OP_VECTOR_SPLAT \
     MIR_INST_OP_VECTOR_LOAD \
     MIR_INST_OP_VECTOR_STORE \
-    MIR_INST_OP_VECTOR_SELECT; do
+    MIR_INST_OP_VECTOR_SELECT \
+    MIR_INST_OP_ERROR_UNION_OK \
+    MIR_INST_OP_ERROR_UNION_ERR \
+    MIR_INST_OP_ERROR_UNION_IS_ERR \
+    MIR_INST_OP_ERROR_UNION_PAYLOAD \
+    MIR_INST_OP_ERROR_UNION_ERROR; do
     require_pattern "$MIR_CONTRACT_FILE" "export const ${op}" "MIR opcode $op"
 done
 
@@ -70,6 +75,8 @@ require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_FLAG_ATOMIC_ORDERED' "atomic memo
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_ATOMIC_RMW_ADD' "atomic RMW operation metadata"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_CLEANUP_MODEL_UNWIND' "cleanup unwind metadata"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_CLEANUP_ACTION_ERRDEFER' "errdefer cleanup action metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_ERROR_UNION_PATH_FAILURE' "error-union failure path metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_FLAG_ERROR_UNION_CHECKED' "error-union checked extraction metadata"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_stmt_kind' "CoreStmt to MIR feature mapping"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_expr_kind' "CoreExpr to MIR feature mapping"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_place_kind' "CorePlace to MIR feature mapping"

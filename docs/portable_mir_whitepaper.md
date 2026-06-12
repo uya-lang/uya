@@ -415,6 +415,7 @@ structured source statements 从 CoreBody 降到 blocks：
 - `return` -> 若有 active defer/drop，先经过 cleanup
 - `try` -> 检查 error-union tag，错误路径运行 errdefer/cleanup 后传播
 - `catch` -> 错误路径绑定 error payload
+- error-union success/failure path 必须有显式 metadata；payload/error 提取必须来自已检查的 tag path。
 
 每个拥有 cleanup 的 source scope 都有 cleanup record。lowering 可选择 inline cleanup blocks 或 shared cleanup blocks。
 verifier 只要求每条 exit path 满足 active scope stack 的 cleanup obligations。

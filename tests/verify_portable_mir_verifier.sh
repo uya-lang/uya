@@ -56,6 +56,9 @@ require_pattern "$MIR_FILE" 'MIR_INST_OP_DROP_VALUE' "PortableMIR drop value opc
 require_pattern "$MIR_FILE" 'MIR_CLEANUP_MODEL_UNWIND' "PortableMIR cleanup unwind metadata"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_drop_inst' "verifier validates drop instruction shape"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_cleanup_model_known' "verifier validates cleanup model metadata"
+require_pattern "$MIR_FILE" 'MIR_INST_OP_ERROR_UNION_IS_ERR' "PortableMIR error-union tag check opcode"
+require_pattern "$MIR_FILE" 'MIR_ERROR_UNION_PATH_FAILURE' "PortableMIR error-union failure path metadata"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_error_union_inst' "verifier validates error-union instruction shape"
 
 require_pattern "$MIR_VERIFIER_FILE" 'semantic_vector_item_ptr' "linear table traversal"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_function_has_asm_only_naked_body' "naked body verifier hook"
@@ -1724,6 +1727,57 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 0;
         operands[0] = verifier_operand(0, 0, 0);
     }
+    if mode == 111 {
+        insts[0].op = MIR_INST_OP_ERROR_UNION_OK;
+        insts[0].type_id = 19;
+        insts[0].operand_count = 1;
+        values[0].type_id = 0;
+        values[1].type_id = 19;
+        operands[0] = verifier_operand(0, 0, 0);
+    }
+    if mode == 112 {
+        insts[0].op = MIR_INST_OP_ERROR_UNION_ERR;
+        insts[0].type_id = 19;
+        insts[0].operand_count = 1;
+        values[0].type_id = 0;
+        values[1].type_id = 19;
+        operands[0] = verifier_operand(0, 0, 0);
+    }
+    if mode == 113 {
+        insts[0].op = MIR_INST_OP_ERROR_UNION_IS_ERR;
+        insts[0].type_id = 5;
+        insts[0].operand_count = 1;
+        insts[0].flags = MIR_INST_FLAG_ERROR_UNION_CHECKED;
+        values[0].type_id = 19;
+        values[1].type_id = 5;
+        operands[0] = verifier_operand(0, 0, 19);
+    }
+    if mode == 114 {
+        insts[0].op = MIR_INST_OP_ERROR_UNION_PAYLOAD;
+        insts[0].type_id = 0;
+        insts[0].operand_count = 1;
+        insts[0].flags = MIR_INST_FLAG_ERROR_UNION_CHECKED;
+        values[0].type_id = 19;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, 0, 19);
+    }
+    if mode == 115 {
+        insts[0].op = MIR_INST_OP_ERROR_UNION_ERROR;
+        insts[0].type_id = 0;
+        insts[0].operand_count = 1;
+        insts[0].flags = MIR_INST_FLAG_ERROR_UNION_CHECKED;
+        values[0].type_id = 19;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, 0, 19);
+    }
+    if mode == 116 {
+        insts[0].op = MIR_INST_OP_ERROR_UNION_PAYLOAD;
+        insts[0].type_id = 0;
+        insts[0].operand_count = 1;
+        values[0].type_id = 19;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, 0, 19);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -1828,6 +1882,11 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(106), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(107), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(108), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(111), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(112), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(113), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(114), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(115), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1890,6 +1949,7 @@ test "PortableMIR verifier rejects atomic vector mask cleanup and naked violatio
     try assert_eq_i32(verifier_run(105), MIR_VERIFY_ERR_INVALID_OPERAND);
     try assert_eq_i32(verifier_run(109), MIR_VERIFY_ERR_INVALID_CLEANUP);
     try assert_eq_i32(verifier_run(110), MIR_VERIFY_ERR_INVALID_OPERAND);
+    try assert_eq_i32(verifier_run(116), MIR_VERIFY_ERR_INVALID_LAYOUT);
 }
 EOF
 
