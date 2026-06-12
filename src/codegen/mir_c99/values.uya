@@ -27,6 +27,8 @@ export const MIR_C99_CONSTANT_STATUS_MISSING: i32 = 0;
 export const MIR_C99_CONSTANT_STATUS_READY: i32 = 1;
 export const MIR_C99_CONSTANT_STATUS_REJECT: i32 = 2;
 
+export const MIR_C99_VALUE_DIAG_UNSUPPORTED_ATOMIC_CAPABILITY: i32 = -2401;
+
 export const MIR_C99_EXPR_KIND_UNSUPPORTED: i32 = 0;
 export const MIR_C99_EXPR_KIND_I32_ADD: i32 = 1;
 export const MIR_C99_EXPR_KIND_I32_LE: i32 = 2;
@@ -42,6 +44,9 @@ export const MIR_C99_EXPR_KIND_ATOMIC_HELPER: i32 = 10;
 export const MIR_C99_EXPR_STATUS_MISSING: i32 = 0;
 export const MIR_C99_EXPR_STATUS_READY: i32 = 1;
 export const MIR_C99_EXPR_STATUS_REJECT: i32 = 2;
+
+export const MIR_C99_EXPR_REJECT_REASON_NONE: i32 = 0;
+export const MIR_C99_EXPR_REJECT_REASON_ATOMIC_CAPABILITY: i32 = 1;
 
 /// 功能说明：记录一个 MIR value 到 MIR-C99 C temp 的稳定映射。
 /// 参数说明：无；字段保存 MIR value/type/local/defining-inst ID 和 C temp source id。
@@ -84,6 +89,7 @@ export struct MirC99ExpressionEntry {
     expr_kind: i32,
     lhs_operand_id: MirOperandId,
     rhs_operand_id: MirOperandId,
+    reject_reason: i32,
     flags: i32,
     status: i32,
 }
@@ -99,6 +105,7 @@ export struct MirC99ValuePlan {
     constant_count: usize,
     expression_count: usize,
     reject_count: usize,
+    diagnostic_code: i32,
 }
 
 fn mir_c99_value_type_ptr(module: &PortableMirModule, type_id: MirTypeId) &MirType {
@@ -275,6 +282,7 @@ fn mir_c99_expression_entry_from_inst(inst: &MirInst) MirC99ExpressionEntry {
             expr_kind: MIR_C99_EXPR_KIND_UNSUPPORTED,
             lhs_operand_id: -1,
             rhs_operand_id: -1,
+            reject_reason: MIR_C99_EXPR_REJECT_REASON_NONE,
             flags: 0,
             status: MIR_C99_EXPR_STATUS_REJECT,
         };
@@ -286,6 +294,10 @@ fn mir_c99_expression_entry_from_inst(inst: &MirInst) MirC99ExpressionEntry {
        mir_c99_expression_is_explicit_reject(expr_kind) != 0 ||
        mir_c99_expression_has_shape(inst, expr_kind) == 0 {
         status = MIR_C99_EXPR_STATUS_REJECT;
+    }
+    var reject_reason: i32 = MIR_C99_EXPR_REJECT_REASON_NONE;
+    if expr_kind == MIR_C99_EXPR_KIND_ATOMIC_HELPER {
+        reject_reason = MIR_C99_EXPR_REJECT_REASON_ATOMIC_CAPABILITY;
     }
     var rhs_operand_id: MirOperandId = inst.operand_start + 1;
     if expr_kind == MIR_C99_EXPR_KIND_INT_UNARY ||
@@ -303,6 +315,7 @@ fn mir_c99_expression_entry_from_inst(inst: &MirInst) MirC99ExpressionEntry {
         expr_kind: expr_kind,
         lhs_operand_id: inst.operand_start,
         rhs_operand_id: rhs_operand_id,
+        reject_reason: reject_reason,
         flags: inst.flags,
         status: status,
     };
@@ -352,6 +365,7 @@ export fn mir_c99_value_plan_init(plan: &MirC99ValuePlan) i32 {
     plan.constant_count = 0usize;
     plan.expression_count = 0usize;
     plan.reject_count = 0usize;
+    plan.diagnostic_code = 0;
     return 0;
 }
 
@@ -369,6 +383,17 @@ export fn mir_c99_value_plan_release(plan: &MirC99ValuePlan) void {
     plan.constant_count = 0usize;
     plan.expression_count = 0usize;
     plan.reject_count = 0usize;
+    plan.diagnostic_code = 0;
+}
+
+/// 功能说明：返回 MIR-C99 value/expression plan 的首个明确 diagnostic code。
+/// 参数说明：`plan` 为 value/expression plan。
+/// 返回值说明：已有 diagnostic 返回对应负数 code；否则返回 `-1`。
+export fn mir_c99_value_plan_diagnostic_code(plan: &MirC99ValuePlan) i32 {
+    if plan == null || plan.diagnostic_code == 0 {
+        return -1;
+    }
+    return plan.diagnostic_code;
 }
 
 /// 功能说明：向 MIR-C99 value/temp 计划追加一个 MIR value 映射。
@@ -407,6 +432,10 @@ export fn mir_c99_value_plan_append_expression(value_plan: &MirC99ValuePlan,
             }
             value_plan.expression_count = value_plan.expressions.count;
             value_plan.reject_count = value_plan.reject_count + 1usize;
+            if entry.reject_reason == MIR_C99_EXPR_REJECT_REASON_ATOMIC_CAPABILITY {
+                value_plan.diagnostic_code =
+                    MIR_C99_VALUE_DIAG_UNSUPPORTED_ATOMIC_CAPABILITY;
+            }
             return -1;
         }
         return 0;
