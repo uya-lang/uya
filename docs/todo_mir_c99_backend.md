@@ -159,7 +159,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_unit_fingerprint.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] 支持 `.c` 输出编译命令和临时文件生命周期，不接入现有 split-C makefile writer。
     - 验证：`bash tests/verify_mir_c99_host_compile_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] 新增 smoke：return literal 经 MIR-C99 生成 `.c`，host C compiler 编译运行，exit 与现有 C99 oracle 一致。
+  - [ ] 新增 smoke：return literal 经 MIR-C99 生成 `.c`，host C compiler 编译运行，exit 与现有 C99 oracle 一致。
     - 阻塞：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 目前只报告 `generator commands are pending backend hookup`，尚无真实 `MIR_C99_GENERATE_CMD`/CLI；当前 RETURN 输出仍依赖 `return tmpN;`，return literal immediate/value emission 需要后续 Values 任务接入后才能做端到端 host C 编译运行。
 
 ### 4.4 CFG
@@ -177,7 +177,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] MIR verifier 未通过时拒绝，不生成 C。
     - 验证：`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] parity shard：local init + if return / nested branch / loop backedge。
+  - [ ] parity shard：local init + if return / nested branch / loop backedge。
     - 阻塞：当前无真实 MIR-C99 generator command/CLI，`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup；该 shard 还需要 4.5 Values 的 local/temp/literal 与比较/branch value emission，现阶段无法生成可由 host C compiler 编译运行的对齐用例。
 
 ### 4.5 Values
@@ -193,15 +193,15 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - [x] MIR opcode 缺口记录：一元、逻辑和其他算术/比较 opcode 尚未进入 PortableMIR，后端不得臆造 MIR 常量。
       - 证据：`rg -n "MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 显示当前相关表达式 opcode 只有 `MIR_INST_OP_I32_ADD` 和 `MIR_INST_OP_I32_LE`；一元、逻辑和其他算术/比较 opcode 尚未定义，MIR-C99 后端只规划已存在 MIR opcode。
       - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。
+  - [ ] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。
     - 阻塞：当前 PortableMIR opcode 枚举和 verifier 只包含 `NOP`、`LOAD`、`STORE`、`CALL`、`ASM_BLOCK`、`I32_ADD`、`I32_LE`、`LOCAL_SET`，没有 cast/sign-extend/zero-extend/truncate/int-float conversion opcode；MIR-C99 后端不能臆造未定义 MIR 常量或未验证指令形态。
     - 验证：`rg -n "MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 确认 opcode 缺口；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] value def/use 顺序检查：未定义或跨 block 非法 use 必须由 verifier 阻止。
     - 验证：`bash tests/verify_mir_c99_value_use_order.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] parity shard：integer arithmetic/comparison/boolean combination。
+  - [ ] parity shard：integer arithmetic/comparison/boolean combination。
     - 阻塞：当前仍无真实 MIR-C99 generator command/CLI；`tests/verify_mir_c99_oracle_parity_harness.sh` 报告 `generator commands are pending backend hookup`。虽然 value/constant/expression plan 已覆盖当前 `I32_ADD`/`I32_LE`，但 unit output 尚未发射表达式语句并生成可由 host C compiler 编译运行的 `.c`。
     - 验证：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；不能作为 parity 通过证据。
-  - [f] parity shard：float/double arithmetic、comparison、cast 和 return。
+  - [ ] parity shard：float/double arithmetic、comparison、cast 和 return。
     - 阻塞：当前 PortableMIR 没有 f32/f64 type kind、float/double arithmetic/comparison/cast opcode，也无真实 MIR-C99 generator command/CLI；`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup。
     - 验证：`rg -n "MIR_TYPE_KIND_F|MIR_INST_OP_.*F|MIR_INST_OP_.*CAST|MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 未发现 float/cast opcode；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；不能作为 parity 通过证据。
 
@@ -212,19 +212,19 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_place_local_plan.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_value_use_order.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] pointer deref load/store。
     - 验证：`bash tests/verify_mir_c99_place_pointer_plan.sh` 通过；`bash tests/verify_mir_c99_place_local_plan.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_value_use_order.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] field address / load / store。
+  - [ ] field address / load / store。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier（`src/lower/mir.uya`、`src/lower/mir_verifier.uya`）没有 `MIR_INST_OP_FIELD_ADDR` 或 field operand/index instruction；`MIR_INST_OP_FIELD_ADDR` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能消费 contract-only opcode 伪装 field address/load/store 支持。
     - 验证：`rg -n "MIR_INST_OP_FIELD_ADDR|FIELD_ADDR|field_start|field_count" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 -S` 确认只有 type metadata 和 contract-only opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] array index address / load / store。
+  - [ ] array index address / load / store。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_INDEX_ADDR` 或 array index address instruction；`MIR_INST_OP_INDEX_ADDR` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能消费 contract-only opcode 伪装 array index address/load/store 支持。
     - 验证：`rg -n "MIR_INST_OP_.*INDEX|INDEX_ADDR|ARRAY|SLICE|CORE_PLACE_KIND_INDEX|index address|element_type_id|lane_count" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 -S` 确认实际 MIR/verifier 无 index address opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] slice ptr/len load。
+  - [ ] slice ptr/len load。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_SLICE_PTR_ADDR` / `MIR_INST_OP_SLICE_LEN_ADDR` 或 slice ptr/len instruction；这两个 opcode 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能消费 contract-only opcode 伪装 slice ptr/len load 支持。
     - 验证：`rg -n "MIR_INST_OP_SLICE|SLICE_PTR_ADDR|SLICE_LEN_ADDR|CORE_PLACE_KIND_SLICE|slice ptr|slice len|MIR_TYPE_KIND_STRUCT|element_type_id" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 -S` 确认实际 MIR/verifier 无 slice ptr/len opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] aggregate copy / move 的最小 `memcpy` helper。
+  - [ ] aggregate copy / move 的最小 `memcpy` helper。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_COPY` / `MIR_INST_OP_MOVE`，也没有 MIR 显式 memcpy helper capability；`MIR_INST_OP_COPY` / `MIR_INST_OP_MOVE` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能提前发明 aggregate copy/move 或隐式接入 memcpy。
     - 验证：`rg -n "MEMCPY|memcpy|COPY|MOVE|AGGREGATE|aggregate|MIR_INST_OP_.*COPY|MIR_INST_OP_.*MOVE|helper" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 docs/todo_mir_c99_backend.md -S` 确认实际 MIR/verifier 无 copy/move opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [f] parity shard：struct field、array index、slice index、out-param writeback。
+  - [ ] parity shard：struct field、array index、slice index、out-param writeback。
     - 阻塞：当前无真实 MIR-C99 generator command/CLI，`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup；同时本 shard 依赖的 field/index/slice/copy-out/out-param 写回对应 MIR opcode 或 helper 均未进入实际 MIR/verifier，不能生成 host C compiler 可编译运行的 parity 用例。
     - 验证：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；field/index/slice/copy leaf 已分别记录实际 MIR/verifier 缺口；不能作为 parity 通过证据。
 
