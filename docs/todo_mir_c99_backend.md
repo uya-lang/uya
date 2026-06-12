@@ -120,7 +120,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - [x] 同步 MIR-C99 expression plan 对 f32/f64 算术/比较/常量的可见支持/拒绝边界。
       - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 `MIR_C99_EXPR_KIND_FLOAT_ARITH` / `MIR_C99_EXPR_KIND_FLOAT_COMPARE` 和 float opcode family 分类，checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
 
-- [ ] MIR-C99-PREMIR-PLACE-OPS：补齐 place/address opcode。
+- [x] MIR-C99-PREMIR-PLACE-OPS：补齐 place/address opcode。
   - [x] local/global/param address opcode，并明确 address value 与 local slot 的生命周期约束。
     - 验证：`bash tests/verify_portable_mir_address_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 local/param/global address 正例和 local 未标记 address-taken 反例，断言数 53）；`bash tests/verify_mir_c99_type_pointer_plan.sh` 通过；`bash tests/verify_mir_c99_place_local_plan.sh` 通过；`bash tests/verify_mir_c99_place_pointer_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] field address / load / store opcode：field id/index、base operand、result pointer type、bounds verifier。
