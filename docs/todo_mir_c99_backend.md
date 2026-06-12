@@ -458,7 +458,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.14 Split-C / Build Manifest
 
-- [ ] MIR-C99-BACKEND-SPLIT-C：在单 unit 稳定后扩到多 unit。
+- [x] MIR-C99-BACKEND-SPLIT-C：在单 unit 稳定后扩到多 unit。
+  - 验证：`bash tests/verify_mir_c99_split_build_parity.sh` 通过，覆盖最小多文件 `@c_import` shard 的默认 MIR-C99 generator `.c` / sidecar 输出、host C compiler 编译运行，并与现有 C99 oracle stdout/stderr/exit code 一致，同时校验 build manifest 的 parallel group、cache lock 和 stale-lock 策略；`bash tests/verify_mir_c99_build_manifest_plan.sh` 通过；`bash tests/verify_mir_c99_split_unit_assignment_plan.sh` 通过；`bash tests/verify_mir_c99_split_header_deps_plan.sh` 通过；`bash tests/verify_mir_c99_unit_fingerprint.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过（1 个 active task，标完成前）。说明：现有 C99 oracle 编译阶段仍输出既有 pedantic warning，但上述 parity/guard 命令退出码均为 0；checker-only 计划脚本中的既有 `checker constraint table 容量已满` 警告不影响类型检查通过。
   - [x] `MirC99Unit[]` 按 module/source/function group 分配。
     - [x] 建立 MIR-C99 unit assignment plan：按 cross-unit symbol、source file 和 function group 生成动态 unit assignment，并让 CFG function 映射消费 assignment。
       - 验证：`bash tests/verify_mir_c99_split_unit_assignment_plan.sh` 通过（先红灯失败于缺少 `MirC99UnitAssignment`，实现后 checker-only 临时合并通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_unit_fingerprint.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_unit_output_sections.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
