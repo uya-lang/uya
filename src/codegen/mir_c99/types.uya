@@ -23,6 +23,8 @@ export const MIR_C99_C_TYPE_KIND_ISIZE: i32 = 17;
 export const MIR_C99_C_TYPE_KIND_BYTE: i32 = 18;
 export const MIR_C99_C_TYPE_KIND_F32: i32 = 19;
 export const MIR_C99_C_TYPE_KIND_F64: i32 = 20;
+export const MIR_C99_C_TYPE_KIND_ARRAY: i32 = 21;
+export const MIR_C99_C_TYPE_KIND_SLICE: i32 = 22;
 
 export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
 export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
@@ -110,6 +112,10 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         c_kind = MIR_C99_C_TYPE_KIND_F32;
     } else if typ.kind == MIR_TYPE_KIND_F64 {
         c_kind = MIR_C99_C_TYPE_KIND_F64;
+    } else if typ.kind == MIR_TYPE_KIND_ARRAY {
+        c_kind = MIR_C99_C_TYPE_KIND_ARRAY;
+    } else if typ.kind == MIR_TYPE_KIND_SLICE {
+        c_kind = MIR_C99_C_TYPE_KIND_SLICE;
     } else if typ.kind == MIR_TYPE_KIND_POINTER {
         c_kind = MIR_C99_C_TYPE_KIND_POINTER;
     } else if typ.kind == MIR_TYPE_KIND_STRUCT {

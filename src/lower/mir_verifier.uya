@@ -179,6 +179,36 @@ fn portable_mir_expected_scalar_size_align(typ: &MirType) i32 {
     return 1;
 }
 
+fn portable_mir_verify_array_slice_layout(module: &PortableMirModule, typ: &MirType) i32 {
+    if typ == null {
+        return 0;
+    }
+    if typ.kind != MIR_TYPE_KIND_ARRAY && typ.kind != MIR_TYPE_KIND_SLICE {
+        return 1;
+    }
+    const element_type: &MirType = portable_mir_verify_type_ptr(module, typ.element_type_id);
+    if element_type == null {
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_ARRAY {
+        if typ.field_count <= 0 {
+            return 0;
+        }
+        return 1;
+    }
+    if typ.pointee_type_id != MIR_TYPE_INVALID_ID &&
+       portable_mir_verify_type_ptr(module, typ.pointee_type_id) == null {
+        return 0;
+    }
+    if typ.field_count <= 0 || typ.lane_count < typ.field_count {
+        return 0;
+    }
+    if typ.payload_offset_bytes <= typ.tag_offset_bytes {
+        return 0;
+    }
+    return 1;
+}
+
 fn portable_mir_verify_function_ptr(module: &PortableMirModule, id: MirFunctionId) &MirFunction {
     if module == null || id < 0 || (id as usize) >= module.functions.count { return null; }
     return semantic_vector_item_ptr(&module.functions, id as usize) as &MirFunction;
@@ -227,6 +257,9 @@ fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: us
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
     }
     if portable_mir_expected_scalar_size_align(typ) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if portable_mir_verify_array_slice_layout(module, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
     }
     if typ.kind == MIR_TYPE_KIND_POINTER && portable_mir_verify_type_ptr(module, typ.pointee_type_id) == null {

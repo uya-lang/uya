@@ -288,6 +288,23 @@ fn verifier_type(id: i32, kind: i32) MirType {
         typ.size_bytes = 8usize;
         typ.align_bytes = 8usize;
     }
+    if kind == MIR_TYPE_KIND_ARRAY {
+        typ.size_bytes = 16usize;
+        typ.align_bytes = 4usize;
+        typ.element_type_id = 0;
+        typ.field_count = 4;
+        typ.lane_count = 4;
+    }
+    if kind == MIR_TYPE_KIND_SLICE {
+        typ.size_bytes = 16usize;
+        typ.align_bytes = 8usize;
+        typ.tag_offset_bytes = 0usize;
+        typ.payload_offset_bytes = 8usize;
+        typ.element_type_id = 0;
+        typ.pointee_type_id = 1;
+        typ.field_count = 2;
+        typ.lane_count = 2;
+    }
     if kind == MIR_TYPE_KIND_ATOMIC {
         typ.atomic_align_bytes = 4usize;
         typ.element_type_id = 0;
@@ -473,7 +490,7 @@ fn verifier_run(mode: i32) i32 {
     var functions: [MirFunction: 1] = [];
     var blocks: [MirBlock: 1] = [];
     var values: [MirValue: 2] = [];
-    var types: [MirType: 17] = [];
+    var types: [MirType: 19] = [];
     var locals: [MirLocal: 1] = [];
     var insts: [MirInst: 1] = [];
     var terminators: [MirTerminator: 1] = [];
@@ -501,6 +518,8 @@ fn verifier_run(mode: i32) i32 {
     types[14] = verifier_type(14, MIR_TYPE_KIND_BYTE);
     types[15] = verifier_type(15, MIR_TYPE_KIND_F32);
     types[16] = verifier_type(16, MIR_TYPE_KIND_F64);
+    types[17] = verifier_type(17, MIR_TYPE_KIND_ARRAY);
+    types[18] = verifier_type(18, MIR_TYPE_KIND_SLICE);
     locals[0] = verifier_local();
     insts[0] = verifier_inst();
     terminators[0] = verifier_terminator();
@@ -582,7 +601,7 @@ fn verifier_run(mode: i32) i32 {
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
     module.blocks = verifier_vec(&blocks[0] as &byte, @size_of(MirBlock), 1usize);
     module.values = verifier_vec(&values[0] as &byte, @size_of(MirValue), 2usize);
-    module.types = verifier_vec(&types[0] as &byte, @size_of(MirType), 17usize);
+    module.types = verifier_vec(&types[0] as &byte, @size_of(MirType), 19usize);
     module.locals = verifier_vec(&locals[0] as &byte, @size_of(MirLocal), 1usize);
     module.insts = verifier_vec(&insts[0] as &byte, @size_of(MirInst), 1usize);
     module.terminators = verifier_vec(&terminators[0] as &byte, @size_of(MirTerminator), 1usize);
@@ -591,7 +610,7 @@ fn verifier_run(mode: i32) i32 {
     module.function_count = 1usize;
     module.block_count = 1usize;
     module.value_count = 2usize;
-    module.type_count = 17usize;
+    module.type_count = 19usize;
     module.local_count = 1usize;
     module.inst_count = 1usize;
     module.terminator_count = 1usize;

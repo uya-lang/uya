@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# MIR-C99 array/slice type gap verifier.
+# MIR-C99 array/slice type metadata verifier.
 
 set -euo pipefail
 
@@ -17,29 +17,50 @@ for file in "$MIR_FILE" "$VERIFIER_FILE" "$TYPE_FILE"; do
     fi
 done
 
-missing_mir_kind='MIR_TYPE_KIND_(ARRAY|SLICE)'
-missing_c_kind='MIR_C99_C_TYPE_KIND_(ARRAY|SLICE)'
+require_pattern() {
+    local file="$1"
+    local pattern="$2"
+    local description="$3"
+    if ! grep -Eq "$pattern" "$file"; then
+        echo "error: MIR-C99 array/slice type metadata missing evidence: $description" >&2
+        echo "file: $file" >&2
+        exit 1
+    fi
+}
 
-if grep -Eq "$missing_mir_kind" "$MIR_FILE" "$VERIFIER_FILE"; then
-    echo "error: PortableMIR gained array/slice type kinds; implement MIR-C99 array/slice typedef support and update TODO evidence" >&2
-    grep -En "$missing_mir_kind" "$MIR_FILE" "$VERIFIER_FILE" >&2
-    exit 1
-fi
+for kind in ARRAY SLICE; do
+    require_pattern "$MIR_FILE" "MIR_TYPE_KIND_${kind}" "PortableMIR type kind ${kind}"
+    require_pattern "$TYPE_FILE" "MIR_C99_C_TYPE_KIND_${kind}" "MIR-C99 C type kind ${kind}"
+    require_pattern "$TYPE_FILE" "typ\\.kind == MIR_TYPE_KIND_${kind}" "MIR-C99 maps ${kind}"
+    require_pattern "$TYPE_FILE" "c_kind = MIR_C99_C_TYPE_KIND_${kind}" "MIR-C99 assigns C kind ${kind}"
+done
 
-if grep -Eq "$missing_mir_kind|$missing_c_kind" "$TYPE_FILE"; then
-    echo "error: MIR-C99 type plan claims unsupported array/slice type coverage; update verifier and implementation together" >&2
-    grep -En "$missing_mir_kind|$missing_c_kind" "$TYPE_FILE" >&2
-    exit 1
-fi
+require_pattern "$MIR_FILE" 'element_type_id:[[:space:]]*MirTypeId' \
+    "PortableMIR type metadata exposes element_type_id"
+require_pattern "$MIR_FILE" 'field_count:[[:space:]]*i32' \
+    "PortableMIR type metadata exposes array length field_count"
+require_pattern "$MIR_FILE" 'lane_count:[[:space:]]*i32' \
+    "PortableMIR type metadata exposes slice capacity lane_count"
+require_pattern "$MIR_FILE" 'tag_offset_bytes:[[:space:]]*usize' \
+    "PortableMIR type metadata exposes slice ptr offset"
+require_pattern "$MIR_FILE" 'payload_offset_bytes:[[:space:]]*usize' \
+    "PortableMIR type metadata exposes slice len offset"
+require_pattern "$VERIFIER_FILE" 'portable_mir_verify_array_slice_layout' \
+    "verifier has array/slice layout helper"
+require_pattern "$VERIFIER_FILE" 'typ\.kind == MIR_TYPE_KIND_ARRAY' \
+    "verifier checks array layout"
+require_pattern "$VERIFIER_FILE" 'typ\.kind != MIR_TYPE_KIND_ARRAY && typ\.kind != MIR_TYPE_KIND_SLICE' \
+    "verifier checks slice layout"
+require_pattern "$VERIFIER_FILE" 'typ\.field_count <= 0' \
+    "verifier rejects missing array length"
+require_pattern "$VERIFIER_FILE" 'typ\.lane_count < typ\.field_count' \
+    "verifier rejects invalid slice capacity metadata"
 
-if ! grep -Eq 'element_type_id:[[:space:]]*MirTypeId' "$MIR_FILE"; then
-    echo "error: PortableMIR type metadata no longer exposes element_type_id; revisit array/slice gap evidence" >&2
-    exit 1
-fi
+require_pattern "$TYPE_FILE" 'element_type_id: typ\.element_type_id' \
+    "MIR-C99 type plan preserves element type"
+require_pattern "$TYPE_FILE" 'field_count: typ\.field_count' \
+    "MIR-C99 type plan preserves length metadata"
+require_pattern "$TYPE_FILE" 'lane_count: typ\.lane_count' \
+    "MIR-C99 type plan preserves capacity metadata"
 
-if ! grep -Eq 'element_type_id: typ\.element_type_id' "$TYPE_FILE"; then
-    echo "error: MIR-C99 type plan no longer preserves element_type_id metadata; revisit array/slice gap evidence" >&2
-    exit 1
-fi
-
-echo "OK: MIR-C99 array/slice type gap recorded; element metadata exists without array/slice type kinds"
+echo "OK: MIR-C99 array/slice type metadata verified"
