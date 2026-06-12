@@ -79,9 +79,9 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_ENUM_DECL` | done | missing | Phase 9A 验证；`enum SmokeColor { Red, Green, Blue }` 在 `full_language` smoke 中 C99 通过。 |
 | `AST_ERROR_DECL` | done | missing | `error SmokeError;` 由 Phase 9A 验证。 |
 | `AST_INTERFACE_DECL` | done | missing | `interface SmokeAdder { ... }` 由 C99 oracle 和覆盖矩阵样本固定；MIR-C99 parity 待专用 harness。 |
-| `AST_STRUCT_DECL` | done | missing | `SmokeCounter`/`SmokeDrop` 由 Phase 9A 验证。 |
+| `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call。 |
 | `AST_UNION_DECL` | done | missing | `SmokeUnion.i/b` 由 Phase 9A 验证。 |
-| `AST_METHOD_BLOCK` | partial | missing | `SmokeCounter { fn add/double ... }` 在 C99 中通过；MIR 已识别 method block，vtable lowering 待 MIR-C99 parity。 |
+| `AST_METHOD_BLOCK` | partial | partial | MIR-C99 full-language struct parity shard 覆盖 method-style aggregate call；vtable lowering 待 interface shard。 |
 | `AST_FN_DECL` | done | missing | 主路径；`export fn` / `fn` 已走 CoreBody。 |
 | `AST_MACRO_DECL` | partial | missing | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
 | `AST_TYPE_ALIAS` | done | missing | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
@@ -104,11 +104,11 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | missing | Phase 9A 验证。 |
-| `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call；method/generic/interface call 由后续 shard 覆盖。 |
-| `AST_MEMBER_ACCESS` | done | missing | `counter.double`/`self.value` 等。 |
+| `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call，struct parity shard 覆盖 method-style aggregate call；generic/interface call 由后续 shard 覆盖。 |
+| `AST_MEMBER_ACCESS` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field access 和 method member call。 |
 | `AST_ARRAY_ACCESS` | done | missing | `slice[0]`/`array[1]` 等；C99 oracle 已覆盖，MIR-C99 index parity 待补。 |
 | `AST_SLICE_EXPR` | done | missing | `array[1:2]` 由 `slice` shard 验证。 |
-| `AST_STRUCT_INIT` | done | missing | `SmokeCounter{ value: 7 }` 等。 |
+| `AST_STRUCT_INIT` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal 初始化。 |
 | `AST_ARRAY_LITERAL` | done | missing | `[1, 2, 3, 4]`。 |
 | `AST_TUPLE_LITERAL` | partial | missing | 走 typed-program 路径；MIR 仅 basic tuple 表面。 |
 | `AST_SIZEOF` | done | missing | `@size_of` 由 `builtin` shard 验证。 |
@@ -198,7 +198,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_EXPR_KIND_CALL` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local call 和 extern C call；method/generic/interface call 由后续 shard 覆盖。 |
+| `CORE_EXPR_KIND_CALL` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local call 和 extern C call，struct parity shard 覆盖 method-style aggregate call；generic/interface call 由后续 shard 覆盖。 |
 | `CORE_EXPR_KIND_INDEX` | done | missing | `array_index` shard。 |
 | `CORE_EXPR_KIND_SLICE` | done | missing | `slice` shard。 |
 | `CORE_EXPR_KIND_ATOMIC` | done | missing | `atomic` shard。 |
@@ -218,7 +218,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_PLACE_KIND_FIELD` | done | missing | `counter.value` 等。 |
+| `CORE_PLACE_KIND_FIELD` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field load/store。 |
 | `CORE_PLACE_KIND_INDEX` | done | missing | `array_index` shard。 |
 | `CORE_PLACE_KIND_SLICE` | done | missing | `slice` shard。 |
 | `CORE_PLACE_KIND_LOCAL` | done | missing | Phase 9A 验证。 |
