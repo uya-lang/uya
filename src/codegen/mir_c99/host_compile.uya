@@ -1,0 +1,146 @@
+// codegen/mir_c99/host_compile.uya - Single-C host compile command and temp lifecycle plan.
+
+export const MIR_C99_HOST_COMPILE_UNINITIALIZED: i32 = 0;
+export const MIR_C99_HOST_COMPILE_ACTIVE: i32 = 1;
+export const MIR_C99_HOST_COMPILE_C_WRITTEN: i32 = 2;
+export const MIR_C99_HOST_COMPILE_OBJECT_READY: i32 = 3;
+export const MIR_C99_HOST_COMPILE_EXECUTABLE_READY: i32 = 4;
+export const MIR_C99_HOST_COMPILE_CLEANED: i32 = 5;
+export const MIR_C99_HOST_COMPILE_ERROR: i32 = -1;
+
+export const MIR_C99_HOST_CC_DEFAULT: i32 = 1;
+export const MIR_C99_HOST_STD_C99: i32 = 1;
+export const MIR_C99_TEMP_KEEP_NONE: i32 = 0;
+export const MIR_C99_TEMP_KEEP_C: i32 = 1;
+export const MIR_C99_TEMP_KEEP_OBJECT: i32 = 2;
+export const MIR_C99_TEMP_KEEP_ALL: i32 = 3;
+
+/// 功能说明：记录 MIR-C99 单 `.c` 输出交给 host C compiler 的命令计划。
+/// 参数说明：无；字段保存命令形状、输入输出路径和临时文件生命周期；只描述单 C 文件 host handoff。
+/// 返回值说明：无。
+export struct MirC99HostCompilePlan {
+    lifecycle_state: i32,
+    host_cc_kind: i32,
+    c_standard: i32,
+    source_c_path: &byte,
+    temp_object_path: &byte,
+    output_executable_path: &byte,
+    keep_policy: i32,
+    command_arg_count: i32,
+    cleanup_pending_count: i32,
+    flags: i32,
+}
+
+/// 功能说明：构造空 MIR-C99 host compile plan。
+/// 参数说明：无。
+/// 返回值说明：返回未初始化 plan。
+export fn mir_c99_host_compile_plan_empty() MirC99HostCompilePlan {
+    return MirC99HostCompilePlan{
+        lifecycle_state: MIR_C99_HOST_COMPILE_UNINITIALIZED,
+        host_cc_kind: 0,
+        c_standard: 0,
+        source_c_path: null,
+        temp_object_path: null,
+        output_executable_path: null,
+        keep_policy: MIR_C99_TEMP_KEEP_NONE,
+        command_arg_count: 0,
+        cleanup_pending_count: 0,
+        flags: 0,
+    };
+}
+
+/// 功能说明：初始化 MIR-C99 单 `.c` host compile plan。
+/// 参数说明：`plan` 为输出计划，`source_c_path` 为 MIR-C99 生成的 C 文件，`temp_object_path` 为临时 object，`output_executable_path` 为最终可执行文件。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_host_compile_plan_init(plan: &MirC99HostCompilePlan,
+    source_c_path: &byte, temp_object_path: &byte, output_executable_path: &byte,
+    keep_policy: i32) i32 {
+    if plan == null || source_c_path == null || temp_object_path == null ||
+       output_executable_path == null {
+        return -1;
+    }
+    plan.lifecycle_state = MIR_C99_HOST_COMPILE_ACTIVE;
+    plan.host_cc_kind = MIR_C99_HOST_CC_DEFAULT;
+    plan.c_standard = MIR_C99_HOST_STD_C99;
+    plan.source_c_path = source_c_path;
+    plan.temp_object_path = temp_object_path;
+    plan.output_executable_path = output_executable_path;
+    plan.keep_policy = keep_policy;
+    plan.command_arg_count = 8;
+    plan.cleanup_pending_count = 2;
+    if keep_policy == MIR_C99_TEMP_KEEP_C {
+        plan.cleanup_pending_count = 1;
+    } else if keep_policy == MIR_C99_TEMP_KEEP_OBJECT {
+        plan.cleanup_pending_count = 1;
+    } else if keep_policy == MIR_C99_TEMP_KEEP_ALL {
+        plan.cleanup_pending_count = 0;
+    }
+    plan.flags = 0;
+    return 0;
+}
+
+/// 功能说明：判断 MIR-C99 host compile plan 是否是单 `.c` host C99 命令形状。
+/// 参数说明：`plan` 为待检查计划。
+/// 返回值说明：满足 host cc + C99 + 单 C 输入 + 临时 object + 输出 executable 时返回 `1`，否则返回 `0`。
+export fn mir_c99_host_compile_plan_is_single_c99(plan: &MirC99HostCompilePlan) i32 {
+    if plan == null || plan.lifecycle_state == MIR_C99_HOST_COMPILE_UNINITIALIZED ||
+       plan.lifecycle_state == MIR_C99_HOST_COMPILE_ERROR {
+        return 0;
+    }
+    if plan.host_cc_kind != MIR_C99_HOST_CC_DEFAULT || plan.c_standard != MIR_C99_HOST_STD_C99 {
+        return 0;
+    }
+    if plan.source_c_path == null || plan.temp_object_path == null ||
+       plan.output_executable_path == null {
+        return 0;
+    }
+    if plan.command_arg_count != 8 {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：标记 MIR-C99 `.c` 文件已写出。
+/// 参数说明：`plan` 为 active host compile plan。
+/// 返回值说明：成功返回 `0`，状态非法返回 `-1`。
+export fn mir_c99_host_compile_mark_c_written(plan: &MirC99HostCompilePlan) i32 {
+    if plan == null || plan.lifecycle_state != MIR_C99_HOST_COMPILE_ACTIVE {
+        return -1;
+    }
+    plan.lifecycle_state = MIR_C99_HOST_COMPILE_C_WRITTEN;
+    return 0;
+}
+
+/// 功能说明：标记 MIR-C99 临时 object 已生成。
+/// 参数说明：`plan` 为 `.c` 已写出的 host compile plan。
+/// 返回值说明：成功返回 `0`，状态非法返回 `-1`。
+export fn mir_c99_host_compile_mark_object_ready(plan: &MirC99HostCompilePlan) i32 {
+    if plan == null || plan.lifecycle_state != MIR_C99_HOST_COMPILE_C_WRITTEN {
+        return -1;
+    }
+    plan.lifecycle_state = MIR_C99_HOST_COMPILE_OBJECT_READY;
+    return 0;
+}
+
+/// 功能说明：标记 MIR-C99 最终 executable 已生成。
+/// 参数说明：`plan` 为 object 已就绪的 host compile plan。
+/// 返回值说明：成功返回 `0`，状态非法返回 `-1`。
+export fn mir_c99_host_compile_mark_executable_ready(plan: &MirC99HostCompilePlan) i32 {
+    if plan == null || plan.lifecycle_state != MIR_C99_HOST_COMPILE_OBJECT_READY {
+        return -1;
+    }
+    plan.lifecycle_state = MIR_C99_HOST_COMPILE_EXECUTABLE_READY;
+    return 0;
+}
+
+/// 功能说明：标记 MIR-C99 临时文件生命周期已清理。
+/// 参数说明：`plan` 为 executable 已就绪的 host compile plan。
+/// 返回值说明：成功返回剩余 cleanup pending 数，状态非法返回 `-1`。
+export fn mir_c99_host_compile_mark_cleaned(plan: &MirC99HostCompilePlan) i32 {
+    if plan == null || plan.lifecycle_state != MIR_C99_HOST_COMPILE_EXECUTABLE_READY {
+        return -1;
+    }
+    plan.lifecycle_state = MIR_C99_HOST_COMPILE_CLEANED;
+    plan.cleanup_pending_count = 0;
+    return 0;
+}
