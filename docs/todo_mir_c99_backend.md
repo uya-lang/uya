@@ -169,7 +169,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [f] field address / load / store。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier（`src/lower/mir.uya`、`src/lower/mir_verifier.uya`）没有 `MIR_INST_OP_FIELD_ADDR` 或 field operand/index instruction；`MIR_INST_OP_FIELD_ADDR` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能消费 contract-only opcode 伪装 field address/load/store 支持。
     - 验证：`rg -n "MIR_INST_OP_FIELD_ADDR|FIELD_ADDR|field_start|field_count" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 -S` 确认只有 type metadata 和 contract-only opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] array index address / load / store。
+  - [f] array index address / load / store。
+    - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_INDEX_ADDR` 或 array index address instruction；`MIR_INST_OP_INDEX_ADDR` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能消费 contract-only opcode 伪装 array index address/load/store 支持。
+    - 验证：`rg -n "MIR_INST_OP_.*INDEX|INDEX_ADDR|ARRAY|SLICE|CORE_PLACE_KIND_INDEX|index address|element_type_id|lane_count" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 -S` 确认实际 MIR/verifier 无 index address opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] slice ptr/len load。
   - [ ] aggregate copy / move 的最小 `memcpy` helper。
   - [ ] parity shard：struct field、array index、slice index、out-param writeback。
