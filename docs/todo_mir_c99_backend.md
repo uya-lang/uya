@@ -113,7 +113,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_unit_fingerprint.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] 支持 `.c` 输出编译命令和临时文件生命周期，不接入现有 split-C makefile writer。
     - 验证：`bash tests/verify_mir_c99_host_compile_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] 新增 smoke：return literal 经 MIR-C99 生成 `.c`，host C compiler 编译运行，exit 与现有 C99 oracle 一致。
+  - [f] 新增 smoke：return literal 经 MIR-C99 生成 `.c`，host C compiler 编译运行，exit 与现有 C99 oracle 一致。
+    - 阻塞：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 目前只报告 `generator commands are pending backend hookup`，尚无真实 `MIR_C99_GENERATE_CMD`/CLI；当前 RETURN 输出仍依赖 `return tmpN;`，return literal immediate/value emission 需要后续 Values 任务接入后才能做端到端 host C 编译运行。
 
 ### 4.4 CFG
 
@@ -130,7 +131,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] MIR verifier 未通过时拒绝，不生成 C。
     - 验证：`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] parity shard：local init + if return / nested branch / loop backedge。
+  - [f] parity shard：local init + if return / nested branch / loop backedge。
+    - 阻塞：当前无真实 MIR-C99 generator command/CLI，`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup；该 shard 还需要 4.5 Values 的 local/temp/literal 与比较/branch value emission，现阶段无法生成可由 host C compiler 编译运行的对齐用例。
 
 ### 4.5 Values
 
