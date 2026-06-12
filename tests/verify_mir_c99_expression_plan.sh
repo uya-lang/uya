@@ -35,6 +35,8 @@ for symbol in \
     MIR_C99_EXPR_KIND_INT_UNARY \
     MIR_C99_EXPR_KIND_BOOL_LOGIC \
     MIR_C99_EXPR_KIND_CONVERSION \
+    MIR_C99_CONSTANT_KIND_F32_LITERAL \
+    MIR_C99_CONSTANT_KIND_F64_LITERAL \
     mir_c99_value_plan_build_expressions \
     mir_c99_value_plan_expression_ptr; do
     require_pattern "$VALUE_FILE" "$symbol" "expression symbol $symbol"
@@ -68,6 +70,22 @@ require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_logic' \
     "bool logic opcode family handled"
 require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_conversion' \
     "conversion opcode family handled"
+require_pattern "$VALUE_FILE" 'MIR_TYPE_KIND_F32' \
+    "f32 constant type recognized"
+require_pattern "$VALUE_FILE" 'MIR_TYPE_KIND_F64' \
+    "f64 constant type recognized"
+require_pattern "$VALUE_FILE" 'immediate_i32 == 0' \
+    "float constant payload zero boundary checked"
+if ! awk '
+    /fn mir_c99_constant_kind_for_operand/ { in_fn = 1 }
+    in_fn && /MIR_C99_CONSTANT_KIND_F32_LITERAL/ { f32 = NR }
+    in_fn && /MIR_C99_CONSTANT_KIND_ZERO/ && zero == 0 { zero = NR }
+    in_fn && /^}/ { in_fn = 0 }
+    END { exit !(f32 > 0 && zero > 0 && f32 < zero) }
+' "$VALUE_FILE"; then
+    echo "error: MIR-C99 float literal kind must be selected before generic zero" >&2
+    exit 1
+fi
 require_pattern "$VALUE_FILE" 'operand_count == 2' \
     "binary expression requires two operands"
 require_pattern "$VALUE_FILE" 'operand_count == 1' \

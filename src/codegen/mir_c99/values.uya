@@ -20,6 +20,8 @@ export const MIR_C99_CONSTANT_KIND_UNSUPPORTED: i32 = 0;
 export const MIR_C99_CONSTANT_KIND_I32_LITERAL: i32 = 1;
 export const MIR_C99_CONSTANT_KIND_ZERO: i32 = 2;
 export const MIR_C99_CONSTANT_KIND_NULL: i32 = 3;
+export const MIR_C99_CONSTANT_KIND_F32_LITERAL: i32 = 4;
+export const MIR_C99_CONSTANT_KIND_F64_LITERAL: i32 = 5;
 
 export const MIR_C99_CONSTANT_STATUS_MISSING: i32 = 0;
 export const MIR_C99_CONSTANT_STATUS_READY: i32 = 1;
@@ -141,6 +143,12 @@ fn mir_c99_constant_kind_for_operand(typ: &MirType, operand: &MirOperand) i32 {
     }
     if operand.immediate_i32 == 0 && typ.kind == MIR_TYPE_KIND_POINTER {
         return MIR_C99_CONSTANT_KIND_NULL;
+    }
+    if typ.kind == MIR_TYPE_KIND_F32 && operand.immediate_i32 == 0 {
+        return MIR_C99_CONSTANT_KIND_F32_LITERAL;
+    }
+    if typ.kind == MIR_TYPE_KIND_F64 && operand.immediate_i32 == 0 {
+        return MIR_C99_CONSTANT_KIND_F64_LITERAL;
     }
     if operand.immediate_i32 == 0 {
         return MIR_C99_CONSTANT_KIND_ZERO;
