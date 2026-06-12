@@ -204,7 +204,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.3 单元输出
 
-- [ ] MIR-C99-BACKEND-UNIT-OUTPUT：先实现单 unit，保留多 unit 扩展点。
+- [x] MIR-C99-BACKEND-UNIT-OUTPUT：先实现单 unit，保留多 unit 扩展点。
   - [x] 支持单 `.c` 输出：include、typedef、extern prototype、function prototype、global、function body。
     - [x] 新增 MIR-C99 unit output writer 合同：只消费 `MirC99Plan` / `MirC99Unit`，输出 section 顺序和 byte 统计，不回查 AST/C99 backend。
       - 验证：临时合并 `src/codegen/mir_c99/plan.uya` 与去掉 `use` 的 `src/codegen/mir_c99/unit_output.uya` 后执行 `./bin/uya check <tmp>` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
@@ -221,8 +221,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_unit_fingerprint.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] 支持 `.c` 输出编译命令和临时文件生命周期，不接入现有 split-C makefile writer。
     - 验证：`bash tests/verify_mir_c99_host_compile_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] 新增 smoke：return literal 经 MIR-C99 生成 `.c`，host C compiler 编译运行，exit 与现有 C99 oracle 一致。
-    - 阻塞：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 目前只报告 `generator commands are pending backend hookup`，尚无真实 `MIR_C99_GENERATE_CMD`/CLI；当前 RETURN 输出仍依赖 `return tmpN;`，return literal immediate/value emission 需要后续 Values 任务接入后才能做端到端 host C 编译运行。
+  - [x] 新增 smoke：return literal 经 MIR-C99 生成 `.c`，host C compiler 编译运行，exit 与现有 C99 oracle 一致。
+    - 验证：`bash tests/verify_mir_c99_return_literal_parity.sh` 通过，覆盖 `export fn main() i32 { return 7; }` 经默认 MIR-C99 generator 写出 `.c`、host C compiler 编译运行，并与默认现有 C99 oracle generator 的 `.c` 编译/运行结果 diff 一致；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
 ### 4.4 CFG
 
