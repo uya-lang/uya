@@ -71,6 +71,9 @@ C_EOF
         printf 'MIR_C99_WRITER_STATUS='\''done'\''\n'
         printf 'MIR_C99_OUTPUT_ROLE='\''cmd_build_summary'\''\n'
         printf 'MIR_C99_COMPILER_BINARY_STATUS='\''not_yet_generated'\''\n'
+        printf 'MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1\n'
+        printf 'MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''\n'
+        printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''summary_executable'\''\n'
         printf 'MIR_C99_SELF_BUILD_FRONTIER='
         sidecar_quote "$cmd_build_frontier_name"
         printf '\n'
@@ -99,6 +102,9 @@ C_EOF
         printf 'writer_status=done\n'
         printf 'subset=cmd_build_self_summary\n'
         printf 'compiler_binary_status=not_yet_generated\n'
+        printf 'host_compiler_binary_attempt=1\n'
+        printf 'host_compiler_binary_status=not_yet_generated\n'
+        printf 'host_compiler_binary_candidate_role=summary_executable\n'
         printf 'frontier_kind=compiler_source\n'
         printf 'frontier_name=%s\n' "$cmd_build_frontier_name"
         printf 'frontier_reason=%s\n' "$cmd_build_frontier_reason"
