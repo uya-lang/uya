@@ -108,6 +108,7 @@ fn portable_mir_verify_count(module: &PortableMirModule, result: &MirVerifierRes
     if portable_mir_verify_count_pair(module.operand_count, module.operands.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.capability_req_count, module.capability_reqs.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.field_layout_count, module.field_layouts.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.function_param_type_count, module.function_param_types.count, result) != 0 { return -1; }
     return 0;
 }
 
@@ -271,6 +272,38 @@ fn portable_mir_verify_field_layout_ptr(module: &PortableMirModule, id: MirField
     return semantic_vector_item_ptr(&module.field_layouts, id as usize) as &MirFieldLayout;
 }
 
+fn portable_mir_verify_function_param_type_ptr(module: &PortableMirModule,
+    id: MirFunctionParamTypeId) &MirFunctionParamType {
+    if module == null || id < 0 || (id as usize) >= module.function_param_types.count { return null; }
+    return semantic_vector_item_ptr(&module.function_param_types, id as usize) as &MirFunctionParamType;
+}
+
+fn portable_mir_verify_function_param_type(module: &PortableMirModule,
+    param: &MirFunctionParamType, index: usize, result: &MirVerifierResult) i32 {
+    if param == null || param.function_param_type_id != index as i32 ||
+       portable_mir_verify_type_ptr(module, param.owner_type_id) == null ||
+       portable_mir_verify_type_ptr(module, param.type_id) == null ||
+       param.abi_class == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, param.owner_type_id, -1,
+            MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_function_param_types(module: &PortableMirModule,
+    result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.function_param_types.count {
+        const param: &MirFunctionParamType =
+            semantic_vector_item_ptr(&module.function_param_types, i) as &MirFunctionParamType;
+        if portable_mir_verify_function_param_type(module, param, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 fn portable_mir_verify_field_layout(module: &PortableMirModule, field: &MirFieldLayout,
     index: usize, result: &MirVerifierResult) i32 {
     if field == null || field.field_layout_id != index as i32 ||
@@ -333,6 +366,54 @@ fn portable_mir_verify_aggregate_field_layout(module: &PortableMirModule,
     return 0;
 }
 
+fn portable_mir_verify_function_type_layout(module: &PortableMirModule,
+    typ: &MirType, result: &MirVerifierResult) i32 {
+    if typ == null {
+        return -1;
+    }
+    if typ.kind != MIR_TYPE_KIND_FUNCTION && typ.kind != MIR_TYPE_KIND_FUNCTION_POINTER {
+        return 0;
+    }
+    if portable_mir_verify_type_ptr(module, typ.element_type_id) == null ||
+       typ.abi_class == 0 ||
+       portable_mir_verify_call_abi_supported(module, typ.flags) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, typ.type_id, -1,
+            MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if typ.field_count < 0 ||
+       portable_mir_verify_range(typ.field_start, typ.field_count,
+        module.function_param_types.count) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, typ.type_id, -1,
+            MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    var offset: i32 = 0;
+    while offset < typ.field_count {
+        const param: &MirFunctionParamType =
+            portable_mir_verify_function_param_type_ptr(module, typ.field_start + offset);
+        if param == null || param.owner_type_id != typ.type_id || param.param_index != offset {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+                MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+                MIR_VALUE_INVALID_ID, typ.type_id, -1,
+                MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+        }
+        offset = offset + 1;
+    }
+    if typ.kind == MIR_TYPE_KIND_FUNCTION_POINTER {
+        const target: &MirType = portable_mir_verify_type_ptr(module, typ.pointee_type_id);
+        if target == null || target.kind != MIR_TYPE_KIND_FUNCTION {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+                MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+                MIR_VALUE_INVALID_ID, typ.type_id, -1,
+                MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+        }
+    }
+    return 0;
+}
+
 fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: usize, result: &MirVerifierResult) i32 {
     if typ == null || typ.type_id != index as i32 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, index as i32, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
@@ -348,6 +429,9 @@ fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: us
     }
     if portable_mir_verify_error_union_layout(typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if portable_mir_verify_function_type_layout(module, typ, result) != 0 {
+        return -1;
     }
     if portable_mir_verify_aggregate_field_layout(module, typ, result) != 0 {
         return -1;
@@ -805,6 +889,7 @@ export fn portable_mir_verify_module(module: &PortableMirModule, result: &MirVer
     }
     if portable_mir_verify_count(module, result) != 0 { return -1; }
     if portable_mir_verify_field_layouts(module, result) != 0 { return -1; }
+    if portable_mir_verify_function_param_types(module, result) != 0 { return -1; }
     if portable_mir_verify_types(module, result) != 0 { return -1; }
     if portable_mir_verify_functions(module, result) != 0 { return -1; }
     if portable_mir_verify_blocks(module, result) != 0 { return -1; }

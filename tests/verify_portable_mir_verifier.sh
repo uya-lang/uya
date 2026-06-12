@@ -312,6 +312,23 @@ fn verifier_type(id: i32, kind: i32) MirType {
         typ.payload_offset_bytes = 8usize;
         typ.abi_class = 3;
     }
+    if kind == MIR_TYPE_KIND_FUNCTION {
+        typ.size_bytes = 8usize;
+        typ.align_bytes = 8usize;
+        typ.element_type_id = 0;
+        typ.field_start = 0;
+        typ.field_count = 2;
+        typ.abi_class = 4;
+        typ.flags = MIR_CALL_CONV_UYA;
+    }
+    if kind == MIR_TYPE_KIND_FUNCTION_POINTER {
+        typ.size_bytes = 8usize;
+        typ.align_bytes = 8usize;
+        typ.element_type_id = 0;
+        typ.pointee_type_id = 20;
+        typ.abi_class = 4;
+        typ.flags = MIR_CALL_CONV_UYA;
+    }
     if kind == MIR_TYPE_KIND_ATOMIC {
         typ.atomic_align_bytes = 4usize;
         typ.element_type_id = 0;
@@ -330,6 +347,18 @@ fn verifier_type(id: i32, kind: i32) MirType {
         typ.mask_representation = 1;
     }
     return typ;
+}
+
+fn verifier_function_param_type(id: i32, owner_type_id: i32, param_index: i32,
+    type_id: i32) MirFunctionParamType {
+    return MirFunctionParamType{
+        function_param_type_id: id,
+        owner_type_id: owner_type_id,
+        param_index: param_index,
+        type_id: type_id,
+        abi_class: 1,
+        flags: 0,
+    };
 }
 
 fn verifier_function() MirFunction {
@@ -479,6 +508,7 @@ fn verifier_empty_module() PortableMirModule {
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: verifier_empty_vec(@size_of(MirFunction)),
         blocks: verifier_empty_vec(@size_of(MirBlock)),
         values: verifier_empty_vec(@size_of(MirValue)),
@@ -492,6 +522,7 @@ fn verifier_empty_module() PortableMirModule {
         debug_locs: verifier_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: verifier_empty_vec(@size_of(MirCapabilityReq)),
         field_layouts: verifier_empty_vec(@size_of(MirFieldLayout)),
+        function_param_types: verifier_empty_vec(@size_of(MirFunctionParamType)),
     };
 }
 
@@ -499,12 +530,13 @@ fn verifier_run(mode: i32) i32 {
     var functions: [MirFunction: 1] = [];
     var blocks: [MirBlock: 1] = [];
     var values: [MirValue: 2] = [];
-    var types: [MirType: 20] = [];
+    var types: [MirType: 22] = [];
     var locals: [MirLocal: 1] = [];
     var insts: [MirInst: 1] = [];
     var terminators: [MirTerminator: 1] = [];
     var operands: [MirOperand: 2] = [];
     var caps: [MirCapabilityReq: 1] = [];
+    var fn_params: [MirFunctionParamType: 2] = [];
 
     functions[0] = verifier_function();
     blocks[0] = verifier_block();
@@ -530,12 +562,16 @@ fn verifier_run(mode: i32) i32 {
     types[17] = verifier_type(17, MIR_TYPE_KIND_ARRAY);
     types[18] = verifier_type(18, MIR_TYPE_KIND_SLICE);
     types[19] = verifier_type(19, MIR_TYPE_KIND_ERROR_UNION);
+    types[20] = verifier_type(20, MIR_TYPE_KIND_FUNCTION);
+    types[21] = verifier_type(21, MIR_TYPE_KIND_FUNCTION_POINTER);
     locals[0] = verifier_local();
     insts[0] = verifier_inst();
     terminators[0] = verifier_terminator();
     operands[0] = verifier_operand(0, 0, 1);
     operands[1] = verifier_operand(1, 1, 0);
     caps[0] = verifier_capability();
+    fn_params[0] = verifier_function_param_type(0, 20, 0, 0);
+    fn_params[1] = verifier_function_param_type(1, 20, 1, 5);
 
     if mode == 1 {
         blocks[0].terminator_id = MIR_TERMINATOR_INVALID_ID;
@@ -611,21 +647,24 @@ fn verifier_run(mode: i32) i32 {
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
     module.blocks = verifier_vec(&blocks[0] as &byte, @size_of(MirBlock), 1usize);
     module.values = verifier_vec(&values[0] as &byte, @size_of(MirValue), 2usize);
-    module.types = verifier_vec(&types[0] as &byte, @size_of(MirType), 20usize);
+    module.types = verifier_vec(&types[0] as &byte, @size_of(MirType), 22usize);
     module.locals = verifier_vec(&locals[0] as &byte, @size_of(MirLocal), 1usize);
     module.insts = verifier_vec(&insts[0] as &byte, @size_of(MirInst), 1usize);
     module.terminators = verifier_vec(&terminators[0] as &byte, @size_of(MirTerminator), 1usize);
     module.operands = verifier_vec(&operands[0] as &byte, @size_of(MirOperand), 2usize);
-    module.capability_reqs = verifier_vec(&caps[0] as &byte, @size_of(MirFieldLayout), 1usize);
+    module.capability_reqs = verifier_vec(&caps[0] as &byte, @size_of(MirCapabilityReq), 1usize);
+    module.function_param_types = verifier_vec(&fn_params[0] as &byte,
+        @size_of(MirFunctionParamType), 2usize);
     module.function_count = 1usize;
     module.block_count = 1usize;
     module.value_count = 2usize;
-    module.type_count = 20usize;
+    module.type_count = 22usize;
     module.local_count = 1usize;
     module.inst_count = 1usize;
     module.terminator_count = 1usize;
     module.operand_count = 2usize;
     module.capability_req_count = 1usize;
+    module.function_param_type_count = 2usize;
 
     var result: MirVerifierResult = MirVerifierResult{
         error_code: 0,

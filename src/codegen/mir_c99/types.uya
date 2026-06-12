@@ -28,6 +28,8 @@ export const MIR_C99_C_TYPE_KIND_SLICE: i32 = 22;
 export const MIR_C99_C_TYPE_KIND_UNION: i32 = 23;
 export const MIR_C99_C_TYPE_KIND_ENUM: i32 = 24;
 export const MIR_C99_C_TYPE_KIND_ERROR_UNION: i32 = 25;
+export const MIR_C99_C_TYPE_KIND_FUNCTION: i32 = 26;
+export const MIR_C99_C_TYPE_KIND_FUNCTION_POINTER: i32 = 27;
 
 export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
 export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
@@ -45,6 +47,9 @@ export struct MirC99TypeDef {
     align_bytes: usize,
     tag_offset_bytes: usize,
     payload_offset_bytes: usize,
+    return_type_id: MirTypeId,
+    callable_type_id: MirTypeId,
+    calling_convention: i32,
     element_type_id: MirTypeId,
     pointee_type_id: MirTypeId,
     field_start: i32,
@@ -76,6 +81,9 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
             align_bytes: 0usize,
             tag_offset_bytes: 0usize,
             payload_offset_bytes: 0usize,
+            return_type_id: MIR_TYPE_INVALID_ID,
+            callable_type_id: MIR_TYPE_INVALID_ID,
+            calling_convention: 0,
             element_type_id: MIR_TYPE_INVALID_ID,
             pointee_type_id: MIR_TYPE_INVALID_ID,
             field_start: -1,
@@ -129,6 +137,10 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         c_kind = MIR_C99_C_TYPE_KIND_ENUM;
     } else if typ.kind == MIR_TYPE_KIND_ERROR_UNION {
         c_kind = MIR_C99_C_TYPE_KIND_ERROR_UNION;
+    } else if typ.kind == MIR_TYPE_KIND_FUNCTION {
+        c_kind = MIR_C99_C_TYPE_KIND_FUNCTION;
+    } else if typ.kind == MIR_TYPE_KIND_FUNCTION_POINTER {
+        c_kind = MIR_C99_C_TYPE_KIND_FUNCTION_POINTER;
     } else if typ.kind == MIR_TYPE_KIND_POINTER {
         c_kind = MIR_C99_C_TYPE_KIND_POINTER;
     } else if typ.kind == MIR_TYPE_KIND_STRUCT {
@@ -151,6 +163,9 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         align_bytes: typ.align_bytes,
         tag_offset_bytes: typ.tag_offset_bytes,
         payload_offset_bytes: typ.payload_offset_bytes,
+        return_type_id: typ.element_type_id,
+        callable_type_id: typ.pointee_type_id,
+        calling_convention: typ.flags,
         element_type_id: typ.element_type_id,
         pointee_type_id: typ.pointee_type_id,
         field_start: typ.field_start,

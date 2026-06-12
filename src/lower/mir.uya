@@ -13,6 +13,7 @@ export type MirSuccessorId = i32;
 export type MirDebugLocId = i32;
 export type MirCapabilityReqId = i32;
 export type MirFieldLayoutId = i32;
+export type MirFunctionParamTypeId = i32;
 
 export const PORTABLE_MIR_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const PORTABLE_MIR_LIFECYCLE_ACTIVE: i32 = 1;
@@ -70,6 +71,8 @@ export const MIR_TYPE_KIND_SLICE: i32 = 22;
 export const MIR_TYPE_KIND_UNION: i32 = 23;
 export const MIR_TYPE_KIND_ENUM: i32 = 24;
 export const MIR_TYPE_KIND_ERROR_UNION: i32 = 25;
+export const MIR_TYPE_KIND_FUNCTION: i32 = 26;
+export const MIR_TYPE_KIND_FUNCTION_POINTER: i32 = 27;
 export const MIR_INST_OP_NOP: i32 = 0;
 export const MIR_INST_OP_LOAD: i32 = 1;
 export const MIR_INST_OP_STORE: i32 = 2;
@@ -185,6 +188,18 @@ export struct MirFieldLayout {
     offset_bytes: usize,
     size_bytes: usize,
     align_bytes: usize,
+    flags: i32,
+}
+
+/// 功能说明：记录 function type 的参数类型和 ABI class。
+/// 参数说明：无；字段保存 owner function type、参数顺序、参数类型、ABI class 和 flags。
+/// 返回值说明：无。
+export struct MirFunctionParamType {
+    function_param_type_id: MirFunctionParamTypeId,
+    owner_type_id: MirTypeId,
+    param_index: i32,
+    type_id: MirTypeId,
+    abi_class: i32,
     flags: i32,
 }
 
@@ -344,6 +359,7 @@ export struct PortableMirModule {
     debug_loc_count: usize,
     capability_req_count: usize,
     field_layout_count: usize,
+    function_param_type_count: usize,
     functions: SemanticVector,
     blocks: SemanticVector,
     values: SemanticVector,
@@ -357,6 +373,7 @@ export struct PortableMirModule {
     debug_locs: SemanticVector,
     capability_reqs: SemanticVector,
     field_layouts: SemanticVector,
+    function_param_types: SemanticVector,
 }
 
 /// 功能说明：返回 hosted native 使用的 PortableMIR target profile。
@@ -507,6 +524,7 @@ fn portable_mir_module_clear_counts(module: &PortableMirModule) void {
     module.debug_loc_count = 0usize;
     module.capability_req_count = 0usize;
     module.field_layout_count = 0usize;
+    module.function_param_type_count = 0usize;
 }
 
 /// 功能说明：初始化 PortableMIR module 的动态表和生命周期。
@@ -533,6 +551,7 @@ export fn portable_mir_module_init(module: &PortableMirModule, arena: &CompilerA
     semantic_vector_init(&module.debug_locs, @size_of(MirDebugLoc));
     semantic_vector_init(&module.capability_reqs, @size_of(MirCapabilityReq));
     semantic_vector_init(&module.field_layouts, @size_of(MirFieldLayout));
+    semantic_vector_init(&module.function_param_types, @size_of(MirFunctionParamType));
 }
 
 fn portable_mir_append_item(vec: &SemanticVector, item: &const void) i32 {
@@ -612,6 +631,21 @@ export fn portable_mir_append_field_layout(module: &PortableMirModule, item: &Mi
         return -1;
     }
     module.field_layout_count = module.field_layouts.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR function type 参数记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加参数类型记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_function_param_type(module: &PortableMirModule,
+    item: &MirFunctionParamType) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.function_param_types, item as &const void) != 0 {
+        return -1;
+    }
+    module.function_param_type_count = module.function_param_types.count;
     return 0;
 }
 
@@ -1565,6 +1599,7 @@ export fn portable_mir_module_release(module: &PortableMirModule) void {
         semantic_vector_release(&module.debug_locs);
         semantic_vector_release(&module.capability_reqs);
         semantic_vector_release(&module.field_layouts);
+        semantic_vector_release(&module.function_param_types);
     }
     portable_mir_module_clear_counts(module);
     module.arena = null;

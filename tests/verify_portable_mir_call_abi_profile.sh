@@ -419,6 +419,7 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: abi_empty_vec(@size_of(MirFunction)),
         blocks: abi_empty_vec(@size_of(MirBlock)),
         values: abi_empty_vec(@size_of(MirValue)),
@@ -432,6 +433,7 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         debug_locs: abi_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: abi_empty_vec(@size_of(MirCapabilityReq)),
         field_layouts: abi_empty_vec(@size_of(MirFieldLayout)),
+        function_param_types: abi_empty_vec(@size_of(MirFunctionParamType)),
     };
 }
 

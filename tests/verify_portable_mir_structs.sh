@@ -264,6 +264,7 @@ fn portable_mir_struct_module() PortableMirModule {
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: portable_mir_struct_vec(),
         blocks: portable_mir_struct_vec(),
         values: portable_mir_struct_vec(),
@@ -277,6 +278,7 @@ fn portable_mir_struct_module() PortableMirModule {
         debug_locs: portable_mir_struct_vec(),
         capability_reqs: portable_mir_struct_vec(),
         field_layouts: portable_mir_struct_vec(),
+        function_param_types: portable_mir_struct_vec(),
     };
 }
 

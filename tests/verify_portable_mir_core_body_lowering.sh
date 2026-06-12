@@ -287,6 +287,7 @@ test "CoreBody return i32 literal lowers to verifier-clean PortableMIR" {
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: fixture_vec(&mir_functions[0] as &byte, @size_of(MirFunction), 0usize, 1usize),
         blocks: fixture_vec(&mir_blocks[0] as &byte, @size_of(MirBlock), 0usize, 1usize),
         values: fixture_vec(null, @size_of(MirValue), 0usize, 0usize),
@@ -300,6 +301,7 @@ test "CoreBody return i32 literal lowers to verifier-clean PortableMIR" {
         debug_locs: fixture_vec(null, @size_of(MirDebugLoc), 0usize, 0usize),
         capability_reqs: fixture_vec(null, @size_of(MirCapabilityReq), 0usize, 0usize),
         field_layouts: fixture_vec(null, @size_of(MirFieldLayout), 0usize, 0usize),
+        function_param_types: fixture_vec(null, @size_of(MirFunctionParamType), 0usize, 0usize),
     };
 
     try assert_eq_i32(portable_mir_lower_core_body_to_module(&lowered, 0, &module), 0);
@@ -496,6 +498,7 @@ test "CoreBody return i32 add lowers local and value use operands" {
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: fixture_vec(&mir_functions[0] as &byte, @size_of(MirFunction), 0usize, 1usize),
         blocks: fixture_vec(&mir_blocks[0] as &byte, @size_of(MirBlock), 0usize, 1usize),
         values: fixture_vec(&mir_values[0] as &byte, @size_of(MirValue), 0usize, 1usize),
@@ -509,6 +512,7 @@ test "CoreBody return i32 add lowers local and value use operands" {
         debug_locs: fixture_vec(null, @size_of(MirDebugLoc), 0usize, 0usize),
         capability_reqs: fixture_vec(null, @size_of(MirCapabilityReq), 0usize, 0usize),
         field_layouts: fixture_vec(null, @size_of(MirFieldLayout), 0usize, 0usize),
+        function_param_types: fixture_vec(null, @size_of(MirFunctionParamType), 0usize, 0usize),
     };
 
     try assert_eq_i32(portable_mir_lower_core_body_to_module(&lowered, 0, &module), 0);
@@ -791,6 +795,7 @@ test "CoreBody print println string helper calls lower to hosted MIR call surfac
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: fixture_vec(&mir_functions[0] as &byte, @size_of(MirFunction), 0usize, 3usize),
         blocks: fixture_vec(&mir_blocks[0] as &byte, @size_of(MirBlock), 0usize, 1usize),
         values: fixture_vec(&mir_values[0] as &byte, @size_of(MirValue), 0usize, 2usize),
@@ -804,6 +809,7 @@ test "CoreBody print println string helper calls lower to hosted MIR call surfac
         debug_locs: fixture_vec(null, @size_of(MirDebugLoc), 0usize, 0usize),
         capability_reqs: fixture_vec(null, @size_of(MirCapabilityReq), 0usize, 0usize),
         field_layouts: fixture_vec(null, @size_of(MirFieldLayout), 0usize, 0usize),
+        function_param_types: fixture_vec(null, @size_of(MirFunctionParamType), 0usize, 0usize),
     };
 
     try assert_eq_i32(portable_mir_lower_core_body_to_module(&lowered, 0, &module), 0);

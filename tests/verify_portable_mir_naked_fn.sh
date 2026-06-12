@@ -382,6 +382,7 @@ fn portable_mir_naked_verify_result(mode: i32) i32 {
         debug_loc_count: 0usize,
         capability_req_count: 0usize,
         field_layout_count: 0usize,
+        function_param_type_count: 0usize,
         functions: naked_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize),
         blocks: naked_empty_vec(@size_of(MirBlock)),
         values: naked_empty_vec(@size_of(MirValue)),
@@ -395,6 +396,7 @@ fn portable_mir_naked_verify_result(mode: i32) i32 {
         debug_locs: naked_empty_vec(@size_of(MirDebugLoc)),
         capability_reqs: naked_empty_vec(@size_of(MirCapabilityReq)),
         field_layouts: naked_empty_vec(@size_of(MirFieldLayout)),
+        function_param_types: naked_empty_vec(@size_of(MirFunctionParamType)),
     };
 
     var result: MirVerifierResult = MirVerifierResult{
