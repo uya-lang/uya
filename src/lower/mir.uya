@@ -239,7 +239,9 @@ export const MIR_INST_OP_SLICE_INDEX_ADDR: i32 = 274;
 export const MIR_INST_OP_SLICE_INDEX_LOAD: i32 = 275;
 export const MIR_INST_OP_SLICE_INDEX_STORE: i32 = 276;
 export const MIR_INST_OP_SLICE_MAX: i32 = 276;
+export const MIR_INST_OP_POINTER_OFFSET: i32 = 280;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
+export const MIR_INST_FLAG_OVERFLOW_CHECKED: i32 = 2;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
 export const MIR_TERMINATOR_KIND_BR: i32 = 2;
@@ -412,6 +414,16 @@ export fn portable_mir_inst_op_is_index_place(op: i32) i32 {
 /// 返回值说明：slice ptr/len/index opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_slice_place(op: i32) i32 {
     if op >= MIR_INST_OP_SLICE_MIN && op <= MIR_INST_OP_SLICE_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为 pointer offset 指令。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：pointer offset opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_pointer_offset(op: i32) i32 {
+    if op == MIR_INST_OP_POINTER_OFFSET {
         return 1;
     }
     return 0;

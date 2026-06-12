@@ -1000,6 +1000,57 @@ fn portable_mir_verify_slice_place_inst(module: &PortableMirModule,
         slice_type);
 }
 
+fn portable_mir_verify_pointer_offset_base(module: &PortableMirModule,
+    base: &MirOperand, pointer_type: &MirType) i32 {
+    if module == null || base == null || pointer_type == null ||
+       pointer_type.kind != MIR_TYPE_KIND_POINTER {
+        return 0;
+    }
+    const base_type: &MirType = portable_mir_verify_type_ptr(module,
+        base.type_id);
+    const pointee: &MirType = portable_mir_verify_type_ptr(module,
+        pointer_type.pointee_type_id);
+    if base_type == null || base_type.kind != MIR_TYPE_KIND_POINTER ||
+       base_type.type_id != pointer_type.type_id ||
+       pointee == null || pointee.size_bytes == 0usize {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_pointer_offset_amount(module: &PortableMirModule,
+    inst: &MirInst, offset: &MirOperand) i32 {
+    if module == null || inst == null || offset == null {
+        return 0;
+    }
+    if portable_mir_verify_operand_integer_type(module, offset) == 0 {
+        return 0;
+    }
+    if (inst.flags & MIR_INST_FLAG_OVERFLOW_CHECKED) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_pointer_offset_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if portable_mir_inst_op_is_pointer_offset(inst.op) == 0 {
+        return 1;
+    }
+    if inst.operand_count != 2 ||
+       portable_mir_verify_address_result_value(module, inst, typ) == 0 {
+        return 0;
+    }
+    const base: &MirOperand = portable_mir_verify_operand_ptr(module,
+        inst.operand_start);
+    const offset: &MirOperand = portable_mir_verify_operand_ptr(module,
+        inst.operand_start + 1);
+    if portable_mir_verify_pointer_offset_base(module, base, typ) == 0 {
+        return 0;
+    }
+    return portable_mir_verify_pointer_offset_amount(module, inst, offset);
+}
+
 fn portable_mir_verify_conversion_inst(module: &PortableMirModule,
     inst: &MirInst, typ: &MirType) i32 {
     if portable_mir_inst_op_is_conversion(inst.op) == 0 {
@@ -1337,6 +1388,9 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     }
     if portable_mir_verify_slice_place_inst(module, inst, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if portable_mir_verify_pointer_offset_inst(module, inst, typ) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
     if inst.op == MIR_INST_OP_LOCAL_SET &&
        (inst.operand_count != 2 || inst.result_value_id != MIR_VALUE_INVALID_ID ||
