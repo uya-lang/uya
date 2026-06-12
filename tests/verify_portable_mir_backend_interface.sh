@@ -38,6 +38,7 @@ for symbol in \
     MIR_BACKEND_OUTPUT_MACHINE_MODULE \
     MIR_BACKEND_OUTPUT_PTX_MODULE \
     MIR_BACKEND_OUTPUT_EXEC_BYTECODE \
+    MIR_BACKEND_OUTPUT_MIR_C99_PLAN \
     MIR_BACKEND_OUTPUT_C99_PLAN \
     MirTargetBackendRequest \
     MirTargetBackendOutput \
@@ -54,7 +55,8 @@ require_pattern "$MIR_BACKEND_FILE" 'request\.verifier_error_code[[:space:]]*!=[
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_MACHINE_MODULE' "MachineModule output kind"
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_PTX_MODULE' "PtxModule output kind"
 require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_EXEC_BYTECODE' "ExecBytecode output kind"
-require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_C99_PLAN' "C99Plan output kind"
+require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_MIR_C99_PLAN' "MirC99Plan output kind"
+require_pattern "$MIR_BACKEND_FILE" 'MIR_BACKEND_OUTPUT_C99_PLAN:[[:space:]]*i32[[:space:]]*=[[:space:]]*MIR_BACKEND_OUTPUT_MIR_C99_PLAN' "legacy C99Plan output alias"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_contract_required_features' "single PortableMIR lowering feature contract"
 require_pattern "$MIR_CONTRACT_FILE" 'missing_feature_mask' "lowering feature gaps are reported before backend"
 require_pattern "$NATIVE_MIR_EMITTER_FILE" 'request:[[:space:]]*&MirTargetBackendRequest' "native emitter request input"

@@ -80,7 +80,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.2 后端骨架
 
-- [ ] MIR-C99-BACKEND-SKELETON：建立独立后端文件和 CLI/backend 接线。
+- [x] MIR-C99-BACKEND-SKELETON：建立独立后端文件和 CLI/backend 接线。
   - [x] 新增 `src/codegen/mir_c99/plan.uya`：定义 `MirC99Plan`、`MirC99Unit`、prototype/global/function/helper 引用表，全部动态增长。
     - 验证：`./bin/uya check src/codegen/mir_c99/plan.uya` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
   - [x] 新增 `src/codegen/mir_c99/emitter.uya`：只消费 `MirTargetBackendRequest` / verifier-clean `PortableMirModule` 和 `MirC99Plan`，输出 C bytes。
@@ -91,7 +91,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`./bin/uya check src/codegen/mir_c99/names.uya` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
   - [x] 新增 `src/codegen/mir_c99/driver.uya`：从 `MIR_TARGET_BACKEND_C99` request 生成 `MirC99Plan` 和 output。
     - 验证：临时合并 `plan/names/types/emitter/driver` 并去掉 `use codegen.mir_c99.*` 后执行 `./bin/uya check <tmp>` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
-  - [ ] 明确 `MIR_BACKEND_OUTPUT_C99_PLAN` 当前为 legacy 名称，或迁移为 `MIR_BACKEND_OUTPUT_MIR_C99_PLAN` 并同步 backend interface tests。
+  - [x] 明确 `MIR_BACKEND_OUTPUT_C99_PLAN` 当前为 legacy 名称，或迁移为 `MIR_BACKEND_OUTPUT_MIR_C99_PLAN` 并同步 backend interface tests。
+    - 验证：`bash tests/verify_portable_mir_backend_interface.sh` 通过；临时合并 `plan/names/types/emitter/driver` 并去掉 `use codegen.mir_c99.*` 后执行 `./bin/uya check <tmp>` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
 
 ### 4.3 单元输出
 

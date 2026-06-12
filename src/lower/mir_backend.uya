@@ -8,7 +8,9 @@ export const MIR_BACKEND_OUTPUT_NONE: i32 = 0;
 export const MIR_BACKEND_OUTPUT_MACHINE_MODULE: i32 = 1;
 export const MIR_BACKEND_OUTPUT_PTX_MODULE: i32 = 2;
 export const MIR_BACKEND_OUTPUT_EXEC_BYTECODE: i32 = 3;
-export const MIR_BACKEND_OUTPUT_C99_PLAN: i32 = 4;
+export const MIR_BACKEND_OUTPUT_MIR_C99_PLAN: i32 = 4;
+/// Legacy alias kept for callers that predate the independent MIR-C99 backend name.
+export const MIR_BACKEND_OUTPUT_C99_PLAN: i32 = MIR_BACKEND_OUTPUT_MIR_C99_PLAN;
 
 /// 功能说明：记录 target backend 的唯一输入合同。
 /// 参数说明：无；字段保存已验证 PortableMIR module、目标 backend kind、target profile 和 verifier 错误码。
@@ -22,7 +24,7 @@ export struct MirTargetBackendRequest {
 }
 
 /// 功能说明：记录 target backend 对应的输出 payload。
-/// 参数说明：无；字段按 backend kind 绑定 MachineModule、PtxModule、exec bytecode 或 C99Plan 指针。
+/// 参数说明：无；字段按 backend kind 绑定 MachineModule、PtxModule、exec bytecode 或 MirC99Plan 指针。
 /// 返回值说明：无。
 export struct MirTargetBackendOutput {
     backend_kind: i32,
@@ -53,7 +55,7 @@ export fn portable_mir_backend_output_kind_for_backend(backend_kind: i32) i32 {
     if backend_kind == MIR_TARGET_BACKEND_MACHINE { return MIR_BACKEND_OUTPUT_MACHINE_MODULE; }
     if backend_kind == MIR_TARGET_BACKEND_PTX { return MIR_BACKEND_OUTPUT_PTX_MODULE; }
     if backend_kind == MIR_TARGET_BACKEND_EXEC { return MIR_BACKEND_OUTPUT_EXEC_BYTECODE; }
-    if backend_kind == MIR_TARGET_BACKEND_C99 { return MIR_BACKEND_OUTPUT_C99_PLAN; }
+    if backend_kind == MIR_TARGET_BACKEND_C99 { return MIR_BACKEND_OUTPUT_MIR_C99_PLAN; }
     return MIR_BACKEND_OUTPUT_NONE;
 }
 
