@@ -67,7 +67,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`rg -n "portable assembly|禁止路径|c99_codegen_generate|AST body|LoweredProgram body|MirC99Plan|done|reject" docs/mir_c99_backend.md` 覆盖关键合同；`git diff --check` 通过。
   - [x] 在 `docs/portable_mir_language_coverage.md` 增加 MIR-C99 per-kind 状态列：`missing` / `partial` / `done` / `reject`。
     - 验证：`bash tests/verify_portable_mir_language_coverage.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`rg -n "MIR-C99 状态|per-kind|status_column|missing MIR-C99 status" docs/portable_mir_language_coverage.md tests/verify_portable_mir_language_coverage.sh` 覆盖列和 verifier；`git diff --check` 通过。
-  - [ ] 新增 `tests/verify_mir_c99_independent_boundary.sh`：扫描 MIR-C99 源码不得 `use codegen.c99`、`use codegen.c99_build`。
+  - [x] 新增 `tests/verify_mir_c99_independent_boundary.sh`：扫描 MIR-C99 源码不得 `use codegen.c99`、`use codegen.c99_build`。
+    - 验证：`bash tests/verify_mir_c99_independent_boundary.sh --self-test` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] boundary gate 禁止调用 `c99_codegen_generate`、`C99CodeGenerator`、现有 `C99Plan` 生产 emitter。
   - [ ] boundary gate 禁止读取 AST body / `LoweredProgram` body 作为成功路径。
   - [ ] 新增 `tests/verify_mir_c99_minimal_subset_contract.sh`：固定允许的低级 C99 子集和禁用项。
