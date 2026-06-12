@@ -16,6 +16,15 @@ export const MIR_C99_VALUE_TEMP_STATUS_MISSING: i32 = 0;
 export const MIR_C99_VALUE_TEMP_STATUS_READY: i32 = 1;
 export const MIR_C99_VALUE_TEMP_STATUS_REJECT: i32 = 2;
 
+export const MIR_C99_CONSTANT_KIND_UNSUPPORTED: i32 = 0;
+export const MIR_C99_CONSTANT_KIND_I32_LITERAL: i32 = 1;
+export const MIR_C99_CONSTANT_KIND_ZERO: i32 = 2;
+export const MIR_C99_CONSTANT_KIND_NULL: i32 = 3;
+
+export const MIR_C99_CONSTANT_STATUS_MISSING: i32 = 0;
+export const MIR_C99_CONSTANT_STATUS_READY: i32 = 1;
+export const MIR_C99_CONSTANT_STATUS_REJECT: i32 = 2;
+
 /// 功能说明：记录一个 MIR value 到 MIR-C99 C temp 的稳定映射。
 /// 参数说明：无；字段保存 MIR value/type/local/defining-inst ID 和 C temp source id。
 /// 返回值说明：无；由 `MirC99ValuePlan.entries` 动态保存。
@@ -32,12 +41,27 @@ export struct MirC99ValueTemp {
     status: i32,
 }
 
+/// 功能说明：记录一个 MIR operand literal 到 MIR-C99 常量表达式的稳定映射。
+/// 参数说明：无；字段保存 operand/type、立即数 payload 和常量类别。
+/// 返回值说明：无；由 `MirC99ValuePlan.constants` 动态保存。
+export struct MirC99ConstantEntry {
+    operand_id: MirOperandId,
+    type_id: MirTypeId,
+    c_literal_source_id: i32,
+    constant_kind: i32,
+    immediate_i32: i32,
+    flags: i32,
+    status: i32,
+}
+
 /// 功能说明：记录 MIR-C99 value/temp 计划。
-/// 参数说明：无；`entries` 按 MIR value 顺序追加 temp 映射。
+/// 参数说明：无；`entries` 按 MIR value 顺序追加 temp 映射，`constants` 按 MIR operand 顺序追加 literal 映射。
 /// 返回值说明：无；调用 `mir_c99_value_plan_init` 后使用。
 export struct MirC99ValuePlan {
     entries: SemanticVector,
+    constants: SemanticVector,
     count: usize,
+    constant_count: usize,
     reject_count: usize,
 }
 
@@ -66,6 +90,34 @@ fn mir_c99_value_temp_kind_for_type(typ: &MirType) i32 {
         return MIR_C99_VALUE_TEMP_KIND_POINTER;
     }
     return MIR_C99_VALUE_TEMP_KIND_UNSUPPORTED;
+}
+
+fn mir_c99_operand_is_constant_literal(operand: &MirOperand) i32 {
+    if operand == null {
+        return 0;
+    }
+    const value_id: MirValueId = operand.value_id;
+    const local_id: MirLocalId = operand.local_id;
+    if value_id == MIR_VALUE_INVALID_ID && local_id == MIR_LOCAL_INVALID_ID {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_constant_kind_for_operand(typ: &MirType, operand: &MirOperand) i32 {
+    if typ == null || operand == null || mir_c99_operand_is_constant_literal(operand) == 0 {
+        return MIR_C99_CONSTANT_KIND_UNSUPPORTED;
+    }
+    if operand.immediate_i32 == 0 && typ.kind == MIR_TYPE_KIND_POINTER {
+        return MIR_C99_CONSTANT_KIND_NULL;
+    }
+    if operand.immediate_i32 == 0 {
+        return MIR_C99_CONSTANT_KIND_ZERO;
+    }
+    if typ.kind == MIR_TYPE_KIND_I32 {
+        return MIR_C99_CONSTANT_KIND_I32_LITERAL;
+    }
+    return MIR_C99_CONSTANT_KIND_UNSUPPORTED;
 }
 
 fn mir_c99_value_temp_from_mir(module: &PortableMirModule, value: &MirValue) MirC99ValueTemp {
@@ -103,6 +155,36 @@ fn mir_c99_value_temp_from_mir(module: &PortableMirModule, value: &MirValue) Mir
     };
 }
 
+fn mir_c99_constant_entry_from_operand(module: &PortableMirModule,
+    operand: &MirOperand) MirC99ConstantEntry {
+    if module == null || operand == null {
+        return MirC99ConstantEntry{
+            operand_id: -1,
+            type_id: MIR_TYPE_INVALID_ID,
+            c_literal_source_id: -1,
+            constant_kind: MIR_C99_CONSTANT_KIND_UNSUPPORTED,
+            immediate_i32: 0,
+            flags: 0,
+            status: MIR_C99_CONSTANT_STATUS_REJECT,
+        };
+    }
+    const typ: &MirType = mir_c99_value_type_ptr(module, operand.type_id);
+    const constant_kind: i32 = mir_c99_constant_kind_for_operand(typ, operand);
+    var status: i32 = MIR_C99_CONSTANT_STATUS_READY;
+    if constant_kind == MIR_C99_CONSTANT_KIND_UNSUPPORTED {
+        status = MIR_C99_CONSTANT_STATUS_REJECT;
+    }
+    return MirC99ConstantEntry{
+        operand_id: operand.operand_id,
+        type_id: operand.type_id,
+        c_literal_source_id: operand.operand_id,
+        constant_kind: constant_kind,
+        immediate_i32: operand.immediate_i32,
+        flags: operand.flags,
+        status: status,
+    };
+}
+
 /// 功能说明：初始化 MIR-C99 value/temp 计划。
 /// 参数说明：`plan` 为输出计划。
 /// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
@@ -111,7 +193,9 @@ export fn mir_c99_value_plan_init(plan: &MirC99ValuePlan) i32 {
         return -1;
     }
     semantic_vector_init(&plan.entries, @size_of(MirC99ValueTemp));
+    semantic_vector_init(&plan.constants, @size_of(MirC99ConstantEntry));
     plan.count = 0usize;
+    plan.constant_count = 0usize;
     plan.reject_count = 0usize;
     return 0;
 }
@@ -124,7 +208,9 @@ export fn mir_c99_value_plan_release(plan: &MirC99ValuePlan) void {
         return;
     }
     semantic_vector_release(&plan.entries);
+    semantic_vector_release(&plan.constants);
     plan.count = 0usize;
+    plan.constant_count = 0usize;
     plan.reject_count = 0usize;
 }
 
@@ -148,6 +234,28 @@ export fn mir_c99_value_plan_append(value_plan: &MirC99ValuePlan,
     return 0;
 }
 
+/// 功能说明：向 MIR-C99 常量计划追加一个 MIR operand literal 映射。
+/// 参数说明：`value_plan` 为输出计划，`module` 提供 MIR type metadata，`operand` 为 MIR operand。
+/// 返回值说明：成功追加常量返回 `0`；非常量 operand 返回 `0` 且不追加；追加失败返回 `-1`。
+export fn mir_c99_value_plan_append_constant(value_plan: &MirC99ValuePlan,
+    module: &PortableMirModule, operand: &MirOperand) i32 {
+    if value_plan == null || module == null || operand == null {
+        return -1;
+    }
+    if mir_c99_operand_is_constant_literal(operand) == 0 {
+        return 0;
+    }
+    const entry: MirC99ConstantEntry = mir_c99_constant_entry_from_operand(module, operand);
+    if entry.status == MIR_C99_CONSTANT_STATUS_REJECT {
+        return 0;
+    }
+    if semantic_vector_append(&value_plan.constants, &entry as &const void) != 0 {
+        return -1;
+    }
+    value_plan.constant_count = value_plan.constants.count;
+    return 0;
+}
+
 /// 功能说明：从 PortableMIR module 的 value metadata 构建 MIR-C99 C temp 计划。
 /// 参数说明：`module` 为 verifier-clean MIR module，`value_plan` 为输出 temp 计划。
 /// 返回值说明：所有 value 都映射成功返回 `0`，遇到 unsupported value 或参数非法返回 `-1`。
@@ -168,6 +276,26 @@ export fn mir_c99_value_plan_build(module: &PortableMirModule,
     return status;
 }
 
+/// 功能说明：从 PortableMIR module 的 operand metadata 构建 MIR-C99 常量表达式计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`value_plan` 为输出 value/constant 计划。
+/// 返回值说明：所有可识别常量都映射成功返回 `0`，参数非法或追加失败返回 `-1`。
+export fn mir_c99_value_plan_build_constants(module: &PortableMirModule,
+    value_plan: &MirC99ValuePlan) i32 {
+    if module == null || value_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.operands.count {
+        const operand: &MirOperand = semantic_vector_item_ptr(&module.operands, i) as &MirOperand;
+        if mir_c99_value_plan_append_constant(value_plan, module, operand) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：按下标读取 MIR-C99 value/temp 计划条目。
 /// 参数说明：`value_plan` 为 temp 计划，`index` 为条目下标。
 /// 返回值说明：成功返回条目指针，参数非法返回 null。
@@ -176,4 +304,14 @@ export fn mir_c99_value_plan_entry_ptr(value_plan: &MirC99ValuePlan, index: i32)
         return null;
     }
     return semantic_vector_item_ptr(&value_plan.entries, index as usize) as &MirC99ValueTemp;
+}
+
+/// 功能说明：按下标读取 MIR-C99 constant 计划条目。
+/// 参数说明：`value_plan` 为 temp/constant 计划，`index` 为常量条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_value_plan_constant_ptr(value_plan: &MirC99ValuePlan, index: i32) &MirC99ConstantEntry {
+    if value_plan == null || index < 0 || (index as usize) >= value_plan.constants.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&value_plan.constants, index as usize) as &MirC99ConstantEntry;
 }
