@@ -230,6 +230,15 @@ export const MIR_INST_OP_INDEX_ADDR: i32 = 260;
 export const MIR_INST_OP_INDEX_LOAD: i32 = 261;
 export const MIR_INST_OP_INDEX_STORE: i32 = 262;
 export const MIR_INST_OP_INDEX_MAX: i32 = 262;
+export const MIR_INST_OP_SLICE_MIN: i32 = 270;
+export const MIR_INST_OP_SLICE_PTR_ADDR: i32 = 270;
+export const MIR_INST_OP_SLICE_PTR_LOAD: i32 = 271;
+export const MIR_INST_OP_SLICE_LEN_ADDR: i32 = 272;
+export const MIR_INST_OP_SLICE_LEN_LOAD: i32 = 273;
+export const MIR_INST_OP_SLICE_INDEX_ADDR: i32 = 274;
+export const MIR_INST_OP_SLICE_INDEX_LOAD: i32 = 275;
+export const MIR_INST_OP_SLICE_INDEX_STORE: i32 = 276;
+export const MIR_INST_OP_SLICE_MAX: i32 = 276;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
@@ -369,7 +378,10 @@ export fn portable_mir_inst_op_is_address(op: i32) i32 {
     if op >= MIR_INST_OP_ADDRESS_MIN && op <= MIR_INST_OP_ADDRESS_MAX {
         return 1;
     }
-    if op == MIR_INST_OP_INDEX_ADDR {
+    if op == MIR_INST_OP_INDEX_ADDR ||
+       op == MIR_INST_OP_SLICE_PTR_ADDR ||
+       op == MIR_INST_OP_SLICE_LEN_ADDR ||
+       op == MIR_INST_OP_SLICE_INDEX_ADDR {
         return 1;
     }
     return 0;
@@ -390,6 +402,16 @@ export fn portable_mir_inst_op_is_field_place(op: i32) i32 {
 /// 返回值说明：index address/load/store opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_index_place(op: i32) i32 {
     if op >= MIR_INST_OP_INDEX_MIN && op <= MIR_INST_OP_INDEX_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为 slice place 访问指令。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：slice ptr/len/index opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_slice_place(op: i32) i32 {
+    if op >= MIR_INST_OP_SLICE_MIN && op <= MIR_INST_OP_SLICE_MAX {
         return 1;
     }
     return 0;
