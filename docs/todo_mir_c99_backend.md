@@ -1,7 +1,7 @@
 # MIR-C99 Backend TODO
 
 **状态**: executable TODO, implementation pending
-**更新日期**: 2026-06-12
+**更新日期**: 2026-06-13
 **上层目标**: `docs/todo_compiler_1s.md`
 **覆盖矩阵**: `docs/portable_mir_language_coverage.md`
 **架构设计**: `docs/compiler_1s_architecture_design.md`
@@ -541,7 +541,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [ ] async frame / await / async error union / async cleanup；这些必须支持，不能作为首版 reject。
     - [x] runtime/basic async full-language parity：ready/block_on、@async_fn return、direct @await 和 async error union return。
       - 验证：新增 `bash tests/verify_mir_c99_full_language_async_basic_parity.sh` 先红灯失败于覆盖矩阵仍将 `AST_AWAIT_EXPR` / `@await` MIR-C99 状态标为 `missing`，更新矩阵后通过，覆盖 ready/block_on、`@async_fn` return、direct `@await` binding 和 async error union return 的真实 MIR-C99 generator / 现有 C99 oracle parity；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash -n tests/verify_mir_c99_full_language_async_basic_parity.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。说明：现有 C99 oracle 编译阶段仍输出既有 pedantic/unused warning，但上述命令退出码均为 0；control-flow、frame/pool、scheduler/channel/IO/compute 和 cleanup/resource async full-language shards 仍留给后续子任务。
-    - [ ] control-flow async full-language parity：if/else-if/while/for/nested/multiple await 与 compound try-await。
+    - [x] control-flow async full-language parity：if/else-if/while/for/nested/multiple await 与 compound try-await。
+      - 验证：新增 `bash tests/verify_mir_c99_full_language_async_control_flow_parity.sh` 先红灯失败于覆盖矩阵缺少 control-flow async full-language 证据，更新矩阵后通过，聚合真实 MIR-C99 generator / 现有 C99 oracle parity gates，覆盖 if/else-if、while、range for、array for、nested block、multiple await 和 compound `try @await`；`bash tests/verify_mir_c99_async_control_flow_parity.sh` 通过；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash -n tests/verify_mir_c99_full_language_async_control_flow_parity.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。说明：现有 C99 oracle 编译阶段仍输出既有 pedantic/unused warning，但上述 parity/guard 命令退出码均为 0。
     - [ ] frame/pool async full-language parity：@frame type/methods、inline temp、stack/pool/stats/heap fallback。
     - [ ] scheduler/channel/IO/compute async full-language parity：channel、scheduler event、fd/io、multi-fd 与 async_compute。
     - [ ] async cleanup/resource full-language parity：async error union cleanup、defer/errdefer、frame release 与 make-check manifest 收口。

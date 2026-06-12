@@ -92,7 +92,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_C_IMPORT_DECL` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；sidecar object parity 待补。 |
 | `AST_IF_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；break/continue cleanup edge 待补。 |
 | `AST_WHILE_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 待补。 |
-| `AST_FOR_STMT` | done | missing | Phase 9A 验证。 |
+| `AST_FOR_STMT` | done | partial | MIR-C99 control-flow async full-language parity shard 覆盖 range for 和 array for；break/continue cleanup edge 待补。 |
 | `AST_BREAK_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
@@ -101,7 +101,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
 | `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic compound assignment 当前由 atomic compound-add reject shard 明确 capability reject；aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
-| `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
+| `AST_BLOCK` | done | partial | MIR-C99 control-flow async full-language parity shard 覆盖 async nested block；表达式语句入口仍待专用 shard。 |
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | partial | MIR-C99 full-language pointer parity shard 覆盖 `&local` 取地址和 `*ptr` 解引用 load/store；其他一元运算由后续 shard 覆盖。 |
 | `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call，struct parity shard 覆盖 method-style aggregate call；generic function parity shard 覆盖 i32/f64 concrete function instances；generic method parity shard 覆盖 `Box<T>.make/get` 和 `tag_with<U>` concrete calls；interface dispatch parity shard 覆盖基础 vtable interface call；generic interface parity shard 覆盖 generic interface concrete vtable calls；interface composition/field/global init parity shard 覆盖组合接口字段上的 vtable calls。 |
@@ -136,7 +136,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_MC_INTERP` | partial | missing | 宏内插值。 |
 | `AST_MC_TYPE` | partial | missing | 宏内类型反射。 |
 | `AST_MC_SOURCE` | partial | missing | 宏内源码字符串序列化。 |
-| `AST_AWAIT_EXPR` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow、frame/pool 和 cleanup/resource await 仍在后续 full-language async shards 收口。 |
+| `AST_AWAIT_EXPR` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool 和 cleanup/resource await 仍在后续 full-language async shards 收口。 |
 | `AST_SRC_NAME` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `AST_SRC_PATH` | done | missing | C99 builtin。 |
 | `AST_SRC_LINE` | done | missing | C99 builtin。 |
@@ -185,10 +185,10 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `CORE_STMT_KIND_DROP` | done | partial | MIR-C99 lexical drop scope / return cleanup parity shard 覆盖离开词法作用域和函数提前 return 时执行 drop cleanup。 |
 | `CORE_STMT_KIND_ERROR_PROPAGATION` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try` 表达式 success path 和 error propagation。 |
 | `CORE_STMT_KIND_LOCAL_DECL` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local declaration。 |
-| `CORE_STMT_KIND_IF` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch。 |
+| `CORE_STMT_KIND_IF` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；control-flow async full-language parity shard 覆盖 async if/else-if。 |
 | `CORE_STMT_KIND_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assignment。 |
 | `CORE_STMT_KIND_EXPR` | done | missing | 表达式语句入口。 |
-| `CORE_STMT_KIND_WHILE` | partial | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 和复杂 cleanup edge 待补。 |
+| `CORE_STMT_KIND_WHILE` | partial | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；control-flow async full-language parity shard 覆盖 async while；break/continue 和复杂 cleanup edge 待补。 |
 
 ---
 
@@ -249,7 +249,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |
 | `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | missing | `c_import` 边界。 |
 | `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
-| `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow、frame/pool 和 cleanup/resource await 仍在后续 full-language async shards 收口。 |
+| `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool 和 cleanup/resource await 仍在后续 full-language async shards 收口。 |
 
 ---
 
