@@ -47,8 +47,10 @@ require_pattern "$CALL_FILE" 'MIR_ABI_CLASS_FLOAT' \
     "f32 ABI class consumed"
 require_pattern "$CALL_FILE" 'MIR_ABI_CLASS_DOUBLE' \
     "f64 ABI class consumed"
-require_pattern "$CALL_FILE" 'return_type\.kind == MIR_TYPE_KIND_F32 \|\| return_type\.kind == MIR_TYPE_KIND_F64' \
-    "float/double return recognized"
+require_pattern "$CALL_FILE" 'return_type\.kind == MIR_TYPE_KIND_F32' \
+    "f32 return recognized"
+require_pattern "$CALL_FILE" 'return_type\.kind == MIR_TYPE_KIND_F64' \
+    "f64 return recognized"
 require_pattern "$CALL_FILE" 'param_type\.kind == MIR_TYPE_KIND_F32 \|\| param_type\.kind == MIR_TYPE_KIND_F64' \
     "float/double params recognized"
 require_pattern "$CALL_FILE" 'return_type\.abi_class' \

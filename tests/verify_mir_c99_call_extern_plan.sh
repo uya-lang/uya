@@ -54,7 +54,7 @@ require_pattern "$CALL_FILE" 'callee_function_id: callee_function_id' \
     "extern callee function id stored"
 require_pattern "$CALL_FILE" 'signature_type_id = callee\.signature_type_id' \
     "extern callee signature captured"
-require_pattern "$CALL_FILE" 'signature_type_id: signature_type_id' \
+require_pattern "$CALL_FILE" 'signature_type_id: signature\.type_id' \
     "extern callee signature stored"
 require_pattern "$CALL_FILE" 'calling_convention: inst\.calling_convention' \
     "extern call instruction convention captured"

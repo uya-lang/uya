@@ -55,7 +55,7 @@ require_pattern "$CALL_FILE" 'callee_function_id: callee_function_id' \
     "callee function id stored in plan entry"
 require_pattern "$CALL_FILE" 'signature_type_id = callee\.signature_type_id' \
     "callee signature type captured"
-require_pattern "$CALL_FILE" 'signature_type_id: signature_type_id' \
+require_pattern "$CALL_FILE" 'signature_type_id: signature\.type_id' \
     "callee signature type stored in plan entry"
 require_pattern "$CALL_FILE" 'arg_start: inst\.operand_start \+ 1' \
     "argument range starts after callee operand"

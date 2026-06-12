@@ -53,7 +53,7 @@ require_pattern "$CALL_FILE" 'callee_type_id: callee_type_id' \
     "callee function-pointer type stored in entry"
 require_pattern "$CALL_FILE" 'signature_type_id = pointee_type\.type_id' \
     "function-pointer pointee signature captured"
-require_pattern "$CALL_FILE" 'signature_type_id: signature_type_id' \
+require_pattern "$CALL_FILE" 'signature_type_id: signature\.type_id' \
     "callee signature stored in entry"
 require_pattern "$CALL_FILE" 'function_pointer_type\.kind != MIR_TYPE_KIND_FUNCTION_POINTER' \
     "callee type must be function pointer"
