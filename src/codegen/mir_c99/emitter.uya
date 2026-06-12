@@ -1,0 +1,158 @@
+// codegen/mir_c99/emitter.uya - MIR-C99 emitter contract over verified PortableMIR.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_EMITTER_STATUS_ERROR: i32 = -1;
+export const MIR_C99_EMITTER_STATUS_UNINITIALIZED: i32 = 0;
+export const MIR_C99_EMITTER_STATUS_READY: i32 = 1;
+export const MIR_C99_EMITTER_STATUS_PLANNED: i32 = 2;
+export const MIR_C99_EMITTER_STATUS_DONE: i32 = 3;
+
+/// 功能说明：记录 MIR-C99 emitter 从 verified PortableMIR 到 C bytes 的状态。
+/// 参数说明：无；字段由 `mir_c99_emitter_begin` 和 `mir_c99_emitter_read_plan` 填充。
+/// 返回值说明：无；emitter 不保存 AST、typed program 或 legacy C backend 状态。
+export struct MirC99Emitter {
+    status: i32,
+    target_profile_id: i32,
+    request: &MirTargetBackendRequest,
+    portable_mir: &PortableMirModule,
+    plan: &MirC99Plan,
+    mir_function_count: usize,
+    mir_block_count: usize,
+    mir_inst_count: usize,
+    mir_value_count: usize,
+    mir_type_count: usize,
+    unit_count: usize,
+    planned_ref_count: usize,
+    estimated_bytes: usize,
+    output_bytes: usize,
+}
+
+/// 功能说明：记录 MIR-C99 emitter 输出 C bytes 的结果摘要。
+/// 参数说明：无；`output_bytes` 为已写 C byte 数，`diagnostic_code` 为失败原因。
+/// 返回值说明：无。
+export struct MirC99EmitterOutputResult {
+    status: i32,
+    output_bytes: usize,
+    temp_peak_bytes: usize,
+    diagnostic_code: i32,
+}
+
+fn mir_c99_emitter_error(emitter: &MirC99Emitter, diagnostic_code: i32) i32 {
+    if emitter != null {
+        emitter.status = MIR_C99_EMITTER_STATUS_ERROR;
+    }
+    return diagnostic_code;
+}
+
+fn mir_c99_emitter_output_error(diagnostic_code: i32) MirC99EmitterOutputResult {
+    return MirC99EmitterOutputResult{
+        status: MIR_C99_EMITTER_STATUS_ERROR,
+        output_bytes: 0usize,
+        temp_peak_bytes: 0usize,
+        diagnostic_code: diagnostic_code,
+    };
+}
+
+fn mir_c99_emitter_reset_snapshot(emitter: &MirC99Emitter) void {
+    if emitter == null {
+        return;
+    }
+    emitter.mir_function_count = 0usize;
+    emitter.mir_block_count = 0usize;
+    emitter.mir_inst_count = 0usize;
+    emitter.mir_value_count = 0usize;
+    emitter.mir_type_count = 0usize;
+    emitter.unit_count = 0usize;
+    emitter.planned_ref_count = 0usize;
+    emitter.estimated_bytes = 0usize;
+    emitter.output_bytes = 0usize;
+}
+
+fn mir_c99_emitter_plan_ref_count(plan: &MirC99Plan) usize {
+    if plan == null {
+        return 0usize;
+    }
+    return plan.includes.count + plan.typedefs.count + plan.prototypes.count +
+        plan.globals.count + plan.functions.count + plan.helpers.count + plan.deps.count;
+}
+
+fn mir_c99_emitter_refresh_mir_snapshot(emitter: &MirC99Emitter) i32 {
+    if emitter == null || emitter.portable_mir == null {
+        return mir_c99_emitter_error(emitter, -1);
+    }
+    emitter.mir_function_count = emitter.portable_mir.function_count;
+    emitter.mir_block_count = emitter.portable_mir.block_count;
+    emitter.mir_inst_count = emitter.portable_mir.inst_count;
+    emitter.mir_value_count = emitter.portable_mir.value_count;
+    emitter.mir_type_count = emitter.portable_mir.type_count;
+    return 0;
+}
+
+fn mir_c99_emitter_refresh_plan_snapshot(emitter: &MirC99Emitter) i32 {
+    if emitter == null || emitter.plan == null {
+        return mir_c99_emitter_error(emitter, -1);
+    }
+    emitter.unit_count = emitter.plan.units.count;
+    emitter.planned_ref_count = mir_c99_emitter_plan_ref_count(emitter.plan);
+    emitter.estimated_bytes = emitter.plan.estimated_bytes;
+    return 0;
+}
+
+/// 功能说明：初始化 MIR-C99 emitter。
+/// 参数说明：`emitter` 为输出状态，`request` 必须是 verified C99 backend request，`plan` 必须处于 active 生命周期。
+/// 返回值说明：成功返回 `0`，参数非法或 verifier 未通过返回 `-1`。
+export fn mir_c99_emitter_begin(emitter: &MirC99Emitter, request: &MirTargetBackendRequest, plan: &MirC99Plan) i32 {
+    if emitter == null || request == null || plan == null {
+        return -1;
+    }
+    emitter.status = MIR_C99_EMITTER_STATUS_UNINITIALIZED;
+    emitter.target_profile_id = 0;
+    emitter.request = null;
+    emitter.portable_mir = null;
+    emitter.plan = null;
+    mir_c99_emitter_reset_snapshot(emitter);
+    if request.backend_kind != MIR_TARGET_BACKEND_C99 ||
+       portable_mir_backend_request_is_verified(request) == 0 ||
+       plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE {
+        return mir_c99_emitter_error(emitter, -1);
+    }
+    emitter.status = MIR_C99_EMITTER_STATUS_READY;
+    emitter.target_profile_id = request.target_profile_id;
+    emitter.request = request;
+    emitter.portable_mir = request.module;
+    emitter.plan = plan;
+    if mir_c99_emitter_refresh_mir_snapshot(emitter) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：读取 MIR-C99 plan 的当前快照，准备后续低级 C bytes 输出。
+/// 参数说明：`emitter` 必须已经通过 `mir_c99_emitter_begin` 初始化。
+/// 返回值说明：成功返回 `0`，状态非法返回 `-1`。
+export fn mir_c99_emitter_read_plan(emitter: &MirC99Emitter) i32 {
+    if emitter == null || emitter.status != MIR_C99_EMITTER_STATUS_READY {
+        return -1;
+    }
+    if mir_c99_emitter_refresh_plan_snapshot(emitter) != 0 {
+        return -1;
+    }
+    emitter.status = MIR_C99_EMITTER_STATUS_PLANNED;
+    return 0;
+}
+
+/// 功能说明：返回 MIR-C99 emitter 当前输出摘要。
+/// 参数说明：`emitter` 为待查询状态。
+/// 返回值说明：返回 output result；参数非法时返回 error result。
+export fn mir_c99_emitter_output_result(emitter: &MirC99Emitter) MirC99EmitterOutputResult {
+    if emitter == null || emitter.status == MIR_C99_EMITTER_STATUS_ERROR {
+        return mir_c99_emitter_output_error(-1);
+    }
+    return MirC99EmitterOutputResult{
+        status: emitter.status,
+        output_bytes: emitter.output_bytes,
+        temp_peak_bytes: 0usize,
+        diagnostic_code: 0,
+    };
+}
