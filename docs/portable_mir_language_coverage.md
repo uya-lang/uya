@@ -88,7 +88,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_VAR_DECL` | done | missing | `var array`/`var atomic_value` 等。 |
 | `AST_EXTERN_VAR_DECL` | done | partial | MIR-C99 已支持 extern global plan/output 的 declaration-only 路径；extern global parity 待后续 shard。 |
 | `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
-| `AST_USE_STMT` | done | missing | `use smoke_helper;` 由 Phase 9A 验证。 |
+| `AST_USE_STMT` | done | partial | MIR-C99 full-language multi-file module item use parity shard 覆盖跨文件 item import；whole-module alias parity 待补。 |
 | `AST_C_IMPORT_DECL` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；sidecar object parity 待补。 |
 | `AST_IF_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；break/continue cleanup edge 待补。 |
 | `AST_WHILE_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 待补。 |

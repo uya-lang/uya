@@ -3,12 +3,12 @@
 # Default existing-C99 oracle generator command for MIR-C99 parity checks.
 #
 # Usage:
-#   tests/c99_oracle_generate.sh <input.uya> <output.c> <log>
+#   tests/c99_oracle_generate.sh <input.uya> <output.c> <log> [--project-root <dir>]
 
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-    echo "usage: $0 <input.uya> <output.c> <log>" >&2
+if [[ $# -ne 3 && $# -ne 5 ]]; then
+    echo "usage: $0 <input.uya> <output.c> <log> [--project-root <dir>]" >&2
     exit 64
 fi
 
@@ -18,6 +18,15 @@ log="$3"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 compiler="${C99_ORACLE_COMPILER:-$repo_root/bin/cmd/build}"
+project_root="."
+
+if [[ $# -eq 5 ]]; then
+    if [[ "$4" != "--project-root" ]]; then
+        echo "usage: $0 <input.uya> <output.c> <log> [--project-root <dir>]" >&2
+        exit 64
+    fi
+    project_root="$5"
+fi
 
 mkdir -p "$(dirname "$log")"
 mkdir -p "$(dirname "$output")"
@@ -57,7 +66,7 @@ trap 'rm -f "$tmp_stdout" "$tmp_stderr"' EXIT
 set +e
 (
     cd "$repo_root"
-    UYA_ROOT="$repo_root" "$compiler" --c99 "$input" -o "$output" --no-split-c --project-root .
+    UYA_ROOT="$repo_root" "$compiler" --c99 "$input" -o "$output" --no-split-c --project-root "$project_root"
 ) >"$tmp_stdout" 2>"$tmp_stderr"
 status=$?
 set -e
