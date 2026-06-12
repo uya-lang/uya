@@ -598,10 +598,16 @@ fn portable_mir_verify_conversion_inst(module: &PortableMirModule,
     if operand_type == null {
         return 0;
     }
-    if (inst.op == MIR_INST_OP_SIGN_EXTEND || inst.op == MIR_INST_OP_ZERO_EXTEND ||
-        inst.op == MIR_INST_OP_TRUNCATE) &&
+    if (inst.op == MIR_INST_OP_SIGN_EXTEND || inst.op == MIR_INST_OP_ZERO_EXTEND) &&
        portable_mir_type_kind_is_integer(typ.kind) != 0 &&
-       portable_mir_type_kind_is_integer(operand_type.kind) != 0 {
+       portable_mir_type_kind_is_integer(operand_type.kind) != 0 &&
+       typ.size_bytes > operand_type.size_bytes {
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_TRUNCATE &&
+       portable_mir_type_kind_is_integer(typ.kind) != 0 &&
+       portable_mir_type_kind_is_integer(operand_type.kind) != 0 &&
+       typ.size_bytes < operand_type.size_bytes {
         return 1;
     }
     if (inst.op == MIR_INST_OP_INT_TO_F32 || inst.op == MIR_INST_OP_INT_TO_F64) &&

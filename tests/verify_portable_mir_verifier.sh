@@ -737,6 +737,38 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 16;
         operands[0] = verifier_operand(0, 0, 16);
     }
+    if mode == 28 {
+        insts[0].op = MIR_INST_OP_SIGN_EXTEND;
+        insts[0].type_id = 11;
+        insts[0].operand_count = 1;
+        values[0].type_id = 8;
+        values[1].type_id = 11;
+        operands[0] = verifier_operand(0, 0, 8);
+    }
+    if mode == 29 {
+        insts[0].op = MIR_INST_OP_SIGN_EXTEND;
+        insts[0].type_id = 8;
+        insts[0].operand_count = 1;
+        values[0].type_id = 11;
+        values[1].type_id = 8;
+        operands[0] = verifier_operand(0, 0, 11);
+    }
+    if mode == 30 {
+        insts[0].op = MIR_INST_OP_TRUNCATE;
+        insts[0].type_id = 8;
+        insts[0].operand_count = 1;
+        values[0].type_id = 11;
+        values[1].type_id = 8;
+        operands[0] = verifier_operand(0, 0, 11);
+    }
+    if mode == 31 {
+        insts[0].op = MIR_INST_OP_TRUNCATE;
+        insts[0].type_id = 11;
+        insts[0].operand_count = 1;
+        values[0].type_id = 8;
+        values[1].type_id = 11;
+        operands[0] = verifier_operand(0, 0, 8);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -790,6 +822,8 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(23), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(24), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(26), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(28), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(30), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -801,6 +835,8 @@ test "PortableMIR verifier rejects malformed control and data flow" {
     try assert_eq_i32(verifier_run(22), MIR_VERIFY_ERR_TYPE_MISMATCH);
     try assert_eq_i32(verifier_run(25), MIR_VERIFY_ERR_TYPE_MISMATCH);
     try assert_eq_i32(verifier_run(27), MIR_VERIFY_ERR_TYPE_MISMATCH);
+    try assert_eq_i32(verifier_run(29), MIR_VERIFY_ERR_TYPE_MISMATCH);
+    try assert_eq_i32(verifier_run(31), MIR_VERIFY_ERR_TYPE_MISMATCH);
 }
 
 test "PortableMIR verifier rejects target and layout violations" {
