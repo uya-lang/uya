@@ -15,12 +15,16 @@ export const MIR_C99_CFG_DROP_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_DROP_STATUS_REJECT: i32 = 2;
 export const MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_REJECT: i32 = 2;
+export const MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_PLANNED: i32 = 1;
+export const MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR: i32 = 1;
 export const MIR_C99_CFG_BLOCK_FLAG_CLEANUP: i32 = 1;
 export const MIR_C99_CFG_TERMINATOR_FLAG_ERROR_CFG: i32 = 1;
 export const MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE: i32 = 1;
 export const MIR_C99_CFG_ERROR_UNION_RETURN_FLAG_CHECKED: i32 = 1;
+export const MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_POLL: i32 = 1;
+export const MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_RESUME: i32 = 2;
 
 /// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
 /// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
@@ -106,6 +110,22 @@ export struct MirC99ErrorUnionReturnPlanEntry {
     flags: i32,
 }
 
+/// 功能说明：记录 async poll/resume 到低级 C label/goto state edge 的映射。
+/// 参数说明：无；字段来自 MIR async instruction 和 `MirAsyncFrameMeta` 的 poll/resume block。
+/// 返回值说明：无；后续 await 叶子会继续补充状态保存和 result 处理。
+export struct MirC99AsyncFrameStateEdge {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    source_block_id: MirBlockId,
+    target_block_id: MirBlockId,
+    op: i32,
+    state_tag: i32,
+    poll_block_id: MirBlockId,
+    resume_block_id: MirBlockId,
+    status: i32,
+    flags: i32,
+}
+
 /// 功能说明：记录 MIR-C99 CFG function plan。
 /// 参数说明：无；动态保存 MIR function/block/terminator 到 C function/label/goto 的映射。
 /// 返回值说明：无。
@@ -115,11 +135,13 @@ export struct MirC99CfgPlan {
     terminators: SemanticVector,
     cleanup_drops: SemanticVector,
     error_union_returns: SemanticVector,
+    async_state_edges: SemanticVector,
     function_count: usize,
     block_count: usize,
     terminator_count: usize,
     cleanup_drop_count: usize,
     error_union_return_count: usize,
+    async_state_edge_count: usize,
     cleanup_error_function_count: usize,
     cleanup_block_count: usize,
     cleanup_error_terminator_count: usize,
@@ -216,6 +238,95 @@ fn mir_c99_cfg_inst_ptr(module: &PortableMirModule, inst_id: MirInstId) &MirInst
         return null;
     }
     return semantic_vector_item_ptr(&module.insts, inst_index as usize) as &MirInst;
+}
+
+fn mir_c99_cfg_async_frame_meta_ptr(module: &PortableMirModule,
+    index: usize) &MirAsyncFrameMeta {
+    if module == null || index >= module.async_frame_metas.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.async_frame_metas, index) as &MirAsyncFrameMeta;
+}
+
+fn mir_c99_cfg_find_async_frame_meta_for_inst(module: &PortableMirModule,
+    inst: &MirInst) &MirAsyncFrameMeta {
+    if module == null || inst == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < module.async_frame_metas.count {
+        const meta: &MirAsyncFrameMeta = mir_c99_cfg_async_frame_meta_ptr(module, i);
+        if meta != null && meta.function_id == inst.function_id &&
+           meta.poll_block_id != MIR_BLOCK_INVALID_ID &&
+           meta.resume_block_id != MIR_BLOCK_INVALID_ID {
+            return meta;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_cfg_inst_is_async_state_edge(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ASYNC_POLL_CHILD ||
+       inst.op == MIR_INST_OP_ASYNC_RESUME_EDGE {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_async_state_edge_from_mir(module: &PortableMirModule,
+    inst: &MirInst) MirC99AsyncFrameStateEdge {
+    if module == null || inst == null ||
+       mir_c99_cfg_inst_is_async_state_edge(inst) == 0 {
+        return MirC99AsyncFrameStateEdge{
+            inst_id: MIR_INST_INVALID_ID,
+            function_id: MIR_FUNCTION_INVALID_ID,
+            source_block_id: MIR_BLOCK_INVALID_ID,
+            target_block_id: MIR_BLOCK_INVALID_ID,
+            op: 0,
+            state_tag: 0,
+            poll_block_id: MIR_BLOCK_INVALID_ID,
+            resume_block_id: MIR_BLOCK_INVALID_ID,
+            status: MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_REJECT,
+            flags: 0,
+        };
+    }
+    const meta: &MirAsyncFrameMeta = mir_c99_cfg_find_async_frame_meta_for_inst(module, inst);
+    if meta == null {
+        return MirC99AsyncFrameStateEdge{
+            inst_id: inst.inst_id,
+            function_id: inst.function_id,
+            source_block_id: inst.block_id,
+            target_block_id: MIR_BLOCK_INVALID_ID,
+            op: inst.op,
+            state_tag: 0,
+            poll_block_id: MIR_BLOCK_INVALID_ID,
+            resume_block_id: MIR_BLOCK_INVALID_ID,
+            status: MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_REJECT,
+            flags: 0,
+        };
+    }
+    var target_block: MirBlockId = meta.poll_block_id;
+    var flags: i32 = MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_POLL;
+    if inst.op == MIR_INST_OP_ASYNC_RESUME_EDGE {
+        target_block = meta.resume_block_id;
+        flags = MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_RESUME;
+    }
+    return MirC99AsyncFrameStateEdge{
+        inst_id: inst.inst_id,
+        function_id: inst.function_id,
+        source_block_id: inst.block_id,
+        target_block_id: target_block,
+        op: inst.op,
+        state_tag: meta.state_tag,
+        poll_block_id: meta.poll_block_id,
+        resume_block_id: meta.resume_block_id,
+        status: MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_PLANNED,
+        flags: flags,
+    };
 }
 
 fn mir_c99_cfg_block_ptr(module: &PortableMirModule, block_id: MirBlockId) &MirBlock {
@@ -654,11 +765,13 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     semantic_vector_init(&plan.terminators, @size_of(MirC99TerminatorPlanEntry));
     semantic_vector_init(&plan.cleanup_drops, @size_of(MirC99CleanupDropPlanEntry));
     semantic_vector_init(&plan.error_union_returns, @size_of(MirC99ErrorUnionReturnPlanEntry));
+    semantic_vector_init(&plan.async_state_edges, @size_of(MirC99AsyncFrameStateEdge));
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
     plan.cleanup_drop_count = 0usize;
     plan.error_union_return_count = 0usize;
+    plan.async_state_edge_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -678,11 +791,13 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     semantic_vector_release(&plan.terminators);
     semantic_vector_release(&plan.cleanup_drops);
     semantic_vector_release(&plan.error_union_returns);
+    semantic_vector_release(&plan.async_state_edges);
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
     plan.cleanup_drop_count = 0usize;
     plan.error_union_return_count = 0usize;
+    plan.async_state_edge_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -818,6 +933,30 @@ export fn mir_c99_cfg_plan_append_error_union_return(cfg_plan: &MirC99CfgPlan,
     return 0;
 }
 
+/// 功能说明：向 MIR-C99 CFG plan 追加一个 async poll/resume state edge。
+/// 参数说明：`cfg_plan` 为 CFG plan，`module` 为 MIR module，`inst` 为 async poll/resume instruction。
+/// 返回值说明：非 async poll/resume instruction 返回 `0`；映射成功返回 `0`，不支持返回 `-1`。
+export fn mir_c99_cfg_plan_append_async_state_edge(cfg_plan: &MirC99CfgPlan,
+    module: &PortableMirModule, inst: &MirInst) i32 {
+    if cfg_plan == null || module == null || inst == null {
+        return -1;
+    }
+    if mir_c99_cfg_inst_is_async_state_edge(inst) == 0 {
+        return 0;
+    }
+    const entry: MirC99AsyncFrameStateEdge =
+        mir_c99_cfg_async_state_edge_from_mir(module, inst);
+    if semantic_vector_append(&cfg_plan.async_state_edges, &entry as &const void) != 0 {
+        return -1;
+    }
+    cfg_plan.async_state_edge_count = cfg_plan.async_state_edges.count;
+    if entry.status == MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_REJECT {
+        cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
 /// 功能说明：从 PortableMIR module 构建 MIR function -> C function 映射。
 /// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 plan，`unit` 为目标 single unit，`cfg_plan` 为输出 CFG plan。
 /// 返回值说明：全部 function 映射成功返回 `0`，参数非法或任一 function 失败返回 `-1`。
@@ -917,6 +1056,26 @@ export fn mir_c99_cfg_plan_build_error_union_returns(module: &PortableMirModule,
     return status;
 }
 
+/// 功能说明：从 PortableMIR module 构建 async poll/resume 的低级 state edge 映射。
+/// 参数说明：`module` 为 verifier-clean MIR module，`cfg_plan` 为输出 CFG plan。
+/// 返回值说明：全部 async poll/resume edge 映射成功返回 `0`，参数非法或任一映射失败返回 `-1`。
+export fn mir_c99_cfg_plan_build_async_state_edges(module: &PortableMirModule,
+    cfg_plan: &MirC99CfgPlan) i32 {
+    if module == null || cfg_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if mir_c99_cfg_plan_append_async_state_edge(cfg_plan, module, inst) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：按下标读取 MIR-C99 function plan 条目。
 /// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
 /// 返回值说明：成功返回条目指针，参数非法返回 null。
@@ -972,6 +1131,19 @@ export fn mir_c99_cfg_error_union_return_entry_ptr(cfg_plan: &MirC99CfgPlan,
         index as usize) as &MirC99ErrorUnionReturnPlanEntry;
 }
 
+/// 功能说明：按下标读取 MIR-C99 async frame state edge plan 条目。
+/// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_cfg_async_state_edge_ptr(cfg_plan: &MirC99CfgPlan,
+    index: i32) &MirC99AsyncFrameStateEdge {
+    if cfg_plan == null || index < 0 ||
+       (index as usize) >= cfg_plan.async_state_edges.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&cfg_plan.async_state_edges,
+        index as usize) as &MirC99AsyncFrameStateEdge;
+}
+
 /// 功能说明：输出 MIR-C99 BR terminator 对应的低级 C99 `goto bbN;` 语句。
 /// 参数说明：`entry` 为已规划的 BR terminator，`stream` 为目标 C 输出流。
 /// 返回值说明：成功返回 `0`，参数非法、非 BR 或写出失败返回 `-1`。
@@ -1022,6 +1194,28 @@ export fn mir_c99_cfg_emit_cond_br_goto(entry: &MirC99TerminatorPlanEntry, strea
         return -1;
     }
     if mir_c99_cfg_write_i32(stream, entry.false_target_block_id) != 0 {
+        return -1;
+    }
+    if fputs(";\n" as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：输出 async poll/resume state edge 对应的低级 C99 `goto bbN;` 语句。
+/// 参数说明：`entry` 为已规划的 async state edge，`stream` 为目标 C 输出流。
+/// 返回值说明：成功返回 `0`，参数非法、未规划或写出失败返回 `-1`。
+export fn mir_c99_cfg_emit_async_state_goto(entry: &MirC99AsyncFrameStateEdge,
+    stream: &FILE) i32 {
+    if entry == null || stream == null ||
+       entry.status != MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_PLANNED ||
+       entry.target_block_id == MIR_BLOCK_INVALID_ID {
+        return -1;
+    }
+    if fputs("goto bb" as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    if mir_c99_cfg_write_i32(stream, entry.target_block_id) != 0 {
         return -1;
     }
     if fputs(";\n" as *byte, stream as *void) < 0 {
