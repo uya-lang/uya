@@ -35,6 +35,8 @@ for symbol in \
     MIR_C99_EXPR_KIND_INT_UNARY \
     MIR_C99_EXPR_KIND_BOOL_LOGIC \
     MIR_C99_EXPR_KIND_CONVERSION \
+    MIR_C99_EXPR_KIND_FLOAT_ARITH \
+    MIR_C99_EXPR_KIND_FLOAT_COMPARE \
     MIR_C99_CONSTANT_KIND_F32_LITERAL \
     MIR_C99_CONSTANT_KIND_F64_LITERAL \
     mir_c99_value_plan_build_expressions \
@@ -70,6 +72,10 @@ require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_logic' \
     "bool logic opcode family handled"
 require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_conversion' \
     "conversion opcode family handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_float_arithmetic' \
+    "float arithmetic opcode family handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_float_compare' \
+    "float comparison opcode family handled"
 require_pattern "$VALUE_FILE" 'MIR_TYPE_KIND_F32' \
     "f32 constant type recognized"
 require_pattern "$VALUE_FILE" 'MIR_TYPE_KIND_F64' \

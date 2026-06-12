@@ -35,6 +35,8 @@ export const MIR_C99_EXPR_KIND_INT_COMPARE: i32 = 4;
 export const MIR_C99_EXPR_KIND_INT_UNARY: i32 = 5;
 export const MIR_C99_EXPR_KIND_BOOL_LOGIC: i32 = 6;
 export const MIR_C99_EXPR_KIND_CONVERSION: i32 = 7;
+export const MIR_C99_EXPR_KIND_FLOAT_ARITH: i32 = 8;
+export const MIR_C99_EXPR_KIND_FLOAT_COMPARE: i32 = 9;
 
 export const MIR_C99_EXPR_STATUS_MISSING: i32 = 0;
 export const MIR_C99_EXPR_STATUS_READY: i32 = 1;
@@ -183,6 +185,12 @@ fn mir_c99_expression_kind_for_inst(inst: &MirInst) i32 {
     }
     if portable_mir_inst_op_is_conversion(inst.op) != 0 {
         return MIR_C99_EXPR_KIND_CONVERSION;
+    }
+    if portable_mir_inst_op_is_float_arithmetic(inst.op) != 0 {
+        return MIR_C99_EXPR_KIND_FLOAT_ARITH;
+    }
+    if portable_mir_inst_op_is_float_compare(inst.op) != 0 {
+        return MIR_C99_EXPR_KIND_FLOAT_COMPARE;
     }
     return MIR_C99_EXPR_KIND_UNSUPPORTED;
 }

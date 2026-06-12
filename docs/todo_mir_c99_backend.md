@@ -81,7 +81,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [x] function type / function pointer type metadata：参数、返回值、calling convention、ABI class 和可调用 symbol/value 关系。
     - 验证：`bash tests/verify_mir_c99_type_function_signature.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_type_field_layout.sh` 通过；`bash tests/verify_mir_c99_type_error_union_layout.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_backend_interface.sh` 通过；`bash tests/verify_portable_mir_structs.sh` 通过；`bash tests/verify_portable_mir_dynamic_tables.sh` 通过；`bash tests/verify_portable_mir_core_body_lowering.sh` 通过；`bash tests/verify_portable_mir_parallel_determinism.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
-- [ ] MIR-C99-PREMIR-VALUE-OPS：补齐表达式和转换 opcode。
+- [x] MIR-C99-PREMIR-VALUE-OPS：补齐表达式和转换 opcode。
   - [x] 整数一元、逻辑、非 i32 算术/比较 opcode，并在 verifier 中校验 operand/result type。
     - [x] 建立整数 value opcode inventory / 分类 helper，覆盖一元、逻辑、非 i32 算术和比较族，并让 verifier 使用分类入口。
       - 验证：`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `U64_ADD` 正/反例，断言数 19）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
@@ -106,7 +106,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `F32_TO_F64`、`F64_TO_F32` 正例和方向错配反例，断言数 38）；`bash tests/verify_portable_mir_conversion_opcode_inventory.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] 同步 MIR-C99 expression plan 对 conversion opcode 的可见支持/拒绝边界。
       - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 `MIR_C99_EXPR_KIND_CONVERSION` 和 conversion opcode family 分类，checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_conversion_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
-  - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。
+  - [x] f32/f64 算术、比较、常量和 return/call value verifier 规则。
     - [x] 建立 f32/f64 value opcode inventory / 分类 helper，覆盖浮点算术、比较和常量族，并让 verifier 使用分类入口。
       - 验证：`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `CONST_F32` 正例和非 float result 反例，断言数 40）；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] f32/f64 算术 opcode：校验 operand/result type 同为 f32 或同为 f64。
@@ -117,7 +117,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 `MIR_C99_CONSTANT_KIND_F32_LITERAL` / `MIR_C99_CONSTANT_KIND_F64_LITERAL`，当前仅 `immediate_i32 == 0` 的 float 零值可记录为专用 literal，非零 payload 仍为 unsupported/reject；checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] return/call value verifier：f32/f64 return/call result/argument type 必须由 MIR type 和 ABI metadata 明确校验。
       - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 f64 return 正例/签名错配反例，以及 f64 call result 正例/签名错配反例，断言数 49）；`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
-    - [ ] 同步 MIR-C99 expression plan 对 f32/f64 算术/比较/常量的可见支持/拒绝边界。
+    - [x] 同步 MIR-C99 expression plan 对 f32/f64 算术/比较/常量的可见支持/拒绝边界。
+      - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 `MIR_C99_EXPR_KIND_FLOAT_ARITH` / `MIR_C99_EXPR_KIND_FLOAT_COMPARE` 和 float opcode family 分类，checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_float_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
 
 - [ ] MIR-C99-PREMIR-PLACE-OPS：补齐 place/address opcode。
   - [ ] local/global/param address opcode，并明确 address value 与 local slot 的生命周期约束。
