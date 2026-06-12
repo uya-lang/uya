@@ -89,7 +89,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_EXTERN_VAR_DECL` | done | partial | MIR-C99 已支持 extern global plan/output 的 declaration-only 路径；extern global parity 待后续 shard。 |
 | `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
 | `AST_USE_STMT` | done | missing | `use smoke_helper;` 由 Phase 9A 验证。 |
-| `AST_C_IMPORT_DECL` | done | missing | C99 oracle 已覆盖；MIR-C99 link plan / sidecar object parity 待补。 |
+| `AST_C_IMPORT_DECL` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；sidecar object parity 待补。 |
 | `AST_IF_STMT` | done | missing | Phase 9A 验证（基础 if-return）。 |
 | `AST_WHILE_STMT` | done | missing | Phase 9A 验证。 |
 | `AST_FOR_STMT` | done | missing | Phase 9A 验证。 |
@@ -239,7 +239,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@usize_from_ptr` | missing | missing | microapp 路径。 |
 | `@error_id` | done | missing | `error_id` shard。 |
 | `@error_name` | done | missing | 同上。 |
-| `@c_import` | done | missing | C99 oracle 已覆盖；MIR-C99 link plan parity 待补。 |
+| `@c_import` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；最小 @c_import parity 待补。 |
 | `@naked_fn` | done | missing | `verify_portable_mir_naked_fn.sh` 固定。 |
 | `@vector` | done | missing | `simd` shard。 |
 | `@mask` | done | missing | 同上。 |

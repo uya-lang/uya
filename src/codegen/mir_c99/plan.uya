@@ -24,6 +24,8 @@ export const MIR_C99_REF_KIND_ASYNC_FRAME_SLOT: i32 = 9;
 
 export const MIR_C99_GLOBAL_INIT_STATUS_READY: i32 = 1;
 export const MIR_C99_GLOBAL_INIT_STATUS_REJECT: i32 = 2;
+export const MIR_C99_LINK_INPUT_STATUS_READY: i32 = 1;
+export const MIR_C99_LINK_INPUT_STATUS_REJECT: i32 = 2;
 
 /// 功能说明：记录 MIR-C99 输出计划中的稳定引用。
 /// 参数说明：无；`source_id` 保存 MIR/module/helper 的稳定 ID，`aux_id` 保存后端局部辅助 ID。
@@ -107,6 +109,23 @@ export struct MirC99GlobalInitializerPlanEntry {
     status: i32,
 }
 
+/// 功能说明：记录 MIR-C99 host link 所需的 @c_import sidecar object、object file、library 和 search path 输入。
+/// 参数说明：无；字段只来自 verifier-clean PortableMIR `MirLinkInput`，保留 target profile、@c_import 来源、路径/库名 dedupe 和 capability metadata。
+/// 返回值说明：无；由 `MirC99Plan.link_inputs` 动态保存，host compile/link handoff 后续消费本表。
+export struct MirC99LinkInputPlanEntry {
+    link_input_id: MirLinkInputId,
+    kind: i32,
+    target_profile_id: i32,
+    c_import_id: i32,
+    symbol_id: SymbolId,
+    path_dedupe_id: i32,
+    name_dedupe_id: i32,
+    capability_req_id: MirCapabilityReqId,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+    status: i32,
+}
+
 /// 功能说明：记录完整 MIR-C99 后端输出计划。
 /// 参数说明：无；调用 `mir_c99_plan_init` 后使用，所有 program/unit 表都动态增长。
 /// 返回值说明：无；emitter 只消费该结构输出 C bytes。
@@ -129,6 +148,7 @@ export struct MirC99Plan {
     async_frame_layouts: SemanticVector,
     async_frame_slots: SemanticVector,
     global_initializers: SemanticVector,
+    link_inputs: SemanticVector,
     units: SemanticVector,
 }
 
@@ -369,6 +389,7 @@ export fn mir_c99_plan_init(plan: &MirC99Plan, arena: &CompilerArena, target_pro
     semantic_vector_init(&plan.async_frame_layouts, @size_of(MirC99AsyncFrameLayout));
     semantic_vector_init(&plan.async_frame_slots, @size_of(MirC99AsyncFrameSlotLayout));
     semantic_vector_init(&plan.global_initializers, @size_of(MirC99GlobalInitializerPlanEntry));
+    semantic_vector_init(&plan.link_inputs, @size_of(MirC99LinkInputPlanEntry));
     semantic_vector_init(&plan.units, @size_of(MirC99Unit));
     return 0;
 }
@@ -398,6 +419,7 @@ export fn mir_c99_plan_release(plan: &MirC99Plan) void {
     semantic_vector_release(&plan.async_frame_layouts);
     semantic_vector_release(&plan.async_frame_slots);
     semantic_vector_release(&plan.global_initializers);
+    semantic_vector_release(&plan.link_inputs);
     semantic_vector_release(&plan.units);
     plan.lifecycle_state = MIR_C99_PLAN_LIFECYCLE_RELEASED;
     plan.unit_count = 0usize;
@@ -440,6 +462,99 @@ export fn mir_c99_plan_append_ref(plan: &MirC99Plan, kind: i32, source_id: i32, 
         return mir_c99_vec_append_ref(&plan.async_frame_slot_refs, kind, source_id, aux_id, flags);
     }
     return -1;
+}
+
+fn mir_c99_link_input_kind_is_supported(kind: i32) i32 {
+    if kind == MIR_LINK_INPUT_KIND_C_IMPORT_OBJECT ||
+       kind == MIR_LINK_INPUT_KIND_OBJECT_FILE ||
+       kind == MIR_LINK_INPUT_KIND_LIBRARY ||
+       kind == MIR_LINK_INPUT_KIND_SEARCH_PATH {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_link_input_metadata_valid(module: &PortableMirModule,
+    input: &MirLinkInput) i32 {
+    if module == null || input == null ||
+       mir_c99_link_input_kind_is_supported(input.kind) == 0 ||
+       input.target_profile_id != module.target_profile.profile_id ||
+       input.path_dedupe_id < 0 {
+        return 0;
+    }
+    if (input.kind == MIR_LINK_INPUT_KIND_LIBRARY ||
+        input.kind == MIR_LINK_INPUT_KIND_SEARCH_PATH) &&
+       input.name_dedupe_id < 0 {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：读取 MIR-C99 link input plan 条目。
+/// 参数说明：`plan` 为输出计划，`index` 为 `link_inputs` 动态表下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_link_input_plan_ptr(plan: &MirC99Plan,
+    index: i32) &MirC99LinkInputPlanEntry {
+    if plan == null || index < 0 || (index as usize) >= plan.link_inputs.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.link_inputs,
+        index as usize) as &MirC99LinkInputPlanEntry;
+}
+
+/// 功能说明：向 MIR-C99 plan 追加一个 PortableMIR link input 条目。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出计划，`input` 为 PortableMIR link input。
+/// 返回值说明：成功返回 plan 条目下标；metadata 不一致或追加失败返回 `-1`。
+export fn mir_c99_link_input_plan_append(module: &PortableMirModule,
+    plan: &MirC99Plan, input: &MirLinkInput) i32 {
+    if module == null || plan == null || input == null ||
+       mir_c99_link_input_metadata_valid(module, input) == 0 {
+        return -1;
+    }
+    const entry_id: i32 = plan.link_inputs.count as i32;
+    const entry: MirC99LinkInputPlanEntry = MirC99LinkInputPlanEntry{
+        link_input_id: input.link_input_id,
+        kind: input.kind,
+        target_profile_id: input.target_profile_id,
+        c_import_id: input.c_import_id,
+        symbol_id: input.symbol_id,
+        path_dedupe_id: input.path_dedupe_id,
+        name_dedupe_id: input.name_dedupe_id,
+        capability_req_id: input.capability_req_id,
+        debug_loc_id: input.debug_loc_id,
+        flags: input.flags,
+        status: MIR_C99_LINK_INPUT_STATUS_READY,
+    };
+    if semantic_vector_append(&plan.link_inputs, &entry as &const void) != 0 {
+        return -1;
+    }
+    if mir_c99_plan_append_ref(plan, MIR_C99_REF_KIND_DEP,
+           input.link_input_id, entry_id, input.kind) != 0 {
+        return -1;
+    }
+    return entry_id;
+}
+
+/// 功能说明：从 PortableMIR link input table 构建 MIR-C99 host link 输入计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出计划。
+/// 返回值说明：成功返回 `0`；遇到未知 kind、metadata 不一致或追加失败返回 `-1`。
+export fn mir_c99_link_input_plan_build(module: &PortableMirModule,
+    plan: &MirC99Plan) i32 {
+    if module == null || plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.link_inputs.count {
+        const input: &MirLinkInput =
+            semantic_vector_item_ptr(&module.link_inputs, i) as &MirLinkInput;
+        if input == null ||
+           mir_c99_link_input_plan_append(module, plan, input) < 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
 }
 
 fn mir_c99_global_initializer_const_ptr(module: &PortableMirModule,
@@ -822,6 +937,7 @@ export fn mir_c99_plan_stats(plan: &MirC99Plan) MirC99PlanStats {
     mir_c99_stats_add_vector(&stats, &plan.async_frame_layouts);
     mir_c99_stats_add_vector(&stats, &plan.async_frame_slots);
     mir_c99_stats_add_vector(&stats, &plan.global_initializers);
+    mir_c99_stats_add_vector(&stats, &plan.link_inputs);
     mir_c99_stats_add_vector(&stats, &plan.units);
     var i: usize = 0usize;
     while i < plan.units.count {
