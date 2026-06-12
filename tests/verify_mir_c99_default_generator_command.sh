@@ -20,7 +20,7 @@ output_c="$tmp_dir/mir.c"
 log_file="$tmp_dir/mir.log"
 stdout_file="$tmp_dir/stdout.txt"
 stderr_file="$tmp_dir/stderr.txt"
-printf 'export fn main() i32 { return 0; }\n' >"$case_file"
+printf 'fn helper() i32 { return 1; }\nexport fn main() i32 { return helper(); }\n' >"$case_file"
 
 set +e
 "$GENERATOR" "$case_file" "$output_c" "$log_file" >"$stdout_file" 2>"$stderr_file"
