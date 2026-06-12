@@ -147,7 +147,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - [x] MIR opcode 缺口记录：一元、逻辑和其他算术/比较 opcode 尚未进入 PortableMIR，后端不得臆造 MIR 常量。
       - 证据：`rg -n "MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 显示当前相关表达式 opcode 只有 `MIR_INST_OP_I32_ADD` 和 `MIR_INST_OP_I32_LE`；一元、逻辑和其他算术/比较 opcode 尚未定义，MIR-C99 后端只规划已存在 MIR opcode。
       - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。
+  - [f] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。
+    - 阻塞：当前 PortableMIR opcode 枚举和 verifier 只包含 `NOP`、`LOAD`、`STORE`、`CALL`、`ASM_BLOCK`、`I32_ADD`、`I32_LE`、`LOCAL_SET`，没有 cast/sign-extend/zero-extend/truncate/int-float conversion opcode；MIR-C99 后端不能臆造未定义 MIR 常量或未验证指令形态。
+    - 验证：`rg -n "MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 确认 opcode 缺口；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] value def/use 顺序检查：未定义或跨 block 非法 use 必须由 verifier 阻止。
   - [ ] parity shard：integer arithmetic/comparison/boolean combination。
   - [ ] parity shard：float/double arithmetic、comparison、cast 和 return。
