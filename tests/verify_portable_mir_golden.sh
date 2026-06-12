@@ -215,6 +215,13 @@ fn golden_type(id: i32, kind: i32, pointee: i32, field_count: i32) MirType {
         typ.lane_count = 4;
         typ.mask_representation = 1;
     }
+    if kind == MIR_TYPE_KIND_FUNCTION {
+        typ.size_bytes = 8usize;
+        typ.align_bytes = 8usize;
+        typ.element_type_id = 0;
+        typ.abi_class = MIR_ABI_CLASS_FUNCTION;
+        typ.flags = MIR_CALL_CONV_UYA;
+    }
     return typ;
 }
 
@@ -350,6 +357,7 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var t4: MirType = golden_type(4, MIR_TYPE_KIND_ATOMIC, MIR_TYPE_INVALID_ID, 0);
     var t5: MirType = golden_type(5, MIR_TYPE_KIND_VECTOR, MIR_TYPE_INVALID_ID, 0);
     var t6: MirType = golden_type(6, MIR_TYPE_KIND_MASK, MIR_TYPE_INVALID_ID, 0);
+    var t7: MirType = golden_type(7, MIR_TYPE_KIND_FUNCTION, MIR_TYPE_INVALID_ID, 0);
     if portable_mir_append_type(module, &t0) != 0 { return -1; }
     if portable_mir_append_type(module, &t1) != 0 { return -1; }
     if portable_mir_append_type(module, &t2) != 0 { return -1; }
@@ -357,6 +365,7 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     if portable_mir_append_type(module, &t4) != 0 { return -1; }
     if portable_mir_append_type(module, &t5) != 0 { return -1; }
     if portable_mir_append_type(module, &t6) != 0 { return -1; }
+    if portable_mir_append_type(module, &t7) != 0 { return -1; }
 
     var field0: MirFieldLayout = golden_field_layout(0, 2, 0, 0usize);
     var field1: MirFieldLayout = golden_field_layout(1, 2, 1, 4usize);
@@ -478,7 +487,7 @@ fn golden_append_module(module: &PortableMirModule) i32 {
         decl_id: 20,
         source_core_body_id: 30,
         symbol_id: 40,
-        signature_type_id: 0,
+        signature_type_id: 7,
         param_start: 0,
         param_count: 1,
         local_start: 0,
@@ -727,8 +736,8 @@ build_out="$tmp_dir/build.out"
 build_err="$tmp_dir/build.err"
 
 cat >"$expected" <<'EOF'
-mir_module profile=7 ptr=8 funcs=1 blocks=4 values=9 types=7 locals=3 insts=9 terms=4 operands=12 successors=4 block_params=1 cleanup=1
-fn#0 sig=t0 params=0+1 locals=0+3 blocks=0+4 entry=bb0 cleanup=1 cc=1 addrmask=3
+mir_module profile=7 ptr=8 funcs=1 blocks=4 values=9 types=8 locals=3 insts=9 terms=4 operands=12 successors=4 block_params=1 cleanup=1
+fn#0 sig=t7 params=0+1 locals=0+3 blocks=0+4 entry=bb0 cleanup=1 cc=1 addrmask=3
 type#0 kind=3 size=4 align=4 pointee=-1 fields=0 addr=1
 type#1 kind=5 size=8 align=8 pointee=0 fields=0 addr=2
 type#2 kind=6 size=8 align=4 pointee=-1 fields=2 addr=1
@@ -736,6 +745,7 @@ type#3 kind=5 size=8 align=8 pointee=2 fields=0 addr=2
 type#4 kind=7 size=4 align=4 pointee=-1 fields=0 addr=1
 type#5 kind=8 size=16 align=16 pointee=-1 fields=0 addr=1
 type#6 kind=9 size=1 align=1 pointee=-1 fields=0 addr=1
+type#7 kind=26 size=8 align=8 pointee=-1 fields=0 addr=1
 local#0 f=0 t=0 addr=2 align=4 flags=1
 local#1 f=0 t=2 addr=2 align=4 flags=1
 local#2 f=0 t=4 addr=2 align=4 flags=1

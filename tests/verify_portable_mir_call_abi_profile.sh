@@ -276,7 +276,7 @@ fn abi_vec(data: &byte, item_size: usize, count: usize) SemanticVector {
 }
 
 fn abi_type(id: i32) MirType {
-    return MirType{
+    var typ: MirType = MirType{
         type_id: id,
         kind: MIR_TYPE_KIND_I32,
         source_type_id: id,
@@ -297,6 +297,15 @@ fn abi_type(id: i32) MirType {
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
+    if id == 1 {
+        typ.kind = MIR_TYPE_KIND_FUNCTION;
+        typ.size_bytes = 8usize;
+        typ.align_bytes = 8usize;
+        typ.element_type_id = 0;
+        typ.abi_class = MIR_ABI_CLASS_FUNCTION;
+        typ.flags = MIR_CALL_CONV_C;
+    }
+    return typ;
 }
 
 fn abi_function(runtime_cap: i32, call_conv: i32) MirFunction {
@@ -306,7 +315,7 @@ fn abi_function(runtime_cap: i32, call_conv: i32) MirFunction {
         decl_id: 0,
         source_core_body_id: 0,
         symbol_id: 0,
-        signature_type_id: 0,
+        signature_type_id: 1,
         param_start: 0,
         param_count: 0,
         local_start: 0,
@@ -325,7 +334,7 @@ fn abi_function(runtime_cap: i32, call_conv: i32) MirFunction {
         naked_asm_inst_count: 0,
         naked_forbidden_lowering_mask: 0,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: 0,
+        flags: MIR_FUNCTION_FLAG_EXTERN,
     };
 }
 
@@ -367,13 +376,30 @@ fn abi_inst(runtime_cap: i32, call_conv: i32) MirInst {
         type_id: 0,
         result_value_id: 0,
         operand_start: 0,
-        operand_count: 0,
+        operand_count: 1,
         calling_convention: call_conv,
         runtime_capability_mask: runtime_cap,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
         flags: 0,
     };
+}
+
+fn abi_operand(call_conv: i32) MirOperand {
+    var operand: MirOperand = MirOperand{
+        operand_id: 0,
+        kind: MIR_OPERAND_KIND_CALL_TARGET_EXTERN,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: 1,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    if call_conv == MIR_CALL_CONV_SYSCALL {
+        operand.kind = MIR_OPERAND_KIND_VALUE;
+    }
+    return operand;
 }
 
 fn abi_term() MirTerminator {
@@ -441,31 +467,42 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
 fn abi_fill_module(module: &PortableMirModule, runtime_cap: i32, call_conv: i32,
     capability: i32, functions: &MirFunction, blocks: &MirBlock, values: &MirValue,
     types: &MirType, insts: &MirInst, terms: &MirTerminator,
-    caps: &MirCapabilityReq) void {
+    operands: &MirOperand, caps: &MirCapabilityReq) void {
     if module == null || functions == null || blocks == null || values == null ||
-       types == null || insts == null || terms == null || caps == null {
+       types == null || insts == null || terms == null || operands == null || caps == null {
         return;
     }
     functions[0] = abi_function(runtime_cap, call_conv);
     blocks[0] = abi_block();
     values[0] = abi_value(0, 0);
     types[0] = abi_type(0);
+    types[1] = abi_type(1);
     insts[0] = abi_inst(runtime_cap, call_conv);
+    operands[0] = abi_operand(call_conv);
+    if call_conv == MIR_CALL_CONV_SYSCALL {
+        insts[0].op = MIR_INST_OP_NOP;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 0;
+        functions[0].flags = 0;
+        types[1].flags = MIR_CALL_CONV_SYSCALL;
+    }
     terms[0] = abi_term();
     caps[0] = abi_cap(capability);
     module.function_count = 1usize;
     module.block_count = 1usize;
     module.value_count = 1usize;
-    module.type_count = 1usize;
+    module.type_count = 2usize;
     module.inst_count = 1usize;
     module.terminator_count = 1usize;
+    module.operand_count = 1usize;
     module.capability_req_count = 1usize;
     module.functions = abi_vec(functions as &byte, @size_of(MirFunction), 1usize);
     module.blocks = abi_vec(blocks as &byte, @size_of(MirBlock), 1usize);
     module.values = abi_vec(values as &byte, @size_of(MirValue), 1usize);
-    module.types = abi_vec(types as &byte, @size_of(MirType), 1usize);
+    module.types = abi_vec(types as &byte, @size_of(MirType), 2usize);
     module.insts = abi_vec(insts as &byte, @size_of(MirInst), 1usize);
     module.terminators = abi_vec(terms as &byte, @size_of(MirTerminator), 1usize);
+    module.operands = abi_vec(operands as &byte, @size_of(MirOperand), 1usize);
     module.capability_reqs = abi_vec(caps as &byte, @size_of(MirFieldLayout), 1usize);
 }
 
@@ -509,30 +546,32 @@ test "PortableMIR verifier gates call ABI and runtime capability by profile" {
     var functions: [MirFunction: 1] = [];
     var blocks: [MirBlock: 1] = [];
     var values: [MirValue: 1] = [];
-    var types: [MirType: 1] = [];
+    var types: [MirType: 2] = [];
     var insts: [MirInst: 1] = [];
     var terms: [MirTerminator: 1] = [];
+    var operands: [MirOperand: 1] = [];
     var caps: [MirCapabilityReq: 1] = [];
 
     var ok_hosted: PortableMirModule = abi_empty_module(portable_mir_target_profile_hosted_native());
     abi_fill_module(&ok_hosted, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
-        MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0], &types[0],
-        &insts[0], &terms[0], &caps[0]);
+        MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
     var result: MirVerifierResult = abi_result(-1);
     try assert_eq_i32(portable_mir_verify_module(&ok_hosted, &result), 0);
     try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
 
     var bad_free: PortableMirModule = abi_empty_module(portable_mir_target_profile_freestanding_native());
     abi_fill_module(&bad_free, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
-        MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0], &types[0],
-        &insts[0], &terms[0], &caps[0]);
+        MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
+    types[1].flags = MIR_CALL_CONV_SYSCALL;
     try assert_eq_i32(portable_mir_verify_module(&bad_free, &result), -1);
     try assert_eq_i32(result.error_code, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);
 
     var ok_free: PortableMirModule = abi_empty_module(portable_mir_target_profile_freestanding_native());
     abi_fill_module(&ok_free, MIR_RUNTIME_CAP_FREESTANDING, MIR_CALL_CONV_SYSCALL,
-        MIR_RUNTIME_CAP_FREESTANDING, &functions[0], &blocks[0], &values[0], &types[0],
-        &insts[0], &terms[0], &caps[0]);
+        MIR_RUNTIME_CAP_FREESTANDING, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
     try assert_eq_i32(portable_mir_verify_module(&ok_free, &result), 0);
     try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
 }
@@ -541,14 +580,15 @@ test "hosted native link plan only accepts hosted SysV ABI profile" {
     var functions: [MirFunction: 1] = [];
     var blocks: [MirBlock: 1] = [];
     var values: [MirValue: 1] = [];
-    var types: [MirType: 1] = [];
+    var types: [MirType: 2] = [];
     var insts: [MirInst: 1] = [];
     var terms: [MirTerminator: 1] = [];
+    var operands: [MirOperand: 1] = [];
     var caps: [MirCapabilityReq: 1] = [];
     var hosted_module: PortableMirModule = abi_empty_module(portable_mir_target_profile_hosted_native());
     abi_fill_module(&hosted_module, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
-        MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0], &types[0],
-        &insts[0], &terms[0], &caps[0]);
+        MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
     var verifier_ok: MirVerifierResult = abi_result(MIR_VERIFY_OK);
     var request: MirTargetBackendRequest = MirTargetBackendRequest{
         module: null,
@@ -565,8 +605,8 @@ test "hosted native link plan only accepts hosted SysV ABI profile" {
 
     var free_module: PortableMirModule = abi_empty_module(portable_mir_target_profile_freestanding_native());
     abi_fill_module(&free_module, MIR_RUNTIME_CAP_FREESTANDING, MIR_CALL_CONV_SYSCALL,
-        MIR_RUNTIME_CAP_FREESTANDING, &functions[0], &blocks[0], &values[0], &types[0],
-        &insts[0], &terms[0], &caps[0]);
+        MIR_RUNTIME_CAP_FREESTANDING, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
     try assert_eq_i32(portable_mir_backend_request_init(&request, &free_module,
         &verifier_ok, MIR_TARGET_BACKEND_MACHINE), 0);
     try assert_eq_i32(native_hosted_link_plan_init(&plan, &request), -1);

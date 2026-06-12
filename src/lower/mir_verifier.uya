@@ -1572,7 +1572,10 @@ fn portable_mir_verify_call_abi_metadata(module: &PortableMirModule,
     }
     const signature: &MirType = portable_mir_verify_call_signature_type(module, inst);
     if signature == null {
-        return 0;
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+            inst.type_id, inst.operand_start, MIR_CAPABILITY_REQ_INVALID_ID,
+            inst.debug_loc_id);
     }
     const return_type: &MirType = portable_mir_verify_type_ptr(module,
         signature.element_type_id);

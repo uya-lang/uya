@@ -1277,6 +1277,7 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 0;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 0);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
@@ -1292,6 +1293,7 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 0;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 0);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE;
         operands[0].immediate_i32 = 0;
@@ -1344,6 +1346,7 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 22;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 22);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
@@ -1361,6 +1364,7 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 19;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 19);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
@@ -1377,6 +1381,7 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 15;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 15);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
@@ -1393,6 +1398,7 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 16;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 16);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
@@ -1410,10 +1416,97 @@ fn verifier_run(mode: i32) i32 {
         values[1].type_id = 16;
         terminators[0].operand_start = 3;
         operands[3] = verifier_operand(3, 1, 16);
+        functions[0].signature_type_id = 20;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
         operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 85 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = 0;
+        values[1].type_id = 0;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 0);
+        functions[0].signature_type_id = 20;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 86 {
+        types[20].element_type_id = 22;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 22;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_AGGREGATE_RETURN;
+        values[1].type_id = 22;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 22);
+        functions[0].signature_type_id = 20;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
+        operands[1].flags = MIR_CALL_FLAG_OUT_PARAM_WRITEBACK;
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 87 {
+        types[20].element_type_id = 19;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 19;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM;
+        values[1].type_id = 19;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 19);
+        functions[0].signature_type_id = 20;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 88 {
+        types[20].element_type_id = 16;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 16;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM;
+        values[1].type_id = 16;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 16);
+        functions[0].signature_type_id = 20;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 89 {
+        types[20].element_type_id = 22;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 22;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM +
+            MIR_CALL_FLAG_AGGREGATE_RETURN + MIR_CALL_FLAG_OUT_PARAM_WRITEBACK;
+        values[1].type_id = 22;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 22);
+        functions[0].signature_type_id = 20;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
         operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
 
@@ -1465,7 +1558,6 @@ test "PortableMIR verifier accepts a complete linear module" {
 test "PortableMIR verifier accepts partial surface for compare assign and call statement" {
     try assert_eq_i32(verifier_run(14), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(15), MIR_VERIFY_OK);
-    try assert_eq_i32(verifier_run(16), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(17), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(19), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(21), MIR_VERIFY_OK);
@@ -1547,6 +1639,12 @@ test "PortableMIR verifier rejects target and layout violations" {
     try assert_eq_i32(verifier_run(78), MIR_VERIFY_ERR_INVALID_OPERAND);
     try assert_eq_i32(verifier_run(79), MIR_VERIFY_ERR_INVALID_FUNCTION);
     try assert_eq_i32(verifier_run(84), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(16), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(85), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(86), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(87), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(88), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(89), MIR_VERIFY_ERR_INVALID_LAYOUT);
 }
 
 test "PortableMIR verifier rejects atomic vector mask cleanup and naked violations" {
