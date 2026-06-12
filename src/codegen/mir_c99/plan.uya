@@ -19,6 +19,8 @@ export const MIR_C99_REF_KIND_GLOBAL: i32 = 4;
 export const MIR_C99_REF_KIND_FUNCTION: i32 = 5;
 export const MIR_C99_REF_KIND_HELPER: i32 = 6;
 export const MIR_C99_REF_KIND_DEP: i32 = 7;
+export const MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT: i32 = 8;
+export const MIR_C99_REF_KIND_ASYNC_FRAME_SLOT: i32 = 9;
 
 /// 功能说明：记录 MIR-C99 输出计划中的稳定引用。
 /// 参数说明：无；`source_id` 保存 MIR/module/helper 的稳定 ID，`aux_id` 保存后端局部辅助 ID。
@@ -47,6 +49,38 @@ export struct MirC99Unit {
     functions: SemanticVector,
     helpers: SemanticVector,
     deps: SemanticVector,
+    async_frame_layouts: SemanticVector,
+    async_frame_slots: SemanticVector,
+}
+
+/// 功能说明：记录 MIR-C99 async frame 的单个 concrete slot 布局。
+/// 参数说明：无；字段来自 PortableMIR `MirAsyncFrameMeta`，覆盖 state/result/await child/captured local。
+/// 返回值说明：无；由 `MirC99Plan.async_frame_slots` 动态表保存。
+export struct MirC99AsyncFrameSlotLayout {
+    slot_meta_id: MirAsyncFrameMetaId,
+    function_id: MirFunctionId,
+    frame_type_id: MirTypeId,
+    slot_kind: i32,
+    slot_index: i32,
+    slot_type_id: MirTypeId,
+    captured_local_id: MirLocalId,
+    state_tag: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 MIR-C99 async frame struct layout 摘要。
+/// 参数说明：无；字段按 function/frame type 聚合 state tag、result、await child 和 captured local slot。
+/// 返回值说明：无；完整 poll/resume state machine 在后续 async 叶子消费此布局。
+export struct MirC99AsyncFrameLayout {
+    function_id: MirFunctionId,
+    frame_type_id: MirTypeId,
+    slot_start: usize,
+    slot_count: usize,
+    state_tag_slot_count: usize,
+    result_slot_count: usize,
+    await_child_slot_count: usize,
+    captured_local_slot_count: usize,
+    flags: i32,
 }
 
 /// 功能说明：记录完整 MIR-C99 后端输出计划。
@@ -66,6 +100,10 @@ export struct MirC99Plan {
     functions: SemanticVector,
     helpers: SemanticVector,
     deps: SemanticVector,
+    async_frame_layout_refs: SemanticVector,
+    async_frame_slot_refs: SemanticVector,
+    async_frame_layouts: SemanticVector,
+    async_frame_slots: SemanticVector,
     units: SemanticVector,
 }
 
@@ -115,6 +153,8 @@ fn mir_c99_unit_empty() MirC99Unit {
         functions: mir_c99_empty_vector(),
         helpers: mir_c99_empty_vector(),
         deps: mir_c99_empty_vector(),
+        async_frame_layouts: mir_c99_empty_vector(),
+        async_frame_slots: mir_c99_empty_vector(),
     };
 }
 
@@ -186,6 +226,8 @@ export fn mir_c99_unit_compute_fingerprint(unit: &MirC99Unit) u64 {
     h = mir_c99_unit_fingerprint_refs(h, &unit.functions);
     h = mir_c99_unit_fingerprint_refs(h, &unit.helpers);
     h = mir_c99_unit_fingerprint_refs(h, &unit.deps);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.async_frame_layouts);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.async_frame_slots);
     return h;
 }
 
@@ -220,6 +262,8 @@ export fn mir_c99_unit_init(unit: &MirC99Unit, unit_id: i32, kind: i32) i32 {
     semantic_vector_init(&unit.functions, @size_of(MirC99Ref));
     semantic_vector_init(&unit.helpers, @size_of(MirC99Ref));
     semantic_vector_init(&unit.deps, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.async_frame_layouts, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.async_frame_slots, @size_of(MirC99Ref));
     return 0;
 }
 
@@ -237,6 +281,8 @@ export fn mir_c99_unit_release(unit: &MirC99Unit) void {
     semantic_vector_release(&unit.functions);
     semantic_vector_release(&unit.helpers);
     semantic_vector_release(&unit.deps);
+    semantic_vector_release(&unit.async_frame_layouts);
+    semantic_vector_release(&unit.async_frame_slots);
     unit.estimated_bytes = 0usize;
 }
 
@@ -262,6 +308,10 @@ export fn mir_c99_unit_append_ref(unit: &MirC99Unit, kind: i32, source_id: i32, 
         status = mir_c99_vec_append_ref(&unit.helpers, kind, source_id, aux_id, flags);
     } else if kind == MIR_C99_REF_KIND_DEP {
         status = mir_c99_vec_append_ref(&unit.deps, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT {
+        status = mir_c99_vec_append_ref(&unit.async_frame_layouts, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_ASYNC_FRAME_SLOT {
+        status = mir_c99_vec_append_ref(&unit.async_frame_slots, kind, source_id, aux_id, flags);
     }
     if status != 0 {
         return -1;
@@ -289,6 +339,10 @@ export fn mir_c99_plan_init(plan: &MirC99Plan, arena: &CompilerArena, target_pro
     semantic_vector_init(&plan.functions, @size_of(MirC99Ref));
     semantic_vector_init(&plan.helpers, @size_of(MirC99Ref));
     semantic_vector_init(&plan.deps, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.async_frame_layout_refs, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.async_frame_slot_refs, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.async_frame_layouts, @size_of(MirC99AsyncFrameLayout));
+    semantic_vector_init(&plan.async_frame_slots, @size_of(MirC99AsyncFrameSlotLayout));
     semantic_vector_init(&plan.units, @size_of(MirC99Unit));
     return 0;
 }
@@ -313,6 +367,10 @@ export fn mir_c99_plan_release(plan: &MirC99Plan) void {
     semantic_vector_release(&plan.functions);
     semantic_vector_release(&plan.helpers);
     semantic_vector_release(&plan.deps);
+    semantic_vector_release(&plan.async_frame_layout_refs);
+    semantic_vector_release(&plan.async_frame_slot_refs);
+    semantic_vector_release(&plan.async_frame_layouts);
+    semantic_vector_release(&plan.async_frame_slots);
     semantic_vector_release(&plan.units);
     plan.lifecycle_state = MIR_C99_PLAN_LIFECYCLE_RELEASED;
     plan.unit_count = 0usize;
@@ -348,7 +406,161 @@ export fn mir_c99_plan_append_ref(plan: &MirC99Plan, kind: i32, source_id: i32, 
     if kind == MIR_C99_REF_KIND_DEP {
         return mir_c99_vec_append_ref(&plan.deps, kind, source_id, aux_id, flags);
     }
+    if kind == MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT {
+        return mir_c99_vec_append_ref(&plan.async_frame_layout_refs, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_ASYNC_FRAME_SLOT {
+        return mir_c99_vec_append_ref(&plan.async_frame_slot_refs, kind, source_id, aux_id, flags);
+    }
     return -1;
+}
+
+fn mir_c99_async_frame_layout_is_slot_kind(slot_kind: i32) i32 {
+    if slot_kind == MIR_ASYNC_FRAME_SLOT_STATE_TAG ||
+       slot_kind == MIR_ASYNC_FRAME_SLOT_RESULT ||
+       slot_kind == MIR_ASYNC_FRAME_SLOT_AWAIT_CHILD ||
+       slot_kind == MIR_ASYNC_FRAME_SLOT_CAPTURED_LOCAL {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：读取 PortableMIR async frame metadata 指针。
+/// 参数说明：`module` 为 verifier-clean MIR module，`index` 为 metadata 动态表下标。
+/// 返回值说明：成功返回 `MirAsyncFrameMeta` 指针，参数非法返回 null。
+export fn mir_c99_async_frame_layout_plan_meta_ptr(module: &PortableMirModule,
+    index: usize) &MirAsyncFrameMeta {
+    if module == null || index >= module.async_frame_metas.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.async_frame_metas, index) as &MirAsyncFrameMeta;
+}
+
+fn mir_c99_async_frame_layout_plan_find(plan: &MirC99Plan,
+    function_id: MirFunctionId, frame_type_id: MirTypeId) i32 {
+    if plan == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < plan.async_frame_layouts.count {
+        const layout: &MirC99AsyncFrameLayout =
+            semantic_vector_item_ptr(&plan.async_frame_layouts, i) as &MirC99AsyncFrameLayout;
+        if layout != null && layout.function_id == function_id &&
+           layout.frame_type_id == frame_type_id {
+            return i as i32;
+        }
+        i = i + 1usize;
+    }
+    return -1;
+}
+
+fn mir_c99_async_frame_layout_plan_new(plan: &MirC99Plan, unit: &MirC99Unit,
+    meta: &MirAsyncFrameMeta) i32 {
+    if plan == null || unit == null || meta == null {
+        return -1;
+    }
+    const layout_id: i32 = plan.async_frame_layouts.count as i32;
+    const layout: MirC99AsyncFrameLayout = MirC99AsyncFrameLayout{
+        function_id: meta.function_id,
+        frame_type_id: meta.frame_type_id,
+        slot_start: plan.async_frame_slots.count,
+        slot_count: 0usize,
+        state_tag_slot_count: 0usize,
+        result_slot_count: 0usize,
+        await_child_slot_count: 0usize,
+        captured_local_slot_count: 0usize,
+        flags: meta.flags,
+    };
+    if semantic_vector_append(&plan.async_frame_layouts, &layout as &const void) != 0 {
+        return -1;
+    }
+    if mir_c99_plan_append_ref(plan, MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT,
+           meta.function_id, layout_id, meta.flags) != 0 ||
+       mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT,
+           meta.function_id, layout_id, meta.flags) != 0 {
+        return -1;
+    }
+    return layout_id;
+}
+
+/// 功能说明：向 MIR-C99 async frame layout 追加一个 concrete slot。
+/// 参数说明：`plan`/`unit` 为输出计划，`layout_id` 为所属 layout，`meta` 为 PortableMIR slot metadata。
+/// 返回值说明：成功返回 `0`，参数非法、未知 slot kind 或追加失败返回 `-1`。
+export fn mir_c99_async_frame_layout_plan_append_slot(plan: &MirC99Plan,
+    unit: &MirC99Unit, layout_id: i32, meta: &MirAsyncFrameMeta) i32 {
+    if plan == null || unit == null || meta == null || layout_id < 0 ||
+       (layout_id as usize) >= plan.async_frame_layouts.count ||
+       mir_c99_async_frame_layout_is_slot_kind(meta.slot_kind) == 0 {
+        return -1;
+    }
+    const slot: MirC99AsyncFrameSlotLayout = MirC99AsyncFrameSlotLayout{
+        slot_meta_id: meta.async_frame_meta_id,
+        function_id: meta.function_id,
+        frame_type_id: meta.frame_type_id,
+        slot_kind: meta.slot_kind,
+        slot_index: meta.slot_index,
+        slot_type_id: meta.slot_type_id,
+        captured_local_id: meta.captured_local_id,
+        state_tag: meta.state_tag,
+        flags: meta.flags,
+    };
+    if semantic_vector_append(&plan.async_frame_slots, &slot as &const void) != 0 {
+        return -1;
+    }
+    const layout: &MirC99AsyncFrameLayout =
+        semantic_vector_item_ptr(&plan.async_frame_layouts, layout_id as usize) as &MirC99AsyncFrameLayout;
+    if layout == null {
+        return -1;
+    }
+    layout.slot_count = layout.slot_count + 1usize;
+    if meta.slot_kind == MIR_ASYNC_FRAME_SLOT_STATE_TAG {
+        layout.state_tag_slot_count = layout.state_tag_slot_count + 1usize;
+    } else if meta.slot_kind == MIR_ASYNC_FRAME_SLOT_RESULT {
+        layout.result_slot_count = layout.result_slot_count + 1usize;
+    } else if meta.slot_kind == MIR_ASYNC_FRAME_SLOT_AWAIT_CHILD {
+        layout.await_child_slot_count = layout.await_child_slot_count + 1usize;
+    } else if meta.slot_kind == MIR_ASYNC_FRAME_SLOT_CAPTURED_LOCAL {
+        layout.captured_local_slot_count = layout.captured_local_slot_count + 1usize;
+    }
+    if mir_c99_plan_append_ref(plan, MIR_C99_REF_KIND_ASYNC_FRAME_SLOT,
+           meta.async_frame_meta_id, meta.slot_index, meta.slot_kind) != 0 ||
+       mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_ASYNC_FRAME_SLOT,
+           meta.async_frame_meta_id, meta.slot_index, meta.slot_kind) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：从 PortableMIR async frame metadata 构建 MIR-C99 frame struct layout 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划。
+/// 返回值说明：成功返回 `0`；参数非法、未知 slot kind 或动态表追加失败返回 `-1`。
+export fn mir_c99_async_frame_layout_plan_build(module: &PortableMirModule,
+    plan: &MirC99Plan, unit: &MirC99Unit) i32 {
+    if module == null || plan == null || unit == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.async_frame_metas.count {
+        const meta: &MirAsyncFrameMeta =
+            mir_c99_async_frame_layout_plan_meta_ptr(module, i);
+        if meta == null || mir_c99_async_frame_layout_is_slot_kind(meta.slot_kind) == 0 {
+            status = -1;
+        } else {
+            var layout_id: i32 = mir_c99_async_frame_layout_plan_find(plan,
+                meta.function_id, meta.frame_type_id);
+            if layout_id < 0 {
+                layout_id = mir_c99_async_frame_layout_plan_new(plan, unit, meta);
+            }
+            if layout_id < 0 ||
+               mir_c99_async_frame_layout_plan_append_slot(plan, unit,
+                   layout_id, meta) != 0 {
+                status = -1;
+            }
+        }
+        i = i + 1usize;
+    }
+    return status;
 }
 
 /// 功能说明：向 MIR-C99 plan 追加一个 unit。
@@ -406,6 +618,10 @@ export fn mir_c99_plan_stats(plan: &MirC99Plan) MirC99PlanStats {
     mir_c99_stats_add_vector(&stats, &plan.functions);
     mir_c99_stats_add_vector(&stats, &plan.helpers);
     mir_c99_stats_add_vector(&stats, &plan.deps);
+    mir_c99_stats_add_vector(&stats, &plan.async_frame_layout_refs);
+    mir_c99_stats_add_vector(&stats, &plan.async_frame_slot_refs);
+    mir_c99_stats_add_vector(&stats, &plan.async_frame_layouts);
+    mir_c99_stats_add_vector(&stats, &plan.async_frame_slots);
     mir_c99_stats_add_vector(&stats, &plan.units);
     var i: usize = 0usize;
     while i < plan.units.count {
@@ -417,6 +633,8 @@ export fn mir_c99_plan_stats(plan: &MirC99Plan) MirC99PlanStats {
         mir_c99_stats_add_vector(&stats, &unit.functions);
         mir_c99_stats_add_vector(&stats, &unit.helpers);
         mir_c99_stats_add_vector(&stats, &unit.deps);
+        mir_c99_stats_add_vector(&stats, &unit.async_frame_layouts);
+        mir_c99_stats_add_vector(&stats, &unit.async_frame_slots);
         i = i + 1usize;
     }
     return stats;

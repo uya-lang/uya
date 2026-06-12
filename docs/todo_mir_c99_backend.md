@@ -408,7 +408,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.12 Async
 
 - [ ] MIR-C99-BACKEND-ASYNC-FRAME：支持 async frame，不允许以首版 reject 代替。
-  - [ ] 从 MIR/Core capability metadata 生成 async frame struct layout、state tag、result slot、await child slot 和 captured locals。
+  - [x] 从 MIR/Core capability metadata 生成 async frame struct layout、state tag、result slot、await child slot 和 captured locals。
+    - 验证：`bash tests/verify_mir_c99_async_frame_layout_plan.sh` 通过，覆盖 `MirC99AsyncFrameLayout` / `MirC99AsyncFrameSlotLayout` 动态表、`MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT` / `MIR_C99_REF_KIND_ASYNC_FRAME_SLOT` refs、从 `module.async_frame_metas` 消费 `MirAsyncFrameMeta` 的 state tag / result / await child / captured local slot，并确认 `mir_c99_driver_run` 调用 `mir_c99_async_frame_layout_plan_build(request.module, plan, primary_unit)`；`bash tests/verify_mir_c99_runtime_async_frame_helper_plan.sh` 通过；`bash tests/verify_portable_mir_async_frame_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。说明：本叶完成 async frame struct layout plan；poll/resume state machine、await 状态恢复、async cleanup/frame release 与 pool/fallback 行为仍在后续 4.12 叶子跟踪。
   - [ ] 生成 poll/resume state machine 的低级 C label/goto 形态，不回查 AST async body。
   - [ ] 支持 `await` / bind / direct await / loop await 的 frame 状态保存与恢复。
   - [ ] 支持 async error union return、cleanup edge、defer/errdefer 与 frame release。
