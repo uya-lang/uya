@@ -1,0 +1,259 @@
+// codegen/mir_c99/place_memory.uya - MIR locals and memory ops to MIR-C99 place plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_LOCAL_SLOT_STATUS_MISSING: i32 = 0;
+export const MIR_C99_LOCAL_SLOT_STATUS_READY: i32 = 1;
+export const MIR_C99_LOCAL_SLOT_STATUS_REJECT: i32 = 2;
+
+export const MIR_C99_MEMORY_OP_KIND_UNSUPPORTED: i32 = 0;
+export const MIR_C99_MEMORY_OP_KIND_LOAD: i32 = 1;
+export const MIR_C99_MEMORY_OP_KIND_STORE: i32 = 2;
+export const MIR_C99_MEMORY_OP_KIND_LOCAL_SET: i32 = 3;
+
+export const MIR_C99_MEMORY_OP_STATUS_MISSING: i32 = 0;
+export const MIR_C99_MEMORY_OP_STATUS_READY: i32 = 1;
+export const MIR_C99_MEMORY_OP_STATUS_REJECT: i32 = 2;
+
+/// 功能说明：记录一个 MIR local 到 C local slot 的稳定映射。
+/// 参数说明：无；字段保存 local/type/function 和 C slot source id。
+/// 返回值说明：无；由 `MirC99PlaceMemoryPlan.locals` 动态保存。
+export struct MirC99LocalSlotEntry {
+    local_id: MirLocalId,
+    function_id: MirFunctionId,
+    type_id: MirTypeId,
+    c_slot_source_id: i32,
+    address_space: i32,
+    alignment: usize,
+    flags: i32,
+    status: i32,
+}
+
+/// 功能说明：记录一个 MIR load/store/local_set 到 C place/value 操作的稳定映射。
+/// 参数说明：无；字段保存 inst、目标 local、source value/local 和 result value。
+/// 返回值说明：无；由 `MirC99PlaceMemoryPlan.ops` 动态保存。
+export struct MirC99MemoryOpEntry {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    op_kind: i32,
+    dest_local_id: MirLocalId,
+    source_local_id: MirLocalId,
+    source_value_id: MirValueId,
+    result_value_id: MirValueId,
+    type_id: MirTypeId,
+    operand_start: i32,
+    operand_count: i32,
+    flags: i32,
+    status: i32,
+}
+
+/// 功能说明：记录 MIR-C99 local slot 和 memory operation 计划。
+/// 参数说明：无；`locals` 和 `ops` 为按 MIR 顺序追加的动态表。
+/// 返回值说明：无；调用 `mir_c99_place_memory_plan_init` 后使用。
+export struct MirC99PlaceMemoryPlan {
+    locals: SemanticVector,
+    ops: SemanticVector,
+    local_count: usize,
+    op_count: usize,
+    reject_count: usize,
+}
+
+fn mir_c99_place_operand_ptr(module: &PortableMirModule, operand_id: MirOperandId) &MirOperand {
+    const operand_index: i32 = operand_id as i32;
+    if module == null || operand_index < 0 || (operand_index as usize) >= module.operands.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.operands, operand_index as usize) as &MirOperand;
+}
+
+fn mir_c99_local_slot_from_mir(local: &MirLocal) MirC99LocalSlotEntry {
+    if local == null {
+        return MirC99LocalSlotEntry{
+            local_id: MIR_LOCAL_INVALID_ID,
+            function_id: MIR_FUNCTION_INVALID_ID,
+            type_id: MIR_TYPE_INVALID_ID,
+            c_slot_source_id: MIR_LOCAL_INVALID_ID,
+            address_space: 0,
+            alignment: 0usize,
+            flags: 0,
+            status: MIR_C99_LOCAL_SLOT_STATUS_REJECT,
+        };
+    }
+    return MirC99LocalSlotEntry{
+        local_id: local.local_id,
+        function_id: local.function_id,
+        type_id: local.type_id,
+        c_slot_source_id: local.local_id,
+        address_space: local.address_space,
+        alignment: local.alignment,
+        flags: local.flags,
+        status: MIR_C99_LOCAL_SLOT_STATUS_READY,
+    };
+}
+
+fn mir_c99_memory_op_kind(inst: &MirInst) i32 {
+    if inst == null {
+        return MIR_C99_MEMORY_OP_KIND_UNSUPPORTED;
+    }
+    if inst.op == MIR_INST_OP_LOAD {
+        return MIR_C99_MEMORY_OP_KIND_LOAD;
+    }
+    if inst.op == MIR_INST_OP_STORE {
+        return MIR_C99_MEMORY_OP_KIND_STORE;
+    }
+    if inst.op == MIR_INST_OP_LOCAL_SET {
+        return MIR_C99_MEMORY_OP_KIND_LOCAL_SET;
+    }
+    return MIR_C99_MEMORY_OP_KIND_UNSUPPORTED;
+}
+
+fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99MemoryOpEntry {
+    if module == null || inst == null {
+        return MirC99MemoryOpEntry{
+            inst_id: MIR_INST_INVALID_ID,
+            function_id: MIR_FUNCTION_INVALID_ID,
+            block_id: MIR_BLOCK_INVALID_ID,
+            op_kind: MIR_C99_MEMORY_OP_KIND_UNSUPPORTED,
+            dest_local_id: MIR_LOCAL_INVALID_ID,
+            source_local_id: MIR_LOCAL_INVALID_ID,
+            source_value_id: MIR_VALUE_INVALID_ID,
+            result_value_id: MIR_VALUE_INVALID_ID,
+            type_id: MIR_TYPE_INVALID_ID,
+            operand_start: -1,
+            operand_count: 0,
+            flags: 0,
+            status: MIR_C99_MEMORY_OP_STATUS_REJECT,
+        };
+    }
+    const op_kind: i32 = mir_c99_memory_op_kind(inst);
+    var dest_local_id: MirLocalId = -1;
+    var source_local_id: MirLocalId = -1;
+    var source_value_id: MirValueId = -1;
+    var status: i32 = MIR_C99_MEMORY_OP_STATUS_READY;
+    if op_kind == MIR_C99_MEMORY_OP_KIND_UNSUPPORTED {
+        status = MIR_C99_MEMORY_OP_STATUS_REJECT;
+    }
+    if op_kind == MIR_C99_MEMORY_OP_KIND_LOAD && inst.operand_count >= 1 {
+        const load_src: &MirOperand = mir_c99_place_operand_ptr(module, inst.operand_start);
+        if load_src != null {
+            source_local_id = load_src.local_id;
+        }
+    } else if (op_kind == MIR_C99_MEMORY_OP_KIND_STORE ||
+               op_kind == MIR_C99_MEMORY_OP_KIND_LOCAL_SET) &&
+              inst.operand_count >= 2 {
+        const dest: &MirOperand = mir_c99_place_operand_ptr(module, inst.operand_start);
+        const source: &MirOperand = mir_c99_place_operand_ptr(module, inst.operand_start + 1);
+        if dest != null {
+            dest_local_id = dest.local_id;
+        }
+        if source != null {
+            source_local_id = source.local_id;
+            source_value_id = source.value_id;
+        }
+    } else if op_kind != MIR_C99_MEMORY_OP_KIND_UNSUPPORTED {
+        status = MIR_C99_MEMORY_OP_STATUS_REJECT;
+    }
+    return MirC99MemoryOpEntry{
+        inst_id: inst.inst_id,
+        function_id: inst.function_id,
+        block_id: inst.block_id,
+        op_kind: op_kind,
+        dest_local_id: dest_local_id,
+        source_local_id: source_local_id,
+        source_value_id: source_value_id,
+        result_value_id: inst.result_value_id,
+        type_id: inst.type_id,
+        operand_start: inst.operand_start,
+        operand_count: inst.operand_count,
+        flags: inst.flags,
+        status: status,
+    };
+}
+
+/// 功能说明：初始化 MIR-C99 place/memory 计划。
+/// 参数说明：`plan` 为输出计划。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_place_memory_plan_init(plan: &MirC99PlaceMemoryPlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    semantic_vector_init(&plan.locals, @size_of(MirC99LocalSlotEntry));
+    semantic_vector_init(&plan.ops, @size_of(MirC99MemoryOpEntry));
+    plan.local_count = 0usize;
+    plan.op_count = 0usize;
+    plan.reject_count = 0usize;
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 place/memory 计划。
+/// 参数说明：`plan` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_place_memory_plan_release(plan: &MirC99PlaceMemoryPlan) void {
+    if plan == null {
+        return;
+    }
+    semantic_vector_release(&plan.locals);
+    semantic_vector_release(&plan.ops);
+    plan.local_count = 0usize;
+    plan.op_count = 0usize;
+    plan.reject_count = 0usize;
+}
+
+/// 功能说明：从 PortableMIR module 构建 local slot 和 memory operation 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出 place/memory 计划。
+/// 返回值说明：当前支持的 local/load/store/local_set 都映射成功返回 `0`，参数非法或追加失败返回 `-1`。
+export fn mir_c99_place_memory_plan_build(module: &PortableMirModule,
+    plan: &MirC99PlaceMemoryPlan) i32 {
+    if module == null || plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.locals.count {
+        const local: &MirLocal = semantic_vector_item_ptr(&module.locals, i) as &MirLocal;
+        const entry: MirC99LocalSlotEntry = mir_c99_local_slot_from_mir(local);
+        if semantic_vector_append(&plan.locals, &entry as &const void) != 0 {
+            status = -1;
+        }
+        plan.local_count = plan.locals.count;
+        if entry.status == MIR_C99_LOCAL_SLOT_STATUS_REJECT {
+            plan.reject_count = plan.reject_count + 1usize;
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        const op_entry: MirC99MemoryOpEntry = mir_c99_memory_op_from_mir(module, inst);
+        if op_entry.status == MIR_C99_MEMORY_OP_STATUS_READY {
+            if semantic_vector_append(&plan.ops, &op_entry as &const void) != 0 {
+                status = -1;
+            }
+            plan.op_count = plan.ops.count;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：按下标读取 MIR-C99 local slot 计划条目。
+/// 参数说明：`plan` 为 place/memory 计划，`index` 为 local 条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_place_memory_plan_local_ptr(plan: &MirC99PlaceMemoryPlan, index: i32) &MirC99LocalSlotEntry {
+    if plan == null || index < 0 || (index as usize) >= plan.locals.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.locals, index as usize) as &MirC99LocalSlotEntry;
+}
+
+/// 功能说明：按下标读取 MIR-C99 memory operation 计划条目。
+/// 参数说明：`plan` 为 place/memory 计划，`index` 为 op 条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_place_memory_plan_op_ptr(plan: &MirC99PlaceMemoryPlan, index: i32) &MirC99MemoryOpEntry {
+    if plan == null || index < 0 || (index as usize) >= plan.ops.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.ops, index as usize) as &MirC99MemoryOpEntry;
+}
