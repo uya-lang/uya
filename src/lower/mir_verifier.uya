@@ -18,8 +18,6 @@ export const MIR_VERIFY_ERR_UNDEFINED_USE: i32 = 14;
 export const MIR_VERIFY_ERR_INVALID_OPERAND: i32 = 15;
 export const MIR_VERIFY_ERR_INVALID_LAYOUT: i32 = 16;
 
-const MIR_VERIFY_ADDR_OP_MIN: i32 = 5;
-const MIR_VERIFY_ADDR_OP_MAX: i32 = 12;
 const MIR_VERIFY_ATOMIC_OP_MIN: i32 = 17;
 const MIR_VERIFY_ATOMIC_OP_MAX: i32 = 20;
 const MIR_VERIFY_VECTOR_OP_MIN: i32 = 21;
@@ -245,6 +243,11 @@ fn portable_mir_verify_value_ptr(module: &PortableMirModule, id: MirValueId) &Mi
 fn portable_mir_verify_type_ptr(module: &PortableMirModule, id: MirTypeId) &MirType {
     if module == null || id < 0 || (id as usize) >= module.types.count { return null; }
     return semantic_vector_item_ptr(&module.types, id as usize) as &MirType;
+}
+
+fn portable_mir_verify_local_ptr(module: &PortableMirModule, id: MirLocalId) &MirLocal {
+    if module == null || id < 0 || (id as usize) >= module.locals.count { return null; }
+    return semantic_vector_item_ptr(&module.locals, id as usize) as &MirLocal;
 }
 
 fn portable_mir_verify_inst_ptr(module: &PortableMirModule, id: MirInstId) &MirInst {
@@ -581,6 +584,76 @@ fn portable_mir_verify_operand_integer_type(module: &PortableMirModule,
     return 0;
 }
 
+fn portable_mir_verify_address_result_value(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if inst == null || typ == null || typ.kind != MIR_TYPE_KIND_POINTER ||
+       inst.result_value_id == MIR_VALUE_INVALID_ID {
+        return 0;
+    }
+    const value: &MirValue = portable_mir_verify_value_ptr(module,
+        inst.result_value_id);
+    if value == null || value.defining_inst_id != inst.inst_id ||
+       value.type_id != inst.type_id || value.local_id != MIR_LOCAL_INVALID_ID ||
+       (value.flags & MIR_VALUE_FLAG_ADDRESS) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_address_source_lifetime(module: &PortableMirModule,
+    inst: &MirInst, source: &MirOperand, pointer_type: &MirType) i32 {
+    if module == null || inst == null || source == null || pointer_type == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ADDR_OF_LOCAL {
+        const local: &MirLocal = portable_mir_verify_local_ptr(module,
+            source.local_id);
+        if local == null || local.function_id != inst.function_id ||
+           local.type_id != pointer_type.pointee_type_id ||
+           (local.flags & MIR_LOCAL_FLAG_ADDRESS_TAKEN) == 0 ||
+           source.value_id != MIR_VALUE_INVALID_ID {
+            return 0;
+        }
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_ADDR_OF_PARAM {
+        const value: &MirValue = portable_mir_verify_value_ptr(module,
+            source.value_id);
+        if value == null || value.function_id != inst.function_id ||
+           value.type_id != pointer_type.pointee_type_id ||
+           (value.flags & MIR_VALUE_FLAG_PARAM) == 0 ||
+           value.param_index < 0 ||
+           source.local_id != MIR_LOCAL_INVALID_ID {
+            return 0;
+        }
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_ADDR_OF_GLOBAL {
+        if source.immediate_i32 < 0 ||
+           source.value_id != MIR_VALUE_INVALID_ID ||
+           source.local_id != MIR_LOCAL_INVALID_ID ||
+           source.type_id != pointer_type.pointee_type_id {
+            return 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_address_value_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if portable_mir_inst_op_is_address(inst.op) == 0 {
+        return 1;
+    }
+    if inst.operand_count != 1 ||
+       portable_mir_verify_address_result_value(module, inst, typ) == 0 {
+        return 0;
+    }
+    const source: &MirOperand = portable_mir_verify_operand_ptr(module,
+        inst.operand_start);
+    return portable_mir_verify_address_source_lifetime(module, inst, source, typ);
+}
+
 fn portable_mir_verify_conversion_inst(module: &PortableMirModule,
     inst: &MirInst, typ: &MirType) i32 {
     if portable_mir_inst_op_is_conversion(inst.op) == 0 {
@@ -907,6 +980,9 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     if portable_mir_verify_float_value_inst(module, inst, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
+    if portable_mir_verify_address_value_inst(module, inst, typ) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
     if inst.op == MIR_INST_OP_LOCAL_SET &&
        (inst.operand_count != 2 || inst.result_value_id != MIR_VALUE_INVALID_ID ||
         typ == null || typ.kind == MIR_TYPE_KIND_VOID) {
@@ -926,7 +1002,7 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
         }
     }
     if (inst.op == MIR_INST_OP_LOAD || inst.op == MIR_INST_OP_STORE ||
-        (inst.op >= MIR_VERIFY_ADDR_OP_MIN && inst.op <= MIR_VERIFY_ADDR_OP_MAX)) &&
+        portable_mir_inst_op_is_address(inst.op) != 0) &&
        portable_mir_verify_address_supported(module, inst.address_space) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }

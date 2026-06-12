@@ -920,6 +920,56 @@ fn verifier_run(mode: i32) i32 {
         types[20].element_type_id = 16;
         operands[1] = verifier_operand(1, 1, 15);
     }
+    if mode == 49 {
+        insts[0].op = MIR_INST_OP_ADDR_OF_LOCAL;
+        insts[0].type_id = 1;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 1;
+        values[1].flags = MIR_VALUE_FLAG_ADDRESS;
+        locals[0].type_id = 0;
+        locals[0].alignment = 4usize;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 0);
+        operands[0].local_id = 0;
+        operands[1] = verifier_operand(1, 1, 1);
+    }
+    if mode == 50 {
+        insts[0].op = MIR_INST_OP_ADDR_OF_LOCAL;
+        insts[0].type_id = 1;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 1;
+        values[1].flags = MIR_VALUE_FLAG_ADDRESS;
+        locals[0].type_id = 0;
+        locals[0].alignment = 4usize;
+        locals[0].flags = 0;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 0);
+        operands[0].local_id = 0;
+        operands[1] = verifier_operand(1, 1, 1);
+    }
+    if mode == 51 {
+        insts[0].op = MIR_INST_OP_ADDR_OF_PARAM;
+        insts[0].type_id = 1;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[0].type_id = 0;
+        values[0].param_index = 0;
+        values[1].type_id = 1;
+        values[1].flags = MIR_VALUE_FLAG_ADDRESS;
+        operands[0] = verifier_operand(0, 0, 0);
+        operands[1] = verifier_operand(1, 1, 1);
+    }
+    if mode == 52 {
+        insts[0].op = MIR_INST_OP_ADDR_OF_GLOBAL;
+        insts[0].type_id = 1;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 1;
+        values[1].flags = MIR_VALUE_FLAG_ADDRESS;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 0);
+        operands[0].immediate_i32 = 7;
+        operands[1] = verifier_operand(1, 1, 1);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -983,6 +1033,9 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(42), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(45), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(47), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(49), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(51), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(52), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1009,6 +1062,7 @@ test "PortableMIR verifier rejects malformed control and data flow" {
 
 test "PortableMIR verifier rejects target and layout violations" {
     try assert_eq_i32(verifier_run(3), MIR_VERIFY_ERR_INVALID_ADDRESS);
+    try assert_eq_i32(verifier_run(50), MIR_VERIFY_ERR_INVALID_ADDRESS);
     try assert_eq_i32(verifier_run(7), MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);
     try assert_eq_i32(verifier_run(10), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(11), MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);

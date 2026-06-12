@@ -215,6 +215,11 @@ export const MIR_INST_OP_FLOAT_CONST_MIN: i32 = 240;
 export const MIR_INST_OP_CONST_F32: i32 = 240;
 export const MIR_INST_OP_CONST_F64: i32 = 241;
 export const MIR_INST_OP_FLOAT_CONST_MAX: i32 = 241;
+export const MIR_INST_OP_ADDRESS_MIN: i32 = 250;
+export const MIR_INST_OP_ADDR_OF_LOCAL: i32 = 250;
+export const MIR_INST_OP_ADDR_OF_GLOBAL: i32 = 251;
+export const MIR_INST_OP_ADDR_OF_PARAM: i32 = 252;
+export const MIR_INST_OP_ADDRESS_MAX: i32 = 252;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
 export const MIR_TERMINATOR_KIND_BR: i32 = 2;
@@ -341,6 +346,16 @@ export fn portable_mir_inst_op_is_float_compare(op: i32) i32 {
 /// 返回值说明：f32/f64 常量 opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_float_constant(op: i32) i32 {
     if op >= MIR_INST_OP_FLOAT_CONST_MIN && op <= MIR_INST_OP_FLOAT_CONST_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为取址指令。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：local/global/param address opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_address(op: i32) i32 {
+    if op >= MIR_INST_OP_ADDRESS_MIN && op <= MIR_INST_OP_ADDRESS_MAX {
         return 1;
     }
     return 0;
