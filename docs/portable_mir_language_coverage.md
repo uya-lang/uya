@@ -77,7 +77,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 |------|------|---------------|------|
 | `AST_PROGRAM` | done | missing | 模块入口；`tests/verify_portable_mir_structs.sh` 固定。 |
 | `AST_ENUM_DECL` | done | partial | MIR-C99 full-language enum parity shard 覆盖 enum tag、显式/自动值、比较、cast 和 enum match arms。 |
-| `AST_ERROR_DECL` | done | missing | `error SmokeError;` 由 Phase 9A 验证。 |
+| `AST_ERROR_DECL` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `error FullLanguageCatch;` 声明，以及 success/error 两条 `catch` 路径。 |
 | `AST_INTERFACE_DECL` | done | partial | MIR-C99 full-language interface dispatch parity shard 覆盖基础 interface value + vtable method dispatch；generic interface parity shard 覆盖 `Scorer<i32>` / `Scorer<f64>` concrete interface instances；interface composition/field/global init parity shard 覆盖组合接口、接口字段和全局接口初始化。 |
 | `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call；generic struct parity shard 覆盖 `Box<T>` 的 i32/f64 concrete instances；generic method parity shard 覆盖 `Box<T>` concrete method instances；interface dispatch parity shard 覆盖 `Counter : IAdd` concrete implementation；generic interface parity shard 覆盖 `IntScorer : Scorer<i32>` 与 `FloatScorer : Scorer<f64>` concrete implementations；interface composition/field/global init parity shard 覆盖带 interface 字段的 struct 和全局 aggregate initializer。 |
 | `AST_UNION_DECL` | done | partial | MIR-C99 full-language union parity shard 覆盖 tagged union layout、构造和 payload match 解包。 |
@@ -126,8 +126,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
 | `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
 | `AST_TRY_EXPR` | done | missing | `try expr` 经 `CORE_STMT_KIND_ERROR_PROPAGATION`。 |
-| `AST_CATCH_EXPR` | done | missing | `expr catch { ... }` 由 `catch` shard 验证。 |
-| `AST_ERROR_VALUE` | done | missing | `error.SmokeError` 由 `error_id` shard 验证。 |
+| `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；`catch |err|` 绑定待后续 shard。 |
+| `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；`@error_id` 读取待后续 shard。 |
 | `AST_MATCH_EXPR` | done | partial | MIR-C99 full-language union parity shard 覆盖 `match union_value { .number(x) => x, .payload(p) => p.left + p.right }`。 |
 | `AST_MC_EVAL` | partial | missing | 宏内求值；MIR 端走 pre-MIR helper。 |
 | `AST_MC_CODE` | partial | missing | 宏内生成代码。 |
@@ -162,7 +162,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | missing | `!T` 由 `catch`/`dynamic_catch` shard 邻接覆盖。 |
+| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；`try` 传播待后续 shard。 |
 | `AST_TYPE_ATOMIC` | done | missing | `atomic T` 由 `atomic` shard 验证。 |
 | `AST_TYPE_VECTOR` | done | missing | `@vector(T, N)` 由 `simd` shard 验证。 |
 | `AST_TYPE_MASK` | done | missing | `@mask(N)` 由 `simd` shard 验证。 |
