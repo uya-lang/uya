@@ -1,0 +1,141 @@
+// codegen/mir_c99/names.uya - Stable MIR-C99 symbol/temp/block name plan.
+
+export const MIR_C99_NAME_KIND_UNKNOWN: i32 = 0;
+export const MIR_C99_NAME_KIND_FUNCTION: i32 = 1;
+export const MIR_C99_NAME_KIND_BLOCK: i32 = 2;
+export const MIR_C99_NAME_KIND_TEMP: i32 = 3;
+export const MIR_C99_NAME_KIND_LOCAL: i32 = 4;
+export const MIR_C99_NAME_KIND_TYPE: i32 = 5;
+export const MIR_C99_NAME_KIND_GLOBAL: i32 = 6;
+export const MIR_C99_NAME_KIND_HELPER: i32 = 7;
+
+export const MIR_C99_NAME_PREFIX_MIR_FN: i32 = 1;
+export const MIR_C99_NAME_PREFIX_BB: i32 = 2;
+export const MIR_C99_NAME_PREFIX_TMP: i32 = 3;
+export const MIR_C99_NAME_PREFIX_LOCAL: i32 = 4;
+export const MIR_C99_NAME_PREFIX_TY: i32 = 5;
+export const MIR_C99_NAME_PREFIX_GLOBAL: i32 = 6;
+export const MIR_C99_NAME_PREFIX_HELPER: i32 = 7;
+
+/// 功能说明：记录一个 MIR-C99 稳定名称条目。
+/// 参数说明：无；`source_id` 为 MIR 或 helper 稳定 ID，`prefix_kind` 决定 emitter 写出的前缀。
+/// 返回值说明：无；不保存原始源变量名，也不复用 legacy C safe-name cache。
+export struct MirC99Name {
+    name_id: i32,
+    kind: i32,
+    prefix_kind: i32,
+    source_id: i32,
+    scope_id: i32,
+    ordinal: i32,
+    fingerprint: u64,
+    flags: i32,
+}
+
+/// 功能说明：记录 MIR-C99 稳定命名计划。
+/// 参数说明：无；`entries` 动态保存所有 symbol/temp/block/type 名称。
+/// 返回值说明：无；调用 `mir_c99_name_plan_init` 后使用。
+export struct MirC99NamePlan {
+    entries: SemanticVector,
+    count: usize,
+    next_name_id: i32,
+}
+
+fn mir_c99_name_prefix_for_kind(kind: i32) i32 {
+    if kind == MIR_C99_NAME_KIND_FUNCTION {
+        return MIR_C99_NAME_PREFIX_MIR_FN;
+    }
+    if kind == MIR_C99_NAME_KIND_BLOCK {
+        return MIR_C99_NAME_PREFIX_BB;
+    }
+    if kind == MIR_C99_NAME_KIND_TEMP {
+        return MIR_C99_NAME_PREFIX_TMP;
+    }
+    if kind == MIR_C99_NAME_KIND_LOCAL {
+        return MIR_C99_NAME_PREFIX_LOCAL;
+    }
+    if kind == MIR_C99_NAME_KIND_TYPE {
+        return MIR_C99_NAME_PREFIX_TY;
+    }
+    if kind == MIR_C99_NAME_KIND_GLOBAL {
+        return MIR_C99_NAME_PREFIX_GLOBAL;
+    }
+    if kind == MIR_C99_NAME_KIND_HELPER {
+        return MIR_C99_NAME_PREFIX_HELPER;
+    }
+    return 0;
+}
+
+fn mir_c99_name_fingerprint(kind: i32, source_id: i32, scope_id: i32, ordinal: i32) u64 {
+    var h: u64 = 1469598103934665603u64;
+    h = (h ^ (kind as u64)) * 1099511628211u64;
+    h = (h ^ (source_id as u64)) * 1099511628211u64;
+    h = (h ^ (scope_id as u64)) * 1099511628211u64;
+    h = (h ^ (ordinal as u64)) * 1099511628211u64;
+    return h;
+}
+
+/// 功能说明：初始化 MIR-C99 命名计划。
+/// 参数说明：`plan` 为输出命名计划。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_name_plan_init(plan: &MirC99NamePlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    semantic_vector_init(&plan.entries, @size_of(MirC99Name));
+    plan.count = 0usize;
+    plan.next_name_id = 0;
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 命名计划。
+/// 参数说明：`plan` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_name_plan_release(plan: &MirC99NamePlan) void {
+    if plan == null {
+        return;
+    }
+    semantic_vector_release(&plan.entries);
+    plan.count = 0usize;
+    plan.next_name_id = 0;
+}
+
+/// 功能说明：向 MIR-C99 命名计划追加稳定名称条目。
+/// 参数说明：`plan` 为命名计划，`kind` 为名称类别，`source_id`/`scope_id`/`ordinal` 为稳定输入。
+/// 返回值说明：成功返回新 name id，未知 kind 或追加失败返回 `-1`。
+export fn mir_c99_name_plan_add(plan: &MirC99NamePlan,
+    kind: i32, source_id: i32, scope_id: i32, ordinal: i32, flags: i32) i32 {
+    if plan == null {
+        return -1;
+    }
+    const prefix_kind: i32 = mir_c99_name_prefix_for_kind(kind);
+    if prefix_kind == 0 {
+        return -1;
+    }
+    const name_id: i32 = plan.next_name_id;
+    const entry: MirC99Name = MirC99Name{
+        name_id: name_id,
+        kind: kind,
+        prefix_kind: prefix_kind,
+        source_id: source_id,
+        scope_id: scope_id,
+        ordinal: ordinal,
+        fingerprint: mir_c99_name_fingerprint(kind, source_id, scope_id, ordinal),
+        flags: flags,
+    };
+    if semantic_vector_append(&plan.entries, &entry as &const void) != 0 {
+        return -1;
+    }
+    plan.next_name_id = plan.next_name_id + 1;
+    plan.count = plan.entries.count;
+    return name_id;
+}
+
+/// 功能说明：按下标读取 MIR-C99 名称条目。
+/// 参数说明：`plan` 为命名计划，`name_id` 为稳定名称 ID。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_name_plan_entry_ptr(plan: &MirC99NamePlan, name_id: i32) &MirC99Name {
+    if plan == null || name_id < 0 || (name_id as usize) >= plan.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.entries, name_id as usize) as &MirC99Name;
+}
