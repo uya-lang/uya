@@ -442,6 +442,7 @@ scope_exit_error
 - recursive aggregate drop 由 CoreIR 展开或引用 `LoweredProgram` 中的 helper/plan。
 - `defer` / `errdefer` statement 变成带 source location 的 cleanup actions。
 - error propagation 显式传递或存储 error value。
+- MIR cleanup model 必须显式区分 return / error / unwind path；cleanup action 必须标记 defer、errdefer 或 lexical drop。
 
 verifier 规则：
 

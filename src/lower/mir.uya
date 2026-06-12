@@ -79,6 +79,8 @@ export const MIR_INST_OP_STORE: i32 = 2;
 export const MIR_INST_OP_CALL: i32 = 3;
 export const MIR_INST_OP_ASM_BLOCK: i32 = 4;
 export const MIR_INST_OP_I32_ADD: i32 = 5;
+export const MIR_INST_OP_DROP_VALUE: i32 = 15;
+export const MIR_INST_OP_DROP_IN_PLACE: i32 = 16;
 export const MIR_INST_OP_ATOMIC_LOAD: i32 = 17;
 export const MIR_INST_OP_ATOMIC_STORE: i32 = 18;
 export const MIR_INST_OP_ATOMIC_RMW: i32 = 19;
@@ -251,6 +253,15 @@ export const MIR_INST_OP_POINTER_OFFSET: i32 = 280;
 export const MIR_INST_OP_AGGREGATE_COPY: i32 = 290;
 export const MIR_INST_OP_AGGREGATE_MOVE: i32 = 291;
 export const MIR_INST_OP_ATOMIC_INIT: i32 = 292;
+export const MIR_CLEANUP_MODEL_RETURN: i32 = 1;
+export const MIR_CLEANUP_MODEL_ERROR: i32 = 2;
+export const MIR_CLEANUP_MODEL_UNWIND: i32 = 4;
+export const MIR_CLEANUP_EDGE_KIND_RETURN: i32 = 1;
+export const MIR_CLEANUP_EDGE_KIND_ERROR: i32 = 2;
+export const MIR_CLEANUP_EDGE_KIND_UNWIND: i32 = 3;
+export const MIR_CLEANUP_ACTION_DEFER: i32 = 1;
+export const MIR_CLEANUP_ACTION_ERRDEFER: i32 = 2;
+export const MIR_CLEANUP_ACTION_LEXICAL_DROP: i32 = 3;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
 export const MIR_INST_FLAG_OVERFLOW_CHECKED: i32 = 2;
 export const MIR_INST_FLAG_NO_OVERLAP: i32 = 4;
@@ -537,6 +548,16 @@ export fn portable_mir_inst_op_is_pointer_offset(op: i32) i32 {
 /// 返回值说明：aggregate copy 或 move opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_aggregate_copy_move(op: i32) i32 {
     if op == MIR_INST_OP_AGGREGATE_COPY || op == MIR_INST_OP_AGGREGATE_MOVE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR 指令 opcode 是否为显式 drop 操作。
+/// 参数说明：`op` 为待分类的 MIR 指令 opcode。
+/// 返回值说明：drop value/drop in place 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_drop(op: i32) i32 {
+    if op == MIR_INST_OP_DROP_VALUE || op == MIR_INST_OP_DROP_IN_PLACE {
         return 1;
     }
     return 0;

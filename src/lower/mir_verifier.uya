@@ -1752,6 +1752,19 @@ fn portable_mir_verify_vector_mask_inst(module: &PortableMirModule, inst: &MirIn
     return 0;
 }
 
+fn portable_mir_verify_drop_inst(module: &PortableMirModule, inst: &MirInst,
+    result: &MirVerifierResult) i32 {
+    if portable_mir_inst_op_is_drop(inst.op) == 0 {
+        return 0;
+    }
+    if inst.operand_count < 1 || inst.result_value_id != MIR_VALUE_INVALID_ID {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+            inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+            inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    return 0;
+}
+
 fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, result: &MirVerifierResult) i32 {
     const typ: &MirType = portable_mir_verify_type_ptr(module, inst.type_id);
     if inst.op == MIR_INST_OP_LOAD && (inst.operand_count <= 0 || inst.result_value_id == MIR_VALUE_INVALID_ID) {
@@ -1811,6 +1824,9 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
         return -1;
     }
     if portable_mir_verify_vector_mask_inst(module, inst, typ, result) != 0 {
+        return -1;
+    }
+    if portable_mir_verify_drop_inst(module, inst, result) != 0 {
         return -1;
     }
     if inst.op == MIR_INST_OP_CALL && portable_mir_verify_call_abi_supported(module, inst.calling_convention) == 0 {
@@ -1979,6 +1995,18 @@ fn portable_mir_verify_function_has_cleanup_block(module: &PortableMirModule, fu
     return 0;
 }
 
+fn portable_mir_verify_cleanup_model_known(cleanup_model: i32) i32 {
+    const known: i32 = MIR_CLEANUP_MODEL_RETURN + MIR_CLEANUP_MODEL_ERROR +
+        MIR_CLEANUP_MODEL_UNWIND;
+    if cleanup_model < 0 {
+        return 0;
+    }
+    if (cleanup_model & known) == cleanup_model {
+        return 1;
+    }
+    return 0;
+}
+
 fn portable_mir_verify_function(module: &PortableMirModule, function: &MirFunction, index: usize,
     result: &MirVerifierResult) i32 {
     if function == null || function.function_id != index as i32 ||
@@ -1998,6 +2026,12 @@ fn portable_mir_verify_function(module: &PortableMirModule, function: &MirFuncti
             return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_NAKED_BODY, function.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, function.signature_type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
         }
         return 0;
+    }
+    if portable_mir_verify_cleanup_model_known(function.cleanup_model) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_CLEANUP,
+            function.function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, function.signature_type_id, -1,
+            MIR_CAPABILITY_REQ_INVALID_ID, function.debug_loc_id);
     }
     if (function.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 &&
        (function.body_kind != MIR_FUNCTION_BODY_KIND_NORMAL || function.entry_block_id == MIR_BLOCK_INVALID_ID ||

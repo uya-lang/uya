@@ -50,6 +50,7 @@ for op in \
     MIR_INST_OP_COPY \
     MIR_INST_OP_MOVE \
     MIR_INST_OP_DROP_VALUE \
+    MIR_INST_OP_DROP_IN_PLACE \
     MIR_INST_OP_ATOMIC_INIT \
     MIR_INST_OP_ATOMIC_LOAD \
     MIR_INST_OP_ATOMIC_STORE \
@@ -67,6 +68,8 @@ require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_contract_required_fe
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_contract_init' "lowering contract initialization"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_FLAG_ATOMIC_ORDERED' "atomic memory-order metadata flag"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_ATOMIC_RMW_ADD' "atomic RMW operation metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_CLEANUP_MODEL_UNWIND' "cleanup unwind metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_CLEANUP_ACTION_ERRDEFER' "errdefer cleanup action metadata"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_stmt_kind' "CoreStmt to MIR feature mapping"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_expr_kind' "CoreExpr to MIR feature mapping"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_place_kind' "CorePlace to MIR feature mapping"

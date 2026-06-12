@@ -52,6 +52,10 @@ require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_inst_op_is_atomic' "verifier 
 require_pattern "$MIR_FILE" 'MIR_INST_OP_VECTOR_LOAD' "PortableMIR vector load opcode"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_vector_mask_inst' "verifier validates vector/mask instruction shape"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_inst_op_is_vector_mask' "verifier classifies vector/mask opcodes explicitly"
+require_pattern "$MIR_FILE" 'MIR_INST_OP_DROP_VALUE' "PortableMIR drop value opcode"
+require_pattern "$MIR_FILE" 'MIR_CLEANUP_MODEL_UNWIND' "PortableMIR cleanup unwind metadata"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_drop_inst' "verifier validates drop instruction shape"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_cleanup_model_known' "verifier validates cleanup model metadata"
 
 require_pattern "$MIR_VERIFIER_FILE" 'semantic_vector_item_ptr' "linear table traversal"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_function_has_asm_only_naked_body' "naked body verifier hook"
@@ -1686,6 +1690,40 @@ fn verifier_run(mode: i32) i32 {
         operands[0] = verifier_operand(0, 0, 4);
         operands[1] = verifier_operand(1, 0, 3);
     }
+    if mode == 106 {
+        insts[0].op = MIR_INST_OP_DROP_VALUE;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 1;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, 0, 0);
+    }
+    if mode == 107 {
+        insts[0].op = MIR_INST_OP_DROP_IN_PLACE;
+        insts[0].type_id = 1;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 1;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, 0, 1);
+    }
+    if mode == 108 {
+        blocks[0].flags = MIR_BLOCK_FLAG_CLEANUP;
+        functions[0].cleanup_model = MIR_CLEANUP_MODEL_RETURN +
+            MIR_CLEANUP_MODEL_ERROR + MIR_CLEANUP_MODEL_UNWIND;
+    }
+    if mode == 109 {
+        functions[0].cleanup_model = 8;
+    }
+    if mode == 110 {
+        insts[0].op = MIR_INST_OP_DROP_VALUE;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, 0, 0);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -1787,6 +1825,9 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(100), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(101), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(102), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(106), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(107), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(108), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1847,6 +1888,8 @@ test "PortableMIR verifier rejects atomic vector mask cleanup and naked violatio
     try assert_eq_i32(verifier_run(103), MIR_VERIFY_ERR_INVALID_VECTOR_MASK);
     try assert_eq_i32(verifier_run(104), MIR_VERIFY_ERR_INVALID_OPERAND);
     try assert_eq_i32(verifier_run(105), MIR_VERIFY_ERR_INVALID_OPERAND);
+    try assert_eq_i32(verifier_run(109), MIR_VERIFY_ERR_INVALID_CLEANUP);
+    try assert_eq_i32(verifier_run(110), MIR_VERIFY_ERR_INVALID_OPERAND);
 }
 EOF
 
