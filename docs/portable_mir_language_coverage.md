@@ -96,8 +96,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_BREAK_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
-| `AST_DEFER_STMT` | done | missing | C99 oracle 已覆盖；MIR cleanup edge 到 MIR-C99 parity 待补。 |
-| `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer。 |
+| `AST_DEFER_STMT` | done | partial | MIR-C99 cleanup/resource async full-language parity shard 覆盖 async error path 上的 defer cleanup；Core defer return-order shard 覆盖同步 return cleanup 顺序。 |
+| `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer；cleanup/resource async full-language parity shard 覆盖 async error path 上的 errdefer cleanup。 |
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
 | `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic compound assignment 当前由 atomic compound-add reject shard 明确 capability reject；aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
@@ -136,7 +136,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_MC_INTERP` | partial | missing | 宏内插值。 |
 | `AST_MC_TYPE` | partial | missing | 宏内类型反射。 |
 | `AST_MC_SOURCE` | partial | missing | 宏内源码字符串序列化。 |
-| `AST_AWAIT_EXPR` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource await 仍在后续 full-language async shards 收口。 |
+| `AST_AWAIT_EXPR` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource async full-language parity shard 覆盖 async error union cleanup、defer/errdefer 和 frame release。 |
 | `AST_SRC_NAME` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `AST_SRC_PATH` | done | missing | C99 builtin。 |
 | `AST_SRC_LINE` | done | missing | C99 builtin。 |
@@ -162,11 +162,11 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取；async basic parity shard 覆盖 async error union return。 |
+| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取；async basic parity shard 覆盖 async error union return；cleanup/resource async full-language parity shard 覆盖 async error union cleanup。 |
 | `AST_TYPE_ATOMIC` | done | reject | atomic compound-add reject shard 确认 `atomic i32` init/read/compound add 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 portable atomic helper 或 target capability 后必须改为真实 parity。 |
 | `AST_TYPE_VECTOR` | done | reject | SIMD vector/mask reject shard 确认 `@vector(T, N)` 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
 | `AST_TYPE_MASK` | done | reject | SIMD vector/mask reject shard 确认 `@mask(N)` 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 target helper capability 后必须改为真实 parity。 |
-| `AST_TYPE_FRAME` | partial | partial | MIR-C99 frame/pool async full-language parity shard 覆盖 @frame type/methods、inline temp、stack/pool/stats/heap fallback；cleanup/resource frame release 仍在后续 full-language async shard 收口。 |
+| `AST_TYPE_FRAME` | partial | partial | MIR-C99 frame/pool async full-language parity shard 覆盖 @frame type/methods、inline temp、stack/pool/stats/heap fallback；cleanup/resource async full-language parity shard 覆盖 frame release。 |
 
 注：`done` 行不必然代表 MIR-C99 已经端到端 parity；MIR-C99 状态以 §2.1 和 TODO 详细任务列表为准。
 
@@ -249,7 +249,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |
 | `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | missing | `c_import` 边界。 |
 | `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
-| `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource await 仍在后续 full-language async shards 收口。 |
+| `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource async full-language parity shard 覆盖 async error union cleanup、defer/errdefer 和 frame release。 |
 
 ---
 
@@ -262,8 +262,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | stdout / stderr | done | missing | `@print`/`@println` 走 libc / runtime helper。 |
 | `malloc` / `free` | done | missing | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
 | file IO | done | partial | MIR-C99 scheduler/channel/IO/compute async full-language parity shard 覆盖 AsyncFd read/write/read_exact/write_all 与 multi-fd scheduler；同步 file helper parity 待 make-check 收口。 |
-| async runtime / Future / Waker | partial | partial | MIR-C99 runtime/basic async full-language parity shard 覆盖 ready/block_on；scheduler/channel/IO/compute async full-language parity shard 覆盖 channel、scheduler event、fd/io、multi-fd 与 async_compute；cleanup/resource async shard 待补。 |
-| async channel / scheduler / event loop / async_compute | partial | partial | MIR-C99 scheduler/channel/IO/compute async full-language parity shard 覆盖 channel、scheduler event、fd/io、multi-fd 与 async_compute；cleanup/resource async shard 待补。 |
+| async runtime / Future / Waker | partial | partial | MIR-C99 runtime/basic async full-language parity shard 覆盖 ready/block_on；scheduler/channel/IO/compute async full-language parity shard 覆盖 channel、scheduler event、fd/io、multi-fd 与 async_compute；cleanup/resource async full-language parity shard 覆盖 async cleanup/resource paths，并由 async make-check manifest 收口。 |
+| async channel / scheduler / event loop / async_compute | partial | partial | MIR-C99 scheduler/channel/IO/compute async full-language parity shard 覆盖 channel、scheduler event、fd/io、multi-fd 与 async_compute；async make-check manifest 收口覆盖当前 `tests/test_async_*.uya`。 |
 | env | done | missing | 同上。 |
 | toolchain / linker handoff | done | missing | MIR-C99 link plan parity 待补。 |
 | capability 分流 | done | missing | `tests/verify_portable_mir_target_metadata.sh` 覆盖。 |
