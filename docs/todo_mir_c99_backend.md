@@ -71,7 +71,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_independent_boundary.sh --self-test` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] boundary gate 禁止调用 `c99_codegen_generate`、`C99CodeGenerator`、现有 `C99Plan` 生产 emitter。
     - 验证：`bash tests/verify_mir_c99_independent_boundary.sh --self-test` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] boundary gate 禁止读取 AST body / `LoweredProgram` body 作为成功路径。
+  - [x] boundary gate 禁止读取 AST body / `LoweredProgram` body 作为成功路径。
+    - 验证：`bash tests/verify_mir_c99_independent_boundary.sh --self-test` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] 新增 `tests/verify_mir_c99_minimal_subset_contract.sh`：固定允许的低级 C99 子集和禁用项。
   - [ ] 新增 `tests/verify_mir_c99_oracle_parity_harness.sh`：统一生成 MIR-C99、现有 C99 oracle、host C compiler 编译运行、stdout/stderr/exit diff 和 no-fallback 检查。
 
