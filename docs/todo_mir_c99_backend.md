@@ -63,7 +63,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.1 合同与边界
 
 - [ ] MIR-C99-BACKEND-CONTRACTS：冻结独立 MIR-C99 合同。
-  - [ ] 新增 `docs/mir_c99_backend.md`：说明 C99 是 portable assembly，列出禁止可读性/源码结构还原作为目标。
+  - [x] 新增 `docs/mir_c99_backend.md`：说明 C99 是 portable assembly，列出禁止可读性/源码结构还原作为目标。
+    - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`rg -n "portable assembly|禁止路径|c99_codegen_generate|AST body|LoweredProgram body|MirC99Plan|done|reject" docs/mir_c99_backend.md` 覆盖关键合同；`git diff --check` 通过。
   - [ ] 在 `docs/portable_mir_language_coverage.md` 增加 MIR-C99 per-kind 状态列：`missing` / `partial` / `done` / `reject`。
   - [ ] 新增 `tests/verify_mir_c99_independent_boundary.sh`：扫描 MIR-C99 源码不得 `use codegen.c99`、`use codegen.c99_build`。
   - [ ] boundary gate 禁止调用 `c99_codegen_generate`、`C99CodeGenerator`、现有 `C99Plan` 生产 emitter。
