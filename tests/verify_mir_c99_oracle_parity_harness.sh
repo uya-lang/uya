@@ -79,7 +79,46 @@ run_generator() {
 compile_c() {
     local input_c="$1"
     local output_bin="$2"
-    "$HOST_CC" -std=c99 -Wall -Wextra -pedantic "$input_c" -o "$output_bin"
+    local sidecar_file="${input_c}imports.sh"
+    local object_dir="${output_bin}.objects"
+    local -a link_cmd=("$HOST_CC" -std=c99 -Wall -Wextra -pedantic "$input_c")
+    local -a cimport_objects=()
+
+    if [[ -f "$sidecar_file" ]]; then
+        mkdir -p "$object_dir"
+        # shellcheck disable=SC1090
+        . "$sidecar_file"
+        local ci=0
+        while [[ "$ci" -lt "${UYA_CIMPORT_COUNT:-0}" ]]; do
+            local src_var="UYA_CIMPORT_SRC_${ci}"
+            local cflag_count_var="UYA_CIMPORT_CFLAGC_${ci}"
+            local src_path="${!src_var}"
+            local cflag_count="${!cflag_count_var:-0}"
+            local obj_path="$object_dir/cimport_${ci}.o"
+            local -a compile_cmd=("$HOST_CC" -std=c99 -Wall -Wextra -pedantic -c)
+            local cj=0
+            while [[ "$cj" -lt "$cflag_count" ]]; do
+                local cflag_var="UYA_CIMPORT_CFLAG_${ci}_${cj}"
+                compile_cmd+=("${!cflag_var}")
+                cj=$((cj + 1))
+            done
+            compile_cmd+=("$src_path" -o "$obj_path")
+            "${compile_cmd[@]}"
+            cimport_objects+=("$obj_path")
+            ci=$((ci + 1))
+        done
+        link_cmd+=("${cimport_objects[@]}")
+        local ldflag_count="${UYA_CIMPORT_LDFLAGC:-0}"
+        local li=0
+        while [[ "$li" -lt "$ldflag_count" ]]; do
+            local ldflag_var="UYA_CIMPORT_LDFLAG_${li}"
+            link_cmd+=("${!ldflag_var}")
+            li=$((li + 1))
+        done
+    fi
+
+    link_cmd+=(-o "$output_bin")
+    "${link_cmd[@]}"
 }
 
 run_binary_capture() {
