@@ -64,7 +64,15 @@ for op in \
     MIR_INST_OP_ERROR_UNION_ERR \
     MIR_INST_OP_ERROR_UNION_IS_ERR \
     MIR_INST_OP_ERROR_UNION_PAYLOAD \
-    MIR_INST_OP_ERROR_UNION_ERROR; do
+    MIR_INST_OP_ERROR_UNION_ERROR \
+    MIR_INST_OP_ASYNC_FRAME_ALLOC \
+    MIR_INST_OP_ASYNC_FRAME_FREE \
+    MIR_INST_OP_ASYNC_STATE_LOAD \
+    MIR_INST_OP_ASYNC_STATE_STORE \
+    MIR_INST_OP_ASYNC_AWAIT_CHILD_SLOT \
+    MIR_INST_OP_ASYNC_POLL_CHILD \
+    MIR_INST_OP_ASYNC_RESUME_EDGE \
+    MIR_INST_OP_ASYNC_RESULT_LOAD; do
     require_pattern "$MIR_CONTRACT_FILE" "export const ${op}" "MIR opcode $op"
 done
 
@@ -77,6 +85,9 @@ require_pattern "$MIR_CONTRACT_FILE" 'MIR_CLEANUP_MODEL_UNWIND' "cleanup unwind 
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_CLEANUP_ACTION_ERRDEFER' "errdefer cleanup action metadata"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_ERROR_UNION_PATH_FAILURE' "error-union failure path metadata"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_FLAG_ERROR_UNION_CHECKED' "error-union checked extraction metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_ASYNC_FRAME_SLOT_CAPTURED_LOCAL' "async captured local slot metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_ASYNC_EDGE_RESUME' "async resume edge metadata"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_RUNTIME_CAP_ASYNC_FRAME' "async frame runtime capability"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_stmt_kind' "CoreStmt to MIR feature mapping"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_expr_kind' "CoreExpr to MIR feature mapping"
 require_pattern "$MIR_CONTRACT_FILE" 'portable_mir_lowering_feature_for_place_kind' "CorePlace to MIR feature mapping"

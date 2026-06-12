@@ -439,6 +439,7 @@ export fn main() i32 {
         capability_req_count: 0usize,
         field_layout_count: 0usize,
         function_param_type_count: 0usize,
+        async_frame_meta_count: 0usize,
         functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         blocks: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         values: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
@@ -453,6 +454,7 @@ export fn main() i32 {
         capability_reqs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         field_layouts: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         function_param_types: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        async_frame_metas: SemanticVector{ data: null, item_size: @size_of(MirAsyncFrameMeta), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
     };
     portable_mir_module_init(&module, &arena);
     module.target_profile.profile_id = 9;

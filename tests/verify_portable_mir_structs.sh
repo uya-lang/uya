@@ -73,6 +73,7 @@ export const MIR_RUNTIME_CAP_PRINT_HELPERS: i32 = 32;
 export const MIR_RUNTIME_CAP_HEAP_HELPERS: i32 = 64;
 export const MIR_RUNTIME_CAP_ENV_FILE_IO: i32 = 128;
 export const MIR_RUNTIME_CAP_SYSCALL: i32 = 256;
+export const MIR_RUNTIME_CAP_ASYNC_FRAME: i32 = 512;
 export const MIR_RUNTIME_HELPER_PRINT: i32 = 201;
 export const MIR_RUNTIME_HELPER_PRINTLN: i32 = 202;
 export const MIR_RUNTIME_HELPER_MALLOC: i32 = 203;
@@ -286,6 +287,7 @@ fn portable_mir_struct_module() PortableMirModule {
         capability_req_count: 0usize,
         field_layout_count: 0usize,
         function_param_type_count: 0usize,
+        async_frame_meta_count: 0usize,
         functions: portable_mir_struct_vec(),
         blocks: portable_mir_struct_vec(),
         values: portable_mir_struct_vec(),
@@ -300,6 +302,7 @@ fn portable_mir_struct_module() PortableMirModule {
         capability_reqs: portable_mir_struct_vec(),
         field_layouts: portable_mir_struct_vec(),
         function_param_types: portable_mir_struct_vec(),
+        async_frame_metas: portable_mir_struct_vec(),
     };
 }
 
@@ -471,7 +474,7 @@ test "PortableMIR top-level structures initialize and store a minimal function" 
         MIR_RUNTIME_CAP_HOSTED_LIBC + MIR_RUNTIME_CAP_C_EXTERN +
         MIR_RUNTIME_CAP_MEMORY_HELPERS + MIR_RUNTIME_CAP_STRING_PRIMITIVES +
         MIR_RUNTIME_CAP_PRINT_HELPERS + MIR_RUNTIME_CAP_HEAP_HELPERS +
-        MIR_RUNTIME_CAP_ENV_FILE_IO);
+        MIR_RUNTIME_CAP_ENV_FILE_IO + MIR_RUNTIME_CAP_ASYNC_FRAME);
     try expect(module.functions.item_size == @size_of(MirFunction));
     try expect(module.blocks.item_size == @size_of(MirBlock));
     try expect(module.values.item_size == @size_of(MirValue));

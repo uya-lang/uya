@@ -300,6 +300,7 @@ fn backend_module(profile_id: i32, lifecycle_state: i32) PortableMirModule {
         capability_req_count: 0usize,
         field_layout_count: 0usize,
         function_param_type_count: 0usize,
+        async_frame_meta_count: 0usize,
         functions: backend_empty_vec(@size_of(MirFunction)),
         blocks: backend_empty_vec(@size_of(MirBlock)),
         values: backend_empty_vec(@size_of(MirValue)),
@@ -314,6 +315,7 @@ fn backend_module(profile_id: i32, lifecycle_state: i32) PortableMirModule {
         capability_reqs: backend_empty_vec(@size_of(MirCapabilityReq)),
         field_layouts: backend_empty_vec(@size_of(MirFieldLayout)),
         function_param_types: backend_empty_vec(@size_of(MirFunctionParamType)),
+        async_frame_metas: backend_empty_vec(@size_of(MirAsyncFrameMeta)),
     };
 }
 

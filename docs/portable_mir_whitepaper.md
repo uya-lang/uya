@@ -542,11 +542,13 @@ MIR 需要表达：
 
 - frame allocation 或 frame address
 - frame field access
+- state tag、result slot、await child slot、captured locals
 - state load/store
 - poll calls
 - await suspension / resume points
 - cancellation / stop / drop paths
 - future result extraction
+- frame allocation/free 必须携带 async frame runtime capability；poll/resume edge 必须引用显式 frame metadata。
 
 hosted native v1 可以通过现有 runtime helper 降低 async，但 MIR 仍要显式表达 frame layout、state transition 和 cleanup path，方便后续 freestanding lowering。
 
