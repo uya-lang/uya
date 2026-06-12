@@ -143,7 +143,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
         return mir_c99_driver_error(result, -1);
     }
     if mir_c99_emitter_begin(emitter, request, plan) != 0 ||
-       mir_c99_emitter_read_plan(emitter) != 0 {
+       mir_c99_emitter_bind_cfg(emitter, cfg_plan) != 0 ||
+       mir_c99_emitter_read_plan(emitter) != 0 ||
+       mir_c99_emitter_record_unit_outputs(emitter) != 0 {
         return mir_c99_driver_error(result, -1);
     }
     const out: MirC99EmitterOutputResult = mir_c99_emitter_output_result(emitter);

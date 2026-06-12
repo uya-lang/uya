@@ -1,6 +1,8 @@
 // codegen/mir_c99/emitter.uya - MIR-C99 emitter contract over verified PortableMIR.
 
+use codegen.mir_c99.cfg;
 use codegen.mir_c99.plan;
+use codegen.mir_c99.unit_output;
 
 export const MIR_C99_EMITTER_STATUS_ERROR: i32 = -1;
 export const MIR_C99_EMITTER_STATUS_UNINITIALIZED: i32 = 0;
@@ -18,12 +20,14 @@ export struct MirC99Emitter {
     request: &MirTargetBackendRequest,
     portable_mir: &PortableMirModule,
     plan: &MirC99Plan,
+    cfg_plan: &MirC99CfgPlan,
     mir_function_count: usize,
     mir_block_count: usize,
     mir_inst_count: usize,
     mir_value_count: usize,
     mir_type_count: usize,
     unit_count: usize,
+    c_unit_output_count: usize,
     planned_ref_count: usize,
     estimated_bytes: usize,
     output_bytes: usize,
@@ -65,6 +69,7 @@ fn mir_c99_emitter_reset_snapshot(emitter: &MirC99Emitter) void {
     emitter.mir_value_count = 0usize;
     emitter.mir_type_count = 0usize;
     emitter.unit_count = 0usize;
+    emitter.c_unit_output_count = 0usize;
     emitter.planned_ref_count = 0usize;
     emitter.estimated_bytes = 0usize;
     emitter.output_bytes = 0usize;
@@ -112,6 +117,7 @@ export fn mir_c99_emitter_begin(emitter: &MirC99Emitter, request: &MirTargetBack
     emitter.request = null;
     emitter.portable_mir = null;
     emitter.plan = null;
+    emitter.cfg_plan = null;
     mir_c99_emitter_reset_snapshot(emitter);
     if request.backend_kind != MIR_TARGET_BACKEND_C99 ||
        portable_mir_backend_request_is_verified(request) == 0 ||
@@ -129,6 +135,17 @@ export fn mir_c99_emitter_begin(emitter: &MirC99Emitter, request: &MirTargetBack
     return 0;
 }
 
+/// 功能说明：把 MIR-C99 emitter 绑定到 CFG plan，以允许单 `.c` unit 输出统计。
+/// 参数说明：`emitter` 为已初始化 emitter，`cfg_plan` 为已构建的 CFG plan。
+/// 返回值说明：成功返回 `0`，参数非法或状态非法返回 `-1`。
+export fn mir_c99_emitter_bind_cfg(emitter: &MirC99Emitter, cfg_plan: &MirC99CfgPlan) i32 {
+    if emitter == null || cfg_plan == null || emitter.status != MIR_C99_EMITTER_STATUS_READY {
+        return -1;
+    }
+    emitter.cfg_plan = cfg_plan;
+    return 0;
+}
+
 /// 功能说明：读取 MIR-C99 plan 的当前快照，准备后续低级 C bytes 输出。
 /// 参数说明：`emitter` 必须已经通过 `mir_c99_emitter_begin` 初始化。
 /// 返回值说明：成功返回 `0`，状态非法返回 `-1`。
@@ -140,6 +157,56 @@ export fn mir_c99_emitter_read_plan(emitter: &MirC99Emitter) i32 {
         return -1;
     }
     emitter.status = MIR_C99_EMITTER_STATUS_PLANNED;
+    return 0;
+}
+
+/// 功能说明：按单 `.c` unit 输出计划记录 emitter output result 的 C byte 统计。
+/// 参数说明：`emitter` 必须处于 planned 状态且已绑定 CFG plan。
+/// 返回值说明：成功返回 `0`，状态非法或 unit 输出统计失败返回 `-1`。
+export fn mir_c99_emitter_record_unit_outputs(emitter: &MirC99Emitter) i32 {
+    if emitter == null || emitter.status != MIR_C99_EMITTER_STATUS_PLANNED ||
+       emitter.plan == null || emitter.cfg_plan == null {
+        return -1;
+    }
+    emitter.output_bytes = 0usize;
+    emitter.c_unit_output_count = 0usize;
+    var i: usize = 0usize;
+    while i < emitter.plan.units.count {
+        const unit_index: i32 = i as! i32 catch { return -1; };
+        const unit: &MirC99Unit = mir_c99_plan_unit_ptr(emitter.plan, unit_index);
+        var writer: MirC99UnitOutputWriter = MirC99UnitOutputWriter{
+            status: MIR_C99_OUTPUT_STATUS_ERROR,
+            plan: null,
+            unit: null,
+            cfg_plan: null,
+            stats: MirC99UnitOutputStats{
+                include_count: 0usize,
+                typedef_count: 0usize,
+                extern_prototype_count: 0usize,
+                function_prototype_count: 0usize,
+                global_count: 0usize,
+                function_body_count: 0usize,
+                helper_count: 0usize,
+                dep_count: 0usize,
+                section_count: 0,
+                output_bytes: 0usize,
+            },
+            diagnostic_code: 0,
+        };
+        if mir_c99_unit_output_writer_begin(&writer, emitter.plan, unit) != 0 ||
+           mir_c99_unit_output_writer_bind_cfg(&writer, emitter.cfg_plan) != 0 {
+            return -1;
+        }
+        const written_i32: i32 = mir_c99_unit_output_writer_finish(&writer);
+        if written_i32 < 0 {
+            return -1;
+        }
+        const written: usize = written_i32 as! usize catch { return -1; };
+        emitter.output_bytes = emitter.output_bytes + written;
+        emitter.c_unit_output_count = emitter.c_unit_output_count + 1usize;
+        i = i + 1usize;
+    }
+    emitter.status = MIR_C99_EMITTER_STATUS_DONE;
     return 0;
 }
 
