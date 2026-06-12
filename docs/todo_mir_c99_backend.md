@@ -152,7 +152,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`rg -n "MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 确认 opcode 缺口；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] value def/use 顺序检查：未定义或跨 block 非法 use 必须由 verifier 阻止。
     - 验证：`bash tests/verify_mir_c99_value_use_order.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] parity shard：integer arithmetic/comparison/boolean combination。
+  - [f] parity shard：integer arithmetic/comparison/boolean combination。
+    - 阻塞：当前仍无真实 MIR-C99 generator command/CLI；`tests/verify_mir_c99_oracle_parity_harness.sh` 报告 `generator commands are pending backend hookup`。虽然 value/constant/expression plan 已覆盖当前 `I32_ADD`/`I32_LE`，但 unit output 尚未发射表达式语句并生成可由 host C compiler 编译运行的 `.c`。
+    - 验证：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；不能作为 parity 通过证据。
   - [ ] parity shard：float/double arithmetic、comparison、cast 和 return。
 
 ### 4.6 Place / Memory
