@@ -874,6 +874,52 @@ fn verifier_run(mode: i32) i32 {
         operands[0] = verifier_operand(0, 0, 15);
         operands[1] = verifier_operand(1, 0, 16);
     }
+    if mode == 45 {
+        functions[0].signature_type_id = 20;
+        types[20].element_type_id = 16;
+        insts[0].type_id = 16;
+        values[0].type_id = 16;
+        values[1].type_id = 16;
+        operands[1] = verifier_operand(1, 1, 16);
+    }
+    if mode == 46 {
+        functions[0].signature_type_id = 20;
+        types[20].element_type_id = 16;
+        insts[0].type_id = 15;
+        values[0].type_id = 15;
+        values[1].type_id = 15;
+        operands[1] = verifier_operand(1, 1, 15);
+    }
+    if mode == 47 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 16;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        insts[0].calling_convention = MIR_CALL_CONV_C;
+        values[1].type_id = 16;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].immediate_i32 = 0;
+        functions[0].flags = MIR_FUNCTION_FLAG_EXTERN;
+        functions[0].calling_convention = MIR_CALL_CONV_C;
+        functions[0].signature_type_id = 20;
+        types[20].element_type_id = 16;
+        operands[1] = verifier_operand(1, 1, 16);
+    }
+    if mode == 48 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 15;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        insts[0].calling_convention = MIR_CALL_CONV_C;
+        values[1].type_id = 15;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].immediate_i32 = 0;
+        functions[0].flags = MIR_FUNCTION_FLAG_EXTERN;
+        functions[0].calling_convention = MIR_CALL_CONV_C;
+        functions[0].signature_type_id = 20;
+        types[20].element_type_id = 16;
+        operands[1] = verifier_operand(1, 1, 15);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -935,6 +981,8 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(38), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(40), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(42), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(45), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(47), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -955,6 +1003,8 @@ test "PortableMIR verifier rejects malformed control and data flow" {
     try assert_eq_i32(verifier_run(41), MIR_VERIFY_ERR_TYPE_MISMATCH);
     try assert_eq_i32(verifier_run(43), MIR_VERIFY_ERR_TYPE_MISMATCH);
     try assert_eq_i32(verifier_run(44), MIR_VERIFY_ERR_TYPE_MISMATCH);
+    try assert_eq_i32(verifier_run(46), MIR_VERIFY_ERR_TYPE_MISMATCH);
+    try assert_eq_i32(verifier_run(48), MIR_VERIFY_ERR_TYPE_MISMATCH);
 }
 
 test "PortableMIR verifier rejects target and layout violations" {
