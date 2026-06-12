@@ -1,0 +1,93 @@
+// codegen/mir_c99/runtime_helpers.uya - MIR runtime helper refs to MIR-C99 helper plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_RUNTIME_HELPER_STATUS_READY: i32 = 1;
+export const MIR_C99_RUNTIME_HELPER_STATUS_REJECT: i32 = 2;
+
+/// 功能说明：记录 MIR-C99 runtime helper 计划。
+/// 参数说明：无；helper refs 仅来自 verifier-clean MIR capability requirements。
+/// 返回值说明：无；调用 `mir_c99_runtime_helper_plan_init` 后使用。
+export struct MirC99RuntimeHelperPlan {
+    helper_count: usize,
+    reject_count: usize,
+}
+
+fn mir_c99_runtime_helper_capability_req_ptr(module: &PortableMirModule,
+    index: usize) &MirCapabilityReq {
+    if module == null || index >= module.capability_reqs.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.capability_reqs, index) as &MirCapabilityReq;
+}
+
+fn mir_c99_runtime_helper_required_capability(helper_id: i32) i32 {
+    if helper_id == MIR_RUNTIME_HELPER_MEMCPY ||
+       helper_id == MIR_RUNTIME_HELPER_MEMSET ||
+       helper_id == MIR_RUNTIME_HELPER_MEMCMP {
+        return MIR_RUNTIME_CAP_MEMORY_HELPERS;
+    }
+    if helper_id == MIR_RUNTIME_HELPER_STRING_PRIMITIVE {
+        return MIR_RUNTIME_CAP_STRING_PRIMITIVES;
+    }
+    return 0;
+}
+
+fn mir_c99_runtime_helper_is_memory_string(helper_id: i32) i32 {
+    if helper_id == MIR_RUNTIME_HELPER_MEMCPY ||
+       helper_id == MIR_RUNTIME_HELPER_MEMSET ||
+       helper_id == MIR_RUNTIME_HELPER_MEMCMP ||
+       helper_id == MIR_RUNTIME_HELPER_STRING_PRIMITIVE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：初始化 MIR-C99 runtime helper 计划。
+/// 参数说明：`plan` 为输出计划。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_runtime_helper_plan_init(plan: &MirC99RuntimeHelperPlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    plan.helper_count = 0usize;
+    plan.reject_count = 0usize;
+    return 0;
+}
+
+/// 功能说明：从 MIR capability requirements 构建 memory/string runtime helper refs。
+/// 参数说明：`module` 为 verifier-clean MIR module，`mir_plan` 和 `unit` 为输出 ref 表，`helper_plan` 为统计计划。
+/// 返回值说明：成功返回 `0`；目标 profile 不支持 helper capability 或追加失败返回 `-1`。
+export fn mir_c99_runtime_helper_plan_build(module: &PortableMirModule,
+    mir_plan: &MirC99Plan, unit: &MirC99Unit,
+    helper_plan: &MirC99RuntimeHelperPlan) i32 {
+    if module == null || mir_plan == null || unit == null || helper_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.capability_reqs.count {
+        const req: &MirCapabilityReq =
+            mir_c99_runtime_helper_capability_req_ptr(module, i);
+        if req != null &&
+           mir_c99_runtime_helper_is_memory_string(req.capability_id) != 0 {
+            const required_cap: i32 =
+                mir_c99_runtime_helper_required_capability(req.capability_id);
+            if portable_mir_target_profile_supports_runtime_capability(
+                &module.target_profile, required_cap) == 0 {
+                helper_plan.reject_count = helper_plan.reject_count + 1usize;
+                status = -1;
+            } else if mir_c99_plan_append_ref(mir_plan, MIR_C99_REF_KIND_HELPER,
+                       req.capability_id, req.capability_req_id, req.flags) != 0 ||
+                      mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_HELPER,
+                       req.capability_id, req.capability_req_id, req.flags) != 0 {
+                helper_plan.reject_count = helper_plan.reject_count + 1usize;
+                status = -1;
+            } else {
+                helper_plan.helper_count = helper_plan.helper_count + 1usize;
+            }
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
