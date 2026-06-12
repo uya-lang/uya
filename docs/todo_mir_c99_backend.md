@@ -81,7 +81,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.2 后端骨架
 
 - [ ] MIR-C99-BACKEND-SKELETON：建立独立后端文件和 CLI/backend 接线。
-  - [ ] 新增 `src/codegen/mir_c99/plan.uya`：定义 `MirC99Plan`、`MirC99Unit`、prototype/global/function/helper 引用表，全部动态增长。
+  - [x] 新增 `src/codegen/mir_c99/plan.uya`：定义 `MirC99Plan`、`MirC99Unit`、prototype/global/function/helper 引用表，全部动态增长。
+    - 验证：`./bin/uya check src/codegen/mir_c99/plan.uya` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
   - [ ] 新增 `src/codegen/mir_c99/emitter.uya`：只消费 `MirTargetBackendRequest` / verifier-clean `PortableMirModule` 和 `MirC99Plan`，输出 C bytes。
   - [ ] 新增 `src/codegen/mir_c99/types.uya`：只从 MIR type/layout metadata 生成 C typedef，不查 AST/checker。
   - [ ] 新增 `src/codegen/mir_c99/names.uya`：生成稳定 symbol/temp/block 名，不复用现有 C99 safe-name cache。

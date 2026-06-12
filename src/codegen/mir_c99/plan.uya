@@ -1,0 +1,361 @@
+// codegen/mir_c99/plan.uya - Independent MIR-C99 output plan.
+//
+// This file intentionally owns only MIR-C99 plan data. It consumes stable MIR
+// ids and helper refs; it must not depend on legacy AST C99 planner state.
+
+export const MIR_C99_PLAN_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const MIR_C99_PLAN_LIFECYCLE_ACTIVE: i32 = 1;
+export const MIR_C99_PLAN_LIFECYCLE_RELEASED: i32 = 2;
+
+export const MIR_C99_UNIT_KIND_PRIMARY: i32 = 1;
+export const MIR_C99_UNIT_KIND_MODULE: i32 = 2;
+export const MIR_C99_UNIT_KIND_HELPERS: i32 = 3;
+
+export const MIR_C99_REF_KIND_UNKNOWN: i32 = 0;
+export const MIR_C99_REF_KIND_INCLUDE: i32 = 1;
+export const MIR_C99_REF_KIND_TYPEDEF: i32 = 2;
+export const MIR_C99_REF_KIND_PROTOTYPE: i32 = 3;
+export const MIR_C99_REF_KIND_GLOBAL: i32 = 4;
+export const MIR_C99_REF_KIND_FUNCTION: i32 = 5;
+export const MIR_C99_REF_KIND_HELPER: i32 = 6;
+export const MIR_C99_REF_KIND_DEP: i32 = 7;
+
+/// 功能说明：记录 MIR-C99 输出计划中的稳定引用。
+/// 参数说明：无；`source_id` 保存 MIR/module/helper 的稳定 ID，`aux_id` 保存后端局部辅助 ID。
+/// 返回值说明：无；由 `MirC99Plan` 和 `MirC99Unit` 的动态表保存。
+export struct MirC99Ref {
+    kind: i32,
+    source_id: i32,
+    aux_id: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录一个 MIR-C99 translation unit 的输出计划。
+/// 参数说明：无；所有列表均为 `MirC99Ref` 动态表，不设置固定容量上限。
+/// 返回值说明：无；首版可以只有 primary unit，后续 split-C 复用同一结构。
+export struct MirC99Unit {
+    unit_id: i32,
+    kind: i32,
+    name_id: InternedNameId,
+    source_file_id: FileId,
+    fingerprint: u64,
+    estimated_bytes: usize,
+    includes: SemanticVector,
+    typedefs: SemanticVector,
+    prototypes: SemanticVector,
+    globals: SemanticVector,
+    functions: SemanticVector,
+    helpers: SemanticVector,
+    deps: SemanticVector,
+}
+
+/// 功能说明：记录完整 MIR-C99 后端输出计划。
+/// 参数说明：无；调用 `mir_c99_plan_init` 后使用，所有 program/unit 表都动态增长。
+/// 返回值说明：无；emitter 只消费该结构输出 C bytes。
+export struct MirC99Plan {
+    arena: &CompilerArena,
+    lifecycle_state: i32,
+    target_profile_id: i32,
+    unit_count: usize,
+    estimated_bytes: usize,
+    resident_peak_bytes: usize,
+    includes: SemanticVector,
+    typedefs: SemanticVector,
+    prototypes: SemanticVector,
+    globals: SemanticVector,
+    functions: SemanticVector,
+    helpers: SemanticVector,
+    deps: SemanticVector,
+    units: SemanticVector,
+}
+
+/// 功能说明：聚合 MIR-C99 plan 动态表的统计摘要。
+/// 参数说明：无；由 `mir_c99_plan_stats` 返回。
+/// 返回值说明：无；字段统计动态表数量、元素数、容量、字节数和扩容次数。
+export struct MirC99PlanStats {
+    table_count: i32,
+    table_items: usize,
+    table_capacity: usize,
+    table_bytes: usize,
+    table_realloc_count: i32,
+}
+
+fn mir_c99_ref_make(kind: i32, source_id: i32, aux_id: i32, flags: i32) MirC99Ref {
+    return MirC99Ref{
+        kind: kind,
+        source_id: source_id,
+        aux_id: aux_id,
+        flags: flags,
+    };
+}
+
+fn mir_c99_empty_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn mir_c99_unit_empty() MirC99Unit {
+    return MirC99Unit{
+        unit_id: -1,
+        kind: MIR_C99_UNIT_KIND_PRIMARY,
+        name_id: 0,
+        source_file_id: 0,
+        fingerprint: 0u64,
+        estimated_bytes: 0usize,
+        includes: mir_c99_empty_vector(),
+        typedefs: mir_c99_empty_vector(),
+        prototypes: mir_c99_empty_vector(),
+        globals: mir_c99_empty_vector(),
+        functions: mir_c99_empty_vector(),
+        helpers: mir_c99_empty_vector(),
+        deps: mir_c99_empty_vector(),
+    };
+}
+
+fn mir_c99_vec_append_ref(vec: &SemanticVector, kind: i32, source_id: i32, aux_id: i32, flags: i32) i32 {
+    if vec == null {
+        return -1;
+    }
+    const item: MirC99Ref = mir_c99_ref_make(kind, source_id, aux_id, flags);
+    if semantic_vector_append(vec, &item as &const void) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_stats_add_vector(stats: &MirC99PlanStats, vec: &SemanticVector) void {
+    if stats == null || vec == null {
+        return;
+    }
+    stats.table_count = stats.table_count + 1;
+    stats.table_items = stats.table_items + vec.count;
+    stats.table_capacity = stats.table_capacity + vec.capacity;
+    stats.table_bytes = stats.table_bytes + vec.bytes;
+    stats.table_realloc_count = stats.table_realloc_count + vec.realloc_count;
+}
+
+/// 功能说明：初始化一个 MIR-C99 unit 计划。
+/// 参数说明：`unit` 为输出 unit，`unit_id` 为稳定下标，`kind` 为 `MIR_C99_UNIT_KIND_*`。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_unit_init(unit: &MirC99Unit, unit_id: i32, kind: i32) i32 {
+    if unit == null || unit_id < 0 {
+        return -1;
+    }
+    unit.unit_id = unit_id;
+    unit.kind = kind;
+    unit.name_id = 0;
+    unit.source_file_id = 0;
+    unit.fingerprint = 0u64;
+    unit.estimated_bytes = 0usize;
+    semantic_vector_init(&unit.includes, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.typedefs, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.prototypes, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.globals, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.functions, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.helpers, @size_of(MirC99Ref));
+    semantic_vector_init(&unit.deps, @size_of(MirC99Ref));
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 unit 内部动态表。
+/// 参数说明：`unit` 为待释放 unit；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_unit_release(unit: &MirC99Unit) void {
+    if unit == null {
+        return;
+    }
+    semantic_vector_release(&unit.includes);
+    semantic_vector_release(&unit.typedefs);
+    semantic_vector_release(&unit.prototypes);
+    semantic_vector_release(&unit.globals);
+    semantic_vector_release(&unit.functions);
+    semantic_vector_release(&unit.helpers);
+    semantic_vector_release(&unit.deps);
+    unit.estimated_bytes = 0usize;
+}
+
+/// 功能说明：向 MIR-C99 unit 的指定 ref 表追加稳定引用。
+/// 参数说明：`unit` 为目标 unit，`kind` 为 `MIR_C99_REF_KIND_*`，`source_id`/`aux_id`/`flags` 为引用元数据。
+/// 返回值说明：成功返回 `0`，未知 kind 或追加失败返回 `-1`。
+export fn mir_c99_unit_append_ref(unit: &MirC99Unit, kind: i32, source_id: i32, aux_id: i32, flags: i32) i32 {
+    if unit == null {
+        return -1;
+    }
+    if kind == MIR_C99_REF_KIND_INCLUDE {
+        return mir_c99_vec_append_ref(&unit.includes, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_TYPEDEF {
+        return mir_c99_vec_append_ref(&unit.typedefs, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_PROTOTYPE {
+        return mir_c99_vec_append_ref(&unit.prototypes, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_GLOBAL {
+        return mir_c99_vec_append_ref(&unit.globals, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_FUNCTION {
+        return mir_c99_vec_append_ref(&unit.functions, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_HELPER {
+        return mir_c99_vec_append_ref(&unit.helpers, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_DEP {
+        return mir_c99_vec_append_ref(&unit.deps, kind, source_id, aux_id, flags);
+    }
+    return -1;
+}
+
+/// 功能说明：初始化 MIR-C99 输出计划。
+/// 参数说明：`plan` 为输出计划，`arena` 为生命周期归属，`target_profile_id` 为 MIR target profile。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_plan_init(plan: &MirC99Plan, arena: &CompilerArena, target_profile_id: i32) i32 {
+    if plan == null {
+        return -1;
+    }
+    plan.arena = arena;
+    plan.lifecycle_state = MIR_C99_PLAN_LIFECYCLE_ACTIVE;
+    plan.target_profile_id = target_profile_id;
+    plan.unit_count = 0usize;
+    plan.estimated_bytes = 0usize;
+    plan.resident_peak_bytes = 0usize;
+    semantic_vector_init(&plan.includes, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.typedefs, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.prototypes, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.globals, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.functions, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.helpers, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.deps, @size_of(MirC99Ref));
+    semantic_vector_init(&plan.units, @size_of(MirC99Unit));
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 输出计划及所有 unit 动态表。
+/// 参数说明：`plan` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_plan_release(plan: &MirC99Plan) void {
+    if plan == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &MirC99Unit = semantic_vector_item_ptr(&plan.units, i) as &MirC99Unit;
+        mir_c99_unit_release(unit);
+        i = i + 1usize;
+    }
+    semantic_vector_release(&plan.includes);
+    semantic_vector_release(&plan.typedefs);
+    semantic_vector_release(&plan.prototypes);
+    semantic_vector_release(&plan.globals);
+    semantic_vector_release(&plan.functions);
+    semantic_vector_release(&plan.helpers);
+    semantic_vector_release(&plan.deps);
+    semantic_vector_release(&plan.units);
+    plan.lifecycle_state = MIR_C99_PLAN_LIFECYCLE_RELEASED;
+    plan.unit_count = 0usize;
+    plan.estimated_bytes = 0usize;
+    plan.resident_peak_bytes = 0usize;
+}
+
+/// 功能说明：向 MIR-C99 plan 的 program 级 ref 表追加稳定引用。
+/// 参数说明：`plan` 为目标计划，`kind` 为 `MIR_C99_REF_KIND_*`，`source_id`/`aux_id`/`flags` 为引用元数据。
+/// 返回值说明：成功返回 `0`，未知 kind 或追加失败返回 `-1`。
+export fn mir_c99_plan_append_ref(plan: &MirC99Plan, kind: i32, source_id: i32, aux_id: i32, flags: i32) i32 {
+    if plan == null || plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    if kind == MIR_C99_REF_KIND_INCLUDE {
+        return mir_c99_vec_append_ref(&plan.includes, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_TYPEDEF {
+        return mir_c99_vec_append_ref(&plan.typedefs, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_PROTOTYPE {
+        return mir_c99_vec_append_ref(&plan.prototypes, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_GLOBAL {
+        return mir_c99_vec_append_ref(&plan.globals, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_FUNCTION {
+        return mir_c99_vec_append_ref(&plan.functions, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_HELPER {
+        return mir_c99_vec_append_ref(&plan.helpers, kind, source_id, aux_id, flags);
+    }
+    if kind == MIR_C99_REF_KIND_DEP {
+        return mir_c99_vec_append_ref(&plan.deps, kind, source_id, aux_id, flags);
+    }
+    return -1;
+}
+
+/// 功能说明：向 MIR-C99 plan 追加一个 unit。
+/// 参数说明：`plan` 为目标计划，`kind` 为 `MIR_C99_UNIT_KIND_*`。
+/// 返回值说明：成功返回新 unit id，失败返回 `-1`。
+export fn mir_c99_plan_add_unit(plan: &MirC99Plan, kind: i32) i32 {
+    if plan == null || plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    const unit_id: i32 = plan.units.count as i32;
+    var unit: MirC99Unit = mir_c99_unit_empty();
+    if mir_c99_unit_init(&unit, unit_id, kind) != 0 {
+        return -1;
+    }
+    if semantic_vector_append(&plan.units, &unit as &const void) != 0 {
+        mir_c99_unit_release(&unit);
+        return -1;
+    }
+    plan.unit_count = plan.units.count;
+    return unit_id;
+}
+
+/// 功能说明：获取 MIR-C99 plan 中的 unit 指针。
+/// 参数说明：`plan` 为目标计划，`unit_id` 为稳定 unit 下标。
+/// 返回值说明：成功返回 unit 指针，参数非法返回 null。
+export fn mir_c99_plan_unit_ptr(plan: &MirC99Plan, unit_id: i32) &MirC99Unit {
+    if plan == null || unit_id < 0 || (unit_id as usize) >= plan.units.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.units, unit_id as usize) as &MirC99Unit;
+}
+
+/// 功能说明：统计 MIR-C99 plan 的动态表占用。
+/// 参数说明：`plan` 为待统计计划。
+/// 返回值说明：返回动态表数量、元素数、容量、字节数和扩容次数；参数非法时返回全零。
+export fn mir_c99_plan_stats(plan: &MirC99Plan) MirC99PlanStats {
+    var stats: MirC99PlanStats = MirC99PlanStats{
+        table_count: 0,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    if plan == null {
+        return stats;
+    }
+    mir_c99_stats_add_vector(&stats, &plan.includes);
+    mir_c99_stats_add_vector(&stats, &plan.typedefs);
+    mir_c99_stats_add_vector(&stats, &plan.prototypes);
+    mir_c99_stats_add_vector(&stats, &plan.globals);
+    mir_c99_stats_add_vector(&stats, &plan.functions);
+    mir_c99_stats_add_vector(&stats, &plan.helpers);
+    mir_c99_stats_add_vector(&stats, &plan.deps);
+    mir_c99_stats_add_vector(&stats, &plan.units);
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &MirC99Unit = semantic_vector_item_ptr(&plan.units, i) as &MirC99Unit;
+        mir_c99_stats_add_vector(&stats, &unit.includes);
+        mir_c99_stats_add_vector(&stats, &unit.typedefs);
+        mir_c99_stats_add_vector(&stats, &unit.prototypes);
+        mir_c99_stats_add_vector(&stats, &unit.globals);
+        mir_c99_stats_add_vector(&stats, &unit.functions);
+        mir_c99_stats_add_vector(&stats, &unit.helpers);
+        mir_c99_stats_add_vector(&stats, &unit.deps);
+        i = i + 1usize;
+    }
+    return stats;
+}
