@@ -93,7 +93,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `INT_NEG` 同型正例和 operand 错配反例，断言数 23）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] 同步 MIR-C99 expression plan 对新增整数 opcode 的可见支持/拒绝边界。
       - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 integer arithmetic / compare / unary expression kind，checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过。
-  - [ ] bool 组合 opcode：`and` / `or` / `not` 或等价短路/非短路 MIR 表达形式。
+  - [x] bool 组合 opcode：`and` / `or` / `not` 或等价短路/非短路 MIR 表达形式。
+    - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 `MIR_C99_EXPR_KIND_BOOL_LOGIC` 和 bool logic opcode family 分类，checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `BOOL_AND`、`BOOL_NOT` 正例和 bool operand 错配反例，断言数 26）；`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
   - [ ] cast / sign extend / zero extend / truncate / int-float / float-int / float-double conversion opcode。
   - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。
 

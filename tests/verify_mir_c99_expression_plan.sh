@@ -33,6 +33,7 @@ for symbol in \
     MIR_C99_EXPR_KIND_INT_ARITH \
     MIR_C99_EXPR_KIND_INT_COMPARE \
     MIR_C99_EXPR_KIND_INT_UNARY \
+    MIR_C99_EXPR_KIND_BOOL_LOGIC \
     mir_c99_value_plan_build_expressions \
     mir_c99_value_plan_expression_ptr; do
     require_pattern "$VALUE_FILE" "$symbol" "expression symbol $symbol"
@@ -62,6 +63,8 @@ require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_integer_compare' \
     "integer comparison opcode family handled"
 require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_integer_unary' \
     "integer unary opcode family handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_logic' \
+    "bool logic opcode family handled"
 require_pattern "$VALUE_FILE" 'operand_count == 2' \
     "binary expression requires two operands"
 require_pattern "$VALUE_FILE" 'operand_count == 1' \
