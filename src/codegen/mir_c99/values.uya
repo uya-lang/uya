@@ -28,6 +28,7 @@ export const MIR_C99_CONSTANT_STATUS_READY: i32 = 1;
 export const MIR_C99_CONSTANT_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_VALUE_DIAG_UNSUPPORTED_ATOMIC_CAPABILITY: i32 = -2401;
+export const MIR_C99_VALUE_DIAG_UNSUPPORTED_VECTOR_MASK_CAPABILITY: i32 = -2402;
 
 export const MIR_C99_EXPR_KIND_UNSUPPORTED: i32 = 0;
 export const MIR_C99_EXPR_KIND_I32_ADD: i32 = 1;
@@ -40,6 +41,7 @@ export const MIR_C99_EXPR_KIND_CONVERSION: i32 = 7;
 export const MIR_C99_EXPR_KIND_FLOAT_ARITH: i32 = 8;
 export const MIR_C99_EXPR_KIND_FLOAT_COMPARE: i32 = 9;
 export const MIR_C99_EXPR_KIND_ATOMIC_HELPER: i32 = 10;
+export const MIR_C99_EXPR_KIND_VECTOR_MASK_HELPER: i32 = 11;
 
 export const MIR_C99_EXPR_STATUS_MISSING: i32 = 0;
 export const MIR_C99_EXPR_STATUS_READY: i32 = 1;
@@ -47,6 +49,7 @@ export const MIR_C99_EXPR_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_EXPR_REJECT_REASON_NONE: i32 = 0;
 export const MIR_C99_EXPR_REJECT_REASON_ATOMIC_CAPABILITY: i32 = 1;
+export const MIR_C99_EXPR_REJECT_REASON_VECTOR_MASK_CAPABILITY: i32 = 2;
 
 /// 功能说明：记录一个 MIR value 到 MIR-C99 C temp 的稳定映射。
 /// 参数说明：无；字段保存 MIR value/type/local/defining-inst ID 和 C temp source id。
@@ -203,11 +206,15 @@ fn mir_c99_expression_kind_for_inst(inst: &MirInst) i32 {
     if portable_mir_inst_op_is_atomic(inst.op) != 0 {
         return MIR_C99_EXPR_KIND_ATOMIC_HELPER;
     }
+    if portable_mir_inst_op_is_vector_mask(inst.op) != 0 {
+        return MIR_C99_EXPR_KIND_VECTOR_MASK_HELPER;
+    }
     return MIR_C99_EXPR_KIND_UNSUPPORTED;
 }
 
 fn mir_c99_expression_is_explicit_reject(expr_kind: i32) i32 {
-    if expr_kind == MIR_C99_EXPR_KIND_ATOMIC_HELPER {
+    if expr_kind == MIR_C99_EXPR_KIND_ATOMIC_HELPER ||
+       expr_kind == MIR_C99_EXPR_KIND_VECTOR_MASK_HELPER {
         return 1;
     }
     return 0;
@@ -298,6 +305,8 @@ fn mir_c99_expression_entry_from_inst(inst: &MirInst) MirC99ExpressionEntry {
     var reject_reason: i32 = MIR_C99_EXPR_REJECT_REASON_NONE;
     if expr_kind == MIR_C99_EXPR_KIND_ATOMIC_HELPER {
         reject_reason = MIR_C99_EXPR_REJECT_REASON_ATOMIC_CAPABILITY;
+    } else if expr_kind == MIR_C99_EXPR_KIND_VECTOR_MASK_HELPER {
+        reject_reason = MIR_C99_EXPR_REJECT_REASON_VECTOR_MASK_CAPABILITY;
     }
     var rhs_operand_id: MirOperandId = inst.operand_start + 1;
     if expr_kind == MIR_C99_EXPR_KIND_INT_UNARY ||
@@ -435,6 +444,10 @@ export fn mir_c99_value_plan_append_expression(value_plan: &MirC99ValuePlan,
             if entry.reject_reason == MIR_C99_EXPR_REJECT_REASON_ATOMIC_CAPABILITY {
                 value_plan.diagnostic_code =
                     MIR_C99_VALUE_DIAG_UNSUPPORTED_ATOMIC_CAPABILITY;
+            } else if entry.reject_reason ==
+                      MIR_C99_EXPR_REJECT_REASON_VECTOR_MASK_CAPABILITY {
+                value_plan.diagnostic_code =
+                    MIR_C99_VALUE_DIAG_UNSUPPORTED_VECTOR_MASK_CAPABILITY;
             }
             return -1;
         }
