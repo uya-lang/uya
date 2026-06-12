@@ -182,6 +182,17 @@ export const MIR_INST_OP_BOOL_AND: i32 = 160;
 export const MIR_INST_OP_BOOL_OR: i32 = 161;
 export const MIR_INST_OP_BOOL_NOT: i32 = 162;
 export const MIR_INST_OP_LOGIC_MAX: i32 = 162;
+export const MIR_INST_OP_CONVERT_MIN: i32 = 180;
+export const MIR_INST_OP_SIGN_EXTEND: i32 = 180;
+export const MIR_INST_OP_ZERO_EXTEND: i32 = 181;
+export const MIR_INST_OP_TRUNCATE: i32 = 182;
+export const MIR_INST_OP_INT_TO_F32: i32 = 183;
+export const MIR_INST_OP_INT_TO_F64: i32 = 184;
+export const MIR_INST_OP_F32_TO_INT: i32 = 185;
+export const MIR_INST_OP_F64_TO_INT: i32 = 186;
+export const MIR_INST_OP_F32_TO_F64: i32 = 187;
+export const MIR_INST_OP_F64_TO_F32: i32 = 188;
+export const MIR_INST_OP_CONVERT_MAX: i32 = 188;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
 export const MIR_TERMINATOR_KIND_BR: i32 = 2;
@@ -212,6 +223,16 @@ export fn portable_mir_type_kind_is_integer(kind: i32) i32 {
        kind == MIR_TYPE_KIND_I64 || kind == MIR_TYPE_KIND_U64 ||
        kind == MIR_TYPE_KIND_ISIZE || kind == MIR_TYPE_KIND_USIZE ||
        kind == MIR_TYPE_KIND_BYTE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR type kind 是否为浮点标量。
+/// 参数说明：`kind` 为待分类的 MIR type kind。
+/// 返回值说明：f32/f64 浮点标量返回 1，否则返回 0。
+export fn portable_mir_type_kind_is_float(kind: i32) i32 {
+    if kind == MIR_TYPE_KIND_F32 || kind == MIR_TYPE_KIND_F64 {
         return 1;
     }
     return 0;
@@ -258,6 +279,16 @@ export fn portable_mir_inst_op_is_integer_compare(op: i32) i32 {
 /// 返回值说明：bool 逻辑 opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_logic(op: i32) i32 {
     if op >= MIR_INST_OP_LOGIC_MIN && op <= MIR_INST_OP_LOGIC_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为显式转换表达式。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：conversion opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_conversion(op: i32) i32 {
+    if op >= MIR_INST_OP_CONVERT_MIN && op <= MIR_INST_OP_CONVERT_MAX {
         return 1;
     }
     return 0;

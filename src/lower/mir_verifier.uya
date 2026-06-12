@@ -581,6 +581,47 @@ fn portable_mir_verify_operand_integer_type(module: &PortableMirModule,
     return 0;
 }
 
+fn portable_mir_verify_conversion_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if portable_mir_inst_op_is_conversion(inst.op) == 0 {
+        return 1;
+    }
+    if inst.operand_count != 1 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       typ == null {
+        return 0;
+    }
+    const operand: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+    if operand == null {
+        return 0;
+    }
+    const operand_type: &MirType = portable_mir_verify_type_ptr(module, operand.type_id);
+    if operand_type == null {
+        return 0;
+    }
+    if (inst.op == MIR_INST_OP_SIGN_EXTEND || inst.op == MIR_INST_OP_ZERO_EXTEND ||
+        inst.op == MIR_INST_OP_TRUNCATE) &&
+       portable_mir_type_kind_is_integer(typ.kind) != 0 &&
+       portable_mir_type_kind_is_integer(operand_type.kind) != 0 {
+        return 1;
+    }
+    if (inst.op == MIR_INST_OP_INT_TO_F32 || inst.op == MIR_INST_OP_INT_TO_F64) &&
+       portable_mir_type_kind_is_float(typ.kind) != 0 &&
+       portable_mir_type_kind_is_integer(operand_type.kind) != 0 {
+        return 1;
+    }
+    if (inst.op == MIR_INST_OP_F32_TO_INT || inst.op == MIR_INST_OP_F64_TO_INT) &&
+       portable_mir_type_kind_is_integer(typ.kind) != 0 &&
+       portable_mir_type_kind_is_float(operand_type.kind) != 0 {
+        return 1;
+    }
+    if (inst.op == MIR_INST_OP_F32_TO_F64 || inst.op == MIR_INST_OP_F64_TO_F32) &&
+       portable_mir_type_kind_is_float(typ.kind) != 0 &&
+       portable_mir_type_kind_is_float(operand_type.kind) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn portable_mir_verify_integer_arith_inst(module: &PortableMirModule,
     inst: &MirInst, typ: &MirType) i32 {
     if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
@@ -662,6 +703,9 @@ fn portable_mir_verify_integer_value_inst(module: &PortableMirModule,
     }
     if portable_mir_inst_op_is_logic(inst.op) != 0 {
         return portable_mir_verify_logic_inst(module, inst, typ);
+    }
+    if portable_mir_inst_op_is_conversion(inst.op) != 0 {
+        return portable_mir_verify_conversion_inst(module, inst, typ);
     }
     return 1;
 }
