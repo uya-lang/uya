@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# MIR-C99 global scalar/aggregate initializer plan verifier.
+# MIR-C99 global scalar/aggregate/string initializer plan verifier.
 
 set -euo pipefail
 
@@ -41,12 +41,18 @@ require_pattern "$PLAN_FILE" 'MIR_GLOBAL_INIT_SCALAR' \
     "scalar initializer kind consumed from PortableMIR"
 require_pattern "$PLAN_FILE" 'MIR_GLOBAL_INIT_AGGREGATE' \
     "aggregate initializer kind consumed from PortableMIR"
+require_pattern "$PLAN_FILE" 'MIR_GLOBAL_INIT_STRING' \
+    "string initializer kind consumed from PortableMIR"
 require_pattern "$PLAN_FILE" 'MIR_CONST_KIND_SCALAR' \
     "scalar const kind validated"
 require_pattern "$PLAN_FILE" 'MIR_CONST_KIND_AGGREGATE' \
     "aggregate const kind validated"
+require_pattern "$PLAN_FILE" 'MIR_CONST_KIND_STRING' \
+    "string const kind validated"
+require_pattern "$PLAN_FILE" 'dedupe_id:[[:space:]]*i32' \
+    "string dedupe id captured"
 require_pattern "$PLAN_FILE" 'byte_count:[[:space:]]*usize' \
-    "aggregate payload byte count captured"
+    "aggregate/string payload byte count captured"
 require_pattern "$PLAN_FILE" 'scalar_i64:[[:space:]]*i64' \
     "scalar initializer payload captured"
 require_pattern "$PLAN_FILE" 'mir_c99_plan_append_ref\(plan,[[:space:]]*MIR_C99_REF_KIND_GLOBAL' \
@@ -61,10 +67,14 @@ require_pattern "$OUTPUT_FILE" 'static int64_t uya_mir_global_' \
     "scalar global emits initialized storage"
 require_pattern "$OUTPUT_FILE" 'static uint8_t uya_mir_global_' \
     "aggregate global emits byte storage"
+require_pattern "$OUTPUT_FILE" 'static const uint8_t uya_mir_string_' \
+    "string global emits deduped byte storage"
 require_pattern "$OUTPUT_FILE" 'mir_c99_unit_output_write_i64\(stream,[[:space:]]*init\.scalar_i64\)' \
     "scalar output uses MIR const payload"
 require_pattern "$OUTPUT_FILE" 'init\.byte_count' \
-    "aggregate output uses MIR const byte_count"
+    "aggregate/string output uses MIR const byte_count"
+require_pattern "$OUTPUT_FILE" 'init\.dedupe_id' \
+    "string output uses MIR dedupe id"
 
 if grep -Eiq 'codegen/c99|codegen\.c99|c99_codegen_generate|C99CodeGenerator|TypedProgram|LoweredProgram|ASTNode|TypeChecker' \
     "$PLAN_FILE" "$OUTPUT_FILE"; then
@@ -88,4 +98,4 @@ sed '/^use codegen\.mir_c99\./d' \
     "$DRIVER_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 
-echo "OK: MIR-C99 global scalar/aggregate initializer plan verified"
+echo "OK: MIR-C99 global scalar/aggregate/string initializer plan verified"

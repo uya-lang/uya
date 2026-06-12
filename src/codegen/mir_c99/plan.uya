@@ -86,7 +86,7 @@ export struct MirC99AsyncFrameLayout {
     flags: i32,
 }
 
-/// 功能说明：记录 MIR-C99 global scalar/aggregate initializer 输出计划。
+/// 功能说明：记录 MIR-C99 global scalar/aggregate/string initializer 输出计划。
 /// 参数说明：无；字段只来自 verifier-clean PortableMIR `MirGlobal` 和 `MirConst` metadata。
 /// 返回值说明：无；由 `MirC99Plan.global_initializers` 动态保存，unit global ref 通过 `aux_id` 指向本表。
 export struct MirC99GlobalInitializerPlanEntry {
@@ -99,6 +99,7 @@ export struct MirC99GlobalInitializerPlanEntry {
     linkage: i32,
     visibility: i32,
     alignment: usize,
+    dedupe_id: i32,
     byte_offset: usize,
     byte_count: usize,
     scalar_i64: i64,
@@ -451,7 +452,8 @@ fn mir_c99_global_initializer_const_ptr(module: &PortableMirModule,
 }
 
 fn mir_c99_global_initializer_is_supported(kind: i32) i32 {
-    if kind == MIR_GLOBAL_INIT_SCALAR || kind == MIR_GLOBAL_INIT_AGGREGATE {
+    if kind == MIR_GLOBAL_INIT_SCALAR || kind == MIR_GLOBAL_INIT_AGGREGATE ||
+       kind == MIR_GLOBAL_INIT_STRING {
         return 1;
     }
     return 0;
@@ -462,6 +464,9 @@ fn mir_c99_global_initializer_const_matches(const_kind: i32, init_kind: i32) i32
         return 1;
     }
     if init_kind == MIR_GLOBAL_INIT_AGGREGATE && const_kind == MIR_CONST_KIND_AGGREGATE {
+        return 1;
+    }
+    if init_kind == MIR_GLOBAL_INIT_STRING && const_kind == MIR_CONST_KIND_STRING {
         return 1;
     }
     return 0;
@@ -479,7 +484,21 @@ export fn mir_c99_global_initializer_plan_ptr(plan: &MirC99Plan,
         index as usize) as &MirC99GlobalInitializerPlanEntry;
 }
 
-/// 功能说明：向 MIR-C99 plan 追加一个 global scalar/aggregate initializer 条目。
+fn mir_c99_global_initializer_string_metadata_valid(global: &MirGlobal,
+    init_const: &MirConst) i32 {
+    if global == null || init_const == null {
+        return 0;
+    }
+    if global.init_kind != MIR_GLOBAL_INIT_STRING {
+        return 1;
+    }
+    if global.dedupe_id < 0 || init_const.dedupe_id < 0 || init_const.byte_count == 0usize {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：向 MIR-C99 plan 追加一个 global scalar/aggregate/string initializer 条目。
 /// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划，`global` 为 PortableMIR global。
 /// 返回值说明：成功返回 plan 条目下标；不支持或 metadata 不一致返回 `-1`。
 export fn mir_c99_global_initializer_plan_append(module: &PortableMirModule,
@@ -491,7 +510,8 @@ export fn mir_c99_global_initializer_plan_append(module: &PortableMirModule,
     const init_const: &MirConst =
         mir_c99_global_initializer_const_ptr(module, global.init_const_id);
     if init_const == null || init_const.type_id != global.type_id ||
-       mir_c99_global_initializer_const_matches(init_const.kind, global.init_kind) == 0 {
+       mir_c99_global_initializer_const_matches(init_const.kind, global.init_kind) == 0 ||
+       mir_c99_global_initializer_string_metadata_valid(global, init_const) == 0 {
         return -1;
     }
     const entry_id: i32 = plan.global_initializers.count as i32;
@@ -505,6 +525,7 @@ export fn mir_c99_global_initializer_plan_append(module: &PortableMirModule,
         linkage: global.linkage,
         visibility: global.visibility,
         alignment: global.alignment,
+        dedupe_id: init_const.dedupe_id,
         byte_offset: init_const.byte_offset,
         byte_count: init_const.byte_count,
         scalar_i64: init_const.scalar_i64,
@@ -523,7 +544,7 @@ export fn mir_c99_global_initializer_plan_append(module: &PortableMirModule,
     return entry_id;
 }
 
-/// 功能说明：从 PortableMIR global table 构建 MIR-C99 scalar/aggregate initializer 计划。
+/// 功能说明：从 PortableMIR global table 构建 MIR-C99 scalar/aggregate/string initializer 计划。
 /// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划。
 /// 返回值说明：成功返回 `0`；遇到支持范围内 metadata 不一致或追加失败返回 `-1`。
 export fn mir_c99_global_initializer_plan_build(module: &PortableMirModule,

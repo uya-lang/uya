@@ -121,7 +121,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_FLOAT` | partial | missing | C99 通过；MIR float literal surface 走尚未冻结的 `CORE_EXPR_KIND_FLOAT_LITERAL` 路径。 |
 | `AST_BOOL` | done | missing | `true`/`false`。 |
 | `AST_INT_LIMIT` | missing | missing | `i32.min`/`u64.max` 等暂未在 MIR-C99 shard 中独立验证。 |
-| `AST_STRING` | done | missing | C99 通过；MIR-C99 string constant lowering 待专用 parity。 |
+| `AST_STRING` | done | partial | MIR-C99 已支持 string global initializer plan/output 和 dedupe id；完整字符串 parity 待后续 shard。 |
 | `AST_CHAR` | done | missing | C99 通过。 |
 | `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
 | `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |

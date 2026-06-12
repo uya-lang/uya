@@ -191,6 +191,19 @@ fn mir_c99_unit_output_write_global_initializer(writer: &MirC99UnitOutputWriter,
         }
         return 0;
     }
+    if init.init_kind == MIR_GLOBAL_INIT_STRING {
+        if init.byte_count == 0usize || init.dedupe_id < 0 {
+            return -1;
+        }
+        if mir_c99_unit_output_write(stream, "static const uint8_t uya_mir_string_" as &byte) != 0 ||
+           mir_c99_unit_output_write_i32(stream, init.dedupe_id) != 0 ||
+           mir_c99_unit_output_write(stream, "[" as &byte) != 0 ||
+           mir_c99_unit_output_write_i32(stream, init.byte_count as i32) != 0 ||
+           mir_c99_unit_output_write(stream, "] = { 0 };\n" as &byte) != 0 {
+            return -1;
+        }
+        return 0;
+    }
     return -1;
 }
 
