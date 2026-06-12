@@ -137,7 +137,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.5 Values
 
 - [ ] MIR-C99-BACKEND-VALUES：把 MIR value/local 映射到 C temp。
-  - [ ] 整数、bool、byte、usize/isize、f32/f64 scalar temp。
+  - [x] 整数、bool、byte、usize/isize、f32/f64 scalar temp。
+    - 验证：`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] 常量 literal、zero/null。
   - [ ] 一元/二元算术、比较、逻辑。
   - [ ] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。

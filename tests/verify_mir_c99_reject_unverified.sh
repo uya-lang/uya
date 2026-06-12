@@ -66,6 +66,7 @@ sed '/^use codegen\.mir_c99\./d' \
     "$REPO_ROOT/src/codegen/mir_c99/cfg.uya" \
     "$REPO_ROOT/src/codegen/mir_c99/unit_output.uya" \
     "$EMITTER_FILE" \
+    "$REPO_ROOT/src/codegen/mir_c99/values.uya" \
     "$DRIVER_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 

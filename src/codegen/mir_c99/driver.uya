@@ -5,6 +5,7 @@ use codegen.mir_c99.emitter;
 use codegen.mir_c99.names;
 use codegen.mir_c99.plan;
 use codegen.mir_c99.types;
+use codegen.mir_c99.values;
 
 export const MIR_C99_DRIVER_STATUS_ERROR: i32 = -1;
 export const MIR_C99_DRIVER_STATUS_UNINITIALIZED: i32 = 0;
@@ -24,6 +25,7 @@ export struct MirC99DriverResult {
     block_count: usize,
     terminator_count: usize,
     type_count: usize,
+    value_count: usize,
     name_count: usize,
     output_bytes: usize,
     diagnostic_code: i32,
@@ -52,6 +54,7 @@ export fn mir_c99_driver_result_init(result: &MirC99DriverResult) i32 {
     result.block_count = 0usize;
     result.terminator_count = 0usize;
     result.type_count = 0usize;
+    result.value_count = 0usize;
     result.name_count = 0usize;
     result.output_bytes = 0usize;
     result.diagnostic_code = 0;
@@ -95,9 +98,10 @@ fn mir_c99_driver_seed_names(module: &PortableMirModule, names: &MirC99NamePlan)
 /// 返回值说明：成功返回 `0`，request 非法、计划构建失败或 emitter 拒绝时返回 `-1`。
 export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &CompilerArena,
     plan: &MirC99Plan, type_plan: &MirC99TypePlan, name_plan: &MirC99NamePlan, cfg_plan: &MirC99CfgPlan,
-    emitter: &MirC99Emitter, result: &MirC99DriverResult) i32 {
+    value_plan: &MirC99ValuePlan, emitter: &MirC99Emitter, result: &MirC99DriverResult) i32 {
     if request == null || plan == null || type_plan == null ||
-       name_plan == null || cfg_plan == null || emitter == null || result == null {
+       name_plan == null || cfg_plan == null || value_plan == null ||
+       emitter == null || result == null {
         return -1;
     }
     if mir_c99_driver_result_init(result) != 0 {
@@ -127,7 +131,13 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_cfg_plan_init(cfg_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
+    if mir_c99_value_plan_init(value_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_type_plan_build(request.module, plan, type_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_value_plan_build(request.module, value_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
     if mir_c99_cfg_plan_build_functions(request.module, plan, primary_unit, cfg_plan) != 0 {
@@ -156,6 +166,7 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     result.block_count = cfg_plan.block_count;
     result.terminator_count = cfg_plan.terminator_count;
     result.type_count = type_plan.count;
+    result.value_count = value_plan.count;
     result.name_count = name_plan.count;
     result.output_bytes = out.output_bytes;
     result.diagnostic_code = out.diagnostic_code;

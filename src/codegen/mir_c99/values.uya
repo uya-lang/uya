@@ -1,0 +1,179 @@
+// codegen/mir_c99/values.uya - MIR value to MIR-C99 temporary plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_VALUE_TEMP_KIND_UNSUPPORTED: i32 = 0;
+export const MIR_C99_VALUE_TEMP_KIND_BOOL: i32 = 1;
+export const MIR_C99_VALUE_TEMP_KIND_I32: i32 = 2;
+export const MIR_C99_VALUE_TEMP_KIND_BYTE: i32 = 3;
+export const MIR_C99_VALUE_TEMP_KIND_USIZE: i32 = 4;
+export const MIR_C99_VALUE_TEMP_KIND_ISIZE: i32 = 5;
+export const MIR_C99_VALUE_TEMP_KIND_F32: i32 = 6;
+export const MIR_C99_VALUE_TEMP_KIND_F64: i32 = 7;
+export const MIR_C99_VALUE_TEMP_KIND_POINTER: i32 = 8;
+
+export const MIR_C99_VALUE_TEMP_STATUS_MISSING: i32 = 0;
+export const MIR_C99_VALUE_TEMP_STATUS_READY: i32 = 1;
+export const MIR_C99_VALUE_TEMP_STATUS_REJECT: i32 = 2;
+
+/// 功能说明：记录一个 MIR value 到 MIR-C99 C temp 的稳定映射。
+/// 参数说明：无；字段保存 MIR value/type/local/defining-inst ID 和 C temp source id。
+/// 返回值说明：无；由 `MirC99ValuePlan.entries` 动态保存。
+export struct MirC99ValueTemp {
+    value_id: MirValueId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    type_id: MirTypeId,
+    c_temp_source_id: i32,
+    c_temp_kind: i32,
+    local_id: MirLocalId,
+    defining_inst_id: MirInstId,
+    flags: i32,
+    status: i32,
+}
+
+/// 功能说明：记录 MIR-C99 value/temp 计划。
+/// 参数说明：无；`entries` 按 MIR value 顺序追加 temp 映射。
+/// 返回值说明：无；调用 `mir_c99_value_plan_init` 后使用。
+export struct MirC99ValuePlan {
+    entries: SemanticVector,
+    count: usize,
+    reject_count: usize,
+}
+
+fn mir_c99_value_type_ptr(module: &PortableMirModule, type_id: MirTypeId) &MirType {
+    const type_index: i32 = type_id as i32;
+    if module == null || type_index < 0 || (type_index as usize) >= module.types.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.types, type_index as usize) as &MirType;
+}
+
+fn mir_c99_value_temp_kind_for_type(typ: &MirType) i32 {
+    if typ == null {
+        return MIR_C99_VALUE_TEMP_KIND_UNSUPPORTED;
+    }
+    if typ.kind == MIR_TYPE_KIND_BOOL {
+        return MIR_C99_VALUE_TEMP_KIND_BOOL;
+    }
+    if typ.kind == MIR_TYPE_KIND_I32 {
+        return MIR_C99_VALUE_TEMP_KIND_I32;
+    }
+    if typ.kind == MIR_TYPE_KIND_USIZE {
+        return MIR_C99_VALUE_TEMP_KIND_USIZE;
+    }
+    if typ.kind == MIR_TYPE_KIND_POINTER {
+        return MIR_C99_VALUE_TEMP_KIND_POINTER;
+    }
+    return MIR_C99_VALUE_TEMP_KIND_UNSUPPORTED;
+}
+
+fn mir_c99_value_temp_from_mir(module: &PortableMirModule, value: &MirValue) MirC99ValueTemp {
+    if module == null || value == null {
+        return MirC99ValueTemp{
+            value_id: MIR_VALUE_INVALID_ID,
+            function_id: MIR_FUNCTION_INVALID_ID,
+            block_id: MIR_BLOCK_INVALID_ID,
+            type_id: MIR_TYPE_INVALID_ID,
+            c_temp_source_id: MIR_VALUE_INVALID_ID,
+            c_temp_kind: MIR_C99_VALUE_TEMP_KIND_UNSUPPORTED,
+            local_id: MIR_LOCAL_INVALID_ID,
+            defining_inst_id: MIR_INST_INVALID_ID,
+            flags: 0,
+            status: MIR_C99_VALUE_TEMP_STATUS_REJECT,
+        };
+    }
+    const typ: &MirType = mir_c99_value_type_ptr(module, value.type_id);
+    const temp_kind: i32 = mir_c99_value_temp_kind_for_type(typ);
+    var status: i32 = MIR_C99_VALUE_TEMP_STATUS_READY;
+    if temp_kind == MIR_C99_VALUE_TEMP_KIND_UNSUPPORTED {
+        status = MIR_C99_VALUE_TEMP_STATUS_REJECT;
+    }
+    return MirC99ValueTemp{
+        value_id: value.value_id,
+        function_id: value.function_id,
+        block_id: value.block_id,
+        type_id: value.type_id,
+        c_temp_source_id: value.value_id,
+        c_temp_kind: temp_kind,
+        local_id: value.local_id,
+        defining_inst_id: value.defining_inst_id,
+        flags: value.flags,
+        status: status,
+    };
+}
+
+/// 功能说明：初始化 MIR-C99 value/temp 计划。
+/// 参数说明：`plan` 为输出计划。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_value_plan_init(plan: &MirC99ValuePlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    semantic_vector_init(&plan.entries, @size_of(MirC99ValueTemp));
+    plan.count = 0usize;
+    plan.reject_count = 0usize;
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 value/temp 计划。
+/// 参数说明：`plan` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_value_plan_release(plan: &MirC99ValuePlan) void {
+    if plan == null {
+        return;
+    }
+    semantic_vector_release(&plan.entries);
+    plan.count = 0usize;
+    plan.reject_count = 0usize;
+}
+
+/// 功能说明：向 MIR-C99 value/temp 计划追加一个 MIR value 映射。
+/// 参数说明：`value_plan` 为输出计划，`module` 提供 MIR type metadata，`value` 为 MIR value。
+/// 返回值说明：成功返回 `0`，追加失败或 unsupported value type 返回 `-1`。
+export fn mir_c99_value_plan_append(value_plan: &MirC99ValuePlan,
+    module: &PortableMirModule, value: &MirValue) i32 {
+    if value_plan == null || module == null || value == null {
+        return -1;
+    }
+    const entry: MirC99ValueTemp = mir_c99_value_temp_from_mir(module, value);
+    if semantic_vector_append(&value_plan.entries, &entry as &const void) != 0 {
+        return -1;
+    }
+    value_plan.count = value_plan.entries.count;
+    if entry.status == MIR_C99_VALUE_TEMP_STATUS_REJECT {
+        value_plan.reject_count = value_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：从 PortableMIR module 的 value metadata 构建 MIR-C99 C temp 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`value_plan` 为输出 temp 计划。
+/// 返回值说明：所有 value 都映射成功返回 `0`，遇到 unsupported value 或参数非法返回 `-1`。
+export fn mir_c99_value_plan_build(module: &PortableMirModule,
+    value_plan: &MirC99ValuePlan) i32 {
+    if module == null || value_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.values.count {
+        const value: &MirValue = semantic_vector_item_ptr(&module.values, i) as &MirValue;
+        if mir_c99_value_plan_append(value_plan, module, value) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：按下标读取 MIR-C99 value/temp 计划条目。
+/// 参数说明：`value_plan` 为 temp 计划，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_value_plan_entry_ptr(value_plan: &MirC99ValuePlan, index: i32) &MirC99ValueTemp {
+    if value_plan == null || index < 0 || (index as usize) >= value_plan.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&value_plan.entries, index as usize) as &MirC99ValueTemp;
+}
