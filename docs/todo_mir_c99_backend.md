@@ -369,7 +369,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - [ ] MIR-C99-BACKEND-CLEANUP-ERROR：消费 MIR cleanup CFG。
   - [x] `try` / `catch` 已展开到 MIR 后，C99 只输出对应 CFG。
     - 验证：`bash tests/verify_mir_c99_cleanup_error_cfg_boundary.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_portable_mir_error_union_cfg_inventory.sh` 通过；`bash tests/verify_portable_mir_cleanup_drop_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 通过并报告 `generator commands are pending backend hookup`；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] `defer` / `errdefer` / lexical drop 只按 MIR cleanup edge 输出，不重新理解 AST。
+  - [x] `defer` / `errdefer` / lexical drop 只按 MIR cleanup edge 输出，不重新理解 AST。
+    - 验证：`bash tests/verify_mir_c99_cleanup_drop_cfg_plan.sh` 通过；`bash tests/verify_mir_c99_cleanup_error_cfg_boundary.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_portable_mir_cleanup_drop_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 通过并报告 `generator commands are pending backend hookup`；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] error union success/fallback return。
   - [ ] parity shard：dynamic catch、defer local assign、lexical drop。
 

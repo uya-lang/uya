@@ -11,10 +11,13 @@ export const MIR_C99_CFG_BLOCK_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_BLOCK_STATUS_REJECT: i32 = 2;
 export const MIR_C99_CFG_TERMINATOR_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_TERMINATOR_STATUS_REJECT: i32 = 2;
+export const MIR_C99_CFG_DROP_STATUS_PLANNED: i32 = 1;
+export const MIR_C99_CFG_DROP_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR: i32 = 1;
 export const MIR_C99_CFG_BLOCK_FLAG_CLEANUP: i32 = 1;
 export const MIR_C99_CFG_TERMINATOR_FLAG_ERROR_CFG: i32 = 1;
+export const MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE: i32 = 1;
 
 /// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
 /// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
@@ -66,6 +69,22 @@ export struct MirC99TerminatorPlanEntry {
     flags: i32,
 }
 
+/// 功能说明：记录一个 MIR cleanup/drop instruction 到低级 C99 cleanup edge 输出的稳定映射。
+/// 参数说明：无；字段来自 MIR cleanup block、drop opcode、operand 和 cleanup action metadata。
+/// 返回值说明：无。
+export struct MirC99CleanupDropPlanEntry {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    op: i32,
+    cleanup_action: i32,
+    dropped_value_id: MirValueId,
+    operand_start: i32,
+    operand_count: i32,
+    status: i32,
+    flags: i32,
+}
+
 /// 功能说明：记录 MIR-C99 CFG function plan。
 /// 参数说明：无；动态保存 MIR function/block/terminator 到 C function/label/goto 的映射。
 /// 返回值说明：无。
@@ -73,9 +92,11 @@ export struct MirC99CfgPlan {
     functions: SemanticVector,
     blocks: SemanticVector,
     terminators: SemanticVector,
+    cleanup_drops: SemanticVector,
     function_count: usize,
     block_count: usize,
     terminator_count: usize,
+    cleanup_drop_count: usize,
     cleanup_error_function_count: usize,
     cleanup_block_count: usize,
     cleanup_error_terminator_count: usize,
@@ -163,6 +184,92 @@ fn mir_c99_cfg_block_ptr(module: &PortableMirModule, block_id: MirBlockId) &MirB
         return null;
     }
     return semantic_vector_item_ptr(&module.blocks, block_index as usize) as &MirBlock;
+}
+
+fn mir_c99_cfg_inst_block_ptr(module: &PortableMirModule, inst: &MirInst) &MirBlock {
+    if module == null || inst == null {
+        return null;
+    }
+    return mir_c99_cfg_block_ptr(module, inst.block_id);
+}
+
+fn mir_c99_cfg_cleanup_action_for_drop(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_DROP_IN_PLACE {
+        return MIR_CLEANUP_ACTION_DEFER;
+    }
+    if inst.op == MIR_INST_OP_DROP_VALUE {
+        if (inst.flags & MIR_INST_FLAG_ERROR_UNION_CHECKED) != 0 {
+            return MIR_CLEANUP_ACTION_ERRDEFER;
+        }
+        return MIR_CLEANUP_ACTION_LEXICAL_DROP;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_cleanup_drop_reject_entry(inst: &MirInst) MirC99CleanupDropPlanEntry {
+    var inst_id: MirInstId = MIR_INST_INVALID_ID;
+    var function_id: MirFunctionId = MIR_FUNCTION_INVALID_ID;
+    var block_id: MirBlockId = MIR_BLOCK_INVALID_ID;
+    var op: i32 = 0;
+    var operand_start: i32 = -1;
+    var operand_count: i32 = 0;
+    var flags: i32 = 0;
+    if inst != null {
+        inst_id = inst.inst_id;
+        function_id = inst.function_id;
+        block_id = inst.block_id;
+        op = inst.op;
+        operand_start = inst.operand_start;
+        operand_count = inst.operand_count;
+        flags = inst.flags;
+    }
+    return MirC99CleanupDropPlanEntry{
+        inst_id: inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: op,
+        cleanup_action: 0,
+        dropped_value_id: MIR_VALUE_INVALID_ID,
+        operand_start: operand_start,
+        operand_count: operand_count,
+        status: MIR_C99_CFG_DROP_STATUS_REJECT,
+        flags: flags,
+    };
+}
+
+fn mir_c99_cfg_cleanup_drop_entry_from_mir(module: &PortableMirModule,
+    inst: &MirInst) MirC99CleanupDropPlanEntry {
+    if module == null || inst == null || portable_mir_inst_op_is_drop(inst.op) == 0 ||
+       inst.operand_count < 1 {
+        return mir_c99_cfg_cleanup_drop_reject_entry(inst);
+    }
+    const block: &MirBlock = mir_c99_cfg_inst_block_ptr(module, inst);
+    if block == null || (block.flags & MIR_BLOCK_FLAG_CLEANUP) == 0 {
+        return mir_c99_cfg_cleanup_drop_reject_entry(inst);
+    }
+    const operand: &MirOperand = mir_c99_cfg_operand_ptr(module, inst.operand_start);
+    if operand == null {
+        return mir_c99_cfg_cleanup_drop_reject_entry(inst);
+    }
+    const action: i32 = mir_c99_cfg_cleanup_action_for_drop(inst);
+    if action == 0 {
+        return mir_c99_cfg_cleanup_drop_reject_entry(inst);
+    }
+    return MirC99CleanupDropPlanEntry{
+        inst_id: inst.inst_id,
+        function_id: inst.function_id,
+        block_id: inst.block_id,
+        op: inst.op,
+        cleanup_action: action,
+        dropped_value_id: operand.value_id,
+        operand_start: inst.operand_start,
+        operand_count: inst.operand_count,
+        status: MIR_C99_CFG_DROP_STATUS_PLANNED,
+        flags: inst.flags | MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE,
+    };
 }
 
 fn mir_c99_cfg_terminator_flags_from_mir(module: &PortableMirModule,
@@ -392,9 +499,11 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     semantic_vector_init(&plan.functions, @size_of(MirC99FunctionPlanEntry));
     semantic_vector_init(&plan.blocks, @size_of(MirC99BlockPlanEntry));
     semantic_vector_init(&plan.terminators, @size_of(MirC99TerminatorPlanEntry));
+    semantic_vector_init(&plan.cleanup_drops, @size_of(MirC99CleanupDropPlanEntry));
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
+    plan.cleanup_drop_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -412,9 +521,11 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     semantic_vector_release(&plan.functions);
     semantic_vector_release(&plan.blocks);
     semantic_vector_release(&plan.terminators);
+    semantic_vector_release(&plan.cleanup_drops);
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
+    plan.cleanup_drop_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -501,6 +612,30 @@ export fn mir_c99_cfg_plan_append_terminator(cfg_plan: &MirC99CfgPlan,
     return 0;
 }
 
+/// 功能说明：向 MIR-C99 CFG plan 追加一个 MIR cleanup/drop instruction 映射。
+/// 参数说明：`cfg_plan` 为 CFG plan，`module` 为 MIR module，`inst` 为 MIR drop instruction。
+/// 返回值说明：非 drop instruction 返回 `0`；cleanup block 内 drop 映射成功返回 `0`，不支持返回 `-1`。
+export fn mir_c99_cfg_plan_append_cleanup_drop(cfg_plan: &MirC99CfgPlan,
+    module: &PortableMirModule, inst: &MirInst) i32 {
+    if cfg_plan == null || module == null || inst == null {
+        return -1;
+    }
+    if portable_mir_inst_op_is_drop(inst.op) == 0 {
+        return 0;
+    }
+    const entry: MirC99CleanupDropPlanEntry =
+        mir_c99_cfg_cleanup_drop_entry_from_mir(module, inst);
+    if semantic_vector_append(&cfg_plan.cleanup_drops, &entry as &const void) != 0 {
+        return -1;
+    }
+    cfg_plan.cleanup_drop_count = cfg_plan.cleanup_drops.count;
+    if entry.status == MIR_C99_CFG_DROP_STATUS_REJECT {
+        cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
 /// 功能说明：从 PortableMIR module 构建 MIR function -> C function 映射。
 /// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 plan，`unit` 为目标 single unit，`cfg_plan` 为输出 CFG plan。
 /// 返回值说明：全部 function 映射成功返回 `0`，参数非法或任一 function 失败返回 `-1`。
@@ -559,6 +694,26 @@ export fn mir_c99_cfg_plan_build_terminators(module: &PortableMirModule, cfg_pla
     return status;
 }
 
+/// 功能说明：从 PortableMIR module 构建 cleanup block 内 drop instruction 的 MIR-C99 映射。
+/// 参数说明：`module` 为 verifier-clean MIR module，`cfg_plan` 为输出 CFG plan。
+/// 返回值说明：全部 cleanup/drop 映射成功返回 `0`，参数非法或任一 cleanup/drop 失败返回 `-1`。
+export fn mir_c99_cfg_plan_build_cleanup_drops(module: &PortableMirModule,
+    cfg_plan: &MirC99CfgPlan) i32 {
+    if module == null || cfg_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if mir_c99_cfg_plan_append_cleanup_drop(cfg_plan, module, inst) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：按下标读取 MIR-C99 function plan 条目。
 /// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
 /// 返回值说明：成功返回条目指针，参数非法返回 null。
@@ -587,6 +742,18 @@ export fn mir_c99_cfg_terminator_entry_ptr(cfg_plan: &MirC99CfgPlan, index: i32)
         return null;
     }
     return semantic_vector_item_ptr(&cfg_plan.terminators, index as usize) as &MirC99TerminatorPlanEntry;
+}
+
+/// 功能说明：按下标读取 MIR-C99 cleanup/drop plan 条目。
+/// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_cfg_cleanup_drop_entry_ptr(cfg_plan: &MirC99CfgPlan,
+    index: i32) &MirC99CleanupDropPlanEntry {
+    if cfg_plan == null || index < 0 || (index as usize) >= cfg_plan.cleanup_drops.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&cfg_plan.cleanup_drops,
+        index as usize) as &MirC99CleanupDropPlanEntry;
 }
 
 /// 功能说明：输出 MIR-C99 BR terminator 对应的低级 C99 `goto bbN;` 语句。
