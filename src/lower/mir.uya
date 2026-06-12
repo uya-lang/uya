@@ -69,6 +69,7 @@ export const MIR_TYPE_KIND_ARRAY: i32 = 21;
 export const MIR_TYPE_KIND_SLICE: i32 = 22;
 export const MIR_TYPE_KIND_UNION: i32 = 23;
 export const MIR_TYPE_KIND_ENUM: i32 = 24;
+export const MIR_TYPE_KIND_ERROR_UNION: i32 = 25;
 export const MIR_INST_OP_NOP: i32 = 0;
 export const MIR_INST_OP_LOAD: i32 = 1;
 export const MIR_INST_OP_STORE: i32 = 2;

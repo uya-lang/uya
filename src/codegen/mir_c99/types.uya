@@ -27,6 +27,7 @@ export const MIR_C99_C_TYPE_KIND_ARRAY: i32 = 21;
 export const MIR_C99_C_TYPE_KIND_SLICE: i32 = 22;
 export const MIR_C99_C_TYPE_KIND_UNION: i32 = 23;
 export const MIR_C99_C_TYPE_KIND_ENUM: i32 = 24;
+export const MIR_C99_C_TYPE_KIND_ERROR_UNION: i32 = 25;
 
 export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
 export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
@@ -126,6 +127,8 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         c_kind = MIR_C99_C_TYPE_KIND_UNION;
     } else if typ.kind == MIR_TYPE_KIND_ENUM {
         c_kind = MIR_C99_C_TYPE_KIND_ENUM;
+    } else if typ.kind == MIR_TYPE_KIND_ERROR_UNION {
+        c_kind = MIR_C99_C_TYPE_KIND_ERROR_UNION;
     } else if typ.kind == MIR_TYPE_KIND_POINTER {
         c_kind = MIR_C99_C_TYPE_KIND_POINTER;
     } else if typ.kind == MIR_TYPE_KIND_STRUCT {
