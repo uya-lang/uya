@@ -86,7 +86,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_MACRO_DECL` | partial | missing | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
 | `AST_TYPE_ALIAS` | done | missing | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
 | `AST_VAR_DECL` | done | missing | `var array`/`var atomic_value` 等。 |
-| `AST_EXTERN_VAR_DECL` | done | missing | `extern const/var` 由 C99 backend 处理；MIR-C99 extern/global parity 待补。 |
+| `AST_EXTERN_VAR_DECL` | done | partial | MIR-C99 已支持 extern global plan/output 的 declaration-only 路径；extern global parity 待后续 shard。 |
 | `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
 | `AST_USE_STMT` | done | missing | `use smoke_helper;` 由 Phase 9A 验证。 |
 | `AST_C_IMPORT_DECL` | done | missing | C99 oracle 已覆盖；MIR-C99 link plan / sidecar object parity 待补。 |

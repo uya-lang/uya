@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# MIR-C99 global scalar/aggregate/string initializer plan verifier.
+# MIR-C99 global scalar/aggregate/string/extern initializer plan verifier.
 
 set -euo pipefail
 
@@ -43,6 +43,8 @@ require_pattern "$PLAN_FILE" 'MIR_GLOBAL_INIT_AGGREGATE' \
     "aggregate initializer kind consumed from PortableMIR"
 require_pattern "$PLAN_FILE" 'MIR_GLOBAL_INIT_STRING' \
     "string initializer kind consumed from PortableMIR"
+require_pattern "$PLAN_FILE" 'MIR_GLOBAL_INIT_EXTERN' \
+    "extern global kind consumed from PortableMIR"
 require_pattern "$PLAN_FILE" 'MIR_CONST_KIND_SCALAR' \
     "scalar const kind validated"
 require_pattern "$PLAN_FILE" 'MIR_CONST_KIND_AGGREGATE' \
@@ -55,6 +57,14 @@ require_pattern "$PLAN_FILE" 'byte_count:[[:space:]]*usize' \
     "aggregate/string payload byte count captured"
 require_pattern "$PLAN_FILE" 'scalar_i64:[[:space:]]*i64' \
     "scalar initializer payload captured"
+require_pattern "$PLAN_FILE" 'global\.init_kind == MIR_GLOBAL_INIT_EXTERN' \
+    "extern global path validates declaration-only metadata"
+require_pattern "$PLAN_FILE" 'global\.init_const_id == MIR_CONST_INVALID_ID' \
+    "extern global rejects initializer const payload"
+require_pattern "$PLAN_FILE" 'global\.linkage == MIR_GLOBAL_LINKAGE_EXTERN' \
+    "extern global requires extern linkage"
+require_pattern "$PLAN_FILE" 'visibility: global\.visibility' \
+    "extern global visibility captured"
 require_pattern "$PLAN_FILE" 'mir_c99_plan_append_ref\(plan,[[:space:]]*MIR_C99_REF_KIND_GLOBAL' \
     "program global ref appended"
 require_pattern "$PLAN_FILE" 'mir_c99_unit_append_ref\(unit,[[:space:]]*MIR_C99_REF_KIND_GLOBAL' \
@@ -69,6 +79,8 @@ require_pattern "$OUTPUT_FILE" 'static uint8_t uya_mir_global_' \
     "aggregate global emits byte storage"
 require_pattern "$OUTPUT_FILE" 'static const uint8_t uya_mir_string_' \
     "string global emits deduped byte storage"
+require_pattern "$OUTPUT_FILE" 'extern int64_t uya_mir_global_' \
+    "extern global emits declaration-only storage"
 require_pattern "$OUTPUT_FILE" 'mir_c99_unit_output_write_i64\(stream,[[:space:]]*init\.scalar_i64\)' \
     "scalar output uses MIR const payload"
 require_pattern "$OUTPUT_FILE" 'init\.byte_count' \
@@ -98,4 +110,4 @@ sed '/^use codegen\.mir_c99\./d' \
     "$DRIVER_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 
-echo "OK: MIR-C99 global scalar/aggregate/string initializer plan verified"
+echo "OK: MIR-C99 global scalar/aggregate/string/extern initializer plan verified"
