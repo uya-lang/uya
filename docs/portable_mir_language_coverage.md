@@ -76,7 +76,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
 | `AST_PROGRAM` | done | missing | 模块入口；`tests/verify_portable_mir_structs.sh` 固定。 |
-| `AST_ENUM_DECL` | done | missing | Phase 9A 验证；`enum SmokeColor { Red, Green, Blue }` 在 `full_language` smoke 中 C99 通过。 |
+| `AST_ENUM_DECL` | done | partial | MIR-C99 full-language enum parity shard 覆盖 enum tag、显式/自动值、比较、cast 和 enum match arms。 |
 | `AST_ERROR_DECL` | done | missing | `error SmokeError;` 由 Phase 9A 验证。 |
 | `AST_INTERFACE_DECL` | done | missing | `interface SmokeAdder { ... }` 由 C99 oracle 和覆盖矩阵样本固定；MIR-C99 parity 待专用 harness。 |
 | `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call。 |
