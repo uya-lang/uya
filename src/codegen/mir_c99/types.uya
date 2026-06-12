@@ -35,6 +35,27 @@ export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
 export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
 export const MIR_C99_TYPE_STATUS_REJECT: i32 = 2;
 
+export const MIR_C99_FLOAT_LAYOUT_USE_AGGREGATE_FIELD: i32 = 1;
+export const MIR_C99_FLOAT_LAYOUT_USE_ARRAY_ELEMENT: i32 = 2;
+export const MIR_C99_FLOAT_LAYOUT_USE_SLICE_ELEMENT: i32 = 3;
+export const MIR_C99_FLOAT_LAYOUT_USE_RETURN_VALUE: i32 = 4;
+export const MIR_C99_FLOAT_LAYOUT_USE_PARAM: i32 = 5;
+
+/// 功能说明：记录 f32/f64 在复合类型和 ABI signature 中的布局用途。
+/// 参数说明：无；字段来自 MIR type、field layout 和 function param type metadata。
+/// 返回值说明：无；由 `MirC99TypePlan.float_layout_uses` 动态保存。
+export struct MirC99FloatLayoutUseEntry {
+    use_kind: i32,
+    container_type_id: MirTypeId,
+    float_type_id: MirTypeId,
+    slot_index: i32,
+    size_bytes: usize,
+    align_bytes: usize,
+    abi_class: i32,
+    flags: i32,
+    status: i32,
+}
+
 /// 功能说明：记录一个 MIR aggregate type 的字段和布局计划。
 /// 参数说明：无；字段来自 verifier-clean MIR type/layout metadata。
 /// 返回值说明：无；由 `MirC99TypePlan.aggregate_layouts` 动态保存。
@@ -83,9 +104,46 @@ export struct MirC99TypeDef {
 export struct MirC99TypePlan {
     entries: SemanticVector,
     aggregate_layouts: SemanticVector,
+    float_layout_uses: SemanticVector,
     count: usize,
     aggregate_layout_count: usize,
+    float_layout_use_count: usize,
     reject_count: usize,
+}
+
+fn mir_c99_type_ptr(module: &PortableMirModule, type_id: MirTypeId) &MirType {
+    const index: i32 = type_id as i32;
+    if module == null || index < 0 || (index as usize) >= module.types.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.types, index as usize) as &MirType;
+}
+
+fn mir_c99_type_field_layout_ptr(module: &PortableMirModule, index: i32) &MirFieldLayout {
+    if module == null || index < 0 || (index as usize) >= module.field_layouts.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.field_layouts, index as usize) as &MirFieldLayout;
+}
+
+fn mir_c99_type_function_param_type_ptr(module: &PortableMirModule,
+    index: i32) &MirFunctionParamType {
+    if module == null || index < 0 ||
+       (index as usize) >= module.function_param_types.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.function_param_types,
+        index as usize) as &MirFunctionParamType;
+}
+
+fn mir_c99_type_is_float_layout_kind(typ: &MirType) i32 {
+    if typ == null {
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_F32 || typ.kind == MIR_TYPE_KIND_F64 {
+        return 1;
+    }
+    return 0;
 }
 
 fn mir_c99_type_is_aggregate_layout_kind(typ: &MirType) i32 {
@@ -130,6 +188,32 @@ fn mir_c99_type_aggregate_layout_from_mir(typ: &MirType,
         flags: typ.flags,
         status: MIR_C99_TYPE_STATUS_READY,
     };
+}
+
+fn mir_c99_type_plan_append_float_layout_use(type_plan: &MirC99TypePlan,
+    use_kind: i32, container_type_id: MirTypeId, float_type: &MirType,
+    slot_index: i32, abi_class: i32, flags: i32) i32 {
+    if type_plan == null || mir_c99_type_is_float_layout_kind(float_type) == 0 ||
+       float_type.size_bytes == 0usize || float_type.align_bytes == 0usize {
+        return -1;
+    }
+    const entry: MirC99FloatLayoutUseEntry = MirC99FloatLayoutUseEntry{
+        use_kind: use_kind,
+        container_type_id: container_type_id,
+        float_type_id: float_type.type_id,
+        slot_index: slot_index,
+        size_bytes: float_type.size_bytes,
+        align_bytes: float_type.align_bytes,
+        abi_class: abi_class,
+        flags: flags,
+        status: MIR_C99_TYPE_STATUS_READY,
+    };
+    if semantic_vector_append(&type_plan.float_layout_uses,
+        &entry as &const void) != 0 {
+        return -1;
+    }
+    type_plan.float_layout_use_count = type_plan.float_layout_uses.count;
+    return 0;
 }
 
 fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
@@ -249,8 +333,10 @@ export fn mir_c99_type_plan_init(plan: &MirC99TypePlan) i32 {
     }
     semantic_vector_init(&plan.entries, @size_of(MirC99TypeDef));
     semantic_vector_init(&plan.aggregate_layouts, @size_of(MirC99AggregateLayoutEntry));
+    semantic_vector_init(&plan.float_layout_uses, @size_of(MirC99FloatLayoutUseEntry));
     plan.count = 0usize;
     plan.aggregate_layout_count = 0usize;
+    plan.float_layout_use_count = 0usize;
     plan.reject_count = 0usize;
     return 0;
 }
@@ -264,8 +350,10 @@ export fn mir_c99_type_plan_release(plan: &MirC99TypePlan) void {
     }
     semantic_vector_release(&plan.entries);
     semantic_vector_release(&plan.aggregate_layouts);
+    semantic_vector_release(&plan.float_layout_uses);
     plan.count = 0usize;
     plan.aggregate_layout_count = 0usize;
+    plan.float_layout_use_count = 0usize;
     plan.reject_count = 0usize;
 }
 
@@ -290,6 +378,115 @@ fn mir_c99_type_plan_append_aggregate_layout(type_plan: &MirC99TypePlan,
         return -1;
     }
     return 0;
+}
+
+fn mir_c99_type_plan_append_float_aggregate_fields(module: &PortableMirModule,
+    type_plan: &MirC99TypePlan, typ: &MirType) i32 {
+    if module == null || type_plan == null || mir_c99_type_is_aggregate_layout_kind(typ) == 0 {
+        return 0;
+    }
+    var status: i32 = 0;
+    var i: i32 = 0;
+    while i < typ.field_count {
+        const field: &MirFieldLayout = mir_c99_type_field_layout_ptr(module,
+            typ.field_start + i);
+        if field != null {
+            const field_type: &MirType = mir_c99_type_ptr(module, field.field_type_id);
+            if field_type != null &&
+               (field_type.kind == MIR_TYPE_KIND_F32 || field_type.kind == MIR_TYPE_KIND_F64) {
+                if mir_c99_type_plan_append_float_layout_use(type_plan,
+                    MIR_C99_FLOAT_LAYOUT_USE_AGGREGATE_FIELD, typ.type_id,
+                    field_type, field.field_index, field_type.abi_class,
+                    field.flags) != 0 {
+                    status = -1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return status;
+}
+
+fn mir_c99_type_plan_append_float_element(module: &PortableMirModule,
+    type_plan: &MirC99TypePlan, typ: &MirType) i32 {
+    if module == null || type_plan == null || typ == null {
+        return -1;
+    }
+    if typ.kind != MIR_TYPE_KIND_ARRAY && typ.kind != MIR_TYPE_KIND_SLICE {
+        return 0;
+    }
+    const element_type: &MirType = mir_c99_type_ptr(module, typ.element_type_id);
+    if element_type != null &&
+       (element_type.kind == MIR_TYPE_KIND_F32 || element_type.kind == MIR_TYPE_KIND_F64) {
+        var use_kind: i32 = MIR_C99_FLOAT_LAYOUT_USE_ARRAY_ELEMENT;
+        if typ.kind == MIR_TYPE_KIND_SLICE {
+            use_kind = MIR_C99_FLOAT_LAYOUT_USE_SLICE_ELEMENT;
+        }
+        return mir_c99_type_plan_append_float_layout_use(type_plan, use_kind,
+            typ.type_id, element_type, -1, element_type.abi_class, typ.flags);
+    }
+    return 0;
+}
+
+fn mir_c99_type_plan_append_float_signature(module: &PortableMirModule,
+    type_plan: &MirC99TypePlan, typ: &MirType) i32 {
+    if module == null || type_plan == null || typ == null ||
+       typ.kind != MIR_TYPE_KIND_FUNCTION {
+        return 0;
+    }
+    var status: i32 = 0;
+    const return_type: &MirType = mir_c99_type_ptr(module, typ.element_type_id);
+    if return_type != null &&
+       (return_type.kind == MIR_TYPE_KIND_F32 || return_type.kind == MIR_TYPE_KIND_F64) {
+        if mir_c99_type_plan_append_float_layout_use(type_plan,
+            MIR_C99_FLOAT_LAYOUT_USE_RETURN_VALUE, typ.type_id, return_type,
+            -1, return_type.abi_class, typ.flags) != 0 {
+            status = -1;
+        }
+    }
+    var i: i32 = 0;
+    while i < typ.field_count {
+        const param: &MirFunctionParamType =
+            mir_c99_type_function_param_type_ptr(module, typ.field_start + i);
+        if param != null {
+            const param_type: &MirType = mir_c99_type_ptr(module, param.type_id);
+            if param_type != null &&
+               (param_type.kind == MIR_TYPE_KIND_F32 || param_type.kind == MIR_TYPE_KIND_F64) {
+                if mir_c99_type_plan_append_float_layout_use(type_plan,
+                    MIR_C99_FLOAT_LAYOUT_USE_PARAM, typ.type_id, param_type,
+                    param.param_index, param.abi_class, param.flags) != 0 {
+                    status = -1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return status;
+}
+
+fn mir_c99_type_plan_append_float_layout_uses(module: &PortableMirModule,
+    type_plan: &MirC99TypePlan, typ: &MirType) i32 {
+    if module == null || type_plan == null || typ == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    if typ.kind == MIR_TYPE_KIND_F32 || typ.kind == MIR_TYPE_KIND_F64 {
+        if mir_c99_type_plan_append_float_layout_use(type_plan,
+            MIR_C99_FLOAT_LAYOUT_USE_RETURN_VALUE, typ.type_id, typ, -1,
+            typ.abi_class, typ.flags) != 0 {
+            status = -1;
+        }
+    }
+    if mir_c99_type_plan_append_float_aggregate_fields(module, type_plan, typ) != 0 {
+        status = -1;
+    }
+    if mir_c99_type_plan_append_float_element(module, type_plan, typ) != 0 {
+        status = -1;
+    }
+    if mir_c99_type_plan_append_float_signature(module, type_plan, typ) != 0 {
+        status = -1;
+    }
+    return status;
 }
 
 /// 功能说明：向 MIR-C99 typedef 计划追加一个 MIR type 映射。
@@ -334,6 +531,9 @@ export fn mir_c99_type_plan_build(module: &PortableMirModule,
         if mir_c99_type_plan_append(type_plan, output_plan, typ) != 0 {
             status = -1;
         }
+        if mir_c99_type_plan_append_float_layout_uses(module, type_plan, typ) != 0 {
+            status = -1;
+        }
         i = i + 1usize;
     }
     return status;
@@ -360,4 +560,17 @@ export fn mir_c99_type_plan_aggregate_layout_ptr(type_plan: &MirC99TypePlan,
     }
     return semantic_vector_item_ptr(&type_plan.aggregate_layouts,
         index as usize) as &MirC99AggregateLayoutEntry;
+}
+
+/// 功能说明：按下标读取 MIR-C99 f32/f64 layout use 计划条目。
+/// 参数说明：`type_plan` 为 typedef 计划，`index` 为 float layout use 条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_type_plan_float_layout_use_ptr(type_plan: &MirC99TypePlan,
+    index: i32) &MirC99FloatLayoutUseEntry {
+    if type_plan == null || index < 0 ||
+       (index as usize) >= type_plan.float_layout_uses.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&type_plan.float_layout_uses,
+        index as usize) as &MirC99FloatLayoutUseEntry;
 }
