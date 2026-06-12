@@ -41,6 +41,12 @@ export const MIR_C99_FLOAT_LAYOUT_USE_SLICE_ELEMENT: i32 = 3;
 export const MIR_C99_FLOAT_LAYOUT_USE_RETURN_VALUE: i32 = 4;
 export const MIR_C99_FLOAT_LAYOUT_USE_PARAM: i32 = 5;
 
+export const MIR_C99_LAYOUT_CHECK_KIND_SIZE: i32 = 1;
+export const MIR_C99_LAYOUT_CHECK_KIND_ALIGN: i32 = 2;
+export const MIR_C99_LAYOUT_CHECK_KIND_OFFSET: i32 = 3;
+
+export const MIR_C99_LAYOUT_CHECK_FORM_TYPEDEF_CHAR_ARRAY: i32 = 1;
+
 /// 功能说明：记录 f32/f64 在复合类型和 ABI signature 中的布局用途。
 /// 参数说明：无；字段来自 MIR type、field layout 和 function param type metadata。
 /// 返回值说明：无；由 `MirC99TypePlan.float_layout_uses` 动态保存。
@@ -115,6 +121,19 @@ export struct MirC99FunctionParamEntry {
     status: i32,
 }
 
+/// 功能说明：记录 MIR-C99 layout compile-time check 计划。
+/// 参数说明：无；字段来自 verifier-clean MIR type 和 field layout metadata。
+/// 返回值说明：无；由 `MirC99TypePlan.layout_checks` 动态保存。
+export struct MirC99LayoutCheckEntry {
+    check_kind: i32,
+    owner_type_id: MirTypeId,
+    field_index: i32,
+    expected_bytes: usize,
+    check_form: i32,
+    flags: i32,
+    status: i32,
+}
+
 /// 功能说明：记录一个 MIR type 到 MIR-C99 typedef 的计划条目。
 /// 参数说明：无；字段全部来自 MIR type/layout metadata，不保存高层语义结构。
 /// 返回值说明：无；由 `MirC99TypePlan.entries` 动态保存。
@@ -150,12 +169,14 @@ export struct MirC99TypePlan {
     error_union_layouts: SemanticVector,
     function_signatures: SemanticVector,
     function_params: SemanticVector,
+    layout_checks: SemanticVector,
     float_layout_uses: SemanticVector,
     count: usize,
     aggregate_layout_count: usize,
     error_union_layout_count: usize,
     function_signature_count: usize,
     function_param_count: usize,
+    layout_check_count: usize,
     float_layout_use_count: usize,
     reject_count: usize,
 }
@@ -416,12 +437,14 @@ export fn mir_c99_type_plan_init(plan: &MirC99TypePlan) i32 {
     semantic_vector_init(&plan.error_union_layouts, @size_of(MirC99ErrorUnionLayoutEntry));
     semantic_vector_init(&plan.function_signatures, @size_of(MirC99FunctionSignatureEntry));
     semantic_vector_init(&plan.function_params, @size_of(MirC99FunctionParamEntry));
+    semantic_vector_init(&plan.layout_checks, @size_of(MirC99LayoutCheckEntry));
     semantic_vector_init(&plan.float_layout_uses, @size_of(MirC99FloatLayoutUseEntry));
     plan.count = 0usize;
     plan.aggregate_layout_count = 0usize;
     plan.error_union_layout_count = 0usize;
     plan.function_signature_count = 0usize;
     plan.function_param_count = 0usize;
+    plan.layout_check_count = 0usize;
     plan.float_layout_use_count = 0usize;
     plan.reject_count = 0usize;
     return 0;
@@ -439,12 +462,14 @@ export fn mir_c99_type_plan_release(plan: &MirC99TypePlan) void {
     semantic_vector_release(&plan.error_union_layouts);
     semantic_vector_release(&plan.function_signatures);
     semantic_vector_release(&plan.function_params);
+    semantic_vector_release(&plan.layout_checks);
     semantic_vector_release(&plan.float_layout_uses);
     plan.count = 0usize;
     plan.aggregate_layout_count = 0usize;
     plan.error_union_layout_count = 0usize;
     plan.function_signature_count = 0usize;
     plan.function_param_count = 0usize;
+    plan.layout_check_count = 0usize;
     plan.float_layout_use_count = 0usize;
     plan.reject_count = 0usize;
 }
@@ -578,6 +603,82 @@ fn mir_c99_type_plan_append_function_signature(module: &PortableMirModule,
         return -1;
     }
     return 0;
+}
+
+fn mir_c99_type_plan_append_layout_check(type_plan: &MirC99TypePlan,
+    check_kind: i32, owner_type_id: MirTypeId, field_index: i32,
+    expected_bytes: usize, flags: i32) i32 {
+    if type_plan == null {
+        return -1;
+    }
+    if check_kind != MIR_C99_LAYOUT_CHECK_KIND_OFFSET && expected_bytes == 0usize {
+        return -1;
+    }
+    const entry: MirC99LayoutCheckEntry = MirC99LayoutCheckEntry{
+        check_kind: check_kind,
+        owner_type_id: owner_type_id,
+        field_index: field_index,
+        expected_bytes: expected_bytes,
+        check_form: MIR_C99_LAYOUT_CHECK_FORM_TYPEDEF_CHAR_ARRAY,
+        flags: flags,
+        status: MIR_C99_TYPE_STATUS_READY,
+    };
+    if semantic_vector_append(&type_plan.layout_checks,
+        &entry as &const void) != 0 {
+        return -1;
+    }
+    type_plan.layout_check_count = type_plan.layout_checks.count;
+    return 0;
+}
+
+fn mir_c99_type_plan_append_type_layout_checks(module: &PortableMirModule,
+    type_plan: &MirC99TypePlan, typ: &MirType) i32 {
+    if module == null || type_plan == null || typ == null {
+        return -1;
+    }
+    if typ.size_bytes == 0usize || typ.align_bytes == 0usize {
+        return 0;
+    }
+    var status: i32 = 0;
+    if mir_c99_type_plan_append_layout_check(type_plan,
+        MIR_C99_LAYOUT_CHECK_KIND_SIZE, typ.type_id, -1,
+        typ.size_bytes, typ.flags) != 0 {
+        status = -1;
+    }
+    if mir_c99_type_plan_append_layout_check(type_plan,
+        MIR_C99_LAYOUT_CHECK_KIND_ALIGN, typ.type_id, -1,
+        typ.align_bytes, typ.flags) != 0 {
+        status = -1;
+    }
+    if typ.kind == MIR_TYPE_KIND_STRUCT ||
+       typ.kind == MIR_TYPE_KIND_UNION ||
+       typ.kind == MIR_TYPE_KIND_ENUM {
+        var i: i32 = 0;
+        while i < typ.field_count {
+            const field: &MirFieldLayout =
+                mir_c99_type_field_layout_ptr(module, typ.field_start + i);
+            if field == null ||
+               mir_c99_type_plan_append_layout_check(type_plan,
+                MIR_C99_LAYOUT_CHECK_KIND_OFFSET, typ.type_id,
+                field.field_index, field.offset_bytes, field.flags) != 0 {
+                status = -1;
+            }
+            i = i + 1;
+        }
+    }
+    if typ.kind == MIR_TYPE_KIND_ERROR_UNION {
+        if mir_c99_type_plan_append_layout_check(type_plan,
+            MIR_C99_LAYOUT_CHECK_KIND_OFFSET, typ.type_id, 0,
+            typ.tag_offset_bytes, typ.flags) != 0 {
+            status = -1;
+        }
+        if mir_c99_type_plan_append_layout_check(type_plan,
+            MIR_C99_LAYOUT_CHECK_KIND_OFFSET, typ.type_id, 1,
+            typ.payload_offset_bytes, typ.flags) != 0 {
+            status = -1;
+        }
+    }
+    return status;
 }
 
 fn mir_c99_type_plan_append_float_aggregate_fields(module: &PortableMirModule,
@@ -737,6 +838,9 @@ export fn mir_c99_type_plan_build(module: &PortableMirModule,
         if mir_c99_type_plan_append_function_signature(module, type_plan, typ) != 0 {
             status = -1;
         }
+        if mir_c99_type_plan_append_type_layout_checks(module, type_plan, typ) != 0 {
+            status = -1;
+        }
         if mir_c99_type_plan_append_float_layout_uses(module, type_plan, typ) != 0 {
             status = -1;
         }
@@ -805,6 +909,19 @@ export fn mir_c99_type_plan_function_param_ptr(type_plan: &MirC99TypePlan,
     }
     return semantic_vector_item_ptr(&type_plan.function_params,
         index as usize) as &MirC99FunctionParamEntry;
+}
+
+/// 功能说明：按下标读取 MIR-C99 layout check 计划条目。
+/// 参数说明：`type_plan` 为 typedef 计划，`index` 为 layout check 条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_type_plan_layout_check_ptr(type_plan: &MirC99TypePlan,
+    index: i32) &MirC99LayoutCheckEntry {
+    if type_plan == null || index < 0 ||
+       (index as usize) >= type_plan.layout_checks.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&type_plan.layout_checks,
+        index as usize) as &MirC99LayoutCheckEntry;
 }
 
 /// 功能说明：按下标读取 MIR-C99 f32/f64 layout use 计划条目。

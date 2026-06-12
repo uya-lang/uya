@@ -136,7 +136,8 @@ MIR-C99 emitter 只能把 `PortableMIR` 映射成低级、可移植、接近 ass
 - scalar local、addressable local slot、temp assignment、load/store、field/index address、pointer dereference。
 - integer/float scalar arithmetic、comparison、logical operation、cast 和 explicit helper call。
 - 由 MIR capability/helper reference 显式登记的 `memcpy`、`memset`、`memcmp`、stdout/runtime、file/env/link helper。
-- 只使用可移植 C99 表达的 layout check；需要 compile-time check 时必须避免 C11 或 compiler extension。
+- 只使用可移植 C99 表达的 layout check；需要 compile-time check 时使用 `typedef char array[(expr) ? 1 : -1];`
+  形式承载 size/align/offset 断言，必须避免 C11 或 compiler extension。
 
 禁用形态：
 
