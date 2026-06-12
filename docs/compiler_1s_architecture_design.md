@@ -558,6 +558,9 @@ uya microapp run ...
 后的验收结果；它不能拥有函数名白名单、固定 statement count 白名单、固定 body shape 白名单或独立 lowering。
 任何 self-build frontier 都必须还原为通用语言结构缺口，例如 CFG、place/memory、call ABI、
 cleanup/error、runtime capability 或 MIR instruction coverage。
+其中 hosted/freestanding call ABI profile 必须在 PortableMIR target profile 中显式分流：
+hosted 使用 hosted SysV ABI profile，freestanding 使用 syscall/freestanding ABI profile；后端和
+verifier 只能消费这个 profile 结果，不能从目标名或现有 C99 路径反推调用约定。
 
 MIR-C99 的完成证据必须来自：
 

@@ -1373,6 +1373,96 @@ fn portable_mir_verify_print_helper_call_abi(module: &PortableMirModule,
     return portable_mir_verify_print_helper_args(module, inst, result);
 }
 
+fn portable_mir_verify_direct_call_target(module: &PortableMirModule,
+    target: &MirOperand) i32 {
+    if module == null || target == null ||
+       target.kind != MIR_OPERAND_KIND_CALL_TARGET_DIRECT ||
+       target.value_id != MIR_VALUE_INVALID_ID {
+        return 0;
+    }
+    const callee: &MirFunction = portable_mir_verify_function_ptr(module,
+        target.immediate_i32);
+    if callee == null || (callee.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 ||
+       callee.calling_convention != MIR_CALL_CONV_UYA {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_extern_call_target(module: &PortableMirModule,
+    target: &MirOperand) i32 {
+    if module == null || target == null ||
+       target.kind != MIR_OPERAND_KIND_CALL_TARGET_EXTERN ||
+       target.value_id != MIR_VALUE_INVALID_ID {
+        return 0;
+    }
+    const callee: &MirFunction = portable_mir_verify_function_ptr(module,
+        target.immediate_i32);
+    if callee == null || (callee.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 ||
+       callee.calling_convention != MIR_CALL_CONV_C {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_method_instance_call_target(module: &PortableMirModule,
+    target: &MirOperand) i32 {
+    if module == null || target == null ||
+       target.kind != MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE ||
+       target.value_id != MIR_VALUE_INVALID_ID ||
+       target.flags < 0 {
+        return 0;
+    }
+    const callee: &MirFunction = portable_mir_verify_function_ptr(module,
+        target.immediate_i32);
+    if callee == null || (callee.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 ||
+       callee.calling_convention != MIR_CALL_CONV_UYA {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_function_pointer_call_target(module: &PortableMirModule,
+    target: &MirOperand) i32 {
+    if module == null || target == null ||
+       target.kind != MIR_OPERAND_KIND_CALL_TARGET_FUNCTION_POINTER ||
+       target.value_id == MIR_VALUE_INVALID_ID {
+        return 0;
+    }
+    const typ: &MirType = portable_mir_verify_type_ptr(module,
+        target.type_id);
+    if typ == null || typ.kind != MIR_TYPE_KIND_FUNCTION_POINTER {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_call_target_operand(module: &PortableMirModule,
+    inst: &MirInst, result: &MirVerifierResult) i32 {
+    if inst.op != MIR_INST_OP_CALL || inst.operand_count <= 0 {
+        return 0;
+    }
+    const target: &MirOperand = portable_mir_verify_operand_ptr(module,
+        inst.operand_start);
+    if target == null ||
+       portable_mir_operand_kind_is_call_target(target.kind) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+            inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+            inst.type_id, inst.operand_start, MIR_CAPABILITY_REQ_INVALID_ID,
+            inst.debug_loc_id);
+    }
+    if portable_mir_verify_direct_call_target(module, target) != 0 ||
+       portable_mir_verify_extern_call_target(module, target) != 0 ||
+       portable_mir_verify_method_instance_call_target(module, target) != 0 ||
+       portable_mir_verify_function_pointer_call_target(module, target) != 0 {
+        return 0;
+    }
+    return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_FUNCTION,
+        inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+        inst.type_id, inst.operand_start, MIR_CAPABILITY_REQ_INVALID_ID,
+        inst.debug_loc_id);
+}
+
 fn portable_mir_verify_function_return_type(module: &PortableMirModule,
     function: &MirFunction) MirTypeId {
     if function == null {
@@ -1478,6 +1568,10 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     }
     if inst.op == MIR_INST_OP_CALL &&
        portable_mir_verify_print_helper_call_abi(module, inst, typ, result) != 0 {
+        return -1;
+    }
+    if inst.op == MIR_INST_OP_CALL &&
+       portable_mir_verify_call_target_operand(module, inst, result) != 0 {
         return -1;
     }
     if portable_mir_verify_call_result_signature(module, inst) == 0 {

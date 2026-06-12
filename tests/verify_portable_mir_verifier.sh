@@ -933,6 +933,7 @@ fn verifier_run(mode: i32) i32 {
         insts[0].calling_convention = MIR_CALL_CONV_C;
         values[1].type_id = 16;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
         operands[0].immediate_i32 = 0;
         functions[0].flags = MIR_FUNCTION_FLAG_EXTERN;
         functions[0].calling_convention = MIR_CALL_CONV_C;
@@ -948,6 +949,7 @@ fn verifier_run(mode: i32) i32 {
         insts[0].calling_convention = MIR_CALL_CONV_C;
         values[1].type_id = 15;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
         operands[0].immediate_i32 = 0;
         functions[0].flags = MIR_FUNCTION_FLAG_EXTERN;
         functions[0].calling_convention = MIR_CALL_CONV_C;
@@ -1257,6 +1259,56 @@ fn verifier_run(mode: i32) i32 {
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 23);
         operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
     }
+    if mode == 75 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+    }
+    if mode == 76 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE;
+        operands[0].immediate_i32 = 0;
+        operands[0].flags = 9;
+    }
+    if mode == 77 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[0].type_id = 21;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, 0, 21);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_FUNCTION_POINTER;
+    }
+    if mode == 78 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].immediate_i32 = 0;
+    }
+    if mode == 79 {
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 0;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 1;
+        values[1].type_id = 0;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+        operands[0].immediate_i32 = 0;
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -1343,6 +1395,9 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(70), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(72), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(73), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(75), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(76), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(77), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1378,6 +1433,8 @@ test "PortableMIR verifier rejects target and layout violations" {
     try assert_eq_i32(verifier_run(69), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(71), MIR_VERIFY_ERR_INVALID_ADDRESS);
     try assert_eq_i32(verifier_run(74), MIR_VERIFY_ERR_INVALID_LAYOUT);
+    try assert_eq_i32(verifier_run(78), MIR_VERIFY_ERR_INVALID_OPERAND);
+    try assert_eq_i32(verifier_run(79), MIR_VERIFY_ERR_INVALID_FUNCTION);
 }
 
 test "PortableMIR verifier rejects atomic vector mask cleanup and naked violations" {

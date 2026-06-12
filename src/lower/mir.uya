@@ -245,6 +245,11 @@ export const MIR_INST_OP_AGGREGATE_MOVE: i32 = 291;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
 export const MIR_INST_FLAG_OVERFLOW_CHECKED: i32 = 2;
 export const MIR_INST_FLAG_NO_OVERLAP: i32 = 4;
+export const MIR_OPERAND_KIND_VALUE: i32 = 1;
+export const MIR_OPERAND_KIND_CALL_TARGET_DIRECT: i32 = 20;
+export const MIR_OPERAND_KIND_CALL_TARGET_EXTERN: i32 = 21;
+export const MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE: i32 = 22;
+export const MIR_OPERAND_KIND_CALL_TARGET_FUNCTION_POINTER: i32 = 23;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
 export const MIR_TERMINATOR_KIND_BR: i32 = 2;
@@ -437,6 +442,19 @@ export fn portable_mir_inst_op_is_pointer_offset(op: i32) i32 {
 /// 返回值说明：aggregate copy 或 move opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_aggregate_copy_move(op: i32) i32 {
     if op == MIR_INST_OP_AGGREGATE_COPY || op == MIR_INST_OP_AGGREGATE_MOVE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 MIR operand kind 是否为 call target 表达形式。
+/// 参数说明：`kind` 为待分类的 MIR operand kind。
+/// 返回值说明：direct/extern/method instance/function pointer callee 返回 1，否则返回 0。
+export fn portable_mir_operand_kind_is_call_target(kind: i32) i32 {
+    if kind == MIR_OPERAND_KIND_CALL_TARGET_DIRECT ||
+       kind == MIR_OPERAND_KIND_CALL_TARGET_EXTERN ||
+       kind == MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE ||
+       kind == MIR_OPERAND_KIND_CALL_TARGET_FUNCTION_POINTER {
         return 1;
     }
     return 0;
@@ -1415,6 +1433,20 @@ fn portable_mir_lower_append_immediate_operand(ctx: &PortableMirLowerContext,
     return operand_id;
 }
 
+fn portable_mir_lower_set_operand_kind(ctx: &PortableMirLowerContext,
+    operand_id: MirOperandId, kind: i32) i32 {
+    if ctx == null || ctx.module == null || operand_id < 0 {
+        return -1;
+    }
+    const operand: &MirOperand = portable_mir_lower_operand_ptr(ctx,
+        operand_id);
+    if operand == null {
+        return -1;
+    }
+    operand.kind = kind;
+    return 0;
+}
+
 fn portable_mir_lower_append_literal_operand(ctx: &PortableMirLowerContext,
     expr: &CoreExpr) i32 {
     if ctx == null || ctx.module == null || expr == null {
@@ -1683,6 +1715,10 @@ fn portable_mir_lower_call_stmt_to_module(ctx: &PortableMirLowerContext,
     const operand_start: i32 = portable_mir_lower_append_immediate_operand(ctx,
         void_type_id, helper_function_id);
     if operand_start < 0 {
+        return -1;
+    }
+    if portable_mir_lower_set_operand_kind(ctx, operand_start,
+        MIR_OPERAND_KIND_CALL_TARGET_EXTERN) != 0 {
         return -1;
     }
     const fd_value: i32 = portable_mir_lower_i32_literal_value(ctx,

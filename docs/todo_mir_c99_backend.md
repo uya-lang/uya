@@ -135,7 +135,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_portable_mir_aggregate_copy_move_opcode.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 aggregate copy/move no-overlap 正例和缺 no-overlap flag 反例，断言数 75）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_type_field_layout.sh` 通过；`bash tests/verify_mir_c99_type_array_slice_gap.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
 - [ ] MIR-C99-PREMIR-CALL-ABI：补齐 call 和 ABI metadata。
-  - [ ] direct call、extern call、method/monomorphized call、function pointer call 的 callee 表达形式。
+  - [x] direct call、extern call、method/monomorphized call、function pointer call 的 callee 表达形式。
+    - 验证：`bash tests/verify_portable_mir_call_target_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 direct/extern/method-instance/function-pointer call target 正例和 callee kind 缺失/不匹配反例，断言数 80）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过；`bash tests/verify_mir_c99_type_function_signature.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] 多参数、aggregate return、out-param writeback、error union return、float/double ABI class metadata。
   - [ ] call ABI 缺失时 verifier 必须 reject，不能留给 MIR-C99 后端猜测。
 

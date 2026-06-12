@@ -90,6 +90,7 @@ export const CORE_STMT_KIND_LOCAL_DECL: i32 = 16;
 export const CORE_STMT_KIND_IF: i32 = 17;
 export const CORE_STMT_KIND_ASSIGN: i32 = 18;
 export const CORE_STMT_KIND_EXPR: i32 = 19;
+export const CORE_STMT_KIND_WHILE: i32 = 20;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INDEX: i32 = 12;
 export const CORE_EXPR_KIND_SLICE: i32 = 13;

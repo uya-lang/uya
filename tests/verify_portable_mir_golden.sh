@@ -400,7 +400,9 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     if portable_mir_append_block_param(module, &param0) != 0 { return -1; }
 
     var op0: MirOperand = golden_operand(0, MIR_VALUE_INVALID_ID, 0, 1);
-    var op1: MirOperand = golden_operand(1, 1, MIR_LOCAL_INVALID_ID, 0);
+    var op1: MirOperand = golden_operand(1, MIR_VALUE_INVALID_ID, MIR_LOCAL_INVALID_ID, 0);
+    op1.kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    op1.immediate_i32 = 0;
     var op2: MirOperand = golden_operand(2, MIR_VALUE_INVALID_ID, 0, 1);
     var op3: MirOperand = golden_operand(3, 2, MIR_LOCAL_INVALID_ID, 0);
     var op4: MirOperand = golden_operand(4, 2, MIR_LOCAL_INVALID_ID, 0);
@@ -747,7 +749,7 @@ value#6 f=0 bb=2 t=4 def=6 local=-1 param=-1 flags=0
 value#7 f=0 bb=2 t=5 def=7 local=-1 param=-1 flags=0
 value#8 f=0 bb=2 t=6 def=8 local=-1 param=-1 flags=0
 operand#0 value=-1 local=0 type=1 imm=0
-operand#1 value=1 local=-1 type=0 imm=0
+operand#1 value=-1 local=-1 type=0 imm=0
 operand#2 value=-1 local=0 type=1 imm=0
 operand#3 value=2 local=-1 type=0 imm=0
 operand#4 value=2 local=-1 type=0 imm=0
