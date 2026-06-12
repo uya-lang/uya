@@ -36,8 +36,8 @@ require_pattern "$VERIFIER_FILE" 'typ\.kind != MIR_TYPE_KIND_ERROR_UNION' \
     "verifier checks error-union kind"
 require_pattern "$VERIFIER_FILE" 'typ\.payload_offset_bytes <= typ\.tag_offset_bytes' \
     "verifier checks tag/payload ordering"
-require_pattern "$VERIFIER_FILE" 'typ\.abi_class == 0' \
-    "verifier rejects missing ABI class"
+require_pattern "$VERIFIER_FILE" 'typ\.abi_class != MIR_ABI_CLASS_ERROR_UNION' \
+    "verifier rejects non-error-union ABI class"
 require_pattern "$TYPE_FILE" 'MIR_C99_C_TYPE_KIND_ERROR_UNION' \
     "MIR-C99 error-union C type kind"
 require_pattern "$TYPE_FILE" 'typ\.kind == MIR_TYPE_KIND_ERROR_UNION' \

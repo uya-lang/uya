@@ -72,6 +72,21 @@ export struct MirC99AggregateLayoutEntry {
     status: i32,
 }
 
+/// 功能说明：记录一个 MIR error-union type 的 tag/payload 布局计划。
+/// 参数说明：无；字段来自 verifier-clean MIR type/layout metadata。
+/// 返回值说明：无；由 `MirC99TypePlan.error_union_layouts` 动态保存。
+export struct MirC99ErrorUnionLayoutEntry {
+    owner_type_id: MirTypeId,
+    payload_type_id: MirTypeId,
+    tag_offset_bytes: usize,
+    payload_offset_bytes: usize,
+    size_bytes: usize,
+    align_bytes: usize,
+    abi_class: i32,
+    flags: i32,
+    status: i32,
+}
+
 /// 功能说明：记录一个 MIR type 到 MIR-C99 typedef 的计划条目。
 /// 参数说明：无；字段全部来自 MIR type/layout metadata，不保存高层语义结构。
 /// 返回值说明：无；由 `MirC99TypePlan.entries` 动态保存。
@@ -104,9 +119,11 @@ export struct MirC99TypeDef {
 export struct MirC99TypePlan {
     entries: SemanticVector,
     aggregate_layouts: SemanticVector,
+    error_union_layouts: SemanticVector,
     float_layout_uses: SemanticVector,
     count: usize,
     aggregate_layout_count: usize,
+    error_union_layout_count: usize,
     float_layout_use_count: usize,
     reject_count: usize,
 }
@@ -185,6 +202,37 @@ fn mir_c99_type_aggregate_layout_from_mir(typ: &MirType,
         align_bytes: typ.align_bytes,
         tag_offset_bytes: typ.tag_offset_bytes,
         payload_offset_bytes: typ.payload_offset_bytes,
+        flags: typ.flags,
+        status: MIR_C99_TYPE_STATUS_READY,
+    };
+}
+
+fn mir_c99_type_error_union_layout_from_mir(typ: &MirType) MirC99ErrorUnionLayoutEntry {
+    if typ == null || typ.kind != MIR_TYPE_KIND_ERROR_UNION ||
+       typ.element_type_id == MIR_TYPE_INVALID_ID ||
+       typ.size_bytes == 0usize || typ.align_bytes == 0usize ||
+       typ.payload_offset_bytes <= typ.tag_offset_bytes ||
+       typ.abi_class != MIR_ABI_CLASS_ERROR_UNION {
+        return MirC99ErrorUnionLayoutEntry{
+            owner_type_id: MIR_TYPE_INVALID_ID,
+            payload_type_id: MIR_TYPE_INVALID_ID,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: 0usize,
+            size_bytes: 0usize,
+            align_bytes: 0usize,
+            abi_class: 0,
+            flags: 0,
+            status: MIR_C99_TYPE_STATUS_REJECT,
+        };
+    }
+    return MirC99ErrorUnionLayoutEntry{
+        owner_type_id: typ.type_id,
+        payload_type_id: typ.element_type_id,
+        tag_offset_bytes: typ.tag_offset_bytes,
+        payload_offset_bytes: typ.payload_offset_bytes,
+        size_bytes: typ.size_bytes,
+        align_bytes: typ.align_bytes,
+        abi_class: typ.abi_class,
         flags: typ.flags,
         status: MIR_C99_TYPE_STATUS_READY,
     };
@@ -333,9 +381,11 @@ export fn mir_c99_type_plan_init(plan: &MirC99TypePlan) i32 {
     }
     semantic_vector_init(&plan.entries, @size_of(MirC99TypeDef));
     semantic_vector_init(&plan.aggregate_layouts, @size_of(MirC99AggregateLayoutEntry));
+    semantic_vector_init(&plan.error_union_layouts, @size_of(MirC99ErrorUnionLayoutEntry));
     semantic_vector_init(&plan.float_layout_uses, @size_of(MirC99FloatLayoutUseEntry));
     plan.count = 0usize;
     plan.aggregate_layout_count = 0usize;
+    plan.error_union_layout_count = 0usize;
     plan.float_layout_use_count = 0usize;
     plan.reject_count = 0usize;
     return 0;
@@ -350,9 +400,11 @@ export fn mir_c99_type_plan_release(plan: &MirC99TypePlan) void {
     }
     semantic_vector_release(&plan.entries);
     semantic_vector_release(&plan.aggregate_layouts);
+    semantic_vector_release(&plan.error_union_layouts);
     semantic_vector_release(&plan.float_layout_uses);
     plan.count = 0usize;
     plan.aggregate_layout_count = 0usize;
+    plan.error_union_layout_count = 0usize;
     plan.float_layout_use_count = 0usize;
     plan.reject_count = 0usize;
 }
@@ -373,6 +425,29 @@ fn mir_c99_type_plan_append_aggregate_layout(type_plan: &MirC99TypePlan,
         return -1;
     }
     type_plan.aggregate_layout_count = type_plan.aggregate_layouts.count;
+    if layout_entry.status == MIR_C99_TYPE_STATUS_REJECT {
+        type_plan.reject_count = type_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_type_plan_append_error_union_layout(type_plan: &MirC99TypePlan,
+    typ: &MirType) i32 {
+    if type_plan == null || typ == null {
+        return -1;
+    }
+    if typ.kind != MIR_TYPE_KIND_ERROR_UNION {
+        return 0;
+    }
+    // PortableMIR verifier guarantees `portable_mir_verify_error_union_layout`.
+    const layout_entry: MirC99ErrorUnionLayoutEntry =
+        mir_c99_type_error_union_layout_from_mir(typ);
+    if semantic_vector_append(&type_plan.error_union_layouts,
+        &layout_entry as &const void) != 0 {
+        return -1;
+    }
+    type_plan.error_union_layout_count = type_plan.error_union_layouts.count;
     if layout_entry.status == MIR_C99_TYPE_STATUS_REJECT {
         type_plan.reject_count = type_plan.reject_count + 1usize;
         return -1;
@@ -509,6 +584,9 @@ export fn mir_c99_type_plan_append(type_plan: &MirC99TypePlan, output_plan: &Mir
         entry.c_type_kind) != 0 {
         return -1;
     }
+    if mir_c99_type_plan_append_error_union_layout(type_plan, typ) != 0 {
+        return -1;
+    }
     if mir_c99_plan_append_ref(output_plan, MIR_C99_REF_KIND_TYPEDEF,
         entry.type_id, entry.c_type_kind, entry.flags) != 0 {
         return -1;
@@ -560,6 +638,19 @@ export fn mir_c99_type_plan_aggregate_layout_ptr(type_plan: &MirC99TypePlan,
     }
     return semantic_vector_item_ptr(&type_plan.aggregate_layouts,
         index as usize) as &MirC99AggregateLayoutEntry;
+}
+
+/// 功能说明：按下标读取 MIR-C99 error-union layout 计划条目。
+/// 参数说明：`type_plan` 为 typedef 计划，`index` 为 error-union layout 条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_type_plan_error_union_layout_ptr(type_plan: &MirC99TypePlan,
+    index: i32) &MirC99ErrorUnionLayoutEntry {
+    if type_plan == null || index < 0 ||
+       (index as usize) >= type_plan.error_union_layouts.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&type_plan.error_union_layouts,
+        index as usize) as &MirC99ErrorUnionLayoutEntry;
 }
 
 /// 功能说明：按下标读取 MIR-C99 f32/f64 layout use 计划条目。
