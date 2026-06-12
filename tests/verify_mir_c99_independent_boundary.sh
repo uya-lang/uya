@@ -5,6 +5,7 @@
 # Contract:
 #   - MIR-C99 production source must live under src/codegen/mir_c99/.
 #   - It must not import the legacy AST/LoweredProgram C99 production backend.
+#   - It must not call or embed the legacy C99 production emitter surface.
 #   - The legacy C99 backend can remain as oracle/fallback/release path outside
 #     this directory, but not as MIR-C99's internal implementation.
 
@@ -41,6 +42,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 FORBIDDEN_USE_RE='^[[:space:]]*use[[:space:]]+codegen\.c99(_build)?([.;[:space:]]|$)'
+FORBIDDEN_LEGACY_SYMBOL_RE='(^|[^A-Za-z0-9_])(c99_codegen_generate|C99CodeGenerator|C99Plan)([^A-Za-z0-9_]|$)'
 
 scan_source_dir() {
     local dir="$1"
@@ -68,14 +70,21 @@ scan_source_dir() {
             done <<<"$matches"
             violations=$((violations + 1))
         fi
+        matches="$(grep -En "$FORBIDDEN_LEGACY_SYMBOL_RE" "$file" || true)"
+        if [[ -n "$matches" ]]; then
+            while IFS= read -r line; do
+                echo "error: MIR-C99 backend must not use legacy C99 production emitter surface: $line" >&2
+            done <<<"$matches"
+            violations=$((violations + 1))
+        fi
     done
 
     if [[ "$violations" -gt 0 ]]; then
-        echo "FAILED: MIR-C99 independent boundary found $violations file(s) with forbidden legacy C99 imports" >&2
+        echo "FAILED: MIR-C99 independent boundary found $violations forbidden legacy C99 reference group(s)" >&2
         return 1
     fi
 
-    echo "OK: MIR-C99 independent boundary has no forbidden legacy C99 imports in $dir"
+    echo "OK: MIR-C99 independent boundary has no forbidden legacy C99 imports or emitter references in $dir"
 }
 
 run_self_test() {
@@ -105,6 +114,9 @@ use codegen.c99;
 use codegen.c99_build;
 
 export fn mir_c99_boundary_bad() i32 {
+    const gen: C99CodeGenerator = C99CodeGenerator{};
+    const plan: C99Plan = C99Plan{};
+    c99_codegen_generate(&gen, &plan);
     return 1;
 }
 EOF
@@ -120,6 +132,13 @@ EOF
         cat "$bad_out" >&2
         return 1
     fi
+    for symbol in c99_codegen_generate C99CodeGenerator C99Plan; do
+        if ! grep -q "$symbol" "$bad_out"; then
+            echo "error: self-test did not report forbidden legacy symbol $symbol" >&2
+            cat "$bad_out" >&2
+            return 1
+        fi
+    done
 
     echo "OK: MIR-C99 independent boundary self-test passed"
 }
