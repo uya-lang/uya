@@ -48,10 +48,14 @@ require_pattern "$CALL_FILE" '\(callee\.flags & MIR_FUNCTION_FLAG_EXTERN\) == 0'
     "extern call requires extern callee flag"
 require_pattern "$CALL_FILE" 'callee\.calling_convention != MIR_CALL_CONV_C' \
     "extern call requires C calling convention"
-require_pattern "$CALL_FILE" 'callee_function_id: target\.immediate_i32' \
+require_pattern "$CALL_FILE" 'callee_function_id = target\.immediate_i32' \
     "extern callee function id captured"
-require_pattern "$CALL_FILE" 'signature_type_id: callee\.signature_type_id' \
+require_pattern "$CALL_FILE" 'callee_function_id: callee_function_id' \
+    "extern callee function id stored"
+require_pattern "$CALL_FILE" 'signature_type_id = callee\.signature_type_id' \
     "extern callee signature captured"
+require_pattern "$CALL_FILE" 'signature_type_id: signature_type_id' \
+    "extern callee signature stored"
 require_pattern "$CALL_FILE" 'calling_convention: inst\.calling_convention' \
     "extern call instruction convention captured"
 require_pattern "$VERIFIER_FILE" 'portable_mir_verify_extern_call_target' \

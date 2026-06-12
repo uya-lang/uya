@@ -49,10 +49,14 @@ require_pattern "$CALL_FILE" 'inst\.op != MIR_INST_OP_CALL' \
     "non-call instructions ignored"
 require_pattern "$CALL_FILE" 'target\.kind != MIR_OPERAND_KIND_CALL_TARGET_DIRECT' \
     "only direct call targets accepted in this leaf"
-require_pattern "$CALL_FILE" 'callee_function_id: target\.immediate_i32' \
+require_pattern "$CALL_FILE" 'callee_function_id = target\.immediate_i32' \
     "callee function id captured from MIR operand"
-require_pattern "$CALL_FILE" 'signature_type_id: callee\.signature_type_id' \
+require_pattern "$CALL_FILE" 'callee_function_id: callee_function_id' \
+    "callee function id stored in plan entry"
+require_pattern "$CALL_FILE" 'signature_type_id = callee\.signature_type_id' \
     "callee signature type captured"
+require_pattern "$CALL_FILE" 'signature_type_id: signature_type_id' \
+    "callee signature type stored in plan entry"
 require_pattern "$CALL_FILE" 'arg_start: inst\.operand_start \+ 1' \
     "argument range starts after callee operand"
 require_pattern "$CALL_FILE" 'arg_count: inst\.operand_count - 1' \
