@@ -53,7 +53,7 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=11,next_stmt=11,next_kind=AST_ASSIGN,reason=partial_core_body$' \
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=12,next_stmt=12,next_kind=AST_ASSIGN,reason=partial_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
