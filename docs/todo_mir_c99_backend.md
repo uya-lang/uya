@@ -378,6 +378,10 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - [x] harness 在未配置真实 generator command 时必须失败，不能把 pending hookup 当作 parity 通过。
         - 验证：`bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过，覆盖 `--case` 缺 generator 时失败；`bash tests/verify_mir_c99_oracle_parity_harness.sh --self-test` 通过，覆盖完整生成/host C compiler/运行/diff 流程；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 通过并仅作为安装检查报告 `generator commands are pending backend hookup`。
       - [ ] 新增默认 MIR-C99 generator CLI/command，输出 `.c` 且日志无 legacy C99 fallback。
+        - [x] 新增默认 MIR-C99 generator command 入口；未完成 source-to-PortableMIR 接线前必须明确失败、不生成 `.c`，且日志无 legacy C99 fallback。
+          - 验证：`bash tests/verify_mir_c99_default_generator_command.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh --self-test` 通过；配置默认 generator 后运行 `MIR_C99_GENERATE_CMD='./tests/mir_c99_generate.sh {input} {output} {log}' C99_ORACLE_GENERATE_CMD='./tests/mir_c99_generate.sh {input} {output} {log}' bash tests/verify_mir_c99_oracle_parity_harness.sh --case tests/test_basic_block_terminator.uya` 返回 exit 70，确认尚未接线时 fail-closed。
+        - [ ] 将 generator command 接到 source-to-PortableMIR lowering 和 `mir_c99_driver_run`。
+        - [ ] generator command 对已支持 MIR-C99 subset 写出 `.c` 并可由 host C compiler 编译。
       - [ ] 新增默认现有 C99 oracle generator command，输出 `.c` 供 host C compiler 对照。
     - [ ] dynamic catch fallback/success 真实 MIR-C99 / 现有 C99 oracle parity。
     - [ ] defer local assign 真实 MIR-C99 / 现有 C99 oracle parity。
