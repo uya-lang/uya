@@ -721,6 +721,26 @@ fn portable_mir_verify_integer_value_inst(module: &PortableMirModule,
     return 1;
 }
 
+fn portable_mir_verify_float_value_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if portable_mir_inst_op_is_float_arithmetic(inst.op) != 0 ||
+       portable_mir_inst_op_is_float_compare(inst.op) != 0 {
+        if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+           typ == null {
+            return 0;
+        }
+        return 1;
+    }
+    if portable_mir_inst_op_is_float_constant(inst.op) != 0 {
+        if inst.operand_count != 0 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+           typ == null || portable_mir_type_kind_is_float(typ.kind) == 0 {
+            return 0;
+        }
+        return 1;
+    }
+    return 1;
+}
+
 fn portable_mir_verify_print_helper_callee(module: &PortableMirModule,
     inst: &MirInst, result: &MirVerifierResult) i32 {
     const call_operand: &MirOperand = portable_mir_verify_operand_ptr(module,
@@ -824,6 +844,9 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
     if portable_mir_verify_integer_value_inst(module, inst, typ) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if portable_mir_verify_float_value_inst(module, inst, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
     if inst.op == MIR_INST_OP_LOCAL_SET &&
