@@ -62,12 +62,24 @@ export const MIR_CALL_CONV_UYA: i32 = 1;
 export const MIR_CALL_CONV_C: i32 = 2;
 export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
 export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
+export const MIR_RUNTIME_CAP_FREESTANDING: i32 = 4;
 export const MIR_RUNTIME_CAP_MEMORY_HELPERS: i32 = 8;
 export const MIR_RUNTIME_CAP_STRING_PRIMITIVES: i32 = 16;
 export const MIR_RUNTIME_HELPER_MEMCPY: i32 = 101;
 export const MIR_RUNTIME_HELPER_MEMSET: i32 = 102;
 export const MIR_RUNTIME_HELPER_MEMCMP: i32 = 103;
 export const MIR_RUNTIME_HELPER_STRING_PRIMITIVE: i32 = 104;
+export const MIR_RUNTIME_CAP_PRINT_HELPERS: i32 = 32;
+export const MIR_RUNTIME_CAP_HEAP_HELPERS: i32 = 64;
+export const MIR_RUNTIME_CAP_ENV_FILE_IO: i32 = 128;
+export const MIR_RUNTIME_CAP_SYSCALL: i32 = 256;
+export const MIR_RUNTIME_HELPER_PRINT: i32 = 201;
+export const MIR_RUNTIME_HELPER_PRINTLN: i32 = 202;
+export const MIR_RUNTIME_HELPER_MALLOC: i32 = 203;
+export const MIR_RUNTIME_HELPER_FREE: i32 = 204;
+export const MIR_RUNTIME_HELPER_ENV: i32 = 205;
+export const MIR_RUNTIME_HELPER_FILE_IO: i32 = 206;
+export const MIR_RUNTIME_HELPER_SYSCALL: i32 = 207;
 
 export struct CompilerArena {
     marker: i32,
@@ -249,7 +261,8 @@ fn portable_mir_struct_profile() MirTargetProfile {
         supported_calling_conventions: 3,
         runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC +
             MIR_RUNTIME_CAP_C_EXTERN + MIR_RUNTIME_CAP_MEMORY_HELPERS +
-            MIR_RUNTIME_CAP_STRING_PRIMITIVES,
+            MIR_RUNTIME_CAP_STRING_PRIMITIVES + MIR_RUNTIME_CAP_PRINT_HELPERS +
+            MIR_RUNTIME_CAP_HEAP_HELPERS + MIR_RUNTIME_CAP_ENV_FILE_IO,
         feature_flags: 0,
     };
 }
@@ -456,7 +469,9 @@ test "PortableMIR top-level structures initialize and store a minimal function" 
     try assert_eq_i32(module.target_profile.supported_calling_conventions, 3);
     try assert_eq_i32(module.target_profile.runtime_capability_mask,
         MIR_RUNTIME_CAP_HOSTED_LIBC + MIR_RUNTIME_CAP_C_EXTERN +
-        MIR_RUNTIME_CAP_MEMORY_HELPERS + MIR_RUNTIME_CAP_STRING_PRIMITIVES);
+        MIR_RUNTIME_CAP_MEMORY_HELPERS + MIR_RUNTIME_CAP_STRING_PRIMITIVES +
+        MIR_RUNTIME_CAP_PRINT_HELPERS + MIR_RUNTIME_CAP_HEAP_HELPERS +
+        MIR_RUNTIME_CAP_ENV_FILE_IO);
     try expect(module.functions.item_size == @size_of(MirFunction));
     try expect(module.blocks.item_size == @size_of(MirBlock));
     try expect(module.values.item_size == @size_of(MirValue));

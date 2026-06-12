@@ -497,6 +497,7 @@ runtime builtin 降为 MIR 指令或 runtime helper：
 - syscall-like operations
 - target intrinsics
 - memcpy / memset / memcmp / string primitive helper refs 必须记录具体 helper id 和 runtime capability
+- print/println / malloc/free / env/file IO / syscall helper refs 必须记录具体 helper id 和 runtime capability
 - `@asm`
 
 `@asm` 表达为 opaque MIR operation，带 inputs、outputs、clobbers、target constraints 和 capability requirements。

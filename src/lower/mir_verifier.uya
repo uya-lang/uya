@@ -161,6 +161,21 @@ fn portable_mir_verify_runtime_helper_capability_id(capability_id: i32) i32 {
     if capability_id == MIR_RUNTIME_HELPER_STRING_PRIMITIVE {
         return MIR_RUNTIME_CAP_STRING_PRIMITIVES;
     }
+    if capability_id == MIR_RUNTIME_HELPER_PRINT ||
+       capability_id == MIR_RUNTIME_HELPER_PRINTLN {
+        return MIR_RUNTIME_CAP_PRINT_HELPERS;
+    }
+    if capability_id == MIR_RUNTIME_HELPER_MALLOC ||
+       capability_id == MIR_RUNTIME_HELPER_FREE {
+        return MIR_RUNTIME_CAP_HEAP_HELPERS;
+    }
+    if capability_id == MIR_RUNTIME_HELPER_ENV ||
+       capability_id == MIR_RUNTIME_HELPER_FILE_IO {
+        return MIR_RUNTIME_CAP_ENV_FILE_IO;
+    }
+    if capability_id == MIR_RUNTIME_HELPER_SYSCALL {
+        return MIR_RUNTIME_CAP_SYSCALL;
+    }
     return capability_id;
 }
 

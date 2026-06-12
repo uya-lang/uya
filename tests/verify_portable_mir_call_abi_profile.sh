@@ -532,6 +532,10 @@ test "PortableMIR hosted and freestanding target profiles are explicit" {
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_C_EXTERN), 1);
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_MEMORY_HELPERS), 1);
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_STRING_PRIMITIVES), 1);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_PRINT_HELPERS), 1);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_HEAP_HELPERS), 1);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_ENV_FILE_IO), 1);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_SYSCALL), 0);
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&hosted, MIR_RUNTIME_CAP_FREESTANDING), 0);
 
     try assert_eq_i32(free.profile_id, MIR_TARGET_PROFILE_FREESTANDING_NATIVE);
@@ -544,6 +548,10 @@ test "PortableMIR hosted and freestanding target profiles are explicit" {
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_C_EXTERN), 0);
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_MEMORY_HELPERS), 0);
     try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_STRING_PRIMITIVES), 0);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_PRINT_HELPERS), 0);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_HEAP_HELPERS), 0);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_ENV_FILE_IO), 0);
+    try assert_eq_i32(portable_mir_target_profile_supports_runtime_capability(&free, MIR_RUNTIME_CAP_SYSCALL), 1);
 }
 
 test "PortableMIR verifier gates call ABI and runtime capability by profile" {
@@ -571,6 +579,27 @@ test "PortableMIR verifier gates call ABI and runtime capability by profile" {
     try assert_eq_i32(portable_mir_verify_module(&ok_memory, &result), 0);
     try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
 
+    var ok_print: PortableMirModule = abi_empty_module(portable_mir_target_profile_hosted_native());
+    abi_fill_module(&ok_print, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
+        MIR_RUNTIME_HELPER_PRINT, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
+    try assert_eq_i32(portable_mir_verify_module(&ok_print, &result), 0);
+    try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
+
+    var ok_heap: PortableMirModule = abi_empty_module(portable_mir_target_profile_hosted_native());
+    abi_fill_module(&ok_heap, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
+        MIR_RUNTIME_HELPER_MALLOC, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
+    try assert_eq_i32(portable_mir_verify_module(&ok_heap, &result), 0);
+    try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
+
+    var ok_env: PortableMirModule = abi_empty_module(portable_mir_target_profile_hosted_native());
+    abi_fill_module(&ok_env, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
+        MIR_RUNTIME_HELPER_ENV, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
+    try assert_eq_i32(portable_mir_verify_module(&ok_env, &result), 0);
+    try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
+
     var bad_free: PortableMirModule = abi_empty_module(portable_mir_target_profile_freestanding_native());
     abi_fill_module(&bad_free, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
         MIR_RUNTIME_CAP_C_EXTERN, &functions[0], &blocks[0], &values[0],
@@ -592,6 +621,22 @@ test "PortableMIR verifier gates call ABI and runtime capability by profile" {
         MIR_RUNTIME_HELPER_MEMCPY, &functions[0], &blocks[0], &values[0],
         &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
     try assert_eq_i32(portable_mir_verify_module(&bad_memory_free, &result), -1);
+    try assert_eq_i32(result.error_code, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);
+
+    var ok_syscall: PortableMirModule =
+        abi_empty_module(portable_mir_target_profile_freestanding_native());
+    abi_fill_module(&ok_syscall, MIR_RUNTIME_CAP_FREESTANDING, MIR_CALL_CONV_SYSCALL,
+        MIR_RUNTIME_HELPER_SYSCALL, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
+    try assert_eq_i32(portable_mir_verify_module(&ok_syscall, &result), 0);
+    try assert_eq_i32(result.error_code, MIR_VERIFY_OK);
+
+    var bad_syscall_hosted: PortableMirModule =
+        abi_empty_module(portable_mir_target_profile_hosted_native());
+    abi_fill_module(&bad_syscall_hosted, MIR_RUNTIME_CAP_C_EXTERN, MIR_CALL_CONV_C,
+        MIR_RUNTIME_HELPER_SYSCALL, &functions[0], &blocks[0], &values[0],
+        &types[0], &insts[0], &terms[0], &operands[0], &caps[0]);
+    try assert_eq_i32(portable_mir_verify_module(&bad_syscall_hosted, &result), -1);
     try assert_eq_i32(result.error_code, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);
 }
 

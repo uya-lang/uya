@@ -67,6 +67,15 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 cat "$IDS_FILE" >"$tmp_dir/main.uya"
 cat >>"$tmp_dir/main.uya" <<'EOF'
+extern "libc" fn malloc(size: usize) &void;
+extern "libc" fn free(ptr: &void) void;
+extern "libc" fn realloc(ptr: &void, size: usize) &void;
+extern "libc" fn memcpy(dest: &void, src: &const void, n: usize) &void;
+extern "libc" fn memmove(dest: &void, src: &const void, n: usize) &void;
+extern "libc" fn memset(s: &void, c: i32, n: usize) &void;
+extern "libc" fn printf(format: *byte, ...) i32;
+extern "libc" fn exit(status: i32) void;
+
 export type CoreBodyId = i32;
 export type CoreStmtId = i32;
 export type CoreExprId = i32;
@@ -84,14 +93,27 @@ export const MIR_CALL_CONV_UYA: i32 = 1;
 export const MIR_CALL_CONV_C: i32 = 2;
 export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
 export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
+export const MIR_RUNTIME_CAP_FREESTANDING: i32 = 4;
 export const MIR_RUNTIME_CAP_MEMORY_HELPERS: i32 = 8;
 export const MIR_RUNTIME_CAP_STRING_PRIMITIVES: i32 = 16;
 export const MIR_RUNTIME_HELPER_MEMCPY: i32 = 101;
 export const MIR_RUNTIME_HELPER_MEMSET: i32 = 102;
 export const MIR_RUNTIME_HELPER_MEMCMP: i32 = 103;
 export const MIR_RUNTIME_HELPER_STRING_PRIMITIVE: i32 = 104;
+export const MIR_RUNTIME_CAP_PRINT_HELPERS: i32 = 32;
+export const MIR_RUNTIME_CAP_HEAP_HELPERS: i32 = 64;
+export const MIR_RUNTIME_CAP_ENV_FILE_IO: i32 = 128;
+export const MIR_RUNTIME_CAP_SYSCALL: i32 = 256;
+export const MIR_RUNTIME_HELPER_PRINT: i32 = 201;
+export const MIR_RUNTIME_HELPER_PRINTLN: i32 = 202;
+export const MIR_RUNTIME_HELPER_MALLOC: i32 = 203;
+export const MIR_RUNTIME_HELPER_FREE: i32 = 204;
+export const MIR_RUNTIME_HELPER_ENV: i32 = 205;
+export const MIR_RUNTIME_HELPER_FILE_IO: i32 = 206;
+export const MIR_RUNTIME_HELPER_SYSCALL: i32 = 207;
 EOF
-cat "$ARENA_FILE" "$TABLE_FILE" >>"$tmp_dir/main.uya"
+sed -e '/^use libc;$/d' -e 's/fprintf(libc\.stderr, /printf(/g' \
+    "$ARENA_FILE" "$TABLE_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
 export struct ConcreteFunction {
@@ -697,7 +719,7 @@ export fn main() i32 {
     module.target_profile.pointer_size = 8;
 
     if golden_append_module(&module) != 0 {
-        fprintf(libc.stderr, "golden append failed\n" as *byte);
+        printf("golden append failed\n" as *byte);
         return 1;
     }
 
@@ -713,7 +735,7 @@ export fn main() i32 {
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
     };
     if portable_mir_verify_module(&module, &verify) != 0 {
-        fprintf(libc.stderr, "golden verify failed code=%d fn=%d bb=%d inst=%d value=%d type=%d\n" as *byte,
+        printf("golden verify failed code=%d fn=%d bb=%d inst=%d value=%d type=%d\n" as *byte,
             verify.error_code, verify.function_id, verify.block_id, verify.inst_id,
             verify.value_id, verify.type_id);
         return 1;
