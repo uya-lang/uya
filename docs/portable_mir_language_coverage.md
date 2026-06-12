@@ -90,19 +90,19 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
 | `AST_USE_STMT` | done | missing | `use smoke_helper;` 由 Phase 9A 验证。 |
 | `AST_C_IMPORT_DECL` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；sidecar object parity 待补。 |
-| `AST_IF_STMT` | done | missing | Phase 9A 验证（基础 if-return）。 |
-| `AST_WHILE_STMT` | done | missing | Phase 9A 验证。 |
+| `AST_IF_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；break/continue cleanup edge 待补。 |
+| `AST_WHILE_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 待补。 |
 | `AST_FOR_STMT` | done | missing | Phase 9A 验证。 |
 | `AST_BREAK_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
-| `AST_RETURN_STMT` | done | missing | Phase 9A 验证；`return literal`/`return call` shard。 |
+| `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
 | `AST_DEFER_STMT` | done | missing | C99 oracle 已覆盖；MIR cleanup edge 到 MIR-C99 parity 待补。 |
 | `AST_ERRDEFER_STMT` | partial | missing | C99 通过；MIR 已有 `CORE_STMT_KIND_ERRDEFER` 占位，MIR-C99 cleanup parity 待补。 |
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
-| `AST_ASSIGN` | done | missing | Phase 9A 验证（`atomic_value += 2` 走 fetch_add）。 |
+| `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic/aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
 | `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
-| `AST_BINARY_EXPR` | done | missing | Phase 9A 验证（`==`/`<`/`+` 等）。 |
+| `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | missing | Phase 9A 验证。 |
 | `AST_CALL_EXPR` | done | missing | Phase 9A 验证（method call / 泛型 call）。 |
 | `AST_MEMBER_ACCESS` | done | missing | `counter.double`/`self.value` 等。 |
@@ -178,17 +178,17 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_STMT_KIND_RETURN` | done | missing | Phase 9A 验证。 |
+| `CORE_STMT_KIND_RETURN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar return。 |
 | `CORE_STMT_KIND_ASM` | partial | missing | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
 | `CORE_STMT_KIND_DEFER` | done | missing | C99 oracle 已覆盖；MIR-C99 cleanup parity 待补。 |
 | `CORE_STMT_KIND_ERRDEFER` | partial | missing | 占位；C99 端到端。 |
 | `CORE_STMT_KIND_DROP` | done | missing | `drop` shard 同上。 |
 | `CORE_STMT_KIND_ERROR_PROPAGATION` | done | missing | `try` 表达式。 |
-| `CORE_STMT_KIND_LOCAL_DECL` | done | missing | Phase 9A 验证。 |
-| `CORE_STMT_KIND_IF` | done | missing | Phase 9A 验证。 |
-| `CORE_STMT_KIND_ASSIGN` | done | missing | Phase 9A 验证。 |
+| `CORE_STMT_KIND_LOCAL_DECL` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local declaration。 |
+| `CORE_STMT_KIND_IF` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch。 |
+| `CORE_STMT_KIND_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assignment。 |
 | `CORE_STMT_KIND_EXPR` | done | missing | 表达式语句入口。 |
-| `CORE_STMT_KIND_WHILE` | partial | missing | Core kind 已存在；通用 CFG lowering 和 MIR-C99 loop/backedge parity 待补。 |
+| `CORE_STMT_KIND_WHILE` | partial | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 和复杂 cleanup edge 待补。 |
 
 ---
 
