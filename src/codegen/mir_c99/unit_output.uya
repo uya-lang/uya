@@ -1,0 +1,129 @@
+// codegen/mir_c99/unit_output.uya - Single-unit MIR-C99 output writer contract.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_OUTPUT_SECTION_INCLUDE: i32 = 1;
+export const MIR_C99_OUTPUT_SECTION_TYPEDEF: i32 = 2;
+export const MIR_C99_OUTPUT_SECTION_EXTERN_PROTOTYPE: i32 = 3;
+export const MIR_C99_OUTPUT_SECTION_FUNCTION_PROTOTYPE: i32 = 4;
+export const MIR_C99_OUTPUT_SECTION_GLOBAL: i32 = 5;
+export const MIR_C99_OUTPUT_SECTION_FUNCTION_BODY: i32 = 6;
+
+export const MIR_C99_OUTPUT_STATUS_ERROR: i32 = -1;
+export const MIR_C99_OUTPUT_STATUS_READY: i32 = 1;
+export const MIR_C99_OUTPUT_STATUS_DONE: i32 = 2;
+
+/// 功能说明：记录 MIR-C99 单 unit 输出 writer 的 section 统计。
+/// 参数说明：无；字段按固定 section 顺序累计 ref count 和 C byte 估算。
+/// 返回值说明：无。
+export struct MirC99UnitOutputStats {
+    include_count: usize,
+    typedef_count: usize,
+    extern_prototype_count: usize,
+    function_prototype_count: usize,
+    global_count: usize,
+    function_body_count: usize,
+    helper_count: usize,
+    dep_count: usize,
+    section_count: i32,
+    output_bytes: usize,
+}
+
+/// 功能说明：记录 MIR-C99 单 unit 输出 writer 状态。
+/// 参数说明：无；writer 只保存 MIR-C99 plan/unit 指针，不读取高层 body 或 legacy C backend。
+/// 返回值说明：无。
+export struct MirC99UnitOutputWriter {
+    status: i32,
+    plan: &MirC99Plan,
+    unit: &MirC99Unit,
+    stats: MirC99UnitOutputStats,
+    diagnostic_code: i32,
+}
+
+fn mir_c99_unit_output_empty_stats() MirC99UnitOutputStats {
+    return MirC99UnitOutputStats{
+        include_count: 0usize,
+        typedef_count: 0usize,
+        extern_prototype_count: 0usize,
+        function_prototype_count: 0usize,
+        global_count: 0usize,
+        function_body_count: 0usize,
+        helper_count: 0usize,
+        dep_count: 0usize,
+        section_count: 0,
+        output_bytes: 0usize,
+    };
+}
+
+fn mir_c99_unit_output_estimate_ref_bytes(count: usize) usize {
+    return count * 32usize;
+}
+
+fn mir_c99_unit_output_refresh_stats(writer: &MirC99UnitOutputWriter) i32 {
+    if writer == null || writer.unit == null {
+        return -1;
+    }
+    writer.stats.include_count = writer.unit.includes.count;
+    writer.stats.typedef_count = writer.unit.typedefs.count;
+    writer.stats.extern_prototype_count = writer.unit.prototypes.count;
+    writer.stats.function_prototype_count = writer.unit.prototypes.count;
+    writer.stats.global_count = writer.unit.globals.count;
+    writer.stats.function_body_count = writer.unit.functions.count;
+    writer.stats.helper_count = writer.unit.helpers.count;
+    writer.stats.dep_count = writer.unit.deps.count;
+    writer.stats.section_count = 6;
+    writer.stats.output_bytes =
+        mir_c99_unit_output_estimate_ref_bytes(writer.stats.include_count) +
+        mir_c99_unit_output_estimate_ref_bytes(writer.stats.typedef_count) +
+        mir_c99_unit_output_estimate_ref_bytes(writer.stats.extern_prototype_count) +
+        mir_c99_unit_output_estimate_ref_bytes(writer.stats.function_prototype_count) +
+        mir_c99_unit_output_estimate_ref_bytes(writer.stats.global_count) +
+        mir_c99_unit_output_estimate_ref_bytes(writer.stats.function_body_count);
+    return 0;
+}
+
+/// 功能说明：初始化 MIR-C99 单 unit 输出 writer。
+/// 参数说明：`writer` 为输出 writer，`plan` 为 MIR-C99 plan，`unit` 为待输出 unit。
+/// 返回值说明：成功返回 `0`，参数非法或 plan 未激活返回 `-1`。
+export fn mir_c99_unit_output_writer_begin(writer: &MirC99UnitOutputWriter,
+    plan: &MirC99Plan, unit: &MirC99Unit) i32 {
+    if writer == null || plan == null || unit == null ||
+       plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    writer.status = MIR_C99_OUTPUT_STATUS_READY;
+    writer.plan = plan;
+    writer.unit = unit;
+    writer.stats = mir_c99_unit_output_empty_stats();
+    writer.diagnostic_code = 0;
+    if mir_c99_unit_output_refresh_stats(writer) != 0 {
+        writer.status = MIR_C99_OUTPUT_STATUS_ERROR;
+        writer.diagnostic_code = -1;
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：确认 MIR-C99 单 unit 输出 section 顺序合同。
+/// 参数说明：`section_index` 为从 0 开始的 section 顺序。
+/// 返回值说明：返回 `MIR_C99_OUTPUT_SECTION_*`；未知下标返回 `0`。
+export fn mir_c99_unit_output_section_at(section_index: i32) i32 {
+    if section_index == 0 { return MIR_C99_OUTPUT_SECTION_INCLUDE; }
+    if section_index == 1 { return MIR_C99_OUTPUT_SECTION_TYPEDEF; }
+    if section_index == 2 { return MIR_C99_OUTPUT_SECTION_EXTERN_PROTOTYPE; }
+    if section_index == 3 { return MIR_C99_OUTPUT_SECTION_FUNCTION_PROTOTYPE; }
+    if section_index == 4 { return MIR_C99_OUTPUT_SECTION_GLOBAL; }
+    if section_index == 5 { return MIR_C99_OUTPUT_SECTION_FUNCTION_BODY; }
+    return 0;
+}
+
+/// 功能说明：完成 MIR-C99 单 unit 输出 writer 的统计阶段。
+/// 参数说明：`writer` 为已初始化 writer。
+/// 返回值说明：成功返回 output bytes 估算，状态非法返回 `-1`。
+export fn mir_c99_unit_output_writer_finish(writer: &MirC99UnitOutputWriter) i32 {
+    if writer == null || writer.status != MIR_C99_OUTPUT_STATUS_READY {
+        return -1;
+    }
+    writer.status = MIR_C99_OUTPUT_STATUS_DONE;
+    return writer.stats.output_bytes as i32;
+}
