@@ -1,0 +1,141 @@
+// codegen/mir_c99/cfg.uya - MIR CFG to MIR-C99 function/block plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_CFG_FUNCTION_STATUS_PLANNED: i32 = 1;
+export const MIR_C99_CFG_FUNCTION_STATUS_REJECT: i32 = 2;
+
+/// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
+/// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
+/// 返回值说明：无；具体 block/terminator 输出由后续 CFG leaf 填充。
+export struct MirC99FunctionPlanEntry {
+    function_id: MirFunctionId,
+    unit_id: i32,
+    c_name_source_id: i32,
+    signature_type_id: MirTypeId,
+    block_start: i32,
+    block_count: i32,
+    entry_block_id: MirBlockId,
+    status: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 MIR-C99 CFG function plan。
+/// 参数说明：无；`functions` 动态保存所有 MIR function -> C function 映射。
+/// 返回值说明：无。
+export struct MirC99CfgPlan {
+    functions: SemanticVector,
+    function_count: usize,
+    reject_count: usize,
+}
+
+fn mir_c99_cfg_function_entry_from_mir(function: &MirFunction, unit_id: i32) MirC99FunctionPlanEntry {
+    if function == null {
+        return MirC99FunctionPlanEntry{
+            function_id: MIR_FUNCTION_INVALID_ID,
+            unit_id: unit_id,
+            c_name_source_id: MIR_FUNCTION_INVALID_ID,
+            signature_type_id: MIR_TYPE_INVALID_ID,
+            block_start: -1,
+            block_count: 0,
+            entry_block_id: MIR_BLOCK_INVALID_ID,
+            status: MIR_C99_CFG_FUNCTION_STATUS_REJECT,
+            flags: 0,
+        };
+    }
+    return MirC99FunctionPlanEntry{
+        function_id: function.function_id,
+        unit_id: unit_id,
+        c_name_source_id: function.function_id,
+        signature_type_id: function.signature_type_id,
+        block_start: function.block_start,
+        block_count: function.block_count,
+        entry_block_id: function.entry_block_id,
+        status: MIR_C99_CFG_FUNCTION_STATUS_PLANNED,
+        flags: function.flags,
+    };
+}
+
+/// 功能说明：初始化 MIR-C99 CFG function plan。
+/// 参数说明：`plan` 为输出 CFG plan。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    semantic_vector_init(&plan.functions, @size_of(MirC99FunctionPlanEntry));
+    plan.function_count = 0usize;
+    plan.reject_count = 0usize;
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 CFG function plan。
+/// 参数说明：`plan` 为待释放 CFG plan；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
+    if plan == null {
+        return;
+    }
+    semantic_vector_release(&plan.functions);
+    plan.function_count = 0usize;
+    plan.reject_count = 0usize;
+}
+
+/// 功能说明：向 MIR-C99 CFG plan 追加一个 MIR function -> C function 映射。
+/// 参数说明：`cfg_plan` 为 CFG plan，`output_plan` 为 MIR-C99 plan，`unit` 为目标 unit，`function` 为 MIR function。
+/// 返回值说明：成功返回 `0`，参数非法或动态表追加失败返回 `-1`。
+export fn mir_c99_cfg_plan_append_function(cfg_plan: &MirC99CfgPlan,
+    output_plan: &MirC99Plan, unit: &MirC99Unit, function: &MirFunction) i32 {
+    if cfg_plan == null || output_plan == null || unit == null || function == null {
+        return -1;
+    }
+    const entry: MirC99FunctionPlanEntry =
+        mir_c99_cfg_function_entry_from_mir(function, unit.unit_id);
+    if semantic_vector_append(&cfg_plan.functions, &entry as &const void) != 0 {
+        return -1;
+    }
+    cfg_plan.function_count = cfg_plan.functions.count;
+    if entry.status == MIR_C99_CFG_FUNCTION_STATUS_REJECT {
+        cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
+        return -1;
+    }
+    if mir_c99_plan_append_ref(output_plan, MIR_C99_REF_KIND_FUNCTION,
+        entry.function_id, entry.c_name_source_id, entry.flags) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_FUNCTION,
+        entry.function_id, entry.c_name_source_id, entry.flags) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：从 PortableMIR module 构建 MIR function -> C function 映射。
+/// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 plan，`unit` 为目标 single unit，`cfg_plan` 为输出 CFG plan。
+/// 返回值说明：全部 function 映射成功返回 `0`，参数非法或任一 function 失败返回 `-1`。
+export fn mir_c99_cfg_plan_build_functions(module: &PortableMirModule,
+    output_plan: &MirC99Plan, unit: &MirC99Unit, cfg_plan: &MirC99CfgPlan) i32 {
+    if module == null || output_plan == null || unit == null || cfg_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction = semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
+        if mir_c99_cfg_plan_append_function(cfg_plan, output_plan, unit, function) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：按下标读取 MIR-C99 function plan 条目。
+/// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_cfg_function_entry_ptr(cfg_plan: &MirC99CfgPlan, index: i32) &MirC99FunctionPlanEntry {
+    if cfg_plan == null || index < 0 || (index as usize) >= cfg_plan.functions.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&cfg_plan.functions, index as usize) as &MirC99FunctionPlanEntry;
+}

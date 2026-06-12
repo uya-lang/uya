@@ -1,5 +1,6 @@
 // codegen/mir_c99/driver.uya - MIR-C99 backend driver from target request.
 
+use codegen.mir_c99.cfg;
 use codegen.mir_c99.emitter;
 use codegen.mir_c99.names;
 use codegen.mir_c99.plan;
@@ -18,6 +19,7 @@ export struct MirC99DriverResult {
     output_kind: i32,
     plan: &MirC99Plan,
     unit_count: usize,
+    function_count: usize,
     type_count: usize,
     name_count: usize,
     output_bytes: usize,
@@ -43,6 +45,7 @@ export fn mir_c99_driver_result_init(result: &MirC99DriverResult) i32 {
     result.output_kind = MIR_BACKEND_OUTPUT_MIR_C99_PLAN;
     result.plan = null;
     result.unit_count = 0usize;
+    result.function_count = 0usize;
     result.type_count = 0usize;
     result.name_count = 0usize;
     result.output_bytes = 0usize;
@@ -86,10 +89,10 @@ fn mir_c99_driver_seed_names(module: &PortableMirModule, names: &MirC99NamePlan)
 /// 参数说明：`request` 必须是 `MIR_TARGET_BACKEND_C99`，`plan`/`type_plan`/`name_plan`/`emitter`/`result` 为调用方提供的输出结构。
 /// 返回值说明：成功返回 `0`，request 非法、计划构建失败或 emitter 拒绝时返回 `-1`。
 export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &CompilerArena,
-    plan: &MirC99Plan, type_plan: &MirC99TypePlan, name_plan: &MirC99NamePlan,
+    plan: &MirC99Plan, type_plan: &MirC99TypePlan, name_plan: &MirC99NamePlan, cfg_plan: &MirC99CfgPlan,
     emitter: &MirC99Emitter, result: &MirC99DriverResult) i32 {
     if request == null || plan == null || type_plan == null ||
-       name_plan == null || emitter == null || result == null {
+       name_plan == null || cfg_plan == null || emitter == null || result == null {
         return -1;
     }
     if mir_c99_driver_result_init(result) != 0 {
@@ -106,13 +109,23 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_plan_add_unit(plan, MIR_C99_UNIT_KIND_PRIMARY) < 0 {
         return mir_c99_driver_error(result, -1);
     }
+    const primary_unit: &MirC99Unit = mir_c99_plan_unit_ptr(plan, 0);
+    if primary_unit == null {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_type_plan_init(type_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
     if mir_c99_name_plan_init(name_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
+    if mir_c99_cfg_plan_init(cfg_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_type_plan_build(request.module, plan, type_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_cfg_plan_build_functions(request.module, plan, primary_unit, cfg_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
     if mir_c99_driver_seed_names(request.module, name_plan) != 0 {
@@ -126,6 +139,7 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     result.status = MIR_C99_DRIVER_STATUS_DONE;
     result.output_kind = MIR_BACKEND_OUTPUT_MIR_C99_PLAN;
     result.unit_count = plan.units.count;
+    result.function_count = cfg_plan.function_count;
     result.type_count = type_plan.count;
     result.name_count = name_plan.count;
     result.output_bytes = out.output_bytes;
