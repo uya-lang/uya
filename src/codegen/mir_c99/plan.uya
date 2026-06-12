@@ -140,6 +140,66 @@ fn mir_c99_stats_add_vector(stats: &MirC99PlanStats, vec: &SemanticVector) void 
     stats.table_realloc_count = stats.table_realloc_count + vec.realloc_count;
 }
 
+fn mir_c99_hash_mix_u64(hash: u64, value: u64) u64 {
+    return (hash ^ value) * 1099511628211u64;
+}
+
+fn mir_c99_hash_mix_i32(hash: u64, value: i32) u64 {
+    return mir_c99_hash_mix_u64(hash, value as u64);
+}
+
+fn mir_c99_unit_fingerprint_refs(hash: u64, vec: &SemanticVector) u64 {
+    if vec == null {
+        return hash;
+    }
+    var h: u64 = mir_c99_hash_mix_u64(hash, vec.count);
+    var i: usize = 0usize;
+    while i < vec.count {
+        const ref: &MirC99Ref = semantic_vector_item_ptr(vec, i) as &MirC99Ref;
+        if ref != null {
+            h = mir_c99_hash_mix_i32(h, ref.kind);
+            h = mir_c99_hash_mix_i32(h, ref.source_id);
+            h = mir_c99_hash_mix_i32(h, ref.aux_id);
+            h = mir_c99_hash_mix_i32(h, ref.flags);
+        }
+        i = i + 1usize;
+    }
+    return h;
+}
+
+/// 功能说明：计算 MIR-C99 unit 的结构性 fingerprint。
+/// 参数说明：`unit` 为待计算 unit；只读取稳定 ID、kind、ref 顺序和 ref metadata。
+/// 返回值说明：返回与路径文本、空白无关的 64-bit fingerprint；参数非法返回 `0`。
+export fn mir_c99_unit_compute_fingerprint(unit: &MirC99Unit) u64 {
+    if unit == null {
+        return 0u64;
+    }
+    var h: u64 = 1469598103934665603u64;
+    h = mir_c99_hash_mix_i32(h, unit.unit_id);
+    h = mir_c99_hash_mix_i32(h, unit.kind);
+    h = mir_c99_hash_mix_i32(h, unit.name_id);
+    h = mir_c99_hash_mix_i32(h, unit.source_file_id);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.includes);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.typedefs);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.prototypes);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.globals);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.functions);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.helpers);
+    h = mir_c99_unit_fingerprint_refs(h, &unit.deps);
+    return h;
+}
+
+/// 功能说明：刷新 MIR-C99 unit 的结构性 fingerprint。
+/// 参数说明：`unit` 为待刷新 unit。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_unit_refresh_fingerprint(unit: &MirC99Unit) i32 {
+    if unit == null {
+        return -1;
+    }
+    unit.fingerprint = mir_c99_unit_compute_fingerprint(unit);
+    return 0;
+}
+
 /// 功能说明：初始化一个 MIR-C99 unit 计划。
 /// 参数说明：`unit` 为输出 unit，`unit_id` 为稳定下标，`kind` 为 `MIR_C99_UNIT_KIND_*`。
 /// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
@@ -187,28 +247,26 @@ export fn mir_c99_unit_append_ref(unit: &MirC99Unit, kind: i32, source_id: i32, 
     if unit == null {
         return -1;
     }
+    var status: i32 = -1;
     if kind == MIR_C99_REF_KIND_INCLUDE {
-        return mir_c99_vec_append_ref(&unit.includes, kind, source_id, aux_id, flags);
+        status = mir_c99_vec_append_ref(&unit.includes, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_TYPEDEF {
+        status = mir_c99_vec_append_ref(&unit.typedefs, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_PROTOTYPE {
+        status = mir_c99_vec_append_ref(&unit.prototypes, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_GLOBAL {
+        status = mir_c99_vec_append_ref(&unit.globals, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_FUNCTION {
+        status = mir_c99_vec_append_ref(&unit.functions, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_HELPER {
+        status = mir_c99_vec_append_ref(&unit.helpers, kind, source_id, aux_id, flags);
+    } else if kind == MIR_C99_REF_KIND_DEP {
+        status = mir_c99_vec_append_ref(&unit.deps, kind, source_id, aux_id, flags);
     }
-    if kind == MIR_C99_REF_KIND_TYPEDEF {
-        return mir_c99_vec_append_ref(&unit.typedefs, kind, source_id, aux_id, flags);
+    if status != 0 {
+        return -1;
     }
-    if kind == MIR_C99_REF_KIND_PROTOTYPE {
-        return mir_c99_vec_append_ref(&unit.prototypes, kind, source_id, aux_id, flags);
-    }
-    if kind == MIR_C99_REF_KIND_GLOBAL {
-        return mir_c99_vec_append_ref(&unit.globals, kind, source_id, aux_id, flags);
-    }
-    if kind == MIR_C99_REF_KIND_FUNCTION {
-        return mir_c99_vec_append_ref(&unit.functions, kind, source_id, aux_id, flags);
-    }
-    if kind == MIR_C99_REF_KIND_HELPER {
-        return mir_c99_vec_append_ref(&unit.helpers, kind, source_id, aux_id, flags);
-    }
-    if kind == MIR_C99_REF_KIND_DEP {
-        return mir_c99_vec_append_ref(&unit.deps, kind, source_id, aux_id, flags);
-    }
-    return -1;
+    return mir_c99_unit_refresh_fingerprint(unit);
 }
 
 /// 功能说明：初始化 MIR-C99 输出计划。
@@ -310,6 +368,10 @@ export fn mir_c99_plan_add_unit(plan: &MirC99Plan, kind: i32) i32 {
         return -1;
     }
     plan.unit_count = plan.units.count;
+    const stored: &MirC99Unit = mir_c99_plan_unit_ptr(plan, unit_id);
+    if mir_c99_unit_refresh_fingerprint(stored) != 0 {
+        return -1;
+    }
     return unit_id;
 }
 
