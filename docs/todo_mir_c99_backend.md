@@ -485,7 +485,10 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [ ] multi-file module/use/import alias。
     - [x] multi-file module item use parity。
       - 验证：`bash tests/verify_mir_c99_full_language_multifile_use_parity.sh` 通过，覆盖临时 project-root 下 `use dep.exported_sum;` 跨文件 item import，经默认 MIR-C99 generator 写出 `.c`、host C compiler 编译运行，并与现有 C99 oracle stdout/stderr/exit code 一致；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过（1 个 active task，标完成前）；`git diff --check` 通过。说明：现有 C99 oracle 编译阶段仍输出既有 pedantic warning，但上述命令退出码均为 0。
-    - [ ] whole-module import alias parity：现有 C99 oracle 需先避免将 `use dep as d; d.fn()` 降成 unresolved `unknown(...)`。
+    - [f] whole-module import alias parity：现有 C99 oracle 需先避免将 `use dep as d; d.fn()` 降成 unresolved `unknown(...)`。
+      - 失败原因（2026-06-12）：新增最小 `use dep as d; d.exported_sum(20, 22)` 探针后，`C99_ORACLE_GENERATE_CMD="bash ./tests/c99_oracle_generate.sh {input} {output} {log} --project-root <case-root>" bash tests/verify_mir_c99_oracle_parity_harness.sh --case <case>/main.uya --keep-tmp` 复现现有 C99 oracle 生成 `const int32_t sum = unknown(20, 22);`，host C 链接失败于 `undefined reference to 'unknown'`。
+      - 恢复尝试：在 `src/codegen/c99_build/expr.uya` / `src/codegen/c99/expr.uya` 内联 whole-module alias import-table 解析，并给 `tests/mir_c99_generate.sh` / `tests/verify_mir_c99_full_language_multifile_use_parity.sh` 增加 alias parity case；但刷新 oracle 所需的 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 被当前旧 `./bin/uya` 自身的固定函数表容量阻塞，报 `src/codegen/mir_c99/plan.uya:(298:8): 错误: 函数表容量不足，请增大 FUNCTION_TABLE_SIZE`，无法产出新的 `bin/cmd/build` 验证修复。
+      - 本轮未提交未验证通过的生产/测试改动；后续需先用可恢复的 seed/新编译器解决旧二进制函数表容量，再重开该 parity 叶。
   - [ ] struct/union/enum/tuple。
   - [ ] array/slice/pointer。
   - [ ] generic function / generic struct / method instance。
