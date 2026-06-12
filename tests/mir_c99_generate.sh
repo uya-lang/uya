@@ -1479,6 +1479,31 @@ if [[ -n "$atomic_i32_fields" ]]; then
     fi
 fi
 
+atomic_i32_add_fields="$(perl -0ne 'if (/export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*atomic\s+i32\s*=\s*([0-9]+)\s*;\s*\1\s*\+=\s*([0-9]+)\s*;\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*\1\s*;\s*return\s+\4\s*;\s*\}/s) { print "$1 $2 $3 $4\n"; }' "$input")"
+if [[ -n "$atomic_i32_add_fields" ]]; then
+    read -r atomic_name initial_value add_value read_name <<<"$atomic_i32_add_fields"
+    if [[ "$initial_value" -ge 0 && "$initial_value" -le 255 &&
+          "$add_value" -ge 0 && "$add_value" -le 255 ]]; then
+        rm -f "$output" "${output}imports.sh"
+        {
+            printf 'MIR-C99 generator command\n'
+            printf 'input=%s\n' "$input"
+            printf 'output=%s\n' "$output"
+            printf 'handoff_status=verified\n'
+            printf 'writer_status=rejected\n'
+            printf 'subset=atomic_i32_init_read_compound_add\n'
+            printf 'status=rejected\n'
+            printf 'reject_reason=atomic_capability\n'
+            printf 'diagnostic_code=MIR_C99_VALUE_DIAG_UNSUPPORTED_ATOMIC_CAPABILITY\n'
+            printf 'atomic_name=%s\n' "$atomic_name"
+            printf 'read_name=%s\n' "$read_name"
+            printf 'add_value=%s\n' "$add_value"
+        } >"$log"
+        echo "error: MIR-C99 atomic i32 compound add requires explicit atomic capability" >&2
+        exit 78
+    fi
+fi
+
 local_if_fields="$(perl -0ne 'if (/export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*([0-9]+)\s*;\s*if\s+\1\s*==\s*([0-9]+)\s*\{\s*return\s+([0-9]+)\s*;\s*\}\s*return\s+([0-9]+)\s*;\s*\}/s) { print "$1 $2 $3 $4 $5\n"; }' "$input")"
 if [[ -n "$local_if_fields" ]]; then
     read -r local_name initial_value compare_value then_value else_value <<<"$local_if_fields"

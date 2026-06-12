@@ -85,7 +85,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_FN_DECL` | done | missing | 主路径；`export fn` / `fn` 已走 CoreBody。 |
 | `AST_MACRO_DECL` | partial | missing | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
 | `AST_TYPE_ALIAS` | done | missing | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
-| `AST_VAR_DECL` | done | partial | MIR-C99 interface composition/field/global init parity shard 覆盖全局 `const` aggregate initializer 内的 interface value 初始化；`var array`/`var atomic_value` 等仍待专用 shard。 |
+| `AST_VAR_DECL` | done | partial | MIR-C99 interface composition/field/global init parity shard 覆盖全局 `const` aggregate initializer 内的 interface value 初始化；atomic local var 当前由 atomic compound-add reject shard 明确 capability reject。 |
 | `AST_EXTERN_VAR_DECL` | done | partial | MIR-C99 已支持 extern global plan/output 的 declaration-only 路径；extern global parity 待后续 shard。 |
 | `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
 | `AST_USE_STMT` | done | partial | MIR-C99 full-language multi-file module item use parity shard 覆盖跨文件 item import；whole-module alias parity 待补。 |
@@ -99,7 +99,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_DEFER_STMT` | done | missing | C99 oracle 已覆盖；MIR cleanup edge 到 MIR-C99 parity 待补。 |
 | `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer。 |
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
-| `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic/aggregate assign 由专用 shard 覆盖。 |
+| `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic compound assignment 当前由 atomic compound-add reject shard 明确 capability reject；aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
 | `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
@@ -163,7 +163,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
 | `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取。 |
-| `AST_TYPE_ATOMIC` | done | missing | `atomic T` 由 `atomic` shard 验证。 |
+| `AST_TYPE_ATOMIC` | done | reject | atomic compound-add reject shard 确认 `atomic i32` init/read/compound add 当前由 MIR-C99 explicit capability diagnostic 拒绝；接入 portable atomic helper 或 target capability 后必须改为真实 parity。 |
 | `AST_TYPE_VECTOR` | done | missing | `@vector(T, N)` 由 `simd` shard 验证。 |
 | `AST_TYPE_MASK` | done | missing | `@mask(N)` 由 `simd` shard 验证。 |
 | `AST_TYPE_FRAME` | partial | missing | `@frame(foo)` 异步帧类型走 async transform。 |
