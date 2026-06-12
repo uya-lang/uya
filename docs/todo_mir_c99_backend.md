@@ -298,7 +298,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_mir_c99_type_pointer_plan.sh` 通过，确认 `src/lower/mir.uya` 存在 `MIR_TYPE_KIND_POINTER` 和 `pointee_type_id` metadata，`src/lower/mir_verifier.uya` 校验 pointer 的 pointee type，`src/codegen/mir_c99/types.uya` 映射到 `MIR_C99_C_TYPE_KIND_POINTER` 并复制 `pointee_type_id`；`bin/uya check` 对拼接后的 MIR-C99 子模块通过。
     - [x] MIR array/slice type kind 缺口记录：`MIR_TYPE_KIND_ARRAY` / `MIR_TYPE_KIND_SLICE` 尚未进入实际 PortableMIR。
       - 验证：`bash tests/verify_mir_c99_type_array_slice_gap.sh` 通过，确认 `src/lower/mir.uya` / `src/lower/mir_verifier.uya` 尚无 `MIR_TYPE_KIND_ARRAY` / `MIR_TYPE_KIND_SLICE`，`src/codegen/mir_c99/types.uya` 未声明对应 MIR-C99 C type kind；当前仅保留 `element_type_id` metadata，不能提前生成 array/slice struct typedef。
-  - [ ] struct / union / enum layout，字段顺序和 size/align 与现有 C99 oracle 对齐。
+  - [x] struct / union / enum layout，字段顺序和 size/align 与现有 C99 oracle 对齐。
+    - 验证：`bash tests/verify_mir_c99_type_aggregate_layout_plan.sh` 通过；`bash tests/verify_mir_c99_type_field_layout.sh` 通过；`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过；`bash tests/verify_mir_c99_type_pointer_plan.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_structs.sh` 通过；`bash tests/verify_mir_c99_type_array_slice_gap.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_unit_output_sections.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] float/double 在 struct、array、slice、return value 和参数中的 size/align 与现有 C99 oracle 对齐。
   - [ ] error union layout。
   - [ ] function type / function pointer。
