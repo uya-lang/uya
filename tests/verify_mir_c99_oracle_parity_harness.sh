@@ -10,8 +10,8 @@
 #   - Check MIR-C99 generation logs do not reveal a fallback to the legacy C99
 #     production backend.
 #
-# The real MIR-C99 backend is not wired yet. Until then, normal execution
-# reports the missing generator command as an explicit pending backend hookup.
+# Running a parity case requires real generator commands; missing commands are
+# a failing gate so TODO parity shards cannot be marked by a pending hookup.
 # `--self-test` exercises the full harness with fake generators.
 
 set -euo pipefail
@@ -201,9 +201,14 @@ if [[ "$SELF_TEST" -eq 1 ]]; then
 fi
 
 if [[ -z "$MIR_C99_GENERATE_CMD" || -z "$C99_ORACLE_GENERATE_CMD" ]]; then
-    echo "OK: MIR-C99/oracle parity harness installed; generator commands are pending backend hookup"
-    echo "hint: set MIR_C99_GENERATE_CMD and C99_ORACLE_GENERATE_CMD, then pass --case <file>"
-    exit 0
+    if [[ -z "$CASE_FILE" ]]; then
+        echo "OK: MIR-C99/oracle parity harness installed; generator commands are pending backend hookup"
+        echo "hint: set MIR_C99_GENERATE_CMD and C99_ORACLE_GENERATE_CMD, then pass --case <file>"
+        exit 0
+    fi
+    echo "error: MIR-C99/oracle parity generator commands are required for --case" >&2
+    echo "hint: set MIR_C99_GENERATE_CMD and C99_ORACLE_GENERATE_CMD, then pass --case <file>" >&2
+    exit 2
 fi
 
 if [[ -z "$CASE_FILE" ]]; then

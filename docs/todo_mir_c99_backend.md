@@ -374,6 +374,14 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [x] error union success/fallback return。
     - 验证：`bash tests/verify_mir_c99_error_union_return_plan.sh` 通过；`bash tests/verify_mir_c99_cleanup_error_cfg_boundary.sh` 通过；`bash tests/verify_mir_c99_cleanup_drop_cfg_plan.sh` 通过；`bash tests/verify_portable_mir_error_union_cfg_inventory.sh` 通过；`bash tests/verify_mir_c99_type_error_union_layout.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 通过并报告 `generator commands are pending backend hookup`；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] parity shard：dynamic catch、defer local assign、lexical drop。
+    - [ ] 接入真实 MIR-C99 generator command/CLI，不再依赖 `MIR_C99_GENERATE_CMD` 占位；输出 `.c` 后必须经 host C compiler 参与 parity harness。
+      - [x] harness 在未配置真实 generator command 时必须失败，不能把 pending hookup 当作 parity 通过。
+        - 验证：`bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过，覆盖 `--case` 缺 generator 时失败；`bash tests/verify_mir_c99_oracle_parity_harness.sh --self-test` 通过，覆盖完整生成/host C compiler/运行/diff 流程；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 通过并仅作为安装检查报告 `generator commands are pending backend hookup`。
+      - [ ] 新增默认 MIR-C99 generator CLI/command，输出 `.c` 且日志无 legacy C99 fallback。
+      - [ ] 新增默认现有 C99 oracle generator command，输出 `.c` 供 host C compiler 对照。
+    - [ ] dynamic catch fallback/success 真实 MIR-C99 / 现有 C99 oracle parity。
+    - [ ] defer local assign 真实 MIR-C99 / 现有 C99 oracle parity。
+    - [ ] lexical drop 真实 MIR-C99 / 现有 C99 oracle parity。
 
 ### 4.12 Async
 
