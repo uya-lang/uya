@@ -645,6 +645,9 @@ fn portable_mir_verify_address_value_inst(module: &PortableMirModule,
     if portable_mir_inst_op_is_address(inst.op) == 0 {
         return 1;
     }
+    if inst.op == MIR_INST_OP_FIELD_ADDR {
+        return 1;
+    }
     if inst.operand_count != 1 ||
        portable_mir_verify_address_result_value(module, inst, typ) == 0 {
         return 0;
@@ -652,6 +655,103 @@ fn portable_mir_verify_address_value_inst(module: &PortableMirModule,
     const source: &MirOperand = portable_mir_verify_operand_ptr(module,
         inst.operand_start);
     return portable_mir_verify_address_source_lifetime(module, inst, source, typ);
+}
+
+fn portable_mir_verify_field_descriptor(module: &PortableMirModule,
+    field_descriptor: &MirOperand) &MirFieldLayout {
+    if module == null || field_descriptor == null ||
+       field_descriptor.immediate_i32 < 0 ||
+       field_descriptor.value_id != MIR_VALUE_INVALID_ID ||
+       field_descriptor.local_id != MIR_LOCAL_INVALID_ID {
+        return null;
+    }
+    const owner: &MirType = portable_mir_verify_type_ptr(module,
+        field_descriptor.type_id);
+    if owner == null ||
+       (owner.kind != MIR_TYPE_KIND_STRUCT && owner.kind != MIR_TYPE_KIND_UNION &&
+        owner.kind != MIR_TYPE_KIND_ENUM) ||
+       field_descriptor.immediate_i32 >= owner.field_count {
+        return null;
+    }
+    const field: &MirFieldLayout = portable_mir_verify_field_layout_ptr(module,
+        owner.field_start + field_descriptor.immediate_i32);
+    if field == null || field.owner_type_id != owner.type_id ||
+       field.field_index != field_descriptor.immediate_i32 ||
+       portable_mir_verify_type_ptr(module, field.field_type_id) == null {
+        return null;
+    }
+    return field;
+}
+
+fn portable_mir_verify_field_base_operand(module: &PortableMirModule,
+    base: &MirOperand, field_descriptor: &MirOperand) i32 {
+    if module == null || base == null || field_descriptor == null {
+        return 0;
+    }
+    const pointer_type: &MirType = portable_mir_verify_type_ptr(module,
+        base.type_id);
+    if pointer_type == null || pointer_type.kind != MIR_TYPE_KIND_POINTER ||
+       pointer_type.pointee_type_id != field_descriptor.type_id {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_field_result_or_store(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType, field: &MirFieldLayout) i32 {
+    if module == null || inst == null || field == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_FIELD_ADDR {
+        if inst.operand_count != 2 ||
+           portable_mir_verify_address_result_value(module, inst, typ) == 0 ||
+           typ.pointee_type_id != field.field_type_id {
+            return 0;
+        }
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_FIELD_LOAD {
+        if inst.operand_count != 2 ||
+           inst.result_value_id == MIR_VALUE_INVALID_ID ||
+           inst.type_id != field.field_type_id {
+            return 0;
+        }
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_FIELD_STORE {
+        if inst.operand_count != 3 ||
+           inst.result_value_id != MIR_VALUE_INVALID_ID ||
+           inst.type_id != field.field_type_id {
+            return 0;
+        }
+        const source: &MirOperand = portable_mir_verify_operand_ptr(module,
+            inst.operand_start + 2);
+        return portable_mir_verify_operand_type_id(module, source,
+            field.field_type_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_field_place_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if portable_mir_inst_op_is_field_place(inst.op) == 0 {
+        return 1;
+    }
+    if inst.operand_count < 2 {
+        return 0;
+    }
+    const base: &MirOperand = portable_mir_verify_operand_ptr(module,
+        inst.operand_start);
+    const field_descriptor: &MirOperand = portable_mir_verify_operand_ptr(module,
+        inst.operand_start + 1);
+    const field: &MirFieldLayout = portable_mir_verify_field_descriptor(module,
+        field_descriptor);
+    if field == null ||
+       portable_mir_verify_field_base_operand(module, base,
+        field_descriptor) == 0 {
+        return 0;
+    }
+    return portable_mir_verify_field_result_or_store(module, inst, typ, field);
 }
 
 fn portable_mir_verify_conversion_inst(module: &PortableMirModule,
@@ -982,6 +1082,9 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     }
     if portable_mir_verify_address_value_inst(module, inst, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if portable_mir_verify_field_place_inst(module, inst, typ) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
     if inst.op == MIR_INST_OP_LOCAL_SET &&
        (inst.operand_count != 2 || inst.result_value_id != MIR_VALUE_INVALID_ID ||
