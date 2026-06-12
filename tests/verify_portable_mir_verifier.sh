@@ -661,6 +661,24 @@ fn verifier_run(mode: i32) i32 {
         operands[0] = verifier_operand(0, 0, 12);
         operands[1] = verifier_operand(1, 0, 0);
     }
+    if mode == 19 {
+        insts[0].op = MIR_INST_OP_U32_GE;
+        insts[0].type_id = 5;
+        insts[0].operand_count = 2;
+        values[0].type_id = 10;
+        values[1].type_id = 5;
+        operands[0] = verifier_operand(0, 0, 10);
+        operands[1] = verifier_operand(1, 0, 10);
+    }
+    if mode == 20 {
+        insts[0].op = MIR_INST_OP_U32_GE;
+        insts[0].type_id = 10;
+        insts[0].operand_count = 2;
+        values[0].type_id = 10;
+        values[1].type_id = 10;
+        operands[0] = verifier_operand(0, 0, 10);
+        operands[1] = verifier_operand(1, 0, 10);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -709,6 +727,7 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(15), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(16), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(17), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(19), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -716,6 +735,7 @@ test "PortableMIR verifier rejects malformed control and data flow" {
     try assert_eq_i32(verifier_run(2), MIR_VERIFY_ERR_TYPE_MISMATCH);
     try assert_eq_i32(verifier_run(8), MIR_VERIFY_ERR_UNDEFINED_USE);
     try assert_eq_i32(verifier_run(18), MIR_VERIFY_ERR_TYPE_MISMATCH);
+    try assert_eq_i32(verifier_run(20), MIR_VERIFY_ERR_TYPE_MISMATCH);
 }
 
 test "PortableMIR verifier rejects target and layout violations" {
