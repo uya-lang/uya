@@ -261,7 +261,9 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `get_argc` / `get_argv` | done | missing | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
 | stdout / stderr | done | missing | `@print`/`@println` 走 libc / runtime helper。 |
 | `malloc` / `free` | done | missing | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
-| file IO | done | missing | `libc_bindings` 路径。 |
+| file IO | done | partial | MIR-C99 scheduler/channel/IO/compute async full-language parity shard 覆盖 AsyncFd read/write/read_exact/write_all 与 multi-fd scheduler；同步 file helper parity 待 make-check 收口。 |
+| async runtime / Future / Waker | partial | partial | MIR-C99 runtime/basic async full-language parity shard 覆盖 ready/block_on；scheduler/channel/IO/compute async full-language parity shard 覆盖 channel、scheduler event、fd/io、multi-fd 与 async_compute；cleanup/resource async shard 待补。 |
+| async channel / scheduler / event loop / async_compute | partial | partial | MIR-C99 scheduler/channel/IO/compute async full-language parity shard 覆盖 channel、scheduler event、fd/io、multi-fd 与 async_compute；cleanup/resource async shard 待补。 |
 | env | done | missing | 同上。 |
 | toolchain / linker handoff | done | missing | MIR-C99 link plan parity 待补。 |
 | capability 分流 | done | missing | `tests/verify_portable_mir_target_metadata.sh` 覆盖。 |
