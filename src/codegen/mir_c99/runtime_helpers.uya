@@ -49,6 +49,9 @@ fn mir_c99_runtime_helper_required_capability(helper_id: i32) i32 {
        helper_id == MIR_RUNTIME_HELPER_FILE_IO {
         return MIR_RUNTIME_CAP_ENV_FILE_IO;
     }
+    if helper_id == MIR_RUNTIME_HELPER_SYSCALL {
+        return MIR_RUNTIME_CAP_SYSCALL;
+    }
     return 0;
 }
 
@@ -86,11 +89,19 @@ fn mir_c99_runtime_helper_is_env_file_io(helper_id: i32) i32 {
     return 0;
 }
 
+fn mir_c99_runtime_helper_is_syscall(helper_id: i32) i32 {
+    if helper_id == MIR_RUNTIME_HELPER_SYSCALL {
+        return 1;
+    }
+    return 0;
+}
+
 fn mir_c99_runtime_helper_is_supported(helper_id: i32) i32 {
     if mir_c99_runtime_helper_is_memory_string(helper_id) != 0 ||
        mir_c99_runtime_helper_is_print_stdout(helper_id) != 0 ||
        mir_c99_runtime_helper_is_heap_allocator(helper_id) != 0 ||
-       mir_c99_runtime_helper_is_env_file_io(helper_id) != 0 {
+       mir_c99_runtime_helper_is_env_file_io(helper_id) != 0 ||
+       mir_c99_runtime_helper_is_syscall(helper_id) != 0 {
         return 1;
     }
     return 0;
