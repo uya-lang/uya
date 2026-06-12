@@ -1,7 +1,7 @@
 # PortableMIR Language Coverage Matrix
 
 **状态**: Phase 9B 覆盖矩阵合同
-**更新日期**: 2026-06-12
+**更新日期**: 2026-06-13
 **配套 TODO**: `docs/todo_compiler_1s.md` (Phase 9B)
 **MIR-C99 TODO**: `docs/todo_mir_c99_backend.md`
 **MIR-C99 parity harness**: 待新增；当前以现有 C99 backend 作为行为 oracle
@@ -65,7 +65,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | 后端接线 `MIR_TARGET_BACKEND_C99` | partial | 目前只有 `src/lower/mir_backend.uya` 的 backend kind / `c99_plan: &void` 占位。 |
 | HelloWorld MIR-C99 parity | missing | 需新增专用 harness，经 host C99 compiler 编译运行并与现有 C99 oracle 比对。 |
 | 完整语言 MIR-C99 parity | missing | 需覆盖 `tests/verify_full_language_backend_parity.sh`、`make check` 主语言面和 async 回归。 |
-| MIR-C99 self-build | missing | 需 MIR-C99-built compiler 复跑 self-build、compiler regression 和 C99 output parity。 |
+| MIR-C99 self-build | partial | `cmd/build` summary-only preflight 已记录首个真实 compiler-source frontier：`native_hosted_handoff_frontier` / `pending_core_bodies`，归因到 `mir_instruction_coverage`；下一步 coverage 为 `compile_stats_record_and_release_typed_program_stmt9_call`，需扩展 `corebody_portable_mir_body_lowering` 后再生成 compiler binary 并复跑 self-build、compiler regression 和 C99 output parity。 |
 
 ---
 

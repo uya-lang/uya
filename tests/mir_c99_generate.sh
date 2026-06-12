@@ -42,6 +42,12 @@ bash "$script_dir/verify_mir_c99_generator_driver_handoff.sh"
 
 input_abs="$(cd "$(dirname "$input")" && pwd)/$(basename "$input")"
 cmd_build_source="$(cd "$script_dir/../src/cmd/build" && pwd)/main.uya"
+cmd_build_frontier_name="native_hosted_handoff_frontier"
+cmd_build_frontier_reason="pending_core_bodies"
+cmd_build_frontier_category="mir_instruction_coverage"
+cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=9,next_stmt=9,next_kind=AST_CALL_EXPR,reason=partial_core_body"
+cmd_build_next_capability="corebody_portable_mir_body_lowering"
+cmd_build_next_coverage="compile_stats_record_and_release_typed_program_stmt9_call"
 if [[ "$input_abs" == "$cmd_build_source" ]]; then
     summary_file="${output}.summary"
     cat >"$output" <<'C_EOF'
@@ -51,6 +57,8 @@ if [[ "$input_abs" == "$cmd_build_source" ]]; then
 int main(void) {
     fputs("mir_c99_cmd_build_summary\n", stderr);
     fputs("compiler_binary_status=not_yet_generated\n", stderr);
+    fputs("frontier_name=native_hosted_handoff_frontier\n", stderr);
+    fputs("frontier_category=mir_instruction_coverage\n", stderr);
     return 70;
 }
 C_EOF
@@ -63,6 +71,24 @@ C_EOF
         printf 'MIR_C99_WRITER_STATUS='\''done'\''\n'
         printf 'MIR_C99_OUTPUT_ROLE='\''cmd_build_summary'\''\n'
         printf 'MIR_C99_COMPILER_BINARY_STATUS='\''not_yet_generated'\''\n'
+        printf 'MIR_C99_SELF_BUILD_FRONTIER='
+        sidecar_quote "$cmd_build_frontier_name"
+        printf '\n'
+        printf 'MIR_C99_FRONTIER_REASON='
+        sidecar_quote "$cmd_build_frontier_reason"
+        printf '\n'
+        printf 'MIR_C99_FRONTIER_CATEGORY='
+        sidecar_quote "$cmd_build_frontier_category"
+        printf '\n'
+        printf 'MIR_C99_FRONTIER_DETAIL='
+        sidecar_quote "$cmd_build_frontier_detail"
+        printf '\n'
+        printf 'MIR_C99_NEXT_CAPABILITY='
+        sidecar_quote "$cmd_build_next_capability"
+        printf '\n'
+        printf 'MIR_C99_NEXT_COVERAGE='
+        sidecar_quote "$cmd_build_next_coverage"
+        printf '\n'
     } >"$summary_file"
     {
         printf 'MIR-C99 generator command\n'
@@ -73,6 +99,13 @@ C_EOF
         printf 'writer_status=done\n'
         printf 'subset=cmd_build_self_summary\n'
         printf 'compiler_binary_status=not_yet_generated\n'
+        printf 'frontier_kind=compiler_source\n'
+        printf 'frontier_name=%s\n' "$cmd_build_frontier_name"
+        printf 'frontier_reason=%s\n' "$cmd_build_frontier_reason"
+        printf 'frontier_category=%s\n' "$cmd_build_frontier_category"
+        printf 'frontier_detail=%s\n' "$cmd_build_frontier_detail"
+        printf 'next_capability=%s\n' "$cmd_build_next_capability"
+        printf 'next_coverage=%s\n' "$cmd_build_next_coverage"
         printf 'status=ok\n'
     } >"$log"
     exit 0
