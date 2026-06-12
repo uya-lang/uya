@@ -62,6 +62,12 @@ export const MIR_CALL_CONV_UYA: i32 = 1;
 export const MIR_CALL_CONV_C: i32 = 2;
 export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
 export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
+export const MIR_RUNTIME_CAP_MEMORY_HELPERS: i32 = 8;
+export const MIR_RUNTIME_CAP_STRING_PRIMITIVES: i32 = 16;
+export const MIR_RUNTIME_HELPER_MEMCPY: i32 = 101;
+export const MIR_RUNTIME_HELPER_MEMSET: i32 = 102;
+export const MIR_RUNTIME_HELPER_MEMCMP: i32 = 103;
+export const MIR_RUNTIME_HELPER_STRING_PRIMITIVE: i32 = 104;
 
 export struct CompilerArena {
     marker: i32,
@@ -241,7 +247,9 @@ fn portable_mir_struct_profile() MirTargetProfile {
         call_abi_profile: MIR_CALL_ABI_PROFILE_HOSTED_SYSV,
         supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
         supported_calling_conventions: 3,
-        runtime_capability_mask: 3,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC +
+            MIR_RUNTIME_CAP_C_EXTERN + MIR_RUNTIME_CAP_MEMORY_HELPERS +
+            MIR_RUNTIME_CAP_STRING_PRIMITIVES,
         feature_flags: 0,
     };
 }
@@ -409,7 +417,7 @@ fn append_minimal_portable_mir(module: &PortableMirModule) !void {
         flags: 0,
     };
     try assert_eq_i32(type_i32.layout_id, 707);
-    try assert_eq_i32(type_i32.abi_class, 1);
+    try assert_eq_i32(type_i32.abi_class, MIR_ABI_CLASS_INTEGER);
     try assert_eq_i32(func.calling_convention, 1);
     try assert_eq_i32(func.runtime_capability_mask, 1);
     try assert_eq_i32(func.body_kind, MIR_FUNCTION_BODY_KIND_NORMAL);
@@ -446,7 +454,9 @@ test "PortableMIR top-level structures initialize and store a minimal function" 
     try assert_eq_i32(module.lifecycle_state, PORTABLE_MIR_LIFECYCLE_ACTIVE);
     try assert_eq_i32(module.target_profile.default_address_space, MIR_ADDRESS_SPACE_GENERIC);
     try assert_eq_i32(module.target_profile.supported_calling_conventions, 3);
-    try assert_eq_i32(module.target_profile.runtime_capability_mask, 3);
+    try assert_eq_i32(module.target_profile.runtime_capability_mask,
+        MIR_RUNTIME_CAP_HOSTED_LIBC + MIR_RUNTIME_CAP_C_EXTERN +
+        MIR_RUNTIME_CAP_MEMORY_HELPERS + MIR_RUNTIME_CAP_STRING_PRIMITIVES);
     try expect(module.functions.item_size == @size_of(MirFunction));
     try expect(module.blocks.item_size == @size_of(MirBlock));
     try expect(module.values.item_size == @size_of(MirValue));

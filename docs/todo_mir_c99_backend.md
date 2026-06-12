@@ -143,7 +143,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 call 缺 callee/signature、缺 multi-param flag、缺 aggregate out-param flag、缺 error-union flag、缺 float ABI flag、out-param operand 缺 writeback 标记反例，断言数 90）；`bash tests/verify_portable_mir_call_abi_metadata_inventory.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过；`bash tests/verify_portable_mir_call_target_inventory.sh` 通过；`bash tests/verify_mir_c99_type_function_signature.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
 
 - [ ] MIR-C99-PREMIR-RUNTIME-CAPABILITY：补齐 runtime helper/capability refs。
-  - [ ] `memcpy` / `memset` / `memcmp` / string primitive helper refs。
+  - [x] `memcpy` / `memset` / `memcmp` / string primitive helper refs。
+    - 验证：`bash tests/verify_portable_mir_runtime_memory_helpers.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过（hosted profile 支持 memory/string helper capability，freestanding 拒绝 `MIR_RUNTIME_HELPER_MEMCPY` capability ref，断言数 34）；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 90）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_structs.sh` 通过；`bash tests/verify_portable_mir_backend_interface.sh` 通过；`bash tests/verify_portable_mir_target_metadata.sh` 通过；`bash tests/verify_portable_mir_core_body_lowering.sh` 通过；`bash tests/verify_portable_mir_dynamic_tables.sh` 通过；`bash tests/verify_portable_mir_naked_fn.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
   - [ ] print/println、malloc/free、env/file IO、syscall capability refs。
   - [ ] atomic init/load/store/RMW/CMPXCHG opcode 或 helper capability；普通 load/store 不得伪装原子。
   - [ ] SIMD vector/mask load/store/splat/select opcode 或明确 capability reject。

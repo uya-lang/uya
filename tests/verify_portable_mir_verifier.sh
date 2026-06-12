@@ -79,6 +79,12 @@ export const CORE_EXPR_KIND_LOCAL_REF: i32 = 18;
 export const CORE_EXPR_KIND_I32_ADD: i32 = 20;
 export const MIR_CALL_CONV_UYA: i32 = 1;
 export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
+export const MIR_RUNTIME_CAP_MEMORY_HELPERS: i32 = 8;
+export const MIR_RUNTIME_CAP_STRING_PRIMITIVES: i32 = 16;
+export const MIR_RUNTIME_HELPER_MEMCPY: i32 = 101;
+export const MIR_RUNTIME_HELPER_MEMSET: i32 = 102;
+export const MIR_RUNTIME_HELPER_MEMCMP: i32 = 103;
+export const MIR_RUNTIME_HELPER_STRING_PRIMITIVE: i32 = 104;
 
 export struct CompilerArena {
     marker: i32,

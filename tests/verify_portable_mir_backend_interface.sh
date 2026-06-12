@@ -106,6 +106,12 @@ export const MIR_CALL_CONV_UYA: i32 = 1;
 export const MIR_CALL_CONV_C: i32 = 2;
 export const MIR_RUNTIME_CAP_HOSTED_LIBC: i32 = 1;
 export const MIR_RUNTIME_CAP_C_EXTERN: i32 = 2;
+export const MIR_RUNTIME_CAP_MEMORY_HELPERS: i32 = 8;
+export const MIR_RUNTIME_CAP_STRING_PRIMITIVES: i32 = 16;
+export const MIR_RUNTIME_HELPER_MEMCPY: i32 = 101;
+export const MIR_RUNTIME_HELPER_MEMSET: i32 = 102;
+export const MIR_RUNTIME_HELPER_MEMCMP: i32 = 103;
+export const MIR_RUNTIME_HELPER_STRING_PRIMITIVE: i32 = 104;
 
 export struct CompilerArena {
     marker: i32,
@@ -255,7 +261,9 @@ fn backend_profile(profile_id: i32) MirTargetProfile {
         call_abi_profile: MIR_CALL_ABI_PROFILE_HOSTED_SYSV,
         supported_address_spaces: MIR_ADDRESS_SPACE_GENERIC + MIR_ADDRESS_SPACE_HOST,
         supported_calling_conventions: 3,
-        runtime_capability_mask: 3,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC +
+            MIR_RUNTIME_CAP_C_EXTERN + MIR_RUNTIME_CAP_MEMORY_HELPERS +
+            MIR_RUNTIME_CAP_STRING_PRIMITIVES,
         feature_flags: 0,
     };
 }
