@@ -244,7 +244,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.5 Values
 
-- [ ] MIR-C99-BACKEND-VALUES：把 MIR value/local 映射到 C temp。
+- [x] MIR-C99-BACKEND-VALUES：把 MIR value/local 映射到 C temp。
   - [x] 整数、bool、byte、usize/isize、f32/f64 scalar temp。
     - 验证：`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] 常量 literal、zero/null。
@@ -261,9 +261,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_value_use_order.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] parity shard：integer arithmetic/comparison/boolean combination。
     - 验证：`bash tests/verify_mir_c99_integer_value_parity.sh` 通过，覆盖 i32 加减 temp 链、比较结果经 `&&` / `||` 组合后分支返回，默认 MIR-C99 generator 写出 `.c` 后经 host C compiler 运行，并与默认现有 C99 oracle generator 的 `.c` 编译/运行结果 diff 一致；`bash tests/verify_mir_c99_cfg_parity.sh` 通过；`bash tests/verify_mir_c99_return_literal_parity.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] parity shard：float/double arithmetic、comparison、cast 和 return。
-    - 阻塞：当前 PortableMIR 没有 f32/f64 type kind、float/double arithmetic/comparison/cast opcode，也无真实 MIR-C99 generator command/CLI；`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup。
-    - 验证：`rg -n "MIR_TYPE_KIND_F|MIR_INST_OP_.*F|MIR_INST_OP_.*CAST|MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 未发现 float/cast opcode；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；不能作为 parity 通过证据。
+  - [x] parity shard：float/double arithmetic、comparison、cast 和 return。
+    - 验证：`bash tests/verify_mir_c99_float_value_parity.sh` 通过，覆盖 f32/f64 算术、f32 to f64 cast、f64 to i32 cast、f64 比较和 i32 return，默认 MIR-C99 generator 写出 `.c` 后经 host C compiler 运行，并与默认现有 C99 oracle generator 的 `.c` 编译/运行结果 diff 一致；`bash tests/verify_mir_c99_integer_value_parity.sh` 通过；`bash tests/verify_mir_c99_cfg_parity.sh` 通过；`bash tests/verify_mir_c99_return_literal_parity.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
 ### 4.6 Place / Memory
 
