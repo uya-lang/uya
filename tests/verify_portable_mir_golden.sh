@@ -185,7 +185,7 @@ fn golden_type(id: i32, kind: i32, pointee: i32, field_count: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 1,
+        abi_class: portable_mir_abi_class_for_type_kind(kind),
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };

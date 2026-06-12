@@ -459,6 +459,7 @@ call metadata：
 - calling convention: Uya、C、syscall、target intrinsic、future kernel/device
 - argument ABI classes，若已知
 - return ABI class，若已知
+- aggregate return / out-param writeback / error union return / float ABI 必须由显式 metadata 表达
 - varargs metadata
 - can unwind / can error / no-return flags
 - required capabilities

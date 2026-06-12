@@ -310,7 +310,7 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 1,
+        abi_class: MIR_ABI_CLASS_INTEGER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };

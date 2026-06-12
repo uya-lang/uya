@@ -260,7 +260,7 @@ fn verifier_type(id: i32, kind: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 1,
+        abi_class: portable_mir_abi_class_for_type_kind(kind),
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -311,7 +311,7 @@ fn verifier_type(id: i32, kind: i32) MirType {
         typ.align_bytes = 8usize;
         typ.tag_offset_bytes = 0usize;
         typ.payload_offset_bytes = 8usize;
-        typ.abi_class = 3;
+        typ.abi_class = MIR_ABI_CLASS_ERROR_UNION;
     }
     if kind == MIR_TYPE_KIND_FUNCTION {
         typ.size_bytes = 8usize;
@@ -319,7 +319,7 @@ fn verifier_type(id: i32, kind: i32) MirType {
         typ.element_type_id = 0;
         typ.field_start = 0;
         typ.field_count = 2;
-        typ.abi_class = 4;
+        typ.abi_class = MIR_ABI_CLASS_FUNCTION;
         typ.flags = MIR_CALL_CONV_UYA;
     }
     if kind == MIR_TYPE_KIND_FUNCTION_POINTER {
@@ -327,7 +327,7 @@ fn verifier_type(id: i32, kind: i32) MirType {
         typ.align_bytes = 8usize;
         typ.element_type_id = 0;
         typ.pointee_type_id = 20;
-        typ.abi_class = 4;
+        typ.abi_class = MIR_ABI_CLASS_POINTER;
         typ.flags = MIR_CALL_CONV_UYA;
     }
     if kind == MIR_TYPE_KIND_STRUCT {
@@ -363,7 +363,7 @@ fn verifier_function_param_type(id: i32, owner_type_id: i32, param_index: i32,
         owner_type_id: owner_type_id,
         param_index: param_index,
         type_id: type_id,
-        abi_class: 1,
+        abi_class: MIR_ABI_CLASS_INTEGER,
         flags: 0,
     };
 }
@@ -555,7 +555,7 @@ fn verifier_run(mode: i32) i32 {
     var locals: [MirLocal: 1] = [];
     var insts: [MirInst: 1] = [];
     var terminators: [MirTerminator: 1] = [];
-    var operands: [MirOperand: 3] = [];
+    var operands: [MirOperand: 4] = [];
     var caps: [MirCapabilityReq: 1] = [];
     var field_layouts: [MirFieldLayout: 1] = [];
     var fn_params: [MirFunctionParamType: 2] = [];
@@ -604,6 +604,7 @@ fn verifier_run(mode: i32) i32 {
     operands[0] = verifier_operand(0, 0, 1);
     operands[1] = verifier_operand(1, 1, 0);
     operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 0);
+    operands[3] = verifier_operand(3, 1, 0);
     caps[0] = verifier_capability();
     field_layouts[0] = verifier_field_layout(0, 22, 0, 0);
     fn_params[0] = verifier_function_param_type(0, 20, 0, 0);
@@ -929,8 +930,9 @@ fn verifier_run(mode: i32) i32 {
         insts[0].op = MIR_INST_OP_CALL;
         insts[0].type_id = 16;
         insts[0].result_value_id = 1;
-        insts[0].operand_count = 1;
+        insts[0].operand_count = 3;
         insts[0].calling_convention = MIR_CALL_CONV_C;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_FLOAT_ABI;
         values[1].type_id = 16;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
@@ -939,14 +941,18 @@ fn verifier_run(mode: i32) i32 {
         functions[0].calling_convention = MIR_CALL_CONV_C;
         functions[0].signature_type_id = 20;
         types[20].element_type_id = 16;
-        operands[1] = verifier_operand(1, 1, 16);
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 16);
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
     if mode == 48 {
         insts[0].op = MIR_INST_OP_CALL;
         insts[0].type_id = 15;
         insts[0].result_value_id = 1;
-        insts[0].operand_count = 1;
+        insts[0].operand_count = 3;
         insts[0].calling_convention = MIR_CALL_CONV_C;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_FLOAT_ABI;
         values[1].type_id = 15;
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
@@ -955,7 +961,10 @@ fn verifier_run(mode: i32) i32 {
         functions[0].calling_convention = MIR_CALL_CONV_C;
         functions[0].signature_type_id = 20;
         types[20].element_type_id = 16;
-        operands[1] = verifier_operand(1, 1, 15);
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 15);
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
     if mode == 49 {
         insts[0].op = MIR_INST_OP_ADDR_OF_LOCAL;
@@ -1263,32 +1272,47 @@ fn verifier_run(mode: i32) i32 {
         insts[0].op = MIR_INST_OP_CALL;
         insts[0].type_id = 0;
         insts[0].result_value_id = 1;
-        insts[0].operand_count = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM;
         values[1].type_id = 0;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 0);
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
         operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
     if mode == 76 {
         insts[0].op = MIR_INST_OP_CALL;
         insts[0].type_id = 0;
         insts[0].result_value_id = 1;
-        insts[0].operand_count = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM;
         values[1].type_id = 0;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 0);
         operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE;
         operands[0].immediate_i32 = 0;
         operands[0].flags = 9;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
     if mode == 77 {
         insts[0].op = MIR_INST_OP_CALL;
         insts[0].type_id = 0;
         insts[0].result_value_id = 1;
-        insts[0].operand_count = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM;
         values[0].type_id = 21;
         values[1].type_id = 0;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 0);
         operands[0] = verifier_operand(0, 0, 21);
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_FUNCTION_POINTER;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
     if mode == 78 {
         insts[0].op = MIR_INST_OP_CALL;
@@ -1309,6 +1333,89 @@ fn verifier_run(mode: i32) i32 {
         operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
         operands[0].immediate_i32 = 0;
     }
+    if mode == 80 {
+        types[20].element_type_id = 22;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 22;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM +
+            MIR_CALL_FLAG_AGGREGATE_RETURN + MIR_CALL_FLAG_OUT_PARAM_WRITEBACK;
+        values[1].type_id = 22;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 22);
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
+        operands[1].flags = MIR_CALL_FLAG_OUT_PARAM_WRITEBACK;
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 81 {
+        types[20].element_type_id = 19;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 19;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_ERROR_UNION_RETURN;
+        values[1].type_id = 19;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 19);
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 82 {
+        types[20].element_type_id = 15;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 15;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_FLOAT_ABI;
+        values[1].type_id = 15;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 15);
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 83 {
+        types[20].element_type_id = 16;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 16;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_FLOAT_ABI;
+        values[1].type_id = 16;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 16);
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
+    if mode == 84 {
+        types[20].element_type_id = 16;
+        types[16].abi_class = MIR_ABI_CLASS_INTEGER;
+        insts[0].op = MIR_INST_OP_CALL;
+        insts[0].type_id = 16;
+        insts[0].result_value_id = 1;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_CALL_FLAG_MULTI_PARAM + MIR_CALL_FLAG_FLOAT_ABI;
+        values[1].type_id = 16;
+        terminators[0].operand_start = 3;
+        operands[3] = verifier_operand(3, 1, 16);
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 20);
+        operands[0].kind = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+        operands[0].immediate_i32 = 0;
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
+        operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -1318,7 +1425,7 @@ fn verifier_run(mode: i32) i32 {
     module.locals = verifier_vec(&locals[0] as &byte, @size_of(MirLocal), 1usize);
     module.insts = verifier_vec(&insts[0] as &byte, @size_of(MirInst), 1usize);
     module.terminators = verifier_vec(&terminators[0] as &byte, @size_of(MirTerminator), 1usize);
-    module.operands = verifier_vec(&operands[0] as &byte, @size_of(MirOperand), 3usize);
+    module.operands = verifier_vec(&operands[0] as &byte, @size_of(MirOperand), 4usize);
     module.capability_reqs = verifier_vec(&caps[0] as &byte, @size_of(MirCapabilityReq), 1usize);
     module.field_layouts = verifier_vec(&field_layouts[0] as &byte,
         @size_of(MirFieldLayout), 1usize);
@@ -1331,7 +1438,7 @@ fn verifier_run(mode: i32) i32 {
     module.local_count = 1usize;
     module.inst_count = 1usize;
     module.terminator_count = 1usize;
-    module.operand_count = 3usize;
+    module.operand_count = 4usize;
     module.capability_req_count = 1usize;
     module.field_layout_count = 1usize;
     module.function_param_type_count = 2usize;
@@ -1398,6 +1505,10 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(75), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(76), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(77), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(80), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(81), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(82), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(83), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1435,6 +1546,7 @@ test "PortableMIR verifier rejects target and layout violations" {
     try assert_eq_i32(verifier_run(74), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(78), MIR_VERIFY_ERR_INVALID_OPERAND);
     try assert_eq_i32(verifier_run(79), MIR_VERIFY_ERR_INVALID_FUNCTION);
+    try assert_eq_i32(verifier_run(84), MIR_VERIFY_ERR_INVALID_LAYOUT);
 }
 
 test "PortableMIR verifier rejects atomic vector mask cleanup and naked violations" {

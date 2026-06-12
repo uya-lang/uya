@@ -264,6 +264,20 @@ export const MIR_TARGET_PROFILE_HOSTED_NATIVE: i32 = 1;
 export const MIR_TARGET_PROFILE_FREESTANDING_NATIVE: i32 = 2;
 export const MIR_CALL_ABI_PROFILE_HOSTED_SYSV: i32 = 1;
 export const MIR_CALL_ABI_PROFILE_FREESTANDING_SYSCALL: i32 = 2;
+export const MIR_ABI_CLASS_VOID: i32 = 1;
+export const MIR_ABI_CLASS_INTEGER: i32 = 2;
+export const MIR_ABI_CLASS_POINTER: i32 = 3;
+export const MIR_ABI_CLASS_AGGREGATE: i32 = 4;
+export const MIR_ABI_CLASS_FUNCTION: i32 = 5;
+export const MIR_ABI_CLASS_FLOAT: i32 = 6;
+export const MIR_ABI_CLASS_DOUBLE: i32 = 7;
+export const MIR_ABI_CLASS_ERROR_UNION: i32 = 8;
+export const MIR_ABI_CLASS_OUT_PARAM_POINTER: i32 = 9;
+export const MIR_CALL_FLAG_MULTI_PARAM: i32 = 16;
+export const MIR_CALL_FLAG_AGGREGATE_RETURN: i32 = 32;
+export const MIR_CALL_FLAG_OUT_PARAM_WRITEBACK: i32 = 64;
+export const MIR_CALL_FLAG_ERROR_UNION_RETURN: i32 = 128;
+export const MIR_CALL_FLAG_FLOAT_ABI: i32 = 256;
 
 const MIR_PROFILE_CALL_CONV_HOSTED_NATIVE: i32 = 3;
 const MIR_PROFILE_CALL_CONV_FREESTANDING_NATIVE: i32 = 5;
@@ -291,6 +305,67 @@ export fn portable_mir_type_kind_is_integer(kind: i32) i32 {
 export fn portable_mir_type_kind_is_float(kind: i32) i32 {
     if kind == MIR_TYPE_KIND_F32 || kind == MIR_TYPE_KIND_F64 {
         return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：根据 PortableMIR type kind 计算默认 ABI class。
+/// 参数说明：`kind` 为待分类的 MIR type kind。
+/// 返回值说明：返回 `MIR_ABI_CLASS_*` 常量；未知 kind 返回 `0`。
+export fn portable_mir_abi_class_for_type_kind(kind: i32) i32 {
+    if kind == MIR_TYPE_KIND_VOID {
+        return MIR_ABI_CLASS_VOID;
+    }
+    if portable_mir_type_kind_is_integer(kind) != 0 || kind == MIR_TYPE_KIND_BOOL {
+        return MIR_ABI_CLASS_INTEGER;
+    }
+    if kind == MIR_TYPE_KIND_POINTER || kind == MIR_TYPE_KIND_FUNCTION_POINTER {
+        return MIR_ABI_CLASS_POINTER;
+    }
+    if kind == MIR_TYPE_KIND_F32 {
+        return MIR_ABI_CLASS_FLOAT;
+    }
+    if kind == MIR_TYPE_KIND_F64 {
+        return MIR_ABI_CLASS_DOUBLE;
+    }
+    if kind == MIR_TYPE_KIND_STRUCT || kind == MIR_TYPE_KIND_UNION ||
+       kind == MIR_TYPE_KIND_ENUM || kind == MIR_TYPE_KIND_ARRAY ||
+       kind == MIR_TYPE_KIND_SLICE {
+        return MIR_ABI_CLASS_AGGREGATE;
+    }
+    if kind == MIR_TYPE_KIND_ERROR_UNION {
+        return MIR_ABI_CLASS_ERROR_UNION;
+    }
+    if kind == MIR_TYPE_KIND_FUNCTION {
+        return MIR_ABI_CLASS_FUNCTION;
+    }
+    return 0;
+}
+
+/// 功能说明：根据参数数量计算 call ABI metadata flag。
+/// 参数说明：`param_count` 为 function signature 的显式参数数量。
+/// 返回值说明：多参数 call 返回 `MIR_CALL_FLAG_MULTI_PARAM`，否则返回 `0`。
+export fn portable_mir_call_flag_for_param_count(param_count: i32) i32 {
+    if param_count > 1 {
+        return MIR_CALL_FLAG_MULTI_PARAM;
+    }
+    return 0;
+}
+
+/// 功能说明：根据返回类型计算 call ABI metadata flag。
+/// 参数说明：`kind` 为 callee signature 的返回 type kind。
+/// 返回值说明：返回 aggregate/error-union/float ABI 相关 flags；无特殊 ABI 时返回 `0`。
+export fn portable_mir_call_flag_for_return_type(kind: i32) i32 {
+    if kind == MIR_TYPE_KIND_STRUCT || kind == MIR_TYPE_KIND_UNION ||
+       kind == MIR_TYPE_KIND_ENUM || kind == MIR_TYPE_KIND_ARRAY ||
+       kind == MIR_TYPE_KIND_SLICE {
+        return MIR_CALL_FLAG_AGGREGATE_RETURN + MIR_CALL_FLAG_OUT_PARAM_WRITEBACK;
+    }
+    if kind == MIR_TYPE_KIND_ERROR_UNION {
+        return MIR_CALL_FLAG_ERROR_UNION_RETURN;
+    }
+    if kind == MIR_TYPE_KIND_F32 || kind == MIR_TYPE_KIND_F64 {
+        return MIR_CALL_FLAG_FLOAT_ABI;
     }
     return 0;
 }
@@ -1202,7 +1277,7 @@ fn portable_mir_lower_i32_type(type_id: MirTypeId, source_type_id: TypeId) MirTy
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 1,
+        abi_class: MIR_ABI_CLASS_INTEGER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -1226,7 +1301,7 @@ fn portable_mir_lower_void_type(type_id: MirTypeId, source_type_id: TypeId) MirT
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 0,
+        abi_class: MIR_ABI_CLASS_VOID,
         address_space: 0,
         flags: 0,
     };
@@ -1251,7 +1326,7 @@ fn portable_mir_lower_i32_pointer_type(type_id: MirTypeId,
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 2,
+        abi_class: MIR_ABI_CLASS_POINTER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };

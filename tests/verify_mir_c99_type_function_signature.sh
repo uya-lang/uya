@@ -53,8 +53,8 @@ require_pattern "$VERIFIER_FILE" 'param\.owner_type_id != typ\.type_id' \
     "verifier checks param owner relation"
 require_pattern "$VERIFIER_FILE" 'param\.param_index != offset' \
     "verifier checks param order"
-require_pattern "$VERIFIER_FILE" 'typ\.abi_class == 0' \
-    "verifier rejects missing ABI class"
+require_pattern "$VERIFIER_FILE" 'portable_mir_verify_abi_class_matches_type' \
+    "verifier rejects missing or mismatched ABI class"
 require_pattern "$VERIFIER_FILE" 'portable_mir_verify_call_abi_supported\(module, typ\.flags\)' \
     "verifier checks calling convention via flags"
 require_pattern "$VERIFIER_FILE" 'portable_mir_verify_type_ptr\(module, typ\.element_type_id\)' \

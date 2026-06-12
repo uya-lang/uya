@@ -215,7 +215,7 @@ fn native_mir_type_i32() MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 1,
+        abi_class: MIR_ABI_CLASS_INTEGER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -239,7 +239,7 @@ fn native_mir_type_void(id: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 0,
+        abi_class: MIR_ABI_CLASS_VOID,
         address_space: 0,
         flags: 0,
     };
@@ -263,7 +263,7 @@ fn native_mir_type_pointer(id: i32, pointee_type_id: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: 1,
+        abi_class: MIR_ABI_CLASS_POINTER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
