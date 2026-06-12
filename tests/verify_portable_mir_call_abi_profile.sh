@@ -448,6 +448,8 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         field_layout_count: 0usize,
         function_param_type_count: 0usize,
         async_frame_meta_count: 0usize,
+        global_count: 0usize,
+        const_count: 0usize,
         functions: abi_empty_vec(@size_of(MirFunction)),
         blocks: abi_empty_vec(@size_of(MirBlock)),
         values: abi_empty_vec(@size_of(MirValue)),
@@ -463,6 +465,8 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         field_layouts: abi_empty_vec(@size_of(MirFieldLayout)),
         function_param_types: abi_empty_vec(@size_of(MirFunctionParamType)),
         async_frame_metas: abi_empty_vec(@size_of(MirAsyncFrameMeta)),
+        globals: abi_empty_vec(@size_of(MirGlobal)),
+        consts: abi_empty_vec(@size_of(MirConst)),
     };
 }
 

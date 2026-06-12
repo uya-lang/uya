@@ -15,6 +15,8 @@ export type MirCapabilityReqId = i32;
 export type MirFieldLayoutId = i32;
 export type MirFunctionParamTypeId = i32;
 export type MirAsyncFrameMetaId = i32;
+export type MirGlobalId = i32;
+export type MirConstId = i32;
 
 export const PORTABLE_MIR_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const PORTABLE_MIR_LIFECYCLE_ACTIVE: i32 = 1;
@@ -28,6 +30,8 @@ export const MIR_INST_INVALID_ID: MirInstId = -1;
 export const MIR_TERMINATOR_INVALID_ID: MirTerminatorId = -1;
 export const MIR_DEBUG_LOC_INVALID_ID: MirDebugLocId = -1;
 export const MIR_CAPABILITY_REQ_INVALID_ID: MirCapabilityReqId = -1;
+export const MIR_GLOBAL_INVALID_ID: MirGlobalId = -1;
+export const MIR_CONST_INVALID_ID: MirConstId = -1;
 export const MIR_FUNCTION_FLAG_NAKED: i32 = 1;
 export const MIR_FUNCTION_FLAG_EXTERN: i32 = 2;
 export const MIR_FUNCTION_FLAG_PARTIAL_BODY: i32 = 4;
@@ -285,6 +289,18 @@ export const MIR_ASYNC_FRAME_SLOT_CAPTURED_LOCAL: i32 = 4;
 export const MIR_ASYNC_EDGE_POLL: i32 = 1;
 export const MIR_ASYNC_EDGE_RESUME: i32 = 2;
 export const MIR_RUNTIME_CAP_ASYNC_FRAME: i32 = 512;
+export const MIR_GLOBAL_INIT_SCALAR: i32 = 1;
+export const MIR_GLOBAL_INIT_AGGREGATE: i32 = 2;
+export const MIR_GLOBAL_INIT_STRING: i32 = 3;
+export const MIR_CONST_KIND_SCALAR: i32 = 1;
+export const MIR_CONST_KIND_AGGREGATE: i32 = 2;
+export const MIR_CONST_KIND_STRING: i32 = 3;
+export const MIR_GLOBAL_SECTION_DATA: i32 = 1;
+export const MIR_GLOBAL_SECTION_RODATA: i32 = 2;
+export const MIR_GLOBAL_SECTION_BSS: i32 = 3;
+export const MIR_GLOBAL_LINKAGE_INTERNAL: i32 = 1;
+export const MIR_GLOBAL_LINKAGE_EXPORT: i32 = 2;
+export const MIR_GLOBAL_FLAG_CONST: i32 = 1;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
 export const MIR_INST_FLAG_OVERFLOW_CHECKED: i32 = 2;
 export const MIR_INST_FLAG_NO_OVERLAP: i32 = 4;
@@ -771,6 +787,40 @@ export struct MirAsyncFrameMeta {
     flags: i32,
 }
 
+/// 功能说明：记录 PortableMIR 常量池条目，供 global initializer 和 string dedupe 复用。
+/// 参数说明：无；字段保存常量 kind、类型、dedupe id、字节范围、标量值和 source 位置。
+/// 返回值说明：无。
+export struct MirConst {
+    const_id: MirConstId,
+    kind: i32,
+    type_id: MirTypeId,
+    dedupe_id: i32,
+    byte_offset: usize,
+    byte_count: usize,
+    scalar_i64: i64,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR global object 及其 initializer、section、linkage 和 dedupe metadata。
+/// 参数说明：无；字段保存来源声明、symbol/type、initializer const、section/linkage、address space 和 source 位置。
+/// 返回值说明：无。
+export struct MirGlobal {
+    global_id: MirGlobalId,
+    decl_id: DeclId,
+    symbol_id: SymbolId,
+    type_id: MirTypeId,
+    init_const_id: MirConstId,
+    init_kind: i32,
+    linkage: i32,
+    section: i32,
+    address_space: i32,
+    alignment: usize,
+    dedupe_id: i32,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
 /// 功能说明：记录 PortableMIR 中的 lowered concrete type 和 layout metadata。
 /// 参数说明：无；字段保存 kind、layout、ABI、address space、element/pointee、lane 和 field range。
 /// 返回值说明：无。
@@ -929,6 +979,8 @@ export struct PortableMirModule {
     field_layout_count: usize,
     function_param_type_count: usize,
     async_frame_meta_count: usize,
+    global_count: usize,
+    const_count: usize,
     functions: SemanticVector,
     blocks: SemanticVector,
     values: SemanticVector,
@@ -944,6 +996,8 @@ export struct PortableMirModule {
     field_layouts: SemanticVector,
     function_param_types: SemanticVector,
     async_frame_metas: SemanticVector,
+    globals: SemanticVector,
+    consts: SemanticVector,
 }
 
 /// 功能说明：返回 hosted native 使用的 PortableMIR target profile。
@@ -1096,6 +1150,8 @@ fn portable_mir_module_clear_counts(module: &PortableMirModule) void {
     module.field_layout_count = 0usize;
     module.function_param_type_count = 0usize;
     module.async_frame_meta_count = 0usize;
+    module.global_count = 0usize;
+    module.const_count = 0usize;
 }
 
 /// 功能说明：初始化 PortableMIR module 的动态表和生命周期。
@@ -1124,6 +1180,8 @@ export fn portable_mir_module_init(module: &PortableMirModule, arena: &CompilerA
     semantic_vector_init(&module.field_layouts, @size_of(MirFieldLayout));
     semantic_vector_init(&module.function_param_types, @size_of(MirFunctionParamType));
     semantic_vector_init(&module.async_frame_metas, @size_of(MirAsyncFrameMeta));
+    semantic_vector_init(&module.globals, @size_of(MirGlobal));
+    semantic_vector_init(&module.consts, @size_of(MirConst));
 }
 
 fn portable_mir_append_item(vec: &SemanticVector, item: &const void) i32 {
@@ -1233,6 +1291,34 @@ export fn portable_mir_append_async_frame_meta(module: &PortableMirModule,
         return -1;
     }
     module.async_frame_meta_count = module.async_frame_metas.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR global object 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 global object。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_global(module: &PortableMirModule, item: &MirGlobal) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.globals, item as &const void) != 0 {
+        return -1;
+    }
+    module.global_count = module.globals.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR constant pool 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加常量记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_const(module: &PortableMirModule, item: &MirConst) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.consts, item as &const void) != 0 {
+        return -1;
+    }
+    module.const_count = module.consts.count;
     return 0;
 }
 
@@ -2206,6 +2292,8 @@ export fn portable_mir_module_release(module: &PortableMirModule) void {
         semantic_vector_release(&module.field_layouts);
         semantic_vector_release(&module.function_param_types);
         semantic_vector_release(&module.async_frame_metas);
+        semantic_vector_release(&module.globals);
+        semantic_vector_release(&module.consts);
     }
     portable_mir_module_clear_counts(module);
     module.arena = null;

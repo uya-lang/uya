@@ -31,9 +31,13 @@ require_pattern "$MIR_FILE" 'locals:[[:space:]]*SemanticVector' "dynamic local t
 require_pattern "$MIR_FILE" 'insts:[[:space:]]*SemanticVector' "dynamic instruction table"
 require_pattern "$MIR_FILE" 'terminators:[[:space:]]*SemanticVector' "dynamic terminator table"
 require_pattern "$MIR_FILE" 'async_frame_metas:[[:space:]]*SemanticVector' "dynamic async frame metadata table"
+require_pattern "$MIR_FILE" 'globals:[[:space:]]*SemanticVector' "dynamic global table"
+require_pattern "$MIR_FILE" 'consts:[[:space:]]*SemanticVector' "dynamic constant table"
 require_pattern "$MIR_FILE" 'portable_mir_append_function' "function append API"
 require_pattern "$MIR_FILE" 'portable_mir_append_inst' "instruction append API"
 require_pattern "$MIR_FILE" 'portable_mir_append_async_frame_meta' "async frame metadata append API"
+require_pattern "$MIR_FILE" 'portable_mir_append_global' "global append API"
+require_pattern "$MIR_FILE" 'portable_mir_append_const' "constant append API"
 
 if grep -En '(^|[^A-Z])(PORTABLE_MIR_MAX|MIR_MAX)_' "$MIR_FILE"; then
     echo "error: PortableMIR introduced a fixed semantic MIR_MAX capacity" >&2
@@ -289,6 +293,8 @@ fn portable_mir_dynamic_module() PortableMirModule {
         field_layout_count: 0usize,
         function_param_type_count: 0usize,
         async_frame_meta_count: 0usize,
+        global_count: 0usize,
+        const_count: 0usize,
         functions: portable_mir_dynamic_vec(),
         blocks: portable_mir_dynamic_vec(),
         values: portable_mir_dynamic_vec(),
@@ -304,6 +310,8 @@ fn portable_mir_dynamic_module() PortableMirModule {
         field_layouts: portable_mir_dynamic_vec(),
         function_param_types: portable_mir_dynamic_vec(),
         async_frame_metas: portable_mir_dynamic_vec(),
+        globals: portable_mir_dynamic_vec(),
+        consts: portable_mir_dynamic_vec(),
     };
 }
 
@@ -472,6 +480,32 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
         debug_loc_id: id,
         flags: 0,
     };
+    var const_item: MirConst = MirConst{
+        const_id: id,
+        kind: MIR_CONST_KIND_SCALAR,
+        type_id: id,
+        dedupe_id: id,
+        byte_offset: id as usize,
+        byte_count: 4usize,
+        scalar_i64: id as i64,
+        debug_loc_id: id,
+        flags: 0,
+    };
+    var global: MirGlobal = MirGlobal{
+        global_id: id,
+        decl_id: id,
+        symbol_id: id,
+        type_id: id,
+        init_const_id: id,
+        init_kind: MIR_GLOBAL_INIT_SCALAR,
+        linkage: MIR_GLOBAL_LINKAGE_INTERNAL,
+        section: MIR_GLOBAL_SECTION_DATA,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        alignment: 4usize,
+        dedupe_id: id,
+        debug_loc_id: id,
+        flags: 0,
+    };
 
     try assert_eq_i32(portable_mir_append_debug_loc(module, &debug_loc), 0);
     try assert_eq_i32(portable_mir_append_type(module, &type_item), 0);
@@ -486,6 +520,8 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
     try assert_eq_i32(portable_mir_append_block(module, &block), 0);
     try assert_eq_i32(portable_mir_append_function(module, &func), 0);
     try assert_eq_i32(portable_mir_append_async_frame_meta(module, &async_meta), 0);
+    try assert_eq_i32(portable_mir_append_const(module, &const_item), 0);
+    try assert_eq_i32(portable_mir_append_global(module, &global), 0);
 }
 
 fn expect_mir_table_grew(vec: &SemanticVector, expected: usize) !void {
@@ -521,6 +557,8 @@ test "PortableMIR tables grow dynamically without semantic caps" {
     try expect(module.debug_loc_count == expected);
     try expect(module.capability_req_count == expected);
     try expect(module.async_frame_meta_count == expected);
+    try expect(module.global_count == expected);
+    try expect(module.const_count == expected);
     try expect_mir_table_grew(&module.functions, expected);
     try expect_mir_table_grew(&module.blocks, expected);
     try expect_mir_table_grew(&module.values, expected);
@@ -529,6 +567,8 @@ test "PortableMIR tables grow dynamically without semantic caps" {
     try expect_mir_table_grew(&module.insts, expected);
     try expect_mir_table_grew(&module.terminators, expected);
     try expect_mir_table_grew(&module.async_frame_metas, expected);
+    try expect_mir_table_grew(&module.globals, expected);
+    try expect_mir_table_grew(&module.consts, expected);
 
     portable_mir_module_release(&module);
     compiler_arena_free_all(&arena);

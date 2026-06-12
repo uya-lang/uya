@@ -158,6 +158,21 @@ MirFunction
   cleanup_model: MirCleanupModel
   required_caps: MirCapabilitySet
 
+MirGlobal
+  symbol_name: InternId
+  type_id: MirTypeId
+  init_const_id: MirConstId
+  init_kind: scalar | aggregate | string
+  section: data | rodata | bss
+  linkage: internal | export
+  dedupe_id: i32
+
+MirConst
+  kind: scalar | aggregate | string
+  type_id: MirTypeId
+  byte_range: offset/count
+  dedupe_id: i32
+
 MirBlock
   label: MirBlockId
   params: MirBlockParam[]
@@ -476,6 +491,10 @@ interface call 降为：
 - boxed interface runtime helper call
 
 `extern fn` 和 `@c_import` 在 MIR 中仍是 target-neutral，但携带 hosted capability requirement。hosted native 可降为 object references 和 linker inputs；freestanding native / PTX 可在 capability pass 明确拒绝。
+
+global scalar / aggregate initializer 必须先 materialize 为 `MirConst`，再由 `MirGlobal.init_const_id`
+引用。string constants 必须记录稳定 dedupe id、byte range、section/linkage metadata；backend 只能消费
+已 verifier-clean 的 global/const 表，不能重新扫描 AST 重建 initializer。
 
 ## 13. Builtin 和特殊形式
 

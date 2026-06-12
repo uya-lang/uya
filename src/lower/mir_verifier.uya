@@ -103,6 +103,8 @@ fn portable_mir_verify_count(module: &PortableMirModule, result: &MirVerifierRes
     if portable_mir_verify_count_pair(module.field_layout_count, module.field_layouts.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.function_param_type_count, module.function_param_types.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.async_frame_meta_count, module.async_frame_metas.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.global_count, module.globals.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.const_count, module.consts.count, result) != 0 { return -1; }
     return 0;
 }
 
@@ -312,6 +314,11 @@ fn portable_mir_verify_capability_ptr(module: &PortableMirModule, id: MirCapabil
 fn portable_mir_verify_field_layout_ptr(module: &PortableMirModule, id: MirFieldLayoutId) &MirFieldLayout {
     if module == null || id < 0 || (id as usize) >= module.field_layouts.count { return null; }
     return semantic_vector_item_ptr(&module.field_layouts, id as usize) as &MirFieldLayout;
+}
+
+fn portable_mir_verify_const_ptr(module: &PortableMirModule, id: MirConstId) &MirConst {
+    if module == null || id < 0 || (id as usize) >= module.consts.count { return null; }
+    return semantic_vector_item_ptr(&module.consts, id as usize) as &MirConst;
 }
 
 fn portable_mir_verify_function_param_type_ptr(module: &PortableMirModule,
@@ -2190,6 +2197,88 @@ fn portable_mir_verify_functions(module: &PortableMirModule, result: &MirVerifie
     return 0;
 }
 
+fn portable_mir_verify_global_init_known(kind: i32) i32 {
+    if kind == MIR_GLOBAL_INIT_SCALAR || kind == MIR_GLOBAL_INIT_AGGREGATE ||
+       kind == MIR_GLOBAL_INIT_STRING {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_const_kind_matches_init(const_kind: i32, init_kind: i32) i32 {
+    if init_kind == MIR_GLOBAL_INIT_SCALAR && const_kind == MIR_CONST_KIND_SCALAR {
+        return 1;
+    }
+    if init_kind == MIR_GLOBAL_INIT_AGGREGATE && const_kind == MIR_CONST_KIND_AGGREGATE {
+        return 1;
+    }
+    if init_kind == MIR_GLOBAL_INIT_STRING && const_kind == MIR_CONST_KIND_STRING {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_global_linkage_known(linkage: i32) i32 {
+    if linkage == MIR_GLOBAL_LINKAGE_INTERNAL || linkage == MIR_GLOBAL_LINKAGE_EXPORT {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_global_section_known(section: i32) i32 {
+    if section == MIR_GLOBAL_SECTION_DATA || section == MIR_GLOBAL_SECTION_RODATA ||
+       section == MIR_GLOBAL_SECTION_BSS {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_global_initializer(module: &PortableMirModule, global: &MirGlobal,
+    index: usize, result: &MirVerifierResult) i32 {
+    if global == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID,
+            MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if portable_mir_verify_type_ptr(module, global.type_id) == null ||
+       portable_mir_verify_global_init_known(global.init_kind) == 0 ||
+       portable_mir_verify_global_linkage_known(global.linkage) == 0 ||
+       portable_mir_verify_global_section_known(global.section) == 0 ||
+       portable_mir_verify_address_supported(module, global.address_space) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, global.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID,
+            global.debug_loc_id);
+    }
+    const init_const: &MirConst = portable_mir_verify_const_ptr(module, global.init_const_id);
+    if init_const == null || init_const.type_id != global.type_id ||
+       portable_mir_verify_const_kind_matches_init(init_const.kind, global.init_kind) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, global.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID,
+            global.debug_loc_id);
+    }
+    if global.init_kind == MIR_GLOBAL_INIT_STRING &&
+       (global.dedupe_id < 0 || init_const.dedupe_id < 0 || init_const.byte_count == 0usize) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, global.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID,
+            global.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_globals(module: &PortableMirModule, result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.globals.count {
+        const global: &MirGlobal = semantic_vector_item_ptr(&module.globals, i) as &MirGlobal;
+        if portable_mir_verify_global_initializer(module, global, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 /// 功能说明：线性验证 PortableMIR module 是否满足 backend 入口合同。
 /// 参数说明：`module` 为待验证 MIR module，`result` 接收首个稳定 diagnostic。
 /// 返回值说明：验证通过返回 `0`，失败返回 `-1` 并填充 `result.error_code`。
@@ -2204,6 +2293,7 @@ export fn portable_mir_verify_module(module: &PortableMirModule, result: &MirVer
     if portable_mir_verify_field_layouts(module, result) != 0 { return -1; }
     if portable_mir_verify_function_param_types(module, result) != 0 { return -1; }
     if portable_mir_verify_types(module, result) != 0 { return -1; }
+    if portable_mir_verify_globals(module, result) != 0 { return -1; }
     if portable_mir_verify_functions(module, result) != 0 { return -1; }
     if portable_mir_verify_blocks(module, result) != 0 { return -1; }
     if portable_mir_verify_locals(module, result) != 0 { return -1; }

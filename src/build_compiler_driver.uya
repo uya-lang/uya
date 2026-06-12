@@ -1462,6 +1462,8 @@ fn native_build_empty_portable_mir_module() PortableMirModule {
         field_layout_count: 0usize,
         function_param_type_count: 0usize,
         async_frame_meta_count: 0usize,
+        global_count: 0usize,
+        const_count: 0usize,
         functions: native_build_empty_vector(),
         blocks: native_build_empty_vector(),
         values: native_build_empty_vector(),
@@ -1477,6 +1479,8 @@ fn native_build_empty_portable_mir_module() PortableMirModule {
         field_layouts: native_build_empty_vector(),
         function_param_types: native_build_empty_vector(),
         async_frame_metas: native_build_empty_vector(),
+        globals: native_build_empty_vector(),
+        consts: native_build_empty_vector(),
     };
 }
 fn native_build_empty_mir_backend_request() MirTargetBackendRequest {
