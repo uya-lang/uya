@@ -126,8 +126,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
 | `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
 | `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`。 |
-| `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；`catch |err|` 绑定待后续 shard。 |
-| `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；`@error_id` 读取待后续 shard。 |
+| `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；error-id binding parity shard 覆盖 `catch |err|` 绑定。 |
+| `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；error-id binding parity shard 覆盖 `@error_id(error.Name)` 读取。 |
 | `AST_MATCH_EXPR` | done | partial | MIR-C99 full-language union parity shard 覆盖 `match union_value { .number(x) => x, .payload(p) => p.left + p.right }`。 |
 | `AST_MC_EVAL` | partial | missing | 宏内求值；MIR 端走 pre-MIR helper。 |
 | `AST_MC_CODE` | partial | missing | 宏内生成代码。 |
@@ -147,8 +147,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_SYSCALL` | missing | missing | `@syscall(nr, ...)` 需要 capability diagnostic 和 MIR-C99 parity/reject 记录。 |
 | `AST_PTR_FROM_USIZE` | missing | missing | `@ptr_from_usize`。 |
 | `AST_USIZE_FROM_PTR` | missing | missing | `@usize_from_ptr`。 |
-| `AST_ERROR_ID` | done | missing | `@error_id` 由 `error_id` shard 验证。 |
-| `AST_ERROR_NAME` | done | missing | `@error_name` 由 `error_id` shard 邻接路径覆盖。 |
+| `AST_ERROR_ID` | done | partial | MIR-C99 full-language error-id binding parity shard 覆盖 `@error_id(err)` 与 `@error_id(error.Name)`。 |
+| `AST_ERROR_NAME` | done | partial | MIR-C99 full-language error-id binding parity shard 邻接覆盖 `@error_name(err)`。 |
 | `AST_VA_START` | missing | missing | `@va_start` 仅 `c_import` 边界使用。 |
 | `AST_VA_END` | missing | missing | 同上。 |
 | `AST_VA_ARG` | missing | missing | 同上。 |
@@ -162,7 +162,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播。 |
+| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取。 |
 | `AST_TYPE_ATOMIC` | done | missing | `atomic T` 由 `atomic` shard 验证。 |
 | `AST_TYPE_VECTOR` | done | missing | `@vector(T, N)` 由 `simd` shard 验证。 |
 | `AST_TYPE_MASK` | done | missing | `@mask(N)` 由 `simd` shard 验证。 |
@@ -237,8 +237,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@syscall` | missing | missing | capability diagnostic 和 MIR-C99 parity/reject 待补。 |
 | `@ptr_from_usize` | missing | missing | microapp 路径。 |
 | `@usize_from_ptr` | missing | missing | microapp 路径。 |
-| `@error_id` | done | missing | `error_id` shard。 |
-| `@error_name` | done | missing | 同上。 |
+| `@error_id` | done | partial | MIR-C99 full-language error-id binding parity shard 覆盖 `@error_id(err)` 与 `@error_id(error.Name)`。 |
+| `@error_name` | done | partial | MIR-C99 full-language error-id binding parity shard 邻接覆盖 `@error_name(err)`。 |
 | `@c_import` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；最小 @c_import parity 待补。 |
 | `@naked_fn` | done | missing | `verify_portable_mir_naked_fn.sh` 固定。 |
 | `@vector` | done | missing | `simd` shard。 |
