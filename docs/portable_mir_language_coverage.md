@@ -79,7 +79,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_ENUM_DECL` | done | partial | MIR-C99 full-language enum parity shard 覆盖 enum tag、显式/自动值、比较、cast 和 enum match arms。 |
 | `AST_ERROR_DECL` | done | missing | `error SmokeError;` 由 Phase 9A 验证。 |
 | `AST_INTERFACE_DECL` | done | missing | `interface SmokeAdder { ... }` 由 C99 oracle 和覆盖矩阵样本固定；MIR-C99 parity 待专用 harness。 |
-| `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call。 |
+| `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call；generic struct parity shard 覆盖 `Box<T>` 的 i32/f64 concrete instances。 |
 | `AST_UNION_DECL` | done | partial | MIR-C99 full-language union parity shard 覆盖 tagged union layout、构造和 payload match 解包。 |
 | `AST_METHOD_BLOCK` | partial | partial | MIR-C99 full-language struct parity shard 覆盖 method-style aggregate call；vtable lowering 待 interface shard。 |
 | `AST_FN_DECL` | done | missing | 主路径；`export fn` / `fn` 已走 CoreBody。 |
@@ -105,10 +105,10 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | partial | MIR-C99 full-language pointer parity shard 覆盖 `&local` 取地址和 `*ptr` 解引用 load/store；其他一元运算由后续 shard 覆盖。 |
 | `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call，struct parity shard 覆盖 method-style aggregate call；generic function parity shard 覆盖 i32/f64 concrete function instances；interface call 由后续 shard 覆盖。 |
-| `AST_MEMBER_ACCESS` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field access 和 method member call；union parity shard 覆盖 payload field access；tuple parity shard 覆盖 `.0/.1` numeric member access。 |
+| `AST_MEMBER_ACCESS` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field access 和 method member call；generic struct parity shard 覆盖 generic struct field access；union parity shard 覆盖 payload field access；tuple parity shard 覆盖 `.0/.1` numeric member access。 |
 | `AST_ARRAY_ACCESS` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice shard 覆盖 slice index load。 |
 | `AST_SLICE_EXPR` | done | partial | MIR-C99 full-language slice parity shard 覆盖 array-to-slice 和 slice-to-slice 表达式。 |
-| `AST_STRUCT_INIT` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal 初始化。 |
+| `AST_STRUCT_INIT` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal 初始化；generic struct parity shard 覆盖 `Box<T>` concrete init。 |
 | `AST_ARRAY_LITERAL` | done | partial | MIR-C99 full-language array parity shard 覆盖 `[i32: N]` 字面量和空数组初始化。 |
 | `AST_TUPLE_LITERAL` | partial | partial | MIR-C99 full-language tuple parity shard 覆盖 `(i32, i32)` 字面量、`.0/.1` numeric member access 和由 tuple field 构造新 tuple。 |
 | `AST_SIZEOF` | done | missing | `@size_of` 由 `builtin` shard 验证。 |
@@ -218,7 +218,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_PLACE_KIND_FIELD` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field load/store；union parity shard 覆盖 match payload field load；tuple parity shard 覆盖 tuple numeric member load。 |
+| `CORE_PLACE_KIND_FIELD` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field load/store；generic struct parity shard 覆盖 generic struct field load；union parity shard 覆盖 match payload field load；tuple parity shard 覆盖 tuple numeric member load。 |
 | `CORE_PLACE_KIND_INDEX` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice shard 覆盖 slice index load。 |
 | `CORE_PLACE_KIND_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 slice place 构造。 |
 | `CORE_PLACE_KIND_LOCAL` | done | partial | MIR-C99 full-language pointer parity shard 覆盖 local address-of 和经 local pointer 的 deref load/store。 |
