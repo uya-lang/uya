@@ -204,6 +204,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_cfg_plan_build_async_await_transitions(request.module, cfg_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
+    if mir_c99_cfg_plan_build_async_cleanup_releases(request.module, cfg_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_driver_seed_names(request.module, name_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }

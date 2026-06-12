@@ -19,6 +19,8 @@ export const MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_REJECT: i32 = 2;
 export const MIR_C99_CFG_ASYNC_AWAIT_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_ASYNC_AWAIT_STATUS_REJECT: i32 = 2;
+export const MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_STATUS_PLANNED: i32 = 1;
+export const MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR: i32 = 1;
 export const MIR_C99_CFG_BLOCK_FLAG_CLEANUP: i32 = 1;
@@ -30,6 +32,10 @@ export const MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_RESUME: i32 = 2;
 export const MIR_C99_CFG_ASYNC_AWAIT_FLAG_STATE: i32 = 1;
 export const MIR_C99_CFG_ASYNC_AWAIT_FLAG_CHILD: i32 = 2;
 export const MIR_C99_CFG_ASYNC_AWAIT_FLAG_RESULT: i32 = 4;
+export const MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_DROP: i32 = 1;
+export const MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_ERROR_UNION: i32 = 2;
+export const MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_FRAME_RELEASE: i32 = 4;
+export const MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_RESULT: i32 = 8;
 
 /// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
 /// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
@@ -148,6 +154,22 @@ export struct MirC99AsyncAwaitStateTransition {
     flags: i32,
 }
 
+/// 功能说明：记录 async error union、cleanup edge 和 frame release 的输出计划。
+/// 参数说明：无；字段来自 MIR drop/error-union/async frame free/result load instruction。
+/// 返回值说明：无；输出阶段按该计划处理 defer/errdefer、error path 和 frame 释放。
+export struct MirC99AsyncCleanupReleasePlanEntry {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    op: i32,
+    cleanup_action: i32,
+    error_union_path: i32,
+    result_value_id: MirValueId,
+    frame_released: i32,
+    status: i32,
+    flags: i32,
+}
+
 /// 功能说明：记录 MIR-C99 CFG function plan。
 /// 参数说明：无；动态保存 MIR function/block/terminator 到 C function/label/goto 的映射。
 /// 返回值说明：无。
@@ -159,6 +181,7 @@ export struct MirC99CfgPlan {
     error_union_returns: SemanticVector,
     async_state_edges: SemanticVector,
     async_await_transitions: SemanticVector,
+    async_cleanup_releases: SemanticVector,
     function_count: usize,
     block_count: usize,
     terminator_count: usize,
@@ -166,6 +189,7 @@ export struct MirC99CfgPlan {
     error_union_return_count: usize,
     async_state_edge_count: usize,
     async_await_transition_count: usize,
+    async_cleanup_release_count: usize,
     cleanup_error_function_count: usize,
     cleanup_block_count: usize,
     cleanup_error_terminator_count: usize,
@@ -312,6 +336,144 @@ fn mir_c99_cfg_inst_is_async_await_transition(inst: &MirInst) i32 {
         return 1;
     }
     return 0;
+}
+
+fn mir_c99_cfg_error_union_path_from_inst(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ERROR_UNION_OK ||
+       inst.op == MIR_INST_OP_ERROR_UNION_PAYLOAD {
+        return MIR_ERROR_UNION_PATH_SUCCESS;
+    }
+    if inst.op == MIR_INST_OP_ERROR_UNION_ERR ||
+       inst.op == MIR_INST_OP_ERROR_UNION_ERROR {
+        return MIR_ERROR_UNION_PATH_FAILURE;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_inst_is_async_cleanup_release(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if portable_mir_inst_op_is_drop(inst.op) != 0 {
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_ASYNC_FRAME_FREE ||
+       inst.op == MIR_INST_OP_ASYNC_RESULT_LOAD {
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_ERROR_UNION_OK ||
+       inst.op == MIR_INST_OP_ERROR_UNION_ERR {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_async_cleanup_release_flags(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if portable_mir_inst_op_is_drop(inst.op) != 0 {
+        return MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_DROP;
+    }
+    if inst.op == MIR_INST_OP_ASYNC_FRAME_FREE {
+        return MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_FRAME_RELEASE;
+    }
+    if inst.op == MIR_INST_OP_ASYNC_RESULT_LOAD {
+        return MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_RESULT;
+    }
+    if inst.op == MIR_INST_OP_ERROR_UNION_OK ||
+       inst.op == MIR_INST_OP_ERROR_UNION_ERR {
+        return MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_FLAG_ERROR_UNION;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_async_cleanup_release_reject_entry(
+    inst: &MirInst) MirC99AsyncCleanupReleasePlanEntry {
+    var inst_id: MirInstId = MIR_INST_INVALID_ID;
+    var function_id: MirFunctionId = MIR_FUNCTION_INVALID_ID;
+    var block_id: MirBlockId = MIR_BLOCK_INVALID_ID;
+    var op: i32 = 0;
+    var result_value_id: MirValueId = MIR_VALUE_INVALID_ID;
+    var flags: i32 = 0;
+    if inst != null {
+        inst_id = inst.inst_id;
+        function_id = inst.function_id;
+        block_id = inst.block_id;
+        op = inst.op;
+        result_value_id = inst.result_value_id;
+        flags = inst.flags;
+    }
+    return MirC99AsyncCleanupReleasePlanEntry{
+        inst_id: inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: op,
+        cleanup_action: 0,
+        error_union_path: 0,
+        result_value_id: result_value_id,
+        frame_released: 0,
+        status: MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_STATUS_REJECT,
+        flags: flags,
+    };
+}
+
+fn mir_c99_cfg_async_cleanup_release_from_mir(module: &PortableMirModule,
+    inst: &MirInst) MirC99AsyncCleanupReleasePlanEntry {
+    if module == null || inst == null ||
+       mir_c99_cfg_inst_is_async_cleanup_release(inst) == 0 {
+        return mir_c99_cfg_async_cleanup_release_reject_entry(inst);
+    }
+    var cleanup_action: i32 = 0;
+    var error_union_path: i32 = 0;
+    var result_value_id: MirValueId = inst.result_value_id;
+    var frame_released: i32 = 0;
+    var flags: i32 = mir_c99_cfg_async_cleanup_release_flags(inst);
+    if portable_mir_inst_op_is_drop(inst.op) != 0 {
+        cleanup_action = mir_c99_cfg_cleanup_action_for_drop(inst);
+        if cleanup_action == MIR_CLEANUP_ACTION_LEXICAL_DROP {
+            cleanup_action = MIR_CLEANUP_ACTION_DROP;
+        }
+        flags = flags | MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE;
+        if inst.operand_count > 0 {
+            const operand: &MirOperand = mir_c99_cfg_operand_ptr(module, inst.operand_start);
+            if operand == null {
+                return mir_c99_cfg_async_cleanup_release_reject_entry(inst);
+            }
+            result_value_id = operand.value_id;
+        }
+    } else if inst.op == MIR_INST_OP_ASYNC_FRAME_FREE {
+        cleanup_action = MIR_CLEANUP_ACTION_DEFER;
+        frame_released = 1;
+    } else if inst.op == MIR_INST_OP_ASYNC_RESULT_LOAD {
+        error_union_path = mir_c99_cfg_error_union_path_from_inst(inst);
+    } else {
+        error_union_path = mir_c99_cfg_error_union_path_from_inst(inst);
+        if error_union_path == 0 {
+            return mir_c99_cfg_async_cleanup_release_reject_entry(inst);
+        }
+        if error_union_path == MIR_ERROR_UNION_PATH_FAILURE {
+            cleanup_action = MIR_CLEANUP_ACTION_ERRDEFER;
+        }
+    }
+    if portable_mir_inst_op_is_drop(inst.op) != 0 && cleanup_action == 0 {
+        return mir_c99_cfg_async_cleanup_release_reject_entry(inst);
+    }
+    return MirC99AsyncCleanupReleasePlanEntry{
+        inst_id: inst.inst_id,
+        function_id: inst.function_id,
+        block_id: inst.block_id,
+        op: inst.op,
+        cleanup_action: cleanup_action,
+        error_union_path: error_union_path,
+        result_value_id: result_value_id,
+        frame_released: frame_released,
+        status: MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_STATUS_PLANNED,
+        flags: flags,
+    };
 }
 
 fn mir_c99_cfg_async_await_transition_from_mir(module: &PortableMirModule,
@@ -555,18 +717,7 @@ fn mir_c99_cfg_error_union_return_reject_entry(term: &MirTerminator,
 }
 
 fn mir_c99_cfg_error_union_return_path(inst: &MirInst) i32 {
-    if inst == null {
-        return 0;
-    }
-    if inst.op == MIR_INST_OP_ERROR_UNION_OK ||
-       inst.op == MIR_INST_OP_ERROR_UNION_PAYLOAD {
-        return MIR_ERROR_UNION_PATH_SUCCESS;
-    }
-    if inst.op == MIR_INST_OP_ERROR_UNION_ERR ||
-       inst.op == MIR_INST_OP_ERROR_UNION_ERROR {
-        return MIR_ERROR_UNION_PATH_FAILURE;
-    }
-    return 0;
+    return mir_c99_cfg_error_union_path_from_inst(inst);
 }
 
 fn mir_c99_cfg_error_union_return_flags(inst: &MirInst) i32 {
@@ -865,6 +1016,8 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     semantic_vector_init(&plan.error_union_returns, @size_of(MirC99ErrorUnionReturnPlanEntry));
     semantic_vector_init(&plan.async_state_edges, @size_of(MirC99AsyncFrameStateEdge));
     semantic_vector_init(&plan.async_await_transitions, @size_of(MirC99AsyncAwaitStateTransition));
+    semantic_vector_init(&plan.async_cleanup_releases,
+        @size_of(MirC99AsyncCleanupReleasePlanEntry));
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
@@ -872,6 +1025,7 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     plan.error_union_return_count = 0usize;
     plan.async_state_edge_count = 0usize;
     plan.async_await_transition_count = 0usize;
+    plan.async_cleanup_release_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -893,6 +1047,7 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     semantic_vector_release(&plan.error_union_returns);
     semantic_vector_release(&plan.async_state_edges);
     semantic_vector_release(&plan.async_await_transitions);
+    semantic_vector_release(&plan.async_cleanup_releases);
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
@@ -900,6 +1055,7 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     plan.error_union_return_count = 0usize;
     plan.async_state_edge_count = 0usize;
     plan.async_await_transition_count = 0usize;
+    plan.async_cleanup_release_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -1084,6 +1240,31 @@ export fn mir_c99_cfg_plan_append_async_await_transition(cfg_plan: &MirC99CfgPla
     return 0;
 }
 
+/// 功能说明：向 MIR-C99 CFG plan 追加一个 async cleanup/release plan entry。
+/// 参数说明：`cfg_plan` 为 CFG plan，`module` 为 MIR module，`inst` 为相关 MIR instruction。
+/// 返回值说明：非相关 instruction 返回 `0`；映射成功返回 `0`，不支持返回 `-1`。
+export fn mir_c99_cfg_plan_append_async_cleanup_release(cfg_plan: &MirC99CfgPlan,
+    module: &PortableMirModule, inst: &MirInst) i32 {
+    if cfg_plan == null || module == null || inst == null {
+        return -1;
+    }
+    if mir_c99_cfg_inst_is_async_cleanup_release(inst) == 0 {
+        return 0;
+    }
+    const entry: MirC99AsyncCleanupReleasePlanEntry =
+        mir_c99_cfg_async_cleanup_release_from_mir(module, inst);
+    if semantic_vector_append(&cfg_plan.async_cleanup_releases,
+        &entry as &const void) != 0 {
+        return -1;
+    }
+    cfg_plan.async_cleanup_release_count = cfg_plan.async_cleanup_releases.count;
+    if entry.status == MIR_C99_CFG_ASYNC_CLEANUP_RELEASE_STATUS_REJECT {
+        cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
 /// 功能说明：从 PortableMIR module 构建 MIR function -> C function 映射。
 /// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 plan，`unit` 为目标 single unit，`cfg_plan` 为输出 CFG plan。
 /// 返回值说明：全部 function 映射成功返回 `0`，参数非法或任一 function 失败返回 `-1`。
@@ -1223,6 +1404,26 @@ export fn mir_c99_cfg_plan_build_async_await_transitions(module: &PortableMirMod
     return status;
 }
 
+/// 功能说明：从 PortableMIR module 构建 async cleanup、error union 和 frame release 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`cfg_plan` 为输出 CFG plan。
+/// 返回值说明：全部 async cleanup/release 映射成功返回 `0`，参数非法或任一映射失败返回 `-1`。
+export fn mir_c99_cfg_plan_build_async_cleanup_releases(module: &PortableMirModule,
+    cfg_plan: &MirC99CfgPlan) i32 {
+    if module == null || cfg_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if mir_c99_cfg_plan_append_async_cleanup_release(cfg_plan, module, inst) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：按下标读取 MIR-C99 function plan 条目。
 /// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
 /// 返回值说明：成功返回条目指针，参数非法返回 null。
@@ -1302,6 +1503,19 @@ export fn mir_c99_cfg_async_await_transition_ptr(cfg_plan: &MirC99CfgPlan,
     }
     return semantic_vector_item_ptr(&cfg_plan.async_await_transitions,
         index as usize) as &MirC99AsyncAwaitStateTransition;
+}
+
+/// 功能说明：按下标读取 MIR-C99 async cleanup/release plan 条目。
+/// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_cfg_async_cleanup_release_ptr(cfg_plan: &MirC99CfgPlan,
+    index: i32) &MirC99AsyncCleanupReleasePlanEntry {
+    if cfg_plan == null || index < 0 ||
+       (index as usize) >= cfg_plan.async_cleanup_releases.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&cfg_plan.async_cleanup_releases,
+        index as usize) as &MirC99AsyncCleanupReleasePlanEntry;
 }
 
 /// 功能说明：输出 MIR-C99 BR terminator 对应的低级 C99 `goto bbN;` 语句。
