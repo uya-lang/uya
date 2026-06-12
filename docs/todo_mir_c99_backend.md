@@ -186,6 +186,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 - [ ] MIR-C99-BACKEND-TYPES-LAYOUT：用 MIR/layout metadata 生成最小 C 类型。
   - [ ] scalar typedef 映射：`i8/u8/i16/u16/i32/u32/i64/u64/usize/isize/bool/byte/f32/f64`。
+    - [x] 当前 MIR scalar typedef：`bool` / `i32` / `usize`。
+      - 验证：`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过，确认 `src/codegen/mir_c99/types.uya` 从实际 `MIR_TYPE_KIND_BOOL` / `MIR_TYPE_KIND_I32` / `MIR_TYPE_KIND_USIZE` 映射到 `MIR_C99_C_TYPE_KIND_BOOL` / `MIR_C99_C_TYPE_KIND_I32` / `MIR_C99_C_TYPE_KIND_USIZE`，保留 `size_bytes` / `align_bytes` metadata，且 driver 构建并报告 type plan；`bin/uya check` 对拼接后的 MIR-C99 子模块通过。
+    - [ ] MIR scalar type kind 缺口记录：`i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64` 尚未进入实际 PortableMIR。
   - [ ] pointer、array、slice struct。
   - [ ] struct / union / enum layout，字段顺序和 size/align 与现有 C99 oracle 对齐。
   - [ ] float/double 在 struct、array、slice、return value 和参数中的 size/align 与现有 C99 oracle 对齐。
