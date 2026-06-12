@@ -451,6 +451,8 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var op9: MirOperand = golden_operand(9, MIR_VALUE_INVALID_ID, 2, 4);
     var op10: MirOperand = golden_operand(10, MIR_VALUE_INVALID_ID, 0, 0);
     var op11: MirOperand = golden_operand(11, 7, MIR_LOCAL_INVALID_ID, 5);
+    var op12: MirOperand = golden_operand(12, 7, MIR_LOCAL_INVALID_ID, 5);
+    var op13: MirOperand = golden_operand(13, 7, MIR_LOCAL_INVALID_ID, 5);
     if portable_mir_append_operand(module, &op0) != 0 { return -1; }
     if portable_mir_append_operand(module, &op1) != 0 { return -1; }
     if portable_mir_append_operand(module, &op2) != 0 { return -1; }
@@ -463,6 +465,8 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     if portable_mir_append_operand(module, &op9) != 0 { return -1; }
     if portable_mir_append_operand(module, &op10) != 0 { return -1; }
     if portable_mir_append_operand(module, &op11) != 0 { return -1; }
+    if portable_mir_append_operand(module, &op12) != 0 { return -1; }
+    if portable_mir_append_operand(module, &op13) != 0 { return -1; }
 
     var succ0: MirSuccessor = golden_successor(0, 1, 4, 1);
     var succ1: MirSuccessor = golden_successor(1, 2, 0, 0);
@@ -482,7 +486,7 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var inst6: MirInst = golden_inst(6, 2, GOLDEN_OP_ATOMIC_LOAD, 4, 6, 9, 1, MIR_ADDRESS_SPACE_HOST);
     inst6.flags = MIR_INST_FLAG_ATOMIC_ORDERED;
     var inst7: MirInst = golden_inst(7, 2, GOLDEN_OP_VECTOR_SPLAT, 5, 7, 10, 1, MIR_ADDRESS_SPACE_GENERIC);
-    var inst8: MirInst = golden_inst(8, 2, GOLDEN_OP_VECTOR_SELECT, 6, 8, 11, 1, MIR_ADDRESS_SPACE_GENERIC);
+    var inst8: MirInst = golden_inst(8, 2, GOLDEN_OP_VECTOR_SELECT, 6, 8, 11, 3, MIR_ADDRESS_SPACE_GENERIC);
     if portable_mir_append_inst(module, &inst0) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst1) != 0 { return -1; }
     if portable_mir_append_inst(module, &inst2) != 0 { return -1; }
@@ -766,7 +770,7 @@ build_out="$tmp_dir/build.out"
 build_err="$tmp_dir/build.err"
 
 cat >"$expected" <<'EOF'
-mir_module profile=7 ptr=8 funcs=1 blocks=4 values=9 types=8 locals=3 insts=9 terms=4 operands=12 successors=4 block_params=1 cleanup=1
+mir_module profile=7 ptr=8 funcs=1 blocks=4 values=9 types=8 locals=3 insts=9 terms=4 operands=14 successors=4 block_params=1 cleanup=1
 fn#0 sig=t7 params=0+1 locals=0+3 blocks=0+4 entry=bb0 cleanup=1 cc=1 addrmask=3
 type#0 kind=3 size=4 align=4 pointee=-1 fields=0 addr=1
 type#1 kind=5 size=8 align=8 pointee=0 fields=0 addr=2
@@ -800,6 +804,8 @@ operand#8 value=5 local=-1 type=0 imm=0
 operand#9 value=-1 local=2 type=4 imm=0
 operand#10 value=-1 local=0 type=0 imm=0
 operand#11 value=7 local=-1 type=5 imm=0
+operand#12 value=7 local=-1 type=5 imm=0
+operand#13 value=7 local=-1 type=5 imm=0
 inst#0 bb=0 op=1 type=0 result=1 ops=0+1 cc=1 cap=0 addr=2
 inst#1 bb=0 op=3 type=0 result=2 ops=1+1 cc=1 cap=0 addr=1
 inst#2 bb=0 op=2 type=0 result=-1 ops=2+2 cc=1 cap=0 addr=2
@@ -808,7 +814,7 @@ inst#4 bb=1 op=1 type=0 result=5 ops=6+1 cc=1 cap=0 addr=2
 inst#5 bb=1 op=2 type=0 result=-1 ops=7+2 cc=1 cap=0 addr=2
 inst#6 bb=2 op=17 type=4 result=6 ops=9+1 cc=1 cap=0 addr=2
 inst#7 bb=2 op=21 type=5 result=7 ops=10+1 cc=1 cap=0 addr=1
-inst#8 bb=2 op=24 type=6 result=8 ops=11+1 cc=1 cap=0 addr=1
+inst#8 bb=2 op=24 type=6 result=8 ops=11+3 cc=1 cap=0 addr=1
 term#0 bb=0 kind=3 ops=4+1 succ=0+2
 term#1 bb=1 kind=2 ops=0+0 succ=2+1
 term#2 bb=2 kind=2 ops=0+0 succ=3+1

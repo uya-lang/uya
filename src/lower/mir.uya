@@ -83,6 +83,10 @@ export const MIR_INST_OP_ATOMIC_LOAD: i32 = 17;
 export const MIR_INST_OP_ATOMIC_STORE: i32 = 18;
 export const MIR_INST_OP_ATOMIC_RMW: i32 = 19;
 export const MIR_INST_OP_ATOMIC_CMPXCHG: i32 = 20;
+export const MIR_INST_OP_VECTOR_SPLAT: i32 = 21;
+export const MIR_INST_OP_VECTOR_LOAD: i32 = 22;
+export const MIR_INST_OP_VECTOR_STORE: i32 = 23;
+export const MIR_INST_OP_VECTOR_SELECT: i32 = 24;
 export const MIR_INST_OP_I32_LE: i32 = 26;
 export const MIR_INST_OP_LOCAL_SET: i32 = 27;
 export const MIR_INST_OP_INT_UNARY_MIN: i32 = 28;
@@ -545,6 +549,17 @@ export fn portable_mir_inst_op_is_atomic(op: i32) i32 {
     if op == MIR_INST_OP_ATOMIC_INIT || op == MIR_INST_OP_ATOMIC_LOAD ||
        op == MIR_INST_OP_ATOMIC_STORE || op == MIR_INST_OP_ATOMIC_RMW ||
        op == MIR_INST_OP_ATOMIC_CMPXCHG {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR 指令 opcode 是否为显式 vector/mask 操作。
+/// 参数说明：`op` 为待分类的 MIR 指令 opcode。
+/// 返回值说明：vector splat/load/store/select 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_vector_mask(op: i32) i32 {
+    if op == MIR_INST_OP_VECTOR_SPLAT || op == MIR_INST_OP_VECTOR_LOAD ||
+       op == MIR_INST_OP_VECTOR_STORE || op == MIR_INST_OP_VECTOR_SELECT {
         return 1;
     }
     return 0;

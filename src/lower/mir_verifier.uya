@@ -18,9 +18,6 @@ export const MIR_VERIFY_ERR_UNDEFINED_USE: i32 = 14;
 export const MIR_VERIFY_ERR_INVALID_OPERAND: i32 = 15;
 export const MIR_VERIFY_ERR_INVALID_LAYOUT: i32 = 16;
 
-const MIR_VERIFY_VECTOR_OP_MIN: i32 = 21;
-const MIR_VERIFY_VECTOR_OP_MAX: i32 = 24;
-
 /// 功能说明：记录 PortableMIR verifier 的首个稳定 diagnostic。
 /// 参数说明：无；字段保存错误码和触发错误的 MIR ID。
 /// 返回值说明：无。
@@ -1719,6 +1716,42 @@ fn portable_mir_verify_atomic_inst(module: &PortableMirModule, inst: &MirInst,
     return 0;
 }
 
+fn portable_mir_verify_vector_mask_inst(module: &PortableMirModule, inst: &MirInst,
+    typ: &MirType, result: &MirVerifierResult) i32 {
+    if portable_mir_inst_op_is_vector_mask(inst.op) == 0 {
+        return 0;
+    }
+    if typ == null || (typ.kind != MIR_TYPE_KIND_VECTOR && typ.kind != MIR_TYPE_KIND_MASK) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VECTOR_MASK,
+            inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+            inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.op == MIR_INST_OP_VECTOR_SPLAT || inst.op == MIR_INST_OP_VECTOR_LOAD {
+        if inst.operand_count < 1 || inst.result_value_id == MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_VECTOR_STORE {
+        if inst.operand_count < 2 || inst.result_value_id != MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_VECTOR_SELECT {
+        if inst.operand_count < 3 || inst.result_value_id == MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+    }
+    return 0;
+}
+
 fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, result: &MirVerifierResult) i32 {
     const typ: &MirType = portable_mir_verify_type_ptr(module, inst.type_id);
     if inst.op == MIR_INST_OP_LOAD && (inst.operand_count <= 0 || inst.result_value_id == MIR_VALUE_INVALID_ID) {
@@ -1777,9 +1810,8 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     if portable_mir_verify_atomic_inst(module, inst, typ, result) != 0 {
         return -1;
     }
-    if inst.op >= MIR_VERIFY_VECTOR_OP_MIN && inst.op <= MIR_VERIFY_VECTOR_OP_MAX &&
-       (typ == null || (typ.kind != MIR_TYPE_KIND_VECTOR && typ.kind != MIR_TYPE_KIND_MASK)) {
-        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_VECTOR_MASK, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    if portable_mir_verify_vector_mask_inst(module, inst, typ, result) != 0 {
+        return -1;
     }
     if inst.op == MIR_INST_OP_CALL && portable_mir_verify_call_abi_supported(module, inst.calling_convention) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
