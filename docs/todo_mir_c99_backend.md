@@ -190,10 +190,11 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过，确认 `src/codegen/mir_c99/types.uya` 从实际 `MIR_TYPE_KIND_BOOL` / `MIR_TYPE_KIND_I32` / `MIR_TYPE_KIND_USIZE` 映射到 `MIR_C99_C_TYPE_KIND_BOOL` / `MIR_C99_C_TYPE_KIND_I32` / `MIR_C99_C_TYPE_KIND_USIZE`，保留 `size_bytes` / `align_bytes` metadata，且 driver 构建并报告 type plan；`bin/uya check` 对拼接后的 MIR-C99 子模块通过。
     - [x] MIR scalar type kind 缺口记录：`i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64` 尚未进入实际 PortableMIR。
       - 验证：`bash tests/verify_mir_c99_type_scalar_gap.sh` 通过，确认 `src/lower/mir.uya` 尚无 `MIR_TYPE_KIND_I8` / `MIR_TYPE_KIND_U8` / `MIR_TYPE_KIND_I16` / `MIR_TYPE_KIND_U16` / `MIR_TYPE_KIND_U32` / `MIR_TYPE_KIND_I64` / `MIR_TYPE_KIND_U64` / `MIR_TYPE_KIND_ISIZE` / `MIR_TYPE_KIND_BYTE` / `MIR_TYPE_KIND_F32` / `MIR_TYPE_KIND_F64`，且 `src/codegen/mir_c99/types.uya` 未声明对应 MIR-C99 C type kind；因此本项只收口当前实际 PortableMIR scalar coverage，不提前发明缺失 type kind。
-  - [ ] pointer、array、slice struct。
+  - [x] pointer、array、slice struct。
     - [x] 当前 MIR pointer typedef：`MIR_TYPE_KIND_POINTER`。
       - 验证：`bash tests/verify_mir_c99_type_pointer_plan.sh` 通过，确认 `src/lower/mir.uya` 存在 `MIR_TYPE_KIND_POINTER` 和 `pointee_type_id` metadata，`src/lower/mir_verifier.uya` 校验 pointer 的 pointee type，`src/codegen/mir_c99/types.uya` 映射到 `MIR_C99_C_TYPE_KIND_POINTER` 并复制 `pointee_type_id`；`bin/uya check` 对拼接后的 MIR-C99 子模块通过。
-    - [ ] MIR array/slice type kind 缺口记录：`MIR_TYPE_KIND_ARRAY` / `MIR_TYPE_KIND_SLICE` 尚未进入实际 PortableMIR。
+    - [x] MIR array/slice type kind 缺口记录：`MIR_TYPE_KIND_ARRAY` / `MIR_TYPE_KIND_SLICE` 尚未进入实际 PortableMIR。
+      - 验证：`bash tests/verify_mir_c99_type_array_slice_gap.sh` 通过，确认 `src/lower/mir.uya` / `src/lower/mir_verifier.uya` 尚无 `MIR_TYPE_KIND_ARRAY` / `MIR_TYPE_KIND_SLICE`，`src/codegen/mir_c99/types.uya` 未声明对应 MIR-C99 C type kind；当前仅保留 `element_type_id` metadata，不能提前生成 array/slice struct typedef。
   - [ ] struct / union / enum layout，字段顺序和 size/align 与现有 C99 oracle 对齐。
   - [ ] float/double 在 struct、array、slice、return value 和参数中的 size/align 与现有 C99 oracle 对齐。
   - [ ] error union layout。
