@@ -102,7 +102,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `SIGN_EXTEND i16->i64`、`TRUNCATE i64->i16` 正例和反向宽度反例，断言数 32）；`bash tests/verify_portable_mir_conversion_opcode_inventory.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] int-float / float-int conversion opcode：校验整数与 f32/f64 operand/result 方向。
       - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `F64_TO_INT` 正例和结果类型方向错配反例，断言数 34）；`bash tests/verify_portable_mir_conversion_opcode_inventory.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
-    - [ ] float promote / demote conversion opcode：校验 f32/f64 operand/result 方向。
+    - [x] float promote / demote conversion opcode：校验 f32/f64 operand/result 方向。
+      - 验证：`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `F32_TO_F64`、`F64_TO_F32` 正例和方向错配反例，断言数 38）；`bash tests/verify_portable_mir_conversion_opcode_inventory.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [ ] 同步 MIR-C99 expression plan 对 conversion opcode 的可见支持/拒绝边界。
   - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。
 

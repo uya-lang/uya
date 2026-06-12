@@ -620,9 +620,14 @@ fn portable_mir_verify_conversion_inst(module: &PortableMirModule,
        portable_mir_type_kind_is_float(operand_type.kind) != 0 {
         return 1;
     }
-    if (inst.op == MIR_INST_OP_F32_TO_F64 || inst.op == MIR_INST_OP_F64_TO_F32) &&
-       portable_mir_type_kind_is_float(typ.kind) != 0 &&
-       portable_mir_type_kind_is_float(operand_type.kind) != 0 {
+    if inst.op == MIR_INST_OP_F32_TO_F64 &&
+       typ.kind == MIR_TYPE_KIND_F64 &&
+       operand_type.kind == MIR_TYPE_KIND_F32 {
+        return 1;
+    }
+    if inst.op == MIR_INST_OP_F64_TO_F32 &&
+       typ.kind == MIR_TYPE_KIND_F32 &&
+       operand_type.kind == MIR_TYPE_KIND_F64 {
         return 1;
     }
     return 0;
