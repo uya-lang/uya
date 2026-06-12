@@ -21,6 +21,13 @@ fn mir_c99_runtime_helper_capability_req_ptr(module: &PortableMirModule,
     return semantic_vector_item_ptr(&module.capability_reqs, index) as &MirCapabilityReq;
 }
 
+fn mir_c99_runtime_helper_inst_ptr(module: &PortableMirModule, index: usize) &MirInst {
+    if module == null || index >= module.insts.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.insts, index) as &MirInst;
+}
+
 fn mir_c99_runtime_helper_required_capability(helper_id: i32) i32 {
     if helper_id == MIR_RUNTIME_HELPER_MEMCPY ||
        helper_id == MIR_RUNTIME_HELPER_MEMSET ||
@@ -89,6 +96,53 @@ fn mir_c99_runtime_helper_is_supported(helper_id: i32) i32 {
     return 0;
 }
 
+fn mir_c99_runtime_helper_plan_async_frame_inst(inst: &MirInst,
+    module: &PortableMirModule, mir_plan: &MirC99Plan, unit: &MirC99Unit,
+    helper_plan: &MirC99RuntimeHelperPlan) i32 {
+    if inst == null || module == null || mir_plan == null || unit == null ||
+       helper_plan == null {
+        return -1;
+    }
+    if portable_mir_inst_op_is_async_frame(inst.op) == 0 {
+        return 0;
+    }
+    if (inst.runtime_capability_mask & MIR_RUNTIME_CAP_ASYNC_FRAME) == 0 ||
+       portable_mir_target_profile_supports_runtime_capability(&module.target_profile,
+           MIR_RUNTIME_CAP_ASYNC_FRAME) == 0 {
+        helper_plan.reject_count = helper_plan.reject_count + 1usize;
+        return -1;
+    }
+    if mir_c99_plan_append_ref(mir_plan, MIR_C99_REF_KIND_HELPER,
+           inst.op, inst.inst_id, inst.flags) != 0 ||
+       mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_HELPER,
+           inst.op, inst.inst_id, inst.flags) != 0 {
+        helper_plan.reject_count = helper_plan.reject_count + 1usize;
+        return -1;
+    }
+    helper_plan.helper_count = helper_plan.helper_count + 1usize;
+    return 0;
+}
+
+fn mir_c99_runtime_helper_plan_async_frames(module: &PortableMirModule,
+    mir_plan: &MirC99Plan, unit: &MirC99Unit,
+    helper_plan: &MirC99RuntimeHelperPlan) i32 {
+    if module == null || mir_plan == null || unit == null || helper_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = mir_c99_runtime_helper_inst_ptr(module, i);
+        if inst != null &&
+           mir_c99_runtime_helper_plan_async_frame_inst(inst, module, mir_plan,
+               unit, helper_plan) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：初始化 MIR-C99 runtime helper 计划。
 /// 参数说明：`plan` 为输出计划。
 /// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
@@ -134,6 +188,10 @@ export fn mir_c99_runtime_helper_plan_build(module: &PortableMirModule,
             }
         }
         i = i + 1usize;
+    }
+    if mir_c99_runtime_helper_plan_async_frames(module, mir_plan, unit,
+       helper_plan) != 0 {
+        status = -1;
     }
     return status;
 }
