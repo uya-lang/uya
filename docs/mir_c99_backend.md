@@ -127,7 +127,29 @@ MIR-C99 的 `done` 只能由以下证据支撑：
 - 固定源码样本、函数名白名单或 body-shape 白名单。
 - 只生成 C 文本但没有运行结果和 no-fallback 检查。
 
-## 8. 后续门禁引用点
+## 8. Minimal C99 子集
+
+MIR-C99 emitter 只能把 `PortableMIR` 映射成低级、可移植、接近 assembly 的 C99 子集。允许形态：
+
+- C99 include、typedef、struct/union/enum declaration、extern prototype、global definition 和 function definition。
+- block label、`goto`、`if (cond) goto label; goto label;`、`return expr;`、`return;`。
+- scalar local、addressable local slot、temp assignment、load/store、field/index address、pointer dereference。
+- integer/float scalar arithmetic、comparison、logical operation、cast 和 explicit helper call。
+- 由 MIR capability/helper reference 显式登记的 `memcpy`、`memset`、`memcmp`、stdout/runtime、file/env/link helper。
+- 只使用可移植 C99 表达的 layout check；需要 compile-time check 时必须避免 C11 或 compiler extension。
+
+禁用形态：
+
+- C11 `_Static_assert`、`_Generic`、`_Atomic`、`thread_local`。
+- GCC/Clang extension：`typeof`、`__typeof__`、statement expression `({ ... })`、nested function、computed goto
+  `goto *expr`、labels-as-values `&&label`、`__attribute__`、`__builtin_*`、`__asm__`。
+- 可读源码还原目标：原始 Uya statement nesting、原始变量名恢复、AST pretty-print、backend-local source reconstruction。
+- 依赖 host compiler 非 C99 语义来提供 Uya safety proof、atomic semantics、SIMD semantics 或 unsupported capability。
+
+如果某个语言面确实需要超出该子集，必须先在 MIR-C99 TODO 和覆盖矩阵中登记 capability / ABI 决策，再扩展本文和
+对应 gate；不能在 emitter 中直接输出扩展语法。
+
+## 9. 后续门禁引用点
 
 后续测试和脚本应以本文作为边界口径：
 
