@@ -460,6 +460,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 - [ ] MIR-C99-BACKEND-SPLIT-C：在单 unit 稳定后扩到多 unit。
   - [ ] `MirC99Unit[]` 按 module/source/function group 分配。
+    - [x] 建立 MIR-C99 unit assignment plan：按 cross-unit symbol、source file 和 function group 生成动态 unit assignment，并让 CFG function 映射消费 assignment。
+      - 验证：`bash tests/verify_mir_c99_split_unit_assignment_plan.sh` 通过（先红灯失败于缺少 `MirC99UnitAssignment`，实现后 checker-only 临时合并通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_unit_fingerprint.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_unit_output_sections.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
+    - [ ] 将 global / async frame / helper refs 从 primary-only 迁移到 unit assignment。
   - [ ] 生成独立 header / prototypes / deps。
   - [ ] 生成 MIR-C99 专用 Makefile 或 build manifest，不调用现有 split-C writer。
   - [ ] unit fingerprint 稳定，空白和路径差异不影响结构性摘要。

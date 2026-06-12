@@ -10,6 +10,8 @@ export const MIR_C99_PLAN_LIFECYCLE_RELEASED: i32 = 2;
 export const MIR_C99_UNIT_KIND_PRIMARY: i32 = 1;
 export const MIR_C99_UNIT_KIND_MODULE: i32 = 2;
 export const MIR_C99_UNIT_KIND_HELPERS: i32 = 3;
+export const MIR_C99_UNIT_KIND_SOURCE: i32 = 4;
+export const MIR_C99_UNIT_KIND_FUNCTION_GROUP: i32 = 5;
 
 export const MIR_C99_REF_KIND_UNKNOWN: i32 = 0;
 export const MIR_C99_REF_KIND_INCLUDE: i32 = 1;
@@ -45,6 +47,7 @@ export struct MirC99Unit {
     kind: i32,
     name_id: InternedNameId,
     source_file_id: FileId,
+    function_group_id: i32,
     fingerprint: u64,
     estimated_bytes: usize,
     includes: SemanticVector,
@@ -56,6 +59,19 @@ export struct MirC99Unit {
     deps: SemanticVector,
     async_frame_layouts: SemanticVector,
     async_frame_slots: SemanticVector,
+}
+
+/// 功能说明：记录一个 MIR function 被分配到哪个 MIR-C99 translation unit。
+/// 参数说明：无；字段保存 function、unit、cross-unit symbol、source file 和 function group 稳定 ID。
+/// 返回值说明：无；由 `MirC99Plan.unit_assignments` 动态表保存。
+export struct MirC99UnitAssignment {
+    assignment_id: i32,
+    function_id: MirFunctionId,
+    unit_id: i32,
+    source_file_id: FileId,
+    cross_unit_symbol_id: MirCrossUnitSymbolId,
+    function_group_id: i32,
+    flags: i32,
 }
 
 /// 功能说明：记录 MIR-C99 async frame 的单个 concrete slot 布局。
@@ -149,6 +165,7 @@ export struct MirC99Plan {
     async_frame_slots: SemanticVector,
     global_initializers: SemanticVector,
     link_inputs: SemanticVector,
+    unit_assignments: SemanticVector,
     units: SemanticVector,
 }
 
@@ -189,6 +206,7 @@ fn mir_c99_unit_empty() MirC99Unit {
         kind: MIR_C99_UNIT_KIND_PRIMARY,
         name_id: 0,
         source_file_id: 0,
+        function_group_id: -1,
         fingerprint: 0u64,
         estimated_bytes: 0usize,
         includes: mir_c99_empty_vector(),
@@ -264,6 +282,7 @@ export fn mir_c99_unit_compute_fingerprint(unit: &MirC99Unit) u64 {
     h = mir_c99_hash_mix_i32(h, unit.kind);
     h = mir_c99_hash_mix_i32(h, unit.name_id);
     h = mir_c99_hash_mix_i32(h, unit.source_file_id);
+    h = mir_c99_hash_mix_i32(h, unit.function_group_id);
     h = mir_c99_unit_fingerprint_refs(h, &unit.includes);
     h = mir_c99_unit_fingerprint_refs(h, &unit.typedefs);
     h = mir_c99_unit_fingerprint_refs(h, &unit.prototypes);
@@ -298,6 +317,7 @@ export fn mir_c99_unit_init(unit: &MirC99Unit, unit_id: i32, kind: i32) i32 {
     unit.kind = kind;
     unit.name_id = 0;
     unit.source_file_id = 0;
+    unit.function_group_id = -1;
     unit.fingerprint = 0u64;
     unit.estimated_bytes = 0usize;
     semantic_vector_init(&unit.includes, @size_of(MirC99Ref));
@@ -390,6 +410,7 @@ export fn mir_c99_plan_init(plan: &MirC99Plan, arena: &CompilerArena, target_pro
     semantic_vector_init(&plan.async_frame_slots, @size_of(MirC99AsyncFrameSlotLayout));
     semantic_vector_init(&plan.global_initializers, @size_of(MirC99GlobalInitializerPlanEntry));
     semantic_vector_init(&plan.link_inputs, @size_of(MirC99LinkInputPlanEntry));
+    semantic_vector_init(&plan.unit_assignments, @size_of(MirC99UnitAssignment));
     semantic_vector_init(&plan.units, @size_of(MirC99Unit));
     return 0;
 }
@@ -420,6 +441,7 @@ export fn mir_c99_plan_release(plan: &MirC99Plan) void {
     semantic_vector_release(&plan.async_frame_slots);
     semantic_vector_release(&plan.global_initializers);
     semantic_vector_release(&plan.link_inputs);
+    semantic_vector_release(&plan.unit_assignments);
     semantic_vector_release(&plan.units);
     plan.lifecycle_state = MIR_C99_PLAN_LIFECYCLE_RELEASED;
     plan.unit_count = 0usize;
@@ -462,6 +484,183 @@ export fn mir_c99_plan_append_ref(plan: &MirC99Plan, kind: i32, source_id: i32, 
         return mir_c99_vec_append_ref(&plan.async_frame_slot_refs, kind, source_id, aux_id, flags);
     }
     return -1;
+}
+
+fn mir_c99_plan_debug_loc_source_file_id(module: &PortableMirModule,
+    debug_loc_id: MirDebugLocId) FileId {
+    const index: i32 = debug_loc_id as i32;
+    if module == null || index < 0 || (index as usize) >= module.debug_locs.count {
+        return -1 as FileId;
+    }
+    const loc: &MirDebugLoc =
+        semantic_vector_item_ptr(&module.debug_locs, index as usize) as &MirDebugLoc;
+    if loc == null {
+        return -1 as FileId;
+    }
+    return loc.file_id;
+}
+
+fn mir_c99_plan_find_cross_unit_for_function(module: &PortableMirModule,
+    function: &MirFunction) &MirCrossUnitSymbol {
+    if module == null || function == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < module.cross_unit_symbols.count {
+        const symbol: &MirCrossUnitSymbol =
+            semantic_vector_item_ptr(&module.cross_unit_symbols, i) as &MirCrossUnitSymbol;
+        if symbol != null &&
+           symbol.owner_kind == MIR_CROSS_UNIT_OWNER_FUNCTION &&
+           symbol.owner_function_id == function.function_id &&
+           symbol.target_profile_id == module.target_profile.profile_id &&
+           symbol.unit_id >= 0 {
+            return symbol;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_plan_find_unit(plan: &MirC99Plan, kind: i32,
+    source_file_id: i32, function_group_id: i32) &MirC99Unit {
+    if plan == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &MirC99Unit =
+            semantic_vector_item_ptr(&plan.units, i) as &MirC99Unit;
+        if unit != null && unit.kind == kind &&
+           (unit.source_file_id as i32) == source_file_id &&
+           unit.function_group_id == function_group_id {
+            return unit;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_plan_add_assignment_unit(plan: &MirC99Plan, kind: i32,
+    source_file_id: i32, function_group_id: i32) &MirC99Unit {
+    if plan == null {
+        return null;
+    }
+    const existing: &MirC99Unit =
+        mir_c99_plan_find_unit(plan, kind, source_file_id, function_group_id);
+    if existing != null {
+        return existing;
+    }
+    const unit_id: i32 = mir_c99_plan_add_unit(plan, kind);
+    if unit_id < 0 {
+        return null;
+    }
+    const unit: &MirC99Unit = mir_c99_plan_unit_ptr(plan, unit_id);
+    if unit == null {
+        return null;
+    }
+    unit.source_file_id = source_file_id as FileId;
+    unit.function_group_id = function_group_id;
+    if mir_c99_unit_refresh_fingerprint(unit) != 0 {
+        return null;
+    }
+    return unit;
+}
+
+fn mir_c99_plan_append_unit_assignment(plan: &MirC99Plan, function: &MirFunction,
+    unit: &MirC99Unit, source_file_id: i32,
+    cross_unit_symbol_id: MirCrossUnitSymbolId, function_group_id: i32) i32 {
+    if plan == null || function == null || unit == null {
+        return -1;
+    }
+    const assignment: MirC99UnitAssignment = MirC99UnitAssignment{
+        assignment_id: plan.unit_assignments.count as i32,
+        function_id: function.function_id,
+        unit_id: unit.unit_id,
+        source_file_id: source_file_id as FileId,
+        cross_unit_symbol_id: cross_unit_symbol_id,
+        function_group_id: function_group_id,
+        flags: function.flags,
+    };
+    if semantic_vector_append(&plan.unit_assignments, &assignment as &const void) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_plan_assign_function_unit(module: &PortableMirModule,
+    plan: &MirC99Plan, fallback_unit: &MirC99Unit, function: &MirFunction) i32 {
+    if module == null || plan == null || fallback_unit == null || function == null {
+        return -1;
+    }
+    const cross_symbol: &MirCrossUnitSymbol =
+        mir_c99_plan_find_cross_unit_for_function(module, function);
+    var source_file_id: i32 =
+        mir_c99_plan_debug_loc_source_file_id(module, function.debug_loc_id) as i32;
+    var cross_unit_symbol_id: MirCrossUnitSymbolId = MIR_CROSS_UNIT_SYMBOL_INVALID_ID;
+    var unit_kind: i32 = MIR_C99_UNIT_KIND_SOURCE;
+    var function_group_id: i32 = -1;
+    if cross_symbol != null {
+        unit_kind = MIR_C99_UNIT_KIND_MODULE;
+        function_group_id = cross_symbol.unit_id;
+        cross_unit_symbol_id = cross_symbol.cross_unit_symbol_id;
+    } else if source_file_id >= 0 {
+        function_group_id = source_file_id;
+    } else {
+        unit_kind = MIR_C99_UNIT_KIND_FUNCTION_GROUP;
+        source_file_id = fallback_unit.source_file_id as i32;
+        function_group_id = function.function_id;
+    }
+    const unit: &MirC99Unit =
+        mir_c99_plan_add_assignment_unit(plan, unit_kind, source_file_id,
+            function_group_id);
+    if unit == null {
+        return -1;
+    }
+    return mir_c99_plan_append_unit_assignment(plan, function, unit,
+        source_file_id, cross_unit_symbol_id, function_group_id);
+}
+
+/// 功能说明：为 MIR-C99 split-C 建立 function 到 unit 的动态 assignment 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出计划，`fallback_unit` 为无 source metadata 时的稳定 fallback。
+/// 返回值说明：全部 function 分配成功返回 `0`，参数非法或动态表追加失败返回 `-1`。
+export fn mir_c99_plan_prepare_function_units(module: &PortableMirModule,
+    plan: &MirC99Plan, fallback_unit: &MirC99Unit) i32 {
+    if module == null || plan == null || fallback_unit == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction =
+            semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
+        if function == null ||
+           mir_c99_plan_assign_function_unit(module, plan, fallback_unit,
+               function) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：查询 MIR function 已分配的 MIR-C99 unit。
+/// 参数说明：`plan` 为输出计划，`function` 为待输出 MIR function。
+/// 返回值说明：找到 assignment 时返回 unit 指针，否则返回 null。
+export fn mir_c99_plan_unit_for_function(plan: &MirC99Plan,
+    function: &MirFunction) &MirC99Unit {
+    if plan == null || function == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < plan.unit_assignments.count {
+        const assignment: &MirC99UnitAssignment =
+            semantic_vector_item_ptr(&plan.unit_assignments, i) as &MirC99UnitAssignment;
+        if assignment != null && assignment.function_id == function.function_id {
+            return mir_c99_plan_unit_ptr(plan, assignment.unit_id);
+        }
+        i = i + 1usize;
+    }
+    return null;
 }
 
 fn mir_c99_link_input_kind_is_supported(kind: i32) i32 {
@@ -938,6 +1137,7 @@ export fn mir_c99_plan_stats(plan: &MirC99Plan) MirC99PlanStats {
     mir_c99_stats_add_vector(&stats, &plan.async_frame_slots);
     mir_c99_stats_add_vector(&stats, &plan.global_initializers);
     mir_c99_stats_add_vector(&stats, &plan.link_inputs);
+    mir_c99_stats_add_vector(&stats, &plan.unit_assignments);
     mir_c99_stats_add_vector(&stats, &plan.units);
     var i: usize = 0usize;
     while i < plan.units.count {

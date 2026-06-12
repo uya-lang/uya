@@ -1277,7 +1277,11 @@ export fn mir_c99_cfg_plan_build_functions(module: &PortableMirModule,
     var i: usize = 0usize;
     while i < module.functions.count {
         const function: &MirFunction = semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
-        if mir_c99_cfg_plan_append_function(cfg_plan, output_plan, unit, function) != 0 {
+        var target_unit: &MirC99Unit = mir_c99_plan_unit_for_function(output_plan, function);
+        if target_unit == null {
+            target_unit = unit;
+        }
+        if mir_c99_cfg_plan_append_function(cfg_plan, output_plan, target_unit, function) != 0 {
             status = -1;
         }
         i = i + 1usize;
