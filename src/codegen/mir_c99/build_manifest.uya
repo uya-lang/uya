@@ -1,0 +1,213 @@
+// codegen/mir_c99/build_manifest.uya - MIR-C99 split-C build manifest plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_BUILD_MANIFEST_STATUS_UNINITIALIZED: i32 = 0;
+export const MIR_C99_BUILD_MANIFEST_STATUS_ACTIVE: i32 = 1;
+export const MIR_C99_BUILD_MANIFEST_STATUS_READY: i32 = 2;
+export const MIR_C99_BUILD_MANIFEST_STATUS_RELEASED: i32 = 3;
+
+export const MIR_C99_BUILD_MANIFEST_ENTRY_SOURCE_C: i32 = 1;
+export const MIR_C99_BUILD_MANIFEST_ENTRY_HEADER: i32 = 2;
+export const MIR_C99_BUILD_MANIFEST_ENTRY_OBJECT: i32 = 3;
+export const MIR_C99_BUILD_MANIFEST_ENTRY_DEP: i32 = 4;
+
+/// 功能说明：记录 MIR-C99 split-C build manifest 的一个结构化输入或输出条目。
+/// 参数说明：无；字段来自 `MirC99Unit` 和 unit dependency ref，保存稳定 unit/ref ID、fingerprint 和顺序，不保存本地路径文本。
+/// 返回值说明：无；由 `MirC99BuildManifestPlan.entries` 动态保存。
+export struct MirC99BuildManifestEntry {
+    entry_id: i32,
+    entry_kind: i32,
+    unit_id: i32,
+    unit_kind: i32,
+    source_file_id: FileId,
+    function_group_id: i32,
+    dep_source_id: i32,
+    dep_aux_id: i32,
+    order_index: i32,
+    unit_fingerprint: u64,
+    flags: i32,
+}
+
+/// 功能说明：记录 MIR-C99 专用 split-C 构建清单计划。
+/// 参数说明：无；`entries` 动态保存每个 unit 的 source/header/object 和 dependency 记录，供后续 host build handoff 消费。
+/// 返回值说明：无；该计划不复用 legacy C99 split-C Makefile writer。
+export struct MirC99BuildManifestPlan {
+    status: i32,
+    target_profile_id: i32,
+    unit_count: usize,
+    entry_count: usize,
+    source_count: usize,
+    header_count: usize,
+    object_count: usize,
+    dep_count: usize,
+    entries: SemanticVector,
+}
+
+fn mir_c99_build_manifest_entry_make(manifest: &MirC99BuildManifestPlan,
+    unit: &MirC99Unit, entry_kind: i32, dep: &MirC99Ref, order_index: i32) MirC99BuildManifestEntry {
+    var dep_source_id: i32 = -1;
+    var dep_aux_id: i32 = -1;
+    var flags: i32 = 0;
+    if dep != null {
+        dep_source_id = dep.source_id;
+        dep_aux_id = dep.aux_id;
+        flags = dep.flags;
+    }
+    return MirC99BuildManifestEntry{
+        entry_id: manifest.entries.count as i32,
+        entry_kind: entry_kind,
+        unit_id: unit.unit_id,
+        unit_kind: unit.kind,
+        source_file_id: unit.source_file_id,
+        function_group_id: unit.function_group_id,
+        dep_source_id: dep_source_id,
+        dep_aux_id: dep_aux_id,
+        order_index: order_index,
+        unit_fingerprint: unit.fingerprint,
+        flags: flags,
+    };
+}
+
+fn mir_c99_build_manifest_entry_kind_valid(entry_kind: i32) i32 {
+    if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_SOURCE_C ||
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_HEADER ||
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_OBJECT ||
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_DEP {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_build_manifest_append_entry(manifest: &MirC99BuildManifestPlan,
+    unit: &MirC99Unit, entry_kind: i32, dep: &MirC99Ref, order_index: i32) i32 {
+    if manifest == null || unit == null ||
+       manifest.status != MIR_C99_BUILD_MANIFEST_STATUS_ACTIVE ||
+       mir_c99_build_manifest_entry_kind_valid(entry_kind) == 0 {
+        return -1;
+    }
+    const entry: MirC99BuildManifestEntry =
+        mir_c99_build_manifest_entry_make(manifest, unit, entry_kind, dep,
+            order_index);
+    if semantic_vector_append(&manifest.entries, &entry as &const void) != 0 {
+        return -1;
+    }
+    manifest.entry_count = manifest.entries.count;
+    if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_SOURCE_C {
+        manifest.source_count = manifest.source_count + 1usize;
+    } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_HEADER {
+        manifest.header_count = manifest.header_count + 1usize;
+    } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_OBJECT {
+        manifest.object_count = manifest.object_count + 1usize;
+    } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_DEP {
+        manifest.dep_count = manifest.dep_count + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：初始化 MIR-C99 split-C build manifest plan。
+/// 参数说明：`manifest` 为输出计划，`target_profile_id` 为 MIR target profile。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_build_manifest_plan_init(manifest: &MirC99BuildManifestPlan,
+    target_profile_id: i32) i32 {
+    if manifest == null {
+        return -1;
+    }
+    manifest.status = MIR_C99_BUILD_MANIFEST_STATUS_ACTIVE;
+    manifest.target_profile_id = target_profile_id;
+    manifest.unit_count = 0usize;
+    manifest.entry_count = 0usize;
+    manifest.source_count = 0usize;
+    manifest.header_count = 0usize;
+    manifest.object_count = 0usize;
+    manifest.dep_count = 0usize;
+    semantic_vector_init(&manifest.entries, @size_of(MirC99BuildManifestEntry));
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 split-C build manifest plan 的动态表。
+/// 参数说明：`manifest` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_build_manifest_plan_release(manifest: &MirC99BuildManifestPlan) void {
+    if manifest == null {
+        return;
+    }
+    semantic_vector_release(&manifest.entries);
+    manifest.status = MIR_C99_BUILD_MANIFEST_STATUS_RELEASED;
+    manifest.unit_count = 0usize;
+    manifest.entry_count = 0usize;
+    manifest.source_count = 0usize;
+    manifest.header_count = 0usize;
+    manifest.object_count = 0usize;
+    manifest.dep_count = 0usize;
+}
+
+/// 功能说明：为一个 MIR-C99 unit 追加 source/header/object 构建清单记录。
+/// 参数说明：`manifest` 为 active 清单计划，`unit` 为 split-C translation unit。
+/// 返回值说明：成功返回 `0`，参数非法或动态表追加失败返回 `-1`。
+export fn mir_c99_build_manifest_append_unit_files(manifest: &MirC99BuildManifestPlan,
+    unit: &MirC99Unit) i32 {
+    if manifest == null || unit == null {
+        return -1;
+    }
+    if mir_c99_build_manifest_append_entry(manifest, unit,
+        MIR_C99_BUILD_MANIFEST_ENTRY_SOURCE_C, null, 0) != 0 {
+        return -1;
+    }
+    if mir_c99_build_manifest_append_entry(manifest, unit,
+        MIR_C99_BUILD_MANIFEST_ENTRY_HEADER, null, 1) != 0 {
+        return -1;
+    }
+    return mir_c99_build_manifest_append_entry(manifest, unit,
+        MIR_C99_BUILD_MANIFEST_ENTRY_OBJECT, null, 2);
+}
+
+/// 功能说明：为一个 MIR-C99 unit 追加 dependency 构建清单记录。
+/// 参数说明：`manifest` 为 active 清单计划，`unit` 提供 `deps` 动态表。
+/// 返回值说明：成功返回追加的 dependency 数，参数非法或动态表追加失败返回 `-1`。
+export fn mir_c99_build_manifest_append_unit_deps(manifest: &MirC99BuildManifestPlan,
+    unit: &MirC99Unit) i32 {
+    if manifest == null || unit == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < unit.deps.count {
+        const dep: &MirC99Ref =
+            semantic_vector_item_ptr(&unit.deps, i) as &MirC99Ref;
+        if dep == null ||
+           mir_c99_build_manifest_append_entry(manifest, unit,
+               MIR_C99_BUILD_MANIFEST_ENTRY_DEP, dep, i as i32) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return unit.deps.count as i32;
+}
+
+/// 功能说明：从 MIR-C99 plan 生成 split-C 专用 build manifest。
+/// 参数说明：`plan` 为 active MIR-C99 输出计划，`manifest` 为已初始化的输出清单。
+/// 返回值说明：成功返回 `0`，参数非法、plan 未激活或追加失败返回 `-1`。
+export fn mir_c99_build_manifest_plan_build(plan: &MirC99Plan,
+    manifest: &MirC99BuildManifestPlan) i32 {
+    if plan == null || manifest == null ||
+       plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE ||
+       manifest.status != MIR_C99_BUILD_MANIFEST_STATUS_ACTIVE {
+        return -1;
+    }
+    manifest.target_profile_id = plan.target_profile_id;
+    manifest.unit_count = plan.units.count;
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &MirC99Unit =
+            semantic_vector_item_ptr(&plan.units, i) as &MirC99Unit;
+        if unit == null ||
+           mir_c99_build_manifest_append_unit_files(manifest, unit) != 0 ||
+           mir_c99_build_manifest_append_unit_deps(manifest, unit) < 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    manifest.entry_count = manifest.entries.count;
+    manifest.status = MIR_C99_BUILD_MANIFEST_STATUS_READY;
+    return 0;
+}
