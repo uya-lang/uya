@@ -176,9 +176,17 @@ fn mir_c99_call_signature_required_flags(module: &PortableMirModule,
         return -1;
     }
     var flags: i32 = 0;
+    if signature.field_count > 1 {
+        flags = flags | MIR_CALL_FLAG_MULTI_PARAM;
+    }
     if mir_c99_call_type_is_aggregate_return(return_type) != 0 {
         flags = flags | MIR_CALL_FLAG_AGGREGATE_RETURN |
             MIR_CALL_FLAG_OUT_PARAM_WRITEBACK;
+    } else if return_type.kind == MIR_TYPE_KIND_ERROR_UNION {
+        if return_type.abi_class != MIR_ABI_CLASS_ERROR_UNION {
+            return -1;
+        }
+        flags = flags | MIR_CALL_FLAG_ERROR_UNION_RETURN;
     } else if return_type.kind == MIR_TYPE_KIND_F32 ||
               return_type.kind == MIR_TYPE_KIND_F64 {
         if mir_c99_call_float_abi_class_matches_type(return_type,
