@@ -1,0 +1,195 @@
+// codegen/mir_c99/calls.uya - MIR call instruction to MIR-C99 call plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_CALL_TARGET_KIND_UNSUPPORTED: i32 = 0;
+export const MIR_C99_CALL_TARGET_KIND_DIRECT: i32 = 1;
+
+export const MIR_C99_CALL_STATUS_READY: i32 = 1;
+export const MIR_C99_CALL_STATUS_REJECT: i32 = 2;
+
+/// 功能说明：记录一个 MIR call instruction 到 MIR-C99 direct call 的计划条目。
+/// 参数说明：无；字段来自 verifier-clean MIR call instruction、callee operand 和 callee function metadata。
+/// 返回值说明：无；由 `MirC99CallPlan.calls` 动态保存。
+export struct MirC99CallEntry {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    target_kind: i32,
+    callee_function_id: MirFunctionId,
+    signature_type_id: MirTypeId,
+    arg_start: i32,
+    arg_count: i32,
+    result_value_id: MirValueId,
+    calling_convention: i32,
+    flags: i32,
+    status: i32,
+}
+
+/// 功能说明：记录 MIR-C99 call 计划。
+/// 参数说明：无；当前叶子仅保存 Uya direct call，其他 callee kind 留给后续 leaf。
+/// 返回值说明：无；调用 `mir_c99_call_plan_init` 后使用。
+export struct MirC99CallPlan {
+    calls: SemanticVector,
+    call_count: usize,
+    reject_count: usize,
+}
+
+fn mir_c99_call_operand_ptr(module: &PortableMirModule, operand_id: i32) &MirOperand {
+    if module == null || operand_id < 0 || (operand_id as usize) >= module.operands.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.operands, operand_id as usize) as &MirOperand;
+}
+
+fn mir_c99_call_function_ptr(module: &PortableMirModule,
+    function_id: MirFunctionId) &MirFunction {
+    const index: i32 = function_id as i32;
+    if module == null || index < 0 || (index as usize) >= module.functions.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.functions, index as usize) as &MirFunction;
+}
+
+fn mir_c99_call_reject_entry(inst: &MirInst) MirC99CallEntry {
+    var inst_id: MirInstId = MIR_INST_INVALID_ID;
+    var function_id: MirFunctionId = MIR_FUNCTION_INVALID_ID;
+    var block_id: MirBlockId = MIR_BLOCK_INVALID_ID;
+    var result_value_id: MirValueId = MIR_VALUE_INVALID_ID;
+    var calling_convention: i32 = 0;
+    var flags: i32 = 0;
+    if inst != null {
+        inst_id = inst.inst_id;
+        function_id = inst.function_id;
+        block_id = inst.block_id;
+        result_value_id = inst.result_value_id;
+        calling_convention = inst.calling_convention;
+        flags = inst.flags;
+    }
+    return MirC99CallEntry{
+        inst_id: inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        target_kind: MIR_C99_CALL_TARGET_KIND_UNSUPPORTED,
+        callee_function_id: MIR_FUNCTION_INVALID_ID,
+        signature_type_id: MIR_TYPE_INVALID_ID,
+        arg_start: -1,
+        arg_count: 0,
+        result_value_id: result_value_id,
+        calling_convention: calling_convention,
+        flags: flags,
+        status: MIR_C99_CALL_STATUS_REJECT,
+    };
+}
+
+fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
+    inst: &MirInst) MirC99CallEntry {
+    if module == null || inst == null || inst.op != MIR_INST_OP_CALL ||
+       inst.operand_count <= 0 {
+        return mir_c99_call_reject_entry(inst);
+    }
+    const target: &MirOperand = mir_c99_call_operand_ptr(module, inst.operand_start);
+    if target == null || target.kind != MIR_OPERAND_KIND_CALL_TARGET_DIRECT ||
+       target.value_id != MIR_VALUE_INVALID_ID {
+        return mir_c99_call_reject_entry(inst);
+    }
+    const callee: &MirFunction = mir_c99_call_function_ptr(module,
+        target.immediate_i32);
+    if callee == null || (callee.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 ||
+       callee.calling_convention != MIR_CALL_CONV_UYA {
+        return mir_c99_call_reject_entry(inst);
+    }
+    return MirC99CallEntry{
+        inst_id: inst.inst_id,
+        function_id: inst.function_id,
+        block_id: inst.block_id,
+        target_kind: MIR_C99_CALL_TARGET_KIND_DIRECT,
+        callee_function_id: target.immediate_i32,
+        signature_type_id: callee.signature_type_id,
+        arg_start: inst.operand_start + 1,
+        arg_count: inst.operand_count - 1,
+        result_value_id: inst.result_value_id,
+        calling_convention: inst.calling_convention,
+        flags: inst.flags,
+        status: MIR_C99_CALL_STATUS_READY,
+    };
+}
+
+/// 功能说明：初始化 MIR-C99 call 计划。
+/// 参数说明：`plan` 为输出计划。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_call_plan_init(plan: &MirC99CallPlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    semantic_vector_init(&plan.calls, @size_of(MirC99CallEntry));
+    plan.call_count = 0usize;
+    plan.reject_count = 0usize;
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 call 计划。
+/// 参数说明：`plan` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_call_plan_release(plan: &MirC99CallPlan) void {
+    if plan == null {
+        return;
+    }
+    semantic_vector_release(&plan.calls);
+    plan.call_count = 0usize;
+    plan.reject_count = 0usize;
+}
+
+/// 功能说明：向 MIR-C99 call 计划追加一个 Uya direct call。
+/// 参数说明：`plan` 为输出计划，`module` 为 verifier-clean MIR module，`inst` 为 MIR call instruction。
+/// 返回值说明：非 call instruction 返回 `0`；成功追加 direct call 返回 `0`，unsupported call kind 返回 `-1`。
+export fn mir_c99_call_plan_append(plan: &MirC99CallPlan,
+    module: &PortableMirModule, inst: &MirInst) i32 {
+    if plan == null || module == null || inst == null {
+        return -1;
+    }
+    if inst.op != MIR_INST_OP_CALL {
+        return 0;
+    }
+    const entry: MirC99CallEntry = mir_c99_call_entry_from_mir(module, inst);
+    if entry.status == MIR_C99_CALL_STATUS_REJECT {
+        plan.reject_count = plan.reject_count + 1usize;
+        return -1;
+    }
+    if semantic_vector_append(&plan.calls, &entry as &const void) != 0 {
+        return -1;
+    }
+    plan.call_count = plan.calls.count;
+    return 0;
+}
+
+/// 功能说明：从 PortableMIR module 的 call instruction 构建 MIR-C99 call 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出 call 计划。
+/// 返回值说明：所有 direct call 均映射成功返回 `0`；遇到 unsupported call kind 或参数非法返回 `-1`。
+export fn mir_c99_call_plan_build(module: &PortableMirModule,
+    plan: &MirC99CallPlan) i32 {
+    if module == null || plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if mir_c99_call_plan_append(plan, module, inst) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：按下标读取 MIR-C99 call 计划条目。
+/// 参数说明：`plan` 为 call 计划，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_call_plan_entry_ptr(plan: &MirC99CallPlan,
+    index: i32) &MirC99CallEntry {
+    if plan == null || index < 0 || (index as usize) >= plan.calls.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.calls, index as usize) as &MirC99CallEntry;
+}

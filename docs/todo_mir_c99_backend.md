@@ -313,7 +313,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.8 Calls / ABI
 
 - [ ] MIR-C99-BACKEND-CALLS：实现 MIR call 到 C call。
-  - [ ] Uya direct call。
+  - [x] Uya direct call。
+    - 验证：`bash tests/verify_mir_c99_call_direct_plan.sh` 通过；`bash tests/verify_portable_mir_call_target_inventory.sh` 通过；`bash tests/verify_portable_mir_call_abi_metadata_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] extern function call。
   - [ ] method call / monomorphized concrete call symbol。
   - [ ] function pointer call。

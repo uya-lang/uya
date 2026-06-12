@@ -1,5 +1,6 @@
 // codegen/mir_c99/driver.uya - MIR-C99 backend driver from target request.
 
+use codegen.mir_c99.calls;
 use codegen.mir_c99.cfg;
 use codegen.mir_c99.emitter;
 use codegen.mir_c99.names;
@@ -29,6 +30,7 @@ export struct MirC99DriverResult {
     value_count: usize,
     local_count: usize,
     memory_op_count: usize,
+    call_count: usize,
     name_count: usize,
     output_bytes: usize,
     diagnostic_code: i32,
@@ -60,6 +62,7 @@ export fn mir_c99_driver_result_init(result: &MirC99DriverResult) i32 {
     result.value_count = 0usize;
     result.local_count = 0usize;
     result.memory_op_count = 0usize;
+    result.call_count = 0usize;
     result.name_count = 0usize;
     result.output_bytes = 0usize;
     result.diagnostic_code = 0;
@@ -104,10 +107,10 @@ fn mir_c99_driver_seed_names(module: &PortableMirModule, names: &MirC99NamePlan)
 export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &CompilerArena,
     plan: &MirC99Plan, type_plan: &MirC99TypePlan, name_plan: &MirC99NamePlan, cfg_plan: &MirC99CfgPlan,
     value_plan: &MirC99ValuePlan, place_plan: &MirC99PlaceMemoryPlan,
-    emitter: &MirC99Emitter, result: &MirC99DriverResult) i32 {
+    call_plan: &MirC99CallPlan, emitter: &MirC99Emitter, result: &MirC99DriverResult) i32 {
     if request == null || plan == null || type_plan == null ||
        name_plan == null || cfg_plan == null || value_plan == null ||
-       place_plan == null || emitter == null || result == null {
+       place_plan == null || call_plan == null || emitter == null || result == null {
         return -1;
     }
     if mir_c99_driver_result_init(result) != 0 {
@@ -143,6 +146,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_place_memory_plan_init(place_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
+    if mir_c99_call_plan_init(call_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_type_plan_build(request.module, plan, type_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
@@ -156,6 +162,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
         return mir_c99_driver_error(result, -1);
     }
     if mir_c99_place_memory_plan_build(request.module, place_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_call_plan_build(request.module, call_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
     if mir_c99_cfg_plan_build_functions(request.module, plan, primary_unit, cfg_plan) != 0 {
@@ -187,6 +196,7 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     result.value_count = value_plan.count;
     result.local_count = place_plan.local_count;
     result.memory_op_count = place_plan.op_count;
+    result.call_count = call_plan.call_count;
     result.name_count = name_plan.count;
     result.output_bytes = out.output_bytes;
     result.diagnostic_code = out.diagnostic_code;
