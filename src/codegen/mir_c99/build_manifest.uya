@@ -11,6 +11,9 @@ export const MIR_C99_BUILD_MANIFEST_ENTRY_SOURCE_C: i32 = 1;
 export const MIR_C99_BUILD_MANIFEST_ENTRY_HEADER: i32 = 2;
 export const MIR_C99_BUILD_MANIFEST_ENTRY_OBJECT: i32 = 3;
 export const MIR_C99_BUILD_MANIFEST_ENTRY_DEP: i32 = 4;
+export const MIR_C99_BUILD_MANIFEST_ENTRY_PARALLEL_GROUP: i32 = 5;
+export const MIR_C99_BUILD_MANIFEST_ENTRY_CACHE_LOCK: i32 = 6;
+export const MIR_C99_BUILD_MANIFEST_ENTRY_STALE_LOCK_CHECK: i32 = 7;
 
 /// 功能说明：记录 MIR-C99 split-C build manifest 的一个结构化输入或输出条目。
 /// 参数说明：无；字段来自 `MirC99Unit` 和 unit dependency ref，保存稳定 unit/ref ID、fingerprint 和顺序，不保存本地路径文本。
@@ -30,7 +33,7 @@ export struct MirC99BuildManifestEntry {
 }
 
 /// 功能说明：记录 MIR-C99 专用 split-C 构建清单计划。
-/// 参数说明：无；`entries` 动态保存每个 unit 的 source/header/object 和 dependency 记录，供后续 host build handoff 消费。
+/// 参数说明：无；`entries` 动态保存每个 unit 的 source/header/object、dependency 和 build policy 记录，供后续 host build handoff 消费。
 /// 返回值说明：无；该计划不复用 legacy C99 split-C Makefile writer。
 export struct MirC99BuildManifestPlan {
     status: i32,
@@ -41,6 +44,9 @@ export struct MirC99BuildManifestPlan {
     header_count: usize,
     object_count: usize,
     dep_count: usize,
+    parallel_job_count: usize,
+    cache_lock_count: usize,
+    stale_lock_check_count: usize,
     entries: SemanticVector,
 }
 
@@ -73,7 +79,10 @@ fn mir_c99_build_manifest_entry_kind_valid(entry_kind: i32) i32 {
     if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_SOURCE_C ||
        entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_HEADER ||
        entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_OBJECT ||
-       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_DEP {
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_DEP ||
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_PARALLEL_GROUP ||
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_CACHE_LOCK ||
+       entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_STALE_LOCK_CHECK {
         return 1;
     }
     return 0;
@@ -101,6 +110,12 @@ fn mir_c99_build_manifest_append_entry(manifest: &MirC99BuildManifestPlan,
         manifest.object_count = manifest.object_count + 1usize;
     } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_DEP {
         manifest.dep_count = manifest.dep_count + 1usize;
+    } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_PARALLEL_GROUP {
+        manifest.parallel_job_count = manifest.parallel_job_count + 1usize;
+    } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_CACHE_LOCK {
+        manifest.cache_lock_count = manifest.cache_lock_count + 1usize;
+    } else if entry_kind == MIR_C99_BUILD_MANIFEST_ENTRY_STALE_LOCK_CHECK {
+        manifest.stale_lock_check_count = manifest.stale_lock_check_count + 1usize;
     }
     return 0;
 }
@@ -121,6 +136,9 @@ export fn mir_c99_build_manifest_plan_init(manifest: &MirC99BuildManifestPlan,
     manifest.header_count = 0usize;
     manifest.object_count = 0usize;
     manifest.dep_count = 0usize;
+    manifest.parallel_job_count = 0usize;
+    manifest.cache_lock_count = 0usize;
+    manifest.stale_lock_check_count = 0usize;
     semantic_vector_init(&manifest.entries, @size_of(MirC99BuildManifestEntry));
     return 0;
 }
@@ -140,6 +158,29 @@ export fn mir_c99_build_manifest_plan_release(manifest: &MirC99BuildManifestPlan
     manifest.header_count = 0usize;
     manifest.object_count = 0usize;
     manifest.dep_count = 0usize;
+    manifest.parallel_job_count = 0usize;
+    manifest.cache_lock_count = 0usize;
+    manifest.stale_lock_check_count = 0usize;
+}
+
+/// 功能说明：为一个 MIR-C99 split-C unit 追加 parallel make 和 cache lock 策略记录。
+/// 参数说明：`manifest` 为 active 清单计划，`unit` 为需要构建的 translation unit。
+/// 返回值说明：成功返回 `0`，参数非法或动态表追加失败返回 `-1`。
+export fn mir_c99_build_manifest_append_build_policy(manifest: &MirC99BuildManifestPlan,
+    unit: &MirC99Unit) i32 {
+    if manifest == null || unit == null {
+        return -1;
+    }
+    if mir_c99_build_manifest_append_entry(manifest, unit,
+        MIR_C99_BUILD_MANIFEST_ENTRY_PARALLEL_GROUP, null, 3) != 0 {
+        return -1;
+    }
+    if mir_c99_build_manifest_append_entry(manifest, unit,
+        MIR_C99_BUILD_MANIFEST_ENTRY_CACHE_LOCK, null, 4) != 0 {
+        return -1;
+    }
+    return mir_c99_build_manifest_append_entry(manifest, unit,
+        MIR_C99_BUILD_MANIFEST_ENTRY_STALE_LOCK_CHECK, null, 5);
 }
 
 /// 功能说明：为一个 MIR-C99 unit 追加 source/header/object 构建清单记录。
@@ -202,7 +243,8 @@ export fn mir_c99_build_manifest_plan_build(plan: &MirC99Plan,
             semantic_vector_item_ptr(&plan.units, i) as &MirC99Unit;
         if unit == null ||
            mir_c99_build_manifest_append_unit_files(manifest, unit) != 0 ||
-           mir_c99_build_manifest_append_unit_deps(manifest, unit) < 0 {
+           mir_c99_build_manifest_append_unit_deps(manifest, unit) < 0 ||
+           mir_c99_build_manifest_append_build_policy(manifest, unit) != 0 {
             return -1;
         }
         i = i + 1usize;

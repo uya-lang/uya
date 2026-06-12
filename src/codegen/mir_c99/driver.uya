@@ -39,6 +39,9 @@ export struct MirC99DriverResult {
     build_manifest_header_count: usize,
     build_manifest_object_count: usize,
     build_manifest_dep_count: usize,
+    build_manifest_parallel_job_count: usize,
+    build_manifest_cache_lock_count: usize,
+    build_manifest_stale_lock_check_count: usize,
     name_count: usize,
     output_bytes: usize,
     diagnostic_code: i32,
@@ -77,6 +80,9 @@ export fn mir_c99_driver_result_init(result: &MirC99DriverResult) i32 {
     result.build_manifest_header_count = 0usize;
     result.build_manifest_object_count = 0usize;
     result.build_manifest_dep_count = 0usize;
+    result.build_manifest_parallel_job_count = 0usize;
+    result.build_manifest_cache_lock_count = 0usize;
+    result.build_manifest_stale_lock_check_count = 0usize;
     result.name_count = 0usize;
     result.output_bytes = 0usize;
     result.diagnostic_code = 0;
@@ -261,6 +267,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     result.build_manifest_header_count = build_manifest.header_count;
     result.build_manifest_object_count = build_manifest.object_count;
     result.build_manifest_dep_count = build_manifest.dep_count;
+    result.build_manifest_parallel_job_count = build_manifest.parallel_job_count;
+    result.build_manifest_cache_lock_count = build_manifest.cache_lock_count;
+    result.build_manifest_stale_lock_check_count = build_manifest.stale_lock_check_count;
     result.name_count = name_plan.count;
     result.output_bytes = out.output_bytes;
     result.diagnostic_code = out.diagnostic_code;
