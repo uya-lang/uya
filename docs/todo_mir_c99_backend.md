@@ -353,7 +353,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.10 Atomics / SIMD / Capability
 
 - [ ] MIR-C99-BACKEND-ATOMICS：显式处理 `atomic T`，不把 C99 当作隐式原子语义提供者。
-  - [ ] MIR atomic init/read/write 必须落到明确 runtime helper 或 target capability，不能用普通 C 赋值伪装原子。
+  - [x] MIR atomic init/read/write 必须落到明确 runtime helper 或 target capability，不能用普通 C 赋值伪装原子。
+    - 验证：`bash tests/verify_mir_c99_atomic_explicit_reject_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_portable_mir_atomic_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] 若当前 target 没有 portable helper，MIR-C99 必须给 capability diagnostic，并与现有 C99 oracle 的预期成功/失败策略记录到覆盖矩阵。
   - [ ] parity/reject shard：atomic i32 init/write/read；支持前可明确 reject，支持后必须与 oracle 行为一致。
   - [ ] SIMD vector/mask 支持前必须明确 reject；支持后必须与现有 C99 oracle 行为一致。
