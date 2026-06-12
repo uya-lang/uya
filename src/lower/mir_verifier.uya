@@ -560,6 +560,112 @@ fn portable_mir_verify_operand_type_kind(module: &PortableMirModule,
     return 0;
 }
 
+fn portable_mir_verify_operand_type_id(module: &PortableMirModule,
+    operand: &MirOperand, expected_type_id: MirTypeId) i32 {
+    if operand != null && operand.type_id == expected_type_id &&
+       portable_mir_verify_type_ptr(module, expected_type_id) != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_operand_integer_type(module: &PortableMirModule,
+    operand: &MirOperand) i32 {
+    if operand == null {
+        return 0;
+    }
+    const typ: &MirType = portable_mir_verify_type_ptr(module, operand.type_id);
+    if typ != null && portable_mir_type_kind_is_integer(typ.kind) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_integer_arith_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       typ == null || portable_mir_type_kind_is_integer(typ.kind) == 0 {
+        return 0;
+    }
+    const lhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+    const rhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start + 1);
+    if portable_mir_verify_operand_type_id(module, lhs, inst.type_id) == 0 ||
+       portable_mir_verify_operand_type_id(module, rhs, inst.type_id) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_integer_compare_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       typ == null || typ.kind != MIR_TYPE_KIND_BOOL {
+        return 0;
+    }
+    const lhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+    const rhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start + 1);
+    if lhs == null || rhs == null || lhs.type_id != rhs.type_id ||
+       portable_mir_verify_operand_integer_type(module, lhs) == 0 ||
+       portable_mir_verify_operand_integer_type(module, rhs) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_integer_unary_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if inst.operand_count != 1 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       typ == null || portable_mir_type_kind_is_integer(typ.kind) == 0 {
+        return 0;
+    }
+    const operand: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+    return portable_mir_verify_operand_type_id(module, operand, inst.type_id);
+}
+
+fn portable_mir_verify_logic_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if inst.result_value_id == MIR_VALUE_INVALID_ID ||
+       typ == null || typ.kind != MIR_TYPE_KIND_BOOL {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_BOOL_NOT {
+        if inst.operand_count != 1 {
+            return 0;
+        }
+        const operand: &MirOperand = portable_mir_verify_operand_ptr(module,
+            inst.operand_start);
+        return portable_mir_verify_operand_type_kind(module, operand,
+            MIR_TYPE_KIND_BOOL);
+    }
+    if inst.operand_count != 2 {
+        return 0;
+    }
+    const lhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+    const rhs: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start + 1);
+    if portable_mir_verify_operand_type_kind(module, lhs, MIR_TYPE_KIND_BOOL) == 0 ||
+       portable_mir_verify_operand_type_kind(module, rhs, MIR_TYPE_KIND_BOOL) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn portable_mir_verify_integer_value_inst(module: &PortableMirModule,
+    inst: &MirInst, typ: &MirType) i32 {
+    if portable_mir_inst_op_is_integer_arithmetic(inst.op) != 0 {
+        return portable_mir_verify_integer_arith_inst(module, inst, typ);
+    }
+    if portable_mir_inst_op_is_integer_compare(inst.op) != 0 {
+        return portable_mir_verify_integer_compare_inst(module, inst, typ);
+    }
+    if portable_mir_inst_op_is_integer_unary(inst.op) != 0 {
+        return portable_mir_verify_integer_unary_inst(module, inst, typ);
+    }
+    if portable_mir_inst_op_is_logic(inst.op) != 0 {
+        return portable_mir_verify_logic_inst(module, inst, typ);
+    }
+    return 1;
+}
+
 fn portable_mir_verify_print_helper_callee(module: &PortableMirModule,
     inst: &MirInst, result: &MirVerifierResult) i32 {
     const call_operand: &MirOperand = portable_mir_verify_operand_ptr(module,
@@ -662,14 +768,7 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
     if inst.op == MIR_INST_OP_STORE && inst.operand_count < 2 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
-    if inst.op == MIR_INST_OP_I32_ADD &&
-       (inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
-        typ == null || typ.kind != MIR_TYPE_KIND_I32) {
-        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
-    }
-    if inst.op == MIR_INST_OP_I32_LE &&
-       (inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
-        typ == null || typ.kind != MIR_TYPE_KIND_BOOL) {
+    if portable_mir_verify_integer_value_inst(module, inst, typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
     if inst.op == MIR_INST_OP_LOCAL_SET &&

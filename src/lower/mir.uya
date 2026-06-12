@@ -81,6 +81,35 @@ export const MIR_INST_OP_ASM_BLOCK: i32 = 4;
 export const MIR_INST_OP_I32_ADD: i32 = 5;
 export const MIR_INST_OP_I32_LE: i32 = 26;
 export const MIR_INST_OP_LOCAL_SET: i32 = 27;
+export const MIR_INST_OP_INT_UNARY_MIN: i32 = 28;
+export const MIR_INST_OP_INT_NEG: i32 = 28;
+export const MIR_INST_OP_INT_NOT: i32 = 29;
+export const MIR_INST_OP_INT_UNARY_MAX: i32 = 29;
+export const MIR_INST_OP_INT_ARITH_MIN: i32 = 30;
+export const MIR_INST_OP_I8_ADD: i32 = 30;
+export const MIR_INST_OP_U8_ADD: i32 = 31;
+export const MIR_INST_OP_I16_ADD: i32 = 32;
+export const MIR_INST_OP_U16_ADD: i32 = 33;
+export const MIR_INST_OP_U32_ADD: i32 = 34;
+export const MIR_INST_OP_I64_ADD: i32 = 35;
+export const MIR_INST_OP_U64_ADD: i32 = 36;
+export const MIR_INST_OP_ISIZE_ADD: i32 = 37;
+export const MIR_INST_OP_INT_ARITH_MAX: i32 = 37;
+export const MIR_INST_OP_INT_CMP_MIN: i32 = 50;
+export const MIR_INST_OP_I8_LE: i32 = 50;
+export const MIR_INST_OP_U8_LE: i32 = 51;
+export const MIR_INST_OP_I16_LE: i32 = 52;
+export const MIR_INST_OP_U16_LE: i32 = 53;
+export const MIR_INST_OP_U32_LE: i32 = 54;
+export const MIR_INST_OP_I64_LE: i32 = 55;
+export const MIR_INST_OP_U64_LE: i32 = 56;
+export const MIR_INST_OP_ISIZE_LE: i32 = 57;
+export const MIR_INST_OP_INT_CMP_MAX: i32 = 57;
+export const MIR_INST_OP_LOGIC_MIN: i32 = 70;
+export const MIR_INST_OP_BOOL_AND: i32 = 70;
+export const MIR_INST_OP_BOOL_OR: i32 = 71;
+export const MIR_INST_OP_BOOL_NOT: i32 = 72;
+export const MIR_INST_OP_LOGIC_MAX: i32 = 72;
 export const MIR_TERMINATOR_KIND_INVALID: i32 = 0;
 export const MIR_TERMINATOR_KIND_RETURN: i32 = 1;
 export const MIR_TERMINATOR_KIND_BR: i32 = 2;
@@ -100,6 +129,67 @@ const MIR_PROFILE_CALL_CONV_HOSTED_NATIVE: i32 = 3;
 const MIR_PROFILE_CALL_CONV_FREESTANDING_NATIVE: i32 = 5;
 const MIR_PROFILE_RUNTIME_CAP_HOSTED_NATIVE: i32 = 3;
 const MIR_PROFILE_RUNTIME_CAP_FREESTANDING_NATIVE: i32 = 4;
+
+/// 功能说明：判断 PortableMIR type kind 是否为整数标量。
+/// 参数说明：`kind` 为待分类的 MIR type kind。
+/// 返回值说明：整数标量返回 1，否则返回 0。
+export fn portable_mir_type_kind_is_integer(kind: i32) i32 {
+    if kind == MIR_TYPE_KIND_I8 || kind == MIR_TYPE_KIND_U8 ||
+       kind == MIR_TYPE_KIND_I16 || kind == MIR_TYPE_KIND_U16 ||
+       kind == MIR_TYPE_KIND_I32 || kind == MIR_TYPE_KIND_U32 ||
+       kind == MIR_TYPE_KIND_I64 || kind == MIR_TYPE_KIND_U64 ||
+       kind == MIR_TYPE_KIND_ISIZE || kind == MIR_TYPE_KIND_USIZE ||
+       kind == MIR_TYPE_KIND_BYTE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为整数一元表达式。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：整数一元 opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_integer_unary(op: i32) i32 {
+    if op >= MIR_INST_OP_INT_UNARY_MIN && op <= MIR_INST_OP_INT_UNARY_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为整数算术表达式。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：整数算术 opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_integer_arithmetic(op: i32) i32 {
+    if op == MIR_INST_OP_I32_ADD {
+        return 1;
+    }
+    if op >= MIR_INST_OP_INT_ARITH_MIN && op <= MIR_INST_OP_INT_ARITH_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为整数比较表达式。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：整数比较 opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_integer_compare(op: i32) i32 {
+    if op == MIR_INST_OP_I32_LE {
+        return 1;
+    }
+    if op >= MIR_INST_OP_INT_CMP_MIN && op <= MIR_INST_OP_INT_CMP_MAX {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR opcode 是否为 bool 逻辑表达式。
+/// 参数说明：`op` 为待分类的 MIR instruction opcode。
+/// 返回值说明：bool 逻辑 opcode 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_logic(op: i32) i32 {
+    if op >= MIR_INST_OP_LOGIC_MIN && op <= MIR_INST_OP_LOGIC_MAX {
+        return 1;
+    }
+    return 0;
+}
 
 /// 功能说明：记录 PortableMIR target profile 中与后端无关的基础能力边界。
 /// 参数说明：无；字段保存 profile ID、pointer/layout 形态、runtime mode、call ABI profile、address/call/capability masks 和 feature flags。

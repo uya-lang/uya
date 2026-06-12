@@ -83,6 +83,12 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 - [ ] MIR-C99-PREMIR-VALUE-OPS：补齐表达式和转换 opcode。
   - [ ] 整数一元、逻辑、非 i32 算术/比较 opcode，并在 verifier 中校验 operand/result type。
+    - [x] 建立整数 value opcode inventory / 分类 helper，覆盖一元、逻辑、非 i32 算术和比较族，并让 verifier 使用分类入口。
+      - 验证：`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `U64_ADD` 正/反例，断言数 19）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
+    - [ ] 新增非 i32 整数算术 opcode，校验 operand/result type 一致且结果为同宽整数。
+    - [ ] 新增整数比较 opcode，校验 operand type 一致且 result type 为 bool。
+    - [ ] 新增整数一元 opcode，校验 operand/result type 一致。
+    - [ ] 同步 MIR-C99 expression plan 对新增整数 opcode 的可见支持/拒绝边界。
   - [ ] bool 组合 opcode：`and` / `or` / `not` 或等价短路/非短路 MIR 表达形式。
   - [ ] cast / sign extend / zero extend / truncate / int-float / float-int / float-double conversion opcode。
   - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。

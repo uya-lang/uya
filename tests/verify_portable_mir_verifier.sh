@@ -42,7 +42,8 @@ done
 
 require_pattern "$MIR_FILE" 'MIR_INST_OP_I32_LE' "PortableMIR i32 <= opcode"
 require_pattern "$MIR_FILE" 'MIR_INST_OP_LOCAL_SET' "PortableMIR local assignment opcode"
-require_pattern "$MIR_VERIFIER_FILE" 'MIR_INST_OP_I32_LE' "verifier validates i32 <= shape"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_inst_op_is_integer_compare' "verifier validates integer comparison shape"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_integer_value_inst' "verifier validates integer value expressions"
 require_pattern "$MIR_VERIFIER_FILE" 'MIR_INST_OP_LOCAL_SET' "verifier validates local assignment shape"
 
 require_pattern "$MIR_VERIFIER_FILE" 'semantic_vector_item_ptr' "linear table traversal"
@@ -642,6 +643,24 @@ fn verifier_run(mode: i32) i32 {
         values[1].defining_inst_id = MIR_INST_INVALID_ID;
         values[1].flags = MIR_VALUE_FLAG_PARAM;
     }
+    if mode == 17 {
+        insts[0].op = MIR_INST_OP_U64_ADD;
+        insts[0].type_id = 12;
+        insts[0].operand_count = 2;
+        values[0].type_id = 12;
+        values[1].type_id = 12;
+        operands[0] = verifier_operand(0, 0, 12);
+        operands[1] = verifier_operand(1, 0, 12);
+    }
+    if mode == 18 {
+        insts[0].op = MIR_INST_OP_U64_ADD;
+        insts[0].type_id = 12;
+        insts[0].operand_count = 2;
+        values[0].type_id = 12;
+        values[1].type_id = 12;
+        operands[0] = verifier_operand(0, 0, 12);
+        operands[1] = verifier_operand(1, 0, 0);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -689,12 +708,14 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(14), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(15), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(16), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(17), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
     try assert_eq_i32(verifier_run(1), MIR_VERIFY_ERR_MISSING_TERMINATOR);
     try assert_eq_i32(verifier_run(2), MIR_VERIFY_ERR_TYPE_MISMATCH);
     try assert_eq_i32(verifier_run(8), MIR_VERIFY_ERR_UNDEFINED_USE);
+    try assert_eq_i32(verifier_run(18), MIR_VERIFY_ERR_TYPE_MISMATCH);
 }
 
 test "PortableMIR verifier rejects target and layout violations" {
