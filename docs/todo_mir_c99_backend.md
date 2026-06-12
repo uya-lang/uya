@@ -205,7 +205,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.3 单元输出
 
 - [ ] MIR-C99-BACKEND-UNIT-OUTPUT：先实现单 unit，保留多 unit 扩展点。
-  - [ ] 支持单 `.c` 输出：include、typedef、extern prototype、function prototype、global、function body。
+  - [x] 支持单 `.c` 输出：include、typedef、extern prototype、function prototype、global、function body。
     - [x] 新增 MIR-C99 unit output writer 合同：只消费 `MirC99Plan` / `MirC99Unit`，输出 section 顺序和 byte 统计，不回查 AST/C99 backend。
       - 验证：临时合并 `src/codegen/mir_c99/plan.uya` 与去掉 `use` 的 `src/codegen/mir_c99/unit_output.uya` 后执行 `./bin/uya check <tmp>` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
     - [x] 支持 include / typedef / extern prototype / function prototype section 的低级 C bytes 输出。
