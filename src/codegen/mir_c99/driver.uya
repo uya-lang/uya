@@ -1,0 +1,134 @@
+// codegen/mir_c99/driver.uya - MIR-C99 backend driver from target request.
+
+use codegen.mir_c99.emitter;
+use codegen.mir_c99.names;
+use codegen.mir_c99.plan;
+use codegen.mir_c99.types;
+
+export const MIR_C99_DRIVER_STATUS_ERROR: i32 = -1;
+export const MIR_C99_DRIVER_STATUS_UNINITIALIZED: i32 = 0;
+export const MIR_C99_DRIVER_STATUS_READY: i32 = 1;
+export const MIR_C99_DRIVER_STATUS_DONE: i32 = 2;
+
+/// 功能说明：记录 MIR-C99 driver 的一次后端执行结果。
+/// 参数说明：无；字段保存 plan、emitter 摘要和 diagnostic code。
+/// 返回值说明：无。
+export struct MirC99DriverResult {
+    status: i32,
+    output_kind: i32,
+    plan: &MirC99Plan,
+    unit_count: usize,
+    type_count: usize,
+    name_count: usize,
+    output_bytes: usize,
+    diagnostic_code: i32,
+}
+
+fn mir_c99_driver_error(result: &MirC99DriverResult, diagnostic_code: i32) i32 {
+    if result != null {
+        result.status = MIR_C99_DRIVER_STATUS_ERROR;
+        result.diagnostic_code = diagnostic_code;
+    }
+    return -1;
+}
+
+/// 功能说明：初始化 MIR-C99 driver result。
+/// 参数说明：`result` 为输出结果。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_driver_result_init(result: &MirC99DriverResult) i32 {
+    if result == null {
+        return -1;
+    }
+    result.status = MIR_C99_DRIVER_STATUS_UNINITIALIZED;
+    result.output_kind = MIR_BACKEND_OUTPUT_C99_PLAN;
+    result.plan = null;
+    result.unit_count = 0usize;
+    result.type_count = 0usize;
+    result.name_count = 0usize;
+    result.output_bytes = 0usize;
+    result.diagnostic_code = 0;
+    return 0;
+}
+
+fn mir_c99_driver_seed_names(module: &PortableMirModule, names: &MirC99NamePlan) i32 {
+    if module == null || names == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        if mir_c99_name_plan_add(names, MIR_C99_NAME_KIND_FUNCTION,
+            i as i32, 0, 0, 0) < 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < module.blocks.count {
+        if mir_c99_name_plan_add(names, MIR_C99_NAME_KIND_BLOCK,
+            i as i32, 0, 0, 0) < 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < module.values.count {
+        if mir_c99_name_plan_add(names, MIR_C99_NAME_KIND_TEMP,
+            i as i32, 0, 0, 0) < 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：从 verified MIR-C99 backend request 构建 `MirC99Plan` 并准备 emitter 输出摘要。
+/// 参数说明：`request` 必须是 `MIR_TARGET_BACKEND_C99`，`plan`/`type_plan`/`name_plan`/`emitter`/`result` 为调用方提供的输出结构。
+/// 返回值说明：成功返回 `0`，request 非法、计划构建失败或 emitter 拒绝时返回 `-1`。
+export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &CompilerArena,
+    plan: &MirC99Plan, type_plan: &MirC99TypePlan, name_plan: &MirC99NamePlan,
+    emitter: &MirC99Emitter, result: &MirC99DriverResult) i32 {
+    if request == null || plan == null || type_plan == null ||
+       name_plan == null || emitter == null || result == null {
+        return -1;
+    }
+    if mir_c99_driver_result_init(result) != 0 {
+        return -1;
+    }
+    if request.backend_kind != MIR_TARGET_BACKEND_C99 ||
+       portable_mir_backend_request_is_verified(request) == 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_plan_init(plan, arena, request.target_profile_id) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    result.plan = plan;
+    if mir_c99_plan_add_unit(plan, MIR_C99_UNIT_KIND_PRIMARY) < 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_type_plan_init(type_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_name_plan_init(name_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_type_plan_build(request.module, plan, type_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_driver_seed_names(request.module, name_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    if mir_c99_emitter_begin(emitter, request, plan) != 0 ||
+       mir_c99_emitter_read_plan(emitter) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
+    const out: MirC99EmitterOutputResult = mir_c99_emitter_output_result(emitter);
+    result.status = MIR_C99_DRIVER_STATUS_DONE;
+    result.output_kind = MIR_BACKEND_OUTPUT_C99_PLAN;
+    result.unit_count = plan.units.count;
+    result.type_count = type_plan.count;
+    result.name_count = name_plan.count;
+    result.output_bytes = out.output_bytes;
+    result.diagnostic_code = out.diagnostic_code;
+    return 0;
+}
