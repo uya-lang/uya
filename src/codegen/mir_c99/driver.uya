@@ -140,6 +140,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_value_plan_build(request.module, value_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
+    if mir_c99_value_plan_build_expressions(request.module, value_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_value_plan_build_constants(request.module, value_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }

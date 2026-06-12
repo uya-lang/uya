@@ -142,6 +142,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [x] 常量 literal、zero/null。
     - 验证：`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] 一元/二元算术、比较、逻辑。
+    - [x] 当前 MIR opcode：`MIR_INST_OP_I32_ADD` / `MIR_INST_OP_I32_LE` expression plan。
+      - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
+    - [ ] MIR opcode 缺口记录：一元、逻辑和其他算术/比较 opcode 尚未进入 PortableMIR，后端不得臆造 MIR 常量。
   - [ ] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。
   - [ ] value def/use 顺序检查：未定义或跨 block 非法 use 必须由 verifier 阻止。
   - [ ] parity shard：integer arithmetic/comparison/boolean combination。
