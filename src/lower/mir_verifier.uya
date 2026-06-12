@@ -18,8 +18,6 @@ export const MIR_VERIFY_ERR_UNDEFINED_USE: i32 = 14;
 export const MIR_VERIFY_ERR_INVALID_OPERAND: i32 = 15;
 export const MIR_VERIFY_ERR_INVALID_LAYOUT: i32 = 16;
 
-const MIR_VERIFY_ATOMIC_OP_MIN: i32 = 17;
-const MIR_VERIFY_ATOMIC_OP_MAX: i32 = 20;
 const MIR_VERIFY_VECTOR_OP_MIN: i32 = 21;
 const MIR_VERIFY_VECTOR_OP_MAX: i32 = 24;
 
@@ -1660,6 +1658,67 @@ fn portable_mir_verify_call_result_signature(module: &PortableMirModule,
     return 0;
 }
 
+fn portable_mir_verify_atomic_inst(module: &PortableMirModule, inst: &MirInst,
+    typ: &MirType, result: &MirVerifierResult) i32 {
+    if inst.op == MIR_INST_OP_LOAD || inst.op == MIR_INST_OP_STORE {
+        if typ != null && typ.kind == MIR_TYPE_KIND_ATOMIC {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ATOMIC,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if portable_mir_inst_op_is_atomic(inst.op) == 0 {
+        return 0;
+    }
+    if typ == null || typ.kind != MIR_TYPE_KIND_ATOMIC ||
+       (inst.flags & MIR_INST_FLAG_ATOMIC_ORDERED) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ATOMIC,
+            inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+            inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    }
+    if inst.op == MIR_INST_OP_ATOMIC_INIT {
+        if inst.operand_count < 2 || inst.result_value_id != MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ATOMIC_LOAD {
+        if inst.operand_count < 1 || inst.result_value_id == MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ATOMIC_STORE {
+        if inst.operand_count < 2 || inst.result_value_id != MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ATOMIC_RMW {
+        if inst.operand_count < 2 || inst.result_value_id == MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ATOMIC_CMPXCHG {
+        if inst.operand_count < 3 || inst.result_value_id == MIR_VALUE_INVALID_ID {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+                inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+                inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+        }
+    }
+    return 0;
+}
+
 fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, result: &MirVerifierResult) i32 {
     const typ: &MirType = portable_mir_verify_type_ptr(module, inst.type_id);
     if inst.op == MIR_INST_OP_LOAD && (inst.operand_count <= 0 || inst.result_value_id == MIR_VALUE_INVALID_ID) {
@@ -1715,9 +1774,8 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
        portable_mir_verify_address_supported(module, inst.address_space) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ADDRESS, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
     }
-    if inst.op >= MIR_VERIFY_ATOMIC_OP_MIN && inst.op <= MIR_VERIFY_ATOMIC_OP_MAX &&
-       (typ == null || typ.kind != MIR_TYPE_KIND_ATOMIC) {
-        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_ATOMIC, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
+    if portable_mir_verify_atomic_inst(module, inst, typ, result) != 0 {
+        return -1;
     }
     if inst.op >= MIR_VERIFY_VECTOR_OP_MIN && inst.op <= MIR_VERIFY_VECTOR_OP_MAX &&
        (typ == null || (typ.kind != MIR_TYPE_KIND_VECTOR && typ.kind != MIR_TYPE_KIND_MASK)) {

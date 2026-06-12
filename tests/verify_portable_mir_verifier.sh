@@ -45,6 +45,10 @@ require_pattern "$MIR_FILE" 'MIR_INST_OP_LOCAL_SET' "PortableMIR local assignmen
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_inst_op_is_integer_compare' "verifier validates integer comparison shape"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_integer_value_inst' "verifier validates integer value expressions"
 require_pattern "$MIR_VERIFIER_FILE" 'MIR_INST_OP_LOCAL_SET' "verifier validates local assignment shape"
+require_pattern "$MIR_FILE" 'MIR_INST_OP_ATOMIC_INIT' "PortableMIR atomic init opcode"
+require_pattern "$MIR_FILE" 'MIR_INST_FLAG_ATOMIC_ORDERED' "PortableMIR atomic ordered metadata flag"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_atomic_inst' "verifier validates atomic instruction shape"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_inst_op_is_atomic' "verifier classifies atomic opcodes explicitly"
 
 require_pattern "$MIR_VERIFIER_FILE" 'semantic_vector_item_ptr' "linear table traversal"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_function_has_asm_only_naked_body' "naked body verifier hook"
@@ -1527,6 +1531,95 @@ fn verifier_run(mode: i32) i32 {
         operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
         operands[2] = verifier_operand(2, MIR_VALUE_INVALID_ID, 5);
     }
+    if mode == 90 {
+        insts[0].op = MIR_INST_OP_ATOMIC_INIT;
+        insts[0].type_id = 2;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        insts[0].flags = MIR_INST_FLAG_ATOMIC_ORDERED;
+        values[0].type_id = 2;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, 0, 2);
+        operands[1] = verifier_operand(1, 1, 0);
+    }
+    if mode == 91 {
+        insts[0].op = MIR_INST_OP_ATOMIC_LOAD;
+        insts[0].type_id = 2;
+        insts[0].operand_count = 1;
+        insts[0].flags = MIR_INST_FLAG_ATOMIC_ORDERED;
+        values[0].type_id = 2;
+        values[1].type_id = 2;
+        operands[0] = verifier_operand(0, 0, 2);
+    }
+    if mode == 92 {
+        insts[0].op = MIR_INST_OP_ATOMIC_STORE;
+        insts[0].type_id = 2;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        insts[0].flags = MIR_INST_FLAG_ATOMIC_ORDERED;
+        values[0].type_id = 2;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, 0, 2);
+        operands[1] = verifier_operand(1, 1, 0);
+    }
+    if mode == 93 {
+        insts[0].op = MIR_INST_OP_ATOMIC_RMW;
+        insts[0].type_id = 2;
+        insts[0].operand_count = 2;
+        insts[0].flags = MIR_INST_FLAG_ATOMIC_ORDERED;
+        values[0].type_id = 2;
+        values[1].type_id = 2;
+        operands[0] = verifier_operand(0, 0, 2);
+        operands[1] = verifier_operand(1, 0, 0);
+        operands[1].immediate_i32 = MIR_ATOMIC_RMW_ADD;
+    }
+    if mode == 94 {
+        insts[0].op = MIR_INST_OP_ATOMIC_CMPXCHG;
+        insts[0].type_id = 2;
+        insts[0].operand_count = 3;
+        insts[0].flags = MIR_INST_FLAG_ATOMIC_ORDERED;
+        values[0].type_id = 2;
+        values[1].type_id = 2;
+        operands[0] = verifier_operand(0, 0, 2);
+        operands[1] = verifier_operand(1, 0, 0);
+        operands[2] = verifier_operand(2, 0, 0);
+    }
+    if mode == 95 {
+        insts[0].op = MIR_INST_OP_LOAD;
+        insts[0].type_id = 2;
+        values[1].type_id = 2;
+    }
+    if mode == 96 {
+        insts[0].op = MIR_INST_OP_STORE;
+        insts[0].type_id = 2;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        values[0].type_id = 2;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, 0, 2);
+        operands[1] = verifier_operand(1, 1, 0);
+    }
+    if mode == 97 {
+        insts[0].op = MIR_INST_OP_ATOMIC_LOAD;
+        insts[0].type_id = 2;
+        insts[0].operand_count = 1;
+        values[0].type_id = 2;
+        values[1].type_id = 2;
+        operands[0] = verifier_operand(0, 0, 2);
+    }
+    if mode == 98 {
+        insts[0].op = MIR_INST_OP_ATOMIC_CMPXCHG;
+        insts[0].type_id = 2;
+        insts[0].operand_count = 2;
+        insts[0].flags = MIR_INST_FLAG_ATOMIC_ORDERED;
+        values[0].type_id = 2;
+        values[1].type_id = 2;
+        operands[0] = verifier_operand(0, 0, 2);
+        operands[1] = verifier_operand(1, 0, 0);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -1619,6 +1712,11 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(81), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(82), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(83), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(90), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(91), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(92), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(93), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(94), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1672,6 +1770,10 @@ test "PortableMIR verifier rejects atomic vector mask cleanup and naked violatio
     try assert_eq_i32(verifier_run(9), MIR_VERIFY_ERR_INVALID_NAKED_BODY);
     try assert_eq_i32(verifier_run(12), MIR_VERIFY_ERR_INVALID_CLEANUP);
     try assert_eq_i32(verifier_run(13), MIR_VERIFY_ERR_INVALID_VECTOR_MASK);
+    try assert_eq_i32(verifier_run(95), MIR_VERIFY_ERR_INVALID_ATOMIC);
+    try assert_eq_i32(verifier_run(96), MIR_VERIFY_ERR_INVALID_ATOMIC);
+    try assert_eq_i32(verifier_run(97), MIR_VERIFY_ERR_INVALID_ATOMIC);
+    try assert_eq_i32(verifier_run(98), MIR_VERIFY_ERR_INVALID_OPERAND);
 }
 EOF
 

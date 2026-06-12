@@ -55,6 +55,7 @@ done
 
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_module' "MIR verifier entry"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_FIELD_ADDR' "aggregate field address opcode"
+require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_ATOMIC_INIT' "atomic init opcode"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_ATOMIC_LOAD' "atomic load opcode"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_VECTOR_SPLAT' "vector splat opcode"
 require_pattern "$MIR_CONTRACT_FILE" 'MIR_INST_OP_VECTOR_SELECT' "mask/vector select opcode"
@@ -479,6 +480,7 @@ fn golden_append_module(module: &PortableMirModule) i32 {
     var inst4: MirInst = golden_inst(4, 1, MIR_INST_OP_LOAD, 0, 5, 6, 1, MIR_ADDRESS_SPACE_HOST);
     var inst5: MirInst = golden_inst(5, 1, MIR_INST_OP_STORE, 0, MIR_VALUE_INVALID_ID, 7, 2, MIR_ADDRESS_SPACE_HOST);
     var inst6: MirInst = golden_inst(6, 2, GOLDEN_OP_ATOMIC_LOAD, 4, 6, 9, 1, MIR_ADDRESS_SPACE_HOST);
+    inst6.flags = MIR_INST_FLAG_ATOMIC_ORDERED;
     var inst7: MirInst = golden_inst(7, 2, GOLDEN_OP_VECTOR_SPLAT, 5, 7, 10, 1, MIR_ADDRESS_SPACE_GENERIC);
     var inst8: MirInst = golden_inst(8, 2, GOLDEN_OP_VECTOR_SELECT, 6, 8, 11, 1, MIR_ADDRESS_SPACE_GENERIC);
     if portable_mir_append_inst(module, &inst0) != 0 { return -1; }

@@ -286,6 +286,7 @@ memory operations：
 - `move`
 - `memset`
 - `memcpy`
+- `atomic_init`
 - `atomic_load`
 - `atomic_store`
 - `atomic_rmw`
@@ -491,7 +492,8 @@ runtime builtin 降为 MIR 指令或 runtime helper：
 - slice 上的 `@len`
 - dynamic error ID / name access
 - varargs operations
-- `atomic T` 的 load / store / fetch-add / fetch-sub / CAS-loop 复合赋值，默认 `seq_cst`
+- `atomic T` 的 init / load / store / fetch-add / fetch-sub / CAS-loop 复合赋值，默认 `seq_cst`；
+  普通 `load` / `store` 不能访问 atomic storage，必须由 verifier reject。
 - `@vector.splat`、`@vector.load`、`@vector.store`、`@vector.select`、`@vector.reduce_*`、`@vector.any`、
   `@vector.all`
 - syscall-like operations

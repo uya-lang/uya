@@ -79,6 +79,10 @@ export const MIR_INST_OP_STORE: i32 = 2;
 export const MIR_INST_OP_CALL: i32 = 3;
 export const MIR_INST_OP_ASM_BLOCK: i32 = 4;
 export const MIR_INST_OP_I32_ADD: i32 = 5;
+export const MIR_INST_OP_ATOMIC_LOAD: i32 = 17;
+export const MIR_INST_OP_ATOMIC_STORE: i32 = 18;
+export const MIR_INST_OP_ATOMIC_RMW: i32 = 19;
+export const MIR_INST_OP_ATOMIC_CMPXCHG: i32 = 20;
 export const MIR_INST_OP_I32_LE: i32 = 26;
 export const MIR_INST_OP_LOCAL_SET: i32 = 27;
 export const MIR_INST_OP_INT_UNARY_MIN: i32 = 28;
@@ -242,9 +246,17 @@ export const MIR_INST_OP_SLICE_MAX: i32 = 276;
 export const MIR_INST_OP_POINTER_OFFSET: i32 = 280;
 export const MIR_INST_OP_AGGREGATE_COPY: i32 = 290;
 export const MIR_INST_OP_AGGREGATE_MOVE: i32 = 291;
+export const MIR_INST_OP_ATOMIC_INIT: i32 = 292;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
 export const MIR_INST_FLAG_OVERFLOW_CHECKED: i32 = 2;
 export const MIR_INST_FLAG_NO_OVERLAP: i32 = 4;
+export const MIR_INST_FLAG_ATOMIC_ORDERED: i32 = 8;
+export const MIR_ATOMIC_ORDER_SEQ_CST: i32 = 1;
+export const MIR_ATOMIC_RMW_ADD: i32 = 1;
+export const MIR_ATOMIC_RMW_SUB: i32 = 2;
+export const MIR_ATOMIC_RMW_AND: i32 = 3;
+export const MIR_ATOMIC_RMW_OR: i32 = 4;
+export const MIR_ATOMIC_RMW_XOR: i32 = 5;
 export const MIR_OPERAND_KIND_VALUE: i32 = 1;
 export const MIR_OPERAND_KIND_CALL_TARGET_DIRECT: i32 = 20;
 export const MIR_OPERAND_KIND_CALL_TARGET_EXTERN: i32 = 21;
@@ -521,6 +533,18 @@ export fn portable_mir_inst_op_is_pointer_offset(op: i32) i32 {
 /// 返回值说明：aggregate copy 或 move opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_aggregate_copy_move(op: i32) i32 {
     if op == MIR_INST_OP_AGGREGATE_COPY || op == MIR_INST_OP_AGGREGATE_MOVE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR 指令 opcode 是否为显式 atomic 操作。
+/// 参数说明：`op` 为待分类的 MIR 指令 opcode。
+/// 返回值说明：atomic init/load/store/RMW/CMPXCHG 返回 1，否则返回 0。
+export fn portable_mir_inst_op_is_atomic(op: i32) i32 {
+    if op == MIR_INST_OP_ATOMIC_INIT || op == MIR_INST_OP_ATOMIC_LOAD ||
+       op == MIR_INST_OP_ATOMIC_STORE || op == MIR_INST_OP_ATOMIC_RMW ||
+       op == MIR_INST_OP_ATOMIC_CMPXCHG {
         return 1;
     }
     return 0;

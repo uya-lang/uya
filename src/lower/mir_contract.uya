@@ -79,6 +79,14 @@ export const MIR_INST_OP_VECTOR_LOAD: i32 = 22;
 export const MIR_INST_OP_VECTOR_STORE: i32 = 23;
 export const MIR_INST_OP_VECTOR_SELECT: i32 = 24;
 export const MIR_INST_OP_RUNTIME_HELPER: i32 = 25;
+export const MIR_INST_OP_ATOMIC_INIT: i32 = 292;
+export const MIR_INST_FLAG_ATOMIC_ORDERED: i32 = 8;
+export const MIR_ATOMIC_ORDER_SEQ_CST: i32 = 1;
+export const MIR_ATOMIC_RMW_ADD: i32 = 1;
+export const MIR_ATOMIC_RMW_SUB: i32 = 2;
+export const MIR_ATOMIC_RMW_AND: i32 = 3;
+export const MIR_ATOMIC_RMW_OR: i32 = 4;
+export const MIR_ATOMIC_RMW_XOR: i32 = 5;
 
 /// 功能说明：记录 `LoweredProgram + CoreBody` 到 PortableMIR 的完整语言 lowering 合同。
 /// 参数说明：无；字段保存 frozen Core 输入、必需 feature mask、当前支持 mask 和首轮缺失 mask。
