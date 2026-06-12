@@ -284,7 +284,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.7 Types / Layout
 
-- [ ] MIR-C99-BACKEND-TYPES-LAYOUT：用 MIR/layout metadata 生成最小 C 类型。
+- [x] MIR-C99-BACKEND-TYPES-LAYOUT：用 MIR/layout metadata 生成最小 C 类型。
   - [x] scalar typedef 映射：`i8/u8/i16/u16/i32/u32/i64/u64/usize/isize/bool/byte/f32/f64`。
     - [x] 当前 MIR scalar typedef：`bool` / `i32` / `usize`。
       - 验证：`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过，确认 `src/codegen/mir_c99/types.uya` 从实际 `MIR_TYPE_KIND_BOOL` / `MIR_TYPE_KIND_I32` / `MIR_TYPE_KIND_USIZE` 映射到 `MIR_C99_C_TYPE_KIND_BOOL` / `MIR_C99_C_TYPE_KIND_I32` / `MIR_C99_C_TYPE_KIND_USIZE`，保留 `size_bytes` / `align_bytes` metadata，且 driver 构建并报告 type plan；`bin/uya check` 对拼接后的 MIR-C99 子模块通过。
@@ -305,7 +305,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_type_function_signature_plan.sh` 通过；`bash tests/verify_mir_c99_type_function_signature.sh` 通过；`bash tests/verify_mir_c99_type_error_union_layout_plan.sh` 通过；`bash tests/verify_mir_c99_type_float_layout_plan.sh` 通过；`bash tests/verify_mir_c99_type_aggregate_layout_plan.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过（断言数 52）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] layout compile-time check 只能使用可移植 C99 形式，不依赖 C11 `_Static_assert` 或 GCC-only 语义。
     - 验证：`bash tests/verify_mir_c99_type_layout_check_plan.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_type_aggregate_layout_plan.sh` 通过；`bash tests/verify_mir_c99_type_error_union_layout_plan.sh` 通过；`bash tests/verify_mir_c99_type_function_signature_plan.sh` 通过；`bash tests/verify_mir_c99_type_float_layout_plan.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] parity shard：`@size_of` / `@align_of` / struct-array-slice layout。
+  - [x] parity shard：`@size_of` / `@align_of` / struct-array-slice layout。
+    - 验证：`bash tests/verify_mir_c99_layout_parity.sh` 通过，覆盖 `@size_of` / `@align_of` 对 struct、array value 和 slice value 的布局 checksum，默认 MIR-C99 generator 写出 `.c` 后经 host C compiler 运行，并与默认现有 C99 oracle generator 的 `.c` 编译/运行结果 diff 一致；`bash tests/verify_mir_c99_place_memory_parity.sh` 通过；`bash tests/verify_mir_c99_float_value_parity.sh` 通过；`bash tests/verify_mir_c99_integer_value_parity.sh` 通过；`bash tests/verify_mir_c99_cfg_parity.sh` 通过；`bash tests/verify_mir_c99_return_literal_parity.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
 ### 4.8 Calls / ABI
 
