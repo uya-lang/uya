@@ -27,17 +27,23 @@ for file in "$CFG_FILE" "$DRIVER_FILE"; do
 done
 
 require_pattern "$CFG_FILE" 'export struct MirC99FunctionPlanEntry' "function plan entry"
+require_pattern "$CFG_FILE" 'export struct MirC99BlockPlanEntry' "block plan entry"
 require_pattern "$CFG_FILE" 'function_id:[[:space:]]*MirFunctionId' "MIR function id captured"
 require_pattern "$CFG_FILE" 'signature_type_id:[[:space:]]*MirTypeId' "signature type id captured"
 require_pattern "$CFG_FILE" 'block_start:[[:space:]]*i32' "block range captured"
 require_pattern "$CFG_FILE" 'entry_block_id:[[:space:]]*MirBlockId' "entry block captured"
+require_pattern "$CFG_FILE" 'c_label_source_id:[[:space:]]*i32' "C label source id captured"
+require_pattern "$CFG_FILE" 'terminator_id:[[:space:]]*MirTerminatorId' "block terminator captured"
+require_pattern "$CFG_FILE" 'while i < module\.blocks\.count' "all MIR blocks scanned"
 require_pattern "$CFG_FILE" 'mir_c99_plan_append_ref\(output_plan,[[:space:]]*MIR_C99_REF_KIND_FUNCTION' "program function ref registered"
 require_pattern "$CFG_FILE" 'mir_c99_unit_append_ref\(unit,[[:space:]]*MIR_C99_REF_KIND_FUNCTION' "unit function ref registered"
 require_pattern "$CFG_FILE" 'while i < module\.functions\.count' "all MIR functions scanned"
 require_pattern "$DRIVER_FILE" 'use codegen\.mir_c99\.cfg' "driver imports CFG plan"
 require_pattern "$DRIVER_FILE" 'cfg_plan:[[:space:]]*&MirC99CfgPlan' "driver accepts CFG plan"
 require_pattern "$DRIVER_FILE" 'mir_c99_cfg_plan_build_functions' "driver builds function mapping"
+require_pattern "$DRIVER_FILE" 'mir_c99_cfg_plan_build_blocks' "driver builds block label mapping"
 require_pattern "$DRIVER_FILE" 'result\.function_count = cfg_plan\.function_count' "driver reports function count"
+require_pattern "$DRIVER_FILE" 'result\.block_count = cfg_plan\.block_count' "driver reports block count"
 
 tmp="$(mktemp /tmp/mir_c99_cfg_function_plan.XXXXXX.uya)"
 trap 'rm -f "$tmp"' EXIT
