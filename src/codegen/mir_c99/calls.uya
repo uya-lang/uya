@@ -5,6 +5,7 @@ use codegen.mir_c99.plan;
 export const MIR_C99_CALL_TARGET_KIND_UNSUPPORTED: i32 = 0;
 export const MIR_C99_CALL_TARGET_KIND_DIRECT: i32 = 1;
 export const MIR_C99_CALL_TARGET_KIND_EXTERN: i32 = 2;
+export const MIR_C99_CALL_TARGET_KIND_METHOD_INSTANCE: i32 = 3;
 
 export const MIR_C99_CALL_STATUS_READY: i32 = 1;
 export const MIR_C99_CALL_STATUS_REJECT: i32 = 2;
@@ -23,12 +24,13 @@ export struct MirC99CallEntry {
     arg_count: i32,
     result_value_id: MirValueId,
     calling_convention: i32,
+    method_instance_flags: i32,
     flags: i32,
     status: i32,
 }
 
 /// 功能说明：记录 MIR-C99 call 计划。
-/// 参数说明：无；当前保存 Uya direct call 和 extern function call，其他 callee kind 留给后续 leaf。
+/// 参数说明：无；当前保存 direct、extern 和 method-instance call，其他 callee kind 留给后续 leaf。
 /// 返回值说明：无；调用 `mir_c99_call_plan_init` 后使用。
 export struct MirC99CallPlan {
     calls: SemanticVector,
@@ -62,6 +64,9 @@ fn mir_c99_call_target_kind_for_operand(target: &MirOperand) i32 {
     if target.kind == MIR_OPERAND_KIND_CALL_TARGET_EXTERN {
         return MIR_C99_CALL_TARGET_KIND_EXTERN;
     }
+    if target.kind == MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE {
+        return MIR_C99_CALL_TARGET_KIND_METHOD_INSTANCE;
+    }
     return MIR_C99_CALL_TARGET_KIND_UNSUPPORTED;
 }
 
@@ -79,6 +84,13 @@ fn mir_c99_call_callee_matches_target(target_kind: i32, callee: &MirFunction) i3
     if target_kind == MIR_C99_CALL_TARGET_KIND_EXTERN {
         if (callee.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 ||
            callee.calling_convention != MIR_CALL_CONV_C {
+            return 0;
+        }
+        return 1;
+    }
+    if target_kind == MIR_C99_CALL_TARGET_KIND_METHOD_INSTANCE {
+        if (callee.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 ||
+           callee.calling_convention != MIR_CALL_CONV_UYA {
             return 0;
         }
         return 1;
@@ -112,6 +124,7 @@ fn mir_c99_call_reject_entry(inst: &MirInst) MirC99CallEntry {
         arg_count: 0,
         result_value_id: result_value_id,
         calling_convention: calling_convention,
+        method_instance_flags: 0,
         flags: flags,
         status: MIR_C99_CALL_STATUS_REJECT,
     };
@@ -126,8 +139,13 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
     const target: &MirOperand = mir_c99_call_operand_ptr(module, inst.operand_start);
     if target == null ||
        (target.kind != MIR_OPERAND_KIND_CALL_TARGET_DIRECT &&
-        target.kind != MIR_OPERAND_KIND_CALL_TARGET_EXTERN) ||
+        target.kind != MIR_OPERAND_KIND_CALL_TARGET_EXTERN &&
+        target.kind != MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE) ||
        target.value_id != MIR_VALUE_INVALID_ID {
+        return mir_c99_call_reject_entry(inst);
+    }
+    if target.kind == MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE &&
+       target.flags < 0 {
         return mir_c99_call_reject_entry(inst);
     }
     const callee: &MirFunction = mir_c99_call_function_ptr(module,
@@ -147,6 +165,7 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
         arg_count: inst.operand_count - 1,
         result_value_id: inst.result_value_id,
         calling_convention: inst.calling_convention,
+        method_instance_flags: target.flags,
         flags: inst.flags,
         status: MIR_C99_CALL_STATUS_READY,
     };
