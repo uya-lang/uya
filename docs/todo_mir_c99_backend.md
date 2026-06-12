@@ -178,7 +178,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [f] aggregate copy / move 的最小 `memcpy` helper。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_COPY` / `MIR_INST_OP_MOVE`，也没有 MIR 显式 memcpy helper capability；`MIR_INST_OP_COPY` / `MIR_INST_OP_MOVE` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能提前发明 aggregate copy/move 或隐式接入 memcpy。
     - 验证：`rg -n "MEMCPY|memcpy|COPY|MOVE|AGGREGATE|aggregate|MIR_INST_OP_.*COPY|MIR_INST_OP_.*MOVE|helper" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 docs/todo_mir_c99_backend.md -S` 确认实际 MIR/verifier 无 copy/move opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] parity shard：struct field、array index、slice index、out-param writeback。
+  - [f] parity shard：struct field、array index、slice index、out-param writeback。
+    - 阻塞：当前无真实 MIR-C99 generator command/CLI，`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup；同时本 shard 依赖的 field/index/slice/copy-out/out-param 写回对应 MIR opcode 或 helper 均未进入实际 MIR/verifier，不能生成 host C compiler 可编译运行的 parity 用例。
+    - 验证：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；field/index/slice/copy leaf 已分别记录实际 MIR/verifier 缺口；不能作为 parity 通过证据。
 
 ### 4.7 Types / Layout
 
