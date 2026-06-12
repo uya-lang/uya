@@ -30,6 +30,9 @@ for symbol in \
     MirC99ExpressionEntry \
     MIR_C99_EXPR_KIND_I32_ADD \
     MIR_C99_EXPR_KIND_I32_LE \
+    MIR_C99_EXPR_KIND_INT_ARITH \
+    MIR_C99_EXPR_KIND_INT_COMPARE \
+    MIR_C99_EXPR_KIND_INT_UNARY \
     mir_c99_value_plan_build_expressions \
     mir_c99_value_plan_expression_ptr; do
     require_pattern "$VALUE_FILE" "$symbol" "expression symbol $symbol"
@@ -53,9 +56,17 @@ require_pattern "$VALUE_FILE" 'MIR_INST_OP_I32_ADD' \
     "i32 add opcode handled"
 require_pattern "$VALUE_FILE" 'MIR_INST_OP_I32_LE' \
     "i32 <= opcode handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_integer_arithmetic' \
+    "integer arithmetic opcode family handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_integer_compare' \
+    "integer comparison opcode family handled"
+require_pattern "$VALUE_FILE" 'portable_mir_inst_op_is_integer_unary' \
+    "integer unary opcode family handled"
 require_pattern "$VALUE_FILE" 'operand_count == 2' \
     "binary expression requires two operands"
-require_pattern "$VALUE_FILE" 'result_value_id != MIR_VALUE_INVALID_ID' \
+require_pattern "$VALUE_FILE" 'operand_count == 1' \
+    "unary expression requires one operand"
+require_pattern "$VALUE_FILE" 'result_value_id == MIR_VALUE_INVALID_ID' \
     "binary expression requires result value"
 require_pattern "$DRIVER_FILE" 'mir_c99_value_plan_build_expressions' \
     "driver builds expression plan"
@@ -79,4 +90,4 @@ sed '/^use codegen\.mir_c99\./d' \
     "$DRIVER_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 
-echo "OK: MIR-C99 i32 add/le expression plan verified"
+echo "OK: MIR-C99 integer expression plan verified"

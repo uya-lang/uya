@@ -82,7 +82,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_type_function_signature.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_type_field_layout.sh` 通过；`bash tests/verify_mir_c99_type_error_union_layout.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_portable_mir_backend_interface.sh` 通过；`bash tests/verify_portable_mir_structs.sh` 通过；`bash tests/verify_portable_mir_dynamic_tables.sh` 通过；`bash tests/verify_portable_mir_core_body_lowering.sh` 通过；`bash tests/verify_portable_mir_parallel_determinism.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
 - [ ] MIR-C99-PREMIR-VALUE-OPS：补齐表达式和转换 opcode。
-  - [ ] 整数一元、逻辑、非 i32 算术/比较 opcode，并在 verifier 中校验 operand/result type。
+  - [x] 整数一元、逻辑、非 i32 算术/比较 opcode，并在 verifier 中校验 operand/result type。
     - [x] 建立整数 value opcode inventory / 分类 helper，覆盖一元、逻辑、非 i32 算术和比较族，并让 verifier 使用分类入口。
       - 验证：`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `U64_ADD` 正/反例，断言数 19）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] 新增非 i32 整数算术 opcode，校验 operand/result type 一致且结果为同宽整数。
@@ -91,7 +91,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - 验证：`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `U32_GE` bool result 正例和非 bool result 反例，断言数 21）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
     - [x] 新增整数一元 opcode，校验 operand/result type 一致。
       - 验证：`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（新增 `INT_NEG` 同型正例和 operand 错配反例，断言数 23）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过。
-    - [ ] 同步 MIR-C99 expression plan 对新增整数 opcode 的可见支持/拒绝边界。
+    - [x] 同步 MIR-C99 expression plan 对新增整数 opcode 的可见支持/拒绝边界。
+      - 验证：`bash tests/verify_mir_c99_expression_plan.sh` 通过（新增 integer arithmetic / compare / unary expression kind，checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_value_opcode_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过。
   - [ ] bool 组合 opcode：`and` / `or` / `not` 或等价短路/非短路 MIR 表达形式。
   - [ ] cast / sign extend / zero extend / truncate / int-float / float-int / float-double conversion opcode。
   - [ ] f32/f64 算术、比较、常量和 return/call value verifier 规则。
