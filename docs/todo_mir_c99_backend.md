@@ -328,7 +328,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [x] call ABI metadata 缺失时明确 reject。
     - 验证：`bash tests/verify_mir_c99_call_abi_metadata_reject_plan.sh` 通过；`bash tests/verify_mir_c99_call_return_lowering_plan.sh` 通过；`bash tests/verify_mir_c99_call_float_abi_plan.sh` 通过；`bash tests/verify_mir_c99_call_direct_plan.sh` 通过；`bash tests/verify_mir_c99_call_extern_plan.sh` 通过；`bash tests/verify_mir_c99_call_method_plan.sh` 通过；`bash tests/verify_mir_c99_call_function_pointer_plan.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] parity shard：multi-arg call、extern object call、method dispatch、generic instance call。
+    - 阻塞：当前无真实 MIR-C99 generator command/CLI，`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅报告 `generator commands are pending backend hookup`；call plan 已记录 multi-param/direct/extern/method/function-pointer metadata，但尚不能生成 host C compiler 可编译运行的 parity 用例。
   - [ ] parity shard：float/double 参数、返回值、extern call。
+    - 阻塞：当前无真实 MIR-C99 generator command/CLI，`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅报告 `generator commands are pending backend hookup`；float/double call ABI plan 已验证 metadata consume/reject，但尚不能做 C99 oracle 运行结果对齐。
 
 ### 4.9 Runtime Helpers
 
