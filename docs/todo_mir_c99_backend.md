@@ -226,7 +226,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.4 CFG
 
-- [ ] MIR-C99-BACKEND-CFG：把 MIR CFG 映射到低级 C99。
+- [x] MIR-C99-BACKEND-CFG：把 MIR CFG 映射到低级 C99。
   - [x] MIR function -> C function。
     - 验证：`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] MIR block -> C label。
@@ -239,8 +239,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 验证：`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] MIR verifier 未通过时拒绝，不生成 C。
     - 验证：`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] parity shard：local init + if return / nested branch / loop backedge。
-    - 阻塞：当前无真实 MIR-C99 generator command/CLI，`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup；该 shard 还需要 4.5 Values 的 local/temp/literal 与比较/branch value emission，现阶段无法生成可由 host C compiler 编译运行的对齐用例。
+  - [x] parity shard：local init + if return / nested branch / loop backedge。
+    - 验证：`bash tests/verify_mir_c99_cfg_parity.sh` 通过，覆盖 local init + if return、nested branch、while loop backedge 三个 case，默认 MIR-C99 generator 写出 `.c` 后经 host C compiler 运行，并与默认现有 C99 oracle generator 的 `.c` 编译/运行结果 diff 一致；`bash tests/verify_mir_c99_return_literal_parity.sh` 通过；`bash tests/verify_mir_c99_lexical_drop_parity.sh` 通过；`bash tests/verify_mir_c99_defer_local_assign_parity.sh` 通过；`bash tests/verify_mir_c99_dynamic_catch_parity.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
 
 ### 4.5 Values
 
