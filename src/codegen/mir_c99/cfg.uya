@@ -12,6 +12,10 @@ export const MIR_C99_CFG_BLOCK_STATUS_REJECT: i32 = 2;
 export const MIR_C99_CFG_TERMINATOR_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_TERMINATOR_STATUS_REJECT: i32 = 2;
 
+export const MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR: i32 = 1;
+export const MIR_C99_CFG_BLOCK_FLAG_CLEANUP: i32 = 1;
+export const MIR_C99_CFG_TERMINATOR_FLAG_ERROR_CFG: i32 = 1;
+
 /// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
 /// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
 /// 返回值说明：无；具体 block/terminator 输出由后续 CFG leaf 填充。
@@ -72,6 +76,9 @@ export struct MirC99CfgPlan {
     function_count: usize,
     block_count: usize,
     terminator_count: usize,
+    cleanup_error_function_count: usize,
+    cleanup_block_count: usize,
+    cleanup_error_terminator_count: usize,
     reject_count: usize,
 }
 
@@ -89,6 +96,10 @@ fn mir_c99_cfg_function_entry_from_mir(function: &MirFunction, unit_id: i32) Mir
             flags: 0,
         };
     }
+    var flags: i32 = function.flags;
+    if (function.cleanup_model & MIR_CLEANUP_MODEL_ERROR) != 0 {
+        flags = flags | MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR;
+    }
     return MirC99FunctionPlanEntry{
         function_id: function.function_id,
         unit_id: unit_id,
@@ -98,7 +109,7 @@ fn mir_c99_cfg_function_entry_from_mir(function: &MirFunction, unit_id: i32) Mir
         block_count: function.block_count,
         entry_block_id: function.entry_block_id,
         status: MIR_C99_CFG_FUNCTION_STATUS_PLANNED,
-        flags: function.flags,
+        flags: flags,
     };
 }
 
@@ -115,6 +126,10 @@ fn mir_c99_cfg_block_entry_from_mir(block: &MirBlock) MirC99BlockPlanEntry {
             flags: 0,
         };
     }
+    var flags: i32 = block.flags;
+    if (block.flags & MIR_BLOCK_FLAG_CLEANUP) != 0 {
+        flags = flags | MIR_C99_CFG_BLOCK_FLAG_CLEANUP;
+    }
     return MirC99BlockPlanEntry{
         block_id: block.block_id,
         function_id: block.function_id,
@@ -123,7 +138,7 @@ fn mir_c99_cfg_block_entry_from_mir(block: &MirBlock) MirC99BlockPlanEntry {
         inst_count: block.inst_count,
         terminator_id: block.terminator_id,
         status: MIR_C99_CFG_BLOCK_STATUS_PLANNED,
-        flags: block.flags,
+        flags: flags,
     };
 }
 
@@ -139,6 +154,28 @@ fn mir_c99_cfg_operand_ptr(module: &PortableMirModule, operand_id: i32) &MirOper
         return null;
     }
     return semantic_vector_item_ptr(&module.operands, operand_id as usize) as &MirOperand;
+}
+
+fn mir_c99_cfg_block_ptr(module: &PortableMirModule, block_id: MirBlockId) &MirBlock {
+    const block_index: i32 = block_id as i32;
+    if module == null || block_index < 0 ||
+       (block_index as usize) >= module.blocks.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.blocks, block_index as usize) as &MirBlock;
+}
+
+fn mir_c99_cfg_terminator_flags_from_mir(module: &PortableMirModule,
+    term: &MirTerminator) i32 {
+    if term == null {
+        return 0;
+    }
+    var flags: i32 = term.flags;
+    const block: &MirBlock = mir_c99_cfg_block_ptr(module, term.block_id);
+    if block != null && (block.flags & MIR_BLOCK_FLAG_CLEANUP) != 0 {
+        flags = flags | MIR_C99_CFG_TERMINATOR_FLAG_ERROR_CFG;
+    }
+    return flags;
 }
 
 fn mir_c99_cfg_terminator_reject_entry(term: &MirTerminator) MirC99TerminatorPlanEntry {
@@ -181,7 +218,8 @@ fn mir_c99_cfg_terminator_reject_entry(term: &MirTerminator) MirC99TerminatorPla
     };
 }
 
-fn mir_c99_cfg_terminator_record_entry(term: &MirTerminator) MirC99TerminatorPlanEntry {
+fn mir_c99_cfg_terminator_record_entry(module: &PortableMirModule,
+    term: &MirTerminator) MirC99TerminatorPlanEntry {
     if term == null {
         return mir_c99_cfg_terminator_reject_entry(term);
     }
@@ -200,7 +238,7 @@ fn mir_c99_cfg_terminator_record_entry(term: &MirTerminator) MirC99TerminatorPla
         false_target_block_id: MIR_BLOCK_INVALID_ID,
         return_value_id: MIR_VALUE_INVALID_ID,
         status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
-        flags: term.flags,
+        flags: mir_c99_cfg_terminator_flags_from_mir(module, term),
     };
 }
 
@@ -228,7 +266,7 @@ fn mir_c99_cfg_terminator_entry_from_mir(module: &PortableMirModule,
                     false_target_block_id: MIR_BLOCK_INVALID_ID,
                     return_value_id: MIR_VALUE_INVALID_ID,
                     status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
-                    flags: term.flags,
+                    flags: mir_c99_cfg_terminator_flags_from_mir(module, term),
                 };
             }
         }
@@ -257,7 +295,7 @@ fn mir_c99_cfg_terminator_entry_from_mir(module: &PortableMirModule,
                     false_target_block_id: false_successor.block_id,
                     return_value_id: MIR_VALUE_INVALID_ID,
                     status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
-                    flags: term.flags,
+                    flags: mir_c99_cfg_terminator_flags_from_mir(module, term),
                 };
             }
         }
@@ -280,7 +318,7 @@ fn mir_c99_cfg_terminator_entry_from_mir(module: &PortableMirModule,
                 false_target_block_id: MIR_BLOCK_INVALID_ID,
                 return_value_id: MIR_VALUE_INVALID_ID,
                 status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
-                flags: term.flags,
+                flags: mir_c99_cfg_terminator_flags_from_mir(module, term),
             };
         }
         if term.operand_count == 1 {
@@ -301,13 +339,13 @@ fn mir_c99_cfg_terminator_entry_from_mir(module: &PortableMirModule,
                     false_target_block_id: MIR_BLOCK_INVALID_ID,
                     return_value_id: return_operand.value_id,
                     status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
-                    flags: term.flags,
+                    flags: mir_c99_cfg_terminator_flags_from_mir(module, term),
                 };
             }
         }
         return mir_c99_cfg_terminator_reject_entry(term);
     }
-    return mir_c99_cfg_terminator_record_entry(term);
+    return mir_c99_cfg_terminator_record_entry(module, term);
 }
 
 fn mir_c99_cfg_write_i32(stream: &FILE, value: i32) i32 {
@@ -357,6 +395,9 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
+    plan.cleanup_error_function_count = 0usize;
+    plan.cleanup_block_count = 0usize;
+    plan.cleanup_error_terminator_count = 0usize;
     plan.reject_count = 0usize;
     return 0;
 }
@@ -374,6 +415,9 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
+    plan.cleanup_error_function_count = 0usize;
+    plan.cleanup_block_count = 0usize;
+    plan.cleanup_error_terminator_count = 0usize;
     plan.reject_count = 0usize;
 }
 
@@ -394,6 +438,10 @@ export fn mir_c99_cfg_plan_append_function(cfg_plan: &MirC99CfgPlan,
     if entry.status == MIR_C99_CFG_FUNCTION_STATUS_REJECT {
         cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
         return -1;
+    }
+    if (entry.flags & MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR) != 0 {
+        cfg_plan.cleanup_error_function_count =
+            cfg_plan.cleanup_error_function_count + 1usize;
     }
     if mir_c99_plan_append_ref(output_plan, MIR_C99_REF_KIND_FUNCTION,
         entry.function_id, entry.c_name_source_id, entry.flags) != 0 {
@@ -422,6 +470,9 @@ export fn mir_c99_cfg_plan_append_block(cfg_plan: &MirC99CfgPlan, block: &MirBlo
         cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
         return -1;
     }
+    if (entry.flags & MIR_C99_CFG_BLOCK_FLAG_CLEANUP) != 0 {
+        cfg_plan.cleanup_block_count = cfg_plan.cleanup_block_count + 1usize;
+    }
     return 0;
 }
 
@@ -442,6 +493,10 @@ export fn mir_c99_cfg_plan_append_terminator(cfg_plan: &MirC99CfgPlan,
     if entry.status == MIR_C99_CFG_TERMINATOR_STATUS_REJECT {
         cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
         return -1;
+    }
+    if (entry.flags & MIR_C99_CFG_TERMINATOR_FLAG_ERROR_CFG) != 0 {
+        cfg_plan.cleanup_error_terminator_count =
+            cfg_plan.cleanup_error_terminator_count + 1usize;
     }
     return 0;
 }
