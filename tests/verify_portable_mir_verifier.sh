@@ -1225,6 +1225,38 @@ fn verifier_run(mode: i32) i32 {
         operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 0);
         operands[1].immediate_i32 = 2;
     }
+    if mode == 72 {
+        insts[0].op = MIR_INST_OP_AGGREGATE_COPY;
+        insts[0].type_id = 22;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        insts[0].flags = MIR_INST_FLAG_NO_OVERLAP;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 23);
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
+    }
+    if mode == 73 {
+        insts[0].op = MIR_INST_OP_AGGREGATE_MOVE;
+        insts[0].type_id = 22;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        insts[0].flags = MIR_INST_FLAG_NO_OVERLAP;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 23);
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
+    }
+    if mode == 74 {
+        insts[0].op = MIR_INST_OP_AGGREGATE_COPY;
+        insts[0].type_id = 22;
+        insts[0].result_value_id = MIR_VALUE_INVALID_ID;
+        insts[0].operand_count = 2;
+        values[1].defining_inst_id = MIR_INST_INVALID_ID;
+        values[1].flags = MIR_VALUE_FLAG_PARAM;
+        operands[0] = verifier_operand(0, MIR_VALUE_INVALID_ID, 23);
+        operands[1] = verifier_operand(1, MIR_VALUE_INVALID_ID, 23);
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
@@ -1309,6 +1341,8 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(67), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(68), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(70), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(72), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(73), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -1343,6 +1377,7 @@ test "PortableMIR verifier rejects target and layout violations" {
     try assert_eq_i32(verifier_run(61), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(69), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(71), MIR_VERIFY_ERR_INVALID_ADDRESS);
+    try assert_eq_i32(verifier_run(74), MIR_VERIFY_ERR_INVALID_LAYOUT);
 }
 
 test "PortableMIR verifier rejects atomic vector mask cleanup and naked violations" {
