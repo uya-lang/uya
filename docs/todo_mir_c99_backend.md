@@ -175,7 +175,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [f] slice ptr/len load。
     - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_SLICE_PTR_ADDR` / `MIR_INST_OP_SLICE_LEN_ADDR` 或 slice ptr/len instruction；这两个 opcode 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能消费 contract-only opcode 伪装 slice ptr/len load 支持。
     - 验证：`rg -n "MIR_INST_OP_SLICE|SLICE_PTR_ADDR|SLICE_LEN_ADDR|CORE_PLACE_KIND_SLICE|slice ptr|slice len|MIR_TYPE_KIND_STRUCT|element_type_id" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 -S` 确认实际 MIR/verifier 无 slice ptr/len opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] aggregate copy / move 的最小 `memcpy` helper。
+  - [f] aggregate copy / move 的最小 `memcpy` helper。
+    - 阻塞：当前实际 PortableMIR 数据模型和 verifier 没有 `MIR_INST_OP_COPY` / `MIR_INST_OP_MOVE`，也没有 MIR 显式 memcpy helper capability；`MIR_INST_OP_COPY` / `MIR_INST_OP_MOVE` 只在 `src/lower/mir_contract.uya` 作为 lowering contract 常量出现。MIR-C99 后端不能提前发明 aggregate copy/move 或隐式接入 memcpy。
+    - 验证：`rg -n "MEMCPY|memcpy|COPY|MOVE|AGGREGATE|aggregate|MIR_INST_OP_.*COPY|MIR_INST_OP_.*MOVE|helper" src/lower/mir.uya src/lower/mir_verifier.uya src/lower/mir_contract.uya src/codegen/mir_c99 docs/todo_mir_c99_backend.md -S` 确认实际 MIR/verifier 无 copy/move opcode；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] parity shard：struct field、array index、slice index、out-param writeback。
 
 ### 4.7 Types / Layout
