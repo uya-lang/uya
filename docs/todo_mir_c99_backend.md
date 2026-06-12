@@ -337,7 +337,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - [ ] MIR-C99-BACKEND-RUNTIME-HELPERS：只接入 MIR 显式要求的 helper。
   - [x] `memcpy` / `memset` / `memcmp` / string primitive helper。
     - 验证：`bash tests/verify_mir_c99_runtime_memory_helper_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_unit_output_sections.sh` 通过；`bash tests/verify_portable_mir_runtime_memory_helpers.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过（断言数 52）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] print/println 最小 stdout helper。
+  - [x] print/println 最小 stdout helper。
+    - 验证：`bash tests/verify_mir_c99_runtime_print_helper_plan.sh` 通过；`bash tests/verify_mir_c99_runtime_memory_helper_plan.sh` 通过；`bash tests/verify_portable_mir_runtime_io_syscall_helpers.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过（断言数 52）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] malloc/free/env/file IO runtime capability helper。
   - [ ] async frame runtime helper：poll、resume、await bind、frame allocation/free 和 async-frame-heap fallback。
   - [ ] `@syscall` capability：按 target profile 明确分流，不静默 fallback。

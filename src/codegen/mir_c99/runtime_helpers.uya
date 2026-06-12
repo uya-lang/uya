@@ -30,6 +30,10 @@ fn mir_c99_runtime_helper_required_capability(helper_id: i32) i32 {
     if helper_id == MIR_RUNTIME_HELPER_STRING_PRIMITIVE {
         return MIR_RUNTIME_CAP_STRING_PRIMITIVES;
     }
+    if helper_id == MIR_RUNTIME_HELPER_PRINT ||
+       helper_id == MIR_RUNTIME_HELPER_PRINTLN {
+        return MIR_RUNTIME_CAP_PRINT_HELPERS;
+    }
     return 0;
 }
 
@@ -38,6 +42,22 @@ fn mir_c99_runtime_helper_is_memory_string(helper_id: i32) i32 {
        helper_id == MIR_RUNTIME_HELPER_MEMSET ||
        helper_id == MIR_RUNTIME_HELPER_MEMCMP ||
        helper_id == MIR_RUNTIME_HELPER_STRING_PRIMITIVE {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_runtime_helper_is_print_stdout(helper_id: i32) i32 {
+    if helper_id == MIR_RUNTIME_HELPER_PRINT ||
+       helper_id == MIR_RUNTIME_HELPER_PRINTLN {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_runtime_helper_is_supported(helper_id: i32) i32 {
+    if mir_c99_runtime_helper_is_memory_string(helper_id) != 0 ||
+       mir_c99_runtime_helper_is_print_stdout(helper_id) != 0 {
         return 1;
     }
     return 0;
@@ -55,7 +75,7 @@ export fn mir_c99_runtime_helper_plan_init(plan: &MirC99RuntimeHelperPlan) i32 {
     return 0;
 }
 
-/// 功能说明：从 MIR capability requirements 构建 memory/string runtime helper refs。
+/// 功能说明：从 MIR capability requirements 构建 runtime helper refs。
 /// 参数说明：`module` 为 verifier-clean MIR module，`mir_plan` 和 `unit` 为输出 ref 表，`helper_plan` 为统计计划。
 /// 返回值说明：成功返回 `0`；目标 profile 不支持 helper capability 或追加失败返回 `-1`。
 export fn mir_c99_runtime_helper_plan_build(module: &PortableMirModule,
@@ -70,7 +90,7 @@ export fn mir_c99_runtime_helper_plan_build(module: &PortableMirModule,
         const req: &MirCapabilityReq =
             mir_c99_runtime_helper_capability_req_ptr(module, i);
         if req != null &&
-           mir_c99_runtime_helper_is_memory_string(req.capability_id) != 0 {
+           mir_c99_runtime_helper_is_supported(req.capability_id) != 0 {
             const required_cap: i32 =
                 mir_c99_runtime_helper_required_capability(req.capability_id);
             if portable_mir_target_profile_supports_runtime_capability(
