@@ -104,7 +104,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | missing | Phase 9A 验证。 |
-| `AST_CALL_EXPR` | done | missing | Phase 9A 验证（method call / 泛型 call）。 |
+| `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call；method/generic/interface call 由后续 shard 覆盖。 |
 | `AST_MEMBER_ACCESS` | done | missing | `counter.double`/`self.value` 等。 |
 | `AST_ARRAY_ACCESS` | done | missing | `slice[0]`/`array[1]` 等；C99 oracle 已覆盖，MIR-C99 index parity 待补。 |
 | `AST_SLICE_EXPR` | done | missing | `array[1:2]` 由 `slice` shard 验证。 |
@@ -114,11 +114,11 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_SIZEOF` | done | missing | `@size_of` 由 `builtin` shard 验证。 |
 | `AST_LEN` | done | missing | `@len` 由 `array_len` shard 验证。 |
 | `AST_ALIGNOF` | done | missing | `@align_of` 由 `builtin` shard 验证。 |
-| `AST_CAST_EXPR` | done | missing | `as i32` 等。 |
+| `AST_CAST_EXPR` | done | partial | MIR-C99 full-language float/double parity shard 覆盖 f32/f64 widen 和 float-to-int cast；完整 cast 矩阵由后续 shard 覆盖。 |
 | `AST_IDENTIFIER` | done | missing | Phase 9A 验证。 |
 | `AST_UNDERSCORE` | done | missing | ignore placeholder。 |
 | `AST_NUMBER` | done | missing | `CORE_EXPR_KIND_INT_LITERAL`。 |
-| `AST_FLOAT` | partial | missing | C99 通过；MIR float literal surface 走尚未冻结的 `CORE_EXPR_KIND_FLOAT_LITERAL` 路径。 |
+| `AST_FLOAT` | partial | partial | MIR-C99 full-language float/double parity shard 覆盖 f32/f64 literal、arithmetic、comparison 和 cast；非零 literal payload 的完整 MIR 常量模型仍按后续 value-plan 收敛。 |
 | `AST_BOOL` | done | missing | `true`/`false`。 |
 | `AST_INT_LIMIT` | missing | missing | `i32.min`/`u64.max` 等暂未在 MIR-C99 shard 中独立验证。 |
 | `AST_STRING` | done | partial | MIR-C99 已支持 string global initializer plan/output 和 dedupe id；完整字符串 parity 待后续 shard。 |
@@ -198,7 +198,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
-| `CORE_EXPR_KIND_CALL` | done | missing | Phase 9A 验证。 |
+| `CORE_EXPR_KIND_CALL` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local call 和 extern C call；method/generic/interface call 由后续 shard 覆盖。 |
 | `CORE_EXPR_KIND_INDEX` | done | missing | `array_index` shard。 |
 | `CORE_EXPR_KIND_SLICE` | done | missing | `slice` shard。 |
 | `CORE_EXPR_KIND_ATOMIC` | done | missing | `atomic` shard。 |

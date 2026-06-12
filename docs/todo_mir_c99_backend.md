@@ -480,7 +480,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - [ ] MIR-C99-BACKEND-PARITY-MATRIX：把完整语言样本逐项迁为 MIR-C99 / 现有 C99 oracle parity。
   - [x] return/local/binary/branch/loop。
     - 验证：`bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh` 通过，聚合真实 MIR-C99 generator / 现有 C99 oracle parity gates，覆盖 CFG return/local/branch/loop 与 integer binary/boolean 组合，并断言覆盖矩阵中相关 AST/Core 行已标为 MIR-C99 `partial`；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过（1 个 active task，标完成前）；`git diff --check` 通过。说明：现有 C99 oracle 编译阶段仍输出既有 pedantic warning，但上述命令退出码均为 0。
-  - [ ] float/double literal、arithmetic、comparison、cast、call ABI。
+  - [x] float/double literal、arithmetic、comparison、cast、call ABI。
+    - 验证：`bash tests/verify_mir_c99_full_language_float_call_abi_parity.sh` 通过，聚合 `verify_mir_c99_float_value_parity.sh` 与 `verify_mir_c99_float_call_parity.sh`，覆盖 f32/f64 literal、arithmetic、comparison、cast、本地 float call 和 extern C float/double call 的真实 MIR-C99 generator / 现有 C99 oracle parity，并断言覆盖矩阵中 `AST_FLOAT` / `AST_CAST_EXPR` / `AST_CALL_EXPR` / `CORE_EXPR_KIND_CALL` 已标为 MIR-C99 `partial`；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过（0 个 active task）；`git diff --check` 通过。说明：现有 C99 oracle 编译阶段仍输出既有 pedantic warning，但上述命令退出码均为 0。
   - [ ] multi-file module/use/import alias。
   - [ ] struct/union/enum/tuple。
   - [ ] array/slice/pointer。
