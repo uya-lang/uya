@@ -100,7 +100,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [ ] 支持单 `.c` 输出：include、typedef、extern prototype、function prototype、global、function body。
     - [x] 新增 MIR-C99 unit output writer 合同：只消费 `MirC99Plan` / `MirC99Unit`，输出 section 顺序和 byte 统计，不回查 AST/C99 backend。
       - 验证：临时合并 `src/codegen/mir_c99/plan.uya` 与去掉 `use` 的 `src/codegen/mir_c99/unit_output.uya` 后执行 `./bin/uya check <tmp>` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
-    - [ ] 支持 include / typedef / extern prototype / function prototype section 的低级 C bytes 输出。
+    - [x] 支持 include / typedef / extern prototype / function prototype section 的低级 C bytes 输出。
+      - 验证：`bash tests/verify_mir_c99_unit_output_sections.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`git diff --check` 通过。
     - [ ] 支持 global / function body section 的低级 C bytes 输出。
     - [ ] 单 `.c` 输出接入 emitter output result，并记录 no-fallback 验证。
   - [ ] 支持 `MirC99Unit[]` 数据结构和 unit fingerprint，即使首版只生成一个 unit。

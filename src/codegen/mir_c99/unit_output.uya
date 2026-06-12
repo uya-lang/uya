@@ -1,6 +1,9 @@
 // codegen/mir_c99/unit_output.uya - Single-unit MIR-C99 output writer contract.
 
 use codegen.mir_c99.plan;
+use libc.FILE;
+use libc.fputc;
+use libc.fputs;
 
 export const MIR_C99_OUTPUT_SECTION_INCLUDE: i32 = 1;
 export const MIR_C99_OUTPUT_SECTION_TYPEDEF: i32 = 2;
@@ -38,6 +41,90 @@ export struct MirC99UnitOutputWriter {
     unit: &MirC99Unit,
     stats: MirC99UnitOutputStats,
     diagnostic_code: i32,
+}
+
+fn mir_c99_unit_output_ref_ptr(vec: &SemanticVector, index: usize) &MirC99Ref {
+    if vec == null || index >= vec.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(vec, index) as &MirC99Ref;
+}
+
+fn mir_c99_unit_output_write(stream: &FILE, text: &byte) i32 {
+    if stream == null || text == null {
+        return -1;
+    }
+    if fputs(text as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_i32(stream: &FILE, value: i32) i32 {
+    if stream == null {
+        return -1;
+    }
+    if value == 0 {
+        if fputc(48, stream as *void) < 0 {
+            return -1;
+        }
+        return 0;
+    }
+    var v: i32 = value;
+    if v < 0 {
+        if fputc(45, stream as *void) < 0 {
+            return -1;
+        }
+        v = 0 - v;
+    }
+    var digits: [i32: 20] = [];
+    var count: i32 = 0;
+    while v > 0 && count < 20 {
+        digits[count] = v % 10;
+        v = v / 10;
+        count = count + 1;
+    }
+    var i: i32 = count - 1;
+    while i >= 0 {
+        if fputc(48 + digits[i], stream as *void) < 0 {
+            return -1;
+        }
+        i = i - 1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_ref_line(stream: &FILE, prefix: &byte, ref: &MirC99Ref, suffix: &byte) i32 {
+    if stream == null || prefix == null || ref == null || suffix == null {
+        return -1;
+    }
+    if fputs(prefix as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_i32(stream, ref.source_id) != 0 {
+        return -1;
+    }
+    if fputs(suffix as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_ref_table(stream: &FILE, vec: &SemanticVector,
+    prefix: &byte, suffix: &byte) i32 {
+    if stream == null || vec == null || prefix == null || suffix == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < vec.count {
+        const ref: &MirC99Ref = mir_c99_unit_output_ref_ptr(vec, i);
+        if mir_c99_unit_output_write_ref_line(stream, prefix, ref, suffix) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
 }
 
 fn mir_c99_unit_output_empty_stats() MirC99UnitOutputStats {
@@ -115,6 +202,102 @@ export fn mir_c99_unit_output_section_at(section_index: i32) i32 {
     if section_index == 4 { return MIR_C99_OUTPUT_SECTION_GLOBAL; }
     if section_index == 5 { return MIR_C99_OUTPUT_SECTION_FUNCTION_BODY; }
     return 0;
+}
+
+/// 功能说明：输出 MIR-C99 单 unit 的 include section。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出条目数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_include_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "/* mir-c99 includes */\n" as &byte) != 0 {
+        return -1;
+    }
+    if writer.unit.includes.count == 0usize {
+        if mir_c99_unit_output_write(stream, "#include <stdint.h>\n#include <stddef.h>\n#include <stdbool.h>\n" as &byte) != 0 {
+            return -1;
+        }
+        return 3;
+    }
+    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.includes,
+        "#include \"uya_mir_include_" as &byte, ".h\"\n" as &byte) != 0 {
+        return -1;
+    }
+    return writer.unit.includes.count as i32;
+}
+
+/// 功能说明：输出 MIR-C99 单 unit 的 typedef section。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出条目数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_typedef_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "\n/* mir-c99 typedefs */\n" as &byte) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.typedefs,
+        "typedef int32_t uya_mir_ty_" as &byte, ";\n" as &byte) != 0 {
+        return -1;
+    }
+    return writer.unit.typedefs.count as i32;
+}
+
+/// 功能说明：输出 MIR-C99 单 unit 的 extern prototype section。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出条目数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_extern_prototype_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "\n/* mir-c99 extern prototypes */\n" as &byte) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.helpers,
+        "extern void uya_mir_helper_" as &byte, "(void);\n" as &byte) != 0 {
+        return -1;
+    }
+    return writer.unit.helpers.count as i32;
+}
+
+/// 功能说明：输出 MIR-C99 单 unit 的 function prototype section。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出条目数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_function_prototype_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "\n/* mir-c99 function prototypes */\n" as &byte) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.prototypes,
+        "static int32_t uya_mir_fn_" as &byte, "(void);\n" as &byte) != 0 {
+        return -1;
+    }
+    return writer.unit.prototypes.count as i32;
+}
+
+/// 功能说明：按固定顺序输出 include/typedef/extern prototype/function prototype sections。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出 section 数，任一 section 失败返回 `-1`。
+export fn mir_c99_unit_output_write_declaration_sections(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.status != MIR_C99_OUTPUT_STATUS_READY || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write_include_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_typedef_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_extern_prototype_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_function_prototype_section(writer, stream) < 0 {
+        return -1;
+    }
+    return 4;
 }
 
 /// 功能说明：完成 MIR-C99 单 unit 输出 writer 的统计阶段。
