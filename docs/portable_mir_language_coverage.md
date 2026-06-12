@@ -97,7 +97,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
 | `AST_DEFER_STMT` | done | missing | C99 oracle 已覆盖；MIR cleanup edge 到 MIR-C99 parity 待补。 |
-| `AST_ERRDEFER_STMT` | partial | missing | C99 通过；MIR 已有 `CORE_STMT_KIND_ERRDEFER` 占位，MIR-C99 cleanup parity 待补。 |
+| `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer。 |
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
 | `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic/aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
@@ -181,7 +181,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `CORE_STMT_KIND_RETURN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar return。 |
 | `CORE_STMT_KIND_ASM` | partial | missing | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
 | `CORE_STMT_KIND_DEFER` | done | partial | MIR-C99 full-language defer normal-scope return-order parity shard 覆盖 `defer { value = 9; }` 和单行 `defer value = 9;` 在 return local / return const 场景下的执行顺序。 |
-| `CORE_STMT_KIND_ERRDEFER` | partial | missing | 占位；C99 端到端。 |
+| `CORE_STMT_KIND_ERRDEFER` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回 cleanup 和 success path no-op。 |
 | `CORE_STMT_KIND_DROP` | done | missing | `drop` shard 同上。 |
 | `CORE_STMT_KIND_ERROR_PROPAGATION` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try` 表达式 success path 和 error propagation。 |
 | `CORE_STMT_KIND_LOCAL_DECL` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local declaration。 |
