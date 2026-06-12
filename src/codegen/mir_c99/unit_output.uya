@@ -12,6 +12,7 @@ export const MIR_C99_OUTPUT_SECTION_EXTERN_PROTOTYPE: i32 = 3;
 export const MIR_C99_OUTPUT_SECTION_FUNCTION_PROTOTYPE: i32 = 4;
 export const MIR_C99_OUTPUT_SECTION_GLOBAL: i32 = 5;
 export const MIR_C99_OUTPUT_SECTION_FUNCTION_BODY: i32 = 6;
+export const MIR_C99_OUTPUT_SECTION_DEP: i32 = 7;
 
 export const MIR_C99_OUTPUT_STATUS_ERROR: i32 = -1;
 export const MIR_C99_OUTPUT_STATUS_READY: i32 = 1;
@@ -234,6 +235,13 @@ fn mir_c99_unit_output_write_ref_table(stream: &FILE, vec: &SemanticVector,
         i = i + 1usize;
     }
     return status;
+}
+
+fn mir_c99_unit_output_write_unit_i32(stream: &FILE, unit: &MirC99Unit) i32 {
+    if stream == null || unit == null {
+        return -1;
+    }
+    return mir_c99_unit_output_write_i32(stream, unit.unit_id);
 }
 
 fn mir_c99_unit_output_function_plan_ptr(writer: &MirC99UnitOutputWriter,
@@ -516,6 +524,106 @@ export fn mir_c99_unit_output_write_function_prototype_section(writer: &MirC99Un
         return -1;
     }
     return writer.unit.prototypes.count as i32;
+}
+
+/// 功能说明：输出 MIR-C99 split unit header guard 起始。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 header 输出流。
+/// 返回值说明：成功返回 `0`，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_header_guard_begin(writer: &MirC99UnitOutputWriter,
+    stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "#ifndef UYA_MIR_UNIT_" as &byte) != 0 ||
+       mir_c99_unit_output_write_unit_i32(stream, writer.unit) != 0 ||
+       mir_c99_unit_output_write(stream, "_H\n#define UYA_MIR_UNIT_" as &byte) != 0 ||
+       mir_c99_unit_output_write_unit_i32(stream, writer.unit) != 0 ||
+       mir_c99_unit_output_write(stream, "_H\n" as &byte) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：输出 MIR-C99 split unit dependency include section。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 header 输出流。
+/// 返回值说明：成功返回写出依赖数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_dep_section(writer: &MirC99UnitOutputWriter,
+    stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "\n/* mir-c99 unit deps */\n" as &byte) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.deps,
+        "#include \"uya_mir_unit_" as &byte, ".h\"\n" as &byte) != 0 {
+        return -1;
+    }
+    return writer.unit.deps.count as i32;
+}
+
+/// 功能说明：输出 MIR-C99 split unit header guard 结束。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 header 输出流。
+/// 返回值说明：成功返回 `0`，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_header_guard_end(writer: &MirC99UnitOutputWriter,
+    stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "#endif /* UYA_MIR_UNIT_" as &byte) != 0 ||
+       mir_c99_unit_output_write_unit_i32(stream, writer.unit) != 0 ||
+       mir_c99_unit_output_write(stream, "_H */\n" as &byte) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：输出 MIR-C99 split unit 的独立 header 文件内容。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 header 输出流。
+/// 返回值说明：成功返回写出的 section 数，任一 section 失败返回 `-1`。
+export fn mir_c99_unit_output_write_header_file(writer: &MirC99UnitOutputWriter,
+    stream: &FILE) i32 {
+    if writer == null || writer.status != MIR_C99_OUTPUT_STATUS_READY || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write_header_guard_begin(writer, stream) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_include_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_dep_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_typedef_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_extern_prototype_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_function_prototype_section(writer, stream) < 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_header_guard_end(writer, stream) != 0 {
+        return -1;
+    }
+    return 6;
+}
+
+/// 功能说明：输出 MIR-C99 split unit 源文件对自身 header 的 include。
+/// 参数说明：`writer` 为已初始化 writer，`stream` 为 C source 输出流。
+/// 返回值说明：成功返回 `1`，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_source_header_include(writer: &MirC99UnitOutputWriter,
+    stream: &FILE) i32 {
+    if writer == null || writer.unit == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "#include \"uya_mir_unit_" as &byte) != 0 ||
+       mir_c99_unit_output_write_unit_i32(stream, writer.unit) != 0 ||
+       mir_c99_unit_output_write(stream, ".h\"\n" as &byte) != 0 {
+        return -1;
+    }
+    return 1;
 }
 
 /// 功能说明：按固定顺序输出 include/typedef/extern prototype/function prototype sections。
