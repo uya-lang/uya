@@ -45,9 +45,9 @@ cmd_build_source="$(cd "$script_dir/../src/cmd/build" && pwd)/main.uya"
 cmd_build_frontier_name="native_hosted_handoff_frontier"
 cmd_build_frontier_reason="pending_core_bodies"
 cmd_build_frontier_category="mir_instruction_coverage"
-cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=13,next_stmt=13,next_kind=AST_ASSIGN,reason=partial_core_body"
+cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=14,next_stmt=14,next_kind=AST_ASSIGN,reason=partial_core_body"
 cmd_build_next_capability="corebody_portable_mir_body_lowering"
-cmd_build_next_coverage="compile_stats_record_and_release_typed_program_stmt13_table_capacity_bytes"
+cmd_build_next_coverage="compile_stats_record_and_release_typed_program_stmt14_table_realloc_count"
 if [[ "$input_abs" == "$cmd_build_source" ]]; then
     summary_file="${output}.summary"
     cat >"$output" <<'C_EOF'
