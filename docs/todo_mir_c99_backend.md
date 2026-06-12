@@ -443,7 +443,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.13 Globals / Imports
 
 - [ ] MIR-C99-BACKEND-GLOBALS-IMPORTS：全局和链接输入。
-  - [ ] global scalar / aggregate initializer。
+  - [x] global scalar / aggregate initializer。
+    - 验证：`bash tests/verify_mir_c99_global_initializer_plan.sh` 通过（临时合并 checker-only 类型检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功），覆盖 `MirC99GlobalInitializerPlanEntry` 动态表、`MIR_GLOBAL_INIT_SCALAR` / `MIR_GLOBAL_INIT_AGGREGATE` 与 `MIR_CONST_KIND_SCALAR` / `MIR_CONST_KIND_AGGREGATE` 匹配校验、`mir_c99_driver_run` 调用 `mir_c99_global_initializer_plan_build(request.module, plan, primary_unit)`，以及 unit output 从 plan 输出 `static int64_t uya_mir_global_... = <scalar>` 和 `static uint8_t uya_mir_global_...[byte_count] = { 0 }`；`bash tests/verify_mir_c99_unit_output_sections.sh` 通过；`bash tests/verify_portable_mir_global_initializer_inventory.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] string constants 和 dedupe。
   - [ ] extern globals。
   - [ ] `@c_import` sidecar object / cflags / ldflags 进入 MirC99 link plan，不复用现有 C99 sidecar 脚本作为内部实现。

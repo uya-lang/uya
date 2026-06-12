@@ -96,6 +96,42 @@ fn mir_c99_unit_output_write_i32(stream: &FILE, value: i32) i32 {
     return 0;
 }
 
+fn mir_c99_unit_output_write_i64(stream: &FILE, value: i64) i32 {
+    if stream == null {
+        return -1;
+    }
+    if value == 0i64 {
+        if fputc(48, stream as *void) < 0 {
+            return -1;
+        }
+        return 0;
+    }
+    var v: i64 = value;
+    if v < 0i64 {
+        if fputc(45, stream as *void) < 0 {
+            return -1;
+        }
+        v = 0i64 - v;
+    }
+    var digits: [i32: 32] = [];
+    var count: i32 = 0;
+    while v > 0i64 && count < 32 {
+        const digit_tmp: !i32 = (v % 10i64) as! i32;
+        const digit: i32 = digit_tmp catch { return -1; };
+        digits[count] = digit;
+        v = v / 10i64;
+        count = count + 1;
+    }
+    var i: i32 = count - 1;
+    while i >= 0 {
+        if fputc(48 + digits[i], stream as *void) < 0 {
+            return -1;
+        }
+        i = i - 1;
+    }
+    return 0;
+}
+
 fn mir_c99_unit_output_write_ref_line(stream: &FILE, prefix: &byte, ref: &MirC99Ref, suffix: &byte) i32 {
     if stream == null || prefix == null || ref == null || suffix == null {
         return -1;
@@ -110,6 +146,52 @@ fn mir_c99_unit_output_write_ref_line(stream: &FILE, prefix: &byte, ref: &MirC99
         return -1;
     }
     return 0;
+}
+
+fn mir_c99_unit_output_global_initializer_ptr(writer: &MirC99UnitOutputWriter,
+    ref: &MirC99Ref) &MirC99GlobalInitializerPlanEntry {
+    if writer == null || writer.plan == null || ref == null ||
+       ref.kind != MIR_C99_REF_KIND_GLOBAL {
+        return null;
+    }
+    return mir_c99_global_initializer_plan_ptr(writer.plan, ref.aux_id);
+}
+
+fn mir_c99_unit_output_write_global_initializer(writer: &MirC99UnitOutputWriter,
+    stream: &FILE, ref: &MirC99Ref) i32 {
+    if writer == null || stream == null || ref == null {
+        return -1;
+    }
+    const init: &MirC99GlobalInitializerPlanEntry =
+        mir_c99_unit_output_global_initializer_ptr(writer, ref);
+    if init == null || init.status != MIR_C99_GLOBAL_INIT_STATUS_READY ||
+       (init.global_id as i32) != ref.source_id {
+        return -1;
+    }
+    if init.init_kind == MIR_GLOBAL_INIT_SCALAR {
+        if mir_c99_unit_output_write(stream, "static int64_t uya_mir_global_" as &byte) != 0 ||
+           mir_c99_unit_output_write_i32(stream, init.global_id) != 0 ||
+           mir_c99_unit_output_write(stream, " = " as &byte) != 0 ||
+           mir_c99_unit_output_write_i64(stream, init.scalar_i64) != 0 ||
+           mir_c99_unit_output_write(stream, ";\n" as &byte) != 0 {
+            return -1;
+        }
+        return 0;
+    }
+    if init.init_kind == MIR_GLOBAL_INIT_AGGREGATE {
+        if init.byte_count == 0usize {
+            return -1;
+        }
+        if mir_c99_unit_output_write(stream, "static uint8_t uya_mir_global_" as &byte) != 0 ||
+           mir_c99_unit_output_write_i32(stream, init.global_id) != 0 ||
+           mir_c99_unit_output_write(stream, "[" as &byte) != 0 ||
+           mir_c99_unit_output_write_i32(stream, init.byte_count as i32) != 0 ||
+           mir_c99_unit_output_write(stream, "] = { 0 };\n" as &byte) != 0 {
+            return -1;
+        }
+        return 0;
+    }
+    return -1;
 }
 
 fn mir_c99_unit_output_write_ref_table(stream: &FILE, vec: &SemanticVector,
@@ -443,9 +525,13 @@ export fn mir_c99_unit_output_write_global_section(writer: &MirC99UnitOutputWrit
     if mir_c99_unit_output_write(stream, "\n/* mir-c99 globals */\n" as &byte) != 0 {
         return -1;
     }
-    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.globals,
-        "static int32_t uya_mir_global_" as &byte, ";\n" as &byte) != 0 {
-        return -1;
+    var i: usize = 0usize;
+    while i < writer.unit.globals.count {
+        const ref: &MirC99Ref = mir_c99_unit_output_ref_ptr(&writer.unit.globals, i);
+        if mir_c99_unit_output_write_global_initializer(writer, stream, ref) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
     }
     return writer.unit.globals.count as i32;
 }

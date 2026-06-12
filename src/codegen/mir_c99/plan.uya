@@ -22,6 +22,9 @@ export const MIR_C99_REF_KIND_DEP: i32 = 7;
 export const MIR_C99_REF_KIND_ASYNC_FRAME_LAYOUT: i32 = 8;
 export const MIR_C99_REF_KIND_ASYNC_FRAME_SLOT: i32 = 9;
 
+export const MIR_C99_GLOBAL_INIT_STATUS_READY: i32 = 1;
+export const MIR_C99_GLOBAL_INIT_STATUS_REJECT: i32 = 2;
+
 /// 功能说明：记录 MIR-C99 输出计划中的稳定引用。
 /// 参数说明：无；`source_id` 保存 MIR/module/helper 的稳定 ID，`aux_id` 保存后端局部辅助 ID。
 /// 返回值说明：无；由 `MirC99Plan` 和 `MirC99Unit` 的动态表保存。
@@ -83,6 +86,26 @@ export struct MirC99AsyncFrameLayout {
     flags: i32,
 }
 
+/// 功能说明：记录 MIR-C99 global scalar/aggregate initializer 输出计划。
+/// 参数说明：无；字段只来自 verifier-clean PortableMIR `MirGlobal` 和 `MirConst` metadata。
+/// 返回值说明：无；由 `MirC99Plan.global_initializers` 动态保存，unit global ref 通过 `aux_id` 指向本表。
+export struct MirC99GlobalInitializerPlanEntry {
+    global_id: MirGlobalId,
+    type_id: MirTypeId,
+    const_id: MirConstId,
+    init_kind: i32,
+    const_kind: i32,
+    section: i32,
+    linkage: i32,
+    visibility: i32,
+    alignment: usize,
+    byte_offset: usize,
+    byte_count: usize,
+    scalar_i64: i64,
+    flags: i32,
+    status: i32,
+}
+
 /// 功能说明：记录完整 MIR-C99 后端输出计划。
 /// 参数说明：无；调用 `mir_c99_plan_init` 后使用，所有 program/unit 表都动态增长。
 /// 返回值说明：无；emitter 只消费该结构输出 C bytes。
@@ -104,6 +127,7 @@ export struct MirC99Plan {
     async_frame_slot_refs: SemanticVector,
     async_frame_layouts: SemanticVector,
     async_frame_slots: SemanticVector,
+    global_initializers: SemanticVector,
     units: SemanticVector,
 }
 
@@ -343,6 +367,7 @@ export fn mir_c99_plan_init(plan: &MirC99Plan, arena: &CompilerArena, target_pro
     semantic_vector_init(&plan.async_frame_slot_refs, @size_of(MirC99Ref));
     semantic_vector_init(&plan.async_frame_layouts, @size_of(MirC99AsyncFrameLayout));
     semantic_vector_init(&plan.async_frame_slots, @size_of(MirC99AsyncFrameSlotLayout));
+    semantic_vector_init(&plan.global_initializers, @size_of(MirC99GlobalInitializerPlanEntry));
     semantic_vector_init(&plan.units, @size_of(MirC99Unit));
     return 0;
 }
@@ -371,6 +396,7 @@ export fn mir_c99_plan_release(plan: &MirC99Plan) void {
     semantic_vector_release(&plan.async_frame_slot_refs);
     semantic_vector_release(&plan.async_frame_layouts);
     semantic_vector_release(&plan.async_frame_slots);
+    semantic_vector_release(&plan.global_initializers);
     semantic_vector_release(&plan.units);
     plan.lifecycle_state = MIR_C99_PLAN_LIFECYCLE_RELEASED;
     plan.unit_count = 0usize;
@@ -413,6 +439,111 @@ export fn mir_c99_plan_append_ref(plan: &MirC99Plan, kind: i32, source_id: i32, 
         return mir_c99_vec_append_ref(&plan.async_frame_slot_refs, kind, source_id, aux_id, flags);
     }
     return -1;
+}
+
+fn mir_c99_global_initializer_const_ptr(module: &PortableMirModule,
+    const_id: MirConstId) &MirConst {
+    const index: i32 = const_id as i32;
+    if module == null || index < 0 || (index as usize) >= module.consts.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.consts, index as usize) as &MirConst;
+}
+
+fn mir_c99_global_initializer_is_supported(kind: i32) i32 {
+    if kind == MIR_GLOBAL_INIT_SCALAR || kind == MIR_GLOBAL_INIT_AGGREGATE {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_global_initializer_const_matches(const_kind: i32, init_kind: i32) i32 {
+    if init_kind == MIR_GLOBAL_INIT_SCALAR && const_kind == MIR_CONST_KIND_SCALAR {
+        return 1;
+    }
+    if init_kind == MIR_GLOBAL_INIT_AGGREGATE && const_kind == MIR_CONST_KIND_AGGREGATE {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：读取 MIR-C99 global initializer plan 条目。
+/// 参数说明：`plan` 为输出计划，`index` 为 `global_initializers` 动态表下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_global_initializer_plan_ptr(plan: &MirC99Plan,
+    index: i32) &MirC99GlobalInitializerPlanEntry {
+    if plan == null || index < 0 || (index as usize) >= plan.global_initializers.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.global_initializers,
+        index as usize) as &MirC99GlobalInitializerPlanEntry;
+}
+
+/// 功能说明：向 MIR-C99 plan 追加一个 global scalar/aggregate initializer 条目。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划，`global` 为 PortableMIR global。
+/// 返回值说明：成功返回 plan 条目下标；不支持或 metadata 不一致返回 `-1`。
+export fn mir_c99_global_initializer_plan_append(module: &PortableMirModule,
+    plan: &MirC99Plan, unit: &MirC99Unit, global: &MirGlobal) i32 {
+    if module == null || plan == null || unit == null || global == null ||
+       mir_c99_global_initializer_is_supported(global.init_kind) == 0 {
+        return -1;
+    }
+    const init_const: &MirConst =
+        mir_c99_global_initializer_const_ptr(module, global.init_const_id);
+    if init_const == null || init_const.type_id != global.type_id ||
+       mir_c99_global_initializer_const_matches(init_const.kind, global.init_kind) == 0 {
+        return -1;
+    }
+    const entry_id: i32 = plan.global_initializers.count as i32;
+    const entry: MirC99GlobalInitializerPlanEntry = MirC99GlobalInitializerPlanEntry{
+        global_id: global.global_id,
+        type_id: global.type_id,
+        const_id: global.init_const_id,
+        init_kind: global.init_kind,
+        const_kind: init_const.kind,
+        section: global.section,
+        linkage: global.linkage,
+        visibility: global.visibility,
+        alignment: global.alignment,
+        byte_offset: init_const.byte_offset,
+        byte_count: init_const.byte_count,
+        scalar_i64: init_const.scalar_i64,
+        flags: global.flags | init_const.flags,
+        status: MIR_C99_GLOBAL_INIT_STATUS_READY,
+    };
+    if semantic_vector_append(&plan.global_initializers, &entry as &const void) != 0 {
+        return -1;
+    }
+    if mir_c99_plan_append_ref(plan, MIR_C99_REF_KIND_GLOBAL,
+           global.global_id, entry_id, global.init_kind) != 0 ||
+       mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_GLOBAL,
+           global.global_id, entry_id, global.init_kind) != 0 {
+        return -1;
+    }
+    return entry_id;
+}
+
+/// 功能说明：从 PortableMIR global table 构建 MIR-C99 scalar/aggregate initializer 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划。
+/// 返回值说明：成功返回 `0`；遇到支持范围内 metadata 不一致或追加失败返回 `-1`。
+export fn mir_c99_global_initializer_plan_build(module: &PortableMirModule,
+    plan: &MirC99Plan, unit: &MirC99Unit) i32 {
+    if module == null || plan == null || unit == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.globals.count {
+        const global: &MirGlobal =
+            semantic_vector_item_ptr(&module.globals, i) as &MirGlobal;
+        if global != null &&
+           mir_c99_global_initializer_is_supported(global.init_kind) != 0 &&
+           mir_c99_global_initializer_plan_append(module, plan, unit, global) < 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
 }
 
 fn mir_c99_async_frame_layout_is_slot_kind(slot_kind: i32) i32 {
@@ -622,6 +753,7 @@ export fn mir_c99_plan_stats(plan: &MirC99Plan) MirC99PlanStats {
     mir_c99_stats_add_vector(&stats, &plan.async_frame_slot_refs);
     mir_c99_stats_add_vector(&stats, &plan.async_frame_layouts);
     mir_c99_stats_add_vector(&stats, &plan.async_frame_slots);
+    mir_c99_stats_add_vector(&stats, &plan.global_initializers);
     mir_c99_stats_add_vector(&stats, &plan.units);
     var i: usize = 0usize;
     while i < plan.units.count {
