@@ -155,7 +155,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [f] parity shard：integer arithmetic/comparison/boolean combination。
     - 阻塞：当前仍无真实 MIR-C99 generator command/CLI；`tests/verify_mir_c99_oracle_parity_harness.sh` 报告 `generator commands are pending backend hookup`。虽然 value/constant/expression plan 已覆盖当前 `I32_ADD`/`I32_LE`，但 unit output 尚未发射表达式语句并生成可由 host C compiler 编译运行的 `.c`。
     - 验证：`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；不能作为 parity 通过证据。
-  - [ ] parity shard：float/double arithmetic、comparison、cast 和 return。
+  - [f] parity shard：float/double arithmetic、comparison、cast 和 return。
+    - 阻塞：当前 PortableMIR 没有 f32/f64 type kind、float/double arithmetic/comparison/cast opcode，也无真实 MIR-C99 generator command/CLI；`tests/verify_mir_c99_oracle_parity_harness.sh` 仍停在 pending backend hookup。
+    - 验证：`rg -n "MIR_TYPE_KIND_F|MIR_INST_OP_.*F|MIR_INST_OP_.*CAST|MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 未发现 float/cast opcode；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 仅确认 harness installed/pending backend hookup；不能作为 parity 通过证据。
 
 ### 4.6 Place / Memory
 
