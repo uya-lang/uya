@@ -271,17 +271,14 @@ fn mir_c99_unit_fingerprint_refs(hash: u64, vec: &SemanticVector) u64 {
 }
 
 /// 功能说明：计算 MIR-C99 unit 的结构性 fingerprint。
-/// 参数说明：`unit` 为待计算 unit；只读取稳定 ID、kind、ref 顺序和 ref metadata。
+/// 参数说明：`unit` 为待计算 unit；只读取 unit kind、function group、ref 顺序和 ref metadata。
 /// 返回值说明：返回与路径文本、空白无关的 64-bit fingerprint；参数非法返回 `0`。
 export fn mir_c99_unit_compute_fingerprint(unit: &MirC99Unit) u64 {
     if unit == null {
         return 0u64;
     }
     var h: u64 = 1469598103934665603u64;
-    h = mir_c99_hash_mix_i32(h, unit.unit_id);
     h = mir_c99_hash_mix_i32(h, unit.kind);
-    h = mir_c99_hash_mix_i32(h, unit.name_id);
-    h = mir_c99_hash_mix_i32(h, unit.source_file_id);
     h = mir_c99_hash_mix_i32(h, unit.function_group_id);
     h = mir_c99_unit_fingerprint_refs(h, &unit.includes);
     h = mir_c99_unit_fingerprint_refs(h, &unit.typedefs);

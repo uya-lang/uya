@@ -35,6 +35,17 @@ require_pattern 'mir_c99_unit_fingerprint_refs\(h,[[:space:]]*&unit\.functions\)
 require_pattern 'return mir_c99_unit_refresh_fingerprint\(unit\)' "unit append refreshes fingerprint"
 require_pattern 'mir_c99_unit_refresh_fingerprint\(stored\)' "new units get an initial fingerprint"
 
+compute_body="$(awk '
+    /^export fn mir_c99_unit_compute_fingerprint/ { in_fn=1 }
+    in_fn { print }
+    in_fn && /^}/ { exit }
+' "$PLAN_FILE")"
+
+if printf '%s\n' "$compute_body" | grep -Eq 'unit\.(source_file_id|name_id)'; then
+    echo "error: MIR-C99 unit fingerprint must ignore path/name-derived fields" >&2
+    exit 1
+fi
+
 "$REPO_ROOT/bin/uya" check "$PLAN_FILE" >/dev/null
 
 echo "OK: MIR-C99 unit vector and fingerprint contract verified"
