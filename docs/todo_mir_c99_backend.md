@@ -351,7 +351,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [ ] parity shard：HelloWorld、format minimal、memory/string primitive、file IO、async runtime smoke。
     - [x] HelloWorld stdout runtime helper 真实 MIR-C99 / 现有 C99 oracle parity。
       - 验证：`bash tests/verify_mir_c99_helloworld_runtime_parity.sh` 通过，覆盖 `@println("Hello, World!")` 的 stdout helper，默认 MIR-C99 generator 写出 `.c` 后经 host C compiler 运行，并与默认现有 C99 oracle generator 的 stdout/stderr/exit diff 一致；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-    - [ ] format minimal runtime helper 真实 MIR-C99 / 现有 C99 oracle parity。
+    - [x] format minimal runtime helper 真实 MIR-C99 / 现有 C99 oracle parity。
+      - 验证：`bash tests/verify_mir_c99_format_runtime_parity.sh` 通过，覆盖 `@println("value=${n}")` 的最小 i32 插值格式化 stdout helper，默认 MIR-C99 generator 写出 `.c` 后经 host C compiler 运行，并与默认现有 C99 oracle generator 的 stdout/stderr/exit diff 一致；`bash tests/verify_mir_c99_helloworld_runtime_parity.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_c99_oracle_default_generator.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
     - [ ] memory/string primitive runtime helper 真实 MIR-C99 / 现有 C99 oracle parity。
     - [ ] file IO runtime helper 真实 MIR-C99 / 现有 C99 oracle parity。
     - [ ] async runtime smoke 真实 MIR-C99 / 现有 C99 oracle parity。
