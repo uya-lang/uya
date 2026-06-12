@@ -4,6 +4,19 @@ use codegen.mir_c99.plan;
 
 export const MIR_C99_RUNTIME_HELPER_STATUS_READY: i32 = 1;
 export const MIR_C99_RUNTIME_HELPER_STATUS_REJECT: i32 = 2;
+export const MIR_C99_ASYNC_FRAME_POOL_DEFAULT_STACK_LIMIT: usize = 65536usize;
+
+/// 功能说明：记录 MIR-C99 async frame pool 和 heap fallback 运行时策略。
+/// 参数说明：无；字段来自 verified backend request flags 和 PortableMIR async frame metadata。
+/// 返回值说明：无；runtime helper 输出阶段据此生成 `_uya_async_frame_heap_fallback` 等配置。
+export struct MirC99AsyncFramePoolPlan {
+    required: i32,
+    async_frame_heap_fallback_enabled: i32,
+    async_frame_stack_limit: usize,
+    helper_ref_count: usize,
+    status: i32,
+    flags: i32,
+}
 
 /// 功能说明：记录 MIR-C99 runtime helper 计划。
 /// 参数说明：无；helper refs 仅来自 verifier-clean MIR capability requirements。
@@ -11,6 +24,7 @@ export const MIR_C99_RUNTIME_HELPER_STATUS_REJECT: i32 = 2;
 export struct MirC99RuntimeHelperPlan {
     helper_count: usize,
     reject_count: usize,
+    async_frame_pool: MirC99AsyncFramePoolPlan,
 }
 
 fn mir_c99_runtime_helper_capability_req_ptr(module: &PortableMirModule,
@@ -131,6 +145,38 @@ fn mir_c99_runtime_helper_plan_async_frame_inst(inst: &MirInst,
         return -1;
     }
     helper_plan.helper_count = helper_plan.helper_count + 1usize;
+    helper_plan.async_frame_pool.helper_ref_count =
+        helper_plan.async_frame_pool.helper_ref_count + 1usize;
+    return 0;
+}
+
+fn mir_c99_runtime_helper_plan_async_frame_pool(request: &MirTargetBackendRequest,
+    helper_plan: &MirC99RuntimeHelperPlan) i32 {
+    if request == null || request.module == null || helper_plan == null {
+        return -1;
+    }
+    const module: &PortableMirModule = request.module;
+    var required: i32 = 0;
+    if module.async_frame_metas.count > 0usize {
+        required = 1;
+    }
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = mir_c99_runtime_helper_inst_ptr(module, i);
+        if inst != null && portable_mir_inst_op_is_async_frame(inst.op) != 0 {
+            required = 1;
+        }
+        i = i + 1usize;
+    }
+    helper_plan.async_frame_pool.required = required;
+    helper_plan.async_frame_pool.async_frame_stack_limit =
+        MIR_C99_ASYNC_FRAME_POOL_DEFAULT_STACK_LIMIT;
+    helper_plan.async_frame_pool.async_frame_heap_fallback_enabled = 0;
+    if (request.flags & MIR_TARGET_BACKEND_FLAG_ASYNC_FRAME_HEAP_FALLBACK) != 0 {
+        helper_plan.async_frame_pool.async_frame_heap_fallback_enabled = 1;
+    }
+    helper_plan.async_frame_pool.status = MIR_C99_RUNTIME_HELPER_STATUS_READY;
+    helper_plan.async_frame_pool.flags = request.flags;
     return 0;
 }
 
@@ -163,19 +209,32 @@ export fn mir_c99_runtime_helper_plan_init(plan: &MirC99RuntimeHelperPlan) i32 {
     }
     plan.helper_count = 0usize;
     plan.reject_count = 0usize;
+    plan.async_frame_pool = MirC99AsyncFramePoolPlan{
+        required: 0,
+        async_frame_heap_fallback_enabled: 0,
+        async_frame_stack_limit: MIR_C99_ASYNC_FRAME_POOL_DEFAULT_STACK_LIMIT,
+        helper_ref_count: 0usize,
+        status: MIR_C99_RUNTIME_HELPER_STATUS_READY,
+        flags: 0,
+    };
     return 0;
 }
 
 /// 功能说明：从 MIR capability requirements 构建 runtime helper refs。
-/// 参数说明：`module` 为 verifier-clean MIR module，`mir_plan` 和 `unit` 为输出 ref 表，`helper_plan` 为统计计划。
+/// 参数说明：`request` 为 verifier-clean MIR-C99 backend 请求，`mir_plan` 和 `unit` 为输出 ref 表，`helper_plan` 为统计计划。
 /// 返回值说明：成功返回 `0`；目标 profile 不支持 helper capability 或追加失败返回 `-1`。
-export fn mir_c99_runtime_helper_plan_build(module: &PortableMirModule,
+export fn mir_c99_runtime_helper_plan_build(request: &MirTargetBackendRequest,
     mir_plan: &MirC99Plan, unit: &MirC99Unit,
     helper_plan: &MirC99RuntimeHelperPlan) i32 {
-    if module == null || mir_plan == null || unit == null || helper_plan == null {
+    if request == null || request.module == null || mir_plan == null ||
+       unit == null || helper_plan == null {
         return -1;
     }
+    const module: &PortableMirModule = request.module;
     var status: i32 = 0;
+    if mir_c99_runtime_helper_plan_async_frame_pool(request, helper_plan) != 0 {
+        status = -1;
+    }
     var i: usize = 0usize;
     while i < module.capability_reqs.count {
         const req: &MirCapabilityReq =

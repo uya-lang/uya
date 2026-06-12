@@ -176,7 +176,7 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_call_plan_build(request.module, call_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
-    if mir_c99_runtime_helper_plan_build(request.module, plan, primary_unit,
+    if mir_c99_runtime_helper_plan_build(request, plan, primary_unit,
         runtime_helper_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }

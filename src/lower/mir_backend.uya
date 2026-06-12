@@ -4,6 +4,7 @@ export const MIR_TARGET_BACKEND_MACHINE: i32 = 1;
 export const MIR_TARGET_BACKEND_PTX: i32 = 2;
 export const MIR_TARGET_BACKEND_EXEC: i32 = 3;
 export const MIR_TARGET_BACKEND_C99: i32 = 4;
+export const MIR_TARGET_BACKEND_FLAG_ASYNC_FRAME_HEAP_FALLBACK: i32 = 1;
 export const MIR_BACKEND_OUTPUT_NONE: i32 = 0;
 export const MIR_BACKEND_OUTPUT_MACHINE_MODULE: i32 = 1;
 export const MIR_BACKEND_OUTPUT_PTX_MODULE: i32 = 2;
@@ -73,6 +74,22 @@ export fn portable_mir_backend_request_init(request: &MirTargetBackendRequest, m
     request.target_profile_id = module.target_profile.profile_id;
     request.verifier_error_code = result.error_code;
     request.flags = 0;
+    return 0;
+}
+
+/// 功能说明：设置 target backend request 的 async frame heap fallback 标志。
+/// 参数说明：`request` 为已初始化请求，`enabled` 非零表示开启 `--async-frame-heap=on` 行为。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn portable_mir_backend_request_set_async_frame_heap_fallback(
+    request: &MirTargetBackendRequest, enabled: i32) i32 {
+    if request == null {
+        return -1;
+    }
+    if enabled != 0 {
+        request.flags = request.flags | MIR_TARGET_BACKEND_FLAG_ASYNC_FRAME_HEAP_FALLBACK;
+    } else if (request.flags & MIR_TARGET_BACKEND_FLAG_ASYNC_FRAME_HEAP_FALLBACK) != 0 {
+        request.flags = request.flags - MIR_TARGET_BACKEND_FLAG_ASYNC_FRAME_HEAP_FALLBACK;
+    }
     return 0;
 }
 
