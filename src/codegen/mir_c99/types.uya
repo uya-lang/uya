@@ -1,0 +1,188 @@
+// codegen/mir_c99/types.uya - MIR layout metadata to MIR-C99 typedef plan.
+
+use codegen.mir_c99.plan;
+
+export const MIR_C99_C_TYPE_KIND_UNSUPPORTED: i32 = 0;
+export const MIR_C99_C_TYPE_KIND_VOID: i32 = 1;
+export const MIR_C99_C_TYPE_KIND_BOOL: i32 = 2;
+export const MIR_C99_C_TYPE_KIND_I32: i32 = 3;
+export const MIR_C99_C_TYPE_KIND_USIZE: i32 = 4;
+export const MIR_C99_C_TYPE_KIND_POINTER: i32 = 5;
+export const MIR_C99_C_TYPE_KIND_STRUCT: i32 = 6;
+export const MIR_C99_C_TYPE_KIND_ATOMIC_HELPER: i32 = 7;
+export const MIR_C99_C_TYPE_KIND_VECTOR_HELPER: i32 = 8;
+export const MIR_C99_C_TYPE_KIND_MASK_HELPER: i32 = 9;
+
+export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
+export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
+export const MIR_C99_TYPE_STATUS_REJECT: i32 = 2;
+
+/// 功能说明：记录一个 MIR type 到 MIR-C99 typedef 的计划条目。
+/// 参数说明：无；字段全部来自 MIR type/layout metadata，不保存高层语义结构。
+/// 返回值说明：无；由 `MirC99TypePlan.entries` 动态保存。
+export struct MirC99TypeDef {
+    type_id: MirTypeId,
+    source_type_id: TypeId,
+    mir_kind: i32,
+    c_type_kind: i32,
+    size_bytes: usize,
+    align_bytes: usize,
+    element_type_id: MirTypeId,
+    pointee_type_id: MirTypeId,
+    field_start: i32,
+    field_count: i32,
+    lane_count: i32,
+    lane_stride_bytes: usize,
+    abi_class: i32,
+    flags: i32,
+    status: i32,
+}
+
+/// 功能说明：记录 MIR-C99 typedef 计划。
+/// 参数说明：无；`entries` 是按 MIR type 顺序追加的动态表。
+/// 返回值说明：无；调用 `mir_c99_type_plan_init` 后使用。
+export struct MirC99TypePlan {
+    entries: SemanticVector,
+    count: usize,
+    reject_count: usize,
+}
+
+fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
+    if typ == null {
+        return MirC99TypeDef{
+            type_id: MIR_TYPE_INVALID_ID,
+            source_type_id: 0,
+            mir_kind: MIR_TYPE_KIND_VOID,
+            c_type_kind: MIR_C99_C_TYPE_KIND_UNSUPPORTED,
+            size_bytes: 0usize,
+            align_bytes: 0usize,
+            element_type_id: MIR_TYPE_INVALID_ID,
+            pointee_type_id: MIR_TYPE_INVALID_ID,
+            field_start: -1,
+            field_count: 0,
+            lane_count: 0,
+            lane_stride_bytes: 0usize,
+            abi_class: 0,
+            flags: 0,
+            status: MIR_C99_TYPE_STATUS_REJECT,
+        };
+    }
+    var c_kind: i32 = MIR_C99_C_TYPE_KIND_UNSUPPORTED;
+    var status: i32 = MIR_C99_TYPE_STATUS_READY;
+    if typ.kind == MIR_TYPE_KIND_VOID {
+        c_kind = MIR_C99_C_TYPE_KIND_VOID;
+    } else if typ.kind == MIR_TYPE_KIND_BOOL {
+        c_kind = MIR_C99_C_TYPE_KIND_BOOL;
+    } else if typ.kind == MIR_TYPE_KIND_I32 {
+        c_kind = MIR_C99_C_TYPE_KIND_I32;
+    } else if typ.kind == MIR_TYPE_KIND_USIZE {
+        c_kind = MIR_C99_C_TYPE_KIND_USIZE;
+    } else if typ.kind == MIR_TYPE_KIND_POINTER {
+        c_kind = MIR_C99_C_TYPE_KIND_POINTER;
+    } else if typ.kind == MIR_TYPE_KIND_STRUCT {
+        c_kind = MIR_C99_C_TYPE_KIND_STRUCT;
+    } else if typ.kind == MIR_TYPE_KIND_ATOMIC {
+        c_kind = MIR_C99_C_TYPE_KIND_ATOMIC_HELPER;
+    } else if typ.kind == MIR_TYPE_KIND_VECTOR {
+        c_kind = MIR_C99_C_TYPE_KIND_VECTOR_HELPER;
+    } else if typ.kind == MIR_TYPE_KIND_MASK {
+        c_kind = MIR_C99_C_TYPE_KIND_MASK_HELPER;
+    } else {
+        status = MIR_C99_TYPE_STATUS_REJECT;
+    }
+    return MirC99TypeDef{
+        type_id: typ.type_id,
+        source_type_id: typ.source_type_id,
+        mir_kind: typ.kind,
+        c_type_kind: c_kind,
+        size_bytes: typ.size_bytes,
+        align_bytes: typ.align_bytes,
+        element_type_id: typ.element_type_id,
+        pointee_type_id: typ.pointee_type_id,
+        field_start: typ.field_start,
+        field_count: typ.field_count,
+        lane_count: typ.lane_count,
+        lane_stride_bytes: typ.lane_stride_bytes,
+        abi_class: typ.abi_class,
+        flags: typ.flags,
+        status: status,
+    };
+}
+
+/// 功能说明：初始化 MIR-C99 typedef 计划。
+/// 参数说明：`plan` 为输出计划。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_type_plan_init(plan: &MirC99TypePlan) i32 {
+    if plan == null {
+        return -1;
+    }
+    semantic_vector_init(&plan.entries, @size_of(MirC99TypeDef));
+    plan.count = 0usize;
+    plan.reject_count = 0usize;
+    return 0;
+}
+
+/// 功能说明：释放 MIR-C99 typedef 计划。
+/// 参数说明：`plan` 为待释放计划；允许传入 null。
+/// 返回值说明：无。
+export fn mir_c99_type_plan_release(plan: &MirC99TypePlan) void {
+    if plan == null {
+        return;
+    }
+    semantic_vector_release(&plan.entries);
+    plan.count = 0usize;
+    plan.reject_count = 0usize;
+}
+
+/// 功能说明：向 MIR-C99 typedef 计划追加一个 MIR type 映射。
+/// 参数说明：`type_plan` 为 typedef 计划，`output_plan` 为 MIR-C99 输出计划，`typ` 为 MIR type metadata。
+/// 返回值说明：成功返回 `0`，追加失败或 unsupported type 返回 `-1`。
+export fn mir_c99_type_plan_append(type_plan: &MirC99TypePlan, output_plan: &MirC99Plan, typ: &MirType) i32 {
+    if type_plan == null || output_plan == null || typ == null {
+        return -1;
+    }
+    const entry: MirC99TypeDef = mir_c99_type_def_from_mir(typ);
+    if semantic_vector_append(&type_plan.entries, &entry as &const void) != 0 {
+        return -1;
+    }
+    type_plan.count = type_plan.entries.count;
+    if entry.status == MIR_C99_TYPE_STATUS_REJECT {
+        type_plan.reject_count = type_plan.reject_count + 1usize;
+        return -1;
+    }
+    if mir_c99_plan_append_ref(output_plan, MIR_C99_REF_KIND_TYPEDEF,
+        entry.type_id, entry.c_type_kind, entry.flags) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：从 PortableMIR module 的 type metadata 构建 MIR-C99 typedef 计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 输出计划，`type_plan` 为输出 typedef 计划。
+/// 返回值说明：所有 type 都映射成功返回 `0`，遇到 unsupported type 或参数非法返回 `-1`。
+export fn mir_c99_type_plan_build(module: &PortableMirModule,
+    output_plan: &MirC99Plan, type_plan: &MirC99TypePlan) i32 {
+    if module == null || output_plan == null || type_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if mir_c99_type_plan_append(type_plan, output_plan, typ) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
+/// 功能说明：按下标读取 MIR-C99 typedef 计划条目。
+/// 参数说明：`type_plan` 为 typedef 计划，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_type_plan_entry_ptr(type_plan: &MirC99TypePlan, index: i32) &MirC99TypeDef {
+    if type_plan == null || index < 0 || (index as usize) >= type_plan.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&type_plan.entries, index as usize) as &MirC99TypeDef;
+}
