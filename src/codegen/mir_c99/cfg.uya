@@ -17,6 +17,8 @@ export const MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_REJECT: i32 = 2;
 export const MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_ASYNC_STATE_EDGE_STATUS_REJECT: i32 = 2;
+export const MIR_C99_CFG_ASYNC_AWAIT_STATUS_PLANNED: i32 = 1;
+export const MIR_C99_CFG_ASYNC_AWAIT_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR: i32 = 1;
 export const MIR_C99_CFG_BLOCK_FLAG_CLEANUP: i32 = 1;
@@ -25,6 +27,9 @@ export const MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE: i32 = 1;
 export const MIR_C99_CFG_ERROR_UNION_RETURN_FLAG_CHECKED: i32 = 1;
 export const MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_POLL: i32 = 1;
 export const MIR_C99_CFG_ASYNC_STATE_EDGE_FLAG_RESUME: i32 = 2;
+export const MIR_C99_CFG_ASYNC_AWAIT_FLAG_STATE: i32 = 1;
+export const MIR_C99_CFG_ASYNC_AWAIT_FLAG_CHILD: i32 = 2;
+export const MIR_C99_CFG_ASYNC_AWAIT_FLAG_RESULT: i32 = 4;
 
 /// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
 /// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
@@ -126,6 +131,23 @@ export struct MirC99AsyncFrameStateEdge {
     flags: i32,
 }
 
+/// 功能说明：记录 await/bind/direct await/loop await 的 frame 状态保存与恢复计划。
+/// 参数说明：无；字段来自 MIR async state/child/result op 和 `MirAsyncFrameMeta` slot metadata。
+/// 返回值说明：无；后续输出阶段按该计划读写 async frame struct slot。
+export struct MirC99AsyncAwaitStateTransition {
+    inst_id: MirInstId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    op: i32,
+    slot_kind: i32,
+    slot_index: i32,
+    state_tag: i32,
+    await_child_slot_index: i32,
+    result_slot_index: i32,
+    status: i32,
+    flags: i32,
+}
+
 /// 功能说明：记录 MIR-C99 CFG function plan。
 /// 参数说明：无；动态保存 MIR function/block/terminator 到 C function/label/goto 的映射。
 /// 返回值说明：无。
@@ -136,12 +158,14 @@ export struct MirC99CfgPlan {
     cleanup_drops: SemanticVector,
     error_union_returns: SemanticVector,
     async_state_edges: SemanticVector,
+    async_await_transitions: SemanticVector,
     function_count: usize,
     block_count: usize,
     terminator_count: usize,
     cleanup_drop_count: usize,
     error_union_return_count: usize,
     async_state_edge_count: usize,
+    async_await_transition_count: usize,
     cleanup_error_function_count: usize,
     cleanup_block_count: usize,
     cleanup_error_terminator_count: usize,
@@ -275,6 +299,80 @@ fn mir_c99_cfg_inst_is_async_state_edge(inst: &MirInst) i32 {
         return 1;
     }
     return 0;
+}
+
+fn mir_c99_cfg_inst_is_async_await_transition(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ASYNC_STATE_LOAD ||
+       inst.op == MIR_INST_OP_ASYNC_STATE_STORE ||
+       inst.op == MIR_INST_OP_ASYNC_AWAIT_CHILD_SLOT ||
+       inst.op == MIR_INST_OP_ASYNC_RESULT_LOAD {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_async_await_transition_from_mir(module: &PortableMirModule,
+    inst: &MirInst) MirC99AsyncAwaitStateTransition {
+    if module == null || inst == null ||
+       mir_c99_cfg_inst_is_async_await_transition(inst) == 0 {
+        return MirC99AsyncAwaitStateTransition{
+            inst_id: MIR_INST_INVALID_ID,
+            function_id: MIR_FUNCTION_INVALID_ID,
+            block_id: MIR_BLOCK_INVALID_ID,
+            op: 0,
+            slot_kind: 0,
+            slot_index: -1,
+            state_tag: 0,
+            await_child_slot_index: -1,
+            result_slot_index: -1,
+            status: MIR_C99_CFG_ASYNC_AWAIT_STATUS_REJECT,
+            flags: 0,
+        };
+    }
+    const meta: &MirAsyncFrameMeta = mir_c99_cfg_find_async_frame_meta_for_inst(module, inst);
+    if meta == null {
+        return MirC99AsyncAwaitStateTransition{
+            inst_id: inst.inst_id,
+            function_id: inst.function_id,
+            block_id: inst.block_id,
+            op: inst.op,
+            slot_kind: 0,
+            slot_index: -1,
+            state_tag: 0,
+            await_child_slot_index: -1,
+            result_slot_index: -1,
+            status: MIR_C99_CFG_ASYNC_AWAIT_STATUS_REJECT,
+            flags: 0,
+        };
+    }
+    var slot_kind: i32 = MIR_ASYNC_FRAME_SLOT_STATE_TAG;
+    var slot_index: i32 = meta.slot_index;
+    var flags: i32 = MIR_C99_CFG_ASYNC_AWAIT_FLAG_STATE;
+    if inst.op == MIR_INST_OP_ASYNC_AWAIT_CHILD_SLOT {
+        slot_kind = MIR_ASYNC_FRAME_SLOT_AWAIT_CHILD;
+        slot_index = meta.await_child_slot_index;
+        flags = MIR_C99_CFG_ASYNC_AWAIT_FLAG_CHILD;
+    } else if inst.op == MIR_INST_OP_ASYNC_RESULT_LOAD {
+        slot_kind = MIR_ASYNC_FRAME_SLOT_RESULT;
+        slot_index = meta.result_slot_index;
+        flags = MIR_C99_CFG_ASYNC_AWAIT_FLAG_RESULT;
+    }
+    return MirC99AsyncAwaitStateTransition{
+        inst_id: inst.inst_id,
+        function_id: inst.function_id,
+        block_id: inst.block_id,
+        op: inst.op,
+        slot_kind: slot_kind,
+        slot_index: slot_index,
+        state_tag: meta.state_tag,
+        await_child_slot_index: meta.await_child_slot_index,
+        result_slot_index: meta.result_slot_index,
+        status: MIR_C99_CFG_ASYNC_AWAIT_STATUS_PLANNED,
+        flags: flags,
+    };
 }
 
 fn mir_c99_cfg_async_state_edge_from_mir(module: &PortableMirModule,
@@ -766,12 +864,14 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     semantic_vector_init(&plan.cleanup_drops, @size_of(MirC99CleanupDropPlanEntry));
     semantic_vector_init(&plan.error_union_returns, @size_of(MirC99ErrorUnionReturnPlanEntry));
     semantic_vector_init(&plan.async_state_edges, @size_of(MirC99AsyncFrameStateEdge));
+    semantic_vector_init(&plan.async_await_transitions, @size_of(MirC99AsyncAwaitStateTransition));
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
     plan.cleanup_drop_count = 0usize;
     plan.error_union_return_count = 0usize;
     plan.async_state_edge_count = 0usize;
+    plan.async_await_transition_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -792,12 +892,14 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     semantic_vector_release(&plan.cleanup_drops);
     semantic_vector_release(&plan.error_union_returns);
     semantic_vector_release(&plan.async_state_edges);
+    semantic_vector_release(&plan.async_await_transitions);
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
     plan.cleanup_drop_count = 0usize;
     plan.error_union_return_count = 0usize;
     plan.async_state_edge_count = 0usize;
+    plan.async_await_transition_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -957,6 +1059,31 @@ export fn mir_c99_cfg_plan_append_async_state_edge(cfg_plan: &MirC99CfgPlan,
     return 0;
 }
 
+/// 功能说明：向 MIR-C99 CFG plan 追加一个 async await state transition。
+/// 参数说明：`cfg_plan` 为 CFG plan，`module` 为 MIR module，`inst` 为 async state/child/result instruction。
+/// 返回值说明：非 async await transition instruction 返回 `0`；映射成功返回 `0`，不支持返回 `-1`。
+export fn mir_c99_cfg_plan_append_async_await_transition(cfg_plan: &MirC99CfgPlan,
+    module: &PortableMirModule, inst: &MirInst) i32 {
+    if cfg_plan == null || module == null || inst == null {
+        return -1;
+    }
+    if mir_c99_cfg_inst_is_async_await_transition(inst) == 0 {
+        return 0;
+    }
+    const entry: MirC99AsyncAwaitStateTransition =
+        mir_c99_cfg_async_await_transition_from_mir(module, inst);
+    if semantic_vector_append(&cfg_plan.async_await_transitions,
+        &entry as &const void) != 0 {
+        return -1;
+    }
+    cfg_plan.async_await_transition_count = cfg_plan.async_await_transitions.count;
+    if entry.status == MIR_C99_CFG_ASYNC_AWAIT_STATUS_REJECT {
+        cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
 /// 功能说明：从 PortableMIR module 构建 MIR function -> C function 映射。
 /// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 plan，`unit` 为目标 single unit，`cfg_plan` 为输出 CFG plan。
 /// 返回值说明：全部 function 映射成功返回 `0`，参数非法或任一 function 失败返回 `-1`。
@@ -1076,6 +1203,26 @@ export fn mir_c99_cfg_plan_build_async_state_edges(module: &PortableMirModule,
     return status;
 }
 
+/// 功能说明：从 PortableMIR module 构建 await/bind/direct await/loop await 的状态转换计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`cfg_plan` 为输出 CFG plan。
+/// 返回值说明：全部 async await transition 映射成功返回 `0`，参数非法或任一映射失败返回 `-1`。
+export fn mir_c99_cfg_plan_build_async_await_transitions(module: &PortableMirModule,
+    cfg_plan: &MirC99CfgPlan) i32 {
+    if module == null || cfg_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.insts.count {
+        const inst: &MirInst = semantic_vector_item_ptr(&module.insts, i) as &MirInst;
+        if mir_c99_cfg_plan_append_async_await_transition(cfg_plan, module, inst) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：按下标读取 MIR-C99 function plan 条目。
 /// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
 /// 返回值说明：成功返回条目指针，参数非法返回 null。
@@ -1142,6 +1289,19 @@ export fn mir_c99_cfg_async_state_edge_ptr(cfg_plan: &MirC99CfgPlan,
     }
     return semantic_vector_item_ptr(&cfg_plan.async_state_edges,
         index as usize) as &MirC99AsyncFrameStateEdge;
+}
+
+/// 功能说明：按下标读取 MIR-C99 async await transition plan 条目。
+/// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_cfg_async_await_transition_ptr(cfg_plan: &MirC99CfgPlan,
+    index: i32) &MirC99AsyncAwaitStateTransition {
+    if cfg_plan == null || index < 0 ||
+       (index as usize) >= cfg_plan.async_await_transitions.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&cfg_plan.async_await_transitions,
+        index as usize) as &MirC99AsyncAwaitStateTransition;
 }
 
 /// 功能说明：输出 MIR-C99 BR terminator 对应的低级 C99 `goto bbN;` 语句。
