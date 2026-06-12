@@ -738,7 +738,16 @@ fn portable_mir_verify_float_value_inst(module: &PortableMirModule,
     }
     if portable_mir_inst_op_is_float_compare(inst.op) != 0 {
         if inst.operand_count != 2 || inst.result_value_id == MIR_VALUE_INVALID_ID ||
-           typ == null {
+           typ == null || typ.kind != MIR_TYPE_KIND_BOOL {
+            return 0;
+        }
+        const lhs_cmp: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start);
+        const rhs_cmp: &MirOperand = portable_mir_verify_operand_ptr(module, inst.operand_start + 1);
+        if lhs_cmp == null || rhs_cmp == null || lhs_cmp.type_id != rhs_cmp.type_id {
+            return 0;
+        }
+        const operand_type: &MirType = portable_mir_verify_type_ptr(module, lhs_cmp.type_id);
+        if operand_type == null || portable_mir_type_kind_is_float(operand_type.kind) == 0 {
             return 0;
         }
         return 1;
