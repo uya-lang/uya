@@ -286,6 +286,9 @@ fn portable_mir_verify_operand_use(module: &PortableMirModule, inst: &MirInst, o
         if value == null {
             return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, operand.value_id, operand.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
         }
+        if value.block_id != inst.block_id {
+            return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNDEFINED_USE, inst.function_id, inst.block_id, inst.inst_id, value.value_id, value.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
+        }
         if value.defining_inst_id == MIR_INST_INVALID_ID && (value.flags & MIR_VALUE_FLAG_PARAM) == 0 {
             return portable_mir_verify_fail(result, MIR_VERIFY_ERR_UNDEFINED_USE, inst.function_id, inst.block_id, inst.inst_id, value.value_id, value.type_id, operand.operand_id, MIR_CAPABILITY_REQ_INVALID_ID, value.debug_loc_id);
         }

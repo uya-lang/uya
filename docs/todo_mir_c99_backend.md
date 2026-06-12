@@ -150,7 +150,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - [f] cast、sign/zero extend、truncate，以及 int/float/double 显式转换。
     - 阻塞：当前 PortableMIR opcode 枚举和 verifier 只包含 `NOP`、`LOAD`、`STORE`、`CALL`、`ASM_BLOCK`、`I32_ADD`、`I32_LE`、`LOCAL_SET`，没有 cast/sign-extend/zero-extend/truncate/int-float conversion opcode；MIR-C99 后端不能臆造未定义 MIR 常量或未验证指令形态。
     - 验证：`rg -n "MIR_INST_OP_" src/lower/mir.uya src/lower/mir_verifier.uya` 确认 opcode 缺口；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
-  - [ ] value def/use 顺序检查：未定义或跨 block 非法 use 必须由 verifier 阻止。
+  - [x] value def/use 顺序检查：未定义或跨 block 非法 use 必须由 verifier 阻止。
+    - 验证：`bash tests/verify_mir_c99_value_use_order.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_expression_plan.sh` 通过；`bash tests/verify_mir_c99_reject_unverified.sh` 通过；`bash tests/verify_mir_c99_constant_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] parity shard：integer arithmetic/comparison/boolean combination。
   - [ ] parity shard：float/double arithmetic、comparison、cast 和 return。
 
