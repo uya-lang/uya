@@ -1,5 +1,6 @@
 // codegen/mir_c99/unit_output.uya - Single-unit MIR-C99 output writer contract.
 
+use codegen.mir_c99.cfg;
 use codegen.mir_c99.plan;
 use libc.FILE;
 use libc.fputc;
@@ -39,6 +40,7 @@ export struct MirC99UnitOutputWriter {
     status: i32,
     plan: &MirC99Plan,
     unit: &MirC99Unit,
+    cfg_plan: &MirC99CfgPlan,
     stats: MirC99UnitOutputStats,
     diagnostic_code: i32,
 }
@@ -127,6 +129,124 @@ fn mir_c99_unit_output_write_ref_table(stream: &FILE, vec: &SemanticVector,
     return status;
 }
 
+fn mir_c99_unit_output_function_plan_ptr(writer: &MirC99UnitOutputWriter,
+    function_id: MirFunctionId) &MirC99FunctionPlanEntry {
+    if writer == null || writer.cfg_plan == null || function_id == MIR_FUNCTION_INVALID_ID {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < writer.cfg_plan.functions.count {
+        const entry: &MirC99FunctionPlanEntry =
+            semantic_vector_item_ptr(&writer.cfg_plan.functions, i) as &MirC99FunctionPlanEntry;
+        if entry != null && entry.function_id == function_id {
+            return entry;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_unit_output_block_plan_ptr(writer: &MirC99UnitOutputWriter,
+    block_id: MirBlockId) &MirC99BlockPlanEntry {
+    if writer == null || writer.cfg_plan == null || block_id == MIR_BLOCK_INVALID_ID {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < writer.cfg_plan.blocks.count {
+        const entry: &MirC99BlockPlanEntry =
+            semantic_vector_item_ptr(&writer.cfg_plan.blocks, i) as &MirC99BlockPlanEntry;
+        if entry != null && entry.block_id == block_id {
+            return entry;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_unit_output_terminator_plan_ptr(writer: &MirC99UnitOutputWriter,
+    terminator_id: MirTerminatorId) &MirC99TerminatorPlanEntry {
+    if writer == null || writer.cfg_plan == null || terminator_id == MIR_TERMINATOR_INVALID_ID {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < writer.cfg_plan.terminators.count {
+        const entry: &MirC99TerminatorPlanEntry =
+            semantic_vector_item_ptr(&writer.cfg_plan.terminators, i) as &MirC99TerminatorPlanEntry;
+        if entry != null && entry.terminator_id == terminator_id {
+            return entry;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_unit_output_write_block_label(stream: &FILE, block: &MirC99BlockPlanEntry) i32 {
+    if stream == null || block == null || block.c_label_source_id == MIR_BLOCK_INVALID_ID {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "bb" as &byte) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write_i32(stream, block.c_label_source_id) != 0 {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, ":\n" as &byte) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_terminator(stream: &FILE, term: &MirC99TerminatorPlanEntry) i32 {
+    if stream == null || term == null {
+        return -1;
+    }
+    if term.kind == MIR_TERMINATOR_KIND_BR {
+        return mir_c99_cfg_emit_br_goto(term, stream);
+    }
+    if term.kind == MIR_TERMINATOR_KIND_COND_BR {
+        return mir_c99_cfg_emit_cond_br_goto(term, stream);
+    }
+    if term.kind == MIR_TERMINATOR_KIND_RETURN {
+        return mir_c99_cfg_emit_return(term, stream);
+    }
+    return -1;
+}
+
+fn mir_c99_unit_output_write_function_body(writer: &MirC99UnitOutputWriter,
+    stream: &FILE, ref: &MirC99Ref) i32 {
+    if writer == null || stream == null || ref == null {
+        return -1;
+    }
+    const function: &MirC99FunctionPlanEntry =
+        mir_c99_unit_output_function_plan_ptr(writer, ref.source_id);
+    if function == null || function.status != MIR_C99_CFG_FUNCTION_STATUS_PLANNED {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "static int32_t uya_mir_fn_" as &byte) != 0 ||
+       mir_c99_unit_output_write_i32(stream, function.c_name_source_id) != 0 ||
+       mir_c99_unit_output_write(stream, "(void) {\n" as &byte) != 0 {
+        return -1;
+    }
+    var offset: i32 = 0;
+    while offset < function.block_count {
+        const block: &MirC99BlockPlanEntry =
+            mir_c99_unit_output_block_plan_ptr(writer, function.block_start + offset);
+        if block == null || mir_c99_unit_output_write_block_label(stream, block) != 0 {
+            return -1;
+        }
+        const term: &MirC99TerminatorPlanEntry =
+            mir_c99_unit_output_terminator_plan_ptr(writer, block.terminator_id);
+        if mir_c99_unit_output_write_terminator(stream, term) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    if mir_c99_unit_output_write(stream, "}\n" as &byte) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn mir_c99_unit_output_empty_stats() MirC99UnitOutputStats {
     return MirC99UnitOutputStats{
         include_count: 0usize,
@@ -181,6 +301,7 @@ export fn mir_c99_unit_output_writer_begin(writer: &MirC99UnitOutputWriter,
     writer.status = MIR_C99_OUTPUT_STATUS_READY;
     writer.plan = plan;
     writer.unit = unit;
+    writer.cfg_plan = null;
     writer.stats = mir_c99_unit_output_empty_stats();
     writer.diagnostic_code = 0;
     if mir_c99_unit_output_refresh_stats(writer) != 0 {
@@ -188,6 +309,18 @@ export fn mir_c99_unit_output_writer_begin(writer: &MirC99UnitOutputWriter,
         writer.diagnostic_code = -1;
         return -1;
     }
+    return 0;
+}
+
+/// 功能说明：把 MIR-C99 单 unit 输出 writer 绑定到 CFG plan，以允许输出 function body。
+/// 参数说明：`writer` 为已初始化 writer，`cfg_plan` 为已构建的 CFG plan。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn mir_c99_unit_output_writer_bind_cfg(writer: &MirC99UnitOutputWriter,
+    cfg_plan: &MirC99CfgPlan) i32 {
+    if writer == null || writer.status != MIR_C99_OUTPUT_STATUS_READY || cfg_plan == null {
+        return -1;
+    }
+    writer.cfg_plan = cfg_plan;
     return 0;
 }
 
@@ -317,6 +450,27 @@ export fn mir_c99_unit_output_write_global_section(writer: &MirC99UnitOutputWrit
     return writer.unit.globals.count as i32;
 }
 
+/// 功能说明：输出 MIR-C99 单 unit 的 function body section。
+/// 参数说明：`writer` 为已绑定 CFG plan 的 writer，`stream` 为 C 输出流。
+/// 返回值说明：成功返回写出函数数，参数非法或写出失败返回 `-1`。
+export fn mir_c99_unit_output_write_function_body_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
+    if writer == null || writer.unit == null || writer.cfg_plan == null || stream == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "\n/* mir-c99 function bodies */\n" as &byte) != 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < writer.unit.functions.count {
+        const ref: &MirC99Ref = mir_c99_unit_output_ref_ptr(&writer.unit.functions, i);
+        if mir_c99_unit_output_write_function_body(writer, stream, ref) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return writer.unit.functions.count as i32;
+}
+
 /// 功能说明：按固定顺序输出 MIR-C99 单 unit 的所有已建模 sections。
 /// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
 /// 返回值说明：成功返回 section 数，任一 section 失败返回 `-1`。
@@ -330,7 +484,10 @@ export fn mir_c99_unit_output_write_all_sections(writer: &MirC99UnitOutputWriter
     if mir_c99_unit_output_write_global_section(writer, stream) < 0 {
         return -1;
     }
-    return 5;
+    if mir_c99_unit_output_write_function_body_section(writer, stream) < 0 {
+        return -1;
+    }
+    return 6;
 }
 
 /// 功能说明：完成 MIR-C99 单 unit 输出 writer 的统计阶段。
