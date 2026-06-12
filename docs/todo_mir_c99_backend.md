@@ -555,6 +555,10 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD：编译器自举走 MIR-C99。
   - [ ] `cmd/build` / compiler source 经 parser/checker/CoreBody/PortableMIR 生成 minimal C99。
+    - [x] 恢复 `src/cmd/build/main.uya` self-build root，并新增 MIR-C99 source-to-PortableMIR / MirC99Plan preflight gate。
+      - 验证：新增 `bash tests/verify_mir_c99_cmd_build_self_preflight.sh` 先红灯失败于缺少 `src/cmd/build/main.uya`，随后通过，确认 `cmd/build` source root 导入 `build_compiler_driver`、导出 `main()` 并委托 `build_compiler_driver_main()`，且默认 MIR-C99 generator 对该 root 记录 `handoff_status=verified` / `writer_status=pending` / `status=not-ready`，不生成 C 输出、不出现 legacy C99 fallback；`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过（期间出现既有 checker constraint / pointer nonnull table 容量警告但类型检查成功）；`bash tests/verify_mir_c99_generator_driver_handoff.sh` 通过；`bash tests/verify_mir_c99_default_generator_command.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash -n tests/verify_mir_c99_cmd_build_self_preflight.sh` 通过；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过（标完成前 1 个 active task）；`git diff --check` 通过。
+    - [ ] 默认 MIR-C99 generator 对 `cmd/build` root 输出 minimal C99 sidecar/summary，不写 legacy C99 fallback。
+    - [ ] 将首个真实 compiler-source frontier 归因到通用 MIR-C99 缺口，并记录下一步 capability/coverage。
   - [ ] host C compiler 编译 MIR-C99 产物得到 compiler binary。
   - [ ] MIR-C99-built compiler 复跑 `cmd/build` self-build。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。

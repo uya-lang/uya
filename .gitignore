@@ -36,6 +36,8 @@ examples/*.uapp
 # 可选 JSON 基准数据（tests/scripts/fetch_json_benchmark_data.sh）
 tests/data/json/*.json
 build/
+!src/cmd/build/
+!src/cmd/build/main.uya
 .codex
 __pycache__/
 *.py[cod]
