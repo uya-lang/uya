@@ -23,6 +23,10 @@ export struct MirC99CallEntry {
     callee_value_id: MirValueId,
     callee_type_id: MirTypeId,
     signature_type_id: MirTypeId,
+    return_type_id: MirTypeId,
+    return_abi_class: i32,
+    float_abi_arg_count: i32,
+    required_call_flags: i32,
     arg_start: i32,
     arg_count: i32,
     result_value_id: MirValueId,
@@ -63,6 +67,106 @@ fn mir_c99_call_type_ptr(module: &PortableMirModule, type_id: MirTypeId) &MirTyp
         return null;
     }
     return semantic_vector_item_ptr(&module.types, index as usize) as &MirType;
+}
+
+fn mir_c99_call_function_param_type_ptr(module: &PortableMirModule,
+    index: i32) &MirFunctionParamType {
+    if module == null || index < 0 ||
+       (index as usize) >= module.function_param_types.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.function_param_types,
+        index as usize) as &MirFunctionParamType;
+}
+
+fn mir_c99_call_float_abi_class_matches_type(typ: &MirType,
+    abi_class: i32) i32 {
+    if typ == null {
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_F32 && abi_class == MIR_ABI_CLASS_FLOAT {
+        return 1;
+    }
+    if typ.kind == MIR_TYPE_KIND_F64 && abi_class == MIR_ABI_CLASS_DOUBLE {
+        return 1;
+    }
+    return 0;
+}
+
+fn mir_c99_call_signature_float_abi_arg_count(module: &PortableMirModule,
+    signature: &MirType) i32 {
+    if module == null || signature == null ||
+       signature.kind != MIR_TYPE_KIND_FUNCTION ||
+       signature.field_start < 0 || signature.field_count < 0 {
+        return -1;
+    }
+    var count: i32 = 0;
+    var i: i32 = 0;
+    while i < signature.field_count {
+        const param: &MirFunctionParamType =
+            mir_c99_call_function_param_type_ptr(module, signature.field_start + i);
+        if param == null || param.owner_type_id != signature.type_id ||
+           param.param_index != i {
+            return -1;
+        }
+        const param_type: &MirType = mir_c99_call_type_ptr(module, param.type_id);
+        if param_type == null {
+            return -1;
+        }
+        if param_type.kind == MIR_TYPE_KIND_F32 || param_type.kind == MIR_TYPE_KIND_F64 {
+            if mir_c99_call_float_abi_class_matches_type(param_type,
+                param.abi_class) == 0 {
+                return -1;
+            }
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+fn mir_c99_call_signature_required_flags(module: &PortableMirModule,
+    signature: &MirType) i32 {
+    if module == null || signature == null ||
+       signature.kind != MIR_TYPE_KIND_FUNCTION {
+        return -1;
+    }
+    const return_type: &MirType = mir_c99_call_type_ptr(module,
+        signature.element_type_id);
+    if return_type == null {
+        return -1;
+    }
+    var flags: i32 = 0;
+    if return_type.kind == MIR_TYPE_KIND_F32 || return_type.kind == MIR_TYPE_KIND_F64 {
+        if mir_c99_call_float_abi_class_matches_type(return_type,
+            return_type.abi_class) == 0 {
+            return -1;
+        }
+        flags = flags | MIR_CALL_FLAG_FLOAT_ABI;
+    }
+    const float_arg_count: i32 =
+        mir_c99_call_signature_float_abi_arg_count(module, signature);
+    if float_arg_count < 0 {
+        return -1;
+    }
+    if float_arg_count > 0 {
+        flags = flags | MIR_CALL_FLAG_FLOAT_ABI;
+    }
+    return flags;
+}
+
+fn mir_c99_call_float_abi_status(module: &PortableMirModule,
+    inst: &MirInst, signature: &MirType) i32 {
+    const required_call_flags: i32 =
+        mir_c99_call_signature_required_flags(module, signature);
+    if required_call_flags < 0 {
+        return MIR_C99_CALL_STATUS_REJECT;
+    }
+    if required_call_flags != 0 &&
+       (inst.flags & required_call_flags) != required_call_flags {
+        return MIR_C99_CALL_STATUS_REJECT;
+    }
+    return MIR_C99_CALL_STATUS_READY;
 }
 
 fn mir_c99_call_target_kind_for_operand(target: &MirOperand) i32 {
@@ -136,6 +240,10 @@ fn mir_c99_call_reject_entry(inst: &MirInst) MirC99CallEntry {
         callee_value_id: -1,
         callee_type_id: -1,
         signature_type_id: -1,
+        return_type_id: -1,
+        return_abi_class: 0,
+        float_abi_arg_count: 0,
+        required_call_flags: 0,
         arg_start: -1,
         arg_count: 0,
         result_value_id: result_value_id,
@@ -166,6 +274,10 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
     }
     var target_kind: i32 = mir_c99_call_target_kind_for_operand(target);
     var signature_type_id: MirTypeId = -1;
+    var return_type_id: MirTypeId = -1;
+    var return_abi_class: i32 = 0;
+    var float_abi_arg_count: i32 = 0;
+    var required_call_flags: i32 = 0;
     var callee_function_id: MirFunctionId = MIR_FUNCTION_INVALID_ID;
     var callee_value_id: MirValueId = -1;
     var callee_type_id: MirTypeId = -1;
@@ -200,6 +312,28 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
         callee_function_id = target.immediate_i32;
         signature_type_id = callee.signature_type_id;
     }
+    const signature: &MirType = mir_c99_call_type_ptr(module, signature_type_id);
+    if signature == null || signature.kind != MIR_TYPE_KIND_FUNCTION ||
+       mir_c99_call_float_abi_status(module, inst, signature) ==
+        MIR_C99_CALL_STATUS_REJECT {
+        return mir_c99_call_reject_entry(inst);
+    }
+    const return_type: &MirType = mir_c99_call_type_ptr(module,
+        signature.element_type_id);
+    if return_type == null {
+        return mir_c99_call_reject_entry(inst);
+    }
+    return_type_id = return_type.type_id;
+    return_abi_class = return_type.abi_class;
+    float_abi_arg_count =
+        mir_c99_call_signature_float_abi_arg_count(module, signature);
+    if float_abi_arg_count < 0 {
+        return mir_c99_call_reject_entry(inst);
+    }
+    required_call_flags = mir_c99_call_signature_required_flags(module, signature);
+    if required_call_flags < 0 {
+        return mir_c99_call_reject_entry(inst);
+    }
     return MirC99CallEntry{
         inst_id: inst.inst_id,
         function_id: inst.function_id,
@@ -209,6 +343,10 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
         callee_value_id: callee_value_id,
         callee_type_id: callee_type_id,
         signature_type_id: signature_type_id,
+        return_type_id: return_type_id,
+        return_abi_class: return_abi_class,
+        float_abi_arg_count: float_abi_arg_count,
+        required_call_flags: required_call_flags,
         arg_start: inst.operand_start + 1,
         arg_count: inst.operand_count - 1,
         result_value_id: inst.result_value_id,
