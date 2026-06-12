@@ -180,6 +180,14 @@ MirLinkInput
   path/name dedupe id
   capability_req_id: MirCapabilityReqId
 
+MirCrossUnitSymbol
+  unit_id: i32
+  symbol_id: SymbolId
+  kind: export | import | ref
+  owner: function | global
+  target_profile_id: i32
+  visibility: default | hidden | protected
+
 MirBlock
   label: MirBlockId
   params: MirBlockParam[]
@@ -506,6 +514,8 @@ global scalar / aggregate initializer 必须先 materialize 为 `MirConst`，再
 extern globals 使用 `extern` linkage 和显式 symbol visibility metadata，不携带 initializer const。
 C import object/link inputs 必须进入 `MirLinkInput` 表，记录 object/library/search path、target profile id 和
 capability requirement；backend 不得从 `@c_import` AST 临时重建 linker inputs。
+split-C 多 unit 必须使用 `MirCrossUnitSymbol` 记录 cross-unit symbol/export/import/ref metadata，
+包含 unit id、owner function/global、target profile 和 visibility；合并/发射阶段只能消费该表。
 
 ## 13. Builtin 和特殊形式
 

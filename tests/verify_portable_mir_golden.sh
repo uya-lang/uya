@@ -709,6 +709,7 @@ export fn main() i32 {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         blocks: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         values: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
@@ -727,6 +728,7 @@ export fn main() i32 {
         globals: SemanticVector{ data: null, item_size: @size_of(MirGlobal), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         consts: SemanticVector{ data: null, item_size: @size_of(MirConst), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         link_inputs: SemanticVector{ data: null, item_size: @size_of(MirLinkInput), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        cross_unit_symbols: SemanticVector{ data: null, item_size: @size_of(MirCrossUnitSymbol), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
     };
     portable_mir_module_init(&module, &arena);
     module.target_profile.profile_id = 7;

@@ -66,8 +66,10 @@ require_pattern "$MIR_VERIFIER_FILE" 'MIR_RUNTIME_CAP_ASYNC_FRAME' "verifier val
 require_pattern "$MIR_FILE" 'MirGlobal' "PortableMIR global metadata table"
 require_pattern "$MIR_FILE" 'MirConst' "PortableMIR constant metadata table"
 require_pattern "$MIR_FILE" 'MirLinkInput' "PortableMIR link input metadata table"
+require_pattern "$MIR_FILE" 'MirCrossUnitSymbol' "PortableMIR cross-unit symbol metadata table"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_global_initializer' "verifier validates global initializer metadata"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_link_inputs' "verifier validates link input metadata"
+require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_cross_unit_symbols' "verifier validates cross-unit symbol metadata"
 
 require_pattern "$MIR_VERIFIER_FILE" 'semantic_vector_item_ptr' "linear table traversal"
 require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_function_has_asm_only_naked_body' "naked body verifier hook"
@@ -575,6 +577,7 @@ fn verifier_empty_module() PortableMirModule {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: verifier_empty_vec(@size_of(MirFunction)),
         blocks: verifier_empty_vec(@size_of(MirBlock)),
         values: verifier_empty_vec(@size_of(MirValue)),
@@ -593,6 +596,7 @@ fn verifier_empty_module() PortableMirModule {
         globals: verifier_empty_vec(@size_of(MirGlobal)),
         consts: verifier_empty_vec(@size_of(MirConst)),
         link_inputs: verifier_empty_vec(@size_of(MirLinkInput)),
+        cross_unit_symbols: verifier_empty_vec(@size_of(MirCrossUnitSymbol)),
     };
 }
 
@@ -608,6 +612,7 @@ fn verifier_run(mode: i32) i32 {
     var globals: [MirGlobal: 1] = [];
     var consts: [MirConst: 1] = [];
     var link_inputs: [MirLinkInput: 1] = [];
+    var cross_symbols: [MirCrossUnitSymbol: 1] = [];
     var caps: [MirCapabilityReq: 1] = [];
     var field_layouts: [MirFieldLayout: 1] = [];
     var fn_params: [MirFunctionParamType: 2] = [];
@@ -686,6 +691,19 @@ fn verifier_run(mode: i32) i32 {
         path_dedupe_id: 40,
         name_dedupe_id: 41,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        debug_loc_id: 0,
+        flags: 0,
+    };
+    cross_symbols[0] = MirCrossUnitSymbol{
+        cross_unit_symbol_id: 0,
+        unit_id: 0,
+        symbol_id: 0,
+        kind: MIR_CROSS_UNIT_SYMBOL_EXPORT,
+        owner_kind: MIR_CROSS_UNIT_OWNER_FUNCTION,
+        owner_function_id: 0,
+        owner_global_id: MIR_GLOBAL_INVALID_ID,
+        target_profile_id: 0,
+        visibility: MIR_SYMBOL_VISIBILITY_DEFAULT,
         debug_loc_id: 0,
         flags: 0,
     };
@@ -1964,11 +1982,32 @@ fn verifier_run(mode: i32) i32 {
         link_inputs[0].target_profile_id = 99;
         link_inputs[0].path_dedupe_id = 40;
     }
+    if mode == 135 {
+        cross_symbols[0].kind = MIR_CROSS_UNIT_SYMBOL_EXPORT;
+        cross_symbols[0].owner_kind = MIR_CROSS_UNIT_OWNER_FUNCTION;
+        cross_symbols[0].owner_function_id = 0;
+        cross_symbols[0].visibility = MIR_SYMBOL_VISIBILITY_DEFAULT;
+    }
+    if mode == 136 {
+        globals[0].init_kind = MIR_GLOBAL_INIT_EXTERN;
+        globals[0].init_const_id = MIR_CONST_INVALID_ID;
+        globals[0].linkage = MIR_GLOBAL_LINKAGE_EXTERN;
+        globals[0].visibility = MIR_SYMBOL_VISIBILITY_DEFAULT;
+        globals[0].section = MIR_GLOBAL_SECTION_BSS;
+        cross_symbols[0].kind = MIR_CROSS_UNIT_SYMBOL_IMPORT;
+        cross_symbols[0].owner_kind = MIR_CROSS_UNIT_OWNER_GLOBAL;
+        cross_symbols[0].owner_function_id = MIR_FUNCTION_INVALID_ID;
+        cross_symbols[0].owner_global_id = 0;
+    }
+    if mode == 137 {
+        cross_symbols[0].unit_id = -1;
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     var global_fixture_count: usize = 0usize;
     var const_fixture_count: usize = 0usize;
     var link_input_fixture_count: usize = 0usize;
+    var cross_unit_symbol_fixture_count: usize = 0usize;
     if mode >= 128 && mode <= 131 {
         global_fixture_count = 1usize;
         const_fixture_count = 1usize;
@@ -1978,6 +2017,13 @@ fn verifier_run(mode: i32) i32 {
     }
     if mode == 133 || mode == 134 {
         link_input_fixture_count = 1usize;
+    }
+    if mode == 135 || mode == 137 {
+        cross_unit_symbol_fixture_count = 1usize;
+    }
+    if mode == 136 {
+        global_fixture_count = 1usize;
+        cross_unit_symbol_fixture_count = 1usize;
     }
     module.functions = verifier_vec(&functions[0] as &byte, @size_of(MirFunction), 1usize);
     module.blocks = verifier_vec(&blocks[0] as &byte, @size_of(MirBlock), 1usize);
@@ -1998,6 +2044,8 @@ fn verifier_run(mode: i32) i32 {
         const_fixture_count);
     module.link_inputs = verifier_vec(&link_inputs[0] as &byte, @size_of(MirLinkInput),
         link_input_fixture_count);
+    module.cross_unit_symbols = verifier_vec(&cross_symbols[0] as &byte,
+        @size_of(MirCrossUnitSymbol), cross_unit_symbol_fixture_count);
     module.function_count = 1usize;
     module.block_count = 1usize;
     module.value_count = 2usize;
@@ -2013,6 +2061,7 @@ fn verifier_run(mode: i32) i32 {
     module.global_count = global_fixture_count;
     module.const_count = const_fixture_count;
     module.link_input_count = link_input_fixture_count;
+    module.cross_unit_symbol_count = cross_unit_symbol_fixture_count;
 
     var result: MirVerifierResult = MirVerifierResult{
         error_code: 0,
@@ -2109,6 +2158,8 @@ test "PortableMIR verifier accepts partial surface for compare assign and call s
     try assert_eq_i32(verifier_run(130), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(132), MIR_VERIFY_OK);
     try assert_eq_i32(verifier_run(133), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(135), MIR_VERIFY_OK);
+    try assert_eq_i32(verifier_run(136), MIR_VERIFY_OK);
 }
 
 test "PortableMIR verifier rejects malformed control and data flow" {
@@ -2177,6 +2228,7 @@ test "PortableMIR verifier rejects atomic vector mask cleanup and naked violatio
     try assert_eq_i32(verifier_run(127), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(131), MIR_VERIFY_ERR_INVALID_LAYOUT);
     try assert_eq_i32(verifier_run(134), MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY);
+    try assert_eq_i32(verifier_run(137), MIR_VERIFY_ERR_INVALID_LAYOUT);
 }
 EOF
 

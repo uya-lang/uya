@@ -304,6 +304,7 @@ fn backend_module(profile_id: i32, lifecycle_state: i32) PortableMirModule {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: backend_empty_vec(@size_of(MirFunction)),
         blocks: backend_empty_vec(@size_of(MirBlock)),
         values: backend_empty_vec(@size_of(MirValue)),
@@ -322,6 +323,7 @@ fn backend_module(profile_id: i32, lifecycle_state: i32) PortableMirModule {
         globals: backend_empty_vec(@size_of(MirGlobal)),
         consts: backend_empty_vec(@size_of(MirConst)),
         link_inputs: backend_empty_vec(@size_of(MirLinkInput)),
+        cross_unit_symbols: backend_empty_vec(@size_of(MirCrossUnitSymbol)),
     };
 }
 

@@ -451,6 +451,7 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: abi_empty_vec(@size_of(MirFunction)),
         blocks: abi_empty_vec(@size_of(MirBlock)),
         values: abi_empty_vec(@size_of(MirValue)),
@@ -469,6 +470,7 @@ fn abi_empty_module(profile: MirTargetProfile) PortableMirModule {
         globals: abi_empty_vec(@size_of(MirGlobal)),
         consts: abi_empty_vec(@size_of(MirConst)),
         link_inputs: abi_empty_vec(@size_of(MirLinkInput)),
+        cross_unit_symbols: abi_empty_vec(@size_of(MirCrossUnitSymbol)),
     };
 }
 

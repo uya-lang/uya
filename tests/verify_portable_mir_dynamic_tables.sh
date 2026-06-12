@@ -39,6 +39,7 @@ require_pattern "$MIR_FILE" 'portable_mir_append_async_frame_meta' "async frame 
 require_pattern "$MIR_FILE" 'portable_mir_append_global' "global append API"
 require_pattern "$MIR_FILE" 'portable_mir_append_const' "constant append API"
 require_pattern "$MIR_FILE" 'portable_mir_append_link_input' "link input append API"
+require_pattern "$MIR_FILE" 'portable_mir_append_cross_unit_symbol' "cross-unit symbol append API"
 
 if grep -En '(^|[^A-Z])(PORTABLE_MIR_MAX|MIR_MAX)_' "$MIR_FILE"; then
     echo "error: PortableMIR introduced a fixed semantic MIR_MAX capacity" >&2
@@ -297,6 +298,7 @@ fn portable_mir_dynamic_module() PortableMirModule {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: portable_mir_dynamic_vec(),
         blocks: portable_mir_dynamic_vec(),
         values: portable_mir_dynamic_vec(),
@@ -315,6 +317,7 @@ fn portable_mir_dynamic_module() PortableMirModule {
         globals: portable_mir_dynamic_vec(),
         consts: portable_mir_dynamic_vec(),
         link_inputs: portable_mir_dynamic_vec(),
+        cross_unit_symbols: portable_mir_dynamic_vec(),
     };
 }
 
@@ -522,6 +525,19 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
         debug_loc_id: id,
         flags: 0,
     };
+    var cross_symbol: MirCrossUnitSymbol = MirCrossUnitSymbol{
+        cross_unit_symbol_id: id,
+        unit_id: id,
+        symbol_id: id,
+        kind: MIR_CROSS_UNIT_SYMBOL_EXPORT,
+        owner_kind: MIR_CROSS_UNIT_OWNER_FUNCTION,
+        owner_function_id: id,
+        owner_global_id: MIR_GLOBAL_INVALID_ID,
+        target_profile_id: 0,
+        visibility: MIR_SYMBOL_VISIBILITY_DEFAULT,
+        debug_loc_id: id,
+        flags: 0,
+    };
 
     try assert_eq_i32(portable_mir_append_debug_loc(module, &debug_loc), 0);
     try assert_eq_i32(portable_mir_append_type(module, &type_item), 0);
@@ -539,6 +555,7 @@ fn append_portable_mir_dynamic_row(module: &PortableMirModule, id: i32) !void {
     try assert_eq_i32(portable_mir_append_const(module, &const_item), 0);
     try assert_eq_i32(portable_mir_append_global(module, &global), 0);
     try assert_eq_i32(portable_mir_append_link_input(module, &link_input), 0);
+    try assert_eq_i32(portable_mir_append_cross_unit_symbol(module, &cross_symbol), 0);
 }
 
 fn expect_mir_table_grew(vec: &SemanticVector, expected: usize) !void {
@@ -577,6 +594,7 @@ test "PortableMIR tables grow dynamically without semantic caps" {
     try expect(module.global_count == expected);
     try expect(module.const_count == expected);
     try expect(module.link_input_count == expected);
+    try expect(module.cross_unit_symbol_count == expected);
     try expect_mir_table_grew(&module.functions, expected);
     try expect_mir_table_grew(&module.blocks, expected);
     try expect_mir_table_grew(&module.values, expected);
@@ -588,6 +606,7 @@ test "PortableMIR tables grow dynamically without semantic caps" {
     try expect_mir_table_grew(&module.globals, expected);
     try expect_mir_table_grew(&module.consts, expected);
     try expect_mir_table_grew(&module.link_inputs, expected);
+    try expect_mir_table_grew(&module.cross_unit_symbols, expected);
 
     portable_mir_module_release(&module);
     compiler_arena_free_all(&arena);

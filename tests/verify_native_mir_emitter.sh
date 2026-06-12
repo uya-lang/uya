@@ -631,6 +631,7 @@ fn native_mir_empty_module() PortableMirModule {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: SemanticVector{ data: null, item_size: @size_of(MirFunction), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         blocks: SemanticVector{ data: null, item_size: @size_of(MirBlock), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         values: SemanticVector{ data: null, item_size: @size_of(MirValue), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
@@ -649,6 +650,7 @@ fn native_mir_empty_module() PortableMirModule {
         globals: SemanticVector{ data: null, item_size: @size_of(MirGlobal), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         consts: SemanticVector{ data: null, item_size: @size_of(MirConst), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
         link_inputs: SemanticVector{ data: null, item_size: @size_of(MirLinkInput), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        cross_unit_symbols: SemanticVector{ data: null, item_size: @size_of(MirCrossUnitSymbol), count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
     };
 }
 

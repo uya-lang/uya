@@ -106,6 +106,7 @@ fn portable_mir_verify_count(module: &PortableMirModule, result: &MirVerifierRes
     if portable_mir_verify_count_pair(module.global_count, module.globals.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.const_count, module.consts.count, result) != 0 { return -1; }
     if portable_mir_verify_count_pair(module.link_input_count, module.link_inputs.count, result) != 0 { return -1; }
+    if portable_mir_verify_count_pair(module.cross_unit_symbol_count, module.cross_unit_symbols.count, result) != 0 { return -1; }
     return 0;
 }
 
@@ -320,6 +321,11 @@ fn portable_mir_verify_field_layout_ptr(module: &PortableMirModule, id: MirField
 fn portable_mir_verify_const_ptr(module: &PortableMirModule, id: MirConstId) &MirConst {
     if module == null || id < 0 || (id as usize) >= module.consts.count { return null; }
     return semantic_vector_item_ptr(&module.consts, id as usize) as &MirConst;
+}
+
+fn portable_mir_verify_global_ptr(module: &PortableMirModule, id: MirGlobalId) &MirGlobal {
+    if module == null || id < 0 || (id as usize) >= module.globals.count { return null; }
+    return semantic_vector_item_ptr(&module.globals, id as usize) as &MirGlobal;
 }
 
 fn portable_mir_verify_function_param_type_ptr(module: &PortableMirModule,
@@ -2345,6 +2351,65 @@ fn portable_mir_verify_link_inputs(module: &PortableMirModule, result: &MirVerif
     return 0;
 }
 
+fn portable_mir_verify_cross_unit_symbol_kind_known(kind: i32) i32 {
+    if kind == MIR_CROSS_UNIT_SYMBOL_EXPORT ||
+       kind == MIR_CROSS_UNIT_SYMBOL_IMPORT ||
+       kind == MIR_CROSS_UNIT_SYMBOL_REF {
+        return 1;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_cross_unit_owner(module: &PortableMirModule,
+    symbol: &MirCrossUnitSymbol) i32 {
+    if symbol.owner_kind == MIR_CROSS_UNIT_OWNER_FUNCTION {
+        if portable_mir_verify_function_ptr(module, symbol.owner_function_id) != null {
+            return 1;
+        }
+        return 0;
+    }
+    if symbol.owner_kind == MIR_CROSS_UNIT_OWNER_GLOBAL {
+        if portable_mir_verify_global_ptr(module, symbol.owner_global_id) != null {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+fn portable_mir_verify_cross_unit_symbol(module: &PortableMirModule,
+    symbol: &MirCrossUnitSymbol, index: usize, result: &MirVerifierResult) i32 {
+    if symbol == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID,
+            MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if symbol.unit_id < 0 ||
+       portable_mir_verify_cross_unit_symbol_kind_known(symbol.kind) == 0 ||
+       portable_mir_verify_symbol_visibility_known(symbol.visibility) == 0 ||
+       symbol.target_profile_id != module.target_profile.profile_id ||
+       portable_mir_verify_cross_unit_owner(module, symbol) == 0 {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT,
+            symbol.owner_function_id, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID,
+            MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID,
+            symbol.debug_loc_id);
+    }
+    return 0;
+}
+
+fn portable_mir_verify_cross_unit_symbols(module: &PortableMirModule,
+    result: &MirVerifierResult) i32 {
+    var i: usize = 0usize;
+    while i < module.cross_unit_symbols.count {
+        const symbol: &MirCrossUnitSymbol =
+            semantic_vector_item_ptr(&module.cross_unit_symbols, i) as &MirCrossUnitSymbol;
+        if portable_mir_verify_cross_unit_symbol(module, symbol, i, result) != 0 { return -1; }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 fn portable_mir_verify_globals(module: &PortableMirModule, result: &MirVerifierResult) i32 {
     var i: usize = 0usize;
     while i < module.globals.count {
@@ -2371,6 +2436,7 @@ export fn portable_mir_verify_module(module: &PortableMirModule, result: &MirVer
     if portable_mir_verify_types(module, result) != 0 { return -1; }
     if portable_mir_verify_globals(module, result) != 0 { return -1; }
     if portable_mir_verify_link_inputs(module, result) != 0 { return -1; }
+    if portable_mir_verify_cross_unit_symbols(module, result) != 0 { return -1; }
     if portable_mir_verify_functions(module, result) != 0 { return -1; }
     if portable_mir_verify_blocks(module, result) != 0 { return -1; }
     if portable_mir_verify_locals(module, result) != 0 { return -1; }

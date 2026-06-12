@@ -18,6 +18,7 @@ export type MirAsyncFrameMetaId = i32;
 export type MirGlobalId = i32;
 export type MirConstId = i32;
 export type MirLinkInputId = i32;
+export type MirCrossUnitSymbolId = i32;
 
 export const PORTABLE_MIR_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const PORTABLE_MIR_LIFECYCLE_ACTIVE: i32 = 1;
@@ -34,6 +35,7 @@ export const MIR_CAPABILITY_REQ_INVALID_ID: MirCapabilityReqId = -1;
 export const MIR_GLOBAL_INVALID_ID: MirGlobalId = -1;
 export const MIR_CONST_INVALID_ID: MirConstId = -1;
 export const MIR_LINK_INPUT_INVALID_ID: MirLinkInputId = -1;
+export const MIR_CROSS_UNIT_SYMBOL_INVALID_ID: MirCrossUnitSymbolId = -1;
 export const MIR_FUNCTION_FLAG_NAKED: i32 = 1;
 export const MIR_FUNCTION_FLAG_EXTERN: i32 = 2;
 export const MIR_FUNCTION_FLAG_PARTIAL_BODY: i32 = 4;
@@ -311,6 +313,11 @@ export const MIR_LINK_INPUT_KIND_C_IMPORT_OBJECT: i32 = 1;
 export const MIR_LINK_INPUT_KIND_OBJECT_FILE: i32 = 2;
 export const MIR_LINK_INPUT_KIND_LIBRARY: i32 = 3;
 export const MIR_LINK_INPUT_KIND_SEARCH_PATH: i32 = 4;
+export const MIR_CROSS_UNIT_SYMBOL_EXPORT: i32 = 1;
+export const MIR_CROSS_UNIT_SYMBOL_IMPORT: i32 = 2;
+export const MIR_CROSS_UNIT_SYMBOL_REF: i32 = 3;
+export const MIR_CROSS_UNIT_OWNER_FUNCTION: i32 = 1;
+export const MIR_CROSS_UNIT_OWNER_GLOBAL: i32 = 2;
 export const MIR_GLOBAL_FLAG_CONST: i32 = 1;
 export const MIR_INST_FLAG_BOUNDS_CHECKED: i32 = 1;
 export const MIR_INST_FLAG_OVERFLOW_CHECKED: i32 = 2;
@@ -849,6 +856,23 @@ export struct MirLinkInput {
     flags: i32,
 }
 
+/// 功能说明：记录 split-C 多 unit 间的 symbol export/import/ref metadata。
+/// 参数说明：无；字段保存 unit、symbol、kind、owner、target profile、visibility 和 source 位置。
+/// 返回值说明：无。
+export struct MirCrossUnitSymbol {
+    cross_unit_symbol_id: MirCrossUnitSymbolId,
+    unit_id: i32,
+    symbol_id: SymbolId,
+    kind: i32,
+    owner_kind: i32,
+    owner_function_id: MirFunctionId,
+    owner_global_id: MirGlobalId,
+    target_profile_id: i32,
+    visibility: i32,
+    debug_loc_id: MirDebugLocId,
+    flags: i32,
+}
+
 /// 功能说明：记录 PortableMIR 中的 lowered concrete type 和 layout metadata。
 /// 参数说明：无；字段保存 kind、layout、ABI、address space、element/pointee、lane 和 field range。
 /// 返回值说明：无。
@@ -1010,6 +1034,7 @@ export struct PortableMirModule {
     global_count: usize,
     const_count: usize,
     link_input_count: usize,
+    cross_unit_symbol_count: usize,
     functions: SemanticVector,
     blocks: SemanticVector,
     values: SemanticVector,
@@ -1028,6 +1053,7 @@ export struct PortableMirModule {
     globals: SemanticVector,
     consts: SemanticVector,
     link_inputs: SemanticVector,
+    cross_unit_symbols: SemanticVector,
 }
 
 /// 功能说明：返回 hosted native 使用的 PortableMIR target profile。
@@ -1183,6 +1209,7 @@ fn portable_mir_module_clear_counts(module: &PortableMirModule) void {
     module.global_count = 0usize;
     module.const_count = 0usize;
     module.link_input_count = 0usize;
+    module.cross_unit_symbol_count = 0usize;
 }
 
 /// 功能说明：初始化 PortableMIR module 的动态表和生命周期。
@@ -1214,6 +1241,7 @@ export fn portable_mir_module_init(module: &PortableMirModule, arena: &CompilerA
     semantic_vector_init(&module.globals, @size_of(MirGlobal));
     semantic_vector_init(&module.consts, @size_of(MirConst));
     semantic_vector_init(&module.link_inputs, @size_of(MirLinkInput));
+    semantic_vector_init(&module.cross_unit_symbols, @size_of(MirCrossUnitSymbol));
 }
 
 fn portable_mir_append_item(vec: &SemanticVector, item: &const void) i32 {
@@ -1365,6 +1393,21 @@ export fn portable_mir_append_link_input(module: &PortableMirModule, item: &MirL
         return -1;
     }
     module.link_input_count = module.link_inputs.count;
+    return 0;
+}
+
+/// 功能说明：追加一条 PortableMIR cross-unit symbol metadata 记录。
+/// 参数说明：`module` 为目标 MIR module，`item` 为待追加 cross-unit symbol 记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn portable_mir_append_cross_unit_symbol(module: &PortableMirModule,
+    item: &MirCrossUnitSymbol) i32 {
+    if module == null || item == null {
+        return -1;
+    }
+    if portable_mir_append_item(&module.cross_unit_symbols, item as &const void) != 0 {
+        return -1;
+    }
+    module.cross_unit_symbol_count = module.cross_unit_symbols.count;
     return 0;
 }
 
@@ -2341,6 +2384,7 @@ export fn portable_mir_module_release(module: &PortableMirModule) void {
         semantic_vector_release(&module.globals);
         semantic_vector_release(&module.consts);
         semantic_vector_release(&module.link_inputs);
+        semantic_vector_release(&module.cross_unit_symbols);
     }
     portable_mir_module_clear_counts(module);
     module.arena = null;

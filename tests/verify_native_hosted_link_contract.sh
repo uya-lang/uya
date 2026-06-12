@@ -266,6 +266,7 @@ fn hosted_link_module(mode: i32) PortableMirModule {
         global_count: 0usize,
         const_count: 0usize,
         link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
         functions: hosted_link_empty_vec(@size_of(MirFunction)),
         blocks: hosted_link_empty_vec(@size_of(MirBlock)),
         values: hosted_link_empty_vec(@size_of(MirValue)),
@@ -284,6 +285,7 @@ fn hosted_link_module(mode: i32) PortableMirModule {
         globals: hosted_link_empty_vec(@size_of(MirGlobal)),
         consts: hosted_link_empty_vec(@size_of(MirConst)),
         link_inputs: hosted_link_empty_vec(@size_of(MirLinkInput)),
+        cross_unit_symbols: hosted_link_empty_vec(@size_of(MirCrossUnitSymbol)),
     };
 }
 
