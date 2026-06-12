@@ -20,6 +20,8 @@ export const MIR_C99_MEMORY_OP_KIND_SLICE_PTR_ADDR: i32 = 10;
 export const MIR_C99_MEMORY_OP_KIND_SLICE_PTR_LOAD: i32 = 11;
 export const MIR_C99_MEMORY_OP_KIND_SLICE_LEN_ADDR: i32 = 12;
 export const MIR_C99_MEMORY_OP_KIND_SLICE_LEN_LOAD: i32 = 13;
+export const MIR_C99_MEMORY_OP_KIND_AGGREGATE_COPY: i32 = 14;
+export const MIR_C99_MEMORY_OP_KIND_AGGREGATE_MOVE: i32 = 15;
 
 export const MIR_C99_MEMORY_OP_STATUS_MISSING: i32 = 0;
 export const MIR_C99_MEMORY_OP_STATUS_READY: i32 = 1;
@@ -29,6 +31,7 @@ export const MIR_C99_MEMORY_OP_FLAG_POINTER_DEREF: i32 = 1;
 export const MIR_C99_MEMORY_OP_FLAG_FIELD_ACCESS: i32 = 2;
 export const MIR_C99_MEMORY_OP_FLAG_INDEX_ACCESS: i32 = 4;
 export const MIR_C99_MEMORY_OP_FLAG_SLICE_COMPONENT: i32 = 8;
+export const MIR_C99_MEMORY_OP_FLAG_MEMCPY_HELPER: i32 = 16;
 
 export const MIR_C99_SLICE_COMPONENT_PTR: i32 = 1;
 export const MIR_C99_SLICE_COMPONENT_LEN: i32 = 2;
@@ -81,6 +84,11 @@ export struct MirC99MemoryOpEntry {
     slice_type_id: MirTypeId,
     slice_ptr_type_id: MirTypeId,
     slice_len_type_id: MirTypeId,
+    copy_dest_operand_id: MirOperandId,
+    copy_source_operand_id: MirOperandId,
+    aggregate_type_id: MirTypeId,
+    aggregate_size_bytes: usize,
+    aggregate_align_bytes: usize,
     type_id: MirTypeId,
     operand_start: i32,
     operand_count: i32,
@@ -200,6 +208,12 @@ fn mir_c99_memory_op_kind(inst: &MirInst) i32 {
     }
     if inst.op == MIR_INST_OP_SLICE_LEN_LOAD {
         return MIR_C99_MEMORY_OP_KIND_SLICE_LEN_LOAD;
+    }
+    if inst.op == MIR_INST_OP_AGGREGATE_COPY {
+        return MIR_C99_MEMORY_OP_KIND_AGGREGATE_COPY;
+    }
+    if inst.op == MIR_INST_OP_AGGREGATE_MOVE {
+        return MIR_C99_MEMORY_OP_KIND_AGGREGATE_MOVE;
     }
     return MIR_C99_MEMORY_OP_KIND_UNSUPPORTED;
 }
@@ -344,6 +358,45 @@ fn mir_c99_place_memory_op_bind_slice_component(module: &PortableMirModule,
     return 1;
 }
 
+fn mir_c99_place_memory_op_bind_aggregate_operand(module: &PortableMirModule,
+    operand: &MirOperand, typ: &MirType) i32 {
+    if module == null || operand == null || typ == null {
+        return 0;
+    }
+    const pointer_type: &MirType = mir_c99_place_type_ptr(module, operand.type_id);
+    if pointer_type == null || pointer_type.kind != MIR_TYPE_KIND_POINTER ||
+       pointer_type.pointee_type_id != typ.type_id {
+        return 0;
+    }
+    return 1;
+}
+
+fn mir_c99_place_memory_op_bind_aggregate_copy_move(module: &PortableMirModule,
+    entry: &MirC99MemoryOpEntry, dest: &MirOperand, source: &MirOperand) i32 {
+    if module == null || entry == null || dest == null || source == null ||
+       (entry.flags & MIR_INST_FLAG_NO_OVERLAP) == 0 {
+        return 0;
+    }
+    const typ: &MirType = mir_c99_place_type_ptr(module, entry.type_id);
+    if typ == null || typ.size_bytes == 0usize || typ.align_bytes == 0usize {
+        return 0;
+    }
+    if mir_c99_place_memory_op_bind_aggregate_operand(module, dest, typ) == 0 ||
+       mir_c99_place_memory_op_bind_aggregate_operand(module, source, typ) == 0 {
+        return 0;
+    }
+    entry.copy_dest_operand_id = dest.operand_id;
+    entry.copy_source_operand_id = source.operand_id;
+    entry.dest_local_id = dest.local_id;
+    entry.source_local_id = source.local_id;
+    entry.source_value_id = source.value_id;
+    entry.aggregate_type_id = typ.type_id;
+    entry.aggregate_size_bytes = typ.size_bytes;
+    entry.aggregate_align_bytes = typ.align_bytes;
+    entry.flags = entry.flags | MIR_C99_MEMORY_OP_FLAG_MEMCPY_HELPER;
+    return 1;
+}
+
 fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99MemoryOpEntry {
     if module == null || inst == null {
         return MirC99MemoryOpEntry{
@@ -377,6 +430,11 @@ fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99
             slice_type_id: -1,
             slice_ptr_type_id: -1,
             slice_len_type_id: -1,
+            copy_dest_operand_id: -1,
+            copy_source_operand_id: -1,
+            aggregate_type_id: -1,
+            aggregate_size_bytes: 0usize,
+            aggregate_align_bytes: 0usize,
             type_id: MIR_TYPE_INVALID_ID,
             operand_start: -1,
             operand_count: 0,
@@ -392,6 +450,8 @@ fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99
     var base_operand: &MirOperand = null;
     var field_operand: &MirOperand = null;
     var index_operand: &MirOperand = null;
+    var copy_dest_operand: &MirOperand = null;
+    var copy_source_operand: &MirOperand = null;
     var status: i32 = MIR_C99_MEMORY_OP_STATUS_READY;
     if op_kind == MIR_C99_MEMORY_OP_KIND_UNSUPPORTED {
         status = MIR_C99_MEMORY_OP_STATUS_REJECT;
@@ -467,6 +527,18 @@ fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99
             source_local_id = base_operand.local_id;
             source_value_id = base_operand.value_id;
         }
+    } else if (op_kind == MIR_C99_MEMORY_OP_KIND_AGGREGATE_COPY ||
+               op_kind == MIR_C99_MEMORY_OP_KIND_AGGREGATE_MOVE) &&
+              inst.operand_count >= 2 {
+        copy_dest_operand = mir_c99_place_operand_ptr(module, inst.operand_start);
+        copy_source_operand = mir_c99_place_operand_ptr(module, inst.operand_start + 1);
+        if copy_dest_operand != null {
+            dest_local_id = copy_dest_operand.local_id;
+        }
+        if copy_source_operand != null {
+            source_local_id = copy_source_operand.local_id;
+            source_value_id = copy_source_operand.value_id;
+        }
     } else if op_kind != MIR_C99_MEMORY_OP_KIND_UNSUPPORTED {
         status = MIR_C99_MEMORY_OP_STATUS_REJECT;
     }
@@ -501,6 +573,11 @@ fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99
         slice_type_id: -1,
         slice_ptr_type_id: -1,
         slice_len_type_id: -1,
+        copy_dest_operand_id: -1,
+        copy_source_operand_id: -1,
+        aggregate_type_id: -1,
+        aggregate_size_bytes: 0usize,
+        aggregate_align_bytes: 0usize,
         type_id: inst.type_id,
         operand_start: inst.operand_start,
         operand_count: inst.operand_count,
@@ -529,6 +606,13 @@ fn mir_c99_memory_op_from_mir(module: &PortableMirModule, inst: &MirInst) MirC99
        op_kind == MIR_C99_MEMORY_OP_KIND_SLICE_LEN_ADDR ||
        op_kind == MIR_C99_MEMORY_OP_KIND_SLICE_LEN_LOAD {
         if mir_c99_place_memory_op_bind_slice_component(module, &entry, base_operand) == 0 {
+            entry.status = MIR_C99_MEMORY_OP_STATUS_REJECT;
+        }
+    }
+    if op_kind == MIR_C99_MEMORY_OP_KIND_AGGREGATE_COPY ||
+       op_kind == MIR_C99_MEMORY_OP_KIND_AGGREGATE_MOVE {
+        if mir_c99_place_memory_op_bind_aggregate_copy_move(module, &entry,
+            copy_dest_operand, copy_source_operand) == 0 {
             entry.status = MIR_C99_MEMORY_OP_STATUS_REJECT;
         }
     }
