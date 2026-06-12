@@ -25,6 +25,8 @@ export const MIR_C99_C_TYPE_KIND_F32: i32 = 19;
 export const MIR_C99_C_TYPE_KIND_F64: i32 = 20;
 export const MIR_C99_C_TYPE_KIND_ARRAY: i32 = 21;
 export const MIR_C99_C_TYPE_KIND_SLICE: i32 = 22;
+export const MIR_C99_C_TYPE_KIND_UNION: i32 = 23;
+export const MIR_C99_C_TYPE_KIND_ENUM: i32 = 24;
 
 export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
 export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
@@ -40,6 +42,8 @@ export struct MirC99TypeDef {
     c_type_kind: i32,
     size_bytes: usize,
     align_bytes: usize,
+    tag_offset_bytes: usize,
+    payload_offset_bytes: usize,
     element_type_id: MirTypeId,
     pointee_type_id: MirTypeId,
     field_start: i32,
@@ -69,6 +73,8 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
             c_type_kind: MIR_C99_C_TYPE_KIND_UNSUPPORTED,
             size_bytes: 0usize,
             align_bytes: 0usize,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: 0usize,
             element_type_id: MIR_TYPE_INVALID_ID,
             pointee_type_id: MIR_TYPE_INVALID_ID,
             field_start: -1,
@@ -116,6 +122,10 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         c_kind = MIR_C99_C_TYPE_KIND_ARRAY;
     } else if typ.kind == MIR_TYPE_KIND_SLICE {
         c_kind = MIR_C99_C_TYPE_KIND_SLICE;
+    } else if typ.kind == MIR_TYPE_KIND_UNION {
+        c_kind = MIR_C99_C_TYPE_KIND_UNION;
+    } else if typ.kind == MIR_TYPE_KIND_ENUM {
+        c_kind = MIR_C99_C_TYPE_KIND_ENUM;
     } else if typ.kind == MIR_TYPE_KIND_POINTER {
         c_kind = MIR_C99_C_TYPE_KIND_POINTER;
     } else if typ.kind == MIR_TYPE_KIND_STRUCT {
@@ -136,6 +146,8 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         c_type_kind: c_kind,
         size_bytes: typ.size_bytes,
         align_bytes: typ.align_bytes,
+        tag_offset_bytes: typ.tag_offset_bytes,
+        payload_offset_bytes: typ.payload_offset_bytes,
         element_type_id: typ.element_type_id,
         pointee_type_id: typ.pointee_type_id,
         field_start: typ.field_start,
