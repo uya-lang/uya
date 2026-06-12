@@ -54,6 +54,9 @@ export struct MirC99TerminatorPlanEntry {
     successor_start: i32,
     successor_count: i32,
     branch_target_block_id: MirBlockId,
+    condition_value_id: MirValueId,
+    true_target_block_id: MirBlockId,
+    false_target_block_id: MirBlockId,
     status: i32,
     flags: i32,
 }
@@ -130,6 +133,13 @@ fn mir_c99_cfg_successor_ptr(module: &PortableMirModule, successor_id: i32) &Mir
     return semantic_vector_item_ptr(&module.successors, successor_id as usize) as &MirSuccessor;
 }
 
+fn mir_c99_cfg_operand_ptr(module: &PortableMirModule, operand_id: i32) &MirOperand {
+    if module == null || operand_id < 0 || (operand_id as usize) >= module.operands.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.operands, operand_id as usize) as &MirOperand;
+}
+
 fn mir_c99_cfg_terminator_reject_entry(term: &MirTerminator) MirC99TerminatorPlanEntry {
     var terminator_id: MirTerminatorId = MIR_TERMINATOR_INVALID_ID;
     var function_id: MirFunctionId = MIR_FUNCTION_INVALID_ID;
@@ -161,6 +171,9 @@ fn mir_c99_cfg_terminator_reject_entry(term: &MirTerminator) MirC99TerminatorPla
         successor_start: successor_start,
         successor_count: successor_count,
         branch_target_block_id: MIR_BLOCK_INVALID_ID,
+        condition_value_id: MIR_VALUE_INVALID_ID,
+        true_target_block_id: MIR_BLOCK_INVALID_ID,
+        false_target_block_id: MIR_BLOCK_INVALID_ID,
         status: MIR_C99_CFG_TERMINATOR_STATUS_REJECT,
         flags: flags,
     };
@@ -180,6 +193,9 @@ fn mir_c99_cfg_terminator_record_entry(term: &MirTerminator) MirC99TerminatorPla
         successor_start: term.successor_start,
         successor_count: term.successor_count,
         branch_target_block_id: MIR_BLOCK_INVALID_ID,
+        condition_value_id: MIR_VALUE_INVALID_ID,
+        true_target_block_id: MIR_BLOCK_INVALID_ID,
+        false_target_block_id: MIR_BLOCK_INVALID_ID,
         status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
         flags: term.flags,
     };
@@ -204,6 +220,37 @@ fn mir_c99_cfg_terminator_entry_from_mir(module: &PortableMirModule,
                     successor_start: term.successor_start,
                     successor_count: term.successor_count,
                     branch_target_block_id: successor.block_id,
+                    condition_value_id: MIR_VALUE_INVALID_ID,
+                    true_target_block_id: MIR_BLOCK_INVALID_ID,
+                    false_target_block_id: MIR_BLOCK_INVALID_ID,
+                    status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
+                    flags: term.flags,
+                };
+            }
+        }
+        return mir_c99_cfg_terminator_reject_entry(term);
+    }
+    if term.kind == MIR_TERMINATOR_KIND_COND_BR {
+        if term.operand_count == 1 && term.successor_count == 2 {
+            const condition: &MirOperand = mir_c99_cfg_operand_ptr(module, term.operand_start);
+            const true_successor: &MirSuccessor =
+                mir_c99_cfg_successor_ptr(module, term.successor_start);
+            const false_successor: &MirSuccessor =
+                mir_c99_cfg_successor_ptr(module, term.successor_start + 1);
+            if condition != null && true_successor != null && false_successor != null {
+                return MirC99TerminatorPlanEntry{
+                    terminator_id: term.terminator_id,
+                    function_id: term.function_id,
+                    block_id: term.block_id,
+                    kind: term.kind,
+                    operand_start: term.operand_start,
+                    operand_count: term.operand_count,
+                    successor_start: term.successor_start,
+                    successor_count: term.successor_count,
+                    branch_target_block_id: MIR_BLOCK_INVALID_ID,
+                    condition_value_id: condition.value_id,
+                    true_target_block_id: true_successor.block_id,
+                    false_target_block_id: false_successor.block_id,
                     status: MIR_C99_CFG_TERMINATOR_STATUS_PLANNED,
                     flags: term.flags,
                 };
@@ -452,6 +499,42 @@ export fn mir_c99_cfg_emit_br_goto(entry: &MirC99TerminatorPlanEntry, stream: &F
         return -1;
     }
     if mir_c99_cfg_write_i32(stream, entry.branch_target_block_id) != 0 {
+        return -1;
+    }
+    if fputs(";\n" as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：输出 MIR-C99 COND_BR terminator 对应的低级 C99 `if/goto` 语句。
+/// 参数说明：`entry` 为已规划的 COND_BR terminator，`stream` 为目标 C 输出流。
+/// 返回值说明：成功返回 `0`，参数非法、非 COND_BR 或写出失败返回 `-1`。
+export fn mir_c99_cfg_emit_cond_br_goto(entry: &MirC99TerminatorPlanEntry, stream: &FILE) i32 {
+    if entry == null || stream == null ||
+       entry.status != MIR_C99_CFG_TERMINATOR_STATUS_PLANNED ||
+       entry.kind != MIR_TERMINATOR_KIND_COND_BR ||
+       entry.condition_value_id == MIR_VALUE_INVALID_ID ||
+       entry.true_target_block_id == MIR_BLOCK_INVALID_ID ||
+       entry.false_target_block_id == MIR_BLOCK_INVALID_ID {
+        return -1;
+    }
+    if fputs("if (tmp" as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    if mir_c99_cfg_write_i32(stream, entry.condition_value_id) != 0 {
+        return -1;
+    }
+    if fputs(") goto bb" as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    if mir_c99_cfg_write_i32(stream, entry.true_target_block_id) != 0 {
+        return -1;
+    }
+    if fputs(";\ngoto bb" as *byte, stream as *void) < 0 {
+        return -1;
+    }
+    if mir_c99_cfg_write_i32(stream, entry.false_target_block_id) != 0 {
         return -1;
     }
     if fputs(";\n" as *byte, stream as *void) < 0 {
