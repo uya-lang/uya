@@ -106,8 +106,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_UNARY_EXPR` | done | missing | Phase 9A 验证。 |
 | `AST_CALL_EXPR` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local float call 和 extern C float/double call，struct parity shard 覆盖 method-style aggregate call；generic/interface call 由后续 shard 覆盖。 |
 | `AST_MEMBER_ACCESS` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field access 和 method member call；union parity shard 覆盖 payload field access；tuple parity shard 覆盖 `.0/.1` numeric member access。 |
-| `AST_ARRAY_ACCESS` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice index 由后续 slice shard 覆盖。 |
-| `AST_SLICE_EXPR` | done | missing | `array[1:2]` 由 `slice` shard 验证。 |
+| `AST_ARRAY_ACCESS` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice shard 覆盖 slice index load。 |
+| `AST_SLICE_EXPR` | done | partial | MIR-C99 full-language slice parity shard 覆盖 array-to-slice 和 slice-to-slice 表达式。 |
 | `AST_STRUCT_INIT` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal 初始化。 |
 | `AST_ARRAY_LITERAL` | done | partial | MIR-C99 full-language array parity shard 覆盖 `[i32: N]` 字面量和空数组初始化。 |
 | `AST_TUPLE_LITERAL` | partial | partial | MIR-C99 full-language tuple parity shard 覆盖 `(i32, i32)` 字面量、`.0/.1` numeric member access 和由 tuple field 构造新 tuple。 |
@@ -160,7 +160,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_NAMED` | done | missing | Phase 9A 验证。 |
 | `AST_TYPE_POINTER` | done | missing | `&T` 指针类型。 |
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
-| `AST_TYPE_SLICE` | done | missing | `&[T]` 切片类型。 |
+| `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
 | `AST_TYPE_ERROR_UNION` | done | missing | `!T` 由 `catch`/`dynamic_catch` shard 邻接覆盖。 |
 | `AST_TYPE_ATOMIC` | done | missing | `atomic T` 由 `atomic` shard 验证。 |
@@ -200,7 +200,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 |------|------|---------------|------|
 | `CORE_EXPR_KIND_CALL` | done | partial | MIR-C99 full-language float/double call ABI parity shard 覆盖 local call 和 extern C call，struct parity shard 覆盖 method-style aggregate call；generic/interface call 由后续 shard 覆盖。 |
 | `CORE_EXPR_KIND_INDEX` | done | missing | `array_index` shard。 |
-| `CORE_EXPR_KIND_SLICE` | done | missing | `slice` shard。 |
+| `CORE_EXPR_KIND_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 array-to-slice 和 slice-to-slice lowering。 |
 | `CORE_EXPR_KIND_ATOMIC` | done | missing | `atomic` shard。 |
 | `CORE_EXPR_KIND_VECTOR` | done | missing | `simd` shard。 |
 | `CORE_EXPR_KIND_MASK` | done | missing | `simd` shard。 |
@@ -219,8 +219,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
 | `CORE_PLACE_KIND_FIELD` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct field load/store；union parity shard 覆盖 match payload field load；tuple parity shard 覆盖 tuple numeric member load。 |
-| `CORE_PLACE_KIND_INDEX` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice index 由后续 slice shard 覆盖。 |
-| `CORE_PLACE_KIND_SLICE` | done | missing | `slice` shard。 |
+| `CORE_PLACE_KIND_INDEX` | done | partial | MIR-C99 full-language array parity shard 覆盖 array index load/store；slice shard 覆盖 slice index load。 |
+| `CORE_PLACE_KIND_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 slice place 构造。 |
 | `CORE_PLACE_KIND_LOCAL` | done | missing | Phase 9A 验证。 |
 
 ---
