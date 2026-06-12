@@ -180,7 +180,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 |------|------|---------------|------|
 | `CORE_STMT_KIND_RETURN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar return。 |
 | `CORE_STMT_KIND_ASM` | partial | missing | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
-| `CORE_STMT_KIND_DEFER` | done | missing | C99 oracle 已覆盖；MIR-C99 cleanup parity 待补。 |
+| `CORE_STMT_KIND_DEFER` | done | partial | MIR-C99 full-language defer normal-scope return-order parity shard 覆盖 `defer { value = 9; }` 和单行 `defer value = 9;` 在 return local / return const 场景下的执行顺序。 |
 | `CORE_STMT_KIND_ERRDEFER` | partial | missing | 占位；C99 端到端。 |
 | `CORE_STMT_KIND_DROP` | done | missing | `drop` shard 同上。 |
 | `CORE_STMT_KIND_ERROR_PROPAGATION` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try` 表达式 success path 和 error propagation。 |
