@@ -290,6 +290,7 @@ fn portable_mir_struct_module() PortableMirModule {
         async_frame_meta_count: 0usize,
         global_count: 0usize,
         const_count: 0usize,
+        link_input_count: 0usize,
         functions: portable_mir_struct_vec(),
         blocks: portable_mir_struct_vec(),
         values: portable_mir_struct_vec(),
@@ -307,6 +308,7 @@ fn portable_mir_struct_module() PortableMirModule {
         async_frame_metas: portable_mir_struct_vec(),
         globals: portable_mir_struct_vec(),
         consts: portable_mir_struct_vec(),
+        link_inputs: portable_mir_struct_vec(),
     };
 }
 

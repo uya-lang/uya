@@ -173,6 +173,13 @@ MirConst
   byte_range: offset/count
   dedupe_id: i32
 
+MirLinkInput
+  kind: c_import_object | object_file | library | search_path
+  target_profile_id: i32
+  c_import_id: i32
+  path/name dedupe id
+  capability_req_id: MirCapabilityReqId
+
 MirBlock
   label: MirBlockId
   params: MirBlockParam[]
@@ -495,6 +502,10 @@ interface call 降为：
 global scalar / aggregate initializer 必须先 materialize 为 `MirConst`，再由 `MirGlobal.init_const_id`
 引用。string constants 必须记录稳定 dedupe id、byte range、section/linkage metadata；backend 只能消费
 已 verifier-clean 的 global/const 表，不能重新扫描 AST 重建 initializer。
+
+extern globals 使用 `extern` linkage 和显式 symbol visibility metadata，不携带 initializer const。
+C import object/link inputs 必须进入 `MirLinkInput` 表，记录 object/library/search path、target profile id 和
+capability requirement；backend 不得从 `@c_import` AST 临时重建 linker inputs。
 
 ## 13. Builtin 和特殊形式
 
