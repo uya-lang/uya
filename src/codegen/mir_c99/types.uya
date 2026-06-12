@@ -12,6 +12,17 @@ export const MIR_C99_C_TYPE_KIND_STRUCT: i32 = 6;
 export const MIR_C99_C_TYPE_KIND_ATOMIC_HELPER: i32 = 7;
 export const MIR_C99_C_TYPE_KIND_VECTOR_HELPER: i32 = 8;
 export const MIR_C99_C_TYPE_KIND_MASK_HELPER: i32 = 9;
+export const MIR_C99_C_TYPE_KIND_I8: i32 = 10;
+export const MIR_C99_C_TYPE_KIND_U8: i32 = 11;
+export const MIR_C99_C_TYPE_KIND_I16: i32 = 12;
+export const MIR_C99_C_TYPE_KIND_U16: i32 = 13;
+export const MIR_C99_C_TYPE_KIND_U32: i32 = 14;
+export const MIR_C99_C_TYPE_KIND_I64: i32 = 15;
+export const MIR_C99_C_TYPE_KIND_U64: i32 = 16;
+export const MIR_C99_C_TYPE_KIND_ISIZE: i32 = 17;
+export const MIR_C99_C_TYPE_KIND_BYTE: i32 = 18;
+export const MIR_C99_C_TYPE_KIND_F32: i32 = 19;
+export const MIR_C99_C_TYPE_KIND_F64: i32 = 20;
 
 export const MIR_C99_TYPE_STATUS_MISSING: i32 = 0;
 export const MIR_C99_TYPE_STATUS_READY: i32 = 1;
@@ -73,10 +84,32 @@ fn mir_c99_type_def_from_mir(typ: &MirType) MirC99TypeDef {
         c_kind = MIR_C99_C_TYPE_KIND_VOID;
     } else if typ.kind == MIR_TYPE_KIND_BOOL {
         c_kind = MIR_C99_C_TYPE_KIND_BOOL;
+    } else if typ.kind == MIR_TYPE_KIND_I8 {
+        c_kind = MIR_C99_C_TYPE_KIND_I8;
+    } else if typ.kind == MIR_TYPE_KIND_U8 {
+        c_kind = MIR_C99_C_TYPE_KIND_U8;
+    } else if typ.kind == MIR_TYPE_KIND_I16 {
+        c_kind = MIR_C99_C_TYPE_KIND_I16;
+    } else if typ.kind == MIR_TYPE_KIND_U16 {
+        c_kind = MIR_C99_C_TYPE_KIND_U16;
     } else if typ.kind == MIR_TYPE_KIND_I32 {
         c_kind = MIR_C99_C_TYPE_KIND_I32;
+    } else if typ.kind == MIR_TYPE_KIND_U32 {
+        c_kind = MIR_C99_C_TYPE_KIND_U32;
+    } else if typ.kind == MIR_TYPE_KIND_I64 {
+        c_kind = MIR_C99_C_TYPE_KIND_I64;
+    } else if typ.kind == MIR_TYPE_KIND_U64 {
+        c_kind = MIR_C99_C_TYPE_KIND_U64;
+    } else if typ.kind == MIR_TYPE_KIND_ISIZE {
+        c_kind = MIR_C99_C_TYPE_KIND_ISIZE;
     } else if typ.kind == MIR_TYPE_KIND_USIZE {
         c_kind = MIR_C99_C_TYPE_KIND_USIZE;
+    } else if typ.kind == MIR_TYPE_KIND_BYTE {
+        c_kind = MIR_C99_C_TYPE_KIND_BYTE;
+    } else if typ.kind == MIR_TYPE_KIND_F32 {
+        c_kind = MIR_C99_C_TYPE_KIND_F32;
+    } else if typ.kind == MIR_TYPE_KIND_F64 {
+        c_kind = MIR_C99_C_TYPE_KIND_F64;
     } else if typ.kind == MIR_TYPE_KIND_POINTER {
         c_kind = MIR_C99_C_TYPE_KIND_POINTER;
     } else if typ.kind == MIR_TYPE_KIND_STRUCT {

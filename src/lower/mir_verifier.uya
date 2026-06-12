@@ -152,6 +152,33 @@ fn portable_mir_verify_runtime_capability_supported(module: &PortableMirModule,
         capability_mask);
 }
 
+fn portable_mir_expected_scalar_size_align(typ: &MirType) i32 {
+    if typ == null {
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_BOOL {
+        if typ.size_bytes == 1usize && typ.align_bytes == 1usize { return 1; }
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_I8 || typ.kind == MIR_TYPE_KIND_U8 || typ.kind == MIR_TYPE_KIND_BYTE {
+        if typ.size_bytes == 1usize && typ.align_bytes == 1usize { return 1; }
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_I16 || typ.kind == MIR_TYPE_KIND_U16 {
+        if typ.size_bytes == 2usize && typ.align_bytes == 2usize { return 1; }
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_I32 || typ.kind == MIR_TYPE_KIND_U32 || typ.kind == MIR_TYPE_KIND_F32 {
+        if typ.size_bytes == 4usize && typ.align_bytes == 4usize { return 1; }
+        return 0;
+    }
+    if typ.kind == MIR_TYPE_KIND_I64 || typ.kind == MIR_TYPE_KIND_U64 || typ.kind == MIR_TYPE_KIND_ISIZE || typ.kind == MIR_TYPE_KIND_USIZE || typ.kind == MIR_TYPE_KIND_F64 {
+        if typ.size_bytes == 8usize && typ.align_bytes == 8usize { return 1; }
+        return 0;
+    }
+    return 1;
+}
+
 fn portable_mir_verify_function_ptr(module: &PortableMirModule, id: MirFunctionId) &MirFunction {
     if module == null || id < 0 || (id as usize) >= module.functions.count { return null; }
     return semantic_vector_item_ptr(&module.functions, id as usize) as &MirFunction;
@@ -197,6 +224,9 @@ fn portable_mir_verify_type(module: &PortableMirModule, typ: &MirType, index: us
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, index as i32, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
     }
     if typ.kind != MIR_TYPE_KIND_VOID && (typ.size_bytes == 0usize || typ.align_bytes == 0usize) {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
+    }
+    if portable_mir_expected_scalar_size_align(typ) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_LAYOUT, MIR_FUNCTION_INVALID_ID, MIR_BLOCK_INVALID_ID, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, typ.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, MIR_DEBUG_LOC_INVALID_ID);
     }
     if typ.kind == MIR_TYPE_KIND_POINTER && portable_mir_verify_type_ptr(module, typ.pointee_type_id) == null {

@@ -65,7 +65,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 以下任务必须优先于对应 MIR-C99 backend leaf 完成；后端只能消费实际 `src/lower/mir.uya` / `src/lower/mir_verifier.uya` 中存在并可验证的 MIR type、opcode、metadata 和 capability，不能消费 `src/lower/mir_contract.uya` 中 contract-only 常量伪装支持。
 
 - [ ] MIR-C99-PREMIR-TYPES：补齐后端需要的 PortableMIR type/layout metadata。
-  - [ ] 标量 type kind：`i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64`，并同步 verifier size/align 规则。
+  - [x] 标量 type kind：`i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64`，并同步 verifier size/align 规则。
+    - 验证：`bash tests/verify_mir_c99_type_scalar_gap.sh` 通过；`bash tests/verify_mir_c99_type_scalar_plan.sh` 通过（checker-only 临时合并检查通过，期间出现既有 `checker constraint table 容量已满` 警告但类型检查成功）；`bash tests/verify_portable_mir_verifier.sh` 通过；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [ ] array / slice type kind：包含 element type、length/capacity/ptr/len layout metadata，并同步 verifier。
   - [ ] struct / union / enum field layout metadata：字段顺序、offset、size、align、tag/payload offset 可由 MIR-C99 直接消费。
   - [ ] error union layout metadata：success/error tag、payload offset、ABI class 可由 MIR-C99 直接消费。

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# MIR-C99 scalar type gap verifier.
+# MIR-C99 scalar type metadata verifier.
 
 set -euo pipefail
 
@@ -18,19 +18,40 @@ if [[ ! -f "$TYPE_FILE" ]]; then
     exit 1
 fi
 
-missing_mir_kind='MIR_TYPE_KIND_(I8|U8|I16|U16|U32|I64|U64|ISIZE|BYTE|F32|F64)'
-missing_c_kind='MIR_C99_C_TYPE_KIND_(I8|U8|I16|U16|U32|I64|U64|ISIZE|BYTE|F32|F64)'
+VERIFIER_FILE="$REPO_ROOT/src/lower/mir_verifier.uya"
 
-if grep -Eq "$missing_mir_kind" "$MIR_FILE"; then
-    echo "error: PortableMIR gained scalar type kinds; update MIR-C99 scalar typedef implementation and TODO evidence" >&2
-    grep -En "$missing_mir_kind" "$MIR_FILE" >&2
+require_pattern() {
+    local file="$1"
+    local pattern="$2"
+    local description="$3"
+    if ! grep -Eq "$pattern" "$file"; then
+        echo "error: MIR-C99 scalar type metadata missing evidence: $description" >&2
+        echo "file: $file" >&2
+        exit 1
+    fi
+}
+
+if [[ ! -f "$VERIFIER_FILE" ]]; then
+    echo "error: missing PortableMIR verifier source: $VERIFIER_FILE" >&2
     exit 1
 fi
 
-if grep -Eq "$missing_mir_kind|$missing_c_kind" "$TYPE_FILE"; then
-    echo "error: MIR-C99 type plan claims unsupported scalar type coverage; update verifier and implementation together" >&2
-    grep -En "$missing_mir_kind|$missing_c_kind" "$TYPE_FILE" >&2
-    exit 1
-fi
+for scalar in I8 U8 I16 U16 U32 I64 U64 ISIZE BYTE F32 F64; do
+    require_pattern "$MIR_FILE" "MIR_TYPE_KIND_${scalar}" "PortableMIR scalar kind ${scalar}"
+    require_pattern "$TYPE_FILE" "MIR_C99_C_TYPE_KIND_${scalar}" "MIR-C99 scalar C kind ${scalar}"
+    require_pattern "$TYPE_FILE" "typ\\.kind == MIR_TYPE_KIND_${scalar}" "MIR-C99 maps scalar ${scalar}"
+    require_pattern "$TYPE_FILE" "c_kind = MIR_C99_C_TYPE_KIND_${scalar}" "MIR-C99 assigns scalar C kind ${scalar}"
+done
 
-echo "OK: MIR-C99 scalar type gap recorded for i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64"
+require_pattern "$VERIFIER_FILE" 'portable_mir_expected_scalar_size_align' \
+    "verifier has scalar size/align helper"
+require_pattern "$VERIFIER_FILE" 'typ\.kind == MIR_TYPE_KIND_I8 \|\| typ\.kind == MIR_TYPE_KIND_U8 \|\| typ\.kind == MIR_TYPE_KIND_BYTE' \
+    "verifier groups one-byte scalar layout"
+require_pattern "$VERIFIER_FILE" 'typ\.kind == MIR_TYPE_KIND_I16 \|\| typ\.kind == MIR_TYPE_KIND_U16' \
+    "verifier groups two-byte scalar layout"
+require_pattern "$VERIFIER_FILE" 'typ\.kind == MIR_TYPE_KIND_I32 \|\| typ\.kind == MIR_TYPE_KIND_U32 \|\| typ\.kind == MIR_TYPE_KIND_F32' \
+    "verifier groups four-byte scalar layout"
+require_pattern "$VERIFIER_FILE" 'typ\.kind == MIR_TYPE_KIND_I64 \|\| typ\.kind == MIR_TYPE_KIND_U64 \|\| typ\.kind == MIR_TYPE_KIND_ISIZE \|\| typ\.kind == MIR_TYPE_KIND_USIZE \|\| typ\.kind == MIR_TYPE_KIND_F64' \
+    "verifier groups eight-byte scalar layout"
+
+echo "OK: MIR-C99 scalar type metadata verified for i8/u8/i16/u16/u32/i64/u64/isize/byte/f32/f64"
