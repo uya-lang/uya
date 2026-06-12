@@ -192,6 +192,9 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     if mir_c99_cfg_plan_build_cleanup_drops(request.module, cfg_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }
+    if mir_c99_cfg_plan_build_error_union_returns(request.module, cfg_plan) != 0 {
+        return mir_c99_driver_error(result, -1);
+    }
     if mir_c99_driver_seed_names(request.module, name_plan) != 0 {
         return mir_c99_driver_error(result, -1);
     }

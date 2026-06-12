@@ -13,11 +13,14 @@ export const MIR_C99_CFG_TERMINATOR_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_TERMINATOR_STATUS_REJECT: i32 = 2;
 export const MIR_C99_CFG_DROP_STATUS_PLANNED: i32 = 1;
 export const MIR_C99_CFG_DROP_STATUS_REJECT: i32 = 2;
+export const MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_PLANNED: i32 = 1;
+export const MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_CFG_FUNCTION_FLAG_CLEANUP_ERROR: i32 = 1;
 export const MIR_C99_CFG_BLOCK_FLAG_CLEANUP: i32 = 1;
 export const MIR_C99_CFG_TERMINATOR_FLAG_ERROR_CFG: i32 = 1;
 export const MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE: i32 = 1;
+export const MIR_C99_CFG_ERROR_UNION_RETURN_FLAG_CHECKED: i32 = 1;
 
 /// 功能说明：记录一个 MIR function 到 C function 的稳定映射。
 /// 参数说明：无；字段只保存 MIR function/block range 和 MIR-C99 unit/name 信息。
@@ -85,6 +88,24 @@ export struct MirC99CleanupDropPlanEntry {
     flags: i32,
 }
 
+/// 功能说明：记录一个 MIR error-union return 到 success/fallback C99 return path 的稳定映射。
+/// 参数说明：无；字段来自 MIR return terminator、return value 和 defining error-union instruction。
+/// 返回值说明：无。
+export struct MirC99ErrorUnionReturnPlanEntry {
+    terminator_id: MirTerminatorId,
+    function_id: MirFunctionId,
+    block_id: MirBlockId,
+    return_value_id: MirValueId,
+    defining_inst_id: MirInstId,
+    defining_op: i32,
+    path_kind: i32,
+    payload_value_id: MirValueId,
+    operand_start: i32,
+    operand_count: i32,
+    status: i32,
+    flags: i32,
+}
+
 /// 功能说明：记录 MIR-C99 CFG function plan。
 /// 参数说明：无；动态保存 MIR function/block/terminator 到 C function/label/goto 的映射。
 /// 返回值说明：无。
@@ -93,10 +114,12 @@ export struct MirC99CfgPlan {
     blocks: SemanticVector,
     terminators: SemanticVector,
     cleanup_drops: SemanticVector,
+    error_union_returns: SemanticVector,
     function_count: usize,
     block_count: usize,
     terminator_count: usize,
     cleanup_drop_count: usize,
+    error_union_return_count: usize,
     cleanup_error_function_count: usize,
     cleanup_block_count: usize,
     cleanup_error_terminator_count: usize,
@@ -175,6 +198,24 @@ fn mir_c99_cfg_operand_ptr(module: &PortableMirModule, operand_id: i32) &MirOper
         return null;
     }
     return semantic_vector_item_ptr(&module.operands, operand_id as usize) as &MirOperand;
+}
+
+fn mir_c99_cfg_value_ptr(module: &PortableMirModule, value_id: MirValueId) &MirValue {
+    const value_index: i32 = value_id as i32;
+    if module == null || value_index < 0 ||
+       (value_index as usize) >= module.values.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.values, value_index as usize) as &MirValue;
+}
+
+fn mir_c99_cfg_inst_ptr(module: &PortableMirModule, inst_id: MirInstId) &MirInst {
+    const inst_index: i32 = inst_id as i32;
+    if module == null || inst_index < 0 ||
+       (inst_index as usize) >= module.insts.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.insts, inst_index as usize) as &MirInst;
 }
 
 fn mir_c99_cfg_block_ptr(module: &PortableMirModule, block_id: MirBlockId) &MirBlock {
@@ -269,6 +310,118 @@ fn mir_c99_cfg_cleanup_drop_entry_from_mir(module: &PortableMirModule,
         operand_count: inst.operand_count,
         status: MIR_C99_CFG_DROP_STATUS_PLANNED,
         flags: inst.flags | MIR_C99_CFG_DROP_FLAG_CLEANUP_EDGE,
+    };
+}
+
+fn mir_c99_cfg_error_union_return_reject_entry(term: &MirTerminator,
+    return_value_id: MirValueId) MirC99ErrorUnionReturnPlanEntry {
+    var terminator_id: MirTerminatorId = MIR_TERMINATOR_INVALID_ID;
+    var function_id: MirFunctionId = MIR_FUNCTION_INVALID_ID;
+    var block_id: MirBlockId = MIR_BLOCK_INVALID_ID;
+    var operand_start: i32 = -1;
+    var operand_count: i32 = 0;
+    var flags: i32 = 0;
+    if term != null {
+        terminator_id = term.terminator_id;
+        function_id = term.function_id;
+        block_id = term.block_id;
+        operand_start = term.operand_start;
+        operand_count = term.operand_count;
+        flags = term.flags;
+    }
+    return MirC99ErrorUnionReturnPlanEntry{
+        terminator_id: terminator_id,
+        function_id: function_id,
+        block_id: block_id,
+        return_value_id: return_value_id,
+        defining_inst_id: MIR_INST_INVALID_ID,
+        defining_op: 0,
+        path_kind: 0,
+        payload_value_id: MIR_VALUE_INVALID_ID,
+        operand_start: operand_start,
+        operand_count: operand_count,
+        status: MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_REJECT,
+        flags: flags,
+    };
+}
+
+fn mir_c99_cfg_error_union_return_path(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if inst.op == MIR_INST_OP_ERROR_UNION_OK ||
+       inst.op == MIR_INST_OP_ERROR_UNION_PAYLOAD {
+        return MIR_ERROR_UNION_PATH_SUCCESS;
+    }
+    if inst.op == MIR_INST_OP_ERROR_UNION_ERR ||
+       inst.op == MIR_INST_OP_ERROR_UNION_ERROR {
+        return MIR_ERROR_UNION_PATH_FAILURE;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_error_union_return_flags(inst: &MirInst) i32 {
+    if inst == null {
+        return 0;
+    }
+    if (inst.flags & MIR_INST_FLAG_ERROR_UNION_CHECKED) != 0 {
+        return MIR_C99_CFG_ERROR_UNION_RETURN_FLAG_CHECKED;
+    }
+    return 0;
+}
+
+fn mir_c99_cfg_error_union_return_inst(module: &PortableMirModule,
+    term: &MirTerminator) &MirInst {
+    if module == null || term == null || term.kind != MIR_TERMINATOR_KIND_RETURN ||
+       term.operand_count != 1 {
+        return null;
+    }
+    const return_operand: &MirOperand = mir_c99_cfg_operand_ptr(module, term.operand_start);
+    if return_operand == null {
+        return null;
+    }
+    const value: &MirValue = mir_c99_cfg_value_ptr(module, return_operand.value_id);
+    if value == null || value.defining_inst_id == MIR_INST_INVALID_ID {
+        return null;
+    }
+    const inst: &MirInst = mir_c99_cfg_inst_ptr(module, value.defining_inst_id);
+    if inst == null || portable_mir_inst_op_is_error_union(inst.op) == 0 {
+        return null;
+    }
+    return inst;
+}
+
+fn mir_c99_cfg_error_union_return_entry_from_mir(module: &PortableMirModule,
+    term: &MirTerminator) MirC99ErrorUnionReturnPlanEntry {
+    if module == null || term == null || term.kind != MIR_TERMINATOR_KIND_RETURN ||
+       term.operand_count != 1 {
+        return mir_c99_cfg_error_union_return_reject_entry(term, MIR_VALUE_INVALID_ID);
+    }
+    const return_operand: &MirOperand = mir_c99_cfg_operand_ptr(module, term.operand_start);
+    if return_operand == null {
+        return mir_c99_cfg_error_union_return_reject_entry(term, MIR_VALUE_INVALID_ID);
+    }
+    const inst: &MirInst = mir_c99_cfg_error_union_return_inst(module, term);
+    if inst == null {
+        return mir_c99_cfg_error_union_return_reject_entry(term, return_operand.value_id);
+    }
+    const path: i32 = mir_c99_cfg_error_union_return_path(inst);
+    if path == 0 {
+        return mir_c99_cfg_error_union_return_reject_entry(term, return_operand.value_id);
+    }
+    return MirC99ErrorUnionReturnPlanEntry{
+        terminator_id: term.terminator_id,
+        function_id: term.function_id,
+        block_id: term.block_id,
+        return_value_id: return_operand.value_id,
+        defining_inst_id: inst.inst_id,
+        defining_op: inst.op,
+        path_kind: path,
+        payload_value_id: inst.result_value_id,
+        operand_start: term.operand_start,
+        operand_count: term.operand_count,
+        status: MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_PLANNED,
+        flags: mir_c99_cfg_error_union_return_flags(inst),
     };
 }
 
@@ -500,10 +653,12 @@ export fn mir_c99_cfg_plan_init(plan: &MirC99CfgPlan) i32 {
     semantic_vector_init(&plan.blocks, @size_of(MirC99BlockPlanEntry));
     semantic_vector_init(&plan.terminators, @size_of(MirC99TerminatorPlanEntry));
     semantic_vector_init(&plan.cleanup_drops, @size_of(MirC99CleanupDropPlanEntry));
+    semantic_vector_init(&plan.error_union_returns, @size_of(MirC99ErrorUnionReturnPlanEntry));
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
     plan.cleanup_drop_count = 0usize;
+    plan.error_union_return_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -522,10 +677,12 @@ export fn mir_c99_cfg_plan_release(plan: &MirC99CfgPlan) void {
     semantic_vector_release(&plan.blocks);
     semantic_vector_release(&plan.terminators);
     semantic_vector_release(&plan.cleanup_drops);
+    semantic_vector_release(&plan.error_union_returns);
     plan.function_count = 0usize;
     plan.block_count = 0usize;
     plan.terminator_count = 0usize;
     plan.cleanup_drop_count = 0usize;
+    plan.error_union_return_count = 0usize;
     plan.cleanup_error_function_count = 0usize;
     plan.cleanup_block_count = 0usize;
     plan.cleanup_error_terminator_count = 0usize;
@@ -636,6 +793,31 @@ export fn mir_c99_cfg_plan_append_cleanup_drop(cfg_plan: &MirC99CfgPlan,
     return 0;
 }
 
+/// 功能说明：向 MIR-C99 CFG plan 追加一个 MIR error-union success/fallback return 映射。
+/// 参数说明：`cfg_plan` 为 CFG plan，`module` 为 MIR module，`terminator` 为 MIR return terminator。
+/// 返回值说明：非 error-union return 返回 `0`；error-union return 映射成功返回 `0`，不支持返回 `-1`。
+export fn mir_c99_cfg_plan_append_error_union_return(cfg_plan: &MirC99CfgPlan,
+    module: &PortableMirModule, terminator: &MirTerminator) i32 {
+    if cfg_plan == null || module == null || terminator == null {
+        return -1;
+    }
+    if mir_c99_cfg_error_union_return_inst(module, terminator) == null {
+        return 0;
+    }
+    const entry: MirC99ErrorUnionReturnPlanEntry =
+        mir_c99_cfg_error_union_return_entry_from_mir(module, terminator);
+    if semantic_vector_append(&cfg_plan.error_union_returns,
+        &entry as &const void) != 0 {
+        return -1;
+    }
+    cfg_plan.error_union_return_count = cfg_plan.error_union_returns.count;
+    if entry.status == MIR_C99_CFG_ERROR_UNION_RETURN_STATUS_REJECT {
+        cfg_plan.reject_count = cfg_plan.reject_count + 1usize;
+        return -1;
+    }
+    return 0;
+}
+
 /// 功能说明：从 PortableMIR module 构建 MIR function -> C function 映射。
 /// 参数说明：`module` 为 verifier-clean MIR module，`output_plan` 为 MIR-C99 plan，`unit` 为目标 single unit，`cfg_plan` 为输出 CFG plan。
 /// 返回值说明：全部 function 映射成功返回 `0`，参数非法或任一 function 失败返回 `-1`。
@@ -714,6 +896,27 @@ export fn mir_c99_cfg_plan_build_cleanup_drops(module: &PortableMirModule,
     return status;
 }
 
+/// 功能说明：从 PortableMIR module 构建 error-union success/fallback return 映射。
+/// 参数说明：`module` 为 verifier-clean MIR module，`cfg_plan` 为输出 CFG plan。
+/// 返回值说明：全部 error-union return 映射成功返回 `0`，参数非法或任一映射失败返回 `-1`。
+export fn mir_c99_cfg_plan_build_error_union_returns(module: &PortableMirModule,
+    cfg_plan: &MirC99CfgPlan) i32 {
+    if module == null || cfg_plan == null {
+        return -1;
+    }
+    var status: i32 = 0;
+    var i: usize = 0usize;
+    while i < module.terminators.count {
+        const term: &MirTerminator =
+            semantic_vector_item_ptr(&module.terminators, i) as &MirTerminator;
+        if mir_c99_cfg_plan_append_error_union_return(cfg_plan, module, term) != 0 {
+            status = -1;
+        }
+        i = i + 1usize;
+    }
+    return status;
+}
+
 /// 功能说明：按下标读取 MIR-C99 function plan 条目。
 /// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
 /// 返回值说明：成功返回条目指针，参数非法返回 null。
@@ -754,6 +957,19 @@ export fn mir_c99_cfg_cleanup_drop_entry_ptr(cfg_plan: &MirC99CfgPlan,
     }
     return semantic_vector_item_ptr(&cfg_plan.cleanup_drops,
         index as usize) as &MirC99CleanupDropPlanEntry;
+}
+
+/// 功能说明：按下标读取 MIR-C99 error-union return plan 条目。
+/// 参数说明：`cfg_plan` 为 CFG plan，`index` 为条目下标。
+/// 返回值说明：成功返回条目指针，参数非法返回 null。
+export fn mir_c99_cfg_error_union_return_entry_ptr(cfg_plan: &MirC99CfgPlan,
+    index: i32) &MirC99ErrorUnionReturnPlanEntry {
+    if cfg_plan == null || index < 0 ||
+       (index as usize) >= cfg_plan.error_union_returns.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&cfg_plan.error_union_returns,
+        index as usize) as &MirC99ErrorUnionReturnPlanEntry;
 }
 
 /// 功能说明：输出 MIR-C99 BR terminator 对应的低级 C99 `goto bbN;` 语句。
