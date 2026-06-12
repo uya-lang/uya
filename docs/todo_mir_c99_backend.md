@@ -310,7 +310,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.8 Calls / ABI
 
-- [ ] MIR-C99-BACKEND-CALLS：实现 MIR call 到 C call。
+- [x] MIR-C99-BACKEND-CALLS：实现 MIR call 到 C call。
   - [x] Uya direct call。
     - 验证：`bash tests/verify_mir_c99_call_direct_plan.sh` 通过；`bash tests/verify_portable_mir_call_target_inventory.sh` 通过；`bash tests/verify_portable_mir_call_abi_metadata_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_portable_mir_golden.sh` 通过；`bash tests/verify_mir_c99_value_plan.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] extern function call。
@@ -335,7 +335,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.9 Runtime Helpers
 
-- [ ] MIR-C99-BACKEND-RUNTIME-HELPERS：只接入 MIR 显式要求的 helper。
+- [x] MIR-C99-BACKEND-RUNTIME-HELPERS：只接入 MIR 显式要求的 helper。
   - [x] `memcpy` / `memset` / `memcmp` / string primitive helper。
     - 验证：`bash tests/verify_mir_c99_runtime_memory_helper_plan.sh` 通过；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_unit_output_sections.sh` 通过；`bash tests/verify_portable_mir_runtime_memory_helpers.sh` 通过；`bash tests/verify_portable_mir_call_abi_profile.sh` 通过（断言数 52）；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] print/println 最小 stdout helper。
@@ -377,7 +377,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.11 Cleanup / Error
 
-- [ ] MIR-C99-BACKEND-CLEANUP-ERROR：消费 MIR cleanup CFG。
+- [x] MIR-C99-BACKEND-CLEANUP-ERROR：消费 MIR cleanup CFG。
   - [x] `try` / `catch` 已展开到 MIR 后，C99 只输出对应 CFG。
     - 验证：`bash tests/verify_mir_c99_cleanup_error_cfg_boundary.sh` 通过；`bash tests/verify_mir_c99_cfg_function_plan.sh` 通过；`bash tests/verify_portable_mir_error_union_cfg_inventory.sh` 通过；`bash tests/verify_portable_mir_cleanup_drop_inventory.sh` 通过；`bash tests/verify_portable_mir_verifier.sh` 通过（断言数 138）；`bash tests/verify_mir_c99_emitter_unit_output.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh` 通过并报告 `generator commands are pending backend hookup`；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
   - [x] `defer` / `errdefer` / lexical drop 只按 MIR cleanup edge 输出，不重新理解 AST。
