@@ -7,6 +7,7 @@ export const MIR_C99_EMITTER_STATUS_UNINITIALIZED: i32 = 0;
 export const MIR_C99_EMITTER_STATUS_READY: i32 = 1;
 export const MIR_C99_EMITTER_STATUS_PLANNED: i32 = 2;
 export const MIR_C99_EMITTER_STATUS_DONE: i32 = 3;
+export const MIR_C99_EMITTER_DIAG_UNVERIFIED_REQUEST: i32 = -100;
 
 /// 功能说明：记录 MIR-C99 emitter 从 verified PortableMIR 到 C bytes 的状态。
 /// 参数说明：无；字段由 `mir_c99_emitter_begin` 和 `mir_c99_emitter_read_plan` 填充。
@@ -115,7 +116,7 @@ export fn mir_c99_emitter_begin(emitter: &MirC99Emitter, request: &MirTargetBack
     if request.backend_kind != MIR_TARGET_BACKEND_C99 ||
        portable_mir_backend_request_is_verified(request) == 0 ||
        plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE {
-        return mir_c99_emitter_error(emitter, -1);
+        return mir_c99_emitter_error(emitter, MIR_C99_EMITTER_DIAG_UNVERIFIED_REQUEST);
     }
     emitter.status = MIR_C99_EMITTER_STATUS_READY;
     emitter.target_profile_id = request.target_profile_id;

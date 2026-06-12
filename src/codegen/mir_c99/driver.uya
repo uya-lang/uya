@@ -10,6 +10,7 @@ export const MIR_C99_DRIVER_STATUS_ERROR: i32 = -1;
 export const MIR_C99_DRIVER_STATUS_UNINITIALIZED: i32 = 0;
 export const MIR_C99_DRIVER_STATUS_READY: i32 = 1;
 export const MIR_C99_DRIVER_STATUS_DONE: i32 = 2;
+export const MIR_C99_DRIVER_DIAG_UNVERIFIED_REQUEST: i32 = -100;
 
 /// 功能说明：记录 MIR-C99 driver 的一次后端执行结果。
 /// 参数说明：无；字段保存 plan、emitter 摘要和 diagnostic code。
@@ -104,7 +105,7 @@ export fn mir_c99_driver_run(request: &MirTargetBackendRequest, arena: &Compiler
     }
     if request.backend_kind != MIR_TARGET_BACKEND_C99 ||
        portable_mir_backend_request_is_verified(request) == 0 {
-        return mir_c99_driver_error(result, -1);
+        return mir_c99_driver_error(result, MIR_C99_DRIVER_DIAG_UNVERIFIED_REQUEST);
     }
     if mir_c99_plan_init(plan, arena, request.target_profile_id) != 0 {
         return mir_c99_driver_error(result, -1);
