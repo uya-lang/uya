@@ -6,6 +6,9 @@
 #   - `docs/portable_mir_language_coverage.md` exists and is parseable.
 #   - Every `AST_*` constant declared in `src/ast.uya` appears in the matrix
 #     AST section with one of `done|partial|reject|missing`.
+#   - Every covered AST/Core row also carries a MIR-C99 status with the same
+#     vocabulary, so the matrix cannot claim Core/PortableMIR coverage as
+#     MIR-C99 parity by omission.
 #   - Every `CORE_STMT_KIND_*` / `CORE_EXPR_KIND_*` / `CORE_PLACE_KIND_*`
 #     declared in `src/lower/core.uya` appears in the matrix's Core sections
 #     with the same status vocabulary.
@@ -63,7 +66,7 @@ collect_core_kinds() {
 
 # Pull a kind-to-status map from the matrix.
 # Strategy: parse every markdown table row of the form
-#   `| \`KIND\` | STATUS | ...|`
+#   `| \`KIND\` | STATUS | MIR_C99_STATUS | ...|`
 # within the section whose header text mentions `KIND` and the desired prefix.
 # To keep the parser small, we grep within the section text bounded by the
 # nearest `## ` header. The function is invoked with the kind kind to look
@@ -72,7 +75,8 @@ collect_core_kinds() {
 status_in_section() {
     local section_anchor="$1"
     local kind="$2"
-    awk -v anchor="$section_anchor" -v k="$kind" '
+    local column="$3"
+    awk -v anchor="$section_anchor" -v k="$kind" -v status_column="$column" '
         $0 ~ "^## " {
             in_section=($0 ~ anchor)
         }
@@ -86,7 +90,7 @@ status_in_section() {
                 gsub(/^`/, "", c)
                 gsub(/`[[:space:]]*$/, "", c)
                 if (c==k) {
-                    found_status=cols[2]
+                    found_status=cols[status_column]
                     gsub(/`/, "", found_status)
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", found_status)
                     print found_status
@@ -103,7 +107,8 @@ check_kind() {
     local section_anchor="$1"
     local kind="$2"
     local status
-    status="$(status_in_section "$section_anchor" "$kind" || true)"
+    local mir_c99_status
+    status="$(status_in_section "$section_anchor" "$kind" 2 || true)"
     if [[ -z "$status" ]]; then
         echo "error: coverage matrix missing $kind in section '$section_anchor'" >&2
         failures=$((failures+1))
@@ -111,6 +116,16 @@ check_kind() {
     fi
     if ! [[ "$status" =~ ^($ALLOWED_STATUS)$ ]]; then
         echo "error: coverage matrix status for $kind is '$status', not in {$ALLOWED_STATUS}" >&2
+        failures=$((failures+1))
+    fi
+    mir_c99_status="$(status_in_section "$section_anchor" "$kind" 3 || true)"
+    if [[ -z "$mir_c99_status" ]]; then
+        echo "error: coverage matrix missing MIR-C99 status for $kind in section '$section_anchor'" >&2
+        failures=$((failures+1))
+        return
+    fi
+    if ! [[ "$mir_c99_status" =~ ^($ALLOWED_STATUS)$ ]]; then
+        echo "error: coverage matrix MIR-C99 status for $kind is '$mir_c99_status', not in {$ALLOWED_STATUS}" >&2
         failures=$((failures+1))
     fi
 }

@@ -11,10 +11,12 @@
 ## 1. 目的与范围
 
 本文件是 Uya 编译器在 `CoreBody -> PortableMIR` 及其后端消费路径上的**语言面覆盖矩阵**。
-当前表格的 `状态` 列只描述 Core/PortableMIR 语言面覆盖；它不是 MIR-C99 完整支持结论。
+当前表格的 `状态` 列只描述 Core/PortableMIR 语言面覆盖；`MIR-C99 状态` 列描述独立
+`PortableMIR -> MirC99Plan -> MirC99Emitter` 后端的 per-kind 支持状态。两列不能互相替代。
 MIR-C99 的目标口径是：普通 Uya 程序经 `CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter`
 生成 host C99 compiler 可编译运行的产物，并与现有 C99 oracle 行为一致。直到新增独立
-`src/codegen/mir_c99/` 后端和专用 parity harness 前，MIR-C99 全局状态为 `missing`。
+`src/codegen/mir_c99/` 后端和专用 parity harness 前，MIR-C99 全局状态和 per-kind 状态均为
+`missing`。
 
 每一行（kind）的 Core/PortableMIR 状态必须落在以下四种状态之一：
 
@@ -38,6 +40,7 @@ MIR-C99 状态以 §2.1 和 `docs/todo_mir_c99_backend.md` 的详细任务列表
 - `src/ast.uya` 中每个 `ASTNodeType` 常量在矩阵的"ASTNode"分类下有状态；
 - `src/lower/core.uya` 中每个 `CORE_STMT_KIND_*`、`CORE_EXPR_KIND_*`、`CORE_PLACE_KIND_*`
   常量在矩阵对应分类下有状态；
+- AST/Core kind 行必须同时带有合法的 `MIR-C99 状态`；
 - 新增 AST/Core 常量时矩阵必须更新（CI 由脚本在 PR 时检查）。
 
 ---
@@ -70,100 +73,100 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 `src/ast.uya` 中 `enum ASTNodeType` 的 92 个常量。
 
-| kind | 状态 | 备注 |
-|------|------|------|
-| `AST_PROGRAM` | done | 模块入口；`tests/verify_portable_mir_structs.sh` 固定。 |
-| `AST_ENUM_DECL` | done | Phase 9A 验证；`enum SmokeColor { Red, Green, Blue }` 在 `full_language` smoke 中 C99 通过。 |
-| `AST_ERROR_DECL` | done | `error SmokeError;` 由 Phase 9A 验证。 |
-| `AST_INTERFACE_DECL` | done | `interface SmokeAdder { ... }` 由 C99 oracle 和覆盖矩阵样本固定；MIR-C99 parity 待专用 harness。 |
-| `AST_STRUCT_DECL` | done | `SmokeCounter`/`SmokeDrop` 由 Phase 9A 验证。 |
-| `AST_UNION_DECL` | done | `SmokeUnion.i/b` 由 Phase 9A 验证。 |
-| `AST_METHOD_BLOCK` | partial | `SmokeCounter { fn add/double ... }` 在 C99 中通过；MIR 已识别 method block，vtable lowering 待 MIR-C99 parity。 |
-| `AST_FN_DECL` | done | 主路径；`export fn` / `fn` 已走 CoreBody。 |
-| `AST_MACRO_DECL` | partial | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
-| `AST_TYPE_ALIAS` | done | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
-| `AST_VAR_DECL` | done | `var array`/`var atomic_value` 等。 |
-| `AST_EXTERN_VAR_DECL` | done | `extern const/var` 由 C99 backend 处理；MIR-C99 extern/global parity 待补。 |
-| `AST_DESTRUCTURE_DECL` | partial | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
-| `AST_USE_STMT` | done | `use smoke_helper;` 由 Phase 9A 验证。 |
-| `AST_C_IMPORT_DECL` | done | C99 oracle 已覆盖；MIR-C99 link plan / sidecar object parity 待补。 |
-| `AST_IF_STMT` | done | Phase 9A 验证（基础 if-return）。 |
-| `AST_WHILE_STMT` | done | Phase 9A 验证。 |
-| `AST_FOR_STMT` | done | Phase 9A 验证。 |
-| `AST_BREAK_STMT` | done | 走 loop/cleanup edge。 |
-| `AST_CONTINUE_STMT` | done | 走 loop/cleanup edge。 |
-| `AST_RETURN_STMT` | done | Phase 9A 验证；`return literal`/`return call` shard。 |
-| `AST_DEFER_STMT` | done | C99 oracle 已覆盖；MIR cleanup edge 到 MIR-C99 parity 待补。 |
-| `AST_ERRDEFER_STMT` | partial | C99 通过；MIR 已有 `CORE_STMT_KIND_ERRDEFER` 占位，MIR-C99 cleanup parity 待补。 |
-| `AST_TEST_STMT` | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
-| `AST_ASSIGN` | done | Phase 9A 验证（`atomic_value += 2` 走 fetch_add）。 |
-| `AST_EXPR_STMT` | done | Phase 9A 验证。 |
-| `AST_BLOCK` | done | `CORE_STMT_KIND_EXPR` 入口。 |
-| `AST_BINARY_EXPR` | done | Phase 9A 验证（`==`/`<`/`+` 等）。 |
-| `AST_UNARY_EXPR` | done | Phase 9A 验证。 |
-| `AST_CALL_EXPR` | done | Phase 9A 验证（method call / 泛型 call）。 |
-| `AST_MEMBER_ACCESS` | done | `counter.double`/`self.value` 等。 |
-| `AST_ARRAY_ACCESS` | done | `slice[0]`/`array[1]` 等；C99 oracle 已覆盖，MIR-C99 index parity 待补。 |
-| `AST_SLICE_EXPR` | done | `array[1:2]` 由 `slice` shard 验证。 |
-| `AST_STRUCT_INIT` | done | `SmokeCounter{ value: 7 }` 等。 |
-| `AST_ARRAY_LITERAL` | done | `[1, 2, 3, 4]`。 |
-| `AST_TUPLE_LITERAL` | partial | 走 typed-program 路径；MIR 仅 basic tuple 表面。 |
-| `AST_SIZEOF` | done | `@size_of` 由 `builtin` shard 验证。 |
-| `AST_LEN` | done | `@len` 由 `array_len` shard 验证。 |
-| `AST_ALIGNOF` | done | `@align_of` 由 `builtin` shard 验证。 |
-| `AST_CAST_EXPR` | done | `as i32` 等。 |
-| `AST_IDENTIFIER` | done | Phase 9A 验证。 |
-| `AST_UNDERSCORE` | done | ignore placeholder。 |
-| `AST_NUMBER` | done | `CORE_EXPR_KIND_INT_LITERAL`。 |
-| `AST_FLOAT` | partial | C99 通过；MIR float literal surface 走尚未冻结的 `CORE_EXPR_KIND_FLOAT_LITERAL` 路径。 |
-| `AST_BOOL` | done | `true`/`false`。 |
-| `AST_INT_LIMIT` | missing | `i32.min`/`u64.max` 等暂未在 MIR-C99 shard 中独立验证。 |
-| `AST_STRING` | done | C99 通过；MIR-C99 string constant lowering 待专用 parity。 |
-| `AST_CHAR` | done | C99 通过。 |
-| `AST_STRING_INTERP` | partial | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
-| `AST_PARAMS` | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
-| `AST_TRY_EXPR` | done | `try expr` 经 `CORE_STMT_KIND_ERROR_PROPAGATION`。 |
-| `AST_CATCH_EXPR` | done | `expr catch { ... }` 由 `catch` shard 验证。 |
-| `AST_ERROR_VALUE` | done | `error.SmokeError` 由 `error_id` shard 验证。 |
-| `AST_MATCH_EXPR` | done | `match union_value { .i(x) => x, .b(_) => 0 }` 由 `dynamic_catch` 邻接路径覆盖。 |
-| `AST_MC_EVAL` | partial | 宏内求值；MIR 端走 pre-MIR helper。 |
-| `AST_MC_CODE` | partial | 宏内生成代码。 |
-| `AST_MC_AST` | partial | 宏内获取 AST。 |
-| `AST_MC_ERROR` | partial | 宏内报错。 |
-| `AST_MC_INTERP` | partial | 宏内插值。 |
-| `AST_MC_TYPE` | partial | 宏内类型反射。 |
-| `AST_MC_SOURCE` | partial | 宏内源码字符串序列化。 |
-| `AST_AWAIT_EXPR` | partial | 异步表达式；C99 走 async transform。 |
-| `AST_SRC_NAME` | done | C99 builtin；MIR-C99 runtime helper parity 待补。 |
-| `AST_SRC_PATH` | done | C99 builtin。 |
-| `AST_SRC_LINE` | done | C99 builtin。 |
-| `AST_SRC_COL` | done | C99 builtin。 |
-| `AST_FUNC_NAME` | done | C99 builtin。 |
-| `AST_EMBED` | missing | `@embed("path")` 编译期嵌入未迁 MIR。 |
-| `AST_EMBED_DIR` | missing | `@embed_dir("path")` 同上。 |
-| `AST_SYSCALL` | missing | `@syscall(nr, ...)` 需要 capability diagnostic 和 MIR-C99 parity/reject 记录。 |
-| `AST_PTR_FROM_USIZE` | missing | `@ptr_from_usize`。 |
-| `AST_USIZE_FROM_PTR` | missing | `@usize_from_ptr`。 |
-| `AST_ERROR_ID` | done | `@error_id` 由 `error_id` shard 验证。 |
-| `AST_ERROR_NAME` | done | `@error_name` 由 `error_id` shard 邻接路径覆盖。 |
-| `AST_VA_START` | missing | `@va_start` 仅 `c_import` 边界使用。 |
-| `AST_VA_END` | missing | 同上。 |
-| `AST_VA_ARG` | missing | 同上。 |
-| `AST_VA_COPY` | missing | 同上。 |
-| `AST_ASM` | missing | `@asm { ... }` 需要 capability diagnostic 和 MIR-C99 reject 记录。 |
-| `AST_ASM_TARGET` | missing | `@asm_target()` 平台检测。 |
-| `AST_PRINT` | done | `@print(expr)` C99 已完整 codegen（`c99/expr.uya:9167`）；MIR-C99 HelloWorld parity 待补。 |
-| `AST_PRINTLN` | done | `@println(expr)` 同上；目标合同 `docs/helloworld_parity_target.md` 锁定 bare / split / return-as-expr 三变体。 |
-| `AST_TYPE_NAMED` | done | Phase 9A 验证。 |
-| `AST_TYPE_POINTER` | done | `&T` 指针类型。 |
-| `AST_TYPE_ARRAY` | done | `[T: N]` 数组类型。 |
-| `AST_TYPE_SLICE` | done | `&[T]` 切片类型。 |
-| `AST_TYPE_TUPLE` | partial | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | `!T` 由 `catch`/`dynamic_catch` shard 邻接覆盖。 |
-| `AST_TYPE_ATOMIC` | done | `atomic T` 由 `atomic` shard 验证。 |
-| `AST_TYPE_VECTOR` | done | `@vector(T, N)` 由 `simd` shard 验证。 |
-| `AST_TYPE_MASK` | done | `@mask(N)` 由 `simd` shard 验证。 |
-| `AST_TYPE_FRAME` | partial | `@frame(foo)` 异步帧类型走 async transform。 |
+| kind | 状态 | MIR-C99 状态 | 备注 |
+|------|------|---------------|------|
+| `AST_PROGRAM` | done | missing | 模块入口；`tests/verify_portable_mir_structs.sh` 固定。 |
+| `AST_ENUM_DECL` | done | missing | Phase 9A 验证；`enum SmokeColor { Red, Green, Blue }` 在 `full_language` smoke 中 C99 通过。 |
+| `AST_ERROR_DECL` | done | missing | `error SmokeError;` 由 Phase 9A 验证。 |
+| `AST_INTERFACE_DECL` | done | missing | `interface SmokeAdder { ... }` 由 C99 oracle 和覆盖矩阵样本固定；MIR-C99 parity 待专用 harness。 |
+| `AST_STRUCT_DECL` | done | missing | `SmokeCounter`/`SmokeDrop` 由 Phase 9A 验证。 |
+| `AST_UNION_DECL` | done | missing | `SmokeUnion.i/b` 由 Phase 9A 验证。 |
+| `AST_METHOD_BLOCK` | partial | missing | `SmokeCounter { fn add/double ... }` 在 C99 中通过；MIR 已识别 method block，vtable lowering 待 MIR-C99 parity。 |
+| `AST_FN_DECL` | done | missing | 主路径；`export fn` / `fn` 已走 CoreBody。 |
+| `AST_MACRO_DECL` | partial | missing | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
+| `AST_TYPE_ALIAS` | done | missing | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
+| `AST_VAR_DECL` | done | missing | `var array`/`var atomic_value` 等。 |
+| `AST_EXTERN_VAR_DECL` | done | missing | `extern const/var` 由 C99 backend 处理；MIR-C99 extern/global parity 待补。 |
+| `AST_DESTRUCTURE_DECL` | partial | missing | `const (x, y) = expr` 在 C99 中通过；MIR 的 destructure surface 正在收敛。 |
+| `AST_USE_STMT` | done | missing | `use smoke_helper;` 由 Phase 9A 验证。 |
+| `AST_C_IMPORT_DECL` | done | missing | C99 oracle 已覆盖；MIR-C99 link plan / sidecar object parity 待补。 |
+| `AST_IF_STMT` | done | missing | Phase 9A 验证（基础 if-return）。 |
+| `AST_WHILE_STMT` | done | missing | Phase 9A 验证。 |
+| `AST_FOR_STMT` | done | missing | Phase 9A 验证。 |
+| `AST_BREAK_STMT` | done | missing | 走 loop/cleanup edge。 |
+| `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
+| `AST_RETURN_STMT` | done | missing | Phase 9A 验证；`return literal`/`return call` shard。 |
+| `AST_DEFER_STMT` | done | missing | C99 oracle 已覆盖；MIR cleanup edge 到 MIR-C99 parity 待补。 |
+| `AST_ERRDEFER_STMT` | partial | missing | C99 通过；MIR 已有 `CORE_STMT_KIND_ERRDEFER` 占位，MIR-C99 cleanup parity 待补。 |
+| `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
+| `AST_ASSIGN` | done | missing | Phase 9A 验证（`atomic_value += 2` 走 fetch_add）。 |
+| `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
+| `AST_BLOCK` | done | missing | `CORE_STMT_KIND_EXPR` 入口。 |
+| `AST_BINARY_EXPR` | done | missing | Phase 9A 验证（`==`/`<`/`+` 等）。 |
+| `AST_UNARY_EXPR` | done | missing | Phase 9A 验证。 |
+| `AST_CALL_EXPR` | done | missing | Phase 9A 验证（method call / 泛型 call）。 |
+| `AST_MEMBER_ACCESS` | done | missing | `counter.double`/`self.value` 等。 |
+| `AST_ARRAY_ACCESS` | done | missing | `slice[0]`/`array[1]` 等；C99 oracle 已覆盖，MIR-C99 index parity 待补。 |
+| `AST_SLICE_EXPR` | done | missing | `array[1:2]` 由 `slice` shard 验证。 |
+| `AST_STRUCT_INIT` | done | missing | `SmokeCounter{ value: 7 }` 等。 |
+| `AST_ARRAY_LITERAL` | done | missing | `[1, 2, 3, 4]`。 |
+| `AST_TUPLE_LITERAL` | partial | missing | 走 typed-program 路径；MIR 仅 basic tuple 表面。 |
+| `AST_SIZEOF` | done | missing | `@size_of` 由 `builtin` shard 验证。 |
+| `AST_LEN` | done | missing | `@len` 由 `array_len` shard 验证。 |
+| `AST_ALIGNOF` | done | missing | `@align_of` 由 `builtin` shard 验证。 |
+| `AST_CAST_EXPR` | done | missing | `as i32` 等。 |
+| `AST_IDENTIFIER` | done | missing | Phase 9A 验证。 |
+| `AST_UNDERSCORE` | done | missing | ignore placeholder。 |
+| `AST_NUMBER` | done | missing | `CORE_EXPR_KIND_INT_LITERAL`。 |
+| `AST_FLOAT` | partial | missing | C99 通过；MIR float literal surface 走尚未冻结的 `CORE_EXPR_KIND_FLOAT_LITERAL` 路径。 |
+| `AST_BOOL` | done | missing | `true`/`false`。 |
+| `AST_INT_LIMIT` | missing | missing | `i32.min`/`u64.max` 等暂未在 MIR-C99 shard 中独立验证。 |
+| `AST_STRING` | done | missing | C99 通过；MIR-C99 string constant lowering 待专用 parity。 |
+| `AST_CHAR` | done | missing | C99 通过。 |
+| `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
+| `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
+| `AST_TRY_EXPR` | done | missing | `try expr` 经 `CORE_STMT_KIND_ERROR_PROPAGATION`。 |
+| `AST_CATCH_EXPR` | done | missing | `expr catch { ... }` 由 `catch` shard 验证。 |
+| `AST_ERROR_VALUE` | done | missing | `error.SmokeError` 由 `error_id` shard 验证。 |
+| `AST_MATCH_EXPR` | done | missing | `match union_value { .i(x) => x, .b(_) => 0 }` 由 `dynamic_catch` 邻接路径覆盖。 |
+| `AST_MC_EVAL` | partial | missing | 宏内求值；MIR 端走 pre-MIR helper。 |
+| `AST_MC_CODE` | partial | missing | 宏内生成代码。 |
+| `AST_MC_AST` | partial | missing | 宏内获取 AST。 |
+| `AST_MC_ERROR` | partial | missing | 宏内报错。 |
+| `AST_MC_INTERP` | partial | missing | 宏内插值。 |
+| `AST_MC_TYPE` | partial | missing | 宏内类型反射。 |
+| `AST_MC_SOURCE` | partial | missing | 宏内源码字符串序列化。 |
+| `AST_AWAIT_EXPR` | partial | missing | 异步表达式；C99 走 async transform。 |
+| `AST_SRC_NAME` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
+| `AST_SRC_PATH` | done | missing | C99 builtin。 |
+| `AST_SRC_LINE` | done | missing | C99 builtin。 |
+| `AST_SRC_COL` | done | missing | C99 builtin。 |
+| `AST_FUNC_NAME` | done | missing | C99 builtin。 |
+| `AST_EMBED` | missing | missing | `@embed("path")` 编译期嵌入未迁 MIR。 |
+| `AST_EMBED_DIR` | missing | missing | `@embed_dir("path")` 同上。 |
+| `AST_SYSCALL` | missing | missing | `@syscall(nr, ...)` 需要 capability diagnostic 和 MIR-C99 parity/reject 记录。 |
+| `AST_PTR_FROM_USIZE` | missing | missing | `@ptr_from_usize`。 |
+| `AST_USIZE_FROM_PTR` | missing | missing | `@usize_from_ptr`。 |
+| `AST_ERROR_ID` | done | missing | `@error_id` 由 `error_id` shard 验证。 |
+| `AST_ERROR_NAME` | done | missing | `@error_name` 由 `error_id` shard 邻接路径覆盖。 |
+| `AST_VA_START` | missing | missing | `@va_start` 仅 `c_import` 边界使用。 |
+| `AST_VA_END` | missing | missing | 同上。 |
+| `AST_VA_ARG` | missing | missing | 同上。 |
+| `AST_VA_COPY` | missing | missing | 同上。 |
+| `AST_ASM` | missing | missing | `@asm { ... }` 需要 capability diagnostic 和 MIR-C99 reject 记录。 |
+| `AST_ASM_TARGET` | missing | missing | `@asm_target()` 平台检测。 |
+| `AST_PRINT` | done | missing | `@print(expr)` C99 已完整 codegen（`c99/expr.uya:9167`）；MIR-C99 HelloWorld parity 待补。 |
+| `AST_PRINTLN` | done | missing | `@println(expr)` 同上；目标合同 `docs/helloworld_parity_target.md` 锁定 bare / split / return-as-expr 三变体。 |
+| `AST_TYPE_NAMED` | done | missing | Phase 9A 验证。 |
+| `AST_TYPE_POINTER` | done | missing | `&T` 指针类型。 |
+| `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
+| `AST_TYPE_SLICE` | done | missing | `&[T]` 切片类型。 |
+| `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
+| `AST_TYPE_ERROR_UNION` | done | missing | `!T` 由 `catch`/`dynamic_catch` shard 邻接覆盖。 |
+| `AST_TYPE_ATOMIC` | done | missing | `atomic T` 由 `atomic` shard 验证。 |
+| `AST_TYPE_VECTOR` | done | missing | `@vector(T, N)` 由 `simd` shard 验证。 |
+| `AST_TYPE_MASK` | done | missing | `@mask(N)` 由 `simd` shard 验证。 |
+| `AST_TYPE_FRAME` | partial | missing | `@frame(foo)` 异步帧类型走 async transform。 |
 
 注：`done` 行不必然代表 MIR-C99 已经端到端 parity；MIR-C99 状态以 §2.1 和 TODO 详细任务列表为准。
 
@@ -173,19 +176,19 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 `src/lower/core.uya` 中 `CORE_STMT_KIND_*` 11 个常量。
 
-| kind | 状态 | 备注 |
-|------|------|------|
-| `CORE_STMT_KIND_RETURN` | done | Phase 9A 验证。 |
-| `CORE_STMT_KIND_ASM` | partial | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
-| `CORE_STMT_KIND_DEFER` | done | C99 oracle 已覆盖；MIR-C99 cleanup parity 待补。 |
-| `CORE_STMT_KIND_ERRDEFER` | partial | 占位；C99 端到端。 |
-| `CORE_STMT_KIND_DROP` | done | `drop` shard 同上。 |
-| `CORE_STMT_KIND_ERROR_PROPAGATION` | done | `try` 表达式。 |
-| `CORE_STMT_KIND_LOCAL_DECL` | done | Phase 9A 验证。 |
-| `CORE_STMT_KIND_IF` | done | Phase 9A 验证。 |
-| `CORE_STMT_KIND_ASSIGN` | done | Phase 9A 验证。 |
-| `CORE_STMT_KIND_EXPR` | done | 表达式语句入口。 |
-| `CORE_STMT_KIND_WHILE` | partial | Core kind 已存在；通用 CFG lowering 和 MIR-C99 loop/backedge parity 待补。 |
+| kind | 状态 | MIR-C99 状态 | 备注 |
+|------|------|---------------|------|
+| `CORE_STMT_KIND_RETURN` | done | missing | Phase 9A 验证。 |
+| `CORE_STMT_KIND_ASM` | partial | missing | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
+| `CORE_STMT_KIND_DEFER` | done | missing | C99 oracle 已覆盖；MIR-C99 cleanup parity 待补。 |
+| `CORE_STMT_KIND_ERRDEFER` | partial | missing | 占位；C99 端到端。 |
+| `CORE_STMT_KIND_DROP` | done | missing | `drop` shard 同上。 |
+| `CORE_STMT_KIND_ERROR_PROPAGATION` | done | missing | `try` 表达式。 |
+| `CORE_STMT_KIND_LOCAL_DECL` | done | missing | Phase 9A 验证。 |
+| `CORE_STMT_KIND_IF` | done | missing | Phase 9A 验证。 |
+| `CORE_STMT_KIND_ASSIGN` | done | missing | Phase 9A 验证。 |
+| `CORE_STMT_KIND_EXPR` | done | missing | 表达式语句入口。 |
+| `CORE_STMT_KIND_WHILE` | partial | missing | Core kind 已存在；通用 CFG lowering 和 MIR-C99 loop/backedge parity 待补。 |
 
 ---
 
@@ -193,19 +196,19 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 `src/lower/core.uya` 中 `CORE_EXPR_KIND_*` 11 个常量。
 
-| kind | 状态 | 备注 |
-|------|------|------|
-| `CORE_EXPR_KIND_CALL` | done | Phase 9A 验证。 |
-| `CORE_EXPR_KIND_INDEX` | done | `array_index` shard。 |
-| `CORE_EXPR_KIND_SLICE` | done | `slice` shard。 |
-| `CORE_EXPR_KIND_ATOMIC` | done | `atomic` shard。 |
-| `CORE_EXPR_KIND_VECTOR` | done | `simd` shard。 |
-| `CORE_EXPR_KIND_MASK` | done | `simd` shard。 |
-| `CORE_EXPR_KIND_INT_LITERAL` | done | Phase 9A 验证。 |
-| `CORE_EXPR_KIND_LOCAL_REF` | done | Phase 9A 验证。 |
-| `CORE_EXPR_KIND_I32_NE` | done | Phase 9A 验证。 |
-| `CORE_EXPR_KIND_I32_ADD` | done | Phase 9A 验证。 |
-| `CORE_EXPR_KIND_I32_LE` | done | Phase 9A 验证。 |
+| kind | 状态 | MIR-C99 状态 | 备注 |
+|------|------|---------------|------|
+| `CORE_EXPR_KIND_CALL` | done | missing | Phase 9A 验证。 |
+| `CORE_EXPR_KIND_INDEX` | done | missing | `array_index` shard。 |
+| `CORE_EXPR_KIND_SLICE` | done | missing | `slice` shard。 |
+| `CORE_EXPR_KIND_ATOMIC` | done | missing | `atomic` shard。 |
+| `CORE_EXPR_KIND_VECTOR` | done | missing | `simd` shard。 |
+| `CORE_EXPR_KIND_MASK` | done | missing | `simd` shard。 |
+| `CORE_EXPR_KIND_INT_LITERAL` | done | missing | Phase 9A 验证。 |
+| `CORE_EXPR_KIND_LOCAL_REF` | done | missing | Phase 9A 验证。 |
+| `CORE_EXPR_KIND_I32_NE` | done | missing | Phase 9A 验证。 |
+| `CORE_EXPR_KIND_I32_ADD` | done | missing | Phase 9A 验证。 |
+| `CORE_EXPR_KIND_I32_LE` | done | missing | Phase 9A 验证。 |
 
 ---
 
@@ -213,62 +216,62 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 `src/lower/core.uya` 中 `CORE_PLACE_KIND_*` 4 个常量。
 
-| kind | 状态 | 备注 |
-|------|------|------|
-| `CORE_PLACE_KIND_FIELD` | done | `counter.value` 等。 |
-| `CORE_PLACE_KIND_INDEX` | done | `array_index` shard。 |
-| `CORE_PLACE_KIND_SLICE` | done | `slice` shard。 |
-| `CORE_PLACE_KIND_LOCAL` | done | Phase 9A 验证。 |
+| kind | 状态 | MIR-C99 状态 | 备注 |
+|------|------|---------------|------|
+| `CORE_PLACE_KIND_FIELD` | done | missing | `counter.value` 等。 |
+| `CORE_PLACE_KIND_INDEX` | done | missing | `array_index` shard。 |
+| `CORE_PLACE_KIND_SLICE` | done | missing | `slice` shard。 |
+| `CORE_PLACE_KIND_LOCAL` | done | missing | Phase 9A 验证。 |
 
 ---
 
 ## 8. builtin 覆盖
 
-| builtin | 状态 | 备注 |
-|---------|------|------|
-| `@size_of` | done | `builtin` shard 覆盖。 |
-| `@align_of` | done | 同上。 |
-| `@len` | done | `array_len` shard 覆盖。 |
-| `@print` | done | MIR-C99 HelloWorld parity 待补。 |
-| `@println` | done | 同上。 |
-| `@syscall` | missing | capability diagnostic 和 MIR-C99 parity/reject 待补。 |
-| `@ptr_from_usize` | missing | microapp 路径。 |
-| `@usize_from_ptr` | missing | microapp 路径。 |
-| `@error_id` | done | `error_id` shard。 |
-| `@error_name` | done | 同上。 |
-| `@c_import` | done | C99 oracle 已覆盖；MIR-C99 link plan parity 待补。 |
-| `@naked_fn` | done | `verify_portable_mir_naked_fn.sh` 固定。 |
-| `@vector` | done | `simd` shard。 |
-| `@mask` | done | 同上。 |
-| `@params` | partial | `build_compiler_driver.uya` 内 pre-MIR helper 路径。 |
-| `@src_name`/`@src_path`/`@src_line`/`@src_col`/`@func_name` | done | C99 builtin；MIR-C99 runtime helper parity 待补。 |
-| `@embed`/`@embed_dir` | missing | 编译期嵌入未迁 MIR。 |
-| `@asm`/`@asm_target` | missing | capability diagnostic 和 MIR-C99 reject 待补。 |
-| `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | `c_import` 边界。 |
-| `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | 宏内 builtin；MIR 端走 pre-MIR helper。 |
-| `@await` | partial | 异步表达式。 |
+| builtin | 状态 | MIR-C99 状态 | 备注 |
+|---------|------|---------------|------|
+| `@size_of` | done | missing | `builtin` shard 覆盖。 |
+| `@align_of` | done | missing | 同上。 |
+| `@len` | done | missing | `array_len` shard 覆盖。 |
+| `@print` | done | missing | MIR-C99 HelloWorld parity 待补。 |
+| `@println` | done | missing | 同上。 |
+| `@syscall` | missing | missing | capability diagnostic 和 MIR-C99 parity/reject 待补。 |
+| `@ptr_from_usize` | missing | missing | microapp 路径。 |
+| `@usize_from_ptr` | missing | missing | microapp 路径。 |
+| `@error_id` | done | missing | `error_id` shard。 |
+| `@error_name` | done | missing | 同上。 |
+| `@c_import` | done | missing | C99 oracle 已覆盖；MIR-C99 link plan parity 待补。 |
+| `@naked_fn` | done | missing | `verify_portable_mir_naked_fn.sh` 固定。 |
+| `@vector` | done | missing | `simd` shard。 |
+| `@mask` | done | missing | 同上。 |
+| `@params` | partial | missing | `build_compiler_driver.uya` 内 pre-MIR helper 路径。 |
+| `@src_name`/`@src_path`/`@src_line`/`@src_col`/`@func_name` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
+| `@embed`/`@embed_dir` | missing | missing | 编译期嵌入未迁 MIR。 |
+| `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |
+| `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | missing | `c_import` 边界。 |
+| `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
+| `@await` | partial | missing | 异步表达式。 |
 
 ---
 
 ## 9. 标准库 / runtime 入口覆盖
 
-| 入口 | 状态 | 备注 |
-|------|------|------|
-| `std.runtime.entry` | done | runtime entry 自动注入；MIR-C99 parity 待补。 |
-| `get_argc` / `get_argv` | done | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
-| stdout / stderr | done | `@print`/`@println` 走 libc / runtime helper。 |
-| `malloc` / `free` | done | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
-| file IO | done | `libc_bindings` 路径。 |
-| env | done | 同上。 |
-| toolchain / linker handoff | done | MIR-C99 link plan parity 待补。 |
-| capability 分流 | done | `tests/verify_portable_mir_target_metadata.sh` 覆盖。 |
+| 入口 | 状态 | MIR-C99 状态 | 备注 |
+|------|------|---------------|------|
+| `std.runtime.entry` | done | missing | runtime entry 自动注入；MIR-C99 parity 待补。 |
+| `get_argc` / `get_argv` | done | missing | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
+| stdout / stderr | done | missing | `@print`/`@println` 走 libc / runtime helper。 |
+| `malloc` / `free` | done | missing | C99 oracle 已覆盖；MIR-C99 runtime helper parity 待补。 |
+| file IO | done | missing | `libc_bindings` 路径。 |
+| env | done | missing | 同上。 |
+| toolchain / linker handoff | done | missing | MIR-C99 link plan parity 待补。 |
+| capability 分流 | done | missing | `tests/verify_portable_mir_target_metadata.sh` 覆盖。 |
 
 ---
 
 ## 10. 阶段 KPI 落地
 
 - [x] Core/PortableMIR 状态矩阵覆盖 `src/ast.uya` 和 `src/lower/core.uya` 中的现有 kind。
-- [ ] 覆盖矩阵新增 MIR-C99 per-kind 状态列，区分 `missing` / `partial` / `done` / `reject`。
+- [x] 覆盖矩阵新增 MIR-C99 per-kind 状态列，区分 `missing` / `partial` / `done` / `reject`。
 - [ ] HelloWorld 作为 MIR-C99 首个目标完成 MIR-C99 / 现有 C99 oracle parity。
 - [ ] MIR-C99 经由 `PortableMIR` 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / fixed-shape smoke。
 
