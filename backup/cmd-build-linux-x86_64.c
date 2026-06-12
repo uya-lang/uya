@@ -7356,7 +7356,7 @@ struct SymbolTable {
 };
 
 struct FunctionTable {
-    struct FunctionSignature * slots[4096];
+    struct FunctionSignature * slots[8192];
     int32_t count;
 };
 
@@ -11929,7 +11929,7 @@ __attribute__((used)) const size_t MAX_REACHABILITY_VISIT_MASK = 262143;
 
 __attribute__((used)) const int32_t SYMBOL_TABLE_SIZE = 32768;
 
-__attribute__((used)) const int32_t FUNCTION_TABLE_SIZE = 4096;
+__attribute__((used)) const int32_t FUNCTION_TABLE_SIZE = 8192;
 
 __attribute__((used)) const int32_t MODULE_TABLE_SIZE = 256;
 

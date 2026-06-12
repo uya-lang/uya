@@ -21,6 +21,16 @@ use codegen.native.machine;
 use codegen.native.mir_emitter;
 use codegen.native.x86_64;
 use codegen.native_build;
+use codegen.mir_c99.plan;
+use codegen.mir_c99.types;
+use codegen.mir_c99.names;
+use codegen.mir_c99.cfg;
+use codegen.mir_c99.values;
+use codegen.mir_c99.place_memory;
+use codegen.mir_c99.calls;
+use codegen.mir_c99.runtime_helpers;
+use codegen.mir_c99.emitter;
+use codegen.mir_c99.driver;
 use std;
 use std.runtime.entry.set_process_stack_limit_bytes;
 use libc;
@@ -1494,6 +1504,142 @@ fn native_build_empty_mir_backend_request() MirTargetBackendRequest {
         target_profile_id: 0,
         verifier_error_code: -1,
         flags: 0,
+    };
+}
+fn native_build_empty_mir_c99_plan() MirC99Plan {
+    return MirC99Plan{
+        arena: null,
+        lifecycle_state: MIR_C99_PLAN_LIFECYCLE_UNINITIALIZED,
+        target_profile_id: 0,
+        unit_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        includes: native_build_empty_vector(),
+        typedefs: native_build_empty_vector(),
+        prototypes: native_build_empty_vector(),
+        globals: native_build_empty_vector(),
+        functions: native_build_empty_vector(),
+        helpers: native_build_empty_vector(),
+        deps: native_build_empty_vector(),
+        units: native_build_empty_vector(),
+    };
+}
+fn native_build_empty_mir_c99_type_plan() MirC99TypePlan {
+    return MirC99TypePlan{
+        entries: native_build_empty_vector(),
+        aggregate_layouts: native_build_empty_vector(),
+        error_union_layouts: native_build_empty_vector(),
+        function_signatures: native_build_empty_vector(),
+        function_params: native_build_empty_vector(),
+        layout_checks: native_build_empty_vector(),
+        float_layout_uses: native_build_empty_vector(),
+        count: 0usize,
+        aggregate_layout_count: 0usize,
+        error_union_layout_count: 0usize,
+        function_signature_count: 0usize,
+        function_param_count: 0usize,
+        layout_check_count: 0usize,
+        float_layout_use_count: 0usize,
+        reject_count: 0usize,
+    };
+}
+fn native_build_empty_mir_c99_name_plan() MirC99NamePlan {
+    return MirC99NamePlan{
+        entries: native_build_empty_vector(),
+        count: 0usize,
+        next_name_id: 0,
+    };
+}
+fn native_build_empty_mir_c99_cfg_plan() MirC99CfgPlan {
+    return MirC99CfgPlan{
+        functions: native_build_empty_vector(),
+        blocks: native_build_empty_vector(),
+        terminators: native_build_empty_vector(),
+        cleanup_drops: native_build_empty_vector(),
+        error_union_returns: native_build_empty_vector(),
+        function_count: 0usize,
+        block_count: 0usize,
+        terminator_count: 0usize,
+        cleanup_drop_count: 0usize,
+        error_union_return_count: 0usize,
+        cleanup_error_function_count: 0usize,
+        cleanup_block_count: 0usize,
+        cleanup_error_terminator_count: 0usize,
+        reject_count: 0usize,
+    };
+}
+fn native_build_empty_mir_c99_value_plan() MirC99ValuePlan {
+    return MirC99ValuePlan{
+        entries: native_build_empty_vector(),
+        constants: native_build_empty_vector(),
+        expressions: native_build_empty_vector(),
+        count: 0usize,
+        constant_count: 0usize,
+        expression_count: 0usize,
+        reject_count: 0usize,
+        diagnostic_code: 0,
+    };
+}
+fn native_build_empty_mir_c99_place_memory_plan() MirC99PlaceMemoryPlan {
+    return MirC99PlaceMemoryPlan{
+        locals: native_build_empty_vector(),
+        ops: native_build_empty_vector(),
+        local_count: 0usize,
+        op_count: 0usize,
+        reject_count: 0usize,
+    };
+}
+fn native_build_empty_mir_c99_call_plan() MirC99CallPlan {
+    return MirC99CallPlan{
+        calls: native_build_empty_vector(),
+        call_count: 0usize,
+        reject_count: 0usize,
+    };
+}
+fn native_build_empty_mir_c99_runtime_helper_plan() MirC99RuntimeHelperPlan {
+    return MirC99RuntimeHelperPlan{
+        helper_count: 0usize,
+        reject_count: 0usize,
+    };
+}
+fn native_build_empty_mir_c99_emitter() MirC99Emitter {
+    return MirC99Emitter{
+        status: MIR_C99_EMITTER_STATUS_UNINITIALIZED,
+        target_profile_id: 0,
+        request: null,
+        portable_mir: null,
+        plan: null,
+        cfg_plan: null,
+        mir_function_count: 0usize,
+        mir_block_count: 0usize,
+        mir_inst_count: 0usize,
+        mir_value_count: 0usize,
+        mir_type_count: 0usize,
+        unit_count: 0usize,
+        c_unit_output_count: 0usize,
+        planned_ref_count: 0usize,
+        estimated_bytes: 0usize,
+        output_bytes: 0usize,
+    };
+}
+fn native_build_empty_mir_c99_driver_result() MirC99DriverResult {
+    return MirC99DriverResult{
+        status: MIR_C99_DRIVER_STATUS_UNINITIALIZED,
+        output_kind: MIR_BACKEND_OUTPUT_NONE,
+        plan: null,
+        unit_count: 0usize,
+        function_count: 0usize,
+        block_count: 0usize,
+        terminator_count: 0usize,
+        type_count: 0usize,
+        value_count: 0usize,
+        local_count: 0usize,
+        memory_op_count: 0usize,
+        call_count: 0usize,
+        helper_count: 0usize,
+        name_count: 0usize,
+        output_bytes: 0usize,
+        diagnostic_code: 0,
     };
 }
 fn native_build_hosted_preflight_result_reset(result: &NativeHostedMirPreflightResult) void {
@@ -40700,6 +40846,130 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     machine_module_release(&machine);
     result.verifier_error = verifier.error_code;
     result.object_count = plan.object_count;
+    portable_mir_module_release(&module);
+    return 0;
+}
+fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeChecker,
+    program: &ASTNode, result: &NativeHostedMirPreflightResult) i32 {
+    native_build_hosted_preflight_result_reset(result);
+    if arena == null || checker == null || program == null || result == null {
+        return -1;
+    }
+    if native_build_hosted_coreir_preflight(arena, checker, program, result) != 0 {
+        return -1;
+    }
+    var module: PortableMirModule = native_build_empty_portable_mir_module();
+    portable_mir_module_init(&module, arena);
+    if native_build_hosted_mir_append_program_externs(&module, program,
+        &result.mir_extern_function_count) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    if native_build_hosted_mir_append_program_safe_bodies(&module, checker, program,
+        &result.mir_body_function_count) != 0 {
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    result.mir_type_count = module.type_count as i32;
+    var verifier: MirVerifierResult = MirVerifierResult{
+        error_code: -1,
+        function_id: MIR_FUNCTION_INVALID_ID,
+        block_id: MIR_BLOCK_INVALID_ID,
+        inst_id: MIR_INST_INVALID_ID,
+        value_id: MIR_VALUE_INVALID_ID,
+        type_id: MIR_TYPE_INVALID_ID,
+        operand_id: -1,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+    };
+    portable_mir_verifier_result_init(&verifier);
+    if portable_mir_verify_module(&module, &verifier) != 0 {
+        result.verifier_error = verifier.error_code;
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var request: MirTargetBackendRequest = native_build_empty_mir_backend_request();
+    if portable_mir_backend_request_init(&request, &module, &verifier, MIR_TARGET_BACKEND_C99) != 0 {
+        result.verifier_error = verifier.error_code;
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    result.emitter_handoff_request_verified =
+        portable_mir_backend_request_is_verified(&request);
+    result.emitter_handoff_backend_kind = request.backend_kind;
+    if portable_mir_backend_request_is_verified(&request) == 0 {
+        result.verifier_error = verifier.error_code;
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var plan: MirC99Plan = native_build_empty_mir_c99_plan();
+    var type_plan: MirC99TypePlan = native_build_empty_mir_c99_type_plan();
+    var name_plan: MirC99NamePlan = native_build_empty_mir_c99_name_plan();
+    var cfg_plan: MirC99CfgPlan = native_build_empty_mir_c99_cfg_plan();
+    var value_plan: MirC99ValuePlan = native_build_empty_mir_c99_value_plan();
+    var place_plan: MirC99PlaceMemoryPlan =
+        native_build_empty_mir_c99_place_memory_plan();
+    var call_plan: MirC99CallPlan = native_build_empty_mir_c99_call_plan();
+    var runtime_helper_plan: MirC99RuntimeHelperPlan =
+        native_build_empty_mir_c99_runtime_helper_plan();
+    var emitter: MirC99Emitter = native_build_empty_mir_c99_emitter();
+    var driver_result: MirC99DriverResult = native_build_empty_mir_c99_driver_result();
+    if mir_c99_driver_run(&request, arena, &plan, &type_plan, &name_plan,
+        &cfg_plan, &value_plan, &place_plan, &call_plan, &runtime_helper_plan,
+        &emitter, &driver_result) != 0 ||
+       driver_result.status != MIR_C99_DRIVER_STATUS_DONE {
+        result.verifier_error = driver_result.diagnostic_code;
+        mir_c99_call_plan_release(&call_plan);
+        mir_c99_place_memory_plan_release(&place_plan);
+        mir_c99_value_plan_release(&value_plan);
+        mir_c99_cfg_plan_release(&cfg_plan);
+        mir_c99_name_plan_release(&name_plan);
+        mir_c99_type_plan_release(&type_plan);
+        mir_c99_plan_release(&plan);
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    var backend_output: MirTargetBackendOutput = MirTargetBackendOutput{
+        backend_kind: 0,
+        output_kind: MIR_BACKEND_OUTPUT_NONE,
+        machine_module: null,
+        ptx_module: null,
+        exec_bytecode: null,
+        c99_plan: null,
+        diagnostic_code: 0,
+        flags: 0,
+    };
+    if portable_mir_backend_output_init(&backend_output, MIR_TARGET_BACKEND_C99) != 0 {
+        result.verifier_error = driver_result.diagnostic_code;
+        mir_c99_call_plan_release(&call_plan);
+        mir_c99_place_memory_plan_release(&place_plan);
+        mir_c99_value_plan_release(&value_plan);
+        mir_c99_cfg_plan_release(&cfg_plan);
+        mir_c99_name_plan_release(&name_plan);
+        mir_c99_type_plan_release(&type_plan);
+        mir_c99_plan_release(&plan);
+        portable_mir_module_release(&module);
+        return -1;
+    }
+    backend_output.c99_plan = &plan as &void;
+    result.emitter_import_ready = 1;
+    result.emitter_imported_function_count = driver_result.function_count as i32;
+    result.emitter_imported_block_count = driver_result.block_count as i32;
+    result.emitter_imported_inst_count = module.inst_count as i32;
+    result.emitter_output_ready = 1;
+    result.emitter_output_matches_request =
+        portable_mir_backend_output_matches_request(&request, &backend_output);
+    result.emitter_output_kind = MIR_BACKEND_OUTPUT_MIR_C99_PLAN;
+    result.emitter_machine_function_count = 0;
+    result.verifier_error = verifier.error_code;
+    result.object_count = driver_result.unit_count as i32;
+    mir_c99_call_plan_release(&call_plan);
+    mir_c99_place_memory_plan_release(&place_plan);
+    mir_c99_value_plan_release(&value_plan);
+    mir_c99_cfg_plan_release(&cfg_plan);
+    mir_c99_name_plan_release(&name_plan);
+    mir_c99_type_plan_release(&type_plan);
+    mir_c99_plan_release(&plan);
     portable_mir_module_release(&module);
     return 0;
 }

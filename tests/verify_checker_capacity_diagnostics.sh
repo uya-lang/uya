@@ -8,6 +8,7 @@ CHECK_CALL="$REPO_ROOT/src/checker/check_call.uya"
 CHECK_INTERVAL="$REPO_ROOT/src/checker/interval.uya"
 CHECK_MODULES="$REPO_ROOT/src/checker/modules.uya"
 CHECK_GENERICS="$REPO_ROOT/src/checker/generics.uya"
+CHECK_TYPES="$REPO_ROOT/src/checker/types.uya"
 
 require_pattern() {
     local pattern="$1"
@@ -52,8 +53,14 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 probe="$tmpdir/many_functions.uya"
 log="$tmpdir/many_functions.log"
+function_table_size="$(sed -n 's/^const FUNCTION_TABLE_SIZE: i32 = \([0-9][0-9]*\);$/\1/p' "$CHECK_TYPES")"
+if [[ -z "$function_table_size" ]]; then
+    echo "错误: 无法读取 FUNCTION_TABLE_SIZE" >&2
+    exit 1
+fi
+function_count=$((function_table_size + 1))
 {
-    for i in $(seq 0 4097); do
+    for i in $(seq 0 "$function_count"); do
         printf 'fn checker_capacity_probe_%04d() i32 { return %d; }\n' "$i" "$i"
     done
     echo "export fn main() i32 { return 0; }"

@@ -380,7 +380,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - [ ] 新增默认 MIR-C99 generator CLI/command，输出 `.c` 且日志无 legacy C99 fallback。
         - [x] 新增默认 MIR-C99 generator command 入口；未完成 source-to-PortableMIR 接线前必须明确失败、不生成 `.c`，且日志无 legacy C99 fallback。
           - 验证：`bash tests/verify_mir_c99_default_generator_command.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh --self-test` 通过；配置默认 generator 后运行 `MIR_C99_GENERATE_CMD='./tests/mir_c99_generate.sh {input} {output} {log}' C99_ORACLE_GENERATE_CMD='./tests/mir_c99_generate.sh {input} {output} {log}' bash tests/verify_mir_c99_oracle_parity_harness.sh --case tests/test_basic_block_terminator.uya` 返回 exit 70，确认尚未接线时 fail-closed。
-        - [ ] 将 generator command 接到 source-to-PortableMIR lowering 和 `mir_c99_driver_run`。
+        - [x] 将 generator command 接到 source-to-PortableMIR lowering 和 `mir_c99_driver_run`。
+          - 验证：`bash tests/verify_mir_c99_generator_driver_handoff.sh` 通过，确认 build driver 源码存在 `native_build_hosted_mir_c99_preflight`、`MIR_TARGET_BACKEND_C99` request、`native_build_hosted_mir_append_program_safe_bodies` lowering 和 `mir_c99_driver_run` handoff；`bash tests/verify_mir_c99_default_generator_command.sh` 通过，默认 generator 日志记录 `handoff_status=verified` / `writer_status=pending` 且仍 fail-closed 不生成 `.c`；`bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过；`bash tests/verify_mir_c99_oracle_parity_harness.sh --self-test` 通过；`bash tests/verify_checker_capacity_diagnostics.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。
         - [ ] generator command 对已支持 MIR-C99 subset 写出 `.c` 并可由 host C compiler 编译。
       - [ ] 新增默认现有 C99 oracle generator command，输出 `.c` 供 host C compiler 对照。
     - [ ] dynamic catch fallback/success 真实 MIR-C99 / 现有 C99 oracle parity。
