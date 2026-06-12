@@ -9,6 +9,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLAN_FILE="$REPO_ROOT/src/codegen/mir_c99/plan.uya"
 CFG_FILE="$REPO_ROOT/src/codegen/mir_c99/cfg.uya"
 DRIVER_FILE="$REPO_ROOT/src/codegen/mir_c99/driver.uya"
+RUNTIME_HELPERS_FILE="$REPO_ROOT/src/codegen/mir_c99/runtime_helpers.uya"
 
 require_pattern() {
     local file="$1"
@@ -20,7 +21,7 @@ require_pattern() {
     fi
 }
 
-for file in "$PLAN_FILE" "$CFG_FILE" "$DRIVER_FILE"; do
+for file in "$PLAN_FILE" "$CFG_FILE" "$DRIVER_FILE" "$RUNTIME_HELPERS_FILE"; do
     if [[ ! -f "$file" ]]; then
         echo "error: missing source: $file" >&2
         exit 1
@@ -47,12 +48,30 @@ require_pattern "$PLAN_FILE" 'mir_c99_plan_prepare_function_units' \
     "assignment planner API"
 require_pattern "$PLAN_FILE" 'mir_c99_plan_unit_for_function' \
     "function-to-unit lookup API"
+require_pattern "$PLAN_FILE" 'mir_c99_plan_unit_for_global' \
+    "global-to-unit lookup API"
+require_pattern "$PLAN_FILE" 'mir_c99_plan_unit_for_function_id' \
+    "function-id-to-unit lookup API"
+require_pattern "$PLAN_FILE" 'MIR_CROSS_UNIT_OWNER_GLOBAL' \
+    "global cross-unit assignment source"
 require_pattern "$PLAN_FILE" 'while i < module\.functions\.count' \
     "all functions assigned"
 require_pattern "$CFG_FILE" 'mir_c99_plan_unit_for_function\(output_plan,[[:space:]]*function\)' \
     "CFG function mapping consumes assignment"
 require_pattern "$DRIVER_FILE" 'mir_c99_plan_prepare_function_units\(request\.module,[[:space:]]*plan,[[:space:]]*primary_unit\)' \
     "driver builds assignment plan before CFG function mapping"
+require_pattern "$DRIVER_FILE" 'mir_c99_runtime_helper_plan_build\(request,[[:space:]]*plan,[[:space:]]*primary_unit' \
+    "runtime helpers receive fallback unit plus assignment plan"
+require_pattern "$DRIVER_FILE" 'mir_c99_global_initializer_plan_build\(request\.module,[[:space:]]*plan,[[:space:]]*primary_unit\)' \
+    "globals receive fallback unit plus assignment plan"
+require_pattern "$DRIVER_FILE" 'mir_c99_async_frame_layout_plan_build\(request\.module,[[:space:]]*plan,[[:space:]]*primary_unit\)' \
+    "async frames receive fallback unit plus assignment plan"
+require_pattern "$PLAN_FILE" 'mir_c99_plan_unit_for_global\(plan,[[:space:]]*module,[[:space:]]*global,[[:space:]]*fallback_unit\)' \
+    "global builder consumes unit assignment"
+require_pattern "$PLAN_FILE" 'mir_c99_plan_unit_for_function_id\(plan,[[:space:]]*meta\.function_id,[[:space:]]*fallback_unit\)' \
+    "async frame builder consumes function assignment"
+require_pattern "$RUNTIME_HELPERS_FILE" 'mir_c99_plan_unit_for_function_id\(mir_plan,[[:space:]]*inst\.function_id,[[:space:]]*fallback_unit\)' \
+    "async helper refs consume function assignment"
 
 tmp="$(mktemp /tmp/mir_c99_split_unit_assignment_plan.XXXXXX.uya)"
 trap 'rm -f "$tmp"' EXIT
@@ -65,6 +84,7 @@ sed '/^use codegen\.mir_c99\./d' \
     "$REPO_ROOT/src/codegen/mir_c99/emitter.uya" \
     "$REPO_ROOT/src/codegen/mir_c99/values.uya" \
     "$REPO_ROOT/src/codegen/mir_c99/place_memory.uya" \
+    "$RUNTIME_HELPERS_FILE" \
     "$DRIVER_FILE" >"$tmp"
 "$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
 

@@ -521,6 +521,27 @@ fn mir_c99_plan_find_cross_unit_for_function(module: &PortableMirModule,
     return null;
 }
 
+fn mir_c99_plan_find_cross_unit_for_global(module: &PortableMirModule,
+    global: &MirGlobal) &MirCrossUnitSymbol {
+    if module == null || global == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < module.cross_unit_symbols.count {
+        const symbol: &MirCrossUnitSymbol =
+            semantic_vector_item_ptr(&module.cross_unit_symbols, i) as &MirCrossUnitSymbol;
+        if symbol != null &&
+           symbol.owner_kind == MIR_CROSS_UNIT_OWNER_GLOBAL &&
+           symbol.owner_global_id == global.global_id &&
+           symbol.target_profile_id == module.target_profile.profile_id &&
+           symbol.unit_id >= 0 {
+            return symbol;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
 fn mir_c99_plan_find_unit(plan: &MirC99Plan, kind: i32,
     source_file_id: i32, function_group_id: i32) &MirC99Unit {
     if plan == null {
@@ -661,6 +682,62 @@ export fn mir_c99_plan_unit_for_function(plan: &MirC99Plan,
         i = i + 1usize;
     }
     return null;
+}
+
+/// 功能说明：按 MIR function id 查询已分配的 MIR-C99 unit。
+/// 参数说明：`plan` 为输出计划，`function_id` 为 PortableMIR function id，`fallback_unit` 为未分配时的回退 unit。
+/// 返回值说明：找到 assignment 时返回目标 unit，否则返回 `fallback_unit`；参数非法返回 null。
+export fn mir_c99_plan_unit_for_function_id(plan: &MirC99Plan,
+    function_id: MirFunctionId, fallback_unit: &MirC99Unit) &MirC99Unit {
+    if plan == null || function_id == MIR_FUNCTION_INVALID_ID {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < plan.unit_assignments.count {
+        const assignment: &MirC99UnitAssignment =
+            semantic_vector_item_ptr(&plan.unit_assignments, i) as &MirC99UnitAssignment;
+        if assignment != null && assignment.function_id == function_id {
+            const unit: &MirC99Unit =
+                mir_c99_plan_unit_ptr(plan, assignment.unit_id);
+            if unit != null {
+                return unit;
+            }
+        }
+        i = i + 1usize;
+    }
+    return fallback_unit;
+}
+
+/// 功能说明：为 MIR global 选择 MIR-C99 unit。
+/// 参数说明：`plan` 为输出计划，`module`/`global` 提供 cross-unit 和 source metadata，`fallback_unit` 为无 metadata 时的回退 unit。
+/// 返回值说明：返回可追加 global ref 的 unit；追加动态 unit 失败时返回 null。
+export fn mir_c99_plan_unit_for_global(plan: &MirC99Plan,
+    module: &PortableMirModule, global: &MirGlobal,
+    fallback_unit: &MirC99Unit) &MirC99Unit {
+    if plan == null || module == null || global == null || fallback_unit == null {
+        return null;
+    }
+    const cross_symbol: &MirCrossUnitSymbol =
+        mir_c99_plan_find_cross_unit_for_global(module, global);
+    var source_file_id: i32 =
+        mir_c99_plan_debug_loc_source_file_id(module, global.debug_loc_id) as i32;
+    var unit_kind: i32 = MIR_C99_UNIT_KIND_SOURCE;
+    var function_group_id: i32 = -1;
+    if cross_symbol != null {
+        unit_kind = MIR_C99_UNIT_KIND_MODULE;
+        function_group_id = cross_symbol.unit_id;
+    } else if source_file_id >= 0 {
+        function_group_id = source_file_id;
+    } else {
+        return fallback_unit;
+    }
+    const unit: &MirC99Unit =
+        mir_c99_plan_add_assignment_unit(plan, unit_kind, source_file_id,
+            function_group_id);
+    if unit == null {
+        return null;
+    }
+    return unit;
 }
 
 fn mir_c99_link_input_kind_is_supported(kind: i32) i32 {
@@ -906,11 +983,11 @@ export fn mir_c99_global_initializer_plan_append(module: &PortableMirModule,
 }
 
 /// 功能说明：从 PortableMIR global table 构建 MIR-C99 scalar/aggregate/string initializer 和 extern global 计划。
-/// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出计划，`fallback_unit` 为无 unit metadata 时的回退 unit。
 /// 返回值说明：成功返回 `0`；遇到支持范围内 metadata 不一致或追加失败返回 `-1`。
 export fn mir_c99_global_initializer_plan_build(module: &PortableMirModule,
-    plan: &MirC99Plan, unit: &MirC99Unit) i32 {
-    if module == null || plan == null || unit == null {
+    plan: &MirC99Plan, fallback_unit: &MirC99Unit) i32 {
+    if module == null || plan == null || fallback_unit == null {
         return -1;
     }
     var status: i32 = 0;
@@ -919,9 +996,14 @@ export fn mir_c99_global_initializer_plan_build(module: &PortableMirModule,
         const global: &MirGlobal =
             semantic_vector_item_ptr(&module.globals, i) as &MirGlobal;
         if global != null &&
-           mir_c99_global_initializer_is_supported(global.init_kind) != 0 &&
-           mir_c99_global_initializer_plan_append(module, plan, unit, global) < 0 {
-            status = -1;
+           mir_c99_global_initializer_is_supported(global.init_kind) != 0 {
+            const unit: &MirC99Unit =
+                mir_c99_plan_unit_for_global(plan, module, global, fallback_unit);
+            if unit == null ||
+               mir_c99_global_initializer_plan_append(module, plan, unit,
+                   global) < 0 {
+                status = -1;
+            }
         }
         i = i + 1usize;
     }
@@ -1045,11 +1127,11 @@ export fn mir_c99_async_frame_layout_plan_append_slot(plan: &MirC99Plan,
 }
 
 /// 功能说明：从 PortableMIR async frame metadata 构建 MIR-C99 frame struct layout 计划。
-/// 参数说明：`module` 为 verifier-clean MIR module，`plan`/`unit` 为输出计划。
+/// 参数说明：`module` 为 verifier-clean MIR module，`plan` 为输出计划，`fallback_unit` 为无 function assignment 时的回退 unit。
 /// 返回值说明：成功返回 `0`；参数非法、未知 slot kind 或动态表追加失败返回 `-1`。
 export fn mir_c99_async_frame_layout_plan_build(module: &PortableMirModule,
-    plan: &MirC99Plan, unit: &MirC99Unit) i32 {
-    if module == null || plan == null || unit == null {
+    plan: &MirC99Plan, fallback_unit: &MirC99Unit) i32 {
+    if module == null || plan == null || fallback_unit == null {
         return -1;
     }
     var status: i32 = 0;
@@ -1060,12 +1142,16 @@ export fn mir_c99_async_frame_layout_plan_build(module: &PortableMirModule,
         if meta == null || mir_c99_async_frame_layout_is_slot_kind(meta.slot_kind) == 0 {
             status = -1;
         } else {
+            const unit: &MirC99Unit =
+                mir_c99_plan_unit_for_function_id(plan, meta.function_id, fallback_unit);
             var layout_id: i32 = mir_c99_async_frame_layout_plan_find(plan,
                 meta.function_id, meta.frame_type_id);
-            if layout_id < 0 {
+            if unit == null {
+                status = -1;
+            } else if layout_id < 0 {
                 layout_id = mir_c99_async_frame_layout_plan_new(plan, unit, meta);
             }
-            if layout_id < 0 ||
+            if unit == null || layout_id < 0 ||
                mir_c99_async_frame_layout_plan_append_slot(plan, unit,
                    layout_id, meta) != 0 {
                 status = -1;

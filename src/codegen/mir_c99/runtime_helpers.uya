@@ -122,10 +122,10 @@ fn mir_c99_runtime_helper_is_supported(helper_id: i32) i32 {
 }
 
 fn mir_c99_runtime_helper_plan_async_frame_inst(inst: &MirInst,
-    module: &PortableMirModule, mir_plan: &MirC99Plan, unit: &MirC99Unit,
+    module: &PortableMirModule, mir_plan: &MirC99Plan, fallback_unit: &MirC99Unit,
     helper_plan: &MirC99RuntimeHelperPlan) i32 {
-    if inst == null || module == null || mir_plan == null || unit == null ||
-       helper_plan == null {
+    if inst == null || module == null || mir_plan == null ||
+       fallback_unit == null || helper_plan == null {
         return -1;
     }
     if portable_mir_inst_op_is_async_frame(inst.op) == 0 {
@@ -134,6 +134,12 @@ fn mir_c99_runtime_helper_plan_async_frame_inst(inst: &MirInst,
     if (inst.runtime_capability_mask & MIR_RUNTIME_CAP_ASYNC_FRAME) == 0 ||
        portable_mir_target_profile_supports_runtime_capability(&module.target_profile,
            MIR_RUNTIME_CAP_ASYNC_FRAME) == 0 {
+        helper_plan.reject_count = helper_plan.reject_count + 1usize;
+        return -1;
+    }
+    const unit: &MirC99Unit =
+        mir_c99_plan_unit_for_function_id(mir_plan, inst.function_id, fallback_unit);
+    if unit == null {
         helper_plan.reject_count = helper_plan.reject_count + 1usize;
         return -1;
     }
@@ -181,9 +187,10 @@ fn mir_c99_runtime_helper_plan_async_frame_pool(request: &MirTargetBackendReques
 }
 
 fn mir_c99_runtime_helper_plan_async_frames(module: &PortableMirModule,
-    mir_plan: &MirC99Plan, unit: &MirC99Unit,
+    mir_plan: &MirC99Plan, fallback_unit: &MirC99Unit,
     helper_plan: &MirC99RuntimeHelperPlan) i32 {
-    if module == null || mir_plan == null || unit == null || helper_plan == null {
+    if module == null || mir_plan == null || fallback_unit == null ||
+       helper_plan == null {
         return -1;
     }
     var status: i32 = 0;
@@ -192,7 +199,7 @@ fn mir_c99_runtime_helper_plan_async_frames(module: &PortableMirModule,
         const inst: &MirInst = mir_c99_runtime_helper_inst_ptr(module, i);
         if inst != null &&
            mir_c99_runtime_helper_plan_async_frame_inst(inst, module, mir_plan,
-               unit, helper_plan) != 0 {
+               fallback_unit, helper_plan) != 0 {
             status = -1;
         }
         i = i + 1usize;
@@ -221,13 +228,13 @@ export fn mir_c99_runtime_helper_plan_init(plan: &MirC99RuntimeHelperPlan) i32 {
 }
 
 /// 功能说明：从 MIR capability requirements 构建 runtime helper refs。
-/// 参数说明：`request` 为 verifier-clean MIR-C99 backend 请求，`mir_plan` 和 `unit` 为输出 ref 表，`helper_plan` 为统计计划。
+/// 参数说明：`request` 为 verifier-clean MIR-C99 backend 请求，`mir_plan` 为输出 ref 表，`fallback_unit` 为无 function assignment 时的回退 unit，`helper_plan` 为统计计划。
 /// 返回值说明：成功返回 `0`；目标 profile 不支持 helper capability 或追加失败返回 `-1`。
 export fn mir_c99_runtime_helper_plan_build(request: &MirTargetBackendRequest,
-    mir_plan: &MirC99Plan, unit: &MirC99Unit,
+    mir_plan: &MirC99Plan, fallback_unit: &MirC99Unit,
     helper_plan: &MirC99RuntimeHelperPlan) i32 {
     if request == null || request.module == null || mir_plan == null ||
-       unit == null || helper_plan == null {
+       fallback_unit == null || helper_plan == null {
         return -1;
     }
     const module: &PortableMirModule = request.module;
@@ -249,7 +256,7 @@ export fn mir_c99_runtime_helper_plan_build(request: &MirTargetBackendRequest,
                 status = -1;
             } else if mir_c99_plan_append_ref(mir_plan, MIR_C99_REF_KIND_HELPER,
                        req.capability_id, req.capability_req_id, req.flags) != 0 ||
-                      mir_c99_unit_append_ref(unit, MIR_C99_REF_KIND_HELPER,
+                      mir_c99_unit_append_ref(fallback_unit, MIR_C99_REF_KIND_HELPER,
                        req.capability_id, req.capability_req_id, req.flags) != 0 {
                 helper_plan.reject_count = helper_plan.reject_count + 1usize;
                 status = -1;
@@ -259,7 +266,7 @@ export fn mir_c99_runtime_helper_plan_build(request: &MirTargetBackendRequest,
         }
         i = i + 1usize;
     }
-    if mir_c99_runtime_helper_plan_async_frames(module, mir_plan, unit,
+    if mir_c99_runtime_helper_plan_async_frames(module, mir_plan, fallback_unit,
        helper_plan) != 0 {
         status = -1;
     }
