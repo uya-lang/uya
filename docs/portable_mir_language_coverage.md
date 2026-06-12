@@ -125,7 +125,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_CHAR` | done | missing | C99 通过。 |
 | `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
 | `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
-| `AST_TRY_EXPR` | done | missing | `try expr` 经 `CORE_STMT_KIND_ERROR_PROPAGATION`。 |
+| `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`。 |
 | `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；`catch |err|` 绑定待后续 shard。 |
 | `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；`@error_id` 读取待后续 shard。 |
 | `AST_MATCH_EXPR` | done | partial | MIR-C99 full-language union parity shard 覆盖 `match union_value { .number(x) => x, .payload(p) => p.left + p.right }`。 |
@@ -162,7 +162,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；`try` 传播待后续 shard。 |
+| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播。 |
 | `AST_TYPE_ATOMIC` | done | missing | `atomic T` 由 `atomic` shard 验证。 |
 | `AST_TYPE_VECTOR` | done | missing | `@vector(T, N)` 由 `simd` shard 验证。 |
 | `AST_TYPE_MASK` | done | missing | `@mask(N)` 由 `simd` shard 验证。 |
@@ -183,7 +183,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `CORE_STMT_KIND_DEFER` | done | missing | C99 oracle 已覆盖；MIR-C99 cleanup parity 待补。 |
 | `CORE_STMT_KIND_ERRDEFER` | partial | missing | 占位；C99 端到端。 |
 | `CORE_STMT_KIND_DROP` | done | missing | `drop` shard 同上。 |
-| `CORE_STMT_KIND_ERROR_PROPAGATION` | done | missing | `try` 表达式。 |
+| `CORE_STMT_KIND_ERROR_PROPAGATION` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try` 表达式 success path 和 error propagation。 |
 | `CORE_STMT_KIND_LOCAL_DECL` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local declaration。 |
 | `CORE_STMT_KIND_IF` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch。 |
 | `CORE_STMT_KIND_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assignment。 |
