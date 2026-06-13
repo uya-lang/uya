@@ -39,30 +39,30 @@ require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_native_success$' \
-    "log records the migrated build_driver_run native_success branch"
+require_pattern "$log_file" '^completed_coverage=build_driver_run_is_output_c_file$' \
+    "log records the migrated build_driver_run is_output_c_file local"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
     "log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body$' \
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=36,next_stmt=36,next_kind=AST_IF_STMT,reason=partial_core_body$' \
     "log records the next build_driver_run source body frontier"
 require_pattern "$log_file" '^next_capability=corebody_portable_mir_body_lowering$' \
     "log records the next capability to expand"
-require_pattern "$log_file" '^next_coverage=build_driver_run_is_output_c_file$' \
+require_pattern "$log_file" '^next_coverage=build_driver_run_c_output_check$' \
     "log records the next coverage slice"
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='build_driver_run_native_success'$" \
-    "summary sidecar records the migrated build_driver_run native_success branch"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='build_driver_run_is_output_c_file'$" \
+    "summary sidecar records the migrated build_driver_run is_output_c_file local"
 require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete'$" \
     "summary sidecar records the completed print diagnostic profile body"
-require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body'$" \
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=36,next_stmt=36,next_kind=AST_IF_STMT,reason=partial_core_body'$" \
     "summary sidecar records the concrete compiler-source body frontier"
 require_pattern "$summary_file" "^MIR_C99_NEXT_CAPABILITY='corebody_portable_mir_body_lowering'$" \
     "summary sidecar records the next capability"
-require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='build_driver_run_is_output_c_file'$" \
+require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='build_driver_run_c_output_check'$" \
     "summary sidecar records the next coverage slice"
 
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_frontier' \
@@ -133,7 +133,9 @@ require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_result_err
     "coverage matrix records the migrated build_driver_run result_error branch"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_native_success.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage matrix records the migrated build_driver_run native_success branch"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_is_output_c_file' \
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_is_output_c_file.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run is_output_c_file local"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_c_output_check' \
     "coverage matrix records the next coverage slice"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body' \
     "build driver recognizes the build_driver_run prefix body"
@@ -345,6 +347,14 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_success_fprintf_inst' \
     "build driver materializes the native_success fprintf MIR marker"
 require_pattern "$BUILD_DRIVER_SRC" 'native_success_return_inst' \
     "build driver materializes the native_success return MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_is_output_c_file_prefix_stmt_count' \
+    "build driver exposes the is_output_c_file slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_IS_OUTPUT_C_FILE_PREFIX_STMT_COUNT' \
+    "build driver admits the is_output_c_file prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_is_output_c_file' \
+    "build driver lowers the is_output_c_file local through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'is_output_c_file_inst' \
+    "build driver materializes the is_output_c_file zero initializer"
 
 tail_mir_body="$(
     awk '
@@ -564,6 +574,14 @@ fi
 if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=34,next_stmt=34,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_result_error$|^next_coverage=build_driver_run_native_success$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=34,next_stmt=34,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_result_error'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_native_success'\''$' \
     "$log_file" "$summary_file"; then
     echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run native_success frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_native_success$|^next_coverage=build_driver_run_is_output_c_file$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_native_success'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_is_output_c_file'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run is_output_c_file frontier" >&2
     cat "$log_file" >&2
     cat "$summary_file" >&2
     exit 1
