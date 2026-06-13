@@ -28,7 +28,7 @@ description: 按顺序执行目标导向的长任务 todo，使用 TDD、诚实�
 
 此 skill 用于把 todo 当作一个有纪律的长任务执行：一次只做一个任务，能 TDD 就先写测试，诚实更新状态，不用占位实现糊弄完成，并保持干净的 git 交接。loop.py 会在每轮 prompt 的“本轮硬约束”里提供具体 todo 状态流转、归档路径、单轮停止和日志裁剪规则；这些硬约束优先级高于本 skill 的概括性描述。
 
-如果任务过大、含糊，或暗含多个交付物，先把它拆成有顺序的小型 `[ ]` 子任务，再开始实现。保留原始意图，并更新 todo 文档，让后续 agent 不需要猜测即可继续。
+如果任务过大、含糊，或暗含多个交付物，先把它拆成有顺序的小型 `[ ]` 叶子子任务，再开始实现。父级只作为分组保持 `[ ]`，每个子任务必须有单一交付物和可运行的验证方式。若接手时父级已经是 `[~]`，先把父级改回 `[ ]`，只把第一个可执行叶子子任务标成 `[~]`；不要留下父子同时 `[~]`。
 
 ## 执行原则
 
@@ -271,10 +271,47 @@ def parse_todo_items(lines: list[str]) -> tuple[TodoItem, ...]:
     return tuple(items)
 
 
+def iter_descendants(items: tuple[TodoItem, ...], parent_index: int):
+    parent = items[parent_index]
+    for item in items[parent_index + 1 :]:
+        if item.indent <= parent.indent:
+            break
+        yield item
+
+
+def first_descendant(
+    items: tuple[TodoItem, ...],
+    parent_index: int,
+    state: str,
+    leaf_only: bool,
+) -> TodoItem | None:
+    for item in iter_descendants(items, parent_index):
+        if item.state != state:
+            continue
+        if leaf_only and not item.is_leaf:
+            continue
+        return item
+    return None
+
+
 def select_next_item(items: tuple[TodoItem, ...]) -> TodoItem | None:
     for item in items:
-        if item.state == "~":
+        if item.state == "~" and item.is_leaf:
             return item
+
+    for index, item in enumerate(items):
+        if item.state != "~":
+            continue
+
+        pending_leaf = first_descendant(items, index, " ", True)
+        if pending_leaf is not None:
+            return pending_leaf
+
+        pending_any = first_descendant(items, index, " ", False)
+        if pending_any is not None:
+            return pending_any
+
+        return item
 
     for item in items:
         if item.state == " " and item.is_leaf:
@@ -423,10 +460,10 @@ def build_runner_contract_block(
     return f"""本轮硬约束（不依赖 skill，若与 skill 冲突以这里为准）：
 - 只读取并遵守当前 `--root` 仓库内的 `AGENTS.md`；不要向上级目录查找或应用 `AGENTS.md`。
 - Checkbox 状态只使用 `[ ]` 待执行、`[~]` 正在执行、`[x]` 已完成并已验证、`[f]` 已失败且写明原因。
-- 本轮只推进一个任务：优先继续已有 `[~]`，否则选择文档顺序中的第一个可执行 `[ ]` 叶子任务；开始新的 `[ ]` 前，把且仅把该任务改成 `[~]`。
-- 如果发现多个 `[~]`，先用中文报告异常，再按文档顺序只处理第一个；不要重排、重置或吞掉其他 `[~]`。
+- 本轮只推进一个叶子任务：优先继续已有 `[~]` 叶子；如果已有 `[~]` 是父级/过大任务，先把父级改回 `[ ]`，拆成有顺序的小型 `[ ]` 叶子子任务，并只把第一个可执行叶子标成 `[~]`。
+- 如果发现多个 `[~]`，先用中文报告异常；若是父子同时 `[~]`，保留文档顺序中第一个可执行叶子 `[~]` 并把父级改回 `[ ]`，否则按文档顺序只处理第一个 `[~]`；不要重排或吞掉其他任务。
 - 开始实现前，先按归档规则移动主 todo 中遗留的 `[x]` / `[f]` 可归档任务块。
-- 如果任务过大或含糊，先在 todo 中拆成可执行的小任务，并只启动第一个小任务。
+- 如果任务过大或含糊，先在 todo 中拆成可执行的叶子子任务；父级保持 `[ ]` 作为分组，子任务写清单一交付物、最小验证命令和完成条件，只启动第一个子任务。
 - 优先围绕上面的目标行工作；读取 todo 时使用小范围命令，例如 `sed -n '{range_hint}p' {todo_display}`，避免打印整份 todo 历史。
 - 不要读取 `loop.log`；如确需排错，只读取短尾部，例如 `tail -n 200 loop.log`。
 - 完成后写入真实验证命令和结果，再把任务标成 `[x]`，并将本轮完成的 `[x]` 任务及其验证记录移动到完成归档 `{archive_display}`。
