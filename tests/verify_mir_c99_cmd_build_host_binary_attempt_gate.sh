@@ -2,7 +2,7 @@
 #
 # MIR-C99 self-build must expose an explicit host compiler binary attempt gate.
 # Until the compiler candidate is real, the gate must still compile the emitted
-# C with the host compiler and report the current compiler-source frontier.
+# C with the host compiler and report the next compiler-source frontier.
 
 set -euo pipefail
 
@@ -53,14 +53,14 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_decl_is_two_i32_ptr_param_fn,prefix_stmts=7,reason=body_complete$' \
-    "diagnostic log records the completed two-i32-pointer helper body"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_two_pointer_param_guard_tail_return_lowering$' \
-    "diagnostic log records the migrated generic two pointer-param guard-call tail return"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_decl_is_parse11_i32_fn,decl=403,function_id=44,body_stmts=21,reason=pending_core_body$' \
-    "diagnostic log preserves the current compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=generic_corebody_parse11_pointer_out_param_lowering$' \
-    "diagnostic log records the next generic compiler driver slice"
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_decl_is_parse11_i32_fn,prefix_stmts=21,reason=body_complete$' \
+    "diagnostic log records the completed parse11 helper body"
+require_pattern "$log_file" '^completed_coverage=generic_corebody_parse11_pointer_out_param_lowering$' \
+    "diagnostic log records the migrated generic parse11 pointer out-param lowering"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_lowered_plan_empty,decl=404,function_id=45,body_stmts=1,reason=pending_core_body$' \
+    "diagnostic log preserves the next compiler-source frontier"
+require_pattern "$log_file" '^next_coverage=generic_corebody_empty_struct_return_lowering$' \
+    "diagnostic log records the next generic empty-struct return slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \

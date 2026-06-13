@@ -2665,6 +2665,19 @@ body complete；后续任务必须重跑 self-build frontier，只接受诊断�
 native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete
 ```
 
+## `native_build_decl_is_parse11_i32_fn(...)` Body Complete Contract
+
+11 参数 parse/out-param helper 的 body-complete 合同固定通用 shape surface，不按 helper 名称特化：
+`native_build_decl_is_parse11_i32_fn(decl) != 0`、非 extern、i32 返回、第 0 个参数为 `&i32`、
+第 1 个参数为 i32，其余参数为 i32-like pointer。body 目前为 21 条 statement，CoreBody ->
+PortableMIR lowering 通过 `generic_corebody_parse11_pointer_out_param_lowering` 覆盖其 pointer
+out-param 写回和最终 i32 return。
+
+```text
+native_hosted_pending_body_frontier: function=native_build_decl_is_parse11_i32_fn decl=403 function_id=44 body_stmts=21 reason=pending_core_body
+native_hosted_reachable_body_complete: function=native_build_decl_is_parse11_i32_fn prefix_stmts=21 reason=body_complete
+```
+
 ## Hosted Native Handoff First Slice Contract
 
 首个真实 handoff 切片只接受 verifier-clean `CoreBody` / `PortableMIR` body 作为输入，不得调用历史 `LoweredProgram -> MachineModule` build-seed helper，也不得从 hosted `build --native` 静默回落到 C99。
