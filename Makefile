@@ -30,6 +30,7 @@ CFLAGS ?= -std=c99 -O2 -fno-builtin -Werror
 # 冷启动 seed 只用于恢复可运行编译器，最终 bin/uya 仍由 make uya 用 CFLAGS 重建。
 # 使用较低优化级可显著降低单文件 seed 的宿主 cc 峰值 RSS。
 SEED_CFLAGS ?= -std=c99 -O1 -fno-builtin -Werror
+CMD_BUILD_BLOB_CFLAGS ?= -std=c99 -O0 -g -fno-builtin
 LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）
@@ -38,6 +39,7 @@ UYA_CMD_NAMES := build check run test fmt upm microapp
 UYA_CMD_BINS := $(patsubst %,bin/cmd/%,$(UYA_CMD_NAMES))
 UYA_CMD_BOOTSTRAP_COMPILER ?= ./bin/cmd/build
 UYA_BUILD_SEED_COMPILER ?= ./bin/cmd/build
+UYA_FORCE_CMD_BUILD_SEED ?= 0
 
 # 安装路径（install 目标）
 # 用法: make install
@@ -1149,6 +1151,15 @@ backup-cmd-build-seed:
 	@echo "单文件 C 编译以更新 backup/cmd-build.c 与 host/arch build seed …"
 	@mkdir -p backup src/build
 	@bash -c 'set -e; \
+		SEED_KEY="$$(HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" scripts/cmd_build_seed_key.sh .)"; \
+		KEY_FILE="backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).sha256"; \
+		HOST_SEED="backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).c"; \
+		if [ "$(UYA_FORCE_CMD_BUILD_SEED)" != "1" ] && [ -s "$$HOST_SEED" ] && [ -s "$$KEY_FILE" ] && [ "$$(cat "$$KEY_FILE")" = "$$SEED_KEY" ]; then \
+			echo "复用已有 cmd/build C seed: $$HOST_SEED"; \
+			cp "$$HOST_SEED" src/build/cmd-build.c; \
+			printf "%s\n" "$$SEED_KEY" > src/build/cmd-build.seed-key; \
+			exit 0; \
+		fi; \
 		COMPILER="$(UYA_BUILD_SEED_COMPILER)"; \
 		if [ -z "$$COMPILER" ]; then COMPILER="./bin/uya"; fi; \
 		if [ ! -x "$$COMPILER" ]; then \
@@ -1156,32 +1167,54 @@ backup-cmd-build-seed:
 			exit 1; \
 		fi; \
 		echo "使用 $$COMPILER 生成 src/build/cmd-build.c ..."; \
-		UYA_ROOT="$$(pwd)" "$$COMPILER" build --c99 src/cmd/build/main.uya -o src/build/cmd-build.c --no-split-c --project-root src/ --safety-proof'
+		UYA_ROOT="$$(pwd)" "$$COMPILER" build --c99 src/cmd/build/main.uya -o src/build/cmd-build.c --no-split-c --project-root src/ --safety-proof; \
+		printf "%s\n" "$$SEED_KEY" > src/build/cmd-build.seed-key'
 	@if [ ! -s src/build/cmd-build.c ]; then \
 		echo "错误: cmd/build seed 生成失败，src/build/cmd-build.c 不存在或为空"; \
 		exit 1; \
 	fi
 	@cp src/build/cmd-build.c backup/cmd-build.c
 	@cp src/build/cmd-build.c backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).c
+	@if [ -s src/build/cmd-build.seed-key ]; then \
+		cp src/build/cmd-build.seed-key backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).sha256; \
+	fi
 	@if [ "$(HOST_OS)" = "macos" ]; then \
 		cp src/build/cmd-build.c backup/cmd-build-macos.c; \
 		cp src/build/cmd-build.c backup/cmd-build-macos-$(HOST_ARCH).c; \
 		echo "✓ backup/cmd-build-macos.c 与 backup/cmd-build-macos-$(HOST_ARCH).c 已按本机结果更新"; \
 	fi
-	@echo "✓ backup/cmd-build.c 与 backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).c 已更新"
+	@echo "✓ backup/cmd-build.c 与 backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).c 已就绪"
 
 backup-cmd-build-blob-seed: backup-cmd-build-seed
 	@echo "生成 host/arch cmd/build 快速 blob seed …"
 	@mkdir -p backup src/build bin/cmd
 	@bash -c 'set -e; \
-		COMPILER="$(UYA_BUILD_SEED_COMPILER)"; \
-		if [ -z "$$COMPILER" ]; then COMPILER="./bin/uya"; fi; \
-		if [ ! -x "$$COMPILER" ]; then \
-			echo "错误: 缺少可执行 compiler，无法生成 cmd/build blob seed（默认需要 bin/cmd/build，可用 UYA_BUILD_SEED_COMPILER=... 覆盖）"; \
+		if [ ! -s src/build/cmd-build.c ]; then \
+			echo "错误: 缺少 src/build/cmd-build.c，无法生成 cmd/build blob seed"; \
 			exit 1; \
 		fi; \
-		echo "使用 $$COMPILER 生成 bin/cmd/build ..."; \
-		UYA_ROOT="$$(pwd)" "$$COMPILER" src/cmd/build/main.uya -o bin/cmd/build --no-split-c --project-root src/; \
+		CC_DRIVER="$(CC_DRIVER)"; \
+		CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)"; \
+		CMD_BUILD_BLOB_CFLAGS="$(CMD_BUILD_BLOB_CFLAGS)"; \
+		LDFLAGS="$(LDFLAGS)"; \
+		SEED_KEY="$$(cat src/build/cmd-build.seed-key 2>/dev/null || HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" scripts/cmd_build_seed_key.sh .)"; \
+		BLOB_KEY_FILE="backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.key"; \
+		BLOB_KEY_TMP="src/build/cmd-build.blob-key"; \
+		{ \
+			printf "seed=%s\n" "$$SEED_KEY"; \
+			printf "HOST_OS=%s\n" "$(HOST_OS)"; \
+			printf "HOST_ARCH=%s\n" "$(HOST_ARCH)"; \
+			printf "CC_DRIVER=%s\n" "$$CC_DRIVER"; \
+			printf "CC_TARGET_FLAGS=%s\n" "$$CC_TARGET_FLAGS"; \
+			printf "CMD_BUILD_BLOB_CFLAGS=%s\n" "$$CMD_BUILD_BLOB_CFLAGS"; \
+			printf "LDFLAGS=%s\n" "$$LDFLAGS"; \
+		} > "$$BLOB_KEY_TMP"; \
+		if [ "$(UYA_FORCE_CMD_BUILD_SEED)" != "1" ] && [ -s "backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.c" ] && [ -s "$$BLOB_KEY_FILE" ] && cmp -s "$$BLOB_KEY_TMP" "$$BLOB_KEY_FILE"; then \
+			echo "复用已有 cmd/build blob seed: backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.c"; \
+			exit 0; \
+		fi; \
+		echo "使用 src/build/cmd-build.c 生成 bin/cmd/build ..."; \
+		$$CC_DRIVER $$CC_TARGET_FLAGS $$CMD_BUILD_BLOB_CFLAGS src/build/cmd-build.c -o bin/cmd/build -lm $$LDFLAGS; \
 		BLOB_INPUT="src/build/cmd-build.blob.bin"; \
 		cp bin/cmd/build "$$BLOB_INPUT"; \
 		if command -v strip >/dev/null 2>&1; then strip "$$BLOB_INPUT" || true; fi; \
@@ -1189,8 +1222,9 @@ backup-cmd-build-blob-seed: backup-cmd-build-seed
 		if [ "$(HOST_OS)" = "macos" ]; then \
 			scripts/generate_cmd_build_blob_seed.sh "$$BLOB_INPUT" "backup/cmd-build-macos-$(HOST_ARCH)-blob.c"; \
 		fi; \
+		cp "$$BLOB_KEY_TMP" "$$BLOB_KEY_FILE"; \
 		rm -f "$$BLOB_INPUT"'
-	@echo "✓ backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.c 已更新"
+	@echo "✓ backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.c 已就绪"
 
 # hosted 单文件 C 本机种子：在当前宿主平台上更新 hosted seed；macOS 同步刷新统一入口 seed
 backup-hosted-seed-native:
