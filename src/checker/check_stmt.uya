@@ -466,10 +466,6 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if function_table_lookup(checker, node.fn_decl_name) != null {
         return 1;
     }
-    if checker.function_table.count >= FUNCTION_TABLE_SIZE {
-        checker_report_error(checker, node, "函数表容量不足，请增大 FUNCTION_TABLE_SIZE" as *byte);
-        return 0;
-    }
     if function_table_insert(checker, sig) != 0 {
         checker_report_error(checker, node, "函数重复定义" as *byte);
         return 0;
@@ -1000,6 +996,7 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
             }
         }
         
+        semantic_vector_reset(&checker.moved_names);
         checker.moved_count = 0;
         // 检查函数体
         checker_check_node(checker, node.fn_decl_body);
@@ -1468,12 +1465,15 @@ fn iface_stack_set(iface_stack: [&ASTNode: MAX_INTERFACE_STACK], idx: i32, value
     iface_stack[idx] = value;
 }
 
-fn method_signature_exists(method_sigs: [&ASTNode: MAX_INTERFACE_METHODS], sig_count: i32, msig: &ASTNode) i32 {
+fn method_signature_exists(method_sigs: & & ASTNode, sig_count: i32, msig: &ASTNode) i32 {
     if msig == null || msig.type != ASTNodeType.AST_FN_DECL || msig.fn_decl_name == null {
         return 0;
     }
+    if method_sigs == null {
+        return 0;
+    }
     var sj: i32 = 0;
-    while sj < sig_count && sj < MAX_INTERFACE_METHODS {
+    while sj < sig_count {
         const existing_sig: &ASTNode = method_sigs[sj];
         if existing_sig != null && existing_sig.fn_decl_name != null &&
             str_equals(existing_sig.fn_decl_name, msig.fn_decl_name) != 0 {

@@ -580,45 +580,141 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
     return module_name;
 }
 
-// 查找或创建模块信息
+// 模块表使用 SemanticHash 定位链表头，SemanticVector 保存链表节点。
+fn checker_module_table_lookup(checker: &TypeChecker, module_name: &byte) &ModuleInfo {
+    if checker == null || module_name == null {
+        return null;
+    }
+    const key: i64 = checker_table_key(module_name);
+    var current_idx: i32 = -1;
+    if semantic_hash_get(&checker.module_table.index, key, &current_idx) == 0 {
+        return null;
+    }
+    while current_idx >= 0 {
+        const entry: &ModuleTableEntry = checker_module_entry_at(&checker.module_table, current_idx);
+        if entry == null {
+            break;
+        }
+        if entry.module != null && entry.name != null && str_equals(entry.name, module_name) != 0 {
+            return entry.module;
+        }
+        current_idx = entry.next;
+    }
+    return null;
+}
+
+fn checker_module_table_insert(checker: &TypeChecker, module: &ModuleInfo) i32 {
+    if checker == null || module == null || module.module_name == null {
+        return -1;
+    }
+    if checker_module_table_lookup(checker, module.module_name) != null {
+        return 0;
+    }
+    const key: i64 = checker_table_key(module.module_name);
+    var head_idx: i32 = -1;
+    _ = semantic_hash_get(&checker.module_table.index, key, &head_idx);
+    const entry_idx: i32 = checker.module_table.entries.count as i32;
+    var entry: ModuleTableEntry = ModuleTableEntry{
+        name: module.module_name,
+        module: module,
+        next: head_idx,
+    };
+    if semantic_vector_append(&checker.module_table.entries, &entry as &const void) != 0 {
+        return -1;
+    }
+    if semantic_hash_insert(&checker.module_table.index, key, entry_idx) != 0 {
+        return -1;
+    }
+    checker.module_table.count = checker.module_table.count + 1;
+    return 0;
+}
+
+fn checker_import_table_lookup_local_name(checker: &TypeChecker, local_name: &byte) &ImportedItem {
+    if checker == null || local_name == null {
+        return null;
+    }
+    const key: i64 = checker_table_key(local_name);
+    var current_idx: i32 = -1;
+    if semantic_hash_get(&checker.import_table.index, key, &current_idx) == 0 {
+        return null;
+    }
+    while current_idx >= 0 {
+        const entry: &ImportTableEntry = checker_import_entry_at(&checker.import_table, current_idx);
+        if entry == null {
+            break;
+        }
+        const item: &ImportedItem = entry.item;
+        if item != null && item.local_name != null && str_equals(item.local_name, local_name) != 0 {
+            return item;
+        }
+        current_idx = entry.next;
+    }
+    return null;
+}
+
+fn checker_import_table_insert(checker: &TypeChecker, item: &ImportedItem) i32 {
+    if checker == null || item == null || item.local_name == null {
+        return -1;
+    }
+    const key: i64 = checker_table_key(item.local_name);
+    var head_idx: i32 = -1;
+    _ = semantic_hash_get(&checker.import_table.index, key, &head_idx);
+    const entry_idx: i32 = checker.import_table.entries.count as i32;
+    var entry: ImportTableEntry = ImportTableEntry{
+        name: item.local_name,
+        item: item,
+        next: -1,
+    };
+    if semantic_vector_append(&checker.import_table.entries, &entry as &const void) != 0 {
+        return -1;
+    }
+    if head_idx < 0 {
+        if semantic_hash_insert(&checker.import_table.index, key, entry_idx) != 0 {
+            return -1;
+        }
+    } else {
+        var tail_idx: i32 = head_idx;
+        while tail_idx >= 0 {
+            const tail: &ImportTableEntry = checker_import_entry_at(&checker.import_table, tail_idx);
+            if tail == null {
+                break;
+            }
+            if tail.next < 0 {
+                tail.next = entry_idx;
+                break;
+            }
+            tail_idx = tail.next;
+        }
+    }
+    checker.import_table.count = checker.import_table.count + 1;
+    return 0;
+}
+
 fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &byte) &ModuleInfo {
     if checker == null || module_name == null {
         return null;
     }
-    
-    // 计算哈希值
-    const hash: i32 = hash_string(module_name);
-    var index: i32 = hash & (MODULE_TABLE_SIZE - 1);
-    
-    // 查找现有模块
-    var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (index + i) & (MODULE_TABLE_SIZE - 1);
-        var module: &ModuleInfo = checker.module_table.slots[slot];
-        if module != null && str_equals(module.module_name, module_name) != 0 {
-            return module;
-        }
-        if module == null {
-            // 找到空槽位，创建新模块
-            module = compiler_arena_alloc(checker.arena, @size_of(ModuleInfo)) as &ModuleInfo;
-            if module == null {
-                return null;
-            }
-            module.module_name = module_name;
-            module.filename = filename;
-            module.exports = null;
-            module.export_count = 0;
-            module.dependencies = null;
-            module.dependency_count = 0;
-            checker.module_table.slots[slot] = module;
-            checker.module_table.count = checker.module_table.count + 1;
-            return module;
-        }
-        i = i + 1;
+
+    var module: &ModuleInfo = checker_module_table_lookup(checker, module_name);
+    if module != null {
+        return module;
     }
-    
-    checker_report_error(checker, checker.program_node, "checker module table 容量已满" as *byte);
-    return null;
+
+    module = compiler_arena_alloc(checker.arena, @size_of(ModuleInfo)) as &ModuleInfo;
+    if module == null {
+        return null;
+    }
+    module.module_name = module_name;
+    module.filename = filename;
+    module.exports = null;
+    module.export_count = 0;
+    module.dependencies = null;
+    module.dependency_count = 0;
+    if checker_module_table_insert(checker, module) != 0 {
+        checker_report_error(checker, checker.program_node, "checker module table 容量已满" as *byte);
+        return null;
+    }
+    return module;
 }
 
 fn append_module_export(
@@ -1174,20 +1270,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                     is_whole_module_import = 1;
                 } else {
                 // 在 module_table 中查找全路径
-                const fh: i32 = hash_string(full_path);
-                var fi: i32 = fh & (MODULE_TABLE_SIZE - 1);
-                var full_mod: &ModuleInfo = null;
-                i = 0;
-                while i < MODULE_TABLE_SIZE {
-                    const slot: i32 = (fi + i) & (MODULE_TABLE_SIZE - 1);
-                    const m: &ModuleInfo = checker.module_table.slots[slot];
-                    if m != null && str_equals(m.module_name, full_path) != 0 {
-                        full_mod = m;
-                        break;
-                    }
-                    if m == null { break; }
-                    i = i + 1;
-                }
+                var full_mod: &ModuleInfo = checker_module_table_lookup(checker, full_path);
                 
                 var full_path_is_tls: i32 = 0;
                 if full_path != null && strlen(full_path as *byte) >= 4
@@ -1292,19 +1375,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             // main 模块：跳过依赖记录，继续处理导入项
         } else {
             // 查找当前模块
-            const current_hash: i32 = hash_string(current_module_name);
-            var current_index: i32 = current_hash & (MODULE_TABLE_SIZE - 1);
-            var current_module: &ModuleInfo = null;
-            var si: i32 = 0;
-            while si < MODULE_TABLE_SIZE {
-                const slot: i32 = (current_index + si) & (MODULE_TABLE_SIZE - 1);
-                const m: &ModuleInfo = checker.module_table.slots[slot];
-                if m != null && str_equals(m.module_name, current_module_name) != 0 {
-                    current_module = m;
-                    break;
-                }
-                si = si + 1;
-            }
+            var current_module: &ModuleInfo = checker_module_table_lookup(checker, current_module_name);
             
             var skip_dependency: i32 = 0;
             if module_name != null {
@@ -1323,7 +1394,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             if current_module != null && skip_dependency == 0 {
                 // 检查依赖是否已存在
                 var dep_exists: i32 = 0;
-                si = 0;
+                var si: i32 = 0;
                 while si < current_module.dependency_count {
                     if str_equals(current_module.dependencies[si].target_module, module_name) != 0 {
                         dep_exists = 1;
@@ -1377,21 +1448,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         import.module_name = module_name;
         import.item_type = 0 - 1;  // -1 = 模块导入
         
-        const import_hash: i32 = hash_string(import.local_name);
-        var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
-        var j: i32 = 0;
-        var import_inserted: i32 = 0;
-        while j < IMPORT_TABLE_SIZE {
-            const slot: i32 = (import_index + j) & (IMPORT_TABLE_SIZE - 1);
-            if checker.import_table.slots[slot] == null {
-                checker.import_table.slots[slot] = import;
-                checker.import_table.count = checker.import_table.count + 1;
-                import_inserted = 1;
-                break;
-            }
-            j = j + 1;
-        }
-        if import_inserted == 0 {
+        if checker_import_table_insert(checker, import) != 0 {
             checker_report_error(checker, node, "checker import table 容量已满" as *byte);
             return 0;
         }
@@ -1454,21 +1511,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         import.module_name = module_name;
         import.item_type = item_type;
         
-        const import_hash: i32 = hash_string(import.local_name);
-        var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
-        var slot_i: i32 = 0;
-        var import_inserted: i32 = 0;
-        while slot_i < IMPORT_TABLE_SIZE {
-            const slot: i32 = (import_index + slot_i) & (IMPORT_TABLE_SIZE - 1);
-            if checker.import_table.slots[slot] == null {
-                checker.import_table.slots[slot] = import;
-                checker.import_table.count = checker.import_table.count + 1;
-                import_inserted = 1;
-                break;
-            }
-            slot_i = slot_i + 1;
-        }
-        if import_inserted == 0 {
+        if checker_import_table_insert(checker, import) != 0 {
             checker_report_error(checker, node, "checker import table 容量已满" as *byte);
             return 0;
         }
@@ -1533,25 +1576,17 @@ fn dfs_visit_module(
         var error_node: &ASTNode = null;
         if path_len > 0 {
             const last_module: &byte = path[path_len - 1];
-            const last_hash: i32 = hash_string(last_module);
-            var last_index: i32 = last_hash & (MODULE_TABLE_SIZE - 1);
-            i = 0;
-            while i < MODULE_TABLE_SIZE {
-                const slot: i32 = (last_index + i) & (MODULE_TABLE_SIZE - 1);
-                const m: &ModuleInfo = checker.module_table.slots[slot];
-                if m != null && str_equals(m.module_name, last_module) != 0 {
-                    // 查找对 module_name 的依赖
-                    var j: i32 = 0;
-                    while j < m.dependency_count {
-                        if str_equals(m.dependencies[j].target_module, module_name) != 0 {
-                            error_node = m.dependencies[j].use_stmt_node;
-                            break;
-                        }
-                        j = j + 1;
+            const m: &ModuleInfo = checker_module_table_lookup(checker, last_module);
+            if m != null {
+                // 查找对 module_name 的依赖
+                var j: i32 = 0;
+                while j < m.dependency_count {
+                    if str_equals(m.dependencies[j].target_module, module_name) != 0 {
+                        error_node = m.dependencies[j].use_stmt_node;
+                        break;
                     }
-                    break;
+                    j = j + 1;
                 }
-                i = i + 1;
             }
         }
         
@@ -1580,19 +1615,7 @@ fn dfs_visit_module(
     visit_state[state_idx].state = 1;
     
     // 查找模块
-    const hash: i32 = hash_string(module_name);
-    var index: i32 = hash & (MODULE_TABLE_SIZE - 1);
-    var module: &ModuleInfo = null;
-    i = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (index + i) & (MODULE_TABLE_SIZE - 1);
-        const m: &ModuleInfo = checker.module_table.slots[slot];
-        if m != null && str_equals(m.module_name, module_name) != 0 {
-            module = m;
-            break;
-        }
-        i = i + 1;
-    }
+    var module: &ModuleInfo = checker_module_table_lookup(checker, module_name);
     
     if module != null {
         // 递归访问所有依赖
@@ -1644,10 +1667,12 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
     }
     
     // 初始化访问状态
+    const entry_count: i32 = checker.module_table.entries.count as i32;
     var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const module: &ModuleInfo = checker.module_table.slots[i];
-        if module != null {
+    while i < entry_count {
+        const entry: &ModuleTableEntry = checker_module_entry_at(&checker.module_table, i);
+        if entry != null && entry.module != null {
+            const module: &ModuleInfo = entry.module;
             if visit_count < module_count {
                 visit_state[visit_count].module_name = module.module_name;
                 visit_state[visit_count].state = 0;

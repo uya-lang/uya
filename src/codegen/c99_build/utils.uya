@@ -65,7 +65,10 @@ export fn c99_qprof_bump(kind: i32, hit: i32) void {
     if g_qp_enabled == 0 {
         return;
     }
-    if kind < 0 || kind >= QP_KIND_COUNT {
+    if kind < 0 {
+        return;
+    }
+    if kind >= QP_KIND_COUNT {
         return;
     }
     g_qp_calls[kind] = g_qp_calls[kind] + 1i64;
@@ -662,15 +665,20 @@ fn c99_codegen_set_mono_instances(codegen: &C99CodeGenerator, checker: &TypeChec
     }
 
     const count: i32 = checker.mono_instance_count;
+    if count > C99_MAX_MONO_INSTANCES {
+        c99_codegen_report_capacity_error(null, "checker mono instance transfer" as &byte,
+            count, C99_MAX_MONO_INSTANCES);
+        return -1;
+    }
     var i: i32 = 0;
-    // 使用 C99_CHECKER_MAX_MONO_INSTANCES 作为循环上限
-    // 这样安全证明系统能证明 checker.mono_instances[i] 访问安全
-    while i < C99_CHECKER_MAX_MONO_INSTANCES {
-        if i < count {
-            codegen.mono_instances[i].generic_name = checker.mono_instances[i].generic_name;
-            codegen.mono_instances[i].is_function = checker.mono_instances[i].is_function;
-            codegen.mono_instances[i].type_arg_count = checker.mono_instances[i].type_arg_count;
-            codegen.mono_instances[i].type_args = checker.mono_instances[i].type_arg_nodes;
+    while i < count {
+        const inst: &MonoInstance = checker_mono_instance_at(checker, i);
+        if inst != null {
+            const out_idx: i32 = codegen.mono_instance_count;
+            codegen.mono_instances[out_idx].generic_name = inst.generic_name;
+            codegen.mono_instances[out_idx].is_function = inst.is_function;
+            codegen.mono_instances[out_idx].type_arg_count = inst.type_arg_count;
+            codegen.mono_instances[out_idx].type_args = inst.type_arg_nodes;
             codegen.mono_instance_count = codegen.mono_instance_count + 1;
         }
         i = i + 1;
@@ -691,10 +699,19 @@ fn c99_codegen_set_reachable_functions(codegen: &C99CodeGenerator, checker: &Typ
         return -1;
     }
     codegen.reachable_function_decl_count = 0;
+    if checker.reachable_fn_decl_count > C99_MAX_REACHABLE_FUNCTIONS {
+        c99_codegen_report_capacity_error(null, "checker reachable function transfer" as &byte,
+            checker.reachable_fn_decl_count, C99_MAX_REACHABLE_FUNCTIONS);
+        return -1;
+    }
     var i: i32 = 0;
-    while i < checker.reachable_fn_decl_count && i < C99_MAX_REACHABLE_FUNCTIONS {
-        codegen.reachable_function_decls[i] = checker.reachable_fn_decls[i];
-        codegen.reachable_function_decl_count = codegen.reachable_function_decl_count + 1;
+    while i < checker.reachable_fn_decl_count {
+        const decl: &ASTNode = checker_reachable_fn_decl_at(checker, i);
+        if decl != null {
+            const out_idx: i32 = codegen.reachable_function_decl_count;
+            codegen.reachable_function_decls[out_idx] = decl;
+            codegen.reachable_function_decl_count = codegen.reachable_function_decl_count + 1;
+        }
         i = i + 1;
     }
     return 0;

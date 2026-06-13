@@ -551,8 +551,25 @@ fn c99_split_plan_object_from_c_path(plan: &C99Plan, c_path: &byte) &byte {
         return null;
     }
     obj[i] = 0 as byte;
-    if i >= 2 && obj[i - 2] == 46 as byte && obj[i - 1] == 99 as byte {
-        obj[i - 1] = 111 as byte;
+    if i < 2 {
+        return null;
+    }
+    const dot_idx: i32 = i - 2;
+    const ext_idx: i32 = i - 1;
+    if dot_idx < 0 {
+        return null;
+    }
+    if dot_idx >= C99_SPLIT_PLAN_PATH_BUF_SIZE {
+        return null;
+    }
+    if ext_idx < 0 {
+        return null;
+    }
+    if ext_idx >= C99_SPLIT_PLAN_PATH_BUF_SIZE {
+        return null;
+    }
+    if obj[dot_idx] == 46 as byte && obj[ext_idx] == 99 as byte {
+        obj[ext_idx] = 111 as byte;
         return c99_plan_strdup(plan, &obj[0] as &byte);
     }
     return null;

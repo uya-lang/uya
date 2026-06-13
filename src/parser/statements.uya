@@ -79,7 +79,9 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
             stmts = new_stmts;
             stmt_capacity = new_capacity;
         }
-        
+        if stmts == null {
+            return null;
+        }
         stmts[stmt_count] = stmt;
         stmt_count = stmt_count + 1;
     }

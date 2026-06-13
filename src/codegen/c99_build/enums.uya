@@ -118,23 +118,17 @@ fn c99_find_module_export_decl(codegen: &C99CodeGenerator, module_name: &byte, i
     if codegen == null || codegen.checker == null || module_name == null || item_name == null {
         return null;
     }
-    var mi: i32 = 0;
-    while mi < MODULE_TABLE_SIZE {
-        const module: &ModuleInfo = codegen.checker.module_table.slots[mi];
-        if module != null && module.module_name != null &&
-            strcmp(module.module_name as *byte, module_name as *byte) == 0 {
-            var ei: i32 = 0;
-            while ei < module.export_count {
-                if module.exports != null && module.exports[ei].name != null &&
-                    strcmp(module.exports[ei].name as *byte, item_name as *byte) == 0 &&
-                    module.exports[ei].item_type == item_type {
-                    return module.exports[ei].decl_node;
-                }
-                ei = ei + 1;
+    const module: &ModuleInfo = checker_module_table_lookup(codegen.checker, module_name);
+    if module != null && module.module_name != null {
+        var ei: i32 = 0;
+        while ei < module.export_count {
+            if module.exports != null && module.exports[ei].name != null &&
+                strcmp(module.exports[ei].name as *byte, item_name as *byte) == 0 &&
+                module.exports[ei].item_type == item_type {
+                return module.exports[ei].decl_node;
             }
-            return null;
+            ei = ei + 1;
         }
-        mi = mi + 1;
     }
     return null;
 }

@@ -643,7 +643,7 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
             pointer_nonnull_count: 0,
         };
         if checker_proof_snapshot_save(checker, &saved_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
 
         if node.binary_expr_left != null {
@@ -658,7 +658,7 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         }
 
         if checker_proof_snapshot_restore(checker, &saved_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
 
         if left_type.kind == TypeKind.TYPE_MASK || right_type.kind == TypeKind.TYPE_MASK {

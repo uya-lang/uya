@@ -855,6 +855,10 @@ fn checker_check_c_import_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         checker_report_error(checker, node, "@c_import 只能在顶层使用" as *byte);
         return 0;
     }
+    if checker.container_mode != 0 {
+        checker_report_error(checker, node, "E4005: microapp 模式禁止使用 @c_import" as *byte);
+        return 0;
+    }
     if node.c_import_path_literal == null {
         checker_report_error(checker, node, "@c_import 需要一个字符串字面量路径参数" as *byte);
         return 0;
@@ -1771,6 +1775,18 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         if expr.va_copy_src != null { checker_infer_type(checker, expr.va_copy_src); }
         return make_void_type();
     } else if expr.type == ASTNodeType.AST_ASM {
+        // E4001: microapp 模式禁止用户代码中的 @asm
+        if checker.container_mode != 0 {
+            var is_stdlib_asm_e: i32 = 0;
+            if expr.filename != null {
+                if strstr(expr.filename as *byte, "lib/std/" as *byte) != null { is_stdlib_asm_e = 1; }
+                if strstr(expr.filename as *byte, "lib/libc/" as *byte) != null { is_stdlib_asm_e = 1; }
+            }
+            if is_stdlib_asm_e == 0 {
+                checker_report_error(checker, expr, "E4001: microapp 模式禁止使用 @asm" as *byte);
+                return make_void_type();
+            }
+        }
         // @asm { ... } 内联汇编块
         return infer_asm_block(checker, expr);
     } else if expr.type == ASTNodeType.AST_ASM_TARGET {
@@ -2954,31 +2970,23 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
             // 局部/参数变量优先于导入模块：避免变量名与模块别名同名时误判 module.func
             const obj_symbol: &Symbol = symbol_table_lookup(checker, obj_name);
             if obj_symbol == null {
-                const ih: i32 = hash_string(obj_name);
-                var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
-                var mi: i32 = 0;
-                while mi < IMPORT_TABLE_SIZE {
-                    const sl: i32 = (ii + mi) & (IMPORT_TABLE_SIZE - 1);
-                    const imp: &ImportedItem = checker.import_table.slots[sl];
-                    if imp == null { break; }
-                    if imp.item_type == (0 - 1) && str_equals(imp.local_name, obj_name) != 0 {
-                        // 模块限定调用
-                        callee.member_access_is_module_access = 1;
-                        callee.member_access_module_name = imp.module_name;
-                        const func_name: &byte = callee.member_access_field_name;
-                        if func_name != null {
-                            const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, func_name);
-                            if fn_decl != null {
-                                return type_from_ast(checker, fn_decl.fn_decl_return_type);
-                            }
-                            const sig: &FunctionSignature = function_table_lookup(checker, func_name);
-                            if sig != null {
-                                return sig.return_type;
-                            }
+                const imp: &ImportedItem = checker_import_table_lookup_local_name(checker, obj_name);
+                if imp != null && imp.item_type == (0 - 1) {
+                    // 模块限定调用
+                    callee.member_access_is_module_access = 1;
+                    callee.member_access_module_name = imp.module_name;
+                    const func_name: &byte = callee.member_access_field_name;
+                    if func_name != null {
+                        const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, func_name);
+                        if fn_decl != null {
+                            return type_from_ast(checker, fn_decl.fn_decl_return_type);
                         }
-                        return make_void_type();
+                        const sig: &FunctionSignature = function_table_lookup(checker, func_name);
+                        if sig != null {
+                            return sig.return_type;
+                        }
                     }
-                    mi = mi + 1;
+                    return make_void_type();
                 }
             }
         }
@@ -3358,25 +3366,17 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
                 }
                 
                 // 不是枚举，检查是否是模块导入
-                const ih: i32 = hash_string(enum_name);
-                var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
-                var i2: i32 = 0;
-                while i2 < IMPORT_TABLE_SIZE {
-                    const sl: i32 = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
-                    const imp: &ImportedItem = checker.import_table.slots[sl];
-                    if imp == null { break; }
-                    if imp.item_type == (0 - 1) && str_equals(imp.local_name, enum_name) != 0 {
-                        expr.member_access_is_module_access = 1;
-                        expr.member_access_module_name = imp.module_name;
-                        if imp.module_name != null && strcmp(imp.module_name as *byte, "std" as *byte) == 0 {
-                            const builtin_enum_name: &byte = std_cfg_selector_enum_name(expr.member_access_field_name);
-                            if builtin_enum_name != null {
-                                return make_named_type(TypeKind.TYPE_ENUM, builtin_enum_name);
-                            }
+                const imp: &ImportedItem = checker_import_table_lookup_local_name(checker, enum_name);
+                if imp != null && imp.item_type == (0 - 1) {
+                    expr.member_access_is_module_access = 1;
+                    expr.member_access_module_name = imp.module_name;
+                    if imp.module_name != null && strcmp(imp.module_name as *byte, "std" as *byte) == 0 {
+                        const builtin_enum_name: &byte = std_cfg_selector_enum_name(expr.member_access_field_name);
+                        if builtin_enum_name != null {
+                            return make_named_type(TypeKind.TYPE_ENUM, builtin_enum_name);
                         }
-                        return make_void_type();
                     }
-                    i2 = i2 + 1;
+                    return make_void_type();
                 }
             }
         }
@@ -3579,9 +3579,12 @@ fn infer_match_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
         const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
         if union_decl != null && union_decl.union_decl_variant_count > 0 && has_catch_all == 0 {
-            var covered: [i32: MAX_UNION_VARIANTS] = [];
-            var nv: i32 = union_decl.union_decl_variant_count;
-            if nv > MAX_UNION_VARIANTS { nv = MAX_UNION_VARIANTS; }
+            const nv: i32 = union_decl.union_decl_variant_count;
+            const covered: &i32 = compiler_arena_alloc(checker.arena, @size_of(i32) * (nv as usize)) as &i32;
+            if covered == null {
+                checker_report_error(checker, expr, "checker union variant coverage table 分配失败" as *byte);
+                return unified;
+            }
             var k: i32 = 0;
             while k < nv {
                 covered[k] = 0;
@@ -3639,7 +3642,22 @@ fn infer_syscall(checker: &TypeChecker, expr: &ASTNode) Type {
     }
     
     // 2. 检查参数
-    if expr.syscall_arg_count > 6 {
+    // microapp 态下，用户源码的 @syscall 只允许走微容器 host API（syscall(number, arg1, arg2)）
+    // 但标准库里仍有 Linux syscall 包装需要保留更长的参数列表，因此这里按源文件分流。
+    var is_library_source: i32 = 0;
+    if expr.filename != null {
+        if strstr(expr.filename as *byte, "/lib/" as *byte) != null {
+            is_library_source = 1;
+        }
+        if strncmp(expr.filename as *byte, "lib/" as *byte, 4) == 0 {
+            is_library_source = 1;
+        }
+    }
+    if checker.container_mode != 0 && is_library_source == 0 && expr.syscall_arg_count > 2 {
+        checker_report_error(checker, expr, "microapp 模式下用户代码 @syscall 最多支持 2 个参数" as &byte);
+        return make_void_type();
+    }
+    if checker.container_mode == 0 && expr.syscall_arg_count > 6 {
         checker_report_error(checker, expr, "@syscall 最多支持 6 个参数" as &byte);
         return make_void_type();
     }

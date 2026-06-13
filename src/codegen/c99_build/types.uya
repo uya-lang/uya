@@ -8198,7 +8198,10 @@ fn c99_identifier_type_cache_lookup(codegen: &C99CodeGenerator, name: &byte) &by
     }
     c99_identifier_type_cache_ensure(codegen);
     const slot: i32 = c99_identifier_type_cache_slot(codegen, name);
-    if slot < 0 || slot >= C99_IDENTIFIER_TYPE_CACHE_SIZE {
+    if slot < 0 {
+        return null;
+    }
+    if slot >= C99_IDENTIFIER_TYPE_CACHE_SIZE {
         return null;
     }
     if g_c99_identifier_type_keys[slot] == null {
@@ -8223,7 +8226,10 @@ fn c99_identifier_type_cache_store(codegen: &C99CodeGenerator, name: &byte, resu
     }
     c99_identifier_type_cache_ensure(codegen);
     const slot: i32 = c99_identifier_type_cache_slot(codegen, name);
-    if slot < 0 || slot >= C99_IDENTIFIER_TYPE_CACHE_SIZE {
+    if slot < 0 {
+        return;
+    }
+    if slot >= C99_IDENTIFIER_TYPE_CACHE_SIZE {
         return;
     }
     g_c99_identifier_type_keys[slot] = name;

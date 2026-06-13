@@ -102,11 +102,14 @@ fn check_match_expr_node(checker: &TypeChecker, node: &ASTNode) i32 {
     if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
         const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
         if union_decl != null && union_decl.union_decl_variant_count > 0 {
-            var covered: [i32: 32] = [];
-            var nv: i32 = union_decl.union_decl_variant_count;
-            if nv > MAX_UNION_VARIANTS { nv = MAX_UNION_VARIANTS; }
+            const nv: i32 = union_decl.union_decl_variant_count;
+            const covered: &i32 = compiler_arena_alloc(checker.arena, @size_of(i32) * (nv as usize)) as &i32;
+            if covered == null {
+                checker_report_error(checker, node, "checker union variant coverage table 分配失败" as *byte);
+                return 0;
+            }
             var k: i32 = 0;
-            while k < nv && k < MAX_UNION_VARIANTS {
+            while k < nv {
                 covered[k] = 0;
                 k = k + 1;
             }
@@ -119,7 +122,7 @@ fn check_match_expr_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 }
                 if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null {
                     var kk: i32 = 0;
-                    while kk < nv && kk < MAX_UNION_VARIANTS {
+                    while kk < nv {
                         const v: &ASTNode = union_decl.union_decl_variants[kk];
                         if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
                             str_equals(v.var_decl_name, arm.variant_name) != 0 {
@@ -133,7 +136,7 @@ fn check_match_expr_node(checker: &TypeChecker, node: &ASTNode) i32 {
             }
             if has_catch_all == 0 {
                 k = 0;
-                while k < nv && k < MAX_UNION_VARIANTS {
+                while k < nv {
                     if covered[k] == 0 {
                         checker_report_error(checker, node, "match 联合体必须处理所有变体" as *byte);
                         break;

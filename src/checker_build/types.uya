@@ -13,29 +13,9 @@ use std.mem.memcpy;
 
 // ===== 常量定义 =====
 
-const MAX_ERROR_NAMES: i32 = 1024;
-const MAX_MOVED_NAMES: i32 = 128;
-const MAX_MONO_INSTANCES: i32 = 512;
-const MAX_UNION_VARIANTS: i32 = 32;
-const MAX_INTERFACE_METHODS: i32 = 128;
 const MAX_INTERFACE_STACK: i32 = 64;
 const MAX_BASE_NAME_LEN: i32 = 256;
-const MAX_MONO_NAME_LEN: i32 = 256;
-const MAX_MONO_NAME_LIMIT: i32 = 250;
-const MAX_POINTER_NAMES: i32 = 32;
-const MAX_CONSTRAINTS: i32 = 64;
-const MAX_PROOF_TABLE_CAPACITY: i32 = 16384;
-const MAX_ASYNC_CALL_EDGES: i32 = 512;
-const MAX_FN_CALL_EDGES: i32 = 16384;
-const MAX_FN_ROOTS: i32 = 4096;
-const MAX_REACHABLE_FN_DECLS: i32 = 4096;
-const MAX_REACHABILITY_VISIT_SLOTS: i32 = 262144;
-const MAX_REACHABILITY_VISIT_MASK: usize = 262143;
 
-const SYMBOL_TABLE_SIZE: i32 = 32768;
-const FUNCTION_TABLE_SIZE: i32 = 8192;
-const MODULE_TABLE_SIZE: i32 = 256;
-const IMPORT_TABLE_SIZE: i32 = 512;
 const STRING_POOL_SIZE: i32 = 16384;  // 字符串池大小
 
 // ===== 类型枚举 =====
@@ -212,13 +192,27 @@ struct FunctionSignature {
     column: i32,
 }
 
+struct SymbolTableEntry {
+    name: &byte,
+    symbol: &Symbol,
+    next: i32,
+}
+
 struct SymbolTable {
-    slots: [&Symbol: SYMBOL_TABLE_SIZE],
+    entries: SemanticVector,
+    index: SemanticHash,
     count: i32,
 }
 
+struct FunctionTableEntry {
+    name: &byte,
+    sig: &FunctionSignature,
+    next: i32,
+}
+
 struct FunctionTable {
-    slots: [&FunctionSignature: FUNCTION_TABLE_SIZE],
+    entries: SemanticVector,
+    index: SemanticHash,
     count: i32,
 }
 
@@ -243,8 +237,15 @@ struct ModuleInfo {
     dependency_count: i32,
 }
 
+struct ModuleTableEntry {
+    name: &byte,
+    module: &ModuleInfo,
+    next: i32,
+}
+
 struct ModuleTable {
-    slots: [&ModuleInfo: MODULE_TABLE_SIZE],
+    entries: SemanticVector,
+    index: SemanticHash,
     count: i32,
 }
 
@@ -255,8 +256,15 @@ struct ImportedItem {
     item_type: i32,
 }
 
+struct ImportTableEntry {
+    name: &byte,
+    item: &ImportedItem,
+    next: i32,
+}
+
 struct ImportTable {
-    slots: [&ImportedItem: IMPORT_TABLE_SIZE],
+    entries: SemanticVector,
+    index: SemanticHash,
     count: i32,
 }
 
@@ -279,6 +287,29 @@ struct MonoInstance {
     type_arg_nodes: & & ASTNode,
     type_arg_count: i32,
     is_function: i32,
+}
+
+struct ErrorNameEntry {
+    name: &byte,
+    hash: u32,
+}
+
+struct MovedNameEntry {
+    name: &byte,
+}
+
+struct AsyncCallEdge {
+    from_name: &byte,
+    to_name: &byte,
+}
+
+struct FnCallEdge {
+    from_decl: &ASTNode,
+    to_decl: &ASTNode,
+}
+
+struct AstNodeRefEntry {
+    decl: &ASTNode,
 }
 
 struct TypeChecker {
@@ -310,16 +341,15 @@ struct TypeChecker {
     current_self_type_name: &byte,
     current_self_is_union: i32,
     suppress_codegen_diagnostics: i32,
-    error_names: [&byte: MAX_ERROR_NAMES],
-    error_hashes: [u32: MAX_ERROR_NAMES],
+    error_names: SemanticVector,
     error_name_count: i32,
-    moved_names: [&byte: 128],
+    moved_names: SemanticVector,
     moved_count: i32,
     module_root_dir: &byte,
     uya_root_dir: &byte,
     current_type_params: &TypeParam,
     current_type_param_count: i32,
-    mono_instances: [MonoInstance: 512],
+    mono_instances: SemanticVector,
     mono_instance_count: i32,
     constraint_var_names: & & byte,
     constraint_ops: &i32,
@@ -340,19 +370,17 @@ struct TypeChecker {
     // 用于快速遍历当前作用域的符号，避免遍历整个符号表
     scope_heads: [&Symbol: 64],  // 支持最多 64 层嵌套作用域
     // 异步函数调用图（用于在完整状态机大小计算前先检测 async 调用环）
-    async_call_edge_from: [&byte: MAX_ASYNC_CALL_EDGES],
-    async_call_edge_to: [&byte: MAX_ASYNC_CALL_EDGES],
+    async_call_edges: SemanticVector,
     async_call_edge_count: i32,
     // 顶层函数可达性（由 checker 收集，codegen 只消费结果）
-    fn_call_edge_from: [&ASTNode: MAX_FN_CALL_EDGES],
-    fn_call_edge_to: [&ASTNode: MAX_FN_CALL_EDGES],
+    fn_call_edges: SemanticVector,
     fn_call_edge_count: i32,
-    fn_root_decls: [&ASTNode: MAX_FN_ROOTS],
+    fn_root_decls: SemanticVector,
     fn_root_count: i32,
-    reachable_fn_decls: [&ASTNode: MAX_REACHABLE_FN_DECLS],
+    reachable_fn_decls: SemanticVector,
     reachable_fn_decl_count: i32,
     reachability_visit_count: i32,
-    reachability_visit_cache: [&ASTNode: MAX_REACHABILITY_VISIT_SLOTS],
+    reachability_visit_index: SemanticHash,
     async_frame_metas: [AsyncFrameMeta: MAX_ASYNC_FRAME_METAS],
     async_frame_meta_count: i32,
 }

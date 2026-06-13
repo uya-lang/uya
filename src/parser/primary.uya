@@ -2412,7 +2412,12 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         field_values = new_field_values;
                         field_capacity = new_capacity;
                     }
-                    
+                    if field_names == null {
+                        return null;
+                    }
+                    if field_values == null {
+                        return null;
+                    }
                     field_names[field_count] = field_name;
                     field_values[field_count] = field_value;
                     field_count = field_count + 1;
@@ -2643,6 +2648,9 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     elements = new_elements;
                     element_capacity = new_capacity;
                 }
+                if elements == null {
+                    return null;
+                }
                 elements[element_count] = first;
                 element_count = element_count + 1;
                 while parser.current_token != null &&
@@ -2669,6 +2677,9 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         if new_elements == null {
                             return null;
                         }
+                        if elements == null {
+                            return null;
+                        }
                         var i: i32 = 0;
                         while i < element_count {
                             new_elements[i] = elements[i];
@@ -2676,6 +2687,9 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         }
                         elements = new_elements;
                         element_capacity = new_capacity;
+                    }
+                    if elements == null {
+                        return null;
                     }
                     elements[element_count] = element;
                     element_count = element_count + 1;

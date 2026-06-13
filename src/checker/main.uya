@@ -505,7 +505,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             pointer_nonnull_count: 0,
         };
         if checker_proof_snapshot_save(checker, &saved_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
         
         // 从条件提取约束（正条件，用于 then 分支）
@@ -526,13 +526,13 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             pointer_nonnull_count: 0,
         };
         if checker_proof_snapshot_save(checker, &then_end_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
         const then_returns: i32 = checker_node_definitely_returns(node.if_stmt_then_branch);
         
         // 恢复约束状态和指针非空状态，然后为 else 分支提取负条件约束
         if checker_proof_snapshot_restore(checker, &saved_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
         
         // 检查else分支
@@ -554,20 +554,20 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             pointer_nonnull_count: 0,
         };
         if checker_proof_snapshot_save(checker, &else_end_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
         
         // if 语句结束后，若某一侧必定 return，则传播另一侧的约束；否则恢复进入 if 前状态。
         var final_snapshot: CheckerProofSnapshot = saved_snapshot;
         if then_returns != 0 && node.if_stmt_else_branch == null {
             if checker_proof_snapshot_restore(checker, &saved_snapshot) != 0 {
-                checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+                checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
             }
             if node.if_stmt_condition != null {
                 constraint_extract_from_binary(checker, node.if_stmt_condition, 0);
             }
             if checker_proof_snapshot_save(checker, &final_snapshot) != 0 {
-                checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+                checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
             }
         } else if then_returns == 0 && else_returns != 0 {
             final_snapshot = then_end_snapshot;
@@ -575,7 +575,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             final_snapshot = else_end_snapshot;
         }
         if checker_proof_snapshot_restore(checker, &final_snapshot) != 0 {
-            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+            checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         }
         
         return 1;
@@ -641,7 +641,31 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
     } else if node.type == ASTNodeType.AST_TEST_STMT {
         if node.test_stmt_body != null {
             // 测试语句体：返回类型为 !void，支持 try 表达式
-            const prev_return_type: Type = checker.current_return_type;
+            const prev_return_kind: TypeKind = checker.current_return_type.kind;
+            const prev_return_data: TypeData = checker.current_return_type.data;
+            const prev_return_enum_name: &byte = checker.current_return_type.enum_name;
+            const prev_return_interface_name: &byte = checker.current_return_type.interface_name;
+            const prev_return_interface_type_args: &Type = checker.current_return_type.interface_type_args;
+            const prev_return_interface_type_arg_count: i32 = checker.current_return_type.interface_type_arg_count;
+            const prev_return_struct_name: &byte = checker.current_return_type.struct_name;
+            const prev_return_union_name: &byte = checker.current_return_type.union_name;
+            const prev_return_pointer_to: &Type = checker.current_return_type.pointer_to;
+            const prev_return_is_ffi_pointer: i32 = checker.current_return_type.is_ffi_pointer;
+            const prev_return_element_type: &Type = checker.current_return_type.element_type;
+            const prev_return_array_size: i32 = checker.current_return_type.array_size;
+            const prev_return_slice_element_type: &Type = checker.current_return_type.slice_element_type;
+            const prev_return_slice_len: i32 = checker.current_return_type.slice_len;
+            const prev_return_slice_element_is_const: i32 = checker.current_return_type.slice_element_is_const;
+            const prev_return_tuple_element_types: &Type = checker.current_return_type.tuple_element_types;
+            const prev_return_tuple_count: i32 = checker.current_return_type.tuple_count;
+            const prev_return_error_union_payload_type: &Type = checker.current_return_type.error_union_payload_type;
+            const prev_return_error_error_id: u32 = checker.current_return_type.error_error_id;
+            const prev_return_atomic_inner_type: &Type = checker.current_return_type.atomic_inner_type;
+            const prev_return_generic_param_name: &byte = checker.current_return_type.generic_param_name;
+            const prev_return_struct_type_args: &Type = checker.current_return_type.struct_type_args;
+            const prev_return_struct_type_arg_count: i32 = checker.current_return_type.struct_type_arg_count;
+            const prev_return_union_type_args: &Type = checker.current_return_type.union_type_args;
+            const prev_return_union_type_arg_count: i32 = checker.current_return_type.union_type_arg_count;
             const prev_in_function: i32 = checker.in_function;
             const prev_function_decl: &ASTNode = checker.current_function_decl;
             
@@ -664,7 +688,31 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             const ret: i32 = checker_check_node(checker, node.test_stmt_body);
             
             // 恢复之前的状态
-            checker.current_return_type = prev_return_type;
+            checker.current_return_type.kind = prev_return_kind;
+            checker.current_return_type.data = prev_return_data;
+            checker.current_return_type.enum_name = prev_return_enum_name;
+            checker.current_return_type.interface_name = prev_return_interface_name;
+            checker.current_return_type.interface_type_args = prev_return_interface_type_args;
+            checker.current_return_type.interface_type_arg_count = prev_return_interface_type_arg_count;
+            checker.current_return_type.struct_name = prev_return_struct_name;
+            checker.current_return_type.union_name = prev_return_union_name;
+            checker.current_return_type.pointer_to = prev_return_pointer_to;
+            checker.current_return_type.is_ffi_pointer = prev_return_is_ffi_pointer;
+            checker.current_return_type.element_type = prev_return_element_type;
+            checker.current_return_type.array_size = prev_return_array_size;
+            checker.current_return_type.slice_element_type = prev_return_slice_element_type;
+            checker.current_return_type.slice_len = prev_return_slice_len;
+            checker.current_return_type.slice_element_is_const = prev_return_slice_element_is_const;
+            checker.current_return_type.tuple_element_types = prev_return_tuple_element_types;
+            checker.current_return_type.tuple_count = prev_return_tuple_count;
+            checker.current_return_type.error_union_payload_type = prev_return_error_union_payload_type;
+            checker.current_return_type.error_error_id = prev_return_error_error_id;
+            checker.current_return_type.atomic_inner_type = prev_return_atomic_inner_type;
+            checker.current_return_type.generic_param_name = prev_return_generic_param_name;
+            checker.current_return_type.struct_type_args = prev_return_struct_type_args;
+            checker.current_return_type.struct_type_arg_count = prev_return_struct_type_arg_count;
+            checker.current_return_type.union_type_args = prev_return_union_type_args;
+            checker.current_return_type.union_type_arg_count = prev_return_union_type_arg_count;
             checker.in_function = prev_in_function;
             checker.current_function_decl = prev_function_decl;
             
@@ -1002,13 +1050,12 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             checker_check_node(checker, node.catch_expr_operand);
         }
         if node.catch_expr_err_name != null {
-            var err_type: Type = make_void_type();
-            err_type.kind = TypeKind.TYPE_ERROR;
             checker_enter_scope(checker);
             const sym: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
             if sym != null {
                 sym.name = node.catch_expr_err_name;
-                sym.type = err_type;
+                sym.type = make_void_type();
+                sym.type.kind = TypeKind.TYPE_ERROR;
                 sym.is_const = 1;
                 sym.is_initialized = 1;
                 sym.scope_level = checker.scope_level;

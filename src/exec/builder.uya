@@ -3787,10 +3787,13 @@ export fn exec_build_bytecode(arena: &CompilerArena, checker: &TypeChecker, modu
         }
         i = 0;
         while i < checker.error_name_count {
-            error_names[i] = BCErrorNameEntry {
-                error_id: checker.error_hashes[i] as i32,
-                name: checker.error_names[i],
-            };
+            const entry: &ErrorNameEntry = checker_error_entry_at(checker, i);
+            if entry != null {
+                error_names[i] = BCErrorNameEntry {
+                    error_id: entry.hash as i32,
+                    name: entry.name,
+                };
+            }
             i = i + 1;
         }
         exec_builder_sort_error_names(error_names, checker.error_name_count);

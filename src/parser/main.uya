@@ -1010,6 +1010,9 @@ fn parser_parse(parser: &Parser) &ASTNode {
                         if new_decls3 == null {
                             return null;
                         }
+                        if decls == null {
+                            return null;
+                        }
                         var copy_i3: i32 = 0;
                         while copy_i3 < decl_count {
                             new_decls3[copy_i3] = decls[copy_i3];
@@ -1018,12 +1021,18 @@ fn parser_parse(parser: &Parser) &ASTNode {
                         decls = new_decls3;
                         decl_capacity = new_capacity3;
                     }
+                    if decls == null {
+                        return null;
+                    }
                     decls[decl_count] = inner_decl2;
                     decl_count = decl_count + 1;
                 }
                 inner_i2 = inner_i2 + 1;
             }
         } else {
+            if decls == null {
+                return null;
+            }
             decls[decl_count] = decl;
             decl_count = decl_count + 1;
         }

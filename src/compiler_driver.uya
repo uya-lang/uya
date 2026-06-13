@@ -2952,7 +2952,7 @@ fn compile_files(
             checker.fn_root_count, checker.reachable_fn_decl_count, checker.fn_call_edge_count);
         var dbg_i: i32 = 0;
         while dbg_i < checker.reachable_fn_decl_count && dbg_i < 20 {
-            const dbg_decl: &ASTNode = checker.reachable_fn_decls[dbg_i];
+            const dbg_decl: &ASTNode = checker_reachable_fn_decl_at(checker, dbg_i);
             if dbg_decl != null && dbg_decl.fn_decl_name != null {
                 fprintf(libc.stderr, "  reachable[%d]=%s (body=%d export=%d extern=%d)\n" as *byte,
                     dbg_i, dbg_decl.fn_decl_name as *byte, dbg_decl.fn_decl_body != null, dbg_decl.fn_decl_is_export, dbg_decl.fn_decl_is_extern);
@@ -3102,8 +3102,22 @@ fn compile_files(
         return 1;
     }
     // 设置单态化实例（从 TypeChecker 传入）
-    c99_codegen_set_mono_instances(c99_codegen, checker);
-    c99_codegen_set_reachable_functions(c99_codegen, checker);
+    if c99_codegen_set_mono_instances(c99_codegen, checker) != 0 {
+        fprintf(libc.stderr, "错误: C99 单态实例导入失败\n" as *byte);
+        c99_codegen_free(c99_codegen);
+        if out_file != null {
+            fclose(out_file);
+        }
+        return 1;
+    }
+    if c99_codegen_set_reachable_functions(c99_codegen, checker) != 0 {
+        fprintf(libc.stderr, "错误: C99 reachable 函数导入失败\n" as *byte);
+        c99_codegen_free(c99_codegen);
+        if out_file != null {
+            fclose(out_file);
+        }
+        return 1;
+    }
     if out_artifacts != null {
         c99_codegen_set_c_import_plan(c99_codegen, &out_artifacts.c_import_plan);
     } else {

@@ -17,6 +17,202 @@ fn hash_string(str: &byte) i32 {
     return hash as i32; // 返回时转换为 i32，保持 API 兼容
 }
 
+fn checker_table_key(name: &byte) i64 {
+    if name == null {
+        return -1;
+    }
+    return hash_string(name) as i64;
+}
+
+fn checker_symbol_table_init(table: &SymbolTable) void {
+    if table == null {
+        return;
+    }
+    semantic_vector_init(&table.entries, @size_of(SymbolTableEntry));
+    semantic_hash_init(&table.index);
+    table.count = 0;
+}
+
+fn checker_function_table_init(table: &FunctionTable) void {
+    if table == null {
+        return;
+    }
+    semantic_vector_init(&table.entries, @size_of(FunctionTableEntry));
+    semantic_hash_init(&table.index);
+    table.count = 0;
+}
+
+fn checker_module_table_init(table: &ModuleTable) void {
+    if table == null {
+        return;
+    }
+    semantic_vector_init(&table.entries, @size_of(ModuleTableEntry));
+    semantic_hash_init(&table.index);
+    table.count = 0;
+}
+
+fn checker_import_table_init(table: &ImportTable) void {
+    if table == null {
+        return;
+    }
+    semantic_vector_init(&table.entries, @size_of(ImportTableEntry));
+    semantic_hash_init(&table.index);
+    table.count = 0;
+}
+
+fn checker_symbol_entry_at(table: &SymbolTable, idx: i32) &SymbolTableEntry {
+    if table == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= table.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&table.entries, index) as &SymbolTableEntry;
+}
+
+fn checker_function_entry_at(table: &FunctionTable, idx: i32) &FunctionTableEntry {
+    if table == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= table.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&table.entries, index) as &FunctionTableEntry;
+}
+
+fn checker_module_entry_at(table: &ModuleTable, idx: i32) &ModuleTableEntry {
+    if table == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= table.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&table.entries, index) as &ModuleTableEntry;
+}
+
+fn checker_import_entry_at(table: &ImportTable, idx: i32) &ImportTableEntry {
+    if table == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= table.entries.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&table.entries, index) as &ImportTableEntry;
+}
+
+fn checker_error_entry_at(checker: &TypeChecker, idx: i32) &ErrorNameEntry {
+    if checker == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= checker.error_names.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&checker.error_names, index) as &ErrorNameEntry;
+}
+
+fn checker_moved_entry_at(checker: &TypeChecker, idx: i32) &MovedNameEntry {
+    if checker == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= checker.moved_names.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&checker.moved_names, index) as &MovedNameEntry;
+}
+
+fn checker_mono_instance_at(checker: &TypeChecker, idx: i32) &MonoInstance {
+    if checker == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= checker.mono_instances.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&checker.mono_instances, index) as &MonoInstance;
+}
+
+fn checker_async_call_edge_at(checker: &TypeChecker, idx: i32) &AsyncCallEdge {
+    if checker == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= checker.async_call_edges.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&checker.async_call_edges, index) as &AsyncCallEdge;
+}
+
+fn checker_fn_call_edge_at(checker: &TypeChecker, idx: i32) &FnCallEdge {
+    if checker == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= checker.fn_call_edges.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&checker.fn_call_edges, index) as &FnCallEdge;
+}
+
+fn checker_ast_node_ref_at(vec: &SemanticVector, idx: i32) &AstNodeRefEntry {
+    if vec == null || idx < 0 {
+        return null;
+    }
+    const index: usize = idx as usize;
+    if index >= vec.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(vec, index) as &AstNodeRefEntry;
+}
+
+fn checker_fn_root_decl_at(checker: &TypeChecker, idx: i32) &ASTNode {
+    if checker == null {
+        return null;
+    }
+    const entry: &AstNodeRefEntry = checker_ast_node_ref_at(&checker.fn_root_decls, idx);
+    if entry == null {
+        return null;
+    }
+    return entry.decl;
+}
+
+fn checker_reachable_fn_decl_at(checker: &TypeChecker, idx: i32) &ASTNode {
+    if checker == null {
+        return null;
+    }
+    const entry: &AstNodeRefEntry = checker_ast_node_ref_at(&checker.reachable_fn_decls, idx);
+    if entry == null {
+        return null;
+    }
+    return entry.decl;
+}
+
+fn checker_ast_node_ref_append(vec: &SemanticVector, decl: &ASTNode) i32 {
+    if vec == null || decl == null {
+        return -1;
+    }
+    var entry: AstNodeRefEntry = AstNodeRefEntry{
+        decl: decl,
+    };
+    return semantic_vector_append(vec, &entry as &const void);
+}
+
+fn checker_empty_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
 // ===== 初始化函数 =====
 
 fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
@@ -323,40 +519,13 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     
     checker.arena = arena;
     
-    // 初始化符号表（所有槽位设为null）
-    var i: i32 = 0;
-    while i < SYMBOL_TABLE_SIZE {
-        checker.symbol_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.symbol_table.count = 0;
-    
-    // 初始化函数表（所有槽位设为null）
-    i = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        checker.function_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.function_table.count = 0;
-    
-    // 初始化模块表（所有槽位设为null）
-    i = 0;
-    while i < MODULE_TABLE_SIZE {
-        checker.module_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.module_table.count = 0;
-    
-    // 初始化导入表（所有槽位设为null）
-    i = 0;
-    while i < IMPORT_TABLE_SIZE {
-        checker.import_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.import_table.count = 0;
+    checker_symbol_table_init(&checker.symbol_table);
+    checker_function_table_init(&checker.function_table);
+    checker_module_table_init(&checker.module_table);
+    checker_import_table_init(&checker.import_table);
 
     // 初始化字符串池（所有桶设为null）
-    i = 0;
+    var i: i32 = 0;
     while i < STRING_POOL_SIZE {
         checker.string_pool.buckets[i] = null;
         i = i + 1;
@@ -369,37 +538,15 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
         checker.scope_heads[i] = null;
         i = i + 1;
     }
-    i = 0;
-    while i < @len(checker.async_call_edge_from) {
-        checker.async_call_edge_from[i] = null;
-        checker.async_call_edge_to[i] = null;
-        i = i + 1;
-    }
+    semantic_vector_init(&checker.async_call_edges, @size_of(AsyncCallEdge));
     checker.async_call_edge_count = 0;
-    i = 0;
-    while i < @len(checker.fn_call_edge_from) {
-        checker.fn_call_edge_from[i] = null;
-        checker.fn_call_edge_to[i] = null;
-        i = i + 1;
-    }
+    semantic_vector_init(&checker.fn_call_edges, @size_of(FnCallEdge));
     checker.fn_call_edge_count = 0;
-    i = 0;
-    while i < @len(checker.fn_root_decls) {
-        checker.fn_root_decls[i] = null;
-        i = i + 1;
-    }
+    semantic_vector_init(&checker.fn_root_decls, @size_of(AstNodeRefEntry));
     checker.fn_root_count = 0;
-    i = 0;
-    while i < @len(checker.reachable_fn_decls) {
-        checker.reachable_fn_decls[i] = null;
-        i = i + 1;
-    }
+    semantic_vector_init(&checker.reachable_fn_decls, @size_of(AstNodeRefEntry));
     checker.reachable_fn_decl_count = 0;
-    i = 0;
-    while i < @len(checker.reachability_visit_cache) {
-        checker.reachability_visit_cache[i] = null;
-        i = i + 1;
-    }
+    semantic_hash_init(&checker.reachability_visit_index);
     checker.reachability_visit_count = 0;
 
     checker.scope_level = 0;
@@ -418,13 +565,9 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     checker.current_function_decl = null;
     checker.current_self_type_name = null;
     checker.current_self_is_union = 0;
+    semantic_vector_init(&checker.error_names, @size_of(ErrorNameEntry));
     checker.error_name_count = 0;
-    
-    // 初始化错误集（所有槽位设为null）
-    for 0..@len(checker.error_names) |i| {
-        checker.error_names[i] = null;
-    }
-    
+    semantic_vector_init(&checker.moved_names, @size_of(MovedNameEntry));
     checker.moved_count = 0;
     checker.module_root_dir = null;
     checker.uya_root_dir = null;
@@ -432,6 +575,7 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     // 初始化泛型相关字段
     checker.current_type_params = null;
     checker.current_type_param_count = 0;
+    semantic_vector_init(&checker.mono_instances, @size_of(MonoInstance));
     checker.mono_instance_count = 0;
     
     if checker_proof_tables_init(checker) != 0 {
@@ -521,25 +665,6 @@ fn checker_canonicalize_fn_decl(checker: &TypeChecker, fn_decl: &ASTNode) &ASTNo
     return fn_decl;
 }
 
-fn checker_fn_root_decl_at(checker: &TypeChecker, idx: i32) &ASTNode {
-    if checker == null {
-        return null;
-    }
-    if idx >= 0 && idx < MAX_FN_ROOTS {
-        return checker.fn_root_decls[idx];
-    }
-    return null;
-}
-
-fn checker_fn_root_decl_set(checker: &TypeChecker, idx: i32, value: &ASTNode) void {
-    if checker == null {
-        return;
-    }
-    if idx >= 0 && idx < MAX_FN_ROOTS {
-        checker.fn_root_decls[idx] = value;
-    }
-}
-
 fn checker_scope_head_at(checker: &TypeChecker, idx: i32) &Symbol {
     if checker == null {
         return null;
@@ -559,44 +684,6 @@ fn checker_scope_head_set(checker: &TypeChecker, idx: i32, value: &Symbol) void 
     }
 }
 
-fn checker_symbol_slot_at(checker: &TypeChecker, idx: i32) &Symbol {
-    if checker == null {
-        return null;
-    }
-    if idx >= 0 && idx < SYMBOL_TABLE_SIZE {
-        return checker.symbol_table.slots[idx];
-    }
-    return null;
-}
-
-fn checker_symbol_slot_set(checker: &TypeChecker, idx: i32, value: &Symbol) void {
-    if checker == null {
-        return;
-    }
-    if idx >= 0 && idx < SYMBOL_TABLE_SIZE {
-        checker.symbol_table.slots[idx] = value;
-    }
-}
-
-fn checker_function_slot_at(checker: &TypeChecker, idx: i32) &FunctionSignature {
-    if checker == null {
-        return null;
-    }
-    if idx >= 0 && idx < FUNCTION_TABLE_SIZE {
-        return checker.function_table.slots[idx];
-    }
-    return null;
-}
-
-fn checker_function_slot_set(checker: &TypeChecker, idx: i32, value: &FunctionSignature) void {
-    if checker == null {
-        return;
-    }
-    if idx >= 0 && idx < FUNCTION_TABLE_SIZE {
-        checker.function_table.slots[idx] = value;
-    }
-}
-
 fn checker_add_function_root_decl(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
     const canonical_fn_decl: &ASTNode = checker_canonicalize_fn_decl(checker, fn_decl);
     if checker == null || canonical_fn_decl == null || canonical_fn_decl.type != ASTNodeType.AST_FN_DECL {
@@ -609,16 +696,11 @@ fn checker_add_function_root_decl(checker: &TypeChecker, fn_decl: &ASTNode) i32 
         }
         i = i + 1;
     }
-    if checker.fn_root_count >= MAX_FN_ROOTS {
-        checker_report_error(checker, canonical_fn_decl, "顶层函数 root 容量已满" as *byte);
+    if checker_ast_node_ref_append(&checker.fn_root_decls, canonical_fn_decl) != 0 {
+        checker_report_error(checker, canonical_fn_decl, "顶层函数 root 表分配失败" as *byte);
         return 0;
     }
-    const root_idx: i32 = checker.fn_root_count;
-    if root_idx < 0 || root_idx >= @len(checker.fn_root_decls) {
-        return 0;
-    }
-    checker_fn_root_decl_set(checker, root_idx, canonical_fn_decl);
-    checker.fn_root_count = root_idx + 1;
+    checker.fn_root_count = checker.fn_root_decls.count as i32;
     return 1;
 }
 
@@ -639,48 +721,38 @@ fn checker_add_function_edge(checker: &TypeChecker, from_decl: &ASTNode, to_decl
     }
     var i: i32 = 0;
     while i < checker.fn_call_edge_count {
-        if checker.fn_call_edge_from[i] == canonical_from_decl && checker.fn_call_edge_to[i] == canonical_to_decl {
+        const existing_edge: &FnCallEdge = checker_fn_call_edge_at(checker, i);
+        if existing_edge != null &&
+            existing_edge.from_decl == canonical_from_decl && existing_edge.to_decl == canonical_to_decl {
             return 1;
         }
         i = i + 1;
     }
-    if checker.fn_call_edge_count >= MAX_FN_CALL_EDGES {
-        checker_report_error(checker, canonical_from_decl, "顶层函数 call edge 容量已满" as *byte);
+    var edge: FnCallEdge = FnCallEdge{
+        from_decl: canonical_from_decl,
+        to_decl: canonical_to_decl,
+    };
+    if semantic_vector_append(&checker.fn_call_edges, &edge as &const void) != 0 {
+        checker_report_error(checker, canonical_from_decl, "顶层函数 call edge 表分配失败" as *byte);
         return 0;
     }
-    const edge_idx: i32 = checker.fn_call_edge_count;
-    if edge_idx >= 0 && edge_idx < @len(checker.fn_call_edge_from) && edge_idx < @len(checker.fn_call_edge_to) {
-        checker.fn_call_edge_from[edge_idx] = canonical_from_decl;
-        checker.fn_call_edge_to[edge_idx] = canonical_to_decl;
-        checker.fn_call_edge_count = edge_idx + 1;
-        return 1;
-    }
-    return 0;
+    checker.fn_call_edge_count = checker.fn_call_edges.count as i32;
+    return 1;
 }
 
 fn checker_mark_reachability_node_visited(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null {
         return 0;
     }
-    if checker.reachability_visit_count >= MAX_REACHABILITY_VISIT_SLOTS {
+    const key: i64 = (@usize_from_ptr(node as &void) / 8usize) as i64;
+    var value: i32 = 0;
+    if semantic_hash_get(&checker.reachability_visit_index, key, &value) != 0 {
+        return 0;
+    }
+    if semantic_hash_insert(&checker.reachability_visit_index, key, 1) != 0 {
         return 1;
     }
-    const node_hash: usize = (@usize_from_ptr(node as &void) / 8 as usize);
-    var slot: i32 = (node_hash & MAX_REACHABILITY_VISIT_MASK) as i32;
-    var probe: i32 = 0;
-    while probe < MAX_REACHABILITY_VISIT_SLOTS {
-        const entry: &ASTNode = checker.reachability_visit_cache[slot];
-        if entry == node {
-            return 0;
-        }
-        if entry == null {
-            checker.reachability_visit_cache[slot] = node;
-            checker.reachability_visit_count = checker.reachability_visit_count + 1;
-            return 1;
-        }
-        slot = (slot + 1) & (MAX_REACHABILITY_VISIT_SLOTS - 1);
-        probe = probe + 1;
-    }
+    checker.reachability_visit_count = checker.reachability_visit_index.count as i32;
     return 1;
 }
 
@@ -688,11 +760,7 @@ fn checker_reset_reachability_visit_cache(checker: &TypeChecker) void {
     if checker == null {
         return;
     }
-    var i: i32 = 0;
-    while i < @len(checker.reachability_visit_cache) {
-        checker.reachability_visit_cache[i] = null;
-        i = i + 1;
-    }
+    semantic_hash_reset(&checker.reachability_visit_index);
     checker.reachability_visit_count = 0;
 }
 
@@ -702,7 +770,7 @@ fn checker_is_function_reachable(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
     }
     var i: i32 = 0;
     while i < checker.reachable_fn_decl_count {
-        if checker.reachable_fn_decls[i] == fn_decl {
+        if checker_reachable_fn_decl_at(checker, i) == fn_decl {
             return 1;
         }
         i = i + 1;
@@ -714,63 +782,63 @@ fn checker_compute_function_reachability(checker: &TypeChecker) void {
     if checker == null {
         return;
     }
+    semantic_vector_reset(&checker.reachable_fn_decls);
     checker.reachable_fn_decl_count = 0;
-    var queue: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
+    var queue: SemanticVector = checker_empty_vector();
+    semantic_vector_init(&queue, @size_of(AstNodeRefEntry));
     var head: i32 = 0;
     var tail: i32 = 0;
     var i: i32 = 0;
     while i < checker.fn_root_count {
         const root_decl: &ASTNode = checker_fn_root_decl_at(checker, i);
         if root_decl != null && checker_is_function_reachable(checker, root_decl) == 0 {
-            if checker.reachable_fn_decl_count >= MAX_REACHABLE_FN_DECLS {
-                checker_report_error(checker, root_decl, "顶层函数 reachable 集合已满" as *byte);
+            if checker_ast_node_ref_append(&checker.reachable_fn_decls, root_decl) != 0 {
+                checker_report_error(checker, root_decl, "顶层函数 reachable 集合分配失败" as *byte);
+                semantic_vector_release(&queue);
                 return;
             }
-            const reachable_idx: i32 = checker.reachable_fn_decl_count;
-            if reachable_idx < 0 || reachable_idx >= @len(checker.reachable_fn_decls) {
+            checker.reachable_fn_decl_count = checker.reachable_fn_decls.count as i32;
+            if checker_ast_node_ref_append(&queue, root_decl) != 0 {
+                checker_report_error(checker, root_decl, "顶层函数 reachable 队列分配失败" as *byte);
+                semantic_vector_release(&queue);
                 return;
             }
-            checker.reachable_fn_decls[reachable_idx] = root_decl;
-            checker.reachable_fn_decl_count = reachable_idx + 1;
-            if tail >= MAX_REACHABLE_FN_DECLS {
-                checker_report_error(checker, root_decl, "顶层函数 reachable 队列已满" as *byte);
-                return;
-            }
-            queue[tail] = root_decl;
             tail = tail + 1;
         }
         i = i + 1;
     }
 
     while head < tail {
-        const from_decl: &ASTNode = queue[head];
+        const queue_entry: &AstNodeRefEntry = checker_ast_node_ref_at(&queue, head);
+        var from_decl: &ASTNode = null;
+        if queue_entry != null {
+            from_decl = queue_entry.decl;
+        }
         head = head + 1;
         i = 0;
         while i < checker.fn_call_edge_count {
-            if checker.fn_call_edge_from[i] == from_decl {
-                const to_decl: &ASTNode = checker.fn_call_edge_to[i];
+            const edge: &FnCallEdge = checker_fn_call_edge_at(checker, i);
+            if edge != null && edge.from_decl == from_decl {
+                const to_decl: &ASTNode = edge.to_decl;
                 if to_decl != null && checker_is_function_reachable(checker, to_decl) == 0 {
-                    if checker.reachable_fn_decl_count >= MAX_REACHABLE_FN_DECLS {
-                        checker_report_error(checker, to_decl, "顶层函数 reachable 集合已满" as *byte);
+                    if checker_ast_node_ref_append(&checker.reachable_fn_decls, to_decl) != 0 {
+                        checker_report_error(checker, to_decl, "顶层函数 reachable 集合分配失败" as *byte);
+                        semantic_vector_release(&queue);
                         return;
                     }
-                    const reachable_idx2: i32 = checker.reachable_fn_decl_count;
-                    if reachable_idx2 < 0 || reachable_idx2 >= @len(checker.reachable_fn_decls) {
+                    checker.reachable_fn_decl_count = checker.reachable_fn_decls.count as i32;
+                    if checker_ast_node_ref_append(&queue, to_decl) != 0 {
+                        checker_report_error(checker, to_decl, "顶层函数 reachable 队列分配失败" as *byte);
+                        semantic_vector_release(&queue);
                         return;
                     }
-                    checker.reachable_fn_decls[reachable_idx2] = to_decl;
-                    checker.reachable_fn_decl_count = reachable_idx2 + 1;
-                    if tail >= MAX_REACHABLE_FN_DECLS {
-                        checker_report_error(checker, to_decl, "顶层函数 reachable 队列已满" as *byte);
-                        return;
-                    }
-                    queue[tail] = to_decl;
                     tail = tail + 1;
                 }
             }
             i = i + 1;
         }
     }
+    semantic_vector_release(&queue);
 }
 
 // 获取错误计数
@@ -815,7 +883,44 @@ fn symbol_table_lookup(checker: &TypeChecker, name: &byte) &Symbol {
     return null;
 }
 
-// 符号表插入函数（使用开放寻址的哈希表）
+fn symbol_table_remove_entry(checker: &TypeChecker, symbol: &Symbol) void {
+    if checker == null || symbol == null || symbol.name == null {
+        return;
+    }
+    const key: i64 = checker_table_key(symbol.name);
+    var current_idx: i32 = -1;
+    if semantic_hash_get(&checker.symbol_table.index, key, &current_idx) == 0 {
+        return;
+    }
+    var prev_idx: i32 = -1;
+    while current_idx >= 0 {
+        const entry: &SymbolTableEntry = checker_symbol_entry_at(&checker.symbol_table, current_idx);
+        if entry == null {
+            break;
+        }
+        if entry.symbol == symbol {
+            if prev_idx < 0 {
+                _ = semantic_hash_insert(&checker.symbol_table.index, key, entry.next);
+            } else {
+                const prev: &SymbolTableEntry = checker_symbol_entry_at(&checker.symbol_table, prev_idx);
+                if prev != null {
+                    prev.next = entry.next;
+                }
+            }
+            entry.name = null;
+            entry.symbol = null;
+            entry.next = -1;
+            if checker.symbol_table.count > 0 {
+                checker.symbol_table.count = checker.symbol_table.count - 1;
+            }
+            return;
+        }
+        prev_idx = current_idx;
+        current_idx = entry.next;
+    }
+}
+
+// 符号表插入函数
 // 同时将符号添加到当前作用域的链表
 fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     if checker == null || symbol == null || symbol.name == null {
@@ -826,45 +931,34 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     if existing != null && existing.scope_level == symbol.scope_level {
         return -1;
     }
-    
-    const hash: i32 = hash_string(symbol.name);
-    var index: i32 = hash % SYMBOL_TABLE_SIZE;
-    if index < 0 {
-        index = index + SYMBOL_TABLE_SIZE;
-    }
-    
-    var i: i32 = 0;
-    while i < SYMBOL_TABLE_SIZE {
-        const slot: i32 = (index + i) % SYMBOL_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
-        }
-        if slot_idx >= @len(checker.symbol_table.slots) {
-            i = i + 1;
-            continue;
-        }
-        
-        if checker_symbol_slot_at(checker, slot_idx) == null {
-            checker_symbol_slot_set(checker, slot_idx, symbol);
-            checker.symbol_table.count = checker.symbol_table.count + 1;
 
-            // 添加到当前作用域的链表头部
-            const scope: i32 = symbol.scope_level;
-            if scope >= 0 {
-                if scope < @len(checker.scope_heads) {
-                    symbol.next_in_scope = checker_scope_head_at(checker, scope);
-                    checker_scope_head_set(checker, scope, symbol);
-                }
-            }
-
-            return 0;
-        }
-        i = i + 1;
+    const key: i64 = checker_table_key(symbol.name);
+    var head_idx: i32 = -1;
+    _ = semantic_hash_get(&checker.symbol_table.index, key, &head_idx);
+    const entry_idx: i32 = checker.symbol_table.entries.count as i32;
+    var entry: SymbolTableEntry = SymbolTableEntry{
+        name: symbol.name,
+        symbol: symbol,
+        next: head_idx,
+    };
+    if semantic_vector_append(&checker.symbol_table.entries, &entry as &const void) != 0 {
+        return -1;
     }
-    
-    return -1;
+    if semantic_hash_insert(&checker.symbol_table.index, key, entry_idx) != 0 {
+        return -1;
+    }
+    checker.symbol_table.count = checker.symbol_table.count + 1;
+
+    // 添加到当前作用域的链表头部
+    const scope: i32 = symbol.scope_level;
+    if scope >= 0 {
+        if scope < @len(checker.scope_heads) {
+            symbol.next_in_scope = checker_scope_head_at(checker, scope);
+            checker_scope_head_set(checker, scope, symbol);
+        }
+    }
+
+    return 0;
 }
 
 // ===== 函数表操作 =====
@@ -874,107 +968,44 @@ fn function_table_lookup(checker: &TypeChecker, name: &byte) &FunctionSignature 
     if checker == null || name == null {
         return null;
     }
-    
-    const hash: i32 = hash_string(name);
-    var index: i32 = hash % FUNCTION_TABLE_SIZE;
-    if index < 0 {
-        index = index + FUNCTION_TABLE_SIZE;
+
+    const key: i64 = checker_table_key(name);
+    var current_idx: i32 = -1;
+    if semantic_hash_get(&checker.function_table.index, key, &current_idx) == 0 {
+        return null;
     }
-    
-    var i: i32 = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
+    while current_idx >= 0 {
+        const entry: &FunctionTableEntry = checker_function_entry_at(&checker.function_table, current_idx);
+        if entry == null {
+            break;
         }
-        if slot_idx >= @len(checker.function_table.slots) {
-            i = i + 1;
-            continue;
-        }
-        const sig: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
-        
-        if sig == null {
-            i = i + 1;
-            continue;
-        }
-        
-        var matched: i32 = 1;
-        var j: i32 = 0;
-        while matched != 0 {
-            const c1: byte = sig.name[j] as byte;
-            const c2: byte = name[j] as byte;
-            if c1 != c2 {
-                matched = 0;
-            } else if c1 == 0 {
-                if c2 != 0 {
-                    matched = 0;
-                }
-                break;
-            }
-            j = j + 1;
-        }
-        
-        if matched != 0 {
+        const sig: &FunctionSignature = entry.sig;
+        if sig != null && sig.name != null && str_equals(sig.name, name) != 0 {
             return sig;
         }
-        
-        i = i + 1;
+        current_idx = entry.next;
     }
-    
+
     return null;
 }
 
-// 函数表插入函数（使用开放寻址的哈希表）
+// 函数表插入函数（动态 hash + entry 链表，保留同名 extern 合并语义）
 fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     if checker == null || sig == null || sig.name == null {
         return -1;
     }
-    
-    const hash: i32 = hash_string(sig.name);
-    var index: i32 = hash % FUNCTION_TABLE_SIZE;
-    if index < 0 {
-        index = index + FUNCTION_TABLE_SIZE;
-    }
-    
-    var i: i32 = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
+
+    const key: i64 = checker_table_key(sig.name);
+    var head_idx: i32 = -1;
+    _ = semantic_hash_get(&checker.function_table.index, key, &head_idx);
+    var current_idx: i32 = head_idx;
+    while current_idx >= 0 {
+        const entry: &FunctionTableEntry = checker_function_entry_at(&checker.function_table, current_idx);
+        if entry == null {
+            break;
         }
-        if slot_idx >= @len(checker.function_table.slots) {
-            i = i + 1;
-            continue;
-        }
-        const existing: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
-        
-        if existing == null {
-            checker_function_slot_set(checker, slot_idx, sig);
-            checker.function_table.count = checker.function_table.count + 1;
-            return 0;
-        }
-        
-        var matched: i32 = 1;
-        var j: i32 = 0;
-        while matched != 0 {
-            const c1: byte = existing.name[j] as byte;
-            const c2: byte = sig.name[j] as byte;
-            if c1 != c2 {
-                matched = 0;
-            } else if c1 == 0 {
-                if c2 != 0 {
-                    matched = 0;
-                }
-                break;
-            }
-            j = j + 1;
-        }
-        
-        if matched != 0 {
+        const existing: &FunctionSignature = entry.sig;
+        if existing != null && existing.name != null && str_equals(existing.name, sig.name) != 0 {
             if existing.is_extern != 0 && sig.is_extern != 0 {
                 if existing.param_count == sig.param_count &&
                     type_equals(existing.return_type, sig.return_type) != 0 &&
@@ -987,18 +1018,31 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
                 return -1;
             } else {
                 if existing.is_extern != 0 {
-                    checker_function_slot_set(checker, slot_idx, sig);
+                    entry.name = sig.name;
+                    entry.sig = sig;
                     return 0;
                 } else {
                     return 0;
                 }
             }
         }
-        
-        i = i + 1;
+        current_idx = entry.next;
     }
-    
-    return -1;
+
+    const entry_idx: i32 = checker.function_table.entries.count as i32;
+    var new_entry: FunctionTableEntry = FunctionTableEntry{
+        name: sig.name,
+        sig: sig,
+        next: head_idx,
+    };
+    if semantic_vector_append(&checker.function_table.entries, &new_entry as &const void) != 0 {
+        return -1;
+    }
+    if semantic_hash_insert(&checker.function_table.index, key, entry_idx) != 0 {
+        return -1;
+    }
+    checker.function_table.count = checker.function_table.count + 1;
+    return 0;
 }
 
 // ===== 作用域管理 =====
@@ -1030,27 +1074,7 @@ fn checker_exit_scope(checker: &TypeChecker) void {
         }
         var symbol: &Symbol = checker_scope_head_at(checker, scope_idx);
         while symbol != null {
-            // 从哈希表中移除符号
-            const hash: i32 = hash_string(symbol.name);
-            var index: i32 = hash % SYMBOL_TABLE_SIZE;
-            if index < 0 {
-                index = index + SYMBOL_TABLE_SIZE;
-            }
-            
-            var i: i32 = 0;
-            while i < SYMBOL_TABLE_SIZE {
-                const slot: i32 = (index + i) % SYMBOL_TABLE_SIZE;
-                if checker_symbol_slot_at(checker, slot) == symbol {
-                    checker_symbol_slot_set(checker, slot, null);
-                    checker.symbol_table.count = checker.symbol_table.count - 1;
-                    break;
-                }
-                if checker_symbol_slot_at(checker, slot) == null {
-                    break;
-                }
-                i = i + 1;
-            }
-            
+            symbol_table_remove_entry(checker, symbol);
             const next: &Symbol = symbol.next_in_scope;
             symbol.next_in_scope = null;
             symbol = next;
@@ -1180,11 +1204,9 @@ fn moved_set_contains(checker: &TypeChecker, name: &byte) i32 {
     var i: i32 = 0;
     const count: i32 = checker.moved_count;
     while i < count {
-        if i < MAX_MOVED_NAMES {
-            const name_ptr: &byte = checker.moved_names[i];
-            if name_ptr != null && str_equals(name_ptr, name) != 0 {
-                return 1;
-            }
+        const entry: &MovedNameEntry = checker_moved_entry_at(checker, i);
+        if entry != null && entry.name != null && str_equals(entry.name, name) != 0 {
+            return 1;
         }
         i = i + 1;
     }
@@ -1236,16 +1258,16 @@ fn checker_mark_moved(checker: &TypeChecker, node: &ASTNode, var_name: &byte, st
         checker_report_error(checker, err_node, "循环中的变量不能移动" as *byte);
         return;
     }
-    if checker.moved_count >= MAX_MOVED_NAMES {
-        return;
-    }
-    const idx: i32 = checker.moved_count;
     const copy: &byte = checker_intern_strdup(checker, var_name);
     if copy != null {
-        if idx >= 0 && idx < MAX_MOVED_NAMES {
-            checker.moved_names[idx] = copy;
+        var entry: MovedNameEntry = MovedNameEntry {
+            name: copy,
+        };
+        if semantic_vector_append(&checker.moved_names, &entry as &const void) != 0 {
+            checker_report_error(checker, err_node, "checker moved name table 分配失败" as *byte);
+            return;
         }
-        checker.moved_count = idx + 1;
+        checker.moved_count = checker.moved_names.count as i32;
     }
     // 写回 VAR_DECL 的 was_moved
     if sym != null && sym.decl_node != null && sym.decl_node.type == ASTNodeType.AST_VAR_DECL {
@@ -1381,31 +1403,28 @@ fn get_or_add_error_id(checker: &TypeChecker, name: &byte, node: &ASTNode) u32 {
     var i: i32 = 0;
     const count: i32 = checker.error_name_count;
     while i < count {
-        if i < MAX_ERROR_NAMES {
-            const err_name: &byte = checker.error_names[i];
-            const err_hash: u32 = checker.error_hashes[i];
-            if err_name != null && str_equals(err_name, name) != 0 {
-                return err_hash;
-            }
-            if err_hash == h && err_name != null && str_equals(err_name, name) == 0 {
-                checker_report_error(checker, node, "error_id 冲突: 请重命名其一" as *byte);
-                return 0;
-            }
+        const entry: &ErrorNameEntry = checker_error_entry_at(checker, i);
+        if entry != null && entry.name != null && str_equals(entry.name, name) != 0 {
+            return entry.hash;
+        }
+        if entry != null && entry.hash == h && entry.name != null && str_equals(entry.name, name) == 0 {
+            checker_report_error(checker, node, "error_id 冲突: 请重命名其一" as *byte);
+            return 0;
         }
         i = i + 1;
     }
-    if checker.error_name_count >= MAX_ERROR_NAMES {
-        return 0;
-    }
-    const idx: i32 = checker.error_name_count;
     const copy: &byte = checker_intern_strdup(checker, name);
     if copy == null {
         return 0;
     }
-    if idx >= 0 && idx < MAX_ERROR_NAMES {
-        checker.error_names[idx] = copy;
-        checker.error_hashes[idx] = h;
+    var new_entry: ErrorNameEntry = ErrorNameEntry {
+        name: copy,
+        hash: h,
+    };
+    if semantic_vector_append(&checker.error_names, &new_entry as &const void) != 0 {
+        checker_report_error(checker, node, "checker error name table 分配失败" as *byte);
+        return 0;
     }
-    checker.error_name_count = idx + 1;
+    checker.error_name_count = checker.error_names.count as i32;
     return h;
 }

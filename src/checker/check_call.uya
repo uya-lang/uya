@@ -219,39 +219,25 @@ fn async_call_add_edge(checker: &TypeChecker, from_name: &byte, to_name: &byte, 
     }
     var i: i32 = 0;
     while i < checker.async_call_edge_count {
-        if checker.async_call_edge_from[i] != null && checker.async_call_edge_to[i] != null &&
-            str_equals(checker.async_call_edge_from[i], from_name) != 0 &&
-            str_equals(checker.async_call_edge_to[i], to_name) != 0 {
+        const existing_edge: &AsyncCallEdge = checker_async_call_edge_at(checker, i);
+        if existing_edge != null &&
+            existing_edge.from_name != null && existing_edge.to_name != null &&
+            str_equals(existing_edge.from_name, from_name) != 0 &&
+            str_equals(existing_edge.to_name, to_name) != 0 {
             return 0;
         }
         i = i + 1;
     }
-    const edge_limit: i32 = @len(checker.async_call_edge_from);
-    if checker.async_call_edge_count >= edge_limit {
-        checker_report_error(checker, node, "checker async call graph 容量已满" as *byte);
+    var edge: AsyncCallEdge = AsyncCallEdge {
+        from_name: from_name,
+        to_name: to_name,
+    };
+    if semantic_vector_append(&checker.async_call_edges, &edge as &const void) != 0 {
+        checker_report_error(checker, node, "checker async call graph 分配失败" as *byte);
         return 0;
     }
-    const edge_idx: i32 = checker.async_call_edge_count;
-    if edge_idx < 0 {
-        return 0;
-    }
-    if edge_idx >= edge_limit {
-        checker_report_error(checker, node, "checker async call graph 容量已满" as *byte);
-        return 0;
-    }
-    async_call_set_edge(checker, edge_idx, from_name, to_name);
-    checker.async_call_edge_count = edge_idx + 1;
+    checker.async_call_edge_count = checker.async_call_edges.count as i32;
     return 1;
-}
-
-fn async_call_set_edge(checker: &TypeChecker, idx: i32, from_name: &byte, to_name: &byte) void {
-    if checker == null {
-        return;
-    }
-    if idx >= 0 && idx < MAX_ASYNC_CALL_EDGES {
-        checker.async_call_edge_from[idx] = from_name;
-        checker.async_call_edge_to[idx] = to_name;
-    }
 }
 
 fn async_call_path_exists(checker: &TypeChecker, from_name: &byte, target_name: &byte,
@@ -273,12 +259,13 @@ fn async_call_path_exists(checker: &TypeChecker, from_name: &byte, target_name: 
     visited[visited_count] = from_name;
     var i: i32 = 0;
     while i < checker.async_call_edge_count {
-        if checker.async_call_edge_from[i] != null && checker.async_call_edge_to[i] != null &&
-            str_equals(checker.async_call_edge_from[i], from_name) != 0 {
-            if str_equals(checker.async_call_edge_to[i], target_name) != 0 {
+        const edge: &AsyncCallEdge = checker_async_call_edge_at(checker, i);
+        if edge != null && edge.from_name != null && edge.to_name != null &&
+            str_equals(edge.from_name, from_name) != 0 {
+            if str_equals(edge.to_name, target_name) != 0 {
                 return 1;
             }
-            if async_call_path_exists(checker, checker.async_call_edge_to[i], target_name,
+            if async_call_path_exists(checker, edge.to_name, target_name,
                 visited, visited_count + 1, node) != 0 {
                 return 1;
             }
@@ -301,27 +288,6 @@ fn checker_microapp_filename_is_library_source(filename: &byte) i32 {
     return 0;
 }
 
-fn checker_import_table_lookup_local_name(checker: &TypeChecker, local_name: &byte) &ImportedItem {
-    if checker == null || local_name == null {
-        return null;
-    }
-    var ih: u32 = hash_string(local_name);
-    var ii: i32 = (ih as i32) & (IMPORT_TABLE_SIZE - 1);
-    var i: i32 = 0;
-    while i < IMPORT_TABLE_SIZE {
-        const sl: i32 = (ii + i) & (IMPORT_TABLE_SIZE - 1);
-        const imp: &ImportedItem = checker.import_table.slots[sl];
-        if imp == null {
-            break;
-        }
-        if imp.local_name != null && str_equals(imp.local_name, local_name) != 0 {
-            return imp;
-        }
-        i = i + 1;
-    }
-    return null;
-}
-
 fn checker_find_imported_fn_decl(checker: &TypeChecker, import: &ImportedItem) &ASTNode {
     if checker == null || import == null || import.module_name == null || import.item_type != 1 {
         return null;
@@ -333,32 +299,21 @@ fn checker_find_imported_fn_decl(checker: &TypeChecker, import: &ImportedItem) &
     if api_name == null {
         return null;
     }
-    var mh: u32 = hash_string(import.module_name);
-    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
-    var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const sl: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
-        const mod: &ModuleInfo = checker.module_table.slots[sl];
-        if mod == null {
-            break;
-        }
-        if str_equals(mod.module_name, import.module_name) != 0 {
-            if mod.exports != null {
-                var ei: i32 = 0;
-                while ei < mod.export_count {
-                    if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, api_name) != 0 {
-                        const decl: &ASTNode = mod.exports[ei].decl_node;
-                        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
-                            return checker_canonicalize_fn_decl(checker, decl);
-                        }
-                        return null;
+    const mod: &ModuleInfo = checker_module_table_lookup(checker, import.module_name);
+    if mod != null {
+        if mod.exports != null {
+            var ei: i32 = 0;
+            while ei < mod.export_count {
+                if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, api_name) != 0 {
+                    const decl: &ASTNode = mod.exports[ei].decl_node;
+                    if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+                        return checker_canonicalize_fn_decl(checker, decl);
                     }
-                    ei = ei + 1;
+                    return null;
                 }
+                ei = ei + 1;
             }
-            break;
         }
-        i = i + 1;
     }
     return null;
 }
@@ -497,20 +452,11 @@ fn resolve_reachable_callee_fn_decl(checker: &TypeChecker, callee: &ASTNode) &AS
         if callee.member_access_is_module_access != 0 && callee.member_access_module_name != null {
             module_name = callee.member_access_module_name;
         } else {
-            var ih: u32 = hash_string(obj_name);
-            var ii: i32 = (ih as i32) & (IMPORT_TABLE_SIZE - 1);
-            var i2: i32 = 0;
-            while i2 < IMPORT_TABLE_SIZE {
-                const sl: i32 = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
-                const imp: &ImportedItem = checker.import_table.slots[sl];
-                if imp == null {
-                    break;
-                }
-                if imp.item_type == (0 - 1) && str_equals(imp.local_name, obj_name) != 0 {
+            const imp: &ImportedItem = checker_import_table_lookup_local_name(checker, obj_name);
+            if imp != null {
+                if imp.item_type == (0 - 1) {
                     module_name = imp.module_name;
-                    break;
                 }
-                i2 = i2 + 1;
             }
         }
         if module_name == null {
@@ -533,33 +479,22 @@ fn resolve_reachable_callee_fn_decl(checker: &TypeChecker, callee: &ASTNode) &AS
             }
             return null;
         }
-        var mh: u32 = hash_string(module_name);
-        var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
-        var i3: i32 = 0;
-        while i3 < MODULE_TABLE_SIZE {
-            const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
-            const mod: &ModuleInfo = checker.module_table.slots[ml];
-            if mod == null {
-                break;
-            }
-            if str_equals(mod.module_name, module_name) != 0 {
-                if mod.exports != null {
-                    var ei: i32 = 0;
-                    while ei < mod.export_count {
-                        if mod.exports[ei].name != null &&
-                            str_equals(mod.exports[ei].name, callee.member_access_field_name) != 0 {
-                            const fn_decl: &ASTNode = mod.exports[ei].decl_node;
-                            if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL {
-                                return fn_decl;
-                            }
-                            return null;
+        const mod: &ModuleInfo = checker_module_table_lookup(checker, module_name);
+        if mod != null {
+            if mod.exports != null {
+                var ei: i32 = 0;
+                while ei < mod.export_count {
+                    if mod.exports[ei].name != null &&
+                        str_equals(mod.exports[ei].name, callee.member_access_field_name) != 0 {
+                        const fn_decl: &ASTNode = mod.exports[ei].decl_node;
+                        if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL {
+                            return fn_decl;
                         }
-                        ei = ei + 1;
+                        return null;
                     }
+                    ei = ei + 1;
                 }
-                break;
             }
-            i3 = i3 + 1;
         }
         var owner_is_union: i32 = 0;
         const owner_name: &byte = checker_type_namespace_owner_name(checker, callee.member_access_object, &owner_is_union);
@@ -941,6 +876,9 @@ fn checker_owner_type_args_ast_from_type(checker: &TypeChecker, owner_type: &Typ
     if args_ast == null {
         return;
     }
+    if type_args == null {
+        return;
+    }
 
     var i: i32 = 0;
     while i < type_arg_count {
@@ -1053,32 +991,147 @@ fn checker_register_mono_from_method_return_with_owner(checker: &TypeChecker, re
         method_type_args, method_type_arg_count);
 }
 
+fn checker_mono_ast_arg_name(type_arg_node: &ASTNode) &byte {
+    if type_arg_node != null && type_arg_node.type == ASTNodeType.AST_TYPE_NAMED &&
+        type_arg_node.type_named_name != null {
+        return type_arg_node.type_named_name;
+    }
+    return null;
+}
+
+fn checker_mono_type_arg_name(type_arg: Type) &byte {
+    if type_arg.kind == TypeKind.TYPE_STRUCT && type_arg.struct_name != null {
+        return type_arg.struct_name;
+    }
+    if type_arg.kind == TypeKind.TYPE_I32 {
+        return "i32" as &byte;
+    }
+    if type_arg.kind == TypeKind.TYPE_I64 {
+        return "i64" as &byte;
+    }
+    if type_arg.kind == TypeKind.TYPE_F64 {
+        return "f64" as &byte;
+    }
+    if is_bool_type(type_arg) != 0 {
+        return "bool" as &byte;
+    }
+    return null;
+}
+
+fn checker_mono_name_add_component_len(total_len: i32, name: &byte) i32 {
+    if name == null {
+        return total_len;
+    }
+    return total_len + 1 + (strlen(name as *byte) as i32);
+}
+
+fn checker_mono_name_append_component(buf: &byte, cap: i32, pos: i32, name: &byte) i32 {
+    if buf == null || name == null {
+        return pos;
+    }
+    if pos < 0 || pos >= cap {
+        return cap;
+    }
+    const written: i32 = snprintf(&buf[pos] as *byte, cap - pos, "_%s" as *byte, name as *byte);
+    if written < 0 {
+        return cap;
+    }
+    return pos + written;
+}
+
+fn checker_alloc_static_method_mono_name(checker: &TypeChecker, owner_name: &byte,
+    owner_type_args: & & ASTNode, owner_type_arg_count: i32,
+    method_name: &byte, method_type_args: & & ASTNode, method_type_arg_count: i32) &byte {
+    if checker == null || checker.arena == null || owner_name == null || method_name == null {
+        return null;
+    }
+    var total_len: i32 = (strlen(owner_name as *byte) as i32) + 1 + (strlen(method_name as *byte) as i32);
+    var i: i32 = 0;
+    while owner_type_args != null && i < owner_type_arg_count {
+        total_len = checker_mono_name_add_component_len(total_len, checker_mono_ast_arg_name(owner_type_args[i]));
+        i = i + 1;
+    }
+    i = 0;
+    while method_type_args != null && i < method_type_arg_count {
+        total_len = checker_mono_name_add_component_len(total_len, checker_mono_ast_arg_name(method_type_args[i]));
+        i = i + 1;
+    }
+    const cap: i32 = total_len + 1;
+    const mono_name: &byte = compiler_arena_alloc(checker.arena, cap as usize) as &byte;
+    if mono_name == null {
+        return null;
+    }
+    var pos: i32 = snprintf(mono_name as *byte, cap, "%s" as *byte, owner_name as *byte);
+    i = 0;
+    while owner_type_args != null && i < owner_type_arg_count {
+        pos = checker_mono_name_append_component(mono_name, cap, pos, checker_mono_ast_arg_name(owner_type_args[i]));
+        i = i + 1;
+    }
+    pos = checker_mono_name_append_component(mono_name, cap, pos, method_name);
+    i = 0;
+    while method_type_args != null && i < method_type_arg_count {
+        pos = checker_mono_name_append_component(mono_name, cap, pos, checker_mono_ast_arg_name(method_type_args[i]));
+        i = i + 1;
+    }
+    if pos < 0 || pos >= cap {
+        return null;
+    }
+    return mono_name;
+}
+
+fn checker_alloc_value_method_mono_name(checker: &TypeChecker, owner_name: &byte,
+    owner_type_args: &Type, owner_type_arg_count: i32,
+    method_name: &byte, method_type_args: & & ASTNode, method_type_arg_count: i32) &byte {
+    if checker == null || checker.arena == null || owner_name == null || method_name == null {
+        return null;
+    }
+    var total_len: i32 = (strlen(owner_name as *byte) as i32) + 1 + (strlen(method_name as *byte) as i32);
+    var i: i32 = 0;
+    while owner_type_args != null && i < owner_type_arg_count {
+        total_len = checker_mono_name_add_component_len(total_len, checker_mono_type_arg_name(owner_type_args[i]));
+        i = i + 1;
+    }
+    i = 0;
+    while method_type_args != null && i < method_type_arg_count {
+        total_len = checker_mono_name_add_component_len(total_len, checker_mono_ast_arg_name(method_type_args[i]));
+        i = i + 1;
+    }
+    const cap: i32 = total_len + 1;
+    const mono_name: &byte = compiler_arena_alloc(checker.arena, cap as usize) as &byte;
+    if mono_name == null {
+        return null;
+    }
+    var pos: i32 = snprintf(mono_name as *byte, cap, "%s" as *byte, owner_name as *byte);
+    i = 0;
+    while owner_type_args != null && i < owner_type_arg_count {
+        pos = checker_mono_name_append_component(mono_name, cap, pos, checker_mono_type_arg_name(owner_type_args[i]));
+        i = i + 1;
+    }
+    pos = checker_mono_name_append_component(mono_name, cap, pos, method_name);
+    i = 0;
+    while method_type_args != null && i < method_type_arg_count {
+        pos = checker_mono_name_append_component(mono_name, cap, pos, checker_mono_ast_arg_name(method_type_args[i]));
+        i = i + 1;
+    }
+    if pos < 0 || pos >= cap {
+        return null;
+    }
+    return mono_name;
+}
+
 fn checker_register_static_method_mono_instance(checker: &TypeChecker, owner_name: &byte,
     owner_type_args: & & ASTNode, owner_type_arg_count: i32,
     method_name: &byte, method_type_args: & & ASTNode, method_type_arg_count: i32) void {
     if checker == null || owner_name == null || method_name == null {
         return;
     }
-    var mono_name: [byte: MAX_MONO_NAME_LEN] = [];
-    var pos: i32 = snprintf(mono_name as *byte, MAX_MONO_NAME_LEN, "%s" as *byte, owner_name as *byte);
-    var i: i32 = 0;
-    while owner_type_args != null && i < owner_type_arg_count && pos < MAX_MONO_NAME_LIMIT {
-        const type_arg_node: &ASTNode = owner_type_args[i];
-        if type_arg_node != null && type_arg_node.type == ASTNodeType.AST_TYPE_NAMED && type_arg_node.type_named_name != null {
-            pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_%s" as *byte, type_arg_node.type_named_name as *byte);
-        }
-        i = i + 1;
+    const mono_name: &byte = checker_alloc_static_method_mono_name(checker, owner_name,
+        owner_type_args, owner_type_arg_count, method_name, method_type_args, method_type_arg_count);
+    if mono_name == null {
+        checker_report_error(checker, checker.current_function_decl, "checker mono name 分配失败" as *byte);
+        return;
     }
-    pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_%s" as *byte, method_name as *byte);
-    i = 0;
-    while method_type_args != null && i < method_type_arg_count && pos < MAX_MONO_NAME_LIMIT {
-        const type_arg_node: &ASTNode = method_type_args[i];
-        if type_arg_node != null && type_arg_node.type == ASTNodeType.AST_TYPE_NAMED && type_arg_node.type_named_name != null {
-            pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_%s" as *byte, type_arg_node.type_named_name as *byte);
-        }
-        i = i + 1;
-    }
-    register_mono_instance(checker, mono_name as &byte, method_type_args, method_type_arg_count, 1);
+    register_mono_instance(checker, mono_name, method_type_args, method_type_arg_count, 1);
 }
 
 fn checker_expected_owner_value_type(checker: &TypeChecker, owner_name: &byte, owner_is_union: i32,
@@ -1458,68 +1511,46 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
             // 局部/参数变量优先于导入模块：避免变量名与模块别名同名时被误判为 module.func
             const obj_symbol: &Symbol = symbol_table_lookup(checker, obj_name);
             if obj_symbol == null {
-                var ih: u32 = hash_string(obj_name);
-                var ii: i32 = (ih as i32) & (IMPORT_TABLE_SIZE - 1);
-                var i2: i32 = 0;
-                var found_import: i32 = 0;
-                while i2 < IMPORT_TABLE_SIZE {
-                    const sl: i32 = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
-                    const imp: &ImportedItem = checker.import_table.slots[sl];
-                    if imp == null { break; }
-                    if imp.item_type == (0 - 1) && str_equals(imp.local_name, obj_name) != 0 {
-                        found_import = 1;
+                const imp: &ImportedItem = checker_import_table_lookup_local_name(checker, obj_name);
+                if imp != null {
+                    if imp.item_type == (0 - 1) {
                         // 模块限定调用
                         callee.member_access_is_module_access = 1;
                         callee.member_access_module_name = imp.module_name;  // 保存模块名
                         // 在模块导出表中查找函数
                         const module_name: &byte = imp.module_name;
-                        var mh: u32 = hash_string(module_name);
-                        var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
-                        var i3: i32 = 0;
-                        var found_module: i32 = 0;
-                        while i3 < MODULE_TABLE_SIZE {
-                            const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
-                            const mod: &ModuleInfo = checker.module_table.slots[ml];
-                            if mod == null { break; }
-                            if str_equals(mod.module_name, module_name) != 0 {
-                                found_module = 1;
-                                // 在模块导出项中查找函数
-                                var ei: i32 = 0;
-                                var found_in_module: i32 = 0;
-                                // 防御性检查：确保 exports 不为 null
-                                if mod.exports != null {
-                                    while ei < mod.export_count {
-                                        if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, field_name) != 0 {
-                                            // 找到函数，从声明节点获取返回类型
-                                            const fn_decl: &ASTNode = mod.exports[ei].decl_node;
-                                            if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL {
-                                                if checker_microapp_forbid_host_api_call(checker, node, module_name, field_name) != 0 {
-                                                    return result;
-                                                }
-                                                found_in_module = 1;
-                                                return type_from_ast(checker, fn_decl.fn_decl_return_type);
+                        const mod: &ModuleInfo = checker_module_table_lookup(checker, module_name);
+                        if mod != null {
+                            // 在模块导出项中查找函数
+                            var ei: i32 = 0;
+                            var found_in_module: i32 = 0;
+                            // 防御性检查：确保 exports 不为 null
+                            if mod.exports != null {
+                                while ei < mod.export_count {
+                                    if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, field_name) != 0 {
+                                        // 找到函数，从声明节点获取返回类型
+                                        const fn_decl: &ASTNode = mod.exports[ei].decl_node;
+                                        if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL {
+                                            if checker_microapp_forbid_host_api_call(checker, node, module_name, field_name) != 0 {
+                                                return result;
                                             }
+                                            found_in_module = 1;
+                                            return type_from_ast(checker, fn_decl.fn_decl_return_type);
                                         }
-                                        ei = ei + 1;
                                     }
+                                    ei = ei + 1;
                                 }
-                                // 模块中不存在该函数，报告错误
-                                if found_in_module == 0 {
-                                    checker_report_error(checker, node, "模块中不存在该函数" as *byte);
-                                    return result;
-                                }
-                                break;
                             }
-                            i3 = i3 + 1;
-                        }
-                        // 找到了导入项但找不到模块，报告错误
-                        if found_module == 0 {
+                            // 模块中不存在该函数，报告错误
+                            if found_in_module == 0 {
+                                checker_report_error(checker, node, "模块中不存在该函数" as *byte);
+                                return result;
+                            }
+                        } else {
                             checker_report_error(checker, node, "模块不存在" as *byte);
                             return result;
                         }
-                        break;
                     }
-                    i2 = i2 + 1;
                 }
             }
             // 注意：这里不再报告"未导入的模块"错误
@@ -2011,50 +2042,16 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                         ci = ci + 1;
                     }
                     
-                    // 构建完整的单态化名称
-                    // 格式：StructName_TypeArg1_..._MethodName_TypeArg1_...
-                    var mono_name: [byte: MAX_MONO_NAME_LEN] = [];
-                    var pos: i32 = 0;
-
-                    // 如果结构体是泛型的，添加结构体类型参数后缀
-                    if object_type.struct_type_args != null && object_type.struct_type_arg_count > 0 {
-                        pos = pos + snprintf(mono_name as *byte, MAX_MONO_NAME_LEN, "%s" as *byte, object_type.struct_name as *byte);
-                        var sti: i32 = 0;
-                        while sti < object_type.struct_type_arg_count && pos < MAX_MONO_NAME_LIMIT {
-                            const st_type: Type = object_type.struct_type_args[sti];
-                            // 从 Type 获取名称
-                            if st_type.kind == TypeKind.TYPE_STRUCT && st_type.struct_name != null {
-                                pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_%s" as *byte, st_type.struct_name as *byte);
-                            } else if st_type.kind == TypeKind.TYPE_I32 {
-                                pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_i32" as *byte);
-                            } else if st_type.kind == TypeKind.TYPE_I64 {
-                                pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_i64" as *byte);
-                            } else if st_type.kind == TypeKind.TYPE_F64 {
-                                pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_f64" as *byte);
-                            } else if is_bool_type(st_type) != 0 {
-                                pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_bool" as *byte);
-                            }
-                            sti = sti + 1;
-                        }
-                    } else {
-                        pos = pos + snprintf(mono_name as *byte, 256, "%s" as *byte, object_type.struct_name as *byte);
-                    }
-                    
-                    // 添加方法名
-                    pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_%s" as *byte, method_name as *byte);
-                    
-                    // 添加方法的类型参数后缀
-                    var mi: i32 = 0;
-                    while mi < type_arg_count && pos < MAX_MONO_NAME_LIMIT {
-                        const m_type_arg: &ASTNode = type_args[mi];
-                        if m_type_arg != null && m_type_arg.type == ASTNodeType.AST_TYPE_NAMED && m_type_arg.type_named_name != null {
-                            pos = pos + snprintf(&mono_name[pos] as *byte, MAX_MONO_NAME_LEN - pos, "_%s" as *byte, m_type_arg.type_named_name as *byte);
-                        }
-                        mi = mi + 1;
+                    const mono_name: &byte = checker_alloc_value_method_mono_name(checker, object_type.struct_name,
+                        object_type.struct_type_args, object_type.struct_type_arg_count,
+                        method_name, type_args, type_arg_count);
+                    if mono_name == null {
+                        checker_report_error(checker, node, "checker mono name 分配失败" as *byte);
+                        return result;
                     }
                     
                     // 注册单态化实例（完整的单态化名称）
-                    register_mono_instance(checker, mono_name as &byte, type_args, type_arg_count, 1);
+                    register_mono_instance(checker, mono_name, type_args, type_arg_count, 1);
                     
                     // 检查参数个数（不包括 self 参数）
                     var expected_args: i32 = m.fn_decl_param_count - 1;
@@ -2591,16 +2588,9 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
         }
         // 局部/参数变量优先于导入模块：避免变量名与模块别名同名时误判 module.field
         if symbol == null {
-            const ih: i32 = hash_string(obj.identifier_name);
-            var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
-            var mi: i32 = 0;
-            while mi < IMPORT_TABLE_SIZE {
-                const sl: i32 = (ii + mi) & (IMPORT_TABLE_SIZE - 1);
-                const imp: &ImportedItem = checker.import_table.slots[sl];
-                if imp == null {
-                    break;
-                }
-                if imp.item_type == (0 - 1) && str_equals(imp.local_name, obj.identifier_name) != 0 {
+            const imp: &ImportedItem = checker_import_table_lookup_local_name(checker, obj.identifier_name);
+            if imp != null {
+                if imp.item_type == (0 - 1) {
                     node.member_access_is_module_access = 1;
                     node.member_access_module_name = imp.module_name;
                     if imp.module_name != null && strcmp(imp.module_name as *byte, "std" as *byte) == 0 {
@@ -2609,9 +2599,7 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
                             return make_named_type(TypeKind.TYPE_ENUM, builtin_enum_name);
                         }
                     }
-                    break;
                 }
-                mi = mi + 1;
             }
         }
     }

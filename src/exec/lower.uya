@@ -39,6 +39,10 @@ struct ExecLowerContext {
     scope_depth: i32,
 }
 
+struct ExecHirFunctionRefEntry {
+    function: &HIRFunction,
+}
+
 fn exec_lower_set_unsupported(node: &ASTNode, reason: &byte) i32 {
     exec_backend_set_unsupported_error(node, reason, ExecUnsupportedReason.EXEC_UNSUPPORTED_GENERIC);
     return 2;
@@ -2346,36 +2350,30 @@ fn exec_lower_find_module_export_decl(checker: &TypeChecker, module_name: &byte,
     if checker == null || module_name == null || item_name == null {
         return null;
     }
-    var mh: u32 = hash_string(module_name);
-    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
-    var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
-        const module: &ModuleInfo = checker.module_table.slots[slot];
-        if module == null {
-            break;
-        }
-        if module.module_name != null && str_equals(module.module_name, module_name) != 0 {
-            if module.exports != null {
-                var ei: i32 = 0;
-                while ei < module.export_count {
-                    const export_item: &ExportedItem = &module.exports[ei];
-                    if export_item.name != null && str_equals(export_item.name, item_name) != 0 {
-                        if item_type == 0 || export_item.item_type == item_type {
-                            return export_item.decl_node;
-                        }
+    const module: &ModuleInfo = checker_module_table_lookup(checker, module_name);
+    if module != null && module.module_name != null {
+        if module.exports != null {
+            var ei: i32 = 0;
+            while ei < module.export_count {
+                const export_item: &ExportedItem = &module.exports[ei];
+                if export_item.name != null && str_equals(export_item.name, item_name) != 0 {
+                    if item_type == 0 || export_item.item_type == item_type {
+                        return export_item.decl_node;
                     }
-                    ei = ei + 1;
                 }
+                ei = ei + 1;
             }
-            break;
         }
-        i = i + 1;
     }
     if str_equals(module_name, "libc" as &byte) != 0 {
+        const module_count: i32 = checker.module_table.entries.count as i32;
         var slot_i: i32 = 0;
-        while slot_i < MODULE_TABLE_SIZE {
-            const module2: &ModuleInfo = checker.module_table.slots[slot_i];
+        while slot_i < module_count {
+            const module_entry: &ModuleTableEntry = checker_module_entry_at(&checker.module_table, slot_i);
+            var module2: &ModuleInfo = null;
+            if module_entry != null {
+                module2 = module_entry.module;
+            }
             if module2 != null && module2.filename != null &&
                 (strstr(module2.filename as *byte, "/lib/libc/" as *byte) != null ||
                  strstr(module2.filename as *byte, "lib/libc/" as *byte) != null ||
@@ -2918,9 +2916,14 @@ fn exec_lower_collect_global_slots_from_symbol_table(checker: &TypeChecker, glob
     if checker == null || globals == null || out_count == null {
         return -1;
     }
+    const entry_count: i32 = checker.symbol_table.entries.count as i32;
     var slot: i32 = 0;
-    while slot < SYMBOL_TABLE_SIZE {
-        const symbol: &Symbol = checker.symbol_table.slots[slot];
+    while slot < entry_count {
+        const entry: &SymbolTableEntry = checker_symbol_entry_at(&checker.symbol_table, slot);
+        var symbol: &Symbol = null;
+        if entry != null {
+            symbol = entry.symbol;
+        }
         if symbol != null &&
             exec_lower_global_is_runtime_decl(symbol.decl_node) != 0 &&
             exec_lower_find_global_slot_by_decl_in_globals(globals, out_count[0], symbol.decl_node) < 0 {
@@ -2937,9 +2940,14 @@ fn exec_lower_collect_global_slots_from_imports(checker: &TypeChecker, globals: 
     if checker == null || globals == null || out_count == null {
         return -1;
     }
+    const entry_count: i32 = checker.import_table.entries.count as i32;
     var slot: i32 = 0;
-    while slot < IMPORT_TABLE_SIZE {
-        const import_item: &ImportedItem = checker.import_table.slots[slot];
+    while slot < entry_count {
+        const entry: &ImportTableEntry = checker_import_entry_at(&checker.import_table, slot);
+        var import_item: &ImportedItem = null;
+        if entry != null {
+            import_item = entry.item;
+        }
         if import_item != null && import_item.item_type != (0 - 1) && import_item.local_name != null {
             const decl: &ASTNode = exec_lower_resolve_global_decl(checker, import_item.local_name);
             if decl != null && exec_lower_find_global_slot_by_decl_in_globals(globals, out_count[0], decl) < 0 {
@@ -3258,9 +3266,14 @@ fn exec_lower_collect_global_slots_from_module_imports(checker: &TypeChecker, gl
     if checker == null || globals == null || out_count == null {
         return -1;
     }
+    const entry_count: i32 = checker.import_table.entries.count as i32;
     var slot: i32 = 0;
-    while slot < IMPORT_TABLE_SIZE {
-        const import_item: &ImportedItem = checker.import_table.slots[slot];
+    while slot < entry_count {
+        const entry: &ImportTableEntry = checker_import_entry_at(&checker.import_table, slot);
+        var import_item: &ImportedItem = null;
+        if entry != null {
+            import_item = entry.item;
+        }
         if import_item != null && import_item.item_type == (0 - 1) && import_item.module_name != null {
             var requested_names: [&byte: EXEC_MAX_MODULE_GLOBAL_REQUESTS] = [];
             var requested_count: i32 = 0;
@@ -3534,44 +3547,112 @@ fn exec_lower_collect_runtime_fn_decl_index(decls: & & ASTNode, decl_count: i32,
     return -1;
 }
 
-fn exec_lower_collect_exec_reachable_fn_decls(checker: &TypeChecker, out_decls: & & ASTNode, out_count: &i32) i32 {
-    if checker == null || out_decls == null || out_count == null {
+fn exec_lower_ast_vec_at(vec: &SemanticVector, idx: i32) &ASTNode {
+    const entry: &AstNodeRefEntry = checker_ast_node_ref_at(vec, idx);
+    if entry == null {
+        return null;
+    }
+    return entry.decl;
+}
+
+fn exec_lower_ast_vec_index(vec: &SemanticVector, target: &ASTNode) i32 {
+    if vec == null || target == null {
         return -1;
     }
-    out_count[0] = 0;
+    var i: i32 = 0;
+    const count: i32 = vec.count as i32;
+    while i < count {
+        if exec_lower_ast_vec_at(vec, i) == target {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn exec_lower_ast_vec_append_unique(vec: &SemanticVector, target: &ASTNode) i32 {
+    if vec == null || target == null {
+        return 0;
+    }
+    if exec_lower_ast_vec_index(vec, target) >= 0 {
+        return 0;
+    }
+    if checker_ast_node_ref_append(vec, target) != 0 {
+        return -1;
+    }
+    return 1;
+}
+
+fn exec_lower_hir_function_ref_at(vec: &SemanticVector, idx: i32) &HIRFunction {
+    if vec == null || idx < 0 {
+        return null;
+    }
+    const raw: &byte = semantic_vector_item_ptr(vec, idx as usize);
+    if raw == null {
+        return null;
+    }
+    const entry: &ExecHirFunctionRefEntry = raw as &ExecHirFunctionRefEntry;
+    return entry.function;
+}
+
+fn exec_lower_hir_function_ref_append(vec: &SemanticVector, function: &HIRFunction) i32 {
+    if vec == null || function == null {
+        return -1;
+    }
+    var entry: ExecHirFunctionRefEntry = ExecHirFunctionRefEntry {
+        function: function,
+    };
+    return semantic_vector_append(vec, &entry as &const void);
+}
+
+fn exec_lower_collect_exec_reachable_fn_decls(checker: &TypeChecker, out_decls: &SemanticVector) i32 {
+    if checker == null || out_decls == null {
+        return -1;
+    }
+    semantic_vector_reset(out_decls);
     const entry_decl: &ASTNode = exec_lower_find_entry_decl(checker);
     if entry_decl == null {
         return 0;
     }
-    var queue: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
+    var queue: SemanticVector = checker_empty_vector();
+    semantic_vector_init(&queue, @size_of(AstNodeRefEntry));
     var head: i32 = 0;
-    var tail: i32 = 0;
-    out_decls[0] = entry_decl;
-    out_count[0] = 1;
-    queue[0] = entry_decl;
-    tail = 1;
-    while head < tail {
-        const from_decl: &ASTNode = queue[head];
+    if checker_ast_node_ref_append(out_decls, entry_decl) != 0 {
+        semantic_vector_release(&queue);
+        exec_backend_set_error(entry_decl, "exec: runtime reachable 函数集合分配失败" as *byte, 0);
+        return -1;
+    }
+    if checker_ast_node_ref_append(&queue, entry_decl) != 0 {
+        semantic_vector_release(&queue);
+        exec_backend_set_error(entry_decl, "exec: runtime reachable 队列分配失败" as *byte, 0);
+        return -1;
+    }
+    while head < (queue.count as i32) {
+        const from_decl: &ASTNode = exec_lower_ast_vec_at(&queue, head);
         head = head + 1;
         var i: i32 = 0;
         while i < checker.fn_call_edge_count {
-            if checker.fn_call_edge_from[i] == from_decl {
-                const to_decl: &ASTNode = checker.fn_call_edge_to[i];
+            const edge: &FnCallEdge = checker_fn_call_edge_at(checker, i);
+            if edge != null && edge.from_decl == from_decl {
+                const to_decl: &ASTNode = edge.to_decl;
                 if to_decl != null &&
-                    exec_lower_collect_runtime_fn_decl_index(out_decls, out_count[0], to_decl) < 0 {
-                    if out_count[0] >= MAX_REACHABLE_FN_DECLS || tail >= MAX_REACHABLE_FN_DECLS {
-                        exec_backend_set_error(to_decl, "exec: runtime reachable 函数集合超出上限" as *byte, 0);
+                    exec_lower_ast_vec_index(out_decls, to_decl) < 0 {
+                    if checker_ast_node_ref_append(out_decls, to_decl) != 0 {
+                        semantic_vector_release(&queue);
+                        exec_backend_set_error(to_decl, "exec: runtime reachable 函数集合分配失败" as *byte, 0);
                         return -1;
                     }
-                    out_decls[out_count[0]] = to_decl;
-                    out_count[0] = out_count[0] + 1;
-                    queue[tail] = to_decl;
-                    tail = tail + 1;
+                    if checker_ast_node_ref_append(&queue, to_decl) != 0 {
+                        semantic_vector_release(&queue);
+                        exec_backend_set_error(to_decl, "exec: runtime reachable 队列分配失败" as *byte, 0);
+                        return -1;
+                    }
                 }
             }
             i = i + 1;
         }
     }
+    semantic_vector_release(&queue);
     return 0;
 }
 
@@ -3579,25 +3660,28 @@ fn exec_lower_collect_global_slots_from_reachable_runtime_functions(checker: &Ty
     if checker == null || globals == null || out_count == null {
         return -1;
     }
-    var fn_decls: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
-    var fn_decl_count: i32 = 0;
-    if exec_lower_collect_exec_reachable_fn_decls(checker, &fn_decls[0] as & & ASTNode, &fn_decl_count) != 0 {
+    var fn_decls: SemanticVector = checker_empty_vector();
+    semantic_vector_init(&fn_decls, @size_of(AstNodeRefEntry));
+    if exec_lower_collect_exec_reachable_fn_decls(checker, &fn_decls) != 0 {
+        semantic_vector_release(&fn_decls);
         return -1;
     }
     var i: i32 = 0;
-    while i < fn_decl_count {
-        const fn_decl: &ASTNode = fn_decls[i];
+    while i < (fn_decls.count as i32) {
+        const fn_decl: &ASTNode = exec_lower_ast_vec_at(&fn_decls, i);
         if fn_decl != null &&
             fn_decl.type == ASTNodeType.AST_FN_DECL &&
             fn_decl.fn_decl_body != null &&
             fn_decl.filename != null &&
             exec_lower_decl_is_uya_root_runtime(checker, fn_decl) != 0 {
             if exec_lower_collect_reachable_runtime_globals_node(checker, fn_decl.fn_decl_body, fn_decl.filename, globals, out_count) != 0 {
+                semantic_vector_release(&fn_decls);
                 return -1;
             }
         }
         i = i + 1;
     }
+    semantic_vector_release(&fn_decls);
     return 0;
 }
 
@@ -3655,105 +3739,104 @@ fn exec_lower_collect_global_slots(arena: &CompilerArena, checker: &TypeChecker,
     return globals;
 }
 
-fn exec_lower_collect_called_decls_from_expr(expr: &HIRExpr, out_decls: & & ASTNode, out_count: &i32) void {
-    if expr == null || out_count == null {
+fn exec_lower_collect_called_decls_from_expr(expr: &HIRExpr, out_decls: &SemanticVector) void {
+    if expr == null || out_decls == null {
         return;
     }
     if expr.kind == HIRExprKind.HIR_EXPR_CALL && expr.callee_decl != null &&
         expr.callee_decl.type == ASTNodeType.AST_FN_DECL &&
         expr.callee_decl.fn_decl_body != null &&
-        expr.call_host_id == ExecHostCallId.EXEC_HOST_CALL_NONE &&
-        exec_lower_decl_index(out_decls, out_count[0], expr.callee_decl) < 0 {
-        if out_count[0] < MAX_REACHABLE_FN_DECLS {
-            out_decls[out_count[0]] = expr.callee_decl;
-            out_count[0] = out_count[0] + 1;
+        expr.call_host_id == ExecHostCallId.EXEC_HOST_CALL_NONE {
+        if exec_lower_ast_vec_append_unique(out_decls, expr.callee_decl) < 0 {
+            exec_backend_set_error(expr.callee_decl, "exec: reachable 函数集合分配失败" as *byte, 0);
+            return;
         }
     }
     if expr.kind == HIRExprKind.HIR_EXPR_INTERFACE_BOX && expr.dispatch_decls != null {
         var di: i32 = 0;
         while di < expr.dispatch_decl_count {
             const dispatch_decl: &ASTNode = expr.dispatch_decls[di];
-            if dispatch_decl != null &&
-                exec_lower_decl_index(out_decls, out_count[0], dispatch_decl) < 0 &&
-                out_count[0] < MAX_REACHABLE_FN_DECLS {
-                out_decls[out_count[0]] = dispatch_decl;
-                out_count[0] = out_count[0] + 1;
+            if dispatch_decl != null {
+                if exec_lower_ast_vec_append_unique(out_decls, dispatch_decl) < 0 {
+                    exec_backend_set_error(dispatch_decl, "exec: reachable 函数集合分配失败" as *byte, 0);
+                    return;
+                }
             }
             di = di + 1;
         }
     }
     if expr.left != null {
-        exec_lower_collect_called_decls_from_expr(expr.left, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(expr.left, out_decls);
     }
     if expr.right != null {
-        exec_lower_collect_called_decls_from_expr(expr.right, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(expr.right, out_decls);
     }
     if expr.extra != null {
-        exec_lower_collect_called_decls_from_expr(expr.extra, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(expr.extra, out_decls);
     }
     if expr.block != null {
-        exec_lower_collect_called_decls_from_block(expr.block, out_decls, out_count);
+        exec_lower_collect_called_decls_from_block(expr.block, out_decls);
     }
     var i: i32 = 0;
     while i < expr.call_arg_count {
-        exec_lower_collect_called_decls_from_expr(expr.call_args[i], out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(expr.call_args[i], out_decls);
         i = i + 1;
     }
     i = 0;
     while i < expr.item_count {
-        exec_lower_collect_called_decls_from_expr(expr.items[i], out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(expr.items[i], out_decls);
         i = i + 1;
     }
     i = 0;
     while i < expr.match_arm_count {
         if expr.match_arms[i].result_block != null {
-            exec_lower_collect_called_decls_from_block(expr.match_arms[i].result_block, out_decls, out_count);
+            exec_lower_collect_called_decls_from_block(expr.match_arms[i].result_block, out_decls);
         }
-        exec_lower_collect_called_decls_from_expr(expr.match_arms[i].result_expr, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(expr.match_arms[i].result_expr, out_decls);
         i = i + 1;
     }
 }
 
-fn exec_lower_collect_called_decls_from_stmt(stmt: &HIRStmt, out_decls: & & ASTNode, out_count: &i32) void {
+fn exec_lower_collect_called_decls_from_stmt(stmt: &HIRStmt, out_decls: &SemanticVector) void {
     if stmt == null {
         return;
     }
     if stmt.expr != null {
-        exec_lower_collect_called_decls_from_expr(stmt.expr, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(stmt.expr, out_decls);
     }
     if stmt.assign_expr != null {
-        exec_lower_collect_called_decls_from_expr(stmt.assign_expr, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(stmt.assign_expr, out_decls);
     }
     if stmt.assign_target != null {
-        exec_lower_collect_called_decls_from_expr(stmt.assign_target, out_decls, out_count);
+        exec_lower_collect_called_decls_from_expr(stmt.assign_target, out_decls);
     }
     if stmt.then_block != null {
-        exec_lower_collect_called_decls_from_block(stmt.then_block, out_decls, out_count);
+        exec_lower_collect_called_decls_from_block(stmt.then_block, out_decls);
     }
     if stmt.else_block != null {
-        exec_lower_collect_called_decls_from_block(stmt.else_block, out_decls, out_count);
+        exec_lower_collect_called_decls_from_block(stmt.else_block, out_decls);
     }
     if stmt.loop_body != null {
-        exec_lower_collect_called_decls_from_block(stmt.loop_body, out_decls, out_count);
+        exec_lower_collect_called_decls_from_block(stmt.loop_body, out_decls);
     }
     if stmt.cleanup_block != null {
-        exec_lower_collect_called_decls_from_block(stmt.cleanup_block, out_decls, out_count);
+        exec_lower_collect_called_decls_from_block(stmt.cleanup_block, out_decls);
     }
 }
 
-fn exec_lower_collect_called_decls_from_block(block: &HIRBlock, out_decls: & & ASTNode, out_count: &i32) void {
-    if block == null || out_count == null {
+fn exec_lower_collect_called_decls_from_block(block: &HIRBlock, out_decls: &SemanticVector) void {
+    if block == null || out_decls == null {
         return;
     }
     var i: i32 = 0;
     while i < block.stmt_count {
-        exec_lower_collect_called_decls_from_stmt(block.stmts[i], out_decls, out_count);
+        exec_lower_collect_called_decls_from_stmt(block.stmts[i], out_decls);
         i = i + 1;
     }
 }
 
-fn exec_lower_collect_cleanup_decls_from_function(checker: &TypeChecker, fn_hir: &HIRFunction, out_decls: & & ASTNode, out_count: &i32) void {
-    if checker == null || checker.program_node == null || fn_hir == null || fn_hir.locals == null || out_count == null {
+fn exec_lower_collect_cleanup_decls_from_function(checker: &TypeChecker, fn_hir: &HIRFunction, out_decls: &SemanticVector) void {
+    if checker == null || checker.program_node == null || fn_hir == null || fn_hir.locals == null || out_decls == null {
         return;
     }
     var i: i32 = 0;
@@ -3770,18 +3853,18 @@ fn exec_lower_collect_cleanup_decls_from_function(checker: &TypeChecker, fn_hir:
         if local != null &&
             drop_decl != null &&
             drop_decl.type == ASTNodeType.AST_FN_DECL &&
-            drop_decl.fn_decl_body != null &&
-            exec_lower_decl_index(out_decls, out_count[0], drop_decl) < 0 &&
-            out_count[0] < MAX_REACHABLE_FN_DECLS {
-            out_decls[out_count[0]] = drop_decl;
-            out_count[0] = out_count[0] + 1;
+            drop_decl.fn_decl_body != null {
+            if exec_lower_ast_vec_append_unique(out_decls, drop_decl) < 0 {
+                exec_backend_set_error(drop_decl, "exec: reachable 函数集合分配失败" as *byte, 0);
+                return;
+            }
         }
         i = i + 1;
     }
 }
 
-fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeChecker, globals: &HIRGlobalSlot, global_count: i32, seed_decls: & & ASTNode, seed_count: &i32) i32 {
-    if arena == null || checker == null || seed_count == null {
+fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeChecker, globals: &HIRGlobalSlot, global_count: i32, seed_decls: &SemanticVector) i32 {
+    if arena == null || checker == null || seed_decls == null {
         return -1;
     }
     var i: i32 = 0;
@@ -3823,7 +3906,7 @@ fn exec_lower_lower_global_init_exprs(arena: &CompilerArena, checker: &TypeCheck
                 return -1;
             }
             globals[i].init_expr = lowered_init;
-            exec_lower_collect_called_decls_from_expr(lowered_init, seed_decls, seed_count);
+            exec_lower_collect_called_decls_from_expr(lowered_init, seed_decls);
         }
         i = i + 1;
     }
@@ -3896,7 +3979,7 @@ fn exec_lower_find_entry_decl(checker: &TypeChecker) &ASTNode {
     var fallback: &ASTNode = null;
     var i: i32 = 0;
     while i < checker.reachable_fn_decl_count {
-        const decl: &ASTNode = checker.reachable_fn_decls[i];
+        const decl: &ASTNode = checker_reachable_fn_decl_at(checker, i);
         if decl != null &&
             decl.type == ASTNodeType.AST_FN_DECL &&
             decl.fn_decl_name != null &&
@@ -5804,78 +5887,114 @@ export fn exec_lower_module(arena: &CompilerArena, checker: &TypeChecker, progra
         exec_lower_set_unsupported(program, "exec: 当前仅支持包含显式 fn/export fn main 的程序" as *byte);
         return null;
     }
-    var exec_reachable: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
-    var exec_reachable_count: i32 = 0;
-    exec_reachable[0] = main_decl;
-    exec_reachable_count = 1;
-    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable[0] as & & ASTNode, &exec_reachable_count) != 0 {
+    var exec_reachable: SemanticVector = checker_empty_vector();
+    semantic_vector_init(&exec_reachable, @size_of(AstNodeRefEntry));
+    if checker_ast_node_ref_append(&exec_reachable, main_decl) != 0 {
+        exec_backend_set_error(main_decl, "exec: reachable 函数集合分配失败" as *byte, 0);
+        return null;
+    }
+    if exec_lower_lower_global_init_exprs(arena, checker, globals, global_count, &exec_reachable) != 0 {
+        semantic_vector_release(&exec_reachable);
         return null;
     }
     const global_init_function: &HIRFunction = exec_lower_build_global_init_function(arena, globals, global_count);
-    const functions: & & HIRFunction = compiler_arena_alloc(arena, @size_of(&HIRFunction) * MAX_REACHABLE_FN_DECLS as usize) as & & HIRFunction;
-    if functions == null {
-        exec_backend_set_error(program, "exec: HIR function 列表分配失败" as *byte, 0);
-        return null;
-    }
-    var count: i32 = 0;
+    var functions_vec: SemanticVector = checker_empty_vector();
+    semantic_vector_init(&functions_vec, @size_of(ExecHirFunctionRefEntry));
     var entry_fn: &HIRFunction = null;
-    var queue: [&ASTNode: MAX_REACHABLE_FN_DECLS] = [];
+    var queue: SemanticVector = checker_empty_vector();
+    semantic_vector_init(&queue, @size_of(AstNodeRefEntry));
     var head: i32 = 0;
-    var tail: i32 = 0;
     var seed_idx: i32 = 0;
-    while seed_idx < exec_reachable_count {
-        queue[seed_idx] = exec_reachable[seed_idx];
+    while seed_idx < (exec_reachable.count as i32) {
+        const seed_decl: &ASTNode = exec_lower_ast_vec_at(&exec_reachable, seed_idx);
+        if seed_decl != null && checker_ast_node_ref_append(&queue, seed_decl) != 0 {
+            semantic_vector_release(&queue);
+            semantic_vector_release(&functions_vec);
+            semantic_vector_release(&exec_reachable);
+            exec_backend_set_error(seed_decl, "exec: reachable 队列分配失败" as *byte, 0);
+            return null;
+        }
         seed_idx = seed_idx + 1;
     }
-    tail = exec_reachable_count;
-    while head < tail {
-        const from_decl: &ASTNode = queue[head];
+    while head < (queue.count as i32) {
+        const from_decl: &ASTNode = exec_lower_ast_vec_at(&queue, head);
         head = head + 1;
         var edge_idx: i32 = 0;
         while edge_idx < checker.fn_call_edge_count {
-            if checker.fn_call_edge_from[edge_idx] == from_decl {
-                const to_decl: &ASTNode = checker.fn_call_edge_to[edge_idx];
+            const edge: &FnCallEdge = checker_fn_call_edge_at(checker, edge_idx);
+            if edge != null && edge.from_decl == from_decl {
+                const to_decl: &ASTNode = edge.to_decl;
                 if to_decl != null &&
                     to_decl.type == ASTNodeType.AST_FN_DECL &&
                     exec_lower_extern_can_run_in_vm(checker, to_decl) != 0 &&
-                    exec_lower_decl_index(&exec_reachable[0] as & & ASTNode, exec_reachable_count, to_decl) < 0 {
-                    if exec_reachable_count >= MAX_REACHABLE_FN_DECLS || tail >= MAX_REACHABLE_FN_DECLS {
-                        exec_backend_set_error(to_decl, "exec: reachable 函数集合超出上限" as *byte, 0);
+                    exec_lower_ast_vec_index(&exec_reachable, to_decl) < 0 {
+                    if checker_ast_node_ref_append(&exec_reachable, to_decl) != 0 {
+                        semantic_vector_release(&queue);
+                        semantic_vector_release(&functions_vec);
+                        semantic_vector_release(&exec_reachable);
+                        exec_backend_set_error(to_decl, "exec: reachable 函数集合分配失败" as *byte, 0);
                         return null;
                     }
-                    exec_reachable[exec_reachable_count] = to_decl;
-                    exec_reachable_count = exec_reachable_count + 1;
-                    queue[tail] = to_decl;
-                    tail = tail + 1;
+                    if checker_ast_node_ref_append(&queue, to_decl) != 0 {
+                        semantic_vector_release(&queue);
+                        semantic_vector_release(&functions_vec);
+                        semantic_vector_release(&exec_reachable);
+                        exec_backend_set_error(to_decl, "exec: reachable 队列分配失败" as *byte, 0);
+                        return null;
+                    }
                 }
             }
             edge_idx = edge_idx + 1;
         }
     }
+    semantic_vector_release(&queue);
     var i: i32 = 0;
-    while i < exec_reachable_count {
-        const decl: &ASTNode = exec_reachable[i];
+    while i < (exec_reachable.count as i32) {
+        const decl: &ASTNode = exec_lower_ast_vec_at(&exec_reachable, i);
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
             const lowered: &HIRFunction = exec_lower_function(arena, checker, decl, globals, global_count);
             if lowered == null {
+                semantic_vector_release(&functions_vec);
+                semantic_vector_release(&exec_reachable);
                 return null;
             }
-            functions[count] = lowered;
+            if exec_lower_hir_function_ref_append(&functions_vec, lowered) != 0 {
+                semantic_vector_release(&functions_vec);
+                semantic_vector_release(&exec_reachable);
+                exec_backend_set_error(decl, "exec: HIR function 列表分配失败" as *byte, 0);
+                return null;
+            }
             if decl == main_decl {
                 entry_fn = lowered;
             }
             if lowered.body != null {
-                exec_lower_collect_called_decls_from_block(lowered.body, &exec_reachable[0] as & & ASTNode, &exec_reachable_count);
+                exec_lower_collect_called_decls_from_block(lowered.body, &exec_reachable);
             }
-            exec_lower_collect_cleanup_decls_from_function(checker, lowered, &exec_reachable[0] as & & ASTNode, &exec_reachable_count);
-            count = count + 1;
+            exec_lower_collect_cleanup_decls_from_function(checker, lowered, &exec_reachable);
         }
         i = i + 1;
     }
     if entry_fn == null {
+        semantic_vector_release(&functions_vec);
+        semantic_vector_release(&exec_reachable);
         exec_lower_set_unsupported(program, "exec: 无法定位 exec 入口 main" as *byte);
         return null;
     }
+    const count: i32 = functions_vec.count as i32;
+    const functions: & & HIRFunction = compiler_arena_alloc(arena, @size_of(&HIRFunction) * count as usize) as & & HIRFunction;
+    if functions == null {
+        semantic_vector_release(&functions_vec);
+        semantic_vector_release(&exec_reachable);
+        exec_backend_set_error(program, "exec: HIR function 列表分配失败" as *byte, 0);
+        return null;
+    }
+    var function_idx: i32 = 0;
+    while function_idx < count {
+        functions[function_idx] = exec_lower_hir_function_ref_at(&functions_vec, function_idx);
+        function_idx = function_idx + 1;
+    }
+    semantic_vector_release(&functions_vec);
+    semantic_vector_release(&exec_reachable);
     const module: &HIRModule = compiler_arena_alloc(arena, @size_of(HIRModule)) as &HIRModule;
     if module == null {
         exec_backend_set_error(program, "exec: HIRModule 分配失败" as *byte, 0);

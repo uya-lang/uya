@@ -23,17 +23,17 @@ fn checker_capacity_warning_mark_seen(message: &byte) i32 {
     if message == null {
         return 1;
     }
-    if str_equals(message, "checker constraint table 容量已满" as *byte) != 0 {
+    if str_equals(message, "checker constraint table 扩容失败" as *byte) != 0 {
         if checker_constraint_capacity_warned != 0 { return 1; }
         checker_constraint_capacity_warned = 1;
         return 0;
     }
-    if str_equals(message, "checker pointer nonnull table 容量已满" as *byte) != 0 {
+    if str_equals(message, "checker pointer nonnull table 扩容失败" as *byte) != 0 {
         if checker_pointer_nonnull_capacity_warned != 0 { return 1; }
         checker_pointer_nonnull_capacity_warned = 1;
         return 0;
     }
-    if str_equals(message, "checker pointer nullable table 容量已满" as *byte) != 0 {
+    if str_equals(message, "checker pointer nullable table 扩容失败" as *byte) != 0 {
         if checker_pointer_nullable_capacity_warned != 0 { return 1; }
         checker_pointer_nullable_capacity_warned = 1;
         return 0;

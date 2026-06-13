@@ -28,18 +28,14 @@ struct CheckerProofSnapshot {
 
 fn checker_proof_next_capacity(current: i32, min_needed: i32) i32 {
     var next: i32 = current;
-    if next < 1 {
-        next = 1;
+    if next < 8 {
+        next = 8;
     }
     while next < min_needed {
-        if next >= MAX_PROOF_TABLE_CAPACITY {
-            return MAX_PROOF_TABLE_CAPACITY;
+        if next > 1073741823 {
+            return min_needed;
         }
-        if next > MAX_PROOF_TABLE_CAPACITY / 2 {
-            next = MAX_PROOF_TABLE_CAPACITY;
-        } else {
-            next = next * 2;
-        }
+        next = next * 2;
     }
     return next;
 }
@@ -48,11 +44,6 @@ fn checker_constraint_ensure_capacity(checker: &TypeChecker, min_needed: i32) i3
     if checker == null || min_needed < 0 || checker.arena == null {
         return -1;
     }
-    if min_needed > MAX_CONSTRAINTS {
-        // Preserve the legacy proof budget behavior without reporting a false
-        // table-capacity warning now that storage itself can grow.
-        checker.enable_safety_proof = 0;
-    }
     if min_needed <= checker.constraint_capacity &&
         checker.constraint_var_names != null &&
         checker.constraint_ops != null &&
@@ -60,11 +51,8 @@ fn checker_constraint_ensure_capacity(checker: &TypeChecker, min_needed: i32) i3
         return 0;
     }
     var base_capacity: i32 = checker.constraint_capacity;
-    if base_capacity < MAX_CONSTRAINTS {
-        base_capacity = MAX_CONSTRAINTS;
-    }
     const next_capacity: i32 = checker_proof_next_capacity(base_capacity, min_needed);
-    if next_capacity < min_needed || next_capacity > MAX_PROOF_TABLE_CAPACITY {
+    if next_capacity < min_needed {
         return -1;
     }
     const cap_usize: usize = next_capacity as usize;
@@ -103,13 +91,14 @@ fn checker_pointer_nonnull_ensure_capacity(checker: &TypeChecker, min_needed: i3
     if checker == null || min_needed < 0 || checker.arena == null {
         return -1;
     }
-    if min_needed > MAX_POINTER_NAMES {
-        return -1;
-    }
     if min_needed <= checker.pointer_nonnull_capacity && checker.pointer_nonnull_names != null {
         return 0;
     }
-    const next_capacity: i32 = MAX_POINTER_NAMES;
+    var base_capacity: i32 = checker.pointer_nonnull_capacity;
+    const next_capacity: i32 = checker_proof_next_capacity(base_capacity, min_needed);
+    if next_capacity < min_needed {
+        return -1;
+    }
     const new_names: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * (next_capacity as usize)) as & & byte;
     if new_names == null {
         return -1;
@@ -134,13 +123,14 @@ fn checker_pointer_nullable_ensure_capacity(checker: &TypeChecker, min_needed: i
     if checker == null || min_needed < 0 || checker.arena == null {
         return -1;
     }
-    if min_needed > MAX_POINTER_NAMES {
-        return -1;
-    }
     if min_needed <= checker.pointer_nullable_capacity && checker.pointer_nullable_names != null {
         return 0;
     }
-    const next_capacity: i32 = MAX_POINTER_NAMES;
+    var base_capacity: i32 = checker.pointer_nullable_capacity;
+    const next_capacity: i32 = checker_proof_next_capacity(base_capacity, min_needed);
+    if next_capacity < min_needed {
+        return -1;
+    }
     const new_names: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * (next_capacity as usize)) as & & byte;
     if new_names == null {
         return -1;
@@ -176,13 +166,13 @@ fn checker_proof_tables_init(checker: &TypeChecker) i32 {
     checker.pointer_nullable_names = null;
     checker.pointer_nullable_count = 0;
     checker.pointer_nullable_capacity = 0;
-    if checker_constraint_ensure_capacity(checker, MAX_CONSTRAINTS) != 0 {
+    if checker_constraint_ensure_capacity(checker, 8) != 0 {
         return -1;
     }
-    if checker_pointer_nonnull_ensure_capacity(checker, MAX_POINTER_NAMES) != 0 {
+    if checker_pointer_nonnull_ensure_capacity(checker, 8) != 0 {
         return -1;
     }
-    if checker_pointer_nullable_ensure_capacity(checker, MAX_POINTER_NAMES) != 0 {
+    if checker_pointer_nullable_ensure_capacity(checker, 8) != 0 {
         return -1;
     }
     return 0;
@@ -300,7 +290,7 @@ fn pointer_nonnull_add(checker: &TypeChecker, ptr_name: &byte) void {
         i = i + 1;
     }
     if checker_pointer_nonnull_ensure_capacity(checker, checker.pointer_nonnull_count + 1) != 0 {
-        checker_report_capacity_warning(checker, "checker pointer nonnull table 容量已满" as *byte);
+        checker_report_capacity_warning(checker, "checker pointer nonnull table 扩容失败" as *byte);
         return;
     }
     const idx: i32 = checker.pointer_nonnull_count;
@@ -389,7 +379,7 @@ fn pointer_nullable_add(checker: &TypeChecker, ptr_name: &byte) void {
         i = i + 1;
     }
     if checker_pointer_nullable_ensure_capacity(checker, checker.pointer_nullable_count + 1) != 0 {
-        checker_report_capacity_warning(checker, "checker pointer nullable table 容量已满" as *byte);
+        checker_report_capacity_warning(checker, "checker pointer nullable table 扩容失败" as *byte);
         return;
     }
     const idx: i32 = checker.pointer_nullable_count;
@@ -455,7 +445,7 @@ fn constraint_add(checker: &TypeChecker, var_name: &byte, op: i32, value: i32) v
         return;
     }
     if checker_constraint_ensure_capacity(checker, checker.constraint_count + 1) != 0 {
-        checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+        checker_report_capacity_warning(checker, "checker constraint table 扩容失败" as *byte);
         return;
     }
     const idx: i32 = checker.constraint_count;

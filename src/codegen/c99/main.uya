@@ -266,12 +266,12 @@ fn emit_error_name_helper(codegen: &C99CodeGenerator) void {
         var i: i32 = 0;
         const count: i32 = codegen.checker.error_name_count;
         while i < count {
-            if i >= 0 && i < @len(codegen.checker.error_names) &&
-                codegen.checker.error_names[i] != null {
+            const entry: &ErrorNameEntry = checker_error_entry_at(codegen.checker, i);
+            if entry != null && entry.name != null {
                 fprintf(codegen.emit_stream as *void,
                     "        case %uU: return (uint8_t *)\"%s\";\n" as *byte,
-                    codegen.checker.error_hashes[i],
-                    codegen.checker.error_names[i] as *byte);
+                    entry.hash,
+                    entry.name as *byte);
             }
             i = i + 1;
         }
@@ -3756,12 +3756,12 @@ fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, 
     }
     // 预注册 !byte：Vec<byte>.pop/get 等单态原型会返回 !byte（C 为 err_union_uint8_t），需在类型头阶段先定义
     {
-        const byte_type: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, codegen.arena, null);
-        if byte_type != null {
-            byte_type.type_named_name = "byte" as &byte;
+        const byte_named_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, codegen.arena, null);
+        if byte_named_node != null {
+            byte_named_node.type_named_name = "byte" as &byte;
             const err_union_byte: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, 0, 0, codegen.arena, null);
             if err_union_byte != null {
-                err_union_byte.type_error_union_payload_type = byte_type;
+                err_union_byte.type_error_union_payload_type = byte_named_node;
                 c99_type_to_c(codegen, err_union_byte);
             }
         }

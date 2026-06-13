@@ -50376,31 +50376,20 @@ fn seed_function_reachability_module_export_roots(checker: &TypeChecker, module_
     if checker == null || module_name == null {
         return;
     }
-    var mh: u32 = hash_string(module_name);
-    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
-    var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const sl: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
-        const module: &ModuleInfo = checker.module_table.slots[sl];
-        if module == null {
-            break;
-        }
-        if str_equals(module.module_name, module_name) != 0 {
-            if module.exports != null {
-                var ei: i32 = 0;
-                while ei < module.export_count {
-                    const decl: &ASTNode = module.exports[ei].decl_node;
-                    if module.exports[ei].item_type == 1 &&
-                        decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
-                        decl.fn_decl_body != null {
-                        _ = checker_add_function_root_decl(checker, decl);
-                    }
-                    ei = ei + 1;
+    const module: &ModuleInfo = checker_module_table_lookup(checker, module_name);
+    if module != null {
+        if module.exports != null {
+            var ei: i32 = 0;
+            while ei < module.export_count {
+                const decl: &ASTNode = module.exports[ei].decl_node;
+                if module.exports[ei].item_type == 1 &&
+                    decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+                    decl.fn_decl_body != null {
+                    _ = checker_add_function_root_decl(checker, decl);
                 }
+                ei = ei + 1;
             }
-            return;
         }
-        i = i + 1;
     }
 }
 fn seed_function_reachability_core_std_roots(checker: &TypeChecker) void {
@@ -51643,8 +51632,22 @@ fn compile_files(
             }
             return 1;
         }
-        c99_codegen_set_mono_instances(c99_codegen, checker);
-        c99_codegen_set_reachable_functions(c99_codegen, checker);
+        if c99_codegen_set_mono_instances(c99_codegen, checker) != 0 {
+            fprintf(libc.stderr, "错误: C99 单态实例导入失败\n" as *byte);
+            c99_codegen_free(c99_codegen);
+            if out_file != null {
+                fclose(out_file);
+            }
+            return 1;
+        }
+        if c99_codegen_set_reachable_functions(c99_codegen, checker) != 0 {
+            fprintf(libc.stderr, "错误: C99 reachable 函数导入失败\n" as *byte);
+            c99_codegen_free(c99_codegen);
+            if out_file != null {
+                fclose(out_file);
+            }
+            return 1;
+        }
         if out_artifacts != null {
             c99_codegen_set_c_import_plan(c99_codegen, &out_artifacts.c_import_plan);
         } else {
