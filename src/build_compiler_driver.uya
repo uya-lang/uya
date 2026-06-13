@@ -12063,6 +12063,41 @@ fn native_build_hosted_decl_can_materialize_decl_is_two_i32_param_fn_body(
     }
     return 0;
 }
+fn native_build_hosted_decl_can_materialize_guard_call_tail_return_body(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if decl == null || checker == null ||
+       decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count !=
+        NATIVE_DECL_IS_TWO_I32_PARAM_FN_PREFIX_STMT_COUNT {
+        return 0;
+    }
+    const decl_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    const attr_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[1];
+    const param0_local: &ASTNode = decl.fn_decl_body.block_stmts[2];
+    const param1_local: &ASTNode = decl.fn_decl_body.block_stmts[3];
+    const param_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[4];
+    const param0_type_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[5];
+    const tail_return: &ASTNode = decl.fn_decl_body.block_stmts[6];
+    if decl_guard_if == null || decl_guard_if.type != ASTNodeType.AST_IF_STMT ||
+       attr_guard_if == null || attr_guard_if.type != ASTNodeType.AST_IF_STMT ||
+       param0_local == null || param0_local.type != ASTNodeType.AST_VAR_DECL ||
+       param1_local == null || param1_local.type != ASTNodeType.AST_VAR_DECL ||
+       param_guard_if == null || param_guard_if.type != ASTNodeType.AST_IF_STMT ||
+       param0_type_guard_if == null || param0_type_guard_if.type != ASTNodeType.AST_IF_STMT ||
+       tail_return == null || tail_return.type != ASTNodeType.AST_RETURN_STMT ||
+       tail_return.return_stmt_expr == null ||
+       tail_return.return_stmt_expr.type != ASTNodeType.AST_CALL_EXPR {
+        return 0;
+    }
+    var return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker,
+        tail_return.return_stmt_expr, &return_type_id) != 0 {
+        return 0;
+    }
+    return 1;
+}
 fn native_build_local_table_empty_return_supported(
     stmt: &ASTNode, checker: &TypeChecker) i32 {
     if stmt == null || checker == null ||
@@ -12695,6 +12730,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_decl_can_materialize_guard_call_tail_return_body(decl,
+        checker) != 0 {
         return 1;
     }
     if native_build_hosted_decl_can_materialize_println_body(decl) != 0 {
@@ -19200,7 +19239,7 @@ fn native_build_hosted_coreir_append_decl_is_two_i32_param_fn_body(
     lowered: &LoweredProgram, checker: &TypeChecker, program: &ASTNode,
     function_id: i32, decl_index: i32, decl: &ASTNode) i32 {
     if lowered == null || checker == null || program == null || decl == null ||
-       native_build_hosted_decl_can_materialize_decl_is_two_i32_param_fn_body(
+       native_build_hosted_decl_can_materialize_guard_call_tail_return_body(
         decl, checker) == 0 {
         return -1;
     }
@@ -25469,6 +25508,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
     if native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl, checker) != 0 {
         return native_build_hosted_coreir_append_simd_vector_mask_body(lowered,
             checker, function_id, decl_index, decl);
+    }
+    if native_build_hosted_decl_can_materialize_guard_call_tail_return_body(decl,
+        checker) != 0 {
+        return native_build_hosted_coreir_append_decl_is_two_i32_param_fn_body(
+            lowered, checker, program, function_id, decl_index, decl);
     }
     if native_build_hosted_decl_can_materialize_println_body(decl) != 0 {
         return native_build_hosted_coreir_append_println_body(lowered, checker,
@@ -40742,6 +40786,55 @@ fn native_build_hosted_mir_lower_print_helloworld_core_body_function(
     lowered_program_release(&lowered_plan.lowered);
     return 0;
 }
+fn native_build_hosted_mir_lower_safe_core_body_function(
+    module: &PortableMirModule, checker: &TypeChecker, program: &ASTNode,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode) i32 {
+    if module == null || module.arena == null || checker == null ||
+       program == null || lowered_function_id < 0 || decl_index < 0 ||
+       source_core_body_id < 0 || decl == null ||
+       native_build_hosted_decl_can_materialize_safe_core_body(program,
+        decl, checker) == 0 {
+        return -1;
+    }
+    var lowered_plan: NativeBuildLoweredPlan = native_build_lowered_plan_empty();
+    lowered_program_init(&lowered_plan.lowered, module.arena);
+    var function: ConcreteFunction = native_build_hosted_core_function_from_decl(
+        lowered_function_id, decl_index, decl);
+    function.body_start = lowered_plan.lowered.core_body_count as i32;
+    function.body_count = 1;
+    if lowered_program_append_function(&lowered_plan.lowered, &function) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    const body_id: i32 = lowered_plan.lowered.core_body_count as i32;
+    if native_build_hosted_coreir_append_safe_core_body(&lowered_plan.lowered,
+        checker, program, lowered_function_id, decl_index, decl) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    var core_result: CoreVerifierResult = native_build_empty_core_verifier_result();
+    if lowered_program_verify_coreir_result(&lowered_plan.lowered,
+        &core_result) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    const mir_function_id: i32 = module.function_count as i32;
+    if portable_mir_lower_core_body_to_module(&lowered_plan.lowered,
+        body_id, module) != 0 {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    const mir_function: &MirFunction = native_build_hosted_mir_function_by_id(
+        module, mir_function_id);
+    if mir_function == null {
+        lowered_program_release(&lowered_plan.lowered);
+        return -1;
+    }
+    mir_function.source_core_body_id = source_core_body_id;
+    lowered_program_release(&lowered_plan.lowered);
+    return 0;
+}
 fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule,
     checker: &TypeChecker, program: &ASTNode, out_mir_body_function_count: &i32) i32 {
     if out_mir_body_function_count != null {
@@ -40891,6 +40984,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
             const has_decl_is_two_i32_param_fn_body: i32 =
                 native_build_hosted_decl_can_materialize_decl_is_two_i32_param_fn_body(
                     decl, checker);
+            const has_guard_call_tail_return_body: i32 =
+                native_build_hosted_decl_can_materialize_guard_call_tail_return_body(
+                    decl, checker);
             const has_local_table_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_local_table_empty_body(
                     decl, checker);
@@ -40953,6 +41049,7 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                has_decl_is_one_i32_param_fn_body != 0 ||
                has_decl_is_identity_generic_i32_fn_body != 0 ||
                has_decl_is_two_i32_param_fn_body != 0 ||
+               has_guard_call_tail_return_body != 0 ||
                has_local_table_empty_body != 0 ||
                has_local_table_init_body != 0 ||
                has_const_slice_sum_shape_empty_body != 0 ||
@@ -41568,6 +41665,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     checker) != 0 {
                     if native_build_hosted_mir_append_simd_vector_mask_body_function(module,
                         lowered_function_id, i, source_core_body_id, decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if has_guard_call_tail_return_body != 0 {
+                    if native_build_hosted_mir_lower_safe_core_body_function(module,
+                        checker, program, lowered_function_id, i, source_core_body_id,
+                        decl) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;

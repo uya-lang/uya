@@ -2426,10 +2426,11 @@ native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i3
 
 ## `native_build_decl_is_extern_two_i32_param_fn(...)` Body Complete Contract
 
-当前真实 frontier 是：
+2026-06-13 本轮迁入后，该 helper 通过通用 guard/call/tail-return
+CoreBody materializer 达到 body complete：
 
 ```text
-native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i32_param_fn decl=400 function_id=41 body_stmts=7 reason=pending_core_body
+native_hosted_reachable_body_complete: function=native_build_decl_is_extern_two_i32_param_fn prefix_stmts=7 reason=body_complete
 ```
 
 当前源码 body surface 必须保持为 7 条顶层 statement：

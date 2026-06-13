@@ -100,7 +100,12 @@ run_cmd_build_self_preflight_check() {
         cat "$stderr" >&2
         exit 1
     fi
-    grep -Eq 'native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i32_param_fn .*reason=pending_core_body' "$stderr"
+    grep -Eq 'native_hosted_reachable_body_complete: function=native_build_decl_is_extern_two_i32_param_fn prefix_stmts=7 reason=body_complete' "$stderr"
+    if grep -Eq 'native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i32_param_fn .*reason=pending_core_body' "$stderr"; then
+        echo "错误: $label self-build 不应在 native_build_decl_is_extern_two_i32_param_fn 迁入后继续报告 pending" >&2
+        cat "$stderr" >&2
+        exit 1
+    fi
     if grep -Eq 'native_hosted_pending_body_frontier: function=native_build_decl_is_two_i32_param_fn .*reason=pending_core_body' "$stderr"; then
         echo "错误: $label self-build 不应在 native_build_decl_is_two_i32_param_fn 迁入后继续报告 pending" >&2
         cat "$stderr" >&2

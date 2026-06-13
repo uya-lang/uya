@@ -8,7 +8,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
 
@@ -23,19 +22,17 @@ require_pattern() {
     fi
 }
 
-for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
+for file in "$SUBSET_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_decl_is_extern_two_i32_param_fn\(\.\.\.\)' \
-    "todo 缺少 native_build_decl_is_extern_two_i32_param_fn 合同任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_decl_is_extern_two_i32_param_fn\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_decl_is_extern_two_i32_param_fn 合同"
-require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_decl_is_extern_two_i32_param_fn .*body_stmts=7 reason=pending_core_body' \
-    "subset doc 缺少当前 native_build_decl_is_extern_two_i32_param_fn pending frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_complete: function=native_build_decl_is_extern_two_i32_param_fn prefix_stmts=7 reason=body_complete' \
+    "subset doc 缺少 native_build_decl_is_extern_two_i32_param_fn body-complete frontier"
 require_pattern "$SUBSET_DOC" 'decl\.fn_decl_param_count != 2 \|\| decl\.fn_decl_is_extern == 0' \
     "subset doc 缺少 two-param/extern-required guard"
 require_pattern "$SUBSET_DOC" 'const param0: &ASTNode = decl\.fn_decl_params\[0\];' \
@@ -55,6 +52,10 @@ require_pattern "$BUILD_DRIVER_SRC" 'decl\.fn_decl_param_count != 2 \|\| decl\.f
     "源码缺少 extern-required guard"
 require_pattern "$BUILD_DRIVER_SRC" 'return native_build_type_is_i32\(param1\.var_decl_type\);' \
     "源码缺少 tail param1 type helper-call"
+require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_hosted_decl_can_materialize_guard_call_tail_return_body' \
+    "源码缺少通用 guard/call/tail-return CoreBody materializer"
+require_pattern "$BUILD_DRIVER_SRC" 'has_guard_call_tail_return_body' \
+    "源码未把 extern two-i32 helper 纳入通用 guard/call/tail-return materializer"
 require_pattern "$STAGE1_TEST" 'verify_native_decl_is_extern_two_i32_param_fn_contract\.sh' \
     "stage1 未纳入 native_build_decl_is_extern_two_i32_param_fn 合同"
 
