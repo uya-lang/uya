@@ -400,11 +400,11 @@ def build_rule_source_block(skill: str) -> str:
     if skill.strip():
         mention = skill_mention(skill)
         return f"""规则来源：
-- 严格遵守仓库 `AGENTS.md`。
+- 严格遵守当前 `--root` 仓库内的 `AGENTS.md`。
 - 严格遵守 `{mention}` skill 的规则。"""
 
     return f"""规则来源：
-- 严格遵守仓库 `AGENTS.md`。
+- 严格遵守当前 `--root` 仓库内的 `AGENTS.md`。
 - 严格遵守下方内置 `{DEFAULT_SKILL_NAME}` skill 规则。
 - 内置 skill 内容来自 `{DEFAULT_SKILL_SOURCE}`，本 prompt 已完整携带；即使目标仓库没有安装该 skill，也必须按这些规则执行。
 
@@ -421,6 +421,7 @@ def build_runner_contract_block(
     range_hint: str,
 ) -> str:
     return f"""本轮硬约束（不依赖 skill，若与 skill 冲突以这里为准）：
+- 只读取并遵守当前 `--root` 仓库内的 `AGENTS.md`；不要向上级目录查找或应用 `AGENTS.md`。
 - Checkbox 状态只使用 `[ ]` 待执行、`[~]` 正在执行、`[x]` 已完成并已验证、`[f]` 已失败且写明原因。
 - 本轮只推进一个任务：优先继续已有 `[~]`，否则选择文档顺序中的第一个可执行 `[ ]` 叶子任务；开始新的 `[ ]` 前，把且仅把该任务改成 `[~]`。
 - 如果发现多个 `[~]`，先用中文报告异常，再按文档顺序只处理第一个；不要重排、重置或吞掉其他 `[~]`。
