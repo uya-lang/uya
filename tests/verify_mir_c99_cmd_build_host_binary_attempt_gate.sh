@@ -55,11 +55,11 @@ require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_execut
     "diagnostic log distinguishes summary executable from compiler binary"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
     "diagnostic log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_llvm_backend_c99_rewrite$' \
-    "diagnostic log records the migrated build_driver_run LLVM backend C99 rewrite branch"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=23,next_stmt=23,next_kind=AST_IF_STMT,reason=partial_core_body$' \
+require_pattern "$log_file" '^completed_coverage=build_driver_run_output_path_for_compile$' \
+    "diagnostic log records the migrated build_driver_run output path for compile local"
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=25,next_stmt=25,next_kind=AST_IF_STMT,reason=partial_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=build_driver_run_split_c_default$' \
+require_pattern "$log_file" '^next_coverage=build_driver_run_output_path_selection$' \
     "diagnostic log records the next compiler driver slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
@@ -155,6 +155,22 @@ fi
 if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=22,next_stmt=22,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_explicit_output_path$|^next_coverage=build_driver_run_llvm_backend_c99_rewrite$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=22,next_stmt=22,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_explicit_output_path'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_llvm_backend_c99_rewrite'\''$' \
     "$log_file" "$summary_file"; then
     echo "error: MIR-C99 host binary attempt still reports the old build_driver_run LLVM backend rewrite frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=23,next_stmt=23,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_llvm_backend_c99_rewrite$|^next_coverage=build_driver_run_split_c_default$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=23,next_stmt=23,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_llvm_backend_c99_rewrite'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_default'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split-C default frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=24,next_stmt=24,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_default$|^next_coverage=build_driver_run_output_path_for_compile$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=24,next_stmt=24,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_default'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_output_path_for_compile'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run output-path-for-compile frontier" >&2
     cat "$log_file" >&2
     cat "$summary_file" >&2
     exit 1
