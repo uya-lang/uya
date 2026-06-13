@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 CHECKBOX_RE = re.compile(r"^(?P<prefix>\s*[-*]\s*)\[(?P<state>[^\]])\](?P<rest>.*)$")
+HEADING_RE = re.compile(r"^(?P<marks>#{1,6})\s+(?P<title>.*)$")
 VALID_STATES = {" ", "x", "~", "f"}
 
 
@@ -32,6 +33,25 @@ class TodoStatus:
     @property
     def runnable(self) -> int:
         return self.pending + self.active
+
+
+@dataclass(frozen=True)
+class TodoItem:
+    lineno: int
+    indent: int
+    state: str
+    text: str
+    is_leaf: bool
+
+
+@dataclass(frozen=True)
+class TodoContext:
+    item: TodoItem | None
+    headings: tuple[str, ...]
+    ancestors: tuple[TodoItem, ...]
+    excerpt: tuple[str, ...]
+    excerpt_start: int
+    excerpt_end: int
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,18 +109,33 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the first Codex command and prompt without running it.",
     )
+    parser.add_argument(
+        "--context-lines",
+        type=int,
+        default=12,
+        help="Number of todo lines around the selected task included in the prompt.",
+    )
+    parser.add_argument(
+        "--max-excerpt-line-chars",
+        type=int,
+        default=240,
+        help="Maximum characters per numbered todo excerpt line.",
+    )
     return parser.parse_args()
 
 
-def read_todo_status(todo_path: Path) -> TodoStatus:
+def read_todo_lines(todo_path: Path) -> list[str]:
     if not todo_path.exists():
         raise FileNotFoundError(f"todo file not found: {todo_path}")
+    return todo_path.read_text(encoding="utf-8").splitlines()
 
+
+def read_todo_status_from_lines(lines: list[str]) -> TodoStatus:
     pending = active = done = failed = 0
     invalid: list[tuple[int, str]] = []
     uppercase_done: list[int] = []
 
-    for lineno, line in enumerate(todo_path.read_text(encoding="utf-8").splitlines(), 1):
+    for lineno, line in enumerate(lines, 1):
         match = CHECKBOX_RE.match(line)
         if not match:
             continue
@@ -133,6 +168,156 @@ def read_todo_status(todo_path: Path) -> TodoStatus:
     )
 
 
+def read_todo_status(todo_path: Path) -> TodoStatus:
+    return read_todo_status_from_lines(read_todo_lines(todo_path))
+
+
+def todo_indent(prefix: str) -> int:
+    return len(prefix) - len(prefix.lstrip(" "))
+
+
+def parse_todo_items(lines: list[str]) -> tuple[TodoItem, ...]:
+    raw_items: list[TodoItem] = []
+    for lineno, line in enumerate(lines, 1):
+        match = CHECKBOX_RE.match(line)
+        if not match:
+            continue
+
+        raw_items.append(
+            TodoItem(
+                lineno=lineno,
+                indent=todo_indent(match.group("prefix")),
+                state=match.group("state").lower(),
+                text=match.group("rest").strip(),
+                is_leaf=True,
+            )
+        )
+
+    items: list[TodoItem] = []
+    for index, item in enumerate(raw_items):
+        has_child = False
+        for later in raw_items[index + 1 :]:
+            if later.indent <= item.indent:
+                break
+            has_child = True
+            break
+        items.append(
+            TodoItem(
+                lineno=item.lineno,
+                indent=item.indent,
+                state=item.state,
+                text=item.text,
+                is_leaf=not has_child,
+            )
+        )
+    return tuple(items)
+
+
+def select_next_item(items: tuple[TodoItem, ...]) -> TodoItem | None:
+    for item in items:
+        if item.state == "~":
+            return item
+
+    for item in items:
+        if item.state == " " and item.is_leaf:
+            return item
+
+    for item in items:
+        if item.state == " ":
+            return item
+
+    return None
+
+
+def collect_headings(lines: list[str], target_lineno: int) -> tuple[str, ...]:
+    stack: list[tuple[int, str]] = []
+    for line in lines[: max(0, target_lineno - 1)]:
+        match = HEADING_RE.match(line)
+        if not match:
+            continue
+
+        level = len(match.group("marks"))
+        title = match.group("title").strip()
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        stack.append((level, title))
+
+    return tuple("{} {}".format("#" * level, title) for level, title in stack)
+
+
+def collect_ancestors(items: tuple[TodoItem, ...], target: TodoItem) -> tuple[TodoItem, ...]:
+    stack: list[TodoItem] = []
+    for item in items:
+        if item.lineno >= target.lineno:
+            break
+        if item.indent >= target.indent:
+            continue
+
+        while stack and stack[-1].indent >= item.indent:
+            stack.pop()
+        stack.append(item)
+
+    return tuple(stack)
+
+
+def trim_excerpt_line(line: str, max_chars: int) -> str:
+    if max_chars <= 0 or len(line) <= max_chars:
+        return line
+    suffix = " ... [truncated]"
+    if max_chars <= len(suffix):
+        return line[:max_chars]
+    return line[: max_chars - len(suffix)] + suffix
+
+
+def build_numbered_excerpt(
+    lines: list[str],
+    target: TodoItem,
+    context_lines: int,
+    max_line_chars: int,
+) -> tuple[tuple[str, ...], int, int]:
+    safe_context_lines = max(0, context_lines)
+    start = max(1, target.lineno - safe_context_lines)
+    end = min(len(lines), target.lineno + safe_context_lines)
+    excerpt = []
+    for lineno in range(start, end + 1):
+        text = trim_excerpt_line(lines[lineno - 1], max_line_chars)
+        excerpt.append(f"{lineno}: {text}")
+    return tuple(excerpt), start, end
+
+
+def build_todo_context(
+    lines: list[str],
+    context_lines: int,
+    max_line_chars: int,
+) -> TodoContext:
+    items = parse_todo_items(lines)
+    item = select_next_item(items)
+    if item is None:
+        return TodoContext(
+            item=None,
+            headings=(),
+            ancestors=(),
+            excerpt=(),
+            excerpt_start=0,
+            excerpt_end=0,
+        )
+
+    excerpt, start, end = build_numbered_excerpt(
+        lines,
+        item,
+        context_lines,
+        max_line_chars,
+    )
+    return TodoContext(
+        item=item,
+        headings=collect_headings(lines, item.lineno),
+        ancestors=collect_ancestors(items, item),
+        excerpt=excerpt,
+        excerpt_start=start,
+        excerpt_end=end,
+    )
+
+
 def skill_mention(skill: str) -> str:
     stripped = skill.strip()
     if not stripped:
@@ -142,17 +327,58 @@ def skill_mention(skill: str) -> str:
     return f"${stripped}"
 
 
-def build_prompt(todo_display: str, skill: str) -> str:
+def format_item_for_prompt(item: TodoItem) -> str:
+    return f"L{item.lineno} [{item.state}] {item.text}"
+
+
+def format_prompt_lines(lines: tuple[str, ...], fallback: str) -> str:
+    if not lines:
+        return fallback
+    return "\n".join(lines)
+
+
+def build_prompt(
+    todo_display: str,
+    skill: str,
+    status: TodoStatus,
+    context: TodoContext,
+) -> str:
     mention = skill_mention(skill)
+    if context.item is None:
+        target = "未找到可执行 `[~]` 或 `[ ]` 项。"
+        leaf = "unknown"
+        range_hint = "无"
+    else:
+        target = format_item_for_prompt(context.item)
+        leaf = "yes" if context.item.is_leaf else "no"
+        range_hint = f"{context.excerpt_start},{context.excerpt_end}"
+
+    ancestors = tuple(format_item_for_prompt(item) for item in context.ancestors)
     return f"""请使用 `{mention}` skill 执行指定 todo 文件的下一轮任务。
 
 Todo 文件：`{todo_display}`
+当前状态：pending={status.pending} active={status.active} done={status.done} failed={status.failed} unfinished={status.unfinished}
+
+本轮定位：
+- 目标：{target}
+- 是否叶子：{leaf}
+- 所在标题：
+{format_prompt_lines(context.headings, "  (无标题上下文)")}
+- 父级 checkbox：
+{format_prompt_lines(ancestors, "  (无父级 checkbox)")}
+
+任务附近摘录（优先用这些行号定位，必要时只读取这个小范围附近）：
+```text
+{format_prompt_lines(context.excerpt, "  (无摘录)")}
+```
 
 执行要求：
 - 严格遵守仓库 `AGENTS.md` 和 `{mention}` 的规则。
 - 本轮只推进一个任务：优先继续已有 `[~]`，否则选择文档顺序中的第一个可执行 `[ ]` 叶子任务。
+- 优先围绕上面的目标行工作；读取 todo 时使用小范围命令，例如 `sed -n '{range_hint}p' {todo_display}`，避免打印整份 todo 历史。
+- 不要读取 `loop.log`；如确需排错，只读取短尾部，例如 `tail -n 200 loop.log`。
 - 如果任务过大或含糊，先在 todo 中拆成可执行的小任务，并只启动第一个小任务。
-- 完成后写入真实验证命令和结果，再把任务标成 `[x]`；无法恢复时标成 `[f]` 并记录原因。
+- 完成后写入真实验证命令和结果，再把任务标成 `[x]`；验证记录保持简短，长日志只摘关键错误或路径；无法恢复时标成 `[f]` 并记录原因。
 - 按 skill 要求提交相关改动并尝试推送；不要暂存或回滚无关用户改动。
 - 本轮结束后直接停止，不要自己启动下一轮循环；外层 `loop.py` 会重新检查 todo 状态。
 """
@@ -215,9 +441,25 @@ def main() -> int:
     todo_display = os.path.relpath(todo_path, root)
 
     cmd = build_codex_command(args, root)
-    prompt = build_prompt(todo_display, args.skill)
 
     if args.dry_run:
+        try:
+            lines = read_todo_lines(todo_path)
+        except FileNotFoundError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        status = read_todo_status_from_lines(lines)
+        status_error = validate_status(status)
+        if status_error:
+            return status_error
+
+        context = build_todo_context(
+            lines,
+            args.context_lines,
+            args.max_excerpt_line_chars,
+        )
+        prompt = build_prompt(todo_display, args.skill, status, context)
         print("command:", " ".join(cmd))
         print()
         print(prompt)
@@ -226,11 +468,12 @@ def main() -> int:
     rounds = 0
     while True:
         try:
-            status = read_todo_status(todo_path)
+            lines = read_todo_lines(todo_path)
         except FileNotFoundError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
 
+        status = read_todo_status_from_lines(lines)
         print_status("todo:", status)
         status_error = validate_status(status)
         if status_error:
@@ -256,8 +499,25 @@ def main() -> int:
             print(f"stopped: reached --max-rounds={args.max_rounds}")
             return 3
 
+        context = build_todo_context(
+            lines,
+            args.context_lines,
+            args.max_excerpt_line_chars,
+        )
+        prompt = build_prompt(todo_display, args.skill, status, context)
+
         rounds += 1
         print(f"round {rounds}: running {' '.join(cmd)}", flush=True)
+        if context.item is not None:
+            print(
+                "round {}: target L{} [{}] {}".format(
+                    rounds,
+                    context.item.lineno,
+                    context.item.state,
+                    context.item.text,
+                ),
+                flush=True,
+            )
         returncode = run_codex_round(cmd, prompt)
         if returncode != 0:
             print(f"error: codex round {rounds} exited with {returncode}", file=sys.stderr)
