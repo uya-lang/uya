@@ -638,3 +638,13 @@
 
         - [x] 将 `build_driver_run` output_path_for_compile frontier 纳入 CoreBody -> PortableMIR lowering，并复验 cmd/build summary frontier 前移。
           - 验证：更新 `bash tests/verify_mir_c99_cmd_build_frontier_summary.sh` 和 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 先红灯失败于默认 MIR-C99 generator 仍缺少 `completed_coverage=build_driver_run_output_path_for_compile`；随后通过，确认 cmd/build summary log/sidecar 已记录 `completed_coverage=build_driver_run_output_path_for_compile`，并将当前 frontier 前移到 `native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=25,next_stmt=25,next_kind=AST_IF_STMT,reason=partial_core_body`，下一步 coverage 为 `build_driver_run_output_path_selection`；同时检查 `src/build_compiler_driver.uya` 中 output_path_for_compile 支持入口、`include_output_path_for_compile` 和 `output_path_for_compile_inst` lowering 痕迹；`bash tests/verify_mir_c99_cmd_build_self_preflight.sh` 通过；`bash tests/verify_mir_c99_default_generator_command.sh` 通过；`bash tests/verify_mir_c99_default_generator_writes_subset.sh` 通过；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_minimal_subset_contract.sh` 通过；`bash -n tests/mir_c99_generate.sh tests/verify_mir_c99_cmd_build_frontier_summary.sh tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过；`git diff --check` 通过。
+
+### 4.16 Self Build
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD：编译器自举走 MIR-C99。 -> host C compiler 编译 MIR-C99 产物得到 compiler binary。 -> 逐步清空 `pending_core_bodies` frontier，直到默认 MIR-C99 generator 对 `cmd/build` root 输出真实 compiler candidate C。
+
+- [x] 将 `build_driver_run` output_path_selection frontier 纳入 CoreBody -> PortableMIR lowering，并复验 cmd/build summary frontier 前移。
+  - 验证：
+    - `./tests/verify_mir_c99_cmd_build_frontier_summary.sh` -> OK: MIR-C99 cmd/build summary records the first self-build frontier
+    - `./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` -> OK: MIR-C99 cmd/build host compiler binary attempt gate records summary-only frontier
+    - `./tests/verify_mir_c99_cmd_build_self_preflight.sh` -> OK: cmd/build MIR-C99 self-build root emits summary-only C output
