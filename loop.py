@@ -88,6 +88,15 @@ def parse_args() -> argparse.Namespace:
         help="Optional model passed to `codex exec --model`.",
     )
     parser.add_argument(
+        "--reasoning-effort",
+        default=os.environ.get("CODEX_REASONING_EFFORT", ""),
+        choices=("", "minimal", "low", "medium", "high", "xhigh"),
+        help=(
+            "Optional reasoning effort passed to Codex via "
+            "`model_reasoning_effort`."
+        ),
+    )
+    parser.add_argument(
         "--sandbox",
         default=os.environ.get("CODEX_SANDBOX", "danger-full-access"),
         choices=("read-only", "workspace-write", "danger-full-access"),
@@ -417,6 +426,9 @@ def build_codex_command(args: argparse.Namespace, root: Path) -> list[str]:
     ]
     if args.model.strip():
         cmd.extend(["--model", args.model.strip()])
+    if args.reasoning_effort.strip():
+        effort = args.reasoning_effort.strip()
+        cmd.extend(["--config", f'model_reasoning_effort="{effort}"'])
     cmd.append("-")
     return cmd
 
