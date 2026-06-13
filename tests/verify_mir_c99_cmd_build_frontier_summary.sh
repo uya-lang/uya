@@ -39,30 +39,30 @@ require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_output_path_selection$' \
-    "log records the migrated build_driver_run output path selection branch"
+require_pattern "$log_file" '^completed_coverage=build_driver_run_native_success$' \
+    "log records the migrated build_driver_run native_success branch"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
     "log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body$' \
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body$' \
     "log records the next build_driver_run source body frontier"
 require_pattern "$log_file" '^next_capability=corebody_portable_mir_body_lowering$' \
     "log records the next capability to expand"
-require_pattern "$log_file" '^next_coverage=build_driver_run_split_c_arg$' \
+require_pattern "$log_file" '^next_coverage=build_driver_run_is_output_c_file$' \
     "log records the next coverage slice"
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='build_driver_run_output_path_selection'$" \
-    "summary sidecar records the migrated build_driver_run output path selection branch"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='build_driver_run_native_success'$" \
+    "summary sidecar records the migrated build_driver_run native_success branch"
 require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete'$" \
     "summary sidecar records the completed print diagnostic profile body"
-require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body'$" \
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body'$" \
     "summary sidecar records the concrete compiler-source body frontier"
 require_pattern "$summary_file" "^MIR_C99_NEXT_CAPABILITY='corebody_portable_mir_body_lowering'$" \
     "summary sidecar records the next capability"
-require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='build_driver_run_split_c_arg'$" \
+require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='build_driver_run_is_output_c_file'$" \
     "summary sidecar records the next coverage slice"
 
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_frontier' \
@@ -115,7 +115,25 @@ require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_output_pat
     "coverage matrix records the migrated build_driver_run output path for compile local"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_output_path_selection.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage matrix records the migrated build_driver_run output path selection branch"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_split_c_arg' \
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_split_c_arg.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run split_c_arg local"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_split_c_arg_assign.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run split_c_arg assignment branch"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_artifacts.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run artifacts local"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_split_c_lock.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run split_c_lock local"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_split_c_lock_defer.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run split_c_lock_defer cleanup"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_split_c_lock_acquire.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run split_c_lock_acquire branch"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_compile_result.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run compile_result call"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_result_error.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run result_error branch"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_native_success.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run native_success branch"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_is_output_c_file' \
     "coverage matrix records the next coverage slice"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body' \
     "build driver recognizes the build_driver_run prefix body"
@@ -233,6 +251,100 @@ require_pattern "$BUILD_DRIVER_SRC" 'include_output_path_selection' \
     "build driver lowers the output path selection branch through the MIR prefix path"
 require_pattern "$BUILD_DRIVER_SRC" 'output_path_selection_get_argv_inst' \
     "build driver materializes the output path selection get_argv call"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_arg_stmt_supported' \
+    "build driver recognizes the build_driver_run split_c_arg local"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_arg_prefix_stmt_count' \
+    "build driver exposes the split_c_arg slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_SPLIT_C_ARG_PREFIX_STMT_COUNT' \
+    "build driver admits the split_c_arg prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_split_c_arg' \
+    "build driver lowers the split_c_arg local through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'split_c_arg_inst' \
+    "build driver materializes the split_c_arg null initializer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_arg_assign_stmt_supported' \
+    "build driver recognizes the build_driver_run split_c_arg assignment branch"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_arg_assign_prefix_stmt_count' \
+    "build driver exposes the split_c_arg assignment slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_SPLIT_C_ARG_ASSIGN_PREFIX_STMT_COUNT' \
+    "build driver admits the split_c_arg assignment prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_split_c_arg_assign' \
+    "build driver lowers the split_c_arg assignment branch through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'split_c_arg_assign_inst' \
+    "build driver materializes the split_c_arg assignment"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_artifacts_stmt_supported' \
+    "build driver recognizes the build_driver_run artifacts local"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_artifacts_prefix_stmt_count' \
+    "build driver exposes the artifacts slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_ARTIFACTS_PREFIX_STMT_COUNT' \
+    "build driver admits the artifacts prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_artifacts' \
+    "build driver lowers the artifacts local through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'artifacts_inst' \
+    "build driver materializes the artifacts aggregate initializer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_stmt_supported' \
+    "build driver recognizes the build_driver_run split_c_lock local"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_prefix_stmt_count' \
+    "build driver exposes the split_c_lock slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_PREFIX_STMT_COUNT' \
+    "build driver admits the split_c_lock prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_split_c_lock' \
+    "build driver lowers the split_c_lock local through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'split_c_lock_inst' \
+    "build driver materializes the split_c_lock zero initializer"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_defer_parts' \
+    "build driver recognizes the build_driver_run split_c_lock_defer cleanup shape"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_defer_stmt_supported' \
+    "build driver validates the split_c_lock_defer cleanup slice"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_defer_prefix_stmt_count' \
+    "build driver exposes the split_c_lock_defer slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_DEFER_PREFIX_STMT_COUNT' \
+    "build driver admits the split_c_lock_defer prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_split_c_lock_defer' \
+    "build driver lowers the split_c_lock_defer cleanup through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'split_c_lock_defer_inst' \
+    "build driver materializes the split_c_lock_defer cleanup MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_acquire_parts' \
+    "build driver recognizes the build_driver_run split_c_lock_acquire shape"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_split_c_lock_acquire_prefix_stmt_count' \
+    "build driver exposes the split_c_lock_acquire slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_SPLIT_C_LOCK_ACQUIRE_PREFIX_STMT_COUNT' \
+    "build driver admits the split_c_lock_acquire prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_split_c_lock_acquire' \
+    "build driver lowers the split_c_lock_acquire branch through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'split_c_lock_acquire_inst' \
+    "build driver materializes the split_c_lock_acquire MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_result_call_expr' \
+    "build driver recognizes the build_driver_run compile_result call"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_result_prefix_stmt_count' \
+    "build driver exposes the compile_result slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_COMPILE_RESULT_PREFIX_STMT_COUNT' \
+    "build driver admits the compile_result prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_compile_result' \
+    "build driver lowers the compile_result call through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'compile_result_inst' \
+    "build driver materializes the compile_result MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_result_error_prefix_stmt_count' \
+    "build driver recognizes the build_driver_run result_error branch"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_RESULT_ERROR_PREFIX_STMT_COUNT' \
+    "build driver admits the result_error prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_result_error' \
+    "build driver lowers the result_error branch through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'result_error_cond_inst' \
+    "build driver materializes the result_error condition MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'result_error_return_inst' \
+    "build driver materializes the result_error return MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_native_success_fprintf_call' \
+    "build driver recognizes the build_driver_run native_success fprintf call"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_build_driver_run_native_success_prefix_stmt_count' \
+    "build driver exposes the native_success slice to prefix lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'NATIVE_BUILD_DRIVER_RUN_NATIVE_SUCCESS_PREFIX_STMT_COUNT' \
+    "build driver admits the native_success prefix count"
+require_pattern "$BUILD_DRIVER_SRC" 'include_native_success' \
+    "build driver lowers the native_success branch through the MIR prefix path"
+require_pattern "$BUILD_DRIVER_SRC" 'native_success_fprintf_inst' \
+    "build driver materializes the native_success fprintf MIR marker"
+require_pattern "$BUILD_DRIVER_SRC" 'native_success_return_inst' \
+    "build driver materializes the native_success return MIR marker"
 
 tail_mir_body="$(
     awk '
@@ -380,6 +492,78 @@ fi
 if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=25,next_stmt=25,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_output_path_for_compile$|^next_coverage=build_driver_run_output_path_selection$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=25,next_stmt=25,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_output_path_for_compile'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_output_path_selection'\''$' \
     "$log_file" "$summary_file"; then
     echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run output-path-selection frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_output_path_selection$|^next_coverage=build_driver_run_split_c_arg$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_output_path_selection'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_arg'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run split_c_arg frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=27,next_stmt=27,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_arg$|^next_coverage=build_driver_run_split_c_arg_assign$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=27,next_stmt=27,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_arg'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_arg_assign'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run split_c_arg_assign frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=28,next_stmt=28,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_arg_assign$|^next_coverage=build_driver_run_artifacts$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=28,next_stmt=28,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_arg_assign'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_artifacts'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run artifacts frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=29,next_stmt=29,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_artifacts$|^next_coverage=build_driver_run_split_c_lock$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=29,next_stmt=29,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_artifacts'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_lock'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run split_c_lock frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=30,next_stmt=30,next_kind=AST_DEFER_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_lock$|^next_coverage=build_driver_run_split_c_lock_defer$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=30,next_stmt=30,next_kind=AST_DEFER_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_lock'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_lock_defer'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run split_c_lock_defer frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=31,next_stmt=31,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_lock_defer$|^next_coverage=build_driver_run_split_c_lock_acquire$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=31,next_stmt=31,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_lock_defer'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_lock_acquire'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run split_c_lock_acquire frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=32,next_stmt=32,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_lock_acquire$|^next_coverage=build_driver_run_compile_result$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=32,next_stmt=32,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_lock_acquire'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_compile_result'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run compile_result frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=33,next_stmt=33,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_compile_result$|^next_coverage=build_driver_run_result_error$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=33,next_stmt=33,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_compile_result'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_result_error'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run result_error frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=34,next_stmt=34,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_result_error$|^next_coverage=build_driver_run_native_success$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=34,next_stmt=34,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_result_error'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_native_success'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run native_success frontier" >&2
     cat "$log_file" >&2
     cat "$summary_file" >&2
     exit 1

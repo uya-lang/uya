@@ -55,11 +55,11 @@ require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_execut
     "diagnostic log distinguishes summary executable from compiler binary"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
     "diagnostic log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_output_path_selection$' \
-    "diagnostic log records the migrated build_driver_run output path selection branch"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body$' \
+require_pattern "$log_file" '^completed_coverage=build_driver_run_native_success$' \
+    "diagnostic log records the migrated build_driver_run native_success branch"
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=35,next_stmt=35,next_kind=AST_VAR_DECL,reason=partial_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=build_driver_run_split_c_arg$' \
+require_pattern "$log_file" '^next_coverage=build_driver_run_is_output_c_file$' \
     "diagnostic log records the next compiler driver slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
@@ -179,6 +179,78 @@ fi
 if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=25,next_stmt=25,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_output_path_for_compile$|^next_coverage=build_driver_run_output_path_selection$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=25,next_stmt=25,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_output_path_for_compile'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_output_path_selection'\''$' \
     "$log_file" "$summary_file"; then
     echo "error: MIR-C99 host binary attempt still reports the old build_driver_run output-path-selection frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_output_path_selection$|^next_coverage=build_driver_run_split_c_arg$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=26,next_stmt=26,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_output_path_selection'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_arg'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split_c_arg frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=27,next_stmt=27,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_arg$|^next_coverage=build_driver_run_split_c_arg_assign$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=27,next_stmt=27,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_arg'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_arg_assign'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split_c_arg_assign frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=28,next_stmt=28,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_arg_assign$|^next_coverage=build_driver_run_artifacts$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=28,next_stmt=28,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_arg_assign'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_artifacts'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run artifacts frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=29,next_stmt=29,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_artifacts$|^next_coverage=build_driver_run_split_c_lock$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=29,next_stmt=29,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_artifacts'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_lock'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split_c_lock frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=30,next_stmt=30,next_kind=AST_DEFER_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_lock$|^next_coverage=build_driver_run_split_c_lock_defer$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=30,next_stmt=30,next_kind=AST_DEFER_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_lock'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_lock_defer'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split_c_lock_defer frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=31,next_stmt=31,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_lock_defer$|^next_coverage=build_driver_run_split_c_lock_acquire$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=31,next_stmt=31,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_lock_defer'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_c_lock_acquire'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split_c_lock_acquire frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=32,next_stmt=32,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_split_c_lock_acquire$|^next_coverage=build_driver_run_compile_result$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=32,next_stmt=32,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_c_lock_acquire'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_compile_result'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run compile_result frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=33,next_stmt=33,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_compile_result$|^next_coverage=build_driver_run_result_error$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=33,next_stmt=33,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_compile_result'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_result_error'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run result_error frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=34,next_stmt=34,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_result_error$|^next_coverage=build_driver_run_native_success$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=34,next_stmt=34,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_result_error'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_native_success'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run native_success frontier" >&2
     cat "$log_file" >&2
     cat "$summary_file" >&2
     exit 1
