@@ -46,10 +46,10 @@ cmd_build_frontier_name="native_hosted_handoff_frontier"
 cmd_build_frontier_reason="pending_core_bodies"
 cmd_build_frontier_category="mir_instruction_coverage"
 cmd_build_completed_body_detail="native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete"
-cmd_build_completed_coverage="build_driver_run_is_output_c_file"
-cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=36,next_stmt=36,next_kind=AST_IF_STMT,reason=partial_core_body"
+cmd_build_completed_coverage="build_driver_run_c_output_check"
+cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=37,next_stmt=37,next_kind=AST_IF_STMT,reason=partial_core_body"
 cmd_build_next_capability="corebody_portable_mir_body_lowering"
-cmd_build_next_coverage="build_driver_run_c_output_check"
+cmd_build_next_coverage="build_driver_run_link_output"
 if [[ "$input_abs" == "$cmd_build_source" ]]; then
     summary_file="${output}.summary"
     cat >"$output" <<'C_EOF'
