@@ -133,12 +133,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("CODEX_MODEL", ""),
+        default=os.environ.get("CODEX_MODEL", "gpt-5.5"),
         help="Optional model passed to `codex exec --model`.",
     )
     parser.add_argument(
         "--reasoning-effort",
-        default=os.environ.get("CODEX_REASONING_EFFORT", ""),
+        default=os.environ.get("CODEX_REASONING_EFFORT", "low"),
         choices=("", "minimal", "low", "medium", "high", "xhigh"),
         help=(
             "Optional reasoning effort passed to Codex via "
