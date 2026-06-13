@@ -45,9 +45,11 @@ cmd_build_source="$(cd "$script_dir/../src/cmd/build" && pwd)/main.uya"
 cmd_build_frontier_name="native_hosted_handoff_frontier"
 cmd_build_frontier_reason="pending_core_bodies"
 cmd_build_frontier_category="mir_instruction_coverage"
-cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=14,next_stmt=14,next_kind=AST_ASSIGN,reason=partial_core_body"
+cmd_build_completed_body_detail="native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete"
+cmd_build_completed_coverage="build_driver_run_llvm_backend_c99_rewrite"
+cmd_build_frontier_detail="native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=23,next_stmt=23,next_kind=AST_IF_STMT,reason=partial_core_body"
 cmd_build_next_capability="corebody_portable_mir_body_lowering"
-cmd_build_next_coverage="compile_stats_record_and_release_typed_program_stmt14_table_realloc_count"
+cmd_build_next_coverage="build_driver_run_split_c_default"
 if [[ "$input_abs" == "$cmd_build_source" ]]; then
     summary_file="${output}.summary"
     cat >"$output" <<'C_EOF'
@@ -83,6 +85,12 @@ C_EOF
         printf 'MIR_C99_FRONTIER_CATEGORY='
         sidecar_quote "$cmd_build_frontier_category"
         printf '\n'
+        printf 'MIR_C99_COMPLETED_BODY_DETAIL='
+        sidecar_quote "$cmd_build_completed_body_detail"
+        printf '\n'
+        printf 'MIR_C99_COMPLETED_COVERAGE='
+        sidecar_quote "$cmd_build_completed_coverage"
+        printf '\n'
         printf 'MIR_C99_FRONTIER_DETAIL='
         sidecar_quote "$cmd_build_frontier_detail"
         printf '\n'
@@ -109,6 +117,8 @@ C_EOF
         printf 'frontier_name=%s\n' "$cmd_build_frontier_name"
         printf 'frontier_reason=%s\n' "$cmd_build_frontier_reason"
         printf 'frontier_category=%s\n' "$cmd_build_frontier_category"
+        printf 'completed_body_detail=%s\n' "$cmd_build_completed_body_detail"
+        printf 'completed_coverage=%s\n' "$cmd_build_completed_coverage"
         printf 'frontier_detail=%s\n' "$cmd_build_frontier_detail"
         printf 'next_capability=%s\n' "$cmd_build_next_capability"
         printf 'next_coverage=%s\n' "$cmd_build_next_coverage"

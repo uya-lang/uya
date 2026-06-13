@@ -53,8 +53,14 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=compile_stats_record_and_release_typed_program,prefix_stmts=14,next_stmt=14,next_kind=AST_ASSIGN,reason=partial_core_body$' \
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
+    "diagnostic log records the completed print diagnostic profile body"
+require_pattern "$log_file" '^completed_coverage=build_driver_run_llvm_backend_c99_rewrite$' \
+    "diagnostic log records the migrated build_driver_run LLVM backend C99 rewrite branch"
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=23,next_stmt=23,next_kind=AST_IF_STMT,reason=partial_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
+require_pattern "$log_file" '^next_coverage=build_driver_run_split_c_default$' \
+    "diagnostic log records the next compiler driver slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \
@@ -65,6 +71,94 @@ require_pattern "$candidate_stderr" '^compiler_binary_status=not_yet_generated$'
     "candidate executable reports that it is not a compiler binary"
 require_pattern "$candidate_stderr" '^frontier_name=native_hosted_handoff_frontier$' \
     "candidate executable reports the current self-build frontier"
+
+if grep -Eq 'native_hosted_reachable_body_frontier:function=compiler_print_diagnostic_profile|^completed_coverage=compiler_print_diagnostic_profile_checker_branch$|^next_coverage=compiler_print_diagnostic_profile_tail_fprintf$|^MIR_C99_COMPLETED_COVERAGE='\''compiler_print_diagnostic_profile_checker_branch'\''$|^MIR_C99_NEXT_COVERAGE='\''compiler_print_diagnostic_profile_tail_fprintf'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old print diagnostic profile tail frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq 'native_hosted_pending_body_frontier:function=build_driver_run|^completed_coverage=compiler_print_diagnostic_profile_tail_fprintf$|^next_coverage=build_driver_run_first_slice$|^MIR_C99_COMPLETED_COVERAGE='\''compiler_print_diagnostic_profile_tail_fprintf'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_first_slice'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run pending frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=12,next_stmt=12,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_first_slice$|^next_coverage=build_driver_run_parse_prefix$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=12,next_stmt=12,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_first_slice'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_parse_prefix'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run first-slice frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=15,next_stmt=15,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_parse_prefix$|^next_coverage=build_driver_run_stack_init$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=15,next_stmt=15,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_parse_prefix'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_stack_init'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run parse-prefix frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=16,next_stmt=16,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_stack_init$|^next_coverage=build_driver_run_stack_guard$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=16,next_stmt=16,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_stack_init'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_stack_guard'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run stack-init frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=17,next_stmt=17,next_kind=AST_CALL_EXPR,reason=partial_core_body$|^completed_coverage=build_driver_run_stack_guard$|^next_coverage=build_driver_run_stack_limit_call$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=17,next_stmt=17,next_kind=AST_CALL_EXPR,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_stack_guard'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_stack_limit_call'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run stack-limit-call frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=18,next_stmt=18,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_stack_limit_call$|^next_coverage=build_driver_run_split_env$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=18,next_stmt=18,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_stack_limit_call'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_split_env'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run split-env frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=19,next_stmt=19,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_split_env$|^next_coverage=build_driver_run_output_path$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=19,next_stmt=19,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_split_env'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_output_path'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run output-path frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=20,next_stmt=20,next_kind=AST_VAR_DECL,reason=partial_core_body$|^completed_coverage=build_driver_run_output_path$|^next_coverage=build_driver_run_user_output_path$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=20,next_stmt=20,next_kind=AST_VAR_DECL,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_output_path'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_user_output_path'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run user-output-path frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=21,next_stmt=21,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_user_output_path$|^next_coverage=build_driver_run_explicit_output_path$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=21,next_stmt=21,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_user_output_path'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_explicit_output_path'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run explicit-output-path frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=22,next_stmt=22,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_explicit_output_path$|^next_coverage=build_driver_run_llvm_backend_c99_rewrite$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=22,next_stmt=22,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_explicit_output_path'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_llvm_backend_c99_rewrite'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run LLVM backend rewrite frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
 
 if grep -Eiq 'fallback|legacy C99|codegen/c99|codegen\.c99|c99_codegen_generate|C99CodeGenerator' \
     "$log_file" "$summary_file" "$output_c" "$candidate_stdout" "$candidate_stderr"; then
