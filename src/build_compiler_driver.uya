@@ -12,7 +12,6 @@ use checker_build;
 use driver;
 use lower.core;
 use lower.mir;
-use lower.mir_contract;
 use lower.mir_verifier;
 use lower.mir_backend;
 use codegen.c99_build;
@@ -28033,7 +28032,7 @@ fn native_build_hosted_mir_signature_placeholder_type(type_id: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_DIRECT,
+        abi_class: MIR_ABI_CLASS_VOID,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -28056,7 +28055,7 @@ fn native_build_hosted_mir_i32_type(type_id: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_DIRECT,
+        abi_class: MIR_ABI_CLASS_INTEGER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -28079,7 +28078,7 @@ fn native_build_hosted_mir_bool_type(type_id: i32) MirType {
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_DIRECT,
+        abi_class: MIR_ABI_CLASS_INTEGER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -28102,7 +28101,7 @@ fn native_build_hosted_mir_i32_pointer_type(type_id: i32, pointee_type_id: i32) 
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_DIRECT,
+        abi_class: MIR_ABI_CLASS_POINTER,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -28125,7 +28124,7 @@ fn native_build_hosted_mir_stack_i32_array64_type(type_id: i32, source_type_id: 
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_MEMORY,
+        abi_class: MIR_ABI_CLASS_AGGREGATE,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -28149,7 +28148,7 @@ fn native_build_hosted_mir_stack_byte_path_max_array_type(type_id: i32,
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_MEMORY,
+        abi_class: MIR_ABI_CLASS_AGGREGATE,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
@@ -28173,7 +28172,7 @@ fn native_build_hosted_mir_compile_artifacts_type(type_id: i32,
         lane_count: 0,
         lane_stride_bytes: 0usize,
         mask_representation: 0,
-        abi_class: MIR_ABI_CLASS_MEMORY,
+        abi_class: MIR_ABI_CLASS_AGGREGATE,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
