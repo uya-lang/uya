@@ -53,14 +53,14 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_reachability_empty,prefix_stmts=1,reason=body_complete$' \
-    "diagnostic log records the completed reachability helper body"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_reachability_empty_struct_return_lowering$' \
-    "diagnostic log records the migrated reachability empty struct return lowering"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_local_table_empty,decl=412,function_id=47,body_stmts=1,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_local_table_empty,prefix_stmts=1,reason=body_complete$' \
+    "diagnostic log records the completed local-table helper body"
+require_pattern "$log_file" '^completed_coverage=generic_corebody_local_table_empty_struct_return_lowering$' \
+    "diagnostic log records the migrated local-table empty struct return lowering"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_const_slice_sum_shape_empty,decl=416,function_id=48,body_stmts=1,reason=pending_core_body$' \
     "diagnostic log preserves the next compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=generic_corebody_local_table_empty_struct_return_lowering$' \
-    "diagnostic log records the next generic local-table empty-struct return slice"
+require_pattern "$log_file" '^next_coverage=generic_corebody_const_slice_sum_shape_empty_struct_return_lowering$' \
+    "diagnostic log records the next generic const-slice sum shape empty-struct return slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \
