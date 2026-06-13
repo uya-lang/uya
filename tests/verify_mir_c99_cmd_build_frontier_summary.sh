@@ -39,30 +39,30 @@ require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_const_slice_sum_shape_empty_struct_return_lowering$' \
-    "log records the migrated const-slice sum empty struct return lowering"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_const_slice_sum_shape_empty,prefix_stmts=1,reason=body_complete$' \
-    "log records the completed const-slice sum helper body"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_const_slice_len_index_shape_empty,decl=420,function_id=49,body_stmts=1,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_coverage=generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering$' \
+    "log records the migrated const-slice len/index empty struct return lowering"
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_const_slice_len_index_shape_empty,prefix_stmts=1,reason=body_complete$' \
+    "log records the completed const-slice len/index helper body"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_pointer_deref_shape_empty,decl=424,function_id=50,body_stmts=1,reason=pending_core_body$' \
     "log records the next compiler-source pending body frontier"
 require_pattern "$log_file" '^next_capability=corebody_portable_mir_body_lowering$' \
     "log records the next capability to expand"
-require_pattern "$log_file" '^next_coverage=generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering$' \
+require_pattern "$log_file" '^next_coverage=generic_corebody_pointer_deref_shape_empty_struct_return_lowering$' \
     "log records the next generic coverage slice"
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_const_slice_sum_shape_empty_struct_return_lowering'$" \
-    "summary sidecar records the migrated const-slice sum empty struct return lowering"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_const_slice_sum_shape_empty,prefix_stmts=1,reason=body_complete'$" \
-    "summary sidecar records the completed const-slice sum helper body"
-require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_const_slice_len_index_shape_empty,decl=420,function_id=49,body_stmts=1,reason=pending_core_body'$" \
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering'$" \
+    "summary sidecar records the migrated const-slice len/index empty struct return lowering"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_const_slice_len_index_shape_empty,prefix_stmts=1,reason=body_complete'$" \
+    "summary sidecar records the completed const-slice len/index helper body"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_pointer_deref_shape_empty,decl=424,function_id=50,body_stmts=1,reason=pending_core_body'$" \
     "summary sidecar records the concrete compiler-source pending body frontier"
 require_pattern "$summary_file" "^MIR_C99_NEXT_CAPABILITY='corebody_portable_mir_body_lowering'$" \
     "summary sidecar records the next capability"
-require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering'$" \
+require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_pointer_deref_shape_empty_struct_return_lowering'$" \
     "summary sidecar records the next generic coverage slice"
 
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_frontier' \

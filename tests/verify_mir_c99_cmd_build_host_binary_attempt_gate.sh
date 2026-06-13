@@ -53,14 +53,14 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_const_slice_sum_shape_empty,prefix_stmts=1,reason=body_complete$' \
-    "diagnostic log records the completed const-slice sum helper body"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_const_slice_sum_shape_empty_struct_return_lowering$' \
-    "diagnostic log records the migrated const-slice sum empty struct return lowering"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_const_slice_len_index_shape_empty,decl=420,function_id=49,body_stmts=1,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_const_slice_len_index_shape_empty,prefix_stmts=1,reason=body_complete$' \
+    "diagnostic log records the completed const-slice len/index helper body"
+require_pattern "$log_file" '^completed_coverage=generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering$' \
+    "diagnostic log records the migrated const-slice len/index empty struct return lowering"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_pointer_deref_shape_empty,decl=424,function_id=50,body_stmts=1,reason=pending_core_body$' \
     "diagnostic log preserves the next compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering$' \
-    "diagnostic log records the next generic const-slice len/index shape empty-struct return slice"
+require_pattern "$log_file" '^next_coverage=generic_corebody_pointer_deref_shape_empty_struct_return_lowering$' \
+    "diagnostic log records the next generic pointer-deref shape empty-struct return slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \
