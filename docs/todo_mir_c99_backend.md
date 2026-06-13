@@ -88,6 +88,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - [ ] MIR-C99-BACKEND-SELF-BUILD：编译器自举走 MIR-C99。
   - [ ] host C compiler 编译 MIR-C99 产物得到 compiler binary。
     - [~] 逐步清空 `pending_core_bodies` frontier，直到默认 MIR-C99 generator 对 `cmd/build` root 输出真实 compiler candidate C。
+      - 2026-06-13：已把通用 `guard_call_tail_return` body 纳入 CoreBody -> PortableMIR preflight，`native_build_decl_is_extern_two_i32_param_fn` 记录为 body-complete；当前 frontier 前进到 `native_build_decl_is_one_i32_ptr_param_fn` / `generic_corebody_pointer_param_guard_tail_return_lowering`。
+      - 验证：`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`bash tests/verify_mir_c99_cmd_build_self_preflight.sh` 均通过。
     - [ ] host C compiler 编译真实 MIR-C99 compiler candidate，并运行最小 `cmd/build --help` / smoke 证明它是 compiler binary 而非 summary executable。
   - [ ] MIR-C99-built compiler 复跑 `cmd/build` self-build。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。

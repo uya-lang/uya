@@ -26458,6 +26458,9 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
             const materialize_decl_is_two_i32_param_fn_body: i32 =
                 native_build_hosted_decl_can_materialize_decl_is_two_i32_param_fn_body(
                     decl, checker);
+            const materialize_guard_call_tail_return_body: i32 =
+                native_build_hosted_decl_can_materialize_guard_call_tail_return_body(
+                    decl, checker);
             const materialize_local_table_empty_body: i32 =
                 native_build_hosted_decl_can_materialize_local_table_empty_body(
                     decl, checker);
@@ -26518,6 +26521,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                materialize_decl_is_one_i32_param_fn_body != 0 ||
                materialize_decl_is_identity_generic_i32_fn_body != 0 ||
                materialize_decl_is_two_i32_param_fn_body != 0 ||
+               materialize_guard_call_tail_return_body != 0 ||
                materialize_local_table_empty_body != 0 ||
                materialize_local_table_init_body != 0 ||
                materialize_const_slice_sum_shape_empty_body != 0 ||
@@ -27052,6 +27056,15 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                     native_build_decl_name_for_diagnostic(decl);
                 result.entry_reachable_body_complete_stmt_count =
                     NATIVE_DECL_IS_TWO_I32_PARAM_FN_PREFIX_STMT_COUNT;
+            } else if materialize_guard_call_tail_return_body != 0 {
+                if native_build_hosted_coreir_append_decl_is_two_i32_param_fn_body(
+                    lowered, checker, program, function_id, i, decl) != 0 {
+                    return -1;
+                }
+                result.entry_reachable_body_complete_function_name =
+                    native_build_decl_name_for_diagnostic(decl);
+                result.entry_reachable_body_complete_stmt_count =
+                    NATIVE_DECL_IS_TWO_I32_PARAM_FN_PREFIX_STMT_COUNT;
             } else if materialize_local_table_empty_body != 0 {
                 if native_build_hosted_coreir_append_local_table_empty_body(
                     lowered, checker, function_id, i, decl) != 0 {
@@ -27323,6 +27336,10 @@ fn native_build_hosted_decl_has_pending_core_body(program: &ASTNode,
         return 0;
     }
     if native_build_hosted_decl_can_materialize_decl_is_two_i32_param_fn_body(
+        decl, checker) != 0 {
+        return 0;
+    }
+    if native_build_hosted_decl_can_materialize_guard_call_tail_return_body(
         decl, checker) != 0 {
         return 0;
     }
