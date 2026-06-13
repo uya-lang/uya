@@ -53,13 +53,13 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_decl_is_extern_two_i32_param_fn,prefix_stmts=7,reason=body_complete$' \
-    "diagnostic log records the completed extern two-i32 helper body"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_guard_call_tail_return_lowering$' \
-    "diagnostic log records the migrated generic guard-call tail return"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_decl_is_one_i32_ptr_param_fn,decl=401,function_id=42,body_stmts=7,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_decl_is_one_i32_ptr_param_fn,prefix_stmts=5,reason=body_complete$' \
+    "diagnostic log records the completed one-i32-pointer helper body"
+require_pattern "$log_file" '^completed_coverage=generic_corebody_pointer_param_guard_tail_return_lowering$' \
+    "diagnostic log records the migrated generic pointer-param guard-call tail return"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_decl_is_two_i32_ptr_param_fn,decl=402,function_id=43,body_stmts=7,reason=pending_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=generic_corebody_pointer_param_guard_tail_return_lowering$' \
+require_pattern "$log_file" '^next_coverage=generic_corebody_two_pointer_param_guard_tail_return_lowering$' \
     "diagnostic log records the next generic compiler driver slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"

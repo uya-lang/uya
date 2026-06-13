@@ -12068,9 +12068,34 @@ fn native_build_hosted_decl_can_materialize_guard_call_tail_return_body(
     if decl == null || checker == null ||
        decl.fn_decl_body == null ||
        decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
-       decl.fn_decl_body.block_stmts == null ||
-       decl.fn_decl_body.block_stmt_count !=
-        NATIVE_DECL_IS_TWO_I32_PARAM_FN_PREFIX_STMT_COUNT {
+       decl.fn_decl_body.block_stmts == null {
+        return 0;
+    }
+    if decl.fn_decl_body.block_stmt_count ==
+       NATIVE_DECL_IS_ONE_I32_PARAM_FN_PREFIX_STMT_COUNT {
+        const decl_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[0];
+        const attr_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[1];
+        const param_local: &ASTNode = decl.fn_decl_body.block_stmts[2];
+        const param_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[3];
+        const tail_return: &ASTNode = decl.fn_decl_body.block_stmts[4];
+        if decl_guard_if == null || decl_guard_if.type != ASTNodeType.AST_IF_STMT ||
+           attr_guard_if == null || attr_guard_if.type != ASTNodeType.AST_IF_STMT ||
+           param_local == null || param_local.type != ASTNodeType.AST_VAR_DECL ||
+           param_guard_if == null || param_guard_if.type != ASTNodeType.AST_IF_STMT ||
+           tail_return == null || tail_return.type != ASTNodeType.AST_RETURN_STMT ||
+           tail_return.return_stmt_expr == null ||
+           tail_return.return_stmt_expr.type != ASTNodeType.AST_CALL_EXPR {
+            return 0;
+        }
+        var one_return_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_ensure_expr_type_id(checker,
+            tail_return.return_stmt_expr, &one_return_type_id) != 0 {
+            return 0;
+        }
+        return 1;
+    }
+    if decl.fn_decl_body.block_stmt_count !=
+       NATIVE_DECL_IS_TWO_I32_PARAM_FN_PREFIX_STMT_COUNT {
         return 0;
     }
     const decl_guard_if: &ASTNode = decl.fn_decl_body.block_stmts[0];
@@ -19243,7 +19268,12 @@ fn native_build_hosted_coreir_append_decl_is_two_i32_param_fn_body(
         decl, checker) == 0 {
         return -1;
     }
-    const tail_return: &ASTNode = decl.fn_decl_body.block_stmts[6];
+    var root_stmt_count: i32 = NATIVE_DECL_IS_TWO_I32_PARAM_FN_CORE_STMT_COUNT;
+    if decl.fn_decl_body.block_stmt_count ==
+       NATIVE_DECL_IS_ONE_I32_PARAM_FN_PREFIX_STMT_COUNT {
+        root_stmt_count = NATIVE_DECL_IS_ONE_I32_PARAM_FN_CORE_STMT_COUNT;
+    }
+    const tail_return: &ASTNode = decl.fn_decl_body.block_stmts[root_stmt_count - 1];
     const return_call: &ASTNode = tail_return.return_stmt_expr;
     if return_call == null || return_call.type != ASTNodeType.AST_CALL_EXPR {
         return -1;
@@ -19271,9 +19301,9 @@ fn native_build_hosted_coreir_append_decl_is_two_i32_param_fn_body(
         function_id: function_id,
         decl_id: decl_index,
         root_stmt_start: stmt_start,
-        root_stmt_count: NATIVE_DECL_IS_TWO_I32_PARAM_FN_CORE_STMT_COUNT,
+        root_stmt_count: root_stmt_count,
         expr_start: expr_start,
-        expr_count: NATIVE_DECL_IS_TWO_I32_PARAM_FN_CORE_EXPR_COUNT,
+        expr_count: root_stmt_count,
         place_start: lowered.core_place_count as i32,
         place_count: 0,
         cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
@@ -19287,7 +19317,7 @@ fn native_build_hosted_coreir_append_decl_is_two_i32_param_fn_body(
         return -1;
     }
     var i: i32 = 0;
-    while i < NATIVE_DECL_IS_TWO_I32_PARAM_FN_CORE_STMT_COUNT {
+    while i < root_stmt_count {
         const stmt_ast: &ASTNode = decl.fn_decl_body.block_stmts[i];
         const stmt_kind: i32 = native_build_hosted_core_stmt_kind_from_ast(
             stmt_ast);
@@ -27064,7 +27094,7 @@ fn native_build_hosted_coreir_append_program_functions(lowered: &LoweredProgram,
                 result.entry_reachable_body_complete_function_name =
                     native_build_decl_name_for_diagnostic(decl);
                 result.entry_reachable_body_complete_stmt_count =
-                    NATIVE_DECL_IS_TWO_I32_PARAM_FN_PREFIX_STMT_COUNT;
+                    decl.fn_decl_body.block_stmt_count;
             } else if materialize_local_table_empty_body != 0 {
                 if native_build_hosted_coreir_append_local_table_empty_body(
                     lowered, checker, function_id, i, decl) != 0 {
