@@ -337,6 +337,21 @@ def format_prompt_lines(lines: tuple[str, ...], fallback: str) -> str:
     return "\n".join(lines)
 
 
+def todo_archive_path(todo_display: str, suffix: str) -> str:
+    path = Path(todo_display)
+    if path.suffix:
+        return str(path.with_name(f"{path.stem}_{suffix}{path.suffix}"))
+    return f"{todo_display}_{suffix}"
+
+
+def completed_archive_path(todo_display: str) -> str:
+    return todo_archive_path(todo_display, "completed")
+
+
+def failed_archive_path(todo_display: str) -> str:
+    return todo_archive_path(todo_display, "failed")
+
+
 def build_prompt(
     todo_display: str,
     skill: str,
@@ -344,6 +359,8 @@ def build_prompt(
     context: TodoContext,
 ) -> str:
     mention = skill_mention(skill)
+    archive_display = completed_archive_path(todo_display)
+    failed_archive_display = failed_archive_path(todo_display)
     if context.item is None:
         target = "未找到可执行 `[~]` 或 `[ ]` 项。"
         leaf = "unknown"
@@ -357,6 +374,8 @@ def build_prompt(
     return f"""请使用 `{mention}` skill 执行指定 todo 文件的下一轮任务。
 
 Todo 文件：`{todo_display}`
+完成归档：`{archive_display}`
+失败归档：`{failed_archive_display}`
 当前状态：pending={status.pending} active={status.active} done={status.done} failed={status.failed} unfinished={status.unfinished}
 
 本轮定位：
@@ -378,7 +397,10 @@ Todo 文件：`{todo_display}`
 - 优先围绕上面的目标行工作；读取 todo 时使用小范围命令，例如 `sed -n '{range_hint}p' {todo_display}`，避免打印整份 todo 历史。
 - 不要读取 `loop.log`；如确需排错，只读取短尾部，例如 `tail -n 200 loop.log`。
 - 如果任务过大或含糊，先在 todo 中拆成可执行的小任务，并只启动第一个小任务。
-- 完成后写入真实验证命令和结果，再把任务标成 `[x]`；验证记录保持简短，长日志只摘关键错误或路径；无法恢复时标成 `[f]` 并记录原因。
+- 完成后写入真实验证命令和结果，再把任务标成 `[x]`；随后将本轮完成的 `[x]` 任务及其验证记录移动到完成归档 `{archive_display}`。
+- 无法恢复时写入失败原因、阻塞命令、关键错误和后续重开条件，再把任务标成 `[f]`；随后将本轮失败的 `[f]` 任务及其失败记录移动到失败归档 `{failed_archive_display}`。
+- 如果某个父级 checkbox 的全部子任务都已完成，就把这个完整完成子树一起移入 `{archive_display}`；如果全部子任务都已失败或不可继续，就把这个失败子树一起移入 `{failed_archive_display}`。不要在主 todo 留下空的 `[ ]` 父项；主 todo 只保留 `[ ]`、`[~]` 和必要上下文。
+- 验证记录保持简短，长日志只摘关键错误或路径。
 - 按 skill 要求提交相关改动并尝试推送；不要暂存或回滚无关用户改动。
 - 本轮结束后直接停止，不要自己启动下一轮循环；外层 `loop.py` 会重新检查 todo 状态。
 """
