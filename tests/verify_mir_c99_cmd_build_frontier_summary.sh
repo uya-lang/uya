@@ -39,31 +39,31 @@ require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_link_output$' \
-    "log records the migrated build_driver_run link output branch"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
-    "log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body$' \
-    "log records the next build_driver_run source body frontier"
+require_pattern "$log_file" '^completed_coverage=build_driver_run_final_return$' \
+    "log records the migrated build_driver_run final return"
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=parse_build_args,prefix_stmts=28,reason=body_complete$' \
+    "log records the completed parse_build_args body"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_decl_is_extern_two_i32_param_fn,decl=400,function_id=41,body_stmts=7,reason=pending_core_body$' \
+    "log records the next compiler-source pending body frontier"
 require_pattern "$log_file" '^next_capability=corebody_portable_mir_body_lowering$' \
     "log records the next capability to expand"
-require_pattern "$log_file" '^next_coverage=build_driver_run_final_return$' \
-    "log records the next coverage slice"
+require_pattern "$log_file" '^next_coverage=generic_corebody_guard_call_tail_return_lowering$' \
+    "log records the next generic coverage slice"
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='build_driver_run_link_output'$" \
-    "summary sidecar records the migrated build_driver_run link output branch"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete'$" \
-    "summary sidecar records the completed print diagnostic profile body"
-require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body'$" \
-    "summary sidecar records the concrete compiler-source body frontier"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='build_driver_run_final_return'$" \
+    "summary sidecar records the migrated build_driver_run final return"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=parse_build_args,prefix_stmts=28,reason=body_complete'$" \
+    "summary sidecar records the completed parse_build_args body"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_decl_is_extern_two_i32_param_fn,decl=400,function_id=41,body_stmts=7,reason=pending_core_body'$" \
+    "summary sidecar records the concrete compiler-source pending body frontier"
 require_pattern "$summary_file" "^MIR_C99_NEXT_CAPABILITY='corebody_portable_mir_body_lowering'$" \
     "summary sidecar records the next capability"
-require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='build_driver_run_final_return'$" \
-    "summary sidecar records the next coverage slice"
+require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_guard_call_tail_return_lowering'$" \
+    "summary sidecar records the next generic coverage slice"
 
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_frontier' \
     "coverage matrix records the current self-build frontier"
@@ -139,8 +139,12 @@ require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_c_output_c
     "coverage matrix records the migrated build_driver_run C output check branch"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_link_output.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage matrix records the migrated build_driver_run link output branch"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_final_return' \
-    "coverage matrix records the next coverage slice"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*build_driver_run_final_return.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated build_driver_run final return"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_guard_call_tail_return_lowering' \
+    "coverage matrix records the next generic coverage slice"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*不得新增按 helper 名称或固定 7-stmt body shape 命中的 materializer' \
+    "coverage matrix rejects helper-specific materializer direction"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_decl_can_materialize_build_driver_run_entry_prefix_body' \
     "build driver recognizes the build_driver_run prefix body"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_build_driver_run_entry_prefix_body' \
@@ -622,6 +626,22 @@ fi
 if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=37,next_stmt=37,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_c_output_check$|^next_coverage=build_driver_run_link_output$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=37,next_stmt=37,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_c_output_check'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_link_output'\''$' \
     "$log_file" "$summary_file"; then
     echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run link output frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_link_output$|^next_coverage=build_driver_run_final_return$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_link_output'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_final_return'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still reports the old build_driver_run final return frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^next_coverage=native_build_decl_is_extern_two_i32_param_fn_first_slice$|^MIR_C99_NEXT_COVERAGE='\''native_build_decl_is_extern_two_i32_param_fn_first_slice'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 cmd/build frontier summary still treats the current helper sample as the next coverage goal" >&2
     cat "$log_file" >&2
     cat "$summary_file" >&2
     exit 1

@@ -88,7 +88,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - [ ] MIR-C99-BACKEND-SELF-BUILD：编译器自举走 MIR-C99。
   - [ ] host C compiler 编译 MIR-C99 产物得到 compiler binary。
     - [ ] 逐步清空 `pending_core_bodies` frontier，直到默认 MIR-C99 generator 对 `cmd/build` root 输出真实 compiler candidate C。
-      - [ ] 迁入 `build_driver_run_final_return` coverage，推动 `cmd/build` self-build frontier 前移到下一条真实 compiler-source 语句。
     - [ ] host C compiler 编译真实 MIR-C99 compiler candidate，并运行最小 `cmd/build --help` / smoke 证明它是 compiler binary 而非 summary executable。
   - [ ] MIR-C99-built compiler 复跑 `cmd/build` self-build。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。

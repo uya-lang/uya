@@ -53,14 +53,14 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
-    "diagnostic log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_link_output$' \
-    "diagnostic log records the migrated build_driver_run link output branch"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body$' \
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=parse_build_args,prefix_stmts=28,reason=body_complete$' \
+    "diagnostic log records the completed parse_build_args body"
+require_pattern "$log_file" '^completed_coverage=build_driver_run_final_return$' \
+    "diagnostic log records the migrated build_driver_run final return"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_decl_is_extern_two_i32_param_fn,decl=400,function_id=41,body_stmts=7,reason=pending_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=build_driver_run_final_return$' \
-    "diagnostic log records the next compiler driver slice"
+require_pattern "$log_file" '^next_coverage=generic_corebody_guard_call_tail_return_lowering$' \
+    "diagnostic log records the next generic compiler driver slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \
@@ -278,6 +278,22 @@ fi
 if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=36,next_stmt=36,next_kind=AST_IF_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_is_output_c_file$|^next_coverage=build_driver_run_c_output_check$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=36,next_stmt=36,next_kind=AST_IF_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_is_output_c_file'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_c_output_check'\''$' \
     "$log_file" "$summary_file"; then
     echo "error: MIR-C99 host binary attempt still reports the old build_driver_run C output check frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body$|^completed_coverage=build_driver_run_link_output$|^next_coverage=build_driver_run_final_return$|^MIR_C99_FRONTIER_DETAIL='\''native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body'\''$|^MIR_C99_COMPLETED_COVERAGE='\''build_driver_run_link_output'\''$|^MIR_C99_NEXT_COVERAGE='\''build_driver_run_final_return'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still reports the old build_driver_run final return frontier" >&2
+    cat "$log_file" >&2
+    cat "$summary_file" >&2
+    exit 1
+fi
+
+if grep -Eq '^next_coverage=native_build_decl_is_extern_two_i32_param_fn_first_slice$|^MIR_C99_NEXT_COVERAGE='\''native_build_decl_is_extern_two_i32_param_fn_first_slice'\''$' \
+    "$log_file" "$summary_file"; then
+    echo "error: MIR-C99 host binary attempt still treats the current helper sample as the next coverage goal" >&2
     cat "$log_file" >&2
     cat "$summary_file" >&2
     exit 1

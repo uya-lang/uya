@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
 MIR_VERIFIER_FILE="$REPO_ROOT/src/lower/mir_verifier.uya"
+BUILD_DRIVER_FILE="$REPO_ROOT/src/build_compiler_driver.uya"
+COVERAGE_DOC="$REPO_ROOT/docs/portable_mir_language_coverage.md"
 
 tmp_dir="$(mktemp -d /tmp/uya-portable-mir-core-body-lowering.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -942,3 +944,44 @@ EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 echo "OK: PortableMIR CoreBody return literal/local/add/print lowering verified"
+
+require_repo_pattern() {
+    local file="$1"
+    local pattern="$2"
+    local description="$3"
+    if ! grep -Eq "$pattern" "$file"; then
+        echo "error: PortableMIR CoreBody lowering missing evidence: $description" >&2
+        exit 1
+    fi
+}
+
+reject_repo_pattern() {
+    local file="$1"
+    local pattern="$2"
+    local description="$3"
+    if grep -Eq "$pattern" "$file"; then
+        echo "error: PortableMIR CoreBody lowering contains forbidden evidence: $description" >&2
+        exit 1
+    fi
+}
+
+require_repo_pattern "$COVERAGE_DOC" 'generic_corebody_guard_call_tail_return_lowering' \
+    "coverage matrix names the generic structured CoreBody lowering frontier"
+require_repo_pattern "$COVERAGE_DOC" 'if guard / 短路 OR、field load、array index、[[:space:]]*const local、resolved helper call 和 tail call return' \
+    "coverage matrix records the generic guard/call/tail-return shape"
+require_repo_pattern "$BUILD_DRIVER_FILE" 'native_build_expr_bool_const_value' \
+    "native hosted lowering has a generic boolean condition evaluator"
+require_repo_pattern "$BUILD_DRIVER_FILE" 'TOKEN_LOGICAL_OR' \
+    "native hosted lowering evaluates short-circuit OR conditions generically"
+require_repo_pattern "$BUILD_DRIVER_FILE" 'native_build_member_access_object_field_equals' \
+    "native hosted lowering recognizes field loads without naming the frontier helper"
+require_repo_pattern "$BUILD_DRIVER_FILE" 'native_build_array_index0_identifier' \
+    "native hosted lowering recognizes array index loads without naming the frontier helper"
+require_repo_pattern "$BUILD_DRIVER_FILE" 'native_build_resolve_reachable_const2_i32_call' \
+    "native hosted lowering resolves helper calls with two const i32 arguments"
+require_repo_pattern "$BUILD_DRIVER_FILE" 'native_build_expr_to_body_op' \
+    "native hosted lowering can lower tail call returns through the generic body-op path"
+reject_repo_pattern "$BUILD_DRIVER_FILE" 'native_build_decl_is_extern_two_i32_param_fn_(first_slice|body|materializ)' \
+    "helper-specific materializer for native_build_decl_is_extern_two_i32_param_fn"
+reject_repo_pattern "$BUILD_DRIVER_FILE" 'body_stmt_count[[:space:]]*==[[:space:]]*7.*native_build_decl_is_extern_two_i32_param_fn|native_build_decl_is_extern_two_i32_param_fn.*body_stmt_count[[:space:]]*==[[:space:]]*7' \
+    "fixed 7-stmt body shape materializer for the current frontier helper"
