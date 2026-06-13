@@ -55,11 +55,11 @@ require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_execut
     "diagnostic log distinguishes summary executable from compiler binary"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=compiler_print_diagnostic_profile,prefix_stmts=4,reason=body_complete$' \
     "diagnostic log records the completed print diagnostic profile body"
-require_pattern "$log_file" '^completed_coverage=build_driver_run_c_output_check$' \
-    "diagnostic log records the migrated build_driver_run C output check branch"
-require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=37,next_stmt=37,next_kind=AST_IF_STMT,reason=partial_core_body$' \
+require_pattern "$log_file" '^completed_coverage=build_driver_run_link_output$' \
+    "diagnostic log records the migrated build_driver_run link output branch"
+require_pattern "$log_file" '^frontier_detail=native_hosted_reachable_body_frontier:function=build_driver_run,prefix_stmts=38,next_stmt=38,next_kind=AST_RETURN_STMT,reason=partial_core_body$' \
     "diagnostic log preserves the current compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=build_driver_run_link_output$' \
+require_pattern "$log_file" '^next_coverage=build_driver_run_final_return$' \
     "diagnostic log records the next compiler driver slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
