@@ -434,25 +434,9 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     checker.current_type_param_count = 0;
     checker.mono_instance_count = 0;
     
-    // 初始化约束系统
-    for 0..@len(checker.constraint_var_names) |i| {
-        checker.constraint_var_names[i] = null;
-        checker.constraint_ops[i] = 0;
-        checker.constraint_values[i] = 0;
+    if checker_proof_tables_init(checker) != 0 {
+        return -1;
     }
-    checker.constraint_count = 0;
-    
-    // 初始化指针非空状态跟踪
-    for 0..@len(checker.pointer_nonnull_names) |i| {
-        checker.pointer_nonnull_names[i] = null;
-    }
-    checker.pointer_nonnull_count = 0;
-    
-    // 初始化可能为空的指针跟踪
-    for 0..@len(checker.pointer_nullable_names) |i| {
-        checker.pointer_nullable_names[i] = null;
-    }
-    checker.pointer_nullable_count = 0;
     
     // 与 uya CLI 默认一致；compile_files 会按参数覆盖
     checker.enable_safety_proof = 1;

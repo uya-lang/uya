@@ -3975,7 +3975,6 @@ fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, 
         _ = helper_plan.emit_microapp_syscall_helpers;
             fputs("// 系统调用辅助函数：Linux/Darwin x86-64；Linux/Darwin AArch64；Linux ARM32 EABI\n" as *byte, codegen.emit_stream as *void);
             fputs("#if (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)\n" as *byte, codegen.emit_stream as *void);
-            fputs("#ifndef SYS_gettimeofday\n#define SYS_gettimeofday 96\n#endif\n" as *byte, codegen.emit_stream as *void);
     
     // uya_syscall0 - 无参数
     fputs("static inline long uya_syscall0(long nr) {\n" as *byte, codegen.emit_stream as *void);

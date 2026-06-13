@@ -15,7 +15,7 @@ fn pointer_index_has_user_bounds_proof(checker: &TypeChecker, index_expr: &ASTNo
         var i: i32 = 0;
         const count: i32 = checker.constraint_count;
         while i < count {
-            if i < MAX_CONSTRAINTS {
+            if i < checker.constraint_capacity {
                 const name: &byte = checker.constraint_var_names[i];
                 if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                     const op: i32 = checker.constraint_ops[i];
@@ -634,23 +634,16 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         }
 
         // 逻辑短路：右侧在更强的约束上下文里检查。
-        const saved_constraint_count: i32 = checker.constraint_count;
-        const saved_nonnull_count: i32 = checker.pointer_nonnull_count;
-        var saved_constraint_names: [&byte: 64] = [];
-        var saved_constraint_ops: [i32: 64] = [];
-        var saved_constraint_values: [i32: 64] = [];
-        var saved_nonnull_names: [&byte: 32] = [];
-        var sci: i32 = 0;
-        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
-            saved_constraint_names[sci] = checker.constraint_var_names[sci];
-            saved_constraint_ops[sci] = checker.constraint_ops[sci];
-            saved_constraint_values[sci] = checker.constraint_values[sci];
-            sci = sci + 1;
-        }
-        var sni: i32 = 0;
-        while sni < saved_nonnull_count && sni < MAX_POINTER_NAMES {
-            saved_nonnull_names[sni] = checker.pointer_nonnull_names[sni];
-            sni = sni + 1;
+        var saved_snapshot: CheckerProofSnapshot = CheckerProofSnapshot {
+            constraint_var_names: null,
+            constraint_ops: null,
+            constraint_values: null,
+            constraint_count: 0,
+            pointer_nonnull_names: null,
+            pointer_nonnull_count: 0,
+        };
+        if checker_proof_snapshot_save(checker, &saved_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
 
         if node.binary_expr_left != null {
@@ -664,19 +657,8 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
             right_type = checker_infer_type(checker, node.binary_expr_right);
         }
 
-        checker.constraint_count = saved_constraint_count;
-        checker.pointer_nonnull_count = saved_nonnull_count;
-        sci = 0;
-        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
-            checker.constraint_var_names[sci] = saved_constraint_names[sci];
-            checker.constraint_ops[sci] = saved_constraint_ops[sci];
-            checker.constraint_values[sci] = saved_constraint_values[sci];
-            sci = sci + 1;
-        }
-        sni = 0;
-        while sni < saved_nonnull_count && sni < MAX_POINTER_NAMES {
-            checker.pointer_nonnull_names[sni] = saved_nonnull_names[sni];
-            sni = sni + 1;
+        if checker_proof_snapshot_restore(checker, &saved_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
 
         if left_type.kind == TypeKind.TYPE_MASK || right_type.kind == TypeKind.TYPE_MASK {

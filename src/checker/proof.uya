@@ -967,20 +967,9 @@ fn checker_proof_step(checker: &TypeChecker, node: &ASTNode) i32 {
 fn checker_reset_proof_steps(checker: &TypeChecker) void {
     if checker != null {
         checker.proof_step_count = 0;
-        for 0..@len(checker.constraint_var_names) |i| {
-            checker.constraint_var_names[i] = null;
-            checker.constraint_ops[i] = 0;
-            checker.constraint_values[i] = 0;
-        }
-        checker.constraint_count = 0;
-        for 0..@len(checker.pointer_nonnull_names) |i| {
-            checker.pointer_nonnull_names[i] = null;
-        }
-        checker.pointer_nonnull_count = 0;
-        for 0..@len(checker.pointer_nullable_names) |i| {
-            checker.pointer_nullable_names[i] = null;
-        }
-        checker.pointer_nullable_count = 0;
+        constraint_clear(checker);
+        pointer_nonnull_clear(checker);
+        pointer_nullable_clear(checker);
     }
 }
 

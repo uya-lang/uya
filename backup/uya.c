@@ -1711,6 +1711,10 @@ const double libc_NAN = 0.00000000000000000;
 const double libc_HUGE_VAL = 1.79769313486231530e+308;
 const float libc_HUGE_VALF = (float)libc_INFINITY;
 const double libc_HUGE_VALL = 1.79769313486231530e+308;
+__attribute__((used)) const int32_t PTHREAD_FUTEX_WAIT_LINUX = 0;
+
+__attribute__((used)) const int32_t PTHREAD_FUTEX_WAKE_LINUX = 1;
+
 __attribute__((used)) const int32_t PTHREAD_ATOMIC_SEQ_CST = 5;
 
 __attribute__((used)) const size_t PTHREAD_STACK_SIZE = /* optimized */ 8388608;
@@ -1837,6 +1841,10 @@ __attribute__((used)) const int32_t _TMPFILE_MODE = 384;
 const int32_t libc_RAND_MAX = 0;
 const int64_t CLOCKS_PER_SEC = 1000000;
 __attribute__((used)) const size_t READDIR_BUF_SIZE = 8192;
+
+__attribute__((used)) const int64_t LIBC_OPENDIR_O_RDONLY_LINUX = 0;
+
+__attribute__((used)) const int64_t LIBC_OPENDIR_O_DIRECTORY_LINUX = 65536;
 
 const int64_t libc_AT_FDCWD = (-100);
 const int32_t libc_AT_REMOVEDIR = 512;
@@ -2810,7 +2818,7 @@ static __attribute__((used)) void _pthread_thread_exit(struct pthread_desc * des
             if (state == PTHREAD_JOINSTATE_JOINABLE) {
                 int32_t expected = PTHREAD_JOINSTATE_JOINABLE;
                 if (__atomic_compare_exchange_n((int32_t *)(&desc->joinstate), (&expected), PTHREAD_JOINSTATE_EXITED, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) != 0) {
-                    (void)(sys_futex((int32_t *)(&desc->joinstate), libc_FUTEX_WAKE, 1, NULL)                    );
+                    (void)(sys_futex((int32_t *)(&desc->joinstate), PTHREAD_FUTEX_WAKE_LINUX, 1, NULL)                    );
                     break;
                 }
                 continue;
@@ -2834,7 +2842,7 @@ __attribute__((used)) void _pthread_child_bootstrap(struct pthread_desc * desc) 
 }
 
 __attribute__((used)) int32_t pthread_yield() {
-    struct err_union_int64_t ret = ({ long _uya_syscall_ret = uya_syscall6(libc_SYS_sched_yield, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t ret = ({ long _uya_syscall_ret = uya_syscall6((int64_t)24, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     (void)(({ struct err_union_int64_t _uya_catch_tmp = ret; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = 1;
@@ -4745,7 +4753,7 @@ __attribute__((used)) struct err_union_intptr_t sys_write(int32_t fd, const char
     (void)buf;
     (void)count;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_write, (int64_t)fd, (int64_t)buf, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3((int64_t)1, (int64_t)fd, (int64_t)buf, (int64_t)count); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -4753,14 +4761,14 @@ __attribute__((used)) struct err_union_intptr_t sys_write(int32_t fd, const char
 
 __attribute__((used)) void sys_exit(int32_t status) {
     (void)status;
-    (void)(({ long _uya_syscall_ret = uya_syscall1(libc_SYS_exit, (int64_t)status); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }));
+    (void)(({ long _uya_syscall_ret = uya_syscall1((int64_t)60, (int64_t)status); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }));
 }
 
 __attribute__((used)) struct err_union_int32_t sys_access(const char * pathname, int32_t mode) {
     (void)pathname;
     (void)mode;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_access, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2((int64_t)21, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -4774,7 +4782,7 @@ __attribute__((used)) struct err_union_voidptr sys_mmap(void * addr, size_t leng
     (void)fd;
     (void)offset;
         {
-        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall6(libc_SYS_mmap, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (void *){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (void *)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall6((int64_t)9, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (void *){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (void *)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_voidptr){0};
@@ -4785,7 +4793,7 @@ __attribute__((used)) int32_t sys_futex(int32_t * uaddr, int32_t op, int32_t val
     (void)op;
     (void)val;
     (void)timeout;
-    struct err_union_int64_t r = ({ long _uya_syscall_ret = uya_syscall6(libc_SYS_futex, (int64_t)uaddr, (int64_t)op, (int64_t)val, (int64_t)timeout, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t r = ({ long _uya_syscall_ret = uya_syscall6((int64_t)202, (int64_t)uaddr, (int64_t)op, (int64_t)val, (int64_t)timeout, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t v = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -4796,6 +4804,7 @@ __attribute__((used)) int32_t sys_futex(int32_t * uaddr, int32_t op, int32_t val
         int32_t _uya_ret = (int32_t)v;
         return _uya_ret;
         }
+        return 0;
 }
 
 __attribute__((used)) struct err_union_intptr_t sys_readlink(const char * pathname, char * buf, size_t bufsiz) {
@@ -4803,7 +4812,7 @@ __attribute__((used)) struct err_union_intptr_t sys_readlink(const char * pathna
     (void)buf;
     (void)bufsiz;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_readlink, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3((int64_t)89, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -4814,9 +4823,10 @@ __attribute__((used)) struct err_union_int32_t sys_execve(const char * path, con
     (void)argv;
     (void)envp;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_execve, (int64_t)path, (int64_t)argv, (int64_t)envp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3((int64_t)59, (int64_t)path, (int64_t)argv, (int64_t)envp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
+        return (struct err_union_int32_t){0};
 }
 
 

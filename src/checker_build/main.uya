@@ -484,23 +484,16 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         
         // 路径敏感分析：保存当前约束状态和指针非空状态
-        const saved_constraint_count: i32 = checker.constraint_count;
-        const saved_nonnull_count: i32 = checker.pointer_nonnull_count;
-        var saved_nonnull_names: [&byte: 32] = [];
-        var saved_constraint_names: [&byte: 64] = [];
-        var saved_constraint_ops: [i32: 64] = [];
-        var saved_constraint_values: [i32: 64] = [];
-        var sni: i32 = 0;
-        var sci: i32 = 0;
-        while sni < saved_nonnull_count && sni < MAX_POINTER_NAMES {
-            saved_nonnull_names[sni] = checker.pointer_nonnull_names[sni];
-            sni = sni + 1;
-        }
-        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
-            saved_constraint_names[sci] = checker.constraint_var_names[sci];
-            saved_constraint_ops[sci] = checker.constraint_ops[sci];
-            saved_constraint_values[sci] = checker.constraint_values[sci];
-            sci = sci + 1;
+        var saved_snapshot: CheckerProofSnapshot = CheckerProofSnapshot {
+            constraint_var_names: null,
+            constraint_ops: null,
+            constraint_values: null,
+            constraint_count: 0,
+            pointer_nonnull_names: null,
+            pointer_nonnull_count: 0,
+        };
+        if checker_proof_snapshot_save(checker, &saved_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
         
         // 从条件提取约束（正条件，用于 then 分支）
@@ -509,54 +502,28 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         
         // 检查then分支
-        var then_end_constraint_count: i32 = checker.constraint_count;
-        var then_end_nonnull_count: i32 = checker.pointer_nonnull_count;
-        var then_end_constraint_names: [&byte: 64] = [];
-        var then_end_constraint_ops: [i32: 64] = [];
-        var then_end_constraint_values: [i32: 64] = [];
-        var then_end_nonnull_names: [&byte: 32] = [];
         if node.if_stmt_then_branch != null {
             checker_check_node(checker, node.if_stmt_then_branch);
-            then_end_constraint_count = checker.constraint_count;
-            then_end_nonnull_count = checker.pointer_nonnull_count;
-            sci = 0;
-            while sci < then_end_constraint_count && sci < MAX_CONSTRAINTS {
-                then_end_constraint_names[sci] = checker.constraint_var_names[sci];
-                then_end_constraint_ops[sci] = checker.constraint_ops[sci];
-                then_end_constraint_values[sci] = checker.constraint_values[sci];
-                sci = sci + 1;
-            }
-            sni = 0;
-            while sni < then_end_nonnull_count && sni < MAX_POINTER_NAMES {
-                then_end_nonnull_names[sni] = checker.pointer_nonnull_names[sni];
-                sni = sni + 1;
-            }
+        }
+        var then_end_snapshot: CheckerProofSnapshot = CheckerProofSnapshot {
+            constraint_var_names: null,
+            constraint_ops: null,
+            constraint_values: null,
+            constraint_count: 0,
+            pointer_nonnull_names: null,
+            pointer_nonnull_count: 0,
+        };
+        if checker_proof_snapshot_save(checker, &then_end_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
         const then_returns: i32 = checker_node_definitely_returns(node.if_stmt_then_branch);
         
         // 恢复约束状态和指针非空状态，然后为 else 分支提取负条件约束
-        checker.constraint_count = saved_constraint_count;
-        checker.pointer_nonnull_count = saved_nonnull_count;
-        sci = 0;
-        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
-            checker.constraint_var_names[sci] = saved_constraint_names[sci];
-            checker.constraint_ops[sci] = saved_constraint_ops[sci];
-            checker.constraint_values[sci] = saved_constraint_values[sci];
-            sci = sci + 1;
-        }
-        var rni: i32 = 0;
-        while rni < saved_nonnull_count && rni < MAX_POINTER_NAMES {
-            checker.pointer_nonnull_names[rni] = saved_nonnull_names[rni];
-            rni = rni + 1;
+        if checker_proof_snapshot_restore(checker, &saved_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
         
         // 检查else分支
-        var else_end_constraint_count: i32 = checker.constraint_count;
-        var else_end_nonnull_count: i32 = checker.pointer_nonnull_count;
-        var else_end_constraint_names: [&byte: 64] = [];
-        var else_end_constraint_ops: [i32: 64] = [];
-        var else_end_constraint_values: [i32: 64] = [];
-        var else_end_nonnull_names: [&byte: 32] = [];
         var else_returns: i32 = 0;
         if node.if_stmt_else_branch != null {
             // 从条件提取约束（负条件，用于 else 分支）
@@ -564,118 +531,39 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 constraint_extract_from_binary(checker, node.if_stmt_condition, 0);
             }
             checker_check_node(checker, node.if_stmt_else_branch);
-            else_end_constraint_count = checker.constraint_count;
-            else_end_nonnull_count = checker.pointer_nonnull_count;
-            sci = 0;
-            while sci < else_end_constraint_count && sci < MAX_CONSTRAINTS {
-                else_end_constraint_names[sci] = checker.constraint_var_names[sci];
-                else_end_constraint_ops[sci] = checker.constraint_ops[sci];
-                else_end_constraint_values[sci] = checker.constraint_values[sci];
-                sci = sci + 1;
-            }
-            rni = 0;
-            while rni < else_end_nonnull_count && rni < MAX_POINTER_NAMES {
-                else_end_nonnull_names[rni] = checker.pointer_nonnull_names[rni];
-                rni = rni + 1;
-            }
             else_returns = checker_node_definitely_returns(node.if_stmt_else_branch);
+        }
+        var else_end_snapshot: CheckerProofSnapshot = CheckerProofSnapshot {
+            constraint_var_names: null,
+            constraint_ops: null,
+            constraint_values: null,
+            constraint_count: 0,
+            pointer_nonnull_names: null,
+            pointer_nonnull_count: 0,
+        };
+        if checker_proof_snapshot_save(checker, &else_end_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
         
         // if 语句结束后，若某一侧必定 return，则传播另一侧的约束；否则恢复进入 if 前状态。
-        var final_constraint_count: i32 = saved_constraint_count;
-        var final_nonnull_count: i32 = saved_nonnull_count;
-        var final_constraint_names: [&byte: 64] = [];
-        var final_constraint_ops: [i32: 64] = [];
-        var final_constraint_values: [i32: 64] = [];
-        var final_nonnull_names: [&byte: 32] = [];
-        sci = 0;
-        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
-            final_constraint_names[sci] = saved_constraint_names[sci];
-            final_constraint_ops[sci] = saved_constraint_ops[sci];
-            final_constraint_values[sci] = saved_constraint_values[sci];
-            sci = sci + 1;
-        }
-        var fini: i32 = 0;
-        while fini < saved_nonnull_count && fini < MAX_POINTER_NAMES {
-            final_nonnull_names[fini] = saved_nonnull_names[fini];
-            fini = fini + 1;
-        }
+        var final_snapshot: CheckerProofSnapshot = saved_snapshot;
         if then_returns != 0 && node.if_stmt_else_branch == null {
-            checker.constraint_count = saved_constraint_count;
-            checker.pointer_nonnull_count = saved_nonnull_count;
-            sci = 0;
-            while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
-                checker.constraint_var_names[sci] = saved_constraint_names[sci];
-                checker.constraint_ops[sci] = saved_constraint_ops[sci];
-                checker.constraint_values[sci] = saved_constraint_values[sci];
-                sci = sci + 1;
-            }
-            fini = 0;
-            while fini < saved_nonnull_count && fini < MAX_POINTER_NAMES {
-                checker.pointer_nonnull_names[fini] = saved_nonnull_names[fini];
-                fini = fini + 1;
+            if checker_proof_snapshot_restore(checker, &saved_snapshot) != 0 {
+                checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
             }
             if node.if_stmt_condition != null {
                 constraint_extract_from_binary(checker, node.if_stmt_condition, 0);
             }
-            final_constraint_count = checker.constraint_count;
-            final_nonnull_count = checker.pointer_nonnull_count;
-            sci = 0;
-            while sci < final_constraint_count && sci < MAX_CONSTRAINTS {
-                final_constraint_names[sci] = checker.constraint_var_names[sci];
-                final_constraint_ops[sci] = checker.constraint_ops[sci];
-                final_constraint_values[sci] = checker.constraint_values[sci];
-                sci = sci + 1;
-            }
-            fini = 0;
-            while fini < final_nonnull_count && fini < MAX_POINTER_NAMES {
-                final_nonnull_names[fini] = checker.pointer_nonnull_names[fini];
-                fini = fini + 1;
+            if checker_proof_snapshot_save(checker, &final_snapshot) != 0 {
+                checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
             }
         } else if then_returns == 0 && else_returns != 0 {
-            final_constraint_count = then_end_constraint_count;
-            final_nonnull_count = then_end_nonnull_count;
-            sci = 0;
-            while sci < final_constraint_count && sci < MAX_CONSTRAINTS {
-                final_constraint_names[sci] = then_end_constraint_names[sci];
-                final_constraint_ops[sci] = then_end_constraint_ops[sci];
-                final_constraint_values[sci] = then_end_constraint_values[sci];
-                sci = sci + 1;
-            }
-            fini = 0;
-            while fini < final_nonnull_count && fini < MAX_POINTER_NAMES {
-                final_nonnull_names[fini] = then_end_nonnull_names[fini];
-                fini = fini + 1;
-            }
+            final_snapshot = then_end_snapshot;
         } else if then_returns != 0 && else_returns == 0 && node.if_stmt_else_branch != null {
-            final_constraint_count = else_end_constraint_count;
-            final_nonnull_count = else_end_nonnull_count;
-            sci = 0;
-            while sci < final_constraint_count && sci < MAX_CONSTRAINTS {
-                final_constraint_names[sci] = else_end_constraint_names[sci];
-                final_constraint_ops[sci] = else_end_constraint_ops[sci];
-                final_constraint_values[sci] = else_end_constraint_values[sci];
-                sci = sci + 1;
-            }
-            fini = 0;
-            while fini < final_nonnull_count && fini < MAX_POINTER_NAMES {
-                final_nonnull_names[fini] = else_end_nonnull_names[fini];
-                fini = fini + 1;
-            }
+            final_snapshot = else_end_snapshot;
         }
-        checker.constraint_count = final_constraint_count;
-        checker.pointer_nonnull_count = final_nonnull_count;
-        sci = 0;
-        while sci < final_constraint_count && sci < MAX_CONSTRAINTS {
-            checker.constraint_var_names[sci] = final_constraint_names[sci];
-            checker.constraint_ops[sci] = final_constraint_ops[sci];
-            checker.constraint_values[sci] = final_constraint_values[sci];
-            sci = sci + 1;
-        }
-        fini = 0;
-        while fini < final_nonnull_count && fini < MAX_POINTER_NAMES {
-            checker.pointer_nonnull_names[fini] = final_nonnull_names[fini];
-            fini = fini + 1;
+        if checker_proof_snapshot_restore(checker, &final_snapshot) != 0 {
+            checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         }
         
         return 1;

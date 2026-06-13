@@ -24,6 +24,7 @@ const MAX_MONO_NAME_LEN: i32 = 256;
 const MAX_MONO_NAME_LIMIT: i32 = 250;
 const MAX_POINTER_NAMES: i32 = 32;
 const MAX_CONSTRAINTS: i32 = 64;
+const MAX_PROOF_TABLE_CAPACITY: i32 = 16384;
 const MAX_ASYNC_CALL_EDGES: i32 = 512;
 const MAX_FN_CALL_EDGES: i32 = 16384;
 const MAX_FN_ROOTS: i32 = 4096;
@@ -320,14 +321,17 @@ struct TypeChecker {
     current_type_param_count: i32,
     mono_instances: [MonoInstance: 512],
     mono_instance_count: i32,
-    constraint_var_names: [&byte: 64],
-    constraint_ops: [i32: 64],
-    constraint_values: [i32: 64],
+    constraint_var_names: & & byte,
+    constraint_ops: &i32,
+    constraint_values: &i32,
     constraint_count: i32,
-    pointer_nonnull_names: [&byte: 32],
+    constraint_capacity: i32,
+    pointer_nonnull_names: & & byte,
     pointer_nonnull_count: i32,
-    pointer_nullable_names: [&byte: 32],
+    pointer_nonnull_capacity: i32,
+    pointer_nullable_names: & & byte,
     pointer_nullable_count: i32,
+    pointer_nullable_capacity: i32,
     enable_safety_proof: i32,
     container_mode: i32,        // 1 = microapp 模式: 禁止 @asm/extern
     proof_step_limit: i32,

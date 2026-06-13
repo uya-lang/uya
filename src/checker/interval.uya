@@ -17,22 +17,281 @@ const CONSTRAINT_NE: i32 = 5;   // !=
 
 const CONSTRAINT_EXPR_NAME_MAX: i32 = 256;
 
+struct CheckerProofSnapshot {
+    constraint_var_names: & & byte,
+    constraint_ops: &i32,
+    constraint_values: &i32,
+    constraint_count: i32,
+    pointer_nonnull_names: & & byte,
+    pointer_nonnull_count: i32,
+}
+
+fn checker_proof_next_capacity(current: i32, min_needed: i32) i32 {
+    var next: i32 = current;
+    if next < 1 {
+        next = 1;
+    }
+    while next < min_needed {
+        if next >= MAX_PROOF_TABLE_CAPACITY {
+            return MAX_PROOF_TABLE_CAPACITY;
+        }
+        if next > MAX_PROOF_TABLE_CAPACITY / 2 {
+            next = MAX_PROOF_TABLE_CAPACITY;
+        } else {
+            next = next * 2;
+        }
+    }
+    return next;
+}
+
+fn checker_constraint_ensure_capacity(checker: &TypeChecker, min_needed: i32) i32 {
+    if checker == null || min_needed < 0 || checker.arena == null {
+        return -1;
+    }
+    if min_needed > MAX_CONSTRAINTS {
+        // Preserve the legacy proof budget behavior without reporting a false
+        // table-capacity warning now that storage itself can grow.
+        checker.enable_safety_proof = 0;
+    }
+    if min_needed <= checker.constraint_capacity &&
+        checker.constraint_var_names != null &&
+        checker.constraint_ops != null &&
+        checker.constraint_values != null {
+        return 0;
+    }
+    var base_capacity: i32 = checker.constraint_capacity;
+    if base_capacity < MAX_CONSTRAINTS {
+        base_capacity = MAX_CONSTRAINTS;
+    }
+    const next_capacity: i32 = checker_proof_next_capacity(base_capacity, min_needed);
+    if next_capacity < min_needed || next_capacity > MAX_PROOF_TABLE_CAPACITY {
+        return -1;
+    }
+    const cap_usize: usize = next_capacity as usize;
+    const new_names: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * cap_usize) as & & byte;
+    const new_ops: &i32 = compiler_arena_alloc(checker.arena, @size_of(i32) * cap_usize) as &i32;
+    const new_values: &i32 = compiler_arena_alloc(checker.arena, @size_of(i32) * cap_usize) as &i32;
+    if new_names == null || new_ops == null || new_values == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < next_capacity {
+        new_names[i] = null;
+        new_ops[i] = 0;
+        new_values[i] = 0;
+        i = i + 1;
+    }
+    i = 0;
+    const old_count: i32 = checker.constraint_count;
+    while i < old_count && i < checker.constraint_capacity &&
+        checker.constraint_var_names != null &&
+        checker.constraint_ops != null &&
+        checker.constraint_values != null {
+        new_names[i] = checker.constraint_var_names[i];
+        new_ops[i] = checker.constraint_ops[i];
+        new_values[i] = checker.constraint_values[i];
+        i = i + 1;
+    }
+    checker.constraint_var_names = new_names;
+    checker.constraint_ops = new_ops;
+    checker.constraint_values = new_values;
+    checker.constraint_capacity = next_capacity;
+    return 0;
+}
+
+fn checker_pointer_nonnull_ensure_capacity(checker: &TypeChecker, min_needed: i32) i32 {
+    if checker == null || min_needed < 0 || checker.arena == null {
+        return -1;
+    }
+    if min_needed > MAX_POINTER_NAMES {
+        return -1;
+    }
+    if min_needed <= checker.pointer_nonnull_capacity && checker.pointer_nonnull_names != null {
+        return 0;
+    }
+    const next_capacity: i32 = MAX_POINTER_NAMES;
+    const new_names: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * (next_capacity as usize)) as & & byte;
+    if new_names == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < next_capacity {
+        new_names[i] = null;
+        i = i + 1;
+    }
+    i = 0;
+    const old_count: i32 = checker.pointer_nonnull_count;
+    while i < old_count && i < checker.pointer_nonnull_capacity && checker.pointer_nonnull_names != null {
+        new_names[i] = checker.pointer_nonnull_names[i];
+        i = i + 1;
+    }
+    checker.pointer_nonnull_names = new_names;
+    checker.pointer_nonnull_capacity = next_capacity;
+    return 0;
+}
+
+fn checker_pointer_nullable_ensure_capacity(checker: &TypeChecker, min_needed: i32) i32 {
+    if checker == null || min_needed < 0 || checker.arena == null {
+        return -1;
+    }
+    if min_needed > MAX_POINTER_NAMES {
+        return -1;
+    }
+    if min_needed <= checker.pointer_nullable_capacity && checker.pointer_nullable_names != null {
+        return 0;
+    }
+    const next_capacity: i32 = MAX_POINTER_NAMES;
+    const new_names: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * (next_capacity as usize)) as & & byte;
+    if new_names == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < next_capacity {
+        new_names[i] = null;
+        i = i + 1;
+    }
+    i = 0;
+    const old_count: i32 = checker.pointer_nullable_count;
+    while i < old_count && i < checker.pointer_nullable_capacity && checker.pointer_nullable_names != null {
+        new_names[i] = checker.pointer_nullable_names[i];
+        i = i + 1;
+    }
+    checker.pointer_nullable_names = new_names;
+    checker.pointer_nullable_capacity = next_capacity;
+    return 0;
+}
+
+fn checker_proof_tables_init(checker: &TypeChecker) i32 {
+    if checker == null {
+        return -1;
+    }
+    checker.constraint_var_names = null;
+    checker.constraint_ops = null;
+    checker.constraint_values = null;
+    checker.constraint_count = 0;
+    checker.constraint_capacity = 0;
+    checker.pointer_nonnull_names = null;
+    checker.pointer_nonnull_count = 0;
+    checker.pointer_nonnull_capacity = 0;
+    checker.pointer_nullable_names = null;
+    checker.pointer_nullable_count = 0;
+    checker.pointer_nullable_capacity = 0;
+    if checker_constraint_ensure_capacity(checker, MAX_CONSTRAINTS) != 0 {
+        return -1;
+    }
+    if checker_pointer_nonnull_ensure_capacity(checker, MAX_POINTER_NAMES) != 0 {
+        return -1;
+    }
+    if checker_pointer_nullable_ensure_capacity(checker, MAX_POINTER_NAMES) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn checker_proof_snapshot_save(checker: &TypeChecker, snapshot: &CheckerProofSnapshot) i32 {
+    if checker == null || snapshot == null {
+        return -1;
+    }
+    snapshot.constraint_var_names = null;
+    snapshot.constraint_ops = null;
+    snapshot.constraint_values = null;
+    snapshot.constraint_count = checker.constraint_count;
+    snapshot.pointer_nonnull_names = null;
+    snapshot.pointer_nonnull_count = checker.pointer_nonnull_count;
+    if snapshot.constraint_count > 0 {
+        if snapshot.constraint_count > checker.constraint_capacity ||
+            checker.constraint_var_names == null ||
+            checker.constraint_ops == null ||
+            checker.constraint_values == null {
+            return -1;
+        }
+        const count_usize: usize = snapshot.constraint_count as usize;
+        snapshot.constraint_var_names = compiler_arena_alloc(checker.arena, @size_of(&byte) * count_usize) as & & byte;
+        snapshot.constraint_ops = compiler_arena_alloc(checker.arena, @size_of(i32) * count_usize) as &i32;
+        snapshot.constraint_values = compiler_arena_alloc(checker.arena, @size_of(i32) * count_usize) as &i32;
+        if snapshot.constraint_var_names == null ||
+            snapshot.constraint_ops == null ||
+            snapshot.constraint_values == null {
+            return -1;
+        }
+        var i: i32 = 0;
+        while i < snapshot.constraint_count {
+            snapshot.constraint_var_names[i] = checker.constraint_var_names[i];
+            snapshot.constraint_ops[i] = checker.constraint_ops[i];
+            snapshot.constraint_values[i] = checker.constraint_values[i];
+            i = i + 1;
+        }
+    }
+    if snapshot.pointer_nonnull_count > 0 {
+        if snapshot.pointer_nonnull_count > checker.pointer_nonnull_capacity ||
+            checker.pointer_nonnull_names == null {
+            return -1;
+        }
+        snapshot.pointer_nonnull_names = compiler_arena_alloc(
+            checker.arena,
+            @size_of(&byte) * (snapshot.pointer_nonnull_count as usize)
+        ) as & & byte;
+        if snapshot.pointer_nonnull_names == null {
+            return -1;
+        }
+        var j: i32 = 0;
+        while j < snapshot.pointer_nonnull_count {
+            snapshot.pointer_nonnull_names[j] = checker.pointer_nonnull_names[j];
+            j = j + 1;
+        }
+    }
+    return 0;
+}
+
+fn checker_proof_snapshot_restore(checker: &TypeChecker, snapshot: &CheckerProofSnapshot) i32 {
+    if checker == null || snapshot == null {
+        return -1;
+    }
+    if checker_constraint_ensure_capacity(checker, snapshot.constraint_count) != 0 {
+        return -1;
+    }
+    if checker_pointer_nonnull_ensure_capacity(checker, snapshot.pointer_nonnull_count) != 0 {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < snapshot.constraint_count {
+        checker.constraint_var_names[i] = snapshot.constraint_var_names[i];
+        checker.constraint_ops[i] = snapshot.constraint_ops[i];
+        checker.constraint_values[i] = snapshot.constraint_values[i];
+        i = i + 1;
+    }
+    while i < checker.constraint_count && i < checker.constraint_capacity {
+        checker.constraint_var_names[i] = null;
+        checker.constraint_ops[i] = 0;
+        checker.constraint_values[i] = 0;
+        i = i + 1;
+    }
+    checker.constraint_count = snapshot.constraint_count;
+
+    var j: i32 = 0;
+    while j < snapshot.pointer_nonnull_count {
+        checker.pointer_nonnull_names[j] = snapshot.pointer_nonnull_names[j];
+        j = j + 1;
+    }
+    while j < checker.pointer_nonnull_count && j < checker.pointer_nonnull_capacity {
+        checker.pointer_nonnull_names[j] = null;
+        j = j + 1;
+    }
+    checker.pointer_nonnull_count = snapshot.pointer_nonnull_count;
+    return 0;
+}
+
 // 添加指针非空状态
 // 参数：ptr_name - 指针变量名
 fn pointer_nonnull_add(checker: &TypeChecker, ptr_name: &byte) void {
     if checker == null || ptr_name == null {
         return;
     }
-    const nonnull_limit: i32 = MAX_POINTER_NAMES;
-    if checker.pointer_nonnull_count >= nonnull_limit {
-        checker_report_capacity_warning(checker, "checker pointer nonnull table 容量已满" as *byte);
-        return;
-    }
     // 检查是否已存在
     var i: i32 = 0;
     const count: i32 = checker.pointer_nonnull_count;
     while i < count {
-        if i < MAX_POINTER_NAMES {
+        if i < checker.pointer_nonnull_capacity {
             const name: &byte = checker.pointer_nonnull_names[i];
             if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
                 return;  // 已存在
@@ -40,8 +299,12 @@ fn pointer_nonnull_add(checker: &TypeChecker, ptr_name: &byte) void {
         }
         i = i + 1;
     }
+    if checker_pointer_nonnull_ensure_capacity(checker, checker.pointer_nonnull_count + 1) != 0 {
+        checker_report_capacity_warning(checker, "checker pointer nonnull table 容量已满" as *byte);
+        return;
+    }
     const idx: i32 = checker.pointer_nonnull_count;
-    if idx >= 0 && idx < MAX_POINTER_NAMES {
+    if idx >= 0 && idx < checker.pointer_nonnull_capacity {
         checker.pointer_nonnull_names[idx] = ptr_name;
         checker.pointer_nonnull_count = idx + 1;
     }
@@ -57,10 +320,10 @@ fn pointer_nonnull_remove(checker: &TypeChecker, ptr_name: &byte) void {
     var i: i32 = 0;
     const count: i32 = checker.pointer_nonnull_count;
     while i < count {
-        if i < MAX_POINTER_NAMES {
+        if i < checker.pointer_nonnull_capacity {
             const name: &byte = checker.pointer_nonnull_names[i];
             if name != null && strcmp(name as *byte, ptr_name as *byte) != 0 {
-                if write_idx < MAX_POINTER_NAMES {
+                if write_idx < checker.pointer_nonnull_capacity {
                     checker.pointer_nonnull_names[write_idx] = name;
                 }
                 write_idx = write_idx + 1;
@@ -81,7 +344,7 @@ fn pointer_is_known_nonnull(checker: &TypeChecker, ptr_name: &byte) i32 {
     var i: i32 = 0;
     const count: i32 = checker.pointer_nonnull_count;
     while i < count {
-        if i < MAX_POINTER_NAMES {
+        if i < checker.pointer_nonnull_capacity {
             const name: &byte = checker.pointer_nonnull_names[i];
             if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
                 return 1;
@@ -98,7 +361,7 @@ fn pointer_nonnull_clear(checker: &TypeChecker) void {
         return;
     }
     var i: i32 = 0;
-    while i < MAX_POINTER_NAMES {
+    while i < checker.pointer_nonnull_count && i < checker.pointer_nonnull_capacity {
         checker.pointer_nonnull_names[i] = null;
         i = i + 1;
     }
@@ -113,16 +376,11 @@ fn pointer_nullable_add(checker: &TypeChecker, ptr_name: &byte) void {
     if checker == null || ptr_name == null {
         return;
     }
-    const nullable_limit: i32 = MAX_POINTER_NAMES;
-    if checker.pointer_nullable_count >= nullable_limit {
-        checker_report_capacity_warning(checker, "checker pointer nullable table 容量已满" as *byte);
-        return;
-    }
     // 检查是否已存在
     var i: i32 = 0;
     const count: i32 = checker.pointer_nullable_count;
     while i < count {
-        if i < MAX_POINTER_NAMES {
+        if i < checker.pointer_nullable_capacity {
             const name: &byte = checker.pointer_nullable_names[i];
             if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
                 return;  // 已存在
@@ -130,8 +388,12 @@ fn pointer_nullable_add(checker: &TypeChecker, ptr_name: &byte) void {
         }
         i = i + 1;
     }
+    if checker_pointer_nullable_ensure_capacity(checker, checker.pointer_nullable_count + 1) != 0 {
+        checker_report_capacity_warning(checker, "checker pointer nullable table 容量已满" as *byte);
+        return;
+    }
     const idx: i32 = checker.pointer_nullable_count;
-    if idx >= 0 && idx < MAX_POINTER_NAMES {
+    if idx >= 0 && idx < checker.pointer_nullable_capacity {
         checker.pointer_nullable_names[idx] = ptr_name;
         checker.pointer_nullable_count = idx + 1;
     }
@@ -147,7 +409,7 @@ fn pointer_is_nullable(checker: &TypeChecker, ptr_name: &byte) i32 {
     var i: i32 = 0;
     const count: i32 = checker.pointer_nullable_count;
     while i < count {
-        if i < MAX_POINTER_NAMES {
+        if i < checker.pointer_nullable_capacity {
             const name: &byte = checker.pointer_nullable_names[i];
             if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
                 return 1;
@@ -158,6 +420,18 @@ fn pointer_is_nullable(checker: &TypeChecker, ptr_name: &byte) i32 {
     return 0;
 }
 
+fn pointer_nullable_clear(checker: &TypeChecker) void {
+    if checker == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < checker.pointer_nullable_count && i < checker.pointer_nullable_capacity {
+        checker.pointer_nullable_names[i] = null;
+        i = i + 1;
+    }
+    checker.pointer_nullable_count = 0;
+}
+
 // 清除所有约束
 fn constraint_clear(checker: &TypeChecker) void {
     if checker == null {
@@ -165,7 +439,7 @@ fn constraint_clear(checker: &TypeChecker) void {
     }
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
-    while i < count && i < MAX_CONSTRAINTS {
+    while i < count && i < checker.constraint_capacity {
         checker.constraint_var_names[i] = null;
         checker.constraint_ops[i] = 0;
         checker.constraint_values[i] = 0;
@@ -180,13 +454,12 @@ fn constraint_add(checker: &TypeChecker, var_name: &byte, op: i32, value: i32) v
     if checker == null || var_name == null {
         return;
     }
-    const constraint_limit: i32 = MAX_CONSTRAINTS;
-    if checker.constraint_count >= constraint_limit {
+    if checker_constraint_ensure_capacity(checker, checker.constraint_count + 1) != 0 {
         checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         return;
     }
     const idx: i32 = checker.constraint_count;
-    if idx >= 0 && idx < MAX_CONSTRAINTS {
+    if idx >= 0 && idx < checker.constraint_capacity {
         checker.constraint_var_names[idx] = var_name;
         checker.constraint_ops[idx] = op;
         checker.constraint_values[idx] = value;
@@ -204,11 +477,11 @@ fn constraint_remove_var(checker: &TypeChecker, var_name: &byte) void {
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
     while i < count {
-        if i < MAX_CONSTRAINTS {
+        if i < checker.constraint_capacity {
             const name: &byte = checker.constraint_var_names[i];
             if name != null && strcmp(name as *byte, var_name as *byte) != 0 {
                 // 保留不是该变量的约束
-                if write_idx < MAX_CONSTRAINTS {
+                if write_idx < checker.constraint_capacity {
                     checker.constraint_var_names[write_idx] = name;
                     checker.constraint_ops[write_idx] = checker.constraint_ops[i];
                     checker.constraint_values[write_idx] = checker.constraint_values[i];
@@ -234,7 +507,7 @@ fn constraint_update_for_increment(checker: &TypeChecker, var_name: &byte, incre
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
     while i < count {
-        if i < MAX_CONSTRAINTS {
+        if i < checker.constraint_capacity {
             const name: &byte = checker.constraint_var_names[i];
             if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                 const op: i32 = checker.constraint_ops[i];
@@ -502,7 +775,7 @@ fn constraint_verify_bounds(checker: &TypeChecker, var_name: &byte, array_size: 
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
     while i < count {
-        if i < MAX_CONSTRAINTS {
+        if i < checker.constraint_capacity {
             const name: &byte = checker.constraint_var_names[i];
             if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                 const op: i32 = checker.constraint_ops[i];
@@ -830,7 +1103,7 @@ fn get_var_interval(checker: &TypeChecker, var_name: &byte) Interval {
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
     while i < count {
-        if i < MAX_CONSTRAINTS {
+        if i < checker.constraint_capacity {
             const name: &byte = checker.constraint_var_names[i];
             if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                 const op: i32 = checker.constraint_ops[i];
@@ -1088,7 +1361,7 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
     while i < count {
-        if i < MAX_CONSTRAINTS {
+        if i < checker.constraint_capacity {
             const name: &byte = checker.constraint_var_names[i];
             if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                 const op: i32 = checker.constraint_ops[i];
@@ -1176,7 +1449,7 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
     var i: i32 = 0;
     const count: i32 = checker.constraint_count;
     while i < count {
-        if i < MAX_CONSTRAINTS {
+        if i < checker.constraint_capacity {
             const name: &byte = checker.constraint_var_names[i];
             if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                 const op: i32 = checker.constraint_ops[i];
