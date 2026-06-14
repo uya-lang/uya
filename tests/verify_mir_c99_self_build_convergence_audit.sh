@@ -98,6 +98,8 @@ fi
 
 require_pattern "$COVERAGE_DOC" 'summary-only convergence audit 现固定输出 `status=summary_only`、host binary candidate role `summary_executable`、`pending_core_bodies=3511`' \
     "coverage doc records summary-only audit status"
+require_pattern "$COVERAGE_DOC" '`frontier_sample_1=native_hosted_handoff_frontier` 仅作为 diagnostic-only handoff 样本' \
+    "coverage doc records handoff frontier sample as diagnostic-only"
 require_pattern "$COVERAGE_DOC" 'frontier samples（`native_hosted_handoff_frontier`、`native_build_type_named_equals`、`native_hosted_executable_writer_preflight`）' \
     "coverage doc records frozen frontier samples"
 require_pattern "$COVERAGE_DOC" 'blocked categories（call ABI、runtime helper、emitter/output、link/absence）' \

@@ -101,6 +101,8 @@ require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_front
     "coverage matrix records the current self-build frontier"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*mir_instruction_coverage' \
     "coverage matrix records the general MIR-C99 gap category"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*`frontier_sample_1=native_hosted_handoff_frontier` 仅作为 diagnostic-only handoff 样本' \
+    "coverage matrix records the handoff frontier sample as diagnostic-only"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_type_is_usize_body_lowering.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage matrix records the migrated type_is_usize body lowering"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*当前 completed body detail 包含 `native_build_type_is_usize` body-complete，下一处 frontier 为 `native_build_type_named_equals`/`generic_corebody_type_named_equals_body_lowering`' \

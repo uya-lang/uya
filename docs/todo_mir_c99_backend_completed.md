@@ -844,3 +844,17 @@
   - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`
   - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
   - 验证：`git diff --check` -> 无输出
+
+## 4.16 Self Build
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+父级路径：根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
+
+- [x] CFG：audit=`frontier_sample_1=native_hosted_handoff_frontier` 只保留为 diagnostic-only handoff 样本；gate=`bash tests/verify_mir_c99_cfg_parity.sh` + `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`；host C 证据=两者都经 `tests/verify_mir_c99_oracle_parity_harness.sh` 编译并运行 MIR-C99/C99 产物。
+  - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` -> `OK: MIR-C99 self-build convergence audit records summary-only status and grouped blockers`
+  - 验证：`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh` -> `OK: MIR-C99 cmd/build summary records the first self-build frontier`
+  - 验证：`bash tests/verify_mir_c99_cfg_parity.sh` -> `OK: MIR-C99 CFG parity matched C99 oracle`；脚本内部经 `tests/verify_mir_c99_oracle_parity_harness.sh` 实际编译并运行 MIR-C99/C99 产物；现有 C99 oracle host C 编译仍输出 pedantic warnings，但退出码为 0。
+  - 验证：`bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh` -> `OK: MIR-C99 full-language return/local/binary/branch/loop parity matched C99 oracle`；脚本继续经 oracle parity harness 实际编译并运行 CFG 与 integer parity case；现有 C99 oracle host C 编译仍输出 pedantic warnings，但退出码为 0。
+  - 验证：`bash tests/verify_mir_c99_self_build_capability_backlog.sh` -> `OK: MIR-C99 self-build capability backlog is grouped by capability class with gate/evidence lines`
+  - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
+  - 验证：`git diff --check` -> 无输出

@@ -101,7 +101,6 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
   - [ ] 根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
-    - [ ] CFG：audit=`frontier_sample_1=native_hosted_handoff_frontier` 只保留为 diagnostic-only handoff 样本；gate=`bash tests/verify_mir_c99_cfg_parity.sh` + `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`；host C 证据=两者都经 `tests/verify_mir_c99_oracle_parity_harness.sh` 编译并运行 MIR-C99/C99 产物。
     - [ ] place/memory：audit=当前未进入 `blocked_category_summary`，但后续 self-build 不得再回退到 pointer/out-param/helper-shape frontier；gate=`bash tests/verify_mir_c99_place_memory_parity.sh` + `bash tests/verify_mir_c99_full_language_pointer_parity.sh`；host C 证据=两者都经 oracle parity harness 编译并运行。
     - [ ] call ABI：audit=`blocked_category_call_abi=candidate_call_abi_smoke_missing`；gate=`bash tests/verify_mir_c99_call_parity.sh` + `bash tests/verify_mir_c99_full_language_float_call_abi_parity.sh`；host C 证据=两者都经 oracle parity harness 编译并运行，并继续受 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 约束。
     - [ ] aggregate/layout：audit=当前未进入 `blocked_category_summary`，但 aggregate/global/layout 变更必须先过通用 parity 再允许触碰 self-build frontier；gate=`bash tests/verify_mir_c99_layout_parity.sh` + `bash tests/verify_mir_c99_full_language_struct_parity.sh` + `bash tests/verify_mir_c99_global_import_parity.sh`；host C 证据=上述 gate 都编译并运行生成 C 产物。
