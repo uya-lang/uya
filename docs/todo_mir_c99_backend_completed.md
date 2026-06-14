@@ -904,3 +904,19 @@ Context:
 父级路径：根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
     - [x] link/absence：audit=`blocked_category_link_absence=native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete`；gate=`bash tests/verify_mir_c99_global_import_parity.sh` + `bash tests/verify_mir_c99_independent_boundary.sh`；host C 证据=`bash tests/verify_mir_c99_global_import_parity.sh` 与 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`，并要求 absence 边界始终无 legacy C99 引用。
       - 验证：`bash tests/verify_mir_c99_global_import_parity.sh` 通过，输出 `OK: MIR-C99 global/import parity matched C99 oracle`，并经 `tests/verify_mir_c99_oracle_parity_harness.sh` 生成、host C compiler 编译运行；`bash tests/verify_mir_c99_independent_boundary.sh` 通过，确认 `src/codegen/mir_c99` 无 forbidden legacy C99 import / emitter reference / pre-MIR body read；`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过，继续记录 `blocked_category_link_absence=native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete`；`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 通过；`bash tests/verify_mir_c99_self_build_capability_backlog.sh` 通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` 通过；`git diff --check` 通过。说明：`bash tests/verify_mir_c99_global_import_parity.sh` 期间现有 C99 oracle host 编译仍会输出既有 `-Wpedantic` / `-Wunused-function` warning，但命令退出码为 0，absence 边界 gate 未出现 legacy C99 fallback。
+
+### 4.16 Self Build
+
+- [x] MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+  - [x] 收敛指标固定为“summary executable -> real compiler candidate”的状态变化、blocked category 减少和可运行 compiler smoke；不得以单个 helper body-complete 或 frontier 名变化作为完成定义。
+    - 固定收敛指标合同：
+      - 状态变化：只有当 host C compiler 编译出的候选不再以 exit 70 报告 `compiler_binary_status=not_yet_generated`，且 `host_binary_candidate_role` 不再是 `summary_executable`，并能通过 `cmd/build --help` 或等价 compiler smoke 运行时，才算从 summary executable 进入 real compiler candidate。
+      - blocked category：只看 `blocked_category_count` 和各 `blocked_category_*` 是否减少；helper 名、`frontier_sample_*`、`completed_body_detail`、`next_coverage` 和 statement count 只保留为诊断上下文，不能单独定义完成。
+      - compiler smoke：最小 host C 证据必须包含 host C compiler 编译候选，并运行 `cmd/build --help` 或等价 smoke，验证 stdout/stderr/exit code 体现 compiler binary 行为。
+      - 当前基线：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` + `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 固定 `self_build_convergence_status=summary_only`、`host_compiler_binary_candidate_role=summary_executable`、`blocked_category_count=4`；后续只允许围绕这些指标下降或转态推进。
+    - 验证：`bash tests/verify_mir_c99_self_build_reset_metrics.sh` -> `OK: MIR-C99 self-build reset metrics stay fixed to state change, blocker reduction, and compiler smoke`
+    - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` -> `OK: MIR-C99 self-build convergence audit records summary-only status and grouped blockers`
+    - 验证：`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` -> `OK: MIR-C99 cmd/build host compiler binary attempt gate records summary-only frontier`
+    - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`
+    - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
+    - 验证：`git diff --check` -> 无输出
