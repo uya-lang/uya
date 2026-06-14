@@ -823,3 +823,13 @@
 父级路径：MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
 - [x] 建立 self-build convergence audit gate，输出 `cmd/build` 的 summary-only 状态、host binary candidate role、`pending_core_bodies` 数量、frontier 样本和按通用类别聚合的阻塞项；最小验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`git diff --check`。
   - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`git diff --check` 通过。
+
+### 4.16 Self Build
+
+父级任务：`MIR-C99-BACKEND-SELF-BUILD-RESET` 重整 self-build 路线为能力收敛。
+
+  - [x] 把已积累的 helper-frontier contract 归档为历史回归边界，移出 4.16 active path；stage gate 只能检查 no-silent-fallback 和通用能力，不得要求下一轮继续 `native_build_type_named_equals` 或后续 helper 名。
+    - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 1 active task`
+    - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`
+    - 验证：`git diff --check -- docs/todo_mir_c99_backend.md` -> 无输出
+    - 验证：`rg -n "\\[~\\]|native_build_type_named_equals|no-silent-fallback|下一处 pending body|stage gate" docs/todo_mir_c99_backend.md` -> stage gate 已改为 no-silent-fallback + 通用能力；helper 名仅保留在历史回归边界/诊断上下文。
