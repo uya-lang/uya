@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
+TODO_DOC="$REPO_ROOT/docs/todo_mir_c99_backend.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
@@ -33,10 +33,10 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FIL
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_local_table_init\(\.\.\.\)' \
-    "todo 缺少 native_build_local_table_init 合同任务"
-require_pattern "$TODO_DOC" '15 statement body surface' \
-    "todo 缺少 native_build_local_table_init 15 statement 合同意图"
+require_pattern "$TODO_DOC" 'native_build_local_table_init\(\.\.\.\).*15 statement body-complete' \
+    "todo 缺少 native_build_local_table_init 15 statement body-complete 完成记录"
+require_pattern "$TODO_DOC" 'native_build_reachability_init\(\.\.\.\).*generic_corebody_reachability_init_body_lowering' \
+    "todo 缺少 local_table_init 迁入后的下一处 frontier"
 require_pattern "$SUBSET_DOC" '^## `native_build_local_table_init\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_local_table_init 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_local_table_init .*body_stmts=15 reason=pending_core_body' \

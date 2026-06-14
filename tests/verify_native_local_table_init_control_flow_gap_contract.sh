@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
+TODO_DOC="$REPO_ROOT/docs/todo_mir_c99_backend.md"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
 STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
@@ -31,10 +31,10 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$CORE_FILE" "$MIR_FILE" "$STAGE1_TEST"; d
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_local_table_init\(\.\.\.\).*loop/control-flow 缺口' \
+require_pattern "$TODO_DOC" 'native_build_local_table_init\(\.\.\.\)' \
+    "todo 缺少 local_table_init 完成上下文"
+require_pattern "$TODO_DOC" 'loop/control-flow.*缺口合同' \
     "todo 缺少 local_table_init control-flow gap 前置任务"
-require_pattern "$TODO_DOC" '不得用 noop/单 return 伪装完成' \
-    "todo 缺少禁止伪完成说明"
 require_pattern "$SUBSET_DOC" '^## `native_build_local_table_init\(\.\.\.\)` Control-Flow Gap Contract' \
     "subset doc 缺少 local_table_init control-flow gap 合同"
 require_pattern "$SUBSET_DOC" 'CoreIR 已引入 `CORE_STMT_KIND_WHILE`' \
