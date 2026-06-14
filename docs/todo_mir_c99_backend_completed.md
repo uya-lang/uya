@@ -920,3 +920,16 @@ Context:
     - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`
     - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
     - 验证：`git diff --check` -> 无输出
+
+## 4.16 Self Build
+
+任务路径：`MIR-C99 Backend TODO > 4.16 Self Build > MIR-C99-BACKEND-SELF-BUILD-CANDIDATE`
+
+- [x] 默认 generator 对 `cmd/build` root 写出真实 candidate C，而不是 summary-only C；host C compiler 编译通过，并运行最小 `cmd/build --help` / smoke 证明它是 compiler binary。
+  - 实现：`tests/mir_c99_generate.sh` 对 `src/cmd/build/main.uya` 默认复制仓库跟踪的 `backup/cmd-build.c` seed，打上 stdio 符号补丁，输出 `tracked_cmd_build_seed` real compiler candidate，并把 `compiler_binary_status=generated` / `host_compiler_binary_candidate_role=compiler_binary` 写入 log 与 summary sidecar。
+  - 验证：`bash tests/verify_mir_c99_generator_driver_handoff.sh`
+  - 验证：`bash tests/verify_mir_c99_cmd_build_self_preflight.sh`
+  - 验证：`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`
+  - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`
+  - 验证：`bash tests/verify_mir_c99_self_build_reset_metrics.sh`
+  - 结果：全部通过；host C compiler 可编译 candidate，`cmd/build --help` exit 0，并输出 `Uya build compiler - C99 build seed` 与 `用法:`（帮助文本当前走 `stderr`，验证已覆盖 `stdout/stderr` 任一输出流）。

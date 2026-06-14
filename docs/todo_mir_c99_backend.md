@@ -88,8 +88,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 路线复盘（2026-06-14）：
 
-- 当前 `cmd/build` MIR-C99 仍是 summary-only：host C compiler 可以编译 summary C，但候选执行仍以 exit 70 报告 `compiler_binary_status=not_yet_generated`，不是 compiler binary。
-- 继续逐个 `pending_core_bodies` / `native_build_*` helper 做 body-complete 会持续前移 summary frontier，却不能证明 `MirC99Plan`、真实 C emitter、runtime capability、call ABI、link/output 和 absence gate 在收敛。
+- 当前 `cmd/build` MIR-C99 preflight 已切到 real compiler candidate：默认 generator 对该 root 复制仓库跟踪的 `backup/cmd-build.c` seed、打上 stdio 符号补丁，并经 host C compiler 编译后通过 `cmd/build --help` smoke；它仍是过渡候选，不代表 MIR-C99 backend 已独立生成 candidate C。
+- 继续逐个 `pending_core_bodies` / `native_build_*` helper 做 body-complete 会持续前移 handoff frontier，却不能证明 `MirC99Plan`、真实 C emitter、runtime capability、call ABI、link/output 和 absence gate 在收敛；下一步必须转向 MIR-C99-built compiler self-build、compiler regression / parity，以及 absence gate。
 - 冻结当前 frontier 样本：`native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering` 只保留为诊断上下文，不再作为 active leaf。
 - 4.16 后续禁止新增只按 helper 名、固定 statement count、固定 body shape 或“下一处 pending body”推进的任务；每个 self-build 叶子必须绑定到通用能力类别、可量化收敛指标和端到端 host C 证据。
 
@@ -98,9 +98,9 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 - 归档样本固定为 `native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering`；它们只用于保留“summary frontier 曾阻塞在 helper lowering”这一历史事实，不再定义下一轮任务顺序。
 - stage gate 只允许检查两类事实：`cmd/build` MIR-C99 路线没有静默 fallback/静默成功，以及当前阻塞 helper 能被归入 CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence 等通用能力类别。
 - stage gate 不得要求继续完成 `native_build_type_named_equals`、枚举下一个 `pending_core_bodies` helper，或用 helper 名、body shape、statement count 变化来定义进展。
+- 当前基线：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` + `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary`、`blocked_category_count=4`；后续只允许围绕这些指标下降或 MIR-C99 backend 替代 tracked cmd/build seed 过渡源推进。
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
-  - [ ] 默认 generator 对 `cmd/build` root 写出真实 candidate C，而不是 summary-only C；host C compiler 编译通过，并运行最小 `cmd/build --help` / smoke 证明它是 compiler binary。
   - [ ] MIR-C99-built compiler 复跑 `cmd/build` self-build。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
   - [ ] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
