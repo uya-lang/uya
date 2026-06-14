@@ -50,6 +50,18 @@ cmd_build_completed_coverage="generic_corebody_type_is_usize_body_lowering"
 cmd_build_frontier_detail="native_hosted_pending_body_frontier:function=native_build_type_named_equals,decl=344,function_id=27,body_stmts=3,reason=pending_core_body"
 cmd_build_next_capability="corebody_portable_mir_body_lowering"
 cmd_build_next_coverage="generic_corebody_type_named_equals_body_lowering"
+cmd_build_convergence_status="summary_only"
+cmd_build_pending_core_bodies="3511"
+cmd_build_frontier_sample_count="3"
+cmd_build_frontier_sample_1="native_hosted_handoff_frontier:reason=pending_core_bodies,entry_callee_coverage=complete,entry_child_coverage=complete"
+cmd_build_frontier_sample_2="$cmd_build_frontier_detail"
+cmd_build_frontier_sample_3="native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete"
+cmd_build_blocked_category_count="4"
+cmd_build_blocked_category_summary="call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1"
+cmd_build_blocked_category_call_abi="candidate_call_abi_smoke_missing"
+cmd_build_blocked_category_runtime_helper="candidate_runtime_capability_missing"
+cmd_build_blocked_category_emitter_output="native_hosted_emitter_handoff:status=rejected,reason=pending_core_bodies,backend=machine,link_plan=complete"
+cmd_build_blocked_category_link_absence="native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete"
 if [[ "$input_abs" == "$cmd_build_source" ]]; then
     summary_file="${output}.summary"
     cat >"$output" <<'C_EOF'
@@ -58,9 +70,18 @@ if [[ "$input_abs" == "$cmd_build_source" ]]; then
 
 int main(void) {
     fputs("mir_c99_cmd_build_summary\n", stderr);
+    fputs("self_build_convergence_status=summary_only\n", stderr);
     fputs("compiler_binary_status=not_yet_generated\n", stderr);
+    fputs("host_binary_candidate_role=summary_executable\n", stderr);
+    fputs("pending_core_bodies=3511\n", stderr);
     fputs("frontier_name=native_hosted_handoff_frontier\n", stderr);
     fputs("frontier_category=mir_instruction_coverage\n", stderr);
+    fputs("frontier_sample_count=3\n", stderr);
+    fputs("frontier_sample_1=native_hosted_handoff_frontier:reason=pending_core_bodies,entry_callee_coverage=complete,entry_child_coverage=complete\n", stderr);
+    fputs("frontier_sample_2=native_hosted_pending_body_frontier:function=native_build_type_named_equals,decl=344,function_id=27,body_stmts=3,reason=pending_core_body\n", stderr);
+    fputs("frontier_sample_3=native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete\n", stderr);
+    fputs("blocked_category_count=4\n", stderr);
+    fputs("blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1\n", stderr);
     return 70;
 }
 C_EOF
@@ -72,10 +93,38 @@ C_EOF
         printf 'MIR_C99_HANDOFF_STATUS='\''verified'\''\n'
         printf 'MIR_C99_WRITER_STATUS='\''done'\''\n'
         printf 'MIR_C99_OUTPUT_ROLE='\''cmd_build_summary'\''\n'
+        printf 'MIR_C99_SELF_BUILD_CONVERGENCE_STATUS='\''%s'\''\n' "$cmd_build_convergence_status"
         printf 'MIR_C99_COMPILER_BINARY_STATUS='\''not_yet_generated'\''\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''summary_executable'\''\n'
+        printf 'MIR_C99_PENDING_CORE_BODIES=%s\n' "$cmd_build_pending_core_bodies"
+        printf 'MIR_C99_FRONTIER_SAMPLE_COUNT=%s\n' "$cmd_build_frontier_sample_count"
+        printf 'MIR_C99_FRONTIER_SAMPLE_1='
+        sidecar_quote "$cmd_build_frontier_sample_1"
+        printf '\n'
+        printf 'MIR_C99_FRONTIER_SAMPLE_2='
+        sidecar_quote "$cmd_build_frontier_sample_2"
+        printf '\n'
+        printf 'MIR_C99_FRONTIER_SAMPLE_3='
+        sidecar_quote "$cmd_build_frontier_sample_3"
+        printf '\n'
+        printf 'MIR_C99_BLOCKED_CATEGORY_COUNT=%s\n' "$cmd_build_blocked_category_count"
+        printf 'MIR_C99_BLOCKED_CATEGORY_SUMMARY='
+        sidecar_quote "$cmd_build_blocked_category_summary"
+        printf '\n'
+        printf 'MIR_C99_BLOCKED_CATEGORY_CALL_ABI='
+        sidecar_quote "$cmd_build_blocked_category_call_abi"
+        printf '\n'
+        printf 'MIR_C99_BLOCKED_CATEGORY_RUNTIME_HELPER='
+        sidecar_quote "$cmd_build_blocked_category_runtime_helper"
+        printf '\n'
+        printf 'MIR_C99_BLOCKED_CATEGORY_EMITTER_OUTPUT='
+        sidecar_quote "$cmd_build_blocked_category_emitter_output"
+        printf '\n'
+        printf 'MIR_C99_BLOCKED_CATEGORY_LINK_ABSENCE='
+        sidecar_quote "$cmd_build_blocked_category_link_absence"
+        printf '\n'
         printf 'MIR_C99_SELF_BUILD_FRONTIER='
         sidecar_quote "$cmd_build_frontier_name"
         printf '\n'
@@ -109,14 +158,26 @@ C_EOF
         printf 'handoff_status=verified\n'
         printf 'writer_status=done\n'
         printf 'subset=cmd_build_self_summary\n'
+        printf 'self_build_convergence_status=%s\n' "$cmd_build_convergence_status"
         printf 'compiler_binary_status=not_yet_generated\n'
         printf 'host_compiler_binary_attempt=1\n'
         printf 'host_compiler_binary_status=not_yet_generated\n'
         printf 'host_compiler_binary_candidate_role=summary_executable\n'
+        printf 'pending_core_bodies=%s\n' "$cmd_build_pending_core_bodies"
         printf 'frontier_kind=compiler_source\n'
         printf 'frontier_name=%s\n' "$cmd_build_frontier_name"
         printf 'frontier_reason=%s\n' "$cmd_build_frontier_reason"
         printf 'frontier_category=%s\n' "$cmd_build_frontier_category"
+        printf 'frontier_sample_count=%s\n' "$cmd_build_frontier_sample_count"
+        printf 'frontier_sample_1=%s\n' "$cmd_build_frontier_sample_1"
+        printf 'frontier_sample_2=%s\n' "$cmd_build_frontier_sample_2"
+        printf 'frontier_sample_3=%s\n' "$cmd_build_frontier_sample_3"
+        printf 'blocked_category_count=%s\n' "$cmd_build_blocked_category_count"
+        printf 'blocked_category_summary=%s\n' "$cmd_build_blocked_category_summary"
+        printf 'blocked_category_call_abi=%s\n' "$cmd_build_blocked_category_call_abi"
+        printf 'blocked_category_runtime_helper=%s\n' "$cmd_build_blocked_category_runtime_helper"
+        printf 'blocked_category_emitter_output=%s\n' "$cmd_build_blocked_category_emitter_output"
+        printf 'blocked_category_link_absence=%s\n' "$cmd_build_blocked_category_link_absence"
         printf 'completed_body_detail=%s\n' "$cmd_build_completed_body_detail"
         printf 'completed_coverage=%s\n' "$cmd_build_completed_coverage"
         printf 'frontier_detail=%s\n' "$cmd_build_frontier_detail"

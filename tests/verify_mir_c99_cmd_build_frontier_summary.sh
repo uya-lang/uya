@@ -33,12 +33,28 @@ summary_file="${output_c}.summary"
 
 require_pattern "$log_file" '^frontier_kind=compiler_source$' \
     "log marks the frontier as a real compiler-source frontier"
+require_pattern "$log_file" '^self_build_convergence_status=summary_only$' \
+    "log records that cmd/build is still summary-only"
 require_pattern "$log_file" '^frontier_name=native_hosted_handoff_frontier$' \
     "log records the current hosted handoff frontier"
 require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
+require_pattern "$log_file" '^pending_core_bodies=[1-9][0-9]*$' \
+    "log records the current pending_core_bodies count"
+require_pattern "$log_file" '^frontier_sample_count=3$' \
+    "log records a stable frontier sample set"
+require_pattern "$log_file" '^frontier_sample_1=native_hosted_handoff_frontier:reason=pending_core_bodies,entry_callee_coverage=complete,entry_child_coverage=complete$' \
+    "log records the handoff frontier sample"
+require_pattern "$log_file" '^frontier_sample_2=native_hosted_pending_body_frontier:function=native_build_type_named_equals,decl=[0-9]+,function_id=[0-9]+,body_stmts=3,reason=pending_core_body$' \
+    "log records the frozen pending-body frontier sample"
+require_pattern "$log_file" '^frontier_sample_3=native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete$' \
+    "log records the executable-writer frontier sample"
+require_pattern "$log_file" '^blocked_category_count=4$' \
+    "log records the blocked category count"
+require_pattern "$log_file" '^blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1$' \
+    "log records the grouped blocked categories"
 require_pattern "$log_file" '^completed_coverage=generic_corebody_type_is_usize_body_lowering$' \
     "log records the migrated type_is_usize body lowering"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_type_is_usize,prefix_stmts=3,reason=body_complete$' \
@@ -52,8 +68,24 @@ require_pattern "$log_file" '^next_coverage=generic_corebody_type_named_equals_b
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
+require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_CONVERGENCE_STATUS='summary_only'$" \
+    "summary sidecar records summary-only convergence status"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
+require_pattern "$summary_file" "^MIR_C99_PENDING_CORE_BODIES=[1-9][0-9]*$" \
+    "summary sidecar records pending_core_bodies count"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_SAMPLE_COUNT=3$" \
+    "summary sidecar records frontier sample count"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_SAMPLE_1='native_hosted_handoff_frontier:reason=pending_core_bodies,entry_callee_coverage=complete,entry_child_coverage=complete'$" \
+    "summary sidecar records handoff frontier sample"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_SAMPLE_2='native_hosted_pending_body_frontier:function=native_build_type_named_equals,decl=[0-9]+,function_id=[0-9]+,body_stmts=3,reason=pending_core_body'$" \
+    "summary sidecar records pending-body frontier sample"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_SAMPLE_3='native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete'$" \
+    "summary sidecar records executable-writer frontier sample"
+require_pattern "$summary_file" "^MIR_C99_BLOCKED_CATEGORY_COUNT=4$" \
+    "summary sidecar records blocked category count"
+require_pattern "$summary_file" "^MIR_C99_BLOCKED_CATEGORY_SUMMARY='call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1'$" \
+    "summary sidecar records grouped blocked categories"
 require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_type_is_usize_body_lowering'$" \
     "summary sidecar records the migrated type_is_usize body lowering"
 require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_type_is_usize,prefix_stmts=3,reason=body_complete'$" \

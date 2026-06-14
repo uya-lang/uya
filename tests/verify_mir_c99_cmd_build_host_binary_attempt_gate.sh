@@ -49,10 +49,18 @@ fi
 
 require_pattern "$log_file" '^host_compiler_binary_attempt=1$' \
     "diagnostic log records the host compiler binary attempt gate"
+require_pattern "$log_file" '^self_build_convergence_status=summary_only$' \
+    "diagnostic log records summary-only convergence status"
 require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
+require_pattern "$log_file" '^pending_core_bodies=[1-9][0-9]*$' \
+    "diagnostic log records current pending_core_bodies count"
+require_pattern "$log_file" '^frontier_sample_count=3$' \
+    "diagnostic log records frontier sample set"
+require_pattern "$log_file" '^blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1$' \
+    "diagnostic log records grouped blocked categories"
 require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_type_is_usize,prefix_stmts=3,reason=body_complete$' \
     "diagnostic log records the completed type_is_usize helper body"
 require_pattern "$log_file" '^completed_coverage=generic_corebody_type_is_usize_body_lowering$' \
@@ -63,14 +71,28 @@ require_pattern "$log_file" '^next_coverage=generic_corebody_type_named_equals_b
     "diagnostic log records the next generic type_named_equals slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
+require_pattern "$summary_file" '^MIR_C99_SELF_BUILD_CONVERGENCE_STATUS='\''summary_only'\''' \
+    "summary sidecar records summary-only convergence status"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \
     "summary sidecar records non-compiler candidate status"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''summary_executable'\''' \
     "summary sidecar records summary executable candidate role"
+require_pattern "$summary_file" '^MIR_C99_PENDING_CORE_BODIES=[1-9][0-9]*$' \
+    "summary sidecar records pending_core_bodies count"
+require_pattern "$summary_file" '^MIR_C99_BLOCKED_CATEGORY_SUMMARY='\''call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1'\''' \
+    "summary sidecar records grouped blocked categories"
 require_pattern "$candidate_stderr" '^compiler_binary_status=not_yet_generated$' \
     "candidate executable reports that it is not a compiler binary"
+require_pattern "$candidate_stderr" '^self_build_convergence_status=summary_only$' \
+    "candidate executable reports summary-only convergence status"
+require_pattern "$candidate_stderr" '^host_binary_candidate_role=summary_executable$' \
+    "candidate executable reports summary executable role"
+require_pattern "$candidate_stderr" '^pending_core_bodies=[1-9][0-9]*$' \
+    "candidate executable reports the pending_core_bodies count"
 require_pattern "$candidate_stderr" '^frontier_name=native_hosted_handoff_frontier$' \
     "candidate executable reports the current self-build frontier"
+require_pattern "$candidate_stderr" '^blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1$' \
+    "candidate executable reports grouped blocked categories"
 
 if grep -Eq 'native_hosted_reachable_body_frontier:function=compiler_print_diagnostic_profile|^completed_coverage=compiler_print_diagnostic_profile_checker_branch$|^next_coverage=compiler_print_diagnostic_profile_tail_fprintf$|^MIR_C99_COMPLETED_COVERAGE='\''compiler_print_diagnostic_profile_checker_branch'\''$|^MIR_C99_NEXT_COVERAGE='\''compiler_print_diagnostic_profile_tail_fprintf'\''$' \
     "$log_file" "$summary_file"; then

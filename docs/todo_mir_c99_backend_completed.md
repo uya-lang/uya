@@ -817,3 +817,9 @@
         - [x] 下一轮锁定 `native_build_type_is_usize(...)` 3 statement body-complete 合同，目标 coverage 为 `generic_corebody_type_is_usize_body_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier；最小验证：`bash tests/verify_native_type_is_usize_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/`。
           - 2026-06-14：已把 `native_build_type_is_usize(...)` 3 statement body-complete 记录为 completed body detail；默认 MIR-C99 generator summary 前移到 `native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering`。
           - 验证：`bash tests/verify_native_type_is_usize_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过。
+
+### 4.16 Self Build
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+- [x] 建立 self-build convergence audit gate，输出 `cmd/build` 的 summary-only 状态、host binary candidate role、`pending_core_bodies` 数量、frontier 样本和按通用类别聚合的阻塞项；最小验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`git diff --check`。
+  - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`git diff --check` 通过。

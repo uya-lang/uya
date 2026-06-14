@@ -93,7 +93,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - 4.16 后续禁止新增只按 helper 名、固定 statement count、固定 body shape 或“下一处 pending body”推进的任务；每个 self-build 叶子必须绑定到通用能力类别、可量化收敛指标和端到端 host C 证据。
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
-  - [ ] 建立 self-build convergence audit gate，输出 `cmd/build` 的 summary-only 状态、host binary candidate role、`pending_core_bodies` 数量、frontier 样本和按通用类别聚合的阻塞项；最小验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`git diff --check`。
   - [ ] 把已积累的 helper-frontier contract 归档为历史回归边界，移出 4.16 active path；stage gate 只能检查 no-silent-fallback 和通用能力，不得要求下一轮继续 `native_build_type_named_equals` 或后续 helper 名。
   - [ ] 根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
   - [ ] 收敛指标固定为“summary executable -> real compiler candidate”的状态变化、blocked category 减少和可运行 compiler smoke；不得以单个 helper body-complete 或 frontier 名变化作为完成定义。
