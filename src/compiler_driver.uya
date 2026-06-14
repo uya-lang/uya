@@ -2661,13 +2661,9 @@ fn compile_files(
 
     all_file_count = dedupe_paths_in_place(&all_files[0], all_file_count);
 
-    fprintf(libc.stderr, "=== 开始编译 ===\n" as *byte);
-    fprintf(libc.stderr, "输入文件数量: %d (包含依赖)\n" as *byte, all_file_count);
-    i = 0;
-    while i < all_file_count {
-        fprintf(libc.stderr, "  %d: %s\n" as *byte, i, all_files[i] as *byte);
-        i = i + 1;
-    }
+    const verbose_logs: i32 = compiler_should_profile_diagnostics();
+    fprintf(libc.stderr, "=== Uya build ===\n" as *byte);
+    fprintf(libc.stderr, "输入: %s (%d 个文件，含依赖)\n" as *byte, all_files[0] as *byte, all_file_count);
     const output_file: *byte = get_argv(output_file_index);
     // 如果有覆盖路径，使用覆盖路径
     var actual_output: *byte = output_file;
@@ -2678,14 +2674,21 @@ fn compile_files(
         out_artifacts.generated_c_path = actual_output as &byte;
     }
     if stop_after_checker != 0 {
-        fprintf(libc.stderr, "输出模式: checker-only\n" as *byte);
+        fprintf(libc.stderr, "输出: checker-only\n" as *byte);
     } else {
-        fprintf(libc.stderr, "输出文件: %s\n" as *byte, actual_output);
+        fprintf(libc.stderr, "输出: %s\n" as *byte, actual_output);
     }
-    if module_root != null {
-        fprintf(libc.stderr, "模块根目录: %s\n" as *byte, module_root as *byte);
+    if verbose_logs != 0 {
+        i = 0;
+        while i < all_file_count {
+            fprintf(libc.stderr, "  %d: %s\n" as *byte, i, all_files[i] as *byte);
+            i = i + 1;
+        }
+        if module_root != null {
+            fprintf(libc.stderr, "模块根目录: %s\n" as *byte, module_root as *byte);
+        }
+        fprintf(libc.stderr, "UYA_ROOT: %s\n" as *byte, &uya_root_buffer[0]);
     }
-    fprintf(libc.stderr, "UYA_ROOT: %s\n" as *byte, &uya_root_buffer[0]);
     var module_name: *byte = "(unknown)" as *byte;
     if all_file_count > 0 {
         module_name = all_files[0] as *byte;
@@ -2699,14 +2702,15 @@ fn compile_files(
         }
         i = i + 1;
     }
-    fprintf(libc.stderr, "=== 词法/语法分析 ===\n" as *byte);
     var backend_str: *byte = "LLVM" as *byte;
     if backend == BackendType.BACKEND_C99 {
         backend_str = "C99" as *byte;
     } else if backend == BackendType.BACKEND_EXEC {
         backend_str = "EXEC" as *byte;
     }
-    fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
+    if verbose_logs != 0 || backend == BackendType.BACKEND_EXEC {
+        fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
+    }
 
     // 初始化编译统计
     var stats: CompileStats = CompileStats {
@@ -2816,13 +2820,17 @@ fn compile_files(
             return 1;
         }
         programs[i] = ast;
-        fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
+        if verbose_logs != 0 {
+            fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
+        }
         i = i + 1;
     }
     parse_end_time = clock();
-    fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
+    fprintf(libc.stderr, "解析: ok (%d 个文件)\n" as *byte, all_file_count);
 
-    fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
+    if verbose_logs != 0 {
+        fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
+    }
     var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &ast_arena);
     if merged_ast == null {
         fprintf(libc.stderr, "错误: AST 合并失败\n" as *byte);
@@ -2834,9 +2842,15 @@ fn compile_files(
         return 1;
     }
     merge_end_time = clock();
-    fprintf(libc.stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
+    if verbose_logs != 0 {
+        fprintf(libc.stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
+    } else {
+        fprintf(libc.stderr, "合并: ok (%d 个声明)\n" as *byte, merged_ast.program_decl_count);
+    }
 
-    fprintf(libc.stderr, "=== 类型检查阶段 ===\n" as *byte);
+    if verbose_logs != 0 {
+        fprintf(libc.stderr, "=== 类型检查阶段 ===\n" as *byte);
+    }
     const void_type: Type = Type {
         kind: TypeKind.TYPE_VOID,
         data: TypeData.named(null as &byte),
@@ -2926,7 +2940,7 @@ fn compile_files(
         return 1;
     }
     check_end_time = clock();
-    fprintf(libc.stderr, "类型检查通过\n" as *byte);
+    fprintf(libc.stderr, "检查: ok\n" as *byte);
     if checker.program_node != null && checker.program_node.type == ASTNodeType.AST_PROGRAM {
         merged_ast = checker.program_node;
     }
@@ -2934,7 +2948,7 @@ fn compile_files(
         compile_stats_record_and_release_typed_program(&stats, checker);
     }
     if stop_after_checker != 0 {
-        fprintf(libc.stderr, "\n检查完成：checker 通过（未执行代码生成）\n" as *byte);
+        fprintf(libc.stderr, "完成: checker-only\n" as *byte);
         compiler_print_diagnostic_profile(checker);
         return 0;
     }
@@ -2978,10 +2992,12 @@ fn compile_files(
 
     // 创建优化配置
     var opt_config: OptimizationConfig = create_optimization_config(opt_level);
-    opt_config.verbose = 1;  // 启用详细输出
+    opt_config.verbose = verbose_logs;
 
     if opt_level > 0 {
-        fprintf(libc.stderr, "\n=== 优化阶段 (级别: %d) ===\n" as *byte, opt_level);
+        if verbose_logs != 0 {
+            fprintf(libc.stderr, "\n=== 优化阶段 (级别: %d) ===\n" as *byte, opt_level);
+        }
 
         // 执行优化
         const optimized_ast: &ASTNode = optimize_program(checker, merged_ast, opt_config);
@@ -2989,17 +3005,23 @@ fn compile_files(
 
         // 打印优化统计
         const opt_stats: OptimizationStats = get_optimization_stats();
-        fprintf(libc.stderr, "常量折叠: %d\n" as *byte, opt_stats.constant_folded);
-        fprintf(libc.stderr, "死代码消除: %d\n" as *byte, opt_stats.dead_code_eliminated);
-        fprintf(libc.stderr, "证明优化: %d\n" as *byte, opt_stats.proof_optimized);
-        fprintf(libc.stderr, "函数内联: %d\n" as *byte, opt_stats.inlined_functions);
-        fprintf(libc.stderr, "循环展开: %d\n" as *byte, opt_stats.loops_unrolled);
+        if verbose_logs != 0 {
+            fprintf(libc.stderr, "常量折叠: %d\n" as *byte, opt_stats.constant_folded);
+            fprintf(libc.stderr, "死代码消除: %d\n" as *byte, opt_stats.dead_code_eliminated);
+            fprintf(libc.stderr, "证明优化: %d\n" as *byte, opt_stats.proof_optimized);
+            fprintf(libc.stderr, "函数内联: %d\n" as *byte, opt_stats.inlined_functions);
+            fprintf(libc.stderr, "循环展开: %d\n" as *byte, opt_stats.loops_unrolled);
+        } else {
+            fprintf(libc.stderr, "优化: ok (O%d)\n" as *byte, opt_level);
+        }
     } else {
         opt_end_time = clock();
     }
 
-    fprintf(libc.stderr, "\n=== 代码生成阶段 ===\n" as *byte);
-    fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
+    if verbose_logs != 0 || backend == BackendType.BACKEND_EXEC {
+        fprintf(libc.stderr, "\n=== 代码生成阶段 ===\n" as *byte);
+        fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
+    }
 
     if backend == BackendType.BACKEND_EXEC {
         exec_backend_set_options(g_exec_dump_hir_enabled, g_exec_dump_bytecode_enabled, g_exec_trace_vm_enabled);
@@ -3169,33 +3191,39 @@ fn compile_files(
     compile_stats_record_and_release_typed_program(&stats, checker);
 
     // 输出编译统计
-    fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
-    fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
-    fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
-    fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
-    fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
-    if opt_level > 0 {
-        const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
-        fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
+    const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+    if verbose_logs != 0 {
+        fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
+        fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
+        fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
+        fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
+        fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
+        if opt_level > 0 {
+            fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
+        }
+        fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+        fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+        fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
+        fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
+        fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
+        fprintf(libc.stderr, "c99_output_buffer_peak_bytes: %zu\n" as *byte, stats.c99_output_buffer_peak_bytes);
+        fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
+        fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
+        fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
+        fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
+        fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
+        fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
+        fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
+        fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
+        compiler_print_diagnostic_profile(checker);
+        fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
+    } else {
+        fprintf(libc.stderr, "统计: parse=%ldms merge=%ldms check=%ldms opt=%ldms codegen=%ldms total=%ldms peak=%zu\n" as *byte,
+            stats.parse_time_ms, stats.merge_time_ms, stats.check_time_ms, opt_time_ms,
+            stats.codegen_time_ms, stats.total_time_ms, stats.arena_peak_bytes);
     }
-    fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
-    fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
-    fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
-    fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
-    fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
-    fprintf(libc.stderr, "c99_output_buffer_peak_bytes: %zu\n" as *byte, stats.c99_output_buffer_peak_bytes);
-    fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
-    fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
-    fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
-    fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
-    fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
-    fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
-    fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
-    fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
-    compiler_print_diagnostic_profile(checker);
-    fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
-    fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
+    fprintf(libc.stderr, "代码生成: ok (%s)\n" as *byte, actual_output);
 
     // 释放各子系统独立 arena 的动态 chunk（AST/emitter 已被 codegen 消费完毕，
     // checker 工作内存已不再需要）。SemanticDb/TypedProgram 由其自身 release 管理。

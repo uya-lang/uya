@@ -50178,7 +50178,6 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --stack-size <KB>    设置生成物堆栈提示；编译器进程默认提升到 65536 KB\n" as *byte);
     fprintf(libc.stderr, "  --split-c-dir[=<dir>] 多文件 C 输出目录，默认 .uyacache\n" as *byte);
     fprintf(libc.stderr, "  --no-split-c         关闭多文件 C\n" as *byte);
-    fprintf(libc.stderr, "  --verbose            输出逐文件、根目录、优化 pass 与完整统计\n" as *byte);
     fprintf(libc.stderr, "  -h, --help           显示此帮助信息\n" as *byte);
     fprintf(libc.stderr, "  -v, --version        显示版本信息\n" as *byte);
 }
@@ -50660,38 +50659,6 @@ fn host_fill_temp_c_compile_path(buf: &byte, cap: usize) i32 {
 }
 fn host_fill_temp_run_exe_path(buf: &byte, cap: usize, exe_suffix: &byte) i32 {
     return host_fill_temp_path(buf, cap, "uya_out" as *byte, exe_suffix, -1);
-}
-fn build_log_value_is_enabled(value: &byte) i32 {
-    if value == null || value[0] == 0 as byte {
-        return 0;
-    }
-    if strcmp(value as *byte, "0" as *byte) == 0 ||
-       strcmp(value as *byte, "false" as *byte) == 0 ||
-       strcmp(value as *byte, "no" as *byte) == 0 ||
-       strcmp(value as *byte, "off" as *byte) == 0 {
-        return 0;
-    }
-    return 1;
-}
-fn build_log_scan_verbose_cli() i32 {
-    const argc: i32 = get_argc();
-    var i: i32 = 1;
-    while i < argc {
-        const arg: *byte = get_argv(i);
-        if arg != null && strcmp(arg, "--verbose" as *byte) == 0 {
-            return 1;
-        }
-        i = i + 1;
-    }
-    return 0;
-}
-fn build_log_is_verbose() i32 {
-    if build_log_value_is_enabled(getenv("UYA_BUILD_VERBOSE" as *byte) as &byte) != 0 ||
-       build_log_value_is_enabled(getenv("UYA_VERBOSE" as *byte) as &byte) != 0 ||
-       build_log_scan_verbose_cli() != 0 {
-        return 1;
-    }
-    return 0;
 }
 fn parse_build_args(
     input_file_indices: &i32,
@@ -51294,7 +51261,7 @@ fn compile_files(
     } else {
         fprintf(libc.stderr, "输出: %s [%s]\n" as *byte, actual_output, backend_str);
     }
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "输入文件数量: %d (包含依赖)\n" as *byte, all_file_count);
         i = 0;
         while i < all_file_count {
@@ -51306,8 +51273,11 @@ fn compile_files(
         }
         fprintf(libc.stderr, "UYA_ROOT: %s\n" as *byte, &uya_root_buffer[0]);
     }
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "=== 词法/语法分析 ===\n" as *byte);
+    }
+    if compiler_should_profile_diagnostics() != 0 || backend == BackendType.BACKEND_NATIVE {
+        fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
     }
     var stats: CompileStats = CompileStats {
         parse_time_ms: 0,
@@ -51399,13 +51369,13 @@ fn compile_files(
             return 1;
         }
         programs[i] = ast;
-        if build_log_is_verbose() != 0 {
+        if compiler_should_profile_diagnostics() != 0 {
             fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
         }
         i = i + 1;
     }
     parse_end_time = clock();
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
         fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
     } else {
@@ -51422,7 +51392,7 @@ fn compile_files(
         return 1;
     }
     merge_end_time = clock();
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
         fprintf(libc.stderr, "=== 类型检查阶段 ===\n" as *byte);
     } else {
@@ -51512,7 +51482,7 @@ fn compile_files(
         return 1;
     }
     check_end_time = clock();
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "类型检查通过\n" as *byte);
     } else {
         fprintf(libc.stderr, "检查: ok\n" as *byte);
@@ -51535,15 +51505,15 @@ fn compile_files(
     checker_compute_function_reachability(checker);
     var opt_end_time: i64 = 0;
     var opt_config: OptimizationConfig = create_optimization_config(opt_level);
-    opt_config.verbose = build_log_is_verbose();
+    opt_config.verbose = compiler_should_profile_diagnostics();
     if opt_level > 0 {
-        if build_log_is_verbose() != 0 {
+        if compiler_should_profile_diagnostics() != 0 {
             fprintf(libc.stderr, "\n=== 优化阶段 (级别: %d) ===\n" as *byte, opt_level);
         }
         const optimized_ast: &ASTNode = optimize_program(checker, merged_ast, opt_config);
         opt_end_time = clock();
         const opt_stats: OptimizationStats = get_optimization_stats();
-        if build_log_is_verbose() != 0 {
+        if compiler_should_profile_diagnostics() != 0 {
             fprintf(libc.stderr, "常量折叠: %d\n" as *byte, opt_stats.constant_folded);
             fprintf(libc.stderr, "死代码消除: %d\n" as *byte, opt_stats.dead_code_eliminated);
             fprintf(libc.stderr, "证明优化: %d\n" as *byte, opt_stats.proof_optimized);
@@ -51560,7 +51530,7 @@ fn compile_files(
         opt_end_time = clock();
         fprintf(libc.stderr, "优化: skipped (O0)\n" as *byte);
     }
-    if build_log_is_verbose() != 0 || backend == BackendType.BACKEND_NATIVE {
+    if compiler_should_profile_diagnostics() != 0 || backend == BackendType.BACKEND_NATIVE {
         fprintf(libc.stderr, "\n=== 代码生成阶段 ===\n" as *byte);
         fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
     }
@@ -51859,7 +51829,7 @@ fn compile_files(
         + stats.emit_arena_peak_bytes;
     compile_stats_record_and_release_typed_program(&stats, checker);
     const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
         fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
         fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
@@ -51897,7 +51867,7 @@ fn compile_files(
         }
     }
     compiler_print_diagnostic_profile(checker);
-    if build_log_is_verbose() != 0 {
+    if compiler_should_profile_diagnostics() != 0 {
         fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
         fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
     } else {

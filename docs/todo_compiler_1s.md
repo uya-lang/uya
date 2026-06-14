@@ -652,6 +652,10 @@ bin/cmd/build
 - [x] 防止 dispatcher-only `bin/uya` 与 `cmd/build` 互相等待。
 - [x] seed 对 microapp 参数的错误信息指向 `uya microapp build ...`，而不是旧顶层
   `pack-image` / `inspect-image` / `verify-image`。
+- [x] 将 `parse_build_args(...)` 首参数处理切片迁入 PortableMIR，覆盖 `get_argv(1)`、help/version
+  分支与 `build` 子命令入口偏移。
+- [x] 将 `parse_build_args(...)` option loop 骨架迁入 PortableMIR，覆盖 `var i` 初始化、
+  `while i < argc`、`get_argv(i)` null 诊断与 loop 尾部递增。
 
 测试：
 
