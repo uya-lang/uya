@@ -1,7 +1,7 @@
 # MIR-C99 Backend TODO
 
 **状态**: executable TODO, implementation pending
-**更新日期**: 2026-06-13
+**更新日期**: 2026-06-14
 **上层目标**: `docs/todo_compiler_1s.md`
 **覆盖矩阵**: `docs/portable_mir_language_coverage.md`
 **架构设计**: `docs/compiler_1s_architecture_design.md`
@@ -85,39 +85,20 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.16 Self Build
 
-- [ ] MIR-C99-BACKEND-SELF-BUILD：编译器自举走 MIR-C99。
-  - [ ] host C compiler 编译 MIR-C99 产物得到 compiler binary。
-    - [ ] 逐步清空 `pending_core_bodies` frontier，直到默认 MIR-C99 generator 对 `cmd/build` root 输出真实 compiler candidate C。
-      - [ ] 沿真实 `pending_core_bodies` frontier 继续前移 default MIR-C99 generator summary，直到 `cmd/build` root 输出真实 compiler candidate C。
-        - 2026-06-14：已把 `native_build_local_table_init(...)` 15 statement body-complete 记录为 completed body detail，并保持现有 `loop/control-flow` 缺口合同；默认 MIR-C99 generator summary 前移到 `native_build_reachability_init` / `generic_corebody_reachability_init_body_lowering`。
-        - 2026-06-14：已把 `native_build_reachability_init(...)` 12 statement body-complete 记录为 completed body detail；默认 MIR-C99 generator summary 前移到 `native_build_type_is_i32` / `generic_corebody_type_is_i32_body_lowering`。
-        - 2026-06-14：已把 `native_build_type_is_i32(...)` 3 statement body-complete 记录为 completed body detail；默认 MIR-C99 generator summary 前移到 `native_build_type_is_usize` / `generic_corebody_type_is_usize_body_lowering`。
-        - 2026-06-14：已把 `native_build_type_is_usize(...)` 3 statement body-complete 记录为 completed body detail；默认 MIR-C99 generator summary 前移到 `native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering`。
-        - [ ] 下一轮锁定 `native_build_type_named_equals(...)` 3 statement body-complete 合同，目标 coverage 为 `generic_corebody_type_named_equals_body_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier；最小验证：`bash tests/verify_native_type_named_equals_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/`。
-      - 2026-06-13：本叶子的早期推进记录已归档到 `docs/todo_mir_c99_backend_completed.md` 的“4.16 Self Build 中间状态归档（2026-06-13）”，主 TODO 只保留当前 frontier。
-      - 2026-06-13：已把 `native_build_const_slice_sum_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_const_slice_len_index_shape_empty` / `generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_const_slice_sum_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过；`bash tests/verify_native_cmd_build_no_silent_c99.sh` 仍失败，当前仍阻塞在普通 `test_native_main_only.uya --native` preflight：`native_hosted_coreir_preflight: status=-1 ... pending_bodies=178`。
-      - 2026-06-13：本轮锁定 `native_build_const_slice_len_index_shape_empty()` struct literal return 的 body-complete 合同，目标 coverage 为 `generic_corebody_const_slice_len_index_shape_empty_struct_return_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier。
-      - 2026-06-13：已把 `native_build_const_slice_len_index_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_pointer_deref_shape_empty` / `generic_corebody_pointer_deref_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_const_slice_len_index_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过。
-      - 2026-06-13：本轮锁定 `native_build_pointer_deref_shape_empty()` struct literal return 的 body-complete 合同，目标 coverage 为 `generic_corebody_pointer_deref_shape_empty_struct_return_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier。
-      - 2026-06-13：已把 `native_build_pointer_deref_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_dynamic_catch_shape_empty` / `generic_corebody_dynamic_catch_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_pointer_deref_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过；`bash tests/verify_native_cmd_build_stage1.sh` 仍失败于既有 `verify_native_cmd_build_compiler_regressions.sh` hosted array-index 回归；`bash tests/verify_native_cmd_build_no_silent_c99.sh` 仍失败于普通 `test_native_main_only.uya --native` preflight：`pending_bodies=178`。
-      - 2026-06-13：本轮锁定 `native_build_dynamic_catch_shape_empty()` struct literal return 的 body-complete 合同，目标 coverage 为 `generic_corebody_dynamic_catch_shape_empty_struct_return_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier。
-      - 2026-06-13：已把 `native_build_dynamic_catch_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_defer_local_assign_shape_empty` / `generic_corebody_defer_local_assign_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_dynamic_catch_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过。
-      - 2026-06-13：本轮锁定 `native_build_defer_local_assign_shape_empty()` struct literal return 的 body-complete 合同，目标 coverage 为 `generic_corebody_defer_local_assign_shape_empty_struct_return_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier。
-      - 2026-06-13：已把 `native_build_defer_local_assign_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_lexical_drop_shape_empty` / `generic_corebody_lexical_drop_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_defer_local_assign_shape_empty_contract.sh`、`bash tests/verify_native_lexical_drop_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过；`bash tests/verify_native_cmd_build_stage1.sh` 仍失败于既有 `tests/verify_native_cmd_build_compiler_regressions.sh` 的 hosted array-index 子例（`bin/cmd/build build ... hosted_array_index.uya --native --no-split-c` 非零退出）；`bash tests/verify_native_cmd_build_no_silent_c99.sh` 仍失败于普通 `test_native_main_only.uya --native` preflight：`native_hosted_pending_body_frontier: function=native_main_bval ... pending_bodies=178`。
-      - 2026-06-14：已把 `native_build_lexical_drop_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_interface_method_shape_empty` / `generic_corebody_interface_method_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_lexical_drop_shape_empty_contract.sh`、`bash tests/verify_native_interface_method_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过；`bash tests/verify_native_cmd_build_no_silent_c99.sh` 仍失败于普通 `test_native_main_only.uya --native` preflight：`native_hosted_pending_body_frontier: function=native_main_bval ... pending_bodies=178`。
-      - 2026-06-14：已把 `native_build_struct_union_enum_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_atomic_i32_shape_empty` / `generic_corebody_atomic_i32_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_struct_union_enum_shape_empty_contract.sh`、`bash tests/verify_native_atomic_i32_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过；`bash tests/verify_native_cmd_build_no_silent_c99.sh` 仍失败于普通 `test_native_main_only.uya --native` preflight：`native_hosted_coreir_preflight: status=-1 ... pending_bodies=178`。
-      - 2026-06-14：已把 `native_build_atomic_i32_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_simd_vector_mask_shape_empty` / `generic_corebody_simd_vector_mask_shape_empty_struct_return_lowering`。
-      - 验证：`bash tests/verify_native_atomic_i32_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过。
-      - 2026-06-14：已把 `native_build_simd_vector_mask_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_local_table_init` / `generic_corebody_local_table_init_body_lowering`。
-      - 验证：`bash tests/verify_native_simd_vector_mask_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过。
-    - [ ] host C compiler 编译真实 MIR-C99 compiler candidate，并运行最小 `cmd/build --help` / smoke 证明它是 compiler binary 而非 summary executable。
+路线复盘（2026-06-14）：
+
+- 当前 `cmd/build` MIR-C99 仍是 summary-only：host C compiler 可以编译 summary C，但候选执行仍以 exit 70 报告 `compiler_binary_status=not_yet_generated`，不是 compiler binary。
+- 继续逐个 `pending_core_bodies` / `native_build_*` helper 做 body-complete 会持续前移 summary frontier，却不能证明 `MirC99Plan`、真实 C emitter、runtime capability、call ABI、link/output 和 absence gate 在收敛。
+- 冻结当前 frontier 样本：`native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering` 只保留为诊断上下文，不再作为 active leaf。
+- 4.16 后续禁止新增只按 helper 名、固定 statement count、固定 body shape 或“下一处 pending body”推进的任务；每个 self-build 叶子必须绑定到通用能力类别、可量化收敛指标和端到端 host C 证据。
+
+- [ ] MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+  - [ ] 建立 self-build convergence audit gate，输出 `cmd/build` 的 summary-only 状态、host binary candidate role、`pending_core_bodies` 数量、frontier 样本和按通用类别聚合的阻塞项；最小验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`git diff --check`。
+  - [ ] 把已积累的 helper-frontier contract 归档为历史回归边界，移出 4.16 active path；stage gate 只能检查 no-silent-fallback 和通用能力，不得要求下一轮继续 `native_build_type_named_equals` 或后续 helper 名。
+  - [ ] 根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
+  - [ ] 收敛指标固定为“summary executable -> real compiler candidate”的状态变化、blocked category 减少和可运行 compiler smoke；不得以单个 helper body-complete 或 frontier 名变化作为完成定义。
+- [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
+  - [ ] 默认 generator 对 `cmd/build` root 写出真实 candidate C，而不是 summary-only C；host C compiler 编译通过，并运行最小 `cmd/build --help` / smoke 证明它是 compiler binary。
   - [ ] MIR-C99-built compiler 复跑 `cmd/build` self-build。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
   - [ ] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
@@ -136,7 +117,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 本 TODO 按当前目标评审后，固定以下裁定：
 
-- 当前第一叶子是 `MIR-C99-BACKEND-CONTRACTS`，不是 HelloWorld 实现。
+- `MIR-C99-BACKEND-CONTRACTS` 已归档；当前第一叶子是 `MIR-C99-BACKEND-SELF-BUILD-RESET` 的 convergence audit，不是继续 helper frontier 或直接做 HelloWorld。
 - HelloWorld 是第一个端到端 parity 目标，但必须在独立边界、最小 C99 子集和 oracle harness 落地后执行。
 - async frame 属于完整 Uya 语法支持范围，不能作为 MIR-C99 首版长期 reject。
 - 任何以现有 C99 emitter 成功、fixed-shape smoke 成功或 self-build helper 成功为证据的条目都不得标成 `[x]`。
