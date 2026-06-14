@@ -1,0 +1,8 @@
+use compiler_driver;
+
+/// `cmd/build-bootstrap` 临时自举入口。
+/// 参数说明：无，直接读取进程 argv 并复用完整 compiler_driver 的 build 子命令路径。
+/// 返回值说明：返回 build 子命令的进程退出码。
+export fn main() i32 {
+    return compiler_driver_build_main();
+}

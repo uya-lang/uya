@@ -944,3 +944,11 @@ Context:
   - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`
   - 验证：`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`
   - 验证：`git diff --check`
+
+### 4.16 Self Build
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。 -> 去除 `tracked_cmd_build_seed` 过渡源：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。
+
+    - [x] 先打通 mandated compiler 对当前 `build_compiler_driver` 的可构建入口：本轮用 `../uya/bin/uya` 直接构建 `src/cmd/build/main.uya` 与基于当前仓库 `build_compiler_driver` 的薄 wrapper，均在依赖收集阶段失败；最小验证=`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o /tmp/cmd-build.$$ --project-root src/ --no-split-c` 或等价当前源入口成功产出临时 writer binary；完成条件=在不使用 `bin/cmd/build` / 本地 `bin/uya` 的前提下，可用 mandated compiler 构建承载当前 `build_compiler_driver` 改动的临时 build CLI。
+      - 实现：新增 `src/cmd/build_bootstrap/main.uya` 作为 mandated compiler 可直接构建的当前源码 bootstrap 入口，复用 `compiler_driver_build_main()` 先产出临时 full compiler build CLI；新增 `tests/verify_mandated_build_compiler_driver_entry.sh`，固定 `../uya/bin/uya -> build_bootstrap -> src/cmd/build/main.uya -> cmd/build --help` 的端到端 gate；将 `src/codegen/c99/internal.uya` 与 `src/codegen/c99_build/internal.uya` 的 `C99_MAX_REACHABLE_FUNCTIONS` 从 `4096` 提升到 `8192`，消除 bootstrap 到 `cmd/build` 时的 reachable function transfer 容量上限。
+      - 验证：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过；等价成功路径为先运行 `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya -o /tmp/build-bootstrap --project-root src/ --no-split-c`，再运行 `UYA_ROOT="$PWD" /tmp/build-bootstrap build src/cmd/build/main.uya -o /tmp/cmd-build --project-root src/`，最终 `/tmp/cmd-build --help` 退出码为 `0`。

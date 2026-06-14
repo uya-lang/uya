@@ -102,7 +102,6 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
   - [ ] 去除 `tracked_cmd_build_seed` 过渡源：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。
-    - [ ] 先打通 mandated compiler 对当前 `build_compiler_driver` 的可构建入口：本轮用 `../uya/bin/uya` 直接构建 `src/cmd/build/main.uya` 与基于当前仓库 `build_compiler_driver` 的薄 wrapper，均在依赖收集阶段失败；最小验证=`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o /tmp/cmd-build.$$ --project-root src/ --no-split-c` 或等价当前源入口成功产出临时 writer binary；完成条件=在不使用 `bin/cmd/build` / 本地 `bin/uya` 的前提下，可用 mandated compiler 构建承载当前 `build_compiler_driver` 改动的临时 build CLI。
     - [ ] 切换默认 generator 的 `cmd/build` 路径到真实 writer hook：`tests/mir_c99_generate.sh` 对 `src/cmd/build/main.uya` 不再复制 `backup/cmd-build*.c`，而是调用真实 MIR-C99 writer 生成 candidate C；最小验证=`bash tests/verify_mir_c99_cmd_build_true_writer_gate.sh`；完成条件=log/summary 不再出现 `MIR_C99_COMPILER_SOURCE_BACKEND='tracked_cmd_build_seed'`，且 gate 证明 source backend 为真实 MIR-C99 writer。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
   - [ ] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
