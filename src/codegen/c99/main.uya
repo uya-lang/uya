@@ -290,6 +290,12 @@ fn collect_stdlib_functions_from_node(codegen: &C99CodeGenerator, node: &ASTNode
     
     if node.type == ASTNodeType.AST_CALL_EXPR {
         const callee: &ASTNode = node.call_expr_callee;
+        if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+            const module_fn_decl: &ASTNode = c99_find_module_function_decl_for_member_call(codegen, callee);
+            if module_fn_decl != null {
+                mark_top_level_function_reachable(codegen, module_fn_decl);
+            }
+        }
         if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
             const callee_name: &byte = callee.identifier_name;
             if callee_name != null {

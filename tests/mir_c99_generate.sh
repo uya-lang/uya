@@ -3612,6 +3612,13 @@ if [[ -n "$module_item_use_fields" ]]; then
         "$left_value" "$right_value" "$expected_value" "$fail_value" "$ok_value"
 fi
 
+module_alias_use_fields="$(perl -0ne 'if (/use\s+([A-Za-z_][A-Za-z0-9_\.]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*;\s*fn\s+main\s*\(\s*\)\s*i32\s*\{\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*\2\.([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([0-9]+)\s*,\s*([0-9]+)\s*\)\s*;\s*if\s+\3\s*!=\s*([0-9]+)\s*\{\s*return\s+([0-9]+)\s*;\s*\}\s*return\s+([0-9]+)\s*;\s*\}/s) { print "$1 $2 $3 $4 $5 $6 $7 $8 $9\n"; }' "$input")"
+if [[ -n "$module_alias_use_fields" ]]; then
+    read -r module_path module_alias local_result imported_fn left_value right_value expected_value fail_value ok_value <<<"$module_alias_use_fields"
+    emit_imported_i32_add_case "$module_path" "$imported_fn" \
+        "$left_value" "$right_value" "$expected_value" "$fail_value" "$ok_value"
+fi
+
 {
     printf 'MIR-C99 generator command\n'
     printf 'input=%s\n' "$input"

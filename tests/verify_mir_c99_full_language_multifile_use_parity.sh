@@ -48,7 +48,21 @@ UYA
 
 run_case "$tmp_dir/main.uya"
 
+cat >"$tmp_dir/main_alias.uya" <<'UYA'
+use dep as d;
+
+fn main() i32 {
+    const sum: i32 = d.exported_sum(20, 22);
+    if sum != 42 {
+        return 1;
+    }
+    return 0;
+}
+UYA
+
+run_case "$tmp_dir/main_alias.uya"
+
 require_matrix_status "AST_USE_STMT"
 require_matrix_status "CORE_EXPR_KIND_CALL"
 
-echo "OK: MIR-C99 full-language multi-file module item use parity matched C99 oracle"
+echo "OK: MIR-C99 full-language multi-file module item/alias use parity matched C99 oracle"

@@ -1636,6 +1636,59 @@ fn c99_find_imported_function_decl_for_unqualified_call(codegen: &C99CodeGenerat
     return null;
 }
 
+fn c99_find_module_name_for_member_call(codegen: &C99CodeGenerator, callee: &ASTNode) &byte {
+    if codegen == null || callee == null || callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+        callee.member_access_object == null ||
+        callee.member_access_object.type != ASTNodeType.AST_IDENTIFIER ||
+        callee.member_access_object.identifier_name == null {
+        return null;
+    }
+    if callee.member_access_is_module_access != 0 && callee.member_access_module_name != null {
+        return callee.member_access_module_name;
+    }
+    if codegen.checker != null {
+        const imported_item: &ImportedItem = checker_import_table_lookup_local_name(codegen.checker,
+            callee.member_access_object.identifier_name);
+        if imported_item != null && imported_item.item_type == (0 - 1) && imported_item.module_name != null {
+            return imported_item.module_name;
+        }
+    }
+    if codegen.program_node == null || codegen.program_node.type != ASTNodeType.AST_PROGRAM ||
+        callee.filename == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < codegen.program_node.program_decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_USE_STMT &&
+            decl.filename != null && str_equals(decl.filename, callee.filename) != 0 &&
+            decl.use_stmt_item_name == null &&
+            decl.use_stmt_path_segments != null && decl.use_stmt_path_segment_count > 0 {
+            var local_name: &byte = decl.use_stmt_alias;
+            if local_name == null {
+                local_name = decl.use_stmt_path_segments[decl.use_stmt_path_segment_count - 1];
+            }
+            if local_name != null && str_equals(local_name, callee.member_access_object.identifier_name) != 0 {
+                return c99_build_use_module_name(codegen, decl);
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn c99_find_module_function_decl_for_member_call(codegen: &C99CodeGenerator, callee: &ASTNode) &ASTNode {
+    if callee == null || callee.type != ASTNodeType.AST_MEMBER_ACCESS ||
+        callee.member_access_field_name == null {
+        return null;
+    }
+    const module_name: &byte = c99_find_module_name_for_member_call(codegen, callee);
+    if module_name == null {
+        return null;
+    }
+    return c99_find_module_export_decl(codegen, module_name, callee.member_access_field_name, 1);
+}
+
 fn c99_find_function_decl_for_unqualified_call(codegen: &C99CodeGenerator, name: &byte) &ASTNode {
     if codegen == null || name == null {
         return null;
@@ -2564,6 +2617,8 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         } else if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_is_module_access != 0 {
             // 模块限定调用：查找对应的 extern "libc" 声明
             fn_decl = find_function_decl_c99(codegen, callee.member_access_field_name);
+        } else if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+            fn_decl = c99_find_module_function_decl_for_member_call(codegen, callee);
         }
         
         // 无 ... 转发的调用不生成 va_list（零开销转发）
@@ -2608,6 +2663,31 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             arg_idx = arg_idx + 1;
         }
         var did_interface_call: i32 = 0;
+        const module_member_fn_decl: &ASTNode = c99_find_module_function_decl_for_member_call(codegen, callee);
+        if module_member_fn_decl != null {
+            const module_member_c_name: &byte = get_c_name_for_function_decl(codegen, module_member_fn_decl);
+            fprintf(codegen.emit_stream as *void, "%s(" as *byte, module_member_c_name as *byte);
+            var module_ai: i32 = 0;
+            while module_ai < arg_count {
+                if module_ai > 0 {
+                    c99_emit_comma_space(codegen);
+                }
+                if codegen.interp_arg_temp_names[module_ai] != null {
+                    fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
+                    fputs(codegen.interp_arg_temp_names[module_ai] as *byte, codegen.emit_stream as *void);
+                } else {
+                    if expr.call_expr_args[module_ai] != null && expr.call_expr_args[module_ai].type == ASTNodeType.AST_STRING {
+                        if c99_string_literal_passes_as_const_byte_slice_value(module_member_fn_decl, module_ai, expr.call_expr_args[module_ai]) == 0 {
+                            fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
+                        }
+                    }
+                    c99_emit_call_arg_expr(codegen, module_member_fn_decl, module_ai, expr.call_expr_args[module_ai]);
+                }
+                module_ai = module_ai + 1;
+            }
+            fputc(41, codegen.emit_stream as *void);
+            return;
+        }
         // 模块限定调用（module.func(args)）：生成 module_func(args)
         // 注意：extern "libc" fn 不添加模块前缀
         if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_is_module_access != 0 {
