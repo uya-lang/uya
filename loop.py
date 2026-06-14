@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""Run Codex with an embedded default workflow until a todo file is done."""
+"""Run an agent CLI with an embedded default workflow until a todo file is done."""
 
 from __future__ import annotations
 
 import argparse
 import os
 import re
+import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
-CHECKBOX_RE = re.compile(r"^(?P<prefix>\s*[-*]\s*)\[(?P<state>[^\]])\](?P<rest>.*)$")
+CHECKBOX_RE = re.compile(r"^(?P<prefix>\s*[-*]\s*)\[(?P<state>[^\]]*)\](?P<rest>.*)$")
 HEADING_RE = re.compile(r"^(?P<marks>#{1,6})\s+(?P<title>.*)$")
 VALID_STATES = {" ", "x", "~", "f"}
 DEFAULT_SKILL_NAME = "goal-task-runner"
 DEFAULT_SKILL_SOURCE = ".agents/skills/goal-task-runner/SKILL.md"
+DEFAULT_KIMI_CMD = "/home/winger/.kimi-code/bin/kimi"
+DEFAULT_KIMI_SYSTEM_PROMPT = (
+    "你的所有思考过程、推理步骤和内部独白必须使用中文。"
+    "即使分析英文代码或文档，思考链也要用中文表达。"
+)
 DEFAULT_GOAL_TASK_RUNNER_SKILL = r"""---
 name: goal-task-runner
 description: 按顺序执行目标导向的长任务 todo，使用 TDD、诚实进度跟踪、任务拆分、性能优先实现、git 提交和推送。适用于 Codex 被要求接收 todo 文件或 todo 列表并依次完成任务的场景。
@@ -62,6 +68,16 @@ description: 按顺序执行目标导向的长任务 todo，使用 TDD、诚实�
 
 
 @dataclass(frozen=True)
+class AgentInvocation:
+    label: str
+    argv: tuple[str, ...]
+    cwd: Path | None
+    prompt_mode: str
+    prompt_option: str
+    prompt_prelude: str = ""
+
+
+@dataclass(frozen=True)
 class TodoStatus:
     pending: int
     active: int
@@ -102,12 +118,18 @@ class TodoContext:
     excerpt_end: int
 
 
+class AgentStartError(RuntimeError):
+    def __init__(self, message: str, exit_code: int) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Use `codex exec` to repeatedly execute one todo round, then stop "
-            "when no unfinished checkbox remains. By default, the "
-            "goal-task-runner workflow is embedded in the prompt."
+            "Use an agent CLI to repeatedly execute one todo round, then stop "
+            "when no unfinished checkbox remains. By default, the goal-task-runner "
+            "workflow is embedded in the prompt."
         )
     )
     parser.add_argument(
@@ -120,7 +142,7 @@ def parse_args() -> argparse.Namespace:
         "--skill",
         default="",
         help=(
-            "Optional Codex skill name to request, with or without a leading "
+            "Optional skill name to request, with or without a leading "
             "'$'. If omitted, use the embedded goal-task-runner workflow so "
             "loop.py works as a single file."
         ),
@@ -128,7 +150,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         default=".",
-        help="Repository root passed to `codex exec -C`. Default: current directory.",
+        help=(
+            "Repository root. Codex receives it via `codex exec -C`; Kimi runs "
+            "with this directory as cwd. Default: current directory."
+        ),
+    )
+    parser.add_argument(
+        "--runner",
+        default=os.environ.get("LOOP_RUNNER", "codex"),
+        choices=("codex", "kimi"),
+        help="Agent CLI runner. Default: LOOP_RUNNER or `codex`.",
+    )
+    parser.add_argument(
+        "--kimi",
+        dest="runner",
+        action="store_const",
+        const="kimi",
+        help="Shortcut for `--runner kimi`.",
+    )
+    parser.add_argument(
+        "--codex",
+        dest="runner",
+        action="store_const",
+        const="codex",
+        help="Shortcut for `--runner codex`.",
     )
     parser.add_argument(
         "--codex-cmd",
@@ -136,9 +181,27 @@ def parse_args() -> argparse.Namespace:
         help="Codex executable. Default: CODEX_CMD or `codex`.",
     )
     parser.add_argument(
+        "--kimi-cmd",
+        default=os.environ.get("KIMI_CMD", DEFAULT_KIMI_CMD),
+        help=f"Kimi executable. Default: KIMI_CMD or `{DEFAULT_KIMI_CMD}`.",
+    )
+    parser.add_argument(
+        "--kimi-system-prompt",
+        default=os.environ.get("KIMI_SYSTEM_PROMPT", DEFAULT_KIMI_SYSTEM_PROMPT),
+        help=(
+            "Kimi-only prompt prelude. Current Kimi CLI does not support "
+            "`--system-prompt`, so loop.py injects this text at the top of "
+            "the prompt. Set to empty to omit it. Default: KIMI_SYSTEM_PROMPT "
+            "or the built-in Chinese reasoning-language instruction."
+        ),
+    )
+    parser.add_argument(
         "--model",
-        default=os.environ.get("CODEX_MODEL", "gpt-5.5"),
-        help="Optional model passed to `codex exec --model`.",
+        default=None,
+        help=(
+            "Optional model passed to the selected runner. Codex defaults to "
+            "CODEX_MODEL or `gpt-5.5`; Kimi defaults to KIMI_MODEL or its config."
+        ),
     )
     parser.add_argument(
         "--reasoning-effort",
@@ -156,10 +219,33 @@ def parse_args() -> argparse.Namespace:
         help="Sandbox passed to `codex exec --sandbox`.",
     )
     parser.add_argument(
+        "--kimi-permission-mode",
+        default=os.environ.get("KIMI_PERMISSION_MODE", ""),
+        choices=("", "auto", "yolo"),
+        help=(
+            "Kimi interactive permission mode: `auto` starts auto permission "
+            "mode; `yolo` automatically approves all actions. Both are invalid "
+            "with Kimi `--prompt`, which loop.py uses and which defaults to "
+            "Kimi's auto permission policy. Empty is recommended. Default: "
+            "KIMI_PERMISSION_MODE or empty."
+        ),
+    )
+    parser.add_argument(
+        "--kimi-continue",
+        action="store_true",
+        help="Pass `--continue` to Kimi to continue the previous session for the repo.",
+    )
+    parser.add_argument(
+        "--kimi-output-format",
+        default=os.environ.get("KIMI_OUTPUT_FORMAT", ""),
+        choices=("", "text", "stream-json"),
+        help="Optional Kimi prompt output format.",
+    )
+    parser.add_argument(
         "--max-rounds",
         type=int,
         default=0,
-        help="Maximum Codex rounds. 0 means no limit.",
+        help="Maximum agent rounds. 0 means no limit.",
     )
     parser.add_argument(
         "--continue-after-failed",
@@ -169,7 +255,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the first Codex command and prompt without running it.",
+        help="Print the first agent command and prompt without running it.",
     )
     parser.add_argument(
         "--context-lines",
@@ -245,11 +331,15 @@ def parse_todo_items(lines: list[str]) -> tuple[TodoItem, ...]:
         if not match:
             continue
 
+        state = match.group("state").lower()
+        if state not in VALID_STATES:
+            continue
+
         raw_items.append(
             TodoItem(
                 lineno=lineno,
                 indent=todo_indent(match.group("prefix")),
-                state=match.group("state").lower(),
+                state=state,
                 text=match.group("rest").strip(),
                 is_leaf=True,
             )
@@ -299,13 +389,16 @@ def first_descendant(
 
 
 def select_next_item(items: tuple[TodoItem, ...]) -> TodoItem | None:
-    for item in items:
-        if item.state == "~" and item.is_leaf:
-            return item
-
     for index, item in enumerate(items):
         if item.state != "~":
             continue
+
+        if item.is_leaf:
+            return item
+
+        active_leaf = first_descendant(items, index, "~", True)
+        if active_leaf is not None:
+            return active_leaf
 
         pending_leaf = first_descendant(items, index, " ", True)
         if pending_leaf is not None:
@@ -483,6 +576,8 @@ def build_runner_contract_block(
 
     return f"""本轮硬约束（不依赖 skill，若与 skill 冲突以这里为准）：
 - 只读取并遵守当前 `--root` 仓库内的 `AGENTS.md`；不要向上级目录查找或应用 `AGENTS.md`。
+- 全程使用中文进行内部规划、自检和对外沟通；过程更新、失败说明、验证结果和最终回复都用中文。代码、命令、错误日志和项目内既有英文术语可以保留原文。
+- 本项目所有 Uya 验证、构建、测试、运行和 UPM 操作都必须使用项目根目录相对路径 `../uya/bin/uya`；不要使用 PATH 上的 `uya`、系统安装的 Uya、其他相邻目录中的编译器，或 `UYA_BIN`/`--uya-bin` 等覆盖方式，除非用户明确改这条约束。
 - Checkbox 状态只使用 `[ ]` 待执行、`[~]` 正在执行、`[x]` 已完成并已验证、`[f]` 已失败且写明原因。
 {round_scope}
 - 开始实现前，先按归档规则移动主 todo 中遗留的 `[x]` / `[f]` 可归档任务块。
@@ -523,6 +618,20 @@ def completed_archive_path(todo_display: str) -> str:
 
 def failed_archive_path(todo_display: str) -> str:
     return todo_archive_path(todo_display, "failed")
+
+
+def resolve_todo_path(root: Path, todo: str) -> tuple[Path, str]:
+    todo_path = Path(todo)
+    if not todo_path.is_absolute():
+        todo_path = root / todo_path
+
+    resolved = todo_path.resolve()
+    try:
+        display = str(resolved.relative_to(root))
+    except ValueError as exc:
+        raise ValueError(f"todo file must be inside --root: {resolved}") from exc
+
+    return resolved, display
 
 
 def build_prompt(
@@ -576,7 +685,17 @@ Todo 文件：`{todo_display}`
 """
 
 
-def build_codex_command(args: argparse.Namespace, root: Path) -> list[str]:
+def selected_model(args: argparse.Namespace, runner: str) -> str:
+    if args.model is not None:
+        return args.model.strip()
+    if runner == "codex":
+        return os.environ.get("CODEX_MODEL", "gpt-5.5").strip()
+    if runner == "kimi":
+        return os.environ.get("KIMI_MODEL", "").strip()
+    raise ValueError(f"unsupported runner: {runner}")
+
+
+def build_codex_invocation(args: argparse.Namespace, root: Path) -> AgentInvocation:
     cmd = [
         args.codex_cmd,
         "exec",
@@ -585,13 +704,80 @@ def build_codex_command(args: argparse.Namespace, root: Path) -> list[str]:
         "--sandbox",
         args.sandbox,
     ]
-    if args.model.strip():
-        cmd.extend(["--model", args.model.strip()])
+    model = selected_model(args, "codex")
+    if model:
+        cmd.extend(["--model", model])
     if args.reasoning_effort.strip():
         effort = args.reasoning_effort.strip()
         cmd.extend(["--config", f'model_reasoning_effort="{effort}"'])
     cmd.append("-")
-    return cmd
+    return AgentInvocation(
+        label="codex",
+        argv=tuple(cmd),
+        cwd=None,
+        prompt_mode="stdin",
+        prompt_option="",
+    )
+
+
+def format_kimi_prompt_prelude(system_prompt: str) -> str:
+    stripped = system_prompt.strip()
+    if not stripped:
+        return ""
+    return (
+        "Kimi 顶部约束：当前 Kimi CLI 不支持 `--system-prompt`，"
+        "因此以下内容作为本轮 prompt 顶部约束注入。\n"
+        f"{stripped}"
+    )
+
+
+def build_kimi_invocation(args: argparse.Namespace, root: Path) -> AgentInvocation:
+    cmd = [args.kimi_cmd]
+
+    if args.kimi_continue:
+        cmd.append("--continue")
+
+    model = selected_model(args, "kimi")
+    if model:
+        cmd.extend(["--model", model])
+
+    output_format = args.kimi_output_format.strip()
+    if output_format:
+        cmd.extend(["--output-format", output_format])
+
+    return AgentInvocation(
+        label="kimi",
+        argv=tuple(cmd),
+        cwd=root,
+        prompt_mode="option",
+        prompt_option="--prompt",
+        prompt_prelude=format_kimi_prompt_prelude(args.kimi_system_prompt),
+    )
+
+
+def build_agent_invocation(args: argparse.Namespace, root: Path) -> AgentInvocation:
+    if args.runner == "codex":
+        return build_codex_invocation(args, root)
+    if args.runner == "kimi":
+        return build_kimi_invocation(args, root)
+    raise ValueError(f"unsupported runner: {args.runner}")
+
+
+def format_command(invocation: AgentInvocation, include_prompt_placeholder: bool = True) -> str:
+    argv = list(invocation.argv)
+    if invocation.prompt_mode == "option" and include_prompt_placeholder:
+        argv.extend([invocation.prompt_option, "<prompt>"])
+    rendered = " ".join(shlex.quote(part) for part in argv)
+    if invocation.cwd is not None:
+        return f"(cd {shlex.quote(str(invocation.cwd))} && {rendered})"
+    return rendered
+
+
+def prepare_prompt(invocation: AgentInvocation, prompt: str) -> str:
+    prelude = invocation.prompt_prelude.strip()
+    if not prelude:
+        return prompt
+    return f"{prelude}\n\n{prompt}"
 
 
 def print_status(prefix: str, status: TodoStatus) -> None:
@@ -624,20 +810,96 @@ def validate_status(status: TodoStatus) -> int:
     return 0
 
 
-def run_codex_round(cmd: list[str], prompt: str) -> int:
-    completed = subprocess.run(cmd, input=prompt, text=True, check=False)
+def run_agent_round(invocation: AgentInvocation, prompt: str) -> int:
+    try:
+        if invocation.prompt_mode == "stdin":
+            completed = subprocess.run(
+                list(invocation.argv),
+                input=prompt,
+                text=True,
+                check=False,
+                cwd=invocation.cwd,
+            )
+        elif invocation.prompt_mode == "option":
+            completed = subprocess.run(
+                [*invocation.argv, invocation.prompt_option, prompt],
+                text=True,
+                check=False,
+                cwd=invocation.cwd,
+            )
+        else:
+            raise ValueError(f"unsupported prompt mode: {invocation.prompt_mode}")
+    except FileNotFoundError as exc:
+        executable = invocation.argv[0] if invocation.argv else invocation.label
+        if exc.filename == executable:
+            raise AgentStartError(f"runner executable not found: {executable}", 127) from exc
+        raise AgentStartError(f"failed to start {invocation.label}: {exc}", 126) from exc
+    except OSError as exc:
+        raise AgentStartError(f"failed to start {invocation.label}: {exc}", 126) from exc
     return completed.returncode
+
+
+def mark_item_failed(todo_path: Path, item: TodoItem, returncode: int) -> bool:
+    """Mark the selected todo item as failed after the agent process exits nonzero.
+
+    This prevents an agent crash from causing an infinite retry loop: the item
+    is turned into `[f]` so the next iteration can archive it or move on.
+    """
+    try:
+        lines = todo_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        print(
+            f"error: failed to read {todo_path} to mark failed task: {exc}",
+            file=sys.stderr,
+        )
+        return False
+
+    index = item.lineno - 1
+    if 0 <= index < len(lines):
+        line = lines[index]
+        match = CHECKBOX_RE.match(line)
+        if match:
+            state = match.group("state").lower()
+            if state in {" ", "~"}:
+                prefix = match.group("prefix")
+                rest = match.group("rest")
+                lines[index] = f"{prefix}[f]{rest}"
+
+    try:
+        todo_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"error: failed to write {todo_path} after marking failed task: {exc}",
+            file=sys.stderr,
+        )
+        return False
+
+    return True
 
 
 def main() -> int:
     args = parse_args()
-    root = Path(args.root).resolve()
-    todo_path = Path(args.todo)
-    if not todo_path.is_absolute():
-        todo_path = root / todo_path
-    todo_display = os.path.relpath(todo_path, root)
+    if args.runner not in {"codex", "kimi"}:
+        print(f"error: unsupported runner: {args.runner}", file=sys.stderr)
+        return 2
 
-    cmd = build_codex_command(args, root)
+    if args.runner == "kimi" and args.kimi_permission_mode.strip():
+        print(
+            "error: Kimi `--prompt` mode cannot be combined with "
+            "`--auto` or `--yolo`; leave --kimi-permission-mode empty. "
+            "Kimi prompt mode uses auto permission handling by default.",
+            file=sys.stderr,
+        )
+        return 2
+
+    root = Path(args.root).resolve()
+    try:
+        todo_path, todo_display = resolve_todo_path(root, args.todo)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    invocation = build_agent_invocation(args, root)
 
     if args.dry_run:
         try:
@@ -664,7 +926,11 @@ def main() -> int:
             context,
             status.needs_cleanup > 0,
         )
-        print("command:", " ".join(cmd))
+        prompt = prepare_prompt(invocation, prompt)
+        print("runner:", invocation.label)
+        if invocation.cwd is not None:
+            print("cwd:", invocation.cwd)
+        print("command:", format_command(invocation))
         print()
         print(prompt)
         return 0
@@ -705,11 +971,12 @@ def main() -> int:
             cleanup_only,
         )
         prompt = build_prompt(todo_display, args.skill, status, context, cleanup_only)
+        prompt = prepare_prompt(invocation, prompt)
         before_lines = tuple(lines)
         before_cleanup = status.needs_cleanup
 
         rounds += 1
-        print(f"round {rounds}: running {' '.join(cmd)}", flush=True)
+        print(f"round {rounds}: running {format_command(invocation)}", flush=True)
         if context.item is not None:
             print(
                 "round {}: target L{} [{}] {}".format(
@@ -720,9 +987,24 @@ def main() -> int:
                 ),
                 flush=True,
             )
-        returncode = run_codex_round(cmd, prompt)
+        try:
+            returncode = run_agent_round(invocation, prompt)
+        except AgentStartError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return exc.exit_code
         if returncode != 0:
-            print(f"error: codex round {rounds} exited with {returncode}", file=sys.stderr)
+            print(
+                f"warning: {invocation.label} round {rounds} exited with {returncode}; "
+                "not aborting loop.py immediately",
+                file=sys.stderr,
+            )
+            if not cleanup_only and context.item is not None:
+                if mark_item_failed(todo_path, context.item, returncode):
+                    print(
+                        f"round {rounds}: marked L{context.item.lineno} as failed",
+                        flush=True,
+                    )
+                    continue
             return returncode
 
         try:
@@ -738,14 +1020,14 @@ def main() -> int:
 
         if after_lines == before_lines:
             print(
-                f"error: codex round {rounds} exited successfully but did not update {todo_display}",
+                f"error: {invocation.label} round {rounds} exited successfully but did not update {todo_display}",
                 file=sys.stderr,
             )
             return 4
 
         if not cleanup_only and after_status == status:
             print(
-                "error: codex round changed todo text but did not change checkbox status counts",
+                f"error: {invocation.label} round changed todo text but did not change checkbox status counts",
                 file=sys.stderr,
             )
             return 4
