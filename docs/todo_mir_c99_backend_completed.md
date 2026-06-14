@@ -858,3 +858,9 @@
   - 验证：`bash tests/verify_mir_c99_self_build_capability_backlog.sh` -> `OK: MIR-C99 self-build capability backlog is grouped by capability class with gate/evidence lines`
   - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
   - 验证：`git diff --check` -> 无输出
+## 4. 任务清单
+### 4.16 Self Build
+父级路径：MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+父级路径：根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
+    - [x] place/memory：audit=当前未进入 `blocked_category_summary`，但后续 self-build 不得再回退到 pointer/out-param/helper-shape frontier；gate=`bash tests/verify_mir_c99_place_memory_parity.sh` + `bash tests/verify_mir_c99_full_language_pointer_parity.sh`；host C 证据=两者都经 oracle parity harness 编译并运行。
+      - 验证：`bash tests/verify_mir_c99_place_memory_parity.sh` 通过，覆盖 struct field load/store、array index、slice index 和 `*out = value` out-param 写回，经 `tests/verify_mir_c99_oracle_parity_harness.sh` 生成、host C compiler 编译运行并与现有 C99 oracle 对齐；`bash tests/verify_mir_c99_full_language_pointer_parity.sh` 通过，覆盖 `&local` 取地址、`*ptr` deref load/store、指针别名和 out-param 写回，经同一 parity harness 编译运行并与现有 C99 oracle 对齐；`tmp_dir="$(mktemp -d /tmp/uya-mir-c99-place-audit.XXXXXX)" && trap 'rm -rf "$tmp_dir"' EXIT && output_c="$tmp_dir/cmd-build-mir.c" && log_file="$tmp_dir/cmd-build-mir.log" && ./tests/mir_c99_generate.sh src/cmd/build/main.uya "$output_c" "$log_file" >/dev/null && grep '^blocked_category_summary=' "$log_file"` 输出 `blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1`，确认当前无 place/memory blocker。说明：现有 C99 oracle host 编译阶段仍输出既有 pedantic warning，但上述命令退出码均为 0。
