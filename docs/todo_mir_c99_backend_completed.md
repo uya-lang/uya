@@ -933,3 +933,14 @@ Context:
   - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`
   - 验证：`bash tests/verify_mir_c99_self_build_reset_metrics.sh`
   - 结果：全部通过；host C compiler 可编译 candidate，`cmd/build --help` exit 0，并输出 `Uya build compiler - C99 build seed` 与 `用法:`（帮助文本当前走 `stderr`，验证已覆盖 `stdout/stderr` 任一输出流）。
+
+- [x] 重开失败归档中的 `cmd/build` self-build 项为真实 MIR-C99 candidate 去 seed 化叶子，并增加防误判 guard。
+  - 实现：`docs/todo_mir_c99_backend_failed.md` 不再保留该项为 `[f]`，改为已重开历史记录；`docs/todo_mir_c99_backend.md` 在 4.16 下新增 `去除 tracked_cmd_build_seed 过渡源` 叶子，要求 candidate C 来自 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter`，并明确 seed smoke 不能作为完成证据。
+  - 验证：`bash tests/verify_mir_c99_self_build_true_candidate_reopen.sh`
+  - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`
+  - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend_failed.md`
+  - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`
+  - 验证：`bash tests/verify_mir_c99_generator_driver_handoff.sh`
+  - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh`
+  - 验证：`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`
+  - 验证：`git diff --check`
