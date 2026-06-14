@@ -53,14 +53,14 @@ require_pattern "$log_file" '^host_compiler_binary_status=not_yet_generated$' \
     "diagnostic log records the current non-compiler status"
 require_pattern "$log_file" '^host_compiler_binary_candidate_role=summary_executable$' \
     "diagnostic log distinguishes summary executable from compiler binary"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_reachability_init,prefix_stmts=12,reason=body_complete$' \
-    "diagnostic log records the completed reachability_init helper body"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_reachability_init_body_lowering$' \
-    "diagnostic log records the migrated reachability_init body lowering"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_type_is_i32,decl=[0-9]+,function_id=[0-9]+,body_stmts=3,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_type_is_i32,prefix_stmts=3,reason=body_complete$' \
+    "diagnostic log records the completed type_is_i32 helper body"
+require_pattern "$log_file" '^completed_coverage=generic_corebody_type_is_i32_body_lowering$' \
+    "diagnostic log records the migrated type_is_i32 body lowering"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_type_is_usize,decl=[0-9]+,function_id=[0-9]+,body_stmts=3,reason=pending_core_body$' \
     "diagnostic log preserves the next compiler-source frontier"
-require_pattern "$log_file" '^next_coverage=generic_corebody_type_is_i32_body_lowering$' \
-    "diagnostic log records the next generic type_is_i32 slice"
+require_pattern "$log_file" '^next_coverage=generic_corebody_type_is_usize_body_lowering$' \
+    "diagnostic log records the next generic type_is_usize slice"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_ATTEMPT=1$' \
     "summary sidecar records host compiler binary attempt"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''not_yet_generated'\''' \

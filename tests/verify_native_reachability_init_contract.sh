@@ -32,7 +32,9 @@ done
 
 require_pattern "$TODO_DOC" 'native_build_reachability_init\(\.\.\.\).*12 statement body-complete.*completed body detail' \
     "todo 缺少 native_build_reachability_init 12 statement body-complete 完成记录"
-require_pattern "$TODO_DOC" 'native_build_type_is_i32\(\.\.\.\).*generic_corebody_type_is_i32_body_lowering' \
+require_pattern "$TODO_DOC" '已把 `native_build_type_is_i32\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
+    "todo 缺少 reachability_init 后续的 type_is_i32 body-complete 完成记录"
+require_pattern "$TODO_DOC" 'native_build_type_is_usize\(\.\.\.\).*generic_corebody_type_is_usize_body_lowering' \
     "todo 缺少 reachability_init 迁入后的下一处 frontier"
 require_pattern "$SUBSET_DOC" '^## `native_build_reachability_init\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_reachability_init 合同"

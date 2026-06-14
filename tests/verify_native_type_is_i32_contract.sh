@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
+TODO_DOC="$REPO_ROOT/docs/todo_mir_c99_backend.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
 
@@ -30,14 +30,20 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_type_is_i32\(\.\.\.\)' \
-    "todo 缺少 native_build_type_is_i32 合同任务"
-require_pattern "$TODO_DOC" '3 statement body surface' \
-    "todo 缺少 native_build_type_is_i32 3 statement 合同意图"
+require_pattern "$TODO_DOC" '已把 `native_build_type_is_i32\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
+    "todo 缺少 native_build_type_is_i32 body-complete 完成记录"
+require_pattern "$TODO_DOC" 'native_build_type_is_usize\(\.\.\.\).*generic_corebody_type_is_usize_body_lowering' \
+    "todo 缺少 native_build_type_is_i32 迁入后的下一处 frontier"
 require_pattern "$SUBSET_DOC" '^## `native_build_type_is_i32\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_type_is_i32 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_i32 .*body_stmts=3 reason=pending_core_body' \
-    "subset doc 缺少当前 native_build_type_is_i32 pending frontier"
+    "subset doc 缺少 native_build_type_is_i32 原始 pending frontier"
+require_pattern "$SUBSET_DOC" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[0-9]+ core_bodies=28 pending_bodies=[0-9]+' \
+    "subset doc 缺少 native_build_type_is_i32 迁入后的 CoreIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[0-9]+ mir_body_functions=27' \
+    "subset doc 缺少 native_build_type_is_i32 迁入后的 PortableMIR 计数"
+require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_usize .*body_stmts=3 reason=pending_core_body' \
+    "subset doc 缺少 native_build_type_is_i32 迁入后的下一 frontier"
 require_pattern "$SUBSET_DOC" 'type_node == null \|\| type_node\.type != ASTNodeType\.AST_TYPE_NAMED \|\| type_node\.type_named_name == null' \
     "subset doc 缺少 null/type/name guard"
 require_pattern "$SUBSET_DOC" 'str_equals\(type_node\.type_named_name, "i32" as \*byte\) != 0' \
@@ -55,6 +61,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'type_node == null \|\| type_node\.type != A
     "源码缺少 null/type/name guard"
 require_pattern "$BUILD_DRIVER_SRC" 'str_equals\(type_node\.type_named_name, "i32" as \*byte\) != 0' \
     "源码缺少 i32 str_equals branch"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_type_is_i32_body_function' \
+    "源码缺少 native_build_type_is_i32 的 PortableMIR body lowering"
 require_pattern "$STAGE1_TEST" 'verify_native_type_is_i32_contract\.sh' \
     "stage1 未纳入 native_build_type_is_i32 合同"
 
