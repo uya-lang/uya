@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
+TODO_DOC="$REPO_ROOT/docs/todo_mir_c99_backend.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
 
@@ -30,7 +30,7 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_type_named_equals\(\.\.\.\)' \
+require_pattern "$TODO_DOC" 'native_build_type_named_equals\(\.\.\.\).*generic_corebody_type_named_equals_body_lowering' \
     "todo 缺少 native_build_type_named_equals 合同任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_type_named_equals\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_type_named_equals 合同"

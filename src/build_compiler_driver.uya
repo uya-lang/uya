@@ -37511,6 +37511,18 @@ fn native_build_hosted_mir_append_type_is_i32_body_function(
     return native_build_hosted_mir_append_one_param_two_if_const_return_body_function(
         module, lowered_function_id, decl_index, source_core_body_id, decl);
 }
+fn native_build_hosted_mir_append_type_is_usize_body_function(
+    module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
+    source_core_body_id: i32, decl: &ASTNode) i32 {
+    if module == null || lowered_function_id < 0 || decl_index < 0 ||
+       source_core_body_id < 0 || decl == null || decl.fn_decl_name == null ||
+       str_equals(decl.fn_decl_name as *byte,
+        "native_build_type_is_usize" as *byte) == 0 {
+        return -1;
+    }
+    return native_build_hosted_mir_append_one_param_two_if_const_return_body_function(
+        module, lowered_function_id, decl_index, source_core_body_id, decl);
+}
 fn native_build_hosted_mir_append_identity_generic_i32_body_function(
     module: &PortableMirModule, lowered_function_id: i32, decl_index: i32,
     source_core_body_id: i32, decl: &ASTNode) i32 {
@@ -41966,14 +41978,9 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     }
                     body_function_count = body_function_count + 1;
                 } else if has_type_is_usize_body != 0 {
-                    if decl.fn_decl_body == null ||
-                       decl.fn_decl_body.block_stmts == null ||
-                       decl.fn_decl_body.block_stmts[2] == null ||
-                       decl.fn_decl_body.block_stmts[2].return_stmt_expr == null ||
-                       native_build_hosted_mir_append_const_return_body_function(
+                    if native_build_hosted_mir_append_type_is_usize_body_function(
                         module, lowered_function_id, i, source_core_body_id,
-                        decl.fn_decl_body.block_stmts[2].return_stmt_expr.expr_id,
-                        0) != 0 {
+                        decl) != 0 {
                         return -1;
                     }
                     body_function_count = body_function_count + 1;

@@ -30,8 +30,10 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_type_is_usize\(\.\.\.\).*generic_corebody_type_is_usize_body_lowering' \
-    "todo 缺少 native_build_type_is_usize 合同任务"
+require_pattern "$TODO_DOC" '已把 `native_build_type_is_usize\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
+    "todo 缺少 native_build_type_is_usize body-complete 完成记录"
+require_pattern "$TODO_DOC" 'native_build_type_named_equals\(\.\.\.\).*generic_corebody_type_named_equals_body_lowering' \
+    "todo 缺少 native_build_type_is_usize 迁入后的下一处 frontier"
 require_pattern "$SUBSET_DOC" '^## `native_build_type_is_usize\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_type_is_usize 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_usize .*body_stmts=3 reason=pending_core_body' \
@@ -55,6 +57,10 @@ require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_type_is_usize\(type_node: &
     "源码缺少 native_build_type_is_usize helper"
 require_pattern "$BUILD_DRIVER_SRC" 'str_equals\(type_node\.type_named_name, "usize" as \*byte\) != 0' \
     "源码缺少 usize str_equals branch"
+require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_hosted_mir_append_type_is_usize_body_function\(' \
+    "源码缺少 native_build_type_is_usize 的 PortableMIR body lowering"
+require_pattern "$BUILD_DRIVER_SRC" 'if native_build_hosted_mir_append_type_is_usize_body_function\(' \
+    "源码缺少 native_build_type_is_usize 的 PortableMIR lowering 调度"
 require_pattern "$STAGE1_TEST" 'verify_native_type_is_usize_contract\.sh' \
     "stage1 未纳入 native_build_type_is_usize 合同"
 

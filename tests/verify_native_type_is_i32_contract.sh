@@ -32,8 +32,8 @@ done
 
 require_pattern "$TODO_DOC" '已把 `native_build_type_is_i32\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
     "todo 缺少 native_build_type_is_i32 body-complete 完成记录"
-require_pattern "$TODO_DOC" 'native_build_type_is_usize\(\.\.\.\).*generic_corebody_type_is_usize_body_lowering' \
-    "todo 缺少 native_build_type_is_i32 迁入后的下一处 frontier"
+require_pattern "$TODO_DOC" '已把 `native_build_type_is_usize\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
+    "todo 缺少 native_build_type_is_i32 迁入后的后续 frontier 推进记录"
 require_pattern "$SUBSET_DOC" '^## `native_build_type_is_i32\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_type_is_i32 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_i32 .*body_stmts=3 reason=pending_core_body' \
