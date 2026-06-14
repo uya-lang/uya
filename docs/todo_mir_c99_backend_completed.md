@@ -882,3 +882,10 @@ Context:
       - `bash tests/verify_mir_c99_full_language_struct_parity.sh`：通过，输出 `OK: MIR-C99 place/memory parity matched C99 oracle`、`OK: MIR-C99 call parity matched C99 oracle`、`OK: MIR-C99 full-language struct parity matched C99 oracle`。
       - `bash tests/verify_mir_c99_global_import_parity.sh`：通过，输出 `OK: MIR-C99 global/import parity matched C99 oracle`。
       - host C 证据：三项 gate 都通过 `tests/verify_mir_c99_oracle_parity_harness.sh` 生成 MIR/legacy C，使用宿主 `cc -std=c99 -Wall -Wextra -pedantic` 编译并运行二进制，比对 `stdout`、`stderr` 和退出码一致。
+
+### 4.16 Self Build
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+父级路径：根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
+    - [x] cleanup/error：audit=当前未进入 `blocked_category_summary`，但 break/continue/drop/error path 仍可能重新暴露 candidate frontier；gate=`bash tests/verify_mir_c99_lexical_drop_parity.sh` + `bash tests/verify_mir_c99_dynamic_catch_parity.sh` + `bash tests/verify_mir_c99_full_language_errdefer_parity.sh`；host C 证据=上述 gate 都经 oracle parity harness 编译并运行。
+      - 验证：`tmp_dir="$(mktemp -d /tmp/uya-mir-c99-cleanup-audit.XXXXXX)"; log_file="$tmp_dir/cmd-build-mir.log"; output_c="$tmp_dir/cmd-build-mir.c"; ./tests/mir_c99_generate.sh src/cmd/build/main.uya "$output_c" "$log_file" >/dev/null && grep '^blocked_category_summary=' "$log_file"` 输出 `blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1`，确认当前 `cmd/build` summary 无 `cleanup/error` blocker；`bash tests/verify_mir_c99_lexical_drop_parity.sh` 通过，覆盖 lexical drop scope / return cleanup，经 `tests/verify_mir_c99_oracle_parity_harness.sh` 生成 `.c`、host C compiler 编译运行并与现有 C99 oracle 对齐；`bash tests/verify_mir_c99_dynamic_catch_parity.sh` 通过，覆盖 dynamic catch success/error 两条路径并经同一 harness 编译运行；`bash tests/verify_mir_c99_full_language_errdefer_parity.sh` 通过，覆盖 errdefer success/error cleanup 路径并经同一 harness 编译运行；现有 C99 oracle host 编译阶段仍输出既有 pedantic/unused warning，但上述 gate 退出码均为 0。
