@@ -871,3 +871,14 @@
 父级路径：根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
     - [x] call ABI：audit=`blocked_category_call_abi=candidate_call_abi_smoke_missing`；gate=`bash tests/verify_mir_c99_call_parity.sh` + `bash tests/verify_mir_c99_full_language_float_call_abi_parity.sh`；host C 证据=两者都经 oracle parity harness 编译并运行，并继续受 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 约束。
       - 验证：`bash tests/verify_mir_c99_call_parity.sh` 通过；`bash tests/verify_mir_c99_full_language_float_call_abi_parity.sh` 通过；`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过；`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 通过；`bash tests/verify_mir_c99_self_build_capability_backlog.sh` 通过。说明：两个 parity gate 均经 `tests/verify_mir_c99_oracle_parity_harness.sh` 生成、host C compiler 编译运行，并与现有 C99 oracle 对齐；现有 oracle host 编译阶段仍有既有 `-Wpedantic` warning，但上述命令退出码均为 0，且 `cmd/build` host binary attempt gate 继续记录 `blocked_category_call_abi=candidate_call_abi_smoke_missing`。
+
+### 4.16 Self Build
+Context:
+- `MIR-C99-BACKEND-SELF-BUILD-RESET`
+- `根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。`
+  - [x] aggregate/layout：audit=当前未进入 `blocked_category_summary`，但 aggregate/global/layout 变更必须先过通用 parity 再允许触碰 self-build frontier；gate=`bash tests/verify_mir_c99_layout_parity.sh` + `bash tests/verify_mir_c99_full_language_struct_parity.sh` + `bash tests/verify_mir_c99_global_import_parity.sh`；host C 证据=上述 gate 都编译并运行生成 C 产物。
+    - 验证（2026-06-14）：
+      - `bash tests/verify_mir_c99_layout_parity.sh`：通过，输出 `OK: MIR-C99 layout parity matched C99 oracle`。
+      - `bash tests/verify_mir_c99_full_language_struct_parity.sh`：通过，输出 `OK: MIR-C99 place/memory parity matched C99 oracle`、`OK: MIR-C99 call parity matched C99 oracle`、`OK: MIR-C99 full-language struct parity matched C99 oracle`。
+      - `bash tests/verify_mir_c99_global_import_parity.sh`：通过，输出 `OK: MIR-C99 global/import parity matched C99 oracle`。
+      - host C 证据：三项 gate 都通过 `tests/verify_mir_c99_oracle_parity_harness.sh` 生成 MIR/legacy C，使用宿主 `cc -std=c99 -Wall -Wextra -pedantic` 编译并运行二进制，比对 `stdout`、`stderr` 和退出码一致。
