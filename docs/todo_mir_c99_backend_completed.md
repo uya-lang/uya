@@ -744,3 +744,17 @@
 - 中间状态：本轮锁定 `native_build_local_table_empty()` struct literal return 的 body-complete 合同，目标 coverage 为 `generic_corebody_local_table_empty_struct_return_lowering`，要求默认 MIR-C99 generator summary 继续前移到下一处真实 `pending_core_bodies` frontier。
 - 中间状态：已把 `native_build_local_table_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_const_slice_sum_shape_empty` / `generic_corebody_const_slice_sum_shape_empty_struct_return_lowering`。
   - 验证：`bash tests/verify_native_local_table_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`bash tests/verify_mir_c99_cmd_build_self_preflight.sh`、`bash tests/verify_mir_c99_default_generator_command.sh`、`bash tests/verify_mir_c99_default_generator_writes_subset.sh`、`bash tests/verify_portable_mir_language_coverage.sh`、`bash tests/verify_mir_c99_minimal_subset_contract.sh`、`bash tests/verify_portable_mir_core_body_lowering.sh`、`bash tests/verify_mir_c99_independent_boundary.sh`、`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 均通过。
+
+### 4.16 Self Build
+
+父级任务路径：
+- MIR-C99-BACKEND-SELF-BUILD：编译器自举走 MIR-C99。
+- host C compiler 编译 MIR-C99 产物得到 compiler binary。
+- 逐步清空 `pending_core_bodies` frontier，直到默认 MIR-C99 generator 对 `cmd/build` root 输出真实 compiler candidate C。
+
+完成子任务：
+- [x] 锁定 `native_build_lexical_drop_shape_empty()` struct literal return 的 body-complete 合同，并把默认 MIR-C99 generator summary 前移到 `native_build_interface_method_shape_empty` / `generic_corebody_interface_method_shape_empty_struct_return_lowering`。
+  - 完成条件：`cmd/build` summary fixture 记录 `native_build_lexical_drop_shape_empty()` body-complete，且下一处真实 compiler-source frontier 改为 `native_build_interface_method_shape_empty`。
+  - 最小验证：`bash tests/verify_native_lexical_drop_shape_empty_contract.sh`、`bash tests/verify_native_interface_method_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`。
+  - 2026-06-14：已把 `native_build_lexical_drop_shape_empty()` 记录为 body-complete，并将默认 MIR-C99 generator summary 前移到 `native_build_interface_method_shape_empty` / `generic_corebody_interface_method_shape_empty_struct_return_lowering`。
+  - 验证：`bash tests/verify_native_lexical_drop_shape_empty_contract.sh`、`bash tests/verify_native_interface_method_shape_empty_contract.sh`、`bash tests/verify_mir_c99_cmd_build_frontier_summary.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`、`./bin/uya check src/cmd/build/main.uya --project-root src/` 通过；`bash tests/verify_native_cmd_build_no_silent_c99.sh` 仍失败于普通 `test_native_main_only.uya --native` preflight：`native_hosted_pending_body_frontier: function=native_main_bval ... pending_bodies=178`。
