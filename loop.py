@@ -78,6 +78,10 @@ class TodoStatus:
     def runnable(self) -> int:
         return self.pending + self.active
 
+    @property
+    def needs_cleanup(self) -> int:
+        return self.done + self.failed
+
 
 @dataclass(frozen=True)
 class TodoItem:
@@ -160,7 +164,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--continue-after-failed",
         action="store_true",
-        help="Continue while [f] tasks exist if there are still [ ] or [~] tasks.",
+        help="After archiving [f] tasks, continue if there are still [ ] or [~] tasks.",
     )
     parser.add_argument(
         "--dry-run",
@@ -324,6 +328,13 @@ def select_next_item(items: tuple[TodoItem, ...]) -> TodoItem | None:
     return None
 
 
+def select_cleanup_item(items: tuple[TodoItem, ...]) -> TodoItem | None:
+    for item in items:
+        if item.state == "x" or item.state == "f":
+            return item
+    return None
+
+
 def collect_headings(lines: list[str], target_lineno: int) -> tuple[str, ...]:
     stack: list[tuple[int, str]] = []
     for line in lines[: max(0, target_lineno - 1)]:
@@ -384,9 +395,13 @@ def build_todo_context(
     lines: list[str],
     context_lines: int,
     max_line_chars: int,
+    cleanup_only: bool = False,
 ) -> TodoContext:
     items = parse_todo_items(lines)
-    item = select_next_item(items)
+    if cleanup_only:
+        item = select_cleanup_item(items)
+    else:
+        item = select_next_item(items)
     if item is None:
         return TodoContext(
             item=None,
@@ -456,14 +471,21 @@ def build_runner_contract_block(
     archive_display: str,
     failed_archive_display: str,
     range_hint: str,
+    cleanup_only: bool,
 ) -> str:
+    if cleanup_only:
+        round_scope = """- 本轮是归档清理轮：只移动主 todo 中遗留的 `[x]` / `[f]` 可归档任务块到对应归档，不启动、不继续、不拆分任何 `[ ]` / `[~]` 任务。
+- 归档完成后直接停止；外层 `loop.py` 会重新检查 todo 状态。"""
+    else:
+        round_scope = """- 本轮只推进一个叶子任务：优先继续已有 `[~]` 叶子；如果已有 `[~]` 是父级/过大任务，先把父级改回 `[ ]`，拆成有顺序的小型 `[ ]` 叶子子任务，并只把第一个可执行叶子标成 `[~]`。
+- 如果发现多个 `[~]`，先用中文报告异常；若是父子同时 `[~]`，保留文档顺序中第一个可执行叶子 `[~]` 并把父级改回 `[ ]`，否则按文档顺序只处理第一个 `[~]`；不要重排或吞掉其他任务。
+- 如果任务过大或含糊，先在 todo 中拆成可执行的叶子子任务；父级保持 `[ ]` 作为分组，子任务写清单一交付物、最小验证命令和完成条件，只启动第一个子任务。"""
+
     return f"""本轮硬约束（不依赖 skill，若与 skill 冲突以这里为准）：
 - 只读取并遵守当前 `--root` 仓库内的 `AGENTS.md`；不要向上级目录查找或应用 `AGENTS.md`。
 - Checkbox 状态只使用 `[ ]` 待执行、`[~]` 正在执行、`[x]` 已完成并已验证、`[f]` 已失败且写明原因。
-- 本轮只推进一个叶子任务：优先继续已有 `[~]` 叶子；如果已有 `[~]` 是父级/过大任务，先把父级改回 `[ ]`，拆成有顺序的小型 `[ ]` 叶子子任务，并只把第一个可执行叶子标成 `[~]`。
-- 如果发现多个 `[~]`，先用中文报告异常；若是父子同时 `[~]`，保留文档顺序中第一个可执行叶子 `[~]` 并把父级改回 `[ ]`，否则按文档顺序只处理第一个 `[~]`；不要重排或吞掉其他任务。
+{round_scope}
 - 开始实现前，先按归档规则移动主 todo 中遗留的 `[x]` / `[f]` 可归档任务块。
-- 如果任务过大或含糊，先在 todo 中拆成可执行的叶子子任务；父级保持 `[ ]` 作为分组，子任务写清单一交付物、最小验证命令和完成条件，只启动第一个子任务。
 - 优先围绕上面的目标行工作；读取 todo 时使用小范围命令，例如 `sed -n '{range_hint}p' {todo_display}`，避免打印整份 todo 历史。
 - 不要读取 `loop.log`；如确需排错，只读取短尾部，例如 `tail -n 200 loop.log`。
 - 完成后写入真实验证命令和结果，再把任务标成 `[x]`，并将本轮完成的 `[x]` 任务及其验证记录移动到完成归档 `{archive_display}`。
@@ -508,11 +530,15 @@ def build_prompt(
     skill: str,
     status: TodoStatus,
     context: TodoContext,
+    cleanup_only: bool = False,
 ) -> str:
     archive_display = completed_archive_path(todo_display)
     failed_archive_display = failed_archive_path(todo_display)
     if context.item is None:
-        target = "未找到可执行 `[~]` 或 `[ ]` 项。"
+        if cleanup_only:
+            target = "未找到遗留 `[x]` 或 `[f]` 可归档项。"
+        else:
+            target = "未找到可执行 `[~]` 或 `[ ]` 项。"
         leaf = "unknown"
         range_hint = "无"
     else:
@@ -521,6 +547,7 @@ def build_prompt(
         range_hint = f"{context.excerpt_start},{context.excerpt_end}"
 
     ancestors = tuple(format_item_for_prompt(item) for item in context.ancestors)
+    round_mode = "归档清理" if cleanup_only else "任务执行"
     return f"""{build_prompt_opening(skill)}
 
 {build_rule_source_block(skill)}
@@ -529,7 +556,8 @@ def build_prompt(
 Todo 文件：`{todo_display}`
 完成归档：`{archive_display}`
 失败归档：`{failed_archive_display}`
-当前状态：pending={status.pending} active={status.active} done={status.done} failed={status.failed} unfinished={status.unfinished}
+当前状态：pending={status.pending} active={status.active} done={status.done} failed={status.failed} runnable={status.runnable} cleanup={status.needs_cleanup} unfinished={status.unfinished}
+本轮模式：{round_mode}
 
 本轮定位：
 - 目标：{target}
@@ -544,7 +572,7 @@ Todo 文件：`{todo_display}`
 {format_prompt_lines(context.excerpt, "  (无摘录)")}
 ```
 
-{build_runner_contract_block(todo_display, archive_display, failed_archive_display, range_hint)}
+{build_runner_contract_block(todo_display, archive_display, failed_archive_display, range_hint, cleanup_only)}
 """
 
 
@@ -568,12 +596,14 @@ def build_codex_command(args: argparse.Namespace, root: Path) -> list[str]:
 
 def print_status(prefix: str, status: TodoStatus) -> None:
     print(
-        "{} pending={} active={} done={} failed={} unfinished={}".format(
+        "{} pending={} active={} done={} failed={} runnable={} cleanup={} unfinished={}".format(
             prefix,
             status.pending,
             status.active,
             status.done,
             status.failed,
+            status.runnable,
+            status.needs_cleanup,
             status.unfinished,
         ),
         flush=True,
@@ -625,8 +655,15 @@ def main() -> int:
             lines,
             args.context_lines,
             args.max_excerpt_line_chars,
+            status.needs_cleanup > 0,
         )
-        prompt = build_prompt(todo_display, args.skill, status, context)
+        prompt = build_prompt(
+            todo_display,
+            args.skill,
+            status,
+            context,
+            status.needs_cleanup > 0,
+        )
         print("command:", " ".join(cmd))
         print()
         print(prompt)
@@ -646,19 +683,14 @@ def main() -> int:
         if status_error:
             return status_error
 
-        if status.unfinished == 0:
-            print("done: no unfinished todo tasks remain")
+        if status.runnable == 0 and status.needs_cleanup == 0:
+            print("done: no runnable or cleanup todo tasks remain")
             return 0
 
-        if status.failed and not args.continue_after_failed:
-            print(
-                "error: failed [f] tasks remain; fix them or rerun with "
-                "--continue-after-failed",
-                file=sys.stderr,
-            )
-            return 2
+        cleanup_only = status.needs_cleanup > 0
+        stop_after_failed_cleanup = status.failed > 0 and not args.continue_after_failed
 
-        if status.runnable == 0:
+        if status.runnable == 0 and not cleanup_only:
             print("error: no runnable [ ] or [~] tasks remain", file=sys.stderr)
             return 2
 
@@ -670,8 +702,11 @@ def main() -> int:
             lines,
             args.context_lines,
             args.max_excerpt_line_chars,
+            cleanup_only,
         )
-        prompt = build_prompt(todo_display, args.skill, status, context)
+        prompt = build_prompt(todo_display, args.skill, status, context, cleanup_only)
+        before_lines = tuple(lines)
+        before_cleanup = status.needs_cleanup
 
         rounds += 1
         print(f"round {rounds}: running {' '.join(cmd)}", flush=True)
@@ -689,6 +724,46 @@ def main() -> int:
         if returncode != 0:
             print(f"error: codex round {rounds} exited with {returncode}", file=sys.stderr)
             return returncode
+
+        try:
+            after_lines = tuple(read_todo_lines(todo_path))
+        except FileNotFoundError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        after_status = read_todo_status_from_lines(list(after_lines))
+        status_error = validate_status(after_status)
+        if status_error:
+            return status_error
+
+        if after_lines == before_lines:
+            print(
+                f"error: codex round {rounds} exited successfully but did not update {todo_display}",
+                file=sys.stderr,
+            )
+            return 4
+
+        if not cleanup_only and after_status == status:
+            print(
+                "error: codex round changed todo text but did not change checkbox status counts",
+                file=sys.stderr,
+            )
+            return 4
+
+        if cleanup_only and after_status.needs_cleanup >= before_cleanup:
+            print(
+                "error: cleanup round did not reduce [x]/[f] items in main todo",
+                file=sys.stderr,
+            )
+            return 4
+
+        if cleanup_only and stop_after_failed_cleanup:
+            print(
+                "stopped: failed [f] tasks were archived; rerun with "
+                "--continue-after-failed to continue remaining runnable tasks",
+                file=sys.stderr,
+            )
+            return 2
 
 
 if __name__ == "__main__":
