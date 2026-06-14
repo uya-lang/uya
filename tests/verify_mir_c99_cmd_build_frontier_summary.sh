@@ -39,40 +39,40 @@ require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_direct_method_shape_empty_struct_return_lowering$' \
-    "log records the migrated direct-method empty struct return lowering"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_direct_method_shape_empty,prefix_stmts=1,reason=body_complete$' \
-    "log records the completed direct-method helper body"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_struct_union_enum_shape_empty,decl=430,function_id=56,body_stmts=1,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_coverage=generic_corebody_struct_union_enum_shape_empty_struct_return_lowering$' \
+    "log records the migrated struct/union/enum empty struct return lowering"
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_struct_union_enum_shape_empty,prefix_stmts=1,reason=body_complete$' \
+    "log records the completed struct/union/enum helper body"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_atomic_i32_shape_empty,decl=431,function_id=57,body_stmts=1,reason=pending_core_body$' \
     "log records the next compiler-source pending body frontier"
 require_pattern "$log_file" '^next_capability=corebody_portable_mir_body_lowering$' \
     "log records the next capability to expand"
-require_pattern "$log_file" '^next_coverage=generic_corebody_struct_union_enum_shape_empty_struct_return_lowering$' \
+require_pattern "$log_file" '^next_coverage=generic_corebody_atomic_i32_shape_empty_struct_return_lowering$' \
     "log records the next generic coverage slice"
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_direct_method_shape_empty_struct_return_lowering'$" \
-    "summary sidecar records the migrated direct-method empty struct return lowering"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_direct_method_shape_empty,prefix_stmts=1,reason=body_complete'$" \
-    "summary sidecar records the completed direct-method helper body"
-require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_struct_union_enum_shape_empty,decl=430,function_id=56,body_stmts=1,reason=pending_core_body'$" \
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_struct_union_enum_shape_empty_struct_return_lowering'$" \
+    "summary sidecar records the migrated struct/union/enum empty struct return lowering"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_struct_union_enum_shape_empty,prefix_stmts=1,reason=body_complete'$" \
+    "summary sidecar records the completed struct/union/enum helper body"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_atomic_i32_shape_empty,decl=431,function_id=57,body_stmts=1,reason=pending_core_body'$" \
     "summary sidecar records the concrete compiler-source pending body frontier"
 require_pattern "$summary_file" "^MIR_C99_NEXT_CAPABILITY='corebody_portable_mir_body_lowering'$" \
     "summary sidecar records the next capability"
-require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_struct_union_enum_shape_empty_struct_return_lowering'$" \
+require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_atomic_i32_shape_empty_struct_return_lowering'$" \
     "summary sidecar records the next generic coverage slice"
 
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_frontier' \
     "coverage matrix records the current self-build frontier"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*mir_instruction_coverage' \
     "coverage matrix records the general MIR-C99 gap category"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_direct_method_shape_empty_struct_return_lowering.*已纳入 CoreBody -> PortableMIR lowering' \
-    "coverage matrix records the migrated direct-method empty struct return lowering"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*当前 completed body detail 包含 `native_build_direct_method_shape_empty` body-complete，下一处 frontier 为 `native_build_struct_union_enum_shape_empty`/`generic_corebody_struct_union_enum_shape_empty_struct_return_lowering`' \
-    "coverage matrix records the direct-method completion and next struct/union/enum frontier"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_struct_union_enum_shape_empty_struct_return_lowering.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated struct/union/enum empty struct return lowering"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*当前 completed body detail 包含 `native_build_struct_union_enum_shape_empty` body-complete，下一处 frontier 为 `native_build_atomic_i32_shape_empty`/`generic_corebody_atomic_i32_shape_empty_struct_return_lowering`' \
+    "coverage matrix records the struct/union/enum completion and next atomic frontier"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*compile_stats_record_and_release_typed_program_stmt16_typed_type_records_release.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage matrix records the migrated typed_type_records_release slice"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*compile_stats_record_and_release_typed_program_stmt17_typed_program_released_bytes.*已纳入 CoreBody -> PortableMIR lowering' \
