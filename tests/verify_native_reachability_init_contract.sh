@@ -30,10 +30,10 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_reachability_init\(\.\.\.\)' \
-    "todo 缺少 native_build_reachability_init 合同任务"
-require_pattern "$TODO_DOC" '12 statement body-complete' \
-    "todo 缺少 native_build_reachability_init 12 statement body-complete 合同意图"
+require_pattern "$TODO_DOC" 'native_build_reachability_init\(\.\.\.\).*12 statement body-complete.*completed body detail' \
+    "todo 缺少 native_build_reachability_init 12 statement body-complete 完成记录"
+require_pattern "$TODO_DOC" 'native_build_type_is_i32\(\.\.\.\).*generic_corebody_type_is_i32_body_lowering' \
+    "todo 缺少 reachability_init 迁入后的下一处 frontier"
 require_pattern "$SUBSET_DOC" '^## `native_build_reachability_init\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_reachability_init 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_reachability_init .*body_stmts=12 reason=pending_core_body' \

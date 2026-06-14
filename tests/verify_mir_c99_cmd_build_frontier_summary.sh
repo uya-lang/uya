@@ -39,40 +39,40 @@ require_pattern "$log_file" '^frontier_reason=pending_core_bodies$' \
     "log records the precise pending-core-body reason"
 require_pattern "$log_file" '^frontier_category=mir_instruction_coverage$' \
     "log maps the frontier to a general MIR instruction coverage gap"
-require_pattern "$log_file" '^completed_coverage=generic_corebody_local_table_init_body_lowering$' \
-    "log records the migrated local_table_init body lowering"
-require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_local_table_init,prefix_stmts=15,reason=body_complete$' \
-    "log records the completed local_table_init helper body"
-require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_reachability_init,decl=[0-9]+,function_id=[0-9]+,body_stmts=12,reason=pending_core_body$' \
+require_pattern "$log_file" '^completed_coverage=generic_corebody_reachability_init_body_lowering$' \
+    "log records the migrated reachability_init body lowering"
+require_pattern "$log_file" '^completed_body_detail=native_hosted_reachable_body_complete:function=native_build_reachability_init,prefix_stmts=12,reason=body_complete$' \
+    "log records the completed reachability_init helper body"
+require_pattern "$log_file" '^frontier_detail=native_hosted_pending_body_frontier:function=native_build_type_is_i32,decl=[0-9]+,function_id=[0-9]+,body_stmts=3,reason=pending_core_body$' \
     "log records the next compiler-source pending body frontier"
 require_pattern "$log_file" '^next_capability=corebody_portable_mir_body_lowering$' \
     "log records the next capability to expand"
-require_pattern "$log_file" '^next_coverage=generic_corebody_reachability_init_body_lowering$' \
+require_pattern "$log_file" '^next_coverage=generic_corebody_type_is_i32_body_lowering$' \
     "log records the next generic coverage slice"
 
 require_pattern "$summary_file" "^MIR_C99_SELF_BUILD_FRONTIER='native_hosted_handoff_frontier'$" \
     "summary sidecar records the current handoff frontier"
 require_pattern "$summary_file" "^MIR_C99_FRONTIER_CATEGORY='mir_instruction_coverage'$" \
     "summary sidecar records the general MIR-C99 gap category"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_local_table_init_body_lowering'$" \
-    "summary sidecar records the migrated local_table_init body lowering"
-require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_local_table_init,prefix_stmts=15,reason=body_complete'$" \
-    "summary sidecar records the completed local_table_init helper body"
-require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_reachability_init,decl=[0-9]+,function_id=[0-9]+,body_stmts=12,reason=pending_core_body'$" \
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_COVERAGE='generic_corebody_reachability_init_body_lowering'$" \
+    "summary sidecar records the migrated reachability_init body lowering"
+require_pattern "$summary_file" "^MIR_C99_COMPLETED_BODY_DETAIL='native_hosted_reachable_body_complete:function=native_build_reachability_init,prefix_stmts=12,reason=body_complete'$" \
+    "summary sidecar records the completed reachability_init helper body"
+require_pattern "$summary_file" "^MIR_C99_FRONTIER_DETAIL='native_hosted_pending_body_frontier:function=native_build_type_is_i32,decl=[0-9]+,function_id=[0-9]+,body_stmts=3,reason=pending_core_body'$" \
     "summary sidecar records the concrete compiler-source pending body frontier"
 require_pattern "$summary_file" "^MIR_C99_NEXT_CAPABILITY='corebody_portable_mir_body_lowering'$" \
     "summary sidecar records the next capability"
-require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_reachability_init_body_lowering'$" \
+require_pattern "$summary_file" "^MIR_C99_NEXT_COVERAGE='generic_corebody_type_is_i32_body_lowering'$" \
     "summary sidecar records the next generic coverage slice"
 
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*native_hosted_handoff_frontier' \
     "coverage matrix records the current self-build frontier"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*mir_instruction_coverage' \
     "coverage matrix records the general MIR-C99 gap category"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_local_table_init_body_lowering.*已纳入 CoreBody -> PortableMIR lowering' \
-    "coverage matrix records the migrated local_table_init body lowering"
-require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*当前 completed body detail 包含 `native_build_local_table_init` body-complete，下一处 frontier 为 `native_build_reachability_init`/`generic_corebody_reachability_init_body_lowering`' \
-    "coverage matrix records the local_table_init completion and next reachability frontier"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_reachability_init_body_lowering.*已纳入 CoreBody -> PortableMIR lowering' \
+    "coverage matrix records the migrated reachability_init body lowering"
+require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*当前 completed body detail 包含 `native_build_reachability_init` body-complete，下一处 frontier 为 `native_build_type_is_i32`/`generic_corebody_type_is_i32_body_lowering`' \
+    "coverage matrix records the reachability_init completion and next type_is_i32 frontier"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*compile_stats_record_and_release_typed_program_stmt16_typed_type_records_release.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage matrix records the migrated typed_type_records_release slice"
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*compile_stats_record_and_release_typed_program_stmt17_typed_program_released_bytes.*已纳入 CoreBody -> PortableMIR lowering' \
