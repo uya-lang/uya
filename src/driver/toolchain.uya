@@ -22,6 +22,36 @@ fn c_import_plan_has_items(plan: &CImportPlan) i32 {
     return 0;
 }
 
+fn toolchain_log_value_is_enabled(value: &byte) i32 {
+    if value == null || value[0] == 0 as byte {
+        return 0;
+    }
+    if strcmp(value as *byte, "0" as *byte) == 0 ||
+       strcmp(value as *byte, "false" as *byte) == 0 ||
+       strcmp(value as *byte, "no" as *byte) == 0 ||
+       strcmp(value as *byte, "off" as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn toolchain_log_is_verbose() i32 {
+    if toolchain_log_value_is_enabled(getenv("UYA_BUILD_VERBOSE" as *byte) as &byte) != 0 ||
+       toolchain_log_value_is_enabled(getenv("UYA_VERBOSE" as *byte) as &byte) != 0 {
+        return 1;
+    }
+    const argc: i32 = get_argc();
+    var i: i32 = 1;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if arg != null && strcmp(arg, "--verbose" as *byte) == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn c_import_ascii_is_space(ch: byte) i32 {
     if ch == 32 as byte || ch == 9 as byte || ch == 10 as byte || ch == 13 as byte {
         return 1;
@@ -898,7 +928,9 @@ fn compile_c_source_to_object(
         return 1;
     }
 
-    fprintf(libc.stderr, "信息：编译对象文件：%s\n" as *byte, &cmd[0] as *byte);
+    if toolchain_log_is_verbose() != 0 {
+        fprintf(libc.stderr, "信息：编译对象文件：%s\n" as *byte, &cmd[0] as *byte);
+    }
     const result: i32 = system(&cmd[0] as *byte);
     if result != 0 {
         var label: &byte = failure_label;
@@ -1064,7 +1096,9 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
             ld_i = ld_i + 1;
         }
 
-        fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &link_cmd[0] as *byte);
+        if toolchain_log_is_verbose() != 0 {
+            fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &link_cmd[0] as *byte);
+        }
         const link_result: i32 = system(&link_cmd[0] as *byte);
         unlink(&generated_obj[0] as *byte);
         var cleanup_j: i32 = 0;
@@ -1101,7 +1135,9 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
         return 1;
     }
 
-    fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &cmd[0] as *byte);
+    if toolchain_log_is_verbose() != 0 {
+        fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &cmd[0] as *byte);
+    }
     const result: i32 = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误：宿主工具链链接失败，返回码：%d\n" as *byte, result);
