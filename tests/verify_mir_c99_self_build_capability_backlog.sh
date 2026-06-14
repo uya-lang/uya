@@ -15,16 +15,6 @@ if [[ ! -f "$TODO_FILE" || ! -f "$TODO_COMPLETED_FILE" ]]; then
     exit 1
 fi
 
-require_fixed_line() {
-    local needle="$1"
-    local description="$2"
-    if ! grep -Fqx "$needle" "$TODO_FILE"; then
-        echo "error: missing MIR-C99 self-build capability backlog evidence: $description" >&2
-        echo "expected line: $needle" >&2
-        exit 1
-    fi
-}
-
 line_no() {
     local needle="$1"
     local line
@@ -95,8 +85,13 @@ cleanup_fragment='cleanup/error：audit=当前未进入 `blocked_category_summar
 runtime_fragment='runtime helper：audit=`blocked_category_runtime_helper=candidate_runtime_capability_missing`；gate=`bash tests/verify_mir_c99_memory_string_runtime_parity.sh` + `bash tests/verify_mir_c99_helloworld_runtime_parity.sh` + `bash tests/verify_mir_c99_file_io_runtime_parity.sh`；host C 证据=上述 gate 编译并运行，且 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 继续记录 runtime helper blocker。'
 emitter_fragment='emitter/output：audit=`blocked_category_emitter_output=native_hosted_emitter_handoff:status=rejected,reason=pending_core_bodies,backend=machine,link_plan=complete`；gate=`bash tests/verify_mir_c99_emitter_unit_output.sh` + `bash tests/verify_mir_c99_split_build_parity.sh`；host C 证据=`bash tests/verify_mir_c99_split_build_parity.sh` 的 multi-file case 与 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 的 candidate 编译运行。'
 link_fragment='link/absence：audit=`blocked_category_link_absence=native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete`；gate=`bash tests/verify_mir_c99_global_import_parity.sh` + `bash tests/verify_mir_c99_independent_boundary.sh`；host C 证据=`bash tests/verify_mir_c99_global_import_parity.sh` 与 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`，并要求 absence 边界始终无 legacy C99 引用。'
+parent_count="$(grep -Fxc "$parent_line" "$TODO_FILE" || true)"
+if (( parent_count > 1 )); then
+    echo "error: duplicated MIR-C99 self-build capability backlog parent item" >&2
+    exit 1
+fi
 
-require_fixed_line "$parent_line" "backlog parent item"
+todo_leaf_count=0
 for fragment in \
     "$cfg_fragment" \
     "$place_fragment" \
@@ -108,7 +103,25 @@ for fragment in \
     "$link_fragment"; do
     require_leaf_once "$fragment" "$fragment"
     require_completed_parent_context "$fragment" "$fragment"
+    todo_leaf_count=$((todo_leaf_count + $(count_fragment "$TODO_FILE" "$fragment")))
 done
+
+if (( parent_count == 0 )); then
+    if (( todo_leaf_count > 0 )); then
+        echo "error: capability backlog still has TODO leaves after backlog parent was archived" >&2
+        exit 1
+    fi
+else
+    if (( todo_leaf_count == 0 )); then
+        echo "error: capability backlog parent remains in TODO but no child leaf remains" >&2
+        exit 1
+    fi
+fi
+
+if (( parent_count == 0 )); then
+    echo "OK: MIR-C99 self-build capability backlog has been fully archived with gate/evidence lines"
+    exit 0
+fi
 
 prev_line="$(line_no "$parent_line")"
 for fragment in \
