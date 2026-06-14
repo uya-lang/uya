@@ -8,7 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
+TODO_DOC="$REPO_ROOT/docs/todo_mir_c99_backend.md"
+TODO_COMPLETED_DOC="$REPO_ROOT/docs/todo_mir_c99_backend_completed.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
@@ -25,18 +26,35 @@ require_pattern() {
     fi
 }
 
-for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FILE" \
-    "$STAGE1_TEST"; do
+require_pattern_any() {
+    local pattern="$1"
+    local description="$2"
+    shift 2
+    local file
+    for file in "$@"; do
+        if grep -Eq "$pattern" "$file"; then
+            return 0
+        fi
+    done
+    echo "错误: $description" >&2
+    printf '文件: %s\n' "$*" >&2
+    exit 1
+}
+
+for file in "$SUBSET_DOC" "$TODO_DOC" "$TODO_COMPLETED_DOC" "$BUILD_DRIVER_SRC" \
+    "$CORE_FILE" "$MIR_FILE" "$STAGE1_TEST"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_struct_union_enum_shape_empty\(\)' \
-    "todo 缺少 native_build_struct_union_enum_shape_empty 合同任务"
-require_pattern "$TODO_DOC" 'body-complete 合同' \
-    "todo 缺少 native_build_struct_union_enum_shape_empty body-complete 合同意图"
+require_pattern_any 'native_build_struct_union_enum_shape_empty\(\)' \
+    "todo/归档缺少 native_build_struct_union_enum_shape_empty 合同任务" \
+    "$TODO_DOC" "$TODO_COMPLETED_DOC"
+require_pattern_any 'body-complete 合同' \
+    "todo/归档缺少 native_build_struct_union_enum_shape_empty body-complete 合同意图" \
+    "$TODO_DOC" "$TODO_COMPLETED_DOC"
 require_pattern "$SUBSET_DOC" '^## `native_build_struct_union_enum_shape_empty\(\)` Body Complete Contract' \
     "subset doc 缺少 native_build_struct_union_enum_shape_empty 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_struct_union_enum_shape_empty .*reason=pending_core_body' \
