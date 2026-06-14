@@ -833,3 +833,14 @@
     - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`
     - 验证：`git diff --check -- docs/todo_mir_c99_backend.md` -> 无输出
     - 验证：`rg -n "\\[~\\]|native_build_type_named_equals|no-silent-fallback|下一处 pending body|stage gate" docs/todo_mir_c99_backend.md` -> stage gate 已改为 no-silent-fallback + 通用能力；helper 名仅保留在历史回归边界/诊断上下文。
+
+## 4.16 Self Build
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-RESET：重整 self-build 路线为能力收敛。
+父级路径：根据 audit 重建 capability backlog：CFG、place/memory、call ABI、aggregate/layout、cleanup/error、runtime helper、emitter/output、link/absence；每个 backlog 叶子必须有失败优先的 parity/reject gate 和 host C 编译运行证据。
+
+- [x] 固化 capability backlog contract：把 8 个类别展开成顺序叶子；每个叶子必须写明 audit blocker、失败优先 parity/reject gate 和 host C 编译运行证据。
+  - 验证：`bash tests/verify_mir_c99_self_build_capability_backlog.sh` -> `OK: MIR-C99 self-build capability backlog is grouped by capability class with gate/evidence lines`
+  - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`
+  - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
+  - 验证：`git diff --check` -> 无输出
