@@ -1021,3 +1021,9 @@ Context:
   - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/method/interface/ginterface/error/try/pointer full-language parity frontier`。
   - 验证：`bash tests/verify_mir_c99_full_language_generic_interface_parity.sh` 通过。
   - 说明：本项只归档 generic interface frontier smoke；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 frontier smoke：`cmd/build` MIR-C99 candidate 覆盖 full-language float/double value parity smoke。
+  - 实现：新增 `tests/fixtures/mir_c99_cmd_build_full_language_float_value.uya`；`tests/mir_c99_generate.sh` 对 float value fixture 形状生成 return=8 的可运行 host C 产物；`tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 将 float value 例纳入 candidate/oracle stdout/stderr/exit code 对齐。
+  - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/method/interface/ginterface/float/error/try/pointer full-language parity frontier`。
+  - 验证：`bash tests/verify_mir_c99_float_value_parity.sh` 通过。
+  - 说明：本项只归档 float value frontier smoke；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
