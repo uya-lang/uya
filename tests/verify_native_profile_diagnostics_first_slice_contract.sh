@@ -33,9 +33,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FIL
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" '为下一个 helper 的首个最小切片补 CoreBody/PortableMIR golden/verifier 合同' \
-    "todo 缺少下一个 helper 首切片合同任务"
 require_pattern "$SUBSET_DOC" '^## `compiler_should_profile_diagnostics\(\.\.\.\)` Surface Audit' \
     "subset doc 缺少 compiler_should_profile_diagnostics surface audit"
 require_pattern "$SUBSET_DOC" '^## `compiler_should_profile_diagnostics\(\.\.\.\)` First Slice Contract' \
@@ -76,11 +73,19 @@ require_pattern "$CORE_FILE" 'CORE_EXPR_KIND_CALL' \
 require_pattern "$MIR_FILE" 'MIR_INST_OP_CALL' \
     "PortableMIR 缺少 call inst kind"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compiler_should_profile_diagnostics prefix_stmts=1 next_stmt=1 next_kind=AST_IF_STMT reason=partial_core_body' \
-    "no-silent-C99 测试缺少 profile diagnostics 首切片后继 frontier"
-require_pattern "$NO_SILENT_TEST" '不应在 profile diagnostics 首切片迁入后继续报告整个 helper pending' \
-    "no-silent-C99 测试缺少旧 profile diagnostics pending 反向检查"
-require_pattern "$STAGE1_TEST" 'verify_native_profile_diagnostics_first_slice_contract\.sh' \
-    "stage1 未纳入 profile diagnostics 首切片合同"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=\[1-9\]\[0-9\]\* core_bodies=\[1-9\]\[0-9\]\* pending_bodies=\[1-9\]\[0-9\]\*' \
+    "no-silent-C99 测试缺少当前 CoreIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=\[1-9\]\[0-9\]\* mir_body_functions=0' \
+    "no-silent-C99 测试缺少当前 PortableMIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" '103 个文件' \
+    "no-silent-C99 测试缺少当前 cmd/build 依赖数"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "no-silent-C99 测试缺少禁止 C99 fallback/build-seed helper 证据"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_profile_diagnostics_first_slice_contract: ok"

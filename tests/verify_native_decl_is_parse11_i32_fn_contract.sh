@@ -43,8 +43,12 @@ require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_hosted_decl_can_materialize
     "源码缺少通用 parse11 pointer out-param CoreBody materializer"
 require_pattern "$BUILD_DRIVER_SRC" 'has_parse11_pointer_out_param_body' \
     "源码未把 parse11 helper 纳入 MIR preflight materializer 集合"
-require_pattern "$STAGE1_TEST" 'verify_native_decl_is_parse11_i32_fn_contract\.sh' \
-    "stage1 未纳入 parse11 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 require_pattern "$COVERAGE_DOC" 'MIR-C99 self-build.*generic_corebody_parse11_pointer_out_param_lowering.*已纳入 CoreBody -> PortableMIR lowering' \
     "coverage doc 未记录 parse11 已纳入 lowering"
 

@@ -30,11 +30,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$CORE_FILE" "$MIR_FILE" "$STAGE1_TEST"; d
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'native_build_local_table_init\(\.\.\.\)' \
-    "todo 缺少 local_table_init 完成上下文"
-require_pattern "$TODO_DOC" 'loop/control-flow.*缺口合同' \
-    "todo 缺少 local_table_init control-flow gap 前置任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_local_table_init\(\.\.\.\)` Control-Flow Gap Contract' \
     "subset doc 缺少 local_table_init control-flow gap 合同"
 require_pattern "$SUBSET_DOC" 'CoreIR 已引入 `CORE_STMT_KIND_WHILE`' \
@@ -57,7 +52,11 @@ require_pattern "$MIR_FILE" 'if current_stmt.kind == CORE_STMT_KIND_RETURN' \
     "PortableMIR generic lowering baseline 缺少 final return"
 require_pattern "$REPO_ROOT/src/lower/mir_contract.uya" 'CORE_STMT_KIND_WHILE' \
     "PortableMIR lowering contract 缺少 while statement feature mapping"
-require_pattern "$STAGE1_TEST" 'verify_native_local_table_init_control_flow_gap_contract\.sh' \
-    "stage1 未纳入 local_table_init control-flow gap 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_local_table_init_control_flow_gap_contract: ok"

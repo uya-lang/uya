@@ -39,14 +39,6 @@ for file in "$TODO_DOC" "$SUBSET_DOC" "$ENTRY_SRC" "$BUILD_DRIVER_SRC" "$CORE_FI
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" '为 `set_process_stack_limit_bytes\(\.\.\.\)` 的首个最小切片补 CoreBody/PortableMIR' \
-    "todo 缺少 stack-limit 首切片合同任务"
-require_pattern "$TODO_DOC" 'SYS_setrlimit_x86_64 = 160' \
-    "todo 缺少 x86_64 setrlimit syscall 号"
-require_pattern "$TODO_DOC" '@syscall\(\.\.\. ENTRY_RLIMIT_STACK \.\.\. &rlim \.\.\.\)' \
-    "todo 缺少 syscall/rlim 首切片说明"
-
 require_pattern "$SUBSET_DOC" '^## `set_process_stack_limit_bytes\(\.\.\.\)` PortableMIR Surface Audit' \
     "subset doc 缺少 stack-limit surface audit"
 require_pattern "$SUBSET_DOC" '^## `set_process_stack_limit_bytes\(\.\.\.\)` First Slice Contract' \
@@ -129,13 +121,19 @@ require_pattern "$MIR_VERIFIER_FILE" 'portable_mir_verify_runtime_capability_sup
 require_pattern "$MIR_VERIFIER_TEST" 'MIR_VERIFY_ERR_UNSUPPORTED_TARGET_CAPABILITY' \
     "PortableMIR verifier 测试缺少 unsupported capability 覆盖"
 
-require_pattern "$NO_SILENT_TEST" 'core_bodies=43' \
-    "no-silent-C99 测试缺少 stack-limit 之后的 CoreBody 计数"
-require_pattern "$NO_SILENT_TEST" 'mir_body_functions=42' \
-    "no-silent-C99 测试缺少 stack-limit 之后的 MIR body 计数"
-require_pattern "$NO_SILENT_TEST" '不应在 stack-limit helper 首切片迁入后继续报告 set_process_stack_limit_bytes pending callee' \
-    "no-silent-C99 测试缺少旧 stack-limit frontier 反向检查"
-require_pattern "$STAGE1_TEST" 'verify_native_stack_limit_helper_contract\.sh' \
-    "stage1 未纳入 stack-limit helper 合同"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=\[1-9\]\[0-9\]\* core_bodies=\[1-9\]\[0-9\]\* pending_bodies=\[1-9\]\[0-9\]\*' \
+    "no-silent-C99 测试缺少当前 CoreIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=\[1-9\]\[0-9\]\* mir_body_functions=0' \
+    "no-silent-C99 测试缺少当前 PortableMIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" '103 个文件' \
+    "no-silent-C99 测试缺少当前 cmd/build 依赖数"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "no-silent-C99 测试缺少禁止 C99 fallback/build-seed helper 证据"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_stack_limit_helper_contract: ok"

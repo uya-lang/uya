@@ -30,9 +30,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$NO_SILENT_TEST" "$ST
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'compiler_should_profile_diagnostics\(\.\.\.\).*tail `return 1`' \
-    "todo 缺少 profile diagnostics tail return 当前任务"
 require_pattern "$SUBSET_DOC" '^## `compiler_should_profile_diagnostics\(\.\.\.\)` Tail Return Contract' \
     "subset doc 缺少 compiler_should_profile_diagnostics tail return 合同"
 require_pattern "$SUBSET_DOC" 'return 1;' \
@@ -52,11 +49,19 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_coreir_append_profile_d
     "build driver 缺少 tail return CoreIR builder"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_profile_diagnostics_tail_return_body_function' \
     "build driver 缺少 tail return PortableMIR builder"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_pending_body_frontier: function=compiler_print_diagnostic_profile .*reason=pending_core_body' \
-    "no-silent-C99 测试缺少 tail return 后的下一个 pending body frontier"
-require_pattern "$NO_SILENT_TEST" '不应在 profile diagnostics tail return 迁入后继续报告 prefix_stmts=3' \
-    "no-silent-C99 测试缺少旧 prefix_stmts=3 反向检查"
-require_pattern "$STAGE1_TEST" 'verify_native_profile_diagnostics_tail_return_contract\.sh' \
-    "stage1 未纳入 profile diagnostics tail return 合同"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=\[1-9\]\[0-9\]\* core_bodies=\[1-9\]\[0-9\]\* pending_bodies=\[1-9\]\[0-9\]\*' \
+    "no-silent-C99 测试缺少当前 CoreIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=\[1-9\]\[0-9\]\* mir_body_functions=0' \
+    "no-silent-C99 测试缺少当前 PortableMIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" '103 个文件' \
+    "no-silent-C99 测试缺少当前 cmd/build 依赖数"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "no-silent-C99 测试缺少禁止 C99 fallback/build-seed helper 证据"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_profile_diagnostics_tail_return_contract: ok"

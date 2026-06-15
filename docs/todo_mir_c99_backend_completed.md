@@ -1129,3 +1129,23 @@ Context:
   - 修复：两个 gate 的临时 fixture 改用 `bin/uya check` 验证解析/类型检查，避免被无关 libc/syscall host C 链接缺口（如 `S_IRWXU`、`EPOLL_CTL_DEL`）误伤；静态合同仍验证 `NativeEmitter` 的 LoweredProgram reader、MachineModule 导入、streaming output 入口和 no-full-image 约束。
   - 验证：`bash tests/verify_native_emitter_lowered_program.sh`、`bash tests/verify_native_emitter_streaming_output.sh`、`bash tests/verify_native_backend_smoke.sh` 通过。
   - 说明：本项只修复 stale native emitter gate 的验证边界；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_native_cmd_build_feature_inventory.sh` 的 cmd/build 依赖计数跟随当前真实 build root。
+  - 修复：`docs/native_cmd_build_subset.md` 和 feature inventory gate 从旧 83/88/91 依赖数统一校准为当前实测 103 个依赖文件，保留该文件为 build-seed 历史边界和 no-silent-fallback 参考，不重新激活 helper-frontier 路线。
+  - 验证：`UYA_ROOT="$PWD" ./bin/uya build src/cmd/build/main.uya -o /tmp/cmd-build --no-split-c --project-root "$PWD/src/"` 通过，stderr 显示 `输入: src/cmd/build/main.uya (103 个文件，含依赖)` 和 `解析: ok (103 个文件)`。
+  - 说明：本项只修复 stale feature inventory gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_native_compile_stats_*_contract.sh` 从旧 active helper-frontier 合同更新为历史边界检查。
+  - 修复：compile_stats 首切片和后续 table/aggregate/release 切片 gate 不再要求 `docs/todo_compiler_1s.md` 保留旧 native helper 任务，也不要求 `verify_native_cmd_build_stage1.sh` 重新聚合这些已归档 helper 合同；当前只验证 `docs/native_cmd_build_subset.md` 的历史 slice 合同、`src/build_compiler_driver.uya` 的源码/CoreBody/PortableMIR helper 形状，以及当前 no-silent-C99 fail-closed 边界。
+  - 验证：`bash -n tests/verify_native_compile_stats_*_contract.sh` 通过；`for t in tests/verify_native_compile_stats_*_contract.sh; do bash "$t"; done` 通过。
+  - 说明：本项只修复 stale compile_stats helper-frontier gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_native_*shape_empty_contract.sh` / `verify_native_*empty_contract.sh` 从旧 active helper-frontier 合同更新为历史边界检查。
+  - 修复：const-slice、defer/drop、dynamic-catch、pointer、method/interface、struct/union/enum、SIMD、local/lowered/reachability empty 等 build-seed helper 合同不再要求主 TODO 保留旧 active helper 任务，也不要求 `verify_native_cmd_build_stage1.sh` 重新聚合这些已归档 helper 合同；当前只验证 `docs/native_cmd_build_subset.md` 的历史 body-complete 证据、源码 helper 形状和 MIR/CORE return 合同。
+  - 验证：`bash -n tests/verify_native_*shape_empty_contract.sh tests/verify_native_*empty_contract.sh` 通过；`for t in tests/verify_native_*shape_empty_contract.sh tests/verify_native_*empty_contract.sh; do bash "$t"; done` 通过。
+  - 说明：本项只修复 stale helper-frontier gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：剩余 `verify_native_*_contract.sh` 从旧 active TODO/frontier 合同更新为历史边界检查。
+  - 修复：`parse_build_args` backend/line-directives/safety/opt/nostdlib/project-root/seed-reject/split-C/stack-size/input/tail 等合同不再要求 `docs/todo_compiler_1s.md` 或主 MIR-C99 TODO 保留旧实现任务；`native_build_local_table_init`、`native_build_reachability_init`、`native_build_type_is_i32/usize`、`set_process_stack_limit_bytes` 等合同不再要求主 TODO 记录下一处 helper frontier。当前只验证 `docs/native_cmd_build_subset.md` 的历史 slice/body 证据、源码 helper 形状、当前 no-silent-C99 fail-closed 边界，以及 stage1 未重新聚合已归档 helper 合同。
+  - 验证：`bash -n tests/verify_native_*_contract.sh` 通过；`for t in tests/verify_native_*_contract.sh; do bash "$t"; done` 通过；`for t in tests/verify_native_*.sh; do bash "$t"; done` 通过。
+  - 说明：本项只修复 stale native helper/frontier gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。

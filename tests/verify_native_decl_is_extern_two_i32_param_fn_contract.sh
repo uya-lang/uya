@@ -56,7 +56,11 @@ require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_hosted_decl_can_materialize
     "源码缺少通用 guard/call/tail-return CoreBody materializer"
 require_pattern "$BUILD_DRIVER_SRC" 'has_guard_call_tail_return_body' \
     "源码未把 extern two-i32 helper 纳入通用 guard/call/tail-return materializer"
-require_pattern "$STAGE1_TEST" 'verify_native_decl_is_extern_two_i32_param_fn_contract\.sh' \
-    "stage1 未纳入 native_build_decl_is_extern_two_i32_param_fn 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_decl_is_extern_two_i32_param_fn_contract: ok"

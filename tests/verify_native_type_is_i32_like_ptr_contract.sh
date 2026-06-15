@@ -29,9 +29,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'native_build_type_is_i32_like_ptr\(\.\.\.\)' \
-    "todo 缺少 native_build_type_is_i32_like_ptr 合同任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_type_is_i32_like_ptr\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_type_is_i32_like_ptr 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_i32_like_ptr .*body_stmts=2 reason=pending_core_body' \
@@ -57,7 +54,11 @@ require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_type_is_i32_like_ptr\(type_
     "源码缺少 native_build_type_is_i32_like_ptr helper"
 require_pattern "$BUILD_DRIVER_SRC" 'return native_build_type_is_i32_like_scalar\(type_node\.type_pointer_pointed_type\);' \
     "源码缺少 i32-like pointed-type helper-call return"
-require_pattern "$STAGE1_TEST" 'verify_native_type_is_i32_like_ptr_contract\.sh' \
-    "stage1 未纳入 native_build_type_is_i32_like_ptr 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_type_is_i32_like_ptr_contract: ok"

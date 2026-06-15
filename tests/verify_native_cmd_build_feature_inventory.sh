@@ -23,7 +23,7 @@ require_doc_pattern() {
 }
 
 require_doc_pattern '^# Native `cmd/build` 子集清单' "标题"
-require_doc_pattern '当前实测依赖数:[[:space:]]*83' "当前依赖数"
+require_doc_pattern '当前实测依赖数:[[:space:]]*103' "当前依赖数"
 require_doc_pattern 'src/cmd/build/main\.uya' "build root"
 require_doc_pattern 'src/build_compiler_driver\.uya' "build driver"
 require_doc_pattern 'src/checker_build/\*\.uya' "checker_build 边界"
@@ -52,8 +52,19 @@ UYA_ROOT="$REPO_ROOT" "$REPO_ROOT/bin/uya" build "$REPO_ROOT/src/cmd/build/main.
     -o "$tmp_dir/cmd-build" --no-split-c --project-root "$REPO_ROOT/src/" \
     >"$tmp_dir/build.out" 2>"$tmp_dir/build.err"
 
-dep_count="$(awk '/输入文件数量:/ { print $2; exit }' "$tmp_dir/build.err")"
-if [[ "$dep_count" != "83" ]]; then
+dep_count="$(awk '
+    /输入文件数量:/ { print $2; exit }
+    /解析: ok \([0-9]+ 个文件\)/ {
+        for (i = 1; i <= NF; i = i + 1) {
+            if ($i ~ /^\([0-9]+$/) {
+                gsub(/^\(/, "", $i)
+                print $i
+                exit
+            }
+        }
+    }
+' "$tmp_dir/build.err")"
+if [[ "$dep_count" != "103" ]]; then
     echo "错误: cmd/build 当前依赖数与 feature inventory 不一致: ${dep_count:-unknown}" >&2
     exit 1
 fi

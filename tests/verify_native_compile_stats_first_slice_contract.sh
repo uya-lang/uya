@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
-# Native build-seed 边界：固定 compile_stats_record_and_release_typed_program(...)
-# 首个最小切片的 CoreBody/PortableMIR golden/verifier 合同输入面。
-# 该脚本不声明函数体已经迁入；它保证下一步实现必须从真实
-# stats/checker early-return 与 field-address call surface 开始。
+# Native build-seed historical boundary: keep the archived
+# compile_stats_record_and_release_typed_program(...) first-slice evidence,
+# source shape, and CoreBody/PortableMIR contract visible.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
+MIR_C99_TODO="$REPO_ROOT/docs/todo_mir_c99_backend.md"
+MIR_C99_COMPLETED="$REPO_ROOT/docs/todo_mir_c99_backend_completed.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_CONTRACT_FILE="$REPO_ROOT/src/lower/mir_contract.uya"
@@ -33,7 +33,22 @@ require_pattern() {
     fi
 }
 
-for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" \
+require_pattern_any() {
+    local pattern="$1"
+    local description="$2"
+    shift 2
+    local file
+    for file in "$@"; do
+        if grep -Eq "$pattern" "$file"; then
+            return 0
+        fi
+    done
+    echo "错误: $description" >&2
+    printf '文件: %s\n' "$*" >&2
+    exit 1
+}
+
+for file in "$SUBSET_DOC" "$MIR_C99_TODO" "$MIR_C99_COMPLETED" "$BUILD_DRIVER_SRC" "$CORE_FILE" \
     "$MIR_CONTRACT_FILE" "$MIR_FILE" "$MIR_VERIFIER_SRC" "$COREIR_GOLDEN_TEST" \
     "$MIR_GOLDEN_TEST" "$MIR_VERIFIER_TEST" "$NO_SILENT_TEST" "$STAGE1_TEST"; do
     if [[ ! -f "$file" ]]; then
@@ -42,10 +57,12 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" \
     fi
 done
 
-require_pattern "$TODO_DOC" '为 `compile_stats_record_and_release_typed_program\(\.\.\.\)` 的首个最小切片补[[:space:]]*$' \
-    "todo 缺少 compile_stats 首切片合同任务"
-require_pattern "$TODO_DOC" 'typed_program_current_bytes\(&checker\.typed_program\)` field-address call surface' \
-    "todo 缺少 field-address call surface 范围"
+require_pattern_any 'compile_stats_record_and_release_typed_program' \
+    "归档缺少 compile_stats 首切片历史记录" \
+    "$MIR_C99_TODO" "$MIR_C99_COMPLETED"
+require_pattern_any '首个最小切片|first slice|首切片|field-address call surface' \
+    "归档缺少 compile_stats 首切片合同意图" \
+    "$MIR_C99_TODO" "$MIR_C99_COMPLETED" "$SUBSET_DOC"
 
 require_pattern "$SUBSET_DOC" '^## `compile_stats_record_and_release_typed_program\(\.\.\.\)` PortableMIR Surface Audit' \
     "subset doc 缺少 compile_stats surface audit"
@@ -145,15 +162,12 @@ require_pattern "$MIR_VERIFIER_SRC" 'MIR_INST_OP_CALL' \
 require_pattern "$MIR_VERIFIER_TEST" 'MIR_INST_OP_CALL' \
     "PortableMIR verifier 测试缺少 call 覆盖"
 
-require_pattern "$NO_SILENT_TEST" 'core_bodies=43' \
-    "no-silent-C99 测试缺少 compile_stats CoreBody 计数"
-require_pattern "$NO_SILENT_TEST" 'mir_body_functions=42' \
-    "no-silent-C99 测试缺少 compile_stats MIR body 计数"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_frontier: function=compile_stats_record_and_release_typed_program' \
-    "no-silent-C99 测试缺少 compile_stats partial body frontier"
-require_pattern "$NO_SILENT_TEST" '不应在 compile_stats 首切片迁入后继续报告整个 helper pending' \
-    "no-silent-C99 测试缺少旧 compile_stats pending 反向检查"
-require_pattern "$STAGE1_TEST" 'verify_native_compile_stats_first_slice_contract\.sh' \
-    "stage1 未纳入 compile_stats 首切片合同"
-
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=\[1-9\]\[0-9\]\* core_bodies=\[1-9\]\[0-9\]\* pending_bodies=\[1-9\]\[0-9\]\*' \
+    "no-silent-C99 测试缺少当前 CoreIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=\[1-9\]\[0-9\]\* mir_body_functions=0' \
+    "no-silent-C99 测试缺少当前 PortableMIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" '103 个文件' \
+    "no-silent-C99 测试缺少当前 cmd/build 依赖数"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "no-silent-C99 测试缺少禁止 C99 fallback/build-seed helper 证据"
 echo "verify_native_compile_stats_first_slice_contract: ok"

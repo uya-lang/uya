@@ -29,13 +29,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'native_build_reachability_init\(\.\.\.\).*12 statement body-complete.*completed body detail' \
-    "todo 缺少 native_build_reachability_init 12 statement body-complete 完成记录"
-require_pattern "$TODO_DOC" '已把 `native_build_type_is_i32\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
-    "todo 缺少 reachability_init 后续的 type_is_i32 body-complete 完成记录"
-require_pattern "$TODO_DOC" '已把 `native_build_type_is_usize\(\.\.\.\)` 3 statement body-complete 记录为 completed body detail' \
-    "todo 缺少 reachability_init 后续的 type_is_usize body-complete 完成记录"
 require_pattern "$SUBSET_DOC" '^## `native_build_reachability_init\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_reachability_init 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_reachability_init .*body_stmts=12 reason=pending_core_body' \
@@ -89,7 +82,11 @@ require_pattern "$BUILD_DRIVER_SRC" 'while i < decl_count' \
     "源码缺少 loop"
 require_pattern "$BUILD_DRIVER_SRC" 'reach\.function_decl_indices\[i\] = -1' \
     "源码缺少 function_decl_indices sentinel"
-require_pattern "$STAGE1_TEST" 'verify_native_reachability_init_contract\.sh' \
-    "stage1 未纳入 native_build_reachability_init 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_reachability_init_contract: ok"

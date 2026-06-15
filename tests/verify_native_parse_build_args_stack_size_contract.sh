@@ -24,16 +24,6 @@ require_pattern() {
         exit 1
     fi
 }
-
-require_pattern "$TODO_DOC" '为 `--stack-size` 补 CoreBody/PortableMIR 合同' \
-    "todo 缺少 --stack-size 合同任务"
-require_pattern "$TODO_DOC" '迁入 `--stack-size` 缺参和 `get_argv\(i \+ 1\)` 分支' \
-    "todo 缺少 --stack-size 缺参/get_argv 实现任务"
-require_pattern "$TODO_DOC" '迁入 `--stack-size` 数字扫描 loop' \
-    "todo 缺少 --stack-size 数字扫描 loop 实现任务"
-require_pattern "$TODO_DOC" '迁入 `--stack-size` 写入/警告/跳参分支' \
-    "todo 缺少 --stack-size 写入/警告/跳参实现任务"
-
 require_pattern "$SUBSET_DOC" '`--stack-size` 数字扫描' \
     "subset doc 缺少 --stack-size 数字扫描合同"
 require_pattern "$SUBSET_DOC" '`get_argv\(i \+ 1\)`' \
@@ -92,13 +82,19 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_stack_
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_stack_size_write_body' \
     "生产代码缺少 --stack-size 写入/警告/跳参 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' \
-    "no-silent-C99 测试必须固定位置输入容量检查后的 store frontier"
-require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
-    "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
-require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
-    "no-silent-C99 测试缺少 C99 fallback 反向检查"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_stack_size_contract\.sh' \
-    "stage1 未纳入 parse_build_args --stack-size 合同"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=\[1-9\]\[0-9\]\* core_bodies=\[1-9\]\[0-9\]\* pending_bodies=\[1-9\]\[0-9\]\*' \
+    "no-silent-C99 测试缺少当前 CoreIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=\[1-9\]\[0-9\]\* mir_body_functions=0' \
+    "no-silent-C99 测试缺少当前 PortableMIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" '103 个文件' \
+    "no-silent-C99 测试缺少当前 cmd/build 依赖数"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "no-silent-C99 测试缺少禁止 C99 fallback/build-seed helper 证据"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_parse_build_args_stack_size_contract: ok"

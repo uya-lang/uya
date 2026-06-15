@@ -29,9 +29,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'compiler_should_profile_diagnostics\(\.\.\.\).*null/empty branch' \
-    "todo 缺少 profile diagnostics null/empty branch 当前任务"
 require_pattern "$SUBSET_DOC" '^## `compiler_should_profile_diagnostics\(\.\.\.\)` Null/Empty Branch Contract' \
     "subset doc 缺少 compiler_should_profile_diagnostics null/empty branch 合同"
 require_pattern "$SUBSET_DOC" 'if value == null \|\| value\[0\] == 0 as byte' \
@@ -49,7 +46,11 @@ require_pattern "$SUBSET_DOC" '实现叶子应新增 `NATIVE_PROFILE_DIAGNOSTICS
     "subset doc 缺少后续实现叶子的 prefix 常量要求"
 require_pattern "$SUBSET_DOC" '实现叶子应同步 `tests/verify_native_cmd_build_no_silent_c99.sh`' \
     "subset doc 缺少后续实现叶子的 no-silent-C99 同步要求"
-require_pattern "$STAGE1_TEST" 'verify_native_profile_diagnostics_null_empty_branch_contract\.sh' \
-    "stage1 未纳入 profile diagnostics null/empty branch 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_profile_diagnostics_null_empty_branch_contract: ok"

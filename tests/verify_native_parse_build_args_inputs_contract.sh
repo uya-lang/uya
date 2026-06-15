@@ -24,16 +24,6 @@ require_pattern() {
         exit 1
     fi
 }
-
-require_pattern "$TODO_DOC" '为位置输入文件收集补 CoreBody/PortableMIR 合同' \
-    "todo 缺少位置输入文件收集合同任务"
-require_pattern "$TODO_DOC" '迁入 `arg\[0\]` / 非 dash 判定分支' \
-    "todo 缺少位置输入 arg[0] / 非 dash 实现任务"
-require_pattern "$TODO_DOC" '迁入输入容量检查分支' \
-    "todo 缺少位置输入容量检查实现任务"
-require_pattern "$TODO_DOC" '迁入输入索引写入分支' \
-    "todo 缺少位置输入 index/count 写入实现任务"
-
 require_pattern "$SUBSET_DOC" '位置输入文件收集合同固定' \
     "subset doc 缺少位置输入文件收集合同章节"
 require_pattern "$SUBSET_DOC" '`arg\[0\]` byte index' \
@@ -84,11 +74,19 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_positi
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_parse_build_args_positional_input_body' \
     "生产代码缺少位置输入完整 body/frontier 判定"
 
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' \
-    "no-silent-C99 测试必须固定显式输出路径读取后的 return frontier"
-require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
-    "no-silent-C99 测试缺少 lowering-missing 明确拒绝"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_inputs_contract\.sh' \
-    "stage1 未纳入 parse_build_args 位置输入合同"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=\[1-9\]\[0-9\]\* core_bodies=\[1-9\]\[0-9\]\* pending_bodies=\[1-9\]\[0-9\]\*' \
+    "no-silent-C99 测试缺少当前 CoreIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=\[1-9\]\[0-9\]\* mir_body_functions=0' \
+    "no-silent-C99 测试缺少当前 PortableMIR fail-closed preflight"
+require_pattern "$NO_SILENT_TEST" '103 个文件' \
+    "no-silent-C99 测试缺少当前 cmd/build 依赖数"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "no-silent-C99 测试缺少禁止 C99 fallback/build-seed helper 证据"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_parse_build_args_inputs_contract: ok"

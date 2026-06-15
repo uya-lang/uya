@@ -29,9 +29,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'native_build_type_is_byte_path_max_array\(\.\.\.\)' \
-    "todo 缺少 native_build_type_is_byte_path_max_array 合同任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_type_is_byte_path_max_array\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_type_is_byte_path_max_array 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_type_is_byte_path_max_array .*body_stmts=2 reason=pending_core_body' \
@@ -65,7 +62,11 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_build_type_is_byte\(type_node\.type_
     "源码缺少 byte element helper-call guard"
 require_pattern "$BUILD_DRIVER_SRC" 'str_equals\(type_node\.type_array_size_expr\.identifier_name as \*byte,' \
     "源码缺少 PATH_MAX str_equals guard"
-require_pattern "$STAGE1_TEST" 'verify_native_type_is_byte_path_max_array_contract\.sh' \
-    "stage1 未纳入 native_build_type_is_byte_path_max_array 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_type_is_byte_path_max_array_contract: ok"

@@ -29,9 +29,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$STAGE1_TEST"; do
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'native_build_decl_returns_param_directly\(\.\.\.\)' \
-    "todo 缺少 native_build_decl_returns_param_directly 合同任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_decl_returns_param_directly\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_decl_returns_param_directly 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_decl_returns_param_directly .*body_stmts=5 reason=pending_core_body' \
@@ -57,7 +54,11 @@ require_pattern "$BUILD_DRIVER_SRC" 'fn native_build_decl_returns_param_directly
     "源码缺少 native_build_decl_returns_param_directly helper"
 require_pattern "$BUILD_DRIVER_SRC" 'str_equals\(stmt\.return_stmt_expr\.identifier_name as \*byte, param_name as \*byte\) != 0' \
     "源码缺少 str_equals param branch"
-require_pattern "$STAGE1_TEST" 'verify_native_decl_returns_param_directly_contract\.sh' \
-    "stage1 未纳入 native_build_decl_returns_param_directly 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_decl_returns_param_directly_contract: ok"

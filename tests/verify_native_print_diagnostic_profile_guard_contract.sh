@@ -32,9 +32,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FIL
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'compiler_print_diagnostic_profile\(\.\.\.\).*surface audit.*首个 guard' \
-    "todo 缺少 compiler_print_diagnostic_profile guard 合同任务"
 require_pattern "$SUBSET_DOC" '^## `compiler_print_diagnostic_profile\(\.\.\.\)` Surface Audit' \
     "subset doc 缺少 compiler_print_diagnostic_profile surface audit"
 require_pattern "$SUBSET_DOC" '^## `compiler_print_diagnostic_profile\(\.\.\.\)` Guard Slice Contract' \
@@ -66,7 +63,11 @@ require_pattern "$CORE_FILE" 'CORE_STMT_KIND_IF' \
     "CoreIR 缺少 if statement kind"
 require_pattern "$MIR_FILE" 'MIR_TERMINATOR_KIND_COND_BR' \
     "PortableMIR 缺少 conditional branch terminator"
-require_pattern "$STAGE1_TEST" 'verify_native_print_diagnostic_profile_guard_contract\.sh' \
-    "stage1 未纳入 compiler_print_diagnostic_profile guard 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_print_diagnostic_profile_guard_contract: ok"

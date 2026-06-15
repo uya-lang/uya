@@ -32,11 +32,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FIL
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'native_build_local_table_init\(\.\.\.\).*15 statement body-complete' \
-    "todo 缺少 native_build_local_table_init 15 statement body-complete 完成记录"
-require_pattern "$TODO_DOC" 'native_build_reachability_init\(\.\.\.\).*generic_corebody_reachability_init_body_lowering' \
-    "todo 缺少 local_table_init 迁入后的下一处 frontier"
 require_pattern "$SUBSET_DOC" '^## `native_build_local_table_init\(\.\.\.\)` Body Complete Contract' \
     "subset doc 缺少 native_build_local_table_init 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_local_table_init .*body_stmts=15 reason=pending_core_body' \
@@ -116,7 +111,11 @@ require_pattern "$CORE_FILE" 'CORE_STMT_KIND_RETURN' \
     "CoreIR 缺少 return statement kind"
 require_pattern "$MIR_FILE" 'MIR_TERMINATOR_KIND_RETURN' \
     "PortableMIR 缺少 return terminator"
-require_pattern "$STAGE1_TEST" 'verify_native_local_table_init_contract\.sh' \
-    "stage1 未纳入 native_build_local_table_init 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_local_table_init_contract: ok"

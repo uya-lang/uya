@@ -32,9 +32,6 @@ for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FIL
         exit 1
     fi
 done
-
-require_pattern "$TODO_DOC" 'compiler_print_diagnostic_profile\(\.\.\.\).*checker 非空分支补' \
-    "todo 缺少 compiler_print_diagnostic_profile checker branch 合同任务"
 require_pattern "$SUBSET_DOC" '^## `compiler_print_diagnostic_profile\(\.\.\.\)` Checker Branch Contract' \
     "subset doc 缺少 checker branch 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_reachable_body_frontier: function=compiler_print_diagnostic_profile prefix_stmts=2 next_stmt=2 next_kind=AST_IF_STMT reason=partial_core_body' \
@@ -66,7 +63,11 @@ require_pattern "$MIR_FILE" 'MIR_INST_OP_LOAD' \
     "PortableMIR 缺少 load inst kind"
 require_pattern "$MIR_FILE" 'MIR_INST_OP_LOCAL_SET|MIR_INST_OP_STORE' \
     "PortableMIR 缺少 local write inst kind"
-require_pattern "$STAGE1_TEST" 'verify_native_print_diagnostic_profile_checker_branch_contract\.sh' \
-    "stage1 未纳入 compiler_print_diagnostic_profile checker branch 合同"
+script_name="${0##*/}"
+if grep -Eq "$script_name" "$STAGE1_TEST"; then
+    echo "错误: stage1 不应重新聚合已归档 helper 合同" >&2
+    echo "文件: $STAGE1_TEST" >&2
+    exit 1
+fi
 
 echo "verify_native_print_diagnostic_profile_checker_branch_contract: ok"
