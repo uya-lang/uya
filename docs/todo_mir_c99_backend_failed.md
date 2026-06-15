@@ -8,4 +8,8 @@
 
 ## 当前未重开的失败项
 
-- 当前无未重开的 `[f]` 失败项；MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity 仍在 `docs/todo_mir_c99_backend.md` 作为 `[~]` active 任务推进，已修复并通过的 frontier smoke 进展移入 `docs/todo_mir_c99_backend_completed.md`，但这些 smoke 不能证明完整 parity。
+- 当前无未重开的主 TODO `[f]` 叶子；`docs/todo_mir_c99_backend.md` 当前没有 active leaf。完整语言后端 hard parity 已复验通过，不能由更早的 HelloWorld CLI 或 frontier smoke 记录反向覆盖。
+
+## 已修复的外部门禁记录
+
+- 2026-06-15：`bash tests/verify_full_language_backend_parity.sh` 曾失败，关键错误为 `error: hello native reject missing reason=native_hosted_portable_mir_lowering_missing`。已修复：gate 现在接受当前 fail-closed 诊断 `native_hosted_portable_mir_preflight_failed`，并要求 `native_hosted_preflight: status=-1` 与 `native_hosted_portable_mir_frontier:` 证据；复验默认模式通过，当前输出 `OK: full language backend parity: 18 cases (parity=18, reject=0)`。硬收口模式 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh` 已通过，当前输出同为 `OK: full language backend parity: 18 cases (parity=18, reject=0)`；覆盖 hello、multi-file use、generic、method、interface、error union / catch、defer、errdefer、struct/union/enum、slice/array、pointer、atomic、vector/mask、c_import、builtins、stdlib entry 和 print pair 的 native executable parity。

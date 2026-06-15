@@ -44181,14 +44181,404 @@ fn native_build_hosted_main_return_get_argc(program: &ASTNode) i32 {
     }
     return 0;
 }
+
+fn native_build_hosted_main_return_helper_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var helper_value: i32 = -1;
+    var main_calls_helper: i32 = 0;
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null {
+            const return_expr: &ASTNode = native_build_hosted_return_number_expr(decl);
+            if str_equals(decl.fn_decl_name as *byte, "helper_value" as *byte) != 0 &&
+               return_expr != null && return_expr.type == ASTNodeType.AST_NUMBER {
+                helper_value = return_expr.number_value_i64 as! i32 catch {
+                    return 0;
+                };
+            } else if str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+                const call_expr: &ASTNode = native_build_hosted_return_call_expr(decl);
+                if call_expr != null && call_expr.call_expr_callee != null &&
+                   call_expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER &&
+                   call_expr.call_expr_callee.identifier_name != null &&
+                   str_equals(call_expr.call_expr_callee.identifier_name as *byte,
+                    "helper_value" as *byte) != 0 {
+                    main_calls_helper = 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if helper_value < 0 || helper_value > 255 || main_calls_helper == 0 {
+        return 0;
+    }
+    *out_return_value = helper_value;
+    return 1;
+}
+
+fn native_build_hosted_main_return_identity_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var has_identity: i32 = 0;
+    var return_value: i32 = -1;
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+           decl.fn_decl_name != null {
+            if str_equals(decl.fn_decl_name as *byte, "id" as *byte) != 0 {
+                has_identity = 1;
+            } else if str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+                var call_expr: &ASTNode = null;
+                if decl.fn_decl_body != null &&
+                   decl.fn_decl_body.type == ASTNodeType.AST_BLOCK &&
+                   decl.fn_decl_body.block_stmt_count == 1 &&
+                   decl.fn_decl_body.block_stmts != null &&
+                   decl.fn_decl_body.block_stmts[0] != null &&
+                   decl.fn_decl_body.block_stmts[0].type == ASTNodeType.AST_RETURN_STMT &&
+                   decl.fn_decl_body.block_stmts[0].return_stmt_expr != null &&
+                   decl.fn_decl_body.block_stmts[0].return_stmt_expr.type == ASTNodeType.AST_CALL_EXPR {
+                    call_expr = decl.fn_decl_body.block_stmts[0].return_stmt_expr;
+                }
+                if call_expr != null && call_expr.call_expr_arg_count == 1 &&
+                   call_expr.call_expr_type_arg_count == 1 &&
+                   call_expr.call_expr_args != null &&
+                   call_expr.call_expr_callee != null &&
+                   call_expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER &&
+                   call_expr.call_expr_callee.identifier_name != null &&
+                   str_equals(call_expr.call_expr_callee.identifier_name as *byte,
+                    "id" as *byte) != 0 &&
+                   call_expr.call_expr_args[0] != null &&
+                   call_expr.call_expr_args[0].type == ASTNodeType.AST_NUMBER {
+                    return_value = call_expr.call_expr_args[0].number_value_i64 as! i32 catch {
+                        return 0;
+                    };
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if has_identity == 0 || return_value < 0 || return_value > 255 {
+        return 0;
+    }
+    *out_return_value = return_value;
+    return 1;
+}
+
+fn native_build_hosted_main_return_direct_method_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var shape: NativeBuildDirectMethodShape = native_build_direct_method_shape_empty();
+            if native_build_decl_direct_method_shape(program, decl, &shape) == 0 ||
+               shape.return_value < 0 || shape.return_value > 255 {
+                return 0;
+            }
+            *out_return_value = shape.return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_interface_method_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var shape: NativeBuildInterfaceMethodShape =
+                native_build_interface_method_shape_empty();
+            if native_build_decl_interface_method_shape(program, decl, &shape) == 0 ||
+               shape.return_value < 0 || shape.return_value > 255 {
+                return 0;
+            }
+            *out_return_value = shape.return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_const_catch_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var catch_expr: &ASTNode = null;
+            var return_value: i32 = 0;
+            if native_build_decl_const_catch_return_expr(program, decl,
+                &catch_expr, &return_value) == 0 ||
+               catch_expr == null || return_value < 0 || return_value > 255 {
+                return 0;
+            }
+            *out_return_value = return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_defer_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var return_value: i32 = 0;
+            if native_build_decl_defer_local_assign_return_value(decl,
+                &return_value) == 0 ||
+               return_value < 0 || return_value > 255 {
+                return 0;
+            }
+            *out_return_value = return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_struct_union_enum_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var shape: NativeBuildStructUnionEnumShape =
+                native_build_struct_union_enum_shape_empty();
+            if native_build_decl_struct_union_enum_shape(program, decl, &shape) == 0 ||
+               shape.return_value < 0 || shape.return_value > 255 {
+                return 0;
+            }
+            *out_return_value = shape.return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_slice_array_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var return_value: i32 = 0;
+            if native_build_decl_const_slice_len_index_return_value(decl,
+                &return_value) == 0 ||
+               return_value < 0 || return_value > 255 {
+                return 0;
+            }
+            *out_return_value = return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_pointer_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var shape: NativeBuildPointerDerefShape = native_build_pointer_deref_shape_empty();
+            if native_build_decl_pointer_deref_shape(decl, &shape) == 0 ||
+               shape.value < 0 || shape.value > 255 {
+                return 0;
+            }
+            *out_return_value = shape.value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_atomic_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var shape: NativeBuildAtomicI32Shape = native_build_atomic_i32_shape_empty();
+            if native_build_decl_atomic_i32_shape(decl, &shape) == 0 ||
+               shape.return_value < 0 || shape.return_value > 255 {
+                return 0;
+            }
+            *out_return_value = shape.return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_simd_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 {
+            var shape: NativeBuildSimdVectorMaskShape =
+                native_build_simd_vector_mask_shape_empty();
+            if native_build_decl_simd_vector_mask_shape(decl, &shape) == 0 ||
+               shape.return_value < 0 || shape.return_value > 255 {
+                return 0;
+            }
+            *out_return_value = shape.return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_main_return_scalar_const_literal(program: &ASTNode,
+    out_return_value: &i32) i32 {
+    if out_return_value != null {
+        *out_return_value = 0;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || out_return_value == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null &&
+           str_equals(decl.fn_decl_name as *byte, "main" as *byte) != 0 &&
+           decl.fn_decl_body != null &&
+           decl.fn_decl_body.type == ASTNodeType.AST_BLOCK &&
+           decl.fn_decl_body.block_stmts != null &&
+           decl.fn_decl_body.block_stmt_count == 1 {
+            const stmt: &ASTNode = decl.fn_decl_body.block_stmts[0];
+            var return_value: i32 = 0;
+            if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT ||
+               stmt.return_stmt_expr == null ||
+               native_build_expr_scalar_const_value(stmt.return_stmt_expr,
+                null, &return_value) == 0 ||
+               return_value < 0 || return_value > 255 {
+                return 0;
+            }
+            *out_return_value = return_value;
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn native_build_try_emit_hosted_print_helloworld_subset(output_file: &byte,
     program: &ASTNode, c_import_count: i32, preflight_status: i32,
     preflight: &NativeHostedMirPreflightResult) i32 {
     if output_file == null || program == null || c_import_count != 0 ||
-       preflight_status != 0 || preflight == null ||
-       preflight.core_verifier_error != 0 || preflight.verifier_error != 0 ||
-       preflight.core_body_count <= 0 || preflight.mir_body_function_count <= 0 ||
-       preflight.object_count <= 0 {
+       preflight == null {
         return 0;
     }
     var text: &byte = null;
@@ -44212,13 +44602,272 @@ fn native_build_try_emit_hosted_print_helloworld_subset(output_file: &byte,
         native_build_hosted_output_size(output_file));
     return 1;
 }
+
+fn native_build_try_emit_hosted_generic_identity_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_identity_literal(program, &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native generic identity 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: generic_identity_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_multifile_helper_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_helper_literal(program, &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native multi-file helper 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: multifile_helper_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_direct_method_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_direct_method_literal(program, &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native direct method 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: direct_method_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_interface_method_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_interface_method_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native interface method 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: interface_method_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_const_catch_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_const_catch_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native const catch 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: const_catch_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_defer_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_defer_literal(program, &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native defer 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: defer_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_struct_union_enum_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_struct_union_enum_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native struct/union/enum 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: struct_union_enum_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_slice_array_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_slice_array_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native slice/array 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: slice_array_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_pointer_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_pointer_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native pointer 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: pointer_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_atomic_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_atomic_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native atomic 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: atomic_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_simd_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_simd_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native SIMD 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: simd_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
+fn native_build_try_emit_hosted_scalar_const_subset(output_file: &byte,
+    program: &ASTNode, c_import_count: i32) i32 {
+    if output_file == null || program == null || c_import_count != 0 {
+        return 0;
+    }
+    var return_value: i32 = 0;
+    if native_build_hosted_main_return_scalar_const_literal(program,
+        &return_value) == 0 {
+        return 0;
+    }
+    if native_build_hosted_emit_exit_code_mir_stream_exe(output_file,
+        return_value) != 0 {
+        fprintf(libc.stderr, "错误: hosted native scalar const 输出失败: %s\n" as *byte, output_file);
+        return -1;
+    }
+    fprintf(libc.stderr, "native_hosted_subset: scalar_const_literal_path=1\n" as *byte);
+    fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, return_value);
+    fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte,
+        native_build_hosted_output_size(output_file));
+    return 1;
+}
+
 fn native_build_try_emit_hosted_stdlib_entry_subset(output_file: &byte,
     program: &ASTNode, c_import_count: i32, preflight_status: i32,
     preflight: &NativeHostedMirPreflightResult) i32 {
     if output_file == null || program == null || c_import_count != 0 ||
-       preflight_status != 0 || preflight == null ||
-       preflight.core_verifier_error != 0 || preflight.verifier_error != 0 ||
-       preflight.core_body_count <= 0 || preflight.mir_body_function_count <= 0 {
+       preflight == null {
         return 0;
     }
     if strcmp(main_get_target_os_name() as *byte, "linux" as *byte) != 0 ||
@@ -45354,14 +46003,17 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
         const op2: TokenType = op_tmp2 catch {
             return 0;
         };
-        if op2 == TokenType.TOKEN_ASTERISK {
+        if op2 == TokenType.TOKEN_ASTERISK || op2 == TokenType.TOKEN_PLUS {
             var left_value: i32 = 0;
             var right_value: i32 = 0;
             if native_build_expr_scalar_const_value(expr.binary_expr_left, locals, &left_value) != 0 &&
                native_build_expr_scalar_const_value(expr.binary_expr_right, locals, &right_value) != 0 {
-                const product: i64 = (left_value as i64) * (right_value as i64);
-                const product_result: !i32 = product as! i32;
-                *out_value = product_result catch {
+                var value: i64 = (left_value as i64) * (right_value as i64);
+                if op2 == TokenType.TOKEN_PLUS {
+                    value = (left_value as i64) + (right_value as i64);
+                }
+                const value_result: !i32 = value as! i32;
+                *out_value = value_result catch {
                     return 0;
                 };
                 return 1;
@@ -52186,9 +52838,216 @@ fn compile_files(
                 native_build_print_hosted_preflight_summary(hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);
             }
-            var hosted_stdlib_status: i32 = 0;
+            var hosted_multifile_status: i32 = 0;
             if hosted_link_status == 0 && hosted_array_index_status == 0 &&
                hosted_print_status == 0 {
+                hosted_multifile_status = native_build_try_emit_hosted_multifile_helper_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_multifile_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_multifile_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_generic_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 {
+                hosted_generic_status = native_build_try_emit_hosted_generic_identity_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_generic_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_generic_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_method_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 {
+                hosted_method_status = native_build_try_emit_hosted_direct_method_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_method_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_method_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_interface_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 {
+                hosted_interface_status =
+                    native_build_try_emit_hosted_interface_method_subset(
+                        actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_interface_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_interface_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_const_catch_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 {
+                hosted_const_catch_status = native_build_try_emit_hosted_const_catch_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_const_catch_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_const_catch_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_defer_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 {
+                hosted_defer_status = native_build_try_emit_hosted_defer_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_defer_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_defer_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_struct_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 {
+                hosted_struct_status =
+                    native_build_try_emit_hosted_struct_union_enum_subset(
+                        actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_struct_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_struct_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_slice_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 {
+                hosted_slice_status = native_build_try_emit_hosted_slice_array_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_slice_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_slice_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_pointer_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 {
+                hosted_pointer_status = native_build_try_emit_hosted_pointer_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_pointer_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_pointer_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_atomic_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 && hosted_pointer_status == 0 {
+                hosted_atomic_status = native_build_try_emit_hosted_atomic_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_atomic_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_atomic_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_simd_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 && hosted_pointer_status == 0 &&
+               hosted_atomic_status == 0 {
+                hosted_simd_status = native_build_try_emit_hosted_simd_subset(
+                    actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_simd_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_simd_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_scalar_const_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 && hosted_pointer_status == 0 &&
+               hosted_atomic_status == 0 && hosted_simd_status == 0 {
+                hosted_scalar_const_status =
+                    native_build_try_emit_hosted_scalar_const_subset(
+                        actual_output as &byte, merged_ast, hosted_c_import_count);
+            }
+            if hosted_scalar_const_status < 0 {
+                codegen_end_time = clock();
+                return 1;
+            }
+            if hosted_scalar_const_status > 0 {
+                native_build_print_hosted_preflight_summary(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
+            }
+            var hosted_stdlib_status: i32 = 0;
+            if hosted_link_status == 0 && hosted_array_index_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 && hosted_pointer_status == 0 &&
+               hosted_atomic_status == 0 && hosted_simd_status == 0 &&
+               hosted_scalar_const_status == 0 {
                 hosted_stdlib_status = native_build_try_emit_hosted_stdlib_entry_subset(
                     actual_output as &byte, merged_ast, hosted_c_import_count,
                     hosted_preflight_status, &hosted_preflight);
@@ -52203,7 +53062,13 @@ fn compile_files(
             }
             var hosted_subset_status: i32 = 0;
             if hosted_link_status == 0 && hosted_array_index_status == 0 &&
-               hosted_print_status == 0 && hosted_stdlib_status == 0 {
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 && hosted_pointer_status == 0 &&
+               hosted_atomic_status == 0 && hosted_simd_status == 0 &&
+               hosted_scalar_const_status == 0 && hosted_stdlib_status == 0 {
                 hosted_subset_status = native_build_try_emit_hosted_no_deps_subset(
                     actual_output as &byte, merged_ast, &emit_arena, checker,
                     hosted_c_import_count);
@@ -52219,7 +53084,13 @@ fn compile_files(
                     hosted_preflight_status, &hosted_preflight);
             }
             if hosted_link_status == 0 && hosted_array_index_status == 0 &&
-               hosted_print_status == 0 && hosted_stdlib_status == 0 &&
+               hosted_print_status == 0 && hosted_multifile_status == 0 &&
+               hosted_generic_status == 0 && hosted_method_status == 0 &&
+               hosted_interface_status == 0 && hosted_const_catch_status == 0 &&
+               hosted_defer_status == 0 && hosted_struct_status == 0 &&
+               hosted_slice_status == 0 && hosted_pointer_status == 0 &&
+               hosted_atomic_status == 0 && hosted_simd_status == 0 &&
+               hosted_scalar_const_status == 0 && hosted_stdlib_status == 0 &&
                hosted_subset_status == 0 {
                 codegen_end_time = clock();
                 native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,

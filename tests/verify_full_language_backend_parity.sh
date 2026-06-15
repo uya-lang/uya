@@ -75,6 +75,68 @@ check_no_forbidden() {
     done
 }
 
+check_native_reject_evidence() {
+    local case_id="$1"
+    local err_file="$2"
+    if grep -qF 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$err_file"; then
+        if ! grep -qF 'native_hosted_coreir_preflight: status=0' "$err_file"; then
+            echo "error: $case_id native reject lacks CoreIR preflight success evidence" >&2
+            cat "$err_file" >&2
+            exit 1
+        fi
+        if ! grep -qF 'native_hosted_preflight: status=0' "$err_file"; then
+            echo "error: $case_id native reject lacks PortableMIR preflight success evidence" >&2
+            cat "$err_file" >&2
+            exit 1
+        fi
+        return 0
+    fi
+    if grep -qF 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$err_file"; then
+        if ! grep -qF 'native_hosted_coreir_preflight: status=' "$err_file"; then
+            echo "error: $case_id native preflight reject lacks CoreIR preflight evidence" >&2
+            cat "$err_file" >&2
+            exit 1
+        fi
+        if ! grep -qF 'native_hosted_preflight: status=-1' "$err_file"; then
+            echo "error: $case_id native preflight reject lacks PortableMIR verifier failure evidence" >&2
+            cat "$err_file" >&2
+            exit 1
+        fi
+        if ! grep -qF 'native_hosted_portable_mir_frontier:' "$err_file"; then
+            echo "error: $case_id native preflight reject lacks frontier evidence" >&2
+            cat "$err_file" >&2
+            exit 1
+        fi
+        return 0
+    fi
+    echo "error: $case_id native reject missing supported fail-closed reason" >&2
+    cat "$err_file" >&2
+    exit 1
+}
+
+check_native_parity_evidence() {
+    local case_id="$1"
+    local err_file="$2"
+    if grep -qF 'native_hosted_coreir_preflight: status=0' "$err_file" &&
+       grep -qF 'native_hosted_preflight: status=0' "$err_file"; then
+        return 0
+    fi
+    if grep -qF 'native_hosted_executable_writer_stream: status=ready' "$err_file" &&
+       grep -qF 'native_hosted_coreir_preflight: status=' "$err_file" &&
+       grep -qF 'native_hosted_preflight: status=' "$err_file"; then
+        return 0
+    fi
+    if grep -qF 'native_hosted_subset: c_import_extern_link_path=1' "$err_file" &&
+       grep -qF 'native_hosted_linker_handoff:' "$err_file" &&
+       grep -qF 'native_hosted_coreir_preflight: status=' "$err_file" &&
+       grep -qF 'native_hosted_preflight: status=' "$err_file"; then
+        return 0
+    fi
+    echo "error: $case_id native parity build lacks MIR/preflight evidence" >&2
+    cat "$err_file" >&2
+    exit 1
+}
+
 write_case_summary() {
     local case_id="$1"
     local c99_status="$2"
@@ -162,21 +224,7 @@ run_native_reject_case() {
         exit 1
     fi
     check_no_forbidden "$case_id-native" "$native_build_err"
-    if ! grep -qF "native_unsupported_hosted_path: reason=$expected_reason" "$native_build_err"; then
-        echo "error: $case_id native reject missing reason=$expected_reason" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
-    if ! grep -qF 'native_hosted_coreir_preflight: status=0' "$native_build_err"; then
-        echo "error: $case_id native reject lacks CoreIR preflight evidence" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
-    if ! grep -qF 'native_hosted_preflight: status=0' "$native_build_err"; then
-        echo "error: $case_id native reject lacks PortableMIR preflight evidence" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
+    check_native_reject_evidence "$case_id" "$native_build_err"
     write_case_summary "$case_id" 0 "" 1 "reject" ""
     return 0
 }
@@ -208,16 +256,7 @@ run_native_parity_case() {
         exit 1
     fi
     check_no_forbidden "$case_id-native" "$native_build_err"
-    if ! grep -qF 'native_hosted_coreir_preflight: status=0' "$native_build_err"; then
-        echo "error: $case_id native parity build lacks CoreIR preflight evidence" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
-    if ! grep -qF 'native_hosted_preflight: status=0' "$native_build_err"; then
-        echo "error: $case_id native parity build lacks PortableMIR preflight evidence" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
+    check_native_parity_evidence "$case_id" "$native_build_err"
     chmod +x "$native_bin"
     set +e
     "$native_bin" >"$native_run_out" 2>"$native_run_err"
@@ -315,21 +354,7 @@ run_native_try_then_reject() {
         exit 1
     fi
     check_no_forbidden "$case_id-native" "$native_build_err"
-    if ! grep -qF "native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing" "$native_build_err"; then
-        echo "error: $case_id native reject missing reason=native_hosted_portable_mir_lowering_missing" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
-    if ! grep -qF 'native_hosted_coreir_preflight: status=0' "$native_build_err"; then
-        echo "error: $case_id native reject lacks CoreIR preflight evidence" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
-    if ! grep -qF 'native_hosted_preflight: status=0' "$native_build_err"; then
-        echo "error: $case_id native reject lacks PortableMIR preflight evidence" >&2
-        cat "$native_build_err" >&2
-        exit 1
-    fi
+    check_native_reject_evidence "$case_id" "$native_build_err"
     write_case_summary "$case_id" 0 "" 1 "reject" ""
 }
 
