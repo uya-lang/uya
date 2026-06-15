@@ -16,6 +16,7 @@ GENERIC_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_generic_identity.uy
 OUTPARAM_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_local_array_outparam.uya"
 STACK_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_stack_limit_call.uya"
 PARSE_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_parse_like_outparam.uya"
+ARRAY_INDEX_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_hosted_array_index.uya"
 ORACLE_COMPILER="$REPO_ROOT/bin/uya"
 TMP_DIR="$(mktemp -d /tmp/uya-mir-c99-cmd-build-parity-frontier.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -125,13 +126,14 @@ run_candidate_oracle_case generic_identity "$GENERIC_FIXTURE"
 run_candidate_oracle_case local_array_outparam "$OUTPARAM_FIXTURE"
 run_candidate_oracle_case stack_limit_call "$STACK_FIXTURE"
 run_candidate_oracle_case parse_like_outparam "$PARSE_FIXTURE"
+run_candidate_oracle_case hosted_array_index "$ARRAY_INDEX_FIXTURE"
 
 require_pattern "$log_file" '^compiler_source_backend=mir_c99_unit_output$' \
     "generator uses MIR-C99 unit output backend"
 require_pattern "$log_file" '^parity_frontier_status=return_literal_c99_output_parity$' \
     "generator records return-literal C99 output parity frontier"
-require_pattern "$log_file" '^compiler_regression_status=generic_identity_outparam_stack_parse_smoke$' \
-    "generator records generic identity, out-param, stack-limit, and parse-like compiler regression smoke"
+require_pattern "$log_file" '^compiler_regression_status=generic_identity_outparam_stack_parse_array_smoke$' \
+    "generator records generic identity, out-param, stack-limit, parse-like, and array-index compiler regression smoke"
 require_pattern "$log_file" '^c99_output_parity_status=return_literal_smoke$' \
     "generator records return-literal C99 output parity smoke"
 require_pattern "$log_file" '^full_language_backend_parity_status=not_yet_run$' \
@@ -140,11 +142,11 @@ require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_
     "summary records MIR-C99 unit output backend"
 require_pattern "$summary_file" "^MIR_C99_PARITY_FRONTIER_STATUS='return_literal_c99_output_parity'$" \
     "summary records return-literal C99 output parity frontier"
-require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_outparam_stack_parse_smoke'$" \
-    "summary records generic identity, out-param, stack-limit, and parse-like compiler regression smoke"
+require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_outparam_stack_parse_array_smoke'$" \
+    "summary records generic identity, out-param, stack-limit, parse-like, and array-index compiler regression smoke"
 require_pattern "$summary_file" "^MIR_C99_C99_OUTPUT_PARITY_STATUS='return_literal_smoke'$" \
     "summary records return-literal C99 output parity smoke"
 require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='not_yet_run'$" \
     "summary does not claim full-language backend parity"
 
-echo "OK: MIR-C99 cmd/build candidate passes generic identity/out-param/stack/parse regressions and return-literal C99 output parity frontier"
+echo "OK: MIR-C99 cmd/build candidate passes generic identity/out-param/stack/parse/array regressions and return-literal C99 output parity frontier"

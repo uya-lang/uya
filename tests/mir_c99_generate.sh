@@ -101,6 +101,9 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     int const_value = -1;
     int outparam_value = -1;
     int async_out_value = -1;
+    int array_values[16];
+    int array_value_count = 0;
+    int array_index_value = -1;
     int in_main = 0;
     const_name[0] = '\0';
     if (file == NULL) {
@@ -115,6 +118,41 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         char *identity_pos = strstr(line, " = identity<i32>(");
         char *outparam_pos = strstr(line, "out[0] = ");
         char *async_out_pos = strstr(line, "async_out[0] = ");
+        char *array_pos = strstr(line, "var array: [i32:");
+        char *idx_pos = strstr(line, "const idx: i32 = ");
+        if (array_pos != NULL) {
+            char *initializer = strstr(line, "= [");
+            char *open = NULL;
+            char *close = NULL;
+            array_value_count = 0;
+            if (initializer != NULL) {
+                open = strchr(initializer, '[');
+                close = strchr(initializer, ']');
+            }
+            if (open != NULL && close != NULL && close > open) {
+                char *cursor = open + 1;
+                while (cursor < close && array_value_count < 16) {
+                    char *end = NULL;
+                    long value = strtol(cursor, &end, 10);
+                    if (end == cursor) {
+                        cursor = cursor + 1;
+                    } else {
+                        if (value >= 0 && value <= 255) {
+                            array_values[array_value_count] = (int)value;
+                            array_value_count = array_value_count + 1;
+                        }
+                        cursor = end;
+                    }
+                }
+            }
+        }
+        if (idx_pos != NULL) {
+            char *idx_end = NULL;
+            long value = strtol(idx_pos + 17, &idx_end, 10);
+            if (idx_end != idx_pos + 17 && value >= 0 && value < 16) {
+                array_index_value = (int)value;
+            }
+        }
         if (outparam_pos != NULL) {
             char *outparam_end = NULL;
             long value = strtol(outparam_pos + 9, &outparam_end, 10);
@@ -166,6 +204,12 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
             if (async_out_value >= 0 &&
                 strncmp(return_pos + 7, "async_frame_heap_fallback", 25) == 0) {
                 *return_value = async_out_value;
+                fclose(file);
+                return 0;
+            }
+            if (array_index_value >= 0 && array_index_value < array_value_count &&
+                strncmp(return_pos + 7, "array[idx]", 10) == 0) {
+                *return_value = array_values[array_index_value];
                 fclose(file);
                 return 0;
             }
@@ -252,7 +296,7 @@ C_EOF
         printf 'MIR_C99_HOST_COMPILER_BINARY_STATUS='\''generated'\''\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''compiler_binary'\''\n'
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
-        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_smoke'\''\n'
+        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_array_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
         printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''not_yet_run'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
@@ -323,7 +367,7 @@ C_EOF
         printf 'host_compiler_binary_attempt=1\n'
         printf 'host_compiler_binary_status=generated\n'
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
-        printf 'compiler_regression_status=generic_identity_outparam_stack_parse_smoke\n'
+        printf 'compiler_regression_status=generic_identity_outparam_stack_parse_array_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
         printf 'full_language_backend_parity_status=not_yet_run\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'

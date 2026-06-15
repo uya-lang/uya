@@ -1,0 +1,5 @@
+export fn main() i32 {
+    var array: [i32: 4] = [2, 4, 6, 8];
+    const idx: i32 = 2;
+    return array[idx];
+}
