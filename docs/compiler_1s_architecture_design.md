@@ -883,6 +883,10 @@ Hosted native 的第一阶段通过 `NativeHostedLinkPlan` 承接 host ABI/linke
 - `make uya` 默认走 MIR-C99 build path，MIR-C99 与现有 C99 oracle 结论分别记录。
 - C99 fallback 保留为 `make uya-c99`。
 - release flow 必须把三类结论分开记录：现有 C99 oracle 结论、MIR-C99 backend 结论、microapp profile 结论；三者任一失败都只能阻塞各自 gate，不能互相冒充完成证据。
+- `cmd/build` 的 MIR-C99 release gate 只允许检查两类事实：没有静默 fallback / 静默成功，以及当前阻塞能否被归入通用 capability 类别（如 call ABI、runtime helper、emitter/output、link/absence；必要时可细分 CFG、place/memory、aggregate/layout、cleanup/error）。
+- helper 名、`pending_core_bodies` 样本、固定 statement count、固定 body shape、`completed_body_detail` 和 `next_coverage` 只保留为 diagnostic context；它们不得再定义 release 完成。
+- `native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering` 这类 helper-frontier 样本只保留历史回归边界含义，用来证明 summary frontier 曾阻塞在 helper lowering，不再定义下一叶子或 stage gate。
+- 当前 release baseline 固定使用 `bash tests/verify_mir_c99_self_build_convergence_audit.sh` 与 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`，要求记录 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary` 与 `blocked_category_count=4`；后续只能通过这些收敛指标下降或由 MIR-C99 backend 替代 tracked `cmd/build` seed 过渡源来前进。
 - 冷构建时间和内存 benchmark 同时达标。
 - `make backup-all` 和 release 流程纳入 MIR-C99 对照。
 

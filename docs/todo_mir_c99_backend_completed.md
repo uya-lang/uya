@@ -1194,3 +1194,12 @@ Context:
   - [x] backup flow 保留现有 C99 seed，新增 MIR-C99 seed 只在自举稳定后进入。
     - 验证：`bash tests/verify_mir_c99_backup_seed_release_gate.sh`
     - 结果：通过；确认 `Makefile` 的 `backup-seed` / `backup-all` 仍只围绕现有 C99/hosted seed，且 `docs/compiler_1s_architecture_design.md` 已明确 MIR-C99 seed 仅在 stable self-build 后进入 tracked backup flow。
+### 4.17 Release Gates
+
+- [x] MIR-C99-BACKEND-RELEASE-GATES：收口和文档同步。
+  - [x] 文档同步：`docs/compiler_1s_architecture_design.md`、`docs/portable_mir_whitepaper.md`、`docs/coreir_lowered_program_whitepaper.md`、`docs/portable_mir_language_coverage.md`。
+    - 验证：`git diff --check`。
+    - 结果：通过。
+    - 验证：`bash tests/verify_portable_mir_language_coverage.sh`。
+    - 结果：通过；coverage matrix 与 `src/ast.uya`、`src/lower/core.uya` 一致。
+

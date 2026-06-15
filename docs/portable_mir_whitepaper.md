@@ -44,6 +44,9 @@ AST
 - PortableMIR 不替代 `LoweredProgram`，它消费 `LoweredProgram`。
 - 第一阶段不要求 C99 默认迁移到 MIR，因为 C99 仍是独立 oracle。
 - release 结论必须显式拆分为现有 C99 oracle、独立 MIR-C99 backend 和 microapp profile；不得把任一 profile 的通过记录成另外两类结论。
+- `cmd/build` 的 MIR-C99 release gate 只允许检查 no-silent-fallback / no-silent-success 与 blocked capability category 两类事实；helper 名、frontier 样本名、固定 statement count、固定 body shape 和 `completed_body_detail` 只能作为 diagnostic context。
+- helper-frontier 历史样本（如 `native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering`）只保留“summary frontier 曾阻塞在 helper lowering”的历史事实，不再定义 active leaf、stage gate 或 release 完成。
+- 当前 `cmd/build` MIR-C99 baseline 以 `bash tests/verify_mir_c99_self_build_convergence_audit.sh` 与 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 为准；基线诊断固定记录 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary` 与 `blocked_category_count=4`，后续只按这些收敛指标变化评估进展。
 
 ## 3. 分层边界
 

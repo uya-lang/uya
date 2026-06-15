@@ -530,6 +530,13 @@ CoreBody 标记 scope enter/exit 和活跃 cleanup set。PortableMIR 用这些�
 
 CoreIR 拥有 async frame metadata。PortableMIR 降低 frame memory 和 state transition。
 
+## 11. Release Gate 对齐
+
+- CoreIR / CoreBody 文档中的 helper 名、frontier 样本、固定 statement count、固定 body shape 和 `completed_body_detail` 只保留为 diagnostic context，不得再作为 MIR-C99 release gate 的完成定义。
+- `cmd/build` MIR-C99 release gate 只允许检查两类事实：没有静默 fallback / 静默成功，以及当前阻塞 helper 是否能被归入通用 capability 类别（call ABI、runtime helper、emitter/output、link/absence，以及必要时的 CFG、place/memory、aggregate/layout、cleanup/error）。
+- `native_build_type_named_equals` / `generic_corebody_type_named_equals_body_lowering` 等 helper-frontier 样本只保留历史回归边界含义，用来记录 summary frontier 曾阻塞在 helper lowering，不再定义 active leaf 或下一轮任务顺序。
+- 当前文档对齐的 baseline 以 `bash tests/verify_mir_c99_self_build_convergence_audit.sh` 与 `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 为准，要求记录 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary` 与 `blocked_category_count=4`；后续进展只允许体现在这些收敛指标下降或 tracked `cmd/build` seed 过渡源被 MIR-C99 backend 替代。
+
 `AsyncFramePlan` 包含：
 
 - async function concrete ID
