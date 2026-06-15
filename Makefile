@@ -1000,6 +1000,57 @@ check: uya cmd-build-current cmd-check cmd-run cmd-microapp
 			echo "跳过 benchmarks/http_bench_async_epoll.uya C99（设 UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1 启用）"; \
 		fi; \
 		echo ""; \
+		if [ "$${UYA_MIR_C99_RELEASE_GATE:-off}" = "optional" ]; then \
+			echo "执行 MIR-C99 release gate（optional）..."; \
+			if bash ./tests/verify_mir_c99_self_build_convergence_audit.sh > /tmp/verify_out.txt 2>&1; then \
+				grep -E "OK:|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=0; \
+			else \
+				cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=1; \
+			fi; \
+			if [ $$VERIFY_EXIT -ne 0 ]; then \
+				echo "✗ MIR-C99 self-build convergence audit 验证失败（optional）"; \
+				exit 1; \
+			fi; \
+			if bash ./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh > /tmp/verify_out.txt 2>&1; then \
+				grep -E "OK:|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=0; \
+			else \
+				cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=1; \
+			fi; \
+			if [ $$VERIFY_EXIT -ne 0 ]; then \
+				echo "✗ MIR-C99 cmd/build host compiler candidate gate 验证失败（optional）"; \
+				exit 1; \
+			fi; \
+		elif [ "$${UYA_MIR_C99_RELEASE_GATE:-off}" = "required" ]; then \
+			echo "执行 MIR-C99 release gate（required）..."; \
+			if bash ./tests/verify_mir_c99_self_build_convergence_audit.sh > /tmp/verify_out.txt 2>&1; then \
+				grep -E "OK:|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=0; \
+			else \
+				cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=1; \
+			fi; \
+			if [ $$VERIFY_EXIT -ne 0 ]; then \
+				echo "✗ MIR-C99 self-build convergence audit 验证失败（required）"; \
+				exit 1; \
+			fi; \
+			if bash ./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh > /tmp/verify_out.txt 2>&1; then \
+				grep -E "OK:|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=0; \
+			else \
+				cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=1; \
+			fi; \
+			if [ $$VERIFY_EXIT -ne 0 ]; then \
+				echo "✗ MIR-C99 cmd/build host compiler candidate gate 验证失败（required）"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "跳过 MIR-C99 release gate（设 UYA_MIR_C99_RELEASE_GATE=optional 或 required 启用；默认 UYA_MIR_C99_RELEASE_GATE=off）"; \
+		fi; \
 		echo "=========================================="; \
 	echo "测试结果："; \
 	echo "=========================================="; \
@@ -1019,7 +1070,7 @@ check: uya cmd-build-current cmd-check cmd-run cmd-microapp
 	fi; \
 	rm -f /tmp/make_check_output.txt /tmp/verify_out.txt; \
 	echo ""; \
-		echo "✓ 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + 切片形参 C99 + @syscall C99 + SIMD NEON + http_bench C99）"
+		echo "✓ 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + 切片形参 C99 + @syscall C99 + SIMD NEON + http_bench C99；UYA_MIR_C99_RELEASE_GATE=$${UYA_MIR_C99_RELEASE_GATE:-off} make check）"
 
 # hosted 验证：普通链接自举 + 主测试 + 证明优化
 check-hosted: b-hosted
@@ -1114,7 +1165,18 @@ check-hosted: b-hosted
 		exit 1; \
 	fi
 	@echo ""
-	@echo "✓ hosted 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + @syscall C99 + SIMD NEON）"
+	@if [ "$${UYA_MIR_C99_RELEASE_GATE:-off}" = "optional" ]; then \
+		echo "执行 MIR-C99 release gate（optional）..."; \
+		bash ./tests/verify_mir_c99_self_build_convergence_audit.sh; \
+		bash ./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh; \
+	elif [ "$${UYA_MIR_C99_RELEASE_GATE:-off}" = "required" ]; then \
+		echo "执行 MIR-C99 release gate（required）..."; \
+		bash ./tests/verify_mir_c99_self_build_convergence_audit.sh; \
+		bash ./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh; \
+	else \
+		echo "跳过 MIR-C99 release gate（设 UYA_MIR_C99_RELEASE_GATE=optional 或 required 启用；默认 UYA_MIR_C99_RELEASE_GATE=off）"; \
+	fi
+	@echo "✓ hosted 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + @syscall C99 + SIMD NEON；UYA_MIR_C99_RELEASE_GATE=$${UYA_MIR_C99_RELEASE_GATE:-off} make check-hosted）"
 
 # 备份（依赖 check 通过）：多文件 C 产物目录 -> backup/uyacache（与 make uya 一致）
 backup: check
@@ -1543,6 +1605,9 @@ help:
 	@echo "  make outlibc       - 输出标准库为 C 代码（使用自举编译器）"
 	@echo "  make check         - 验证（自举 + 测试），不备份"
 	@echo "  make check-hosted  - hosted 验证（自举 + 测试），不备份"
+	@echo "  UYA_MIR_C99_RELEASE_GATE=off       - 默认关闭 MIR-C99 release gate"
+	@echo "  UYA_MIR_C99_RELEASE_GATE=optional  - 在 make check / make check-hosted 执行 MIR-C99 gate"
+	@echo "  UYA_MIR_C99_RELEASE_GATE=required  - 将 MIR-C99 gate 视为发布必选门禁"
 	@echo "  make backup        - 验证 + 备份多文件 C 目录 backup/uyacache（与 make uya 一致）"
 	@echo "  make backup-seed   - 单文件 C 重编译，更新 bin/uya.c、backup/uya.c 与 host/arch 专用备份"
 	@echo "  make backup-cmd-build-seed - 生成 backup/cmd-build.c 与 host/arch build seed"

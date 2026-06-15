@@ -1177,3 +1177,8 @@ Context:
   - 验证：`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` -> OK: MIR-C99 cmd/build host compiler binary attempt gate emits real compiler candidate and passes --help smoke
   - 验证：`bash tests/verify_mir_c99_cmd_build_candidate_build_smoke.sh` -> OK: MIR-C99 cmd/build real compiler candidate compiles and runs a minimal program
   - 说明：本项完成证明当前 `mir_c99_unit_output` 路径已能生成“真实 compiler candidate”，并可完成 `build <input.uya> -o <output>` 的最小端到端 host C 证据；更大范围的 compiler regression、C99 output parity 和 full-language backend parity 仍留待 4.17/后续 gate 收口。
+
+- MIR-C99-BACKEND-RELEASE-GATES
+  - [x] `make check` / `make check-hosted` 增加 MIR-C99 可选或必选门禁，按阶段切换。
+    - 验证：`bash tests/verify_mir_c99_release_gate_contract.sh`
+    - 结果：通过；确认 `UYA_MIR_C99_RELEASE_GATE=off|optional|required` 三态已接入 `make check` / `make check-hosted`，并串联 `tests/verify_mir_c99_self_build_convergence_audit.sh` 与 `tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`。
