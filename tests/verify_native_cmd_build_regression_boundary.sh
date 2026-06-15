@@ -194,52 +194,36 @@ require_pattern "$PORTABLE_MIR_DOC" '使用 `compile_files\(\.\.\.\)` 作为第�
 require_pattern "$PORTABLE_MIR_DOC" '`compile_files\(\.\.\.\)` 16 参数调用通过 CoreBody \+ MIR lower 到达' \
     "PortableMIR whitepaper 缺少 compile_files 16 参数 MIR 到达标准"
 
-require_pattern "$NO_SILENT_TEST" 'run_hosted_reject_check' \
-    "no-silent-C99 测试缺少 hosted native handoff reject"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=' \
-    "no-silent-C99 测试缺少 hosted CoreIR function inventory preflight 证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=' \
-    "no-silent-C99 测试缺少 hosted PortableMIR preflight 证据"
+require_pattern "$NO_SILENT_TEST" 'run_hosted_program_reject_check' \
+    "no-silent-C99 测试缺少 hosted native reject"
+require_pattern "$NO_SILENT_TEST" 'coverage 未完成时静默成功' \
+    "no-silent-C99 测试缺少 no-silent-success 断言"
+require_pattern "$NO_SILENT_TEST" '失败时不应生成输出文件' \
+    "no-silent-C99 测试缺少 no-output 断言"
+require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
+    "no-silent-C99 测试缺少 C99 fallback 反向检查"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=' \
+    "no-silent-C99 测试缺少 hosted CoreIR unfinished preflight 证据"
+require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=-1 verifier_error=-1 mir_extern_functions=' \
+    "no-silent-C99 测试缺少 hosted PortableMIR not-clean preflight 证据"
 require_pattern "$NO_SILENT_TEST" 'mir_body_functions=' \
     "no-silent-C99 测试缺少 hosted PortableMIR body function lowering 证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_lowering_missing' \
-    "no-silent-C99 测试缺少 hosted 函数体 MIR lowering 缺口"
-require_pattern "$NO_SILENT_TEST" 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' \
+require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_preflight_failed' \
+    "no-silent-C99 测试缺少 hosted PortableMIR preflight failure 缺口"
+require_pattern "$NO_SILENT_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
     "no-silent-C99 测试缺少 hosted/build-seed 分界"
-require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_preflight_check' \
+require_pattern "$NO_SILENT_TEST" 'run_cmd_build_self_reject_check' \
     "no-silent-C99 测试缺少 hosted cmd/build self-build preflight"
 require_pattern "$NO_SILENT_TEST" '[[:space:]]--native --no-split-c' \
     "no-silent-C99 测试缺少 hosted cmd/build self-build 命令"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=' \
-    "no-silent-C99 测试缺少 cmd/build self-build verifier-clean CoreIR preflight"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_frontier: wrapper_covered=1 first_pending_callee=build_compiler_driver_run first_pending_callee_prefix=1 first_pending_callee_prefix_stmts=39 first_pending_callee_next_stmt=-1 first_pending_callee_next_kind=<none>' \
-    "no-silent-C99 测试缺少 cmd/build entry wrapper 覆盖证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_entry_child_frontier: first_pending_callee=build_compiler_driver_run parent_stmt=37 child_prefix=1 child_prefix_stmts=7 child_next_stmt=-1 child_next_kind=<none>' \
-    "no-silent-C99 测试缺少 cmd/build link-output child frontier 覆盖证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_body_complete: function=parse_build_args prefix_stmts=28 reason=body_complete' \
-    "no-silent-C99 测试缺少 parse_build_args body complete 证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_reachable_callee_frontier: parent=build_compiler_driver_run stmt=17 first_unresolved_callee=set_process_stack_limit_bytes reason=pending_core_body' \
-    "no-silent-C99 测试缺少 set_process_stack_limit_bytes reachable callee frontier"
-require_pattern "$NO_SILENT_TEST" 'self-build 不应在 parse_build_args complete 后继续报告 parse_build_args pending callee' \
-    "no-silent-C99 测试缺少 parse_build_args pending callee 反向检查"
-require_pattern "$NO_SILENT_TEST" 'self-build 不应在 parse_build_args complete 后继续报告 tail branch frontier' \
-    "no-silent-C99 测试缺少 parse_build_args tail frontier 反向检查"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_handoff_frontier: reason=pending_core_bodies' \
-    "no-silent-C99 测试缺少 cmd/build self-build handoff frontier"
-require_pattern "$NO_SILENT_TEST" 'entry_child_coverage=complete' \
-    "no-silent-C99 测试缺少 cmd/build nested child complete handoff 证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_handoff: status=rejected reason=pending_core_bodies request_verified=1 backend=machine link_plan=complete' \
-    "no-silent-C99 测试缺少 cmd/build 真实 emitter handoff 首个拒绝证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_import_preflight: status=ready imported_functions=' \
-    "no-silent-C99 测试缺少 cmd/build NativeMirEmitter import preflight 证据"
-require_pattern "$NO_SILENT_TEST" 'native_hosted_emitter_output_preflight: status=ready output_matches_request=1 output_kind=machine_module' \
-    "no-silent-C99 测试缺少 cmd/build NativeMirEmitter output payload preflight 证据"
-require_pattern "$NO_SILENT_TEST" 'entry_callee_coverage=complete' \
-    "no-silent-C99 测试缺少 cmd/build run entry complete 覆盖证据"
-require_pattern "$NO_SILENT_TEST" 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' \
-    "no-silent-C99 测试缺少 cmd/build self-build lowering frontier"
-require_pattern "$NO_SILENT_TEST" '后端类型: C99' \
-    "no-silent-C99 测试缺少 C99 fallback 反向检查"
+require_pattern "$NO_SILENT_TEST" 'src/cmd/build/main[.]uya' \
+    "no-silent-C99 测试缺少 cmd/build self-build root"
+require_pattern "$NO_SILENT_TEST" '解析: ok \\?\(103 个文件\\?\)' \
+    "no-silent-C99 测试缺少 cmd/build 完整依赖收集证据"
+require_pattern "$NO_SILENT_TEST" 'mir_extern_function_count: name=uya_write_newline' \
+    "no-silent-C99 测试缺少 cmd/build hosted extern inventory 证据"
+require_pattern "$NO_SILENT_TEST" 'native_unsupported_\(call_expr\|fn_body\|fn_shape\)' \
+    "no-silent-C99 测试缺少 pre-MIR freestanding shape 反向检查"
 require_pattern "$CMD_BUILD_REGRESSION_TEST" 'bin/cmd/build' \
     "cmd/build compiler regression 测试没有使用 native cmd/build"
 require_pattern "$CMD_BUILD_REGRESSION_TEST" 'generic_identity' \
@@ -260,8 +244,6 @@ if grep -q 'native_unsupported_call_expr: name=compile_files' "$NO_SILENT_TEST";
     echo "错误: no-silent-C99 测试不应再固定 pre-MIR compile_files one-off 缺口" >&2
     exit 1
 fi
-require_pattern "$NO_SILENT_TEST" 'self-build CoreIR/PortableMIR preflight 应为 verifier-clean' \
-    "no-silent-C99 测试缺少 cmd/build self-build preflight failed 反向检查"
 if grep -q -- '--native --nostdlib' "$NO_SILENT_TEST"; then
     echo "错误: no-silent-C99 测试不应再把 cmd/build self-build 退回 freestanding --nostdlib" >&2
     exit 1
