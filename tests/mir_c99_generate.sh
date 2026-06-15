@@ -237,7 +237,7 @@ C_EOF
         printf 'MIR_C99_HOST_COMPILER_BINARY_STATUS='\''generated'\''\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''compiler_binary'\''\n'
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
-        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_and_outparam_smoke'\''\n'
+        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
         printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''not_yet_run'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
@@ -308,7 +308,7 @@ C_EOF
         printf 'host_compiler_binary_attempt=1\n'
         printf 'host_compiler_binary_status=generated\n'
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
-        printf 'compiler_regression_status=generic_identity_and_outparam_smoke\n'
+        printf 'compiler_regression_status=generic_identity_outparam_stack_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
         printf 'full_language_backend_parity_status=not_yet_run\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'

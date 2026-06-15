@@ -1,0 +1,8 @@
+use std.runtime.entry.set_process_stack_limit_bytes;
+
+export fn main() i32 {
+    var stack_size: i32 = 65536;
+    var eff_stack_size: i32 = stack_size;
+    set_process_stack_limit_bytes(eff_stack_size as u64 * 1024);
+    return 4;
+}
