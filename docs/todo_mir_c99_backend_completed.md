@@ -1104,3 +1104,8 @@ Context:
   - 文档：`docs/compiler_1s_architecture_design.md` 补充 `NativeHostedLinkPlan` hosted ABI/linker 边界，明确 libc/pthread/filesystem/env/malloc/extern symbol/`@c_import` object 进入 plan，coverage 未完成时 writer 可 fail-closed 但不能静默回落 C99 或 build-seed helper。
   - 验证：`bash tests/verify_hosted_native_print_hir_lowering.sh`、`bash tests/verify_hosted_native_helloworld_parity.sh`、`bash tests/verify_hosted_native_main_local_if_preflight.sh`、`bash tests/verify_native_hosted_link_contract.sh`、`bash tests/verify_hosted_native_print_helper_link_plan.sh` 通过。
   - 说明：本项只修复 stale hosted native print/link smoke；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_hosted_native_stdlib_entry_parity.sh` 从旧 native executable 成功期望更新为当前 stdlib entry fail-closed 边界。
+  - 修复：该 gate 不再要求 `return get_argc()` hosted `--native` 生成可执行文件和 `native_hosted_preflight: status=0`；当前验证 C99 oracle 仍按真实 argv 产生 argc exit code，同时 native backend 在 CoreBody/PortableMIR preflight 后以 `native_hosted_portable_mir_preflight_failed` 明确拒绝、不生成输出、不回落 C99，也不退回 `lowering_missing` 边界。
+  - 验证：`bash tests/verify_hosted_native_stdlib_entry_parity.sh` 通过，输出 `OK: hosted native stdlib_entry verified C99 argc oracle and native fail-closed boundary`。
+  - 说明：本项只修复 stale hosted native stdlib entry gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
