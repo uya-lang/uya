@@ -10,6 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 MATRIX_DOC="$REPO_ROOT/docs/portable_mir_language_coverage.md"
 TODO_FILE="$REPO_ROOT/docs/todo_mir_c99_backend.md"
+TODO_COMPLETED_FILE="$REPO_ROOT/docs/todo_mir_c99_backend_completed.md"
 
 require_pattern() {
     local file="$1"
@@ -19,6 +20,20 @@ require_pattern() {
         echo "error: missing full-language async control-flow evidence: $description" >&2
         exit 1
     fi
+}
+
+require_pattern_any() {
+    local pattern="$1"
+    local description="$2"
+    shift 2
+    local file
+    for file in "$@"; do
+        if grep -Eq "$pattern" "$file"; then
+            return 0
+        fi
+    done
+    echo "error: missing full-language async control-flow evidence: $description" >&2
+    exit 1
 }
 
 bash "$REPO_ROOT/tests/verify_mir_c99_async_control_flow_parity.sh" >/dev/null
@@ -41,8 +56,9 @@ require_pattern "$MATRIX_DOC" \
 require_pattern "$MATRIX_DOC" \
     '\| `@await` \| partial \| partial \| .*control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await' \
     "@await builtin control-flow async evidence"
-require_pattern "$TODO_FILE" \
+require_pattern_any \
     'control-flow async full-language parity' \
-    "todo tracks control-flow async full-language shard"
+    "todo tracks control-flow async full-language shard" \
+    "$TODO_FILE" "$TODO_COMPLETED_FILE"
 
 echo "OK: MIR-C99 full-language control-flow async parity matched C99 oracle"

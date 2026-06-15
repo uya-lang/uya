@@ -55,10 +55,10 @@ if ! grep -Eq 'source-to-PortableMIR \+ `mir_c99_driver_run` \+ `MirC99Emitter` 
     exit 1
 fi
 
-require_pattern "$FAILED_FILE" '已重开历史项：MIR-C99-built compiler 复跑 `cmd/build` self-build。' \
-    "failed archive records the reopened historical failure"
-require_pattern "$FAILED_FILE" '重开位置：`docs/todo_mir_c99_backend.md` 4.16 `去除 tracked_cmd_build_seed 过渡源`。' \
-    "failed archive points to the reopened executable leaf"
+require_pattern "$COMPLETED_FILE" '将已修复的 `MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity` 历史失败块从失败归档移入完成归档' \
+    "completed archive records the repaired historical failure migration"
+require_pattern "$COMPLETED_FILE" '重开位置：`docs/todo_mir_c99_backend.md` 4\.16 `去除 tracked_cmd_build_seed 过渡源`。' \
+    "completed archive points to the reopened executable leaf"
 reject_pattern "$FAILED_FILE" '^\s*[-*]\s*\[f\].*MIR-C99-built compiler 复跑 `cmd/build` self-build' \
     "failed archive must not retain the reopened self-build item as [f]"
 
