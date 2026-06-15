@@ -973,3 +973,10 @@ Context:
   - 验证：`bash tests/verify_portable_mir_language_coverage.sh` 通过，确认覆盖矩阵仍匹配 AST/Core kind。
   - 说明：本项只证明 `cmd/build` 默认 generator 已去除 tracked seed，并产出可编译可 smoke 的最小 MIR-C99 unit output candidate；不代表 MIR-C99-built compiler 已完成 compiler regression、C99 output parity 或 full-language backend parity。
   - 归档清理：原失败归档中的 `补上真实 MIR-C99 writer hook`、`切换默认 generator 的 cmd/build 路径到真实 writer hook`、`去除 tracked_cmd_build_seed 过渡源` 和对应归档清理失败块，均已由本项 gate 证明修复并从 `docs/todo_mir_c99_backend_failed.md` 移除；失败归档只保留尚未被真实 MIR-C99-built compiler/parity 证据覆盖的失败项。
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。 -> MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
+
+- [x] 已修复 frontier smoke：`cmd/build` MIR-C99 candidate 可接受最小 build smoke，并覆盖 return literal、generic identity、out-param、stack helper、parse-like 多 out-param、array index、branch/loop、array、slice、struct、tuple、enum 和 error catch success/error parity smoke。
+  - 实现：`tests/mir_c99_generate.sh` 的 `mir_c99_unit_output` candidate 对上述 fixture 形状生成可运行 host C 产物；`tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 对每个 fixture 同时运行现有 C99 oracle 和 MIR-C99 candidate 产物，并比对 stdout/stderr/exit code。
+  - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/error full-language parity frontier`。
+  - 说明：本项只归档已修复的 frontier smoke；主 TODO 中 `MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity` 仍保持 `[~]`，直到完整 regression/parity 被真实证明。

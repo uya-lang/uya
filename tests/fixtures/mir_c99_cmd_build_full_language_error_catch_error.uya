@@ -1,0 +1,16 @@
+use std.runtime.get_argc;
+
+error FullLanguageCatch;
+
+fn maybe_argc(value: i32) !i32 {
+    if value == 1 {
+        return error.FullLanguageCatch;
+    }
+    return 17;
+}
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    const value: i32 = maybe_argc(argc) catch { 23; };
+    return value;
+}
