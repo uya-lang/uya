@@ -1,0 +1,20 @@
+use std.runtime.get_argc;
+
+var cleanup_marker: i32 = 0;
+
+error FullLanguageErrdefer;
+
+fn maybe_cleanup(value: i32) !i32 {
+    cleanup_marker = 4;
+    errdefer { cleanup_marker = cleanup_marker + 30; }
+    if value == 3 {
+        return error.FullLanguageErrdefer;
+    }
+    return value + cleanup_marker;
+}
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    const result: i32 = maybe_cleanup(argc) catch { cleanup_marker; };
+    return result + cleanup_marker;
+}
