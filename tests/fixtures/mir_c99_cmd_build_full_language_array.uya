@@ -1,0 +1,7 @@
+export fn main() i32 {
+    var values: [i32: 4] = [2, 3, 5, 7];
+    values[1] = values[0] + values[2];
+    var zeroed: [i32: 2] = [];
+    zeroed[0] = values[3];
+    return values[1] + zeroed[0] + zeroed[1];
+}

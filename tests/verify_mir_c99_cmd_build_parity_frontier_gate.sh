@@ -18,6 +18,7 @@ STACK_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_stack_limit_call.uya"
 PARSE_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_parse_like_outparam.uya"
 ARRAY_INDEX_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_hosted_array_index.uya"
 BRANCH_LOOP_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_full_language_branch_loop.uya"
+FULL_ARRAY_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_full_language_array.uya"
 ORACLE_COMPILER="$REPO_ROOT/bin/uya"
 TMP_DIR="$(mktemp -d /tmp/uya-mir-c99-cmd-build-parity-frontier.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -129,6 +130,7 @@ run_candidate_oracle_case stack_limit_call "$STACK_FIXTURE"
 run_candidate_oracle_case parse_like_outparam "$PARSE_FIXTURE"
 run_candidate_oracle_case hosted_array_index "$ARRAY_INDEX_FIXTURE"
 run_candidate_oracle_case full_language_branch_loop "$BRANCH_LOOP_FIXTURE"
+run_candidate_oracle_case full_language_array "$FULL_ARRAY_FIXTURE"
 
 require_pattern "$log_file" '^compiler_source_backend=mir_c99_unit_output$' \
     "generator uses MIR-C99 unit output backend"
@@ -138,8 +140,8 @@ require_pattern "$log_file" '^compiler_regression_status=generic_identity_outpar
     "generator records generic identity, out-param, stack-limit, parse-like, and array-index compiler regression smoke"
 require_pattern "$log_file" '^c99_output_parity_status=return_literal_smoke$' \
     "generator records return-literal C99 output parity smoke"
-require_pattern "$log_file" '^full_language_backend_parity_status=branch_loop_smoke$' \
-    "generator records branch/loop full-language parity smoke"
+require_pattern "$log_file" '^full_language_backend_parity_status=branch_loop_array_smoke$' \
+    "generator records branch/loop and array full-language parity smoke"
 require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_output'$" \
     "summary records MIR-C99 unit output backend"
 require_pattern "$summary_file" "^MIR_C99_PARITY_FRONTIER_STATUS='return_literal_c99_output_parity'$" \
@@ -148,7 +150,7 @@ require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_id
     "summary records generic identity, out-param, stack-limit, parse-like, and array-index compiler regression smoke"
 require_pattern "$summary_file" "^MIR_C99_C99_OUTPUT_PARITY_STATUS='return_literal_smoke'$" \
     "summary records return-literal C99 output parity smoke"
-require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='branch_loop_smoke'$" \
-    "summary records branch/loop full-language parity smoke"
+require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='branch_loop_array_smoke'$" \
+    "summary records branch/loop and array full-language parity smoke"
 
-echo "OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop full-language parity frontier"
+echo "OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array full-language parity frontier"
