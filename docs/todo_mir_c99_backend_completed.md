@@ -1167,3 +1167,13 @@ Context:
   - [x] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
     - 完成说明：新增 `tests/verify_mir_c99_self_build_absence_gate.sh`，直接围绕 `src/cmd/build/main.uya` 的 MIR-C99 real compiler candidate 路径收集 absence 证据：要求 generator log / summary 固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_status=generated`、`compiler_source_backend=mir_c99_unit_output`，并拒绝 `legacy C99`、`codegen/c99`、`C99CodeGenerator`、`tracked_cmd_build_seed`、`backup/cmd-build` 等痕迹；同时复用 `tests/verify_mir_c99_independent_boundary.sh`，确认 MIR-C99 源码边界没有调用现有 AST C99 backend 作为成功路径。
     - 验证：`bash tests/verify_mir_c99_self_build_absence_gate.sh` 通过；`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 通过；`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过；`bash tests/verify_mir_c99_cmd_build_true_writer_gate.sh` 通过；`bash tests/verify_mir_c99_independent_boundary.sh` 通过；`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过；`git diff --check` 通过。
+
+### 4.16 Self Build
+
+- [x] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
+  - 注：前两轮失败子任务 `补上真实 MIR-C99 writer hook`（2026-06-14 21:14:08）与 `去除 tracked_cmd_build_seed 过渡源`（2026-06-15 09:50 归档清理）已移入 `docs/todo_mir_c99_backend_failed.md`；已修复的 tracked seed 去除项移入 `docs/todo_mir_c99_backend_completed.md`。
+  - 完成条件：默认 generator 为 `src/cmd/build/main.uya` 生成真实 MIR-C99 compiler candidate C，经 host C compiler 编译后不仅通过 `--help` smoke，还能作为 build compiler 编译最小 Uya 程序。
+  - 验证：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` -> OK: MIR-C99 self-build convergence audit records real compiler candidate status and grouped blockers
+  - 验证：`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` -> OK: MIR-C99 cmd/build host compiler binary attempt gate emits real compiler candidate and passes --help smoke
+  - 验证：`bash tests/verify_mir_c99_cmd_build_candidate_build_smoke.sh` -> OK: MIR-C99 cmd/build real compiler candidate compiles and runs a minimal program
+  - 说明：本项完成证明当前 `mir_c99_unit_output` 路径已能生成“真实 compiler candidate”，并可完成 `build <input.uya> -o <output>` 的最小端到端 host C 证据；更大范围的 compiler regression、C99 output parity 和 full-language backend parity 仍留待 4.17/后续 gate 收口。

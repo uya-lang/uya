@@ -101,8 +101,6 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 - stage gate 不得要求继续完成 `native_build_type_named_equals`、枚举下一个 `pending_core_bodies` helper，或用 helper 名、body shape、statement count 变化来定义进展。
 - 当前基线：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` + `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary`、`blocked_category_count=4`；后续只允许围绕这些指标下降或 MIR-C99 backend 替代 tracked cmd/build seed 过渡源推进。
 
-- [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
-  - 注：前两轮失败子任务 `补上真实 MIR-C99 writer hook`（2026-06-14 21:14:08）与 `去除 tracked_cmd_build_seed 过渡源`（2026-06-15 09:50 归档清理）已移入 `docs/todo_mir_c99_backend_failed.md`；已修复的 tracked seed 去除项移入 `docs/todo_mir_c99_backend_completed.md`。
 
 ### 4.17 Release Gates
 
