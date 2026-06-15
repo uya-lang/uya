@@ -105,7 +105,6 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 ### 4.17 Release Gates
 
 - [ ] MIR-C99-BACKEND-RELEASE-GATES：收口和文档同步。
-  - [ ] release flow 区分现有 C99 oracle、MIR-C99 backend 和 microapp profile 结论。
   - [ ] backup flow 保留现有 C99 seed，新增 MIR-C99 seed 只在自举稳定后进入。
   - [ ] 文档同步：`docs/compiler_1s_architecture_design.md`、`docs/portable_mir_whitepaper.md`、`docs/coreir_lowered_program_whitepaper.md`、`docs/portable_mir_language_coverage.md`。
 

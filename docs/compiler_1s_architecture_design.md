@@ -880,6 +880,7 @@ Hosted native 的第一阶段通过 `NativeHostedLinkPlan` 承接 host ABI/linke
 
 - `make uya` 默认走 MIR-C99 build path，MIR-C99 与现有 C99 oracle 结论分别记录。
 - C99 fallback 保留为 `make uya-c99`。
+- release flow 必须把三类结论分开记录：现有 C99 oracle 结论、MIR-C99 backend 结论、microapp profile 结论；三者任一失败都只能阻塞各自 gate，不能互相冒充完成证据。
 - 冷构建时间和内存 benchmark 同时达标。
 - `make backup-all` 和 release 流程纳入 MIR-C99 对照。
 

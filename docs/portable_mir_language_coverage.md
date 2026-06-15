@@ -6,6 +6,9 @@
 **MIR-C99 TODO**: `docs/todo_mir_c99_backend.md`
 **MIR-C99 parity harness**: 待新增；当前以现有 C99 backend 作为行为 oracle
 
+**Release gate 口径**: release flow 需要分别记录现有 C99 oracle、MIR-C99 backend、microapp profile 的结论；
+本矩阵只为前两者提供语言覆盖语义，不把 microapp profile 的通过或失败折算成全语言 MIR-C99 结论。
+
 ---
 
 ## 1. 目的与范围

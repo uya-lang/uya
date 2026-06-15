@@ -843,6 +843,10 @@ C99 必须遵守 CoreIR 合同：
 该路线不得混用现有 AST/LoweredProgram `C99Plan` / `C99Emitter` 作为生产成功路径，且在 parity 证明前
 不能删除现有 C99 oracle。
 
+release / gate 文档必须把现有 C99 oracle、MIR-C99 backend、microapp profile 三类结论分开：
+现有 C99 只回答 oracle/parity 基线，MIR-C99 只回答独立 `PortableMIR -> MirC99Plan -> MirC99Emitter`
+主路径是否成立，microapp profile 只回答受限 profile 的 image/payload 能力；三者不能互相替代。
+
 ## 27. 与 PortableMIR 的关系
 
 PortableMIR lowering 接收：

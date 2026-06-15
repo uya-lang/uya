@@ -43,6 +43,7 @@ AST
 - PortableMIR v1 不要求全局优化流水线。
 - PortableMIR 不替代 `LoweredProgram`，它消费 `LoweredProgram`。
 - 第一阶段不要求 C99 默认迁移到 MIR，因为 C99 仍是独立 oracle。
+- release 结论必须显式拆分为现有 C99 oracle、独立 MIR-C99 backend 和 microapp profile；不得把任一 profile 的通过记录成另外两类结论。
 
 ## 3. 分层边界
 
