@@ -15,6 +15,7 @@ RETURN_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_return7.uya"
 GENERIC_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_generic_identity.uya"
 OUTPARAM_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_local_array_outparam.uya"
 STACK_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_stack_limit_call.uya"
+PARSE_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_parse_like_outparam.uya"
 ORACLE_COMPILER="$REPO_ROOT/bin/uya"
 TMP_DIR="$(mktemp -d /tmp/uya-mir-c99-cmd-build-parity-frontier.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -48,12 +49,27 @@ run_candidate_oracle_case() {
     local candidate_status
     local oracle_status
 
-    "$candidate_bin" build "$fixture" -o "$candidate_out" --project-root "$REPO_ROOT" \
-        >"$TMP_DIR/$name.candidate.build.out" 2>"$TMP_DIR/$name.candidate.build.err"
-    "$ORACLE_COMPILER" build "$fixture" -o "$oracle_c" --no-split-c --project-root "$REPO_ROOT" \
-        >"$TMP_DIR/$name.oracle.build.out" 2>"$TMP_DIR/$name.oracle.build.err"
-    cc -std=c99 -Wall -Wextra -pedantic "$oracle_c" -o "$oracle_bin" -lm \
-        >"$TMP_DIR/$name.oracle.cc.out" 2>"$TMP_DIR/$name.oracle.cc.err"
+    if ! "$candidate_bin" build "$fixture" -o "$candidate_out" --project-root "$REPO_ROOT" \
+        >"$TMP_DIR/$name.candidate.build.out" 2>"$TMP_DIR/$name.candidate.build.err"; then
+        echo "error: MIR-C99 cmd/build $name candidate build failed" >&2
+        cat "$TMP_DIR/$name.candidate.build.out" >&2
+        cat "$TMP_DIR/$name.candidate.build.err" >&2
+        exit 1
+    fi
+    if ! "$ORACLE_COMPILER" build "$fixture" -o "$oracle_c" --no-split-c --project-root "$REPO_ROOT" \
+        >"$TMP_DIR/$name.oracle.build.out" 2>"$TMP_DIR/$name.oracle.build.err"; then
+        echo "error: MIR-C99 cmd/build $name oracle build failed" >&2
+        cat "$TMP_DIR/$name.oracle.build.out" >&2
+        cat "$TMP_DIR/$name.oracle.build.err" >&2
+        exit 1
+    fi
+    if ! cc -std=c99 -Wall -Wextra -pedantic "$oracle_c" -o "$oracle_bin" -lm \
+        >"$TMP_DIR/$name.oracle.cc.out" 2>"$TMP_DIR/$name.oracle.cc.err"; then
+        echo "error: MIR-C99 cmd/build $name oracle C compile failed" >&2
+        cat "$TMP_DIR/$name.oracle.cc.out" >&2
+        cat "$TMP_DIR/$name.oracle.cc.err" >&2
+        exit 1
+    fi
 
     set +e
     "$candidate_out" >"$TMP_DIR/$name.candidate.out" 2>"$TMP_DIR/$name.candidate.err"
@@ -108,13 +124,14 @@ run_candidate_oracle_case return_literal "$RETURN_FIXTURE"
 run_candidate_oracle_case generic_identity "$GENERIC_FIXTURE"
 run_candidate_oracle_case local_array_outparam "$OUTPARAM_FIXTURE"
 run_candidate_oracle_case stack_limit_call "$STACK_FIXTURE"
+run_candidate_oracle_case parse_like_outparam "$PARSE_FIXTURE"
 
 require_pattern "$log_file" '^compiler_source_backend=mir_c99_unit_output$' \
     "generator uses MIR-C99 unit output backend"
 require_pattern "$log_file" '^parity_frontier_status=return_literal_c99_output_parity$' \
     "generator records return-literal C99 output parity frontier"
-require_pattern "$log_file" '^compiler_regression_status=generic_identity_outparam_stack_smoke$' \
-    "generator records generic identity, out-param, and stack-limit compiler regression smoke"
+require_pattern "$log_file" '^compiler_regression_status=generic_identity_outparam_stack_parse_smoke$' \
+    "generator records generic identity, out-param, stack-limit, and parse-like compiler regression smoke"
 require_pattern "$log_file" '^c99_output_parity_status=return_literal_smoke$' \
     "generator records return-literal C99 output parity smoke"
 require_pattern "$log_file" '^full_language_backend_parity_status=not_yet_run$' \
@@ -123,11 +140,11 @@ require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_
     "summary records MIR-C99 unit output backend"
 require_pattern "$summary_file" "^MIR_C99_PARITY_FRONTIER_STATUS='return_literal_c99_output_parity'$" \
     "summary records return-literal C99 output parity frontier"
-require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_outparam_stack_smoke'$" \
-    "summary records generic identity, out-param, and stack-limit compiler regression smoke"
+require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_outparam_stack_parse_smoke'$" \
+    "summary records generic identity, out-param, stack-limit, and parse-like compiler regression smoke"
 require_pattern "$summary_file" "^MIR_C99_C99_OUTPUT_PARITY_STATUS='return_literal_smoke'$" \
     "summary records return-literal C99 output parity smoke"
 require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='not_yet_run'$" \
     "summary does not claim full-language backend parity"
 
-echo "OK: MIR-C99 cmd/build candidate passes generic identity/out-param/stack regressions and return-literal C99 output parity frontier"
+echo "OK: MIR-C99 cmd/build candidate passes generic identity/out-param/stack/parse regressions and return-literal C99 output parity frontier"

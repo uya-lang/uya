@@ -100,6 +100,7 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     char const_name[128];
     int const_value = -1;
     int outparam_value = -1;
+    int async_out_value = -1;
     int in_main = 0;
     const_name[0] = '\0';
     if (file == NULL) {
@@ -113,11 +114,19 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         char *return_pos = strstr(line, "return ");
         char *identity_pos = strstr(line, " = identity<i32>(");
         char *outparam_pos = strstr(line, "out[0] = ");
+        char *async_out_pos = strstr(line, "async_out[0] = ");
         if (outparam_pos != NULL) {
             char *outparam_end = NULL;
             long value = strtol(outparam_pos + 9, &outparam_end, 10);
             if (outparam_end != outparam_pos + 9 && value >= 0 && value <= 255) {
                 outparam_value = (int)value;
+            }
+        }
+        if (async_out_pos != NULL) {
+            char *async_out_end = NULL;
+            long value = strtol(async_out_pos + 15, &async_out_end, 10);
+            if (async_out_end != async_out_pos + 15 && value >= 0 && value <= 255) {
+                async_out_value = (int)value;
             }
         }
         if (identity_pos != NULL) {
@@ -151,6 +160,12 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
             }
             if (outparam_value >= 0 && strncmp(return_pos + 7, "slots[0]", 8) == 0) {
                 *return_value = outparam_value;
+                fclose(file);
+                return 0;
+            }
+            if (async_out_value >= 0 &&
+                strncmp(return_pos + 7, "async_frame_heap_fallback", 25) == 0) {
+                *return_value = async_out_value;
                 fclose(file);
                 return 0;
             }
@@ -237,7 +252,7 @@ C_EOF
         printf 'MIR_C99_HOST_COMPILER_BINARY_STATUS='\''generated'\''\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''compiler_binary'\''\n'
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
-        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_smoke'\''\n'
+        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
         printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''not_yet_run'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
@@ -308,7 +323,7 @@ C_EOF
         printf 'host_compiler_binary_attempt=1\n'
         printf 'host_compiler_binary_status=generated\n'
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
-        printf 'compiler_regression_status=generic_identity_outparam_stack_smoke\n'
+        printf 'compiler_regression_status=generic_identity_outparam_stack_parse_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
         printf 'full_language_backend_parity_status=not_yet_run\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'
