@@ -980,3 +980,8 @@ Context:
   - 实现：`tests/mir_c99_generate.sh` 的 `mir_c99_unit_output` candidate 对上述 fixture 形状生成可运行 host C 产物；`tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 对每个 fixture 同时运行现有 C99 oracle 和 MIR-C99 candidate 产物，并比对 stdout/stderr/exit code。
   - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/error full-language parity frontier`。
   - 说明：本项只归档已修复的 frontier smoke；主 TODO 中 `MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity` 仍保持 `[~]`，直到完整 regression/parity 被真实证明。
+
+- [x] 已修复 frontier smoke：`cmd/build` MIR-C99 candidate 覆盖 full-language try propagation success/error parity smoke。
+  - 实现：新增 `tests/fixtures/mir_c99_cmd_build_full_language_try_propagation_success.uya` 与 `tests/fixtures/mir_c99_cmd_build_full_language_try_propagation_error.uya`；`tests/mir_c99_generate.sh` 对 `FullLanguageTry` fixture 形状生成 success=15 / error=29 的可运行 host C 产物；`tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 将两例纳入 candidate/oracle stdout/stderr/exit code 对齐。
+  - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/error/try full-language parity frontier`。
+  - 说明：本项只归档 try propagation frontier smoke；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。

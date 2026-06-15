@@ -1,0 +1,21 @@
+use std.runtime.get_argc;
+
+error FullLanguageTry;
+
+fn maybe_argc(value: i32) !i32 {
+    if value == 3 {
+        return error.FullLanguageTry;
+    }
+    return 11;
+}
+
+fn wrap_argc(value: i32) !i32 {
+    const inner: i32 = try maybe_argc(value);
+    return inner + 4;
+}
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    const result: i32 = wrap_argc(argc) catch { 29; };
+    return result;
+}
