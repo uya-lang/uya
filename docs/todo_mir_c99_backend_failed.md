@@ -8,7 +8,7 @@
 
 ## 当前未重开的失败项
 
-- MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity：仍需真实 MIR-C99-built compiler 复跑 regression/parity；当前 `mir_c99_unit_output` 只推进到 return-literal C99 output parity smoke，不能证明完整 parity。
+- MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity：仍需真实 MIR-C99-built compiler 复跑完整 regression/parity；当前 `mir_c99_unit_output` 只推进到 return-literal C99 output parity smoke 和 generic identity regression smoke，不能证明完整 parity。
 
 ### 2026-06-14
 #### 4.16 Self Build
@@ -33,4 +33,4 @@
   - 当前基线：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 通过；`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过；`bash tests/verify_mir_c99_self_build_true_candidate_reopen.sh` 通过；`bash tests/verify_mir_c99_cmd_build_self_preflight.sh` 通过（验证 default generator 仍固定 `compiler_source_backend=tracked_cmd_build_seed` 的过渡状态）。
   - 重开条件：必须先在硬约束"只能使用 `../uya/bin/uya`"放宽，或在 sibling `uya/` 仓库落地 1.0 当前 `src/build_compiler_driver.uya` / `src/cmd/build/main.uya` / `src/cmd/build_bootstrap/main.uya` 等价模块并重新编译 `bin/uya`，且父级 `去除 tracked_cmd_build_seed 过渡源` 子任务真正通过、`MIR_C99_COMPILER_SOURCE_BACKEND` 不再为 `tracked_cmd_build_seed` 之后，才能用真实 MIR-C99-built compiler 推进 compiler regression / C99 output parity / full-language backend parity。
 
-已部分重开进展（2026-06-15）：`tracked_cmd_build_seed` 已去除，`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，证明 candidate 能接受最小 build smoke、解析 literal return，并与现有 C99 oracle 的 stdout/stderr/exit code 对齐；但 log/summary 仍记录 `compiler_regression_status=not_yet_run`、`full_language_backend_parity_status=not_yet_run`，所以本失败项不能移入 completed。
+已部分重开进展（2026-06-15）：`tracked_cmd_build_seed` 已去除，`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，证明 candidate 能接受最小 build smoke、解析 literal return 和 generic identity 常量返回，并与现有 C99 oracle 的 stdout/stderr/exit code 对齐；但 log/summary 仍记录 `full_language_backend_parity_status=not_yet_run`，所以本失败项不能移入 completed。

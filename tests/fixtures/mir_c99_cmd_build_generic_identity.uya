@@ -1,0 +1,8 @@
+fn identity<T>(value: T) T {
+    return value;
+}
+
+export fn main() i32 {
+    const result: i32 = identity<i32>(6);
+    return result;
+}

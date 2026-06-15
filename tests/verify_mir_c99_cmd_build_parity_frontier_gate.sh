@@ -12,6 +12,7 @@ GENERATOR="$REPO_ROOT/tests/mir_c99_generate.sh"
 CMD_BUILD_SOURCE="$REPO_ROOT/src/cmd/build/main.uya"
 FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_smoke.uya"
 RETURN_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_return7.uya"
+GENERIC_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_generic_identity.uya"
 ORACLE_COMPILER="$REPO_ROOT/bin/uya"
 TMP_DIR="$(mktemp -d /tmp/uya-mir-c99-cmd-build-parity-frontier.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -45,6 +46,9 @@ return_program_stdout="$TMP_DIR/return-program.out"
 return_program_stderr="$TMP_DIR/return-program.err"
 return_oracle_stdout="$TMP_DIR/return-oracle.out"
 return_oracle_stderr="$TMP_DIR/return-oracle.err"
+generic_program_bin="$TMP_DIR/mir-c99-generic-identity"
+generic_oracle_c="$TMP_DIR/oracle-generic-identity.c"
+generic_oracle_bin="$TMP_DIR/oracle-generic-identity"
 
 "$GENERATOR" "$CMD_BUILD_SOURCE" "$output_c" "$log_file" >/dev/null
 
@@ -116,12 +120,36 @@ if ! cmp -s "$return_program_stdout" "$return_oracle_stdout" ||
     exit 1
 fi
 
+"$candidate_bin" build "$GENERIC_FIXTURE" -o "$generic_program_bin" --project-root "$REPO_ROOT" \
+    >"$TMP_DIR/generic.candidate.out" 2>"$TMP_DIR/generic.candidate.err"
+"$ORACLE_COMPILER" build "$GENERIC_FIXTURE" -o "$generic_oracle_c" --no-split-c --project-root "$REPO_ROOT" \
+    >"$TMP_DIR/generic.oracle.build.out" 2>"$TMP_DIR/generic.oracle.build.err"
+cc -std=c99 -Wall -Wextra -pedantic "$generic_oracle_c" -o "$generic_oracle_bin" -lm \
+    >"$TMP_DIR/generic.oracle.cc.out" 2>"$TMP_DIR/generic.oracle.cc.err"
+
+set +e
+"$generic_program_bin" >"$TMP_DIR/generic.program.out" 2>"$TMP_DIR/generic.program.err"
+generic_program_status=$?
+"$generic_oracle_bin" >"$TMP_DIR/generic.oracle.out" 2>"$TMP_DIR/generic.oracle.err"
+generic_oracle_status=$?
+set -e
+
+if [[ "$generic_program_status" -ne "$generic_oracle_status" ]]; then
+    echo "error: MIR-C99 cmd/build generic identity regression exit differs from C99 oracle: mir=$generic_program_status oracle=$generic_oracle_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/generic.program.out" "$TMP_DIR/generic.oracle.out" ||
+   ! cmp -s "$TMP_DIR/generic.program.err" "$TMP_DIR/generic.oracle.err"; then
+    echo "error: MIR-C99 cmd/build generic identity regression output differs from C99 oracle" >&2
+    exit 1
+fi
+
 require_pattern "$log_file" '^compiler_source_backend=mir_c99_unit_output$' \
     "generator uses MIR-C99 unit output backend"
 require_pattern "$log_file" '^parity_frontier_status=return_literal_c99_output_parity$' \
     "generator records return-literal C99 output parity frontier"
-require_pattern "$log_file" '^compiler_regression_status=not_yet_run$' \
-    "generator does not claim compiler regression parity"
+require_pattern "$log_file" '^compiler_regression_status=generic_identity_smoke$' \
+    "generator records generic identity compiler regression smoke"
 require_pattern "$log_file" '^c99_output_parity_status=return_literal_smoke$' \
     "generator records return-literal C99 output parity smoke"
 require_pattern "$log_file" '^full_language_backend_parity_status=not_yet_run$' \
@@ -130,11 +158,11 @@ require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_
     "summary records MIR-C99 unit output backend"
 require_pattern "$summary_file" "^MIR_C99_PARITY_FRONTIER_STATUS='return_literal_c99_output_parity'$" \
     "summary records return-literal C99 output parity frontier"
-require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='not_yet_run'$" \
-    "summary does not claim compiler regression parity"
+require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_smoke'$" \
+    "summary records generic identity compiler regression smoke"
 require_pattern "$summary_file" "^MIR_C99_C99_OUTPUT_PARITY_STATUS='return_literal_smoke'$" \
     "summary records return-literal C99 output parity smoke"
 require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='not_yet_run'$" \
     "summary does not claim full-language backend parity"
 
-echo "OK: MIR-C99 cmd/build candidate passes return-literal C99 output parity frontier"
+echo "OK: MIR-C99 cmd/build candidate passes generic identity regression and return-literal C99 output parity frontier"
