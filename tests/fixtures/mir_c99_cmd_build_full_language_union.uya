@@ -1,0 +1,22 @@
+struct Payload {
+    left: i32,
+    right: i32,
+}
+
+union Value {
+    number: i32,
+    payload: Payload,
+}
+
+fn score(value: Value) i32 {
+    return match value {
+        .number(x) => x,
+        .payload(p) => p.left + p.right,
+    };
+}
+
+export fn main() i32 {
+    const value: Value = Value.payload(Payload{ left: 11, right: 31 });
+    const other: Value = Value.number(7);
+    return score(value) + score(other);
+}
