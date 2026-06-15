@@ -232,8 +232,12 @@ require_pattern "$CMD_BUILD_REGRESSION_TEST" 'local_array_outparam' \
     "cmd/build compiler regression 测试缺少 local array out-param 形状"
 require_pattern "$CMD_BUILD_REGRESSION_TEST" 'parse_like_outparam' \
     "cmd/build compiler regression 测试缺少 compiler-like parse out-param 形状"
-require_pattern "$CMD_BUILD_REGRESSION_TEST" 'native_hosted_portable_mir_lowering_missing' \
-    "cmd/build compiler regression 测试缺少 hosted reject 反向检查"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'run_cmd_build_hosted_array_index_reject' \
+    "cmd/build compiler regression 测试缺少 hosted array-index reject 边界"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" 'native_hosted_portable_mir_preflight_failed' \
+    "cmd/build compiler regression 测试缺少 hosted preflight failure 反向检查"
+require_pattern "$CMD_BUILD_REGRESSION_TEST" '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' \
+    "cmd/build compiler regression 测试缺少 no-silent fallback 诊断"
 require_pattern "$CMD_BUILD_C99_PARITY_TEST" 'bin/cmd/build' \
     "cmd/build C99 output parity 测试没有使用 native cmd/build"
 require_pattern "$CMD_BUILD_C99_PARITY_TEST" 'bin/uya' \
@@ -254,34 +258,14 @@ require_pattern "$LOWERED_BODY_CONTRACT_TEST" 'CoreBody/PortableMIR' \
     "LoweredBodyOp transition 测试缺少 CoreBody/PortableMIR 迁移要求"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_regression_boundary\.sh' \
     "stage1 native cmd/build 验证未纳入回归边界合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_scalar_options_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args scalar option 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_o_option_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args -o 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_backend_options_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args backend options 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_line_directives_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args line-directives 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_safety_proof_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args safety-proof 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_opt_level_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args opt-level 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_nostdlib_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args --nostdlib 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_project_root_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args --project-root 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_seed_reject_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args build-seed reject 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_stack_size_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args --stack-size 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_split_c_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args split-C / async-frame 合同"
-require_pattern "$STAGE1_TEST" 'verify_native_parse_build_args_stack_size_contract\.sh' \
-    "stage1 native cmd/build 验证未纳入 parse_build_args --stack-size 合同"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_compiler_regressions\.sh' \
     "stage1 native cmd/build 验证未纳入 compiler regression 组"
 require_pattern "$STAGE1_TEST" 'verify_native_cmd_build_c99_output_parity\.sh' \
     "stage1 native cmd/build 验证未纳入 C99 output parity"
+if grep -Eq 'verify_native_parse_build_args_.*_contract|verify_native_type_named_equals_contract|verify_native_compile_stats_.*_contract' "$STAGE1_TEST"; then
+    echo "错误: stage1 不应继续聚合已归档 helper/frontier 合同脚本" >&2
+    exit 1
+fi
 require_pattern "$DRIVER_SRC" 'compile_files\(&input_file_indices\[0\], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts\)' \
     "compiler driver 缺少真实 compile_files 16 参数调用输入"
 require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_portable_mir_preflight' \

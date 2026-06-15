@@ -127,36 +127,37 @@ run_cmd_build_regression() {
     fi
 }
 
-run_cmd_build_hosted_array_index() {
+run_cmd_build_hosted_array_index_reject() {
     local out="$TMP_DIR/hosted_array_index.native"
     local build_out="$TMP_DIR/hosted_array_index.build.out"
     local build_err="$TMP_DIR/hosted_array_index.build.err"
-    local run_out="$TMP_DIR/hosted_array_index.run.out"
-    local run_err="$TMP_DIR/hosted_array_index.run.err"
 
+    set +e
     "$REPO_ROOT/bin/cmd/build" build "$TMP_DIR/hosted_array_index.uya" \
         -o "$out" --native --no-split-c --project-root "$TMP_DIR/" \
         >"$build_out" 2>"$build_err"
+    local build_status=$?
+    set -e
 
-    test -s "$out"
-    grep -q '后端类型: Native' "$build_err"
-    grep -q 'native_hosted_subset: core_mir_local_array_index_path=1' "$build_err"
-    grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$build_err"
-    if grep -q 'hosted native assembly' "$build_err" ||
-       grep -q 'native_hosted_portable_mir_lowering_missing' "$build_err" ||
-       grep -q '后端类型: C99' "$build_err"; then
-        echo "error: cmd/build hosted array-index regression used fallback or assembly helper" >&2
+    if [[ "$build_status" -eq 0 ]]; then
+        echo "error: cmd/build hosted array-index regression should reject while hosted coverage is incomplete" >&2
         cat "$build_err" >&2
         exit 1
     fi
-
-    chmod +x "$out"
-    set +e
-    "$out" >"$run_out" 2>"$run_err"
-    local run_status=$?
-    set -e
-    if [[ "$run_status" -ne 6 ]]; then
-        echo "error: cmd/build hosted array-index regression exit=$run_status expected=6" >&2
+    if [[ -e "$out" ]]; then
+        echo "error: cmd/build hosted array-index regression produced output while rejecting" >&2
+        cat "$build_err" >&2
+        exit 1
+    fi
+    grep -q '后端类型: Native' "$build_err"
+    grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$build_err"
+    grep -q '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' "$build_err"
+    if grep -q 'hosted native assembly' "$build_err" ||
+       grep -q 'native_hosted_subset: core_mir_local_array_index_path=1' "$build_err" ||
+       grep -q 'native_output_bytes:' "$build_err" ||
+       grep -q '后端类型: C99' "$build_err"; then
+        echo "error: cmd/build hosted array-index regression used fallback or emitted output" >&2
+        cat "$build_err" >&2
         exit 1
     fi
 }
@@ -165,6 +166,6 @@ run_cmd_build_regression generic_identity 6
 run_cmd_build_regression local_array_outparam 9
 run_cmd_build_regression stack_limit_call 4
 run_cmd_build_regression parse_like_outparam 91
-run_cmd_build_hosted_array_index
+run_cmd_build_hosted_array_index_reject
 
 echo "verify_native_cmd_build_compiler_regressions: ok"

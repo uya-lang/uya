@@ -78,8 +78,8 @@ run_c99_parity_case() {
 
     test -s "$uya_c"
     test -s "$cmd_c"
-    grep -q '后端类型: C99' "$TMP_DIR/$name.uya.build.err"
-    grep -q '后端类型: C99' "$TMP_DIR/$name.cmd.build.err"
+    grep -Eq '输出: .*\[C99\]' "$TMP_DIR/$name.uya.build.err"
+    grep -Eq '输出: .*\[C99\]' "$TMP_DIR/$name.cmd.build.err"
     if grep -q '后端类型: Native' "$TMP_DIR/$name.cmd.build.err"; then
         echo "error: cmd/build C99 output parity unexpectedly used native backend for $name" >&2
         exit 1

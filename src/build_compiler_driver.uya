@@ -52174,6 +52174,8 @@ fn compile_files(
             }
             if hosted_subset_status < 0 {
                 codegen_end_time = clock();
+                native_build_print_hosted_portable_mir_lowering_missing(hosted_c_import_count,
+                    hosted_preflight_status, &hosted_preflight);
                 return 1;
             }
             if hosted_subset_status > 0 {
