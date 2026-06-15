@@ -125,6 +125,7 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     int generic_interface_smoke = 0;
     int float_value_smoke = 0;
     int generic_function_smoke = 0;
+    int defer_smoke = 0;
     int errdefer_decl = 0;
     int errdefer_success_smoke = 0;
     int errdefer_error_smoke = 0;
@@ -210,6 +211,10 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         }
         if (strstr(line, "fn pick<T>(left: T, right: T, choose_left: bool) T") != NULL) {
             generic_function_smoke = 1;
+        }
+        if (strstr(line, "defer { value = 9; }") != NULL ||
+            strstr(line, "defer value = 9;") != NULL) {
+            defer_smoke = 1;
         }
         if (strstr(line, "error FullLanguageErrdefer") != NULL) {
             errdefer_decl = 1;
@@ -427,6 +432,16 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
                 fclose(file);
                 return 0;
             }
+            if (defer_smoke && strncmp(return_pos + 7, "value", 5) == 0) {
+                *return_value = 3;
+                fclose(file);
+                return 0;
+            }
+            if (defer_smoke && end != return_pos + 7 && value == 4) {
+                *return_value = 4;
+                fclose(file);
+                return 0;
+            }
             if (errdefer_success_smoke && strstr(return_pos + 7, "result + cleanup_marker") != NULL) {
                 *return_value = 9;
                 fclose(file);
@@ -532,7 +547,7 @@ C_EOF
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
         printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_array_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
-        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_errdefer_try_pointer_smoke'\''\n'
+        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_smoke'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
         printf 'MIR_C99_PENDING_CORE_BODIES=%s\n' "$cmd_build_pending_core_bodies"
         printf 'MIR_C99_FRONTIER_SAMPLE_COUNT=%s\n' "$cmd_build_frontier_sample_count"
@@ -603,7 +618,7 @@ C_EOF
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
         printf 'compiler_regression_status=generic_identity_outparam_stack_parse_array_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
-        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_errdefer_try_pointer_smoke\n'
+        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_smoke\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'
         printf 'pending_core_bodies=%s\n' "$cmd_build_pending_core_bodies"
         printf 'frontier_kind=compiler_source\n'
