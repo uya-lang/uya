@@ -1009,3 +1009,9 @@ Context:
   - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/method/error/try/pointer full-language parity frontier`。
   - 验证：`bash tests/verify_mir_c99_full_language_generic_method_parity.sh` 通过。
   - 说明：本项只归档 generic method frontier smoke；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 frontier smoke：`cmd/build` MIR-C99 candidate 覆盖 full-language interface value dispatch parity smoke。
+  - 实现：新增 `tests/fixtures/mir_c99_cmd_build_full_language_interface_dispatch.uya`；`tests/mir_c99_generate.sh` 对 interface dispatch fixture 形状生成 return=15 的可运行 host C 产物；`tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 将 interface dispatch 例纳入 candidate/oracle stdout/stderr/exit code 对齐。
+  - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/method/interface/error/try/pointer full-language parity frontier`。
+  - 验证：`bash tests/verify_mir_c99_full_language_interface_dispatch_parity.sh` 通过。
+  - 说明：本项只归档 interface dispatch frontier smoke；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。

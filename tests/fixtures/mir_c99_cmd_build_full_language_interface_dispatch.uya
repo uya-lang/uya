@@ -1,0 +1,22 @@
+interface IAdd {
+    fn add(self: &Self, x: i32) i32;
+}
+
+struct Counter : IAdd {
+    value: i32,
+}
+
+Counter {
+    fn add(self: &Self, x: i32) i32 {
+        return self.value + x;
+    }
+}
+
+fn apply(adder: IAdd, x: i32) i32 {
+    return adder.add(x);
+}
+
+export fn main() i32 {
+    const counter: Counter = Counter{ value: 5 };
+    return apply(counter, 10);
+}
