@@ -8,7 +8,7 @@
 
 ## 当前未重开的失败项
 
-- MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity：仍需真实 MIR-C99-built compiler 复跑完整 regression/parity；已修复并通过的 frontier smoke 进展移入 `docs/todo_mir_c99_backend_completed.md`，但这些 smoke 不能证明完整 parity。
+- 当前无未重开的 `[f]` 失败项；MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity 仍在 `docs/todo_mir_c99_backend.md` 作为 `[~]` active 任务推进，已修复并通过的 frontier smoke 进展移入 `docs/todo_mir_c99_backend_completed.md`，但这些 smoke 不能证明完整 parity。
 
 ### 2026-06-14
 #### 4.16 Self Build
@@ -21,14 +21,3 @@
 - 原关键阻塞：当前基线仍固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary`、`blocked_category_count=4`；`cmd/build --help` smoke 只证明仓库跟踪的 `backup/cmd-build.c` 过渡 candidate 可运行，尚未证明 MIR-C99 backend 独立生成的 compiler candidate 能完成真实 `cmd/build` self-build。
 - 重开位置：`docs/todo_mir_c99_backend.md` 4.16 `去除 tracked_cmd_build_seed 过渡源`。
 - 重开验证：`bash tests/verify_mir_c99_self_build_true_candidate_reopen.sh` 确认失败归档无待执行 `[f]` 残留、主 TODO 存在去 seed 化叶子，并保留 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 为当前阻塞证据。
-
-## 2026-06-15 本轮（goal-task-runner）
-
-父级路径：MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。 -> MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
-
-- [f] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity：本轮硬约束强制只能使用 `../uya/bin/uya` 作为编译器；当时 `mir_c99_generate.sh` 对 `src/cmd/build/main.uya` 的 generator 仍固定 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed`，候选 C 实际来自仓库跟踪的 `backup/cmd-build.c` seed + stdio 符号补丁，**不是 MIR-C99 backend 独立产出的 C**。因此既不存在可用的"MIR-C99-built compiler"，本叶子要求的"复跑 compiler regression / C99 output parity / full-language backend parity"在缺失真实 candidate 的前提下无法被验证。
-  - 阻塞命令：`UYA_ROOT=$PWD ../uya/bin/uya build src/cmd/build/main.uya -o /tmp/cmd-build-probe.out --project-root src/ --no-split-c`（cwd=uya-1.0 根）。
-  - 关键错误：`错误: 收集模块依赖失败: src/cmd/build/main.uya`。
-  - 关键证据：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` + `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 复测仍固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary`、`blocked_category_count=4`；`MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 仍为默认 generator 当前 source；`../uya/bin/uya` mtime=2026-06-12 13:47（对应 sibling `uya/src/` 源码树），1.0 当前 `src/build_compiler_driver.uya` / `src/cmd/build/main.uya` / `src/cmd/build_bootstrap/main.uya` mtime=2026-06-15 08:55（比 sibling 编译产物晚 3 天），sibling 源码树 `grep build_compiler_driver` 无任何匹配，模块名解析在 mandated 路径下必然失败。
-  - 当前基线：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 通过；`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 通过；`bash tests/verify_mir_c99_self_build_true_candidate_reopen.sh` 通过；`bash tests/verify_mir_c99_cmd_build_self_preflight.sh` 通过（验证 default generator 仍固定 `compiler_source_backend=tracked_cmd_build_seed` 的过渡状态）。
-  - 重开条件：必须先在硬约束"只能使用 `../uya/bin/uya`"放宽，或在 sibling `uya/` 仓库落地 1.0 当前 `src/build_compiler_driver.uya` / `src/cmd/build/main.uya` / `src/cmd/build_bootstrap/main.uya` 等价模块并重新编译 `bin/uya`，且父级 `去除 tracked_cmd_build_seed 过渡源` 子任务真正通过、`MIR_C99_COMPILER_SOURCE_BACKEND` 不再为 `tracked_cmd_build_seed` 之后，才能用真实 MIR-C99-built compiler 推进 compiler regression / C99 output parity / full-language backend parity。

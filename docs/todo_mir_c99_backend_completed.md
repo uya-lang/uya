@@ -1045,3 +1045,8 @@ Context:
   - 验证：`bash tests/verify_mir_c99_cmd_build_parity_frontier_gate.sh` 通过，输出 `OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/gfunction/method/interface/ginterface/float/error/binding/errdefer/try/pointer full-language parity frontier`。
   - 验证：`bash tests/verify_mir_c99_full_language_error_id_binding_parity.sh` 通过。
   - 说明：本项只归档 error binding frontier smoke；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 将已修复的 `MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity` 历史失败块从失败归档移入完成归档。
+  - 原阻塞：当时 mandated `../uya/bin/uya` 不能直接构建当前 `src/cmd/build/main.uya`，且 `src/cmd/build/main.uya` 的默认 generator 仍固定 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed`，导致候选 C 来自 `backup/cmd-build.c` seed 而不是真实 MIR-C99 writer。
+  - 修复证据：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 已通过，证明 `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya -> cmd/build --help` 链路可构建当前源码 build CLI；`bash tests/verify_mir_c99_cmd_build_true_writer_gate.sh`、`bash tests/verify_mir_c99_cmd_build_self_preflight.sh`、`bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 和 `bash tests/verify_mir_c99_self_build_convergence_audit.sh` 已通过，证明默认 generator 已去除 `tracked_cmd_build_seed` 并进入 real compiler candidate 状态。
+  - 当前边界：主 TODO 中 `MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity` 仍保持 `[~]`，因为完整 compiler regression、C99 output parity 和 full-language backend parity 尚未被真实证明；本项只清理已修复的历史失败阻塞。
