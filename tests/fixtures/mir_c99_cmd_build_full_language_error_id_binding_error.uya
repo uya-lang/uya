@@ -1,0 +1,27 @@
+use libc.strcmp;
+use std.runtime.get_argc;
+
+error FullLanguageBinding;
+
+fn maybe_argc(value: i32) !i32 {
+    if value == 1 {
+        return error.FullLanguageBinding;
+    }
+    return 19;
+}
+
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    const value: i32 = maybe_argc(argc) catch |err| {
+        const caught_id: u32 = @error_id(err);
+        const expected_id: u32 = @error_id(error.FullLanguageBinding);
+        if caught_id != expected_id {
+            return 41;
+        }
+        if strcmp(@error_name(err) as *const byte, "FullLanguageBinding\0" as *const byte) != 0 {
+            return 43;
+        }
+        37;
+    };
+    return value;
+}

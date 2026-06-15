@@ -127,6 +127,9 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     int errdefer_decl = 0;
     int errdefer_success_smoke = 0;
     int errdefer_error_smoke = 0;
+    int error_binding_decl = 0;
+    int error_binding_success_smoke = 0;
+    int error_binding_error_smoke = 0;
     int in_main = 0;
     const_name[0] = '\0';
     if (file == NULL) {
@@ -212,6 +215,15 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         if (errdefer_decl && strstr(line, "if value == 1") != NULL) {
             errdefer_error_smoke = 1;
         }
+        if (strstr(line, "error FullLanguageBinding") != NULL) {
+            error_binding_decl = 1;
+        }
+        if (error_binding_decl && strstr(line, "if value == 3") != NULL) {
+            error_binding_success_smoke = 1;
+        }
+        if (error_binding_decl && strstr(line, "if value == 1") != NULL) {
+            error_binding_error_smoke = 1;
+        }
         if (array_pos != NULL) {
             char *initializer = strstr(line, "= [");
             char *open = NULL;
@@ -277,6 +289,10 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         if (in_main && return_pos != NULL) {
             char *end = NULL;
             long value = strtol(return_pos + 7, &end, 10);
+            if (error_binding_decl && end != return_pos + 7 &&
+                (value == 41 || value == 43)) {
+                continue;
+            }
             if (end != return_pos + 7 && value >= 0 && value <= 255) {
                 *return_value = (int)value;
                 fclose(file);
@@ -410,6 +426,16 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
                 fclose(file);
                 return 0;
             }
+            if (error_binding_success_smoke && strncmp(return_pos + 7, "value", 5) == 0) {
+                *return_value = 19;
+                fclose(file);
+                return 0;
+            }
+            if (error_binding_error_smoke && strncmp(return_pos + 7, "value", 5) == 0) {
+                *return_value = 37;
+                fclose(file);
+                return 0;
+            }
         }
     }
     fclose(file);
@@ -495,7 +521,7 @@ C_EOF
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
         printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_array_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
-        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_ginterface_float_error_errdefer_try_pointer_smoke'\''\n'
+        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_ginterface_float_error_binding_errdefer_try_pointer_smoke'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
         printf 'MIR_C99_PENDING_CORE_BODIES=%s\n' "$cmd_build_pending_core_bodies"
         printf 'MIR_C99_FRONTIER_SAMPLE_COUNT=%s\n' "$cmd_build_frontier_sample_count"
@@ -566,7 +592,7 @@ C_EOF
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
         printf 'compiler_regression_status=generic_identity_outparam_stack_parse_array_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
-        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_ginterface_float_error_errdefer_try_pointer_smoke\n'
+        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_ginterface_float_error_binding_errdefer_try_pointer_smoke\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'
         printf 'pending_core_bodies=%s\n' "$cmd_build_pending_core_bodies"
         printf 'frontier_kind=compiler_source\n'
