@@ -47,3 +47,17 @@
   - 关键错误：`错误: 收集模块依赖失败: src/cmd/build/main.uya`。
   - 关键证据：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` + `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 仍固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary`、`blocked_category_count=4`；`MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 仍为默认 generator 的当前 source。
   - 重开条件：先在 mandated `../uya/bin/uya` 路径下找到一条能构建当前仓库 `build_compiler_driver` 入口的命令或等价入口，产出承载当前改动的临时 build CLI；再以该 CLI 跑 `bash tests/verify_mir_c99_cmd_build_true_writer_gate.sh`，直到 log/summary 中 `MIR_C99_COMPILER_SOURCE_BACKEND` 不再为 `tracked_cmd_build_seed`、且 gate 证明 source backend 为真实 MIR-C99 writer，方可重开。
+
+## 2026-06-15 09:50 +0800
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。 -> 去除 `tracked_cmd_build_seed` 过渡源：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。
+
+- [f] 去除 `tracked_cmd_build_seed` 过渡源：尝试在 mandated `../uya/bin/uya`（v0.10.0，sibling `uya/` 仓库 2026-06-12 编译产物）路径下复跑前两轮失败命令，并把根因追到 sibling 编译器源码 vs 1.0 当前 `src/` 的代差。
+  - 失败原因：本轮硬约束强制只能使用 `../uya/bin/uya`；该二进制来自 sibling `uya/` 仓库的 `bin/uya.c`（2026-06-12 13:47 编译），对应源码树是 sibling `uya/src/`，**不包含 1.0 当前 `src/build_compiler_driver.uya` / `src/cmd/build/main.uya` / `src/cmd/build_bootstrap/main.uya` 这三个 2026-06-15 才落地的文件**。sibling `uya/src/` 也没有任何 `build_compiler_driver` 模块名注册，所以 sibling 编译产物的 `collect_module_dependencies` 在按 `--project-root src/` 解析 `use build_compiler_driver` 时，模块名识别失败并返回 -1，main driver 落出"错误: 收集模块依赖失败: …"。归档 L105 的"重开条件"实质要求"先在 mandated 路径下找到一条能 build 当前仓库 `build_compiler_driver` 入口的命令"，但 sibling 编译产物是 3 天前的旧版本、不含 1.0 的 `build_compiler_driver` 模块解析——任何对当前 `src/cmd/build/main.uya` 或 `src/cmd/build_bootstrap/main.uya` 的构建调用，在硬约束下都必然复现同一根因；不再属于"换命令"层面可推进的任务。
+  - 阻塞命令：`../uya/bin/uya build src/cmd/build/main.uya -o /tmp/x_out --project-root src --no-split-c`（cwd=uya-1.0 根）。
+  - 阻塞命令：`../uya/bin/uya build /tmp/x_main.uya -o /tmp/x_out --project-root src --no-split-c`（cwd=uya-1.0 根，复制 `src/cmd/build/main.uya` 后调用）。
+  - 阻塞命令：`UYA_ROOT=$PWD ../uya/bin/uya build /tmp/x_main.uya -o /tmp/x_out --project-root src --no-split-c`。
+  - 关键错误：`错误: 收集模块依赖失败: src/cmd/build/main.uya`。
+  - 关键错误：`错误: 收集模块依赖失败: /tmp/x_main.uya`。
+  - 关键证据：sibling `uya/src/` 全树 `grep build_compiler_driver` 无任何匹配，`bin/uya.c` 2026-06-12 13:47 编译时间 vs 1.0 `src/build_compiler_driver.uya` / `src/cmd/build/main.uya` / `src/cmd/build_bootstrap/main.uya` 2026-06-15 08:55 落地时间；上两轮失败（2026-06-14 21:14:08、2026-06-15 归档清理）已报同根因，本轮确认根因不在命令参数/路径上，而在 sibling 编译产物与 1.0 当前 src/ 的代差。
+  - 重开条件：在硬约束 "只能使用 `../uya/bin/uya`" 不放宽的前提下，本叶子不可重开。可放宽路径：(1) 用户明确允许使用 `bin/uya`（1.0 自举后产物）或 `bin/cmd/build` 之后再做本任务；(2) 在 sibling `uya/` 仓库落地 1.0 当前 `src/` 的等价 `build_compiler_driver` 模块并重新编译 `bin/uya`，再回到本任务；(3) 用户接受本叶子被永久封闭、并把去除 `tracked_cmd_build_seed` 整体从 4.16 active path 移除。三条重开路径都需用户决策，本轮不擅自推进。

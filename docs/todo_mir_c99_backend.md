@@ -102,7 +102,7 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
   - 注：上一轮（2026-06-14）子任务 `补上真实 MIR-C99 writer hook` 与本轮（2026-06-15 归档清理）L105 叶子 `切换默认 generator 的 cmd/build 路径到真实 writer hook` 已移入 `docs/todo_mir_c99_backend_failed.md`；去除 tracked seed 的整体子任务保持 `[ ]`，重开条件见失败归档。
-  - [ ] 去除 `tracked_cmd_build_seed` 过渡源：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。
+  - [f] 去除 `tracked_cmd_build_seed` 过渡源（2026-06-15 09:50 重开失败，归档至 `docs/todo_mir_c99_backend_failed.md`）：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。本轮确认根因在 mandated `../uya/bin/uya`（sibling `uya/` 2026-06-12 旧编译产物）未编进 1.0 当前 `src/build_compiler_driver.uya` 模块解析；三条重开路径（放宽硬约束 / sibling 同步 1.0 `src/` 后重新 `make uya` / 用户接受永久封闭）均需用户决策，本轮不擅自推进。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
   - [ ] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
 
