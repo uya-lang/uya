@@ -1,0 +1,26 @@
+enum Mode {
+    Idle,
+    Busy = 10,
+    Done,
+}
+
+fn mode_score(mode: Mode) i32 {
+    return match mode {
+        Mode.Idle => 3,
+        Mode.Busy => 5,
+        Mode.Done => 7,
+        else => 9,
+    };
+}
+
+export fn main() i32 {
+    const busy: Mode = Mode.Busy;
+    const done: Mode = Mode.Done;
+    var total: i32 = mode_score(busy) + mode_score(done);
+    if busy < done {
+        total = total + (busy as i32);
+    } else {
+        total = total + 100;
+    }
+    return total + (done as i32);
+}
