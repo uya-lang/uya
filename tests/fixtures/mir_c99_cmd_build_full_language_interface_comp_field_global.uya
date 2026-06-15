@@ -1,0 +1,48 @@
+interface IReader {
+    fn read(self: &Self) i32;
+}
+
+interface IWriter {
+    fn write(self: &Self, value: i32) i32;
+}
+
+interface IReadWriter {
+    IReader;
+    IWriter;
+    fn flush(self: &Self) i32;
+}
+
+struct Device : IReadWriter {
+    base: i32,
+    bonus: i32,
+}
+
+Device {
+    fn read(self: &Self) i32 {
+        return self.base;
+    }
+
+    fn write(self: &Self, value: i32) i32 {
+        return self.base + value;
+    }
+
+    fn flush(self: &Self) i32 {
+        return self.bonus;
+    }
+}
+
+struct Holder {
+    primary: IReadWriter,
+    offset: i32,
+}
+
+const GLOBAL_DEVICE: Device = Device{ base: 11, bonus: 4 };
+const GLOBAL_HOLDER: Holder = Holder{ primary: GLOBAL_DEVICE, offset: 3 };
+
+fn run(holder: &Holder, value: i32) i32 {
+    return holder.primary.read() + holder.primary.write(value) + holder.primary.flush() + holder.offset;
+}
+
+export fn main() i32 {
+    return run(&GLOBAL_HOLDER, 5);
+}
