@@ -1,0 +1,10 @@
+fn write_value(out: &i32) i32 {
+    out[0] = 9;
+    return 0;
+}
+
+export fn main() i32 {
+    var slots: [i32: 1] = [];
+    const status: i32 = write_value(&slots[0]);
+    return slots[0];
+}

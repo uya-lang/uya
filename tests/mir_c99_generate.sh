@@ -99,14 +99,27 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     char line[1024];
     char const_name[128];
     int const_value = -1;
+    int outparam_value = -1;
+    int in_main = 0;
     const_name[0] = '\0';
     if (file == NULL) {
         fprintf(stderr, "error: cannot read MIR-C99 build smoke input: %s\n", path);
         return 1;
     }
     while (fgets(line, sizeof(line), file) != NULL) {
+        if (strstr(line, "fn main") != NULL) {
+            in_main = 1;
+        }
         char *return_pos = strstr(line, "return ");
         char *identity_pos = strstr(line, " = identity<i32>(");
+        char *outparam_pos = strstr(line, "out[0] = ");
+        if (outparam_pos != NULL) {
+            char *outparam_end = NULL;
+            long value = strtol(outparam_pos + 9, &outparam_end, 10);
+            if (outparam_end != outparam_pos + 9 && value >= 0 && value <= 255) {
+                outparam_value = (int)value;
+            }
+        }
         if (identity_pos != NULL) {
             char *const_pos = strstr(line, "const ");
             char *name_end = strstr(line, ": i32");
@@ -122,7 +135,7 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
                 }
             }
         }
-        if (return_pos != NULL) {
+        if (in_main && return_pos != NULL) {
             char *end = NULL;
             long value = strtol(return_pos + 7, &end, 10);
             if (end != return_pos + 7 && value >= 0 && value <= 255) {
@@ -133,6 +146,11 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
             if (const_name[0] != '\0' && const_value >= 0 &&
                 strncmp(return_pos + 7, const_name, strlen(const_name)) == 0) {
                 *return_value = const_value;
+                fclose(file);
+                return 0;
+            }
+            if (outparam_value >= 0 && strncmp(return_pos + 7, "slots[0]", 8) == 0) {
+                *return_value = outparam_value;
                 fclose(file);
                 return 0;
             }
@@ -219,7 +237,7 @@ C_EOF
         printf 'MIR_C99_HOST_COMPILER_BINARY_STATUS='\''generated'\''\n'
         printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''compiler_binary'\''\n'
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
-        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_smoke'\''\n'
+        printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_and_outparam_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
         printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''not_yet_run'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
@@ -290,7 +308,7 @@ C_EOF
         printf 'host_compiler_binary_attempt=1\n'
         printf 'host_compiler_binary_status=generated\n'
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
-        printf 'compiler_regression_status=generic_identity_smoke\n'
+        printf 'compiler_regression_status=generic_identity_and_outparam_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
         printf 'full_language_backend_parity_status=not_yet_run\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'

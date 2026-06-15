@@ -13,6 +13,7 @@ CMD_BUILD_SOURCE="$REPO_ROOT/src/cmd/build/main.uya"
 FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_smoke.uya"
 RETURN_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_return7.uya"
 GENERIC_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_generic_identity.uya"
+OUTPARAM_FIXTURE="$REPO_ROOT/tests/fixtures/mir_c99_cmd_build_local_array_outparam.uya"
 ORACLE_COMPILER="$REPO_ROOT/bin/uya"
 TMP_DIR="$(mktemp -d /tmp/uya-mir-c99-cmd-build-parity-frontier.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -49,6 +50,9 @@ return_oracle_stderr="$TMP_DIR/return-oracle.err"
 generic_program_bin="$TMP_DIR/mir-c99-generic-identity"
 generic_oracle_c="$TMP_DIR/oracle-generic-identity.c"
 generic_oracle_bin="$TMP_DIR/oracle-generic-identity"
+outparam_program_bin="$TMP_DIR/mir-c99-local-array-outparam"
+outparam_oracle_c="$TMP_DIR/oracle-local-array-outparam.c"
+outparam_oracle_bin="$TMP_DIR/oracle-local-array-outparam"
 
 "$GENERATOR" "$CMD_BUILD_SOURCE" "$output_c" "$log_file" >/dev/null
 
@@ -144,12 +148,36 @@ if ! cmp -s "$TMP_DIR/generic.program.out" "$TMP_DIR/generic.oracle.out" ||
     exit 1
 fi
 
+"$candidate_bin" build "$OUTPARAM_FIXTURE" -o "$outparam_program_bin" --project-root "$REPO_ROOT" \
+    >"$TMP_DIR/outparam.candidate.out" 2>"$TMP_DIR/outparam.candidate.err"
+"$ORACLE_COMPILER" build "$OUTPARAM_FIXTURE" -o "$outparam_oracle_c" --no-split-c --project-root "$REPO_ROOT" \
+    >"$TMP_DIR/outparam.oracle.build.out" 2>"$TMP_DIR/outparam.oracle.build.err"
+cc -std=c99 -Wall -Wextra -pedantic "$outparam_oracle_c" -o "$outparam_oracle_bin" -lm \
+    >"$TMP_DIR/outparam.oracle.cc.out" 2>"$TMP_DIR/outparam.oracle.cc.err"
+
+set +e
+"$outparam_program_bin" >"$TMP_DIR/outparam.program.out" 2>"$TMP_DIR/outparam.program.err"
+outparam_program_status=$?
+"$outparam_oracle_bin" >"$TMP_DIR/outparam.oracle.out" 2>"$TMP_DIR/outparam.oracle.err"
+outparam_oracle_status=$?
+set -e
+
+if [[ "$outparam_program_status" -ne "$outparam_oracle_status" ]]; then
+    echo "error: MIR-C99 cmd/build local array out-param regression exit differs from C99 oracle: mir=$outparam_program_status oracle=$outparam_oracle_status" >&2
+    exit 1
+fi
+if ! cmp -s "$TMP_DIR/outparam.program.out" "$TMP_DIR/outparam.oracle.out" ||
+   ! cmp -s "$TMP_DIR/outparam.program.err" "$TMP_DIR/outparam.oracle.err"; then
+    echo "error: MIR-C99 cmd/build local array out-param regression output differs from C99 oracle" >&2
+    exit 1
+fi
+
 require_pattern "$log_file" '^compiler_source_backend=mir_c99_unit_output$' \
     "generator uses MIR-C99 unit output backend"
 require_pattern "$log_file" '^parity_frontier_status=return_literal_c99_output_parity$' \
     "generator records return-literal C99 output parity frontier"
-require_pattern "$log_file" '^compiler_regression_status=generic_identity_smoke$' \
-    "generator records generic identity compiler regression smoke"
+require_pattern "$log_file" '^compiler_regression_status=generic_identity_and_outparam_smoke$' \
+    "generator records generic identity and out-param compiler regression smoke"
 require_pattern "$log_file" '^c99_output_parity_status=return_literal_smoke$' \
     "generator records return-literal C99 output parity smoke"
 require_pattern "$log_file" '^full_language_backend_parity_status=not_yet_run$' \
@@ -158,11 +186,11 @@ require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_
     "summary records MIR-C99 unit output backend"
 require_pattern "$summary_file" "^MIR_C99_PARITY_FRONTIER_STATUS='return_literal_c99_output_parity'$" \
     "summary records return-literal C99 output parity frontier"
-require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_smoke'$" \
-    "summary records generic identity compiler regression smoke"
+require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_identity_and_outparam_smoke'$" \
+    "summary records generic identity and out-param compiler regression smoke"
 require_pattern "$summary_file" "^MIR_C99_C99_OUTPUT_PARITY_STATUS='return_literal_smoke'$" \
     "summary records return-literal C99 output parity smoke"
 require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='not_yet_run'$" \
     "summary does not claim full-language backend parity"
 
-echo "OK: MIR-C99 cmd/build candidate passes generic identity regression and return-literal C99 output parity frontier"
+echo "OK: MIR-C99 cmd/build candidate passes generic identity/out-param regressions and return-literal C99 output parity frontier"
