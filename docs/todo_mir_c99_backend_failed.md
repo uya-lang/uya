@@ -36,3 +36,14 @@
   - 关键错误：`错误: 收集模块依赖失败: src/cmd/build/main.uya`。
   - 关键错误：`错误: 收集模块依赖失败: src/mir_c99_writer_build_driver_main.uya`。
   - 重开条件：先找到一条在不使用 `bin/cmd/build` / 本地 `bin/uya` 的前提下，能让 `../uya/bin/uya` 构建当前仓库 `build_compiler_driver` 入口的命令或等价入口；只有拿到承载当前改动的临时 build CLI，后续 true writer smoke 与 generator 切换才有可验证基础。
+
+## 2026-06-15 归档清理轮
+
+父级路径：MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。 -> 去除 `tracked_cmd_build_seed` 过渡源：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。
+
+- [f] 切换默认 generator 的 `cmd/build` 路径到真实 writer hook：`tests/mir_c99_generate.sh` 对 `src/cmd/build/main.uya` 不再复制 `backup/cmd-build*.c`，而是调用真实 MIR-C99 writer 生成 candidate C；最小验证=`bash tests/verify_mir_c99_cmd_build_true_writer_gate.sh`；完成条件=log/summary 不再出现 `MIR_C99_COMPILER_SOURCE_BACKEND='tracked_cmd_build_seed'`，且 gate 证明 source backend 为真实 MIR-C99 writer。
+  - 失败原因：本轮为归档清理轮，按硬约束不启动/不继续/不拆分任何 `[ ]`/`[~]` 任务；上一轮（2026-06-14 21:14:08）已在 `补上真实 MIR-C99 writer hook` 子任务中记录相同失败链路（`../uya/bin/uya` 构建 `src/cmd/build/main.uya` / 临时 wrapper 时，依赖收集阶段报 `错误: 收集模块依赖失败: src/cmd/build/main.uya`），根因是 mandated compiler 路径下没有可承载当前改动的 build CLI，过渡源未真正去除。
+  - 阻塞命令：`../uya/bin/uya build src/cmd/build/main.uya -o /tmp/cmd-build.XXXXXX --project-root src/ --no-split-c`。
+  - 关键错误：`错误: 收集模块依赖失败: src/cmd/build/main.uya`。
+  - 关键证据：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` + `bash tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh` 仍固定 `self_build_convergence_status=real_compiler_candidate`、`host_compiler_binary_candidate_role=compiler_binary`、`blocked_category_count=4`；`MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 仍为默认 generator 的当前 source。
+  - 重开条件：先在 mandated `../uya/bin/uya` 路径下找到一条能构建当前仓库 `build_compiler_driver` 入口的命令或等价入口，产出承载当前改动的临时 build CLI；再以该 CLI 跑 `bash tests/verify_mir_c99_cmd_build_true_writer_gate.sh`，直到 log/summary 中 `MIR_C99_COMPILER_SOURCE_BACKEND` 不再为 `tracked_cmd_build_seed`、且 gate 证明 source backend 为真实 MIR-C99 writer，方可重开。
