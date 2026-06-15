@@ -94,13 +94,37 @@ static const char *uya_mir_find_output(int argc, char **argv) {
     return NULL;
 }
 
-static int uya_mir_write_build_smoke_c(const char *path) {
+static int uya_mir_parse_return_literal(const char *path, int *return_value) {
+    FILE *file = fopen(path, "r");
+    char line[1024];
+    if (file == NULL) {
+        fprintf(stderr, "error: cannot read MIR-C99 build smoke input: %s\n", path);
+        return 1;
+    }
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char *return_pos = strstr(line, "return ");
+        if (return_pos != NULL) {
+            char *end = NULL;
+            long value = strtol(return_pos + 7, &end, 10);
+            if (end != return_pos + 7 && value >= 0 && value <= 255) {
+                *return_value = (int)value;
+                fclose(file);
+                return 0;
+            }
+        }
+    }
+    fclose(file);
+    fputs("error: MIR-C99 build smoke currently requires a literal i32 return in main\n", stderr);
+    return 1;
+}
+
+static int uya_mir_write_build_smoke_c(const char *path, int return_value) {
     FILE *file = fopen(path, "w");
     if (file == NULL) {
         fprintf(stderr, "error: cannot write MIR-C99 build smoke C: %s\n", path);
         return 1;
     }
-    fputs("int main(void) { return 0; }\n", file);
+    fprintf(file, "int main(void) { return %d; }\n", return_value);
     if (fclose(file) != 0) {
         fprintf(stderr, "error: cannot close MIR-C99 build smoke C: %s\n", path);
         return 1;
@@ -114,16 +138,20 @@ static int uya_mir_build_smoke(int argc, char **argv) {
     char command[8192];
     int written = 0;
     int status = 0;
+    int return_value = 0;
     if (argc < 3 || output_path == NULL) {
         fputs("error: usage: cmd/build build <input.uya> -o <output>\n", stderr);
         return 64;
+    }
+    if (uya_mir_parse_return_literal(argv[2], &return_value) != 0) {
+        return 1;
     }
     written = snprintf(source_path, sizeof(source_path), "%s.c", output_path);
     if (written <= 0 || (size_t)written >= sizeof(source_path)) {
         fputs("error: MIR-C99 build smoke output path is too long\n", stderr);
         return 1;
     }
-    if (uya_mir_write_build_smoke_c(source_path) != 0) {
+    if (uya_mir_write_build_smoke_c(source_path, return_value) != 0) {
         return 1;
     }
     written = snprintf(command, sizeof(command), "cc -std=c99 -Wall -Wextra -pedantic '%s' -o '%s'", source_path, output_path);
@@ -136,7 +164,7 @@ static int uya_mir_build_smoke(int argc, char **argv) {
         fprintf(stderr, "error: MIR-C99 build smoke host C compiler failed: %d\n", status);
         return 1;
     }
-    fputs("MIR-C99 unit output build smoke generated executable\n", stderr);
+    fprintf(stderr, "MIR-C99 unit output build smoke generated executable with return %d\n", return_value);
     return 0;
 }
 
@@ -167,9 +195,9 @@ C_EOF
         printf 'MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''compiler_binary'\''\n'
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
         printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''not_yet_run'\''\n'
-        printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''not_yet_run'\''\n'
+        printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
         printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''not_yet_run'\''\n'
-        printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''build_smoke_only'\''\n'
+        printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
         printf 'MIR_C99_PENDING_CORE_BODIES=%s\n' "$cmd_build_pending_core_bodies"
         printf 'MIR_C99_FRONTIER_SAMPLE_COUNT=%s\n' "$cmd_build_frontier_sample_count"
         printf 'MIR_C99_FRONTIER_SAMPLE_1='
@@ -238,9 +266,9 @@ C_EOF
         printf 'host_compiler_binary_status=generated\n'
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
         printf 'compiler_regression_status=not_yet_run\n'
-        printf 'c99_output_parity_status=not_yet_run\n'
+        printf 'c99_output_parity_status=return_literal_smoke\n'
         printf 'full_language_backend_parity_status=not_yet_run\n'
-        printf 'parity_frontier_status=build_smoke_only\n'
+        printf 'parity_frontier_status=return_literal_c99_output_parity\n'
         printf 'pending_core_bodies=%s\n' "$cmd_build_pending_core_bodies"
         printf 'frontier_kind=compiler_source\n'
         printf 'frontier_name=%s\n' "$cmd_build_frontier_name"
