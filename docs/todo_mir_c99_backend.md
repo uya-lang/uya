@@ -103,7 +103,6 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
   - 注：前两轮失败子任务 `补上真实 MIR-C99 writer hook`（2026-06-14 21:14:08）与 `去除 tracked_cmd_build_seed 过渡源`（2026-06-15 09:50 归档清理）已移入 `docs/todo_mir_c99_backend_failed.md`；已修复的 tracked seed 去除项移入 `docs/todo_mir_c99_backend_completed.md`。
-  - [ ] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
 
 ### 4.17 Release Gates
 
