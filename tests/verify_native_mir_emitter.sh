@@ -1257,6 +1257,6 @@ test "native MIR emitter gates request kind verifier and streaming executable ou
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c --project-root "$tmp_dir/")
+(cd "$REPO_ROOT" && ./bin/uya check "$tmp_dir/main.uya" --project-root "$tmp_dir/")
 
 echo "verify_native_mir_emitter: ok"

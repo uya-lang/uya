@@ -800,7 +800,7 @@ MIR-C99 与现有 C99 oracle 对照：
 | IR 常驻膨胀 | AST、TypedProgram、LoweredProgram、PortableMIR 同时保留 | 分 arena 生命周期，按阶段释放 |
 | 过早删除 C99 能力 | 失去跨平台与审计兜底 | C99 只降级为 fallback，不删除 |
 
-Hosted native 的第一阶段通过 `NativeHostedLinkPlan` 承接 host ABI/linker 边界：`libc`、`pthread`、filesystem、env、malloc、extern symbol 和 `@c_import` object 都必须进入该 plan，由 verifier-clean 的 Machine backend request 驱动；coverage 未完成时 writer 可以 fail-closed，但不能静默回落 C99 或 build-seed helper。
+Hosted native 的第一阶段通过 `NativeHostedLinkPlan` 承接 host ABI/linker 边界：`libc`、`pthread`、filesystem、env、malloc、extern symbol 和 `@c_import` object 都必须进入该 plan，由 verifier-clean 的 Machine backend request 驱动；coverage 未完成时 writer 可以 fail-closed，但不能静默回落 C99 或 build-seed helper。真实 native 主路径由 `NativeMirEmitter` 消费 verifier-clean `PortableMIR` 并写入 `MachineModule`；旧 `LoweredProgram -> MachineModule` helper 只保留为 freestanding build-seed 回归边界，不能作为 hosted native 完整语言主路径。
 
 ---
 
