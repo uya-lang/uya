@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 
-# Native build-seed 边界：固定 native_build_ast_plan_empty()
-# struct literal return 的 CoreBody/PortableMIR body-complete 合同。
+# Native build-seed historical boundary: keep the archived
+# native_build_ast_plan_empty() body-complete evidence and source shape visible.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSET_DOC="$REPO_ROOT/docs/native_cmd_build_subset.md"
-TODO_DOC="$REPO_ROOT/docs/todo_compiler_1s.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
-STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
+MIR_C99_TODO="$REPO_ROOT/docs/todo_mir_c99_backend.md"
 
 require_pattern() {
     local file="$1"
@@ -25,16 +24,13 @@ require_pattern() {
     fi
 }
 
-for file in "$SUBSET_DOC" "$TODO_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FILE" \
-    "$STAGE1_TEST"; do
+for file in "$SUBSET_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FILE" "$MIR_C99_TODO"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
     fi
 done
 
-require_pattern "$TODO_DOC" 'native_build_ast_plan_empty\(\).*body-complete 合同' \
-    "todo 缺少 native_build_ast_plan_empty 合同任务"
 require_pattern "$SUBSET_DOC" '^## `native_build_ast_plan_empty\(\)` Body Complete Contract' \
     "subset doc 缺少 native_build_ast_plan_empty 合同"
 require_pattern "$SUBSET_DOC" 'native_hosted_pending_body_frontier: function=native_build_ast_plan_empty .*reason=pending_core_body' \
@@ -66,7 +62,7 @@ require_pattern "$CORE_FILE" 'CORE_STMT_KIND_RETURN' \
     "CoreIR 缺少 return statement kind"
 require_pattern "$MIR_FILE" 'MIR_TERMINATOR_KIND_RETURN' \
     "PortableMIR 缺少 return terminator"
-require_pattern "$STAGE1_TEST" 'verify_native_ast_plan_empty_contract\.sh' \
-    "stage1 未纳入 native_build_ast_plan_empty 合同"
+require_pattern "$MIR_C99_TODO" 'stage gate 不得要求继续完成 `native_build_type_named_equals`、枚举下一个 `pending_core_bodies` helper' \
+    "MIR-C99 TODO 缺少 helper-frontier 降级边界"
 
 echo "verify_native_ast_plan_empty_contract: ok"
