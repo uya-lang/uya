@@ -1,0 +1,37 @@
+interface Scorer<T> {
+    fn score(self: &Self, value: T) i32;
+}
+
+struct IntScorer : Scorer<i32> {
+    base: i32,
+}
+
+IntScorer {
+    fn score(self: &Self, value: i32) i32 {
+        return self.base + value;
+    }
+}
+
+struct FloatScorer : Scorer<f64> {
+    base: i32,
+}
+
+FloatScorer {
+    fn score(self: &Self, value: f64) i32 {
+        return self.base + (value as i32);
+    }
+}
+
+fn use_int(scorer: Scorer<i32>, value: i32) i32 {
+    return scorer.score(value);
+}
+
+fn use_float(scorer: Scorer<f64>, value: f64) i32 {
+    return scorer.score(value);
+}
+
+export fn main() i32 {
+    const int_scorer: IntScorer = IntScorer{ base: 40 };
+    const float_scorer: FloatScorer = FloatScorer{ base: 5 };
+    return use_int(int_scorer, 2) + use_float(float_scorer, 9.0);
+}
