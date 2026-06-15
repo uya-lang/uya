@@ -1,0 +1,10 @@
+struct Box<T> {
+    value: T,
+    tag: i32,
+}
+
+export fn main() i32 {
+    const int_box: Box<i32> = Box<i32>{ value: 21, tag: 4 };
+    const float_box: Box<f64> = Box<f64>{ value: 3.0, tag: 8 };
+    return int_box.value + int_box.tag + (float_box.value as i32) + float_box.tag;
+}
