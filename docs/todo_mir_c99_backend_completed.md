@@ -1124,3 +1124,8 @@ Context:
   - 修复：该 gate 不再要求 `verify_native_cmd_build_stage1.sh` 继续聚合 `native_build_atomic_i32_shape_empty()` 旧 helper 合同；当前只验证完成归档/主 TODO 中的历史意图、`docs/native_cmd_build_subset.md` 的 body-complete 证据、源码 helper 形状，以及 MIR-C99 TODO 中 helper-frontier 已降级为非 active path。
   - 验证：`bash tests/verify_native_atomic_i32_shape_empty_contract.sh` 通过；`bash tests/verify_native_cmd_build_stage1.sh` 通过。
   - 说明：本项只修复 stale helper-frontier gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_native_emitter_lowered_program.sh` / `verify_native_emitter_streaming_output.sh` 从旧 host C link 阻塞更新为当前静态合同 + checker-only 边界。
+  - 修复：两个 gate 的临时 fixture 改用 `bin/uya check` 验证解析/类型检查，避免被无关 libc/syscall host C 链接缺口（如 `S_IRWXU`、`EPOLL_CTL_DEL`）误伤；静态合同仍验证 `NativeEmitter` 的 LoweredProgram reader、MachineModule 导入、streaming output 入口和 no-full-image 约束。
+  - 验证：`bash tests/verify_native_emitter_lowered_program.sh`、`bash tests/verify_native_emitter_streaming_output.sh`、`bash tests/verify_native_backend_smoke.sh` 通过。
+  - 说明：本项只修复 stale native emitter gate 的验证边界；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。

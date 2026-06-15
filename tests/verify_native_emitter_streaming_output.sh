@@ -188,6 +188,6 @@ test "native emitter writes executable through streaming writer" {
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+(cd "$REPO_ROOT" && ./bin/uya check "$tmp_dir/main.uya")
 
 echo "✓ native emitter streaming output verified"

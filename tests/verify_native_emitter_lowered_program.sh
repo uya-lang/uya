@@ -291,6 +291,6 @@ test "native emitter rejects unreadable state" {
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+(cd "$REPO_ROOT" && ./bin/uya check "$tmp_dir/main.uya")
 
 echo "✓ native emitter LoweredProgram reader verified"
