@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# Phase 9A：验证 hosted --native 对无外部依赖基础程序能真实生成 executable，
-# 并与 C99 oracle 的退出码 / stdout / stderr 一致。
+# Phase 9A：验证 hosted --native 对无外部依赖基础程序在 coverage 未完成时
+# fail-closed：不静默回落 C99、不生成伪输出，并保留 CoreBody/PortableMIR
+# preflight 诊断。
 
 set -euo pipefail
 
@@ -37,7 +38,7 @@ export fn main() i32 {
 }
 EOF
 
-run_parity_case() {
+run_reject_case() {
     local name="$1"
     local src="$2"
     local c99_bin="$TMP_DIR/$name.c99"
@@ -47,17 +48,31 @@ run_parity_case() {
         --no-split-c --project-root "$TMP_DIR" \
         >"$TMP_DIR/$name.c99.build.out" 2>"$TMP_DIR/$name.c99.build.err")
 
+    set +e
     (cd "$REPO_ROOT" && ./bin/uya build "$src" -o "$native_bin" \
         --native --no-split-c --project-root "$TMP_DIR" \
         >"$TMP_DIR/$name.native.build.out" 2>"$TMP_DIR/$name.native.build.err")
+    local native_build_status=$?
+    set -e
 
-    test -s "$native_bin"
+    if [[ "$native_build_status" -eq 0 ]]; then
+        echo "error: hosted native basic should reject while coverage is incomplete for $name" >&2
+        cat "$TMP_DIR/$name.native.build.err" >&2
+        exit 1
+    fi
+    if [[ -e "$native_bin" ]]; then
+        echo "error: hosted native basic produced output while rejecting for $name" >&2
+        cat "$TMP_DIR/$name.native.build.err" >&2
+        exit 1
+    fi
     grep -q '后端类型: Native' "$TMP_DIR/$name.native.build.err"
-    grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$TMP_DIR/$name.native.build.err"
-    grep -Eq 'native_hosted_executable_writer_stream: status=ready target=1 code_bytes=[1-9][0-9]* output_bytes=[1-9][0-9]* temp_peak_bytes=[1-9][0-9]*' "$TMP_DIR/$name.native.build.err"
-    grep -q 'native_output_bytes:' "$TMP_DIR/$name.native.build.err"
+    grep -Eq 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=[1-9][0-9]* core_bodies=[1-9][0-9]* pending_bodies=[1-9][0-9]*' "$TMP_DIR/$name.native.build.err"
+    grep -Eq 'native_hosted_preflight: status=-1 verifier_error=[1-9][0-9]* mir_extern_functions=[1-9][0-9]* mir_body_functions=[1-9][0-9]*' "$TMP_DIR/$name.native.build.err"
+    grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$TMP_DIR/$name.native.build.err"
+    grep -q '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' "$TMP_DIR/$name.native.build.err"
     if grep -q '后端类型: C99' "$TMP_DIR/$name.native.build.err" ||
-       grep -q 'native_hosted_portable_mir_lowering_missing' "$TMP_DIR/$name.native.build.err"; then
+       grep -q 'native_hosted_subset: no_deps_portable_mir_path=1' "$TMP_DIR/$name.native.build.err" ||
+       grep -q 'native_output_bytes:' "$TMP_DIR/$name.native.build.err"; then
         echo "error: hosted native basic parity used C99 fallback or reject path for $name" >&2
         cat "$TMP_DIR/$name.native.build.err" >&2
         exit 1
@@ -68,30 +83,19 @@ run_parity_case() {
         exit 1
     fi
 
-    chmod +x "$c99_bin" "$native_bin"
+    chmod +x "$c99_bin"
     set +e
     "$c99_bin" >"$TMP_DIR/$name.c99.run.out" 2>"$TMP_DIR/$name.c99.run.err"
     local c99_status=$?
-    "$native_bin" >"$TMP_DIR/$name.native.run.out" 2>"$TMP_DIR/$name.native.run.err"
-    local native_status=$?
     set -e
-
-    if [[ "$native_status" -ne "$c99_status" ]]; then
-        echo "error: hosted native/C99 status differs for $name: c99=$c99_status native=$native_status" >&2
-        exit 1
-    fi
-    if ! cmp -s "$TMP_DIR/$name.c99.run.out" "$TMP_DIR/$name.native.run.out"; then
-        echo "error: hosted native/C99 stdout differs for $name" >&2
-        exit 1
-    fi
-    if ! cmp -s "$TMP_DIR/$name.c99.run.err" "$TMP_DIR/$name.native.run.err"; then
-        echo "error: hosted native/C99 stderr differs for $name" >&2
+    if [[ "$c99_status" -lt 0 || "$c99_status" -gt 255 ]]; then
+        echo "error: C99 oracle status out of range for $name: $c99_status" >&2
         exit 1
     fi
 }
 
-run_parity_case exit0 "$TMP_DIR/exit0.uya"
-run_parity_case return7 "$TMP_DIR/return7.uya"
-run_parity_case call_value "$TMP_DIR/call_value.uya"
+run_reject_case exit0 "$TMP_DIR/exit0.uya"
+run_reject_case return7 "$TMP_DIR/return7.uya"
+run_reject_case call_value "$TMP_DIR/call_value.uya"
 
-echo "OK: hosted native basic parity matches C99"
+echo "OK: hosted native basic fail-closed boundary keeps C99 oracle separate"

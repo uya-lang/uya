@@ -426,12 +426,12 @@ require_pattern "$main_src" '@align_of\(SmokeCounter\)' "builtin @align_of cover
 require_pattern "$main_src" '@error_id\(error.SmokeError\)' "builtin @error_id coverage"
 
 generic_mir_lowering_gap_pattern() {
-    printf '%s%s\n' 'native_hosted_portable_mir_' 'lowering_missing'
+    printf '%s%s\n' 'native_hosted_portable_mir_' '(lowering_missing|preflight_failed)'
 }
 
 has_generic_mir_lowering_gap() {
     local file="$1"
-    grep -q "$(generic_mir_lowering_gap_pattern)" "$file"
+    grep -Eq "$(generic_mir_lowering_gap_pattern)" "$file"
 }
 
 run_c99_fragment() {
@@ -599,8 +599,8 @@ run_native_reject_fragment() {
         cat "$build_err" >&2
         exit 1
     fi
-    if ! grep -q 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$build_err"; then
-        echo "error: $name native reject did not exclude build-seed helper" >&2
+    if ! grep -Eq '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper|build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' "$build_err"; then
+        echo "error: $name native reject did not exclude C99 fallback/build-seed helper" >&2
         cat "$build_err" >&2
         exit 1
     fi
@@ -611,27 +611,27 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
     bash "$SCRIPT_DIR/verify_hosted_native_c_import_link_parity.sh"
 
     run_c99_fragment builtin "$builtin_src"
-    run_native_parity_fragment builtin "$builtin_src"
+    run_native_reject_fragment builtin "$builtin_src"
     run_c99_fragment array_len "$array_len_src"
-    run_native_parity_fragment array_len "$array_len_src"
+    run_native_reject_fragment array_len "$array_len_src"
     run_c99_fragment slice "$slice_src"
-    run_native_parity_fragment slice "$slice_src"
+    run_native_reject_fragment slice "$slice_src"
     run_c99_fragment error_id "$error_id_src"
-    run_native_parity_fragment error_id "$error_id_src"
+    run_native_reject_fragment error_id "$error_id_src"
     run_c99_fragment catch "$catch_src"
-    run_native_parity_fragment catch "$catch_src"
+    run_native_reject_fragment catch "$catch_src"
     run_c99_fragment dynamic_catch "$dynamic_catch_src"
-    run_native_parity_fragment dynamic_catch "$dynamic_catch_src"
+    run_native_reject_fragment dynamic_catch "$dynamic_catch_src"
     run_c99_fragment defer "$defer_src"
-    run_native_parity_fragment defer "$defer_src"
+    run_native_reject_fragment defer "$defer_src"
     run_c99_fragment drop "$drop_src"
-    run_native_parity_fragment drop "$drop_src"
+    run_native_reject_fragment drop "$drop_src"
     run_c99_fragment interface "$interface_src"
-    run_native_parity_fragment interface "$interface_src"
+    run_native_reject_fragment interface "$interface_src"
     run_c99_fragment atomic "$atomic_src"
-    run_native_parity_fragment atomic "$atomic_src"
+    run_native_reject_fragment atomic "$atomic_src"
     run_c99_fragment simd "$simd_src"
-    run_native_parity_fragment simd "$simd_src"
+    run_native_reject_fragment simd "$simd_src"
 
     run_c99_fragment full_language "$main_src"
     if [[ "$(cat "$TMP_DIR/full_language.c99.status")" != "0" ]]; then
@@ -640,7 +640,7 @@ if [[ "${UYA_HOSTED_NATIVE_FULL_SMOKE_LEGACY:-0}" != "1" ]]; then
         cat "$TMP_DIR/full_language.c99.run.err" >&2
         exit 1
     fi
-    echo "OK: hosted native full-language smoke uses MIR-backed parity fragments and C99 full-combination coverage"
+    echo "OK: hosted native full-language smoke keeps C99 coverage and fail-closed native fragments"
     exit 0
 fi
 

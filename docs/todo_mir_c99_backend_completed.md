@@ -1090,3 +1090,10 @@ Context:
   - 修复：`verify_native_cmd_build_c99_output_parity.sh` 跟随当前 build diagnostics，从旧 `后端类型: C99` 改为检查 `输出: ... [C99]`，仍保留 cmd/build 不得误走 Native 的反向检查。
   - 验证：`make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=./bin/uya` 通过；`bash tests/verify_native_cmd_build_compiler_regressions.sh` 通过；`bash tests/verify_native_cmd_build_c99_output_parity.sh` 通过；`bash tests/verify_native_cmd_build_regression_boundary.sh` 通过；`bash tests/verify_native_cmd_build_stage1.sh` 通过。
   - 说明：本项只修复 stale stage1 聚合和 hosted reject 诊断；完整 compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_hosted_native_full_language_smoke.sh` 从旧 hosted native parity 成功期望更新为当前 fail-closed 边界。
+  - 修复：`verify_hosted_native_basic_parity.sh` 不再要求无依赖 hosted `--native` 生成 executable，而是验证 C99 oracle 可运行、Native backend 进入 CoreBody/PortableMIR preflight 后以 `native_hosted_portable_mir_preflight_failed` 明确拒绝、不生成输出、不回落 C99，并禁止 build-seed helper。
+  - 修复：`verify_hosted_native_c_import_link_parity.sh` 对齐当前 `@c_import` 特殊 shard：允许 explicit hosted native assembly/object linker handoff 生成可执行并与 C99 oracle 对齐，同时记录 broader hosted preflight 仍未 verifier-clean。
+  - 修复：`verify_hosted_native_full_language_smoke.sh` 的普通 full-language fragments 改为 C99 覆盖 + hosted native fail-closed fragment；保留 `@c_import` linker handoff 作为特殊成功 shard，并修正 reject helper 可识别 `native_hosted_portable_mir_preflight_failed`。
+  - 验证：`bash tests/verify_hosted_native_basic_parity.sh` 通过；`bash tests/verify_hosted_native_c_import_link_parity.sh` 通过；`bash tests/verify_hosted_native_full_language_smoke.sh` 通过。
+  - 说明：本项只修复 stale hosted native full-language smoke；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
