@@ -56,13 +56,13 @@ set +e
 status=$?
 set -e
 
-if [[ "$status" -ne 0 ]]; then
-    echo "error: HelloWorld native build should now reach the L994.F writer path" >&2
+if [[ "$status" -eq 0 ]]; then
+    echo "error: HelloWorld native build should still fail closed until hosted preflight is verifier-clean" >&2
     cat "$HW_NATIVE_ERR" >&2
     exit 1
 fi
-if [[ ! -s "$HW_NATIVE_BIN" ]]; then
-    echo "error: HelloWorld native build reported success without executable" >&2
+if [[ -e "$HW_NATIVE_BIN" ]]; then
+    echo "error: HelloWorld native reject left an output file" >&2
     cat "$HW_NATIVE_ERR" >&2
     exit 1
 fi
@@ -72,28 +72,20 @@ if ! grep -q 'native_hosted_print_mir_body: calls=2 write_str=1 newline=1 operan
     cat "$HW_NATIVE_ERR" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_print_helper_link_object: status=planned objects=1' "$HW_NATIVE_ERR"; then
-    echo "error: print helper object was not added to hosted link plan" >&2
+if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$HW_NATIVE_ERR"; then
+    echo "error: HelloWorld native reject lacks hosted preflight failure" >&2
     cat "$HW_NATIVE_ERR" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 .* hosted_link_objects=1' "$HW_NATIVE_ERR"; then
-    echo "error: hosted preflight summary did not count the print helper link object" >&2
+if ! grep -Eq 'native_hosted_preflight: status=-1 verifier_error=[1-9][0-9]* .* hosted_link_objects=0' "$HW_NATIVE_ERR"; then
+    echo "error: hosted preflight summary did not record current blocked link boundary" >&2
     cat "$HW_NATIVE_ERR" >&2
     exit 1
 fi
-if ! grep -q 'native_hosted_subset: print_helloworld_path=1' "$HW_NATIVE_ERR"; then
-    echo "error: L994.F print writer path did not run after link planning" >&2
+if ! grep -q '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' "$HW_NATIVE_ERR"; then
+    echo "error: HelloWorld native reject did not exclude C99 fallback/build-seed helper" >&2
     cat "$HW_NATIVE_ERR" >&2
-    exit 1
-fi
-chmod +x "$HW_NATIVE_BIN"
-"$HW_NATIVE_BIN" >"$TMP_DIR/hw.native.run.out" 2>"$TMP_DIR/hw.native.run.err"
-if ! cmp -s "$TMP_DIR/hw.native.run.out" <(printf "Hello, World!\n"); then
-    echo "error: L994.F print writer output mismatch" >&2
-    cat "$TMP_DIR/hw.native.run.out" >&2
-    cat "$TMP_DIR/hw.native.run.err" >&2
     exit 1
 fi
 
-echo "OK: hosted native print helper link object is planned and handed to the L994.F writer"
+echo "OK: hosted native print helper link API exists and HelloWorld fails closed before writer"

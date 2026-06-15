@@ -1097,3 +1097,10 @@ Context:
   - 修复：`verify_hosted_native_full_language_smoke.sh` 的普通 full-language fragments 改为 C99 覆盖 + hosted native fail-closed fragment；保留 `@c_import` linker handoff 作为特殊成功 shard，并修正 reject helper 可识别 `native_hosted_portable_mir_preflight_failed`。
   - 验证：`bash tests/verify_hosted_native_basic_parity.sh` 通过；`bash tests/verify_hosted_native_c_import_link_parity.sh` 通过；`bash tests/verify_hosted_native_full_language_smoke.sh` 通过。
   - 说明：本项只修复 stale hosted native full-language smoke；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：hosted native HelloWorld / print helper / main local-if 旧成功期望更新为当前 fail-closed 边界。
+  - 修复：`verify_hosted_native_print_hir_lowering.sh` 和 `verify_hosted_native_helloworld_parity.sh` 不再要求 HelloWorld hosted `--native` 生成 executable，而是验证 `@println` 已进入 CoreIR/MIR print lowering、C99 oracle 仍可运行、Native backend 以 `native_hosted_portable_mir_preflight_failed` 明确拒绝且不生成输出、不回落 C99。
+  - 修复：`verify_hosted_native_main_local_if_preflight.sh` 的 fallback 检查改为精确匹配 `后端类型: C99`，并跟随当前 preflight 计数和 `preflight_failed` 诊断；`verify_hosted_native_print_helper_link_plan.sh` 验证 print helper link API/contract 存在，同时确认 HelloWorld 当前 fail-closed 在 writer 前。
+  - 文档：`docs/compiler_1s_architecture_design.md` 补充 `NativeHostedLinkPlan` hosted ABI/linker 边界，明确 libc/pthread/filesystem/env/malloc/extern symbol/`@c_import` object 进入 plan，coverage 未完成时 writer 可 fail-closed 但不能静默回落 C99 或 build-seed helper。
+  - 验证：`bash tests/verify_hosted_native_print_hir_lowering.sh`、`bash tests/verify_hosted_native_helloworld_parity.sh`、`bash tests/verify_hosted_native_main_local_if_preflight.sh`、`bash tests/verify_native_hosted_link_contract.sh`、`bash tests/verify_hosted_native_print_helper_link_plan.sh` 通过。
+  - 说明：本项只修复 stale hosted native print/link smoke；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。

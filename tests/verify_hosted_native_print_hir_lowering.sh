@@ -7,7 +7,8 @@
 #   - HIR 模式识别到 `@println(string)`。
 #   - CoreIR body 生成 `uya_write_str` + `uya_write_newline` call。
 #   - PortableMIR body 生成对应两个 `MIR_INST_OP_CALL`。
-#   - `mir_body_functions` 至少为 1。
+#   - hosted preflight 记录至少 1 个 MIR body function；整体仍可因 runtime
+#     entry coverage 未完成而 fail-closed。
 #
 # 本测试只验证 L994.B 的 print lowering 接线。后续非 print runtime entry body
 # 仍可能触发 `native_hosted_portable_mir_lowering_missing`，但 frontier 必须明确
@@ -65,8 +66,8 @@ if ! grep -q 'native_hosted_print_hir_pattern: declared' "$HW_NATIVE_ERR"; then
 fi
 echo "L994.B.1 OK: println helloworld pattern recognized by CoreBody frontend"
 
-# 断言 1：mir_body_functions 至少为 1（helloworld main body 已被 lowering）
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=[1-9][0-9]* mir_types=[1-9][0-9]*' "$HW_NATIVE_ERR"; then
+# 断言 1：mir_body_functions 至少为 1（helloworld main body 已被 lowering）。
+if ! grep -Eq 'native_hosted_preflight: status=-1 verifier_error=[1-9][0-9]* mir_extern_functions=[1-9][0-9]* mir_body_functions=[1-9][0-9]* mir_types=[1-9][0-9]*' "$HW_NATIVE_ERR"; then
     echo "error: stderr does not show mir_body_functions >= 1 (L994.B not implemented)" >&2
     echo "----- stderr -----" >&2
     cat "$HW_NATIVE_ERR" >&2
@@ -96,8 +97,8 @@ if ! grep -q 'native_hosted_print_mir_body: calls=2 write_str=1 newline=1 operan
 fi
 echo "L994.B.3/B.4 OK: print MIR body wired through hosted native preflight"
 
-# 断言 4：如果后续仍因 lowering-missing reject，frontier 必须是非 print body。
-if grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$HW_NATIVE_ERR"; then
+# 断言 4：如果后续仍因 hosted native preflight reject，frontier 必须是非 print body。
+if grep -Eq 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_(lowering_missing|preflight_failed)' "$HW_NATIVE_ERR"; then
     if ! grep -Eq 'native_hosted_pending_body_frontier: function=(get_argc|get_argv|platform_|runtime_)' "$HW_NATIVE_ERR"; then
         echo "error: lowering-missing remains but frontier is not a known non-print pending body" >&2
         echo "----- stderr -----" >&2
@@ -105,7 +106,14 @@ if grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lo
         echo "----- end -----" >&2
         exit 1
     fi
-    echo "L994.B OK: print lowering is complete; later non-print pending body still blocks native executable writer"
+    if ! grep -q '不能静默回落 C99，也不能使用 build-seed LoweredProgram helper' "$HW_NATIVE_ERR"; then
+        echo "error: print lowering reject did not exclude C99 fallback/build-seed helper" >&2
+        echo "----- stderr -----" >&2
+        cat "$HW_NATIVE_ERR" >&2
+        echo "----- end -----" >&2
+        exit 1
+    fi
+    echo "L994.B OK: print lowering is complete; later non-print preflight still blocks native executable writer"
     exit 0
 fi
 

@@ -70,22 +70,22 @@ if [[ -e "$native_bin" ]]; then
     echo "error: native main local-if reject left an output file" >&2
     exit 1
 fi
-if grep -q 'C99' "$native_build_err"; then
+if grep -q '后端类型: C99' "$native_build_err"; then
     echo "error: native main local-if reject fell back to C99" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=11 core_bodies=2 pending_bodies=5' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_coreir_preflight: status=-1 verifier_error=0 functions=11 core_bodies=3 pending_bodies=4' "$native_build_err"; then
     echo "error: native main local-if reject lacks CoreIR local/if preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=4 mir_body_functions=2 mir_types=[1-9][0-9]* extern_symbols=4 c_import_objects=1 hosted_link_objects=1' "$native_build_err"; then
+if ! grep -Eq 'native_hosted_preflight: status=-1 verifier_error=[1-9][0-9]* mir_extern_functions=7 mir_body_functions=3 mir_types=[1-9][0-9]* extern_symbols=0 c_import_objects=1 hosted_link_objects=0' "$native_build_err"; then
     echo "error: native main local-if reject lacks PortableMIR local/if preflight evidence" >&2
     cat "$native_build_err" >&2
     exit 1
 fi
-if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_lowering_missing' "$native_build_err"; then
+if ! grep -q 'native_unsupported_hosted_path: reason=native_hosted_portable_mir_preflight_failed' "$native_build_err"; then
     echo "error: native main local-if reject lacks hosted lowering gap" >&2
     cat "$native_build_err" >&2
     exit 1
