@@ -1,6 +1,6 @@
 # MIR-C99 Backend TODO
 
-**状态**: executable TODO, implementation pending
+**状态**: executable TODO, no active leaf
 **更新日期**: 2026-06-15
 **上层目标**: `docs/todo_compiler_1s.md`
 **覆盖矩阵**: `docs/portable_mir_language_coverage.md`
@@ -103,6 +103,8 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 
 
 ### 4.17 Release Gates
+
+当前没有可执行的未归档叶子任务；release gate、文档同步和 HelloWorld CLI 证据已移至 `docs/todo_mir_c99_backend_completed.md`。后续若要把 MIR-C99 从当前 subset/frontier 提升为完整默认后端，必须新增明确 leaf，并继续按本文件完成定义验证。
 
 
 

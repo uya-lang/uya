@@ -1184,9 +1184,11 @@ Context:
     - 结果：通过；确认 `UYA_MIR_C99_RELEASE_GATE=off|optional|required` 三态已接入 `make check` / `make check-hosted`，并串联 `tests/verify_mir_c99_self_build_convergence_audit.sh` 与 `tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh`。
 ### 4.17 Release Gates
 
-- [ ] MIR-C99-BACKEND-RELEASE-GATES：收口和文档同步。
+- [x] MIR-C99-BACKEND-RELEASE-GATES：收口和文档同步。
   - [x] release flow 区分现有 C99 oracle、MIR-C99 backend 和 microapp profile 结论。
     - 验证：`git diff --check`；`rg -n "microapp profile|现有 C99 oracle|MIR-C99 backend|release flow" docs/compiler_1s_architecture_design.md docs/portable_mir_whitepaper.md docs/coreir_lowered_program_whitepaper.md docs/portable_mir_language_coverage.md`。
+  - [x] CLI gate 覆盖 `uya build --mir-c99 examples/HelloWorld.uya -o 1.c`，输出真实 MIR-C99 标记 C，并经 host C99 compiler 编译运行。
+    - 验证：`bash tests/verify_mir_c99_cli_helloworld.sh` 通过；`./bin/uya build --mir-c99 examples/HelloWorld.uya -o 1.c` 通过；`cc -std=c99 1.c -o 1 && ./1` 输出 `Hello, World!` 和 `欢迎使用 Uya 编程语言！`。
 
 ### 4.17 Release Gates
 
@@ -1202,4 +1204,3 @@ Context:
     - 结果：通过。
     - 验证：`bash tests/verify_portable_mir_language_coverage.sh`。
     - 结果：通过；coverage matrix 与 `src/ast.uya`、`src/lower/core.uya` 一致。
-

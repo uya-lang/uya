@@ -56,3 +56,5 @@ src/.uyacache-native-refresh/
 .agent/logs/*
 .agent/state*.json
 loop.log
+1.c
+1
