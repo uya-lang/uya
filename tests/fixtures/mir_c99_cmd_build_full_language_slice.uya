@@ -1,0 +1,6 @@
+export fn main() i32 {
+    var values: [i32: 5] = [4, 6, 8, 10, 12];
+    const window: &[i32] = values[1:3];
+    const tail: &[i32] = window[1:2];
+    return @len(window) as i32 + window[0] + window[2] + @len(tail) as i32 + tail[0] + tail[1];
+}
