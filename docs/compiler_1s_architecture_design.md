@@ -579,6 +579,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host cc -> executable
   `CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter` 生成 host C99 compiler 可编译运行的产物。
 - MIR-C99 self-build：MIR-C99-built compiler 必须复跑 `cmd/build` self-build、compiler regression、
   C99 output parity 和 full-language backend parity。
+- release gate：在 MIR-C99 backend 达到稳定 self-build 之前，backup flow 继续保留现有 C99/hosted seed；
+  MIR-C99 seed 只有在 self-build 达到稳定自举后才允许进入 tracked backup 流程。
 - hosted native 完整语言 parity：第一阶段以 C99 为 oracle，要求已迁 MIR 的 shard 真实运行一致，未迁 MIR 的复杂
   shard 先保持 explicit reject；native 后端按“合法 Uya 程序”工作，而不是按“编译器源码特例”工作。
 - 禁止用函数名白名单、固定 statement count 白名单、固定 body shape 白名单或类似 compiler/self-build
