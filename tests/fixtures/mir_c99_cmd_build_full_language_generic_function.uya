@@ -1,0 +1,12 @@
+fn pick<T>(left: T, right: T, choose_left: bool) T {
+    if choose_left {
+        return left;
+    }
+    return right;
+}
+
+export fn main() i32 {
+    const selected_i32: i32 = pick<i32>(14, 99, true);
+    const selected_f64: f64 = pick<f64>(2.0, 5.0, false);
+    return selected_i32 + (selected_f64 as i32);
+}

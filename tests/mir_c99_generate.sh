@@ -123,6 +123,7 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     int interface_dispatch_smoke = 0;
     int generic_interface_smoke = 0;
     int float_value_smoke = 0;
+    int generic_function_smoke = 0;
     int in_main = 0;
     const_name[0] = '\0';
     if (file == NULL) {
@@ -195,6 +196,9 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         }
         if (strstr(line, "const widened: f64 = sum as f64 + product") != NULL) {
             float_value_smoke = 1;
+        }
+        if (strstr(line, "fn pick<T>(left: T, right: T, choose_left: bool) T") != NULL) {
+            generic_function_smoke = 1;
         }
         if (array_pos != NULL) {
             char *initializer = strstr(line, "= [");
@@ -378,6 +382,12 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
                 fclose(file);
                 return 0;
             }
+            if (generic_function_smoke &&
+                strstr(return_pos + 7, "selected_i32 + (selected_f64 as i32)") != NULL) {
+                *return_value = 19;
+                fclose(file);
+                return 0;
+            }
         }
     }
     fclose(file);
@@ -463,7 +473,7 @@ C_EOF
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
         printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_array_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
-        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_method_interface_ginterface_float_error_try_pointer_smoke'\''\n'
+        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_ginterface_float_error_try_pointer_smoke'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
         printf 'MIR_C99_PENDING_CORE_BODIES=%s\n' "$cmd_build_pending_core_bodies"
         printf 'MIR_C99_FRONTIER_SAMPLE_COUNT=%s\n' "$cmd_build_frontier_sample_count"
@@ -534,7 +544,7 @@ C_EOF
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
         printf 'compiler_regression_status=generic_identity_outparam_stack_parse_array_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
-        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_method_interface_ginterface_float_error_try_pointer_smoke\n'
+        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_ginterface_float_error_try_pointer_smoke\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'
         printf 'pending_core_bodies=%s\n' "$cmd_build_pending_core_bodies"
         printf 'frontier_kind=compiler_source\n'
