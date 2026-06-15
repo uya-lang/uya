@@ -69,20 +69,21 @@ program_stderr="$TMP_DIR/program.err"
 run_candidate_oracle_case() {
     local name="$1"
     local fixture="$2"
+    local project_root="${3:-$REPO_ROOT}"
     local candidate_out="$TMP_DIR/$name.mir"
     local oracle_c="$TMP_DIR/$name.oracle.c"
     local oracle_bin="$TMP_DIR/$name.oracle"
     local candidate_status
     local oracle_status
 
-    if ! "$candidate_bin" build "$fixture" -o "$candidate_out" --project-root "$REPO_ROOT" \
+    if ! "$candidate_bin" build "$fixture" -o "$candidate_out" --project-root "$project_root" \
         >"$TMP_DIR/$name.candidate.build.out" 2>"$TMP_DIR/$name.candidate.build.err"; then
         echo "error: MIR-C99 cmd/build $name candidate build failed" >&2
         cat "$TMP_DIR/$name.candidate.build.out" >&2
         cat "$TMP_DIR/$name.candidate.build.err" >&2
         exit 1
     fi
-    if ! "$ORACLE_COMPILER" build "$fixture" -o "$oracle_c" --no-split-c --project-root "$REPO_ROOT" \
+    if ! "$ORACLE_COMPILER" build "$fixture" -o "$oracle_c" --no-split-c --project-root "$project_root" \
         >"$TMP_DIR/$name.oracle.build.out" 2>"$TMP_DIR/$name.oracle.build.err"; then
         echo "error: MIR-C99 cmd/build $name oracle build failed" >&2
         cat "$TMP_DIR/$name.oracle.build.out" >&2
@@ -114,6 +115,36 @@ run_candidate_oracle_case() {
         exit 1
     fi
 }
+
+MULTIFILE_ROOT="$TMP_DIR/multifile"
+mkdir -p "$MULTIFILE_ROOT/dep"
+cat >"$MULTIFILE_ROOT/dep/dep.uya" <<'UYA'
+export fn exported_sum(x: i32, y: i32) i32 {
+    return x + y;
+}
+UYA
+cat >"$MULTIFILE_ROOT/main.uya" <<'UYA'
+use dep.exported_sum;
+
+fn main() i32 {
+    const sum: i32 = exported_sum(20, 22);
+    if sum != 42 {
+        return 1;
+    }
+    return 0;
+}
+UYA
+cat >"$MULTIFILE_ROOT/main_alias.uya" <<'UYA'
+use dep as d;
+
+fn main() i32 {
+    const sum: i32 = d.exported_sum(20, 22);
+    if sum != 42 {
+        return 1;
+    }
+    return 0;
+}
+UYA
 
 "$GENERATOR" "$CMD_BUILD_SOURCE" "$output_c" "$log_file" >/dev/null
 
@@ -177,6 +208,8 @@ run_candidate_oracle_case full_language_error_catch_error "$ERROR_CATCH_ERROR_FI
 run_candidate_oracle_case full_language_try_propagation_success "$TRY_PROPAGATION_SUCCESS_FIXTURE"
 run_candidate_oracle_case full_language_try_propagation_error "$TRY_PROPAGATION_ERROR_FIXTURE"
 run_candidate_oracle_case full_language_pointer "$POINTER_FIXTURE"
+run_candidate_oracle_case full_language_multifile_use "$MULTIFILE_ROOT/main.uya" "$MULTIFILE_ROOT"
+run_candidate_oracle_case full_language_multifile_alias_use "$MULTIFILE_ROOT/main_alias.uya" "$MULTIFILE_ROOT"
 
 require_pattern "$log_file" '^compiler_source_backend=mir_c99_unit_output$' \
     "generator uses MIR-C99 unit output backend"
@@ -186,8 +219,8 @@ require_pattern "$log_file" '^compiler_regression_status=generic_identity_outpar
     "generator records generic identity, out-param, stack-limit, parse-like, and array-index compiler regression smoke"
 require_pattern "$log_file" '^c99_output_parity_status=return_literal_smoke$' \
     "generator records return-literal C99 output parity smoke"
-require_pattern "$log_file" '^full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_smoke$' \
-    "generator records branch/loop, array, slice, struct, tuple, enum, union, generic struct/function/method, interface dispatch, interface composition/field/global init, generic interface, float value, error catch/binding, defer, errdefer, try propagation, and pointer full-language parity smoke"
+require_pattern "$log_file" '^full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_multifile_smoke$' \
+    "generator records branch/loop, array, slice, struct, tuple, enum, union, generic struct/function/method, interface dispatch, interface composition/field/global init, generic interface, float value, error catch/binding, defer, errdefer, try propagation, pointer, and multi-file use full-language parity smoke"
 require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_output'$" \
     "summary records MIR-C99 unit output backend"
 require_pattern "$summary_file" "^MIR_C99_PARITY_FRONTIER_STATUS='return_literal_c99_output_parity'$" \
@@ -196,7 +229,7 @@ require_pattern "$summary_file" "^MIR_C99_COMPILER_REGRESSION_STATUS='generic_id
     "summary records generic identity, out-param, stack-limit, parse-like, and array-index compiler regression smoke"
 require_pattern "$summary_file" "^MIR_C99_C99_OUTPUT_PARITY_STATUS='return_literal_smoke'$" \
     "summary records return-literal C99 output parity smoke"
-require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_smoke'$" \
-    "summary records branch/loop, array, slice, struct, tuple, enum, union, generic struct/function/method, interface dispatch, interface composition/field/global init, generic interface, float value, error catch/binding, defer, errdefer, try propagation, and pointer full-language parity smoke"
+require_pattern "$summary_file" "^MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_multifile_smoke'$" \
+    "summary records branch/loop, array, slice, struct, tuple, enum, union, generic struct/function/method, interface dispatch, interface composition/field/global init, generic interface, float value, error catch/binding, defer, errdefer, try propagation, pointer, and multi-file use full-language parity smoke"
 
-echo "OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/gfunction/method/interface/icomposition/ginterface/float/error/binding/defer/errdefer/try/pointer full-language parity frontier"
+echo "OK: MIR-C99 cmd/build candidate passes regression, C99 output, and branch/loop/array/slice/struct/tuple/enum/union/generic/gfunction/method/interface/icomposition/ginterface/float/error/binding/defer/errdefer/try/pointer/multifile full-language parity frontier"
