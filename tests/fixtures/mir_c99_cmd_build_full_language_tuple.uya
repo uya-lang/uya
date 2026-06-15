@@ -1,0 +1,7 @@
+export fn main() i32 {
+    const pair: (i32, i32) = (10, 20);
+    const first: i32 = pair.0;
+    const second: i32 = pair.1;
+    const shifted: (i32, i32) = (first + 3, second + 4);
+    return shifted.0 + shifted.1;
+}
