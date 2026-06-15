@@ -1,0 +1,10 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+export fn main() i32 {
+    var p: Point = Point{ x: 2, y: 3 };
+    p.y = p.y + 4;
+    return p.x + p.y;
+}
