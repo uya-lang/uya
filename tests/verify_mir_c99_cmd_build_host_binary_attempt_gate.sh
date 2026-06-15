@@ -65,7 +65,7 @@ require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_STATUS='\''genera
     "summary sidecar records generated compiler binary status"
 require_pattern "$summary_file" '^MIR_C99_HOST_COMPILER_BINARY_CANDIDATE_ROLE='\''compiler_binary'\''$' \
     "summary sidecar records compiler binary candidate role"
-require_pattern "$summary_file" '^MIR_C99_COMPILER_SOURCE_BACKEND='\''tracked_cmd_build_seed'\''$' \
+require_pattern "$summary_file" '^MIR_C99_COMPILER_SOURCE_BACKEND='\''mir_c99_unit_output'\''$' \
     "summary sidecar records the compiler source backend used for the candidate"
 if ! grep -Eq 'Uya build compiler' "$candidate_stdout" "$candidate_stderr"; then
     echo "error: missing MIR-C99 cmd/build host binary evidence: candidate executable identifies as Uya build compiler" >&2
@@ -80,11 +80,9 @@ if ! grep -Eq '用法:' "$candidate_stdout" "$candidate_stderr"; then
     exit 1
 fi
 
-# The candidate C is produced from the tracked cmd/build seed as a transitional
-# real compiler candidate, so it legitimately contains the compiler's own C99
-# codegen identifiers. The fallback check therefore applies only to generator
-# diagnostics, the summary sidecar, and candidate runtime output, not to the
-# compiler source body.
+# The candidate C is produced by the MIR-C99 unit output writer. Keep the
+# fallback check focused on diagnostics and runtime output; source-body absence
+# is covered by the dedicated true-writer gate.
 if grep -Eiq 'fallback|legacy C99|codegen/c99|codegen\.c99|c99_codegen_generate|C99CodeGenerator' \
     "$log_file" "$summary_file" "$candidate_stdout" "$candidate_stderr"; then
     echo "error: MIR-C99 cmd/build host binary gate mentioned legacy C99 fallback" >&2

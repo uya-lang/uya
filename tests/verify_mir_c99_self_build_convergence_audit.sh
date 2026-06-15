@@ -70,7 +70,7 @@ require_pattern "$summary_file" "^MIR_C99_BLOCKED_CATEGORY_EMITTER_OUTPUT='nativ
     "summary sidecar records emitter/output blocker"
 require_pattern "$summary_file" "^MIR_C99_BLOCKED_CATEGORY_LINK_ABSENCE='native_hosted_executable_writer_preflight:status=blocked,reason=pending_core_bodies,output_kind=machine_module,link_plan=complete'$" \
     "summary sidecar records link/absence blocker"
-require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='tracked_cmd_build_seed'$" \
+require_pattern "$summary_file" "^MIR_C99_COMPILER_SOURCE_BACKEND='mir_c99_unit_output'$" \
     "summary sidecar records the compiler source backend used for the candidate"
 
 pending_from_log="$(sed -n -E 's/^pending_core_bodies=([0-9]+)$/\1/p' "$log_file")"
@@ -90,7 +90,7 @@ require_pattern "$COVERAGE_DOC" 'frontier samples（`native_hosted_handoff_front
     "coverage doc records frozen frontier samples"
 require_pattern "$COVERAGE_DOC" 'blocked categories（call ABI、runtime helper、emitter/output、link/absence）' \
     "coverage doc records grouped blocked categories"
-require_pattern "$COVERAGE_DOC" '当前真实 compiler candidate C 由仓库跟踪的 `backup/cmd-build.c` seed 作为过渡候选提供' \
-    "coverage doc records the transitional tracked cmd/build seed source"
+require_pattern "$COVERAGE_DOC" '当前真实 compiler candidate C 由 `mir_c99_unit_output` 提供' \
+    "coverage doc records the MIR-C99 unit output source"
 
 echo "OK: MIR-C99 self-build convergence audit records real compiler candidate status and grouped blockers"
