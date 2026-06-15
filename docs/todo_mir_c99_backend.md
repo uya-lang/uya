@@ -102,6 +102,7 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 
 - [ ] MIR-C99-BACKEND-SELF-BUILD-CANDIDATE：生成真实 MIR-C99 compiler candidate。
   - 注：前两轮失败子任务 `补上真实 MIR-C99 writer hook`（2026-06-14 21:14:08）与 `去除 tracked_cmd_build_seed 过渡源`（2026-06-15 09:50 归档清理）已移入 `docs/todo_mir_c99_backend_failed.md`；去除 tracked seed 的整体子任务保持 `[ ]`，重开条件见失败归档。
+  - [ ] 去除 `tracked_cmd_build_seed` 过渡源：默认 generator 对 `src/cmd/build/main.uya` 必须由 source-to-PortableMIR + `mir_c99_driver_run` + `MirC99Emitter` 生成 candidate C；完成前 `MIR_C99_COMPILER_SOURCE_BACKEND=tracked_cmd_build_seed` 只作为阻塞证据，host `cmd/build --help` seed smoke 不得作为本叶完成。
   - [ ] MIR-C99-built compiler 复跑 compiler regression、C99 output parity 和 full-language backend parity。
   - [ ] absence gate 确认整个自举过程中未调用现有 AST C99 backend 作为 MIR-C99 成功路径。
 
