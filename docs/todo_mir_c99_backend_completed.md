@@ -972,3 +972,4 @@ Context:
   - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过，确认 TODO 证据没有把 legacy `bin/uya test` 当作 MIR-C99 完成证据。
   - 验证：`bash tests/verify_portable_mir_language_coverage.sh` 通过，确认覆盖矩阵仍匹配 AST/Core kind。
   - 说明：本项只证明 `cmd/build` 默认 generator 已去除 tracked seed，并产出可编译可 smoke 的最小 MIR-C99 unit output candidate；不代表 MIR-C99-built compiler 已完成 compiler regression、C99 output parity 或 full-language backend parity。
+  - 归档清理：原失败归档中的 `补上真实 MIR-C99 writer hook`、`切换默认 generator 的 cmd/build 路径到真实 writer hook`、`去除 tracked_cmd_build_seed 过渡源` 和对应归档清理失败块，均已由本项 gate 证明修复并从 `docs/todo_mir_c99_backend_failed.md` 移除；失败归档只保留尚未被真实 MIR-C99-built compiler/parity 证据覆盖的失败项。
