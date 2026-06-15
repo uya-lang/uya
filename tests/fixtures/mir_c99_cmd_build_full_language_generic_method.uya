@@ -1,0 +1,27 @@
+struct Box<T> {
+    value: T,
+    tag: i32,
+
+    fn make(value: T, tag: i32) Self {
+        return Box<T>{ value: value, tag: tag };
+    }
+
+    fn get(self: &Self) T {
+        return self.value;
+    }
+
+    fn tag_with<U>(self: &Self, extra: U) i32 {
+        _ = extra;
+        return self.tag + 1;
+    }
+}
+
+export fn main() i32 {
+    const int_box: Box<i32> = Box<i32>.make(11, 4);
+    const float_box: Box<f64> = Box<f64>.make(3.0, 8);
+    const direct: i32 = int_box.get();
+    const via_type: i32 = Box<i32>.get(int_box);
+    const generic_i32: i32 = int_box.tag_with<i32>(7);
+    const generic_f64: i32 = float_box.tag_with<f64>(1.0);
+    return direct + via_type + generic_i32 + (float_box.get() as i32) + generic_f64;
+}
