@@ -1,0 +1,18 @@
+fn bump(ptr: &i32, delta: i32) i32 {
+    const before: i32 = *ptr;
+    *ptr = before + delta;
+    return *ptr;
+}
+
+export fn main() i32 {
+    var value: i32 = 10;
+    var other: i32 = 2;
+    var ptr: &i32 = &value;
+    var alias: &i32 = ptr;
+    const before: i32 = *alias;
+    *ptr = before + 5;
+    var out: &i32 = &other;
+    *out = *ptr + before;
+    const after: i32 = bump(out, 3);
+    return value + other + after;
+}
