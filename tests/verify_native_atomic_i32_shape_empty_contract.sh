@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Native build-seed 边界：固定 native_build_atomic_i32_shape_empty()
-# struct literal return 的 CoreBody/PortableMIR body-complete 合同。
+# Native build-seed historical boundary: keep the archived
+# native_build_atomic_i32_shape_empty() body-complete evidence visible.
 
 set -euo pipefail
 
@@ -13,7 +13,6 @@ TODO_COMPLETED_DOC="$REPO_ROOT/docs/todo_mir_c99_backend_completed.md"
 BUILD_DRIVER_SRC="$REPO_ROOT/src/build_compiler_driver.uya"
 CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 MIR_FILE="$REPO_ROOT/src/lower/mir.uya"
-STAGE1_TEST="$REPO_ROOT/tests/verify_native_cmd_build_stage1.sh"
 
 require_pattern() {
     local file="$1"
@@ -41,8 +40,7 @@ require_pattern_any() {
     exit 1
 }
 
-for file in "$SUBSET_DOC" "$TODO_DOC" "$TODO_COMPLETED_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FILE" \
-    "$STAGE1_TEST"; do
+for file in "$SUBSET_DOC" "$TODO_DOC" "$TODO_COMPLETED_DOC" "$BUILD_DRIVER_SRC" "$CORE_FILE" "$MIR_FILE"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
@@ -102,7 +100,7 @@ require_pattern "$CORE_FILE" 'CORE_STMT_KIND_RETURN' \
     "CoreIR 缺少 return statement kind"
 require_pattern "$MIR_FILE" 'MIR_TERMINATOR_KIND_RETURN' \
     "PortableMIR 缺少 return terminator"
-require_pattern "$STAGE1_TEST" 'verify_native_atomic_i32_shape_empty_contract\.sh' \
-    "stage1 未纳入 native_build_atomic_i32_shape_empty 合同"
+require_pattern "$TODO_DOC" 'stage gate 不得要求继续完成 `native_build_type_named_equals`、枚举下一个 `pending_core_bodies` helper' \
+    "MIR-C99 TODO 缺少 helper-frontier 降级边界"
 
 echo "verify_native_atomic_i32_shape_empty_contract: ok"

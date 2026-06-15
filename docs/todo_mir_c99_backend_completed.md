@@ -1119,3 +1119,8 @@ Context:
   - 修复：该 gate 不再要求 `docs/todo_compiler_1s.md` 保留 `native_build_ast_plan_empty()` body-complete 任务，也不要求 `verify_native_cmd_build_stage1.sh` 继续聚合旧 helper 合同；当前只验证 `docs/native_cmd_build_subset.md` 的历史 body-complete 证据、源码 helper 形状，以及 MIR-C99 TODO 中 helper-frontier 已降级为非 active path。
   - 验证：`bash tests/verify_native_ast_plan_empty_contract.sh` 通过；`bash tests/verify_native_cmd_build_stage1.sh` 通过。
   - 说明：本项只修复 stale helper-frontier gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
+
+- [x] 已修复 gate：`verify_native_atomic_i32_shape_empty_contract.sh` 从旧 stage1 helper 聚合合同更新为历史边界检查。
+  - 修复：该 gate 不再要求 `verify_native_cmd_build_stage1.sh` 继续聚合 `native_build_atomic_i32_shape_empty()` 旧 helper 合同；当前只验证完成归档/主 TODO 中的历史意图、`docs/native_cmd_build_subset.md` 的 body-complete 证据、源码 helper 形状，以及 MIR-C99 TODO 中 helper-frontier 已降级为非 active path。
+  - 验证：`bash tests/verify_native_atomic_i32_shape_empty_contract.sh` 通过；`bash tests/verify_native_cmd_build_stage1.sh` 通过。
+  - 说明：本项只修复 stale helper-frontier gate；完整 MIR-C99-built compiler regression、C99 output parity 和 full-language backend parity 仍未完成。
