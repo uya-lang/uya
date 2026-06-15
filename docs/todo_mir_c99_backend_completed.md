@@ -952,3 +952,9 @@ Context:
     - [x] 先打通 mandated compiler 对当前 `build_compiler_driver` 的可构建入口：本轮用 `../uya/bin/uya` 直接构建 `src/cmd/build/main.uya` 与基于当前仓库 `build_compiler_driver` 的薄 wrapper，均在依赖收集阶段失败；最小验证=`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o /tmp/cmd-build.$$ --project-root src/ --no-split-c` 或等价当前源入口成功产出临时 writer binary；完成条件=在不使用 `bin/cmd/build` / 本地 `bin/uya` 的前提下，可用 mandated compiler 构建承载当前 `build_compiler_driver` 改动的临时 build CLI。
       - 实现：新增 `src/cmd/build_bootstrap/main.uya` 作为 mandated compiler 可直接构建的当前源码 bootstrap 入口，复用 `compiler_driver_build_main()` 先产出临时 full compiler build CLI；新增 `tests/verify_mandated_build_compiler_driver_entry.sh`，固定 `../uya/bin/uya -> build_bootstrap -> src/cmd/build/main.uya -> cmd/build --help` 的端到端 gate；将 `src/codegen/c99/internal.uya` 与 `src/codegen/c99_build/internal.uya` 的 `C99_MAX_REACHABLE_FUNCTIONS` 从 `4096` 提升到 `8192`，消除 bootstrap 到 `cmd/build` 时的 reachable function transfer 容量上限。
       - 验证：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过；等价成功路径为先运行 `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya -o /tmp/build-bootstrap --project-root src/ --no-split-c`，再运行 `UYA_ROOT="$PWD" /tmp/build-bootstrap build src/cmd/build/main.uya -o /tmp/cmd-build --project-root src/`，最终 `/tmp/cmd-build --help` 退出码为 `0`。
+
+- [x] 将已满足重开条件的 `tracked_cmd_build_seed` 去除项从失败归档移入完成归档。
+  - 原阻塞：mandated `../uya/bin/uya` 无法直接构建当前仓库 `build_compiler_driver` 入口，导致真实 writer hook 与 generator 切换无法验证。
+  - 实现：`docs/todo_mir_c99_backend_failed.md` 不再保留“已满足重开条件的失败项”小节；该已修复索引移入本完成归档，失败归档继续只保存历史 `[f]` 失败证据和当前未重开失败项。
+  - 重开位置：`docs/todo_mir_c99_backend.md` 4.16 `去除 tracked_cmd_build_seed 过渡源`。
+  - 验证：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过，证明 `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya -> cmd/build --help` 链路可构建当前源码 build CLI。

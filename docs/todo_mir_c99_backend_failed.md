@@ -10,14 +10,6 @@
 
 暂无。
 
-### 已满足重开条件的失败项
-
-- 去除 `tracked_cmd_build_seed` 过渡源。
-  - 原阻塞：mandated `../uya/bin/uya` 无法直接构建当前仓库 `build_compiler_driver` 入口，导致真实 writer hook 与 generator 切换无法验证。
-  - 重开位置：`docs/todo_mir_c99_backend.md` 4.16 `去除 tracked_cmd_build_seed 过渡源`。
-  - 重开验证：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过，证明 `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya -> cmd/build --help` 链路可构建当前源码 build CLI。
-  - 状态：重开条件已满足；后续仍需让 `tests/mir_c99_generate.sh` 对 `src/cmd/build/main.uya` 走真实 MIR-C99 writer，并使 `MIR_C99_COMPILER_SOURCE_BACKEND` 不再为 `tracked_cmd_build_seed`。
-
 ### 2026-06-14
 #### 4.16 Self Build
 父级任务路径：`MIR-C99-BACKEND-SELF-BUILD-CANDIDATE`：生成真实 MIR-C99 compiler candidate。
