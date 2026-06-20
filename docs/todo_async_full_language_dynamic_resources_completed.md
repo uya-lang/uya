@@ -1659,3 +1659,12 @@
     `bash tests/verify_async_websocket_client_reconnect_boundary.sh` -> 通过（checker 通过）
     `../uya/bin/uya test tests/test_async_std_business_future_boundary.uya` -> 通过（1 test / 14 assertions）
     `git diff --check` -> 通过
+
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+父级任务路径：`lib/std/http/websocket_async.uya`
+
+- [x] 保持 message aggregate / heartbeat / close 组合层继续走 `@async_fn`，禁止回退到手写 `poll()`。
+  - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过：1 个测试，17 次断言）
+  - 验证：`../uya/bin/uya test tests/test_http_websocket_async.uya`（通过：5 个测试，20 次断言）
+  - 验证：`../uya/bin/uya test tests/test_http_websocket_heartbeat.uya`（通过：5 个测试，25 次断言）

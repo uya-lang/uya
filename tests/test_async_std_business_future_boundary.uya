@@ -70,6 +70,12 @@ fn assert_source_has_async_boundary(path: &const byte, signature: &const byte, r
     try assert_eq_i32(source_contains_cstr(&src[0], len, removed_manual_future) as i32, 0);
 }
 
+fn assert_source_lacks_text(path: &const byte, forbidden: &const byte) !void {
+    var src: [byte: ASYNC_BOUNDARY_SOURCE_MAX] = [0: ASYNC_BOUNDARY_SOURCE_MAX];
+    const len: usize = try read_source(path, &src[0], ASYNC_BOUNDARY_SOURCE_MAX);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, forbidden) as i32, 0);
+}
+
 test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
     try assert_source_has_async_boundary(
         WEBSOCKET_CLIENT_SOURCE_PATH,
@@ -86,6 +92,15 @@ test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
         WEBSOCKET_ASYNC_SOURCE_PATH,
         "export @async_fn fn websocket_conn_heartbeat_tick(self: &WebSocketConn, now_ms: u64, tx: &byte, tx_cap: usize) Future<!usize>\0" as &const byte,
         "struct WebSocketHeartbeatTimeoutFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        WEBSOCKET_ASYNC_SOURCE_PATH,
+        "export @async_fn fn websocket_conn_close_with_code(self: &WebSocketConn, code: u16, reason: &const byte, reason_len: usize, tx: &byte, tx_cap: usize) Future<!usize>\0" as &const byte,
+        "struct WebSocketCloseWithCodeFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        WEBSOCKET_ASYNC_SOURCE_PATH,
+        "fn poll(self: &Self, waker: &Waker) Poll<!\0" as &const byte,
     );
 
     try assert_source_has_async_boundary(
