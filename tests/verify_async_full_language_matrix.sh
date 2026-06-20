@@ -8,10 +8,10 @@ export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 MODE="${1:-all}"
 
 case "$MODE" in
-    all|native)
+    all|native|c99)
         ;;
     *)
-        echo "usage: $0 [all|native]"
+        echo "usage: $0 [all|native|c99]"
         exit 2
         ;;
 esac
@@ -24,10 +24,12 @@ fi
 
 run_uya_test() {
     local rel="$1"
+    shift
+    local args=("$@")
     local log
     log="$(mktemp)"
-    echo "==> uya test $rel"
-    if ! "$COMPILER" test "$REPO_ROOT/$rel" >"$log" 2>&1; then
+    echo "==> uya test ${args[*]} $rel"
+    if ! "$COMPILER" test "${args[@]}" "$REPO_ROOT/$rel" >"$log" 2>&1; then
         echo "uya test failed: $rel"
         cat "$log"
         rm -f "$log"
@@ -39,9 +41,11 @@ run_uya_test() {
 expect_check_fail() {
     local rel="$1"
     local pattern="$2"
+    shift 2
+    local args=("$@")
     local log
     log="$(mktemp)"
-    if "$COMPILER" check "$REPO_ROOT/$rel" >"$log" 2>&1; then
+    if "$COMPILER" check "${args[@]}" "$REPO_ROOT/$rel" >"$log" 2>&1; then
         echo "expected checker failure but succeeded: $rel"
         cat "$log"
         rm -f "$log"
@@ -82,11 +86,12 @@ expect_compile_fail() {
 }
 
 run_macro_combo() {
+    local args=("$@")
     local macro_log
     macro_log="$(mktemp)"
     if ! (
         cd "$REPO_ROOT"
-        UYA_ROOT="$UYA_ROOT" "$COMPILER" run "tests/programs/test_ai_prompt_async_macro_combo.uya" >"$macro_log" 2>&1
+        UYA_ROOT="$UYA_ROOT" "$COMPILER" run "${args[@]}" "tests/programs/test_ai_prompt_async_macro_combo.uya" >"$macro_log" 2>&1
     ); then
         echo "macro combo build/run failed"
         cat "$macro_log"
@@ -135,40 +140,56 @@ baseline_tests=(
     "tests/test_http1_async_client.uya"
 )
 
-for test_file in "${baseline_tests[@]}"; do
-    run_uya_test "$test_file"
-done
+run_baseline_matrix() {
+    local label="$1"
+    shift
+    local args=("$@")
 
-# 规范明确禁止的 @await 位置，必须继续保持失败。
-expect_check_fail "tests/error_await_outside_async.uya" "@await 只能在 @async_fn 函数内使用"
-expect_check_fail "tests/error_await_in_future_returning_non_async.uya" "@await 只能在 @async_fn 函数内使用"
-expect_check_fail "tests/error_async_await_in_while_cond.uya" "@async_fn 状态机结构验证失败"
-expect_check_fail "tests/error_async_await_in_return.uya" "@async_fn 状态机结构验证失败"
-expect_check_fail "tests/error_async_defer_return.uya" "defer/errdefer 块中不能使用 return 语句"
-expect_check_fail "tests/error_async_errdefer_break.uya" "defer/errdefer 块中不能使用 break 语句"
-expect_check_fail "tests/error_async_defer_continue_nested.uya" "defer/errdefer 块中不能使用 continue 语句"
-expect_check_fail "tests/error_async_for_iterator_interface_await.uya" "接口类型变量的 for 迭代目前不支持；请使用具体实现迭代器类型"
+    echo "==> async baseline matrix ($label)"
 
-# 2026-06-18: struct 迭代器 ref 绑定现已支持，转为正向回归。
-run_uya_test "tests/test_async_for_iterator_ref_await.uya"
+    for test_file in "${baseline_tests[@]}"; do
+        run_uya_test "$test_file" "${args[@]}"
+    done
 
-# 宏展开 async lowering 程序级回归
-echo "==> test_ai_prompt_async_macro_combo build/run"
-run_macro_combo
+    # 规范明确禁止的 @await 位置，必须继续保持失败。
+    expect_check_fail "tests/error_await_outside_async.uya" "@await 只能在 @async_fn 函数内使用" "${args[@]}"
+    expect_check_fail "tests/error_await_in_future_returning_non_async.uya" "@await 只能在 @async_fn 函数内使用" "${args[@]}"
+    expect_check_fail "tests/error_async_await_in_while_cond.uya" "@async_fn 状态机结构验证失败" "${args[@]}"
+    expect_check_fail "tests/error_async_await_in_return.uya" "@async_fn 状态机结构验证失败" "${args[@]}"
+    expect_check_fail "tests/error_async_defer_return.uya" "defer/errdefer 块中不能使用 return 语句" "${args[@]}"
+    expect_check_fail "tests/error_async_errdefer_break.uya" "defer/errdefer 块中不能使用 break 语句" "${args[@]}"
+    expect_check_fail "tests/error_async_defer_continue_nested.uya" "defer/errdefer 块中不能使用 continue 语句" "${args[@]}"
+    expect_check_fail "tests/error_async_for_iterator_interface_await.uya" "接口类型变量的 for 迭代目前不支持；请使用具体实现迭代器类型" "${args[@]}"
+
+    # 2026-06-18: struct 迭代器 ref 绑定现已支持，转为正向回归。
+    run_uya_test "tests/test_async_for_iterator_ref_await.uya" "${args[@]}"
+
+    # 宏展开 async lowering 程序级回归
+    echo "==> test_ai_prompt_async_macro_combo build/run ($label)"
+    run_macro_combo "${args[@]}"
+}
+
+if [ "$MODE" = "all" ] || [ "$MODE" = "native" ]; then
+    run_baseline_matrix "native"
+fi
+
+if [ "$MODE" = "all" ] || [ "$MODE" = "c99" ]; then
+    run_baseline_matrix "c99" "--c99"
+fi
 
 if [ "$MODE" = "native" ]; then
-    echo "verify_async_full_language_matrix: native stages passed"
+    echo "verify_async_full_language_matrix: native baseline passed"
     exit 0
 fi
 
 echo "==> verify_async_await_capacity"
-bash "$SCRIPT_DIR/verify_async_await_capacity.sh" >/dev/null
+UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_await_capacity.sh" >/dev/null
 
 # nested future 真实边界专项验证（正向编译边界）
 echo "==> verify_async_nested_future_boundary"
-bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" >/dev/null
+UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" >/dev/null
 
 echo "==> verify_async_shared_runtime_matrix"
-bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" >/dev/null
+UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" >/dev/null
 
-echo "verify_async_full_language_matrix: positive async language matrix, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+echo "verify_async_full_language_matrix: native baseline, C99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"

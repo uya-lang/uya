@@ -1225,3 +1225,11 @@
     - 结果：通过。
     - 验证命令：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native`
     - 结果：通过；顺序跑完 baseline async 语法矩阵、禁止位置 checker 失败、`tests/test_async_for_iterator_ref_await.uya` 和 `tests/programs/test_ai_prompt_async_macro_combo.uya`，输出 `verify_async_full_language_matrix: native stages passed`。
+### Phase 1：`@async_fn` 语法完整性
+#### 1.2 先补红测，再动实现
+父级任务路径：
+- [ ] 所有新测试都要同时覆盖：
+  - [x] `--c99`
+    - 红测：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99`（改动前退出码 2，输出 `usage: tests/verify_async_full_language_matrix.sh [all|native]`）
+    - 验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99` 通过；C99 baseline、负向诊断、macro combo、await capacity、nested future boundary、shared runtime matrix 全部通过。
+    - 回归：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native` 通过；原 native baseline 入口未回归。
