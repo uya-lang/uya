@@ -143,7 +143,6 @@
 **验收**：
 
 - [ ] 相关回归补齐并纳入脚本：
-  - [ ] `tests/test_async_defer_errdefer.uya`
   - [ ] websocket client / uyagin / dns 新回归
 
 ### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语

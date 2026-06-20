@@ -1726,3 +1726,12 @@
   - 验证：`../uya/bin/uya test --uya --c99 tests/test_async_catch_await.uya` 通过（10 tests passed, 0 failed）
   - 纳入脚本：`rg -n "test_async_catch_await\\.uya" tests/verify_async_full_language_matrix.sh` 命中 `baseline_tests`
   - 额外验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh uya-c99` 失败；在 `tests/test_async_await_parse.uya` 先触发现有 C99 codegen 错误：`incompatible types when initializing type 'int' using type 'struct Future_i32'`，未执行到本用例
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+父级路径：相关回归补齐并纳入脚本
+- [x] `tests/test_async_defer_errdefer.uya`
+  - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya`（通过，10 tests passed，18 assertions）
+  - 纳入脚本：`rg -n "test_async_defer_errdefer\\.uya" tests/verify_async_full_language_matrix.sh`（命中第 126 行）
+  - 补充验证：`../uya/bin/uya test tests/test_async_cleanup_body_coverage.uya`（通过，2 tests passed，5 assertions）
+  - 补充验证：`../uya/bin/uya test tests/test_async_sync_body_matrix.uya`（通过，4 tests passed，20 assertions）
