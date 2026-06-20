@@ -1993,8 +1993,6 @@ struct DnsTcpFuture : Future<!usize> {
     out_len: &usize,
     fd: i32,
     stage: i32,
-    nonblocking_set: i32,
-    connected: i32,
     query_packet: [byte: DNS_MAX_PACKET + 2],
     response_packet: [byte: DNS_MAX_PACKET + 2],
     query_len: usize,
@@ -2032,8 +2030,7 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
     // 状态机：
     // stage 0: 获取 nameserver，构建查询包
     // stage 1: 创建 TCP socket
-    // stage 2: 设置为 nonblocking
-    // stage 3: 连接（可能返回 EINPROGRESS）
+    // stage 2: 发起/轮询 `async_connect`
     // stage 4: 等待可写，发送查询（2字节长度前缀 + DNS包）
     // stage 5: 等待可读，读取2字节长度
     // stage 6: 等待可读，读取响应体
@@ -2114,8 +2111,6 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
         self.bytes_received = 0;
         self.expected_body_len = 0;
         self.fd = 0 - 1;
-        self.nonblocking_set = 0;
-        self.connected = 0;
         self.response_len = 0;
         dns_fill_sockaddr_ipv4(ns.addr[0], ns.addr[1], ns.addr[2], ns.addr[3], ns.port, &self.sockaddr[0]);
         self.deadline_ms = dns_deadline_after_ms(self.ctx.timeout_ms) catch |err| {
@@ -2134,34 +2129,26 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
     }
 
     if self.stage == 2 {
-        if self.nonblocking_set == 0 {
-            _ = dns_udp_future_ensure_nonblocking(self.fd) catch |err| {
-                dns_future_close_fd(&self.fd);
-                return dns_poll_ready_error(@error_id(err));
-            };
-            self.nonblocking_set = 1;
-        }
-        self.stage = 3;
-    }
-
-    if self.stage == 3 {
-        const connect_res: !i32 = sys_connect(self.fd, &self.sockaddr[0] as &void, 16 as u32);
-        _ = connect_res catch |err| {
-            const eid: i32 = (@error_id(err) as! i32).value;
-            if dns_is_would_block_errno(eid) || eid == EINPROGRESS || eid == EALREADY {
-                // 连接进行中，等待可写
-                waker.wait_writable(self.fd);
+        const connect_future: Future<!i32> = async_connect(self.fd, &self.sockaddr[0] as &void, 16 as u32, self.deadline_ms);
+        const connect_poll: Poll<!i32> = connect_future.poll(waker);
+        match connect_poll {
+            .Pending(_) => {
+                connect_future.release();
                 const p: Poll<!usize> = Poll<!usize>.Pending({});
                 return p;
-            }
-            if eid != EISCONN {
-                dns_future_close_fd(&self.fd);
-                return dns_poll_ready_transport_errno(eid);
-            }
-            0 as i32;
+            },
+            .Ready(connect_result) => {
+                connect_future.release();
+                const connected_fd: i32 = connect_result catch |err| {
+                    dns_future_close_fd(&self.fd);
+                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                        return dns_poll_ready_error(@error_id(error.DnsTimeout));
+                    }
+                    return dns_poll_ready_transport_errno((@error_id(err) as! i32).value);
+                };
+                self.fd = connected_fd;
+            },
         };
-        // 连接立即成功
-        self.connected = 1;
         self.stage = 4;
     }
 
@@ -2314,8 +2301,6 @@ fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: 
         out_len: out_len,
         fd: 0 - 1,
         stage: 0,
-        nonblocking_set: 0,
-        connected: 0,
         query_packet: [0:DNS_MAX_PACKET + 2],
         response_packet: [0:DNS_MAX_PACKET + 2],
         query_len: 0,
