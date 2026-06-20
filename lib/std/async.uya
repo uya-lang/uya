@@ -322,6 +322,20 @@ export fn poll_ready_ok<T>(value: T) Poll<!T> {
     return Poll<!T>.Ready(ok<T>(value));
 }
 
+/// 构造 Poll<T>.Pending({})，供各模块统一复用 pending 分支。
+/// 参数说明：无。
+/// 返回值说明：返回泛型 `Poll<T>.Pending({})`。
+export fn poll_pending<T>() Poll<T> {
+    return Poll<T>.Pending({});
+}
+
+/// 构造 Poll<!T>.Ready(err)，供各模块统一复用错误 ready 分支。
+/// 参数说明：`err` 为错误联合值。
+/// 返回值说明：返回 `Poll<!T>.Ready(err)`。
+export fn poll_ready_error<T>(err: !T) Poll<!T> {
+    return Poll<!T>.Ready(err);
+}
+
 /// 构造已就绪的 `Future<!T>`。
 export fn future_ready_ok<T>(value: T) Future<!T> {
     return Future<!T>{ state: poll_ready_ok<T>(value) };
@@ -373,7 +387,7 @@ fn async_future_ready_ok_usize(value: usize) Future<!usize> {
 
 fn async_future_unexpected_eof_usize() Future<!usize> {
     const err_value: !usize = error.UnexpectedEof;
-    return Future<!usize>{ state: Poll<!usize>.Ready(err_value) };
+    return Future<!usize>{ state: async_poll_ready_error_usize(err_value) };
 }
 
 fn async_poll_ready_ok_i32(value: i32) Poll<!i32> {
@@ -426,6 +440,32 @@ fn async_poll_ready_ok_usize(value: usize) Poll<!usize> {
     return r;
 }
 
+/// 统一构造 `Poll<!usize>.Ready(err)`。
+/// 参数说明：`err` 为 `!usize` 错误联合值。
+/// 返回值说明：返回 `Poll<!usize>.Ready(err)`。
+export fn async_poll_ready_error_usize(err: !usize) Poll<!usize> {
+    const p: Poll<!usize> = poll_ready_error<usize>(err);
+    return p;
+}
+
+/// 统一构造 `Poll<!usize>.Pending({})`。
+/// 参数说明：无。
+/// 返回值说明：返回 `Poll<!usize>.Pending({})`。
+export fn async_poll_pending_usize() Poll<!usize> {
+    const p: Poll<!usize> = poll_pending<!usize>();
+    return p;
+}
+
+fn async_poll_pending_i32() Poll<!i32> {
+    const p: Poll<!i32> = poll_pending<!i32>();
+    return p;
+}
+
+fn async_poll_pending_parse_result() Poll<!ParseResult> {
+    const p: Poll<!ParseResult> = poll_pending<!ParseResult>();
+    return p;
+}
+
 fn async_poll_cancelled_i32() Poll<!i32> {
     return Poll<!i32>.Ready(error.Cancelled);
 }
@@ -457,7 +497,7 @@ fn async_waker_wait_writable(waker: &Waker, fd: i32) void {
 /// 返回值说明：始终返回 `Poll<!usize>.Pending({})`，并更新 `waker` 的 I/O interest。
 export fn async_poll_pending_readable_usize(waker: &Waker, fd: i32) Poll<!usize> {
     async_waker_wait_readable(waker, fd);
-    return Poll<!usize>.Pending({});
+    return async_poll_pending_usize();
 }
 
 /// 统一为 `Future<!usize>` 注册可写 interest 并返回 Pending。
@@ -465,7 +505,7 @@ export fn async_poll_pending_readable_usize(waker: &Waker, fd: i32) Poll<!usize>
 /// 返回值说明：始终返回 `Poll<!usize>.Pending({})`，并更新 `waker` 的 I/O interest。
 export fn async_poll_pending_writable_usize(waker: &Waker, fd: i32) Poll<!usize> {
     async_waker_wait_writable(waker, fd);
-    return Poll<!usize>.Pending({});
+    return async_poll_pending_usize();
 }
 
 /// 统一为 `Future<!i32>` 注册可读 interest 并返回 Pending。
@@ -473,7 +513,7 @@ export fn async_poll_pending_writable_usize(waker: &Waker, fd: i32) Poll<!usize>
 /// 返回值说明：始终返回 `Poll<!i32>.Pending({})`，并更新 `waker` 的 I/O interest。
 export fn async_poll_pending_readable_i32(waker: &Waker, fd: i32) Poll<!i32> {
     async_waker_wait_readable(waker, fd);
-    return Poll<!i32>.Pending({});
+    return async_poll_pending_i32();
 }
 
 /// 统一为 `Future<!i32>` 注册可写 interest 并返回 Pending。
@@ -481,7 +521,7 @@ export fn async_poll_pending_readable_i32(waker: &Waker, fd: i32) Poll<!i32> {
 /// 返回值说明：始终返回 `Poll<!i32>.Pending({})`，并更新 `waker` 的 I/O interest。
 export fn async_poll_pending_writable_i32(waker: &Waker, fd: i32) Poll<!i32> {
     async_waker_wait_writable(waker, fd);
-    return Poll<!i32>.Pending({});
+    return async_poll_pending_i32();
 }
 
 /// 统一为 `Future<!ParseResult>` 注册可读 interest 并返回 Pending。
@@ -489,7 +529,7 @@ export fn async_poll_pending_writable_i32(waker: &Waker, fd: i32) Poll<!i32> {
 /// 返回值说明：始终返回 `Poll<!ParseResult>.Pending({})`，并更新 `waker` 的 I/O interest。
 export fn async_poll_pending_readable_parse_result(waker: &Waker, fd: i32) Poll<!ParseResult> {
     async_waker_wait_readable(waker, fd);
-    return Poll<!ParseResult>.Pending({});
+    return async_poll_pending_parse_result();
 }
 
 struct AsyncJoin2UsizeResultsFuture : Future<!usize> {

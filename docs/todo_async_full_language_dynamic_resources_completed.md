@@ -1833,3 +1833,12 @@
     - 验证：`../uya/bin/uya test tests/test_tls_async_runtime_io.uya` 通过（1 test, 16 assertions）。
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya` 通过（4 tests, 12 assertions）。
     - 验证：`../uya/bin/uya test tests/test_std_thread.uya` 通过（27 tests, 107 assertions）。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+
+- [x] 统一原语的要求：
+  - [x] 错误类型统一，不再每个模块手写一套 `Poll.Pending/Ready(err)` 分支
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过，5/5 tests，21 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过，14/14 tests，85 assertions）

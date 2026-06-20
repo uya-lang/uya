@@ -516,6 +516,23 @@ test "dns_async_transport_uses_shared_async_socket_io_helpers" {
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "sys_recv(self.fd\0" as &const byte) as i32, 0);
 }
 
+test "dns_async_transport_uses_shared_poll_ready_and_pending_helpers" {
+    var dns_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
+    const dns_len: usize = try read_source(DNS_SOURCE_PATH, &dns_src[0], DNS_SOURCE_MAX);
+    var async_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
+    const async_len: usize = try read_source(ASYNC_SOURCE_PATH, &async_src[0], DNS_SOURCE_MAX);
+
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn poll_pending<T>() Poll<T>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn poll_ready_error<T>(err: !T) Poll<!T>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_poll_ready_error_usize(err: !usize) Poll<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_poll_pending_usize() Poll<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "fn dns_poll_ready_result(\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "fn dns_poll_ready_error(\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "Poll<!usize>.Pending({})\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_poll_ready_error_usize(\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_poll_pending_usize()\0" as &const byte) as i32, 1);
+}
+
 test "dns_query_all_async_prefer_ipv4_tcp_fallback" {
     var port: u16 = 0;
     var udp_fd: i32 = -1;
