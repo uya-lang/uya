@@ -145,7 +145,6 @@
 ### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
 
 - [ ] `lib/std/http/http1_async.uya`
-  - [ ] 将 `Http1ConnectFuture` 改为基于通用 `async_connect` 的 `@async_fn` 路线。
   - [ ] 后续同步清理 `http1_request_async` 里的 manual-ready wrapper 重复路径。
 - [ ] `lib/std/net/dns.uya`
   - [ ] 将 `DnsUdpFuture` 改为 `@async_fn`。

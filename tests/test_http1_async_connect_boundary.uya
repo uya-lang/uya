@@ -1,0 +1,108 @@
+// test_http1_async_connect_boundary.uya - 回归：HTTP/1 connect 路径保持在通用 async_connect + @async_fn 边界上。
+
+use std.string.strlen;
+use std.testing.assert_eq_i32;
+use libc.syscall;
+
+error Http1ConnectSourceOpenFailed;
+error Http1ConnectSourceReadFailed;
+
+const HTTP1_SOURCE_PATH: &const byte = "lib/std/http/http1_async.uya\0" as &const byte;
+const HTTP1_SOURCE_MAX: usize = 131072;
+
+fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
+    if start + needle_len > hay_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle_len {
+        if hay[start + i] != needle[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn source_contains(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) bool {
+    if needle_len == 0 {
+        return true;
+    }
+    if hay_len < needle_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) bool {
+    return source_contains(hay, hay_len, needle, strlen(needle));
+}
+
+fn source_contains_followed_by(hay: &const byte, hay_len: usize, first: &const byte, first_len: usize, second: &const byte, second_len: usize, max_gap: usize) bool {
+    if first_len == 0 || second_len == 0 {
+        return false;
+    }
+    if hay_len < first_len || hay_len < second_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + first_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, first, first_len) {
+            const second_start: usize = i + first_len;
+            var j: usize = second_start;
+            const second_limit: usize = second_start + max_gap;
+            while j + second_len <= hay_len && j <= second_limit {
+                if bytes_equal_at(hay, hay_len, j, second, second_len) {
+                    return true;
+                }
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn source_contains_followed_by_cstr(hay: &const byte, hay_len: usize, first: &const byte, second: &const byte, max_gap: usize) bool {
+    return source_contains_followed_by(hay, hay_len, first, strlen(first), second, strlen(second), max_gap);
+}
+
+fn read_source(path: &const byte, buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(path, O_RDONLY as i32, 0) catch {
+        return error.Http1ConnectSourceOpenFailed;
+    };
+    const n: isize = sys_read(fd, buf as *byte, cap) catch {
+        _ = sys_close(fd) catch {};
+        return error.Http1ConnectSourceReadFailed;
+    };
+    _ = sys_close(fd) catch {};
+    if n < 0 {
+        return error.Http1ConnectSourceReadFailed;
+    }
+    return (n as! usize).value;
+}
+
+test "http1_async_connect_boundary_uses_async_fn_and_generic_async_connect" {
+    var src: [byte: HTTP1_SOURCE_MAX] = [0: HTTP1_SOURCE_MAX];
+    const len: usize = try read_source(HTTP1_SOURCE_PATH, &src[0], HTTP1_SOURCE_MAX);
+
+    try assert_eq_i32(
+        source_contains_followed_by_cstr(
+            &src[0],
+            len,
+            "@async_fn\0" as &const byte,
+            "fn http1_connect_for_host_future(host: &[byte], port: u16, deadline_ms: u64) Future<!i32> {\0" as &const byte,
+            8,
+        ) as i32,
+        1,
+    );
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@await async_connect(fd, &addr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct Http1ConnectFuture : Future<!i32>\0" as &const byte) as i32, 0);
+}

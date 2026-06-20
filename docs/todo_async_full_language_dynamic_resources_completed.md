@@ -1842,3 +1842,12 @@
   - [x] 错误类型统一，不再每个模块手写一套 `Poll.Pending/Ready(err)` 分支
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过，5/5 tests，21 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过，14/14 tests，85 assertions）
+
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+- `lib/std/http/http1_async.uya`
+  - [x] 将 `Http1ConnectFuture` 改为基于通用 `async_connect` 的 `@async_fn` 路线。
+    - 说明：`lib/std/http/http1_async.uya` 已经使用 `@async_fn fn http1_connect_for_host_future(...)` + `@await async_connect(...)`；本轮补充 `tests/test_http1_async_connect_boundary.uya` 防倒退覆盖并完成验证收口。
+    - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`（通过）
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过）
+    - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`（通过，9 tests passed）
