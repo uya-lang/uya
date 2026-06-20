@@ -132,12 +132,10 @@
 - 代码核对说明（2026-06-21）：
   - `WebSocketClientReconnectFuture`、`WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 已不再以 `struct ... : Future<...>` 形式存在。
   - 当前组合层已经主要收口到 `@async_fn` 或 `async_join2_usize_results(...)`；本 phase 后续只继续清理仍留在业务模块里的 syscall/I/O 叶子状态机。
-  - `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_read_parse` / `async_read_parse_into` 已统一到 `lib/std/async.uya`，`http1_async` / `uyagin` / `dns` 已通过 `@await` 组合；本节后续只继续跟踪线程桥接 awaitable（如 `async_worker_result`）。
+  - `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_read_parse` / `async_read_parse_into` 已统一到 `lib/std/async.uya`，`http1_async` / `uyagin` / `dns` 已通过 `@await` 组合；线程桥接 awaitable 已收口到 `lib/std/thread.uya` 专属 helper，协议层待办只剩真实未统一叶子。
 
 ### 1.5.2 迁移顺序原则
 
-- [ ] **先提炼通用 awaitable 原语，再迁移重复状态机**。
-  - [ ] 收口 `async_worker_result` / `async_thread_slot_wait` 线程桥接 awaitable，明确是否迁入共享 runtime 层并补 `async_compute` 回归；完成条件：`AsyncComputeFuture` 不再保留重复的 pipe 等待桥接分支，协议层清单只剩真实未统一叶子；验证：`../uya/bin/uya test tests/test_std_thread.uya`
 - [ ] **迁移不能降低现有错误语义、取消语义和 deadline 语义**。
 
 ### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`

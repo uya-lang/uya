@@ -1624,3 +1624,11 @@
     - 验证结果：通过；输出 `ok: docs/todo_async_full_language_dynamic_resources.md has 1 active task`。
     - 验证命令：`git diff --check -- docs/todo_async_full_language_dynamic_resources.md`
     - 验证结果：通过；无输出。
+
+### 1.5.2 迁移顺序原则
+- [x] **先提炼通用 awaitable 原语，再迁移重复状态机**。
+  - [x] 收口 `async_worker_result` / `async_thread_slot_wait` 线程桥接 awaitable，明确是否迁入共享 runtime 层并补 `async_compute` 回归；完成条件：`AsyncComputeFuture` 不再保留重复的 pipe 等待桥接分支，协议层清单只剩真实未统一叶子；验证：`../uya/bin/uya test tests/test_std_thread.uya`
+    - 结论：`async_worker_result` / `async_thread_slot_wait` 保留在 `lib/std/thread.uya`，不迁入 `lib/std/async.uya`；它们依赖 ThreadPool slot / worker 协议，不属于通用 fd runtime primitive。
+    - 结果：`AsyncComputeFuture<T>` 现在只轮询单个 `async_worker_result(...)` helper，已移除自身的 `wait_current_slot` / `poll_worker_result` 双桥接分支。
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya` 通过；27 tests passed，107 assertions passed。
+    - 补充验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya` 通过；4 tests passed，44 assertions passed。

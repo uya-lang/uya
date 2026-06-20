@@ -4,6 +4,7 @@ use std.thread;
 use std.async;
 use std.async_event;
 use std.async_scheduler;
+use std.string.strlen;
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 use libc.free;
@@ -12,6 +13,8 @@ use libc.syscall;
 
 const THREAD_TEST_TIMEOUT_MS: i32 = 1000;
 const THREAD_TEST_WAIT_RETRIES: i32 = 2000;
+const THREAD_SOURCE_PATH: &const byte = "lib/std/thread.uya\0" as &const byte;
+const THREAD_SOURCE_MAX: usize = 131072;
 
 struct PointerResult {
     doubled: usize,
@@ -163,6 +166,56 @@ fn thread_test_drive_future_usize(f: Future<!usize>) !usize {
     const loop: EventLoop = loop_impl;
     const out: !usize = scheduler_run_with_event_loop<usize>(&s, loop, f, THREAD_TEST_TIMEOUT_MS);
     return out;
+}
+
+fn thread_bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
+    if start + needle_len > hay_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle_len {
+        if hay[start + i] != needle[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn thread_source_contains(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) bool {
+    if needle_len == 0 {
+        return true;
+    }
+    if hay_len < needle_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if thread_bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn thread_source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) bool {
+    return thread_source_contains(hay, hay_len, needle, strlen(needle));
+}
+
+fn read_thread_source(buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(THREAD_SOURCE_PATH, O_RDONLY as i32, 0) catch {
+        return error.UnexpectedEof;
+    };
+    const n: isize = sys_read(fd, buf as *byte, cap) catch {
+        _ = sys_close(fd) catch {};
+        return error.UnexpectedEof;
+    };
+    _ = sys_close(fd) catch {};
+    if n < 0 {
+        return error.UnexpectedEof;
+    }
+    return (n as! usize).value;
 }
 
 fn thread_wait_pending_count(pool: &ThreadPool, target: i32) i32 {
@@ -728,6 +781,32 @@ test "async_compute_i32_queue_runs_multiple_tasks_with_scheduler" {
     try assert_eq_i32(try thread_test_drive_future_i32(second), 21);
     // worker 数为调度相关实现细节，断言落在 [1, worker_count] 合法区间即可。
     try expect(thread_pool_started_workers(&pool) >= 1 && thread_pool_started_workers(&pool) <= pool.worker_count);
+}
+
+test "async_compute_i32_queue_runs_multiple_tasks_with_single_worker_scheduler" {
+    var pool: ThreadPool = thread_pool_new(1);
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_double_i32 as &void, 10);
+    var second: Future<!i32> = async_compute<i32>(&pool, &delayed_triple_i32 as &void, 7);
+
+    try assert_eq_i32(try thread_test_drive_future_i32(first), 20);
+    try assert_eq_i32(try thread_test_drive_future_i32(second), 21);
+    try assert_eq_i32(thread_pool_started_workers(&pool), 1);
+    try assert_eq_i32(thread_wait_pending_count(&pool, 0), 1);
+}
+
+test "async_compute_thread_bridge_is_unified_behind_helpers" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_thread_slot_wait(pool: &ThreadPool, slot_idx: i32) Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const raw_future: Future<!usize> = async_worker_result(self.core.pool, self.core.slot_idx);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn wait_current_slot(self: &Self, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn poll_worker_result(self: &Self, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
 }
 
 test "async_compute_i32_cancelled_queued_slot_returns_cancelled" {
