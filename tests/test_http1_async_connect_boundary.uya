@@ -106,3 +106,13 @@ test "http1_async_connect_boundary_uses_async_fn_and_generic_async_connect" {
     try assert_eq_i32(source_contains_cstr(&src[0], len, "@await async_connect(fd, &addr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct Http1ConnectFuture : Future<!i32>\0" as &const byte) as i32, 0);
 }
+
+test "http1_request_async_no_manual_ready_wrapper_remnants" {
+    var src: [byte: HTTP1_SOURCE_MAX] = [0: HTTP1_SOURCE_MAX];
+    const len: usize = try read_source(HTTP1_SOURCE_PATH, &src[0], HTTP1_SOURCE_MAX);
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn http1_async_err_closed() !Http1AsyncResponse {\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn http1_async_err_header_large() !Http1AsyncResponse {\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn http1_async_err_invalid() !Http1AsyncResponse {\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "const err_resp: Http1AsyncResponse = try http1_async_err_\0" as &const byte) as i32, 0);
+}

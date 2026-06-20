@@ -1851,3 +1851,11 @@
     - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`（通过）
     - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过）
     - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`（通过，9 tests passed）
+
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+- [x] `lib/std/http/http1_async.uya`
+  - [x] 后续同步清理 `http1_request_async` 里的 manual-ready wrapper 重复路径。
+    - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`：新增源码边界断言后先失败，清理 wrapper 后通过。
+    - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`：通过。
+    - 验证：`../uya/bin/uya test tests/test_async_nested_http1_await_codegen.uya`：通过。
