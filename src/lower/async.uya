@@ -10,6 +10,8 @@ extern fn type_to_ast(checker: &TypeChecker, t: &Type, line: i32, column: i32, f
 const ASYNC_LOWER_INITIAL_PLAN_CAPACITY: i32 = 64;
 
 export struct AsyncLowerAwaitPoint {
+    source_stmt: &ASTNode,
+    split_try_expr: &ASTNode,
     operand: &ASTNode,
     bind_name: &byte,
     bind_type: &ASTNode,
@@ -816,6 +818,8 @@ fn async_lower_collect_plan_node(
         if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null {
             const idx_plain: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_plain >= 0 {
+                plan.await_points[idx_plain].source_stmt = node;
+                plan.await_points[idx_plain].split_try_expr = null;
                 plan.await_points[idx_plain].operand = init.await_expr_operand;
                 plan.await_points[idx_plain].bind_name = node.var_decl_name;
                 plan.await_points[idx_plain].bind_type = node.var_decl_type;
@@ -832,6 +836,8 @@ fn async_lower_collect_plan_node(
             if op.type == ASTNodeType.AST_AWAIT_EXPR && op.await_expr_operand != null {
                 const idx_decl: i32 = async_lower_claim_await_slot(plan, arena);
                 if idx_decl >= 0 {
+                    plan.await_points[idx_decl].source_stmt = node;
+                    plan.await_points[idx_decl].split_try_expr = init;
                     plan.await_points[idx_decl].operand = op.await_expr_operand;
                     plan.await_points[idx_decl].bind_name = node.var_decl_name;
                     plan.await_points[idx_decl].bind_type = node.var_decl_type;
@@ -849,6 +855,8 @@ fn async_lower_collect_plan_node(
         if ret_expr != null && ret_expr.type == ASTNodeType.AST_AWAIT_EXPR && ret_expr.await_expr_operand != null {
             const idx_ret_plain: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_ret_plain >= 0 {
+                plan.await_points[idx_ret_plain].source_stmt = node;
+                plan.await_points[idx_ret_plain].split_try_expr = null;
                 plan.await_points[idx_ret_plain].operand = ret_expr.await_expr_operand;
                 plan.await_points[idx_ret_plain].bind_name = null;
                 plan.await_points[idx_ret_plain].bind_type = null;
@@ -866,6 +874,8 @@ fn async_lower_collect_plan_node(
             if ret_op.type == ASTNodeType.AST_AWAIT_EXPR && ret_op.await_expr_operand != null {
                 const idx_ret_try: i32 = async_lower_claim_await_slot(plan, arena);
                 if idx_ret_try >= 0 {
+                    plan.await_points[idx_ret_try].source_stmt = node;
+                    plan.await_points[idx_ret_try].split_try_expr = ret_expr;
                     plan.await_points[idx_ret_try].operand = ret_op.await_expr_operand;
                     plan.await_points[idx_ret_try].bind_name = null;
                     plan.await_points[idx_ret_try].bind_type = null;
@@ -891,6 +901,8 @@ fn async_lower_collect_plan_node(
             nested_try.try_expr_operand.await_expr_operand != null {
             const idx_nested: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_nested >= 0 {
+                plan.await_points[idx_nested].source_stmt = node;
+                plan.await_points[idx_nested].split_try_expr = nested_try;
                 plan.await_points[idx_nested].operand = nested_try.try_expr_operand.await_expr_operand;
                 plan.await_points[idx_nested].bind_name = null;
                 plan.await_points[idx_nested].bind_type = async_lower_infer_compound_bind_type(checker, node, nested_try);

@@ -1270,3 +1270,17 @@
   - 结果：通过，1 test passed，2 assertions passed。
   - 验证：`git diff --check`
   - 结果：通过，无输出。
+
+## 2026-06-20
+
+### Phase 1：`@async_fn` 语法完整性
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+路径上下文：
+- [ ] 让 C99 emitter 只消费 lowered async plan，不再自己重新推断：
+  - [x] await split 点
+    - 验证：`python3 tests/verify_async_lowering_plan_architecture.py` -> 通过（确认 lowered plan 持有 `source_stmt` / `split_try_expr`，且 `emit_async_segment` / `emit_async_continuation` 不再直接调用 `async_lower_find_first_try_await_expr`）
+    - 验证：`ulimit -s 32768 && UYA_MULTI_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_SPLIT_C_MIRROR= RUNTIME_MODE=nostdlib LINK_MODE=static src/compile.sh --compiler ../uya/bin/uya --c99 -e --nostdlib --safety-proof` -> 成功，已重建 `bin/uya`
+    - 验证：`../uya/bin/uya test tests/test_async_compound_try_await.uya` -> 通过（2 tests passed）
+    - 验证：`../uya/bin/uya test tests/test_async_match_await.uya` -> 通过（4 tests passed）
+    - 验证：`../uya/bin/uya test tests/test_async_multiple_await.uya` -> 通过（1 test passed）
+    - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya` -> 通过（8 tests passed）

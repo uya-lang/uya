@@ -517,6 +517,16 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.async_param_count = 0;
     codegen.async_bind_count = 0;
     codegen.async_collect_count = 0;
+    codegen.async_collect_capacity = 0;
+    codegen.async_collect_operands = null;
+    codegen.async_collect_names = null;
+    codegen.async_collect_types = null;
+    codegen.async_collect_blocks = null;
+    codegen.async_collect_stmt_indices = null;
+    codegen.async_collect_source_stmts = null;
+    codegen.async_collect_split_try_exprs = null;
+    codegen.async_collect_enclosing_while = null;
+    codegen.async_collect_enclosing_for = null;
     codegen.async_collect_ret_expr = null;
     codegen.async_collect_has_loop = 0;
     codegen.async_local_count = 0;
@@ -535,6 +545,8 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.async_emit_poll_return = 0;
     codegen.async_poll_ready_payload_c = null;
     codegen.async_poll_inner_is_err_union = 0;
+    codegen.async_expr_subst_try_expr = null;
+    codegen.async_expr_subst_name = null;
     codegen.container_mode = 0;
     codegen.c_import_plan = null;
     ii = 0;
