@@ -145,7 +145,6 @@
 ### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
 
 - [ ] 在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语：
-  - [ ] `async_accept(fd)` 或等价 helper
   - [ ] `async_writev(fd, iov, iovcnt)` 或等价 helper
   - [ ] `async_sendfile(fd, file_fd, ...)` 或等价 helper
   - [ ] `async_read_parse(fd, buf, ...)` / `async_read_parse_into(...)` 或更底层的可组合 read helper
