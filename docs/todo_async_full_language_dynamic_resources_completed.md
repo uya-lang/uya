@@ -1321,3 +1321,14 @@
     - 结果：通过，1 test passed，3 assertions passed。
     - 验证：`git diff --check`
     - 结果：通过，无输出。
+
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+
+父级任务：让 C99 emitter 只消费 lowered async plan，不再自己重新推断
+
+  - [x] cleanup 区域
+    - 验证：`make uya`
+    - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya`（9 tests passed, 16 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_cleanup_body_coverage.uya`（2 tests passed, 5 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_sync_body_matrix.uya`（4 tests passed, 20 assertions）
+    - 验证：`git diff --check`（无输出）

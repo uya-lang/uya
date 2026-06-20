@@ -108,6 +108,21 @@ fn defer_between_awaits(a: i32, b: i32, c: i32) Future<!i32> {
     return va + vb + vc;
 }
 
+// ── 嵌套 block + await：内层 cleanup scope 也必须生效 ──
+
+@async_fn
+fn nested_block_defer_after_await() Future<!i32> {
+    defer { g_trace = g_trace * 10 + 2; }
+
+    {
+        defer { g_trace = g_trace * 10 + 1; }
+        const v: i32 = try @await flip_i32(4);
+        _ = v;
+    }
+
+    return 7;
+}
+
 // ── 同步 catch + defer 在 async 体内 ──
 
 @async_fn
@@ -176,6 +191,16 @@ test "async_defer_between_awaits" {
     try assert_eq_i32(v, 6);
     // LIFO: +7 → +8 → +9: trace2=789
     try assert_eq_i32(g_trace2, 789);
+}
+
+test "async_nested_block_defer_after_await" {
+    g_trace = 0;
+    const f: Future<!i32> = nested_block_defer_after_await();
+    const r: !i32 = block_on<i32>(f);
+    const v: i32 = r catch { -1; };
+    try assert_eq_i32(v, 7);
+    // 先退出内层 block 执行 defer(+1)，再函数返回执行外层 defer(+2)。
+    try assert_eq_i32(g_trace, 12);
 }
 
 test "async_sync_catch_defer_in_async_success" {

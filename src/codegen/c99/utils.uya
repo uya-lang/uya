@@ -525,8 +525,13 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.async_collect_stmt_indices = null;
     codegen.async_collect_source_stmts = null;
     codegen.async_collect_split_try_exprs = null;
+    codegen.async_collect_state_ids = null;
+    codegen.async_collect_cleanup_region_ids = null;
     codegen.async_collect_enclosing_while = null;
     codegen.async_collect_enclosing_for = null;
+    codegen.async_cleanup_regions = null;
+    codegen.async_cleanup_region_count = 0;
+    codegen.async_cleanup_root_region = -1;
     codegen.async_collect_ret_expr = null;
     codegen.async_collect_has_loop = 0;
     codegen.async_local_count = 0;

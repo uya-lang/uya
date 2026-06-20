@@ -20,13 +20,27 @@ export struct AsyncLowerAwaitPoint {
     stmt_index: i32,
     enclosing_while: &ASTNode,
     enclosing_for: &ASTNode,
+    cleanup_region: i32,
     is_return_await: i32,
+}
+
+export struct AsyncLowerCleanupRegion {
+    block: &ASTNode,
+    parent_region: i32,
+    defer_stmts: & & ASTNode,
+    defer_count: i32,
+    errdefer_stmts: & & ASTNode,
+    errdefer_count: i32,
 }
 
 export struct AsyncLowerPlan {
     await_points: &AsyncLowerAwaitPoint,
     await_count: i32,
     await_capacity: i32,
+    cleanup_regions: &AsyncLowerCleanupRegion,
+    cleanup_region_count: i32,
+    cleanup_region_capacity: i32,
+    root_cleanup_region: i32,
     prefix_stmt_count: i32,
     terminal_state: i32,
     return_expr: &ASTNode,
@@ -304,6 +318,122 @@ fn async_lower_ensure_plan_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena
     plan.await_points = new_points;
     plan.await_capacity = new_cap;
     return 0;
+}
+
+fn async_lower_ensure_cleanup_region_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena, needed: i32) i32 {
+    if plan == null || arena == null || needed <= 0 {
+        return -1;
+    }
+    if plan.cleanup_region_capacity >= needed && plan.cleanup_regions != null {
+        return 0;
+    }
+    var new_cap: i32 = plan.cleanup_region_capacity;
+    if new_cap < ASYNC_LOWER_INITIAL_PLAN_CAPACITY {
+        new_cap = ASYNC_LOWER_INITIAL_PLAN_CAPACITY;
+    }
+    while new_cap < needed {
+        new_cap = new_cap * 2;
+        if new_cap <= 0 {
+            return -1;
+        }
+    }
+    const new_regions: &AsyncLowerCleanupRegion = compiler_arena_alloc(
+        arena, @size_of(AsyncLowerCleanupRegion) * new_cap as usize) as &AsyncLowerCleanupRegion;
+    if new_regions == null {
+        return -1;
+    }
+    if plan.cleanup_regions != null {
+        var i: i32 = 0;
+        while i < plan.cleanup_region_count && i < plan.cleanup_region_capacity {
+            new_regions[i] = plan.cleanup_regions[i];
+            i = i + 1;
+        }
+    }
+    plan.cleanup_regions = new_regions;
+    plan.cleanup_region_capacity = new_cap;
+    return 0;
+}
+
+fn async_lower_collect_cleanup_stmt_list(
+    arena: &CompilerArena,
+    block: &ASTNode,
+    is_errdefer: i32,
+    out_count: &i32
+) & & ASTNode {
+    if out_count != null {
+        out_count[0] = 0;
+    }
+    if arena == null || block == null || block.type != ASTNodeType.AST_BLOCK || block.block_stmts == null {
+        return null;
+    }
+    var count: i32 = 0;
+    var i: i32 = 0;
+    while i < block.block_stmt_count {
+        const stmt: &ASTNode = block.block_stmts[i];
+        if stmt != null {
+            if is_errdefer != 0 {
+                if stmt.type == ASTNodeType.AST_ERRDEFER_STMT {
+                    count = count + 1;
+                }
+            } else if stmt.type == ASTNodeType.AST_DEFER_STMT {
+                count = count + 1;
+            }
+        }
+        i = i + 1;
+    }
+    if out_count != null {
+        out_count[0] = count;
+    }
+    if count <= 0 {
+        return null;
+    }
+    const stmts: & & ASTNode = compiler_arena_alloc(arena, @size_of(&ASTNode) * count as usize) as & & ASTNode;
+    if stmts == null {
+        if out_count != null {
+            out_count[0] = 0;
+        }
+        return null;
+    }
+    var write_i: i32 = 0;
+    i = 0;
+    while i < block.block_stmt_count && write_i < count {
+        const stmt2: &ASTNode = block.block_stmts[i];
+        if stmt2 != null {
+            if is_errdefer != 0 {
+                if stmt2.type == ASTNodeType.AST_ERRDEFER_STMT {
+                    stmts[write_i] = stmt2;
+                    write_i = write_i + 1;
+                }
+            } else if stmt2.type == ASTNodeType.AST_DEFER_STMT {
+                stmts[write_i] = stmt2;
+                write_i = write_i + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return stmts;
+}
+
+fn async_lower_register_cleanup_region(
+    plan: &AsyncLowerPlan,
+    arena: &CompilerArena,
+    block: &ASTNode,
+    parent_region: i32
+) i32 {
+    if plan == null || block == null || block.type != ASTNodeType.AST_BLOCK {
+        return parent_region;
+    }
+    const idx: i32 = plan.cleanup_region_count;
+    if async_lower_ensure_cleanup_region_capacity(plan, arena, idx + 1) != 0 {
+        return parent_region;
+    }
+    plan.cleanup_region_count = idx + 1;
+    const region: &AsyncLowerCleanupRegion = &plan.cleanup_regions[idx];
+    region.block = block;
+    region.parent_region = parent_region;
+    region.defer_stmts = async_lower_collect_cleanup_stmt_list(arena, block, 0, &region.defer_count);
+    region.errdefer_stmts = async_lower_collect_cleanup_stmt_list(arena, block, 1, &region.errdefer_count);
+    return idx;
 }
 
 fn async_lower_claim_await_slot(plan: &AsyncLowerPlan, arena: &CompilerArena) i32 {
@@ -808,36 +938,38 @@ fn async_lower_collect_plan_node(
     parent_stmt_index: i32,
     enclosing_while: &ASTNode,
     enclosing_for: &ASTNode,
-    root_stmt_index: i32
+    root_stmt_index: i32,
+    current_cleanup_region: i32
 ) void {
     if node == null {
         return;
     }
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        const block_region: i32 = async_lower_register_cleanup_region(plan, arena, node, current_cleanup_region);
         var i: i32 = 0;
         while i < node.block_stmt_count {
-            async_lower_collect_plan_node(plan, arena, checker, node.block_stmts[i], node, i, enclosing_while, enclosing_for, root_stmt_index);
+            async_lower_collect_plan_node(plan, arena, checker, node.block_stmts[i], node, i, enclosing_while, enclosing_for, root_stmt_index, block_region);
             i = i + 1;
         }
         return;
     }
     if node.type == ASTNodeType.AST_WHILE_STMT && node.while_stmt_body != null {
         plan.has_loop = 1;
-        async_lower_collect_plan_node(plan, arena, checker, node.while_stmt_body, null, -1, node, enclosing_for, root_stmt_index);
+        async_lower_collect_plan_node(plan, arena, checker, node.while_stmt_body, null, -1, node, enclosing_for, root_stmt_index, current_cleanup_region);
         return;
     }
     if node.type == ASTNodeType.AST_IF_STMT {
         if node.if_stmt_then_branch != null {
-            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_then_branch, null, -1, enclosing_while, enclosing_for, root_stmt_index);
+            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_then_branch, null, -1, enclosing_while, enclosing_for, root_stmt_index, current_cleanup_region);
         }
         if node.if_stmt_else_branch != null {
-            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_else_branch, null, -1, enclosing_while, enclosing_for, root_stmt_index);
+            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_else_branch, null, -1, enclosing_while, enclosing_for, root_stmt_index, current_cleanup_region);
         }
         return;
     }
     if node.type == ASTNodeType.AST_FOR_STMT && node.for_stmt_body != null {
         plan.has_loop = 1;
-        async_lower_collect_plan_node(plan, arena, checker, node.for_stmt_body, null, -1, enclosing_while, node, root_stmt_index);
+        async_lower_collect_plan_node(plan, arena, checker, node.for_stmt_body, null, -1, enclosing_while, node, root_stmt_index, current_cleanup_region);
         return;
     }
     if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
@@ -855,6 +987,7 @@ fn async_lower_collect_plan_node(
                 plan.await_points[idx_plain].stmt_index = parent_stmt_index;
                 plan.await_points[idx_plain].enclosing_while = enclosing_while;
                 plan.await_points[idx_plain].enclosing_for = enclosing_for;
+                plan.await_points[idx_plain].cleanup_region = current_cleanup_region;
                 plan.await_points[idx_plain].is_return_await = 0;
             }
             return;
@@ -874,6 +1007,7 @@ fn async_lower_collect_plan_node(
                     plan.await_points[idx_decl].stmt_index = parent_stmt_index;
                     plan.await_points[idx_decl].enclosing_while = enclosing_while;
                     plan.await_points[idx_decl].enclosing_for = enclosing_for;
+                    plan.await_points[idx_decl].cleanup_region = current_cleanup_region;
                     plan.await_points[idx_decl].is_return_await = 0;
                 }
                 return;
@@ -894,6 +1028,7 @@ fn async_lower_collect_plan_node(
                 plan.await_points[idx_ret_plain].stmt_index = parent_stmt_index;
                 plan.await_points[idx_ret_plain].enclosing_while = enclosing_while;
                 plan.await_points[idx_ret_plain].enclosing_for = enclosing_for;
+                plan.await_points[idx_ret_plain].cleanup_region = current_cleanup_region;
                 plan.await_points[idx_ret_plain].is_return_await = 1;
                 plan.return_expr = null;
             }
@@ -914,6 +1049,7 @@ fn async_lower_collect_plan_node(
                     plan.await_points[idx_ret_try].stmt_index = parent_stmt_index;
                     plan.await_points[idx_ret_try].enclosing_while = enclosing_while;
                     plan.await_points[idx_ret_try].enclosing_for = enclosing_for;
+                    plan.await_points[idx_ret_try].cleanup_region = current_cleanup_region;
                     plan.await_points[idx_ret_try].is_return_await = 1;
                     plan.return_expr = null;
                 }
@@ -942,6 +1078,7 @@ fn async_lower_collect_plan_node(
                 plan.await_points[idx_nested].stmt_index = parent_stmt_index;
                 plan.await_points[idx_nested].enclosing_while = enclosing_while;
                 plan.await_points[idx_nested].enclosing_for = enclosing_for;
+                plan.await_points[idx_nested].cleanup_region = current_cleanup_region;
                 plan.await_points[idx_nested].is_return_await = 0;
             }
             return;
@@ -961,6 +1098,10 @@ export fn async_lower_build_plan(
     plan.await_points = null;
     plan.await_count = 0;
     plan.await_capacity = 0;
+    plan.cleanup_regions = null;
+    plan.cleanup_region_count = 0;
+    plan.cleanup_region_capacity = 0;
+    plan.root_cleanup_region = -1;
     plan.prefix_stmt_count = -1;
     plan.terminal_state = 1;
     plan.return_expr = null;
@@ -969,13 +1110,14 @@ export fn async_lower_build_plan(
         return 0;
     }
     if body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
+        plan.root_cleanup_region = async_lower_register_cleanup_region(plan, arena, body, -1);
         var i: i32 = 0;
         while i < body.block_stmt_count {
-            async_lower_collect_plan_node(plan, arena, checker, body.block_stmts[i], body, i, null, null, i);
+            async_lower_collect_plan_node(plan, arena, checker, body.block_stmts[i], body, i, null, null, i, plan.root_cleanup_region);
             i = i + 1;
         }
     } else {
-        async_lower_collect_plan_node(plan, arena, checker, body, null, -1, null, null, 0);
+        async_lower_collect_plan_node(plan, arena, checker, body, null, -1, null, null, 0, -1);
     }
     async_lower_assign_state_numbers(plan);
     if plan.prefix_stmt_count < 0 {
