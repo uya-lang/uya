@@ -55,6 +55,31 @@ fn slice_has(hay: &[const byte], needle: &[const byte]) bool {
     return false;
 }
 
+fn slice_eq_bytes(a: &[byte], b: &[const byte]) bool {
+    if a.len != b.len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < a.len {
+        if a.ptr[i] != b.ptr[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn write_all_fd(fd: i32, data: &[const byte]) !void {
+    var total: usize = 0;
+    while total < data.len {
+        const written: isize = try sys_write(fd, data.ptr + total, data.len - total);
+        if written <= 0 {
+            return error.ConnectionClosed;
+        }
+        total = total + (written as usize);
+    }
+}
+
 fn fill_request_path(req: &Request, path: &[const byte]) void {
     var i: usize = 0;
     while i < path.len && i < MAX_URI_LENGTH as usize {
@@ -773,6 +798,118 @@ test "uyagin_engine_run_shards_stop_requested_smoke" {
     opts.shutdown_grace_ms = 200u32;
     const served: i32 = try engine.run_shards_with_options(&listener, &opts, &controller);
     try assert_eq_i32(served, 0);
+}
+
+test "async_read_parse_helpers_decode_chunked_request_and_preserve_err_out" {
+    const request: &[const byte] =
+        "POST /chunk HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
+
+    var parse_fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&parse_fds[0], 0);
+    defer {
+        _ = sys_close(parse_fds[0]) catch {};
+        _ = sys_close(parse_fds[1]) catch {};
+    }
+    try write_all_fd(parse_fds[1], request);
+    _ = sys_close(parse_fds[1]) catch {};
+    parse_fds[1] = -1;
+
+    var parse_buf: [byte: 256] = [];
+    var parse_filled: usize = 0;
+    const parsed: ParseResult = try block_on<ParseResult>(async_read_parse(parse_fds[0], &parse_buf[0] as &byte, 256, &parse_filled));
+    try assert_eq_i32(parsed.request.method as i32, Method.POST as i32);
+    try assert_eq_i32(parsed.request.path_len, 6);
+    if !slice_eq_bytes(parsed.request.body, "hello world") {
+        try assert_eq_i32(0, 1);
+    }
+    try assert_eq_i32(parse_filled == request.len, true);
+    try assert_eq_i32(parsed.consumed == request.len, true);
+
+    var parse_into_fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&parse_into_fds[0], 0);
+    defer {
+        _ = sys_close(parse_into_fds[0]) catch {};
+        _ = sys_close(parse_into_fds[1]) catch {};
+    }
+    try write_all_fd(parse_into_fds[1], request);
+    _ = sys_close(parse_into_fds[1]) catch {};
+    parse_into_fds[1] = -1;
+
+    var parse_into_buf: [byte: 256] = [];
+    var parse_into_filled: usize = 0;
+    var out: ParseResult = ParseResult{
+        request: Request{
+            method: Method.GET,
+            http11: true,
+            path: [],
+            path_len: 0,
+            path_params: [],
+            path_param_count: 0,
+            query: [],
+            query_count: 0,
+            headers: [],
+            header_count: 0,
+            body: parse_into_buf[0: 0],
+        },
+        consumed: 0,
+    };
+    var err_out: u32 = 999u32;
+    const consumed: usize = try block_on<usize>(
+        async_read_parse_into(
+            parse_into_fds[0],
+            &parse_into_buf[0] as &byte,
+            256,
+            &parse_into_filled,
+            &out,
+            &err_out,
+        ),
+    );
+    try assert_eq_i32(err_out == 0u32, true);
+    try assert_eq_i32(consumed == request.len, true);
+    try assert_eq_i32(out.consumed == request.len, true);
+    if !slice_eq_bytes(out.request.body, "hello world") {
+        try assert_eq_i32(0, 1);
+    }
+    try assert_eq_i32(parse_into_filled == request.len, true);
+}
+
+test "uyagin_accept_uses_async_accept_helper_and_preserves_nodelay" {
+    var listener: GinListener = try uyagin_listen_loopback(0, 64);
+
+    const client_fd_a: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(client_fd_a) catch {};
+    }
+    var addr_a: [byte: 16] = [];
+    fill_sockaddr_loopback_16(listener.server.port, &addr_a[0] as &byte);
+    _ = try sys_connect(client_fd_a, &addr_a[0] as &void, 16 as u32);
+
+    const accepted_a: i32 = try block_on<i32>(async_accept(listener.server.listen_fd));
+    defer {
+        _ = sys_close(accepted_a) catch {};
+    }
+    const accepted_a_flags: i32 = try sys_fcntl(accepted_a, F_GETFL, 0);
+    try assert_true((accepted_a_flags & O_NONBLOCK) != 0);
+
+    const client_fd_b: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(client_fd_b) catch {};
+    }
+    var addr_b: [byte: 16] = [];
+    fill_sockaddr_loopback_16(listener.server.port, &addr_b[0] as &byte);
+    _ = try sys_connect(client_fd_b, &addr_b[0] as &void, 16 as u32);
+
+    var srv: HttpServer = listener.server;
+    const accepted_b: i32 = try block_on<i32>(uyagin_accept_async(&srv));
+    defer {
+        _ = sys_close(accepted_b) catch {};
+    }
+    const accepted_b_flags: i32 = try sys_fcntl(accepted_b, F_GETFL, 0);
+    try assert_true((accepted_b_flags & O_NONBLOCK) != 0);
+    var nodelay: i32 = 0;
+    var nodelay_len: u32 = 4 as u32;
+    _ = try sys_getsockopt(accepted_b, IPPROTO_TCP, TCP_NODELAY, &nodelay as *void, &nodelay_len);
+    try assert_eq_i32(nodelay, 1);
 }
 
 test "uyagin_body_traits_static_arena_file" {

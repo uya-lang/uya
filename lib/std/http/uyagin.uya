@@ -9,9 +9,6 @@ use std.async_scheduler;
 use std.async_frame.AsyncFramePool;
 use std.http.types;
 use std.http.uyagin_router;
-use std.http.parse.http_parse_request;
-use std.http.parse.http_parse_request_into;
-use std.http.parse.http_decode_chunked_body_inplace;
 use std.http.parse.extract_multipart_boundary;
 use std.http.parse.parse_multipart;
 use std.http.server;
@@ -2854,92 +2851,8 @@ export fn uyagin_send_context_response_body_trait_future(ctx: &GinContext, statu
     return uyagin_send_context_response_body_trait_async(ctx, status, body);
 }
 
-struct UyaginConnReadParseFuture : Future<!ParseResult> {
-    fd: i32,
-    base: &byte,
-    cap: usize,
-    filled: &usize,
-    nonblocking_ready: i32,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!ParseResult> {
-        if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                return Poll<!ParseResult>.Ready(flags_result as! ParseResult);
-            };
-            if (flags & O_NONBLOCK) == 0 {
-                const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
-                _ = set_result catch {
-                    return Poll<!ParseResult>.Ready(set_result as! ParseResult);
-                };
-            }
-            self.nonblocking_ready = 1;
-        }
-
-        while true {
-            const cur: usize = *self.filled;
-            if cur > self.cap {
-                return Poll<!ParseResult>.Ready(error.PayloadTooLarge);
-            }
-            const sl: &[byte] = self.base[0: cur];
-            const parsed: !ParseResult = http_parse_request(sl);
-            match parsed {
-                error.IncompleteRequest => {
-                    if cur >= self.cap {
-                        return Poll<!ParseResult>.Ready(error.PayloadTooLarge);
-                    }
-                    var read_len: usize = self.cap - cur;
-                    if read_len > 8192 {
-                        read_len = 8192;
-                    }
-                    const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(self.base as &void) + cur) as &byte;
-                    const read_result: !isize = sys_read(self.fd, read_dst as *byte, read_len);
-                    const n: isize = read_result catch |err| {
-                        const err_id: i32 = @error_id(err) as i32;
-                        if err_id == EINTR {
-                            continue;
-                        }
-                        if err_id == EAGAIN || err_id == EWOULDBLOCK {
-                            waker.wait_readable(self.fd);
-                            return Poll<!ParseResult>.Pending({});
-                        }
-                        return Poll<!ParseResult>.Ready(read_result as! ParseResult);
-                    };
-                    if n <= 0 {
-                        return Poll<!ParseResult>.Ready(error.ConnectionClosed);
-                    }
-                    *self.filled = cur + (n as usize);
-                },
-                else => {
-                    var pr: ParseResult = parsed catch {
-                        return Poll<!ParseResult>.Ready(parsed);
-                    };
-                    if request_has_chunked_transfer_encoding(&pr.request) {
-                        const decode_result: !usize = http_decode_chunked_body_inplace(&pr);
-                        _ = decode_result catch {
-                            return Poll<!ParseResult>.Ready(decode_result as! ParseResult);
-                        };
-                    }
-                    const ready_result: !ParseResult = pr as! ParseResult;
-                    return Poll<!ParseResult>.Ready(ready_result);
-                },
-            };
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 fn uyagin_conn_read_parse_future(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {
-    return UyaginConnReadParseFuture{
-        fd: fd,
-        base: base,
-        cap: cap,
-        filled: filled,
-        nonblocking_ready: 0,
-    };
+    return async_read_parse(fd, base, cap, filled);
 }
 
 /// 异步读到一个完整 HTTP 请求；返回 ParseResult，consumed 可用于 keep-alive 管线请求搬移。
@@ -2947,150 +2860,23 @@ export fn uyagin_conn_read_parse_async(fd: i32, base: &byte, cap: usize, filled:
     return uyagin_conn_read_parse_future(fd, base, cap, filled);
 }
 
-struct UyaginConnReadParseIntoFuture : Future<!usize> {
-    fd: i32,
-    base: &byte,
-    cap: usize,
-    filled: &usize,
-    out: &ParseResult,
-    err_out: &u32,
-    nonblocking_ready: i32,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                *self.err_out = @error_id(error.ConnectionClosed);
-                return async_poll_ready_ok_usize(0);
-            };
-            if (flags & O_NONBLOCK) == 0 {
-                const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
-                _ = set_result catch {
-                    *self.err_out = @error_id(error.ConnectionClosed);
-                    return async_poll_ready_ok_usize(0);
-                };
-            }
-            self.nonblocking_ready = 1;
-        }
-
-        while true {
-            const cur: usize = *self.filled;
-            if cur > self.cap {
-                *self.err_out = @error_id(error.PayloadTooLarge);
-                return async_poll_ready_ok_usize(0);
-            }
-            const sl: &[byte] = self.base[0: cur];
-            const parsed: !void = http_parse_request_into(sl, self.out);
-            match parsed {
-                error.IncompleteRequest => {
-                    if cur >= self.cap {
-                        return Poll<!usize>.Ready(error.PayloadTooLarge);
-                    }
-                    var read_len: usize = self.cap - cur;
-                    if read_len > 8192 {
-                        read_len = 8192;
-                    }
-                    const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(self.base as &void) + cur) as &byte;
-                    const read_result: !isize = sys_read(self.fd, read_dst as *byte, read_len);
-                    const n: isize = read_result catch |err| {
-                        const err_id: i32 = @error_id(err) as i32;
-                        if err_id == EINTR {
-                            continue;
-                        }
-                        if err_id == EAGAIN || err_id == EWOULDBLOCK {
-                            waker.wait_readable(self.fd);
-                            return Poll<!usize>.Pending({});
-                        }
-                        *self.err_out = @error_id(error.ConnectionClosed);
-                        return async_poll_ready_ok_usize(0);
-                    };
-                    if n <= 0 {
-                        *self.err_out = @error_id(error.ConnectionClosed);
-                        return async_poll_ready_ok_usize(0);
-                    }
-                    *self.filled = cur + (n as usize);
-                },
-                else => {
-                    _ = parsed catch |err| {
-                        *self.err_out = @error_id(err);
-                        return async_poll_ready_ok_usize(0);
-                    };
-                    if request_has_chunked_transfer_encoding(&self.out.request) {
-                        const decode_result: !usize = http_decode_chunked_body_inplace(self.out);
-                        _ = decode_result catch {
-                            *self.err_out = decode_result.error_id;
-                            return async_poll_ready_ok_usize(0);
-                        };
-                    }
-                    *self.err_out = 0u32;
-                    return async_poll_ready_ok_usize(self.out.consumed);
-                },
-            };
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 fn uyagin_conn_read_parse_into_future(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {
-    return UyaginConnReadParseIntoFuture{
-        fd: fd,
-        base: base,
-        cap: cap,
-        filled: filled,
-        out: out,
-        err_out: err_out,
-        nonblocking_ready: 0,
-    };
+    return async_read_parse_into(fd, base, cap, filled, out, err_out);
 }
 
-struct UyaginAcceptFuture : Future<!i32> {
-    listen_fd: i32,
-    nonblocking_ready: i32,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.listen_fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                return Poll<!i32>.Ready(flags_result as! i32);
-            };
-            if (flags & O_NONBLOCK) == 0 {
-                const set_result: !i32 = sys_fcntl(self.listen_fd, F_SETFL, flags | O_NONBLOCK);
-                _ = set_result catch {
-                    return Poll<!i32>.Ready(set_result as! i32);
-                };
-            }
-            self.nonblocking_ready = 1;
-        }
-
-        while true {
-            const acc: !i32 = sys_accept(self.listen_fd, null, 0);
-            const fd: i32 = acc catch |err| {
-                const eid: i32 = @error_id(err) as i32;
-                if eid == EAGAIN || eid == EWOULDBLOCK {
-                    waker.wait_readable(self.listen_fd);
-                    return Poll<!i32>.Pending({});
-                }
-                if eid == EINTR {
-                    continue;
-                }
-                return Poll<!i32>.Ready(acc as! i32);
-            };
-            var nd: i32 = 1;
-            _ = sys_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nd as &void, 4 as u32) catch {};
-            return Poll<!i32>.Ready(ok<i32>(fd));
-        }
+fn uyagin_accept_set_tcp_nodelay(fd: i32) void {
+    if fd < 0 {
+        return;
     }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
+    var nd: i32 = 1;
+    _ = sys_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nd as &void, 4 as u32) catch {};
 }
 
+@async_fn
 fn uyagin_accept_future(listen_fd: i32) Future<!i32> {
-    return UyaginAcceptFuture{ listen_fd: listen_fd, nonblocking_ready: 0 };
+    const fd: i32 = try @await async_accept(listen_fd);
+    uyagin_accept_set_tcp_nodelay(fd);
+    return fd;
 }
 
 export @async_fn fn uyagin_accept_async(srv: &HttpServer) Future<!i32> {

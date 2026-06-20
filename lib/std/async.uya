@@ -9,6 +9,10 @@ use libc.pthread;
 use libc.syscall;
 use std;
 use std.async_frame;
+use std.http.types;
+use std.http.parse.http_parse_request;
+use std.http.parse.http_parse_request_into;
+use std.http.parse.http_decode_chunked_body_inplace;
 use std.mem.allocator.IAllocator;
 use std.string.strlen;
 
@@ -1154,5 +1158,244 @@ export fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_ms: u64) F
         addr: addr,
         addr_len: addr_len,
         deadline_ms: deadline_ms,
+    };
+}
+
+struct AsyncAcceptFuture : Future<!i32> {
+    listen_fd: i32,
+    listen_nonblocking_ready: i32 = 0,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if self.listen_nonblocking_ready == 0 {
+            const listen_nonblock: !i32 = async_fd_set_nonblocking(self.listen_fd);
+            _ = listen_nonblock catch {
+                const err_value: !i32 = listen_nonblock as! i32;
+                return Poll<!i32>.Ready(err_value);
+            };
+            self.listen_nonblocking_ready = 1;
+        }
+
+        while true {
+            const accepted: !i32 = sys_accept(self.listen_fd, null, 0);
+            const fd: i32 = accepted catch |err| {
+                const err_id: u32 = @error_id(err);
+                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                    waker.wait_readable(self.listen_fd);
+                    return Poll<!i32>.Pending({});
+                }
+                if err_id == libc_EINTR as u32 {
+                    continue;
+                }
+                const err_value: !i32 = accepted as! i32;
+                return Poll<!i32>.Ready(err_value);
+            };
+
+            const accepted_nonblock: !i32 = async_fd_set_nonblocking(fd);
+            _ = accepted_nonblock catch {
+                _ = sys_close(fd) catch {};
+                const err_value: !i32 = accepted_nonblock as! i32;
+                return Poll<!i32>.Ready(err_value);
+            };
+            return async_poll_ready_ok_i32(fd);
+        }
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// 异步 accept 一个连接，并把监听 fd 与返回的连接 fd 都切到 nonblocking。
+/// 参数说明：`listen_fd` 为已进入 listen 状态的 socket fd，必须大于等于 0。
+/// 返回值说明：成功返回已接受且已设为 nonblocking 的连接 fd；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，其他错误原样透传。
+export fn async_accept(listen_fd: i32) Future<!i32> {
+    if listen_fd < 0 {
+        return Future<!i32>{ state: Poll<!i32>.Ready(error.InvalidRequest) };
+    }
+    return AsyncAcceptFuture{ listen_fd: listen_fd };
+}
+
+struct AsyncReadParseFuture : Future<!ParseResult> {
+    fd: i32,
+    base: &byte,
+    cap: usize,
+    filled: &usize,
+    nonblocking_ready: i32 = 0,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!ParseResult> {
+        if self.nonblocking_ready == 0 {
+            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
+            _ = ready_result catch {
+                const err_value: !ParseResult = ready_result as! ParseResult;
+                return Poll<!ParseResult>.Ready(err_value);
+            };
+            self.nonblocking_ready = 1;
+        }
+
+        while true {
+            const cur: usize = *self.filled;
+            if cur > self.cap {
+                return Poll<!ParseResult>.Ready(error.PayloadTooLarge);
+            }
+            const sl: &[byte] = self.base[0: cur];
+            const parsed: !ParseResult = http_parse_request(sl);
+            match parsed {
+                error.IncompleteRequest => {
+                    if cur >= self.cap {
+                        return Poll<!ParseResult>.Ready(error.PayloadTooLarge);
+                    }
+                    var read_len: usize = self.cap - cur;
+                    if read_len > 8192 {
+                        read_len = 8192;
+                    }
+                    const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(self.base as &void) + cur) as &byte;
+                    const read_result: !isize = sys_read(self.fd, read_dst as *byte, read_len);
+                    const n: isize = read_result catch |err| {
+                        const err_id: u32 = @error_id(err);
+                        if err_id == libc_EINTR as u32 {
+                            continue;
+                        }
+                        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                            waker.wait_readable(self.fd);
+                            return Poll<!ParseResult>.Pending({});
+                        }
+                        return Poll<!ParseResult>.Ready(read_result as! ParseResult);
+                    };
+                    if n <= 0 {
+                        return Poll<!ParseResult>.Ready(error.ConnectionClosed);
+                    }
+                    *self.filled = cur + (n as usize);
+                },
+                else => {
+                    var pr: ParseResult = parsed catch {
+                        return Poll<!ParseResult>.Ready(parsed);
+                    };
+                    if request_has_chunked_transfer_encoding(&pr.request) {
+                        const decode_result: !usize = http_decode_chunked_body_inplace(&pr);
+                        _ = decode_result catch {
+                            return Poll<!ParseResult>.Ready(decode_result as! ParseResult);
+                        };
+                    }
+                    const ready_result: !ParseResult = pr as! ParseResult;
+                    return Poll<!ParseResult>.Ready(ready_result);
+                },
+            };
+        }
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// 异步读到一个完整 HTTP 请求并返回解析结果。
+/// 参数说明：`fd` 为可读 fd；`base`/`cap`/`filled` 描述调用方持有的接收缓冲区与当前已填充字节数。
+/// 返回值说明：成功返回 `ParseResult`；遇 `EAGAIN`/`EWOULDBLOCK` 时挂起，连接关闭、解析失败和容量不足等错误原样透传。
+export fn async_read_parse(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {
+    if fd < 0 || base == null || filled == null {
+        return Future<!ParseResult>{ state: Poll<!ParseResult>.Ready(error.InvalidRequest) };
+    }
+    return AsyncReadParseFuture{
+        fd: fd,
+        base: base,
+        cap: cap,
+        filled: filled,
+    };
+}
+
+struct AsyncReadParseIntoFuture : Future<!usize> {
+    fd: i32,
+    base: &byte,
+    cap: usize,
+    filled: &usize,
+    out: &ParseResult,
+    err_out: &u32,
+    nonblocking_ready: i32 = 0,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if self.nonblocking_ready == 0 {
+            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
+            _ = ready_result catch {
+                *self.err_out = @error_id(error.ConnectionClosed);
+                return async_poll_ready_ok_usize(0);
+            };
+            self.nonblocking_ready = 1;
+        }
+
+        while true {
+            const cur: usize = *self.filled;
+            if cur > self.cap {
+                *self.err_out = @error_id(error.PayloadTooLarge);
+                return async_poll_ready_ok_usize(0);
+            }
+            const sl: &[byte] = self.base[0: cur];
+            const parsed: !void = http_parse_request_into(sl, self.out);
+            match parsed {
+                error.IncompleteRequest => {
+                    if cur >= self.cap {
+                        return Poll<!usize>.Ready(error.PayloadTooLarge);
+                    }
+                    var read_len: usize = self.cap - cur;
+                    if read_len > 8192 {
+                        read_len = 8192;
+                    }
+                    const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(self.base as &void) + cur) as &byte;
+                    const read_result: !isize = sys_read(self.fd, read_dst as *byte, read_len);
+                    const n: isize = read_result catch |err| {
+                        const err_id: u32 = @error_id(err);
+                        if err_id == libc_EINTR as u32 {
+                            continue;
+                        }
+                        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                            waker.wait_readable(self.fd);
+                            return Poll<!usize>.Pending({});
+                        }
+                        *self.err_out = @error_id(error.ConnectionClosed);
+                        return async_poll_ready_ok_usize(0);
+                    };
+                    if n <= 0 {
+                        *self.err_out = @error_id(error.ConnectionClosed);
+                        return async_poll_ready_ok_usize(0);
+                    }
+                    *self.filled = cur + (n as usize);
+                },
+                else => {
+                    _ = parsed catch |err| {
+                        *self.err_out = @error_id(err);
+                        return async_poll_ready_ok_usize(0);
+                    };
+                    if request_has_chunked_transfer_encoding(&self.out.request) {
+                        const decode_result: !usize = http_decode_chunked_body_inplace(self.out);
+                        _ = decode_result catch {
+                            *self.err_out = decode_result.error_id;
+                            return async_poll_ready_ok_usize(0);
+                        };
+                    }
+                    *self.err_out = 0u32;
+                    return async_poll_ready_ok_usize(self.out.consumed);
+                },
+            };
+        }
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// 异步读到一个完整 HTTP 请求并把解析结果写入调用方提供的 `out`。
+/// 参数说明：`fd`/`base`/`cap`/`filled` 描述接收缓冲；`out` 用于承接解析结果；`err_out` 返回兼容旧调用点的错误码。
+/// 返回值说明：成功返回 `consumed`；若解析或连接错误需要兼容旧语义，则返回 `0` 并写入 `*err_out`；容量打满的 `PayloadTooLarge` 仍作为 Future 错误返回。
+export fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {
+    if fd < 0 || base == null || filled == null || out == null || err_out == null {
+        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+    }
+    return AsyncReadParseIntoFuture{
+        fd: fd,
+        base: base,
+        cap: cap,
+        filled: filled,
+        out: out,
+        err_out: err_out,
     };
 }

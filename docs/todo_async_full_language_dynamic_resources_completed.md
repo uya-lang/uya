@@ -1584,6 +1584,22 @@
       - `../uya/bin/uya test tests/test_std_dns.uya`：通过（34 tests, 78 assertions）
 
 ### 1.5.2 迁移顺序原则
+路径：- [ ] **先提炼通用 awaitable 原语，再迁移重复状态机**。
+路径：  - [ ] 例如 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
+    - [x] 在 `lib/std/async.uya` 提炼 `async_accept` helper，并迁移 `lib/std/http/uyagin.uya` 的 `UyaginAcceptFuture`；验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
+      - 验证记录（2026-06-21）：
+        - `../uya/bin/uya test tests/test_http_uyagin.uya`：通过（23 tests passed；新增回归 `uyagin_accept_uses_async_accept_helper_and_preserves_nodelay` 通过）
+        - `../uya/bin/uya test tests/test_async_fd.uya`：通过（8 tests passed）
+
+### 1.5.2 迁移顺序原则
+路径：- [ ] **先提炼通用 awaitable 原语，再迁移重复状态机**。
+路径：  - [ ] 例如 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
+    - [x] 提炼 `async_read_parse` / `async_read_parse_into` helper，并迁移 `lib/std/http/uyagin.uya` 的 `UyaginConnReadParseFuture` / `UyaginConnReadParseIntoFuture`；验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
+      - 验证记录（2026-06-21）：
+        - `../uya/bin/uya test tests/test_http_uyagin.uya`：通过（24 tests, 33 assertions；新增回归 `async_read_parse_helpers_decode_chunked_request_and_preserve_err_out` 通过）
+        - `../uya/bin/uya test tests/test_async_fd.uya`：通过（10 tests, 53 assertions）
+
+### 1.5.2 迁移顺序原则
 
 - 任务路径：**先提炼通用 awaitable 原语，再迁移重复状态机** > 例如 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
   - [x] 在 `lib/std/async.uya` 提炼 `async_writev` / `async_sendfile` helper，并迁移 `lib/std/http/uyagin.uya` 的写热路径 future；验证：`../uya/bin/uya test tests/test_async_fd.uya`、`../uya/bin/uya test tests/test_http_uyagin.uya`
