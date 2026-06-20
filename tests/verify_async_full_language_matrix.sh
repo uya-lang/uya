@@ -5,6 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
+MODE="${1:-all}"
+
+case "$MODE" in
+    all|native)
+        ;;
+    *)
+        echo "usage: $0 [all|native]"
+        exit 2
+        ;;
+esac
 
 if [ ! -x "$COMPILER" ]; then
     echo "missing compiler: $COMPILER"
@@ -71,6 +81,21 @@ expect_compile_fail() {
     rm -f "$log"
 }
 
+run_macro_combo() {
+    local macro_log
+    macro_log="$(mktemp)"
+    if ! (
+        cd "$REPO_ROOT"
+        UYA_ROOT="$UYA_ROOT" "$COMPILER" run "tests/programs/test_ai_prompt_async_macro_combo.uya" >"$macro_log" 2>&1
+    ); then
+        echo "macro combo build/run failed"
+        cat "$macro_log"
+        rm -f "$macro_log"
+        exit 1
+    fi
+    rm -f "$macro_log"
+}
+
 # 当前已存在、且对 async 语法主链路最有代表性的回归。
 # 这组通过只能证明“当前已覆盖的子集仍成立”，不能证明完整语法已完成。
 baseline_tests=(
@@ -127,6 +152,15 @@ expect_check_fail "tests/error_async_for_iterator_interface_await.uya" "接口�
 # 2026-06-18: struct 迭代器 ref 绑定现已支持，转为正向回归。
 run_uya_test "tests/test_async_for_iterator_ref_await.uya"
 
+# 宏展开 async lowering 程序级回归
+echo "==> test_ai_prompt_async_macro_combo build/run"
+run_macro_combo
+
+if [ "$MODE" = "native" ]; then
+    echo "verify_async_full_language_matrix: native stages passed"
+    exit 0
+fi
+
 echo "==> verify_async_await_capacity"
 bash "$SCRIPT_DIR/verify_async_await_capacity.sh" >/dev/null
 
@@ -136,19 +170,5 @@ bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" >/dev/null
 
 echo "==> verify_async_shared_runtime_matrix"
 bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" >/dev/null
-
-# 宏展开 async lowering 程序级回归
-echo "==> test_ai_prompt_async_macro_combo build/run"
-macro_log="$(mktemp)"
-if ! (
-    cd "$REPO_ROOT"
-    UYA_ROOT="$UYA_ROOT" "$COMPILER" run "tests/programs/test_ai_prompt_async_macro_combo.uya" >"$macro_log" 2>&1
-); then
-    echo "macro combo build/run failed"
-    cat "$macro_log"
-    rm -f "$macro_log"
-    exit 1
-fi
-rm -f "$macro_log"
 
 echo "verify_async_full_language_matrix: positive async language matrix, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"

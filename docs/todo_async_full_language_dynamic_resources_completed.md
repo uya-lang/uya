@@ -1212,3 +1212,16 @@
   - 备份验证：`bash tests/verify_async_full_dynamic_resources_gate.sh backup-all` 通过，并刷新 `backup/uyacache`、`backup/uya.c`、`backup/uya-linux-x86_64.c`、`backup/uya-hosted.c`、`backup/uya-hosted-linux-x86_64.c`。
   - 完整验证：`bash tests/verify_async_full_dynamic_resources_gate.sh` 通过，输出 `verify_async_full_dynamic_resources_gate: all stages passed`。
   - 长压测结果：`tests/stress_pthread.sh 100` 通过；`tests/stress_epoll_server.sh 100` 通过；`tests/stress_http_async_epoll.sh 1800 1` 通过，`wrk` 退出码 0，742366957 requests，RSS 4816/4968/4968 KB，FD 159/159/159。
+
+## Phase 1：`@async_fn` 语法完整性
+
+### 1.2 先补红测，再动实现
+
+父级任务路径：
+- [ ] 所有新测试都要同时覆盖：
+  - [x] native 路线
+    - 实现：`tests/verify_async_full_language_matrix.sh` 新增显式 `native` 模式，把原生 `uya test` / `uya run` 子集收口成单独入口，默认 `all` 行为保持不变。
+    - 验证命令：`bash -n tests/verify_async_full_language_matrix.sh`
+    - 结果：通过。
+    - 验证命令：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native`
+    - 结果：通过；顺序跑完 baseline async 语法矩阵、禁止位置 checker 失败、`tests/test_async_for_iterator_ref_await.uya` 和 `tests/programs/test_ai_prompt_async_macro_combo.uya`，输出 `verify_async_full_language_matrix: native stages passed`。
