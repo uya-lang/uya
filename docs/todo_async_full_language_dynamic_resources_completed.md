@@ -1397,3 +1397,17 @@
   - `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`：通过
   - `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`：通过
   - `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/verify_async_full_language_matrix.sh`：失败，卡在既有 `tests/test_async_await_parse.uya` C99 代码生成错误（`Future_i32`/`Poll_Future_i32` 类型不兼容），与本轮 checker 诊断改动无直接关联。
+
+# Uya 异步生产化 TODO（完整语法 + 动态资源）
+## Phase 1：`@async_fn` 语法完整性
+### 1.4 收口语法口径
+
+- [x] 为仍然非法的语法保留明确、稳定、可测试的诊断。
+  - 变更：在 checker 前置拒绝 `defer` / `errdefer` 中的 `@await`，新增两条负例，并把 `tests/test_async_match_await.uya` 纳入 async 语言矩阵基线。
+  - 验证：`make uya`（成功，已重建本地 `bin/uya`）
+  - 验证：`../uya/bin/uya check tests/error_async_await_in_defer.uya`（按预期失败，命中 `@await 不能出现在 defer/errdefer 块中；清理逻辑必须保持同步`）
+  - 验证：`../uya/bin/uya check tests/error_async_await_in_errdefer.uya`（按预期失败，命中 `@await 不能出现在 defer/errdefer 块中；清理逻辑必须保持同步`）
+  - 验证：`../uya/bin/uya test tests/test_async_match_await.uya`（通过，4 tests / 4 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya`（通过，10 tests / 18 assertions）
+  - 验证：`git diff --check`（通过）
+  - 备注：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native` 在既有基线 `tests/test_async_await_parse.uya` 触发无关 C99 codegen 失败，未作为本叶子完成门槛。

@@ -1,0 +1,33 @@
+// error_async_await_in_defer.uya
+// 预期：编译失败，@await 不能出现在 defer 清理块中。
+
+use std.async;
+
+struct ReadyI32 : Future<!i32> {
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        _ = self;
+        _ = waker;
+        return Poll<!i32>.Ready(ok<i32>(1));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
+fn ready_i32() Future<!i32> {
+    return ReadyI32{};
+}
+
+@async_fn
+fn bad_async_await_in_defer() Future<!i32> {
+    defer {
+        const value: i32 = try @await ready_i32();
+        _ = value;
+    }
+    return 0;
+}
+
+fn main() i32 {
+    return 0;
+}

@@ -1949,6 +1949,10 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
                 }
                 return make_usize_type();
             }
+            if expr.try_expr_operand != null &&
+                expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR {
+                return make_void_type();
+            }
             checker_report_error(checker, expr.try_expr_operand, "try 的操作数必须是错误联合类型 !T" as *byte);
             return make_void_type();
         }
@@ -1993,6 +1997,10 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         return operand_type.error_union_payload_type[0];
     } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+        if checker.in_defer_or_errdefer != 0 {
+            checker_report_error(checker, expr, "@await 不能出现在 defer/errdefer 块中；清理逻辑必须保持同步" as &byte);
+            return make_void_type();
+        }
         // @await 只能在 @async_fn 函数内使用
         if checker.current_function_decl == null ||
             checker.current_function_decl.fn_decl_is_async == 0 {

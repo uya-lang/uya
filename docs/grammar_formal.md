@@ -1,6 +1,6 @@
 # Uya 语言正式语法规范（Formal BNF）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.50 同步（2026-05-19）
+> **版本**：与 [uya.md](./uya.md) 0.49.51 同步（2026-06-21）
 
 本文档包含 Uya 语言的完整、无歧义的 BNF 语法定义，用于：
 - 编译器/解析器实现
@@ -212,7 +212,7 @@ continue_stmt  = 'continue' ';'
 defer_stmt     = 'defer' ( statement | '{' statements '}' )
 errdefer_stmt  = 'errdefer' ( statement | '{' statements '}' )
 
-# defer/errdefer 块内禁止：return、break、continue 等控制流语句
+# defer/errdefer 块内禁止：return、break、continue、@await
 # 允许：表达式、赋值、函数调用、语句块
 # 替代方案：使用变量记录状态，在 defer/errdefer 外处理控制流
 block_stmt     = '{' statements '}'
