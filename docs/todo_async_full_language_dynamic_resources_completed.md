@@ -1496,3 +1496,16 @@
       - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过，2 DNS runtime tests / 4 assertions）
       - 验证：`../uya/bin/uya test tests/test_std_dns_async_query_aggregate.uya`（通过，3 DNS aggregate tests / 6 assertions）
       - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（通过，4 tests / 44 assertions）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.0 统计口径
+
+- [ ] 最终目标口径：
+  - [ ] 标准库业务层、协议层和 I/O 组合层不再保留手写 `poll()` 状态机。
+    - [x] `lib/std/http/websocket_async.uya`：将 `WebSocketReadMessageFuture` 改为 `@async_fn` 消息聚合路径，保持 ping/pong/close/fragment 语义。验收：`../uya/bin/uya test tests/test_http_websocket_json.uya`
+      - 验证：`../uya/bin/uya test tests/test_http_websocket_async_read_message_shape.uya`（通过）
+      - 验证：`../uya/bin/uya test tests/test_http_websocket_read_message_semantics.uya`（通过）
+      - 验证：`timeout 30s ../uya/bin/uya test tests/test_http_websocket_async.uya`（5/5 通过）
+      - 验证：`../uya/bin/uya test tests/test_http_websocket_json.uya`（通过）
+      - 备注：非终帧路径显式补 `continue;`，remote close 清理收束为同步 helper，避免 `@await` 恢复点跳回循环头。

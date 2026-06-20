@@ -22,13 +22,6 @@ fn websocket_now_ms_or_zero() u64 {
     return res catch { 0 as u64; };
 }
 
-fn websocket_ready_result(result: !usize) Future<!usize> {
-    if result.error_id != 0u32 {
-        return Future<!usize>{ state: Poll<!usize>.Ready(result) };
-    }
-    return future_ready_ok<usize>(result.value);
-}
-
 fn websocket_copy_bytes(dst: &byte, src: &const byte, n: usize) void {
     var i: usize = 0;
     while i < n {
@@ -507,6 +500,11 @@ fn websocket_conn_transport_is_closed(self: &WebSocketConn) bool {
     return self.io.is_closed();
 }
 
+fn websocket_conn_close_remote(self: &WebSocketConn) void {
+    self.closed = true;
+    websocket_conn_transport_close(self);
+}
+
 fn websocket_conn_transport_read_exact(self: &WebSocketConn, buf: &byte, count: usize) Future<!usize> {
     if self.use_tls {
         return self.tls_io.read_exact(buf, count);
@@ -711,192 +709,93 @@ export @async_fn fn websocket_conn_read_frame(self: &WebSocketConn, rx: &byte, r
     return try @await websocket_conn_read_frame_compact(self, rx, rx_cap, false, opcode_out, fin_out, payload_len_out);
 }
 
-struct WebSocketReadMessageFuture : Future<!usize> {
-    self: &WebSocketConn,
-    rx: &byte,
-    rx_cap: usize,
-    msg: &byte,
-    msg_cap: usize,
-    opcode_out: &WebSocketOpcode,
-    total_msg: usize,
-    fragmented: bool,
-    current_opcode: WebSocketOpcode,
-    frame_opcode: WebSocketOpcode,
-    frame_fin: bool,
-    frame_payload_len: usize,
-    frame_fut: Future<!usize>,
-    write_fut: Future<!usize>,
-    state: i32,
-    tx_ctrl: [byte: 256],
-    tx_close: [byte: 256],
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        while true {
-            if self.state == 0 {
-                if self.self.closed {
-                    return Poll<!usize>.Ready(error.WebSocketConnectionClosed);
-                }
-                self.frame_fut = websocket_conn_read_frame_compact(
-                    self.self,
-                    self.rx,
-                    self.rx_cap,
-                    self.fragmented,
-                    &self.frame_opcode,
-                    &self.frame_fin,
-                    &self.frame_payload_len
-                );
-                self.state = 1;
-            }
-
-            if self.state == 1 {
-                const polled: Poll<!usize> = self.frame_fut.poll(waker);
-                match polled {
-                    .Pending(_) => {
-                        return Poll<!usize>.Pending({});
-                    }
-                    .Ready(result) => {
-                        const frame_wire: usize = result catch {
-                            self.frame_fut.release();
-                            return Poll<!usize>.Ready(result);
-                        };
-                        _ = frame_wire;
-                        self.frame_fut.release();
-                    }
-                }
-
-                if self.frame_opcode == WebSocketOpcode.Ping {
-                    if self.self.auto_pong {
-                        self.write_fut = websocket_conn_write_frame(
-                            self.self,
-                            WebSocketOpcode.Pong,
-                            self.rx as &const byte,
-                            self.frame_payload_len,
-                            &self.tx_ctrl[0],
-                            256
-                        );
-                        self.state = 2;
-                        continue;
-                    }
-                    self.state = 0;
-                    continue;
-                }
-                if self.frame_opcode == WebSocketOpcode.Pong {
-                    self.state = 0;
-                    continue;
-                }
-                if self.frame_opcode == WebSocketOpcode.Close {
-                    self.self.close_received = true;
-                    if !self.self.close_sent {
-                        self.write_fut = websocket_conn_write_frame(
-                            self.self,
-                            WebSocketOpcode.Close,
-                            self.rx as &const byte,
-                            self.frame_payload_len,
-                            &self.tx_close[0],
-                            256
-                        );
-                        self.state = 3;
-                        continue;
-                    }
-                    self.self.closed = true;
-                    self.self.io.close();
-                    return Poll<!usize>.Ready(error.WebSocketConnectionClosed);
-                }
-
-                if !self.fragmented {
-                    self.current_opcode = self.frame_opcode;
-                    self.total_msg = 0;
-                }
-                if self.total_msg + self.frame_payload_len > self.self.max_message_size || self.total_msg + self.frame_payload_len > self.msg_cap {
-                    return Poll<!usize>.Ready(error.WebSocketMessageTooLarge);
-                }
-                if self.frame_payload_len > 0 {
-                    websocket_copy_bytes(self.msg + self.total_msg, self.rx as &const byte, self.frame_payload_len);
-                    self.total_msg = self.total_msg + self.frame_payload_len;
-                }
-                if self.frame_fin {
-                    if self.current_opcode == WebSocketOpcode.Text && !websocket_validate_utf8(self.msg, self.total_msg) {
-                        return Poll<!usize>.Ready(error.WebSocketUtf8Required);
-                    }
-                    self.opcode_out[0] = self.current_opcode;
-                    return Poll<!usize>.Ready(ok<usize>(self.total_msg));
-                }
-                self.fragmented = true;
-                self.state = 0;
-                continue;
-            }
-
-            if self.state == 2 {
-                const polled_write: Poll<!usize> = self.write_fut.poll(waker);
-                match polled_write {
-                    .Pending(_) => {
-                        return Poll<!usize>.Pending({});
-                    }
-                    .Ready(result) => {
-                        const wrote: usize = result catch {
-                            self.write_fut.release();
-                            return Poll<!usize>.Ready(result);
-                        };
-                        _ = wrote;
-                        self.write_fut.release();
-                    }
-                }
-                self.state = 0;
-                continue;
-            }
-
-            if self.state == 3 {
-                const polled_close: Poll<!usize> = self.write_fut.poll(waker);
-                match polled_close {
-                    .Pending(_) => {
-                        return Poll<!usize>.Pending({});
-                    }
-                    .Ready(result) => {
-                        _ = result catch {};
-                        self.write_fut.release();
-                    }
-                }
-                self.self.closed = true;
-                self.self.io.close();
-                return Poll<!usize>.Ready(error.WebSocketConnectionClosed);
-            }
-        }
-    }
-
-    fn release(self: &Self) void {
-        if self.state == 1 {
-            self.frame_fut.release();
-        }
-        if self.state == 2 || self.state == 3 {
-            self.write_fut.release();
-        }
-    }
-}
-
 /// 读取并聚合一条消息。
 /// 参数说明：`rx` 为 frame 缓冲区，`msg` 为消息聚合缓冲区，`opcode_out` 返回消息类型。
 /// 返回值说明：返回消息 payload 长度。
-export fn websocket_conn_read_message(self: &WebSocketConn, rx: &byte, rx_cap: usize, msg: &byte, msg_cap: usize, opcode_out: &WebSocketOpcode) Future<!usize> {
+export @async_fn fn websocket_conn_read_message(self: &WebSocketConn, rx: &byte, rx_cap: usize, msg: &byte, msg_cap: usize, opcode_out: &WebSocketOpcode) Future<!usize> {
     opcode_out[0] = WebSocketOpcode.Binary;
-    return WebSocketReadMessageFuture{
-        self: self,
-        rx: rx,
-        rx_cap: rx_cap,
-        msg: msg,
-        msg_cap: msg_cap,
-        opcode_out: opcode_out,
-        total_msg: 0,
-        fragmented: false,
-        current_opcode: WebSocketOpcode.Binary,
-        frame_opcode: WebSocketOpcode.Binary,
-        frame_fin: false,
-        frame_payload_len: 0,
-        frame_fut: future_ready_ok<usize>(0),
-        write_fut: future_ready_ok<usize>(0),
-        state: 0,
-        tx_ctrl: [],
-        tx_close: [],
-    };
+    if self.closed {
+        return error.WebSocketConnectionClosed;
+    }
+
+    var total_msg: usize = 0;
+    var continuation_active: bool = false;
+    var current_opcode: WebSocketOpcode = WebSocketOpcode.Binary;
+    var frame_opcode: WebSocketOpcode = WebSocketOpcode.Binary;
+    var frame_fin: bool = false;
+    var frame_payload_len: usize = 0;
+    var tx_ctrl: [byte: 256] = [];
+    var tx_close: [byte: 256] = [];
+
+    while true {
+        const frame_wire: usize = try @await websocket_conn_read_frame_compact(
+            self,
+            rx,
+            rx_cap,
+            continuation_active,
+            &frame_opcode,
+            &frame_fin,
+            &frame_payload_len
+        );
+        _ = frame_wire;
+
+        if frame_opcode == WebSocketOpcode.Ping {
+            if self.auto_pong {
+                const wrote_pong: usize = try @await websocket_conn_write_frame(
+                    self,
+                    WebSocketOpcode.Pong,
+                    rx as &const byte,
+                    frame_payload_len,
+                    &tx_ctrl[0],
+                    256
+                );
+                _ = wrote_pong;
+            }
+            continue;
+        }
+        if frame_opcode == WebSocketOpcode.Pong {
+            continue;
+        }
+        if frame_opcode == WebSocketOpcode.Close {
+            self.close_received = true;
+            if self.close_sent {
+                websocket_conn_close_remote(self);
+                return error.WebSocketConnectionClosed;
+            }
+            const close_result: !usize = @await websocket_conn_write_frame(
+                self,
+                WebSocketOpcode.Close,
+                rx as &const byte,
+                frame_payload_len,
+                &tx_close[0],
+                256
+            );
+            _ = close_result catch {};
+            websocket_conn_close_remote(self);
+            return error.WebSocketConnectionClosed;
+        }
+
+        if !continuation_active {
+            current_opcode = frame_opcode;
+            total_msg = 0;
+        }
+        if total_msg + frame_payload_len > self.max_message_size || total_msg + frame_payload_len > msg_cap {
+            return error.WebSocketMessageTooLarge;
+        }
+        if frame_payload_len > 0 {
+            websocket_copy_bytes(msg + total_msg, rx as &const byte, frame_payload_len);
+            total_msg = total_msg + frame_payload_len;
+        }
+        if frame_fin {
+            if current_opcode == WebSocketOpcode.Text && !websocket_validate_utf8(msg, total_msg) {
+                return error.WebSocketUtf8Required;
+            }
+            opcode_out[0] = current_opcode;
+            return total_msg;
+        }
+        continuation_active = true;
+        continue;
+    }
 }
 
 /// 写出单帧。
