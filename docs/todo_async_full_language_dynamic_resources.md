@@ -140,9 +140,6 @@
 
 > 2026-06-21 代码核对：`websocket_client_reconnect_tick`、`websocket_conn_read_message` / `websocket_conn_heartbeat_tick`、`uyagin_run_chain_recover`、`uyagin_observe_request_future`、`dns_query_transport_future_new` 已经是 `@async_fn` / join 组合层；本节剩余 TODO 以“语义回归与防倒退”为准，不再把不存在的手写 `poll()` 重复记成迁移目标。
 
-- [ ] `lib/std/net/dns.uya`
-  - [ ] 保持 transport fallback 组合层继续走 `@async_fn` + join 组合，不重新引入“手工 future poll 另一个 future”模式。
-
 **验收**：
 
 - [ ] 上述四类组合层不再含手写 `poll()`。

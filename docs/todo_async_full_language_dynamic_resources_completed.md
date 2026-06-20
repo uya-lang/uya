@@ -1694,3 +1694,16 @@
   - 验证：`rg -n '"tests/test_http_uyagin_recover_observe.uya"' tests/verify_async_full_language_matrix.sh` 命中 `tests/verify_async_full_language_matrix.sh:142`，已纳入 async baseline。
   - 验证：`git diff --check` 通过。
   - 记录：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native` 未完成；现存基线在 `tests/test_async_await_parse.uya` 先失败，C 代码生成报 `incompatible types when initializing type 'int' using type 'struct Future_i32'`，阻塞点与本轮改动无关。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+- [x] `lib/std/net/dns.uya`
+  - [x] 保持 transport fallback 组合层继续走 `@async_fn` + join 组合，不重新引入“手工 future poll 另一个 future”模式。
+  - 验证：
+    - `../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`：通过（1 test，9 assertions）。
+    - `../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`：通过（1 test，17 assertions）。
+    - `../uya/bin/uya test --c99 tests/test_std_dns_async_composition_shape.uya`：通过（1 test，9 assertions）。
+    - `rg -n 'test_std_dns_async_composition_shape\\.uya' tests/verify_async_full_language_matrix.sh`：命中 `141:    "tests/test_std_dns_async_composition_shape.uya"`，已纳入 async matrix 脚本。
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99`：失败；脚本在既有基线 `tests/test_async_await_parse.uya` 上先报宿主 C 编译错误（`incompatible types when initializing type 'int' using type 'struct Future_i32'`），未执行到新 DNS 条目。
+    - `git diff --check`：通过。
