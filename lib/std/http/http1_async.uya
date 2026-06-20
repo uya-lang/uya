@@ -343,118 +343,66 @@ export fn parse_http_url_full(url: &[byte]) !ParsedHttpUrl {
     return ParsedHttpUrl{ host: host2, port: 80, path: slash_only };
 }
 
-struct Http1ConnectFuture : Future<!i32> {
-    fd: i32,
-    addr: [byte: 16],
-    nonblocking_ready: i32,
-    deadline_ms: u64,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        // 检查连接超时
-        if self.deadline_ms != 0 {
-            if http_deadline_expired_or_false(self.deadline_ms) {
-                _ = sys_close(self.fd) catch {};
-                return Poll<!i32>.Ready(error.HttpTimeout);
-            }
-        }
-
-        if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                _ = sys_close(self.fd) catch {};
-                const err_value: !i32 = flags_result as! i32;
-                return Poll<!i32>.Ready(err_value);
-            };
-            const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
-            _ = set_result catch {
-                _ = sys_close(self.fd) catch {};
-                const err_value: !i32 = set_result as! i32;
-                return Poll<!i32>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
-        }
-
-        const connect_result: !i32 = sys_connect(self.fd, &self.addr[0] as &void, 16 as u32);
-        _ = connect_result catch |err| {
-            const eid: i32 = @error_id(err) as i32;
-            if eid == EAGAIN || eid == EWOULDBLOCK || eid == EINPROGRESS || eid == EALREADY {
-                waker.wait_writable(self.fd);
-                return Poll<!i32>.Pending({});
-            }
-            if eid == EISCONN {
-                var nd: i32 = 1;
-                _ = sys_setsockopt(self.fd, IPPROTO_TCP, TCP_NODELAY, &nd as &void, 4 as u32) catch {};
-                return Poll<!i32>.Ready(ok<i32>(self.fd));
-            }
-            _ = sys_close(self.fd) catch {};
-            const err_value: !i32 = connect_result as! i32;
-            return Poll<!i32>.Ready(err_value);
-        };
-
-        var nd2: i32 = 1;
-        _ = sys_setsockopt(self.fd, IPPROTO_TCP, TCP_NODELAY, &nd2 as &void, 4 as u32) catch {};
-        return Poll<!i32>.Ready(ok<i32>(self.fd));
-    }
-
-    fn release(self: &Self) void {
-        _ = self;
-    }
-}
-
+@async_fn
 fn http1_connect_for_host_future(host: &[byte], port: u16, deadline_ms: u64) Future<!i32> {
+    var fd: i32 = -1;
+    var addr: [byte: 16] = [];
     if host_is_localhost(host) {
-        const socket_res: !i32 = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        const fd: i32 = socket_res catch {
-            return Future<!i32>{ state: Poll<!i32>.Ready(socket_res as! i32) };
-        };
-        var addr: [byte: 16] = [];
+        fd = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         fill_sockaddr_ipv4(127, 0, 0, 1, port, &addr[0] as &byte);
-        return Http1ConnectFuture{ fd: fd, addr: addr, nonblocking_ready: 0, deadline_ms: deadline_ms };
-    }
-    var ip: Ipv4Addr = Ipv4Addr{ a: 0, b: 0, c: 0, d: 0 };
-    if try_parse_ipv4(host, &ip) {
-        const socket_res: !i32 = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        const fd: i32 = socket_res catch {
-            return Future<!i32>{ state: Poll<!i32>.Ready(socket_res as! i32) };
-        };
-        var addr: [byte: 16] = [];
-        fill_sockaddr_ipv4(ip.a, ip.b, ip.c, ip.d, port, &addr[0] as &byte);
-        return Http1ConnectFuture{ fd: fd, addr: addr, nonblocking_ready: 0, deadline_ms: deadline_ms };
-    }
-
-    var dns_ctx: DnsClient = DnsClient{
-        nameserver: [0:16],
-        nameserver_len: 0,
-        timeout_ms: 0,
-        query_id: 0,
-    };
-    var empty_resolver: [byte: 0] = [];
-    dns_client_init(&dns_ctx, &empty_resolver[0: 0]);
-    // 设置 DNS 查询超时
-    var dns_timeout: u32 = 5000;
-    if deadline_ms != 0 {
-        const remaining: i32 = http_deadline_remaining_or_neg1(deadline_ms);
-        if remaining > 0 && (remaining as u32) < dns_timeout {
-            dns_timeout = remaining as u32;
+    } else {
+        var ip: Ipv4Addr = Ipv4Addr{ a: 0, b: 0, c: 0, d: 0 };
+        if try_parse_ipv4(host, &ip) {
+            fd = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            fill_sockaddr_ipv4(ip.a, ip.b, ip.c, ip.d, port, &addr[0] as &byte);
+        } else {
+            var dns_ctx: DnsClient = DnsClient{
+                nameserver: [0:16],
+                nameserver_len: 0,
+                timeout_ms: 0,
+                query_id: 0,
+            };
+            var empty_resolver: [byte: 0] = [];
+            dns_client_init(&dns_ctx, &empty_resolver[0: 0]);
+            var dns_timeout: u32 = 5000;
+            if deadline_ms != 0 {
+                const remaining: i32 = http_deadline_remaining_or_neg1(deadline_ms);
+                if remaining > 0 && (remaining as u32) < dns_timeout {
+                    dns_timeout = remaining as u32;
+                }
+            }
+            dns_client_set_timeout_ms(&dns_ctx, dns_timeout);
+            var ipv4: [byte: 4] = [0: 4];
+            var ipv4_len: usize = 0;
+            const resolve_result: !usize = dns_client_resolve_first_ipv4(&dns_ctx, &host[0], host.len, &ipv4[0] as &byte, 4, &ipv4_len);
+            const resolved_len: usize = resolve_result catch {
+                return error.InvalidRequest;
+            };
+            if resolved_len != 4 || ipv4_len != 4 {
+                return error.InvalidRequest;
+            }
+            fd = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            fill_sockaddr_ipv4(ipv4[0], ipv4[1], ipv4[2], ipv4[3], port, &addr[0] as &byte);
         }
     }
-    dns_client_set_timeout_ms(&dns_ctx, dns_timeout);
-    var ipv4: [byte: 4] = [0: 4];
-    var ipv4_len: usize = 0;
-    const resolve_result: !usize = dns_client_resolve_first_ipv4(&dns_ctx, &host[0], host.len, &ipv4[0] as &byte, 4, &ipv4_len);
-    const resolved_len: usize = resolve_result catch {
-        return Future<!i32>{ state: Poll<!i32>.Ready(error.InvalidRequest) };
-    };
-    if resolved_len != 4 || ipv4_len != 4 {
-        return Future<!i32>{ state: Poll<!i32>.Ready(error.InvalidRequest) };
+
+    var owned_fd: i32 = fd;
+    defer {
+        if owned_fd >= 0 {
+            _ = sys_close(owned_fd) catch {};
+        }
     }
-    const socket_res: !i32 = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    const fd: i32 = socket_res catch {
-        return Future<!i32>{ state: Poll<!i32>.Ready(socket_res as! i32) };
+    const connect_result: !i32 = @await async_connect(fd, &addr[0] as &void, 16 as u32, deadline_ms);
+    const connected_fd: i32 = connect_result catch |err| {
+        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+            return error.HttpTimeout;
+        }
+        return err;
     };
-    var addr: [byte: 16] = [];
-    fill_sockaddr_ipv4(ipv4[0], ipv4[1], ipv4[2], ipv4[3], port, &addr[0] as &byte);
-    return Http1ConnectFuture{ fd: fd, addr: addr, nonblocking_ready: 0, deadline_ms: deadline_ms };
+    var nd: i32 = 1;
+    _ = sys_setsockopt(connected_fd, IPPROTO_TCP, TCP_NODELAY, &nd as &void, 4 as u32) catch {};
+    owned_fd = -1;
+    return connected_fd;
 }
 
 fn http1_async_append_bytes(out: &byte, pos: usize, s: &[byte]) usize {
@@ -963,10 +911,6 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
     const deadline_ms: u64 = try http_deadline_after_ms(timeout_ms);
 
     const fd: i32 = try @await http1_connect_for_host_future(req.host, req.port, deadline_ms);
-    if fd < 0 {
-        const err_resp: Http1AsyncResponse = try http1_async_err_invalid();
-        return err_resp;
-    }
 
     const hdr_result: !Http1AsyncRequestHeaderBuffer = http1_async_request_header_build(req);
     const hdr: Http1AsyncRequestHeaderBuffer = hdr_result catch |err| {
@@ -1537,9 +1481,6 @@ export @async_fn fn http1_request_stream_async(
 ) Future<!Http1StreamResponse> {
     const deadline_ms: u64 = try http_deadline_after_ms(timeout_ms);
     const fd: i32 = try @await http1_connect_for_host_future(req.host, req.port, deadline_ms);
-    if fd < 0 {
-        return error.ConnectionClosed;
-    }
 
     const hdr_result: !Http1AsyncRequestHeaderBuffer = http1_async_request_header_build(req);
     const hdr: Http1AsyncRequestHeaderBuffer = hdr_result catch |err| {

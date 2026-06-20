@@ -98,6 +98,7 @@ export error SchedulerStopped;
 export error FutureNotReady;
 export error AsyncFramePoolFull;
 export error Cancelled;
+export error AsyncDeadlineExceeded;
 export error WriteZero;
 
 fn waker_eventfd_notify(fd: i32) void {
@@ -691,6 +692,77 @@ export @async_fn fn async_fd_write_all(fd: i32, data: &const byte, count: usize)
     return total;
 }
 
+fn async_now_ms() !u64 {
+    var tv: TimeVal = TimeVal{ tv_sec: 0, tv_usec: 0 };
+    const result: !i32 = sys_gettimeofday(&tv, null as &void);
+    _ = result catch {
+        return error.AsyncDeadlineExceeded;
+    };
+    return (tv.tv_sec as u64) * (1000 as u64) + ((tv.tv_usec as u64) / (1000 as u64));
+}
+
+fn async_deadline_expired(deadline_ms: u64) !bool {
+    if deadline_ms == 0 {
+        return false;
+    }
+    const now_ms: u64 = try async_now_ms();
+    return now_ms >= deadline_ms;
+}
+
+struct AsyncConnectFuture : Future<!i32> {
+    fd: i32,
+    addr: &void,
+    addr_len: u32,
+    deadline_ms: u64,
+    nonblocking_ready: i32 = 0,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if self.deadline_ms != 0 {
+            const expired: bool = async_deadline_expired(self.deadline_ms) catch {
+                return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
+            };
+            if expired {
+                return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
+            }
+        }
+
+        if self.nonblocking_ready == 0 {
+            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
+            const flags: i32 = flags_result catch {
+                const err_value: !i32 = flags_result as! i32;
+                return Poll<!i32>.Ready(err_value);
+            };
+            if (flags & O_NONBLOCK) == 0 {
+                const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
+                _ = set_result catch {
+                    const err_value: !i32 = set_result as! i32;
+                    return Poll<!i32>.Ready(err_value);
+                };
+            }
+            self.nonblocking_ready = 1;
+        }
+
+        const connect_result: !i32 = sys_connect(self.fd, self.addr, self.addr_len);
+        _ = connect_result catch |err| {
+            const err_id: u32 = @error_id(err);
+            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 || err_id == libc_EINPROGRESS as u32 || err_id == libc_EALREADY as u32 {
+                waker.wait_writable(self.fd);
+                return Poll<!i32>.Pending({});
+            }
+            if err_id == libc_EISCONN as u32 {
+                return poll_ready_ok<i32>(self.fd);
+            }
+            const err_value: !i32 = connect_result as! i32;
+            return Poll<!i32>.Ready(err_value);
+        };
+        return poll_ready_ok<i32>(self.fd);
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
 // ============================================================
 // AsyncFd - 基于文件描述符的异步 I/O（poll 内设 O_NONBLOCK；EAGAIN 时 Pending + waker）
 // ============================================================
@@ -827,4 +899,19 @@ export fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Future<!usize>
 /// 同上，写侧；配合 `async_fd_read_future` 用于 `@async_fn` 内 `try @await`。
 export fn async_fd_write_future(fd: i32, data: &const byte, count: usize) Future<!usize> {
     return AsyncFdWriteFuture{ fd: fd, data: data, count: count };
+}
+
+/// 异步发起 nonblocking `connect(2)`，在 `EINPROGRESS` / `EAGAIN` 时注册可写兴趣并等待继续。
+/// 参数说明：`fd` 为待连接 socket；`addr` 为目标 `sockaddr` 指针；`addr_len` 为其长度；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
+/// 返回值说明：成功返回已连接的 `fd`；失败返回 connect 错误或 `error.AsyncDeadlineExceeded`，调用方负责按需关闭 `fd`。
+export fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_ms: u64) Future<!i32> {
+    if fd < 0 || addr_len == 0 {
+        return Future<!i32>{ state: Poll<!i32>.Ready(error.InvalidRequest) };
+    }
+    return AsyncConnectFuture{
+        fd: fd,
+        addr: addr,
+        addr_len: addr_len,
+        deadline_ms: deadline_ms,
+    };
 }

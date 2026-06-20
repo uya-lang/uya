@@ -1566,3 +1566,9 @@
         - 结果：确认上述 runtime substrate 候选与 syscall/I/O 叶子 Future 仍以手写状态机形式存在。
       - `git diff --check`
         - 结果：通过，无空白或补丁格式错误。
+
+### 1.5.2 迁移顺序原则
+路径：**先提炼通用 awaitable 原语，再迁移重复状态机** -> `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
+- [x] 在 `lib/std/async.uya` 提炼 `async_connect` helper，并先将 `lib/std/http/http1_async.uya` 的 `Http1ConnectFuture` 改为基于该 helper 的 `@async_fn` 组合；验证：`../uya/bin/uya test tests/test_async_fd.uya`、`../uya/bin/uya test tests/test_http1_async_client.uya`
+  - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：8 tests passed，0 failed）
+  - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`（通过：8 tests passed，0 failed）

@@ -3,6 +3,7 @@
 use std.async;
 use std.async_event;
 use std.async_scheduler;
+use std.http.server;
 use std.testing.assert_eq_i32;
 use libc.syscall;
 
@@ -375,6 +376,61 @@ fn test_async_fd_task_queue_shared_linux_epoll() !void {
     _ = sys_close(epoll_impl.epfd) catch {};
 }
 
+fn test_async_connect_loopback_returns_connected_fd() !void {
+    const listen_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    var owned_listen_fd: i32 = listen_fd;
+    defer {
+        if owned_listen_fd >= 0 {
+            _ = sys_close(owned_listen_fd) catch {};
+        }
+    }
+    var one: i32 = 1;
+    _ = try sys_setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &one as &void, 4 as u32);
+    var listen_addr: [byte: 16] = [];
+    fill_sockaddr_loopback_16(0, &listen_addr[0] as &byte);
+    _ = try sys_bind(listen_fd, &listen_addr[0] as &void, 16 as u32);
+    _ = try sys_listen(listen_fd, 128);
+
+    var alen: u32 = 16;
+    var bound_addr: [byte: 16] = [];
+    _ = try sys_getsockname(listen_fd, &bound_addr[0] as &void, &alen);
+    const port: u16 = read_port_from_sockaddr_16(&bound_addr[0] as &byte);
+
+    const client_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    var owned_client_fd: i32 = client_fd;
+    defer {
+        if owned_client_fd >= 0 {
+            _ = sys_close(owned_client_fd) catch {};
+        }
+    }
+    var connect_addr: [byte: 16] = [];
+    fill_sockaddr_loopback_16(port, &connect_addr[0] as &byte);
+
+    var epoll_impl: LinuxEpoll = try linux_epoll_create(0);
+    defer {
+        _ = sys_close(epoll_impl.epfd) catch {};
+    }
+    const fut: Future<!i32> = async_connect(client_fd, &connect_addr[0] as &void, 16 as u32, 0);
+    const connected_fd: i32 = try block_on_with_event_loop<i32>(&epoll_impl, fut, 1000);
+    try assert_eq_i32(connected_fd, client_fd);
+
+    const flags: i32 = try sys_fcntl(client_fd, F_GETFL, 0);
+    var is_nonblocking: i32 = 0;
+    if (flags & O_NONBLOCK) != 0 {
+        is_nonblocking = 1;
+    }
+    try assert_eq_i32(is_nonblocking, 1);
+
+    var peer_len: u32 = 16;
+    var peer_addr: [byte: 16] = [];
+    const accepted_fd: i32 = try sys_accept(listen_fd, &peer_addr[0] as &void, &peer_len);
+    _ = sys_close(accepted_fd) catch {};
+    owned_client_fd = -1;
+    _ = sys_close(client_fd) catch {};
+    owned_listen_fd = -1;
+    _ = sys_close(listen_fd) catch {};
+}
+
 test "async_fd_write_returns_ready" {
     try test_async_fd_write();
 }
@@ -401,4 +457,8 @@ test "async_fd_read_exact_returns_pending_then_ready" {
 
 test "async_fd_read_exact_returns_unexpected_eof" {
     try test_async_fd_read_exact_returns_unexpected_eof();
+}
+
+test "async_connect_loopback_returns_connected_fd" {
+    try test_async_connect_loopback_returns_connected_fd();
 }
