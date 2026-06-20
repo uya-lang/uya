@@ -426,6 +426,18 @@ fn async_poll_ready_ok_usize(value: usize) Poll<!usize> {
     return r;
 }
 
+fn async_poll_cancelled_i32() Poll<!i32> {
+    return Poll<!i32>.Ready(error.Cancelled);
+}
+
+fn async_poll_cancelled_usize() Poll<!usize> {
+    return Poll<!usize>.Ready(error.Cancelled);
+}
+
+fn async_poll_cancelled_parse_result() Poll<!ParseResult> {
+    return Poll<!ParseResult>.Ready(error.Cancelled);
+}
+
 struct AsyncJoin2UsizeResultsFuture : Future<!usize> {
     first: Future<!usize>,
     first_out: &usize,
@@ -733,6 +745,9 @@ struct AsyncWritevFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         if self.nonblocking_ready == 0 {
             const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
             _ = ready_result catch {
@@ -839,6 +854,9 @@ struct AsyncSendFileFuture : Future<!usize> {
     }
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         if self.nonblocking_ready == 0 {
             const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
             _ = ready_result catch {
@@ -963,6 +981,9 @@ struct AsyncConnectFuture : Future<!i32> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_i32();
+        }
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
         };
@@ -1018,6 +1039,9 @@ struct AsyncFdWriteFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
         };
@@ -1066,6 +1090,9 @@ struct AsyncFdReadFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
         };
@@ -1170,6 +1197,9 @@ struct AsyncSocketSendFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
         };
@@ -1214,6 +1244,9 @@ struct AsyncSocketRecvFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
         };
@@ -1300,6 +1333,9 @@ struct AsyncAcceptFuture : Future<!i32> {
     listen_nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_i32();
+        }
         if self.listen_nonblocking_ready == 0 {
             const listen_nonblock: !i32 = async_fd_set_nonblocking(self.listen_fd);
             _ = listen_nonblock catch {
@@ -1357,6 +1393,9 @@ struct AsyncReadParseFuture : Future<!ParseResult> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!ParseResult> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_parse_result();
+        }
         if self.nonblocking_ready == 0 {
             const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
             _ = ready_result catch {
@@ -1447,6 +1486,9 @@ struct AsyncReadParseIntoFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         if self.nonblocking_ready == 0 {
             const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
             _ = ready_result catch {

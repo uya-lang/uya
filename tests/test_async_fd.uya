@@ -106,6 +106,268 @@ struct AsyncFdWakeLoop : EventLoop {
     }
 }
 
+fn assert_cancelled_poll_i32(p: Poll<!i32>) !void {
+    match p {
+        .Ready(value) => {
+            try assert_eq_i32(value.error_id as i32, @error_id(error.Cancelled) as i32);
+        },
+        .Pending(_) => {
+            try assert_eq_i32(0, 1);
+        },
+    };
+}
+
+fn assert_cancelled_poll_usize(p: Poll<!usize>) !void {
+    match p {
+        .Ready(value) => {
+            try assert_eq_i32(value.error_id as i32, @error_id(error.Cancelled) as i32);
+        },
+        .Pending(_) => {
+            try assert_eq_i32(0, 1);
+        },
+    };
+}
+
+fn assert_cancelled_poll_parse_result(p: Poll<!ParseResult>) !void {
+    match p {
+        .Ready(value) => {
+            try assert_eq_i32(value.error_id as i32, @error_id(error.Cancelled) as i32);
+        },
+        .Pending(_) => {
+            try assert_eq_i32(0, 1);
+        },
+    };
+}
+
+fn assert_fd_still_blocking(fd: i32) !void {
+    const flags: i32 = try sys_fcntl(fd, F_GETFL, 0);
+    try assert_eq_i32(flags & O_NONBLOCK, 0);
+}
+
+fn empty_parse_result(body_buf: &byte) ParseResult {
+    return ParseResult{
+        request: Request{
+            method: Method.GET,
+            http11: true,
+            path: [],
+            path_len: 0,
+            path_params: [],
+            path_param_count: 0,
+            query: [],
+            query_count: 0,
+            headers: [],
+            header_count: 0,
+            body: body_buf[0: 0],
+        },
+        consumed: 0,
+    };
+}
+
+fn test_async_fd_read_cancelled_returns_cancelled() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+    defer {
+        _ = sys_close(read_fd) catch {};
+        _ = sys_close(write_fd) catch {};
+    }
+
+    var af: AsyncFd = async_fd_new(read_fd);
+    var buf: [byte: 8] = [];
+    const f: Future<!usize> = af.read(&buf[0], 4);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_fd_still_blocking(read_fd);
+}
+
+fn test_async_fd_write_cancelled_returns_cancelled() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+    defer {
+        _ = sys_close(read_fd) catch {};
+        _ = sys_close(write_fd) catch {};
+    }
+
+    var af: AsyncFd = async_fd_new(write_fd);
+    var src: [byte: 4] = [ 65, 66, 67, 68 ];
+    const f: Future<!usize> = af.write(&src[0] as &const byte, 4);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_fd_still_blocking(write_fd);
+}
+
+fn test_async_writev_cancelled_returns_cancelled() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+    defer {
+        _ = sys_close(read_fd) catch {};
+        _ = sys_close(write_fd) catch {};
+    }
+
+    var head: [byte: 3] = [ 'a' as byte, 'b' as byte, 'c' as byte ];
+    var body: [byte: 2] = [ 'd' as byte, 'e' as byte ];
+    const f: Future<!usize> = async_writev(write_fd, &head[0] as &const byte, 3, &body[0] as &const byte, 2);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_fd_still_blocking(write_fd);
+}
+
+fn test_async_sendfile_cancelled_returns_cancelled() !void {
+    const file_path: &[const byte] = "/tmp/uya_async_sendfile_cancelled.txt";
+    _ = sys_unlink(file_path.ptr) catch {};
+    const write_file_fd: i32 = try sys_open(file_path.ptr, (O_CREAT | O_TRUNC | O_WRONLY) as i32, 0o600);
+    defer {
+        _ = sys_unlink(file_path.ptr) catch {};
+    }
+    var file_body: [byte: 4] = [ 'c' as byte, 'a' as byte, 'n' as byte, 'x' as byte ];
+    _ = try sys_write(write_file_fd, &file_body[0] as *const byte, 4);
+    _ = try sys_close(write_file_fd);
+
+    const read_file_fd: i32 = try sys_open(file_path.ptr, O_RDONLY as i32, 0);
+    defer {
+        _ = sys_close(read_file_fd) catch {};
+    }
+
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+    defer {
+        _ = sys_close(read_fd) catch {};
+        _ = sys_close(write_fd) catch {};
+    }
+
+    const f: Future<!usize> = async_sendfile(write_fd, read_file_fd, 4);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_fd_still_blocking(write_fd);
+}
+
+fn test_async_socket_send_cancelled_returns_cancelled() !void {
+    const fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(fd) catch {};
+    }
+
+    var src: [byte: 4] = [ 1, 2, 3, 4 ];
+    const f: Future<!usize> = async_socket_send(fd, &src[0] as &const byte, 4, 0 as u64);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_fd_still_blocking(fd);
+}
+
+fn test_async_socket_recv_cancelled_returns_cancelled() !void {
+    const fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(fd) catch {};
+    }
+
+    var buf: [byte: 8] = [];
+    const f: Future<!usize> = async_socket_recv(fd, &buf[0], 4, 0 as u64);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_fd_still_blocking(fd);
+}
+
+fn test_async_connect_cancelled_returns_cancelled() !void {
+    const client_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(client_fd) catch {};
+    }
+
+    var connect_addr: [byte: 16] = [];
+    fill_sockaddr_loopback_16(9 as u16, &connect_addr[0] as &byte);
+
+    const f: Future<!i32> = async_connect(client_fd, &connect_addr[0] as &void, 16 as u32, 0 as u64);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_i32(f.poll(&wk));
+    try assert_fd_still_blocking(client_fd);
+}
+
+fn test_async_accept_cancelled_returns_cancelled() !void {
+    const listen_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(listen_fd) catch {};
+    }
+    var one: i32 = 1;
+    _ = try sys_setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &one as &void, 4 as u32);
+    var listen_addr: [byte: 16] = [];
+    fill_sockaddr_loopback_16(0, &listen_addr[0] as &byte);
+    _ = try sys_bind(listen_fd, &listen_addr[0] as &void, 16 as u32);
+    _ = try sys_listen(listen_fd, 128);
+
+    const f: Future<!i32> = async_accept(listen_fd);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_i32(f.poll(&wk));
+    try assert_fd_still_blocking(listen_fd);
+}
+
+fn test_async_read_parse_cancelled_returns_cancelled() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+    defer {
+        _ = sys_close(read_fd) catch {};
+        _ = sys_close(write_fd) catch {};
+    }
+
+    var buf: [byte: 256] = [];
+    var filled: usize = 0;
+    const f: Future<!ParseResult> = async_read_parse(read_fd, &buf[0], 256, &filled);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_parse_result(f.poll(&wk));
+    try assert_fd_still_blocking(read_fd);
+}
+
+fn test_async_read_parse_into_cancelled_returns_cancelled() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+    defer {
+        _ = sys_close(read_fd) catch {};
+        _ = sys_close(write_fd) catch {};
+    }
+
+    var buf: [byte: 256] = [];
+    var filled: usize = 0;
+    var out: ParseResult = empty_parse_result(&buf[0]);
+    var err_out: u32 = 999u32;
+    const f: Future<!usize> = async_read_parse_into(read_fd, &buf[0], 256, &filled, &out, &err_out);
+    var wk: Waker = Waker{};
+    wk.cancel();
+    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_eq_i32(err_out as i32, 999);
+    try assert_fd_still_blocking(read_fd);
+}
+
 fn test_async_fd_write() !void {
     const STDOUT: i32 = 1;
     var af: AsyncFd = async_fd_new(STDOUT);
@@ -597,4 +859,17 @@ test "async_writev_writes_head_then_body" {
 
 test "async_sendfile_copies_file_into_fd" {
     try test_async_sendfile_copies_file_into_fd();
+}
+
+test "async_io_leaf_futures_return_cancelled_when_waker_cancelled" {
+    try test_async_fd_read_cancelled_returns_cancelled();
+    try test_async_fd_write_cancelled_returns_cancelled();
+    try test_async_writev_cancelled_returns_cancelled();
+    try test_async_sendfile_cancelled_returns_cancelled();
+    try test_async_socket_send_cancelled_returns_cancelled();
+    try test_async_socket_recv_cancelled_returns_cancelled();
+    try test_async_connect_cancelled_returns_cancelled();
+    try test_async_accept_cancelled_returns_cancelled();
+    try test_async_read_parse_cancelled_returns_cancelled();
+    try test_async_read_parse_into_cancelled_returns_cancelled();
 }
