@@ -9,6 +9,7 @@ LOWER = ROOT / "src/lower/async.uya"
 FUNCTION = ROOT / "src/codegen/c99/function.uya"
 TRANSFORM = ROOT / "src/codegen/c99/async_transform.uya"
 INTERNAL = ROOT / "src/codegen/c99/internal.uya"
+STMT = ROOT / "src/codegen/c99/stmt.uya"
 
 
 def require(text: str, needle: str, label: str) -> None:
@@ -36,6 +37,7 @@ def main() -> int:
     function_text = FUNCTION.read_text(encoding="utf-8")
     transform_text = TRANSFORM.read_text(encoding="utf-8")
     internal_text = INTERNAL.read_text(encoding="utf-8")
+    stmt_text = STMT.read_text(encoding="utf-8")
     segment_text = section(
         function_text,
         "fn emit_async_segment(",
@@ -59,21 +61,27 @@ def main() -> int:
     require(lower_text, "resume_state: i32", "src/lower/async.uya")
     require(lower_text, "terminal_state: i32", "src/lower/async.uya")
     require(lower_text, "prefix_stmt_count: i32", "src/lower/async.uya")
+    require(lower_text, "return_stmt: &ASTNode", "src/lower/async.uya")
 
     forbid(function_text, "fn collect_awaits_recursive(", "src/codegen/c99/function.uya")
     forbid(function_text, "fn c99_find_first_try_await_expr(", "src/codegen/c99/function.uya")
     forbid(function_text, "fn c99_async_find_await_by_try_expr(", "src/codegen/c99/function.uya")
     forbid(function_text, "fn c99_async_root_stmt_index_of_first_await(", "src/codegen/c99/function.uya")
     forbid(function_text, "fn c99_async_prefix_stmt_count_before_first_await(", "src/codegen/c99/function.uya")
+    forbid(function_text, "fn c99_var_decl_init_is_await_bind(", "src/codegen/c99/function.uya")
+    forbid(function_text, "fn c99_return_stmt_is_await_bind(", "src/codegen/c99/function.uya")
+    forbid(function_text, "fn c99_return_stmt_has_nested_try_await(", "src/codegen/c99/function.uya")
     require(function_text, "async_lower_build_plan(", "src/codegen/c99/function.uya")
     require(function_text, "async_plan.await_points[plan_i].source_stmt", "src/codegen/c99/function.uya")
     require(function_text, "async_plan.await_points[plan_i].split_try_expr", "src/codegen/c99/function.uya")
     require(function_text, "async_plan.await_points[plan_i].resume_state", "src/codegen/c99/function.uya")
     require(function_text, "async_plan.terminal_state", "src/codegen/c99/function.uya")
     require(function_text, "async_prefix_stmt_count = async_plan.prefix_stmt_count;", "src/codegen/c99/function.uya")
+    require(function_text, "async_plan.return_stmt", "src/codegen/c99/function.uya")
     forbid(function_text, "await_index + 1", "src/codegen/c99/function.uya")
     forbid(function_text, "codegen.async_collect_count + 1", "src/codegen/c99/function.uya")
     forbid(function_text, "await_count + 1", "src/codegen/c99/function.uya")
+    forbid(function_text, "var terminal_return_stmt: &ASTNode = null;", "src/codegen/c99/function.uya")
     forbid(segment_text, "async_lower_find_first_try_await_expr(", "emit_async_segment")
     forbid(continuation_text, "async_lower_find_first_try_await_expr(", "emit_async_continuation")
 
@@ -81,6 +89,10 @@ def main() -> int:
     require(internal_text, "async_collect_split_try_exprs: & & ASTNode", "src/codegen/c99/internal.uya")
     require(internal_text, "async_collect_state_ids: &i32", "src/codegen/c99/internal.uya")
     require(internal_text, "async_collect_terminal_state: i32", "src/codegen/c99/internal.uya")
+    require(internal_text, "async_collect_ret_stmt: &ASTNode", "src/codegen/c99/internal.uya")
+
+    forbid(stmt_text, "codegen.async_collect_count + 1", "src/codegen/c99/stmt.uya")
+    require(stmt_text, "c99_async_terminal_state(codegen)", "src/codegen/c99/stmt.uya")
 
     require(transform_text, "use lower.async;", "src/codegen/c99/async_transform.uya")
     forbid(transform_text, "export struct AwaitPoint", "src/codegen/c99/async_transform.uya")

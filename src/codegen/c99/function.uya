@@ -1962,60 +1962,6 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     return 0;
 }
 
-// @await / try @await 形式的 var 声明由 async_collect_* 单独捕获，此处跳过
-fn c99_var_decl_init_is_await_bind(init: &ASTNode) i32 {
-    if init == null {
-        return 0;
-    }
-    if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null {
-        return 1;
-    }
-    if init.type != ASTNodeType.AST_TRY_EXPR {
-        return 0;
-    }
-    if init.try_expr_operand == null {
-        return 0;
-    }
-    if init.try_expr_operand.type != ASTNodeType.AST_AWAIT_EXPR {
-        return 0;
-    }
-    return 1;
-}
-
-fn c99_return_stmt_is_await_bind(stmt: &ASTNode) i32 {
-    if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT || stmt.return_stmt_expr == null {
-        return 0;
-    }
-    if stmt.return_stmt_expr.type == ASTNodeType.AST_AWAIT_EXPR &&
-        stmt.return_stmt_expr.await_expr_operand != null {
-        return 1;
-    }
-    if stmt.return_stmt_expr.type != ASTNodeType.AST_TRY_EXPR || stmt.return_stmt_expr.try_expr_operand == null {
-        return 0;
-    }
-    if stmt.return_stmt_expr.try_expr_operand.type != ASTNodeType.AST_AWAIT_EXPR ||
-        stmt.return_stmt_expr.try_expr_operand.await_expr_operand == null {
-        return 0;
-    }
-    return 1;
-}
-
-// return 语句里是否包含嵌套的 try @await（例如 return 1 + (try @await foo())）
-fn c99_return_stmt_has_nested_try_await(stmt: &ASTNode) i32 {
-    if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT || stmt.return_stmt_expr == null {
-        return 0;
-    }
-    var nested_try: [&ASTNode: 1] = [null];
-    if async_lower_find_first_try_await_expr(stmt.return_stmt_expr, &nested_try[0]) != 0 &&
-        nested_try[0] != null && nested_try[0].try_expr_operand != null &&
-        nested_try[0].try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
-        nested_try[0].try_expr_operand.await_expr_operand != null {
-        return 1;
-    }
-    return 0;
-}
-
-
 fn c99_emit_async_arm_await_index(
     codegen: &C99CodeGenerator,
     j: i32,
@@ -2390,6 +2336,7 @@ fn c99_async_emit_inline_child_predefs(codegen: &C99CodeGenerator, current_fn_de
     const saved_collect_count: i32 = codegen.async_collect_count;
     const saved_collect_capacity: i32 = codegen.async_collect_capacity;
     const saved_collect_terminal_state: i32 = codegen.async_collect_terminal_state;
+    const saved_collect_ret_stmt: &ASTNode = codegen.async_collect_ret_stmt;
     const saved_collect_ret_expr: &ASTNode = codegen.async_collect_ret_expr;
     const saved_collect_has_loop: i32 = codegen.async_collect_has_loop;
     const saved_cleanup_region_count: i32 = codegen.async_cleanup_region_count;
@@ -2458,6 +2405,7 @@ fn c99_async_emit_inline_child_predefs(codegen: &C99CodeGenerator, current_fn_de
     codegen.async_collect_count = saved_collect_count;
     codegen.async_collect_capacity = saved_collect_capacity;
     codegen.async_collect_terminal_state = saved_collect_terminal_state;
+    codegen.async_collect_ret_stmt = saved_collect_ret_stmt;
     codegen.async_collect_ret_expr = saved_collect_ret_expr;
     codegen.async_collect_has_loop = saved_collect_has_loop;
     codegen.async_cleanup_region_count = saved_cleanup_region_count;
@@ -3029,8 +2977,20 @@ fn c99_async_collect_locals_recursive(codegen: &C99CodeGenerator, fn_body: &ASTN
         c99_async_collect_locals_recursive(codegen, fn_body, node.for_stmt_body, null, -1);
         return;
     }
+    var is_direct_await_bind: i32 = 0;
+    if node != null && node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
+        if node.var_decl_init.type == ASTNodeType.AST_AWAIT_EXPR &&
+            node.var_decl_init.await_expr_operand != null {
+            is_direct_await_bind = 1;
+        } else if node.var_decl_init.type == ASTNodeType.AST_TRY_EXPR &&
+            node.var_decl_init.try_expr_operand != null &&
+            node.var_decl_init.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
+            node.var_decl_init.try_expr_operand.await_expr_operand != null {
+            is_direct_await_bind = 1;
+        }
+    }
     if node.type != ASTNodeType.AST_VAR_DECL || node.var_decl_name == null || node.var_decl_type == null ||
-        c99_var_decl_init_is_await_bind(node.var_decl_init) != 0 {
+        is_direct_await_bind != 0 {
         return;
     }
     // @frame(...) 类型允许无初始化，但仍需提升到状态机结构体中
@@ -3848,6 +3808,34 @@ fn c99_async_collected_resume_state_at(codegen: &C99CodeGenerator, idx: i32) i32
         return 0;
     }
     return codegen.async_collect_state_ids[idx];
+}
+
+fn c99_async_collected_source_stmt_is_return(codegen: &C99CodeGenerator, idx: i32) i32 {
+    const stmt: &ASTNode = c99_async_collected_source_stmt_at(codegen, idx);
+    if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT {
+        return 0;
+    }
+    return 1;
+}
+
+fn c99_async_collected_is_direct_return_await(codegen: &C99CodeGenerator, idx: i32) i32 {
+    if c99_async_collected_source_stmt_is_return(codegen, idx) == 0 {
+        return 0;
+    }
+    if c99_async_collected_split_try_expr_at(codegen, idx) != null {
+        return 0;
+    }
+    return 1;
+}
+
+fn c99_async_collected_is_split_return_stmt(codegen: &C99CodeGenerator, idx: i32) i32 {
+    if c99_async_collected_source_stmt_is_return(codegen, idx) == 0 {
+        return 0;
+    }
+    if c99_async_collected_split_try_expr_at(codegen, idx) == null {
+        return 0;
+    }
+    return 1;
 }
 
 fn c99_async_collected_cleanup_region_at(codegen: &C99CodeGenerator, idx: i32) i32 {
@@ -4866,24 +4854,6 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
             si = si + 1;
             continue;
         }
-        // try @await 绑定：这是分裂点
-        if stmt.type == ASTNodeType.AST_VAR_DECL && stmt.var_decl_init != null &&
-            c99_var_decl_init_is_await_bind(stmt.var_decl_init) != 0 {
-            const ai: i32 = c99_async_find_await_for_stmt(codegen, block, si, stmt);
-            if ai >= 0 {
-                c99_emit_async_arm_and_fallthrough(codegen, ai);
-                return 0;
-            }
-        }
-        // return try @await：分裂点
-        if stmt.type == ASTNodeType.AST_RETURN_STMT && stmt.return_stmt_expr != null &&
-            c99_stmt_tree_has_await(stmt) != 0 {
-            const ai: i32 = c99_async_find_await_for_stmt(codegen, block, si, stmt);
-            if ai >= 0 {
-                c99_emit_async_arm_and_fallthrough(codegen, ai);
-                return 0;
-            }
-        }
         // while 含 await：变换
         if stmt.type == ASTNodeType.AST_WHILE_STMT && stmt.while_stmt_body != null &&
             c99_stmt_tree_has_await(stmt.while_stmt_body) != 0 {
@@ -4922,11 +4892,11 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
             si = si + 1;
             continue;
         }
-        // 复合表达式里的 try @await：把当前语句当成分裂点，resume 后再重放整条语句。
+        // lowered plan 已给出当前语句的 await split 点；这里不再按 var/return/compound 形状重新推断。
         if stmt.type != ASTNodeType.AST_BLOCK && stmt.type != ASTNodeType.AST_IF_STMT &&
             stmt.type != ASTNodeType.AST_WHILE_STMT && stmt.type != ASTNodeType.AST_FOR_STMT {
             const ai2: i32 = c99_async_find_await_for_stmt(codegen, block, si, stmt);
-            if ai2 >= 0 && c99_async_collected_split_try_expr_at(codegen, ai2) != null {
+            if ai2 >= 0 {
                 c99_emit_async_arm_and_fallthrough(codegen, ai2);
                 return 0;
             }
@@ -4979,8 +4949,8 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
         if split_try_expr != null &&
             split_try_expr.try_expr_operand != null && split_try_expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
             split_try_expr.try_expr_operand.await_expr_operand != null &&
-            (cur_stmt.type != ASTNodeType.AST_VAR_DECL || c99_var_decl_init_is_await_bind(cur_stmt.var_decl_init) == 0) &&
-            c99_return_stmt_is_await_bind(cur_stmt) == 0 {
+            (cur_stmt.type != ASTNodeType.AST_VAR_DECL || cur_stmt.var_decl_init == null ||
+             @usize_from_ptr(cur_stmt.var_decl_init as &void) != @usize_from_ptr(split_try_expr as &void)) {
             const saved_subst_try_expr: &ASTNode = codegen.async_expr_subst_try_expr;
             const saved_subst_name: &byte = codegen.async_expr_subst_name;
             codegen.async_expr_subst_try_expr = split_try_expr;
@@ -5243,6 +5213,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     var await_enclosing_for: & & ASTNode = null;
     var await_count: i32 = 0;
     var terminal_state: i32 = 1;
+    var ret_stmt: &ASTNode = null;
     var ret_expr: &ASTNode = null;
     var has_await_loop: i32 = 0;
     var async_loop_var_is_total: i32 = 0;
@@ -5251,6 +5222,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     if body != null {
         codegen.async_collect_count = 0;
         codegen.async_collect_terminal_state = 1;
+        codegen.async_collect_ret_stmt = null;
         codegen.async_collect_ret_expr = null;
         codegen.async_collect_has_loop = 0;
         codegen.async_collect_state_ids = null;
@@ -5261,6 +5233,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_inline_temp_var_count = 0;
         _ = async_lower_build_plan(&async_plan, codegen.arena, codegen.checker, body);
         codegen.async_collect_terminal_state = async_plan.terminal_state;
+        codegen.async_collect_ret_stmt = async_plan.return_stmt;
         codegen.async_collect_ret_expr = async_plan.return_expr;
         codegen.async_collect_has_loop = async_plan.has_loop;
         codegen.async_cleanup_regions = async_plan.cleanup_regions;
@@ -5289,6 +5262,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         }
         c99_async_scan_inline_temp_vars(codegen, body);
         await_count = codegen.async_collect_count;
+        ret_stmt = codegen.async_collect_ret_stmt;
         ret_expr = codegen.async_collect_ret_expr;
         has_await_loop = codegen.async_collect_has_loop;
         if await_count > 0 {
@@ -6185,18 +6159,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             fputs("        s->await_fut.data = (void*)0; s->await_fut.vtable = (void*)0;\n" as *byte, codegen.emit_stream as *void);
             // Bug C: "return try @await" — 无 bind name：直接 return Ready(r.value)
             if cur_bind_name == null && ret_expr == null {
-                const await_block_direct: &ASTNode = c99_async_await_block_at(await_blocks, await_count, state_idx);
-                const await_stmt_index_direct: i32 = c99_async_await_stmt_index_at(await_stmt_indices, await_count, state_idx);
-                var direct_return_await: i32 = 0;
-                if await_block_direct != null && await_stmt_index_direct >= 0 &&
-                    await_stmt_index_direct < await_block_direct.block_stmt_count {
-                    const cur_stmt_direct: &ASTNode = await_block_direct.block_stmts[await_stmt_index_direct];
-                    if cur_stmt_direct != null && cur_stmt_direct.type == ASTNodeType.AST_RETURN_STMT &&
-                        cur_stmt_direct.return_stmt_expr != null &&
-                        cur_stmt_direct.return_stmt_expr.type == ASTNodeType.AST_AWAIT_EXPR {
-                        direct_return_await = 1;
-                    }
-                }
+                const direct_return_await: i32 = c99_async_collected_is_direct_return_await(codegen, state_idx);
                 if direct_return_await != 0 {
                     emit_all_active_scope_cleanup(codegen, 0);
                     fprintf(codegen.emit_stream as *void, "        return (%s){ ._tag = 1, .u = (%s){ .Ready = r } };\n" as *byte,
@@ -6219,16 +6182,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 const saved_cont_depth: i32 = codegen.defer_stack_depth;
                 const saved_cont_drop_scope: i32 = codegen.current_drop_scope;
                 const cont_r: i32 = emit_async_continuation(codegen, state_idx);
-                var skip_ret_expr_emit: i32 = 0;
-                const await_block2: &ASTNode = c99_async_await_block_at(await_blocks, await_count, state_idx);
-                const await_stmt_index2: i32 = c99_async_await_stmt_index_at(await_stmt_indices, await_count, state_idx);
-                if await_block2 != null && await_stmt_index2 >= 0 &&
-                    await_stmt_index2 < await_block2.block_stmt_count {
-                    const cur_stmt2: &ASTNode = await_block2.block_stmts[await_stmt_index2];
-                    if c99_return_stmt_has_nested_try_await(cur_stmt2) != 0 {
-                        skip_ret_expr_emit = 1;
-                    }
-                }
+                const skip_ret_expr_emit: i32 = c99_async_collected_is_split_return_stmt(codegen, state_idx);
                 if cont_r != 0 && ret_expr != null && skip_ret_expr_emit == 0 {
                     codegen.current_function_return_type = effective_return_type;
                     fprintf(codegen.emit_stream as *void, "        %s _uya_async_cont_ret = (%s){ .error_id = 0, .value = " as *byte,
@@ -6260,16 +6214,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 const saved_cont_depth2: i32 = codegen.defer_stack_depth;
                 const saved_cont_drop_scope2: i32 = codegen.current_drop_scope;
                 const cont_r2: i32 = emit_async_continuation(codegen, state_idx);
-                var skip_ret_expr_emit2: i32 = 0;
-                const await_block3: &ASTNode = c99_async_await_block_at(await_blocks, await_count, state_idx);
-                const await_stmt_index3: i32 = c99_async_await_stmt_index_at(await_stmt_indices, await_count, state_idx);
-                if await_block3 != null && await_stmt_index3 >= 0 &&
-                    await_stmt_index3 < await_block3.block_stmt_count {
-                    const cur_stmt3: &ASTNode = await_block3.block_stmts[await_stmt_index3];
-                    if c99_return_stmt_has_nested_try_await(cur_stmt3) != 0 {
-                        skip_ret_expr_emit2 = 1;
-                    }
-                }
+                const skip_ret_expr_emit2: i32 = c99_async_collected_is_split_return_stmt(codegen, state_idx);
                 if cont_r2 != 0 && ret_expr != null && skip_ret_expr_emit2 == 0 {
                     codegen.current_function_return_type = effective_return_type;
                     // return_future_err_union + Future 字面量：需要 boxing 为接口
@@ -6307,19 +6252,8 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
 
     // 终态 — while/if 的无 await 分支可能到达 lowered plan 指定的 terminal state。
     // 若最终 return 本身含 @await，它已在前面的 await state 中拆分处理，不能再次普通生成。
-    var terminal_return_stmt: &ASTNode = null;
-    if body != null && body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
-        var terminal_si: i32 = body.block_stmt_count - 1;
-        while terminal_si >= 0 {
-            const terminal_st: &ASTNode = body.block_stmts[terminal_si];
-            if terminal_st != null && terminal_st.type == ASTNodeType.AST_RETURN_STMT {
-                terminal_return_stmt = terminal_st;
-                break;
-            }
-            terminal_si = terminal_si - 1;
-        }
-    }
-    if await_count > 0 && (terminal_return_stmt == null || c99_stmt_tree_has_await(terminal_return_stmt) == 0) {
+    const terminal_return_stmt: &ASTNode = ret_stmt;
+    if await_count > 0 && (terminal_return_stmt == null || ret_expr != null) {
         fprintf(codegen.emit_stream as *void, "    if (s->state == %d) {\n" as *byte, terminal_state);
         const saved_terminal_depth: i32 = codegen.defer_stack_depth;
         const saved_terminal_drop_scope: i32 = codegen.current_drop_scope;
@@ -6327,7 +6261,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             _ = c99_async_push_cleanup_region_chain(codegen, codegen.async_cleanup_root_region);
         }
         codegen.async_emit_poll_return = 1;
-        if terminal_return_stmt != null {
+        if terminal_return_stmt != null && ret_expr != null {
             const terminal_expr: &ASTNode = terminal_return_stmt.return_stmt_expr;
             if terminal_expr != null && terminal_expr.type == ASTNodeType.AST_ERROR_VALUE {
                 gen_stmt(codegen, terminal_return_stmt);
@@ -6406,6 +6340,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     codegen.async_full_return_type = null;
     codegen.async_concrete_future_safe = null;
     codegen.async_state_slot_iface_c = null;
+    codegen.async_collect_ret_stmt = null;
     codegen.async_collect_cleanup_region_ids = null;
     codegen.async_cleanup_regions = null;
     codegen.async_cleanup_region_count = 0;

@@ -888,7 +888,7 @@ fn gen_break_stmt(codegen: &C99CodeGenerator) void {
             const fr: i32 = emit_async_after_stmt(codegen, codegen.async_control_for);
             if fr != 0 {
                 fprintf(codegen.emit_stream as *void, "        %s->state = %d;\n" as *byte,
-                    codegen.async_state_var as *byte, codegen.async_collect_count + 1);
+                    codegen.async_state_var as *byte, c99_async_terminal_state(codegen));
             }
             fprintf(codegen.emit_stream as *void, "        return (%s){ ._tag = 0 };\n" as *byte, codegen.async_poll_ret_c as *byte);
             return;

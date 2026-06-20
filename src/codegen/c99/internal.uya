@@ -363,6 +363,7 @@ struct C99CodeGenerator {
     async_cleanup_region_count: i32,
     async_cleanup_root_region: i32,
     async_collect_terminal_state: i32,
+    async_collect_ret_stmt: &ASTNode,
     async_collect_ret_expr: &ASTNode,
     async_collect_has_loop: i32,
     async_state_size: i32,  // 编译期计算的状态机近似字节数；<=0 表示未知或需堆分配

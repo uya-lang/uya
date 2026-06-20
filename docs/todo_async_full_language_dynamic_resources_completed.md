@@ -1332,3 +1332,30 @@
     - 验证：`../uya/bin/uya test tests/test_async_cleanup_body_coverage.uya`（2 tests passed, 5 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_sync_body_matrix.uya`（4 tests passed, 20 assertions）
     - 验证：`git diff --check`（无输出）
+## 2026-06-21
+
+### Phase 1：`@async_fn` 语法完整性
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+路径上下文：
+- [x] 让 C99 emitter 只消费 lowered async plan，不再自己重新推断：
+  - [x] break / continue / return / error 路径
+    - 完成内容：`src/lower/async.uya` 的 lowered plan 新增 `return_stmt`，`src/codegen/c99/internal.uya` 新增 `async_collect_ret_stmt`，`src/codegen/c99/function.uya` 改为直接消费 plan 的 return/source metadata 处理 terminal return、direct return await、split return replay 与统一 split 点判定，`src/codegen/c99/stmt.uya` 的 async `break` 改为使用 `c99_async_terminal_state(codegen)`，不再写死 `async_collect_count + 1`。
+    - 完成内容：`tests/verify_async_lowering_plan_architecture.py` 扩展为锁定 `return_stmt` / `async_collect_ret_stmt`、禁止 `c99_var_decl_init_is_await_bind` / `c99_return_stmt_is_await_bind` / `c99_return_stmt_has_nested_try_await` 以及 `stmt.uya` 中的 `async_collect_count + 1`。
+    - 验证：`python3 tests/verify_async_lowering_plan_architecture.py`
+    - 结果：通过，输出 `verify_async_lowering_plan_architecture: centralized async lowering plan confirmed`。
+    - 验证：`../uya/bin/uya test tests/test_async_control_flow_body.uya`
+    - 结果：通过，3 tests passed，6 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_error_body_matrix.uya`
+    - 结果：通过，5 tests passed，5 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_return_error_direct.uya`
+    - 结果：通过，2 tests passed，6 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_bug_d_nested_block.uya`
+    - 结果：通过，2 tests passed，4 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_compound_try_await.uya`
+    - 结果：通过，2 tests passed，4 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_bug_c_tail_await.uya`
+    - 结果：通过，1 test passed，1 assertion passed。
+    - 验证：`../uya/bin/uya test tests/test_async_catch_await.uya`
+    - 结果：通过，10 tests passed，10 assertions passed。
+    - 验证：`git diff --check`
+    - 结果：通过，无输出。

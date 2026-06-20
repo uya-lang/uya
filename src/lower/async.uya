@@ -43,6 +43,7 @@ export struct AsyncLowerPlan {
     root_cleanup_region: i32,
     prefix_stmt_count: i32,
     terminal_state: i32,
+    return_stmt: &ASTNode,
     return_expr: &ASTNode,
     has_loop: i32,
 }
@@ -1030,6 +1031,7 @@ fn async_lower_collect_plan_node(
                 plan.await_points[idx_ret_plain].enclosing_for = enclosing_for;
                 plan.await_points[idx_ret_plain].cleanup_region = current_cleanup_region;
                 plan.await_points[idx_ret_plain].is_return_await = 1;
+                plan.return_stmt = node;
                 plan.return_expr = null;
             }
             return;
@@ -1051,11 +1053,13 @@ fn async_lower_collect_plan_node(
                     plan.await_points[idx_ret_try].enclosing_for = enclosing_for;
                     plan.await_points[idx_ret_try].cleanup_region = current_cleanup_region;
                     plan.await_points[idx_ret_try].is_return_await = 1;
+                    plan.return_stmt = node;
                     plan.return_expr = null;
                 }
                 return;
             }
         }
+        plan.return_stmt = node;
         plan.return_expr = ret_expr;
     }
 
@@ -1104,6 +1108,7 @@ export fn async_lower_build_plan(
     plan.root_cleanup_region = -1;
     plan.prefix_stmt_count = -1;
     plan.terminal_state = 1;
+    plan.return_stmt = null;
     plan.return_expr = null;
     plan.has_loop = 0;
     if body == null {
