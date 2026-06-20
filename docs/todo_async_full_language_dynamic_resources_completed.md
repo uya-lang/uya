@@ -1453,3 +1453,14 @@
     - 验证：`rg -n "future_ready_ok\\(|Task<.*>\\{ state: Poll<.*>\\.Ready|Future<.*>\\{ state: poll_ready_ok|Task<.*>\\{ state: poll_ready_ok" lib/std tests` 仅命中 `lib/std/async.uya` 的 `future_ready_ok`、`task_ready`、`task_ready_ok` 三个 ready helper。
     - 验证：`sed -n '277,336p' lib/std/async.uya` 显示 `Future<T>` / `Task<T>` 的 `poll()` 只返回 `self.state`，这些 helper 只预置 `Poll.Ready(...)`，没有手写状态推进。
     - 验证：`../uya/bin/uya test tests/test_task_std_async.uya` 通过，`task_ready`、`task_ready_ok`、`future_ready_ok` 共 6 个用例全部通过。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.0 统计口径
+路径：最终目标口径 > 标准库业务层、协议层和 I/O 组合层不再保留手写 `poll()` 状态机。
+
+- [x] `lib/std/http/websocket_client.uya`：将 `WebSocketClientReconnectFuture` 改为 `@async_fn websocket_client_reconnect_tick(...)`，并补结构性检查确认手写 reconnect future 已删除。
+  - 验证：`bash tests/verify_async_websocket_client_reconnect_boundary.sh`
+    - 结果：通过；确认 `websocket_client_reconnect_tick` 已升级为 `export @async_fn fn`，`struct WebSocketClientReconnectFuture` 已删除，并且 `../uya/bin/uya check tests/test_http_websocket_reconnect.uya` 通过。
+  - 验证：`../uya/bin/uya test tests/test_http_websocket_reconnect.uya`
+    - 结果：失败；当前仅剩仓库既有的 C99 代码生成/宿主编译错误：`std_http_websocket_conn_write_message_poll` 的 `invalid initializer`，以及 `std_http_uyagin_send_context_response_body_trait_async_poll` 的 `invalid initializer`。
+    - 说明：本轮已消除 `std_http_websocket_client_reconnect_tick_poll` 的额外生成错误，当前失败点与本叶子迁移无关。

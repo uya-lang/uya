@@ -6,13 +6,6 @@ use std.async;
 use std.http.websocket_types;
 use std.http.websocket_async;
 
-fn websocket_client_ready_result_bool(result: !bool) Future<!bool> {
-    if result.error_id != 0u32 {
-        return Future<!bool>{ state: Poll<!bool>.Ready(result) };
-    }
-    return future_ready_ok<bool>(result.value);
-}
-
 fn websocket_client_ready_result_usize(result: !usize) Future<!usize> {
     if result.error_id != 0u32 {
         return Future<!usize>{ state: Poll<!usize>.Ready(result) };
@@ -75,52 +68,6 @@ export struct WebSocketClient {
     reconnect_failures: i32 = 0,
     next_retry_at_ms: u64 = 0u64,
     last_delay_ms: u32 = 0u32,
-}
-
-struct WebSocketClientReconnectFuture : Future<!bool> {
-    client: &WebSocketClient,
-    connector: WebSocketClientConnector,
-    now_ms: u64,
-    connect_fut: Future<!WebSocketConn>,
-    state: i32,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!bool> {
-        if self.state == 0 {
-            self.connect_fut = self.connector.connect(&self.client.options);
-            self.state = 1;
-        }
-
-        const polled: Poll<!WebSocketConn> = self.connect_fut.poll(waker);
-        match polled {
-            .Pending(_) => {
-                return Poll<!bool>.Pending({});
-            }
-            .Ready(result) => {
-                self.connect_fut.release();
-                self.state = 2;
-                var conn: WebSocketConn = result catch |err| {
-                    _ = err;
-                    const note: !void = websocket_client_note_connect_failure(self.client, self.now_ms);
-                    _ = note catch {
-                        return Poll<!bool>.Ready(error.WebSocketReconnectExhausted);
-                    };
-                    return Poll<!bool>.Ready(ok<bool>(false));
-                };
-                const attach_result: !void = websocket_client_attach(self.client, &conn);
-                if attach_result.error_id != 0u32 {
-                    conn.close();
-                    return Poll<!bool>.Ready(error.WebSocketProtocolError);
-                }
-                return Poll<!bool>.Ready(ok<bool>(true));
-            }
-        }
-    }
-
-    fn release(self: &Self) void {
-        if self.state == 1 {
-            self.connect_fut.release();
-        }
-    }
 }
 
 /// 创建默认的 WebSocketClient。
@@ -237,33 +184,50 @@ export fn websocket_client_schedule_reconnect(self: &WebSocketClient, now_ms: u6
 /// 驱动一次自动重连检查。
 /// 参数说明：`connector` 为连接工厂；它负责复用 subprotocol/header/auth 等 client 握手上下文并返回新会话。
 /// 返回值说明：返回 `true` 表示本轮已重连成功；`false` 表示暂未执行或本轮失败后已重新排期；超过最大重试次数返回 `error.WebSocketReconnectExhausted`。
-export fn websocket_client_reconnect_tick(self: &WebSocketClient, connector: WebSocketClientConnector, now_ms: u64) Future<!bool> {
+export @async_fn fn websocket_client_reconnect_tick(self: &WebSocketClient, connector: WebSocketClientConnector, now_ms: u64) Future<!bool> {
     if self.role != WebSocketRole.Client {
-        return websocket_client_ready_result_bool(error.WebSocketProtocolError);
+        return error.WebSocketProtocolError;
     }
     if self.connected {
         const session: &WebSocketConn = websocket_client_session(self);
         if session == null {
-            return websocket_client_ready_result_bool(error.WebSocketProtocolError);
+            return error.WebSocketProtocolError;
         }
         if !websocket_client_conn_is_closed(session) {
-            return future_ready_ok<bool>(false);
+            return false;
         }
         websocket_client_schedule_reconnect(self, now_ms);
     }
     if !self.reconnect.enabled || !self.reconnect_pending {
-        return future_ready_ok<bool>(false);
+        return false;
     }
     if self.next_retry_at_ms != 0u64 && now_ms < self.next_retry_at_ms {
-        return future_ready_ok<bool>(false);
+        return false;
     }
-    return WebSocketClientReconnectFuture{
-        client: self,
-        connector: connector,
-        now_ms: now_ms,
-        connect_fut: future_ready_ok<WebSocketConn>(websocket_conn_empty()),
-        state: 0,
+
+    var connected_now: bool = false;
+    const connect_future: Future<!WebSocketConn> = connector.connect(&self.options);
+    const connect_result: !WebSocketConn = @await connect_future;
+    var conn: WebSocketConn = websocket_conn_empty();
+    _ = connect_result catch |err| {
+        _ = err;
+        const note: !void = websocket_client_note_connect_failure(self, now_ms);
+        _ = note catch |note_err| {
+            _ = note_err;
+            return error.WebSocketReconnectExhausted;
+        };
+        websocket_conn_empty();
     };
+    if connect_result.error_id == 0u32 {
+        conn = connect_result.value;
+        const attach_result: !void = websocket_client_attach(self, &conn);
+        if attach_result.error_id != 0u32 {
+            conn.close();
+            return error.WebSocketProtocolError;
+        }
+        connected_now = true;
+    }
+    return connected_now;
 }
 
 /// 通过当前活跃会话发送业务消息。
