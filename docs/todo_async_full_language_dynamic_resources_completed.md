@@ -1442,3 +1442,14 @@
     - 验证：`nl -ba lib/std/async.uya | sed -n '276,306p'` 显示 `Future<T>` 只定义 `poll/release` 协议；占位 `Future<T>` 注释注明“`@async_fn` 函数当前返回此类型；实现 interface Future<T> 以便类型兼容”；`Task<T>` 注释注明“异步任务包装”，实现也仅持有 `Poll<T>` 状态并转发 `poll/release`。
     - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`（通过；主 todo 有 `0 active tasks`）
     - 验证：`git diff --check`（通过）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.0 统计口径
+
+- [x] 先明确“手工异步 Future”的统计范围：
+  - 已确认：`lib/std/async.uya` 中 `interface Future<T>`、占位 `struct Future<T>`、`Task<T>` 属于 runtime 核心协议壳类型，不计入业务迁移对象；详细验证记录见完成归档。
+  - [x] **不算手工状态机**：只返回 `Future{ state: Poll.Ready(...) }` 的一次性 ready wrapper。
+    - 验证：`rg -n "future_ready_ok\\(|Task<.*>\\{ state: Poll<.*>\\.Ready|Future<.*>\\{ state: poll_ready_ok|Task<.*>\\{ state: poll_ready_ok" lib/std tests` 仅命中 `lib/std/async.uya` 的 `future_ready_ok`、`task_ready`、`task_ready_ok` 三个 ready helper。
+    - 验证：`sed -n '277,336p' lib/std/async.uya` 显示 `Future<T>` / `Task<T>` 的 `poll()` 只返回 `self.state`，这些 helper 只预置 `Poll.Ready(...)`，没有手写状态推进。
+    - 验证：`../uya/bin/uya test tests/test_task_std_async.uya` 通过，`task_ready`、`task_ready_ok`、`future_ready_ok` 共 6 个用例全部通过。
