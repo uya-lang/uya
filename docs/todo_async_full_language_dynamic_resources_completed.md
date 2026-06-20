@@ -1250,3 +1250,23 @@
     - 验证结果：通过，输出 `verify_async_full_language_matrix: --uya --c99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed`。
     - 回归：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99`
     - 回归结果：通过，输出 `verify_async_full_language_matrix: C99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed`。
+
+## Phase 1：`@async_fn` 语法完整性
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+
+- [x] 以 `src/lower/async.uya` 为中心，建立单一 async lowering 计划结构，而不是让 `src/codegen/c99/function.uya` 和 `src/codegen/c99/async_transform.uya` 各自再做一轮语义猜测。
+  - 完成内容：`src/lower/async.uya` 新增 `AsyncLowerPlan` / `AsyncLowerAwaitPoint` 与统一 `async_lower_build_plan`、`async_lower_stmt_contains_await`、`async_lower_find_first_try_await_expr`；`src/codegen/c99/function.uya` 改为先构建 lowered plan 再拷贝给 emitter 所需数组；`src/codegen/c99/async_transform.uya` 收敛为调用 lowering 的兼容薄层。
+  - 验证：`python3 tests/verify_async_lowering_plan_architecture.py`
+  - 结果：通过，输出 `verify_async_lowering_plan_architecture: centralized async lowering plan confirmed`。
+  - 验证：`../uya/bin/uya test tests/test_async_compound_try_await.uya`
+  - 结果：通过，2 tests passed，4 assertions passed。
+  - 验证：`../uya/bin/uya test tests/test_async_cleanup_body_coverage.uya`
+  - 结果：通过，2 tests passed，5 assertions passed。
+  - 验证：`../uya/bin/uya test tests/test_async_match_body_coverage.uya`
+  - 结果：通过，3 tests passed，3 assertions passed。
+  - 验证：`../uya/bin/uya test tests/test_async_control_flow_body.uya`
+  - 结果：通过，3 tests passed，6 assertions passed。
+  - 验证：`../uya/bin/uya test tests/test_async_decl_expr_coverage.uya`
+  - 结果：通过，1 test passed，2 assertions passed。
+  - 验证：`git diff --check`
+  - 结果：通过，无输出。

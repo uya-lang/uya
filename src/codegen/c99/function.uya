@@ -1944,160 +1944,6 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     return 0;
 }
 
-// 递归收集 await 点（进入 while/if/for/block 内部），使用 codegen.async_collect_* 存储结果
-// enclosing_while：当前语句所在最内层 while 结点（用于 while+单 await 状态机）
-// enclosing_for：当前语句所在最内层 for 结点（for 内 await 回跳；内层 while 优先用 enclosing_while）
-fn collect_awaits_recursive(node: &ASTNode, codegen: &C99CodeGenerator, parent_block: &ASTNode, parent_stmt_index: i32, enclosing_while: &ASTNode, enclosing_for: &ASTNode) void {
-    if node == null {
-        return;
-    }
-    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
-        var i: i32 = 0;
-        while i < node.block_stmt_count {
-            collect_awaits_recursive(node.block_stmts[i], codegen, node, i, enclosing_while, enclosing_for);
-            i = i + 1;
-        }
-    } else if node.type == ASTNodeType.AST_WHILE_STMT && node.while_stmt_body != null {
-        codegen.async_collect_has_loop = 1;
-        collect_awaits_recursive(node.while_stmt_body, codegen, null, -1, node, enclosing_for);
-    } else if node.type == ASTNodeType.AST_IF_STMT {
-        if node.if_stmt_then_branch != null {
-            collect_awaits_recursive(node.if_stmt_then_branch, codegen, null, -1, enclosing_while, enclosing_for);
-        }
-        if node.if_stmt_else_branch != null {
-            collect_awaits_recursive(node.if_stmt_else_branch, codegen, null, -1, enclosing_while, enclosing_for);
-        }
-    } else if node.type == ASTNodeType.AST_FOR_STMT && node.for_stmt_body != null {
-        codegen.async_collect_has_loop = 1;
-        collect_awaits_recursive(node.for_stmt_body, codegen, null, -1, enclosing_while, node);
-    } else if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
-        const init: &ASTNode = node.var_decl_init;
-        if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null {
-            const collect_idx_plain: i32 = codegen.async_collect_count;
-            if collect_idx_plain >= 0 && c99_ensure_async_await_capacity(codegen, collect_idx_plain + 1) == 0 {
-                codegen.async_collect_operands[collect_idx_plain] = init.await_expr_operand;
-                codegen.async_collect_names[collect_idx_plain] = node.var_decl_name;
-                codegen.async_collect_types[collect_idx_plain] = node.var_decl_type;
-                codegen.async_collect_blocks[collect_idx_plain] = parent_block;
-                codegen.async_collect_stmt_indices[collect_idx_plain] = parent_stmt_index;
-                codegen.async_collect_enclosing_while[collect_idx_plain] = enclosing_while;
-                codegen.async_collect_enclosing_for[collect_idx_plain] = enclosing_for;
-                codegen.async_collect_count = collect_idx_plain + 1;
-                return;
-            }
-        }
-        if init.type == ASTNodeType.AST_TRY_EXPR && init.try_expr_operand != null {
-            const op: &ASTNode = init.try_expr_operand;
-            if op.type == ASTNodeType.AST_AWAIT_EXPR && op.await_expr_operand != null {
-                const collect_idx: i32 = codegen.async_collect_count;
-                if collect_idx >= 0 && c99_ensure_async_await_capacity(codegen, collect_idx + 1) == 0 {
-                    codegen.async_collect_operands[collect_idx] = op.await_expr_operand;
-                    codegen.async_collect_names[collect_idx] = node.var_decl_name;
-                    codegen.async_collect_types[collect_idx] = node.var_decl_type;
-                    codegen.async_collect_blocks[collect_idx] = parent_block;
-                    codegen.async_collect_stmt_indices[collect_idx] = parent_stmt_index;
-                    codegen.async_collect_enclosing_while[collect_idx] = enclosing_while;
-                    codegen.async_collect_enclosing_for[collect_idx] = enclosing_for;
-                    codegen.async_collect_count = collect_idx + 1;
-                    return;
-                }
-            }
-        }
-    } else if node.type == ASTNodeType.AST_RETURN_STMT {
-        // Bug C fix: 检查 return try @await inner(...) 模式
-        const ret_expr: &ASTNode = node.return_stmt_expr;
-        if ret_expr != null && ret_expr.type == ASTNodeType.AST_AWAIT_EXPR && ret_expr.await_expr_operand != null {
-            const collect_idx_plain_ret: i32 = codegen.async_collect_count;
-            if collect_idx_plain_ret >= 0 && c99_ensure_async_await_capacity(codegen, collect_idx_plain_ret + 1) == 0 {
-                codegen.async_collect_operands[collect_idx_plain_ret] = ret_expr.await_expr_operand;
-                codegen.async_collect_names[collect_idx_plain_ret] = null;
-                codegen.async_collect_types[collect_idx_plain_ret] = null;
-                codegen.async_collect_blocks[collect_idx_plain_ret] = parent_block;
-                codegen.async_collect_stmt_indices[collect_idx_plain_ret] = parent_stmt_index;
-                codegen.async_collect_enclosing_while[collect_idx_plain_ret] = enclosing_while;
-                codegen.async_collect_enclosing_for[collect_idx_plain_ret] = enclosing_for;
-                codegen.async_collect_count = collect_idx_plain_ret + 1;
-                codegen.async_collect_ret_expr = null;
-                return;
-            }
-        }
-        if ret_expr != null && ret_expr.type == ASTNodeType.AST_TRY_EXPR && ret_expr.try_expr_operand != null {
-            const ret_op: &ASTNode = ret_expr.try_expr_operand;
-            if ret_op.type == ASTNodeType.AST_AWAIT_EXPR && ret_op.await_expr_operand != null {
-                // 收集为 await 点，bind_name = null 表示 "return await"
-                const collect_idx2: i32 = codegen.async_collect_count;
-                if collect_idx2 >= 0 && c99_ensure_async_await_capacity(codegen, collect_idx2 + 1) == 0 {
-                    codegen.async_collect_operands[collect_idx2] = ret_op.await_expr_operand;
-                    codegen.async_collect_names[collect_idx2] = null;
-                    codegen.async_collect_types[collect_idx2] = null;
-                    codegen.async_collect_blocks[collect_idx2] = parent_block;
-                    codegen.async_collect_stmt_indices[collect_idx2] = parent_stmt_index;
-                    codegen.async_collect_enclosing_while[collect_idx2] = enclosing_while;
-                    codegen.async_collect_enclosing_for[collect_idx2] = enclosing_for;
-                    codegen.async_collect_count = collect_idx2 + 1;
-                    // ret_expr 设为 null，表示返回值由最后一个 await 的 Ready 值提供
-                    codegen.async_collect_ret_expr = null;
-                    return;
-                }
-            }
-        }
-        codegen.async_collect_ret_expr = ret_expr;
-    }
-
-    // 复合表达式里的 try @await：把整个语句/表达式当成 await 点收集，并在 resume 时重放该语句。
-    if node.type != ASTNodeType.AST_BLOCK && node.type != ASTNodeType.AST_IF_STMT &&
-        node.type != ASTNodeType.AST_WHILE_STMT && node.type != ASTNodeType.AST_FOR_STMT {
-        var nested_try: [&ASTNode: 1] = [null];
-        if c99_find_first_try_await_expr(node, &nested_try[0]) != 0 && nested_try[0] != null &&
-            nested_try[0].try_expr_operand != null && nested_try[0].try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
-            nested_try[0].try_expr_operand.await_expr_operand != null {
-            const idx2: i32 = codegen.async_collect_count;
-            if idx2 < 0 {
-                return;
-            }
-            if c99_ensure_async_await_capacity(codegen, idx2 + 1) != 0 {
-                return;
-            }
-            var name_buf: [byte: 64] = [];
-            snprintf(&name_buf[0] as *byte, 64, "__uya_expr_tmp_%d" as *byte, idx2);
-            const bind_name2: &byte = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
-            if bind_name2 == null {
-                return;
-            }
-            var bind_type2: &ASTNode = null;
-            if nested_try[0].try_expr_operand != null &&
-                nested_try[0].try_expr_operand.await_expr_operand != null && codegen.current_function_decl != null {
-                const future_inner2: &ASTNode = c99_async_operand_future_inner_ast(codegen, nested_try[0].try_expr_operand.await_expr_operand, codegen.current_function_decl);
-                if future_inner2 != null {
-                    if future_inner2.type == ASTNodeType.AST_TYPE_ERROR_UNION && future_inner2.type_error_union_payload_type != null {
-                        bind_type2 = future_inner2.type_error_union_payload_type;
-                    } else {
-                        bind_type2 = future_inner2;
-                    }
-                }
-            }
-            if bind_type2 == null && node.type == ASTNodeType.AST_ASSIGN && node.assign_dest != null && codegen.checker != null {
-                const dest_ty: Type = checker_infer_type(codegen.checker, node.assign_dest);
-                if dest_ty.kind != TypeKind.TYPE_VOID {
-                    bind_type2 = type_to_ast(codegen.checker, &dest_ty, node.line, node.column, node.filename);
-                }
-            }
-            if bind_type2 == null && node.type == ASTNodeType.AST_VAR_DECL {
-                bind_type2 = node.var_decl_type;
-            }
-            codegen.async_collect_operands[idx2] = nested_try[0].try_expr_operand.await_expr_operand;
-            codegen.async_collect_names[idx2] = bind_name2;
-            codegen.async_collect_types[idx2] = bind_type2;
-            codegen.async_collect_blocks[idx2] = parent_block;
-            codegen.async_collect_stmt_indices[idx2] = parent_stmt_index;
-            codegen.async_collect_enclosing_while[idx2] = enclosing_while;
-            codegen.async_collect_enclosing_for[idx2] = enclosing_for;
-            codegen.async_collect_count = idx2 + 1;
-            return;
-        }
-    }
-}
-
 // @await / try @await 形式的 var 声明由 async_collect_* 单独捕获，此处跳过
 fn c99_var_decl_init_is_await_bind(init: &ASTNode) i32 {
     if init == null {
@@ -2136,247 +1982,13 @@ fn c99_return_stmt_is_await_bind(stmt: &ASTNode) i32 {
     return 1;
 }
 
-// 在任意语句/表达式子树中查找第一个 `try @await ...` 节点。
-// 用于把复合表达式里的 await 提前提取成状态机 await 点，并在 continuation 重放时做替换。
-fn c99_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&ASTNode) i32 {
-    if node == null || out_try_expr == null {
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_TRY_EXPR && node.try_expr_operand != null {
-        if node.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR && node.try_expr_operand.await_expr_operand != null {
-            out_try_expr[0] = node;
-            return 1;
-        }
-        if c99_find_first_try_await_expr(node.try_expr_operand, out_try_expr) != 0 {
-            return 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
-        var bi: i32 = 0;
-        while bi < node.block_stmt_count {
-            if c99_find_first_try_await_expr(node.block_stmts[bi], out_try_expr) != 0 {
-                return 1;
-            }
-            bi = bi + 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_VAR_DECL {
-        return c99_find_first_try_await_expr(node.var_decl_init, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_RETURN_STMT {
-        return c99_find_first_try_await_expr(node.return_stmt_expr, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_ASSIGN {
-        if c99_find_first_try_await_expr(node.assign_dest, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.assign_src, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_IF_STMT {
-        if c99_find_first_try_await_expr(node.if_stmt_condition, out_try_expr) != 0 {
-            return 1;
-        }
-        if c99_find_first_try_await_expr(node.if_stmt_then_branch, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.if_stmt_else_branch, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_WHILE_STMT {
-        if c99_find_first_try_await_expr(node.while_stmt_condition, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.while_stmt_body, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_FOR_STMT {
-        if c99_find_first_try_await_expr(node.for_stmt_range_start, out_try_expr) != 0 {
-            return 1;
-        }
-        if c99_find_first_try_await_expr(node.for_stmt_range_end, out_try_expr) != 0 {
-            return 1;
-        }
-        if c99_find_first_try_await_expr(node.for_stmt_array, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.for_stmt_body, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_CALL_EXPR {
-        if c99_find_first_try_await_expr(node.call_expr_callee, out_try_expr) != 0 {
-            return 1;
-        }
-        if node.call_expr_args != null {
-            var ai: i32 = 0;
-            while ai < node.call_expr_arg_count {
-                if c99_find_first_try_await_expr(node.call_expr_args[ai], out_try_expr) != 0 {
-                    return 1;
-                }
-                ai = ai + 1;
-            }
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
-        return c99_find_first_try_await_expr(node.member_access_object, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
-        if c99_find_first_try_await_expr(node.array_access_array, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.array_access_index, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_SLICE_EXPR {
-        if c99_find_first_try_await_expr(node.slice_expr_base, out_try_expr) != 0 {
-            return 1;
-        }
-        if c99_find_first_try_await_expr(node.slice_expr_start_expr, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.slice_expr_len_expr, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_BINARY_EXPR {
-        if c99_find_first_try_await_expr(node.binary_expr_left, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.binary_expr_right, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_UNARY_EXPR {
-        return c99_find_first_try_await_expr(node.unary_expr_operand, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_CAST_EXPR {
-        return c99_find_first_try_await_expr(node.cast_expr_expr, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_CATCH_EXPR {
-        if c99_find_first_try_await_expr(node.catch_expr_operand, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.catch_expr_catch_block, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
-        if c99_find_first_try_await_expr(node.match_expr_expr, out_try_expr) != 0 {
-            return 1;
-        }
-        var mi: i32 = 0;
-        while mi < node.match_expr_arm_count {
-            if c99_find_first_try_await_expr(node.match_expr_arms[mi].result_expr, out_try_expr) != 0 {
-                return 1;
-            }
-            mi = mi + 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_STRUCT_INIT && node.struct_init_field_values != null {
-        var fi: i32 = 0;
-        while fi < node.struct_init_field_count {
-            if c99_find_first_try_await_expr(node.struct_init_field_values[fi], out_try_expr) != 0 {
-                return 1;
-            }
-            fi = fi + 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_ARRAY_LITERAL && node.array_literal_elements != null {
-        var ei: i32 = 0;
-        while ei < node.array_literal_element_count {
-            if c99_find_first_try_await_expr(node.array_literal_elements[ei], out_try_expr) != 0 {
-                return 1;
-            }
-            ei = ei + 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_TUPLE_LITERAL && node.tuple_literal_elements != null {
-        var ti: i32 = 0;
-        while ti < node.tuple_literal_element_count {
-            if c99_find_first_try_await_expr(node.tuple_literal_elements[ti], out_try_expr) != 0 {
-                return 1;
-            }
-            ti = ti + 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
-        return c99_find_first_try_await_expr(node.print_expr, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_SYSCALL {
-        if c99_find_first_try_await_expr(node.syscall_number, out_try_expr) != 0 {
-            return 1;
-        }
-        if node.syscall_args != null {
-            var si2: i32 = 0;
-            while si2 < node.syscall_arg_count {
-                if c99_find_first_try_await_expr(node.syscall_args[si2], out_try_expr) != 0 {
-                    return 1;
-                }
-                si2 = si2 + 1;
-            }
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_STRING_INTERP && node.string_interp_segments != null {
-        var si3: i32 = 0;
-        while si3 < node.string_interp_segment_count {
-            const seg: &ASTStringInterpSegment = &node.string_interp_segments[si3];
-            if seg != null && seg.is_text == 0 && seg.expr != null &&
-                c99_find_first_try_await_expr(seg.expr, out_try_expr) != 0 {
-                return 1;
-            }
-            si3 = si3 + 1;
-        }
-        return 0;
-    }
-    if node.type == ASTNodeType.AST_SIZEOF {
-        return c99_find_first_try_await_expr(node.sizeof_expr_target, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_LEN {
-        return c99_find_first_try_await_expr(node.len_expr_array, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_ALIGNOF {
-        return c99_find_first_try_await_expr(node.alignof_expr_target, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
-        return c99_find_first_try_await_expr(node.ptr_from_usize_value, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
-        return c99_find_first_try_await_expr(node.usize_from_ptr_ptr, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_ERROR_ID {
-        return c99_find_first_try_await_expr(node.error_id_operand, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_ERROR_NAME {
-        return c99_find_first_try_await_expr(node.error_name_operand, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_VA_START {
-        if c99_find_first_try_await_expr(node.va_start_ap, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.va_start_last_param, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_VA_END {
-        return c99_find_first_try_await_expr(node.va_end_ap, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_VA_ARG {
-        if c99_find_first_try_await_expr(node.va_arg_ap, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.va_arg_arg_type, out_try_expr);
-    }
-    if node.type == ASTNodeType.AST_VA_COPY {
-        if c99_find_first_try_await_expr(node.va_copy_dest, out_try_expr) != 0 {
-            return 1;
-        }
-        return c99_find_first_try_await_expr(node.va_copy_src, out_try_expr);
-    }
-    return 0;
-}
-
 // return 语句里是否包含嵌套的 try @await（例如 return 1 + (try @await foo())）
 fn c99_return_stmt_has_nested_try_await(stmt: &ASTNode) i32 {
     if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT || stmt.return_stmt_expr == null {
         return 0;
     }
     var nested_try: [&ASTNode: 1] = [null];
-    if c99_find_first_try_await_expr(stmt.return_stmt_expr, &nested_try[0]) != 0 &&
+    if async_lower_find_first_try_await_expr(stmt.return_stmt_expr, &nested_try[0]) != 0 &&
         nested_try[0] != null && nested_try[0].try_expr_operand != null &&
         nested_try[0].try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
         nested_try[0].try_expr_operand.await_expr_operand != null {
@@ -4303,14 +3915,14 @@ fn c99_async_find_await_by_stmt_source(codegen: &C99CodeGenerator, stmt: &ASTNod
         return -1;
     }
     var current_try: [&ASTNode: 1] = [null];
-    const current_has_try: i32 = c99_find_first_try_await_expr(stmt, &current_try[0]);
+    const current_has_try: i32 = async_lower_find_first_try_await_expr(stmt, &current_try[0]);
     var j: i32 = 0;
     while j < codegen.async_collect_count {
         const collected_stmt: &ASTNode = c99_async_collected_stmt_at(codegen, j);
         if collected_stmt != null {
             if current_has_try != 0 && current_try[0] != null {
                 var collected_try: [&ASTNode: 1] = [null];
-                if c99_find_first_try_await_expr(collected_stmt, &collected_try[0]) != 0 &&
+                if async_lower_find_first_try_await_expr(collected_stmt, &collected_try[0]) != 0 &&
                     collected_try[0] != null &&
                     c99_async_node_source_matches(collected_try[0], current_try[0]) != 0 {
                     c99_async_rebind_await_location(codegen, j, block, si);
@@ -4337,7 +3949,7 @@ fn c99_async_find_await_for_stmt(codegen: &C99CodeGenerator, block: &ASTNode, si
         return by_source;
     }
     var nested_try: [&ASTNode: 1] = [null];
-    if c99_find_first_try_await_expr(stmt, &nested_try[0]) != 0 && nested_try[0] != null {
+    if async_lower_find_first_try_await_expr(stmt, &nested_try[0]) != 0 && nested_try[0] != null {
         return c99_async_find_await_by_try_expr(codegen, nested_try[0], block, si);
     }
     return -1;
@@ -5188,7 +4800,7 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
         if stmt.type != ASTNodeType.AST_BLOCK && stmt.type != ASTNodeType.AST_IF_STMT &&
             stmt.type != ASTNodeType.AST_WHILE_STMT && stmt.type != ASTNodeType.AST_FOR_STMT {
             var nested_try: [&ASTNode: 1] = [null];
-            if c99_find_first_try_await_expr(stmt, &nested_try[0]) != 0 && nested_try[0] != null &&
+            if async_lower_find_first_try_await_expr(stmt, &nested_try[0]) != 0 && nested_try[0] != null &&
                 nested_try[0].try_expr_operand != null && nested_try[0].try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
                 nested_try[0].try_expr_operand.await_expr_operand != null {
                 const ai2: i32 = c99_async_find_await_for_stmt(codegen, block, si, stmt);
@@ -5243,7 +4855,7 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
     if cur_stmt != null && cur_stmt.type != ASTNodeType.AST_BLOCK && cur_stmt.type != ASTNodeType.AST_IF_STMT &&
         cur_stmt.type != ASTNodeType.AST_WHILE_STMT && cur_stmt.type != ASTNodeType.AST_FOR_STMT {
         var nested_try: [&ASTNode: 1] = [null];
-        if c99_find_first_try_await_expr(cur_stmt, &nested_try[0]) != 0 && nested_try[0] != null &&
+        if async_lower_find_first_try_await_expr(cur_stmt, &nested_try[0]) != 0 && nested_try[0] != null &&
             nested_try[0].try_expr_operand != null && nested_try[0].try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
             nested_try[0].try_expr_operand.await_expr_operand != null &&
             (cur_stmt.type != ASTNodeType.AST_VAR_DECL || c99_var_decl_init_is_await_bind(cur_stmt.var_decl_init) == 0) &&
@@ -5536,12 +5148,30 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     var async_loop_var_is_total: i32 = 0;
     var async_cut_root: i32 = -1;
     var async_prefix_stmt_count: i32 = 0;
+    var async_plan: AsyncLowerPlan = AsyncLowerPlan{};
     if body != null {
         codegen.async_collect_count = 0;
         codegen.async_collect_ret_expr = null;
         codegen.async_collect_has_loop = 0;
         codegen.async_inline_temp_var_count = 0;
-        collect_awaits_recursive(body, codegen, null, -1, null, null);
+        _ = async_lower_build_plan(&async_plan, codegen.arena, codegen.checker, body);
+        codegen.async_collect_ret_expr = async_plan.return_expr;
+        codegen.async_collect_has_loop = async_plan.has_loop;
+        if async_plan.await_count > 0 && c99_ensure_async_await_capacity(codegen, async_plan.await_count) == 0 &&
+            async_plan.await_points != null {
+            var plan_i: i32 = 0;
+            while plan_i < async_plan.await_count {
+                codegen.async_collect_operands[plan_i] = async_plan.await_points[plan_i].operand;
+                codegen.async_collect_names[plan_i] = async_plan.await_points[plan_i].bind_name;
+                codegen.async_collect_types[plan_i] = async_plan.await_points[plan_i].bind_type;
+                codegen.async_collect_blocks[plan_i] = async_plan.await_points[plan_i].parent_block;
+                codegen.async_collect_stmt_indices[plan_i] = async_plan.await_points[plan_i].stmt_index;
+                codegen.async_collect_enclosing_while[plan_i] = async_plan.await_points[plan_i].enclosing_while;
+                codegen.async_collect_enclosing_for[plan_i] = async_plan.await_points[plan_i].enclosing_for;
+                plan_i = plan_i + 1;
+            }
+            codegen.async_collect_count = async_plan.await_count;
+        }
         c99_async_scan_inline_temp_vars(codegen, body);
         await_count = codegen.async_collect_count;
         ret_expr = codegen.async_collect_ret_expr;
@@ -5560,8 +5190,30 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             await_bind_types != null && await_blocks != null && await_stmt_indices != null &&
             await_enclosing_while != null && await_enclosing_for != null {
             await_operands[ci] = codegen.async_collect_operands[ci];
-            await_bind_names[ci] = codegen.async_collect_names[ci];
-            await_bind_types[ci] = codegen.async_collect_types[ci];
+            var bind_name_ci: &byte = codegen.async_collect_names[ci];
+            if bind_name_ci == null && async_plan.await_points != null &&
+                async_plan.await_points[ci].is_return_await == 0 {
+                var name_buf: [byte: 64] = [];
+                snprintf(&name_buf[0] as *byte, 64, "__uya_expr_tmp_%d" as *byte, ci);
+                bind_name_ci = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
+            }
+            var bind_type_ci: &ASTNode = codegen.async_collect_types[ci];
+            if bind_type_ci == null && bind_name_ci != null && codegen.current_function_decl != null {
+                const future_inner_ci: &ASTNode = c99_async_operand_future_inner_ast(
+                    codegen, codegen.async_collect_operands[ci], codegen.current_function_decl);
+                if future_inner_ci != null {
+                    if future_inner_ci.type == ASTNodeType.AST_TYPE_ERROR_UNION &&
+                        future_inner_ci.type_error_union_payload_type != null {
+                        bind_type_ci = future_inner_ci.type_error_union_payload_type;
+                    } else {
+                        bind_type_ci = future_inner_ci;
+                    }
+                }
+            }
+            codegen.async_collect_names[ci] = bind_name_ci;
+            codegen.async_collect_types[ci] = bind_type_ci;
+            await_bind_names[ci] = bind_name_ci;
+            await_bind_types[ci] = bind_type_ci;
             await_blocks[ci] = codegen.async_collect_blocks[ci];
             await_stmt_indices[ci] = codegen.async_collect_stmt_indices[ci];
             await_enclosing_while[ci] = codegen.async_collect_enclosing_while[ci];
