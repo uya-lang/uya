@@ -142,6 +142,15 @@ test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
         UYAGIN_SOURCE_PATH,
         "return try @await async_writev(fd, head, head_len, body, body_len);\0" as &const byte,
     );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn fn uyagin_sendfile_future(fd: i32, file_fd: i32, total_len: usize) Future<!usize>\0" as &const byte,
+        "struct UyaginSendFileBodyFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_text(
+        UYAGIN_SOURCE_PATH,
+        "return try @await async_sendfile(fd, file_fd, total_len);\0" as &const byte,
+    );
 
     try assert_source_has_async_boundary(
         DNS_SOURCE_PATH,

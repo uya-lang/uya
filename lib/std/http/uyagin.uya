@@ -2170,16 +2170,15 @@ fn uyagin_response_body_len(body: UyaginResponseBody) usize {
     return try @await async_writev(fd, head, head_len, body, body_len);
 }
 
-fn uyagin_sendfile_future(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
-    return async_sendfile(fd, file_fd, total_len);
+@async_fn fn uyagin_sendfile_future(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
+    return try @await async_sendfile(fd, file_fd, total_len);
 }
 
 export @async_fn fn uyagin_send_file_body_async(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
     if fd < 0 || file_fd < 0 {
         return error.InvalidRequest;
     }
-    const fut: Future<!usize> = uyagin_sendfile_future(fd, file_fd, total_len);
-    return try @await fut;
+    return try @await uyagin_sendfile_future(fd, file_fd, total_len);
 }
 
 fn uyagin_text_plain() &[const byte] {

@@ -145,7 +145,6 @@
 ### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
 
 - [ ] `lib/std/http/uyagin.uya`
-  - [ ] 将 `UyaginSendFileBodyFuture` 改为 `@async_fn` + `async_sendfile`。
   - [ ] 将 `UyaginConnReadParseFuture` / `UyaginConnReadParseIntoFuture` 改为 `@async_fn` + 通用 read helper。
   - [ ] 迁移后再评估是否仍需专门 slot-level manual polling。
 
