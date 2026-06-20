@@ -136,7 +136,6 @@
 ### 1.5.2 迁移顺序原则
 
 - [ ] **先纯组合层，后 syscall 叶子层**。
-  - [ ] 纯组合层更适合直接改写成 `@async_fn`，也是验证完整语法支持的最好样本。
   - [ ] syscall 叶子层如果直接硬改，容易把 runtime 底座和业务逻辑缠在一起。
 - [ ] **先提炼通用 awaitable 原语，再迁移重复状态机**。
   - [ ] 例如 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
