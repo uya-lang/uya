@@ -1300,3 +1300,24 @@
     - 结果：通过，3 tests passed，6 assertions passed。
     - 验证：`git diff --check`
     - 结果：通过，无输出。
+
+## 2026-06-21
+
+### Phase 1：`@async_fn` 语法完整性
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+路径上下文：
+- [ ] 让 C99 emitter 只消费 lowered async plan，不再自己重新推断：
+  - [x] resume 入口
+    - 完成内容：`src/lower/async.uya` 为 lowered plan 增加 `prefix_stmt_count`，在首次收集到 await 时记录其所属函数体顶层语句下标；`src/codegen/c99/function.uya` 改为直接消费 `async_plan.prefix_stmt_count` 切 state 0 前缀，并删除旧的首 await 顶层扫描 helper。
+    - 验证：`python3 tests/verify_async_lowering_plan_architecture.py`
+    - 结果：通过，输出 `verify_async_lowering_plan_architecture: centralized async lowering plan confirmed`。
+    - 验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
+    - 结果：通过，3 tests passed，4 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_if_await.uya`
+    - 结果：通过，2 tests passed，2 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_bug_d_nested_block.uya`
+    - 结果：通过，2 tests passed，4 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_else_if_await.uya`
+    - 结果：通过，1 test passed，3 assertions passed。
+    - 验证：`git diff --check`
+    - 结果：通过，无输出。

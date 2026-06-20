@@ -107,7 +107,6 @@
 ### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
 
 - [ ] 让 C99 emitter 只消费 lowered async plan，不再自己重新推断：
-  - [ ] resume 入口
   - [ ] cleanup 区域
   - [ ] break / continue / return / error 路径
 - [ ] 对 `defer / errdefer` 建立显式 cleanup 区域模型，保证跨 await 与提前返回语义一致。

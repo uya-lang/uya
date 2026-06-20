@@ -27,6 +27,7 @@ export struct AsyncLowerPlan {
     await_points: &AsyncLowerAwaitPoint,
     await_count: i32,
     await_capacity: i32,
+    prefix_stmt_count: i32,
     terminal_state: i32,
     return_expr: &ASTNode,
     has_loop: i32,
@@ -315,6 +316,15 @@ fn async_lower_claim_await_slot(plan: &AsyncLowerPlan, arena: &CompilerArena) i3
     }
     plan.await_count = idx + 1;
     return idx;
+}
+
+fn async_lower_note_prefix_stmt_count(plan: &AsyncLowerPlan, root_stmt_index: i32) void {
+    if plan == null || root_stmt_index < 0 {
+        return;
+    }
+    if plan.prefix_stmt_count < 0 || root_stmt_index < plan.prefix_stmt_count {
+        plan.prefix_stmt_count = root_stmt_index;
+    }
 }
 
 fn async_lower_assign_state_numbers(plan: &AsyncLowerPlan) void {
@@ -797,7 +807,8 @@ fn async_lower_collect_plan_node(
     parent_block: &ASTNode,
     parent_stmt_index: i32,
     enclosing_while: &ASTNode,
-    enclosing_for: &ASTNode
+    enclosing_for: &ASTNode,
+    root_stmt_index: i32
 ) void {
     if node == null {
         return;
@@ -805,28 +816,28 @@ fn async_lower_collect_plan_node(
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
         var i: i32 = 0;
         while i < node.block_stmt_count {
-            async_lower_collect_plan_node(plan, arena, checker, node.block_stmts[i], node, i, enclosing_while, enclosing_for);
+            async_lower_collect_plan_node(plan, arena, checker, node.block_stmts[i], node, i, enclosing_while, enclosing_for, root_stmt_index);
             i = i + 1;
         }
         return;
     }
     if node.type == ASTNodeType.AST_WHILE_STMT && node.while_stmt_body != null {
         plan.has_loop = 1;
-        async_lower_collect_plan_node(plan, arena, checker, node.while_stmt_body, null, -1, node, enclosing_for);
+        async_lower_collect_plan_node(plan, arena, checker, node.while_stmt_body, null, -1, node, enclosing_for, root_stmt_index);
         return;
     }
     if node.type == ASTNodeType.AST_IF_STMT {
         if node.if_stmt_then_branch != null {
-            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_then_branch, null, -1, enclosing_while, enclosing_for);
+            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_then_branch, null, -1, enclosing_while, enclosing_for, root_stmt_index);
         }
         if node.if_stmt_else_branch != null {
-            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_else_branch, null, -1, enclosing_while, enclosing_for);
+            async_lower_collect_plan_node(plan, arena, checker, node.if_stmt_else_branch, null, -1, enclosing_while, enclosing_for, root_stmt_index);
         }
         return;
     }
     if node.type == ASTNodeType.AST_FOR_STMT && node.for_stmt_body != null {
         plan.has_loop = 1;
-        async_lower_collect_plan_node(plan, arena, checker, node.for_stmt_body, null, -1, enclosing_while, node);
+        async_lower_collect_plan_node(plan, arena, checker, node.for_stmt_body, null, -1, enclosing_while, node, root_stmt_index);
         return;
     }
     if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
@@ -834,6 +845,7 @@ fn async_lower_collect_plan_node(
         if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null {
             const idx_plain: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_plain >= 0 {
+                async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                 plan.await_points[idx_plain].source_stmt = node;
                 plan.await_points[idx_plain].split_try_expr = null;
                 plan.await_points[idx_plain].operand = init.await_expr_operand;
@@ -852,6 +864,7 @@ fn async_lower_collect_plan_node(
             if op.type == ASTNodeType.AST_AWAIT_EXPR && op.await_expr_operand != null {
                 const idx_decl: i32 = async_lower_claim_await_slot(plan, arena);
                 if idx_decl >= 0 {
+                    async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                     plan.await_points[idx_decl].source_stmt = node;
                     plan.await_points[idx_decl].split_try_expr = init;
                     plan.await_points[idx_decl].operand = op.await_expr_operand;
@@ -871,6 +884,7 @@ fn async_lower_collect_plan_node(
         if ret_expr != null && ret_expr.type == ASTNodeType.AST_AWAIT_EXPR && ret_expr.await_expr_operand != null {
             const idx_ret_plain: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_ret_plain >= 0 {
+                async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                 plan.await_points[idx_ret_plain].source_stmt = node;
                 plan.await_points[idx_ret_plain].split_try_expr = null;
                 plan.await_points[idx_ret_plain].operand = ret_expr.await_expr_operand;
@@ -890,6 +904,7 @@ fn async_lower_collect_plan_node(
             if ret_op.type == ASTNodeType.AST_AWAIT_EXPR && ret_op.await_expr_operand != null {
                 const idx_ret_try: i32 = async_lower_claim_await_slot(plan, arena);
                 if idx_ret_try >= 0 {
+                    async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                     plan.await_points[idx_ret_try].source_stmt = node;
                     plan.await_points[idx_ret_try].split_try_expr = ret_expr;
                     plan.await_points[idx_ret_try].operand = ret_op.await_expr_operand;
@@ -917,6 +932,7 @@ fn async_lower_collect_plan_node(
             nested_try.try_expr_operand.await_expr_operand != null {
             const idx_nested: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_nested >= 0 {
+                async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                 plan.await_points[idx_nested].source_stmt = node;
                 plan.await_points[idx_nested].split_try_expr = nested_try;
                 plan.await_points[idx_nested].operand = nested_try.try_expr_operand.await_expr_operand;
@@ -945,13 +961,29 @@ export fn async_lower_build_plan(
     plan.await_points = null;
     plan.await_count = 0;
     plan.await_capacity = 0;
+    plan.prefix_stmt_count = -1;
     plan.terminal_state = 1;
     plan.return_expr = null;
     plan.has_loop = 0;
     if body == null {
         return 0;
     }
-    async_lower_collect_plan_node(plan, arena, checker, body, null, -1, null, null);
+    if body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
+        var i: i32 = 0;
+        while i < body.block_stmt_count {
+            async_lower_collect_plan_node(plan, arena, checker, body.block_stmts[i], body, i, null, null, i);
+            i = i + 1;
+        }
+    } else {
+        async_lower_collect_plan_node(plan, arena, checker, body, null, -1, null, null, 0);
+    }
     async_lower_assign_state_numbers(plan);
+    if plan.prefix_stmt_count < 0 {
+        if body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
+            plan.prefix_stmt_count = body.block_stmt_count;
+        } else {
+            plan.prefix_stmt_count = 0;
+        }
+    }
     return 0;
 }
