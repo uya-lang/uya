@@ -1432,3 +1432,13 @@
     - 验证：`rg -n '^export interface Future<|^export struct Future<|^export struct Task<' lib/std/async.uya` 输出 `277/283/296`，确认 runtime 协议壳单独位于 `lib/std/async.uya`，不影响本条“先全量盘点自定义 poll 状态机”的入口口径。
     - 验证：`rg -n 'return Future<.*state: Poll<.*Ready' lib/std | head -n 8` 命中 `lib/std/async_channel.uya`、`lib/std/thread.uya`、`lib/std/http/websocket_client.uya` 等 ready wrapper 样本，后续由 L123 单独排除。
     - 验证：`rg -n 'DnsQuery(AllAggregate|Transport)Future|Dns(Udp|Tcp)Future' lib/std/net/dns.uya` 命中 `DnsQueryAllAggregateFuture`（`2426`），已补入 1.5.1 清单。
+
+## 2026-06-21 Phase 1.5：标准库手工 Future 清零迁移
+
+上下文：`### 1.5.0 统计口径` → `先明确“手工异步 Future”的统计范围`
+
+  - [x] **不算业务迁移对象**：`std.async` 的 `interface Future<T>`、占位 `struct Future<T>`、`Task<T>` 这类 runtime 核心协议壳类型。
+    - 验证：`nl -ba lib/std/async.uya | sed -n '1,4p'` 显示模块头部为“异步运行时类型与接口”，导出列表单列 `interface Future<T>`、占位 `struct Future<T>`、`Task<T>`。
+    - 验证：`nl -ba lib/std/async.uya | sed -n '276,306p'` 显示 `Future<T>` 只定义 `poll/release` 协议；占位 `Future<T>` 注释注明“`@async_fn` 函数当前返回此类型；实现 interface Future<T> 以便类型兼容”；`Task<T>` 注释注明“异步任务包装”，实现也仅持有 `Poll<T>` 状态并转发 `poll/release`。
+    - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`（通过；主 todo 有 `0 active tasks`）
+    - 验证：`git diff --check`（通过）

@@ -118,7 +118,7 @@
 ### 1.5.0 统计口径
 
 - [ ] 先明确“手工异步 Future”的统计范围：
-  - [ ] **不算业务迁移对象**：`std.async` 的 `interface Future<T>`、占位 `struct Future<T>`、`Task<T>` 这类 runtime 核心协议壳类型。
+  - 已确认：`lib/std/async.uya` 中 `interface Future<T>`、占位 `struct Future<T>`、`Task<T>` 属于 runtime 核心协议壳类型，不计入业务迁移对象；详细验证记录见完成归档。
   - [ ] **不算手工状态机**：只返回 `Future{ state: Poll.Ready(...) }` 的一次性 ready wrapper。
 - [ ] 最终目标口径：
   - [ ] 标准库业务层、协议层和 I/O 组合层不再保留手写 `poll()` 状态机。
