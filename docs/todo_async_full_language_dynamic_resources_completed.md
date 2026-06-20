@@ -1632,3 +1632,11 @@
     - 结果：`AsyncComputeFuture<T>` 现在只轮询单个 `async_worker_result(...)` helper，已移除自身的 `wait_current_slot` / `poll_worker_result` 双桥接分支。
     - 验证：`../uya/bin/uya test tests/test_std_thread.uya` 通过；27 tests passed，107 assertions passed。
     - 补充验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya` 通过；4 tests passed，44 assertions passed。
+# Uya 异步生产化 TODO（完整语法 + 动态资源）
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.2 迁移顺序原则
+
+- [x] **迁移不能降低现有错误语义、取消语义和 deadline 语义**。
+  - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（11/11 通过；新增 `async_connect_expired_deadline_returns_async_deadline_exceeded` 锁定 helper deadline 语义）
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（25/25 通过；新增 `async_read_parse_into_connection_closed_preserves_err_out_compat` 锁定旧 `err_out` / `ConnectionClosed` 语义）
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（27/27 通过）、`../uya/bin/uya test tests/test_std_async_scheduler.uya`（19/19 通过）、`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（3/3 通过）、`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（4/4 通过）；确认 `Cancelled`、DNS timeout/error 与 shared runtime 迁移语义未回退。

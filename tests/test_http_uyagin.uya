@@ -873,6 +873,56 @@ test "async_read_parse_helpers_decode_chunked_request_and_preserve_err_out" {
     try assert_eq_i32(parse_into_filled == request.len, true);
 }
 
+test "async_read_parse_into_connection_closed_preserves_err_out_compat" {
+    const partial_request: &[const byte] =
+        "POST /chunk HTTP/1.1\r\nHost: local\r\nContent-Length: 5\r\n\r\nhe";
+
+    var parse_into_fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&parse_into_fds[0], 0);
+    defer {
+        _ = sys_close(parse_into_fds[0]) catch {};
+        _ = sys_close(parse_into_fds[1]) catch {};
+    }
+    try write_all_fd(parse_into_fds[1], partial_request);
+    _ = sys_close(parse_into_fds[1]) catch {};
+    parse_into_fds[1] = -1;
+
+    var parse_into_buf: [byte: 256] = [];
+    var parse_into_filled: usize = 0;
+    var out: ParseResult = ParseResult{
+        request: Request{
+            method: Method.GET,
+            http11: true,
+            path: [],
+            path_len: 0,
+            path_params: [],
+            path_param_count: 0,
+            query: [],
+            query_count: 0,
+            headers: [],
+            header_count: 0,
+            body: parse_into_buf[0: 0],
+        },
+        consumed: 0,
+    };
+    var err_out: u32 = 999u32;
+    const consumed: usize = try block_on<usize>(
+        async_read_parse_into(
+            parse_into_fds[0],
+            &parse_into_buf[0] as &byte,
+            256,
+            &parse_into_filled,
+            &out,
+            &err_out,
+        ),
+    );
+
+    try assert_eq_i32(consumed as i32, 0);
+    try assert_eq_i32(err_out as i32, @error_id(error.ConnectionClosed) as i32);
+    try assert_eq_i32(parse_into_filled == partial_request.len, true);
+    try assert_eq_i32(out.consumed as i32, 0);
+}
+
 test "uyagin_accept_uses_async_accept_helper_and_preserves_nodelay" {
     var listener: GinListener = try uyagin_listen_loopback(0, 64);
 

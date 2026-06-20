@@ -136,8 +136,6 @@
 
 ### 1.5.2 迁移顺序原则
 
-- [ ] **迁移不能降低现有错误语义、取消语义和 deadline 语义**。
-
 ### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
 
 > 2026-06-21 代码核对：`websocket_client_reconnect_tick`、`websocket_conn_read_message` / `websocket_conn_heartbeat_tick`、`uyagin_run_chain_recover`、`uyagin_observe_request_future`、`dns_query_transport_future_new` 已经是 `@async_fn` / join 组合层；本节剩余 TODO 以“语义回归与防倒退”为准，不再把不存在的手写 `poll()` 重复记成迁移目标。

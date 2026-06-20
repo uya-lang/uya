@@ -431,6 +431,24 @@ fn test_async_connect_loopback_returns_connected_fd() !void {
     _ = sys_close(listen_fd) catch {};
 }
 
+fn test_async_connect_expired_deadline_returns_async_deadline_exceeded() !void {
+    const client_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(client_fd) catch {};
+    }
+
+    var connect_addr: [byte: 16] = [];
+    fill_sockaddr_loopback_16(9 as u16, &connect_addr[0] as &byte);
+
+    const fut: Future<!i32> = async_connect(client_fd, &connect_addr[0] as &void, 16 as u32, 1 as u64);
+    const result: !i32 = block_on<i32>(fut);
+    _ = result catch |err| {
+        try assert_eq_i32(@error_id(err) as i32, @error_id(error.AsyncDeadlineExceeded) as i32);
+        return;
+    };
+    try assert_eq_i32(0, 1);
+}
+
 fn test_async_writev_writes_head_then_body() !void {
     var fds: [i32: 2] = [];
     _ = test_sys_pipe2(&fds[0], 0) catch {
@@ -533,6 +551,10 @@ test "async_fd_read_exact_returns_unexpected_eof" {
 
 test "async_connect_loopback_returns_connected_fd" {
     try test_async_connect_loopback_returns_connected_fd();
+}
+
+test "async_connect_expired_deadline_returns_async_deadline_exceeded" {
+    try test_async_connect_expired_deadline_returns_async_deadline_exceeded();
 }
 
 test "async_writev_writes_head_then_body" {
