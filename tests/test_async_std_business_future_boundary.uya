@@ -1,0 +1,112 @@
+// test_async_std_business_future_boundary.uya - 高层 async 业务/协议/组合层边界回归
+
+use std.string.strlen;
+use std.testing.assert_eq_i32;
+use libc.syscall;
+
+error AsyncBoundarySourceOpenFailed;
+error AsyncBoundarySourceReadFailed;
+
+const WEBSOCKET_CLIENT_SOURCE_PATH: &const byte = "lib/std/http/websocket_client.uya\0" as &const byte;
+const WEBSOCKET_ASYNC_SOURCE_PATH: &const byte = "lib/std/http/websocket_async.uya\0" as &const byte;
+const UYAGIN_SOURCE_PATH: &const byte = "lib/std/http/uyagin.uya\0" as &const byte;
+const DNS_SOURCE_PATH: &const byte = "lib/std/net/dns.uya\0" as &const byte;
+const ASYNC_BOUNDARY_SOURCE_MAX: usize = 131072;
+
+fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
+    if start + needle_len > hay_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle_len {
+        if hay[start + i] != needle[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn source_contains(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) bool {
+    if needle_len == 0 {
+        return true;
+    }
+    if hay_len < needle_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) bool {
+    return source_contains(hay, hay_len, needle, strlen(needle));
+}
+
+fn read_source(path: &const byte, buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(path, O_RDONLY as i32, 0) catch {
+        return error.AsyncBoundarySourceOpenFailed;
+    };
+    const n: isize = sys_read(fd, buf as *byte, cap) catch {
+        _ = sys_close(fd) catch {};
+        return error.AsyncBoundarySourceReadFailed;
+    };
+    _ = sys_close(fd) catch {};
+    if n < 0 {
+        return error.AsyncBoundarySourceReadFailed;
+    }
+    return (n as! usize).value;
+}
+
+fn assert_source_has_async_boundary(path: &const byte, signature: &const byte, removed_manual_future: &const byte) !void {
+    var src: [byte: ASYNC_BOUNDARY_SOURCE_MAX] = [0: ASYNC_BOUNDARY_SOURCE_MAX];
+    const len: usize = try read_source(path, &src[0], ASYNC_BOUNDARY_SOURCE_MAX);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, signature) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, removed_manual_future) as i32, 0);
+}
+
+test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
+    try assert_source_has_async_boundary(
+        WEBSOCKET_CLIENT_SOURCE_PATH,
+        "export @async_fn fn websocket_client_reconnect_tick(self: &WebSocketClient, connector: WebSocketClientConnector, now_ms: u64) Future<!bool>\0" as &const byte,
+        "struct WebSocketClientReconnectFuture : Future<!bool>\0" as &const byte,
+    );
+
+    try assert_source_has_async_boundary(
+        WEBSOCKET_ASYNC_SOURCE_PATH,
+        "export @async_fn fn websocket_conn_read_message(self: &WebSocketConn, rx: &byte, rx_cap: usize, msg: &byte, msg_cap: usize, opcode_out: &WebSocketOpcode) Future<!usize>\0" as &const byte,
+        "struct WebSocketReadMessageFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        WEBSOCKET_ASYNC_SOURCE_PATH,
+        "export @async_fn fn websocket_conn_heartbeat_tick(self: &WebSocketConn, now_ms: u64, tx: &byte, tx_cap: usize) Future<!usize>\0" as &const byte,
+        "struct WebSocketHeartbeatTimeoutFuture : Future<!usize>\0" as &const byte,
+    );
+
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "export @async_fn fn uyagin_run_chain_recover(engine: &Engine, ctx: &GinContext, route: &GinRoute) Future<!i32>\0" as &const byte,
+        "struct UyaginRecoverFuture : Future<!i32>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn fn uyagin_observe_request_future(engine: &Engine, ctx: &GinContext, inner: Future<!i32>) Future<!i32>\0" as &const byte,
+        "struct UyaginObserveFuture : Future<!i32>\0" as &const byte,
+    );
+
+    try assert_source_has_async_boundary(
+        DNS_SOURCE_PATH,
+        "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte,
+        "struct DnsQueryTransportFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        DNS_SOURCE_PATH,
+        "@async_fn fn dns_client_query_all_any_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize>\0" as &const byte,
+        "struct DnsQueryAllAggregateFuture : Future<!usize>\0" as &const byte,
+    );
+}
