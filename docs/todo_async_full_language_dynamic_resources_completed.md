@@ -1411,3 +1411,14 @@
   - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya`（通过，10 tests / 18 assertions）
   - 验证：`git diff --check`（通过）
   - 备注：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native` 在既有基线 `tests/test_async_await_parse.uya` 触发无关 C99 codegen 失败，未作为本叶子完成门槛。
+## Phase 1：`@async_fn` 语法完整性
+### 1.4 收口语法口径
+
+- [x] 任何“只是因为内部实现没覆盖到，所以先拒绝”的限制，都必须消失或升级成规范层决策。
+  - 验证：`../uya/bin/uya test tests/test_async_match_await.uya`（通过；4 tests passed）
+  - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya`（通过；10 tests passed）
+  - 验证：`UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`（通过）
+  - 验证：`UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`（通过）
+  - 验证：`rg -n "尚未支持" src/codegen/c99/function.uya src/codegen/c99/async_transform.uya src/lower/async.uya`（无匹配）
+  - 审计：`docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md` 已明确把 `defer/errdefer` 内禁止 `@await` 定义为语言规则；本轮覆盖的其余合法 async 语法未发现实现层兜底拒绝
+  - 备注：`./tests/run_programs_parallel.sh` 在脚本内部使用相对 `UYA_COMPILER=../uya/bin/uya` 会因工作目录变化失效，因此程序回归按本 todo 明示的绝对路径完成验证

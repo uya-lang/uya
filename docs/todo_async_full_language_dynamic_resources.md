@@ -108,16 +108,6 @@
 
 ### 1.4 收口语法口径
 
-- [ ] 任何“只是因为内部实现没覆盖到，所以先拒绝”的限制，都必须消失或升级成规范层决策。
-
-**验收**：
-
-- [ ] `../uya/bin/uya test tests/test_async_match_await.uya`
-- [ ] `../uya/bin/uya test tests/test_async_defer_errdefer.uya`
-- [ ] `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`
-- [ ] `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`
-- [ ] `rg -n "尚未支持" src/codegen/c99/function.uya src/codegen/c99/async_transform.uya src/lower/async.uya`
-  - [ ] 对合法 async 语法不再出现“尚未支持”分支
 
 ## Phase 1.5：标准库手工 Future 清零迁移
 
