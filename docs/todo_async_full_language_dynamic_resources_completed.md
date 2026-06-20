@@ -1717,3 +1717,12 @@
   - 验证：`../uya/bin/uya test tests/test_http_uyagin_recover_observe.uya` 通过（2 个测试，9 个断言）。
   - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya` 通过（1 个测试，9 个断言）。
   - 核对：`rg -n "poll\\s*\\(" lib/std/http/websocket_client.uya lib/std/http/websocket_async.uya lib/std/http/uyagin.uya lib/std/net/dns.uya` 仅命中 DNS 传输叶子 future 与 uyagin 调度槽位/事件循环，目标组合层 `websocket_client_reconnect_tick`、`websocket_conn_read_message`、`websocket_conn_heartbeat_tick`、`uyagin_run_chain_recover`、`uyagin_observe_request_future`、`dns_query_transport_future_new`、`dns_client_query_all_any_async` 未含手写 `poll()`。
+
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+父级任务路径：`相关回归补齐并纳入脚本`
+
+- [x] `tests/test_async_catch_await.uya`
+  - 验证：`../uya/bin/uya test --uya --c99 tests/test_async_catch_await.uya` 通过（10 tests passed, 0 failed）
+  - 纳入脚本：`rg -n "test_async_catch_await\\.uya" tests/verify_async_full_language_matrix.sh` 命中 `baseline_tests`
+  - 额外验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh uya-c99` 失败；在 `tests/test_async_await_parse.uya` 先触发现有 C99 codegen 错误：`incompatible types when initializing type 'int' using type 'struct Future_i32'`，未执行到本用例

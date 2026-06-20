@@ -143,7 +143,6 @@
 **验收**：
 
 - [ ] 相关回归补齐并纳入脚本：
-  - [ ] `tests/test_async_catch_await.uya`
   - [ ] `tests/test_async_defer_errdefer.uya`
   - [ ] websocket client / uyagin / dns 新回归
 
