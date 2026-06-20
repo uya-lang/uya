@@ -1748,3 +1748,11 @@
     - 验证：`../uya/bin/uya test --c99 tests/test_async_std_business_future_boundary.uya`（通过，1 test / 17 assertions）
     - 验证：`../uya/bin/uya test --uya --c99 tests/test_async_std_business_future_boundary.uya`（通过，1 test / 17 assertions）
     - 验证：`rg -n 'test_async_std_business_future_boundary\\.uya' tests/verify_async_full_language_matrix.sh`（命中 `142:    "tests/test_async_std_business_future_boundary.uya"`，已纳入 async baseline matrix）
+
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+
+父级任务路径：在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语
+  - [x] `async_connect(fd, sockaddr, len, deadline_ms)` 或等价 helper
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：11 tests，54 assertions；覆盖 loopback connect 与 deadline 超时）
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过：3 tests；DNS TCP fallback 连接路径正常）
+    - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`（通过：8 tests；HTTP1 async roundtrip 连接路径正常）
