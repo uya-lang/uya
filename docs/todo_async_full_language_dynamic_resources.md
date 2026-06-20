@@ -142,7 +142,6 @@
 
 **验收**：
 
-- [ ] 上述四类组合层不再含手写 `poll()`。
 - [ ] 相关回归补齐并纳入脚本：
   - [ ] `tests/test_async_catch_await.uya`
   - [ ] `tests/test_async_defer_errdefer.uya`
