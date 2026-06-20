@@ -571,6 +571,45 @@ test "async_compute_i32_binds_completed_queued_slot_after_late_poll" {
     try assert_eq_i32(thread_pool_started_workers(&pool), 1);
 }
 
+test "async_compute_i32_completed_queued_slot_is_ready_on_first_late_poll" {
+    var pool: ThreadPool = thread_pool_new(1);
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_double_i32 as &void, 10);
+    var second: Future<!i32> = async_compute<i32>(&pool, &double_i32 as &void, 7);
+    var w0: Waker = Waker{};
+    var w1: Waker = Waker{};
+
+    _ = first.poll(&w0);
+    _ = second.poll(&w1);
+    _ = first.poll(&w0);
+    _ = second.poll(&w1);
+
+    try assert_eq_i32(thread_wait_pending_count(&pool, 1), 1);
+    try assert_eq_i32(try thread_test_drive_future_i32(first), 20);
+
+    sleep_briefly();
+    sleep_briefly();
+
+    try assert_eq_i32(thread_wait_pending_count(&pool, 0), 1);
+
+    const late_poll: Poll<!i32> = second.poll(&w1);
+    var late_ready: i32 = 0;
+    var late_value: i32 = 0;
+    match late_poll {
+        .Ready(v) => {
+            late_value = try v;
+            late_ready = 1;
+        },
+        .Pending(_) => { },
+    };
+
+    try assert_eq_i32(late_ready, 1);
+    try assert_eq_i32(late_value, 14);
+}
+
 test "async_compute_usize_runs_with_thread_pool" {
     var pool: ThreadPool = thread_pool_new(2);
     defer {
