@@ -1668,3 +1668,11 @@
   - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过：1 个测试，17 次断言）
   - 验证：`../uya/bin/uya test tests/test_http_websocket_async.uya`（通过：5 个测试，20 次断言）
   - 验证：`../uya/bin/uya test tests/test_http_websocket_heartbeat.uya`（通过：5 个测试，25 次断言）
+
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+- [x] `lib/std/http/websocket_async.uya`
+  - [x] 如果还依赖手工 close leaf，则先抽出 awaitable close helper。
+    - 验证：`../uya/bin/uya test tests/test_http_websocket_heartbeat.uya`（通过，5 tests passed）
+    - 验证：`../uya/bin/uya test tests/test_http_websocket_async.uya`（通过，5 tests passed）
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过，1 test passed）

@@ -110,6 +110,8 @@ test "websocket_heartbeat_timeout_path_uses_async_fn_without_manual_future" {
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn websocket_conn_heartbeat_tick(self: &WebSocketConn, now_ms: u64, tx: &byte, tx_cap: usize) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct WebSocketHeartbeatTimeoutFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn websocket_conn_transport_close_async(self: &WebSocketConn) Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "const close_transport: usize = try @await websocket_conn_transport_close_async(self);\0" as &const byte) as i32, 1);
 }
 
 test "websocket_heartbeat_auto_ping_and_track_pong" {

@@ -140,8 +140,6 @@
 
 > 2026-06-21 代码核对：`websocket_client_reconnect_tick`、`websocket_conn_read_message` / `websocket_conn_heartbeat_tick`、`uyagin_run_chain_recover`、`uyagin_observe_request_future`、`dns_query_transport_future_new` 已经是 `@async_fn` / join 组合层；本节剩余 TODO 以“语义回归与防倒退”为准，不再把不存在的手写 `poll()` 重复记成迁移目标。
 
-- [ ] `lib/std/http/websocket_async.uya`
-  - [ ] 如果还依赖手工 close leaf，则先抽出 awaitable close helper。
 - [ ] `lib/std/http/uyagin.uya`
   - [ ] 保持 recover / observe 包装继续走 `@async_fn`，并补观测副作用回归。
   - [ ] 依赖：`defer / errdefer`、`catch + @await`、观测副作用在 async body 中稳定。

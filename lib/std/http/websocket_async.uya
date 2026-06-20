@@ -493,6 +493,11 @@ fn websocket_conn_transport_close(self: &WebSocketConn) void {
     self.io.close();
 }
 
+fn websocket_conn_transport_close_async(self: &WebSocketConn) Future<!usize> {
+    websocket_conn_transport_close(self);
+    return future_ready_ok<usize>(0);
+}
+
 fn websocket_conn_transport_is_closed(self: &WebSocketConn) bool {
     if self.use_tls {
         return self.tls_io.is_closed();
@@ -901,7 +906,8 @@ export @async_fn fn websocket_conn_heartbeat_tick(self: &WebSocketConn, now_ms: 
         _ = close_result catch {};
         self.waiting_pong = false;
         self.closed = true;
-        websocket_conn_transport_close(self);
+        const close_transport: usize = try @await websocket_conn_transport_close_async(self);
+        _ = close_transport;
         return error.WebSocketHeartbeatTimeout;
     }
     if websocket_conn_heartbeat_should_ping(self, now_ms) {
