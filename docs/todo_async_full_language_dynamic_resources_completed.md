@@ -1369,3 +1369,17 @@
   结果：通过，10 个测试全部通过，18 条断言通过。
   验证：`../uya/bin/uya test tests/test_async_match_await.uya`
   结果：通过，4 个测试全部通过。
+### Phase 1：`@async_fn` 语法完整性
+
+#### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+
+- [x] 对 `match / catch / 宏展开后 AST` 走统一 traversal，不再靠个别形状特判。
+  验证：
+  - `make uya`：通过
+  - `../uya/bin/uya test tests/test_async_compound_await_traversal.uya`：通过（4 tests passed, 0 failed）
+  - `../uya/bin/uya test tests/test_async_match_await.uya`：通过（4 tests passed, 0 failed）
+  - `../uya/bin/uya test tests/test_async_defer_errdefer.uya`：通过（10 tests passed, 0 failed）
+  - `../uya/bin/uya test tests/test_async_macro_expand.uya`：通过（1 test passed, 0 failed）
+  - `./tests/run_programs_parallel.sh --uya --c99 test_async_iterator_for_await.uya`：失败（仓库内不存在该文件）
+  - `./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`：通过
+  - `./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`：通过

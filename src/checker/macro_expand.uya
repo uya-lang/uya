@@ -1390,6 +1390,8 @@ fn deep_copy_ast_internal(node: &ASTNode, ctx: &MacroExpandContext, filename: &b
         hygiene_exit_scope(state);
     } else if node.type == ASTNodeType.AST_TRY_EXPR {
         copy.try_expr_operand = deep_copy_ast_internal(node.try_expr_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+    } else if node.type == ASTNodeType.AST_AWAIT_EXPR {
+        copy.await_expr_operand = deep_copy_ast_internal(node.await_expr_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
     } else if node.type == ASTNodeType.AST_CATCH_EXPR {
         var renamed_err_name: &byte = node.catch_expr_err_name;
         copy.catch_expr_operand = deep_copy_ast_internal(node.catch_expr_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
@@ -1403,6 +1405,28 @@ fn deep_copy_ast_internal(node: &ASTNode, ctx: &MacroExpandContext, filename: &b
         }
         copy.catch_expr_catch_block = deep_copy_ast_internal(node.catch_expr_catch_block, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
         hygiene_exit_scope(state);
+    } else if node.type == ASTNodeType.AST_MATCH_EXPR {
+        copy.match_expr_expr = deep_copy_ast_internal(node.match_expr_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.match_expr_arm_count = node.match_expr_arm_count;
+        if node.match_expr_arms != null && node.match_expr_arm_count > 0 {
+            copy.match_expr_arms = compiler_arena_alloc(ctx.arena, (@size_of(ASTMatchArm) * node.match_expr_arm_count) as u64) as &ASTMatchArm;
+            if copy.match_expr_arms != null {
+                var mi: i32 = 0;
+                while mi < node.match_expr_arm_count {
+                    copy.match_expr_arms[mi].kind = node.match_expr_arms[mi].kind;
+                    copy.match_expr_arms[mi].literal_expr = deep_copy_ast_internal(node.match_expr_arms[mi].literal_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    copy.match_expr_arms[mi].literal_int_value = node.match_expr_arms[mi].literal_int_value;
+                    copy.match_expr_arms[mi].literal_is_bool = node.match_expr_arms[mi].literal_is_bool;
+                    copy.match_expr_arms[mi].enum_name = node.match_expr_arms[mi].enum_name;
+                    copy.match_expr_arms[mi].variant_name = node.match_expr_arms[mi].variant_name;
+                    copy.match_expr_arms[mi].error_name = node.match_expr_arms[mi].error_name;
+                    copy.match_expr_arms[mi].var_name = node.match_expr_arms[mi].var_name;
+                    copy.match_expr_arms[mi].result_expr = deep_copy_ast_internal(node.match_expr_arms[mi].result_expr, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+                    copy.match_expr_arms[mi].result_is_block = node.match_expr_arms[mi].result_is_block;
+                    mi = mi + 1;
+                }
+            }
+        }
     } else if node.type == ASTNodeType.AST_MC_EVAL {
         var success: i32 = 0;
         const value: i64 = macro_eval_expr(node.mc_eval_operand, ctx, &success);
@@ -2153,8 +2177,52 @@ export fn deep_copy_ast_substitute_type_params(node: &ASTNode, type_params: &Typ
                 }
             }
         }
+    } else if node.type == ASTNodeType.AST_BLOCK {
+        copy.block_stmt_count = node.block_stmt_count;
+        if node.block_stmts != null && node.block_stmt_count > 0 {
+            copy.block_stmts = compiler_arena_alloc(arena, (@size_of(&ASTNode) * node.block_stmt_count) as u64) as &(&ASTNode);
+            if copy.block_stmts != null {
+                var bi: i32 = 0;
+                while bi < node.block_stmt_count {
+                    copy.block_stmts[bi] = deep_copy_ast_substitute_type_params(node.block_stmts[bi], type_params, type_param_count, type_args, type_arg_count, arena, filename);
+                    bi = bi + 1;
+                }
+            }
+        }
     } else if node.type == ASTNodeType.AST_TRY_EXPR && node.try_expr_operand != null {
         copy.try_expr_operand = deep_copy_ast_substitute_type_params(node.try_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+    } else if node.type == ASTNodeType.AST_AWAIT_EXPR && node.await_expr_operand != null {
+        copy.await_expr_operand = deep_copy_ast_substitute_type_params(node.await_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+    } else if node.type == ASTNodeType.AST_CATCH_EXPR {
+        copy.catch_expr_err_name = node.catch_expr_err_name;
+        if node.catch_expr_operand != null {
+            copy.catch_expr_operand = deep_copy_ast_substitute_type_params(node.catch_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        }
+        if node.catch_expr_catch_block != null {
+            copy.catch_expr_catch_block = deep_copy_ast_substitute_type_params(node.catch_expr_catch_block, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        }
+    } else if node.type == ASTNodeType.AST_MATCH_EXPR {
+        copy.match_expr_expr = deep_copy_ast_substitute_type_params(node.match_expr_expr, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        copy.match_expr_arm_count = node.match_expr_arm_count;
+        if node.match_expr_arms != null && node.match_expr_arm_count > 0 {
+            copy.match_expr_arms = compiler_arena_alloc(arena, (@size_of(ASTMatchArm) * node.match_expr_arm_count) as u64) as &ASTMatchArm;
+            if copy.match_expr_arms != null {
+                var mi: i32 = 0;
+                while mi < node.match_expr_arm_count {
+                    copy.match_expr_arms[mi].kind = node.match_expr_arms[mi].kind;
+                    copy.match_expr_arms[mi].literal_expr = deep_copy_ast_substitute_type_params(node.match_expr_arms[mi].literal_expr, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+                    copy.match_expr_arms[mi].literal_int_value = node.match_expr_arms[mi].literal_int_value;
+                    copy.match_expr_arms[mi].literal_is_bool = node.match_expr_arms[mi].literal_is_bool;
+                    copy.match_expr_arms[mi].enum_name = node.match_expr_arms[mi].enum_name;
+                    copy.match_expr_arms[mi].variant_name = node.match_expr_arms[mi].variant_name;
+                    copy.match_expr_arms[mi].error_name = node.match_expr_arms[mi].error_name;
+                    copy.match_expr_arms[mi].var_name = node.match_expr_arms[mi].var_name;
+                    copy.match_expr_arms[mi].result_expr = deep_copy_ast_substitute_type_params(node.match_expr_arms[mi].result_expr, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+                    copy.match_expr_arms[mi].result_is_block = node.match_expr_arms[mi].result_is_block;
+                    mi = mi + 1;
+                }
+            }
+        }
     } else if node.type == ASTNodeType.AST_UNARY_EXPR && node.unary_expr_operand != null {
         copy.unary_expr_op = node.unary_expr_op;
         copy.unary_expr_operand = deep_copy_ast_substitute_type_params(node.unary_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);

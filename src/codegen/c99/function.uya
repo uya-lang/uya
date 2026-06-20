@@ -1895,6 +1895,7 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
         codegen.async_collect_stmt_indices != null &&
         codegen.async_collect_source_stmts != null &&
         codegen.async_collect_split_try_exprs != null &&
+        codegen.async_collect_split_await_exprs != null &&
         codegen.async_collect_state_ids != null &&
         codegen.async_collect_cleanup_region_ids != null &&
         codegen.async_collect_enclosing_while != null &&
@@ -1919,6 +1920,7 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     const new_stmt_indices: &i32 = compiler_arena_alloc(codegen.arena, @size_of(i32) * new_cap as usize) as &i32;
     const new_source_stmts: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
     const new_split_try_exprs: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
+    const new_split_await_exprs: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
     const new_state_ids: &i32 = compiler_arena_alloc(codegen.arena, @size_of(i32) * new_cap as usize) as &i32;
     const new_cleanup_region_ids: &i32 = compiler_arena_alloc(codegen.arena, @size_of(i32) * new_cap as usize) as &i32;
     const new_enclosing_while: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
@@ -1926,6 +1928,7 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     const new_bind_names: & & byte = compiler_arena_alloc(codegen.arena, @size_of(&byte) * new_cap as usize) as & & byte;
     if new_operands == null || new_names == null || new_types == null || new_blocks == null ||
         new_stmt_indices == null || new_source_stmts == null || new_split_try_exprs == null ||
+        new_split_await_exprs == null ||
         new_state_ids == null || new_cleanup_region_ids == null ||
         new_enclosing_while == null || new_enclosing_for == null || new_bind_names == null {
         return -1;
@@ -1939,6 +1942,7 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
         new_stmt_indices[i] = codegen.async_collect_stmt_indices[i];
         new_source_stmts[i] = codegen.async_collect_source_stmts[i];
         new_split_try_exprs[i] = codegen.async_collect_split_try_exprs[i];
+        new_split_await_exprs[i] = codegen.async_collect_split_await_exprs[i];
         new_state_ids[i] = codegen.async_collect_state_ids[i];
         new_cleanup_region_ids[i] = codegen.async_collect_cleanup_region_ids[i];
         new_enclosing_while[i] = codegen.async_collect_enclosing_while[i];
@@ -1953,6 +1957,7 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     codegen.async_collect_stmt_indices = new_stmt_indices;
     codegen.async_collect_source_stmts = new_source_stmts;
     codegen.async_collect_split_try_exprs = new_split_try_exprs;
+    codegen.async_collect_split_await_exprs = new_split_await_exprs;
     codegen.async_collect_state_ids = new_state_ids;
     codegen.async_collect_cleanup_region_ids = new_cleanup_region_ids;
     codegen.async_collect_enclosing_while = new_enclosing_while;
@@ -2354,6 +2359,7 @@ fn c99_async_emit_inline_child_predefs(codegen: &C99CodeGenerator, current_fn_de
     var saved_collect_stmt_indices: &i32 = codegen.async_collect_stmt_indices;
     var saved_collect_source_stmts: & & ASTNode = codegen.async_collect_source_stmts;
     var saved_collect_split_try_exprs: & & ASTNode = codegen.async_collect_split_try_exprs;
+    var saved_collect_split_await_exprs: & & ASTNode = codegen.async_collect_split_await_exprs;
     var saved_collect_state_ids: &i32 = codegen.async_collect_state_ids;
     var saved_collect_cleanup_region_ids: &i32 = codegen.async_collect_cleanup_region_ids;
     var saved_collect_enclosing_while: & & ASTNode = codegen.async_collect_enclosing_while;
@@ -2423,6 +2429,7 @@ fn c99_async_emit_inline_child_predefs(codegen: &C99CodeGenerator, current_fn_de
     codegen.async_collect_stmt_indices = saved_collect_stmt_indices;
     codegen.async_collect_source_stmts = saved_collect_source_stmts;
     codegen.async_collect_split_try_exprs = saved_collect_split_try_exprs;
+    codegen.async_collect_split_await_exprs = saved_collect_split_await_exprs;
     codegen.async_collect_state_ids = saved_collect_state_ids;
     codegen.async_collect_cleanup_region_ids = saved_collect_cleanup_region_ids;
     codegen.async_collect_enclosing_while = saved_collect_enclosing_while;
@@ -3802,6 +3809,14 @@ fn c99_async_collected_split_try_expr_at(codegen: &C99CodeGenerator, idx: i32) &
     return codegen.async_collect_split_try_exprs[idx];
 }
 
+fn c99_async_collected_split_await_expr_at(codegen: &C99CodeGenerator, idx: i32) &ASTNode {
+    if codegen == null || idx < 0 || idx >= codegen.async_collect_count ||
+        codegen.async_collect_split_await_exprs == null {
+        return null;
+    }
+    return codegen.async_collect_split_await_exprs[idx];
+}
+
 fn c99_async_collected_resume_state_at(codegen: &C99CodeGenerator, idx: i32) i32 {
     if codegen == null || idx < 0 || idx >= codegen.async_collect_count ||
         codegen.async_collect_state_ids == null {
@@ -3822,7 +3837,8 @@ fn c99_async_collected_is_direct_return_await(codegen: &C99CodeGenerator, idx: i
     if c99_async_collected_source_stmt_is_return(codegen, idx) == 0 {
         return 0;
     }
-    if c99_async_collected_split_try_expr_at(codegen, idx) != null {
+    if c99_async_collected_split_try_expr_at(codegen, idx) != null ||
+        c99_async_collected_split_await_expr_at(codegen, idx) != null {
         return 0;
     }
     return 1;
@@ -3832,7 +3848,8 @@ fn c99_async_collected_is_split_return_stmt(codegen: &C99CodeGenerator, idx: i32
     if c99_async_collected_source_stmt_is_return(codegen, idx) == 0 {
         return 0;
     }
-    if c99_async_collected_split_try_expr_at(codegen, idx) == null {
+    if c99_async_collected_split_try_expr_at(codegen, idx) == null &&
+        c99_async_collected_split_await_expr_at(codegen, idx) == null {
         return 0;
     }
     return 1;
@@ -5133,20 +5150,46 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
     codegen.async_emit_poll_return = 1;
     var result: i32 = 0;
     const split_try_expr: &ASTNode = c99_async_collected_split_try_expr_at(codegen, cur_ai);
+    const split_await_expr: &ASTNode = c99_async_collected_split_await_expr_at(codegen, cur_ai);
     if cur_stmt != null && cur_stmt.type != ASTNodeType.AST_BLOCK && cur_stmt.type != ASTNodeType.AST_IF_STMT &&
         cur_stmt.type != ASTNodeType.AST_WHILE_STMT && cur_stmt.type != ASTNodeType.AST_FOR_STMT {
+        var should_reemit_stmt: i32 = 0;
         if split_try_expr != null &&
             split_try_expr.try_expr_operand != null && split_try_expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
             split_try_expr.try_expr_operand.await_expr_operand != null &&
             (cur_stmt.type != ASTNodeType.AST_VAR_DECL || cur_stmt.var_decl_init == null ||
              @usize_from_ptr(cur_stmt.var_decl_init as &void) != @usize_from_ptr(split_try_expr as &void)) {
             const saved_subst_try_expr: &ASTNode = codegen.async_expr_subst_try_expr;
+            const saved_subst_await_expr: &ASTNode = codegen.async_expr_subst_await_expr;
             const saved_subst_name: &byte = codegen.async_expr_subst_name;
             codegen.async_expr_subst_try_expr = split_try_expr;
+            codegen.async_expr_subst_await_expr = null;
             codegen.async_expr_subst_name = codegen.async_bind_names[cur_ai];
-            gen_stmt(codegen, cur_stmt);
+            should_reemit_stmt = 1;
+            if should_reemit_stmt != 0 {
+                gen_stmt(codegen, cur_stmt);
+            }
             codegen.async_expr_subst_try_expr = saved_subst_try_expr;
+            codegen.async_expr_subst_await_expr = saved_subst_await_expr;
             codegen.async_expr_subst_name = saved_subst_name;
+            if cur_stmt.type == ASTNodeType.AST_RETURN_STMT {
+                codegen.async_emit_poll_return = saved_epr;
+                return 0;
+            }
+        } else if split_await_expr != null && split_await_expr.await_expr_operand != null {
+            const saved_subst_try_expr2: &ASTNode = codegen.async_expr_subst_try_expr;
+            const saved_subst_await_expr2: &ASTNode = codegen.async_expr_subst_await_expr;
+            const saved_subst_name2: &byte = codegen.async_expr_subst_name;
+            codegen.async_expr_subst_try_expr = null;
+            codegen.async_expr_subst_await_expr = split_await_expr;
+            codegen.async_expr_subst_name = codegen.async_bind_names[cur_ai];
+            should_reemit_stmt = 1;
+            if should_reemit_stmt != 0 {
+                gen_stmt(codegen, cur_stmt);
+            }
+            codegen.async_expr_subst_try_expr = saved_subst_try_expr2;
+            codegen.async_expr_subst_await_expr = saved_subst_await_expr2;
+            codegen.async_expr_subst_name = saved_subst_name2;
             if cur_stmt.type == ASTNodeType.AST_RETURN_STMT {
                 codegen.async_emit_poll_return = saved_epr;
                 return 0;
@@ -5398,6 +5441,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     var await_stmt_indices: &i32 = null;
     var await_source_stmts: & & ASTNode = null;
     var await_split_try_exprs: & & ASTNode = null;
+    var await_split_await_exprs: & & ASTNode = null;
     var await_state_ids: &i32 = null;
     var await_cleanup_region_ids: &i32 = null;
     var await_enclosing_while: & & ASTNode = null;
@@ -5416,6 +5460,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_collect_ret_stmt = null;
         codegen.async_collect_ret_expr = null;
         codegen.async_collect_has_loop = 0;
+        codegen.async_collect_split_await_exprs = null;
         codegen.async_collect_state_ids = null;
         codegen.async_collect_cleanup_region_ids = null;
         codegen.async_cleanup_regions = null;
@@ -5443,6 +5488,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 codegen.async_collect_stmt_indices[plan_i] = async_plan.await_points[plan_i].stmt_index;
                 codegen.async_collect_source_stmts[plan_i] = async_plan.await_points[plan_i].source_stmt;
                 codegen.async_collect_split_try_exprs[plan_i] = async_plan.await_points[plan_i].split_try_expr;
+                codegen.async_collect_split_await_exprs[plan_i] = async_plan.await_points[plan_i].split_await_expr;
                 codegen.async_collect_state_ids[plan_i] = async_plan.await_points[plan_i].resume_state;
                 codegen.async_collect_cleanup_region_ids[plan_i] = async_plan.await_points[plan_i].cleanup_region;
                 codegen.async_collect_enclosing_while[plan_i] = async_plan.await_points[plan_i].enclosing_while;
@@ -5464,6 +5510,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             await_stmt_indices = compiler_arena_alloc(codegen.arena, @size_of(i32) * await_count as usize) as &i32;
             await_source_stmts = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
             await_split_try_exprs = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
+            await_split_await_exprs = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
             await_state_ids = compiler_arena_alloc(codegen.arena, @size_of(i32) * await_count as usize) as &i32;
             await_cleanup_region_ids = compiler_arena_alloc(codegen.arena, @size_of(i32) * await_count as usize) as &i32;
             await_enclosing_while = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
@@ -5472,7 +5519,8 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         var ci: i32 = 0;
         while ci < await_count && await_operands != null && await_bind_names != null &&
             await_bind_types != null && await_blocks != null && await_stmt_indices != null &&
-            await_source_stmts != null && await_split_try_exprs != null && await_state_ids != null &&
+            await_source_stmts != null && await_split_try_exprs != null &&
+            await_split_await_exprs != null && await_state_ids != null &&
             await_cleanup_region_ids != null &&
             await_enclosing_while != null && await_enclosing_for != null {
             await_operands[ci] = codegen.async_collect_operands[ci];
@@ -5504,6 +5552,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             await_stmt_indices[ci] = codegen.async_collect_stmt_indices[ci];
             await_source_stmts[ci] = codegen.async_collect_source_stmts[ci];
             await_split_try_exprs[ci] = codegen.async_collect_split_try_exprs[ci];
+            await_split_await_exprs[ci] = codegen.async_collect_split_await_exprs[ci];
             await_state_ids[ci] = codegen.async_collect_state_ids[ci];
             await_cleanup_region_ids[ci] = codegen.async_collect_cleanup_region_ids[ci];
             await_enclosing_while[ci] = codegen.async_collect_enclosing_while[ci];
@@ -5883,7 +5932,8 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     }
     if await_count > 0 && await_operands != null && await_bind_names != null &&
         await_bind_types != null && await_blocks != null && await_stmt_indices != null &&
-        await_source_stmts != null && await_split_try_exprs != null && await_state_ids != null &&
+        await_source_stmts != null && await_split_try_exprs != null &&
+        await_split_await_exprs != null && await_state_ids != null &&
         await_cleanup_region_ids != null &&
         await_enclosing_while != null && await_enclosing_for != null {
         codegen.async_collect_count = await_count;
@@ -5895,6 +5945,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_collect_stmt_indices = await_stmt_indices;
         codegen.async_collect_source_stmts = await_source_stmts;
         codegen.async_collect_split_try_exprs = await_split_try_exprs;
+        codegen.async_collect_split_await_exprs = await_split_await_exprs;
         codegen.async_collect_state_ids = await_state_ids;
         codegen.async_collect_cleanup_region_ids = await_cleanup_region_ids;
         codegen.async_collect_enclosing_while = await_enclosing_while;

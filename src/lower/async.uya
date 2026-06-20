@@ -12,6 +12,7 @@ const ASYNC_LOWER_INITIAL_PLAN_CAPACITY: i32 = 64;
 export struct AsyncLowerAwaitPoint {
     source_stmt: &ASTNode,
     split_try_expr: &ASTNode,
+    split_await_expr: &ASTNode,
     operand: &ASTNode,
     resume_state: i32,
     bind_name: &byte,
@@ -495,24 +496,309 @@ fn async_lower_infer_compound_bind_type(checker: &TypeChecker, node: &ASTNode, t
     return type_to_ast(checker, &try_type, try_expr.line, try_expr.column, try_expr.filename);
 }
 
-export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&ASTNode) i32 {
-    if node == null || out_try_expr == null {
-        return 0;
+fn async_lower_await_expr_result_type(checker: &TypeChecker, await_expr: &ASTNode) &ASTNode {
+    if checker == null || await_expr == null {
+        return null;
     }
-    if node.type == ASTNodeType.AST_TRY_EXPR && node.try_expr_operand != null {
-        if node.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR && node.try_expr_operand.await_expr_operand != null {
-            out_try_expr[0] = node;
-            return 1;
+    const await_type: Type = checker_infer_type(checker, await_expr);
+    if await_type.kind == TypeKind.TYPE_VOID {
+        return null;
+    }
+    return type_to_ast(checker, &await_type, await_expr.line, await_expr.column, await_expr.filename);
+}
+
+fn async_lower_find_raw_await_bind_type(checker: &TypeChecker, node: &ASTNode, await_expr: &ASTNode) &ASTNode {
+    if checker == null || node == null || await_expr == null {
+        return null;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        if node.var_decl_init != null &&
+            @usize_from_ptr(node.var_decl_init as &void) == @usize_from_ptr(await_expr as &void) {
+            return node.var_decl_type;
         }
-        if async_lower_find_first_try_await_expr(node.try_expr_operand, out_try_expr) != 0 {
-            return 1;
+        return async_lower_find_raw_await_bind_type(checker, node.var_decl_init, await_expr);
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return async_lower_find_raw_await_bind_type(checker, node.return_stmt_expr, await_expr);
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        if node.assign_src != null &&
+            @usize_from_ptr(node.assign_src as &void) == @usize_from_ptr(await_expr as &void) &&
+            node.assign_dest != null {
+            const dest_type: Type = checker_infer_type(checker, node.assign_dest);
+            if dest_type.kind != TypeKind.TYPE_VOID {
+                return type_to_ast(checker, &dest_type, node.line, node.column, node.filename);
+            }
         }
-        return 0;
+        const from_dest: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.assign_dest, await_expr);
+        if from_dest != null {
+            return from_dest;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.assign_src, await_expr);
+    }
+    if node.type == ASTNodeType.AST_TRY_EXPR {
+        return async_lower_find_raw_await_bind_type(checker, node.try_expr_operand, await_expr);
     }
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
         var bi: i32 = 0;
         while bi < node.block_stmt_count {
-            if async_lower_find_first_try_await_expr(node.block_stmts[bi], out_try_expr) != 0 {
+            const found_block: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.block_stmts[bi], await_expr);
+            if found_block != null {
+                return found_block;
+            }
+            bi = bi + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        const found_cond: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.if_stmt_condition, await_expr);
+        if found_cond != null {
+            return found_cond;
+        }
+        const found_then: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.if_stmt_then_branch, await_expr);
+        if found_then != null {
+            return found_then;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.if_stmt_else_branch, await_expr);
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        const found_while_cond: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.while_stmt_condition, await_expr);
+        if found_while_cond != null {
+            return found_while_cond;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.while_stmt_body, await_expr);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        const found_range_start: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.for_stmt_range_start, await_expr);
+        if found_range_start != null {
+            return found_range_start;
+        }
+        const found_range_end: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.for_stmt_range_end, await_expr);
+        if found_range_end != null {
+            return found_range_end;
+        }
+        const found_array: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.for_stmt_array, await_expr);
+        if found_array != null {
+            return found_array;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.for_stmt_body, await_expr);
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        const found_callee: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.call_expr_callee, await_expr);
+        if found_callee != null {
+            return found_callee;
+        }
+        if node.call_expr_args != null {
+            var ai: i32 = 0;
+            while ai < node.call_expr_arg_count {
+                const found_arg: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.call_expr_args[ai], await_expr);
+                if found_arg != null {
+                    return found_arg;
+                }
+                ai = ai + 1;
+            }
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return async_lower_find_raw_await_bind_type(checker, node.member_access_object, await_expr);
+    }
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        const found_array_expr: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.array_access_array, await_expr);
+        if found_array_expr != null {
+            return found_array_expr;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.array_access_index, await_expr);
+    }
+    if node.type == ASTNodeType.AST_SLICE_EXPR {
+        const found_base: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.slice_expr_base, await_expr);
+        if found_base != null {
+            return found_base;
+        }
+        const found_start: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.slice_expr_start_expr, await_expr);
+        if found_start != null {
+            return found_start;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.slice_expr_len_expr, await_expr);
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const found_left: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.binary_expr_left, await_expr);
+        if found_left != null {
+            return found_left;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.binary_expr_right, await_expr);
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return async_lower_find_raw_await_bind_type(checker, node.unary_expr_operand, await_expr);
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        return async_lower_find_raw_await_bind_type(checker, node.cast_expr_expr, await_expr);
+    }
+    if node.type == ASTNodeType.AST_CATCH_EXPR {
+        const found_catch_operand: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.catch_expr_operand, await_expr);
+        if found_catch_operand != null {
+            return found_catch_operand;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.catch_expr_catch_block, await_expr);
+    }
+    if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
+        const found_match_expr: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.match_expr_expr, await_expr);
+        if found_match_expr != null {
+            return found_match_expr;
+        }
+        var mi: i32 = 0;
+        while mi < node.match_expr_arm_count {
+            const found_arm: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.match_expr_arms[mi].result_expr, await_expr);
+            if found_arm != null {
+                return found_arm;
+            }
+            mi = mi + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_STRUCT_INIT && node.struct_init_field_values != null {
+        var fi: i32 = 0;
+        while fi < node.struct_init_field_count {
+            const found_field: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.struct_init_field_values[fi], await_expr);
+            if found_field != null {
+                return found_field;
+            }
+            fi = fi + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_ARRAY_LITERAL && node.array_literal_elements != null {
+        var ei: i32 = 0;
+        while ei < node.array_literal_element_count {
+            const found_elem: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.array_literal_elements[ei], await_expr);
+            if found_elem != null {
+                return found_elem;
+            }
+            ei = ei + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_TUPLE_LITERAL && node.tuple_literal_elements != null {
+        var ti: i32 = 0;
+        while ti < node.tuple_literal_element_count {
+            const found_tuple: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.tuple_literal_elements[ti], await_expr);
+            if found_tuple != null {
+                return found_tuple;
+            }
+            ti = ti + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        return async_lower_find_raw_await_bind_type(checker, node.print_expr, await_expr);
+    }
+    if node.type == ASTNodeType.AST_SYSCALL {
+        const found_syscall_nr: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.syscall_number, await_expr);
+        if found_syscall_nr != null {
+            return found_syscall_nr;
+        }
+        if node.syscall_args != null {
+            var si2: i32 = 0;
+            while si2 < node.syscall_arg_count {
+                const found_syscall_arg: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.syscall_args[si2], await_expr);
+                if found_syscall_arg != null {
+                    return found_syscall_arg;
+                }
+                si2 = si2 + 1;
+            }
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_STRING_INTERP && node.string_interp_segments != null {
+        var si3: i32 = 0;
+        while si3 < node.string_interp_segment_count {
+            const seg: &ASTStringInterpSegment = &node.string_interp_segments[si3];
+            if seg != null && seg.is_text == 0 && seg.expr != null {
+                const found_interp: &ASTNode = async_lower_find_raw_await_bind_type(checker, seg.expr, await_expr);
+                if found_interp != null {
+                    return found_interp;
+                }
+            }
+            si3 = si3 + 1;
+        }
+        return null;
+    }
+    if node.type == ASTNodeType.AST_SIZEOF {
+        return async_lower_find_raw_await_bind_type(checker, node.sizeof_expr_target, await_expr);
+    }
+    if node.type == ASTNodeType.AST_LEN {
+        return async_lower_find_raw_await_bind_type(checker, node.len_expr_array, await_expr);
+    }
+    if node.type == ASTNodeType.AST_ALIGNOF {
+        return async_lower_find_raw_await_bind_type(checker, node.alignof_expr_target, await_expr);
+    }
+    if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        return async_lower_find_raw_await_bind_type(checker, node.ptr_from_usize_value, await_expr);
+    }
+    if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        return async_lower_find_raw_await_bind_type(checker, node.usize_from_ptr_ptr, await_expr);
+    }
+    if node.type == ASTNodeType.AST_ERROR_ID {
+        return async_lower_find_raw_await_bind_type(checker, node.error_id_operand, await_expr);
+    }
+    if node.type == ASTNodeType.AST_ERROR_NAME {
+        return async_lower_find_raw_await_bind_type(checker, node.error_name_operand, await_expr);
+    }
+    if node.type == ASTNodeType.AST_VA_START {
+        const found_va_start_ap: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.va_start_ap, await_expr);
+        if found_va_start_ap != null {
+            return found_va_start_ap;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.va_start_last_param, await_expr);
+    }
+    if node.type == ASTNodeType.AST_VA_END {
+        return async_lower_find_raw_await_bind_type(checker, node.va_end_ap, await_expr);
+    }
+    if node.type == ASTNodeType.AST_VA_ARG {
+        const found_va_arg_ap: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.va_arg_ap, await_expr);
+        if found_va_arg_ap != null {
+            return found_va_arg_ap;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.va_arg_arg_type, await_expr);
+    }
+    if node.type == ASTNodeType.AST_VA_COPY {
+        const found_va_copy_dest: &ASTNode = async_lower_find_raw_await_bind_type(checker, node.va_copy_dest, await_expr);
+        if found_va_copy_dest != null {
+            return found_va_copy_dest;
+        }
+        return async_lower_find_raw_await_bind_type(checker, node.va_copy_src, await_expr);
+    }
+    return null;
+}
+
+fn async_lower_find_first_split_await_expr(
+    node: &ASTNode,
+    out_await_expr: &&ASTNode,
+    out_try_expr: &&ASTNode
+) i32 {
+    if node == null || out_await_expr == null || out_try_expr == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_TRY_EXPR && node.try_expr_operand != null {
+        if node.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR && node.try_expr_operand.await_expr_operand != null {
+            out_await_expr[0] = node.try_expr_operand;
+            out_try_expr[0] = node;
+            return 1;
+        }
+        if async_lower_find_first_split_await_expr(node.try_expr_operand, out_await_expr, out_try_expr) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_AWAIT_EXPR && node.await_expr_operand != null {
+        out_await_expr[0] = node;
+        out_try_expr[0] = null;
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var bi: i32 = 0;
+        while bi < node.block_stmt_count {
+            if async_lower_find_first_split_await_expr(node.block_stmts[bi], out_await_expr, out_try_expr) != 0 {
                 return 1;
             }
             bi = bi + 1;
@@ -520,52 +806,52 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
         return 0;
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
-        return async_lower_find_first_try_await_expr(node.var_decl_init, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.var_decl_init, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_RETURN_STMT {
-        return async_lower_find_first_try_await_expr(node.return_stmt_expr, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.return_stmt_expr, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_ASSIGN {
-        if async_lower_find_first_try_await_expr(node.assign_dest, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.assign_dest, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.assign_src, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.assign_src, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_IF_STMT {
-        if async_lower_find_first_try_await_expr(node.if_stmt_condition, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.if_stmt_condition, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        if async_lower_find_first_try_await_expr(node.if_stmt_then_branch, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.if_stmt_then_branch, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.if_stmt_else_branch, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.if_stmt_else_branch, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_WHILE_STMT {
-        if async_lower_find_first_try_await_expr(node.while_stmt_condition, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.while_stmt_condition, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.while_stmt_body, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.while_stmt_body, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_FOR_STMT {
-        if async_lower_find_first_try_await_expr(node.for_stmt_range_start, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.for_stmt_range_start, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        if async_lower_find_first_try_await_expr(node.for_stmt_range_end, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.for_stmt_range_end, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        if async_lower_find_first_try_await_expr(node.for_stmt_array, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.for_stmt_array, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.for_stmt_body, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.for_stmt_body, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_CALL_EXPR {
-        if async_lower_find_first_try_await_expr(node.call_expr_callee, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.call_expr_callee, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
         if node.call_expr_args != null {
             var ai: i32 = 0;
             while ai < node.call_expr_arg_count {
-                if async_lower_find_first_try_await_expr(node.call_expr_args[ai], out_try_expr) != 0 {
+                if async_lower_find_first_split_await_expr(node.call_expr_args[ai], out_await_expr, out_try_expr) != 0 {
                     return 1;
                 }
                 ai = ai + 1;
@@ -574,48 +860,48 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
         return 0;
     }
     if node.type == ASTNodeType.AST_MEMBER_ACCESS {
-        return async_lower_find_first_try_await_expr(node.member_access_object, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.member_access_object, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_ARRAY_ACCESS {
-        if async_lower_find_first_try_await_expr(node.array_access_array, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.array_access_array, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.array_access_index, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.array_access_index, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_SLICE_EXPR {
-        if async_lower_find_first_try_await_expr(node.slice_expr_base, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.slice_expr_base, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        if async_lower_find_first_try_await_expr(node.slice_expr_start_expr, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.slice_expr_start_expr, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.slice_expr_len_expr, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.slice_expr_len_expr, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_BINARY_EXPR {
-        if async_lower_find_first_try_await_expr(node.binary_expr_left, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.binary_expr_left, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.binary_expr_right, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.binary_expr_right, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_UNARY_EXPR {
-        return async_lower_find_first_try_await_expr(node.unary_expr_operand, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.unary_expr_operand, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_CAST_EXPR {
-        return async_lower_find_first_try_await_expr(node.cast_expr_expr, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.cast_expr_expr, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_CATCH_EXPR {
-        if async_lower_find_first_try_await_expr(node.catch_expr_operand, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.catch_expr_operand, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.catch_expr_catch_block, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.catch_expr_catch_block, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
-        if async_lower_find_first_try_await_expr(node.match_expr_expr, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.match_expr_expr, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
         var mi: i32 = 0;
         while mi < node.match_expr_arm_count {
-            if async_lower_find_first_try_await_expr(node.match_expr_arms[mi].result_expr, out_try_expr) != 0 {
+            if async_lower_find_first_split_await_expr(node.match_expr_arms[mi].result_expr, out_await_expr, out_try_expr) != 0 {
                 return 1;
             }
             mi = mi + 1;
@@ -625,7 +911,7 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
     if node.type == ASTNodeType.AST_STRUCT_INIT && node.struct_init_field_values != null {
         var fi: i32 = 0;
         while fi < node.struct_init_field_count {
-            if async_lower_find_first_try_await_expr(node.struct_init_field_values[fi], out_try_expr) != 0 {
+            if async_lower_find_first_split_await_expr(node.struct_init_field_values[fi], out_await_expr, out_try_expr) != 0 {
                 return 1;
             }
             fi = fi + 1;
@@ -635,7 +921,7 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
     if node.type == ASTNodeType.AST_ARRAY_LITERAL && node.array_literal_elements != null {
         var ei: i32 = 0;
         while ei < node.array_literal_element_count {
-            if async_lower_find_first_try_await_expr(node.array_literal_elements[ei], out_try_expr) != 0 {
+            if async_lower_find_first_split_await_expr(node.array_literal_elements[ei], out_await_expr, out_try_expr) != 0 {
                 return 1;
             }
             ei = ei + 1;
@@ -645,7 +931,7 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
     if node.type == ASTNodeType.AST_TUPLE_LITERAL && node.tuple_literal_elements != null {
         var ti: i32 = 0;
         while ti < node.tuple_literal_element_count {
-            if async_lower_find_first_try_await_expr(node.tuple_literal_elements[ti], out_try_expr) != 0 {
+            if async_lower_find_first_split_await_expr(node.tuple_literal_elements[ti], out_await_expr, out_try_expr) != 0 {
                 return 1;
             }
             ti = ti + 1;
@@ -653,16 +939,16 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
         return 0;
     }
     if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
-        return async_lower_find_first_try_await_expr(node.print_expr, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.print_expr, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_SYSCALL {
-        if async_lower_find_first_try_await_expr(node.syscall_number, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.syscall_number, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
         if node.syscall_args != null {
             var si2: i32 = 0;
             while si2 < node.syscall_arg_count {
-                if async_lower_find_first_try_await_expr(node.syscall_args[si2], out_try_expr) != 0 {
+                if async_lower_find_first_split_await_expr(node.syscall_args[si2], out_await_expr, out_try_expr) != 0 {
                     return 1;
                 }
                 si2 = si2 + 1;
@@ -675,7 +961,7 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
         while si3 < node.string_interp_segment_count {
             const seg: &ASTStringInterpSegment = &node.string_interp_segments[si3];
             if seg != null && seg.is_text == 0 && seg.expr != null &&
-                async_lower_find_first_try_await_expr(seg.expr, out_try_expr) != 0 {
+                async_lower_find_first_split_await_expr(seg.expr, out_await_expr, out_try_expr) != 0 {
                 return 1;
             }
             si3 = si3 + 1;
@@ -683,46 +969,59 @@ export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&
         return 0;
     }
     if node.type == ASTNodeType.AST_SIZEOF {
-        return async_lower_find_first_try_await_expr(node.sizeof_expr_target, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.sizeof_expr_target, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_LEN {
-        return async_lower_find_first_try_await_expr(node.len_expr_array, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.len_expr_array, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_ALIGNOF {
-        return async_lower_find_first_try_await_expr(node.alignof_expr_target, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.alignof_expr_target, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
-        return async_lower_find_first_try_await_expr(node.ptr_from_usize_value, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.ptr_from_usize_value, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
-        return async_lower_find_first_try_await_expr(node.usize_from_ptr_ptr, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.usize_from_ptr_ptr, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_ERROR_ID {
-        return async_lower_find_first_try_await_expr(node.error_id_operand, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.error_id_operand, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_ERROR_NAME {
-        return async_lower_find_first_try_await_expr(node.error_name_operand, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.error_name_operand, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_VA_START {
-        if async_lower_find_first_try_await_expr(node.va_start_ap, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.va_start_ap, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.va_start_last_param, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.va_start_last_param, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_VA_END {
-        return async_lower_find_first_try_await_expr(node.va_end_ap, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.va_end_ap, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_VA_ARG {
-        if async_lower_find_first_try_await_expr(node.va_arg_ap, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.va_arg_ap, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.va_arg_arg_type, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.va_arg_arg_type, out_await_expr, out_try_expr);
     }
     if node.type == ASTNodeType.AST_VA_COPY {
-        if async_lower_find_first_try_await_expr(node.va_copy_dest, out_try_expr) != 0 {
+        if async_lower_find_first_split_await_expr(node.va_copy_dest, out_await_expr, out_try_expr) != 0 {
             return 1;
         }
-        return async_lower_find_first_try_await_expr(node.va_copy_src, out_try_expr);
+        return async_lower_find_first_split_await_expr(node.va_copy_src, out_await_expr, out_try_expr);
+    }
+    return 0;
+}
+
+export fn async_lower_find_first_try_await_expr(node: &ASTNode, out_try_expr: &&ASTNode) i32 {
+    if node == null || out_try_expr == null {
+        return 0;
+    }
+    var await_expr: &ASTNode = null;
+    var try_expr: &ASTNode = null;
+    if async_lower_find_first_split_await_expr(node, &await_expr, &try_expr) != 0 && try_expr != null {
+        out_try_expr[0] = try_expr;
+        return 1;
     }
     return 0;
 }
@@ -981,6 +1280,7 @@ fn async_lower_collect_plan_node(
                 async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                 plan.await_points[idx_plain].source_stmt = node;
                 plan.await_points[idx_plain].split_try_expr = null;
+                plan.await_points[idx_plain].split_await_expr = null;
                 plan.await_points[idx_plain].operand = init.await_expr_operand;
                 plan.await_points[idx_plain].bind_name = node.var_decl_name;
                 plan.await_points[idx_plain].bind_type = node.var_decl_type;
@@ -1001,6 +1301,7 @@ fn async_lower_collect_plan_node(
                     async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                     plan.await_points[idx_decl].source_stmt = node;
                     plan.await_points[idx_decl].split_try_expr = init;
+                    plan.await_points[idx_decl].split_await_expr = null;
                     plan.await_points[idx_decl].operand = op.await_expr_operand;
                     plan.await_points[idx_decl].bind_name = node.var_decl_name;
                     plan.await_points[idx_decl].bind_type = node.var_decl_type;
@@ -1022,6 +1323,7 @@ fn async_lower_collect_plan_node(
                 async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                 plan.await_points[idx_ret_plain].source_stmt = node;
                 plan.await_points[idx_ret_plain].split_try_expr = null;
+                plan.await_points[idx_ret_plain].split_await_expr = null;
                 plan.await_points[idx_ret_plain].operand = ret_expr.await_expr_operand;
                 plan.await_points[idx_ret_plain].bind_name = null;
                 plan.await_points[idx_ret_plain].bind_type = null;
@@ -1044,6 +1346,7 @@ fn async_lower_collect_plan_node(
                     async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                     plan.await_points[idx_ret_try].source_stmt = node;
                     plan.await_points[idx_ret_try].split_try_expr = ret_expr;
+                    plan.await_points[idx_ret_try].split_await_expr = null;
                     plan.await_points[idx_ret_try].operand = ret_op.await_expr_operand;
                     plan.await_points[idx_ret_try].bind_name = null;
                     plan.await_points[idx_ret_try].bind_type = null;
@@ -1065,19 +1368,30 @@ fn async_lower_collect_plan_node(
 
     if node.type != ASTNodeType.AST_BLOCK && node.type != ASTNodeType.AST_IF_STMT &&
         node.type != ASTNodeType.AST_WHILE_STMT && node.type != ASTNodeType.AST_FOR_STMT {
+        var nested_await: &ASTNode = null;
         var nested_try: &ASTNode = null;
-        if async_lower_find_first_try_await_expr(node, &nested_try) != 0 && nested_try != null &&
-            nested_try.try_expr_operand != null &&
-            nested_try.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
-            nested_try.try_expr_operand.await_expr_operand != null {
+        if async_lower_find_first_split_await_expr(node, &nested_await, &nested_try) != 0 &&
+            nested_await != null && nested_await.await_expr_operand != null {
             const idx_nested: i32 = async_lower_claim_await_slot(plan, arena);
             if idx_nested >= 0 {
                 async_lower_note_prefix_stmt_count(plan, root_stmt_index);
                 plan.await_points[idx_nested].source_stmt = node;
                 plan.await_points[idx_nested].split_try_expr = nested_try;
-                plan.await_points[idx_nested].operand = nested_try.try_expr_operand.await_expr_operand;
+                if nested_try != null {
+                    plan.await_points[idx_nested].split_await_expr = null;
+                } else {
+                    plan.await_points[idx_nested].split_await_expr = nested_await;
+                }
+                plan.await_points[idx_nested].operand = nested_await.await_expr_operand;
                 plan.await_points[idx_nested].bind_name = null;
-                plan.await_points[idx_nested].bind_type = async_lower_infer_compound_bind_type(checker, node, nested_try);
+                if nested_try != null {
+                    plan.await_points[idx_nested].bind_type = async_lower_infer_compound_bind_type(checker, node, nested_try);
+                } else {
+                    plan.await_points[idx_nested].bind_type = async_lower_find_raw_await_bind_type(checker, node, nested_await);
+                    if plan.await_points[idx_nested].bind_type == null {
+                        plan.await_points[idx_nested].bind_type = async_lower_await_expr_result_type(checker, nested_await);
+                    }
+                }
                 plan.await_points[idx_nested].parent_block = parent_block;
                 plan.await_points[idx_nested].stmt_index = parent_stmt_index;
                 plan.await_points[idx_nested].enclosing_while = enclosing_while;

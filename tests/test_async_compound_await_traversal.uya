@@ -1,0 +1,116 @@
+// 回归：match / catch / 宏展开后的复合表达式里，裸 @await 也必须走统一 traversal。
+
+use std.async;
+use std.testing.assert_eq_i32;
+
+error TraversalErr;
+
+union Pick {
+    left: void,
+    right: void,
+}
+
+fn pick(seed: i32) Pick {
+    if seed == 0 {
+        return Pick.left({});
+    }
+    return Pick.right({});
+}
+
+fn immediate_ok(value: i32) !i32 {
+    return value;
+}
+
+fn maybe_sync_value(value: i32, fail: i32) !i32 {
+    if fail != 0 {
+        return error.TraversalErr;
+    }
+    return value;
+}
+
+struct PendingMaybe : Future<!i32> {
+    value: i32,
+    fail: i32,
+    polled: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        _ = waker;
+        if self.polled == 0 {
+            self.polled = 1;
+            return Poll<!i32>.Pending({});
+        }
+        if self.fail != 0 {
+            return Poll<!i32>.Ready(error.TraversalErr);
+        }
+        return Poll<!i32>.Ready(ok<i32>(self.value));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
+fn pending_maybe(value: i32, fail: i32) Future<!i32> {
+    return PendingMaybe{ value: value, fail: fail, polled: 0 };
+}
+
+@async_fn
+fn catch_block_with_nested_raw_await(sync_fail: i32, async_fail: i32) Future<!i32> {
+    const value: i32 = maybe_sync_value(7, sync_fail) catch |err| {
+        _ = err;
+        const raw: !i32 = @await pending_maybe(30, async_fail);
+        _ = raw catch |inner_err| {
+            _ = inner_err;
+            0;
+        };
+        41;
+    };
+    return value;
+}
+
+@async_fn
+fn match_arm_block_with_nested_raw_await(seed: i32, async_fail: i32) Future<!i32> {
+    var value: i32 = 0;
+    match pick(seed) {
+        .left(_) => {
+            const raw: !i32 = @await pending_maybe(10, async_fail);
+            _ = raw catch |err| {
+                _ = err;
+                0;
+            };
+            value = 30;
+        },
+        .right(_) => {
+            value = 20;
+        },
+    };
+    return value;
+}
+
+test "async_catch_block_with_nested_raw_await_success" {
+    const result: !i32 = block_on<i32>(catch_block_with_nested_raw_await(0, 0));
+    const value: i32 = result catch { 0 - 1; };
+    try assert_eq_i32(value, 7);
+}
+
+test "async_catch_block_with_nested_raw_await_error_recovery" {
+    const result: !i32 = block_on<i32>(catch_block_with_nested_raw_await(1, 0));
+    const value: i32 = result catch { 0 - 1; };
+    try assert_eq_i32(value, 41);
+}
+
+test "async_catch_block_with_nested_raw_await_inner_error_recovery" {
+    const result: !i32 = block_on<i32>(catch_block_with_nested_raw_await(1, 1));
+    const value: i32 = result catch { 0 - 1; };
+    try assert_eq_i32(value, 41);
+}
+
+test "async_match_arm_block_with_nested_raw_await" {
+    const left_result: !i32 = block_on<i32>(match_arm_block_with_nested_raw_await(0, 0));
+    const left_value: i32 = left_result catch { 0 - 1; };
+    try assert_eq_i32(left_value, 30);
+
+    const right_result: !i32 = block_on<i32>(match_arm_block_with_nested_raw_await(1, 0));
+    const right_value: i32 = right_result catch { 0 - 1; };
+    try assert_eq_i32(right_value, 20);
+}

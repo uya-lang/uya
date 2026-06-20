@@ -1263,13 +1263,32 @@ fn checker_infer_if_expr_branch_type(checker: &TypeChecker, branch: &ASTNode) Ty
         return make_void_type();
     }
     if branch.type == ASTNodeType.AST_BLOCK {
-        if branch.block_stmts == null || branch.block_stmt_count <= 0 {
-            return make_void_type();
-        }
-        const last: &ASTNode = branch.block_stmts[branch.block_stmt_count - 1];
-        return checker_infer_type(checker, last);
+        return checker_infer_block_expr_type(checker, branch);
     }
     return checker_infer_type(checker, branch);
+}
+
+fn checker_infer_block_expr_type(checker: &TypeChecker, block: &ASTNode) Type {
+    if checker == null || block == null || block.type != ASTNodeType.AST_BLOCK ||
+        block.block_stmts == null || block.block_stmt_count <= 0 {
+        return make_void_type();
+    }
+    checker_enter_scope(checker);
+    var i: i32 = 0;
+    while i < block.block_stmt_count - 1 {
+        checker_check_node(checker, block.block_stmts[i]);
+        i = i + 1;
+    }
+    var result: Type = make_void_type();
+    const last: &ASTNode = block.block_stmts[block.block_stmt_count - 1];
+    if last != null {
+        checker_check_node(checker, last);
+        if last.type != ASTNodeType.AST_RETURN_STMT {
+            result = checker_infer_type(checker, last);
+        }
+    }
+    checker_exit_scope(checker);
+    return result;
 }
 
 fn checker_if_expr_branch_value_node(branch: &ASTNode) &ASTNode {
@@ -2267,9 +2286,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.error_union_payload_type = payload_ptr;
         return result;
     } else if expr.type == ASTNodeType.AST_BLOCK {
-        // 代码块：返回void类型（代码块不返回值）
-        // 放宽检查：允许代码块作为表达式使用（在编译器自举时可能发生）
-        return make_void_type();
+        return checker_infer_block_expr_type(checker, expr);
     } else if expr.type == ASTNodeType.AST_IF_STMT {
         const then_type: Type = checker_infer_if_expr_branch_type(checker, expr.if_stmt_then_branch);
         if is_void_type(then_type) == 0 {
@@ -4074,6 +4091,7 @@ fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     
     const payload: Type = operand_type.error_union_payload_type[0];
     
+    var catch_block_type: Type = make_void_type();
     if expr.catch_expr_err_name != null {
         var err_type: Type = make_void_type();
         err_type.kind = TypeKind.TYPE_ERROR;
@@ -4093,17 +4111,18 @@ fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
             symbol_table_insert(checker, sym);
         }
         checker_check_node(checker, expr.catch_expr_catch_block);
+        catch_block_type = checker_infer_block_expr_type(checker, expr.catch_expr_catch_block);
         checker_exit_scope(checker);
     } else {
         checker_check_node(checker, expr.catch_expr_catch_block);
+        catch_block_type = checker_infer_block_expr_type(checker, expr.catch_expr_catch_block);
     }
     
     const block: &ASTNode = expr.catch_expr_catch_block;
     if block != null && block.type == ASTNodeType.AST_BLOCK && block.block_stmt_count > 0 {
         const last: &ASTNode = block.block_stmts[block.block_stmt_count - 1];
         if last != null && last.type != ASTNodeType.AST_RETURN_STMT {
-            const last_type: Type = checker_infer_type(checker, last);
-            if type_equals(last_type, payload) == 0 {
+            if type_equals(catch_block_type, payload) == 0 {
                 checker_report_error(checker, last, "catch 块最后表达式类型必须与成功值类型一致" as *byte);
             }
         }

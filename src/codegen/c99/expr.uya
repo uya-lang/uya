@@ -698,11 +698,43 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         fprintf(codegen.emit_stream as *void, "%dU" as *byte, id);
     } else if expr.type == ASTNodeType.AST_TRY_EXPR {
         gen_try_expr(codegen, expr);
-        } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+    } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
         // @await expression:
         // 阶段 B（正统语义）：Pending 必须走 Poll.Pending，由 @async_fn 状态机的 poll 驱动。
         // 因此这里不再生成“把 Pending 伪装成 error.AsyncPending”的控制流。
         // 目前 @await 节点应由 @async_fn 专用 codegen 路径消解；此处仅保底输出操作数，避免崩溃。
+        if codegen != null && expr != null && codegen.async_expr_subst_await_expr != null &&
+            @usize_from_ptr(expr as &void) == @usize_from_ptr(codegen.async_expr_subst_await_expr as &void) {
+            const subst_name2: &byte = get_safe_c_identifier(codegen, codegen.async_expr_subst_name);
+            if codegen.async_state_var != null && subst_name2 != null {
+                var subst_bind_type: &ASTNode = null;
+                if codegen.async_expr_subst_name != null && codegen.async_bind_names != null &&
+                    codegen.async_collect_types != null {
+                    var abi2: i32 = 0;
+                    while abi2 < codegen.async_bind_count {
+                        if codegen.async_bind_names[abi2] != null &&
+                            strcmp(codegen.async_bind_names[abi2] as *byte, codegen.async_expr_subst_name as *byte) == 0 {
+                            subst_bind_type = codegen.async_collect_types[abi2];
+                            abi2 = codegen.async_bind_count;
+                        }
+                        abi2 = abi2 + 1;
+                    }
+                }
+                if codegen.expected_type != null && codegen.expected_type.type == ASTNodeType.AST_TYPE_ERROR_UNION &&
+                    (subst_bind_type == null || subst_bind_type.type != ASTNodeType.AST_TYPE_ERROR_UNION) {
+                    const union_c2: &byte = c99_type_to_c(codegen, codegen.expected_type);
+                    if union_c2 != null && strstr(union_c2 as *byte, "err_union_" as *byte) != null {
+                        fprintf(codegen.emit_stream as *void,
+                            "(%s){ .error_id = 0, .value = %s->_uya_bind_%s }" as *byte,
+                            union_c2 as *byte, codegen.async_state_var as *byte, subst_name2 as *byte);
+                        return;
+                    }
+                }
+                fprintf(codegen.emit_stream as *void, "%s->_uya_bind_%s" as *byte,
+                    codegen.async_state_var as *byte, subst_name2 as *byte);
+                return;
+            }
+        }
         const operand: &ASTNode = expr.await_expr_operand;
         if operand == null {
             fputs("0" as *byte, codegen.emit_stream as *void);

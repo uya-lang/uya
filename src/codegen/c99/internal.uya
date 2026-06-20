@@ -351,6 +351,7 @@ struct C99CodeGenerator {
     async_collect_stmt_indices: &i32,
     async_collect_source_stmts: & & ASTNode,
     async_collect_split_try_exprs: & & ASTNode,
+    async_collect_split_await_exprs: & & ASTNode,
     async_collect_state_ids: &i32,
     async_collect_cleanup_region_ids: &i32,
     // try @await 所在的最内层 while（无则 null），用于 while+单 await 循环回跳与退出
@@ -385,6 +386,7 @@ struct C99CodeGenerator {
     async_poll_inner_is_err_union: i32,
     // 重新发射包含 try @await 的语句时，用于把当前 await 节点替换成已绑定的结果字段
     async_expr_subst_try_expr: &ASTNode,
+    async_expr_subst_await_expr: &ASTNode,
     async_expr_subst_name: &byte,
     // 通用协程变换上下文（emit_async_segment 递归使用）
     async_fn_decl: &ASTNode,                // 当前 async 函数声明
