@@ -13,6 +13,7 @@ export struct AsyncLowerAwaitPoint {
     source_stmt: &ASTNode,
     split_try_expr: &ASTNode,
     operand: &ASTNode,
+    resume_state: i32,
     bind_name: &byte,
     bind_type: &ASTNode,
     parent_block: &ASTNode,
@@ -26,6 +27,7 @@ export struct AsyncLowerPlan {
     await_points: &AsyncLowerAwaitPoint,
     await_count: i32,
     await_capacity: i32,
+    terminal_state: i32,
     return_expr: &ASTNode,
     has_loop: i32,
 }
@@ -313,6 +315,20 @@ fn async_lower_claim_await_slot(plan: &AsyncLowerPlan, arena: &CompilerArena) i3
     }
     plan.await_count = idx + 1;
     return idx;
+}
+
+fn async_lower_assign_state_numbers(plan: &AsyncLowerPlan) void {
+    if plan == null {
+        return;
+    }
+    var next_state: i32 = 1;
+    var i: i32 = 0;
+    while i < plan.await_count && plan.await_points != null {
+        plan.await_points[i].resume_state = next_state;
+        next_state = next_state + 1;
+        i = i + 1;
+    }
+    plan.terminal_state = next_state;
 }
 
 fn async_lower_infer_compound_bind_type(checker: &TypeChecker, node: &ASTNode, try_expr: &ASTNode) &ASTNode {
@@ -929,11 +945,13 @@ export fn async_lower_build_plan(
     plan.await_points = null;
     plan.await_count = 0;
     plan.await_capacity = 0;
+    plan.terminal_state = 1;
     plan.return_expr = null;
     plan.has_loop = 0;
     if body == null {
         return 0;
     }
     async_lower_collect_plan_node(plan, arena, checker, body, null, -1, null, null);
+    async_lower_assign_state_numbers(plan);
     return 0;
 }

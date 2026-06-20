@@ -350,12 +350,14 @@ struct C99CodeGenerator {
     async_collect_stmt_indices: &i32,
     async_collect_source_stmts: & & ASTNode,
     async_collect_split_try_exprs: & & ASTNode,
+    async_collect_state_ids: &i32,
     // try @await 所在的最内层 while（无则 null），用于 while+单 await 循环回跳与退出
     async_collect_enclosing_while: & & ASTNode,
     // try @await 所在的最内层 for（无则 null）；与 while 互斥时以 while 为准（内层 while 优先）
     async_collect_enclosing_for: & & ASTNode,
     async_collect_count: i32,
     async_collect_capacity: i32,
+    async_collect_terminal_state: i32,
     async_collect_ret_expr: &ASTNode,
     async_collect_has_loop: i32,
     async_state_size: i32,  // 编译期计算的状态机近似字节数；<=0 表示未知或需堆分配

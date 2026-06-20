@@ -56,6 +56,8 @@ def main() -> int:
     require(lower_text, "export fn async_lower_find_first_try_await_expr", "src/lower/async.uya")
     require(lower_text, "source_stmt: &ASTNode", "src/lower/async.uya")
     require(lower_text, "split_try_expr: &ASTNode", "src/lower/async.uya")
+    require(lower_text, "resume_state: i32", "src/lower/async.uya")
+    require(lower_text, "terminal_state: i32", "src/lower/async.uya")
 
     forbid(function_text, "fn collect_awaits_recursive(", "src/codegen/c99/function.uya")
     forbid(function_text, "fn c99_find_first_try_await_expr(", "src/codegen/c99/function.uya")
@@ -63,11 +65,18 @@ def main() -> int:
     require(function_text, "async_lower_build_plan(", "src/codegen/c99/function.uya")
     require(function_text, "async_plan.await_points[plan_i].source_stmt", "src/codegen/c99/function.uya")
     require(function_text, "async_plan.await_points[plan_i].split_try_expr", "src/codegen/c99/function.uya")
+    require(function_text, "async_plan.await_points[plan_i].resume_state", "src/codegen/c99/function.uya")
+    require(function_text, "async_plan.terminal_state", "src/codegen/c99/function.uya")
+    forbid(function_text, "await_index + 1", "src/codegen/c99/function.uya")
+    forbid(function_text, "codegen.async_collect_count + 1", "src/codegen/c99/function.uya")
+    forbid(function_text, "await_count + 1", "src/codegen/c99/function.uya")
     forbid(segment_text, "async_lower_find_first_try_await_expr(", "emit_async_segment")
     forbid(continuation_text, "async_lower_find_first_try_await_expr(", "emit_async_continuation")
 
     require(internal_text, "async_collect_source_stmts: & & ASTNode", "src/codegen/c99/internal.uya")
     require(internal_text, "async_collect_split_try_exprs: & & ASTNode", "src/codegen/c99/internal.uya")
+    require(internal_text, "async_collect_state_ids: &i32", "src/codegen/c99/internal.uya")
+    require(internal_text, "async_collect_terminal_state: i32", "src/codegen/c99/internal.uya")
 
     require(transform_text, "use lower.async;", "src/codegen/c99/async_transform.uya")
     forbid(transform_text, "export struct AwaitPoint", "src/codegen/c99/async_transform.uya")

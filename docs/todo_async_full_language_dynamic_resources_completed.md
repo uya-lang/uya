@@ -1284,3 +1284,19 @@
     - 验证：`../uya/bin/uya test tests/test_async_match_await.uya` -> 通过（4 tests passed）
     - 验证：`../uya/bin/uya test tests/test_async_multiple_await.uya` -> 通过（1 test passed）
     - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya` -> 通过（8 tests passed）
+  - [x] state 编号
+    - 完成内容：`src/lower/async.uya` 为每个 await 点生成 `resume_state`，并为整份 plan 生成 `terminal_state`；`src/codegen/c99/function.uya` / `internal.uya` 改为只消费这些编号，不再使用 `await_index + 1`、`await_count + 1` 或 `async_collect_count + 1` 自行推断。
+    - 验证：`python3 tests/verify_async_lowering_plan_architecture.py`
+    - 结果：通过，输出 `verify_async_lowering_plan_architecture: centralized async lowering plan confirmed`。
+    - 验证：`ulimit -s 32768 && UYA_MULTI_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_SPLIT_C_MIRROR= RUNTIME_MODE=nostdlib LINK_MODE=static src/compile.sh --compiler ../uya/bin/uya --c99 -e --nostdlib --safety-proof`
+    - 结果：通过，已重建 `bin/uya`。
+    - 验证：`../uya/bin/uya test tests/test_async_bug_a_two_while.uya`
+    - 结果：通过，1 test passed，1 assertion passed。
+    - 验证：`../uya/bin/uya test tests/test_async_multiple_await.uya`
+    - 结果：通过，1 test passed，1 assertion passed。
+    - 验证：`../uya/bin/uya test tests/test_async_large_state_machine_syntax.uya`
+    - 结果：通过，7 tests passed，7 assertions passed。
+    - 验证：`../uya/bin/uya test tests/test_async_control_flow_body.uya`
+    - 结果：通过，3 tests passed，6 assertions passed。
+    - 验证：`git diff --check`
+    - 结果：通过，无输出。
