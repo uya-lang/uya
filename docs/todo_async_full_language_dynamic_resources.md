@@ -146,7 +146,6 @@
 ### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
 
 - [ ] `lib/std/http/websocket_client.uya`
-  - [ ] 将 `WebSocketClientReconnectFuture` 改为 `@async_fn reconnect_tick_async(...)` 或等价异步方法。
   - [ ] 保持现有 backoff / attach / exhausted 语义不变。
   - [ ] 依赖：`catch + @await`、结构体方法 async、错误路径收口稳定。
 - [ ] `lib/std/http/websocket_async.uya`

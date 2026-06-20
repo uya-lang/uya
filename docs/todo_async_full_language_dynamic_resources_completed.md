@@ -1509,3 +1509,14 @@
       - 验证：`timeout 30s ../uya/bin/uya test tests/test_http_websocket_async.uya`（5/5 通过）
       - 验证：`../uya/bin/uya test tests/test_http_websocket_json.uya`（通过）
       - 备注：非终帧路径显式补 `continue;`，remote close 清理收束为同步 helper，避免 `@await` 恢复点跳回循环头。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+路径：`最终目标口径` > `标准库业务层、协议层和 I/O 组合层不再保留手写 poll() 状态机。` > `lib/std/http/websocket_client.uya`
+
+- [x] 将 `WebSocketClientReconnectFuture` 改为 `@async_fn reconnect_tick_async(...)` 或等价异步方法。
+  - 验证：`bash -lc 'if rg -n "WebSocketClientReconnectFuture|fn poll\\(" lib/std/http/websocket_client.uya >/tmp/ws_client_rg.txt; then cat /tmp/ws_client_rg.txt; exit 1; else echo ok: websocket_client.uya has no manual reconnect future or poll method; fi'` -> `ok: websocket_client.uya has no manual reconnect future or poll method`
+  - 验证：`../uya/bin/uya test tests/test_http_websocket_reconnect.uya` -> `6 tests passed, 0 failed`
+  - 验证：`../uya/bin/uya test tests/test_http_websocket_module_smoke.uya` -> `1 test passed, 0 failed`
