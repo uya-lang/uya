@@ -145,7 +145,6 @@
 ### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
 
 - [ ] `lib/std/net/dns.uya`
-  - [ ] 将 `DnsTcpFuture` 改为 `@async_fn`。
   - [ ] 目标：DNS 只保留 transport helper，不再自带手写 poll 状态机。
 - [ ] `lib/std/http/uyagin.uya`
   - [ ] 将 `UyaginAcceptFuture` 改为 `@async_fn` + `async_accept`。

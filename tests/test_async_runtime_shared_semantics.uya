@@ -392,21 +392,24 @@ test "shared_runtime_tls_io_future_shares_queue_ready_cancel_and_cleanup" {
     _ = sys_close(epoll_impl.epfd) catch {};
 }
 
-test "shared_runtime_dns_and_tls_async_boundaries_use_future_wakers" {
+test "shared_runtime_dns_async_boundaries_and_tls_future_wakers" {
     var dns_src: [byte: SHARED_RUNTIME_SOURCE_MAX] = [0:SHARED_RUNTIME_SOURCE_MAX];
     const dns_len: usize = try read_source(DNS_SOURCE_PATH, &dns_src[0], SHARED_RUNTIME_SOURCE_MAX);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "export fn dns_client_query_a_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "@async_fn fn dns_client_query_all_any_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "struct DnsTcpFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "struct DnsQueryTransportFuture : Future<!usize>\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "struct DnsQueryAllAggregateFuture : Future<!usize>\0" as &const byte) as i32, 0);
-    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "waker.wait_readable\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "waker.wait_writable\0" as &const byte) as i32, 1);
 
     var https_src: [byte: SHARED_RUNTIME_SOURCE_MAX] = [0:SHARED_RUNTIME_SOURCE_MAX];
     const https_len: usize = try read_source(HTTPS_SOURCE_PATH, &https_src[0], SHARED_RUNTIME_SOURCE_MAX);
     try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "export fn https_handshake_async(fd: i32, ctx: &SslContext, role: i32) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "export fn https_read_some_async(fd: i32, out: &byte, out_max: usize) Future<!usize>\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "waker.wait_readable\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "waker.wait_writable\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "struct HttpsReadFuture : Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "struct HttpsHandshakeFuture : Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "async_poll_pending_readable_usize(waker, self.fd)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&https_src[0], https_len, "async_poll_pending_writable_usize(waker, self.fd)\0" as &const byte) as i32, 1);
 }

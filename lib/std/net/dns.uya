@@ -1878,355 +1878,141 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
     return dns_udp_future_new(ctx, host, host_len, out, out_max, out_len, DNS_RECORD_AAAA as i32, null);
 }
 
-// =============================================================================
-// DnsTcpFuture - TCP 异步 DNS 查询 Future
-// =============================================================================
-
-struct DnsTcpFuture : Future<!usize> {
-    mode: i32,
-    ctx: &DnsClient,
-    host: &const byte,
-    host_len: usize,
-    out: &byte,
-    out_max: usize,
-    out_len: &usize,
-    fd: i32,
-    stage: i32,
-    query_packet: [byte: DNS_MAX_PACKET + 2],
-    response_packet: [byte: DNS_MAX_PACKET + 2],
-    query_len: usize,
-    response_len: usize,
-    bytes_sent: usize,
-    bytes_received: usize,
-    expected_body_len: usize,
-    sockaddr: [byte: 16],
-    deadline_ms: u64,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        return dns_tcp_future_poll(self, waker);
+@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {
+    if mode != DNS_RECORD_A as i32 && mode != DNS_RECORD_AAAA as i32 {
+        return error.DnsUnsupported;
+    }
+    if host == null || out == null || out_len == null {
+        return error.DnsInvalidName;
+    }
+    if host_len == 0 {
+        return error.DnsInvalidName;
     }
 
-    fn release(self: &Self) void {
-        _ = self;
-    }
-}
-
-fn dns_tcp_query_ptr(self: &DnsTcpFuture, offset: usize) &byte {
-    if self == null || offset >= @len(self.query_packet) {
-        return null;
-    }
-    return (@usize_from_ptr(&self.query_packet[0] as &void) + offset) as &byte;
-}
-
-fn dns_tcp_response_ptr(self: &DnsTcpFuture, offset: usize) &byte {
-    if self == null || offset >= @len(self.response_packet) {
-        return null;
-    }
-    return (@usize_from_ptr(&self.response_packet[0] as &void) + offset) as &byte;
-}
-
-fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
-    // 状态机：
-    // stage 0: 获取 nameserver，构建查询包
-    // stage 1: 创建 TCP socket
-    // stage 2: 发起/轮询 `async_connect`
-    // stage 4: 等待可写，发送查询（2字节长度前缀 + DNS包）
-    // stage 5: 等待可读，读取2字节长度
-    // stage 6: 等待可读，读取响应体
-    // stage 7: 解析响应
-
-    if self.mode != DNS_RECORD_A as i32 && self.mode != DNS_RECORD_AAAA as i32 {
-        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsUnsupported)));
-    }
-    if self.host == null || self.out == null || self.out_len == null {
-        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidName)));
-    }
-    if self.host_len == 0 {
-        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidName)));
-    }
-
-    // localhost 和字面量 IPv4 快路径
-    if dns_is_localhost(self.host[0: self.host_len]) {
-        var n_local_res: !usize = error.DnsUnsupported;
-        if self.mode == DNS_RECORD_A as i32 {
-            n_local_res = dns_client_query_a(self.ctx, self.host, self.host_len, self.out, self.out_max, self.out_len);
-        } else {
-            n_local_res = dns_client_query_aaaa(self.ctx, self.host, self.host_len, self.out, self.out_max, self.out_len);
+    if dns_is_localhost(host[0: host_len]) {
+        if mode == DNS_RECORD_A as i32 {
+            return try dns_client_query_a(ctx, host, host_len, out, out_max, out_len);
         }
-        const n_local: usize = n_local_res catch |err| {
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-        return async_poll_ready_ok_usize(n_local);
+        return try dns_client_query_aaaa(ctx, host, host_len, out, out_max, out_len);
     }
+
     var v4_fast: [byte: 4] = [0:4];
-    if dns_parse_ipv4(self.host[0: self.host_len], &v4_fast[0]) {
-        var n_v4_res: !usize = error.DnsUnsupported;
-        if self.mode == DNS_RECORD_A as i32 {
-            n_v4_res = dns_client_query_a(self.ctx, self.host, self.host_len, self.out, self.out_max, self.out_len);
-        } else {
-            n_v4_res = dns_client_query_aaaa(self.ctx, self.host, self.host_len, self.out, self.out_max, self.out_len);
+    if dns_parse_ipv4(host[0: host_len], &v4_fast[0]) {
+        if mode == DNS_RECORD_A as i32 {
+            return try dns_client_query_a(ctx, host, host_len, out, out_max, out_len);
         }
-        const n_v4: usize = n_v4_res catch |err| {
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-        return async_poll_ready_ok_usize(n_v4);
-    }
-    if self.deadline_ms != 0 {
-        const expired: bool = dns_deadline_expired(self.deadline_ms) catch |err| {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-        if expired {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsTimeout)));
-        }
+        return try dns_client_query_aaaa(ctx, host, host_len, out, out_max, out_len);
     }
 
-    if self.stage == 0 {
-        const ns_res: !DnsAddress = dns_client_get_nameserver(self.ctx);
-        const ns: DnsAddress = ns_res catch |err| {
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-        if ns.family != AF_INET {
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsUnsupported)));
-        }
-
-        // 构建查询包
-        var raw_query: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
-        const raw_qlen: usize = dns_client_build_query(self.ctx, self.host[0: self.host_len], self.mode as u16, &raw_query[0], DNS_MAX_PACKET) catch |err| {
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-
-        // 构建带长度前缀的 TCP 帧
-        self.query_packet[0] = (((raw_qlen >> 8) & (255 as usize)) as byte);
-        self.query_packet[1] = ((raw_qlen & (255 as usize)) as byte);
-        var i: usize = 0;
-        while i < raw_qlen && i < @len(raw_query) && 2 + i < @len(self.query_packet) {
-            self.query_packet[2 + i] = raw_query[i];
-            i = i + 1;
-        }
-        self.query_len = raw_qlen + 2;
-        self.bytes_sent = 0;
-        self.bytes_received = 0;
-        self.expected_body_len = 0;
-        self.fd = 0 - 1;
-        self.response_len = 0;
-        dns_fill_sockaddr_ipv4(ns.addr[0], ns.addr[1], ns.addr[2], ns.addr[3], ns.port, &self.sockaddr[0]);
-        self.deadline_ms = dns_deadline_after_ms(self.ctx.timeout_ms) catch |err| {
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-        self.stage = 1;
+    const ns: DnsAddress = try dns_client_get_nameserver(ctx);
+    if ns.family != AF_INET {
+        return error.DnsUnsupported;
     }
 
-    if self.stage == 1 {
-        const socket_res: !i32 = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        const fd: i32 = socket_res catch |err| {
-            return async_poll_ready_error_usize(dns_transport_error_from_errno_usize((@error_id(err) as! i32).value));
-        };
-        self.fd = fd;
-        self.stage = 2;
+    var raw_query: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
+    var query_packet: [byte: DNS_MAX_PACKET + 2] = [0:DNS_MAX_PACKET + 2];
+    var response_packet: [byte: DNS_MAX_PACKET + 2] = [0:DNS_MAX_PACKET + 2];
+    var sockaddr: [byte: 16] = [0:16];
+    const raw_qlen: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &raw_query[0], DNS_MAX_PACKET);
+    query_packet[0] = (((raw_qlen >> 8) & (255 as usize)) as byte);
+    query_packet[1] = ((raw_qlen & (255 as usize)) as byte);
+    var i: usize = 0;
+    while i < raw_qlen && i < @len(raw_query) && 2 + i < @len(query_packet) {
+        query_packet[2 + i] = raw_query[i];
+        i = i + 1;
     }
+    const query_len: usize = raw_qlen + 2;
+    dns_fill_sockaddr_ipv4(ns.addr[0], ns.addr[1], ns.addr[2], ns.addr[3], ns.port, &sockaddr[0]);
+    const deadline_ms: u64 = try dns_deadline_after_ms(ctx.timeout_ms);
 
-    if self.stage == 2 {
-        const connect_future: Future<!i32> = async_connect(self.fd, &self.sockaddr[0] as &void, 16 as u32, self.deadline_ms);
-        const connect_poll: Poll<!i32> = connect_future.poll(waker);
-        match connect_poll {
-            .Pending(_) => {
-                connect_future.release();
-                return async_poll_pending_usize();
-            },
-            .Ready(connect_result) => {
-                connect_future.release();
-                const connected_fd: i32 = connect_result catch |err| {
-                    dns_future_close_fd(&self.fd);
-                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsTimeout)));
-                    }
-                    return async_poll_ready_error_usize(dns_transport_error_from_errno_usize((@error_id(err) as! i32).value));
-                };
-                self.fd = connected_fd;
-            },
-        };
-        self.stage = 4;
+    var fd: i32 = 0 - 1;
+    defer {
+        dns_future_close_fd(&fd);
     }
+    fd = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) catch |err| {
+        return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
+    };
 
-    if self.stage == 4 {
-        // 发送查询
-        if self.bytes_sent >= self.query_len || self.bytes_sent >= @len(self.query_packet) {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
+    const connect_result: !i32 = @await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms);
+    const connected_fd: i32 = connect_result catch |err| {
+        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+            return error.DnsTimeout;
         }
-        const remaining: usize = self.query_len - self.bytes_sent;
-        const send_base: &byte = dns_tcp_query_ptr(self, self.bytes_sent);
-        if send_base == null {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
+        return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
+    };
+    fd = connected_fd;
+
+    var bytes_sent: usize = 0;
+    while bytes_sent < query_len {
+        if bytes_sent >= @len(query_packet) {
+            return error.DnsInvalidPacket;
         }
-        const send_future: Future<!usize> = async_socket_send(self.fd, send_base as &const byte, remaining, self.deadline_ms);
-        const send_poll: Poll<!usize> = send_future.poll(waker);
-        var sent: usize = 0;
-        match send_poll {
-            .Pending(_) => {
-                send_future.release();
-                return async_poll_pending_usize();
-            },
-            .Ready(send_result) => {
-                send_future.release();
-                sent = send_result catch |err| {
-                    dns_future_close_fd(&self.fd);
-                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsTimeout)));
-                    }
-                    return async_poll_ready_error_usize(dns_transport_error_from_errno_usize((@error_id(err) as! i32).value));
-                };
-            },
+        const remaining: usize = query_len - bytes_sent;
+        const send_base: &byte = @ptr_from_usize(@usize_from_ptr(&query_packet[0] as &void) + bytes_sent) as &byte;
+        const send_result: !usize = @await async_socket_send(fd, send_base as &const byte, remaining, deadline_ms);
+        const sent: usize = send_result catch |err| {
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return error.DnsTimeout;
+            }
+            return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
         };
         if sent == 0 {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsNetworkUnreachable)));
+            return error.DnsNetworkUnreachable;
         }
-        self.bytes_sent = self.bytes_sent + sent;
-        if self.bytes_sent < self.query_len {
-            // 还没发完，继续等待可写
-            return async_poll_pending_writable_usize(waker, self.fd);
-        }
-        // 发送完成，准备接收
-        self.stage = 5;
+        bytes_sent = bytes_sent + sent;
     }
 
-    if self.stage == 5 {
-        // 读取2字节长度前缀
-        if self.bytes_received >= 2 || self.bytes_received >= @len(self.response_packet) {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
+    var bytes_received: usize = 0;
+    while bytes_received < 2 {
+        if bytes_received >= @len(response_packet) {
+            return error.DnsInvalidPacket;
         }
-        const recv_base: &byte = dns_tcp_response_ptr(self, self.bytes_received);
-        if recv_base == null {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
-        }
-        const recv_future: Future<!usize> = async_socket_recv(self.fd, recv_base, 2 - self.bytes_received, self.deadline_ms);
-        const recv_poll: Poll<!usize> = recv_future.poll(waker);
-        var n: usize = 0;
-        match recv_poll {
-            .Pending(_) => {
-                recv_future.release();
-                return async_poll_pending_usize();
-            },
-            .Ready(recv_result) => {
-                recv_future.release();
-                n = recv_result catch |err| {
-                    dns_future_close_fd(&self.fd);
-                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsTimeout)));
-                    }
-                    return async_poll_ready_error_usize(dns_transport_error_from_errno_usize((@error_id(err) as! i32).value));
-                };
-            },
+        const prefix_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_packet[0] as &void) + bytes_received) as &byte;
+        const prefix_recv_result: !usize = @await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms);
+        const prefix_n: usize = prefix_recv_result catch |err| {
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return error.DnsTimeout;
+            }
+            return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
         };
-        if n == 0 {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsNoSuchName)));
+        if prefix_n == 0 {
+            return error.DnsNoSuchName;
         }
-        self.bytes_received = self.bytes_received + n;
-        if self.bytes_received < 2 {
-            // 还没读完长度前缀
-            return async_poll_pending_readable_usize(waker, self.fd);
-        }
-        // 解析长度
-        self.expected_body_len = (((self.response_packet[0] as usize) << 8) | (self.response_packet[1] as usize));
-        if self.expected_body_len == 0 || self.expected_body_len > DNS_MAX_PACKET {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
-        }
-        // 重置接收计数器，准备读取响应体
-        self.bytes_received = 0;
-        self.stage = 6;
+        bytes_received = bytes_received + prefix_n;
     }
 
-    if self.stage == 6 {
-        // 读取响应体
-        const remaining: usize = self.expected_body_len - self.bytes_received;
-        const body_offset: usize = 2 + self.bytes_received;
-        if body_offset >= @len(self.response_packet) {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
+    const expected_body_len: usize = (((response_packet[0] as usize) << 8) | (response_packet[1] as usize));
+    if expected_body_len == 0 || expected_body_len > DNS_MAX_PACKET {
+        return error.DnsInvalidPacket;
+    }
+
+    bytes_received = 0;
+    while bytes_received < expected_body_len {
+        const body_remaining: usize = expected_body_len - bytes_received;
+        const body_offset: usize = 2 + bytes_received;
+        if body_offset >= @len(response_packet) {
+            return error.DnsInvalidPacket;
         }
-        const recv_base: &byte = dns_tcp_response_ptr(self, body_offset);
-        if recv_base == null {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsInvalidPacket)));
-        }
-        const recv_future: Future<!usize> = async_socket_recv(self.fd, recv_base, remaining, self.deadline_ms);
-        const recv_poll: Poll<!usize> = recv_future.poll(waker);
-        var n: usize = 0;
-        match recv_poll {
-            .Pending(_) => {
-                recv_future.release();
-                return async_poll_pending_usize();
-            },
-            .Ready(recv_result) => {
-                recv_future.release();
-                n = recv_result catch |err| {
-                    dns_future_close_fd(&self.fd);
-                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                        return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsTimeout)));
-                    }
-                    return async_poll_ready_error_usize(dns_transport_error_from_errno_usize((@error_id(err) as! i32).value));
-                };
-            },
+        const body_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_packet[0] as &void) + body_offset) as &byte;
+        const body_recv_result: !usize = @await async_socket_recv(fd, body_recv_base, body_remaining, deadline_ms);
+        const body_n: usize = body_recv_result catch |err| {
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return error.DnsTimeout;
+            }
+            return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
         };
-        if n == 0 {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsNoSuchName)));
+        if body_n == 0 {
+            return error.DnsNoSuchName;
         }
-        self.bytes_received = self.bytes_received + n;
-        if self.bytes_received < self.expected_body_len {
-            // 还没读完
-            return async_poll_pending_readable_usize(waker, self.fd);
-        }
-        // 读取完成
-        self.response_len = self.bytes_received;
-        self.stage = 7;
+        bytes_received = bytes_received + body_n;
     }
 
-    if self.stage == 7 {
-        // 解析响应（跳过前2字节长度前缀）
-        var ttl_tmp: usize = 0;
-        const parsed_res: !usize = dns_parse_answers_with_ttl(&self.response_packet[2], self.response_len, self.mode as u16, self.out, self.out_max, self.out_len, &ttl_tmp);
-        const parsed: usize = parsed_res catch |err| {
-            dns_future_close_fd(&self.fd);
-            return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(err)));
-        };
-        _ = ttl_tmp;
-        dns_future_close_fd(&self.fd);
-        return async_poll_ready_ok_usize(parsed);
-    }
-
-    return async_poll_ready_error_usize(dns_error_from_error_id(@error_id(error.DnsUnsupported)));
-}
-
-fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) DnsTcpFuture {
-    return DnsTcpFuture{
-        mode: mode,
-        ctx: ctx,
-        host: host,
-        host_len: host_len,
-        out: out,
-        out_max: out_max,
-        out_len: out_len,
-        fd: 0 - 1,
-        stage: 0,
-        query_packet: [0:DNS_MAX_PACKET + 2],
-        response_packet: [0:DNS_MAX_PACKET + 2],
-        query_len: 0,
-        response_len: 0,
-        bytes_sent: 0,
-        bytes_received: 0,
-        expected_body_len: 0,
-        sockaddr: [0:16],
-        deadline_ms: 0,
+    var ttl_tmp: usize = 0;
+    const parsed: usize = dns_parse_answers_with_ttl(&response_packet[2], expected_body_len, mode as u16, out, out_max, out_len, &ttl_tmp) catch |err| {
+        return try dns_error_from_error_id(@error_id(err));
     };
+    _ = ttl_tmp;
+    return parsed;
 }
 
 @async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {
@@ -2241,8 +2027,7 @@ fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: 
         return udp_n;
     }
 
-    var tcp_impl: DnsTcpFuture = dns_tcp_future_new(ctx, host, host_len, out, out_max, out_len, mode);
-    const tcp_future: Future<!usize> = tcp_impl;
+    const tcp_future: Future<!usize> = dns_tcp_future_new(ctx, host, host_len, out, out_max, out_len, mode);
     const tcp_n: usize = try @await tcp_future;
     if tcp_n == 0 {
         return error.DnsNoSuchName;

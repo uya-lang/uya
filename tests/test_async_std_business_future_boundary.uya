@@ -116,6 +116,11 @@ test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
 
     try assert_source_has_async_boundary(
         DNS_SOURCE_PATH,
+        "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte,
+        "struct DnsTcpFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        DNS_SOURCE_PATH,
         "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte,
         "struct DnsQueryTransportFuture : Future<!usize>\0" as &const byte,
     );

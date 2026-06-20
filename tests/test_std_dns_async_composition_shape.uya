@@ -99,14 +99,22 @@ fn read_dns_source(buf: &byte, cap: usize) !usize {
 test "dns_async_transport_and_aggregate_use_async_fn_composition" {
     var src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
     const len: usize = try read_dns_source(&src[0], DNS_SOURCE_MAX);
+    const tcp_start: &const byte = "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {\0" as &const byte;
     const transport_start: &const byte = "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {\0" as &const byte;
     const aggregate_start: &const byte = "@async_fn fn dns_client_query_all_any_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize> {\0" as &const byte;
     const aggregate_end: &const byte = "export fn dns_client_query_a_tcp_future(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize> {\0" as &const byte;
 
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn dns_client_query_all_any_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct DnsTcpFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct DnsQueryTransportFuture : Future<!usize>\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct DnsQueryAllAggregateFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, ".poll(\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_socket_send(fd, send_base as &const byte, remaining, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, "const udp_result: !usize = @await udp_future;\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, "const tcp_n: usize = try @await tcp_future;\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, ".poll(\0" as &const byte) as i32, 0);

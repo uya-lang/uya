@@ -1867,3 +1867,11 @@
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过：6 tests，28 assertions）
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（通过：1 test，9 assertions）
     - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（通过：34 tests，78 assertions）
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+父级任务：`lib/std/net/dns.uya`
+  - [x] 将 `DnsTcpFuture` 改为 `@async_fn`。
+    - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（通过，34/34）。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（通过，1/1）。
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过，1/1）。
+    - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（通过，4/4）。
