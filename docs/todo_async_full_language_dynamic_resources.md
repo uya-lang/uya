@@ -104,7 +104,6 @@
 
 ### 1.2 先补红测，再动实现
 
-- [ ] 新增 `tests/test_async_large_state_machine_syntax.uya`
 - [ ] 所有新测试都要同时覆盖：
   - [ ] native 路线
   - [ ] `--c99`
