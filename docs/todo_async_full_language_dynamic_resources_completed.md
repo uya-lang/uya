@@ -1676,3 +1676,21 @@
     - 验证：`../uya/bin/uya test tests/test_http_websocket_heartbeat.uya`（通过，5 tests passed）
     - 验证：`../uya/bin/uya test tests/test_http_websocket_async.uya`（通过，5 tests passed）
     - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过，1 test passed）
+
+### 2026-06-21 Phase 1.5.3 `lib/std/http/uyagin.uya`
+
+标题路径：
+# Uya 异步生产化 TODO（完整语法 + 动态资源）
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+父级任务路径：`lib/std/http/uyagin.uya`
+
+- [x] 保持 recover / observe 包装继续走 `@async_fn`，并补观测副作用回归。
+  - 依赖：`defer / errdefer`、`catch + @await`、观测副作用在 async body 中稳定。
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin_recover_observe.uya` 通过（2 tests, 9 assertions）。
+  - 验证：`../uya/bin/uya test tests/test_async_catch_await.uya` 通过（10 tests, 10 assertions）。
+  - 验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya` 通过（10 tests, 18 assertions）。
+  - 验证：`rg -n '"tests/test_http_uyagin_recover_observe.uya"' tests/verify_async_full_language_matrix.sh` 命中 `tests/verify_async_full_language_matrix.sh:142`，已纳入 async baseline。
+  - 验证：`git diff --check` 通过。
+  - 记录：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native` 未完成；现存基线在 `tests/test_async_await_parse.uya` 先失败，C 代码生成报 `incompatible types when initializing type 'int' using type 'struct Future_i32'`，阻塞点与本轮改动无关。
