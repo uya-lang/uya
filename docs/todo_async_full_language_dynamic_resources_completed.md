@@ -1484,3 +1484,15 @@
   `../uya/bin/uya test tests/test_http_uyagin_recover_observe.uya`（通过）
   `../uya/bin/uya test tests/test_http_uyagin.uya`（通过）
   `../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过）
+## Phase 1.5：标准库手工 Future 清零迁移
+
+任务路径：
+- [ ] 最终目标口径：
+  - [ ] 标准库业务层、协议层和 I/O 组合层不再保留手写 `poll()` 状态机。
+
+已完成任务：
+    - [x] `lib/std/net/dns.uya`：将 `DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 改为 `@async_fn` 组合层，不再手工 poll 另一个 future。验收：补 DNS transport/aggregate 回归并运行对应测试
+      - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（通过，1 test / 4 assertions）
+      - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过，2 DNS runtime tests / 4 assertions）
+      - 验证：`../uya/bin/uya test tests/test_std_dns_async_query_aggregate.uya`（通过，3 DNS aggregate tests / 6 assertions）
+      - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（通过，4 tests / 44 assertions）

@@ -420,6 +420,76 @@ fn async_poll_ready_ok_usize(value: usize) Poll<!usize> {
     return r;
 }
 
+struct AsyncJoin2UsizeResultsFuture : Future<!usize> {
+    first: Future<!usize>,
+    first_out: &usize,
+    first_error_out: &u32,
+    first_done: i32,
+    second: Future<!usize>,
+    second_out: &usize,
+    second_error_out: &u32,
+    second_done: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if self.first_done == 0 {
+            const first_poll: Poll<!usize> = self.first.poll(waker);
+            match first_poll {
+                .Pending(_) => {},
+                .Ready(first_result) => {
+                    self.first_done = 1;
+                    self.first_error_out[0] = first_result.error_id;
+                    if first_result.error_id == 0u32 {
+                        self.first_out[0] = first_result.value;
+                    } else {
+                        self.first_out[0] = 0;
+                    }
+                },
+            };
+        }
+        if self.second_done == 0 {
+            const second_poll: Poll<!usize> = self.second.poll(waker);
+            match second_poll {
+                .Pending(_) => {},
+                .Ready(second_result) => {
+                    self.second_done = 1;
+                    self.second_error_out[0] = second_result.error_id;
+                    if second_result.error_id == 0u32 {
+                        self.second_out[0] = second_result.value;
+                    } else {
+                        self.second_out[0] = 0;
+                    }
+                },
+            };
+        }
+        if self.first_done == 0 || self.second_done == 0 {
+            return Poll<!usize>.Pending({});
+        }
+        return async_poll_ready_ok_usize(2);
+    }
+
+    fn release(self: &Self) void {
+        self.first.release();
+        self.second.release();
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// 并发驱动两个 `Future<!usize>` 直到都完成。
+/// 参数说明：`first`/`second` 为待并发轮询的 future；`*_out` 写入成功值；`*_error_out` 写入各自 `error_id`。
+/// 返回值说明：两者都完成后返回 `2`；无论子 future 成功还是失败，本 future 都返回成功并把结果写入输出参数。
+export fn async_join2_usize_results(first: Future<!usize>, first_out: &usize, first_error_out: &u32, second: Future<!usize>, second_out: &usize, second_error_out: &u32) Future<!usize> {
+    return AsyncJoin2UsizeResultsFuture{
+        first: first,
+        first_out: first_out,
+        first_error_out: first_error_out,
+        first_done: 0,
+        second: second,
+        second_out: second_out,
+        second_error_out: second_error_out,
+        second_done: 0,
+    };
+}
+
 // 注册常用 `ok<T>` 单态，供 poll_ready / 线程异步计算等生成的 C 链接（勿调用对应 `std_ok_*` 以免递归）。
 fn async_registry_ok_monos() void {
     const k_i32: !i32 = ok<i32>(0);
