@@ -1773,3 +1773,17 @@
   - [x] `async_writev(fd, iov, iovcnt)` 或等价 helper
     - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：11 tests，`async_writev_writes_head_then_body` OK）
     - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过：25 tests 全通过）
+
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+
+路径：- [ ] 在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语：
+  - [x] `async_sendfile(fd, file_fd, ...)` 或等价 helper
+    - 结论（2026-06-21）：代码核对确认 `lib/std/async.uya` 已导出 `async_sendfile`，`lib/std/http/uyagin.uya` 也已通过该 helper 复用文件响应发送路径；主 todo 该叶子为过期项，现按本轮验证归档。
+    - 验证命令：`../uya/bin/uya test tests/test_async_fd.uya`
+    - 验证结果：通过（11 tests passed, 54 assertions；`async_sendfile_copies_file_into_fd` 通过）。
+    - 验证命令：`../uya/bin/uya test tests/test_http_uyagin.uya`
+    - 验证结果：通过（25 tests passed, 37 assertions；`uyagin_body_traits_static_arena_file` 等文件响应相关回归通过）。
+    - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+    - 验证结果：通过；输出 `ok: docs/todo_async_full_language_dynamic_resources.md has 0 active tasks`。
+    - 验证命令：`git diff --check -- docs/todo_async_full_language_dynamic_resources.md docs/todo_async_full_language_dynamic_resources_completed.md`
+    - 验证结果：通过；无输出。
