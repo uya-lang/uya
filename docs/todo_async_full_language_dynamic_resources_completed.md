@@ -1383,3 +1383,17 @@
   - `./tests/run_programs_parallel.sh --uya --c99 test_async_iterator_for_await.uya`：失败（仓库内不存在该文件）
   - `./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`：通过
   - `./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`：通过
+
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+
+- [x] 把当前 `fprintf(stderr, "...尚未支持")` 这类 emitter 临时提示，改成 checker 或 lowering 阶段的正式诊断；对于应该支持的语法，最终要彻底移除这类分支。
+  验证：
+  - `../uya/bin/uya check tests/error_async_await_in_while_cond.uya`：命中 `@await 不能出现在 while 条件表达式中；请先 await 再进入循环`
+  - `../uya/bin/uya check tests/error_async_await_in_for_range_start.uya`：命中 `@await 不能出现在 for range 起始表达式中；请先 await 再进入循环`
+  - `../uya/bin/uya check tests/error_async_await_in_for_range_end.uya`：命中 `@await 不能出现在 for range 结束表达式中；请先 await 再进入循环`
+  - `../uya/bin/uya check tests/error_async_await_in_return.uya`：命中 `@await 不能出现在 return 之后的不可达代码中`
+  - `../uya/bin/uya test tests/test_async_match_await.uya`：通过
+  - `../uya/bin/uya test tests/test_async_defer_errdefer.uya`：通过
+  - `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`：通过
+  - `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`：通过
+  - `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/verify_async_full_language_matrix.sh`：失败，卡在既有 `tests/test_async_await_parse.uya` C99 代码生成错误（`Future_i32`/`Poll_Future_i32` 类型不兼容），与本轮 checker 诊断改动无直接关联。

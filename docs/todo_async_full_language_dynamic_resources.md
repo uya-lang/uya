@@ -106,8 +106,6 @@
 
 ### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
 
-- [ ] 把当前 `fprintf(stderr, "...尚未支持")` 这类 emitter 临时提示，改成 checker 或 lowering 阶段的正式诊断；对于应该支持的语法，最终要彻底移除这类分支。
-
 ### 1.4 收口语法口径
 
 - [ ] 为仍然非法的语法保留明确、稳定、可测试的诊断。
@@ -115,10 +113,10 @@
 
 **验收**：
 
-- [ ] `./bin/uya test tests/test_async_match_await.uya`
-- [ ] `./bin/uya test tests/test_async_defer_errdefer.uya`
-- [ ] `./tests/run_programs_parallel.sh --uya --c99 test_async_iterator_for_await.uya`
-- [ ] `./tests/run_programs_parallel.sh --uya --c99 test_async_array_ref_for_await.uya`
+- [ ] `../uya/bin/uya test tests/test_async_match_await.uya`
+- [ ] `../uya/bin/uya test tests/test_async_defer_errdefer.uya`
+- [ ] `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_await.uya`
+- [ ] `UYA_COMPILER=/media/winger/_dde_data/winger/uya/uya/bin/uya ./tests/run_programs_parallel.sh --uya --c99 tests/test_async_for_iterator_ref_await.uya`
 - [ ] `rg -n "尚未支持" src/codegen/c99/function.uya src/codegen/c99/async_transform.uya src/lower/async.uya`
   - [ ] 对合法 async 语法不再出现“尚未支持”分支
 

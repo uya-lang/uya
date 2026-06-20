@@ -1,0 +1,27 @@
+// error_async_await_in_for_range_end.uya
+// 预期：编译失败，@await 出现在 for range 结束表达式中
+
+use std.async;
+
+struct S : Future<!i32> {
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        _ = waker;
+        return Poll<!i32>.Ready(ok<i32>(1));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
+fn s() Future<!i32> { return S{}; }
+
+@async_fn
+fn await_in_for_range_end() Future<!i32> {
+    for 0..try @await s() |i| {
+        _ = i;
+    }
+    return 0;
+}
+
+fn main() i32 { return 0; }

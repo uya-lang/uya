@@ -154,8 +154,10 @@ run_baseline_matrix() {
     # 规范明确禁止的 @await 位置，必须继续保持失败。
     expect_check_fail "tests/error_await_outside_async.uya" "@await 只能在 @async_fn 函数内使用" "${args[@]}"
     expect_check_fail "tests/error_await_in_future_returning_non_async.uya" "@await 只能在 @async_fn 函数内使用" "${args[@]}"
-    expect_check_fail "tests/error_async_await_in_while_cond.uya" "@async_fn 状态机结构验证失败" "${args[@]}"
-    expect_check_fail "tests/error_async_await_in_return.uya" "@async_fn 状态机结构验证失败" "${args[@]}"
+    expect_check_fail "tests/error_async_await_in_while_cond.uya" "@await 不能出现在 while 条件表达式中；请先 await 再进入循环" "${args[@]}"
+    expect_check_fail "tests/error_async_await_in_for_range_start.uya" "@await 不能出现在 for range 起始表达式中；请先 await 再进入循环" "${args[@]}"
+    expect_check_fail "tests/error_async_await_in_for_range_end.uya" "@await 不能出现在 for range 结束表达式中；请先 await 再进入循环" "${args[@]}"
+    expect_check_fail "tests/error_async_await_in_return.uya" "@await 不能出现在 return 之后的不可达代码中" "${args[@]}"
     expect_check_fail "tests/error_async_defer_return.uya" "defer/errdefer 块中不能使用 return 语句" "${args[@]}"
     expect_check_fail "tests/error_async_errdefer_break.uya" "defer/errdefer 块中不能使用 break 语句" "${args[@]}"
     expect_check_fail "tests/error_async_defer_continue_nested.uya" "defer/errdefer 块中不能使用 continue 语句" "${args[@]}"
