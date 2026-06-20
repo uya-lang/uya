@@ -1551,3 +1551,18 @@
   - 验证结果：`websocket_client_reconnect_tick`、`websocket_conn_read_message`、`websocket_conn_heartbeat_tick`、`uyagin_observe_request_future`、`uyagin_run_chain_recover`、`dns_query_transport_future_new`、`dns_client_query_all_any_async` 已经是 `@async_fn` / join 组合层。
   - 验证命令：`rg -n "export struct AsyncComputeFuture<T> : Future<!T>|struct Http1ConnectFuture : Future<!i32>|struct DnsUdpFuture : Future<!usize>|struct DnsTcpFuture : Future<!usize>|struct UyaginWritevFuture : Future<!usize>|struct UyaginSendFileBodyFuture : Future<!usize>|struct UyaginConnReadParseFuture : Future<!ParseResult>|struct UyaginConnReadParseIntoFuture : Future<!usize>|struct UyaginAcceptFuture : Future<!i32>" lib/std/thread.uya lib/std/http/http1_async.uya lib/std/net/dns.uya lib/std/http/uyagin.uya`
   - 验证结果：残留手写 `Future` 集中在 `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`Uyagin*Future` 与 `AsyncComputeFuture<T>`，仍属于 syscall / I/O 叶子或 runtime substrate，符合“先组合层、后 syscall 叶子层”的迁移顺序。
+
+### 1.5.2 迁移顺序原则
+
+- [x] **先纯组合层，后 syscall 叶子层**。
+  - [x] syscall 叶子层如果直接硬改，容易把 runtime 底座和业务逻辑缠在一起。
+    - 代码核对（2026-06-21）：
+      - `lib/std/thread.uya:1196-1268` 的 `AsyncComputeFuture<T>` 已经把 cancel、worker slot / pending wake、`usize -> T` 结果解码压进 `ThreadAsyncComputeCore` 包装层，属于 runtime substrate / 调度桥接候选，不应再夹带 HTTP/DNS 业务分支。
+      - `lib/std/net/dns.uya:981-1139` 的 `DnsUdpFuture` 在同一个 `poll()` 里同时处理 query 组装、deadline、nonblocking connect/send/recv 和 response parse；若先在业务模块内硬改，后续很难把 `async_connect` / `async_recv_parse` 一类原语抽离干净。
+      - `lib/std/http/http1_async.uya:346-457` 的 `Http1ConnectFuture` 既管 deadline / nonblocking connect，也直接耦合 DNS fallback 与 `TCP_NODELAY` 收尾；它更像 awaitable I/O 原语的调用点，不适合作为 runtime 底座演化入口。
+      - `lib/std/http/uyagin.uya:2172-2391,3082-3326` 的 `UyaginWritevFuture` / `UyaginSendFileBodyFuture` / `UyaginConnReadParseFuture` / `UyaginAcceptFuture` 把 writev、sendfile fallback、HTTP parse、accept 热路径和 fd readiness 绑在一起，直接迁移会把高性能细节与调度接口一起改坏。
+    - 验证：
+      - `rg -n "AsyncComputeFuture|DnsUdpFuture|Http1ConnectFuture|UyaginWritevFuture|UyaginSendFileBodyFuture|UyaginConnReadParseFuture|UyaginAcceptFuture" lib/std/thread.uya lib/std/net/dns.uya lib/std/http/http1_async.uya lib/std/http/uyagin.uya`
+        - 结果：确认上述 runtime substrate 候选与 syscall/I/O 叶子 Future 仍以手写状态机形式存在。
+      - `git diff --check`
+        - 结果：通过，无空白或补丁格式错误。
