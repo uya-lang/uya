@@ -92,6 +92,42 @@ fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) b
     return source_contains(hay, hay_len, needle, strlen(needle));
 }
 
+fn source_find(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) usize {
+    if needle_len == 0 {
+        return 0;
+    }
+    if hay_len < needle_len {
+        return hay_len;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return hay_len;
+}
+
+fn source_find_cstr(hay: &const byte, hay_len: usize, needle: &const byte) usize {
+    return source_find(hay, hay_len, needle, strlen(needle));
+}
+
+fn source_section_contains_cstr(hay: &const byte, hay_len: usize, start_marker: &const byte, end_marker: &const byte, needle: &const byte) bool {
+    const start_idx: usize = source_find_cstr(hay, hay_len, start_marker);
+    if start_idx >= hay_len {
+        return false;
+    }
+    const section_ptr: &const byte = &hay[start_idx];
+    const section_len: usize = hay_len - start_idx;
+    const end_rel: usize = source_find_cstr(section_ptr, section_len, end_marker);
+    var body_len: usize = section_len;
+    if end_rel < section_len {
+        body_len = end_rel;
+    }
+    return source_contains_cstr(section_ptr, body_len, needle);
+}
+
 fn read_source(path: &const byte, buf: &byte, cap: usize) !usize {
     const fd: i32 = sys_open(path, O_RDONLY as i32, 0) catch {
         return error.DnsAsyncTransportSourceOpenFailed;
@@ -500,6 +536,21 @@ test "dns_async_transport_tcp_fallback_connect_stage_uses_async_connect_helper" 
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, "async_connect(self.fd, &self.sockaddr[0] as &void, 16 as u32, self.deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "    connected: i32,\0" as &const byte) as i32, 0);
+}
+
+test "dns_async_udp_future_boundary_uses_async_fn_without_manual_poll" {
+    var src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
+    const len: usize = try read_source(DNS_SOURCE_PATH, &src[0], DNS_SOURCE_MAX);
+    const udp_start: &const byte = "@async_fn fn dns_udp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32, truncated_out: &i32) Future<!usize> {\0" as &const byte;
+    const udp_end: &const byte = "export fn dns_client_query_a_udp_future(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize> {\0" as &const byte;
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn dns_udp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32, truncated_out: &i32) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct DnsUdpFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn dns_udp_future_poll(self: &DnsUdpFuture, waker: &Waker) Poll<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_socket_send(fd, &query_packet[0] as &const byte, query_len, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, "@await async_socket_recv(fd, &response_packet[0], DNS_MAX_PACKET, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, udp_start, udp_end, ".poll(\0" as &const byte) as i32, 0);
 }
 
 test "dns_async_transport_uses_shared_async_socket_io_helpers" {

@@ -1859,3 +1859,11 @@
     - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`：新增源码边界断言后先失败，清理 wrapper 后通过。
     - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`：通过。
     - 验证：`../uya/bin/uya test tests/test_async_nested_http1_await_codegen.uya`：通过。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+父级路径：`lib/std/net/dns.uya`
+  - [x] 将 `DnsUdpFuture` 改为 `@async_fn`。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过：6 tests，28 assertions）
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（通过：1 test，9 assertions）
+    - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（通过：34 tests，78 assertions）
