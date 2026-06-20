@@ -1875,3 +1875,12 @@
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（通过，1/1）。
     - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过，1/1）。
     - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（通过，4/4）。
+
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+- [x] `lib/std/net/dns.uya`
+  - [x] 目标：DNS 只保留 transport helper，不再自带手写 poll 状态机。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（1 个测试文件，6 个测试全部通过）
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（1 个测试通过，16 个断言通过）
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（1 个测试通过，19 个断言通过）
+    - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（1 个测试文件，34 个测试全部通过）

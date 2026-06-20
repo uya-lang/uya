@@ -533,8 +533,10 @@ fn wait_child_exit_ok(pid: i32) !void {
 test "dns_async_transport_tcp_fallback_connect_stage_uses_async_connect_helper" {
     var src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
     const len: usize = try read_source(DNS_SOURCE_PATH, &src[0], DNS_SOURCE_MAX);
+    const tcp_start: &const byte = "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {\0" as &const byte;
+    const transport_start: &const byte = "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {\0" as &const byte;
 
-    try assert_eq_i32(source_contains_cstr(&src[0], len, "async_connect(self.fd, &self.sockaddr[0] as &void, 16 as u32, self.deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "    connected: i32,\0" as &const byte) as i32, 0);
 }
 
@@ -567,21 +569,16 @@ test "dns_async_transport_uses_shared_async_socket_io_helpers" {
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "sys_recv(self.fd\0" as &const byte) as i32, 0);
 }
 
-test "dns_async_transport_uses_shared_poll_ready_and_pending_helpers" {
+test "dns_async_transport_no_longer_uses_manual_poll_helpers" {
     var dns_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
     const dns_len: usize = try read_source(DNS_SOURCE_PATH, &dns_src[0], DNS_SOURCE_MAX);
-    var async_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
-    const async_len: usize = try read_source(ASYNC_SOURCE_PATH, &async_src[0], DNS_SOURCE_MAX);
-
-    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn poll_pending<T>() Poll<T>\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn poll_ready_error<T>(err: !T) Poll<!T>\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_poll_ready_error_usize(err: !usize) Poll<!usize>\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_poll_pending_usize() Poll<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "fn dns_poll_ready_result(\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "fn dns_poll_ready_error(\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "Poll<!usize>.Pending({})\0" as &const byte) as i32, 0);
-    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_poll_ready_error_usize(\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_poll_pending_usize()\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_poll_ready_error_usize(\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_poll_pending_usize()\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "fn poll(self: &Self, waker: &Waker) Poll<!\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, ".poll(\0" as &const byte) as i32, 0);
 }
 
 test "dns_query_all_async_prefer_ipv4_tcp_fallback" {
