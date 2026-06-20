@@ -117,21 +117,21 @@
 
 ### 1.5.0 统计口径
 
-- [ ] 最终目标口径：
-  - [ ] 如果最底层 runtime 叶子原语仍必须手写，要把它们收缩到最小、明确、可解释的 substrate 集，并单列为最后清零项，不允许无限期混在业务模块里。
+> 当前口径已在完成归档固化；后续以 1.5.1 的“当前手工 Future 清单”和 1.5.6 的“runtime substrate 唯一例外集”为准。
 
 ### 1.5.1 当前手工 Future 清单（基于当前仓库）
 
 | 模块 | 手工 Future | 类型 | 当前作用 |
 |------|------|------|------|
-| `lib/std/async.uya` | `AsyncFdWriteFuture`、`AsyncFdReadFuture` | runtime I/O 叶子 | 非阻塞 fd 读写，直接操作 `Waker.wait_readable/wait_writable` |
-| `lib/std/thread.uya` | `AsyncComputeFuture<T>` | runtime / 调度桥接 | worker slot / eventfd / pipe / cancel / one-shot fallback |
-| `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` | 传输层 + 组合层 | UDP/TCP 查询状态机、fallback 组合与 A/AAAA 聚合 |
-| `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | I/O 叶子 | nonblocking connect + deadline |
-| `lib/std/http/websocket_client.uya` | `WebSocketClientReconnectFuture` | 纯组合层 | reconnect / backoff / attach session |
-| `lib/std/http/websocket_async.uya` | `WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture` | 协议层 + 组合层 | 消息聚合、close/ping/heartbeat 超时 |
-| `lib/std/http/uyagin.uya` | `UyaginRecoverFuture`、`UyaginObserveFuture` | 纯组合层 | handler 包装与观测 |
-| `lib/std/http/uyagin.uya` | `UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` | syscall/I/O 叶子 | writev/sendfile/read-parse/accept 等高性能热路径 |
+| `lib/std/async.uya` | `AsyncFdWriteFuture`、`AsyncFdReadFuture` | runtime substrate 候选 | fd 非阻塞 read/write，直接封装 `Waker.wait_readable/wait_writable` |
+| `lib/std/thread.uya` | `AsyncComputeFuture<T>` | runtime substrate 候选 / 调度桥接 | worker slot / eventfd / pipe / cancel / one-shot fallback |
+| `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture` | 传输层叶子 | UDP/TCP 非阻塞 connect/send/recv + timeout/fallback |
+| `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | 协议层 I/O 叶子 | nonblocking connect + deadline |
+| `lib/std/http/uyagin.uya` | `UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` | 服务端 syscall/I/O 热路径 | writev/sendfile/read-parse/accept 等高性能热路径 |
+
+- 代码核对说明（2026-06-21）：
+  - `WebSocketClientReconnectFuture`、`WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 已不再以 `struct ... : Future<...>` 形式存在。
+  - 当前组合层已经主要收口到 `@async_fn` 或 `async_join2_usize_results(...)`；本 phase 后续只继续清理仍留在业务模块里的 syscall/I/O 叶子状态机。
 
 ### 1.5.2 迁移顺序原则
 
@@ -144,19 +144,19 @@
 
 ### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
 
+> 2026-06-21 代码核对：`websocket_client_reconnect_tick`、`websocket_conn_read_message` / `websocket_conn_heartbeat_tick`、`uyagin_run_chain_recover`、`uyagin_observe_request_future`、`dns_query_transport_future_new` 已经是 `@async_fn` / join 组合层；本节剩余 TODO 以“语义回归与防倒退”为准，不再把不存在的手写 `poll()` 重复记成迁移目标。
+
 - [ ] `lib/std/http/websocket_client.uya`
-  - [ ] 保持现有 backoff / attach / exhausted 语义不变。
+  - [ ] 保持现有 backoff / attach / exhausted 语义不变，并补 dedicated regression。
   - [ ] 依赖：`catch + @await`、结构体方法 async、错误路径收口稳定。
 - [ ] `lib/std/http/websocket_async.uya`
-  - [ ] 将 `WebSocketHeartbeatTimeoutFuture` 改为 `@async_fn`。
-  - [ ] 如果还依赖手工 close future，则先抽出 awaitable close helper。
+  - [ ] 保持 message aggregate / heartbeat / close 组合层继续走 `@async_fn`，禁止回退到手写 `poll()`。
+  - [ ] 如果还依赖手工 close leaf，则先抽出 awaitable close helper。
 - [ ] `lib/std/http/uyagin.uya`
-  - [ ] 将 `UyaginRecoverFuture` 改为 `@async_fn` 包装器。
-  - [ ] 将 `UyaginObserveFuture` 改为 `@async_fn` 包装器。
+  - [ ] 保持 recover / observe 包装继续走 `@async_fn`，并补观测副作用回归。
   - [ ] 依赖：`defer / errdefer`、`catch + @await`、观测副作用在 async body 中稳定。
 - [ ] `lib/std/net/dns.uya`
-  - [ ] 先把 `DnsQueryTransportFuture` 改为 `@async_fn` 组合层，底层 UDP/TCP 先不动。
-  - [ ] 目标是先消灭“手工 future poll 另一个 future”的组合器层。
+  - [ ] 保持 transport fallback 组合层继续走 `@async_fn` + join 组合，不重新引入“手工 future poll 另一个 future”模式。
 
 **验收**：
 
@@ -190,9 +190,6 @@
   - [ ] 将 `DnsUdpFuture` 改为 `@async_fn`。
   - [ ] 将 `DnsTcpFuture` 改为 `@async_fn`。
   - [ ] 目标：DNS 只保留 transport helper，不再自带手写 poll 状态机。
-- [ ] `lib/std/http/websocket_async.uya`
-  - [ ] 将 `WebSocketReadMessageFuture` 改为 `@async_fn`。
-  - [ ] 把 frame read / write / ping / close / message aggregate 的状态流收敛到统一 await 链。
 - [ ] `lib/std/http/uyagin.uya`
   - [ ] 将 `UyaginAcceptFuture` 改为 `@async_fn` + `async_accept`。
   - [ ] 将 `UyaginWritevFuture` 改为 `@async_fn` + `async_writev`。
@@ -201,6 +198,15 @@
   - [ ] 迁移后再评估是否仍需专门 slot-level manual polling。
 
 ### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+> **最终 substrate 边界（2026-06-21 代码核对）**
+>
+> 在 1.5.4 / 1.5.5 收口后，若仍有手写 `poll()`，只允许剩下两组底座能力：
+>
+> - `lib/std/async.uya`：`AsyncFdReadFuture` / `AsyncFdWriteFuture`
+> - `lib/std/thread.uya`：`AsyncComputeFuture<T>`
+>
+> `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
 - [ ] `lib/std/async.uya`
   - [ ] 评估 `AsyncFdReadFuture` / `AsyncFdWriteFuture` 是否可以进一步收敛成更底层 wait primitive + `@async_fn` 包装。

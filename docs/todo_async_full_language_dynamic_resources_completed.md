@@ -1530,3 +1530,15 @@
   - [x] 校准并固化当前已完成的高层清零现状：`websocket_client`、`websocket_async`（`read_message` / `heartbeat`）、`uyagin` recover/observe、`dns_query_transport` 必须继续保持 `@async_fn` / `@await` 路线，不得回退到手写 `poll()`。
     - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（1 test, 14 assertions，全通过）
     - 验证：`rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net --glob '*.uya'` 仅剩 `DnsUdpFuture`、`DnsTcpFuture`、`Http1ConnectFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture`
+
+## 2026-06-21 归档：子树 `最终目标口径`
+
+> 父级路径：`## Phase 1.5：标准库手工 Future 清零迁移` → `### 1.5.0 统计口径`
+
+- [x] 最终目标口径：
+  - [x] 如果最底层 runtime 叶子原语仍必须手写，要把它们收缩到最小、明确、可解释的 substrate 集，并单列为最后清零项，不允许无限期混在业务模块里。
+    - 结论：当前仓库允许暂列为 runtime substrate 唯一例外的仅有 `lib/std/async.uya` 的 `AsyncFdReadFuture` / `AsyncFdWriteFuture`，以及 `lib/std/thread.uya` 的 `AsyncComputeFuture<T>`。
+    - 结论：`lib/std/http/http1_async.uya` 的 `Http1ConnectFuture`、`lib/std/net/dns.uya` 的 `DnsUdpFuture` / `DnsTcpFuture`、`lib/std/http/uyagin.uya` 的 `UyaginWritevFuture` / `UyaginSendFileBodyFuture` / `UyaginConnReadParseFuture` / `UyaginConnReadParseIntoFuture` / `UyaginAcceptFuture` 都属于业务模块 syscall/I/O 叶子，不计入 substrate，必须在 1.5.4 / 1.5.5 里继续迁移。
+    - 结论：`WebSocketClientReconnectFuture`、`WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 已不再以 `struct ... : Future<...>` 形式存在，不再计入“当前手工 Future 清单”。
+  - 验证：`rg -n 'WebSocketClientReconnectFuture|WebSocketReadMessageFuture|WebSocketHeartbeatTimeoutFuture|UyaginRecoverFuture|UyaginObserveFuture|DnsQueryTransportFuture|DnsQueryAllAggregateFuture|Http1ConnectFuture|AsyncComputeFuture|AsyncFdWriteFuture|AsyncFdReadFuture' lib/std/http/websocket_async.uya lib/std/http/websocket_client.uya lib/std/http/uyagin.uya lib/std/net/dns.uya lib/std/http/http1_async.uya lib/std/thread.uya lib/std/async.uya` 仅命中 `AsyncFd*` / `AsyncComputeFuture` / `Http1ConnectFuture` 等仍在仓库中的实际对象，未发现已迁移组合层旧结构体定义。
+  - 验证：`rg -n 'struct .*Future|Future<|wait_readable|wait_writable|eventfd|sendfile|writev|accept\\(|connect\\(' lib/std/async.uya lib/std/thread.uya lib/std/net/dns.uya lib/std/http/http1_async.uya lib/std/http/websocket_client.uya lib/std/http/websocket_async.uya lib/std/http/uyagin.uya` 配合相关 `sed` 片段核对后，剩余手写 `poll()` 确认集中在 `async/thread` 底座、DNS/HTTP connect 和 UyaGin syscall 热路径。
