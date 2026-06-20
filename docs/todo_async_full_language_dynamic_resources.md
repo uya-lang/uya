@@ -104,9 +104,6 @@
 
 ### 1.2 先补红测，再动实现
 
-- [ ] 所有新测试都要同时覆盖：
-  - [ ] `--uya --c99`
-
 ### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
 
 - [ ] 以 `src/lower/async.uya` 为中心，建立单一 async lowering 计划结构，而不是让 `src/codegen/c99/function.uya` 和 `src/codegen/c99/async_transform.uya` 各自再做一轮语义猜测。

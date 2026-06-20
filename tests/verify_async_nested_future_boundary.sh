@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
+DRIVER_ARGS=("$@")
 CC_BIN="${CC:-cc}"
 OUT_C="$(mktemp /tmp/async_nested_future_boundary.XXXXXX.c)"
 OUT_O="${OUT_C%.c}.o"
@@ -21,13 +22,13 @@ if [ ! -x "$COMPILER" ]; then
     exit 1
 fi
 
-if ! "$COMPILER" test "$REPO_ROOT/tests/test_async_nested.uya" >"$UYA_LOG" 2>&1; then
+if ! "$COMPILER" test "${DRIVER_ARGS[@]}" --c99 "$REPO_ROOT/tests/test_async_nested.uya" >"$UYA_LOG" 2>&1; then
     echo "expected supported nested future regression to pass"
     cat "$UYA_LOG"
     exit 1
 fi
 
-if ! "$COMPILER" --c99 "$REPO_ROOT/tests/test_async_nested_future_poll.uya" -o "$OUT_C" >"$UYA_LOG" 2>&1; then
+if ! "$COMPILER" "${DRIVER_ARGS[@]}" --c99 "$REPO_ROOT/tests/test_async_nested_future_poll.uya" -o "$OUT_C" >"$UYA_LOG" 2>&1; then
     echo "expected C emission success for nested future boundary source"
     cat "$UYA_LOG"
     exit 1

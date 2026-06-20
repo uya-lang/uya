@@ -8,10 +8,10 @@ export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 MODE="${1:-all}"
 
 case "$MODE" in
-    all|native|c99)
+    all|native|c99|uya-c99)
         ;;
     *)
-        echo "usage: $0 [all|native|c99]"
+        echo "usage: $0 [all|native|c99|uya-c99]"
         exit 2
         ;;
 esac
@@ -169,6 +169,21 @@ run_baseline_matrix() {
     run_macro_combo "${args[@]}"
 }
 
+run_c99_extended_matrix() {
+    local label="$1"
+    shift
+    local driver_args=("$@")
+
+    echo "==> verify_async_await_capacity ($label)"
+    UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_await_capacity.sh" "${driver_args[@]}" >/dev/null
+
+    echo "==> verify_async_nested_future_boundary ($label)"
+    UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" "${driver_args[@]}" >/dev/null
+
+    echo "==> verify_async_shared_runtime_matrix ($label)"
+    UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" "${driver_args[@]}" >/dev/null
+}
+
 if [ "$MODE" = "all" ] || [ "$MODE" = "native" ]; then
     run_baseline_matrix "native"
 fi
@@ -177,19 +192,31 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "c99" ]; then
     run_baseline_matrix "c99" "--c99"
 fi
 
+if [ "$MODE" = "all" ] || [ "$MODE" = "uya-c99" ]; then
+    run_baseline_matrix "uya-c99" "--uya" "--c99"
+fi
+
 if [ "$MODE" = "native" ]; then
     echo "verify_async_full_language_matrix: native baseline passed"
     exit 0
 fi
 
-echo "==> verify_async_await_capacity"
-UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_await_capacity.sh" >/dev/null
+if [ "$MODE" = "all" ] || [ "$MODE" = "c99" ]; then
+    run_c99_extended_matrix "c99"
+fi
 
-# nested future 真实边界专项验证（正向编译边界）
-echo "==> verify_async_nested_future_boundary"
-UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" >/dev/null
+if [ "$MODE" = "all" ] || [ "$MODE" = "uya-c99" ]; then
+    run_c99_extended_matrix "uya-c99" "--uya"
+fi
 
-echo "==> verify_async_shared_runtime_matrix"
-UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" >/dev/null
+if [ "$MODE" = "c99" ]; then
+    echo "verify_async_full_language_matrix: C99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+    exit 0
+fi
 
-echo "verify_async_full_language_matrix: native baseline, C99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+if [ "$MODE" = "uya-c99" ]; then
+    echo "verify_async_full_language_matrix: --uya --c99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+    exit 0
+fi
+
+echo "verify_async_full_language_matrix: native baseline, C99 baseline, --uya --c99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"

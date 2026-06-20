@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
+DRIVER_ARGS=("$@")
 
 if [ ! -x "$COMPILER" ]; then
     echo "missing compiler: $COMPILER"
@@ -16,7 +17,7 @@ run_uya_test() {
     local src="$2"
 
     echo "verify: $label"
-    "$COMPILER" test --c99 "$REPO_ROOT/$src"
+    "$COMPILER" test "${DRIVER_ARGS[@]}" --c99 "$REPO_ROOT/$src"
 }
 
 run_uya_test "Scheduler shared EventLoop/Waker semantics" "tests/test_std_async_scheduler.uya"

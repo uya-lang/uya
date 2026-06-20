@@ -1233,3 +1233,20 @@
     - 红测：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99`（改动前退出码 2，输出 `usage: tests/verify_async_full_language_matrix.sh [all|native]`）
     - 验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99` 通过；C99 baseline、负向诊断、macro combo、await capacity、nested future boundary、shared runtime matrix 全部通过。
     - 回归：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh native` 通过；原 native baseline 入口未回归。
+
+## Phase 1：`@async_fn` 语法完整性
+### 1.2 先补红测，再动实现
+
+- [x] 所有新测试都要同时覆盖：
+  - [x] `--uya --c99`
+    - 红测：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh uya-c99`
+    - 红测结果：改动前退出码 2，输出 `usage: tests/verify_async_full_language_matrix.sh [all|native|c99]`。
+    - 变更：`tests/verify_async_full_language_matrix.sh` 新增 `uya-c99` 模式并让默认 `all` 纳入该路径；`tests/verify_async_await_capacity.sh`、`tests/verify_async_nested_future_boundary.sh`、`tests/verify_async_shared_runtime_matrix.sh` 新增可透传 `--uya` 的驱动参数。
+    - 验证：`bash -n tests/verify_async_full_language_matrix.sh tests/verify_async_await_capacity.sh tests/verify_async_nested_future_boundary.sh tests/verify_async_shared_runtime_matrix.sh`
+    - 验证结果：通过。
+    - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+    - 验证结果：通过，输出 `ok: docs/todo_async_full_language_dynamic_resources.md has 1 active task`。
+    - 验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh uya-c99`
+    - 验证结果：通过，输出 `verify_async_full_language_matrix: --uya --c99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed`。
+    - 回归：`UYA_COMPILER=../uya/bin/uya bash tests/verify_async_full_language_matrix.sh c99`
+    - 回归结果：通过，输出 `verify_async_full_language_matrix: C99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed`。

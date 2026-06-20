@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
+DRIVER_ARGS=("$@")
 
 if [ ! -x "$COMPILER" ]; then
     echo "missing compiler: $COMPILER"
@@ -51,5 +52,5 @@ test "async_await_capacity_${await_count}_segments" {
 UYA_TAIL
 } >"$src"
 
-"$COMPILER" --c99 "$src" -o "$out_c"
+"$COMPILER" "${DRIVER_ARGS[@]}" --c99 "$src" -o "$out_c"
 grep -q "if (s->state == ${final_state})" "$out_c"
