@@ -118,7 +118,6 @@
 ### 1.5.0 统计口径
 
 - [ ] 先明确“手工异步 Future”的统计范围：
-  - [ ] **算入迁移范围**：`lib/std` 中任何 `struct XxxFuture : Future<...>` 且自定义 `poll()` 的业务/协议/传输状态机。
   - [ ] **不算业务迁移对象**：`std.async` 的 `interface Future<T>`、占位 `struct Future<T>`、`Task<T>` 这类 runtime 核心协议壳类型。
   - [ ] **不算手工状态机**：只返回 `Future{ state: Poll.Ready(...) }` 的一次性 ready wrapper。
 - [ ] 最终目标口径：
@@ -131,7 +130,7 @@
 |------|------|------|------|
 | `lib/std/async.uya` | `AsyncFdWriteFuture`、`AsyncFdReadFuture` | runtime I/O 叶子 | 非阻塞 fd 读写，直接操作 `Waker.wait_readable/wait_writable` |
 | `lib/std/thread.uya` | `AsyncComputeFuture<T>` | runtime / 调度桥接 | worker slot / eventfd / pipe / cancel / one-shot fallback |
-| `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture`、`DnsQueryTransportFuture` | 传输层 + 组合层 | UDP/TCP 查询状态机与 fallback 组合 |
+| `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` | 传输层 + 组合层 | UDP/TCP 查询状态机、fallback 组合与 A/AAAA 聚合 |
 | `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | I/O 叶子 | nonblocking connect + deadline |
 | `lib/std/http/websocket_client.uya` | `WebSocketClientReconnectFuture` | 纯组合层 | reconnect / backoff / attach session |
 | `lib/std/http/websocket_async.uya` | `WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture` | 协议层 + 组合层 | 消息聚合、close/ping/heartbeat 超时 |

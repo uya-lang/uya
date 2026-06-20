@@ -1422,3 +1422,13 @@
   - 验证：`rg -n "尚未支持" src/codegen/c99/function.uya src/codegen/c99/async_transform.uya src/lower/async.uya`（无匹配）
   - 审计：`docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md` 已明确把 `defer/errdefer` 内禁止 `@await` 定义为语言规则；本轮覆盖的其余合法 async 语法未发现实现层兜底拒绝
   - 备注：`./tests/run_programs_parallel.sh` 在脚本内部使用相对 `UYA_COMPILER=../uya/bin/uya` 会因工作目录变化失效，因此程序回归按本 todo 明示的绝对路径完成验证
+
+## 2026-06-21 Phase 1.5：标准库手工 Future 清零迁移
+
+上下文：`### 1.5.0 统计口径` → `先明确“手工异步 Future”的统计范围`
+
+  - [x] **算入迁移范围**：统计入口按语法形态全量覆盖 `lib/std` 中任何 `struct XxxFuture : Future<...>` 且自定义 `poll()` 的状态机，不因“runtime I/O 叶子”“调度桥接”“协议/传输层”“纯组合层”标签而豁免；按当前仓库命中 18 个类型，包含此前清单漏记的 `DnsQueryAllAggregateFuture`。
+    - 验证：`rg -n 'struct [A-Za-z0-9_]+Future[^\\n]*: Future<' lib/std | wc -l` 输出 `18`。
+    - 验证：`rg -n '^export interface Future<|^export struct Future<|^export struct Task<' lib/std/async.uya` 输出 `277/283/296`，确认 runtime 协议壳单独位于 `lib/std/async.uya`，不影响本条“先全量盘点自定义 poll 状态机”的入口口径。
+    - 验证：`rg -n 'return Future<.*state: Poll<.*Ready' lib/std | head -n 8` 命中 `lib/std/async_channel.uya`、`lib/std/thread.uya`、`lib/std/http/websocket_client.uya` 等 ready wrapper 样本，后续由 L123 单独排除。
+    - 验证：`rg -n 'DnsQuery(AllAggregate|Transport)Future|Dns(Udp|Tcp)Future' lib/std/net/dns.uya` 命中 `DnsQueryAllAggregateFuture`（`2426`），已补入 1.5.1 清单。
