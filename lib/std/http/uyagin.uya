@@ -3103,8 +3103,10 @@ export @async_fn fn uyagin_send_context_response_body_trait_async(ctx: &GinConte
         return error.InvalidRequest;
     }
     if body.kind == 3 {
-        _ = try @await uyagin_send_context_response_head_only_async(ctx, status, body.content_type, body.file_len);
-        return try @await uyagin_send_file_body_async(ctx.fd, body.file_fd, body.file_len);
+        const head_wire: usize = try @await uyagin_send_context_response_head_only_async(ctx, status, body.content_type, body.file_len);
+        _ = head_wire;
+        const file_wire: usize = try @await uyagin_send_file_body_async(ctx.fd, body.file_fd, body.file_len);
+        return file_wire;
     }
     var hdr: [byte: UYAGIN_HEADER_CAP] = [];
     var pos: usize = uyagin_build_response_head(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, body.content_type, body.bytes.len, ctx.request, ctx.persist, &ctx.out_headers[0] as &Header, ctx.out_header_count);

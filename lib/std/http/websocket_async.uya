@@ -936,7 +936,8 @@ export @async_fn fn websocket_conn_write_message(self: &WebSocketConn, opcode: W
         return error.WebSocketUtf8Required;
     }
     if websocket_opcode_is_control(opcode) {
-        return try @await websocket_conn_write_frame(self, opcode, payload, payload_len, tx, tx_cap);
+        const wrote_control: usize = try @await websocket_conn_write_frame(self, opcode, payload, payload_len, tx, tx_cap);
+        return wrote_control;
     }
     if tx_cap <= WS_MAX_HEADER_BYTES {
         return error.WebSocketFrameTooLarge;
@@ -944,7 +945,8 @@ export @async_fn fn websocket_conn_write_message(self: &WebSocketConn, opcode: W
 
     const max_chunk: usize = tx_cap - WS_MAX_HEADER_BYTES;
     if payload_len <= max_chunk {
-        return try @await websocket_conn_write_frame(self, opcode, payload, payload_len, tx, tx_cap);
+        const wrote_single: usize = try @await websocket_conn_write_frame(self, opcode, payload, payload_len, tx, tx_cap);
+        return wrote_single;
     }
 
     var total_wire: usize = 0;
@@ -988,62 +990,26 @@ export @async_fn fn websocket_conn_ping(self: &WebSocketConn, payload: &const by
     return try @await websocket_conn_write_frame(self, WebSocketOpcode.Ping, payload, payload_len, tx, tx_cap);
 }
 
-struct WebSocketHeartbeatTimeoutFuture : Future<!usize> {
-    self: &WebSocketConn,
-    tx: &byte,
-    tx_cap: usize,
-    close_fut: Future<!usize>,
-    state: i32,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if self.state == 0 {
-            self.close_fut = websocket_conn_close_with_code(self.self, 1001 as u16, null as &const byte, 0, self.tx, self.tx_cap);
-            self.state = 1;
-        }
-        const polled: Poll<!usize> = self.close_fut.poll(waker);
-        match polled {
-            .Pending(_) => {
-                return Poll<!usize>.Pending({});
-            }
-            .Ready(result) => {
-                _ = result catch {};
-                self.close_fut.release();
-                self.state = 2;
-                self.self.waiting_pong = false;
-                self.self.closed = true;
-                websocket_conn_transport_close(self.self);
-                return Poll<!usize>.Ready(error.WebSocketHeartbeatTimeout);
-            }
-        }
-    }
-
-    fn release(self: &Self) void {
-        if self.state == 1 {
-            self.close_fut.release();
-        }
-    }
-}
-
 /// 驱动一次外部调度的心跳检查。
 /// 参数说明：`now_ms` 为调度器当前毫秒时间；`tx` 为控制帧编码缓冲区。
 /// 返回值说明：返回 `0` 表示本轮无需动作；返回正数表示已发出 ping；超时时会先发送 close 再返回 `error.WebSocketHeartbeatTimeout`。
-export fn websocket_conn_heartbeat_tick(self: &WebSocketConn, now_ms: u64, tx: &byte, tx_cap: usize) Future<!usize> {
+export @async_fn fn websocket_conn_heartbeat_tick(self: &WebSocketConn, now_ms: u64, tx: &byte, tx_cap: usize) Future<!usize> {
     if self.closed || websocket_conn_transport_is_closed(self) {
-        return websocket_ready_result(error.WebSocketConnectionClosed);
+        return error.WebSocketConnectionClosed;
     }
     if websocket_conn_heartbeat_should_timeout(self, now_ms) {
-        return WebSocketHeartbeatTimeoutFuture{
-            self: self,
-            tx: tx,
-            tx_cap: tx_cap,
-            close_fut: future_ready_ok<usize>(0),
-            state: 0,
-        };
+        const close_result: !usize = @await websocket_conn_close_with_code(self, 1001 as u16, null as &const byte, 0, tx, tx_cap);
+        _ = close_result catch {};
+        self.waiting_pong = false;
+        self.closed = true;
+        websocket_conn_transport_close(self);
+        return error.WebSocketHeartbeatTimeout;
     }
     if websocket_conn_heartbeat_should_ping(self, now_ms) {
-        return websocket_conn_ping(self, null as &const byte, 0, tx, tx_cap);
+        const ping_wire: usize = try @await websocket_conn_ping(self, null as &const byte, 0, tx, tx_cap);
+        return ping_wire;
     }
-    return future_ready_ok<usize>(0);
+    return 0 as usize;
 }
 
 /// 发送 close 控制帧。

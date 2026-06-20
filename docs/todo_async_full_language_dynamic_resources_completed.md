@@ -1464,3 +1464,10 @@
   - 验证：`../uya/bin/uya test tests/test_http_websocket_reconnect.uya`
     - 结果：失败；当前仅剩仓库既有的 C99 代码生成/宿主编译错误：`std_http_websocket_conn_write_message_poll` 的 `invalid initializer`，以及 `std_http_uyagin_send_context_response_body_trait_async_poll` 的 `invalid initializer`。
     - 说明：本轮已消除 `std_http_websocket_client_reconnect_tick_poll` 的额外生成错误，当前失败点与本叶子迁移无关。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.0 统计口径
+父级路径：`最终目标口径：` / `标准库业务层、协议层和 I/O 组合层不再保留手写 \`poll()\` 状态机。`
+    - [x] `lib/std/http/websocket_async.uya`：将 `WebSocketHeartbeatTimeoutFuture` 改为 `@async_fn`，保持 heartbeat timeout 先发 close 再返回超时错误。验收：`../uya/bin/uya test tests/test_http_websocket_json.uya`
+      - 验证：`../uya/bin/uya test tests/test_http_websocket_heartbeat.uya`（通过：5 tests passed）
+      - 验证：`../uya/bin/uya test tests/test_http_websocket_json.uya`（通过：3 tests passed）
