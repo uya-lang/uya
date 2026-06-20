@@ -709,6 +709,247 @@ fn async_deadline_expired(deadline_ms: u64) !bool {
     return now_ms >= deadline_ms;
 }
 
+fn async_fd_set_nonblocking(fd: i32) !i32 {
+    const flags: i32 = try sys_fcntl(fd, F_GETFL, 0);
+    if (flags & O_NONBLOCK) == 0 {
+        _ = try sys_fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+    return fd;
+}
+
+struct AsyncWritevFuture : Future<!usize> {
+    fd: i32,
+    head: &const byte,
+    head_len: usize,
+    body: &const byte,
+    body_len: usize,
+    head_sent: usize = 0,
+    body_sent: usize = 0,
+    nonblocking_ready: i32 = 0,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if self.nonblocking_ready == 0 {
+            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
+            _ = ready_result catch {
+                const err_value: !usize = ready_result as! usize;
+                return Poll<!usize>.Ready(err_value);
+            };
+            self.nonblocking_ready = 1;
+        }
+
+        while true {
+            if self.head_sent >= self.head_len && self.body_sent >= self.body_len {
+                return async_poll_ready_ok_usize(self.head_len + self.body_len);
+            }
+
+            var iov: [IOVec: 2] = [];
+            var iovcnt: i32 = 0;
+            if self.head_sent < self.head_len {
+                const head_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(self.head as &void) + self.head_sent) as *const byte;
+                iov[iovcnt as usize] = IOVec{ iov_base: head_ptr, iov_len: self.head_len - self.head_sent };
+                iovcnt = iovcnt + 1;
+            }
+            if self.body_sent < self.body_len {
+                const body_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(self.body as &void) + self.body_sent) as *const byte;
+                iov[iovcnt as usize] = IOVec{ iov_base: body_ptr, iov_len: self.body_len - self.body_sent };
+                iovcnt = iovcnt + 1;
+            }
+
+            const write_result: !isize = sys_writev(self.fd, &iov[0], iovcnt);
+            const n: isize = write_result catch |err| {
+                const err_id: u32 = @error_id(err);
+                if err_id == libc_EINTR as u32 {
+                    continue;
+                }
+                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                    waker.wait_writable(self.fd);
+                    return Poll<!usize>.Pending({});
+                }
+                const err_value: !usize = write_result as! usize;
+                return Poll<!usize>.Ready(err_value);
+            };
+            if n <= 0 {
+                return Poll<!usize>.Ready(error.WriteZero);
+            }
+
+            var advanced: usize = n as usize;
+            if self.head_sent < self.head_len {
+                const head_rem: usize = self.head_len - self.head_sent;
+                if advanced >= head_rem {
+                    self.head_sent = self.head_len;
+                    advanced = advanced - head_rem;
+                } else {
+                    self.head_sent = self.head_sent + advanced;
+                    advanced = 0;
+                }
+            }
+            if advanced > 0 && self.body_sent < self.body_len {
+                self.body_sent = self.body_sent + advanced;
+                if self.body_sent > self.body_len {
+                    self.body_sent = self.body_len;
+                }
+            }
+        }
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// 异步以 `writev(2)` 发送两段 buffer，直到全部写完。
+/// 参数说明：`fd` 为目标 fd；`head`/`head_len` 为第一段；`body`/`body_len` 为第二段，长度可为 0。
+/// 返回值说明：成功返回 `head_len + body_len`；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，其他错误原样透传，写入 0 字节返回 `error.WriteZero`。
+export fn async_writev(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {
+    if fd < 0 {
+        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+    }
+    return AsyncWritevFuture{
+        fd: fd,
+        head: head,
+        head_len: head_len,
+        body: body,
+        body_len: body_len,
+    };
+}
+
+struct AsyncSendFileFuture : Future<!usize> {
+    fd: i32,
+    file_fd: i32,
+    total_len: usize,
+    sent: usize = 0,
+    offset: i64 = 0i64,
+    nonblocking_ready: i32 = 0,
+    use_fallback: i32 = 0,
+    chunk: [byte: 4096] = [],
+    chunk_len: usize = 0,
+    chunk_off: usize = 0,
+
+    fn enable_fallback(self: &Self) void {
+        if self.use_fallback != 0 {
+            return;
+        }
+        self.use_fallback = 1;
+        _ = sys_lseek(self.file_fd, self.sent as i64, SEEK_SET) catch {};
+    }
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if self.nonblocking_ready == 0 {
+            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
+            _ = ready_result catch {
+                const err_value: !usize = ready_result as! usize;
+                return Poll<!usize>.Ready(err_value);
+            };
+            self.nonblocking_ready = 1;
+        }
+
+        std.cfg(std.target_os == .tos_linux, {
+        std.cfg(std.target_arch == .ta_x86_64, {
+        if self.use_fallback == 0 && self.chunk_len == 0 {
+            while self.sent < self.total_len {
+                var want_sf: usize = self.total_len - self.sent;
+                if want_sf > 65536 {
+                    want_sf = 65536;
+                }
+                const send_result: !isize = @syscall(40, self.fd as i64, self.file_fd as i64, &self.offset as i64, want_sf as i64) as! isize;
+                const n_sf: isize = send_result catch |err| {
+                    const err_id: u32 = @error_id(err);
+                    if err_id == libc_EINTR as u32 {
+                        continue;
+                    }
+                    if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                        waker.wait_writable(self.fd);
+                        return Poll<!usize>.Pending({});
+                    }
+                    self.enable_fallback();
+                    break;
+                };
+                if n_sf <= 0 {
+                    self.enable_fallback();
+                    break;
+                }
+                self.sent = self.sent + (n_sf as usize);
+            }
+            if self.sent >= self.total_len {
+                return async_poll_ready_ok_usize(self.sent);
+            }
+        }
+        }, {
+            self.enable_fallback();
+        })
+        }, {
+            self.enable_fallback();
+        })
+
+        while self.sent < self.total_len {
+            if self.chunk_off < self.chunk_len {
+                const chunk_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(&self.chunk[0] as &void) + self.chunk_off) as *const byte;
+                const write_result: !isize = sys_write(self.fd, chunk_ptr, self.chunk_len - self.chunk_off);
+                const n: isize = write_result catch |err| {
+                    const err_id: u32 = @error_id(err);
+                    if err_id == libc_EINTR as u32 {
+                        continue;
+                    }
+                    if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                        waker.wait_writable(self.fd);
+                        return Poll<!usize>.Pending({});
+                    }
+                    const err_value: !usize = write_result as! usize;
+                    return Poll<!usize>.Ready(err_value);
+                };
+                if n <= 0 {
+                    return Poll<!usize>.Ready(error.WriteZero);
+                }
+                self.chunk_off = self.chunk_off + (n as usize);
+                self.sent = self.sent + (n as usize);
+                if self.chunk_off >= self.chunk_len {
+                    self.chunk_off = 0;
+                    self.chunk_len = 0;
+                }
+                continue;
+            }
+
+            var want: usize = self.total_len - self.sent;
+            if want > 4096 {
+                want = 4096;
+            }
+            const read_result: !isize = sys_read(self.file_fd, &self.chunk[0] as *byte, want);
+            const rn: isize = read_result catch |err| {
+                const err_id: u32 = @error_id(err);
+                if err_id == libc_EINTR as u32 {
+                    continue;
+                }
+                const err_value: !usize = read_result as! usize;
+                return Poll<!usize>.Ready(err_value);
+            };
+            if rn <= 0 {
+                return Poll<!usize>.Ready(error.ConnectionClosed);
+            }
+            self.chunk_len = rn as usize;
+            self.chunk_off = 0;
+        }
+        return async_poll_ready_ok_usize(self.sent);
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// 异步把文件内容发送到 `fd`，优先走 Linux `sendfile(2)`，失败时退回 `read + write`。
+/// 参数说明：`fd` 为目标 fd；`file_fd` 为已打开文件；`total_len` 为期望发送字节数。
+/// 返回值说明：成功返回实际发送字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，其他错误原样透传，提前 EOF 返回 `error.ConnectionClosed`。
+export fn async_sendfile(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
+    if fd < 0 || file_fd < 0 {
+        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+    }
+    return AsyncSendFileFuture{
+        fd: fd,
+        file_fd: file_fd,
+        total_len: total_len,
+    };
+}
+
 struct AsyncConnectFuture : Future<!i32> {
     fd: i32,
     addr: &void,

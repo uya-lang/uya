@@ -1582,3 +1582,11 @@
       验证结果：
       - `../uya/bin/uya test tests/test_std_dns_async_transport.uya`：通过（3 tests, 6 assertions）
       - `../uya/bin/uya test tests/test_std_dns.uya`：通过（34 tests, 78 assertions）
+
+### 1.5.2 迁移顺序原则
+
+- 任务路径：**先提炼通用 awaitable 原语，再迁移重复状态机** > 例如 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
+  - [x] 在 `lib/std/async.uya` 提炼 `async_writev` / `async_sendfile` helper，并迁移 `lib/std/http/uyagin.uya` 的写热路径 future；验证：`../uya/bin/uya test tests/test_async_fd.uya`、`../uya/bin/uya test tests/test_http_uyagin.uya`
+    - 验证记录（2026-06-21）：
+      - `../uya/bin/uya test tests/test_async_fd.uya`：通过（10 tests passed，覆盖新增 `async_writev` / `async_sendfile` helper 回归）。
+      - `../uya/bin/uya test tests/test_http_uyagin.uya`：通过（23 tests passed，确认 uyagin 写热路径迁移后语义未回退）。

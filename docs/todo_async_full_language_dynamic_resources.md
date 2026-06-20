@@ -138,7 +138,6 @@
 - [ ] **先提炼通用 awaitable 原语，再迁移重复状态机**。
   - [ ] 例如 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_recv_parse`、`async_worker_result` 这类原语先统一，再让协议层用 `@await` 组合。
     - [ ] 在 `lib/std/async.uya` 提炼 `async_accept` helper，并迁移 `lib/std/http/uyagin.uya` 的 `UyaginAcceptFuture`；验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
-    - [ ] 在 `lib/std/async.uya` 提炼 `async_writev` / `async_sendfile` helper，并迁移 `lib/std/http/uyagin.uya` 的写热路径 future；验证：`../uya/bin/uya test tests/test_async_fd.uya`、`../uya/bin/uya test tests/test_http_uyagin.uya`
     - [ ] 提炼 `async_read_parse` / `async_read_parse_into` helper，并迁移 `lib/std/http/uyagin.uya` 的 `UyaginConnReadParseFuture` / `UyaginConnReadParseIntoFuture`；验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
     - [ ] 提炼 `async_worker_result` / `async_thread_slot_wait` 类 helper，并为 `lib/std/thread.uya` 的 `AsyncComputeFuture<T>` 后续 `@async_fn` 化打底；验证：`../uya/bin/uya test tests/test_std_thread.uya`
 - [ ] **迁移不能降低现有错误语义、取消语义和 deadline 语义**。

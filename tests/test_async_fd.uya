@@ -431,6 +431,78 @@ fn test_async_connect_loopback_returns_connected_fd() !void {
     _ = sys_close(listen_fd) catch {};
 }
 
+fn test_async_writev_writes_head_then_body() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+
+    var head: [byte: 5] = [ 'h' as byte, 'e' as byte, 'a' as byte, 'd' as byte, ':' as byte ];
+    var body: [byte: 4] = [ 'b' as byte, 'o' as byte, 'd' as byte, 'y' as byte ];
+    const written: usize = try block_on<usize>(async_writev(write_fd, &head[0] as &const byte, 5, &body[0] as &const byte, 4));
+    try assert_eq_i32(written as i32, 9);
+
+    const flags: i32 = try sys_fcntl(write_fd, F_GETFL, 0);
+    try assert_eq_i32(flags & O_NONBLOCK, O_NONBLOCK);
+
+    var out: [byte: 16] = [];
+    const read_result: !isize = sys_read(read_fd, &out[0] as *byte, 9);
+    const read_count: isize = read_result catch {
+        return error.PipeReadFailed;
+    };
+    try assert_eq_i32(read_count as i32, 9);
+    try assert_eq_i32(out[0] as i32, 'h' as i32);
+    try assert_eq_i32(out[4] as i32, ':' as i32);
+    try assert_eq_i32(out[5] as i32, 'b' as i32);
+    try assert_eq_i32(out[8] as i32, 'y' as i32);
+
+    _ = sys_close(read_fd) catch {};
+    _ = sys_close(write_fd) catch {};
+}
+
+fn test_async_sendfile_copies_file_into_fd() !void {
+    const file_path: &[const byte] = "/tmp/uya_async_sendfile_test.txt";
+    _ = sys_unlink(file_path.ptr) catch {};
+    const write_file_fd: i32 = try sys_open(file_path.ptr, (O_CREAT | O_TRUNC | O_WRONLY) as i32, 0o600);
+    var file_body: [byte: 12] = [ 's' as byte, 'e' as byte, 'n' as byte, 'd' as byte, 'f' as byte, 'i' as byte, 'l' as byte, 'e' as byte, '-' as byte, 'o' as byte, 'k' as byte, '!' as byte ];
+    _ = try sys_write(write_file_fd, &file_body[0] as *const byte, 12);
+    _ = try sys_close(write_file_fd);
+
+    const read_file_fd: i32 = try sys_open(file_path.ptr, O_RDONLY as i32, 0);
+    defer {
+        _ = sys_close(read_file_fd) catch {};
+        _ = sys_unlink(file_path.ptr) catch {};
+    }
+
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], 0) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+
+    const written: usize = try block_on<usize>(async_sendfile(write_fd, read_file_fd, 12));
+    try assert_eq_i32(written as i32, 12);
+
+    const flags: i32 = try sys_fcntl(write_fd, F_GETFL, 0);
+    try assert_eq_i32(flags & O_NONBLOCK, O_NONBLOCK);
+
+    var out: [byte: 16] = [];
+    const read_result: !isize = sys_read(read_fd, &out[0] as *byte, 12);
+    const read_count: isize = read_result catch {
+        return error.PipeReadFailed;
+    };
+    try assert_eq_i32(read_count as i32, 12);
+    try assert_eq_i32(out[0] as i32, 's' as i32);
+    try assert_eq_i32(out[7] as i32, 'e' as i32);
+    try assert_eq_i32(out[11] as i32, '!' as i32);
+
+    _ = sys_close(read_fd) catch {};
+    _ = sys_close(write_fd) catch {};
+}
+
 test "async_fd_write_returns_ready" {
     try test_async_fd_write();
 }
@@ -461,4 +533,12 @@ test "async_fd_read_exact_returns_unexpected_eof" {
 
 test "async_connect_loopback_returns_connected_fd" {
     try test_async_connect_loopback_returns_connected_fd();
+}
+
+test "async_writev_writes_head_then_body" {
+    try test_async_writev_writes_head_then_body();
+}
+
+test "async_sendfile_copies_file_into_fd" {
+    try test_async_sendfile_copies_file_into_fd();
 }
