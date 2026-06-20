@@ -139,6 +139,26 @@ fn http_check_deadline(deadline_ms: u64) !void {
     }
 }
 
+fn http_map_async_deadline_i32(value: !i32) !i32 {
+    const out: i32 = value catch |err| {
+        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+            return error.HttpTimeout;
+        }
+        return err;
+    };
+    return out;
+}
+
+fn http_map_async_deadline_usize(value: !usize) !usize {
+    const out: usize = value catch |err| {
+        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+            return error.HttpTimeout;
+        }
+        return err;
+    };
+    return out;
+}
+
 export struct ParsedHttpUrl {
     host: &[byte],
     port: u16,
@@ -366,6 +386,7 @@ fn http1_connect_for_host_future(host: &[byte], port: u16, deadline_ms: u64) Fut
             dns_client_init(&dns_ctx, &empty_resolver[0: 0]);
             var dns_timeout: u32 = 5000;
             if deadline_ms != 0 {
+                try http_check_deadline(deadline_ms);
                 const remaining: i32 = http_deadline_remaining_or_neg1(deadline_ms);
                 if remaining > 0 && (remaining as u32) < dns_timeout {
                     dns_timeout = remaining as u32;
@@ -393,12 +414,7 @@ fn http1_connect_for_host_future(host: &[byte], port: u16, deadline_ms: u64) Fut
         }
     }
     const connect_result: !i32 = @await async_connect(fd, &addr[0] as &void, 16 as u32, deadline_ms);
-    const connected_fd: i32 = connect_result catch |err| {
-        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-            return error.HttpTimeout;
-        }
-        return err;
-    };
+    const connected_fd: i32 = try http_map_async_deadline_i32(connect_result);
     var nd: i32 = 1;
     _ = sys_setsockopt(connected_fd, IPPROTO_TCP, TCP_NODELAY, &nd as &void, 4 as u32) catch {};
     owned_fd = -1;
@@ -920,8 +936,8 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
 
     var woff: usize = 0;
     while woff < hdr.len {
-        const write_result: !usize = @await async_fd_write_future(fd, @ptr_from_usize(@usize_from_ptr(hdr.ptr as &void) + woff) as &const byte, hdr.len - woff);
-        const wn: usize = write_result catch |err| {
+        const write_result: !usize = @await async_fd_write_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(hdr.ptr as &void) + woff) as &const byte, hdr.len - woff, deadline_ms);
+        const wn: usize = http_map_async_deadline_usize(write_result) catch |err| {
             http1_async_request_header_free(&hdr);
             _ = sys_close(fd) catch {};
             return err;
@@ -939,7 +955,14 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
     var boff: usize = 0;
     if req.method == Method.POST && req.body.len > 0 {
         while boff < req.body.len {
-            const bn: usize = try @await async_fd_write_future(fd, @ptr_from_usize(@usize_from_ptr(req.body.ptr as &void) + boff) as &const byte, req.body.len - boff);
+            const body_write: !usize = @await async_fd_write_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(req.body.ptr as &void) + boff) as &const byte, req.body.len - boff, deadline_ms);
+            const bn: usize = body_write catch |err| {
+                _ = sys_close(fd) catch {};
+                if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                    return error.HttpTimeout;
+                }
+                return err;
+            };
             if bn == 0 {
                 _ = sys_close(fd) catch {};
                 const err_resp: Http1AsyncResponse = try http1_async_err_closed();
@@ -990,7 +1013,15 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
             rb_cap = next_cap;
         }
         try http_check_deadline(deadline_ms);
-        const rn: usize = try @await async_fd_read_future(fd, @ptr_from_usize(@usize_from_ptr(rb_ptr as &void) + rb_len) as &byte, rb_cap - rb_len);
+        const read_result: !usize = @await async_fd_read_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(rb_ptr as &void) + rb_len) as &byte, rb_cap - rb_len, deadline_ms);
+        const rn: usize = read_result catch |err| {
+            free(rb_ptr as &void);
+            _ = sys_close(fd) catch {};
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return error.HttpTimeout;
+            }
+            return err;
+        };
         if rn == 0 {
             free(rb_ptr as &void);
             _ = sys_close(fd) catch {};
@@ -1050,7 +1081,15 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
         }
         while copied < meta.content_length {
             try http_check_deadline(deadline_ms);
-            const rn2: usize = try @await async_fd_read_future(fd, @ptr_from_usize(@usize_from_ptr(base as &void) + copied) as &byte, meta.content_length - copied);
+            const body_read: !usize = @await async_fd_read_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(base as &void) + copied) as &byte, meta.content_length - copied, deadline_ms);
+            const rn2: usize = body_read catch |err| {
+                _ = sys_close(fd) catch {};
+                free(mem);
+                if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                    return error.HttpTimeout;
+                }
+                return err;
+            };
             if rn2 == 0 {
                 _ = sys_close(fd) catch {};
                 free(mem);
@@ -1069,7 +1108,15 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
         }
         while copied < body_total {
             try http_check_deadline(deadline_ms);
-            const rn3: usize = try @await async_fd_read_future(fd, @ptr_from_usize(@usize_from_ptr(base as &void) + copied) as &byte, body_total - copied);
+            const body_read_to_eof: !usize = @await async_fd_read_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(base as &void) + copied) as &byte, body_total - copied, deadline_ms);
+            const rn3: usize = body_read_to_eof catch |err| {
+                _ = sys_close(fd) catch {};
+                free(mem);
+                if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                    return error.HttpTimeout;
+                }
+                return err;
+            };
             if rn3 == 0 {
                 copied = body_total;
             } else {
@@ -1490,8 +1537,8 @@ export @async_fn fn http1_request_stream_async(
 
     var woff: usize = 0;
     while woff < hdr.len {
-        const write_result: !usize = @await async_fd_write_future(fd, @ptr_from_usize(@usize_from_ptr(hdr.ptr as &void) + woff) as &const byte, hdr.len - woff);
-        const wn: usize = write_result catch |err| {
+        const write_result: !usize = @await async_fd_write_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(hdr.ptr as &void) + woff) as &const byte, hdr.len - woff, deadline_ms);
+        const wn: usize = http_map_async_deadline_usize(write_result) catch |err| {
             http1_async_request_header_free(&hdr);
             _ = sys_close(fd) catch {};
             return err;
@@ -1508,7 +1555,14 @@ export @async_fn fn http1_request_stream_async(
     if req.method == Method.POST && req.body.len > 0 {
         var boff: usize = 0;
         while boff < req.body.len {
-            const bn: usize = try @await async_fd_write_future(fd, @ptr_from_usize(@usize_from_ptr(req.body.ptr as &void) + boff) as &const byte, req.body.len - boff);
+            const body_write: !usize = @await async_fd_write_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(req.body.ptr as &void) + boff) as &const byte, req.body.len - boff, deadline_ms);
+            const bn: usize = body_write catch |err| {
+                _ = sys_close(fd) catch {};
+                if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                    return error.HttpTimeout;
+                }
+                return err;
+            };
             if bn == 0 {
                 _ = sys_close(fd) catch {};
                 return error.ConnectionClosed;
@@ -1535,7 +1589,15 @@ export @async_fn fn http1_request_stream_async(
             return error.HeaderTooLarge;
         }
         try http_check_deadline(deadline_ms);
-        const rn: usize = try @await async_fd_read_future(fd, @ptr_from_usize(@usize_from_ptr(rb.ptr as &void) + rb.len) as &byte, 1);
+        const read_result: !usize = @await async_fd_read_deadline_future(fd, @ptr_from_usize(@usize_from_ptr(rb.ptr as &void) + rb.len) as &byte, 1, deadline_ms);
+        const rn: usize = read_result catch |err| {
+            http1_response_header_buffer_free(&rb);
+            _ = sys_close(fd) catch {};
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return error.HttpTimeout;
+            }
+            return err;
+        };
         if rn == 0 {
             http1_response_header_buffer_free(&rb);
             _ = sys_close(fd) catch {};

@@ -1805,3 +1805,10 @@
     - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（11/11 通过）
     - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（34/34 通过）
     - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（4/4 通过）
+
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+父级任务：统一原语的要求：
+  - [x] deadline / timeout 语义统一
+    - 验证：`timeout 20s ../uya/bin/uya test tests/test_async_fd.uya`（通过，12 tests）
+    - 验证：`timeout 20s ../uya/bin/uya test tests/test_http1_async_client.uya`（通过，9 tests）
+    - 验证：`timeout 30s ../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过，4 tests）

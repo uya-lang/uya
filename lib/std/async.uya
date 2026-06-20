@@ -15,6 +15,7 @@ use std.http.parse.http_parse_request_into;
 use std.http.parse.http_decode_chunked_body_inplace;
 use std.mem.allocator.IAllocator;
 use std.string.strlen;
+use std.time.deadline_expired;
 
 /// 线程本地 async frame 分配器（通过 pthread TSD 绑定）
 var _uya_async_frame_allocator_once: pthread_once_t = pthread_once_t{ state: 0 };
@@ -696,21 +697,21 @@ export @async_fn fn async_fd_write_all(fd: i32, data: &const byte, count: usize)
     return total;
 }
 
-fn async_now_ms() !u64 {
-    var tv: TimeVal = TimeVal{ tv_sec: 0, tv_usec: 0 };
-    const result: !i32 = sys_gettimeofday(&tv, null as &void);
-    _ = result catch {
-        return error.AsyncDeadlineExceeded;
-    };
-    return (tv.tv_sec as u64) * (1000 as u64) + ((tv.tv_usec as u64) / (1000 as u64));
-}
-
 fn async_deadline_expired(deadline_ms: u64) !bool {
     if deadline_ms == 0 {
         return false;
     }
-    const now_ms: u64 = try async_now_ms();
-    return now_ms >= deadline_ms;
+    const expired_result: !bool = deadline_expired(deadline_ms);
+    return expired_result catch {
+        return error.AsyncDeadlineExceeded;
+    };
+}
+
+fn async_check_deadline(deadline_ms: u64) !void {
+    const expired: bool = try async_deadline_expired(deadline_ms);
+    if expired {
+        return error.AsyncDeadlineExceeded;
+    }
 }
 
 fn async_fd_set_nonblocking(fd: i32) !i32 {
@@ -962,14 +963,9 @@ struct AsyncConnectFuture : Future<!i32> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        if self.deadline_ms != 0 {
-            const expired: bool = async_deadline_expired(self.deadline_ms) catch {
-                return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
-            };
-            if expired {
-                return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
-            }
-        }
+        _ = async_check_deadline(self.deadline_ms) catch {
+            return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
+        };
 
         if self.nonblocking_ready == 0 {
             const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
@@ -1018,10 +1014,13 @@ struct AsyncFdWriteFuture : Future<!usize> {
     fd: i32,
     data: &const byte,
     count: usize,
+    deadline_ms: u64 = 0,
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        _ = waker;
+        _ = async_check_deadline(self.deadline_ms) catch {
+            return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
+        };
         if self.nonblocking_ready == 0 {
             const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
             const flags: i32 = flags_result catch {
@@ -1063,10 +1062,13 @@ struct AsyncFdReadFuture : Future<!usize> {
     fd: i32,
     buf: &byte,
     count: usize,
+    deadline_ms: u64 = 0,
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        _ = waker;
+        _ = async_check_deadline(self.deadline_ms) catch {
+            return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
+        };
         if self.nonblocking_ready == 0 {
             const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
             const flags: i32 = flags_result catch {
@@ -1136,14 +1138,28 @@ export fn async_fd_new(fd: i32) AsyncFd {
     return AsyncFd{ fd: fd };
 }
 
+/// 返回带绝对 deadline 的 `AsyncFdReadFuture`，供 `@await` 路径在 pending 读阶段复用统一超时语义。
+/// 参数说明：`fd` 为目标文件描述符；`buf`/`count` 为读取目标；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
+/// 返回值说明：成功返回本次实际读取字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending；超时返回 `error.AsyncDeadlineExceeded`。
+export fn async_fd_read_deadline_future(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize> {
+    return AsyncFdReadFuture{ fd: fd, buf: buf, count: count, deadline_ms: deadline_ms };
+}
+
 /// 返回具体 `AsyncFdReadFuture`，供 `@await` 路径使用（接口返回，由 compiler box）。
 export fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Future<!usize> {
-    return AsyncFdReadFuture{ fd: fd, buf: buf, count: count };
+    return async_fd_read_deadline_future(fd, buf, count, 0 as u64);
+}
+
+/// 返回带绝对 deadline 的 `AsyncFdWriteFuture`，供 `@await` 路径在 pending 写阶段复用统一超时语义。
+/// 参数说明：`fd` 为目标文件描述符；`data`/`count` 为待写 buffer；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
+/// 返回值说明：成功返回本次实际写入字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending；超时返回 `error.AsyncDeadlineExceeded`。
+export fn async_fd_write_deadline_future(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
+    return AsyncFdWriteFuture{ fd: fd, data: data, count: count, deadline_ms: deadline_ms };
 }
 
 /// 同上，写侧；配合 `async_fd_read_future` 用于 `@async_fn` 内 `try @await`。
 export fn async_fd_write_future(fd: i32, data: &const byte, count: usize) Future<!usize> {
-    return AsyncFdWriteFuture{ fd: fd, data: data, count: count };
+    return async_fd_write_deadline_future(fd, data, count, 0 as u64);
 }
 
 struct AsyncSocketSendFuture : Future<!usize> {
@@ -1154,14 +1170,9 @@ struct AsyncSocketSendFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if self.deadline_ms != 0 {
-            const expired: bool = async_deadline_expired(self.deadline_ms) catch {
-                return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
-            };
-            if expired {
-                return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
-            }
-        }
+        _ = async_check_deadline(self.deadline_ms) catch {
+            return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
+        };
 
         if self.nonblocking_ready == 0 {
             const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
@@ -1203,14 +1214,9 @@ struct AsyncSocketRecvFuture : Future<!usize> {
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if self.deadline_ms != 0 {
-            const expired: bool = async_deadline_expired(self.deadline_ms) catch {
-                return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
-            };
-            if expired {
-                return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
-            }
-        }
+        _ = async_check_deadline(self.deadline_ms) catch {
+            return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
+        };
 
         if self.nonblocking_ready == 0 {
             const ready_result: !i32 = async_fd_set_nonblocking(self.fd);

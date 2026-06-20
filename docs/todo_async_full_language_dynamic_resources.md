@@ -145,7 +145,6 @@
 ### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
 
 - [ ] 统一原语的要求：
-  - [ ] deadline / timeout 语义统一
   - [ ] cancel 语义统一
   - [ ] `Waker` interest 注册统一
   - [ ] 错误类型统一，不再每个模块手写一套 `Poll.Pending/Ready(err)` 分支

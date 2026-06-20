@@ -34,6 +34,12 @@ fn test_sys_pipe2(pipefd: &i32, flags: i32) !i32 {
     return @syscall(TEST_SYS_PIPE2, pipefd as i64, flags as i64) as! i32;
 }
 
+fn async_fd_deadline_after_ms(timeout_ms: u32) !u64 {
+    var tv: TimeVal = TimeVal{ tv_sec: 0, tv_usec: 0 };
+    _ = try sys_gettimeofday(&tv, null as &void);
+    return (tv.tv_sec as u64) * (1000 as u64) + ((tv.tv_usec as u64) / (1000 as u64)) + (timeout_ms as u64);
+}
+
 fn async_fd_spawn_delayed_writer(write_fd: i32, a: byte, b: byte, c: byte, d: byte, delay_ns: i64) !i32 {
     const fork_result: !i64 = sys_fork();
     const child_pid: i64 = fork_result catch {
@@ -245,6 +251,30 @@ fn test_async_fd_read_with_event_loop_wakes() !void {
 
     _ = test_sys_close(read_fd);
     _ = test_sys_close(write_fd);
+}
+
+fn test_async_fd_read_deadline_expires_after_pending() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], TEST_O_NONBLOCK) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+
+    var buf: [byte: 8] = [];
+    const deadline_ms: u64 = try async_fd_deadline_after_ms(50);
+    const fut: Future<!usize> = async_fd_read_deadline_future(read_fd, &buf[0], 4, deadline_ms);
+    const result: !usize = block_on<usize>(fut);
+    _ = result catch |err| {
+        _ = test_sys_close(read_fd);
+        _ = test_sys_close(write_fd);
+        try assert_eq_i32(@error_id(err) as i32, @error_id(error.AsyncDeadlineExceeded) as i32);
+        return;
+    };
+
+    _ = test_sys_close(read_fd);
+    _ = test_sys_close(write_fd);
+    try assert_eq_i32(0, 1);
 }
 
 fn test_async_fd_read_exact_pending_then_ready() !void {
@@ -539,6 +569,10 @@ test "async_fd_read_returns_pending_on_eagain_then_ready" {
 
 test "async_fd_read_with_event_loop_wakes_to_ready" {
     try test_async_fd_read_with_event_loop_wakes();
+}
+
+test "async_fd_read_deadline_expires_after_pending" {
+    try test_async_fd_read_deadline_expires_after_pending();
 }
 
 test "async_fd_read_exact_returns_pending_then_ready" {
