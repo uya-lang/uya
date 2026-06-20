@@ -1735,3 +1735,16 @@
   - 纳入脚本：`rg -n "test_async_defer_errdefer\\.uya" tests/verify_async_full_language_matrix.sh`（命中第 126 行）
   - 补充验证：`../uya/bin/uya test tests/test_async_cleanup_body_coverage.uya`（通过，2 tests passed，5 assertions）
   - 补充验证：`../uya/bin/uya test tests/test_async_sync_body_matrix.uya`（通过，4 tests passed，20 assertions）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+**验收**：
+
+- [x] 相关回归补齐并纳入脚本：
+  - [x] websocket client / uyagin / dns 新回归
+    - 变更：将 `tests/test_async_std_business_future_boundary.uya` 纳入 `tests/verify_async_full_language_matrix.sh` baseline tests。
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过，1 test / 17 assertions）
+    - 验证：`../uya/bin/uya test --c99 tests/test_async_std_business_future_boundary.uya`（通过，1 test / 17 assertions）
+    - 验证：`../uya/bin/uya test --uya --c99 tests/test_async_std_business_future_boundary.uya`（通过，1 test / 17 assertions）
+    - 验证：`rg -n 'test_async_std_business_future_boundary\\.uya' tests/verify_async_full_language_matrix.sh`（命中 `142:    "tests/test_async_std_business_future_boundary.uya"`，已纳入 async baseline matrix）

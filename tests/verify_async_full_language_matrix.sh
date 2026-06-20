@@ -139,6 +139,7 @@ baseline_tests=(
     "tests/test_std_async_scheduler.uya"
     "tests/test_async_compute_types.uya"
     "tests/test_std_dns_async_composition_shape.uya"
+    "tests/test_async_std_business_future_boundary.uya"
     "tests/test_http1_async_client.uya"
     "tests/test_http_uyagin_recover_observe.uya"
 )

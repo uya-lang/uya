@@ -142,9 +142,6 @@
 
 **验收**：
 
-- [ ] 相关回归补齐并纳入脚本：
-  - [ ] websocket client / uyagin / dns 新回归
-
 ### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
 
 - [ ] 在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语：
