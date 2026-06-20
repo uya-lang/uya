@@ -1766,3 +1766,10 @@
     - 验证结果：通过；`25` 个测试全部通过，包含 `uyagin_accept_uses_async_accept_helper_and_preserves_nodelay`
     - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
     - 验证结果：`ok: docs/todo_async_full_language_dynamic_resources.md has 0 active tasks`
+
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+
+父级任务：在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语：
+  - [x] `async_writev(fd, iov, iovcnt)` 或等价 helper
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：11 tests，`async_writev_writes_head_then_body` OK）
+    - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过：25 tests 全通过）
