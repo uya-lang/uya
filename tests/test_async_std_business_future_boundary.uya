@@ -133,6 +133,15 @@ test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
         "export @async_fn fn uyagin_accept_async(srv: &HttpServer) Future<!i32>\0" as &const byte,
         "struct UyaginAcceptFuture : Future<!i32>\0" as &const byte,
     );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn fn uyagin_writev_all_future(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize>\0" as &const byte,
+        "struct UyaginWritevFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_text(
+        UYAGIN_SOURCE_PATH,
+        "return try @await async_writev(fd, head, head_len, body, body_len);\0" as &const byte,
+    );
 
     try assert_source_has_async_boundary(
         DNS_SOURCE_PATH,

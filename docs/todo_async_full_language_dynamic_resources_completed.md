@@ -1891,3 +1891,10 @@
   - [x] 将 `UyaginAcceptFuture` 改为 `@async_fn` + `async_accept`。
     - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过；`std_business_protocol_and_composition_async_boundaries_stay_on_async_fn` OK）
     - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过；`uyagin_accept_uses_async_accept_helper_and_preserves_nodelay` OK）
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+任务路径：`lib/std/http/uyagin.uya`
+- [x] 将 `UyaginWritevFuture` 改为 `@async_fn` + `async_writev`。
+  - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（新增源码边界断言后先失败，提示缺少 `@async_fn fn uyagin_writev_all_future(...)`；修改后通过）
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过，25 个测试）
+  - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过，14 个测试）

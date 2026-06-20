@@ -2166,8 +2166,8 @@ fn uyagin_response_body_len(body: UyaginResponseBody) usize {
     return body.bytes.len;
 }
 
-fn uyagin_writev_all_future(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {
-    return async_writev(fd, head, head_len, body, body_len);
+@async_fn fn uyagin_writev_all_future(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {
+    return try @await async_writev(fd, head, head_len, body, body_len);
 }
 
 fn uyagin_sendfile_future(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
