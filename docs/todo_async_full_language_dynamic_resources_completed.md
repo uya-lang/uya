@@ -1471,3 +1471,16 @@
     - [x] `lib/std/http/websocket_async.uya`：将 `WebSocketHeartbeatTimeoutFuture` 改为 `@async_fn`，保持 heartbeat timeout 先发 close 再返回超时错误。验收：`../uya/bin/uya test tests/test_http_websocket_json.uya`
       - 验证：`../uya/bin/uya test tests/test_http_websocket_heartbeat.uya`（通过：5 tests passed）
       - 验证：`../uya/bin/uya test tests/test_http_websocket_json.uya`（通过：3 tests passed）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.0 统计口径
+
+路径：最终目标口径 > 标准库业务层、协议层和 I/O 组合层不再保留手写 `poll()` 状态机。
+
+- [x] `lib/std/http/uyagin.uya`：将 `UyaginRecoverFuture`、`UyaginObserveFuture` 改为 `@async_fn` 包装器，不改变 recover / observe 副作用顺序。验收：补 dedicated uyagin recover/observe 回归并运行对应测试
+  验证：
+  `ulimit -s 32768 && cd src && UYA_MULTI_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_SPLIT_C_MIRROR= RUNTIME_MODE=nostdlib LINK_MODE=static CFLAGS='-std=c99 -O2 -fno-builtin -Werror -fno-stack-protector' ./compile.sh --c99 -e --nostdlib --safety-proof`（通过，重建 `bin/uya` 以带上 `@async_fn` allocator 修复）
+  `../uya/bin/uya test tests/test_http_uyagin_recover_observe.uya`（通过）
+  `../uya/bin/uya test tests/test_http_uyagin.uya`（通过）
+  `../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过）

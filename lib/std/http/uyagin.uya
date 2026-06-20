@@ -502,91 +502,24 @@ export fn uyagin_error_response(engine: &Engine, ctx: &GinContext, err_id: u32) 
     return uyagin_write_context_response_async(ctx, status, uyagin_text_plain(), uyagin_body_for_status(status));
 }
 
-struct UyaginRecoverFuture : Future<!i32> {
-    engine: &Engine,
-    inner: Future<!i32>,
-    error_future: Future<!i32>,
-    ctx: &GinContext,
-    state: i32,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        if self.state == 0 {
-            const p: Poll<!i32> = self.inner.poll(waker);
-            match p {
-                .Pending(_) => {
-                    return Poll<!i32>.Pending({});
-                },
-                .Ready(result) => {
-                    if result.error_id != 0 {
-                        self.error_future = uyagin_error_response(self.engine, self.ctx, result.error_id);
-                        self.state = 1;
-                        return Poll<!i32>.Pending({});
-                    }
-                    return Poll<!i32>.Ready(ok<i32>(result.value));
-                },
-            };
-        }
-        if self.state == 1 {
-            const ep: Poll<!i32> = self.error_future.poll(waker);
-            match ep {
-                .Pending(_) => {
-                    return Poll<!i32>.Pending({});
-                },
-                .Ready(result) => {
-                    return Poll<!i32>.Ready(result);
-                },
-            };
-        }
-        return Poll<!i32>.Ready(error.InvalidRequest);
+@async_fn fn uyagin_observe_request_future(engine: &Engine, ctx: &GinContext, inner: Future<!i32>) Future<!i32> {
+    var started_us: u64 = 0u64;
+    const started_us_result: !u64 = uyagin_now_us();
+    started_us = started_us_result catch { 1u64; };
+    const result: !i32 = @await inner;
+    var ended_us: u64 = started_us;
+    const ended_us_result: !u64 = uyagin_now_us();
+    ended_us = ended_us_result catch { started_us; };
+    var latency_us: u64 = 0u64;
+    if ended_us >= started_us {
+        latency_us = ended_us - started_us;
     }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
+    uyagin_record_request_observation(engine, ctx, result.error_id, latency_us);
+    if result.error_id != 0u32 {
+        const restored: i32 = try uyagin_error_from_error_id_i32(result.error_id);
+        return restored;
     }
-}
-
-struct UyaginObserveFuture : Future<!i32> {
-    engine: &Engine,
-    ctx: &GinContext,
-    inner: Future<!i32>,
-    started_us: u64,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        if self.started_us == 0u64 {
-            const started_us_result: !u64 = uyagin_now_us();
-            self.started_us = started_us_result catch { 1u64; };
-        }
-        const p: Poll<!i32> = self.inner.poll(waker);
-        match p {
-            .Pending(_) => {
-                return Poll<!i32>.Pending({});
-            },
-            .Ready(result) => {
-                var ended_us: u64 = self.started_us;
-                const ended_us_result: !u64 = uyagin_now_us();
-                ended_us = ended_us_result catch { self.started_us; };
-                var latency_us: u64 = 0u64;
-                if ended_us >= self.started_us {
-                    latency_us = ended_us - self.started_us;
-                }
-                uyagin_record_request_observation(self.engine, self.ctx, result.error_id, latency_us);
-                return Poll<!i32>.Ready(result);
-            },
-        };
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
-fn uyagin_observe_request_future(engine: &Engine, ctx: &GinContext, inner: Future<!i32>) Future<!i32> {
-    return UyaginObserveFuture{
-        engine: engine,
-        ctx: ctx,
-        inner: inner,
-        started_us: 0u64,
-    };
+    return result.value;
 }
 
 /// 路由分组：共享前缀，并可挂接组内 middleware。
@@ -1474,14 +1407,18 @@ export @async_fn fn uyagin_run_chain(engine: &Engine, ctx: &GinContext, route: &
     return try @await uyagin_write_context_response_async(ctx, ctx.response_status, uyagin_text_plain(), uyagin_empty_body());
 }
 
-export fn uyagin_run_chain_recover(engine: &Engine, ctx: &GinContext, route: &GinRoute) Future<!i32> {
-    return UyaginRecoverFuture{
-        engine: engine,
-        inner: uyagin_run_chain(engine, ctx, route),
-        error_future: uyagin_ready_i32(ok<i32>(0)),
-        ctx: ctx,
-        state: 0,
-    };
+export @async_fn fn uyagin_run_chain_recover(engine: &Engine, ctx: &GinContext, route: &GinRoute) Future<!i32> {
+    const chain_result: !i32 = @await uyagin_run_chain(engine, ctx, route);
+    if chain_result.error_id != 0u32 {
+        const error_future: Future<!i32> = uyagin_error_response(engine, ctx, chain_result.error_id);
+        const error_result: !i32 = @await error_future;
+        if error_result.error_id != 0u32 {
+            const restored: i32 = try uyagin_error_from_error_id_i32(error_result.error_id);
+            return restored;
+        }
+        return error_result.value;
+    }
+    return chain_result.value;
 }
 
 /// RAII listener：离开作用域自动 close listen fd。

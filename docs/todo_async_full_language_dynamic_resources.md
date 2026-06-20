@@ -119,7 +119,6 @@
 
 - [ ] 最终目标口径：
   - [ ] 标准库业务层、协议层和 I/O 组合层不再保留手写 `poll()` 状态机。
-    - [ ] `lib/std/http/uyagin.uya`：将 `UyaginRecoverFuture`、`UyaginObserveFuture` 改为 `@async_fn` 包装器，不改变 recover / observe 副作用顺序。验收：补 dedicated uyagin recover/observe 回归并运行对应测试
     - [ ] `lib/std/net/dns.uya`：将 `DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 改为 `@async_fn` 组合层，不再手工 poll 另一个 future。验收：补 DNS transport/aggregate 回归并运行对应测试
     - [ ] `lib/std/http/websocket_async.uya`：将 `WebSocketReadMessageFuture` 改为 `@async_fn` 消息聚合路径，保持 ping/pong/close/fragment 语义。验收：`../uya/bin/uya test tests/test_http_websocket_json.uya`
   - [ ] 如果最底层 runtime 叶子原语仍必须手写，要把它们收缩到最小、明确、可解释的 substrate 集，并单列为最后清零项，不允许无限期混在业务模块里。
