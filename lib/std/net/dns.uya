@@ -1085,40 +1085,58 @@ fn dns_udp_future_poll(self: &DnsUdpFuture, waker: &Waker) Poll<!usize> {
         self.stage = 2;
     }
     if self.stage == 2 {
-        const send_res: !isize = sys_send(self.fd, &self.query_packet[0], self.query_len, 0);
-        const sent: isize = send_res catch |err| {
-            const eid: i32 = (@error_id(err) as! i32).value;
-            if dns_is_would_block_errno(eid) {
-                waker.wait_writable(self.fd);
+        const send_future: Future<!usize> = async_socket_send(self.fd, &self.query_packet[0] as &const byte, self.query_len, self.deadline_ms);
+        const send_poll: Poll<!usize> = send_future.poll(waker);
+        var sent: usize = 0;
+        match send_poll {
+            .Pending(_) => {
+                send_future.release();
                 const p: Poll<!usize> = Poll<!usize>.Pending({});
                 return p;
-            }
-            dns_future_close_fd(&self.fd);
-            return dns_poll_ready_transport_errno(eid);
+            },
+            .Ready(send_result) => {
+                send_future.release();
+                sent = send_result catch |err| {
+                    dns_future_close_fd(&self.fd);
+                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                        return dns_poll_ready_error(@error_id(error.DnsTimeout));
+                    }
+                    return dns_poll_ready_transport_errno((@error_id(err) as! i32).value);
+                };
+            },
         };
-        if sent != self.query_len as isize {
+        if sent != self.query_len {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsNetworkUnreachable));
         }
         self.stage = 3;
     }
     if self.stage == 3 {
-        const recv_res: !isize = sys_recv(self.fd, &self.response_packet[0], DNS_MAX_PACKET, 0);
-        const n: isize = recv_res catch |err| {
-            const eid: i32 = (@error_id(err) as! i32).value;
-            if dns_is_would_block_errno(eid) {
-                waker.wait_readable(self.fd);
+        const recv_future: Future<!usize> = async_socket_recv(self.fd, &self.response_packet[0], DNS_MAX_PACKET, self.deadline_ms);
+        const recv_poll: Poll<!usize> = recv_future.poll(waker);
+        var n: usize = 0;
+        match recv_poll {
+            .Pending(_) => {
+                recv_future.release();
                 const p: Poll<!usize> = Poll<!usize>.Pending({});
                 return p;
-            }
-            dns_future_close_fd(&self.fd);
-            return dns_poll_ready_transport_errno(eid);
+            },
+            .Ready(recv_result) => {
+                recv_future.release();
+                n = recv_result catch |err| {
+                    dns_future_close_fd(&self.fd);
+                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                        return dns_poll_ready_error(@error_id(error.DnsTimeout));
+                    }
+                    return dns_poll_ready_transport_errno((@error_id(err) as! i32).value);
+                };
+            },
         };
-        if n <= 0 {
+        if n == 0 {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsNoSuchName));
         }
-        self.response_len = n as usize;
+        self.response_len = n;
         self.stage = 4;
     }
     if self.stage == 4 {
@@ -2164,22 +2182,31 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsInvalidPacket));
         }
-        const send_res: !isize = sys_send(self.fd, send_base as &const byte, remaining, 0);
-        const sent: isize = send_res catch |err| {
-            const eid: i32 = (@error_id(err) as! i32).value;
-            if dns_is_would_block_errno(eid) {
-                waker.wait_writable(self.fd);
+        const send_future: Future<!usize> = async_socket_send(self.fd, send_base as &const byte, remaining, self.deadline_ms);
+        const send_poll: Poll<!usize> = send_future.poll(waker);
+        var sent: usize = 0;
+        match send_poll {
+            .Pending(_) => {
+                send_future.release();
                 const p: Poll<!usize> = Poll<!usize>.Pending({});
                 return p;
-            }
-            dns_future_close_fd(&self.fd);
-            return dns_poll_ready_transport_errno(eid);
+            },
+            .Ready(send_result) => {
+                send_future.release();
+                sent = send_result catch |err| {
+                    dns_future_close_fd(&self.fd);
+                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                        return dns_poll_ready_error(@error_id(error.DnsTimeout));
+                    }
+                    return dns_poll_ready_transport_errno((@error_id(err) as! i32).value);
+                };
+            },
         };
-        if sent <= 0 {
+        if sent == 0 {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsNetworkUnreachable));
         }
-        self.bytes_sent = self.bytes_sent + (sent as usize);
+        self.bytes_sent = self.bytes_sent + sent;
         if self.bytes_sent < self.query_len {
             // 还没发完，继续等待可写
             waker.wait_writable(self.fd);
@@ -2201,22 +2228,31 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsInvalidPacket));
         }
-        const recv_res: !isize = sys_recv(self.fd, recv_base, 2 - self.bytes_received, 0);
-        const n: isize = recv_res catch |err| {
-            const eid: i32 = (@error_id(err) as! i32).value;
-            if dns_is_would_block_errno(eid) {
-                waker.wait_readable(self.fd);
+        const recv_future: Future<!usize> = async_socket_recv(self.fd, recv_base, 2 - self.bytes_received, self.deadline_ms);
+        const recv_poll: Poll<!usize> = recv_future.poll(waker);
+        var n: usize = 0;
+        match recv_poll {
+            .Pending(_) => {
+                recv_future.release();
                 const p: Poll<!usize> = Poll<!usize>.Pending({});
                 return p;
-            }
-            dns_future_close_fd(&self.fd);
-            return dns_poll_ready_transport_errno(eid);
+            },
+            .Ready(recv_result) => {
+                recv_future.release();
+                n = recv_result catch |err| {
+                    dns_future_close_fd(&self.fd);
+                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                        return dns_poll_ready_error(@error_id(error.DnsTimeout));
+                    }
+                    return dns_poll_ready_transport_errno((@error_id(err) as! i32).value);
+                };
+            },
         };
-        if n <= 0 {
+        if n == 0 {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsNoSuchName));
         }
-        self.bytes_received = self.bytes_received + (n as usize);
+        self.bytes_received = self.bytes_received + n;
         if self.bytes_received < 2 {
             // 还没读完长度前缀
             waker.wait_readable(self.fd);
@@ -2247,22 +2283,31 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsInvalidPacket));
         }
-        const recv_res: !isize = sys_recv(self.fd, recv_base, remaining, 0);
-        const n: isize = recv_res catch |err| {
-            const eid: i32 = (@error_id(err) as! i32).value;
-            if dns_is_would_block_errno(eid) {
-                waker.wait_readable(self.fd);
+        const recv_future: Future<!usize> = async_socket_recv(self.fd, recv_base, remaining, self.deadline_ms);
+        const recv_poll: Poll<!usize> = recv_future.poll(waker);
+        var n: usize = 0;
+        match recv_poll {
+            .Pending(_) => {
+                recv_future.release();
                 const p: Poll<!usize> = Poll<!usize>.Pending({});
                 return p;
-            }
-            dns_future_close_fd(&self.fd);
-            return dns_poll_ready_transport_errno(eid);
+            },
+            .Ready(recv_result) => {
+                recv_future.release();
+                n = recv_result catch |err| {
+                    dns_future_close_fd(&self.fd);
+                    if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                        return dns_poll_ready_error(@error_id(error.DnsTimeout));
+                    }
+                    return dns_poll_ready_transport_errno((@error_id(err) as! i32).value);
+                };
+            },
         };
-        if n <= 0 {
+        if n == 0 {
             dns_future_close_fd(&self.fd);
             return dns_poll_ready_error(@error_id(error.DnsNoSuchName));
         }
-        self.bytes_received = self.bytes_received + (n as usize);
+        self.bytes_received = self.bytes_received + n;
         if self.bytes_received < self.expected_body_len {
             // 还没读完
             waker.wait_readable(self.fd);

@@ -19,6 +19,7 @@ error DnsAsyncTransportSourceOpenFailed;
 error DnsAsyncTransportSourceReadFailed;
 
 const DNS_SOURCE_PATH: &const byte = "lib/std/net/dns.uya\0" as &const byte;
+const ASYNC_SOURCE_PATH: &const byte = "lib/std/async.uya\0" as &const byte;
 const DNS_SOURCE_MAX: usize = 131072;
 
 fn sys_recvfrom_raw(sockfd: i32, buf: &byte, len: usize, flags: i32, addr: &byte, addrlen: &u32) !isize {
@@ -91,8 +92,8 @@ fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) b
     return source_contains(hay, hay_len, needle, strlen(needle));
 }
 
-fn read_dns_source(buf: &byte, cap: usize) !usize {
-    const fd: i32 = sys_open(DNS_SOURCE_PATH, O_RDONLY as i32, 0) catch {
+fn read_source(path: &const byte, buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(path, O_RDONLY as i32, 0) catch {
         return error.DnsAsyncTransportSourceOpenFailed;
     };
     const n: isize = sys_read(fd, buf as *byte, cap) catch {
@@ -495,10 +496,24 @@ fn wait_child_exit_ok(pid: i32) !void {
 
 test "dns_async_transport_tcp_fallback_connect_stage_uses_async_connect_helper" {
     var src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
-    const len: usize = try read_dns_source(&src[0], DNS_SOURCE_MAX);
+    const len: usize = try read_source(DNS_SOURCE_PATH, &src[0], DNS_SOURCE_MAX);
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, "async_connect(self.fd, &self.sockaddr[0] as &void, 16 as u32, self.deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "    connected: i32,\0" as &const byte) as i32, 0);
+}
+
+test "dns_async_transport_uses_shared_async_socket_io_helpers" {
+    var dns_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
+    const dns_len: usize = try read_source(DNS_SOURCE_PATH, &dns_src[0], DNS_SOURCE_MAX);
+    var async_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
+    const async_len: usize = try read_source(ASYNC_SOURCE_PATH, &async_src[0], DNS_SOURCE_MAX);
+
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_socket_send(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_socket_recv(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_socket_send(\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_socket_recv(\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "sys_send(self.fd\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "sys_recv(self.fd\0" as &const byte) as i32, 0);
 }
 
 test "dns_query_all_async_prefer_ipv4_tcp_fallback" {

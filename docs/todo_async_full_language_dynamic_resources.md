@@ -144,8 +144,6 @@
 
 ### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
 
-- [ ] 在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语：
-  - [ ] 对 DNS UDP/TCP 读写可复用的 transport helper
 - [ ] 统一原语的要求：
   - [ ] deadline / timeout 语义统一
   - [ ] cancel 语义统一

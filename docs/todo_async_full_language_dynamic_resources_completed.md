@@ -1795,3 +1795,13 @@
 - [x] `async_read_parse(fd, buf, ...)` / `async_read_parse_into(...)` 或更底层的可组合 read helper
   - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
   - 结果：通过；`async_read_parse_helpers_decode_chunked_request_and_preserve_err_out` 与 `async_read_parse_into_connection_closed_preserves_err_out_compat` 均通过，整文件 `25 tests` 全绿。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+- [x] 在 `lib/std/async.uya` 或新的 leaf 模块中抽象以下 awaitable 原语：
+  - [x] 对 DNS UDP/TCP 读写可复用的 transport helper
+    - 实现：在 `lib/std/async.uya` 新增 `async_socket_send` / `async_socket_recv`，并让 `lib/std/net/dns.uya` 的 `DnsUdpFuture` / `DnsTcpFuture` 复用这两个 awaitable helper，移除 future 内直接 `sys_send(self.fd, ...)` / `sys_recv(self.fd, ...)` 的重复路径。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（4/4 通过）
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（11/11 通过）
+    - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（34/34 通过）
+    - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（4/4 通过）
