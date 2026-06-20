@@ -1119,8 +1119,7 @@ struct AsyncWorkerResultFuture : Future<!usize> {
         const read_result: !isize = sys_read(read_fd, (&raw_value) as *byte, @size_of(usize));
         const n: isize = read_result catch |err| {
             if thread_error_id_is_would_block(@error_id(err)) {
-                waker.wait_readable(read_fd);
-                return Poll<!usize>.Pending({});
+                return async_poll_pending_readable_usize(waker, read_fd);
             }
             const err_value: !usize = read_result as! usize;
             return Poll<!usize>.Ready(err_value);

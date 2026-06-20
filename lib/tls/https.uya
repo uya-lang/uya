@@ -338,8 +338,7 @@ struct HttpsReadFuture : Future<!usize> {
         }
         const n: usize = https_read_some(self.fd, self.out, self.out_max) catch |err| {
             if @error_id(err) == @error_id(error.ReadWouldBlock) {
-                waker.wait_readable(self.fd);
-                return Poll<!usize>.Pending({});
+                return async_poll_pending_readable_usize(waker, self.fd);
             }
             return Poll<!usize>.Ready(error.ConnectionClosed);
         };
@@ -370,8 +369,7 @@ struct HttpsWriteAllFuture : Future<!usize> {
                     continue;
                 }
                 if https_is_would_block_errno(eid) {
-                    waker.wait_writable(self.fd);
-                    return Poll<!usize>.Pending({});
+                    return async_poll_pending_writable_usize(waker, self.fd);
                 }
                 return Poll<!usize>.Ready(error.ConnectionClosed);
             };
@@ -400,16 +398,14 @@ struct HttpsHandshakeFuture : Future<!usize> {
         if self.role == HS_ROLE_SERVER {
             https_server_handshake(self.fd, self.ctx) catch |err| {
                 if @error_id(err) == @error_id(error.ReadWouldBlock) {
-                    waker.wait_readable(self.fd);
-                    return Poll<!usize>.Pending({});
+                    return async_poll_pending_readable_usize(waker, self.fd);
                 }
                 return Poll<!usize>.Ready(error.ConnectionClosed);
             };
         } else {
             https_client_handshake(self.fd, self.ctx) catch |err| {
                 if @error_id(err) == @error_id(error.ReadWouldBlock) {
-                    waker.wait_readable(self.fd);
-                    return Poll<!usize>.Pending({});
+                    return async_poll_pending_readable_usize(waker, self.fd);
                 }
                 return Poll<!usize>.Ready(error.ConnectionClosed);
             };

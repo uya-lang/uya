@@ -145,7 +145,6 @@
 ### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
 
 - [ ] 统一原语的要求：
-  - [ ] `Waker` interest 注册统一
   - [ ] 错误类型统一，不再每个模块手写一套 `Poll.Pending/Ready(err)` 分支
 
 ### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`

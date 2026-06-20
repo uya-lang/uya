@@ -144,6 +144,47 @@ fn assert_fd_still_blocking(fd: i32) !void {
     try assert_eq_i32(flags & O_NONBLOCK, 0);
 }
 
+fn expect_pending_usize_interest(p: Poll<!usize>, w: &Waker, fd: i32, interest: i32) !void {
+    match p {
+        .Ready(_) => { return error.ExpectedPending; },
+        .Pending(_) => { },
+    };
+    try assert_eq_i32(w.has_io_interest() as i32, 1);
+    try assert_eq_i32(w.io_fd(), fd);
+    try assert_eq_i32(w.io_interest_code(), interest);
+}
+
+fn expect_pending_i32_interest(p: Poll<!i32>, w: &Waker, fd: i32, interest: i32) !void {
+    match p {
+        .Ready(_) => { return error.ExpectedPending; },
+        .Pending(_) => { },
+    };
+    try assert_eq_i32(w.has_io_interest() as i32, 1);
+    try assert_eq_i32(w.io_fd(), fd);
+    try assert_eq_i32(w.io_interest_code(), interest);
+}
+
+fn test_async_pending_readable_usize_helper_sets_interest() !void {
+    var wk: Waker = Waker{ _io_fd: 0 - 1, _event_fd: 0 - 1 };
+    wk.wait_writable(77);
+    const p: Poll<!usize> = async_poll_pending_readable_usize(&wk, 42);
+    try expect_pending_usize_interest(p, &wk, 42, 1);
+}
+
+fn test_async_pending_writable_usize_helper_sets_interest() !void {
+    var wk: Waker = Waker{ _io_fd: 0 - 1, _event_fd: 0 - 1 };
+    wk.wait_readable(55);
+    const p: Poll<!usize> = async_poll_pending_writable_usize(&wk, 99);
+    try expect_pending_usize_interest(p, &wk, 99, 2);
+}
+
+fn test_async_pending_writable_i32_helper_sets_interest() !void {
+    var wk: Waker = Waker{ _io_fd: 0 - 1, _event_fd: 0 - 1 };
+    wk.wait_readable(11);
+    const p: Poll<!i32> = async_poll_pending_writable_i32(&wk, 123);
+    try expect_pending_i32_interest(p, &wk, 123, 2);
+}
+
 fn empty_parse_result(body_buf: &byte) ParseResult {
     return ParseResult{
         request: Request{
@@ -815,6 +856,12 @@ fn test_async_sendfile_copies_file_into_fd() !void {
 
 test "async_fd_write_returns_ready" {
     try test_async_fd_write();
+}
+
+test "async_pending_io_helpers_set_waker_interest" {
+    try test_async_pending_readable_usize_helper_sets_interest();
+    try test_async_pending_writable_usize_helper_sets_interest();
+    try test_async_pending_writable_i32_helper_sets_interest();
 }
 
 test "async_fd_write_all_returns_ready" {

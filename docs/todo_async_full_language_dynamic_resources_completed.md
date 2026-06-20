@@ -1823,3 +1823,13 @@
     结果：1 test passed。
   - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
     结果：25 tests passed。
+
+# Uya 异步生产化 TODO（完整语法 + 动态资源）
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+父级任务路径：统一原语的要求
+  - [x] `Waker` interest 注册统一
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya` 通过（14 tests, 85 assertions）。
+    - 验证：`../uya/bin/uya test tests/test_tls_async_runtime_io.uya` 通过（1 test, 16 assertions）。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya` 通过（4 tests, 12 assertions）。
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya` 通过（27 tests, 107 assertions）。

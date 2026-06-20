@@ -1072,9 +1072,7 @@ fn dns_udp_future_poll(self: &DnsUdpFuture, waker: &Waker) Poll<!usize> {
         _ = connect_res catch |err| {
             const eid: i32 = (@error_id(err) as! i32).value;
             if dns_is_would_block_errno(eid) || eid == EINPROGRESS || eid == EALREADY {
-                waker.wait_writable(self.fd);
-                const p: Poll<!usize> = Poll<!usize>.Pending({});
-                return p;
+                return async_poll_pending_writable_usize(waker, self.fd);
             }
             if eid != EISCONN {
                 dns_future_close_fd(&self.fd);
@@ -2209,9 +2207,7 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
         self.bytes_sent = self.bytes_sent + sent;
         if self.bytes_sent < self.query_len {
             // 还没发完，继续等待可写
-            waker.wait_writable(self.fd);
-            const p: Poll<!usize> = Poll<!usize>.Pending({});
-            return p;
+            return async_poll_pending_writable_usize(waker, self.fd);
         }
         // 发送完成，准备接收
         self.stage = 5;
@@ -2255,9 +2251,7 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
         self.bytes_received = self.bytes_received + n;
         if self.bytes_received < 2 {
             // 还没读完长度前缀
-            waker.wait_readable(self.fd);
-            const p: Poll<!usize> = Poll<!usize>.Pending({});
-            return p;
+            return async_poll_pending_readable_usize(waker, self.fd);
         }
         // 解析长度
         self.expected_body_len = (((self.response_packet[0] as usize) << 8) | (self.response_packet[1] as usize));
@@ -2310,9 +2304,7 @@ fn dns_tcp_future_poll(self: &DnsTcpFuture, waker: &Waker) Poll<!usize> {
         self.bytes_received = self.bytes_received + n;
         if self.bytes_received < self.expected_body_len {
             // 还没读完
-            waker.wait_readable(self.fd);
-            const p: Poll<!usize> = Poll<!usize>.Pending({});
-            return p;
+            return async_poll_pending_readable_usize(waker, self.fd);
         }
         // 读取完成
         self.response_len = self.bytes_received;
