@@ -1884,3 +1884,10 @@
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`（1 个测试通过，16 个断言通过）
     - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（1 个测试通过，19 个断言通过）
     - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（1 个测试文件，34 个测试全部通过）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+- `lib/std/http/uyagin.uya`
+  - [x] 将 `UyaginAcceptFuture` 改为 `@async_fn` + `async_accept`。
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过；`std_business_protocol_and_composition_async_boundaries_stay_on_async_fn` OK）
+    - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过；`uyagin_accept_uses_async_accept_helper_and_preserves_nodelay` OK）

@@ -76,6 +76,12 @@ fn assert_source_lacks_text(path: &const byte, forbidden: &const byte) !void {
     try assert_eq_i32(source_contains_cstr(&src[0], len, forbidden) as i32, 0);
 }
 
+fn assert_source_has_text(path: &const byte, required: &const byte) !void {
+    var src: [byte: ASYNC_BOUNDARY_SOURCE_MAX] = [0: ASYNC_BOUNDARY_SOURCE_MAX];
+    const len: usize = try read_source(path, &src[0], ASYNC_BOUNDARY_SOURCE_MAX);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, required) as i32, 1);
+}
+
 test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
     try assert_source_has_async_boundary(
         WEBSOCKET_CLIENT_SOURCE_PATH,
@@ -112,6 +118,20 @@ test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
         UYAGIN_SOURCE_PATH,
         "@async_fn fn uyagin_observe_request_future(engine: &Engine, ctx: &GinContext, inner: Future<!i32>) Future<!i32>\0" as &const byte,
         "struct UyaginObserveFuture : Future<!i32>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn\nfn uyagin_accept_future(listen_fd: i32) Future<!i32> {\0" as &const byte,
+        "struct UyaginAcceptFuture : Future<!i32>\0" as &const byte,
+    );
+    try assert_source_has_text(
+        UYAGIN_SOURCE_PATH,
+        "const fd: i32 = try @await async_accept(listen_fd);\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "export @async_fn fn uyagin_accept_async(srv: &HttpServer) Future<!i32>\0" as &const byte,
+        "struct UyaginAcceptFuture : Future<!i32>\0" as &const byte,
     );
 
     try assert_source_has_async_boundary(
