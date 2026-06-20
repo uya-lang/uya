@@ -1787,3 +1787,11 @@
     - 验证结果：通过；输出 `ok: docs/todo_async_full_language_dynamic_resources.md has 0 active tasks`。
     - 验证命令：`git diff --check -- docs/todo_async_full_language_dynamic_resources.md docs/todo_async_full_language_dynamic_resources_completed.md`
     - 验证结果：通过；无输出。
+
+### 1.5.4 第二批：抽象并统一 syscall / I/O 叶子原语
+
+路径：`在 lib/std/async.uya 或新的 leaf 模块中抽象以下 awaitable 原语`
+
+- [x] `async_read_parse(fd, buf, ...)` / `async_read_parse_into(...)` 或更底层的可组合 read helper
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
+  - 结果：通过；`async_read_parse_helpers_decode_chunked_request_and_preserve_err_out` 与 `async_read_parse_into_connection_closed_preserves_err_out_compat` 均通过，整文件 `25 tests` 全绿。
