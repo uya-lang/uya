@@ -47,6 +47,18 @@ fn websocket_client_note_connect_failure(self: &WebSocketClient, now_ms: u64) !v
     self.next_retry_at_ms = now_ms + (self.last_delay_ms as u64);
 }
 
+fn websocket_client_attach_connected(self: &WebSocketClient, conn: &WebSocketConn) !void {
+    _ = websocket_client_attach(self, conn) catch |err| {
+        _ = err;
+        conn.close();
+        return error.WebSocketProtocolError;
+    };
+}
+
+fn websocket_client_connector_connect(connector: WebSocketClientConnector, options: &WebSocketAcceptOptions) Future<!WebSocketConn> {
+    return connector.connect(options);
+}
+
 /// Client 侧连接工厂。
 /// 参数说明：实现方负责持有 endpoint、header、auth 等 client 专属握手上下文，并在每次 `connect(...)` 时复用。
 /// 返回值说明：返回已完成 dial + handshake 的 client role `WebSocketConn`。
@@ -205,29 +217,20 @@ export @async_fn fn websocket_client_reconnect_tick(self: &WebSocketClient, conn
         return false;
     }
 
-    var connected_now: bool = false;
-    const connect_future: Future<!WebSocketConn> = connector.connect(&self.options);
-    const connect_result: !WebSocketConn = @await connect_future;
-    var conn: WebSocketConn = websocket_conn_empty();
-    _ = connect_result catch |err| {
+    const connect_result: !WebSocketConn = @await websocket_client_connector_connect(connector, &self.options);
+    var conn: WebSocketConn = connect_result catch |err| {
         _ = err;
-        const note: !void = websocket_client_note_connect_failure(self, now_ms);
-        _ = note catch |note_err| {
+        _ = websocket_client_note_connect_failure(self, now_ms) catch |note_err| {
             _ = note_err;
             return error.WebSocketReconnectExhausted;
         };
         websocket_conn_empty();
     };
-    if connect_result.error_id == 0u32 {
-        conn = connect_result.value;
-        const attach_result: !void = websocket_client_attach(self, &conn);
-        if attach_result.error_id != 0u32 {
-            conn.close();
-            return error.WebSocketProtocolError;
-        }
-        connected_now = true;
+    if connect_result.error_id != 0u32 {
+        return false;
     }
-    return connected_now;
+    try websocket_client_attach_connected(self, &conn);
+    return true;
 }
 
 /// 通过当前活跃会话发送业务消息。

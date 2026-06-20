@@ -1640,3 +1640,22 @@
   - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（11/11 通过；新增 `async_connect_expired_deadline_returns_async_deadline_exceeded` 锁定 helper deadline 语义）
   - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（25/25 通过；新增 `async_read_parse_into_connection_closed_preserves_err_out_compat` 锁定旧 `err_out` / `ConnectionClosed` 语义）
   - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（27/27 通过）、`../uya/bin/uya test tests/test_std_async_scheduler.uya`（19/19 通过）、`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（3/3 通过）、`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（4/4 通过）；确认 `Cancelled`、DNS timeout/error 与 shared runtime 迁移语义未回退。
+
+### 1.5.3 第一批：纯组合层先全部改成 `@async_fn`
+
+父级任务：`lib/std/http/websocket_client.uya`
+  - [x] 保持现有 backoff / attach / exhausted 语义不变，并补 dedicated regression。
+    验证：
+    `../uya/bin/uya test tests/test_http_websocket_reconnect.uya` -> 通过（7 tests / 41 assertions）
+    `bash tests/verify_async_websocket_client_reconnect_boundary.sh` -> 通过（checker 通过）
+    `../uya/bin/uya test tests/test_async_std_business_future_boundary.uya` -> 通过（1 test / 14 assertions）
+    `git diff --check` -> 通过
+  - [x] 依赖：`catch + @await`、结构体方法 async、错误路径收口稳定。
+    说明：当前稳定形态使用 `const connect_result = @await websocket_client_connector_connect(...)` + `connect_result catch ...`；直接把 `catch` 内联到 `@await connector.connect(...)` 会触发当前 C99 codegen bind 槽类型错配，因此保留了薄 wrapper 收口接口/结构体 async 方法调用。
+    先失败：
+    `../uya/bin/uya test tests/test_http_websocket_reconnect.uya` -> 失败（新增 source boundary 断言后命中 `actual: 0, expected: 1`，证明 `reconnect_tick` 尚未在本体里使用 `catch` 收口 `@await` 结果）
+    验证：
+    `../uya/bin/uya test tests/test_http_websocket_reconnect.uya` -> 通过（7 tests / 44 assertions）
+    `bash tests/verify_async_websocket_client_reconnect_boundary.sh` -> 通过（checker 通过）
+    `../uya/bin/uya test tests/test_async_std_business_future_boundary.uya` -> 通过（1 test / 14 assertions）
+    `git diff --check` -> 通过

@@ -154,6 +154,9 @@ test "websocket_client_reconnect_boundary_uses_async_fn_without_manual_future" {
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn websocket_client_reconnect_tick(self: &WebSocketClient, connector: WebSocketClientConnector, now_ms: u64) Future<!bool>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct WebSocketClientReconnectFuture : Future<!bool>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "const connect_result: !WebSocketConn = @await websocket_client_connector_connect(connector, &self.options);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "var conn: WebSocketConn = connect_result catch |err| {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn websocket_client_connector_connect(connector: WebSocketClientConnector, options: &WebSocketAcceptOptions) Future<!WebSocketConn> {\0" as &const byte) as i32, 1);
 }
 
 test "websocket_reconnect_delay_supports_fixed_and_exponential_backoff" {
@@ -189,6 +192,62 @@ test "websocket_client_reconnect_rejects_server_role_session" {
     if result.error_id == 0u32 {
         try assert_eq_i32(901, 0);
     }
+}
+
+test "websocket_client_attach_error_preserves_backoff_and_exhaustion_budget" {
+    const opts: WebSocketAcceptOptions = websocket_accept_options_default();
+    var policy: ReconnectPolicy = websocket_reconnect_policy_default();
+    policy.enabled = true;
+    policy.max_retries = 2;
+    policy.initial_delay_ms = 10u32;
+    policy.max_delay_ms = 40u32;
+    policy.backoff_multiplier_x1000 = 2000u32;
+
+    var session: WebSocketConn = websocket_conn_empty();
+    var client_slot: [WebSocketClient: 1] = [WebSocketClient{}];
+    websocket_client_init(&client_slot[0], &opts, &policy, &session);
+    websocket_client_schedule_reconnect(&client_slot[0], 1000u64);
+    try assert_eq_i32(1, client_slot[0].reconnect_pending as i32);
+    try assert_eq_i32(10, client_slot[0].last_delay_ms as i32);
+    try assert_eq_i32(1010, client_slot[0].next_retry_at_ms as i32);
+
+    var bad_connector: ServerRoleConnector = ServerRoleConnector{};
+    const attach_res: !bool = block_on<bool>(websocket_client_reconnect_tick(&client_slot[0], bad_connector, 1010u64));
+    if attach_res.error_id == 0u32 {
+        try assert_eq_i32(904, attach_res.value as i32);
+    }
+    try assert_eq_i32(0, client_slot[0].connected as i32);
+    try assert_eq_i32(1, client_slot[0].reconnect_pending as i32);
+    try assert_eq_i32(0, client_slot[0].reconnect_failures);
+    try assert_eq_i32(1010, client_slot[0].next_retry_at_ms as i32);
+    try assert_eq_i32(10, client_slot[0].last_delay_ms as i32);
+
+    var connect_calls: i32 = 0;
+    var fail_remaining: i32 = 2;
+    var seen_subprotocol_count: i32 = 0;
+    var active_server: WebSocketConn = websocket_conn_empty();
+    var failing_connector: LoopbackConnector = LoopbackConnector{
+        fail_remaining_ptr: &fail_remaining,
+        connect_calls_ptr: &connect_calls,
+        seen_subprotocol_count_ptr: &seen_subprotocol_count,
+        server_out: &active_server,
+    };
+
+    const first_retry: bool = try run_with_loop_bool(websocket_client_reconnect_tick(&client_slot[0], failing_connector, 1010u64));
+    try assert_true(first_retry == false);
+    try assert_eq_i32(1, client_slot[0].reconnect_failures);
+    try assert_eq_i32(20, client_slot[0].last_delay_ms as i32);
+    try assert_eq_i32(1030, client_slot[0].next_retry_at_ms as i32);
+    try assert_eq_i32(1, connect_calls);
+
+    const second_res: !bool = block_on<bool>(websocket_client_reconnect_tick(&client_slot[0], failing_connector, 1030u64));
+    if second_res.error_id == 0u32 {
+        try assert_eq_i32(second_res.value as i32, -905);
+    }
+    try assert_eq_i32(0, client_slot[0].reconnect_pending as i32);
+    try assert_eq_i32(2, client_slot[0].reconnect_failures);
+    try assert_eq_i32(0, client_slot[0].next_retry_at_ms as i32);
+    try assert_eq_i32(2, connect_calls);
 }
 
 test "websocket_client_reconnect_succeeds_after_disconnect" {
