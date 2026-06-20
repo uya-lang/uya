@@ -1613,3 +1613,14 @@
 
     - [x] 提炼 `async_worker_result` / `async_thread_slot_wait` 类 helper，并为 `lib/std/thread.uya` 的 `AsyncComputeFuture<T>` 后续 `@async_fn` 化打底；验证：`../uya/bin/uya test tests/test_std_thread.uya`
       - 验证结果（2026-06-21）：`../uya/bin/uya test tests/test_std_thread.uya` 通过（25 passed, 0 failed）。
+### 1.5.2 迁移顺序原则
+
+- 父级任务：`Phase 1.5：标准库手工 Future 清零迁移` / `先提炼通用 awaitable 原语，再迁移重复状态机`
+- [ ] **先提炼通用 awaitable 原语，再迁移重复状态机**。
+  - [x] 核对并收口已统一的 I/O awaitable 原语清单：确认 `lib/std/async.uya` 已提供 `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_read_parse` / `async_read_parse_into`，且 `http1_async` / `uyagin` / `dns` 已改为通过 `@await` 组合；完成条件：本节示例列表改成当前真实剩余差距，不再把已完成原语当作待迁移项；验证：`rg -n "async_connect|async_accept|async_writev|async_sendfile|async_read_parse|async_read_parse_into" lib/std/async.uya lib/std/http/http1_async.uya lib/std/http/uyagin.uya lib/std/net/dns.uya tests`
+    - 验证命令：`rg -n "async_connect|async_accept|async_writev|async_sendfile|async_read_parse|async_read_parse_into" lib/std/async.uya lib/std/http/http1_async.uya lib/std/http/uyagin.uya lib/std/net/dns.uya tests`
+    - 验证结果：通过；命中 `lib/std/async.uya` 的 6 个 awaitable 导出，以及 `http1_async` / `uyagin` / `dns` / tests 的对应调用点。
+    - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+    - 验证结果：通过；输出 `ok: docs/todo_async_full_language_dynamic_resources.md has 1 active task`。
+    - 验证命令：`git diff --check -- docs/todo_async_full_language_dynamic_resources.md`
+    - 验证结果：通过；无输出。
