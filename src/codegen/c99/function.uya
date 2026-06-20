@@ -3966,6 +3966,10 @@ fn c99_emit_async_set_terminal_state(codegen: &C99CodeGenerator) void {
     fprintf(codegen.emit_stream as *void, "        s->state = %d;\n" as *byte, c99_async_terminal_state(codegen));
 }
 
+const ASYNC_SEGMENT_EMITTED_TRANSFER: i32 = 0;
+const ASYNC_SEGMENT_REACHED_END: i32 = 1;
+const ASYNC_SEGMENT_TERMINATED_RETURN: i32 = 2;
+
 fn c99_async_rebind_await_location(codegen: &C99CodeGenerator, idx: i32, block: &ASTNode, si: i32) void {
     if codegen == null || idx < 0 || idx >= codegen.async_collect_count {
         return;
@@ -4075,6 +4079,174 @@ fn c99_find_stmt_in_block_tree(needle: &ASTNode, block: &ASTNode, out_block: &&A
     return c99_find_stmt_in_node_tree(needle, block, null, -1, out_block, out_si);
 }
 
+fn c99_find_stmt_for_split_try_expr(
+    split_try_expr: &ASTNode,
+    node: &ASTNode,
+    out_block: &&ASTNode,
+    out_si: &i32
+) i32 {
+    if split_try_expr == null || node == null || out_block == null || out_si == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            const ch: &ASTNode = node.block_stmts[i];
+            if ch != null {
+                if ch.type == ASTNodeType.AST_VAR_DECL && ch.var_decl_init != null &&
+                    @usize_from_ptr(ch.var_decl_init as &void) == @usize_from_ptr(split_try_expr as &void) {
+                    out_block[0] = node;
+                    out_si[0] = i;
+                    return 1;
+                }
+                if ch.type == ASTNodeType.AST_RETURN_STMT && ch.return_stmt_expr != null &&
+                    @usize_from_ptr(ch.return_stmt_expr as &void) == @usize_from_ptr(split_try_expr as &void) {
+                    out_block[0] = node;
+                    out_si[0] = i;
+                    return 1;
+                }
+                if c99_find_stmt_for_split_try_expr(split_try_expr, ch, out_block, out_si) != 0 {
+                    return 1;
+                }
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        if node.if_stmt_then_branch != null &&
+            c99_find_stmt_for_split_try_expr(split_try_expr, node.if_stmt_then_branch, out_block, out_si) != 0 {
+            return 1;
+        }
+        if node.if_stmt_else_branch != null &&
+            c99_find_stmt_for_split_try_expr(split_try_expr, node.if_stmt_else_branch, out_block, out_si) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT && node.while_stmt_body != null {
+        return c99_find_stmt_for_split_try_expr(split_try_expr, node.while_stmt_body, out_block, out_si);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT && node.for_stmt_body != null {
+        return c99_find_stmt_for_split_try_expr(split_try_expr, node.for_stmt_body, out_block, out_si);
+    }
+    return 0;
+}
+
+fn c99_stmt_matches_async_operand(stmt: &ASTNode, operand: &ASTNode) i32 {
+    if stmt == null || operand == null {
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_VAR_DECL && stmt.var_decl_init != null {
+        const init: &ASTNode = stmt.var_decl_init;
+        if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null &&
+            @usize_from_ptr(init.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            return 1;
+        }
+        if init.type == ASTNodeType.AST_TRY_EXPR && init.try_expr_operand != null &&
+            init.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
+            init.try_expr_operand.await_expr_operand != null &&
+            @usize_from_ptr(init.try_expr_operand.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            return 1;
+        }
+    }
+    if stmt.type == ASTNodeType.AST_RETURN_STMT && stmt.return_stmt_expr != null {
+        const ret_expr: &ASTNode = stmt.return_stmt_expr;
+        if ret_expr.type == ASTNodeType.AST_AWAIT_EXPR && ret_expr.await_expr_operand != null &&
+            @usize_from_ptr(ret_expr.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            return 1;
+        }
+        if ret_expr.type == ASTNodeType.AST_TRY_EXPR && ret_expr.try_expr_operand != null &&
+            ret_expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR &&
+            ret_expr.try_expr_operand.await_expr_operand != null &&
+            @usize_from_ptr(ret_expr.try_expr_operand.await_expr_operand as &void) == @usize_from_ptr(operand as &void) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn c99_find_stmt_for_async_operand(
+    operand: &ASTNode,
+    node: &ASTNode,
+    out_block: &&ASTNode,
+    out_si: &i32
+) i32 {
+    if operand == null || node == null || out_block == null || out_si == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            const ch: &ASTNode = node.block_stmts[i];
+            if ch != null {
+                if c99_stmt_matches_async_operand(ch, operand) != 0 {
+                    out_block[0] = node;
+                    out_si[0] = i;
+                    return 1;
+                }
+                if c99_find_stmt_for_async_operand(operand, ch, out_block, out_si) != 0 {
+                    return 1;
+                }
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        if node.if_stmt_then_branch != null &&
+            c99_find_stmt_for_async_operand(operand, node.if_stmt_then_branch, out_block, out_si) != 0 {
+            return 1;
+        }
+        if node.if_stmt_else_branch != null &&
+            c99_find_stmt_for_async_operand(operand, node.if_stmt_else_branch, out_block, out_si) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT && node.while_stmt_body != null {
+        return c99_find_stmt_for_async_operand(operand, node.while_stmt_body, out_block, out_si);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT && node.for_stmt_body != null {
+        return c99_find_stmt_for_async_operand(operand, node.for_stmt_body, out_block, out_si);
+    }
+    return 0;
+}
+
+fn c99_async_resolve_stmt_location(codegen: &C99CodeGenerator, await_idx: i32, out_block: &&ASTNode, out_si: &i32) i32 {
+    if codegen == null || out_block == null || out_si == null || await_idx < 0 ||
+        await_idx >= codegen.async_collect_count {
+        return 0;
+    }
+    const operand: &ASTNode = c99_async_operand_at(codegen.async_collect_operands, codegen.async_collect_count, await_idx);
+    if operand != null && codegen.async_fn_body != null &&
+        c99_find_stmt_for_async_operand(operand, codegen.async_fn_body, out_block, out_si) != 0 {
+        c99_async_rebind_await_location(codegen, await_idx, out_block[0], out_si[0]);
+        return 1;
+    }
+    const source_stmt: &ASTNode = c99_async_collected_source_stmt_at(codegen, await_idx);
+    if source_stmt != null && codegen.async_fn_body != null &&
+        c99_find_stmt_in_block_tree(source_stmt, codegen.async_fn_body, out_block, out_si) != 0 {
+        c99_async_rebind_await_location(codegen, await_idx, out_block[0], out_si[0]);
+        return 1;
+    }
+    const split_try_expr: &ASTNode = c99_async_collected_split_try_expr_at(codegen, await_idx);
+    if split_try_expr != null && codegen.async_fn_body != null &&
+        c99_find_stmt_for_split_try_expr(split_try_expr, codegen.async_fn_body, out_block, out_si) != 0 {
+        c99_async_rebind_await_location(codegen, await_idx, out_block[0], out_si[0]);
+        return 1;
+    }
+    const block: &ASTNode = codegen.async_collect_blocks[await_idx];
+    const si: i32 = codegen.async_collect_stmt_indices[await_idx];
+    if block == null || block.type != ASTNodeType.AST_BLOCK || si < 0 ||
+        block.block_stmts == null || si >= block.block_stmt_count {
+        return 0;
+    }
+    out_block[0] = block;
+    out_si[0] = si;
+    return 1;
+}
+
 // 在 fn_body 树中找 stmt 的位置，发射其后的剩余语句（通用：while/if/for 退出共用）
 // 返回: 0 = 发射了状态转移, 1 = 到达末尾
 fn emit_async_after_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) i32 {
@@ -4085,7 +4257,10 @@ fn emit_async_after_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) i32 {
         return 1;
     }
     const r: i32 = emit_async_segment(codegen, parent_block[0], stmt_si[0] + 1, parent_block[0].block_stmt_count);
-    if r != 0 &&
+    if r == ASYNC_SEGMENT_TERMINATED_RETURN {
+        return 0;
+    }
+    if r == ASYNC_SEGMENT_REACHED_END &&
         parent_block[0] != null &&
         @usize_from_ptr(parent_block[0] as &void) != @usize_from_ptr(codegen.async_fn_body as &void) {
         return emit_async_continue_in_parent(codegen, parent_block[0]);
@@ -4176,7 +4351,10 @@ fn emit_async_continue_in_parent(codegen: &C99CodeGenerator, child_block: &ASTNo
         }
     }
     const r: i32 = emit_async_segment(codegen, parent_blk[0], stmt_idx[0] + 1, parent_blk[0].block_stmt_count);
-    if r != 0 &&
+    if r == ASYNC_SEGMENT_TERMINATED_RETURN {
+        return 0;
+    }
+    if r == ASYNC_SEGMENT_REACHED_END &&
         parent_blk[0] != null &&
         @usize_from_ptr(parent_blk[0] as &void) != @usize_from_ptr(codegen.async_fn_body as &void) {
         return emit_async_continue_in_parent(codegen, parent_blk[0]);
@@ -4192,7 +4370,10 @@ fn emit_async_continue_after_range(codegen: &C99CodeGenerator, block: &ASTNode, 
         return 1;
     }
     const r: i32 = emit_async_segment(codegen, block, from_si, to_si);
-    if r != 0 &&
+    if r == ASYNC_SEGMENT_TERMINATED_RETURN {
+        return 0;
+    }
+    if r == ASYNC_SEGMENT_REACHED_END &&
         codegen.async_fn_body != null &&
         @usize_from_ptr(block as &void) != @usize_from_ptr(codegen.async_fn_body as &void) {
         return emit_async_continue_in_parent(codegen, block);
@@ -4225,12 +4406,15 @@ fn c99_async_emit_scoped_segment(codegen: &C99CodeGenerator, block: &ASTNode, fr
         _ = c99_async_push_cleanup_region(codegen, region_idx);
     }
     const r: i32 = emit_async_segment(codegen, block, from_si, to_si);
-    if r != 0 {
+    if r == ASYNC_SEGMENT_REACHED_END {
         c99_async_emit_completed_block_cleanup(codegen, block);
     }
     codegen.defer_stack_depth = saved_depth;
     codegen.current_drop_scope = saved_drop_scope;
-    return r;
+    if r == ASYNC_SEGMENT_REACHED_END {
+        return 1;
+    }
+    return 0;
 }
 
 fn c99_async_emit_scoped_segment_with_control(
@@ -4251,12 +4435,15 @@ fn c99_async_emit_scoped_segment_with_control(
         _ = c99_async_push_cleanup_region(codegen, region_idx);
     }
     const r: i32 = emit_async_segment_with_control(codegen, block, from_si, to_si, control_while, control_for);
-    if r != 0 {
+    if r == ASYNC_SEGMENT_REACHED_END {
         c99_async_emit_completed_block_cleanup(codegen, block);
     }
     codegen.defer_stack_depth = saved_depth;
     codegen.current_drop_scope = saved_drop_scope;
-    return r;
+    if r == ASYNC_SEGMENT_REACHED_END {
+        return 1;
+    }
+    return 0;
 }
 
 fn c99_async_emit_scoped_sync_block(codegen: &C99CodeGenerator, block: &ASTNode) void {
@@ -4842,10 +5029,13 @@ fn c99_emit_async_local_init_single(codegen: &C99CodeGenerator, stmt: &ASTNode) 
 }
 
 /// 递归段发射：遍历 block.stmts[from_si..to_si)，对普通语句调 gen_stmt，遇 await 分裂则状态转移。
-/// 返回: 0 = 已发射状态转移(await armed), 1 = 到达范围末尾无转移
+/// 返回:
+/// 0 = 已发射 await 状态转移
+/// 1 = 到达范围末尾且未发射控制转移
+/// 2 = 已发射 return，当前 continuation 不得再向父级 fallthrough
 fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32, to_si: i32) i32 {
     if codegen == null || block == null || block.type != ASTNodeType.AST_BLOCK || block.block_stmts == null {
-        return 1;
+        return ASYNC_SEGMENT_REACHED_END;
     }
     var si: i32 = from_si;
     while si < to_si && si < block.block_stmt_count {
@@ -4871,7 +5061,7 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
             c99_stmt_tree_has_await(stmt) != 0 {
             const nested_r: i32 = c99_async_emit_scoped_segment(codegen, stmt, 0, stmt.block_stmt_count);
             if nested_r == 0 {
-                return 0;
+                return ASYNC_SEGMENT_EMITTED_TRANSFER;
             }
             si = si + 1;
             continue;
@@ -4901,23 +5091,16 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
                 return 0;
             }
         }
-        // return 语句：仅对块末尾的尾部 return 停止（由 state loop 的 return Ready 逻辑处理，
-        // 因 return_future_err_union 等需要 Future boxing）；中间 return（提前返回）走 gen_stmt。
+        // 直接 return 语句：gen_stmt 已完成当前 async poll 的 Ready/error 返回与 cleanup。
         if stmt.type == ASTNodeType.AST_RETURN_STMT {
-            if si + 1 >= to_si || si + 1 >= block.block_stmt_count {
-                // 块末尾的 return：停止段发射，由调用方显式生成 return Ready
-                return 1;
-            }
-            // 中间 return（if 分支内提前返回等）：由 gen_stmt + async_emit_poll_return 处理
             gen_stmt(codegen, stmt);
-            si = si + 1;
-            continue;
+            return ASYNC_SEGMENT_TERMINATED_RETURN;
         }
         // 普通语句
         gen_stmt(codegen, stmt);
         si = si + 1;
     }
-    return 1;
+    return ASYNC_SEGMENT_REACHED_END;
 }
 
 /// state K 的 continuation：await K-1 就绪后发射后续代码
@@ -4932,15 +5115,21 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
     if cur_ai >= codegen.async_collect_count {
         return 0;
     }
+    const saved_epr: i32 = codegen.async_emit_poll_return;
     const ew: &ASTNode = codegen.async_collect_enclosing_while[cur_ai];
-    const ab: &ASTNode = codegen.async_collect_blocks[cur_ai];
-    const asi: i32 = codegen.async_collect_stmt_indices[cur_ai];
+    var resolved_block: [&ASTNode: 1] = [null];
+    var resolved_stmt_index: [i32: 1] = [-1];
+    if c99_async_resolve_stmt_location(codegen, cur_ai, &resolved_block[0], &resolved_stmt_index[0]) == 0 {
+        codegen.async_emit_poll_return = saved_epr;
+        return 0;
+    }
+    const ab: &ASTNode = resolved_block[0];
+    const asi: i32 = resolved_stmt_index[0];
     if ab == null { return 0; }
     var cur_stmt: &ASTNode = null;
     if ab.block_stmts != null && asi >= 0 && asi < ab.block_stmt_count {
         cur_stmt = ab.block_stmts[asi];
     }
-    const saved_epr: i32 = codegen.async_emit_poll_return;
     codegen.async_emit_poll_return = 1;
     var result: i32 = 0;
     const split_try_expr: &ASTNode = c99_async_collected_split_try_expr_at(codegen, cur_ai);
@@ -4960,14 +5149,14 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
             codegen.async_expr_subst_name = saved_subst_name;
             if cur_stmt.type == ASTNodeType.AST_RETURN_STMT {
                 codegen.async_emit_poll_return = saved_epr;
-                return 1;
+                return 0;
             }
         }
     }
     if ew != null && ew.type == ASTNodeType.AST_WHILE_STMT {
         // await 在 while 内：发射 while 体剩余语句
         const reached_end: i32 = emit_async_segment_with_control(codegen, ab, asi + 1, ab.block_stmt_count, ew, null);
-        if reached_end != 0 {
+        if reached_end == ASYNC_SEGMENT_REACHED_END {
             // 最后一个 await 在 while 内 → 回跳或退出
             c99_async_emit_completed_block_cleanup(codegen, ab);
             emit_async_while_loopback_or_exit(codegen, ew);
@@ -4976,14 +5165,16 @@ fn emit_async_continuation(codegen: &C99CodeGenerator, cur_ai: i32) i32 {
         const ef: &ASTNode = codegen.async_collect_enclosing_for[cur_ai];
         if ef != null && ef.type == ASTNodeType.AST_FOR_STMT {
             const reached_for: i32 = emit_async_segment_with_control(codegen, ab, asi + 1, ab.block_stmt_count, null, ef);
-            if reached_for != 0 {
+            if reached_for == ASYNC_SEGMENT_REACHED_END {
                 c99_async_emit_completed_block_cleanup(codegen, ab);
                 emit_async_for_loopback_or_exit(codegen, ef);
             }
         } else {
             // 非循环 await：发射 block 剩余语句（遇 return 语句停止）
             const r: i32 = emit_async_segment(codegen, ab, asi + 1, ab.block_stmt_count);
-            if r != 0 {
+            if r == ASYNC_SEGMENT_TERMINATED_RETURN {
+                result = 0;
+            } else if r == ASYNC_SEGMENT_REACHED_END {
                 // 块结束：如果不是函数体顶层，沿父级上升继续（if 分支结束后继续 if 后代码）
                 if codegen.async_fn_body != null && @usize_from_ptr(ab as &void) != @usize_from_ptr(codegen.async_fn_body as &void) {
                     const pr: i32 = emit_async_continue_in_parent(codegen, ab);
@@ -6013,7 +6204,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     } else {
         codegen.async_emit_poll_return = 1;
         const no_await_reached_end: i32 = emit_async_segment(codegen, body, 0, body.block_stmt_count);
-        if no_await_reached_end != 0 {
+        if no_await_reached_end == ASYNC_SEGMENT_REACHED_END {
             fprintf(codegen.emit_stream as *void, "        s->state = %d;\n" as *byte, terminal_state);
             emit_async_no_await_ready_return(codegen, fn_decl, full_return_type, effective_return_type, ret_expr,
                 inner, inner_is_err_union, inner_err_c, iface_c, concrete_future_safe,

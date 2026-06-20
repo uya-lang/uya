@@ -106,7 +106,6 @@
 
 ### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
 
-- [ ] 对 `defer / errdefer` 建立显式 cleanup 区域模型，保证跨 await 与提前返回语义一致。
 - [ ] 对 `match / catch / 宏展开后 AST` 走统一 traversal，不再靠个别形状特判。
 - [ ] 把当前 `fprintf(stderr, "...尚未支持")` 这类 emitter 临时提示，改成 checker 或 lowering 阶段的正式诊断；对于应该支持的语法，最终要彻底移除这类分支。
 

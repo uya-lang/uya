@@ -123,6 +123,22 @@ fn nested_block_defer_after_await() Future<!i32> {
     return 7;
 }
 
+// ── 嵌套 block + await + 提前 return：不能错误继续执行 block 后续 ──
+
+@async_fn
+fn nested_block_return_after_await() Future<!i32> {
+    defer { g_trace = g_trace * 10 + 2; }
+
+    {
+        defer { g_trace = g_trace * 10 + 1; }
+        const v: i32 = try @await flip_i32(4);
+        return v + 30;
+    }
+
+    g_trace = g_trace * 10 + 9;
+    return 0;
+}
+
 // ── 同步 catch + defer 在 async 体内 ──
 
 @async_fn
@@ -200,6 +216,16 @@ test "async_nested_block_defer_after_await" {
     const v: i32 = r catch { -1; };
     try assert_eq_i32(v, 7);
     // 先退出内层 block 执行 defer(+1)，再函数返回执行外层 defer(+2)。
+    try assert_eq_i32(g_trace, 12);
+}
+
+test "async_nested_block_return_after_await" {
+    g_trace = 0;
+    const f: Future<!i32> = nested_block_return_after_await();
+    const r: !i32 = block_on<i32>(f);
+    const v: i32 = r catch { -1; };
+    try assert_eq_i32(v, 34);
+    // 发生提前返回时，先执行内层 defer(+1)，再执行外层 defer(+2)，且不能落入 block 后续代码(+9)。
     try assert_eq_i32(g_trace, 12);
 }
 

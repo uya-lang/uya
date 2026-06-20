@@ -1359,3 +1359,13 @@
     - 结果：通过，10 tests passed，10 assertions passed。
     - 验证：`git diff --check`
     - 结果：通过，无输出。
+
+## Phase 1：`@async_fn` 语法完整性
+### 1.3 把 async lowering 从“特判发射”改成“统一 lowered plan”
+- [x] 对 `defer / errdefer` 建立显式 cleanup 区域模型，保证跨 await 与提前返回语义一致。
+  验证：`make uya`
+  结果：通过，已重建 `bin/uya` 自举编译器。
+  验证：`../uya/bin/uya test tests/test_async_defer_errdefer.uya`
+  结果：通过，10 个测试全部通过，18 条断言通过。
+  验证：`../uya/bin/uya test tests/test_async_match_await.uya`
+  结果：通过，4 个测试全部通过。
