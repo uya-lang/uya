@@ -163,7 +163,6 @@
 
 ## Phase 2：编译器 async 资源动态化
 
-- [ ] 把 `src/checker/async_frame_meta.uya` 的 `MAX_ASYNC_FRAME_METAS` 改成动态元信息表。
 - [ ] 把 `src/codegen/c99/main.uya` 的 async frame descriptor emission 改成“按真实数量生成”，不再静默截断到 `512`。
 - [ ] 为“超大 async 函数”建立新的错误模型：
   - [ ] 若只是旧的人为上限，不应再报错

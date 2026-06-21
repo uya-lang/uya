@@ -2439,3 +2439,9 @@
   - 验证结果：通过，生成的 C99 状态机包含 `if (s->state == 261)`。
   - 验证命令：`work_dir="$(mktemp -d /tmp/uya_async_await_capacity.XXXXXX)"; ...; ../uya/bin/uya --c99 "$src" -o "$out_c"; grep -n 'if (s->state == 4098)' "$out_c"`
   - 验证结果：通过，临时生成的 `4097` 个 `@await` 压力样本成功完成 C99 代码生成，并命中最终状态 `4098`。
+
+## Phase 2：编译器 async 资源动态化
+
+- [x] 把 `src/checker/async_frame_meta.uya` 的 `MAX_ASYNC_FRAME_METAS` 改成动态元信息表。
+  - 验证：`python3 tests/verify_async_compiler_no_fixed_limits.py`（通过）
+  - 验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`（通过，3 个子测试全部通过）
