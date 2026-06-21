@@ -436,6 +436,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 const prev_errors: i32 = checker.error_count;
                 checker_check_node(checker, stmt);
                 if checker.error_count == prev_errors &&
+                    stmt.type != ASTNodeType.AST_BLOCK &&
                     stmt.type != ASTNodeType.AST_IF_STMT &&
                     stmt.type != ASTNodeType.AST_WHILE_STMT &&
                     stmt.type != ASTNodeType.AST_FOR_STMT {

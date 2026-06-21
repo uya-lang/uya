@@ -2923,34 +2923,31 @@ export fn uyagin_conn_read_parse_async(fd: i32, base: &byte, cap: usize, filled:
         }
         const sl: &[byte] = base[0: cur];
         const parsed: !void = http_parse_request_into(sl, out);
-        match parsed {
-            error.IncompleteRequest => {
-                const read_more: !usize = @await uyagin_conn_read_more_future(fd, base, cap, filled);
-                _ = read_more catch |err| {
-                    const err_id: u32 = @error_id(err);
-                    if err_id == @error_id(error.PayloadTooLarge) {
-                        return error.PayloadTooLarge;
-                    }
-                    *err_out = err_id;
-                    return 0 as usize;
-                };
-            },
-            else => {
-                _ = parsed catch |err| {
-                    *err_out = @error_id(err);
-                    return 0 as usize;
-                };
-                if request_has_chunked_transfer_encoding(&out.request) {
-                    const decode_result: !usize = http_decode_chunked_body_inplace(out);
-                    _ = decode_result catch {
-                        *err_out = decode_result.error_id;
-                        return 0 as usize;
-                    };
+        if parsed.error_id == @error_id(error.IncompleteRequest) {
+            const read_more: !usize = @await uyagin_conn_read_more_future(fd, base, cap, filled);
+            _ = read_more catch |err| {
+                const err_id: u32 = @error_id(err);
+                if err_id == @error_id(error.PayloadTooLarge) {
+                    return error.PayloadTooLarge;
                 }
-                *err_out = 0u32;
-                return out.consumed;
-            },
-        };
+                *err_out = err_id;
+                return 0 as usize;
+            };
+        } else {
+            _ = parsed catch |err| {
+                *err_out = @error_id(err);
+                return 0 as usize;
+            };
+            if request_has_chunked_transfer_encoding(&out.request) {
+                const decode_result: !usize = http_decode_chunked_body_inplace(out);
+                _ = decode_result catch {
+                    *err_out = decode_result.error_id;
+                    return 0 as usize;
+                };
+            }
+            *err_out = 0u32;
+            return out.consumed;
+        }
     }
 }
 

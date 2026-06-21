@@ -1240,6 +1240,108 @@ fn c99_async_emit_poll_error_return(codegen: &C99CodeGenerator, expr: &ASTNode) 
     return 1;
 }
 
+fn c99_async_full_return_is_error_future(codegen: &C99CodeGenerator) i32 {
+    if codegen == null || codegen.async_full_return_type == null {
+        return 0;
+    }
+    const full: &ASTNode = codegen.async_full_return_type;
+    if full.type != ASTNodeType.AST_TYPE_ERROR_UNION || full.type_error_union_payload_type == null {
+        return 0;
+    }
+    const payload: &ASTNode = full.type_error_union_payload_type;
+    if payload.type == ASTNodeType.AST_TYPE_NAMED &&
+        payload.type_named_name != null &&
+        strcmp(payload.type_named_name as *byte, "Future" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_type_node_is_void_named(type_node: &ASTNode) i32 {
+    if type_node == null {
+        return 1;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_NAMED &&
+        type_node.type_named_name != null &&
+        strcmp(type_node.type_named_name as *byte, "void" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_async_poll_error_payload_is_void(codegen: &C99CodeGenerator) i32 {
+    if codegen == null || codegen.async_poll_try_propagate_type == null {
+        return 0;
+    }
+    const inner: &ASTNode = codegen.async_poll_try_propagate_type;
+    if inner.type != ASTNodeType.AST_TYPE_ERROR_UNION {
+        return 0;
+    }
+    return c99_type_node_is_void_named(inner.type_error_union_payload_type);
+}
+
+fn c99_async_expr_is_future_struct_init(expr: &ASTNode) i32 {
+    if expr != null && expr.type == ASTNodeType.AST_STRUCT_INIT &&
+        expr.struct_init_struct_name != null &&
+        strcmp(expr.struct_init_struct_name as *byte, "Future" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_async_try_emit_error_future_literal_poll_return(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
+    if codegen == null || expr == null ||
+        c99_async_full_return_is_error_future(codegen) == 0 ||
+        c99_async_expr_is_future_struct_init(expr) == 0 ||
+        codegen.async_full_return_type == null ||
+        codegen.async_full_return_type.type_error_union_payload_type == null ||
+        codegen.async_poll_ret_c == null || codegen.async_poll_union_c == null {
+        return 0;
+    }
+    const future_payload: &ASTNode = codegen.async_full_return_type.type_error_union_payload_type;
+    if future_payload.type != ASTNodeType.AST_TYPE_NAMED ||
+        future_payload.type_named_name == null ||
+        strcmp(future_payload.type_named_name as *byte, "Future" as *byte) != 0 ||
+        future_payload.type_named_type_arg_count <= 0 ||
+        future_payload.type_named_type_args == null {
+        return 0;
+    }
+    const iface_c: &byte = c99_type_to_c_async_method_opt(codegen, future_payload);
+    const future_mono: &byte = get_mono_struct_name(codegen, "Future" as &byte,
+        future_payload.type_named_type_args, future_payload.type_named_type_arg_count);
+    if iface_c == null || future_mono == null {
+        return 0;
+    }
+    const safe_future: &byte = get_safe_c_identifier(codegen, future_mono);
+    if safe_future == null {
+        return 0;
+    }
+    c99_emit(codegen, "{\n" as *byte);
+    codegen.indent_level = codegen.indent_level + 1;
+    codegen.needs_stdlib_h = 1;
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void,
+        "struct %s *_uya_async_future_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s));\n" as *byte,
+        safe_future as *byte, safe_future as *byte, safe_future as *byte);
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "if (_uya_async_future_box != (void*)0) { *_uya_async_future_box = " as *byte);
+    gen_expr(codegen, expr);
+    fputs("; }\n" as *byte, codegen.emit_stream as *void);
+    emit_all_active_scope_cleanup(codegen, 0);
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void,
+        "return (%s){ ._tag = 1, .u = (%s){ .Ready = (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)_uya_async_future_box } } };\n" as *byte,
+        codegen.async_poll_ret_c as *byte,
+        codegen.async_poll_union_c as *byte,
+        iface_c as *byte,
+        safe_future as *byte,
+        safe_future as *byte);
+    codegen.indent_level = codegen.indent_level - 1;
+    c99_emit_indent(codegen);
+    c99_emit(codegen, "}\n" as *byte);
+    return 1;
+}
+
 fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     const expr: &ASTNode = stmt.return_stmt_expr;
     var is_error_return: i32 = 0;
@@ -1256,14 +1358,24 @@ fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
     if codegen.async_emit_poll_return != 0 && codegen.async_poll_ret_c != null &&
         codegen.async_poll_union_c != null && is_error_return == 0 {
         c99_emit_indent(codegen);
-        if codegen.async_poll_inner_is_err_union != 0 && codegen.async_poll_ready_payload_c != null {
+        if c99_async_try_emit_error_future_literal_poll_return(codegen, expr) != 0 {
+            return;
+        }
+        const async_full_is_error_future: i32 = c99_async_full_return_is_error_future(codegen);
+        if codegen.async_poll_inner_is_err_union != 0 && codegen.async_poll_ready_payload_c != null &&
+            async_full_is_error_future == 0 {
             c99_emit(codegen, "{\n" as *byte);
             codegen.indent_level = codegen.indent_level + 1;
             c99_emit_indent(codegen);
-            fprintf(codegen.emit_stream as *void, "%s _uya_async_ok = (%s){ .error_id = 0, .value = " as *byte,
-                codegen.async_poll_ready_payload_c as *byte, codegen.async_poll_ready_payload_c as *byte);
-            if expr != null { gen_expr(codegen, expr); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
-            fputs(" };\n" as *byte, codegen.emit_stream as *void);
+            if c99_async_poll_error_payload_is_void(codegen) != 0 {
+                fprintf(codegen.emit_stream as *void, "%s _uya_async_ok = (%s){ .error_id = 0 };\n" as *byte,
+                    codegen.async_poll_ready_payload_c as *byte, codegen.async_poll_ready_payload_c as *byte);
+            } else {
+                fprintf(codegen.emit_stream as *void, "%s _uya_async_ok = (%s){ .error_id = 0, .value = " as *byte,
+                    codegen.async_poll_ready_payload_c as *byte, codegen.async_poll_ready_payload_c as *byte);
+                if expr != null { gen_expr(codegen, expr); } else { fputs("0" as *byte, codegen.emit_stream as *void); }
+                fputs(" };\n" as *byte, codegen.emit_stream as *void);
+            }
             emit_all_active_scope_cleanup(codegen, 0);
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_ok } };\n" as *byte,

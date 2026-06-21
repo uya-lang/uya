@@ -123,7 +123,7 @@ test "https_websocket_loopback_upgrade_and_echo" {
             return;
         };
 
-        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 162];
+        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 150];
         tls_write_plain(fd, &ctx, req.ptr as &const byte, req.len) catch {
             _exit(13);
             return;

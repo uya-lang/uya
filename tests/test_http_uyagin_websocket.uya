@@ -159,7 +159,7 @@ test "uyagin_websocket_upgrade_echo_roundtrip" {
     const pid: i32 = fork();
     if pid == 0 {
         const client_fd: i32 = try http_tcp_connect_loopback(srv.port);
-        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 162];
+        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 150];
         write_all_fd(client_fd, req) catch {
             _exit(11);
             return;
@@ -275,7 +275,7 @@ test "uyagin_websocket_upgrade_prevents_framework_http_fallback" {
     const pid: i32 = fork();
     if pid == 0 {
         const client_fd: i32 = try http_tcp_connect_loopback(srv.port);
-        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 162];
+        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 150];
         write_all_fd(client_fd, req) catch {
             _exit(31);
             return;

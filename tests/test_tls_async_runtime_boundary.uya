@@ -75,6 +75,6 @@ test "tls_https_io_boundary_has_async_leaf_primitives" {
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export fn https_read_some_async(fd: i32, out: &byte, out_max: usize) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export fn https_write_all_async(fd: i32, src: &const byte, src_len: usize) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export fn https_handshake_async(fd: i32, ctx: &SslContext, role: i32) Future<!usize>\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&src[0], len, "waker.wait_readable\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&src[0], len, "waker.wait_writable\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "async_poll_pending_readable_usize(waker, self.fd)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "async_poll_pending_writable_usize(waker, self.fd)\0" as &const byte) as i32, 1);
 }

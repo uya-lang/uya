@@ -1056,6 +1056,32 @@ fn thread_async_try_slot_result_fd(pool: &ThreadPool, slot_idx: i32) i32 {
     return 0 - 1;
 }
 
+fn thread_async_slot_is_done(pool: &ThreadPool, slot_idx: i32) bool {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) || !thread_pool_slot_is_valid(pool, slot_idx) {
+        return false;
+    }
+    return pool._shared_state.slots[slot_idx as usize].state == THREAD_SLOT_STATE_DONE;
+}
+
+fn thread_async_drain_result_fd(read_fd: i32) void {
+    if read_fd < 0 {
+        return;
+    }
+    while true {
+        var raw_value: usize = 0 as usize;
+        const read_result: !isize = sys_read(read_fd, (&raw_value) as *byte, @size_of(usize));
+        const n: isize = read_result catch |err| {
+            if thread_error_id_is_would_block(@error_id(err)) {
+                return;
+            }
+            return;
+        };
+        if n != @size_of(usize) as isize {
+            return;
+        }
+    }
+}
+
 // 拆出 slot-wait awaitable，供后续 `@async_fn` 直接复用。
 struct AsyncThreadSlotWaitFuture : Future<!usize> {
     pool: &ThreadPool,
@@ -1100,6 +1126,12 @@ struct AsyncWorkerResultFuture : Future<!usize> {
     slot_idx: i32,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if thread_async_slot_is_done(self.pool, self.slot_idx) {
+            const done_fd: i32 = thread_async_try_slot_result_fd(self.pool, self.slot_idx);
+            thread_async_drain_result_fd(done_fd);
+            return async_poll_ready_ok_usize(self.slot_idx as usize);
+        }
+
         const wait_future: Future<!usize> = async_thread_slot_wait(self.pool, self.slot_idx);
         const wait_poll: Poll<!usize> = wait_future.poll(waker);
         var read_fd: i32 = 0 - 1;
@@ -1126,6 +1158,13 @@ struct AsyncWorkerResultFuture : Future<!usize> {
         };
         if n != @size_of(usize) as isize {
             return Poll<!usize>.Ready(thread_generic_error_usize());
+        }
+        if raw_value != self.slot_idx as usize {
+            if thread_async_slot_is_done(self.pool, self.slot_idx) {
+                thread_async_drain_result_fd(read_fd);
+                return async_poll_ready_ok_usize(self.slot_idx as usize);
+            }
+            return Poll<!usize>.Pending({});
         }
         return async_poll_ready_ok_usize(raw_value);
     }

@@ -157,7 +157,7 @@
 
 - [ ] `lib/std/async.uya`
   - 结论（2026-06-21 代码核对）：`AsyncFdReadFuture` / `AsyncFdWriteFuture` 的读写 syscall 与 buffer 处理已经可以下沉成 `async_wait_readable` / `async_wait_writable`（或单个 `interest` 参数化 wait primitive）+ `@async_fn` 包装；真正仍需手写 `poll()` 的只剩 readiness wait substrate，因为当前 `@async_fn` 仍需要一个可 `@await` 的 future 来承接 `Waker.wait_*`、deadline 与 cancel 语义。
-  - [ ] 如果必须保留叶子手写 future，要求把例外收敛到 `async_wait_*` wait primitive，搬离高层 helper 路径，并文档化为 runtime substrate 的唯一例外。
+  - [~] 如果必须保留叶子手写 future，要求把例外收敛到 `async_wait_*` wait primitive，搬离高层 helper 路径，并文档化为 runtime substrate 的唯一例外。
 - [ ] `lib/std/thread.uya`
   - [ ] 将 `AsyncComputeFuture<T>` 分解为：
     - [ ] worker 提交/排队

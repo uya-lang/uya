@@ -1116,17 +1116,45 @@ struct AsyncConnectFuture : Future<!i32> {
 }
 
 // ============================================================
-// AsyncFd - 基于文件描述符的异步 I/O（poll 内设 O_NONBLOCK；EAGAIN 时 Pending + waker）
+// AsyncFd - 基于文件描述符的异步 I/O（高层 helper 走 @async_fn；唯一手写 poll 例外收敛到 wait substrate）
 // ============================================================
 
 use libc.syscall;
 
-struct AsyncFdWriteFuture : Future<!usize> {
+const ASYNC_WAIT_INTEREST_READABLE: i32 = 1;
+const ASYNC_WAIT_INTEREST_WRITABLE: i32 = 2;
+
+fn async_wait_interest_to_poll_events(interest: i32) i16 {
+    if interest == ASYNC_WAIT_INTEREST_READABLE {
+        return POLLIN;
+    }
+    if interest == ASYNC_WAIT_INTEREST_WRITABLE {
+        return POLLOUT;
+    }
+    return 0 as i16;
+}
+
+fn async_wait_revents_ready(events: i16, revents: i16) bool {
+    const ready_mask: i16 = events | POLLERR | POLLHUP | POLLNVAL;
+    return (revents & ready_mask) != 0;
+}
+
+fn async_wait_pending_usize(waker: &Waker, fd: i32, interest: i32) Poll<!usize> {
+    if interest == ASYNC_WAIT_INTEREST_READABLE {
+        return async_poll_pending_readable_usize(waker, fd);
+    }
+    if interest == ASYNC_WAIT_INTEREST_WRITABLE {
+        return async_poll_pending_writable_usize(waker, fd);
+    }
+    return Poll<!usize>.Ready(error.FutureNotReady);
+}
+
+// runtime substrate 的唯一手写 poll 例外：只承接 cancel/deadline/readiness wait。
+// 具体 sys_read/sys_write 与 buffer 处理一律留在 @async_fn helper 中。
+struct AsyncWaitFdFuture : Future<!usize> {
     fd: i32,
-    data: &const byte,
-    count: usize,
+    interest: i32,
     deadline_ms: u64 = 0,
-    nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
         if waker.is_cancelled() {
@@ -1135,21 +1163,69 @@ struct AsyncFdWriteFuture : Future<!usize> {
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
         };
+        const events: i16 = async_wait_interest_to_poll_events(self.interest);
+        if events == 0 {
+            return Poll<!usize>.Ready(error.FutureNotReady);
+        }
+        var pollfd: PollFd = PollFd{
+            fd: self.fd,
+            events: events,
+            revents: 0 as i16,
+        };
+        const poll_result: !i32 = sys_poll(&pollfd, 1, 0);
+        const ready_count: i32 = poll_result catch {
+            const err_value: !usize = poll_result as! usize;
+            return Poll<!usize>.Ready(err_value);
+        };
+        if ready_count > 0 && async_wait_revents_ready(events, pollfd.revents) {
+            return async_poll_ready_ok_usize(0);
+        }
+        return async_wait_pending_usize(waker, self.fd, self.interest);
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+/// readiness-wait substrate：当前 runtime 中唯一允许保留的手写 `poll()` 例外。
+/// 参数说明：`fd` 为目标文件描述符；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
+/// 返回值说明：当 fd 已可读或出现需要让上层重试 syscall 的 readiness/error 事件时返回 `0`；取消返回 `error.Cancelled`；超时返回 `error.AsyncDeadlineExceeded`。
+export fn async_wait_readable(fd: i32, deadline_ms: u64) Future<!usize> {
+    return AsyncWaitFdFuture{
+        fd: fd,
+        interest: ASYNC_WAIT_INTEREST_READABLE,
+        deadline_ms: deadline_ms,
+    };
+}
+
+/// readiness-wait substrate：当前 runtime 中唯一允许保留的手写 `poll()` 例外。
+/// 参数说明：`fd` 为目标文件描述符；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
+/// 返回值说明：当 fd 已可写或出现需要让上层重试 syscall 的 readiness/error 事件时返回 `0`；取消返回 `error.Cancelled`；超时返回 `error.AsyncDeadlineExceeded`。
+export fn async_wait_writable(fd: i32, deadline_ms: u64) Future<!usize> {
+    return AsyncWaitFdFuture{
+        fd: fd,
+        interest: ASYNC_WAIT_INTEREST_WRITABLE,
+        deadline_ms: deadline_ms,
+    };
+}
+
+struct AsyncFdWriteLeafFuture : Future<!usize> {
+    fd: i32,
+    data: &const byte,
+    count: usize,
+    nonblocking_ready: i32 = 0,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if waker.is_cancelled() {
+            return async_poll_cancelled_usize();
+        }
         if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                const err_value: !usize = flags_result as! usize;
-                const p: Poll<!usize> = Poll<!usize>.Ready(err_value);
-                return p;
+            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
+            _ = ready_result catch {
+                const err_value: !usize = ready_result as! usize;
+                return Poll<!usize>.Ready(err_value);
             };
-            if (flags & O_NONBLOCK) == 0 {
-                const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
-                _ = set_result catch {
-                    const err_value: !usize = set_result as! usize;
-                    const p: Poll<!usize> = Poll<!usize>.Ready(err_value);
-                    return p;
-                };
-            }
             self.nonblocking_ready = 1;
         }
         const result: !isize = sys_write(self.fd, self.data as *const byte, self.count);
@@ -1159,8 +1235,7 @@ struct AsyncFdWriteFuture : Future<!usize> {
                 return async_poll_pending_writable_usize(waker, self.fd);
             }
             const err_value: !usize = result as! usize;
-            const p: Poll<!usize> = Poll<!usize>.Ready(err_value);
-            return p;
+            return Poll<!usize>.Ready(err_value);
         };
         return async_poll_ready_ok_usize(n as usize);
     }
@@ -1170,35 +1245,22 @@ struct AsyncFdWriteFuture : Future<!usize> {
     }
 }
 
-struct AsyncFdReadFuture : Future<!usize> {
+struct AsyncFdReadLeafFuture : Future<!usize> {
     fd: i32,
     buf: &byte,
     count: usize,
-    deadline_ms: u64 = 0,
     nonblocking_ready: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
         if waker.is_cancelled() {
             return async_poll_cancelled_usize();
         }
-        _ = async_check_deadline(self.deadline_ms) catch {
-            return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
-        };
         if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                const err_value: !usize = flags_result as! usize;
-                const p: Poll<!usize> = Poll<!usize>.Ready(err_value);
-                return p;
+            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
+            _ = ready_result catch {
+                const err_value: !usize = ready_result as! usize;
+                return Poll<!usize>.Ready(err_value);
             };
-            if (flags & O_NONBLOCK) == 0 {
-                const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
-                _ = set_result catch {
-                    const err_value: !usize = set_result as! usize;
-                    const p: Poll<!usize> = Poll<!usize>.Ready(err_value);
-                    return p;
-                };
-            }
             self.nonblocking_ready = 1;
         }
         const result: !isize = sys_read(self.fd, self.buf as *byte, self.count);
@@ -1208,8 +1270,7 @@ struct AsyncFdReadFuture : Future<!usize> {
                 return async_poll_pending_readable_usize(waker, self.fd);
             }
             const err_value: !usize = result as! usize;
-            const p: Poll<!usize> = Poll<!usize>.Ready(err_value);
-            return p;
+            return Poll<!usize>.Ready(err_value);
         };
         return async_poll_ready_ok_usize(n as usize);
     }
@@ -1220,12 +1281,12 @@ struct AsyncFdReadFuture : Future<!usize> {
 }
 
 /// 基于 fd 的异步 I/O 包装。
-/// 当前最小实现会在 poll 时确保 O_NONBLOCK，若遇到 EAGAIN/EWOULDBLOCK 则返回 Pending。
+/// 当前对外 helper 走 `@async_fn` 组合；手写 `poll()` 仅保留在 `async_wait_*` substrate。
 export struct AsyncFd : AsyncWriter, AsyncReader {
     fd: i32,
 
     fn write(self: &Self, data: &const byte, count: usize) Future<!usize> {
-        return AsyncFdWriteFuture{ fd: self.fd, data: data, count: count };
+        return AsyncFdWriteLeafFuture{ fd: self.fd, data: data, count: count };
     }
 
     fn write_all(self: &Self, data: &const byte, count: usize) Future<!usize> {
@@ -1238,7 +1299,7 @@ export struct AsyncFd : AsyncWriter, AsyncReader {
     }
 
     fn read(self: &Self, buf: &byte, count: usize) Future<!usize> {
-        return AsyncFdReadFuture{ fd: self.fd, buf: buf, count: count };
+        return AsyncFdReadLeafFuture{ fd: self.fd, buf: buf, count: count };
     }
 
     fn read_exact(self: &Self, buf: &byte, count: usize) Future<!usize> {
@@ -1251,28 +1312,60 @@ export fn async_fd_new(fd: i32) AsyncFd {
     return AsyncFd{ fd: fd };
 }
 
-/// 返回带绝对 deadline 的 `AsyncFdReadFuture`，供 `@await` 路径在 pending 读阶段复用统一超时语义。
+/// 返回带绝对 deadline 的异步 fd 读 helper；高层路径通过 `@await async_wait_readable()` 复用统一 readiness/cancel/deadline 语义。
 /// 参数说明：`fd` 为目标文件描述符；`buf`/`count` 为读取目标；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
-/// 返回值说明：成功返回本次实际读取字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending；超时返回 `error.AsyncDeadlineExceeded`。
-export fn async_fd_read_deadline_future(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize> {
-    return AsyncFdReadFuture{ fd: fd, buf: buf, count: count, deadline_ms: deadline_ms };
+/// 返回值说明：成功返回本次实际读取字节数；would-block 时等待下一次可读事件；超时返回 `error.AsyncDeadlineExceeded`。
+export @async_fn fn async_fd_read_deadline_future(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize> {
+    var nonblocking_ready: i32 = 0;
+    while true {
+        _ = try @await async_wait_readable(fd, deadline_ms);
+        if nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(fd);
+            nonblocking_ready = 1;
+        }
+        const result: !isize = sys_read(fd, buf as *byte, count);
+        const n: isize = result catch |err| {
+            const err_id: u32 = @error_id(err);
+            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                continue;
+            }
+            return err;
+        };
+        return n as usize;
+    }
 }
 
-/// 返回具体 `AsyncFdReadFuture`，供 `@await` 路径使用（接口返回，由 compiler box）。
-export fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Future<!usize> {
-    return async_fd_read_deadline_future(fd, buf, count, 0 as u64);
+/// 返回具体 fd 读 helper，供 `@await` 路径使用（接口返回，由 compiler box）。
+export @async_fn fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Future<!usize> {
+    return try @await async_fd_read_deadline_future(fd, buf, count, 0 as u64);
 }
 
-/// 返回带绝对 deadline 的 `AsyncFdWriteFuture`，供 `@await` 路径在 pending 写阶段复用统一超时语义。
+/// 返回带绝对 deadline 的异步 fd 写 helper；高层路径通过 `@await async_wait_writable()` 复用统一 readiness/cancel/deadline 语义。
 /// 参数说明：`fd` 为目标文件描述符；`data`/`count` 为待写 buffer；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
-/// 返回值说明：成功返回本次实际写入字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending；超时返回 `error.AsyncDeadlineExceeded`。
-export fn async_fd_write_deadline_future(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
-    return AsyncFdWriteFuture{ fd: fd, data: data, count: count, deadline_ms: deadline_ms };
+/// 返回值说明：成功返回本次实际写入字节数；would-block 时等待下一次可写事件；超时返回 `error.AsyncDeadlineExceeded`。
+export @async_fn fn async_fd_write_deadline_future(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
+    var nonblocking_ready: i32 = 0;
+    while true {
+        _ = try @await async_wait_writable(fd, deadline_ms);
+        if nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(fd);
+            nonblocking_ready = 1;
+        }
+        const result: !isize = sys_write(fd, data as *const byte, count);
+        const n: isize = result catch |err| {
+            const err_id: u32 = @error_id(err);
+            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                continue;
+            }
+            return err;
+        };
+        return n as usize;
+    }
 }
 
 /// 同上，写侧；配合 `async_fd_read_future` 用于 `@async_fn` 内 `try @await`。
-export fn async_fd_write_future(fd: i32, data: &const byte, count: usize) Future<!usize> {
-    return async_fd_write_deadline_future(fd, data, count, 0 as u64);
+export @async_fn fn async_fd_write_future(fd: i32, data: &const byte, count: usize) Future<!usize> {
+    return try @await async_fd_write_deadline_future(fd, data, count, 0 as u64);
 }
 
 struct AsyncSocketSendFuture : Future<!usize> {

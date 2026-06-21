@@ -3844,6 +3844,23 @@ fn c99_async_collected_is_direct_return_await(codegen: &C99CodeGenerator, idx: i
     return 1;
 }
 
+fn c99_async_collected_is_direct_return_try_await(codegen: &C99CodeGenerator, idx: i32) i32 {
+    const stmt: &ASTNode = c99_async_collected_source_stmt_at(codegen, idx);
+    const split_try: &ASTNode = c99_async_collected_split_try_expr_at(codegen, idx);
+    if stmt == null || split_try == null ||
+        stmt.type != ASTNodeType.AST_RETURN_STMT ||
+        stmt.return_stmt_expr == null ||
+        split_try.try_expr_operand == null ||
+        split_try.try_expr_operand.type != ASTNodeType.AST_AWAIT_EXPR {
+        return 0;
+    }
+    if @usize_from_ptr(stmt.return_stmt_expr as &void) ==
+        @usize_from_ptr(split_try as &void) {
+        return 1;
+    }
+    return 0;
+}
+
 fn c99_async_collected_is_split_return_stmt(codegen: &C99CodeGenerator, idx: i32) i32 {
     if c99_async_collected_source_stmt_is_return(codegen, idx) == 0 {
         return 0;
@@ -6399,6 +6416,16 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
                 fputs("        if (s->await_fut.data != (void*)0) { if (s->await_fut.vtable != (void*)0) { void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1]; if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data); } }\n" as *byte, codegen.emit_stream as *void);
             }
             fputs("        s->await_fut.data = (void*)0; s->await_fut.vtable = (void*)0;\n" as *byte, codegen.emit_stream as *void);
+            if cur_bind_name == null && c99_async_collected_is_direct_return_try_await(codegen, state_idx) != 0 {
+                emit_all_active_scope_cleanup(codegen, 0);
+                fprintf(codegen.emit_stream as *void, "        return (%s){ ._tag = 1, .u = (%s){ .Ready = r } };\n" as *byte,
+                    poll_ret_c as *byte, poll_union_c as *byte);
+                codegen.defer_stack_depth = saved_state_depth;
+                codegen.current_drop_scope = saved_state_drop_scope;
+                fputs("    }\n" as *byte, codegen.emit_stream as *void);
+                state_k = state_k + 1;
+                continue;
+            }
             // Bug C: "return try @await" — 无 bind name：直接 return Ready(r.value)
             if cur_bind_name == null && ret_expr == null {
                 const direct_return_await: i32 = c99_async_collected_is_direct_return_await(codegen, state_idx);
@@ -6505,7 +6532,11 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_emit_poll_return = 1;
         if terminal_return_stmt != null && ret_expr != null {
             const terminal_expr: &ASTNode = terminal_return_stmt.return_stmt_expr;
-            if terminal_expr != null && terminal_expr.type == ASTNodeType.AST_ERROR_VALUE {
+            const terminal_contains_await: i32 = async_lower_stmt_contains_await(terminal_return_stmt);
+            if terminal_contains_await != 0 {
+                fputs("        abort();\n" as *byte, codegen.emit_stream as *void);
+                fprintf(codegen.emit_stream as *void, "        return (%s){ ._tag = 0 };\n" as *byte, poll_ret_c as *byte);
+            } else if terminal_expr != null && terminal_expr.type == ASTNodeType.AST_ERROR_VALUE {
                 gen_stmt(codegen, terminal_return_stmt);
             } else {
                 emit_async_no_await_ready_return(codegen, fn_decl, full_return_type, effective_return_type, terminal_expr,

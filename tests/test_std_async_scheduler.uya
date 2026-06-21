@@ -318,6 +318,28 @@ struct QueuePendingOnReadableThenReadyU32 : Future<!u32> {
     }
 }
 
+struct QueueInlinePendingThenReadable : Future<!i32> {
+    fd: i32,
+    stage: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        scheduler_queue_task_poll_counts[0] = scheduler_queue_task_poll_counts[0] + 1;
+        if self.stage == 0 {
+            self.stage = 1;
+            return Poll<!i32>.Pending({});
+        }
+        if scheduler_queue_loop_poll_count == 0 {
+            waker.wait_readable(self.fd);
+            return Poll<!i32>.Pending({});
+        }
+        return Poll<!i32>.Ready(ok<i32>(41));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
 struct CancelAwareFuture : Future<!i32> {
     fn poll(self: &Self, waker: &Waker) Poll<!i32> {
         _ = self;
@@ -555,6 +577,27 @@ test "scheduler_run_task_queue_i32_with_shared_event_loop" {
     try assert_eq_i32(scheduler_queue_task_poll_counts[0], 2);
     try assert_eq_i32(scheduler_queue_task_poll_counts[1], 2);
     try assert_eq_i32(scheduler_queue_task_poll_counts[2], 2);
+}
+
+test "scheduler_run_task_queue_inline_repolls_before_event_registration" {
+    scheduler_queue_loop_poll_count = 0;
+    scheduler_queue_register_count = 0;
+    scheduler_queue_registered_count = 0;
+    scheduler_queue_task_poll_counts[0] = 0;
+
+    var s: Scheduler = scheduler_new_with_inline_repoll_limit(1);
+    var queue: TaskQueue_i32 = task_queue_i32_new();
+    const fut: Future<!i32> = QueueInlinePendingThenReadable{ fd: 701, stage: 0 };
+    const idx: i32 = try queue.push(fut);
+    const loop: EventLoop = queue_event_loop();
+    const completed: i32 = try scheduler_run_task_queue_i32_with_event_loop(&s, loop, &queue, 0);
+
+    try assert_eq_i32(idx, 0);
+    try assert_eq_i32(completed, 1);
+    try assert_eq_i32(queue.result(idx), 41);
+    try assert_eq_i32(scheduler_queue_task_poll_counts[0], 3);
+    try assert_eq_i32(scheduler_queue_register_count, 2);
+    try assert_eq_i32(scheduler_queue_loop_poll_count, 1);
 }
 
 test "task_queue_with_capacity_limits_pushes" {

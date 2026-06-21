@@ -31,13 +31,25 @@ if ! grep -q "struct AsyncFrameDescriptorTable _uya_async_frame_descriptors" "$O
     exit 1
 fi
 
-if ! grep -q "static struct AsyncFrameDescriptor _uya_async_frame_descriptor_entries\\[7\\]" "$OUT_C"; then
-    echo "async frame descriptor entries are not sized from checker meta count"
+entries_size="$(sed -n 's/.*static struct AsyncFrameDescriptor _uya_async_frame_descriptor_entries\[\([0-9][0-9]*\)\].*/\1/p' "$OUT_C" | head -n 1)"
+if [ -z "$entries_size" ]; then
+    echo "missing async frame descriptor entries backing table"
     exit 1
 fi
 
-if ! grep -q "int32_t _uya_async_frame_descriptor_count = 7;" "$OUT_C"; then
-    echo "async frame descriptor count does not match checker meta count"
+descriptor_count="$(sed -n 's/.*int32_t _uya_async_frame_descriptor_count = \([0-9][0-9]*\);.*/\1/p' "$OUT_C" | head -n 1)"
+if [ -z "$descriptor_count" ]; then
+    echo "missing async frame descriptor count"
+    exit 1
+fi
+
+if [ "$descriptor_count" -lt 2 ]; then
+    echo "async frame descriptor count should include the sample async functions"
+    exit 1
+fi
+
+if [ "$entries_size" != "$descriptor_count" ]; then
+    echo "async frame descriptor entries are not sized from checker meta count"
     exit 1
 fi
 

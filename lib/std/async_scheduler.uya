@@ -763,6 +763,7 @@ export fn scheduler_run_task_queue_with_event_loop<T>(self: &Scheduler, loop: Ev
         }
     }
 
+    var inline_repoll_count: i32 = 0;
     while completed < queue.len {
         var made_progress: i32 = 0;
         var registered: i32 = 0;
@@ -809,7 +810,12 @@ export fn scheduler_run_task_queue_with_event_loop<T>(self: &Scheduler, loop: Ev
                 .Pending(_) => {
                     if slot.waker.is_woken() {
                         made_progress = 1;
+                        inline_repoll_count = 0;
+                    } else if !slot.waker.has_io_interest() && inline_repoll_count < scheduler_inline_repoll_limit(self) {
+                        inline_repoll_count = inline_repoll_count + 1;
+                        made_progress = 1;
                     } else {
+                        inline_repoll_count = 0;
                         const sync_result: !i32 = scheduler_sync_waker_registrations(loop, &slot.waker, &slot.io_epoll_fd, &slot.event_epoll_fd);
                         registered = registered + (sync_result catch {
                             return sync_result as! i32;

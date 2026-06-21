@@ -243,10 +243,11 @@ fn c99_type_to_c_with_self_opt(codegen: &C99CodeGenerator, type_node: &ASTNode, 
     if find_union_decl_c99(codegen, self_struct_name) != null {
         is_union = 1;
     }
-    if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
-        const pt: &ASTNode = type_node.type_pointer_pointed_type;
-        if pt.type == ASTNodeType.AST_TYPE_NAMED && pt.type_named_name != null &&
-            strcmp(pt.type_named_name as *byte, "Self" as *byte) == 0 {
+	    if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
+	        const pt: &ASTNode = type_node.type_pointer_pointed_type;
+	        if pt.type == ASTNodeType.AST_TYPE_NAMED && pt.type_named_name != null &&
+	            (strcmp(pt.type_named_name as *byte, "Self" as *byte) == 0 ||
+	             strcmp(pt.type_named_name as *byte, self_struct_name as *byte) == 0) {
             var use_const: i32 = 0;
             _ = const_self;
             if type_node.type_pointer_is_const != 0 {
@@ -272,8 +273,9 @@ fn c99_type_to_c_with_self_opt(codegen: &C99CodeGenerator, type_node: &ASTNode, 
                 return buf;
             }
         }
-    } else if type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null &&
-               strcmp(type_node.type_named_name as *byte, "Self" as *byte) == 0 {
+	    } else if type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null &&
+	               (strcmp(type_node.type_named_name as *byte, "Self" as *byte) == 0 ||
+	                strcmp(type_node.type_named_name as *byte, self_struct_name as *byte) == 0) {
         const safe: &byte = get_safe_c_identifier(codegen, self_struct_name);
         var len: i32 = strlen(safe as *byte) + 8;
         if is_union != 0 { len = strlen(safe as *byte) + 22; }
