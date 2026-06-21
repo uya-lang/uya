@@ -2465,3 +2465,20 @@
     `../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`（通过：3 个测试）
     `python3 tests/verify_async_compiler_no_fixed_limits.py`（通过：未发现残留固定 async 容量常量）
     `UYA_COMPILER=../uya/bin/uya bash tests/verify_async_await_capacity.sh`（通过：4097 个 `@await` 样本成功生成状态机，仅保留大小警告）
+## Phase 2：编译器 async 资源动态化
+
+- [x] 为“超大 async 函数”建立新的错误模型：
+  - [x] 若真因内存耗尽或编译器资源不足失败，要给出明确诊断，而不是静默丢字段/丢状态
+    - 完成记录：为 async lowering / C99 await 元数据分配增加 `CompilerArena` 上下文诊断，并新增 `tests/verify_async_resource_diagnostics.sh` 覆盖 `async-await-plan` 与 `async-await-codegen` 两条注入失败路径，避免资源失败时静默丢 await 点或状态机元数据。
+    - 验证命令：`make uya`
+    - 验证结果：通过；`bin/uya` 已按当前源码重建成功。
+    - 验证命令：`bash tests/verify_async_resource_diagnostics.sh`
+    - 验证结果：通过；两条注入失败路径都命中明确 async 资源诊断。
+    - 验证命令：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
+    - 验证结果：通过；3 个 test 全部通过。
+    - 验证命令：`../uya/bin/uya test tests/test_async_large_state_machine_syntax.uya`
+    - 验证结果：通过；7 个 test 全部通过。
+    - 验证命令：`python3 tests/verify_async_lowering_plan_architecture.py`
+    - 验证结果：通过；输出 `verify_async_lowering_plan_architecture: centralized async lowering plan confirmed`。
+    - 验证命令：`git diff --check`
+    - 验证结果：通过；无输出。

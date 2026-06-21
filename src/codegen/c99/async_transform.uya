@@ -8,7 +8,7 @@ export fn async_transform_build_plan(
     checker: &TypeChecker,
     body: &ASTNode
 ) i32 {
-    return async_lower_build_plan(plan, arena, checker, body);
+    return async_lower_build_plan(plan, arena, checker, body, body);
 }
 
 export fn async_transform_stmt_contains_await(node: &ASTNode) i32 {

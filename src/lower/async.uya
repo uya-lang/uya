@@ -4,6 +4,8 @@
 
 extern fn resolve_async_callee_fn_decl(checker: &TypeChecker, callee: &ASTNode) &ASTNode;
 extern fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte;
+extern fn compiler_arena_set_failure_context(key: &byte, message: &byte, filename: &byte, line: i32, column: i32, needed_items: i32, request_bytes: usize) void;
+extern fn compiler_arena_clear_failure_context() void;
 extern fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type;
 extern fn type_to_ast(checker: &TypeChecker, t: &Type, line: i32, column: i32, filename: &byte) &ASTNode;
 
@@ -47,6 +49,8 @@ export struct AsyncLowerPlan {
     return_stmt: &ASTNode,
     return_expr: &ASTNode,
     has_loop: i32,
+    owner_node: &ASTNode,
+    build_failed: i32,
 }
 
 // 使用 checker/async_frame_meta.uya 中已定义的 AsyncFrameEscapeClass
@@ -288,8 +292,34 @@ export fn async_lower_analyze_escape_class(checker: &TypeChecker, fn_body: &ASTN
     return AsyncFrameEscapeClass.ESCAPE_STACK_CANDIDATE;
 }
 
+fn async_lower_report_resource_failure(plan: &AsyncLowerPlan, message: &byte, needed: i32, request_bytes: usize) void {
+    if plan != null {
+        plan.build_failed = 1;
+    }
+    if libc.stderr == null || message == null {
+        return;
+    }
+    var filename: &byte = "<unknown>" as &byte;
+    var line: i32 = 0;
+    var column: i32 = 0;
+    if plan != null && plan.owner_node != null {
+        if plan.owner_node.filename != null {
+            filename = plan.owner_node.filename;
+        }
+        line = plan.owner_node.line;
+        column = plan.owner_node.column;
+    }
+    fprintf(libc.stderr, "%s:(%d:%d): 错误: %s（目标容量 %d" as *byte,
+        filename as *byte, line, column, message as *byte, needed);
+    if request_bytes > 0 {
+        fprintf(libc.stderr, "，估算总需求 %zu 字节" as *byte, request_bytes);
+    }
+    fputs("）\n" as *byte, libc.stderr as *void);
+}
+
 fn async_lower_ensure_plan_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena, needed: i32) i32 {
     if plan == null || arena == null || needed <= 0 {
+        async_lower_report_resource_failure(plan, "@async_fn lowering await 点表扩容失败，内部状态无效" as &byte, needed, 0);
         return -1;
     }
     if plan.await_capacity >= needed && plan.await_points != null {
@@ -302,12 +332,32 @@ fn async_lower_ensure_plan_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena
     while new_cap < needed {
         new_cap = new_cap * 2;
         if new_cap <= 0 {
+            async_lower_report_resource_failure(plan, "@async_fn lowering await 点表扩容失败，容量计算溢出" as &byte, needed, 0);
             return -1;
         }
     }
+    const request_bytes: usize = @size_of(AsyncLowerAwaitPoint) * new_cap as usize;
+    var filename: &byte = null;
+    var line: i32 = 0;
+    var column: i32 = 0;
+    if plan.owner_node != null {
+        filename = plan.owner_node.filename;
+        line = plan.owner_node.line;
+        column = plan.owner_node.column;
+    }
+    compiler_arena_set_failure_context(
+        "async-await-plan" as &byte,
+        "@async_fn lowering await 点表扩容失败，编译器资源不足；请减少 @await 数量或提高可用内存" as &byte,
+        filename,
+        line,
+        column,
+        needed,
+        request_bytes);
     const new_points: &AsyncLowerAwaitPoint = compiler_arena_alloc(
         arena, @size_of(AsyncLowerAwaitPoint) * new_cap as usize) as &AsyncLowerAwaitPoint;
+    compiler_arena_clear_failure_context();
     if new_points == null {
+        async_lower_report_resource_failure(plan, "@async_fn lowering await 点表扩容失败，无法分配 await 点表" as &byte, needed, request_bytes);
         return -1;
     }
     if plan.await_points != null {
@@ -324,6 +374,7 @@ fn async_lower_ensure_plan_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena
 
 fn async_lower_ensure_cleanup_region_capacity(plan: &AsyncLowerPlan, arena: &CompilerArena, needed: i32) i32 {
     if plan == null || arena == null || needed <= 0 {
+        async_lower_report_resource_failure(plan, "@async_fn lowering cleanup region 表扩容失败，内部状态无效" as &byte, needed, 0);
         return -1;
     }
     if plan.cleanup_region_capacity >= needed && plan.cleanup_regions != null {
@@ -336,12 +387,32 @@ fn async_lower_ensure_cleanup_region_capacity(plan: &AsyncLowerPlan, arena: &Com
     while new_cap < needed {
         new_cap = new_cap * 2;
         if new_cap <= 0 {
+            async_lower_report_resource_failure(plan, "@async_fn lowering cleanup region 表扩容失败，容量计算溢出" as &byte, needed, 0);
             return -1;
         }
     }
+    const request_bytes: usize = @size_of(AsyncLowerCleanupRegion) * new_cap as usize;
+    var filename: &byte = null;
+    var line: i32 = 0;
+    var column: i32 = 0;
+    if plan.owner_node != null {
+        filename = plan.owner_node.filename;
+        line = plan.owner_node.line;
+        column = plan.owner_node.column;
+    }
+    compiler_arena_set_failure_context(
+        "async-cleanup-regions" as &byte,
+        "@async_fn lowering cleanup region 表扩容失败，编译器资源不足；请减少函数体复杂度或提高可用内存" as &byte,
+        filename,
+        line,
+        column,
+        needed,
+        request_bytes);
     const new_regions: &AsyncLowerCleanupRegion = compiler_arena_alloc(
         arena, @size_of(AsyncLowerCleanupRegion) * new_cap as usize) as &AsyncLowerCleanupRegion;
+    compiler_arena_clear_failure_context();
     if new_regions == null {
+        async_lower_report_resource_failure(plan, "@async_fn lowering cleanup region 表扩容失败，无法分配 cleanup region 表" as &byte, needed, request_bytes);
         return -1;
     }
     if plan.cleanup_regions != null {
@@ -427,6 +498,7 @@ fn async_lower_register_cleanup_region(
     }
     const idx: i32 = plan.cleanup_region_count;
     if async_lower_ensure_cleanup_region_capacity(plan, arena, idx + 1) != 0 {
+        plan.build_failed = 1;
         return parent_region;
     }
     plan.cleanup_region_count = idx + 1;
@@ -444,6 +516,7 @@ fn async_lower_claim_await_slot(plan: &AsyncLowerPlan, arena: &CompilerArena) i3
     }
     const idx: i32 = plan.await_count;
     if async_lower_ensure_plan_capacity(plan, arena, idx + 1) != 0 {
+        plan.build_failed = 1;
         return -1;
     }
     plan.await_count = idx + 1;
@@ -1241,7 +1314,7 @@ fn async_lower_collect_plan_node(
     root_stmt_index: i32,
     current_cleanup_region: i32
 ) void {
-    if node == null {
+    if node == null || plan == null || plan.build_failed != 0 {
         return;
     }
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
@@ -1249,6 +1322,9 @@ fn async_lower_collect_plan_node(
         var i: i32 = 0;
         while i < node.block_stmt_count {
             async_lower_collect_plan_node(plan, arena, checker, node.block_stmts[i], node, i, enclosing_while, enclosing_for, root_stmt_index, block_region);
+            if plan.build_failed != 0 {
+                return;
+            }
             i = i + 1;
         }
         return;
@@ -1408,6 +1484,7 @@ export fn async_lower_build_plan(
     plan: &AsyncLowerPlan,
     arena: &CompilerArena,
     checker: &TypeChecker,
+    owner_node: &ASTNode,
     body: &ASTNode
 ) i32 {
     if plan == null {
@@ -1425,18 +1502,23 @@ export fn async_lower_build_plan(
     plan.return_stmt = null;
     plan.return_expr = null;
     plan.has_loop = 0;
+    plan.owner_node = owner_node;
+    plan.build_failed = 0;
     if body == null {
         return 0;
     }
     if body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
         plan.root_cleanup_region = async_lower_register_cleanup_region(plan, arena, body, -1);
         var i: i32 = 0;
-        while i < body.block_stmt_count {
+        while i < body.block_stmt_count && plan.build_failed == 0 {
             async_lower_collect_plan_node(plan, arena, checker, body.block_stmts[i], body, i, null, null, i, plan.root_cleanup_region);
             i = i + 1;
         }
     } else {
         async_lower_collect_plan_node(plan, arena, checker, body, null, -1, null, null, 0, -1);
+    }
+    if plan.build_failed != 0 {
+        return -1;
     }
     async_lower_assign_state_numbers(plan);
     if plan.prefix_stmt_count < 0 {

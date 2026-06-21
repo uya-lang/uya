@@ -33,9 +33,77 @@ const ARENA_ALIGNMENT: usize = 8;
 // 默认动态 chunk 大小（1MB）
 const ARENA_CHUNK_SIZE: usize = 1024 * 1024;
 
+var g_compiler_arena_failure_key: &byte = null;
+var g_compiler_arena_failure_message: &byte = null;
+var g_compiler_arena_failure_filename: &byte = null;
+var g_compiler_arena_failure_line: i32 = 0;
+var g_compiler_arena_failure_column: i32 = 0;
+var g_compiler_arena_failure_needed_items: i32 = 0;
+var g_compiler_arena_failure_request_bytes: usize = 0;
+
 // 对齐到指定边界
 fn align_size(size: usize, align: usize) usize {
     return ((size + align - 1) / align) * align;
+}
+
+fn compiler_arena_set_failure_context(
+    key: &byte,
+    message: &byte,
+    filename: &byte,
+    line: i32,
+    column: i32,
+    needed_items: i32,
+    request_bytes: usize
+) void {
+    g_compiler_arena_failure_key = key;
+    g_compiler_arena_failure_message = message;
+    g_compiler_arena_failure_filename = filename;
+    g_compiler_arena_failure_line = line;
+    g_compiler_arena_failure_column = column;
+    g_compiler_arena_failure_needed_items = needed_items;
+    g_compiler_arena_failure_request_bytes = request_bytes;
+}
+
+fn compiler_arena_clear_failure_context() void {
+    g_compiler_arena_failure_key = null;
+    g_compiler_arena_failure_message = null;
+    g_compiler_arena_failure_filename = null;
+    g_compiler_arena_failure_line = 0;
+    g_compiler_arena_failure_column = 0;
+    g_compiler_arena_failure_needed_items = 0;
+    g_compiler_arena_failure_request_bytes = 0;
+}
+
+fn compiler_arena_should_inject_failure() i32 {
+    const env_key: *byte = getenv("UYA_TEST_ARENA_FAIL_CONTEXT" as *byte);
+    if env_key == null || g_compiler_arena_failure_key == null {
+        return 0;
+    }
+    if strcmp(env_key, g_compiler_arena_failure_key as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn compiler_arena_report_failure_context(actual_request_bytes: usize) void {
+    if libc.stderr == null || g_compiler_arena_failure_message == null {
+        return;
+    }
+    var filename: &byte = g_compiler_arena_failure_filename;
+    if filename == null {
+        filename = "<unknown>" as &byte;
+    }
+    fprintf(libc.stderr, "%s:(%d:%d): 错误: %s（目标容量 %d，本次申请 %zu 字节" as *byte,
+        filename as *byte,
+        g_compiler_arena_failure_line,
+        g_compiler_arena_failure_column,
+        g_compiler_arena_failure_message as *byte,
+        g_compiler_arena_failure_needed_items,
+        actual_request_bytes);
+    if g_compiler_arena_failure_request_bytes > 0 {
+        fprintf(libc.stderr, "，估算总需求 %zu 字节" as *byte, g_compiler_arena_failure_request_bytes);
+    }
+    fputs("）\n" as *byte, libc.stderr as *void);
 }
 
 // 初始化 Arena 分配器
@@ -59,6 +127,11 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
     }
     
     const aligned_size: usize = align_size(size, ARENA_ALIGNMENT);
+    if compiler_arena_should_inject_failure() != 0 {
+        fprintf(libc.stderr, "错误: CompilerArena 无法分配请求内存 (%zu 字节)\n" as *byte, aligned_size);
+        compiler_arena_report_failure_context(aligned_size);
+        exit(1);
+    }
     
     // 1. 尝试从静态缓冲区分配
     if arena.buffer != null {
@@ -93,6 +166,7 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
     const chunk_mem: &byte = malloc(@size_of(ArenaChunk)) as &byte;
     if chunk_mem == null {
         fprintf(libc.stderr, "错误: CompilerArena 无法分配 chunk 结构\n" as *byte);
+        compiler_arena_report_failure_context(@size_of(ArenaChunk));
         exit(1);
     }
     const new_chunk: &ArenaChunk = chunk_mem as &ArenaChunk;
@@ -101,6 +175,7 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
     const buffer_mem: &byte = malloc(chunk_size) as &byte;
     if buffer_mem == null {
         fprintf(libc.stderr, "错误: CompilerArena 无法分配 chunk 缓冲区 (%zu 字节)\n" as *byte, chunk_size);
+        compiler_arena_report_failure_context(chunk_size);
         exit(1);
     }
     

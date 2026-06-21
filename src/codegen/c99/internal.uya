@@ -10,6 +10,8 @@
 
 // Arena 函数（来自 arena.uya，与 arena.uya 定义一致）
 extern fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte;
+extern fn compiler_arena_set_failure_context(key: &byte, message: &byte, filename: &byte, line: i32, column: i32, needed_items: i32, request_bytes: usize) void;
+extern fn compiler_arena_clear_failure_context() void;
 
 use libc.atoi;
 use lower.async;

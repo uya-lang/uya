@@ -1883,8 +1883,45 @@ fn get_type_node_align_bytes(codegen: &C99CodeGenerator, type_ast: &ASTNode) i32
     return get_type_align_bytes_resolved(codegen, &resolved);
 }
 
+fn c99_async_await_codegen_total_bytes(await_count: i32, include_bind_names: i32) usize {
+    if await_count <= 0 {
+        return 0 as usize;
+    }
+    const count: usize = await_count as usize;
+    var total: usize = (@size_of(&ASTNode) * count * (8 as usize));
+    total = total + (@size_of(&byte) * count);
+    if include_bind_names != 0 {
+        total = total + (@size_of(&byte) * count);
+    }
+    total = total + (@size_of(i32) * count * (3 as usize));
+    return total;
+}
+
+fn c99_report_async_codegen_resource_failure(codegen: &C99CodeGenerator, message: &byte, needed: i32, request_bytes: usize) void {
+    if libc.stderr == null || message == null {
+        return;
+    }
+    var filename: &byte = "<unknown>" as &byte;
+    var line: i32 = 0;
+    var column: i32 = 0;
+    if codegen != null && codegen.current_function_decl != null {
+        if codegen.current_function_decl.filename != null {
+            filename = codegen.current_function_decl.filename;
+        }
+        line = codegen.current_function_decl.line;
+        column = codegen.current_function_decl.column;
+    }
+    fprintf(libc.stderr, "%s:(%d:%d): 错误: %s（目标容量 %d" as *byte,
+        filename as *byte, line, column, message as *byte, needed);
+    if request_bytes > 0 {
+        fprintf(libc.stderr, "，估算总需求 %zu 字节" as *byte, request_bytes);
+    }
+    fputs("）\n" as *byte, libc.stderr as *void);
+}
+
 fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 {
     if codegen == null || codegen.arena == null || needed <= 0 {
+        c99_report_async_codegen_resource_failure(codegen, "@async_fn C99 await 元数据扩容失败，内部状态无效" as &byte, needed, 0);
         return -1;
     }
     if codegen.async_collect_capacity >= needed &&
@@ -1910,9 +1947,27 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     while new_cap < needed {
         new_cap = new_cap * 2;
         if new_cap <= 0 {
+            c99_report_async_codegen_resource_failure(codegen, "@async_fn C99 await 元数据扩容失败，容量计算溢出" as &byte, needed, 0);
             return -1;
         }
     }
+    const request_bytes: usize = c99_async_await_codegen_total_bytes(new_cap, 1);
+    var filename: &byte = null;
+    var line: i32 = 0;
+    var column: i32 = 0;
+    if codegen.current_function_decl != null {
+        filename = codegen.current_function_decl.filename;
+        line = codegen.current_function_decl.line;
+        column = codegen.current_function_decl.column;
+    }
+    compiler_arena_set_failure_context(
+        "async-await-codegen" as &byte,
+        "@async_fn C99 await 元数据扩容失败，编译器资源不足；请减少 @await 数量或提高可用内存" as &byte,
+        filename,
+        line,
+        column,
+        needed,
+        request_bytes);
     const new_operands: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
     const new_names: & & byte = compiler_arena_alloc(codegen.arena, @size_of(&byte) * new_cap as usize) as & & byte;
     const new_types: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
@@ -1926,11 +1981,13 @@ fn c99_ensure_async_await_capacity(codegen: &C99CodeGenerator, needed: i32) i32 
     const new_enclosing_while: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
     const new_enclosing_for: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * new_cap as usize) as & & ASTNode;
     const new_bind_names: & & byte = compiler_arena_alloc(codegen.arena, @size_of(&byte) * new_cap as usize) as & & byte;
+    compiler_arena_clear_failure_context();
     if new_operands == null || new_names == null || new_types == null || new_blocks == null ||
         new_stmt_indices == null || new_source_stmts == null || new_split_try_exprs == null ||
         new_split_await_exprs == null ||
         new_state_ids == null || new_cleanup_region_ids == null ||
         new_enclosing_while == null || new_enclosing_for == null || new_bind_names == null {
+        c99_report_async_codegen_resource_failure(codegen, "@async_fn C99 await 元数据扩容失败，无法分配 await 元数据表" as &byte, needed, request_bytes);
         return -1;
     }
     var i: i32 = 0;
@@ -5484,7 +5541,9 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_cleanup_region_count = 0;
         codegen.async_cleanup_root_region = -1;
         codegen.async_inline_temp_var_count = 0;
-        _ = async_lower_build_plan(&async_plan, codegen.arena, codegen.checker, body);
+        if async_lower_build_plan(&async_plan, codegen.arena, codegen.checker, fn_decl, body) != 0 {
+            exit(1);
+        }
         codegen.async_collect_terminal_state = async_plan.terminal_state;
         codegen.async_collect_ret_stmt = async_plan.return_stmt;
         codegen.async_collect_ret_expr = async_plan.return_expr;
@@ -5494,8 +5553,14 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_cleanup_root_region = async_plan.root_cleanup_region;
         terminal_state = async_plan.terminal_state;
         async_prefix_stmt_count = async_plan.prefix_stmt_count;
-        if async_plan.await_count > 0 && c99_ensure_async_await_capacity(codegen, async_plan.await_count) == 0 &&
-            async_plan.await_points != null {
+        if async_plan.await_count > 0 {
+            if async_plan.await_points == null {
+                c99_report_async_codegen_resource_failure(codegen, "@async_fn lowering await 点表缺失，无法继续生成状态机" as &byte, async_plan.await_count, 0);
+                exit(1);
+            }
+            if c99_ensure_async_await_capacity(codegen, async_plan.await_count) != 0 {
+                exit(1);
+            }
             var plan_i: i32 = 0;
             while plan_i < async_plan.await_count {
                 codegen.async_collect_operands[plan_i] = async_plan.await_points[plan_i].operand;
@@ -5518,8 +5583,25 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         await_count = codegen.async_collect_count;
         ret_stmt = codegen.async_collect_ret_stmt;
         ret_expr = codegen.async_collect_ret_expr;
-        has_await_loop = codegen.async_collect_has_loop;
+            has_await_loop = codegen.async_collect_has_loop;
         if await_count > 0 {
+            const request_bytes2: usize = c99_async_await_codegen_total_bytes(await_count, 0);
+            var filename2: &byte = null;
+            var line2: i32 = 0;
+            var column2: i32 = 0;
+            if codegen.current_function_decl != null {
+                filename2 = codegen.current_function_decl.filename;
+                line2 = codegen.current_function_decl.line;
+                column2 = codegen.current_function_decl.column;
+            }
+            compiler_arena_set_failure_context(
+                "async-await-codegen" as &byte,
+                "@async_fn C99 await 元数据扩容失败，编译器资源不足；请减少 @await 数量或提高可用内存" as &byte,
+                filename2,
+                line2,
+                column2,
+                await_count,
+                request_bytes2);
             await_operands = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
             await_bind_names = compiler_arena_alloc(codegen.arena, @size_of(&byte) * await_count as usize) as & & byte;
             await_bind_types = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
@@ -5532,6 +5614,15 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             await_cleanup_region_ids = compiler_arena_alloc(codegen.arena, @size_of(i32) * await_count as usize) as &i32;
             await_enclosing_while = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
             await_enclosing_for = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * await_count as usize) as & & ASTNode;
+            compiler_arena_clear_failure_context();
+            if await_operands == null || await_bind_names == null || await_bind_types == null ||
+                await_blocks == null || await_stmt_indices == null || await_source_stmts == null ||
+                await_split_try_exprs == null || await_split_await_exprs == null ||
+                await_state_ids == null || await_cleanup_region_ids == null ||
+                await_enclosing_while == null || await_enclosing_for == null {
+                c99_report_async_codegen_resource_failure(codegen, "@async_fn C99 await 元数据扩容失败，无法分配局部 await 表" as &byte, await_count, request_bytes2);
+                exit(1);
+            }
         }
         var ci: i32 = 0;
         while ci < await_count && await_operands != null && await_bind_names != null &&
