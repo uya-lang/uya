@@ -162,8 +162,6 @@
 
 ## Phase 2：编译器 async 资源动态化
 
-- [ ] 补齐 await 容量压力测试到旧上限附近：
-  - [ ] 改成“旧上限附近成功编译+运行”的压力测试
 - [ ] 补一个“多 frame / 多 mono instance / 多 generic async”压力样本，验证 descriptor 和 meta 表不会截断。
 
 **验收**：

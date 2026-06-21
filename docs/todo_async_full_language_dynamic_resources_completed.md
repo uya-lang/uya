@@ -2488,3 +2488,17 @@
   - [x] 不再把 “>256 await 编译失败” 视为正确
     - 验证：`git show --stat --summary cc993def -- tests/test_async_await_limits_and_segments.uya tests/error_async_too_many_awaits.uya docs/todo_async_full_language_dynamic_resources.md` 显示 `tests/error_async_too_many_awaits.uya` 已在 `cc993def0f12b81e13fc2e3aa294cad1adc11ff9` 删除。
     - 验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya` 通过（3 tests / 4 assertions）。
+
+## Phase 2：编译器 async 资源动态化
+- [x] 补齐 await 容量压力测试到旧上限附近：
+  - [x] 改成“旧上限附近成功编译+运行”的压力测试
+    - 红测：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
+    - 红测结果：失败；`await_near_old_limit_bindings` 未定义，宿主 C 编译报 `implicit declaration` 与 `invalid initializer`。
+    - 验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
+    - 验证结果：通过；3 个测试全部通过，`260` 个顺序 `@await` 的样本成功编译并运行。
+    - 相关验证：`../uya/bin/uya test tests/test_async_await_capacity_dynamic.uya`
+    - 相关验证结果：通过；`async_await_capacity_grows_past_256` 通过。
+    - 相关验证：`../uya/bin/uya test tests/test_async_large_state_machine_syntax.uya`
+    - 相关验证结果：通过；7 个测试全部通过。
+    - 验证：`git diff --check`
+    - 验证结果：通过；无输出。
