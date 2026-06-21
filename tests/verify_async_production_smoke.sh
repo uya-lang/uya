@@ -35,4 +35,7 @@ run_step "HTTP async epoll C99 compile smoke" \
 run_step "HTTP async epoll runtime smoke" \
     bash "$SCRIPT_DIR/verify_http_bench_async_epoll_runtime.sh"
 
+run_step "HTTP async epoll fd leak smoke" \
+    bash "$SCRIPT_DIR/verify_async_no_fd_leak.sh"
+
 echo "verify_async_production_smoke: full-language, shared runtime, nested future, and HTTP async epoll smoke matrix passed"

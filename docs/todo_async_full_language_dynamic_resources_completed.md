@@ -2848,3 +2848,34 @@
     - 验证结果：通过，14 tests / 85 assertions。
     - 验证命令：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
     - 验证结果：通过，4 tests / 108 assertions。
+
+## Phase 4：生产级可靠性与可观测性
+父级任务路径：建立长压测与泄漏验证
+  - [x] fd 不泄漏
+    - 验证命令：==> build http_bench_async_epoll for fd leak verification
+==> launch bench server (--threads 4)
+baseline_fd=11 threads=4 rounds=3 requests_per_route=80 concurrency=8
+==> round 1/3 root route
+==> round 1/3 json route
+round_1 post_fd=11 baseline=11 tolerance=2
+==> round 2/3 root route
+==> round 2/3 json route
+round_2 post_fd=11 baseline=11 tolerance=2
+==> round 3/3 root route
+==> round 3/3 json route
+round_3 post_fd=11 baseline=11 tolerance=2
+final_fd=11 baseline_fd=11 tolerance=2
+verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP load
+      - 结果：通过；baseline_fd=11，round_1/2/3 post_fd=11，final_fd=11。
+    - 验证命令：验证：构建 http_bench_async_epoll 运行时二进制 ...
+验证：启动服务并检查 HTTP 响应 ...
+✓ http_bench_async_epoll 运行时响应通过
+      - 结果：通过； 与  返回 。
+
+## Phase 4：生产级可靠性与可观测性
+父级任务路径：建立长压测与泄漏验证
+  - [x] fd 不泄漏
+    - 验证命令：UYA_COMPILER=../uya/bin/uya bash tests/verify_async_no_fd_leak.sh
+      - 结果：通过；baseline_fd=11，round_1/2/3 post_fd=11，final_fd=11。
+    - 验证命令：UYA_COMPILER=../uya/bin/uya bash tests/verify_http_bench_async_epoll_runtime.sh
+      - 结果：通过；/ 与 /json 返回 HTTP/1.1 200 OK。
