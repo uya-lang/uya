@@ -2774,3 +2774,12 @@
   - 说明：仓库中该测试文件已存在；本轮复核确认主 todo 此项为未同步残留，测试内容覆盖 AsyncFramePool bucket table 与 bucket slot 动态增长。
   - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
   - 结果：通过（1 个测试文件，2 tests，4236 assertions）
+## Phase 3：运行时 async 资源动态化
+### 3.5 协议层临时 buffer
+**验收**：
+
+- [x] 新增 `tests/test_async_thread_pool_dynamic_growth.uya`
+  - 验证命令：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+  - 验证结果：通过；4 个内部测试全部 OK，Assertions Passed: 99。
+  - 验证命令：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`
+  - 验证结果：通过；`verify_async_full_dynamic_resources_gate: unit-scan stages passed`
