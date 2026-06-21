@@ -4,9 +4,11 @@
 // 目标：先提供可复用的主机名解析核心，供同步 HTTPS / 异步 HTTP 复用。
 // 当前实现优先支持 UDP/53；若 nameserver 缺失则返回明确错误。
 
+use libc.heap;
 use libc.syscall;
 use libc.errno;
 use std.async;
+use std.mem.allocator.AllocOutOfMemory;
 
 export error DnsInvalidName;
 export error DnsInvalidPacket;
@@ -24,8 +26,17 @@ export error DnsUnsupported;
 export const DNS_PORT: u16 = 53;
 export const DNS_MAX_NAME: usize = 253;
 export const DNS_MAX_LABEL: usize = 63;
-export const DNS_MAX_PACKET: usize = 512;
 const DNS_HEADER_LEN: usize = 12;
+// 传统 RFC 1035 UDP DNS 报文上限；不用于表达 TCP 或解析结果的产品容量。
+const DNS_UDP_PACKET_LIMIT: usize = 512;
+export const DNS_MAX_PACKET: usize = DNS_UDP_PACKET_LIMIT;
+// 单个标准 query 的编码 scratch：header + qname + qtype/qclass。
+const DNS_QUERY_PACKET_SCRATCH: usize = DNS_HEADER_LEN + 2 + DNS_MAX_NAME + 4;
+const DNS_TCP_FRAME_HEADER_BYTES: usize = 2;
+// TCP query 仅需在 query scratch 前加 2-byte length prefix。
+const DNS_TCP_QUERY_FRAME_SCRATCH: usize = DNS_QUERY_PACKET_SCRATCH + DNS_TCP_FRAME_HEADER_BYTES;
+// TCP DNS wire-format 由 16-bit length prefix 定界；实际暂存按需要动态分配。
+const DNS_TCP_MESSAGE_WIRE_MAX: usize = 65535;
 const DNS_MAX_ADDRESSES: usize = 8;
 
 export const DNS_RECORD_A: u16 = 1;
@@ -436,7 +447,7 @@ fn dns_name_valid(host: &[byte]) bool {
     return label_len > 0;
 }
 
-fn dns_encode_name(out: &byte, pos: usize, host: &[byte]) !usize {
+fn dns_encode_name(out: &byte, pos: usize, out_max: usize, host: &[byte]) !usize {
     if !dns_name_valid(host) {
         return error.DnsInvalidName;
     }
@@ -449,7 +460,7 @@ fn dns_encode_name(out: &byte, pos: usize, host: &[byte]) !usize {
             if label_len == 0 || label_len > DNS_MAX_LABEL {
                 return error.DnsInvalidName;
             }
-            if p + 1 + label_len >= DNS_MAX_PACKET {
+            if p + 1 + label_len >= out_max {
                 return error.DnsInvalidPacket;
             }
             out[p] = label_len as u8;
@@ -464,7 +475,7 @@ fn dns_encode_name(out: &byte, pos: usize, host: &[byte]) !usize {
         }
         i = i + 1;
     }
-    if p >= DNS_MAX_PACKET {
+    if p >= out_max {
         return error.DnsInvalidPacket;
     }
     out[p] = 0;
@@ -794,7 +805,7 @@ fn dns_client_get_nameserver(ctx: &DnsClient) !DnsAddress {
 }
 
 fn dns_client_build_query(ctx: &DnsClient, host: &[byte], qtype: u16, out: &byte, out_max: usize) !usize {
-    if out_max < DNS_HEADER_LEN + 2 + DNS_MAX_NAME + 4 {
+    if out_max < DNS_QUERY_PACKET_SCRATCH {
         return error.DnsInvalidPacket;
     }
     var p: usize = 0;
@@ -804,7 +815,7 @@ fn dns_client_build_query(ctx: &DnsClient, host: &[byte], qtype: u16, out: &byte
     p = dns_write_u16_be(out, p, 0);
     p = dns_write_u16_be(out, p, 0);
     p = dns_write_u16_be(out, p, 0);
-    p = try dns_encode_name(out, p, host);
+    p = try dns_encode_name(out, p, out_max, host);
     p = dns_write_u16_be(out, p, qtype);
     p = dns_write_u16_be(out, p, DNS_CLASS_IN);
     return p;
@@ -976,10 +987,10 @@ fn dns_socket_connect_tcp_nonblocking(ns: &DnsAddress, fd_out: &i32) !void {
         return error.DnsUnsupported;
     }
 
-    var query_packet: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
+    var query_packet: [byte: DNS_QUERY_PACKET_SCRATCH] = [0:DNS_QUERY_PACKET_SCRATCH];
     var response_packet: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
     var sockaddr: [byte: 16] = [0:16];
-    const query_len: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &query_packet[0], DNS_MAX_PACKET);
+    const query_len: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &query_packet[0], DNS_QUERY_PACKET_SCRATCH);
     dns_fill_sockaddr_ipv4(ns.addr[0], ns.addr[1], ns.addr[2], ns.addr[3], ns.port, &sockaddr[0]);
     const deadline_ms: u64 = try dns_deadline_after_ms(ctx.timeout_ms);
 
@@ -1047,8 +1058,8 @@ fn dns_query_udp_raw_with_timeout(ctx: &DnsClient, host: &[byte], qtype: u16, re
     try dns_socket_set_send_timeout(fd, timeout_ms);
     try dns_socket_set_recv_timeout(fd, timeout_ms);
     
-    var packet: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
-    const qlen: usize = try dns_client_build_query(ctx, host, qtype, &packet[0], DNS_MAX_PACKET);
+    var packet: [byte: DNS_QUERY_PACKET_SCRATCH] = [0:DNS_QUERY_PACKET_SCRATCH];
+    const qlen: usize = try dns_client_build_query(ctx, host, qtype, &packet[0], DNS_QUERY_PACKET_SCRATCH);
     
     const sent: isize = sys_send(fd, &packet[0], qlen, 0) catch |err| {
         const eid: i32 = (@error_id(err) as! i32).value;
@@ -1131,8 +1142,35 @@ fn dns_query_udp_raw(ctx: &DnsClient, host: &[byte], qtype: u16, response: &byte
     return error.DnsTimeout;
 }
 
-// 带超时的 TCP 查询（内部实现）
-fn dns_query_tcp_raw_with_timeout(ctx: &DnsClient, host: &[byte], qtype: u16, response: &byte, response_max: usize, response_len: &usize, timeout_ms: u32) !usize {
+fn dns_recv_exact_sync(fd: i32, buf: &byte, want: usize) !void {
+    var total: usize = 0;
+    while total < want {
+        const recv_base: &byte = @ptr_from_usize(@usize_from_ptr(buf as &void) + total) as &byte;
+        const n: isize = sys_recv(fd, recv_base, want - total, 0) catch |err| {
+            const eid: i32 = (@error_id(err) as! i32).value;
+            if dns_is_would_block_errno(eid) {
+                return error.DnsWouldBlock;
+            }
+            if eid == ETIMEDOUT || eid == EAGAIN || eid == EWOULDBLOCK {
+                return error.DnsTimeout;
+            }
+            if eid == ENETUNREACH || eid == EHOSTUNREACH || eid == ECONNREFUSED || eid == ECONNRESET || eid == EPIPE {
+                return error.DnsNetworkUnreachable;
+            }
+            if eid == EAFNOSUPPORT || eid == EPROTOTYPE || eid == EPROTONOSUPPORT || eid == EOPNOTSUPP || eid == ENOSYS {
+                return error.DnsPlatformUnsupported;
+            }
+            return error.DnsNetworkUnreachable;
+        };
+        if n <= 0 {
+            return error.DnsNoSuchName;
+        }
+        total = total + (n as usize);
+    }
+}
+
+// 带超时的 TCP 查询并直接解析答案（内部实现）
+fn dns_query_tcp_with_timeout(ctx: &DnsClient, host: &[byte], qtype: u16, out: &byte, out_max: usize, out_len: &usize, ttl_out: &usize, timeout_ms: u32) !usize {
     const ns: DnsAddress = try dns_client_get_nameserver(ctx);
     const socket_res: !i32 = sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     const fd: i32 = socket_res catch |err| {
@@ -1179,9 +1217,9 @@ fn dns_query_tcp_raw_with_timeout(ctx: &DnsClient, host: &[byte], qtype: u16, re
         }
         return error.DnsNetworkUnreachable;
     };
-    var packet: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
-    const qlen: usize = try dns_client_build_query(ctx, host, qtype, &packet[0], DNS_MAX_PACKET);
-    var framed: [byte: DNS_MAX_PACKET + 2] = [0:DNS_MAX_PACKET + 2];
+    var packet: [byte: DNS_QUERY_PACKET_SCRATCH] = [0:DNS_QUERY_PACKET_SCRATCH];
+    const qlen: usize = try dns_client_build_query(ctx, host, qtype, &packet[0], DNS_QUERY_PACKET_SCRATCH);
+    var framed: [byte: DNS_TCP_QUERY_FRAME_SCRATCH] = [0:DNS_TCP_QUERY_FRAME_SCRATCH];
     framed[0] = (((qlen >> 8) & (255 as usize)) as byte);
     framed[1] = ((qlen & (255 as usize)) as byte);
     var i: usize = 0;
@@ -1211,66 +1249,45 @@ fn dns_query_tcp_raw_with_timeout(ctx: &DnsClient, host: &[byte], qtype: u16, re
         return error.DnsNetworkUnreachable;
     }
     var lenbuf: [byte: 2] = [0:2];
-    const hdrn: isize = sys_recv(fd, &lenbuf[0], 2, 0) catch |err| {
-        const eid: i32 = (@error_id(err) as! i32).value;
+    dns_recv_exact_sync(fd, &lenbuf[0], DNS_TCP_FRAME_HEADER_BYTES) catch |err| {
         _ = sys_close(fd) catch {};
-        if dns_is_would_block_errno(eid) {
-            return error.DnsWouldBlock;
-        }
-        if eid == ETIMEDOUT || eid == EAGAIN || eid == EWOULDBLOCK {
-            return error.DnsTimeout;
-        }
-        if eid == ENETUNREACH || eid == EHOSTUNREACH || eid == ECONNREFUSED || eid == ECONNRESET || eid == EPIPE {
-            return error.DnsNetworkUnreachable;
-        }
-        if eid == EAFNOSUPPORT || eid == EPROTOTYPE || eid == EPROTONOSUPPORT || eid == EOPNOTSUPP || eid == ENOSYS {
-            return error.DnsPlatformUnsupported;
-        }
-        return error.DnsNetworkUnreachable;
+        return err;
     };
-    if hdrn != 2 {
-        _ = sys_close(fd) catch {};
-        return error.DnsNetworkUnreachable;
-    }
     const body_len: usize = (((lenbuf[0] as usize) << 8) | (lenbuf[1] as usize));
-    if body_len > response_max {
+    if body_len == 0 || body_len > DNS_TCP_MESSAGE_WIRE_MAX {
         _ = sys_close(fd) catch {};
         return error.DnsInvalidPacket;
     }
-    const n: isize = sys_recv(fd, response, body_len, 0) catch |err| {
-        const eid: i32 = (@error_id(err) as! i32).value;
+
+    const response_mem: &void = malloc(body_len);
+    if response_mem == null {
         _ = sys_close(fd) catch {};
-        if dns_is_would_block_errno(eid) {
-            return error.DnsWouldBlock;
-        }
-        if eid == ETIMEDOUT || eid == EAGAIN || eid == EWOULDBLOCK {
-            return error.DnsTimeout;
-        }
-        if eid == ENETUNREACH || eid == EHOSTUNREACH || eid == ECONNREFUSED || eid == ECONNRESET || eid == EPIPE {
-            return error.DnsNetworkUnreachable;
-        }
-        if eid == EAFNOSUPPORT || eid == EPROTOTYPE || eid == EPROTONOSUPPORT || eid == EOPNOTSUPP || eid == ENOSYS {
-            return error.DnsPlatformUnsupported;
-        }
-        return error.DnsNetworkUnreachable;
+        return error.AllocOutOfMemory;
+    }
+    const response_packet: &byte = response_mem as &byte;
+    dns_recv_exact_sync(fd, response_packet, body_len) catch |err| {
+        free(response_packet as &void);
+        _ = sys_close(fd) catch {};
+        return err;
     };
     _ = sys_close(fd) catch {};
-    if n <= 0 {
-        return error.DnsNoSuchName;
-    }
-    response_len[0] = n as usize;
-    return n as usize;
+    const parsed: usize = dns_parse_answers_with_ttl(response_packet as &const byte, body_len, qtype, out, out_max, out_len, ttl_out) catch |err| {
+        free(response_packet as &void);
+        return try dns_error_from_error_id(@error_id(err));
+    };
+    free(response_packet as &void);
+    return parsed;
 }
 
 // TCP 查询（带重试）
-fn dns_query_tcp_raw(ctx: &DnsClient, host: &[byte], qtype: u16, response: &byte, response_max: usize, response_len: &usize) !usize {
+fn dns_query_tcp(ctx: &DnsClient, host: &[byte], qtype: u16, out: &byte, out_max: usize, out_len: &usize, ttl_out: &usize) !usize {
     // TCP 通常比 UDP 慢，重试次数可以少一些
     const max_retries: usize = 2;
     var attempt: usize = 0;
     
     while attempt < max_retries {
         // 尝试查询
-        const result: !usize = dns_query_tcp_raw_with_timeout(ctx, host, qtype, response, response_max, response_len, ctx.timeout_ms);
+        const result: !usize = dns_query_tcp_with_timeout(ctx, host, qtype, out, out_max, out_len, ttl_out, ctx.timeout_ms);
         // 尝试解包结果
         const n: usize = result catch |err| {
             const err_id: u32 = @error_id(err);
@@ -1512,8 +1529,7 @@ fn dns_query_follow_cname_with_ttl(ctx: &DnsClient, host: &[byte], depth: usize,
     var ttl_tmp: usize = 0;
     var parsed: usize = dns_parse_answers_with_ttl(&resp[0], resp_len, qtype, out, out_max, out_len, &ttl_tmp) catch {
         if resp_len >= DNS_HEADER_LEN && (dns_u16_be(resp[2], resp[3]) & 0x0200u16) != 0 {
-            const tcp_len: usize = try dns_query_tcp_raw(ctx, host, qtype, &resp[0], DNS_MAX_PACKET, &resp_len);
-            return dns_parse_answers_with_ttl(&resp[0], tcp_len, qtype, out, out_max, out_len, ttl_out);
+            return dns_query_tcp(ctx, host, qtype, out, out_max, out_len, ttl_out);
         }
         0 as usize;
     };
@@ -1871,11 +1887,11 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
         return error.DnsUnsupported;
     }
 
-    var raw_query: [byte: DNS_MAX_PACKET] = [0:DNS_MAX_PACKET];
-    var query_packet: [byte: DNS_MAX_PACKET + 2] = [0:DNS_MAX_PACKET + 2];
-    var response_packet: [byte: DNS_MAX_PACKET + 2] = [0:DNS_MAX_PACKET + 2];
+    var raw_query: [byte: DNS_QUERY_PACKET_SCRATCH] = [0:DNS_QUERY_PACKET_SCRATCH];
+    var query_packet: [byte: DNS_TCP_QUERY_FRAME_SCRATCH] = [0:DNS_TCP_QUERY_FRAME_SCRATCH];
+    var response_prefix: [byte: DNS_TCP_FRAME_HEADER_BYTES] = [0:DNS_TCP_FRAME_HEADER_BYTES];
     var sockaddr: [byte: 16] = [0:16];
-    const raw_qlen: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &raw_query[0], DNS_MAX_PACKET);
+    const raw_qlen: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &raw_query[0], DNS_QUERY_PACKET_SCRATCH);
     query_packet[0] = (((raw_qlen >> 8) & (255 as usize)) as byte);
     query_packet[1] = ((raw_qlen & (255 as usize)) as byte);
     var i: usize = 0;
@@ -1919,12 +1935,12 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
     }
 
     var bytes_received: usize = 0;
-    while bytes_received < 2 {
-        if bytes_received >= @len(response_packet) {
+    while bytes_received < DNS_TCP_FRAME_HEADER_BYTES {
+        if bytes_received >= @len(response_prefix) {
             return error.DnsInvalidPacket;
         }
-        const prefix_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_packet[0] as &void) + bytes_received) as &byte;
-        const prefix_recv_result: !usize = @await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms);
+        const prefix_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_prefix[0] as &void) + bytes_received) as &byte;
+        const prefix_recv_result: !usize = @await async_socket_recv(fd, prefix_recv_base, DNS_TCP_FRAME_HEADER_BYTES - bytes_received, deadline_ms);
         const prefix_n: usize = prefix_recv_result catch |err| {
             return try dns_transport_error_from_async_error_usize(@error_id(err));
         };
@@ -1934,19 +1950,24 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
         bytes_received = bytes_received + prefix_n;
     }
 
-    const expected_body_len: usize = (((response_packet[0] as usize) << 8) | (response_packet[1] as usize));
-    if expected_body_len == 0 || expected_body_len > DNS_MAX_PACKET {
+    const expected_body_len: usize = (((response_prefix[0] as usize) << 8) | (response_prefix[1] as usize));
+    if expected_body_len == 0 || expected_body_len > DNS_TCP_MESSAGE_WIRE_MAX {
         return error.DnsInvalidPacket;
+    }
+
+    const response_mem: &void = malloc(expected_body_len);
+    if response_mem == null {
+        return error.AllocOutOfMemory;
+    }
+    const response_packet: &byte = response_mem as &byte;
+    defer {
+        free(response_packet as &void);
     }
 
     bytes_received = 0;
     while bytes_received < expected_body_len {
         const body_remaining: usize = expected_body_len - bytes_received;
-        const body_offset: usize = 2 + bytes_received;
-        if body_offset >= @len(response_packet) {
-            return error.DnsInvalidPacket;
-        }
-        const body_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_packet[0] as &void) + body_offset) as &byte;
+        const body_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(response_packet as &void) + bytes_received) as &byte;
         const body_recv_result: !usize = @await async_socket_recv(fd, body_recv_base, body_remaining, deadline_ms);
         const body_n: usize = body_recv_result catch |err| {
             return try dns_transport_error_from_async_error_usize(@error_id(err));
@@ -1958,7 +1979,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
     }
 
     var ttl_tmp: usize = 0;
-    const parsed: usize = dns_parse_answers_with_ttl(&response_packet[2], expected_body_len, mode as u16, out, out_max, out_len, &ttl_tmp) catch |err| {
+    const parsed: usize = dns_parse_answers_with_ttl(response_packet as &const byte, expected_body_len, mode as u16, out, out_max, out_len, &ttl_tmp) catch |err| {
         return try dns_error_from_error_id(@error_id(err));
     };
     _ = ttl_tmp;

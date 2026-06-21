@@ -27,6 +27,7 @@ error DnsAsyncTransportSourceReadFailed;
 const DNS_SOURCE_PATH: &const byte = "lib/std/net/dns.uya\0" as &const byte;
 const ASYNC_SOURCE_PATH: &const byte = "lib/std/async.uya\0" as &const byte;
 const DNS_SOURCE_MAX: usize = 131072;
+const DNS_LARGE_TCP_BODY_LEN: usize = 600;
 
 fn sys_recvfrom_raw(sockfd: i32, buf: &byte, len: usize, flags: i32, addr: &byte, addrlen: &u32) !isize {
     return sys_recvfrom(sockfd, buf as *byte, len, flags, addr as *byte, addrlen as *u32);
@@ -290,6 +291,60 @@ fn dns_serve_single_truncated_then_tcp_a(udp_fd: i32, tcp_fd: i32) !void {
         i = i + 1;
     }
     try dns_write_all(cfd, &framed[0], 47);
+    _ = sys_close(cfd) catch {};
+}
+
+fn dns_serve_single_truncated_then_large_tcp_a(udp_fd: i32, tcp_fd: i32) !void {
+    var query: [byte: 512] = [0:512];
+    var peer_addr: [byte: 16] = [0:16];
+    var peer_len: u32 = 16;
+    const udp_n: isize = try sys_recvfrom_raw(udp_fd, &query[0], 512, 0, &peer_addr[0], &peer_len);
+    if udp_n <= 0 {
+        return error.ConnectionClosed;
+    }
+
+    var udp_resp: [byte: 12] = [0x12, 0x34, 0x83, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
+    udp_resp[0] = query[0];
+    udp_resp[1] = query[1];
+    _ = try sys_sendto_raw(udp_fd, &udp_resp[0], 12, 0, &peer_addr[0], peer_len);
+
+    var client_addr: [byte: 16] = [0:16];
+    var client_len: u32 = 16;
+    const cfd: i32 = try sys_accept(tcp_fd, &client_addr[0] as &void, &client_len);
+
+    var lenbuf: [byte: 2] = [0:2];
+    try dns_read_exact(cfd, &lenbuf[0], 2);
+    const body_len: usize = (((lenbuf[0] as usize) << 8) | (lenbuf[1] as usize));
+    if body_len > 0 {
+        var req: [byte: 512] = [0:512];
+        try dns_read_exact(cfd, &req[0], body_len);
+    }
+
+    var body: [byte: DNS_LARGE_TCP_BODY_LEN] = [0:DNS_LARGE_TCP_BODY_LEN];
+    var prefix: [byte: 45] = [
+        0x12, 0x34, 0x81, 0x00, 0, 1, 0, 1, 0, 0, 0, 0,
+        7, 101, 120, 97, 109, 112, 108, 101,
+        3, 99, 111, 109, 0,
+        0, 1, 0, 1,
+        0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 5, 6, 7, 8,
+    ];
+    prefix[0] = query[0];
+    prefix[1] = query[1];
+    var i: usize = 0;
+    while i < 45 {
+        body[i] = prefix[i];
+        i = i + 1;
+    }
+
+    var framed: [byte: DNS_LARGE_TCP_BODY_LEN + 2] = [0:DNS_LARGE_TCP_BODY_LEN + 2];
+    framed[0] = (((DNS_LARGE_TCP_BODY_LEN >> 8) & (255 as usize)) as byte);
+    framed[1] = ((DNS_LARGE_TCP_BODY_LEN & (255 as usize)) as byte);
+    i = 0;
+    while i < DNS_LARGE_TCP_BODY_LEN {
+        framed[2 + i] = body[i];
+        i = i + 1;
+    }
+    try dns_write_all(cfd, &framed[0], DNS_LARGE_TCP_BODY_LEN + 2);
     _ = sys_close(cfd) catch {};
 }
 
@@ -824,6 +879,40 @@ test "dns_query_all_async_prefer_ipv4_tcp_fallback" {
     }
 
     dns_serve_single_truncated_then_tcp_a(udp_fd, tcp_fd) catch {
+        _ = sys_close(udp_fd) catch {};
+        _ = sys_close(tcp_fd) catch {};
+        try assert_eq_i32(0, 1);
+        return;
+    };
+
+    _ = sys_close(udp_fd) catch {};
+    _ = sys_close(tcp_fd) catch {};
+    try wait_child_exit_ok(child_pid);
+}
+
+test "dns_query_all_async_prefer_ipv4_tcp_fallback_accepts_tcp_body_larger_than_udp_limit" {
+    var port: u16 = 0;
+    var udp_fd: i32 = -1;
+    var tcp_fd: i32 = -1;
+    dns_listen_loopback_udp_tcp_pair(&port, &udp_fd, &tcp_fd) catch {
+        try assert_eq_i32(0, 1);
+        return;
+    };
+
+    const child_pid: i32 = fork();
+    if child_pid == 0 {
+        _ = sys_close(udp_fd) catch {};
+        _ = sys_close(tcp_fd) catch {};
+        run_dns_query_all_async_prefer_ipv4_client(port);
+    }
+    if child_pid <= 0 {
+        _ = sys_close(udp_fd) catch {};
+        _ = sys_close(tcp_fd) catch {};
+        try assert_eq_i32(0, 1);
+        return;
+    }
+
+    dns_serve_single_truncated_then_large_tcp_a(udp_fd, tcp_fd) catch {
         _ = sys_close(udp_fd) catch {};
         _ = sys_close(tcp_fd) catch {};
         try assert_eq_i32(0, 1);

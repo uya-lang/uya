@@ -2724,3 +2724,17 @@
     - `../uya/bin/uya test tests/test_https_websocket_loopback.uya`：通过（2 tests passed，新增大 TLS record 下的大 WebSocket 消息回归）
     - `../uya/bin/uya test tests/test_http_websocket_backpressure.uya`：通过（4 tests passed）
     - `../uya/bin/uya test tests/test_http_websocket_async.uya`：通过（5 tests passed）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.5 协议层临时 buffer
+
+父级任务路径：审计 `websocket_async`、DNS/TLS 等 async 协议模块中的固定 scratch buffer，把“协议暂存”与“产品上限”拆开。
+
+  - [x] `std.net.dns`：区分 UDP `512` 协议包上限、TCP framed query scratch 与解析输出容量，避免把 DNS 报文暂存常量混成产品上限。
+    - 完成条件：明确哪些常量是 RFC / wire-format 上限，哪些需要改为调用方容量或 growable scratch。
+    - 最小验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`；`../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`
+    - 验证记录：
+      - `../uya/bin/uya test tests/test_std_dns_async_transport.uya`：通过，11 tests passed（新增 `dns_query_all_async_prefer_ipv4_tcp_fallback_accepts_tcp_body_larger_than_udp_limit`）。
+      - `../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`：通过，1 test passed。
+      - `../uya/bin/uya test tests/test_std_dns.uya`：通过，34 tests passed。
