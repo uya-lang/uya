@@ -2283,3 +2283,14 @@
     - 验证结果：通过（2 tests passed，7 assertions passed）。
     - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
     - 验证结果：通过（34 tests passed，144 assertions passed）。
+
+### 1.5.7 配套测试与闸门
+
+父级路径：`为每个迁移模块补 dedicated regression`
+  - [x] DNS：UDP/TCP/fallback/cancel/timeout
+    - 实现：扩展 `tests/test_std_dns_async_transport.uya`，把 dedicated regression 收口到单文件，新增 loopback UDP/TCP happy path、silent nameserver timeout、shared queue cancel，并修正 `async_socket_recv` 形态断言；同时修复 `lib/std/net/dns.uya` 对 `error.Cancelled` 的错误映射，保证 DNS transport 取消原样透传。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`（通过，10 tests，40 assertions）
+    - 验证：`../uya/bin/uya test tests/test_std_dns.uya`（通过，34 tests，78 assertions）
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_query_aggregate.uya`（通过，3 tests，6 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`（通过，1 test，2 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（通过，4 tests，47 assertions）

@@ -228,6 +228,16 @@ fn dns_transport_error_from_errno_usize(eid: i32) !usize {
     return error.DnsNetworkUnreachable;
 }
 
+fn dns_transport_error_from_async_error_usize(err_id: u32) !usize {
+    if err_id == @error_id(error.Cancelled) {
+        return error.Cancelled;
+    }
+    if err_id == @error_id(error.AsyncDeadlineExceeded) {
+        return error.DnsTimeout;
+    }
+    return try dns_transport_error_from_errno_usize((err_id as! i32).value);
+}
+
 fn dns_error_from_error_id(err_id: u32) !usize {
     if err_id == @error_id(error.DnsInvalidName) {
         return error.DnsInvalidName;
@@ -995,45 +1005,13 @@ fn dns_socket_connect_tcp_nonblocking(ns: &DnsAddress, fd_out: &i32) !void {
     };
     const connect_result: !i32 = @await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms);
     const connected_fd: i32 = connect_result catch |err| {
-        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-            return error.DnsTimeout;
-        }
-        const eid: i32 = (@error_id(err) as! i32).value;
-        if dns_is_would_block_errno(eid) {
-            return error.DnsWouldBlock;
-        }
-        if eid == ETIMEDOUT {
-            return error.DnsTimeout;
-        }
-        if eid == ENETUNREACH || eid == EHOSTUNREACH || eid == ECONNREFUSED || eid == ECONNRESET || eid == ECONNABORTED || eid == ENOTCONN || eid == EDESTADDRREQ || eid == EPIPE {
-            return error.DnsNetworkUnreachable;
-        }
-        if eid == EAFNOSUPPORT || eid == EPROTOTYPE || eid == EPROTONOSUPPORT || eid == EOPNOTSUPP || eid == ENOSYS {
-            return error.DnsPlatformUnsupported;
-        }
-        return error.DnsNetworkUnreachable;
+        return try dns_transport_error_from_async_error_usize(@error_id(err));
     };
     fd = connected_fd;
 
     const send_result: !usize = @await async_socket_send(fd, &query_packet[0] as &const byte, query_len, deadline_ms);
     const sent: usize = send_result catch |err| {
-        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-            return error.DnsTimeout;
-        }
-        const eid: i32 = (@error_id(err) as! i32).value;
-        if dns_is_would_block_errno(eid) {
-            return error.DnsWouldBlock;
-        }
-        if eid == ETIMEDOUT {
-            return error.DnsTimeout;
-        }
-        if eid == ENETUNREACH || eid == EHOSTUNREACH || eid == ECONNREFUSED || eid == ECONNRESET || eid == ECONNABORTED || eid == ENOTCONN || eid == EDESTADDRREQ || eid == EPIPE {
-            return error.DnsNetworkUnreachable;
-        }
-        if eid == EAFNOSUPPORT || eid == EPROTOTYPE || eid == EPROTONOSUPPORT || eid == EOPNOTSUPP || eid == ENOSYS {
-            return error.DnsPlatformUnsupported;
-        }
-        return error.DnsNetworkUnreachable;
+        return try dns_transport_error_from_async_error_usize(@error_id(err));
     };
     if sent != query_len {
         return error.DnsNetworkUnreachable;
@@ -1041,23 +1019,7 @@ fn dns_socket_connect_tcp_nonblocking(ns: &DnsAddress, fd_out: &i32) !void {
 
     const recv_result: !usize = @await async_socket_recv(fd, &response_packet[0], DNS_MAX_PACKET, deadline_ms);
     const response_len: usize = recv_result catch |err| {
-        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-            return error.DnsTimeout;
-        }
-        const eid: i32 = (@error_id(err) as! i32).value;
-        if dns_is_would_block_errno(eid) {
-            return error.DnsWouldBlock;
-        }
-        if eid == ETIMEDOUT {
-            return error.DnsTimeout;
-        }
-        if eid == ENETUNREACH || eid == EHOSTUNREACH || eid == ECONNREFUSED || eid == ECONNRESET || eid == ECONNABORTED || eid == ENOTCONN || eid == EDESTADDRREQ || eid == EPIPE {
-            return error.DnsNetworkUnreachable;
-        }
-        if eid == EAFNOSUPPORT || eid == EPROTOTYPE || eid == EPROTONOSUPPORT || eid == EOPNOTSUPP || eid == ENOSYS {
-            return error.DnsPlatformUnsupported;
-        }
-        return error.DnsNetworkUnreachable;
+        return try dns_transport_error_from_async_error_usize(@error_id(err));
     };
     if response_len == 0 {
         return error.DnsNoSuchName;
@@ -1935,10 +1897,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
 
     const connect_result: !i32 = @await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms);
     const connected_fd: i32 = connect_result catch |err| {
-        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-            return error.DnsTimeout;
-        }
-        return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
+        return try dns_transport_error_from_async_error_usize(@error_id(err));
     };
     fd = connected_fd;
 
@@ -1951,10 +1910,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
         const send_base: &byte = @ptr_from_usize(@usize_from_ptr(&query_packet[0] as &void) + bytes_sent) as &byte;
         const send_result: !usize = @await async_socket_send(fd, send_base as &const byte, remaining, deadline_ms);
         const sent: usize = send_result catch |err| {
-            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                return error.DnsTimeout;
-            }
-            return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
+            return try dns_transport_error_from_async_error_usize(@error_id(err));
         };
         if sent == 0 {
             return error.DnsNetworkUnreachable;
@@ -1970,10 +1926,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
         const prefix_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_packet[0] as &void) + bytes_received) as &byte;
         const prefix_recv_result: !usize = @await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms);
         const prefix_n: usize = prefix_recv_result catch |err| {
-            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                return error.DnsTimeout;
-            }
-            return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
+            return try dns_transport_error_from_async_error_usize(@error_id(err));
         };
         if prefix_n == 0 {
             return error.DnsNoSuchName;
@@ -1996,10 +1949,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
         const body_recv_base: &byte = @ptr_from_usize(@usize_from_ptr(&response_packet[0] as &void) + body_offset) as &byte;
         const body_recv_result: !usize = @await async_socket_recv(fd, body_recv_base, body_remaining, deadline_ms);
         const body_n: usize = body_recv_result catch |err| {
-            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
-                return error.DnsTimeout;
-            }
-            return try dns_transport_error_from_errno_usize((@error_id(err) as! i32).value);
+            return try dns_transport_error_from_async_error_usize(@error_id(err));
         };
         if body_n == 0 {
             return error.DnsNoSuchName;
