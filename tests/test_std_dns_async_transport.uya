@@ -561,7 +561,7 @@ test "dns_async_transport_uses_shared_async_socket_io_helpers" {
     var async_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
     const async_len: usize = try read_source(ASYNC_SOURCE_PATH, &async_src[0], DNS_SOURCE_MAX);
 
-    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_socket_send(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export @async_fn fn async_socket_send(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export fn async_socket_recv(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_socket_send(\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&dns_src[0], dns_len, "async_socket_recv(\0" as &const byte) as i32, 1);

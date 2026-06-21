@@ -358,7 +358,7 @@ fn test_async_socket_send_cancelled_returns_cancelled() !void {
     const f: Future<!usize> = async_socket_send(fd, &src[0] as &const byte, 4, 0 as u64);
     var wk: Waker = Waker{};
     wk.cancel();
-    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_cancelled_poll_usize(poll_usize_allow_transition_pending(f, &wk));
     try assert_fd_still_blocking(fd);
 }
 

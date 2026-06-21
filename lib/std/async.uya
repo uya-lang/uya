@@ -1433,52 +1433,6 @@ export @async_fn fn async_fd_write_future(fd: i32, data: &const byte, count: usi
     return try @await async_fd_write_deadline_future(fd, data, count, 0 as u64);
 }
 
-struct AsyncSocketSendFuture : Future<!usize> {
-    fd: i32,
-    data: &const byte,
-    count: usize,
-    deadline_ms: u64,
-    nonblocking_ready: i32 = 0,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_usize();
-        }
-        _ = async_check_deadline(self.deadline_ms) catch {
-            return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
-        };
-
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                const err_value: !usize = ready_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
-        }
-
-        while true {
-            const send_result: !isize = sys_send(self.fd, self.data, self.count, 0);
-            const n: isize = send_result catch |err| {
-                const err_id: u32 = @error_id(err);
-                if err_id == libc_EINTR as u32 {
-                    continue;
-                }
-                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                    return async_poll_pending_writable_usize(waker, self.fd);
-                }
-                const err_value: !usize = send_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            return async_poll_ready_ok_usize(n as usize);
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 struct AsyncSocketRecvFuture : Future<!usize> {
     fd: i32,
     buf: &byte,
@@ -1528,16 +1482,33 @@ struct AsyncSocketRecvFuture : Future<!usize> {
 /// 异步执行一次 `send(2)`，供 socket transport 在 nonblocking 路径复用。
 /// 参数说明：`fd` 为已创建 socket；`data`/`count` 为本次要发送的 buffer；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
 /// 返回值说明：成功返回本次实际发送字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，超时返回 `error.AsyncDeadlineExceeded`，其他错误原样透传。
-export fn async_socket_send(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
+export @async_fn fn async_socket_send(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
     if fd < 0 {
-        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncSocketSendFuture{
-        fd: fd,
-        data: data,
-        count: count,
-        deadline_ms: deadline_ms,
-    };
+    var nonblocking_ready: i32 = 0;
+    while true {
+        const wait_writable_result: !usize = @await async_wait_writable(fd, deadline_ms);
+        _ = try wait_writable_result;
+        if nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(fd);
+            nonblocking_ready = 1;
+        }
+        while true {
+            const send_result: !isize = sys_send(fd, data, count, 0);
+            const n: isize = send_result catch |err| {
+                const err_id: u32 = @error_id(err);
+                if err_id == libc_EINTR as u32 {
+                    continue;
+                }
+                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                    break;
+                }
+                return err;
+            };
+            return n as usize;
+        }
+    }
 }
 
 /// 异步执行一次 `recv(2)`，供 socket transport 在 nonblocking 路径复用。
