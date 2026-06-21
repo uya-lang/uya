@@ -170,9 +170,6 @@
 
 ## Phase 5：发布闸门与文档同步
 
-- [ ] 文档同步：
-  - [ ] 如语义/规范改变，再同步 `docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md`
-
 ## 执行顺序
 
 1. [ ] 先做 Phase 0，把“真实缺口”与“验证入口”钉住。

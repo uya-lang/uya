@@ -3044,3 +3044,10 @@ Phase 5：发布闸门与文档同步
   - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
   - 结果：通过（todo 状态结构合法，0 active task）
   - 说明：同步了 `TaskQueue<T>` 默认自动增长、`Scheduler` runtime 配置、shared runtime 发布闸门入口与动态资源专项验证口径；本轮未发现需要同步 `docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md` 的规范变更。
+## Phase 5：发布闸门与文档同步
+
+- [x] 文档同步：
+  - [x] 如语义/规范改变，再同步 `docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md`
+    完成说明：本轮核对后确认无需修改；`docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md` 已覆盖当前 async 语义与约束。
+    验证：`bash tests/verify_async_full_language_matrix.sh native` → `verify_async_full_language_matrix: native baseline, HTTP/1+UyaGin boundary regressions, and hand-written Future whitelist passed`
+    验证：`git diff --check` → 通过
