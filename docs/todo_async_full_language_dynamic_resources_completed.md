@@ -2969,3 +2969,11 @@ Phase 5：发布闸门与文档同步
     - 结果：通过，输出 `verify_async_dynamic_resources: all stages passed`。
     - 验证：`git diff --check`
     - 结果：通过。
+
+## Phase 5：发布闸门与文档同步
+
+- [x] 新增/更新权威验证脚本：
+  - [x] `tests/verify_async_production_smoke.sh`
+    - 完成内容：将 production smoke 入口改成成功时只输出阶段摘要、失败时回放完整子 gate 日志；同时把 `tests/verify_async_full_language_matrix.sh` 及其调用的 `tests/verify_async_await_capacity.sh`、`tests/verify_async_nested_future_boundary.sh`、`tests/verify_async_shared_runtime_matrix.sh` 的编译器路径统一为 `../uya/bin/uya`，去掉对 `UYA_COMPILER` 覆盖的依赖。
+    - 验证命令：`bash -n tests/verify_async_production_smoke.sh tests/verify_async_full_language_matrix.sh tests/verify_async_await_capacity.sh tests/verify_async_nested_future_boundary.sh tests/verify_async_shared_runtime_matrix.sh`；`bash tests/verify_async_smoke_gate_separation.sh`；`bash tests/verify_async_production_smoke.sh`
+    - 验证结果：全部通过；`verify_async_production_smoke.sh` 输出摘要 `verify_async_production_smoke: full-language, shared runtime, nested future, and cancel cleanup smoke matrix passed`。

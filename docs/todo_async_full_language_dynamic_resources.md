@@ -170,8 +170,6 @@
 
 ## Phase 5：发布闸门与文档同步
 
-- [ ] 新增/更新权威验证脚本：
-  - [ ] `tests/verify_async_production_smoke.sh`
 - [ ] 收口前至少跑通：
   - [ ] `make uya`
   - [ ] `make tests-uya`

@@ -195,13 +195,13 @@ run_c99_extended_matrix() {
     local driver_args=("$@")
 
     echo "==> verify_async_await_capacity ($label)"
-    UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_await_capacity.sh" "${driver_args[@]}" >/dev/null
+    bash "$SCRIPT_DIR/verify_async_await_capacity.sh" "${driver_args[@]}" >/dev/null
 
     echo "==> verify_async_nested_future_boundary ($label)"
-    UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" "${driver_args[@]}" >/dev/null
+    bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh" "${driver_args[@]}" >/dev/null
 
     echo "==> verify_async_shared_runtime_matrix ($label)"
-    UYA_COMPILER="$COMPILER" bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" "${driver_args[@]}" >/dev/null
+    bash "$SCRIPT_DIR/verify_async_shared_runtime_matrix.sh" "${driver_args[@]}" >/dev/null
 }
 
 if [ "$MODE" = "all" ] || [ "$MODE" = "native" ]; then

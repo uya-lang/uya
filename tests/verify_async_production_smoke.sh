@@ -15,9 +15,22 @@ fi
 run_step() {
     local label="$1"
     shift
+    local log
+
+    log="$(mktemp)"
 
     echo "==> $label"
-    "$@"
+    if ! "$@" >"$log" 2>&1; then
+        cat "$log"
+        rm -f "$log"
+        exit 1
+    fi
+
+    if [ -s "$log" ]; then
+        tail -n 1 "$log"
+    fi
+
+    rm -f "$log"
 }
 
 run_step "async full-language and boundary matrix" \
