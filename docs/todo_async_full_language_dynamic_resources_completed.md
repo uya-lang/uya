@@ -2572,3 +2572,23 @@
   - 验证：`git diff --check`
   - 结果：通过，无 diff 格式错误。
   - 文档同步：`docs/todo_async_full_language_dynamic_resources.md`、`docs/async_runtime_semantics_matrix.md` 已更新为默认策略口径。
+## Phase 3：运行时 async 资源动态化
+
+### 3.3 AsyncFramePool
+
+- [x] 将 `lib/std/async_frame.uya` 的 bucket / slot / descriptor 上限改成动态结构。
+  - 完成记录：本轮核对后确认实现已在仓库中，主 todo 仅缺少同步。`lib/std/async_frame.uya` 已支持 bucket 表按需翻倍扩容、bucket slot 表按需翻倍扩容；`src/codegen/c99/main.uya` 生成的 `_uya_async_frame_descriptor_entries` 已按 `async_frame_meta_count` 定长输出，空表时只保留 1 个占位 entry。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
+  - 结果：通过，1 个测试文件 / 4 tests / 4236 assertions，覆盖 bucket 表和 slot 表突破旧默认容量。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya`
+  - 结果：通过，1 个测试文件 / 10 tests / 4251 assertions，覆盖显式配置、大于默认 bucket 数和大于默认 per-bucket 容量。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_align_pool.uya`
+  - 结果：通过，1 个测试文件 / 8 tests / 4235 assertions，覆盖对齐路径和超过旧兼容上限的 pool 配置。
+  - 验证：`../uya/bin/uya test tests/test_c99_async_frame_empty_descriptors.uya`
+  - 结果：通过，空 descriptor 表路径保持可运行。
+  - 验证：`python3 tests/verify_async_compiler_no_fixed_limits.py`
+  - 结果：通过，未发现 async frame/compiler 相关固定上限残留检查命中。
+  - 验证：`../uya/bin/uya --c99 tests/test_async_frame_pool_stats.uya -o /tmp/uya_async_frame_pool_stats.c`
+  - 结果：通过；生成产物中包含 `_uya_async_frame_descriptor_entries[21]` 与 `_uya_async_frame_descriptor_count = 21`。
+  - 验证：`../uya/bin/uya --c99 tests/test_c99_async_frame_empty_descriptors.uya -o /tmp/uya_async_frame_empty_descriptors.c`
+  - 结果：通过；生成产物中包含 `_uya_async_frame_descriptor_entries[1]` 与 `_uya_async_frame_descriptor_count = 0`。

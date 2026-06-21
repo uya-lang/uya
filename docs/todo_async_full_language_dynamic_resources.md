@@ -166,7 +166,6 @@
 
 ### 3.3 AsyncFramePool
 
-- [ ] 将 `lib/std/async_frame.uya` 的 bucket / slot / descriptor 上限改成动态结构。
 - [ ] 为 pool 建立明确的 ownership 跟踪，修掉 reset/free 语义只能靠注释解释的隐患。
 - [ ] 区分：
   - [ ] 真正来自 caller buffer 的 frame
