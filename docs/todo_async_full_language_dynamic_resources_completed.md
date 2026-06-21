@@ -2700,3 +2700,11 @@
   - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，4 tests / 99 assertions）
   - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，34 tests / 144 assertions）
   - 验证：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya`（通过，4 tests / 16 assertions）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.5 协议层临时 buffer
+
+- [x] 将 `lib/std/http/http1_async.uya` 的固定 `4096` 请求头 scratch buffer 改成 growable buffer 或调用方可控容量。
+  - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`（通过；包含 `http1_async_request_header_buffer_grows_past_inline_cap`，10/10 tests passed）
+  - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`（通过；3/3 tests passed）

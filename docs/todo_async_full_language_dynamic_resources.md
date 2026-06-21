@@ -170,7 +170,6 @@
 
 ### 3.5 协议层临时 buffer
 
-- [ ] 将 `lib/std/http/http1_async.uya` 的固定 `4096` 请求头 scratch buffer 改成 growable buffer 或调用方可控容量。
 - [ ] 审计 `websocket_async`、DNS/TLS 等 async 协议模块中的固定 scratch buffer，把“协议暂存”与“产品上限”拆开。
 
 **验收**：
