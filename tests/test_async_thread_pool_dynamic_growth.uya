@@ -1,6 +1,7 @@
 use std.async;
 use std.async_scheduler;
 use std.testing.assert_eq_i32;
+use std.testing.assert_eq_u64;
 use std.testing.expect;
 use std.thread;
 use libc.syscall;
@@ -192,4 +193,133 @@ test "thread_pool_configured_queue_applies_backpressure_past_legacy_task_slots" 
 
     try assert_eq_i32(thread_pool_started_workers(&pool), 1);
     try assert_eq_i32(thread_pool_pending_count(&pool), 0);
+}
+
+test "thread_pool_metrics_capture_capacity_queue_depth_and_drain_time" {
+    var pool: ThreadPool = make_backpressure_pool();
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    const initial_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
+    try assert_eq_i32(initial_metrics.worker_capacity, pool.worker_count);
+    try assert_eq_i32(initial_metrics.queue_capacity, pool.pending_capacity);
+    try assert_eq_i32(initial_metrics.task_slot_capacity, pool.task_slot_capacity);
+    try assert_eq_i32(initial_metrics.queue_depth, 0);
+    try assert_eq_i32(initial_metrics.peak_queue_depth, 0);
+    try assert_eq_u64(initial_metrics.cancel_count, 0u64);
+    try assert_eq_u64(initial_metrics.drain_count, 0u64);
+
+    var futures: [Future<!i32>: 20] = [
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 0),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 1),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 2),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 3),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 4),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 5),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 6),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 7),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 8),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 9),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 10),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 11),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 12),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 13),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 14),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 15),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 16),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 17),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 18),
+        async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 19),
+    ];
+
+    var wakers: [Waker: 20] = [
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+    ];
+
+    var i: usize = 0 as usize;
+    while i < DYNAMIC_TASK_COUNT {
+        _ = futures[i].poll(&wakers[i]);
+        i = i + 1 as usize;
+    }
+
+    i = 0 as usize;
+    while i < DYNAMIC_TASK_COUNT {
+        _ = futures[i].poll(&wakers[i]);
+        i = i + 1 as usize;
+    }
+
+    try assert_eq_i32(wait_started_workers(&pool, 1), 1);
+    try assert_eq_i32(wait_pending_at_least(&pool, DYNAMIC_QUEUE_PRESSURE_TARGET), 1);
+
+    const queued_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
+    try assert_eq_i32(queued_metrics.started_workers, 1);
+    try expect(queued_metrics.queue_depth >= DYNAMIC_QUEUE_PRESSURE_TARGET);
+    try expect(queued_metrics.peak_queue_depth >= queued_metrics.queue_depth);
+
+    i = 0 as usize;
+    while i < DYNAMIC_TASK_COUNT {
+        const value: i32 = try block_on<i32>(futures[i]);
+        try assert_eq_i32(value, i as i32 + 1);
+        i = i + 1 as usize;
+    }
+
+    const final_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
+    try assert_eq_i32(final_metrics.queue_depth, 0);
+    try expect(final_metrics.peak_queue_depth > THREAD_POOL_MAX_TASK_SLOTS);
+    try expect(final_metrics.drain_count >= 1u64);
+    try expect(final_metrics.last_drain_time_us > 0u64);
+    try expect(final_metrics.max_drain_time_us >= final_metrics.last_drain_time_us);
+    try expect(final_metrics.total_drain_time_us >= final_metrics.last_drain_time_us);
+    try assert_eq_u64(final_metrics.cancel_count, 0u64);
+}
+
+test "thread_pool_metrics_record_cancelled_async_compute" {
+    var pool: ThreadPool = make_backpressure_pool();
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 0);
+    var second: Future<!i32> = async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 1);
+    var first_waker: Waker = Waker{};
+    var second_waker: Waker = Waker{};
+
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+
+    try assert_eq_i32(wait_pending_at_least(&pool, 1), 1);
+
+    second_waker.cancel();
+    const cancelled_poll: Poll<!i32> = second.poll(&second_waker);
+    var cancelled: i32 = 0;
+    match cancelled_poll {
+        .Ready(v) => {
+            const _value: i32 = v catch |err| {
+                if @error_id(err) == @error_id(error.Cancelled) {
+                    cancelled = 1;
+                }
+                0;
+            };
+            _ = _value;
+        },
+        .Pending(_) => { },
+    };
+
+    try assert_eq_i32(cancelled, 1);
+
+    const cancelled_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
+    try assert_eq_u64(cancelled_metrics.cancel_count, 1u64);
+
+    const value: i32 = try block_on<i32>(first);
+    try assert_eq_i32(value, 1);
+
+    const final_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
+    try assert_eq_i32(final_metrics.queue_depth, 0);
+    try assert_eq_u64(final_metrics.cancel_count, 1u64);
 }

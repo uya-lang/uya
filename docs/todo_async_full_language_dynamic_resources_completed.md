@@ -2692,3 +2692,11 @@
     - 验证：`../uya/bin/uya test --c99 tests/test_std_thread.uya`（通过：34 tests，144 assertions）
     - 验证：`../uya/bin/uya test --c99 tests/test_async_thread_pool_dynamic_growth.uya`（通过：2 tests，54 assertions）
     - 验证：`../uya/bin/uya test --c99 tests/test_std_thread_async_boundary.uya`（通过：4 tests，16 assertions）
+
+## Phase 3：运行时 async 资源动态化
+### 3.4 ThreadPool / async_compute
+
+- [x] 为 thread pool 增加容量、排队深度、取消、排空时间的指标。
+  - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，4 tests / 99 assertions）
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，34 tests / 144 assertions）
+  - 验证：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya`（通过，4 tests / 16 assertions）

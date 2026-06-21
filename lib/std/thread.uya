@@ -332,6 +332,11 @@ struct ThreadPoolSharedState {
     pending_head: atomic i32,
     pending_tail: atomic i32,
     pending_count: atomic i32,
+    peak_pending_count: atomic i32,
+    drain_count: atomic u64,
+    last_drain_time_us: atomic u64,
+    max_drain_time_us: atomic u64,
+    total_drain_time_us: atomic u64,
     slots: &ThreadTaskSlotRaw,
     pending_slots: &i32,
 }
@@ -353,6 +358,12 @@ export struct ThreadPool {
     _shared_state: &ThreadPoolSharedState,
     _workers: &ThreadWorker,
     _workers_bytes: usize,
+    _metrics_peak_queue_depth: i32,
+    _metrics_cancel_count: u64,
+    _metrics_drain_count: u64,
+    _metrics_last_drain_time_us: u64,
+    _metrics_max_drain_time_us: u64,
+    _metrics_total_drain_time_us: u64,
 }
 
 /// `ThreadPool` 容量配置。
@@ -363,6 +374,23 @@ export struct ThreadPoolConfig {
     pending_capacity: i32,
     task_slot_capacity: i32,
     submit_strategy: i32,
+}
+
+/// `ThreadPool` 运行时指标快照。
+/// 参数：无；通过 `thread_pool_metrics` 读取指定实例的当前值。
+/// 返回值：包含容量、队列深度、取消次数和排空耗时等观测字段。
+export struct ThreadPoolMetrics {
+    worker_capacity: i32,
+    queue_capacity: i32,
+    task_slot_capacity: i32,
+    started_workers: i32,
+    queue_depth: i32,
+    peak_queue_depth: i32,
+    cancel_count: u64,
+    drain_count: u64,
+    last_drain_time_us: u64,
+    max_drain_time_us: u64,
+    total_drain_time_us: u64,
 }
 
 fn thread_worker_set_nonblock(fd: i32) !i32 {
@@ -376,6 +404,82 @@ fn thread_pool_has_shared_state(pool: &ThreadPool) bool {
         return false;
     }
     return pool._shared_state != null as &ThreadPoolSharedState;
+}
+
+fn thread_now_monotonic_us() u64 {
+    var ts: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    const now_result: !i32 = sys_clock_gettime(CLOCK_MONOTONIC, &ts);
+    _ = now_result catch {
+        return 0u64;
+    };
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return 0u64;
+    }
+    return (ts.tv_sec as u64) * (1000000 as u64) + ((ts.tv_nsec as u64) / (1000 as u64));
+}
+
+fn thread_elapsed_us(start_us: u64, end_us: u64) u64 {
+    if end_us <= start_us {
+        return 0u64;
+    }
+    return end_us - start_us;
+}
+
+fn thread_shared_record_peak_queue_depth(shared_state: &ThreadPoolSharedState) void {
+    if shared_state == null as &ThreadPoolSharedState {
+        return;
+    }
+    const current_depth: i32 = shared_state.pending_count;
+    if current_depth > shared_state.peak_pending_count {
+        shared_state.peak_pending_count = current_depth;
+    }
+}
+
+fn thread_shared_record_drain_metrics(shared_state: &ThreadPoolSharedState, drain_us: u64) void {
+    if shared_state == null as &ThreadPoolSharedState || drain_us == 0u64 {
+        return;
+    }
+    shared_state.drain_count = shared_state.drain_count + 1u64;
+    shared_state.last_drain_time_us = drain_us;
+    shared_state.total_drain_time_us = shared_state.total_drain_time_us + drain_us;
+    if drain_us > shared_state.max_drain_time_us {
+        shared_state.max_drain_time_us = drain_us;
+    }
+}
+
+fn thread_shared_begin_drain(started_us: u64) u64 {
+    if started_us != 0u64 {
+        return started_us;
+    }
+    return thread_now_monotonic_us();
+}
+
+fn thread_shared_finish_drain(shared_state: &ThreadPoolSharedState, started_us: u64) u64 {
+    if started_us == 0u64 {
+        return 0u64;
+    }
+    const ended_us: u64 = thread_now_monotonic_us();
+    const drain_us: u64 = thread_elapsed_us(started_us, ended_us);
+    thread_shared_record_drain_metrics(shared_state, drain_us);
+    return 0u64;
+}
+
+fn thread_pool_record_cancel(pool: &ThreadPool) void {
+    if pool == null as &ThreadPool {
+        return;
+    }
+    pool._metrics_cancel_count = pool._metrics_cancel_count + 1u64;
+}
+
+fn thread_pool_cache_shared_metrics(pool: &ThreadPool) void {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return;
+    }
+    pool._metrics_peak_queue_depth = pool._shared_state.peak_pending_count;
+    pool._metrics_drain_count = pool._shared_state.drain_count;
+    pool._metrics_last_drain_time_us = pool._shared_state.last_drain_time_us;
+    pool._metrics_max_drain_time_us = pool._shared_state.max_drain_time_us;
+    pool._metrics_total_drain_time_us = pool._shared_state.total_drain_time_us;
 }
 
 fn thread_pool_capacity_bytes(count: i32, elem_size: usize) usize {
@@ -438,6 +542,14 @@ fn thread_pool_ensure_shared_state(pool: &ThreadPool) i32 {
     shared_state.pending_capacity = pool.pending_capacity;
     shared_state.task_slot_capacity = pool.task_slot_capacity;
     shared_state.mapped_bytes = map_bytes;
+    shared_state.pending_head = 0;
+    shared_state.pending_tail = 0;
+    shared_state.pending_count = 0;
+    shared_state.peak_pending_count = 0;
+    shared_state.drain_count = 0u64;
+    shared_state.last_drain_time_us = 0u64;
+    shared_state.max_drain_time_us = 0u64;
+    shared_state.total_drain_time_us = 0u64;
     shared_state.slots = @ptr_from_usize((mapped_ptr as usize) + slots_offset) as &ThreadTaskSlotRaw;
     shared_state.pending_slots = @ptr_from_usize((mapped_ptr as usize) + pending_offset) as &i32;
     pool._shared_state = shared_state;
@@ -539,6 +651,7 @@ fn thread_pool_release_slot(pool: &ThreadPool, slot_idx: i32) void {
 
 fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, shared_state: &ThreadPoolSharedState) void {
     while true {
+        var drain_started_us: u64 = 0u64;
         var cmd: ThreadWorkerCommand = ThreadWorkerCommand{ slot_idx: THREAD_WORKER_STOP_SLOT, reserved: 0 };
         const read_result: !isize = sys_read(cmd_read_fd, (&cmd) as *byte, @size_of(ThreadWorkerCommand));
         const n: isize = read_result catch {
@@ -563,6 +676,9 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
         var active_slot: i32 = cmd.slot_idx;
         if active_slot == THREAD_WORKER_DRAIN_QUEUE {
             active_slot = thread_shared_pop_slot(shared_state);
+            if active_slot >= 0 {
+                drain_started_us = thread_shared_begin_drain(drain_started_us);
+            }
         }
         while active_slot >= 0 {
             if !thread_shared_slot_is_valid(shared_state, active_slot) {
@@ -611,11 +727,13 @@ fn thread_worker_loop(worker_idx: i32, cmd_read_fd: i32, result_write_fd: i32, s
                 active_slot = thread_shared_pop_slot(shared_state);
                 const next_slot: i32 = active_slot;
                 if thread_shared_slot_is_valid(shared_state, next_slot) {
+                    drain_started_us = thread_shared_begin_drain(drain_started_us);
                     shared_state.slots[next_slot as usize].worker_idx = worker_idx;
                     shared_state.slots[next_slot as usize].state = THREAD_SLOT_STATE_RUNNING;
                 }
             }
         }
+        drain_started_us = thread_shared_finish_drain(shared_state, drain_started_us);
     }
 }
 
@@ -958,6 +1076,7 @@ fn thread_pool_enqueue_slot(pool: &ThreadPool, slot_idx: i32) i32 {
             pool._shared_state.pending_tail = 0;
         }
         pool._shared_state.pending_count = pool._shared_state.pending_count + 1;
+        thread_shared_record_peak_queue_depth(pool._shared_state);
         if thread_shared_slot_is_valid(pool._shared_state, slot_idx) {
             pool._shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_QUEUED;
         }
@@ -1407,8 +1526,9 @@ struct AsyncWorkerComputeFuture : Future<!usize> {
             waker.wake();
             return Poll<!usize>.Pending({});
         }
-        if waker.is_cancelled() {
+        if waker.is_cancelled() && self.cancel_requested == 0 {
             self.cancel_requested = 1;
+            thread_pool_record_cancel(self.pool);
         }
         if self.cancel_requested != 0 {
             const cancel_future: Future<!usize> = async_worker_cancel(self.pool, self.slot_idx);
@@ -1611,6 +1731,12 @@ export fn thread_pool_new_with_config(config: ThreadPoolConfig) ThreadPool {
         _shared_state: null as &ThreadPoolSharedState,
         _workers: null as &ThreadWorker,
         _workers_bytes: 0 as usize,
+        _metrics_peak_queue_depth: 0,
+        _metrics_cancel_count: 0u64,
+        _metrics_drain_count: 0u64,
+        _metrics_last_drain_time_us: 0u64,
+        _metrics_max_drain_time_us: 0u64,
+        _metrics_total_drain_time_us: 0u64,
     };
 }
 
@@ -1630,6 +1756,29 @@ export fn thread_pool_started_workers(pool: &ThreadPool) i32 {
 
 export fn thread_pool_pending_count(pool: &ThreadPool) i32 {
     return thread_pool_pending_len(pool);
+}
+
+/// 获取线程池当前指标快照。
+/// 参数：`pool` 为线程池实例；空指针返回全零快照。
+/// 返回值：包含容量、队列深度、取消次数和排空耗时等当前已知指标。
+export fn thread_pool_metrics(pool: &ThreadPool) ThreadPoolMetrics {
+    if pool == null as &ThreadPool {
+        return ThreadPoolMetrics{};
+    }
+    thread_pool_cache_shared_metrics(pool);
+    return ThreadPoolMetrics{
+        worker_capacity: pool.worker_count,
+        queue_capacity: pool.pending_capacity,
+        task_slot_capacity: pool.task_slot_capacity,
+        started_workers: pool._started_workers,
+        queue_depth: thread_pool_pending_len(pool),
+        peak_queue_depth: pool._metrics_peak_queue_depth,
+        cancel_count: pool._metrics_cancel_count,
+        drain_count: pool._metrics_drain_count,
+        last_drain_time_us: pool._metrics_last_drain_time_us,
+        max_drain_time_us: pool._metrics_max_drain_time_us,
+        total_drain_time_us: pool._metrics_total_drain_time_us,
+    };
 }
 
 export fn thread_pool_shutdown(pool: &ThreadPool) void {
@@ -1660,6 +1809,7 @@ export fn thread_pool_shutdown(pool: &ThreadPool) void {
     }
 
     if thread_pool_has_shared_state(pool) {
+        thread_pool_cache_shared_metrics(pool);
         const mapped_bytes: usize = pool._shared_state.mapped_bytes;
         _ = sys_munmap(pool._shared_state as *void, mapped_bytes) catch {};
         pool._shared_state = null as &ThreadPoolSharedState;

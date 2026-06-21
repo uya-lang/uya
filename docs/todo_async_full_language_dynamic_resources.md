@@ -168,8 +168,6 @@
 
 ### 3.4 ThreadPool / async_compute
 
-- [ ] 为 thread pool 增加容量、排队深度、取消、排空时间的指标。
-
 ### 3.5 协议层临时 buffer
 
 - [ ] 将 `lib/std/http/http1_async.uya` 的固定 `4096` 请求头 scratch buffer 改成 growable buffer 或调用方可控容量。
