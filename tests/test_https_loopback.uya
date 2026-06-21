@@ -1,21 +1,51 @@
 // test_https_loopback.uya - 最小 HTTPS 回环测试
 
 use tls.https;
+use tls.ssl.handshake;
+use tls.ssl.record;
+use tls.ssl.context;
 use tls.x509.cert;
 use std.async;
+use std.http.server;
 use std.http.types;
 use std.http.uyagin;
+use std.string.strlen;
 use libc.unistd;
 use libc.syscall;
 use tls.crypto.rsa;
 
+const TLS_TEST_RECORD_CIPHER_CAP: usize = RECORD_HEADER_LEN + 8 + RECORD_MAX_PLAIN + 16;
+const HTTPS_LARGE_BODY_LEN: usize = 9000;
+const HTTPS_LARGE_RESPONSE_CAP: usize = HTTPS_LARGE_BODY_LEN + 512;
+const HTTPS_LARGE_REQUEST_CAP: usize = HTTPS_LARGE_BODY_LEN + 256;
+
 struct HttpsUyaginHandler : AsyncHandler {}
+
+struct HttpsLargeBodyHandler : AsyncHandler {}
 
 HttpsUyaginHandler {
     @async_fn
     fn handle(self: &Self, ctx: &GinContext) Future<!i32> {
         _ = self;
         return try @await ctx.string(Status.OK, "hello uyagin tls");
+    }
+}
+
+HttpsLargeBodyHandler {
+    @async_fn
+    fn handle(self: &Self, ctx: &GinContext) Future<!i32> {
+        _ = self;
+        if ctx.request.body.len != HTTPS_LARGE_BODY_LEN {
+            return try @await ctx.string(Status.InternalServerError, "bad-len");
+        }
+        var i: usize = 0;
+        while i < HTTPS_LARGE_BODY_LEN {
+            if ctx.request.body.ptr[i] != 122 as byte {
+                return try @await ctx.string(Status.InternalServerError, "bad-body");
+            }
+            i = i + 1;
+        }
+        return try @await ctx.string(Status.OK, "large-body-ok");
     }
 }
 
@@ -40,6 +70,249 @@ fn response_has_subslice(hay: &const byte, hay_len: usize, needle: &[byte]) bool
         i = i + 1;
     }
     return false;
+}
+
+fn bytes_all_equal(hay: &const byte, hay_len: usize, want: byte) bool {
+    var i: usize = 0;
+    while i < hay_len {
+        if hay[i] != want {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn fill_bytes(dst: &byte, len: usize, value: byte) void {
+    var i: usize = 0;
+    while i < len {
+        dst[i] = value;
+        i = i + 1;
+    }
+}
+
+fn append_cstr(dst: &byte, start: usize, src: &const byte) usize {
+    var pos: usize = start;
+    const src_len: usize = strlen(src);
+    var i: usize = 0;
+    while i < src_len {
+        dst[pos] = src[i];
+        pos = pos + 1;
+        i = i + 1;
+    }
+    return pos;
+}
+
+fn tls_client_ctx_init(host: &const byte, host_len: usize, ctx: &SslContext) void {
+    ssl_init(ctx);
+    ssl_set_insecure_skip_verify(ctx, true);
+    ssl_set_skip_hostname_verify(ctx, true);
+    ssl_set_hostname(ctx, host, host_len);
+    ssl_set_peer_identity(ctx, host, host_len, host, host_len);
+}
+
+fn tls_write_plain(fd: i32, ctx: &SslContext, plain: &const byte, plain_len: usize) !void {
+    var cipher: [byte: TLS_TEST_RECORD_CIPHER_CAP] = [0: TLS_TEST_RECORD_CIPHER_CAP];
+    var cipher_len: usize = 0;
+    try ssl_write(ctx, plain, plain_len, &cipher[0], TLS_TEST_RECORD_CIPHER_CAP, &cipher_len);
+    try https_write_all(fd, &cipher[0], cipher_len);
+}
+
+fn tls_read_plain_response_all(fd: i32, ctx: &SslContext, out: &byte, out_cap: usize, out_len: &usize) !void {
+    out_len[0] = 0;
+    while true {
+        var cipher: [byte: TLS_TEST_RECORD_CIPHER_CAP] = [0: TLS_TEST_RECORD_CIPHER_CAP];
+        var cipher_len: usize = 0;
+        https_read_tls_record_exact(fd, &cipher[0], TLS_TEST_RECORD_CIPHER_CAP, &cipher_len) catch |err| {
+            if @error_id(err) == @error_id(error.ConnectionClosed) {
+                return;
+            }
+            return err;
+        };
+        var plain: [byte: RECORD_MAX_PLAIN] = [0: RECORD_MAX_PLAIN];
+        var plain_len: usize = 0;
+        var consumed: usize = 0;
+        try ssl_read(ctx, &cipher[0], cipher_len, &plain[0], RECORD_MAX_PLAIN, &plain_len, &consumed);
+        if out_len[0] + plain_len > out_cap {
+            return error.PayloadTooLarge;
+        }
+        var i: usize = 0;
+        while i < plain_len {
+            out[out_len[0] + i] = plain[i];
+            i = i + 1;
+        }
+        out_len[0] = out_len[0] + plain_len;
+    }
+}
+
+fn find_http_body_start(resp: &const byte, resp_len: usize) usize {
+    var i: usize = 0;
+    while i + 4 <= resp_len {
+        if resp[i] == 13 as byte && resp[i + 1] == 10 as byte && resp[i + 2] == 13 as byte && resp[i + 3] == 10 as byte {
+            return i + 4;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn test_https_large_response_body_roundtrip() i32 {
+    var host: [byte: 9] = [108, 111, 99, 97, 108, 104, 111, 115, 116];
+    var srv: HttpsServer = https_server_listen(&host[0], 9, 0) catch {
+        return 31;
+    };
+    var leaf: Cert = Cert{};
+    var key: RsaPrivateKey = RsaPrivateKey{};
+    https_server_set_rsa_identity(&srv, &host[0], 9, &host[0], 9, &host[0], 9, &leaf, &key);
+
+    var body: [byte: HTTPS_LARGE_BODY_LEN] = [0: HTTPS_LARGE_BODY_LEN];
+    fill_bytes(&body[0], HTTPS_LARGE_BODY_LEN, 121 as byte);
+
+    const pid: i32 = fork();
+    if pid == 0 {
+        const fd: i32 = http_tcp_connect_loopback(srv.port) catch {
+            _exit(31);
+            return 31;
+        };
+        var hs: HandshakeCtx = HandshakeCtx{};
+        var rec: RecordCtx = RecordCtx{};
+        var ctx: SslContext = SslContext{ role: HS_ROLE_CLIENT, hs: &hs, rec: &rec };
+        tls_client_ctx_init(&host[0] as &const byte, 9, &ctx);
+        https_client_handshake(fd, &ctx) catch {
+            _exit(32);
+            return 32;
+        };
+
+        const req: &const byte = "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n\0" as &const byte;
+        tls_write_plain(fd, &ctx, req, strlen(req)) catch {
+            _exit(33);
+            return 33;
+        };
+
+        var resp_plain: [byte: HTTPS_LARGE_RESPONSE_CAP] = [0: HTTPS_LARGE_RESPONSE_CAP];
+        var resp_len: usize = 0;
+        tls_read_plain_response_all(fd, &ctx, &resp_plain[0], HTTPS_LARGE_RESPONSE_CAP, &resp_len) catch {
+            _exit(34);
+            return 34;
+        };
+        const body_start: usize = find_http_body_start(&resp_plain[0], resp_len);
+        if body_start == 0 {
+            _exit(35);
+            return 35;
+        }
+        if !response_has_subslice(&resp_plain[0], resp_len, &"HTTP/1.1 200 OK"[0: 15]) {
+            _exit(36);
+            return 36;
+        }
+        if resp_len - body_start != HTTPS_LARGE_BODY_LEN {
+            _exit(37);
+            return 37;
+        }
+        if !bytes_all_equal(&resp_plain[body_start] as &const byte, HTTPS_LARGE_BODY_LEN, 121 as byte) {
+            _exit(38);
+            return 38;
+        }
+        _ = sys_close(fd) catch {};
+        _exit(0);
+        return 0;
+    }
+
+    https_server_serve_once(&srv, body[0: HTTPS_LARGE_BODY_LEN]) catch {
+        https_server_close(&srv);
+        return 39;
+    };
+    https_server_close(&srv);
+
+    var st: i32 = 0;
+    _ = sys_waitpid(pid, &st, 0) catch {
+        return 40;
+    };
+    if ((st >> 8) & 0xff) != 0 {
+        return 40 + ((st >> 8) & 0xff);
+    }
+    return 0;
+}
+
+fn test_https_uyagin_large_request_body_roundtrip() i32 {
+    var host: [byte: 9] = [108, 111, 99, 97, 108, 104, 111, 115, 116];
+    var engine: Engine = uyagin_new();
+    var large_handler_impl: HttpsLargeBodyHandler = HttpsLargeBodyHandler{};
+    const large_handler: AsyncHandler = large_handler_impl;
+    engine.POST("/large", large_handler) catch {
+        return 71;
+    };
+
+    var srv: HttpsServer = https_server_listen(&host[0], 9, 0) catch {
+        return 72;
+    };
+    var leaf: Cert = Cert{};
+    var key: RsaPrivateKey = RsaPrivateKey{};
+    https_server_set_rsa_identity(&srv, &host[0], 9, &host[0], 9, &host[0], 9, &leaf, &key);
+
+    const pid: i32 = fork();
+    if pid == 0 {
+        const fd: i32 = http_tcp_connect_loopback(srv.port) catch {
+            _exit(41);
+            return 41;
+        };
+        var hs: HandshakeCtx = HandshakeCtx{};
+        var rec: RecordCtx = RecordCtx{};
+        var ctx: SslContext = SslContext{ role: HS_ROLE_CLIENT, hs: &hs, rec: &rec };
+        tls_client_ctx_init(&host[0] as &const byte, 9, &ctx);
+        https_client_handshake(fd, &ctx) catch {
+            _exit(42);
+            return 42;
+        };
+
+        var payload: [byte: HTTPS_LARGE_BODY_LEN] = [0: HTTPS_LARGE_BODY_LEN];
+        fill_bytes(&payload[0], HTTPS_LARGE_BODY_LEN, 122 as byte);
+        var req_plain: [byte: HTTPS_LARGE_REQUEST_CAP] = [0: HTTPS_LARGE_REQUEST_CAP];
+        var pos: usize = 0;
+        pos = append_cstr(&req_plain[0], pos, "POST /large HTTP/1.1\r\nHost: localhost\r\nContent-Length: 9000\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n\0" as &const byte);
+        var i: usize = 0;
+        while i < HTTPS_LARGE_BODY_LEN {
+            req_plain[pos + i] = payload[i];
+            i = i + 1;
+        }
+        pos = pos + HTTPS_LARGE_BODY_LEN;
+        tls_write_plain(fd, &ctx, &req_plain[0] as &const byte, pos) catch {
+            _exit(43);
+            return 43;
+        };
+
+        var resp_plain: [byte: 512] = [0: 512];
+        var resp_len: usize = 0;
+        tls_read_plain_response_all(fd, &ctx, &resp_plain[0], 512, &resp_len) catch {
+            _exit(44);
+            return 44;
+        };
+        if !response_has_subslice(&resp_plain[0], resp_len, &"HTTP/1.1 200 OK"[0: 15]) {
+            _exit(45);
+            return 45;
+        }
+        if !response_has_subslice(&resp_plain[0], resp_len, &"large-body-ok"[0: 13]) {
+            _exit(46);
+            return 46;
+        }
+        _ = sys_close(fd) catch {};
+        _exit(0);
+        return 0;
+    }
+
+    https_server_serve_uyagin_once(&srv, &engine) catch {
+        https_server_close(&srv);
+        return 73;
+    };
+    https_server_close(&srv);
+
+    var st: i32 = 0;
+    _ = sys_waitpid(pid, &st, 0) catch {
+        return 74;
+    };
+    if ((st >> 8) & 0xff) != 0 {
+        return 74 + ((st >> 8) & 0xff);
+    }
+    return 0;
 }
 
 fn test_https_read_some_would_block_nonblocking_pipe() i32 {
@@ -116,6 +389,12 @@ export fn main() i32 {
     }
     if test_https_write_all_pipe_roundtrip() != 0 {
         return 14;
+    }
+    if test_https_large_response_body_roundtrip() != 0 {
+        return 41;
+    }
+    if test_https_uyagin_large_request_body_roundtrip() != 0 {
+        return 42;
     }
     var host: [byte: 9] = [108, 111, 99, 97, 108, 104, 111, 115, 116];
     var srv: HttpsServer = https_server_listen(&host[0], 9, 0) catch {

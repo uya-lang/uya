@@ -2738,3 +2738,13 @@
       - `../uya/bin/uya test tests/test_std_dns_async_transport.uya`：通过，11 tests passed（新增 `dns_query_all_async_prefer_ipv4_tcp_fallback_accepts_tcp_body_larger_than_udp_limit`）。
       - `../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`：通过，1 test passed。
       - `../uya/bin/uya test tests/test_std_dns.uya`：通过，34 tests passed。
+## Phase 3：运行时 async 资源动态化
+
+### 3.5 协议层临时 buffer
+
+- [x] 审计 `websocket_async`、DNS/TLS 等 async 协议模块中的固定 scratch buffer，把“协议暂存”与“产品上限”拆开。
+  - [x] `tls.https` / HTTPS server path：区分 handshake record scratch、request/response chunk scratch 与业务 body 上限，补足 async 共享运行时路径说明或实现。
+    - 完成条件：HTTPS/TLS 暂存 buffer 不再直接代表请求/响应产品上限，并保留现有握手/服务端回归。
+    - 最小验证：`../uya/bin/uya test tests/test_https_loopback.uya`；`../uya/bin/uya test tests/test_https_websocket_loopback.uya`
+    - 验证：`../uya/bin/uya test tests/test_https_loopback.uya`（通过）；`../uya/bin/uya test tests/test_https_websocket_loopback.uya`（通过）
+    - 扩展验证：`../uya/bin/uya test tests/test_tls_async_runtime_boundary.uya`（通过）；`../uya/bin/uya test tests/test_tls_async_io_future.uya`（通过）

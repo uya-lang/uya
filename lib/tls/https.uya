@@ -2,6 +2,7 @@
 
 use tls.ssl.handshake;
 use tls.ssl.context;
+use tls.ssl.record;
 use tls.x509.cert.Cert;
 use tls.x509.trust_store;
 use tls.crypto.rsa.RsaPrivateKey;
@@ -15,8 +16,13 @@ use std.net.dns;
 use libc.stdio;
 use libc.unistd;
 use libc.syscall;
-const HTTPS_IO_BUF: usize = 4096;
-const HTTPS_HS_BUF: usize = 8192;
+const HTTPS_CLIENT_IO_BUF: usize = 4096;
+const HTTPS_HANDSHAKE_SCRATCH: usize = 8192;
+// 握手 flight 与应用数据 record 需要分开看待：
+// request/response 的单次 TLS record 暂存只负责协议分块，不代表业务 body 上限。
+const HTTPS_RECORD_PLAIN_CHUNK: usize = 4096;
+const HTTPS_RECORD_CIPHER_SCRATCH: usize = RECORD_HEADER_LEN + 8 + RECORD_MAX_PLAIN + 16;
+const HTTPS_RESPONSE_HEAD_CAP: usize = 256;
 const HTTPS_HOST_MAX: usize = 64;
 
 // 本地时间辅助函数
@@ -57,7 +63,7 @@ export struct HttpsServer {
 export struct HttpsResponse {
     status: i32,
     response_len: usize,
-    response: [byte: HTTPS_IO_BUF],
+    response: [byte: HTTPS_CLIENT_IO_BUF],
 }
 
 // HTTPS 客户端配置（生产环境）
@@ -775,13 +781,13 @@ fn https_socket_set_send_timeout(fd: i32, timeout_ms: u32) void {
 }
 
 export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
-    var send_buf: [byte: HTTPS_HS_BUF] = [0:HTTPS_HS_BUF];
-    var recv_buf: [byte: HTTPS_HS_BUF] = [0:HTTPS_HS_BUF];
+    var send_buf: [byte: HTTPS_HANDSHAKE_SCRATCH] = [0:HTTPS_HANDSHAKE_SCRATCH];
+    var recv_buf: [byte: HTTPS_HANDSHAKE_SCRATCH] = [0:HTTPS_HANDSHAKE_SCRATCH];
     var send_len: usize = 0;
     var recv_len: usize = 0;
 
     https_debug(&"[TLS] Step 1: Sending ClientHello...\n"[0: 35]);
-    var status: i32 = ssl_handshake_step(ctx, &recv_buf[0], 0, &send_buf[0], HTTPS_HS_BUF, &send_len);
+    var status: i32 = ssl_handshake_step(ctx, &recv_buf[0], 0, &send_buf[0], HTTPS_HANDSHAKE_SCRATCH, &send_len);
     if status == HS_STATUS_ERROR {
         https_debug(&"[TLS] Failed at ClientHello\n"[0: 28]);
         return error.TlsHandshakeFailure;
@@ -795,7 +801,7 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
     recv_len = 0;
     https_debug(&"[TLS] Step 2: Reading server flight...\n"[0: 38]);
     // 客户端始终使用记录帧 TLS，因此始终使用突发读取
-    try https_read_handshake_burst(fd, &recv_buf[0], HTTPS_HS_BUF, &recv_len);
+    try https_read_handshake_burst(fd, &recv_buf[0], HTTPS_HANDSHAKE_SCRATCH, &recv_len);
     https_debug(&"[TLS] Received server flight, parsing...\n"[0: 38]);
     
     // 调试：打印接收长度
@@ -804,7 +810,7 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
     
     // 步骤 3：发送 ClientKeyExchange + Finished，然后等待服务器 Finished
     https_debug(&"[TLS] Step 3: Sending ClientFinished...\n"[0: 39]);
-    status = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HS_BUF, &send_len);
+    status = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HANDSHAKE_SCRATCH, &send_len);
     if status == HS_STATUS_ERROR {
         https_debug(&"[TLS] Failed parsing server flight or encoding client finished\n"[0: 62]);
         return error.TlsHandshakeFailure;
@@ -817,10 +823,10 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
     if ctx.hs.record_framed {
         https_debug(&"[TLS] Step 4: Reading server second flight...\n"[0: 45]);
         recv_len = 0;
-        try https_read_server_second_flight(fd, &recv_buf[0], HTTPS_HS_BUF, &recv_len);
+        try https_read_server_second_flight(fd, &recv_buf[0], HTTPS_HANDSHAKE_SCRATCH, &recv_len);
         https_debug(&"[TLS] Processing server finished...\n"[0: 36]);
         // 继续握手以处理服务器的 Finished
-        status = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HS_BUF, &send_len);
+        status = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HANDSHAKE_SCRATCH, &send_len);
         if status == HS_STATUS_ERROR {
             https_debug(&"[TLS] Failed processing server finished\n"[0: 40]);
             return error.TlsHandshakeFailure;
@@ -837,21 +843,21 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
 }
 
 export fn https_server_handshake(fd: i32, ctx: &SslContext) !void {
-    var send_buf: [byte: HTTPS_HS_BUF] = [0:HTTPS_HS_BUF];
-    var recv_buf: [byte: HTTPS_HS_BUF] = [0:HTTPS_HS_BUF];
+    var send_buf: [byte: HTTPS_HANDSHAKE_SCRATCH] = [0:HTTPS_HANDSHAKE_SCRATCH];
+    var recv_buf: [byte: HTTPS_HANDSHAKE_SCRATCH] = [0:HTTPS_HANDSHAKE_SCRATCH];
     var send_len: usize = 0;
     var recv_len: usize = 0;
 
-    try https_read_handshake_input(fd, &recv_buf[0], HTTPS_HS_BUF, &recv_len);
-    var status: i32 = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HS_BUF, &send_len);
+    try https_read_handshake_input(fd, &recv_buf[0], HTTPS_HANDSHAKE_SCRATCH, &recv_len);
+    var status: i32 = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HANDSHAKE_SCRATCH, &send_len);
     if status == HS_STATUS_ERROR {
         return error.TlsHandshakeFailure;
     }
     try https_write_all(fd, &send_buf[0], send_len);
     recv_len = 0;
-    try https_read_client_second_flight(fd, &recv_buf[0], HTTPS_HS_BUF, &recv_len);
+    try https_read_client_second_flight(fd, &recv_buf[0], HTTPS_HANDSHAKE_SCRATCH, &recv_len);
     send_len = 0;
-    status = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HS_BUF, &send_len);
+    status = ssl_handshake_step(ctx, &recv_buf[0], recv_len, &send_buf[0], HTTPS_HANDSHAKE_SCRATCH, &send_len);
     if status != HS_STATUS_ERROR && send_len > 0 {
         try https_write_all(fd, &send_buf[0], send_len);
     }
@@ -927,39 +933,62 @@ export fn https_server_ssl_context_init(srv: &HttpsServer, ctx: &SslContext) !vo
     ssl_set_peer_identity(ctx, &srv.hostname[0], srv.hostname_len, &srv.hostname[0], srv.hostname_len);
 }
 
+fn https_ptr_add_const(src: &const byte, off: usize) &const byte {
+    return @ptr_from_usize(@usize_from_ptr(src as &void) + off) as &const byte;
+}
+
+fn https_write_plain_tls_chunks(fd: i32, ctx: &SslContext, src: &const byte, src_len: usize) !void {
+    var sent: usize = 0;
+    var out_cipher: [byte: HTTPS_RECORD_CIPHER_SCRATCH] = [0:HTTPS_RECORD_CIPHER_SCRATCH];
+    while sent < src_len {
+        var chunk: usize = src_len - sent;
+        if chunk > HTTPS_RECORD_PLAIN_CHUNK {
+            chunk = HTTPS_RECORD_PLAIN_CHUNK;
+        }
+        var out_len: usize = 0;
+        try ssl_write(ctx, https_ptr_add_const(src, sent), chunk, &out_cipher[0], HTTPS_RECORD_CIPHER_SCRATCH, &out_len);
+        try https_write_all(fd, &out_cipher[0], out_len);
+        sent = sent + chunk;
+    }
+}
+
 export fn https_server_serve_once(srv: &HttpsServer, body: &[byte]) !void {
     const cfd: i32 = try https_accept_one(srv.listen_fd);
+    defer { _ = sys_close(cfd) catch {}; }
     var hs: HandshakeCtx = HandshakeCtx{};
     var rec: RecordCtx = RecordCtx{};
     var ctx: SslContext = SslContext{ role: HS_ROLE_SERVER, hs: &hs, rec: &rec };
     https_server_ssl_context_init(srv, &ctx) catch {
-        _ = sys_close(cfd) catch {};
         return error.TlsBadInput;
     };
     https_server_handshake(cfd, &ctx) catch {
-        _ = sys_close(cfd) catch {};
         return error.TlsHandshakeFailure;
     };
 
-    var in_cipher: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
-    const in_len: usize = try https_read_some(cfd, &in_cipher[0], HTTPS_IO_BUF);
-    var plain: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
-    var plain_len: usize = 0;
-    var consumed: usize = 0;
-    try ssl_read(&ctx, &in_cipher[0], in_len, &plain[0], HTTPS_IO_BUF, &plain_len, &consumed);
+    var plain_req: [byte: HTTP_CONN_READ_CAP] = [];
+    _ = try https_read_uyagin_request(cfd, &ctx, &plain_req[0] as &byte, HTTP_CONN_READ_CAP);
 
-    var resp_plain: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
+    var resp_head: [byte: HTTPS_RESPONSE_HEAD_CAP] = [0:HTTPS_RESPONSE_HEAD_CAP];
     var pos: usize = 0;
-    pos = https_copy_slice(&resp_plain[0], pos, &"HTTP/1.1 200 OK\r\nContent-Length: "[0: 33]);
-    pos = https_append_u16_dec(&resp_plain[0], pos, (body.len as! u16).value);
-    pos = https_copy_slice(&resp_plain[0], pos, &"\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"[0: 49]);
-    pos = https_copy_slice(&resp_plain[0], pos, body);
-
-    var out_cipher: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
-    var out_len: usize = 0;
-    try ssl_write(&ctx, &resp_plain[0], pos, &out_cipher[0], HTTPS_IO_BUF, &out_len);
-    try https_write_all(cfd, &out_cipher[0], out_len);
-    _ = sys_close(cfd) catch {};
+    pos = https_copy_slice(&resp_head[0], pos, &"HTTP/1.1 200 OK\r\nContent-Length: "[0: 33]);
+    pos = https_append_u64_dec(&resp_head[0], pos, body.len as u64);
+    pos = https_copy_slice(&resp_head[0], pos, &"\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"[0: 49]);
+    var first_plain: [byte: HTTPS_RECORD_PLAIN_CHUNK] = [0:HTTPS_RECORD_PLAIN_CHUNK];
+    var first_len: usize = 0;
+    first_len = https_copy_slice(&first_plain[0], first_len, resp_head[0: pos]);
+    var sent_body: usize = 0;
+    var room: usize = HTTPS_RECORD_PLAIN_CHUNK - first_len;
+    if room > body.len {
+        room = body.len;
+    }
+    while sent_body < room {
+        first_plain[first_len + sent_body] = body.ptr[sent_body];
+        sent_body = sent_body + 1;
+    }
+    try https_write_plain_tls_chunks(cfd, &ctx, &first_plain[0] as &const byte, first_len + sent_body);
+    if sent_body < body.len {
+        try https_write_plain_tls_chunks(cfd, &ctx, https_ptr_add_const(body.ptr as &const byte, sent_body), body.len - sent_body);
+    }
 }
 
 fn https_open_uyagin_capture_file() !i32 {
@@ -976,7 +1005,7 @@ fn https_open_uyagin_capture_file() !i32 {
 
 export fn https_read_uyagin_request(fd: i32, ctx: &SslContext, plain_buf: &byte, plain_cap: usize) !ParseResult {
     var plain_filled: usize = 0;
-    var in_cipher: [byte: HTTPS_HS_BUF] = [0:HTTPS_HS_BUF];
+    var in_cipher: [byte: HTTPS_RECORD_CIPHER_SCRATCH] = [0:HTTPS_RECORD_CIPHER_SCRATCH];
     while true {
         const parsed: !ParseResult = http_parse_request(plain_buf[0: plain_filled]);
         match parsed {
@@ -993,7 +1022,7 @@ export fn https_read_uyagin_request(fd: i32, ctx: &SslContext, plain_buf: &byte,
             return error.PayloadTooLarge;
         }
         var in_len: usize = 0;
-        try https_read_tls_record_exact(fd, &in_cipher[0], HTTPS_HS_BUF, &in_len);
+        try https_read_tls_record_exact(fd, &in_cipher[0], HTTPS_RECORD_CIPHER_SCRATCH, &in_len);
         var produced: usize = 0;
         var consumed: usize = 0;
         try ssl_read(ctx, &in_cipher[0], in_len, &plain_buf[plain_filled], plain_cap - plain_filled, &produced, &consumed);
@@ -1033,15 +1062,15 @@ export fn https_server_serve_uyagin_once(srv: &HttpsServer, engine: &Engine) !i3
     request_arena.reset();
 
     _ = try sys_lseek(capture_fd, 0i64, SEEK_SET);
-    var resp_plain: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
-    var out_cipher: [byte: HTTPS_HS_BUF] = [0:HTTPS_HS_BUF];
+    var resp_plain: [byte: HTTPS_RECORD_PLAIN_CHUNK] = [0:HTTPS_RECORD_PLAIN_CHUNK];
+    var out_cipher: [byte: HTTPS_RECORD_CIPHER_SCRATCH] = [0:HTTPS_RECORD_CIPHER_SCRATCH];
     while true {
-        const rn: isize = try sys_read(capture_fd, &resp_plain[0] as *byte, HTTPS_IO_BUF);
+        const rn: isize = try sys_read(capture_fd, &resp_plain[0] as *byte, HTTPS_RECORD_PLAIN_CHUNK);
         if rn <= 0 {
             break;
         }
         var out_len: usize = 0;
-        try ssl_write(&ssl_ctx, &resp_plain[0], rn as usize, &out_cipher[0], HTTPS_HS_BUF, &out_len);
+        try ssl_write(&ssl_ctx, &resp_plain[0], rn as usize, &out_cipher[0], HTTPS_RECORD_CIPHER_SCRATCH, &out_len);
         try https_write_all(cfd, &out_cipher[0], out_len);
     }
     return 1;
@@ -1150,7 +1179,7 @@ fn https_get_internal(
     
     https_debug(&"[HTTPS] TLS handshake complete\n"[0: 30]);
 
-    var req_plain: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
+    var req_plain: [byte: HTTPS_CLIENT_IO_BUF] = [0:HTTPS_CLIENT_IO_BUF];
     var p: usize = 0;
     p = https_copy_slice(&req_plain[0], p, &"GET "[0: 4]);
     p = https_copy_slice(&req_plain[0], p, path);
@@ -1163,16 +1192,16 @@ fn https_get_internal(
     }
     p = https_copy_slice(&req_plain[0], p, &"\r\nConnection: close\r\n\r\n"[0: 23]);
 
-    var req_cipher: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
+    var req_cipher: [byte: HTTPS_CLIENT_IO_BUF] = [0:HTTPS_CLIENT_IO_BUF];
     var req_cipher_len: usize = 0;
-    try ssl_write(&ctx, &req_plain[0], p, &req_cipher[0], HTTPS_IO_BUF, &req_cipher_len);
+    try ssl_write(&ctx, &req_plain[0], p, &req_cipher[0], HTTPS_CLIENT_IO_BUF, &req_cipher_len);
     try https_write_all(fd, &req_cipher[0], req_cipher_len);
 
-    var resp_cipher: [byte: HTTPS_IO_BUF] = [0:HTTPS_IO_BUF];
-    const resp_cipher_len: usize = try https_read_some(fd, &resp_cipher[0], HTTPS_IO_BUF);
-    var out: HttpsResponse = HttpsResponse{ status: 0, response_len: 0, response: [0:HTTPS_IO_BUF] };
+    var resp_cipher: [byte: HTTPS_CLIENT_IO_BUF] = [0:HTTPS_CLIENT_IO_BUF];
+    const resp_cipher_len: usize = try https_read_some(fd, &resp_cipher[0], HTTPS_CLIENT_IO_BUF);
+    var out: HttpsResponse = HttpsResponse{ status: 0, response_len: 0, response: [0:HTTPS_CLIENT_IO_BUF] };
     var consumed: usize = 0;
-    try ssl_read(&ctx, &resp_cipher[0], resp_cipher_len, &out.response[0], HTTPS_IO_BUF, &out.response_len, &consumed);
+    try ssl_read(&ctx, &resp_cipher[0], resp_cipher_len, &out.response[0], HTTPS_CLIENT_IO_BUF, &out.response_len, &consumed);
     out.status = https_parse_status(&out.response[0], out.response_len);
     _ = sys_close(fd) catch {};
     return out;
