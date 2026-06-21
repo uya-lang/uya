@@ -2649,3 +2649,12 @@
   - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过，24 tests / 0 failed）
   - 验证：`../uya/bin/uya test --c99 tests/test_async_frame_align_pool.uya`（通过，4 tests / 0 failed）
   - 验证：`../uya/bin/uya test --c99 tests/test_async_frame_pool_full.uya`（通过，1 suite / 0 failed）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.4 ThreadPool / async_compute
+
+- [x] 将 `lib/std/thread.uya` 的 worker / pending / task slot 数量改成动态或可配置。
+  - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过：1 test，26 assertions）
+  - 扩展验证：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya`（通过：4 tests，16 assertions）
+  - 扩展验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过：34 tests，144 assertions）

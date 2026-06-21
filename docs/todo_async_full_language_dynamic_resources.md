@@ -168,7 +168,6 @@
 
 ### 3.4 ThreadPool / async_compute
 
-- [ ] 将 `lib/std/thread.uya` 的 worker / pending / task slot 数量改成动态或可配置。
 - [ ] 明确 `async_compute` 饱和后的生产策略：
   - [ ] 要么动态排队并背压
   - [ ] 要么显式返回容量错误
