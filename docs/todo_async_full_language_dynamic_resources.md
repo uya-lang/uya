@@ -1,6 +1,6 @@
 # Uya 异步生产化 TODO（完整语法 + 动态资源）
 
-**最后更新**：2026-06-21
+**最后更新**：2026-06-22
 **当前定位**：本文件是当前“让异步编程生产级可用”目标的权威 TODO。  
 **口径说明**：在本文件完成前，`docs/async_production_todo.md`、`docs/async_status_matrix.md`、`docs/std_async_design.md` 中“量产已完成”或“主链路已收口”的表述都只能视为历史阶段结论，不能直接当作本目标的完成依据。
 
@@ -12,7 +12,7 @@
 |------|------|------|
 | `lib/std/async_event.uya` | `LinuxEpoll` 的 slot / event 数组均固定 `1024`，`find_slot()` 线性扫描固定容量 | 并发 fd 上限、退化 O(n)、容量达到上限时只能报错 |
 | `lib/std/async_scheduler.uya` | `TaskQueue<T>` 默认队列已自动增长；scheduler frame pool backing buffer 与 inline repoll 默认策略均支持实例级配置与 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` / `UYA_SCHEDULER_INLINE_REPOLL_LIMIT` | 默认路径不再写死 `1024`；剩余风险转为跨 HTTP/DNS/TLS/`async_compute` 共享调度 smoke 不足 |
-| `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回资源错误） | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
+| `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回 `error.TaskQueueFull`），不再依赖 `fork` fallback | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
 | `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512` | frame 元信息和池容量都有硬上限 |
 | `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096` | 大 header / 扩展请求场景不是真动态 |
 
@@ -46,7 +46,7 @@
 | **运行时/协议层固定容量** | epoll slot/event `1024`、`find_slot()` 线性扫 | `lib/std/async_event.uya` |
 | 运行时/协议层固定容量 | `TaskQueue<T>` 默认队列已自动增长，显式容量队列仍保留调用方配置上限 | `lib/std/async_scheduler.uya` |
 | 运行时/协议层固定容量 | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`MAX_PER_BUCKET=4096`、descriptor 表 `512` | `lib/std/async_frame.uya` |
-| 运行时/协议层固定容量 | `THREAD_POOL_MAX_WORKERS=32`、`MAX_PENDING=32`、`MAX_TASK_SLOTS=16`、`fork()` fallback | `lib/std/thread.uya` |
+| 运行时/协议层固定容量 | `THREAD_POOL_MAX_WORKERS=32`、`MAX_PENDING=32`、`MAX_TASK_SLOTS=16` 兼容常量仍在；饱和策略已固定为 queue-or-error | `lib/std/thread.uya` |
 | 运行时/协议层固定容量 | 请求头 scratch buffer 固定 `4096` | `lib/std/http/http1_async.uya` |
 
 ## 完成定义
@@ -180,6 +180,5 @@
 
 ## 未完成前不得宣称完成的条件
 
-- [ ] 仍需要 `fork` fallback 才能掩盖线程池饱和。
 - [ ] 仍把 `tests/error_async_too_many_params.uya` 这类旧人为上限测试当成正确口径。
 - [ ] 文档仍声称“量产已完成”，但源码和闸门没有证据支撑。

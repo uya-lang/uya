@@ -85,6 +85,51 @@ fn make_backpressure_pool() ThreadPool {
     });
 }
 
+fn make_queue_full_pool() ThreadPool {
+    return thread_pool_new_with_config(ThreadPoolConfig{
+        worker_count: 1,
+        pending_capacity: 1,
+        task_slot_capacity: 1,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
+    });
+}
+
+test "thread_pool_queue_full_returns_task_queue_full_without_fork_fallback" {
+    var pool: ThreadPool = make_queue_full_pool();
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 10);
+    var second: Future<!i32> = async_compute<i32>(&pool, &delayed_add_one_i32 as &void, 20);
+    var first_waker: Waker = Waker{};
+    var second_waker: Waker = Waker{};
+
+    _ = first.poll(&first_waker);
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+
+    const saturated_poll: Poll<!i32> = second.poll(&second_waker);
+    var saw_queue_full: i32 = 0;
+    match saturated_poll {
+        .Ready(v) => {
+            const _value: i32 = v catch |err| {
+                if @error_id(err) == @error_id(error.TaskQueueFull) {
+                    saw_queue_full = 1;
+                }
+                0;
+            };
+            _ = _value;
+        },
+        .Pending(_) => { },
+    };
+
+    try assert_eq_i32(saw_queue_full, 1);
+    try expect(thread_pool_pending_count(&pool) <= pool.pending_capacity);
+    const first_value: i32 = try block_on<i32>(first);
+    try assert_eq_i32(first_value, 11);
+}
+
 test "thread_pool_configured_capacities_run_past_legacy_task_slots_without_fork_fallback" {
     var pool: ThreadPool = make_dynamic_pool();
     defer {

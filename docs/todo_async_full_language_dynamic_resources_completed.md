@@ -3104,3 +3104,13 @@ Phase 5：发布闸门与文档同步
   - [x] 复核 `AsyncFramePool` 跨过旧 `128/4096` 初始容量后仍动态增长。
     验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
     结果：通过；`async_frame_pool_bucket_table_dynamic_growth` 与 `async_frame_pool_bucket_slot_dynamic_growth` 均 OK，`Assertions Passed: 4236`。
+### 2026-06-22
+- 路径：`## 未完成前不得宣称完成的条件`
+- [x] 仍需要 `fork` fallback 才能掩盖线程池饱和。
+  - 结果：`lib/std/thread.uya` 当前默认 `submit_strategy` 为 `THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR`；容量不足走 `thread_pool_queue_or_error_slot()` 并返回 `error.TaskQueueFull`，线程池实现内不再依赖 `sys_fork(` fallback。
+  - 红测：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+  - 红测结果：失败，宿主 C 编译报 `implicit declaration of function 'std_block_on'` / `invalid initializer`；原因是把 `try block_on<i32>(first)` 直接塞进 `assert_eq_i32(...)`，随后改成先取值再断言。
+  - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，5 tests，112 assertions）
+  - 验证：`rg -n "sys_fork\\(" lib/std/thread.uya`（无输出）
+  - 验证：`rg -n "thread_pool_queue_or_error_slot|THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR|thread_capacity_error_i32" lib/std/thread.uya`（命中 queue-or-error 路径与 `error.TaskQueueFull` helper）
+  - 备注：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya` 与 `../uya/bin/uya test tests/test_std_thread.uya` 在当前 `../uya/bin/uya` 上会于 `=== 代码生成阶段 ===` 后 `SIGSEGV`（exit 139），因此本轮用可稳定运行的轻量回归补齐同一饱和语义闸门。
