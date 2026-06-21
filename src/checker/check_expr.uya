@@ -3182,6 +3182,20 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
                 static_method = find_static_method_in_struct(checker.program_node, owner_name, method_name);
             }
             if static_method != null {
+                if owner_type_args != null && owner_type_arg_count > 0 {
+                    register_mono_instance(checker, owner_name, owner_type_args, owner_type_arg_count, 0);
+                }
+                if static_method.fn_decl_type_param_count > 0 &&
+                    expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+                    checker_register_static_method_mono_instance(checker, owner_name,
+                        owner_type_args, owner_type_arg_count,
+                        method_name, expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                    checker_register_mono_from_method_return_with_owner(checker, static_method.fn_decl_return_type,
+                        owner_type_params, owner_type_param_count,
+                        owner_type_args, owner_type_arg_count,
+                        static_method.fn_decl_type_params, static_method.fn_decl_type_param_count,
+                        expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                }
                 if expr.call_expr_arg_count != static_method.fn_decl_param_count {
                     checker_report_error(checker, expr, "Type.method(...) 调用静态方法时实参个数不匹配" as *byte);
                     return make_void_type();
@@ -3221,6 +3235,20 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
             }
             instance_method = find_instance_method_in_struct(checker.program_node, owner_name, method_name);
             if instance_method != null {
+                if owner_type_args != null && owner_type_arg_count > 0 {
+                    register_mono_instance(checker, owner_name, owner_type_args, owner_type_arg_count, 0);
+                }
+                if instance_method.fn_decl_type_param_count > 0 &&
+                    expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+                    checker_register_static_method_mono_instance(checker, owner_name,
+                        owner_type_args, owner_type_arg_count,
+                        method_name, expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                    checker_register_mono_from_method_return_with_owner(checker, instance_method.fn_decl_return_type,
+                        owner_type_params, owner_type_param_count,
+                        owner_type_args, owner_type_arg_count,
+                        instance_method.fn_decl_type_params, instance_method.fn_decl_type_param_count,
+                        expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                }
                 if expr.call_expr_arg_count != instance_method.fn_decl_param_count {
                     checker_report_error(checker, expr, "Type.method(...) 调用实例方法时缺少 receiver 或实参个数不匹配" as *byte);
                     return make_void_type();
@@ -3295,6 +3323,31 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
             method_name != null && checker.program_node != null {
             const m_union: &ASTNode = find_instance_method_in_union(checker.program_node, object_type.union_name, method_name);
             if m_union != null {
+                var owner_union_type_args_ast: & & ASTNode = null;
+                var owner_union_type_arg_count: i32 = 0;
+                checker_owner_type_args_ast_from_type(checker, &object_type, expr.line, expr.column, expr.filename,
+                    &owner_union_type_args_ast, &owner_union_type_arg_count);
+                const owner_union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, object_type.union_name);
+                var owner_union_type_params: &TypeParam = null;
+                var owner_union_type_param_count: i32 = 0;
+                if owner_union_decl != null {
+                    owner_union_type_params = owner_union_decl.union_decl_type_params;
+                    owner_union_type_param_count = owner_union_decl.union_decl_type_param_count;
+                }
+                if owner_union_type_args_ast != null && owner_union_type_arg_count > 0 {
+                    register_mono_instance(checker, object_type.union_name, owner_union_type_args_ast, owner_union_type_arg_count, 0);
+                }
+                if m_union.fn_decl_type_param_count > 0 &&
+                    expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+                    checker_register_static_method_mono_instance(checker, object_type.union_name,
+                        owner_union_type_args_ast, owner_union_type_arg_count,
+                        method_name, expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                    checker_register_mono_from_method_return_with_owner(checker, m_union.fn_decl_return_type,
+                        owner_union_type_params, owner_union_type_param_count,
+                        owner_union_type_args_ast, owner_union_type_arg_count,
+                        m_union.fn_decl_type_params, m_union.fn_decl_type_param_count,
+                        expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                }
                 return checker_method_type_from_value_owner(checker, m_union.fn_decl_return_type, &object_type,
                     null, 0,
                     expr.call_expr_type_args, expr.call_expr_type_arg_count,
@@ -3311,6 +3364,31 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
             method_name != null && checker.program_node != null {
             const m: &ASTNode = find_instance_method_in_struct(checker.program_node, object_type.struct_name, method_name);
             if m != null {
+                var owner_struct_type_args_ast: & & ASTNode = null;
+                var owner_struct_type_arg_count: i32 = 0;
+                checker_owner_type_args_ast_from_type(checker, &object_type, expr.line, expr.column, expr.filename,
+                    &owner_struct_type_args_ast, &owner_struct_type_arg_count);
+                const owner_struct_decl2: &ASTNode = find_struct_decl_from_program(checker.program_node, object_type.struct_name);
+                var owner_struct_type_params2: &TypeParam = null;
+                var owner_struct_type_param_count2: i32 = 0;
+                if owner_struct_decl2 != null {
+                    owner_struct_type_params2 = owner_struct_decl2.struct_decl_type_params;
+                    owner_struct_type_param_count2 = owner_struct_decl2.struct_decl_type_param_count;
+                }
+                if owner_struct_type_args_ast != null && owner_struct_type_arg_count > 0 {
+                    register_mono_instance(checker, object_type.struct_name, owner_struct_type_args_ast, owner_struct_type_arg_count, 0);
+                }
+                if m.fn_decl_type_param_count > 0 &&
+                    expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+                    checker_register_static_method_mono_instance(checker, object_type.struct_name,
+                        owner_struct_type_args_ast, owner_struct_type_arg_count,
+                        method_name, expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                    checker_register_mono_from_method_return_with_owner(checker, m.fn_decl_return_type,
+                        owner_struct_type_params2, owner_struct_type_param_count2,
+                        owner_struct_type_args_ast, owner_struct_type_arg_count,
+                        m.fn_decl_type_params, m.fn_decl_type_param_count,
+                        expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                }
                 return checker_method_type_from_value_owner(checker, m.fn_decl_return_type, &object_type,
                     m.fn_decl_type_params, m.fn_decl_type_param_count,
                     expr.call_expr_type_args, expr.call_expr_type_arg_count,

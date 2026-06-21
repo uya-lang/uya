@@ -3051,3 +3051,20 @@ Phase 5：发布闸门与文档同步
     完成说明：本轮核对后确认无需修改；`docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md` 已覆盖当前 async 语义与约束。
     验证：`bash tests/verify_async_full_language_matrix.sh native` → `verify_async_full_language_matrix: native baseline, HTTP/1+UyaGin boundary regressions, and hand-written Future whitelist passed`
     验证：`git diff --check` → 通过
+
+## 未完成前不得宣称完成的条件
+
+- [x] 仍存在合法 async 语法被“尚未支持”拒绝。
+  - 现状：修复了嵌套表达式里的泛型 async 方法 mono 实例登记缺口；`block_on(box.choose<i32>(...))` 这类合法写法现在会生成 `uya_AsyncBox*_choose_i32` 定义，不再只发出调用侧符号。
+  - 验证：`make uya`
+  - 结果：通过，已重建 `../uya/bin/uya`。
+  - 验证：`../uya/bin/uya test --c99 tests/test_generic_async_method_codegen.uya`
+  - 结果：通过，2 tests passed。
+  - 验证：`../uya/bin/uya test --c99 tests/test_generic_async_function_codegen.uya`
+  - 结果：通过，2 tests passed。
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_method_interface.uya`
+  - 结果：通过，2 tests passed。
+  - 验证：`../uya/bin/uya --c99 tests/test_struct_inner_generic_method.uya -o /tmp/test_struct_inner_generic_method_regen.c`
+  - 结果：通过。
+  - 验证：`../uya/bin/uya --c99 tests/test_non_generic_struct_generic_method.uya -o /tmp/test_non_generic_struct_generic_method_regen.c`
+  - 结果：通过。

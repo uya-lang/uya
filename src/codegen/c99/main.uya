@@ -4000,6 +4000,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 decl_plain.fn_decl_body != null &&
                 is_generic_function_c99(decl_plain) == 0 {
                 c99_collect_nested_mono_calls_from_ast(codegen, decl_plain.fn_decl_body, null, 0, null, 0);
+            } else if decl_plain != null && decl_plain.type == ASTNodeType.AST_TEST_STMT &&
+                decl_plain.test_stmt_body != null {
+                // test 体会生成独立测试函数；这里也要补注册其中的泛型调用，避免调用侧单态化而定义侧漏发射。
+                c99_collect_nested_mono_calls_from_ast(codegen, decl_plain.test_stmt_body, null, 0, null, 0);
             }
             di2 = di2 + 1;
         }

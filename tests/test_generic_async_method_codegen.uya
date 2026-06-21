@@ -1,0 +1,32 @@
+use std.async;
+use std.testing.assert_eq_i32;
+
+struct AsyncBoxInner {
+    @async_fn
+    fn choose<T>(self: &Self, value: T) Future<!T> {
+        _ = self;
+        return value;
+    }
+}
+
+struct AsyncBoxBlock {}
+
+AsyncBoxBlock {
+    @async_fn
+    fn choose<T>(self: &Self, value: T) Future<!T> {
+        _ = self;
+        return value;
+    }
+}
+
+test "generic async inner method direct call codegen" {
+    const box: AsyncBoxInner = AsyncBoxInner{};
+    const value: i32 = try block_on<i32>(box.choose<i32>(41));
+    try assert_eq_i32(value, 41);
+}
+
+test "generic async method block direct call codegen" {
+    const box: AsyncBoxBlock = AsyncBoxBlock{};
+    const value: i32 = try block_on<i32>(box.choose<i32>(29));
+    try assert_eq_i32(value, 29);
+}
