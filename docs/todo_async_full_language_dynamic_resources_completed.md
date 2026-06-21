@@ -2783,3 +2783,13 @@
   - 验证结果：通过；4 个内部测试全部 OK，Assertions Passed: 99。
   - 验证命令：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`
   - 验证结果：通过；`verify_async_full_dynamic_resources_gate: unit-scan stages passed`
+## Phase 3：运行时 async 资源动态化
+### 3.5 协议层临时 buffer
+
+- [x] 新增 `tests/stress_async_dynamic_resources.sh`
+  验证：`bash -n tests/stress_async_dynamic_resources.sh`
+  结果：通过。
+  验证：`./tests/stress_async_dynamic_resources.sh smoke`
+  结果：通过；覆盖 compiler fixed-limit source scan、4097 await C99 stress、runtime dynamic growth suite（含 1024/1025 epoll 临时边界用例）与 protocol/runtime async suite。
+  验证：`git diff --check`
+  结果：通过。

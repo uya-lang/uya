@@ -172,7 +172,6 @@
 
 **验收**：
 
-- [ ] 新增 `tests/stress_async_dynamic_resources.sh`
 - [ ] 压测时不再因为 `16/32/64/512/1024` 这类旧常量直接失败
 
 ## Phase 4：生产级可靠性与可观测性
