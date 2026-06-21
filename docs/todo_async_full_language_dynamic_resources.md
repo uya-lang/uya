@@ -171,6 +171,12 @@
 ### 3.5 协议层临时 buffer
 
 - [ ] 审计 `websocket_async`、DNS/TLS 等 async 协议模块中的固定 scratch buffer，把“协议暂存”与“产品上限”拆开。
+  - [ ] `std.net.dns`：区分 UDP `512` 协议包上限、TCP framed query scratch 与解析输出容量，避免把 DNS 报文暂存常量混成产品上限。
+    - 完成条件：明确哪些常量是 RFC / wire-format 上限，哪些需要改为调用方容量或 growable scratch。
+    - 最小验证：`../uya/bin/uya test tests/test_std_dns_async_transport.uya`；`../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`
+  - [ ] `tls.https` / HTTPS server path：区分 handshake record scratch、request/response chunk scratch 与业务 body 上限，补足 async 共享运行时路径说明或实现。
+    - 完成条件：HTTPS/TLS 暂存 buffer 不再直接代表请求/响应产品上限，并保留现有握手/服务端回归。
+    - 最小验证：`../uya/bin/uya test tests/test_https_loopback.uya`；`../uya/bin/uya test tests/test_https_websocket_loopback.uya`
 
 **验收**：
 

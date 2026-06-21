@@ -17,6 +17,11 @@ use libc.syscall;
 use std.testing.assert_eq_i32;
 use std.testing.assert_true;
 
+const TLS_TEST_RECORD_CIPHER_CAP: usize = 16413;
+const LARGE_WSS_PAYLOAD_LEN: usize = 9000;
+const LARGE_WSS_FRAME_CAP: usize = LARGE_WSS_PAYLOAD_LEN + 32;
+const LARGE_WSS_RX_CAP: usize = LARGE_WSS_PAYLOAD_LEN + 32;
+
 fn slice_has(hay: &[byte], needle: &[byte]) bool {
     if hay.len < needle.len {
         return false;
@@ -51,6 +56,25 @@ fn bytes_eq_raw(a: &byte, b: &byte, n: usize) bool {
     return true;
 }
 
+fn bytes_all_equal(a: &byte, n: usize, want: byte) bool {
+    var i: usize = 0;
+    while i < n {
+        if a[i] != want {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn fill_bytes(a: &byte, n: usize, value: byte) void {
+    var i: usize = 0;
+    while i < n {
+        a[i] = value;
+        i = i + 1;
+    }
+}
+
 fn write_all_fd(fd: i32, data: &[byte]) !void {
     var total: usize = 0;
     while total < data.len {
@@ -63,16 +87,16 @@ fn write_all_fd(fd: i32, data: &[byte]) !void {
 }
 
 fn tls_write_plain(fd: i32, ctx: &SslContext, plain: &const byte, plain_len: usize) !void {
-    var cipher: [byte: 4096] = [0: 4096];
+    var cipher: [byte: TLS_TEST_RECORD_CIPHER_CAP] = [0: TLS_TEST_RECORD_CIPHER_CAP];
     var cipher_len: usize = 0;
-    try ssl_write(ctx, plain, plain_len, &cipher[0], 4096, &cipher_len);
+    try ssl_write(ctx, plain, plain_len, &cipher[0], TLS_TEST_RECORD_CIPHER_CAP, &cipher_len);
     try https_write_all(fd, &cipher[0], cipher_len);
 }
 
 fn tls_read_plain_record(fd: i32, ctx: &SslContext, plain: &byte, plain_cap: usize) !usize {
-    var cipher: [byte: 4096] = [0: 4096];
+    var cipher: [byte: TLS_TEST_RECORD_CIPHER_CAP] = [0: TLS_TEST_RECORD_CIPHER_CAP];
     var cipher_len: usize = 0;
-    try https_read_tls_record_exact(fd, &cipher[0], 4096, &cipher_len);
+    try https_read_tls_record_exact(fd, &cipher[0], TLS_TEST_RECORD_CIPHER_CAP, &cipher_len);
     var plain_len: usize = 0;
     var consumed: usize = 0;
     try ssl_read(ctx, &cipher[0], cipher_len, plain, plain_cap, &plain_len, &consumed);
@@ -200,6 +224,98 @@ test "https_websocket_loopback_upgrade_and_echo" {
     var want: [byte: 5] = [104, 101, 108, 108, 111];
     try assert_true(bytes_eq_raw(&msg[0], &want[0], 5));
     _ = try run_with_loop_usize(websocket_conn_write_message(&ws, opcode, &msg[0], n, &tx[0], 256));
+
+    try wait_child_ok(pid);
+}
+
+test "https_websocket_loopback_large_tls_record_preserves_large_websocket_message" {
+    var host: [byte: 9] = [108, 111, 99, 97, 108, 104, 111, 115, 116];
+    var srv: HttpsServer = https_server_listen(&host[0], 9, 0) catch {
+        try assert_eq_i32(0, 1);
+        return;
+    };
+    defer { https_server_close(&srv); }
+
+    var leaf: Cert = Cert{};
+    var key: RsaPrivateKey = RsaPrivateKey{};
+    https_server_set_rsa_identity(&srv, &host[0], 9, &host[0], 9, &host[0], 9, &leaf, &key);
+
+    const pid: i32 = fork();
+    if pid == 0 {
+        const fd: i32 = http_tcp_connect_loopback(srv.port) catch {
+            _exit(31);
+            return;
+        };
+
+        var hs: HandshakeCtx = HandshakeCtx{};
+        var rec: RecordCtx = RecordCtx{};
+        var ctx: SslContext = SslContext{ role: HS_ROLE_CLIENT, hs: &hs, rec: &rec };
+        ssl_init(&ctx);
+        ssl_set_insecure_skip_verify(&ctx, true);
+        ssl_set_skip_hostname_verify(&ctx, true);
+        ssl_set_hostname(&ctx, &host[0], 9);
+        ssl_set_peer_identity(&ctx, &host[0], 9, &host[0], 9);
+        https_client_handshake(fd, &ctx) catch {
+            _exit(32);
+            return;
+        };
+
+        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 150];
+        tls_write_plain(fd, &ctx, req.ptr as &const byte, req.len) catch {
+            _exit(33);
+            return;
+        };
+
+        var resp_plain: [byte: 512] = [0: 512];
+        const resp_len: usize = tls_read_plain_record(fd, &ctx, &resp_plain[0], 512) catch {
+            _exit(34);
+            return;
+        };
+        if !slice_has(resp_plain[0: resp_len], &"HTTP/1.1 101 Switching Protocols"[0: 32]) {
+            _exit(35);
+            return;
+        }
+
+        var payload: [byte: LARGE_WSS_PAYLOAD_LEN] = [0: LARGE_WSS_PAYLOAD_LEN];
+        fill_bytes(&payload[0], LARGE_WSS_PAYLOAD_LEN, 120 as byte);
+        var frame: [byte: LARGE_WSS_FRAME_CAP] = [0: LARGE_WSS_FRAME_CAP];
+        var mask: [byte: 4] = [1, 3, 5, 7];
+        const frame_len: usize = websocket_encode_frame_raw(
+            WebSocketRole.Client,
+            true,
+            WebSocketOpcode.Binary,
+            &payload[0],
+            LARGE_WSS_PAYLOAD_LEN,
+            mask,
+            &frame[0],
+            LARGE_WSS_FRAME_CAP,
+        ) catch {
+            _exit(36);
+            return;
+        };
+        tls_write_plain(fd, &ctx, &frame[0] as &const byte, frame_len) catch {
+            _exit(37);
+            return;
+        };
+        _exit(0);
+        return;
+    }
+
+    var opts: WebSocketAcceptOptions = websocket_accept_options_default();
+    const ws_res: !WebSocketConn = websocket_accept_from_https_server(&srv, &opts);
+    if ws_res.error_id != 0u32 {
+        try assert_eq_i32(ws_res.error_id as i32, 0);
+        return;
+    }
+    var ws: WebSocketConn = ws_res.value;
+
+    var rx: [byte: LARGE_WSS_RX_CAP] = [0: LARGE_WSS_RX_CAP];
+    var msg: [byte: LARGE_WSS_PAYLOAD_LEN] = [0: LARGE_WSS_PAYLOAD_LEN];
+    var opcode: WebSocketOpcode = WebSocketOpcode.Text;
+    const n: usize = try run_with_loop_usize(websocket_conn_read_message(&ws, &rx[0], LARGE_WSS_RX_CAP, &msg[0], LARGE_WSS_PAYLOAD_LEN, &opcode));
+    try assert_eq_i32(LARGE_WSS_PAYLOAD_LEN as i32, n as i32);
+    try assert_eq_i32(WebSocketOpcode.Binary as i32, opcode as i32);
+    try assert_true(bytes_all_equal(&msg[0], LARGE_WSS_PAYLOAD_LEN, 120 as byte));
 
     try wait_child_ok(pid);
 }

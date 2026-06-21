@@ -9,8 +9,10 @@ use tls.ssl.handshake;
 use tls.ssl.record;
 use libc.sys_close;
 
-const WS_TLS_PLAIN_CAP: usize = 8192;
-const WS_TLS_CIPHER_CAP: usize = 16384;
+// WebSocket over TLS 只需要覆盖单条 TLS record 的暂存预算；
+// 更大的 WebSocket frame/message 仍由上层 max_frame_size / max_message_size 控制。
+const WS_TLS_RECORD_PLAIN_SCRATCH: usize = RECORD_MAX_PLAIN;
+const WS_TLS_RECORD_CIPHER_SCRATCH: usize = RECORD_HEADER_LEN + 8 + RECORD_MAX_PLAIN + 16;
 
 export error WebSocketBadHandshake;
 export error WebSocketUnsupportedVersion;
@@ -137,7 +139,7 @@ export struct WebSocketTlsTransport : AsyncReader, AsyncWriter, WebSocketTranspo
     hs: HandshakeCtx = HandshakeCtx{},
     rec: RecordCtx = RecordCtx{},
     ctx: SslContext = SslContext{},
-    plain: [byte: WS_TLS_PLAIN_CAP] = [0: WS_TLS_PLAIN_CAP],
+    plain: [byte: WS_TLS_RECORD_PLAIN_SCRATCH] = [0: WS_TLS_RECORD_PLAIN_SCRATCH],
     plain_off: usize = 0,
     plain_len: usize = 0,
 }
@@ -171,16 +173,16 @@ export fn websocket_tls_transport_rebind(self: &WebSocketTlsTransport) void {
 }
 
 fn websocket_tls_transport_fill_plain(self: &WebSocketTlsTransport) !void {
-    var cipher: [byte: WS_TLS_CIPHER_CAP] = [0: WS_TLS_CIPHER_CAP];
+    var cipher: [byte: WS_TLS_RECORD_CIPHER_SCRATCH] = [0: WS_TLS_RECORD_CIPHER_SCRATCH];
     while true {
         var cipher_len: usize = 0;
-        https_read_tls_record_exact(self.fd, &cipher[0], WS_TLS_CIPHER_CAP, &cipher_len) catch {
+        https_read_tls_record_exact(self.fd, &cipher[0], WS_TLS_RECORD_CIPHER_SCRATCH, &cipher_len) catch {
             self.close();
             return error.WebSocketConnectionClosed;
         };
         var plain_len: usize = 0;
         var consumed: usize = 0;
-        ssl_read(&self.ctx, &cipher[0], cipher_len, &self.plain[0], WS_TLS_PLAIN_CAP, &plain_len, &consumed) catch {
+        ssl_read(&self.ctx, &cipher[0], cipher_len, &self.plain[0], WS_TLS_RECORD_PLAIN_SCRATCH, &plain_len, &consumed) catch {
             self.close();
             return error.WebSocketConnectionClosed;
         };
@@ -203,7 +205,7 @@ fn websocket_tls_transport_read_some_sync(self: &WebSocketTlsTransport, out: &by
     if self.plain_off >= self.plain_len {
         try websocket_tls_transport_fill_plain(self);
     }
-    if self.plain_off > self.plain_len || self.plain_len > WS_TLS_PLAIN_CAP || self.plain_off >= WS_TLS_PLAIN_CAP {
+    if self.plain_off > self.plain_len || self.plain_len > WS_TLS_RECORD_PLAIN_SCRATCH || self.plain_off >= WS_TLS_RECORD_PLAIN_SCRATCH {
         self.close();
         return error.WebSocketConnectionClosed;
     }
@@ -240,12 +242,12 @@ export fn websocket_tls_transport_write_all_sync(self: &WebSocketTlsTransport, d
     var sent: usize = 0;
     while sent < total {
         var chunk: usize = total - sent;
-        if chunk > WS_TLS_PLAIN_CAP {
-            chunk = WS_TLS_PLAIN_CAP;
+        if chunk > WS_TLS_RECORD_PLAIN_SCRATCH {
+            chunk = WS_TLS_RECORD_PLAIN_SCRATCH;
         }
-        var cipher: [byte: WS_TLS_CIPHER_CAP] = [0: WS_TLS_CIPHER_CAP];
+        var cipher: [byte: WS_TLS_RECORD_CIPHER_SCRATCH] = [0: WS_TLS_RECORD_CIPHER_SCRATCH];
         var cipher_len: usize = 0;
-        ssl_write(&self.ctx, data + sent, chunk, &cipher[0], WS_TLS_CIPHER_CAP, &cipher_len) catch {
+        ssl_write(&self.ctx, data + sent, chunk, &cipher[0], WS_TLS_RECORD_CIPHER_SCRATCH, &cipher_len) catch {
             self.close();
             return error.WebSocketConnectionClosed;
         };
@@ -272,7 +274,7 @@ export fn websocket_tls_transport_take(self: &WebSocketTlsTransport) WebSocketTl
     out.ctx.hs = &out.hs;
     out.ctx.rec = &out.rec;
     var i: usize = 0;
-    while i < WS_TLS_PLAIN_CAP {
+    while i < WS_TLS_RECORD_PLAIN_SCRATCH {
         out.plain[i] = self.plain[i];
         i = i + 1;
     }

@@ -16,6 +16,8 @@ use libc.sys_write;
 use libc.O_RDONLY;
 
 const WS_QUEUE_MAX_SLOTS: i32 = 32;
+const WS_WRITE_FRAME_SCRATCH_CAP: usize = 4096;
+const WS_WRITE_FRAME_PAYLOAD_CHUNK: usize = WS_WRITE_FRAME_SCRATCH_CAP - WS_MAX_HEADER_BYTES;
 
 fn websocket_now_ms_or_zero() u64 {
     const res: !u64 = now_ms();
@@ -974,8 +976,10 @@ export @async_fn fn websocket_conn_flush_one_pending(self: &WebSocketConn) Futur
     }
     const item: WebSocketQueueItem = try websocket_conn_queue_pop(self);
     var total_wire: usize = 0;
-    var tx: [byte: 4096] = [];
-    if websocket_opcode_is_control(item.opcode) || item.payload_len <= (4096 - WS_MAX_HEADER_BYTES) {
+    // 这里的 4 KiB 仅是单次编码/发送 scratch；更大的消息会继续按 frame chunk 分段发送，
+    // 不应把 scratch 大小误当成连接级产品上限。
+    var tx: [byte: WS_WRITE_FRAME_SCRATCH_CAP] = [];
+    if websocket_opcode_is_control(item.opcode) || item.payload_len <= WS_WRITE_FRAME_PAYLOAD_CHUNK {
         var mask: [byte: 4] = [0: 4];
         if self.role == WebSocketRole.Client {
             websocket_fill_mask_key(&mask[0]);
@@ -988,7 +992,7 @@ export @async_fn fn websocket_conn_flush_one_pending(self: &WebSocketConn) Futur
             item.payload_len,
             mask,
             &tx[0],
-            4096
+            WS_WRITE_FRAME_SCRATCH_CAP
         );
         const wrote_one: usize = try @await websocket_conn_transport_write_all(self, &tx[0] as &const byte, frame_len);
         _ = wrote_one;
@@ -998,8 +1002,8 @@ export @async_fn fn websocket_conn_flush_one_pending(self: &WebSocketConn) Futur
         var current_opcode: WebSocketOpcode = item.opcode;
         while sent_payload < item.payload_len {
             var chunk: usize = item.payload_len - sent_payload;
-            if chunk > (4096 - WS_MAX_HEADER_BYTES) {
-                chunk = 4096 - WS_MAX_HEADER_BYTES;
+            if chunk > WS_WRITE_FRAME_PAYLOAD_CHUNK {
+                chunk = WS_WRITE_FRAME_PAYLOAD_CHUNK;
             }
             const final_chunk: bool = (sent_payload + chunk) == item.payload_len;
             var mask_chunk: [byte: 4] = [0: 4];
@@ -1014,7 +1018,7 @@ export @async_fn fn websocket_conn_flush_one_pending(self: &WebSocketConn) Futur
                 chunk,
                 mask_chunk,
                 &tx[0],
-                4096
+                WS_WRITE_FRAME_SCRATCH_CAP
             );
             const wrote_chunk: usize = try @await websocket_conn_transport_write_all(self, &tx[0] as &const byte, frame_len);
             _ = wrote_chunk;

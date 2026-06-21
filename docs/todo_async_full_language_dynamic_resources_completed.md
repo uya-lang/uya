@@ -2708,3 +2708,19 @@
 - [x] 将 `lib/std/http/http1_async.uya` 的固定 `4096` 请求头 scratch buffer 改成 growable buffer 或调用方可控容量。
   - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`（通过；包含 `http1_async_request_header_buffer_grows_past_inline_cap`，10/10 tests passed）
   - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`（通过；3/3 tests passed）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.5 协议层临时 buffer
+
+父级任务路径：审计 `websocket_async`、DNS/TLS 等 async 协议模块中的固定 scratch buffer，把“协议暂存”与“产品上限”拆开。
+
+- [x] `websocket_async` / `websocket_types`：梳理 `4096` 写帧 scratch 与 WSS/TLS record plain/cipher scratch，不再让 `8/16 KiB` 临时缓冲成为 WebSocket 产品上限。
+  - 完成条件：明确区分 TLS record 级 scratch 与 `max_frame_size` / `max_message_size` 等产品配置上限，并保留分片/分段发送语义。
+  - 最小验证：`../uya/bin/uya test tests/test_https_websocket_loopback.uya`；`../uya/bin/uya test tests/test_http_websocket_types.uya`
+  - 实现说明：`WebSocketTlsTransport` 的 plain/cipher scratch 改为 TLS record 级预算；`websocket_conn_flush_one_pending()` 的 `4096` 改成显式 write-frame scratch 常量，并保留按 chunk 分段发送。
+  - 验证：
+    - `../uya/bin/uya test tests/test_http_websocket_types.uya`：通过（4 tests passed）
+    - `../uya/bin/uya test tests/test_https_websocket_loopback.uya`：通过（2 tests passed，新增大 TLS record 下的大 WebSocket 消息回归）
+    - `../uya/bin/uya test tests/test_http_websocket_backpressure.uya`：通过（4 tests passed）
+    - `../uya/bin/uya test tests/test_http_websocket_async.uya`：通过（5 tests passed）

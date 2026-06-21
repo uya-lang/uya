@@ -4,6 +4,7 @@ use std.http.websocket_async;
 use std.http.websocket_client;
 use std.testing.assert_eq_i32;
 use std.testing.assert_true;
+use tls.ssl.record.RECORD_MAX_PLAIN;
 
 test "websocket_types_basic_values" {
     try assert_eq_i32(0, WebSocketOpcode.Continuation as i32);
@@ -61,4 +62,11 @@ test "websocket_type_struct_init_smoke" {
     try assert_true(client.options.auto_pong);
     try assert_eq_i32(0, client.reconnect.enabled as i32);
     try assert_eq_i32(0, client.connected as i32);
+}
+
+test "websocket_tls_transport_plain_scratch_matches_tls_record_budget" {
+    const empty_conn: WebSocketConn = websocket_conn_empty();
+    const opts: WebSocketAcceptOptions = websocket_accept_options_default();
+    try assert_eq_i32(RECORD_MAX_PLAIN as i32, @len(empty_conn.tls_io.plain) as i32);
+    try assert_true(opts.max_frame_size > @len(empty_conn.tls_io.plain));
 }
