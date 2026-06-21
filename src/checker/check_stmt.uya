@@ -647,15 +647,8 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         }
     }
 
-    // @async_fn 状态机大小（编译期约束）：
-    // 旧的 16 参数 / 256 await 上限已经不再作为“正确行为”。
-    if node.fn_decl_is_async != 0 {
-        const max_async_params: i32 = 64;
-        if node.fn_decl_param_count > max_async_params {
-            checker_report_error(checker, node, "@async_fn 函数参数过多（当前实现上限 64，请扩展 async 参数捕获工作存储）" as *byte);
-            return 0;
-        }
-    }
+    // @async_fn 状态机大小（编译期提示）：
+    // 旧的固定参数 / await 上限不再作为“正确行为”阻止编译。
     if node.fn_decl_is_async != 0 && node.fn_decl_body != null {
         const await_count: i32 = checker_count_await_in_node(node.fn_decl_body);
         // 状态机大小近似估算：state(4B) + await_fut(16B) + loop_vars(16B) + await_bind(16B/个) + param(16B/个)

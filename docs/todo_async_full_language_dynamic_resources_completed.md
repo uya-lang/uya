@@ -3068,3 +3068,15 @@ Phase 5：发布闸门与文档同步
   - 结果：通过。
   - 验证：`../uya/bin/uya --c99 tests/test_non_generic_struct_generic_method.uya -o /tmp/test_non_generic_struct_generic_method_regen.c`
   - 结果：通过。
+
+## 未完成前不得宣称完成的条件
+父任务路径：`仍存在 16/32/64/512/1024 这类固定上限决定正常功能成败。`
+
+  - [x] 去掉 `@async_fn` 参数容量仍受 `16/64` 旧上限口径影响的真实编译路径。
+    验证：`make uya`（通过：重建 `bin/uya` 使修改后的编译器生效）
+    验证：`../uya/bin/uya test tests/test_async_param_capacity_dynamic.uya`（通过：`async_param_capacity_grows_past_64`）
+    验证：`python3 tests/verify_async_compiler_no_fixed_limits.py`（通过）
+    验证：`../uya/bin/uya test tests/test_async_await_capacity_dynamic.uya`（通过：`async_await_capacity_grows_past_256`）
+    验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`（通过：4 个 async boundary tests）
+    验证：`bash -n tests/stress_async_dynamic_resources.sh`（通过）
+    验证：`git diff --check`（通过）

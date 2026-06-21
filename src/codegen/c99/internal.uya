@@ -339,8 +339,9 @@ struct C99CodeGenerator {
 
     // async 状态机：在 poll 内生成表达式时，参数标识符应输出为 s->param
     async_state_var: &byte,               // 状态指针变量名（如 "s"），null 表示未在 async poll 中
-    async_param_names: [&byte: C99_MAX_CALL_ARGS], // 捕获的参数名
+    async_param_names: & & byte,          // 按真实 param_count 分配的捕获参数名
     async_param_count: i32,               // 捕获参数数量
+    async_param_capacity: i32,            // 捕获参数表容量
     async_loop_var_name: &byte,           // 循环内持久化变量名（如 "total"），null 表示无
     async_loop_var_c: &byte,              // 对应的 C 表达式（如 "s->_uya_total"）
     async_bind_names: & & byte,          // await 绑定变量名（如 "n", "written"）

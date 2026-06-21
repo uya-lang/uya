@@ -16,9 +16,12 @@ def main() -> None:
     require_absent("src/checker/async_frame_meta.uya", "MAX_ASYNC_FRAME_METAS")
     require_absent("src/checker/types.uya", "async_frame_metas: [AsyncFrameMeta:")
     require_absent("src/checker/types.uya", "mono_instances: [MonoInstance:")
+    require_absent("src/checker/check_stmt.uya", "当前实现上限 64")
     require_absent("src/codegen/c99/main.uya", "if count > MAX_ASYNC_FRAME_METAS")
     require_absent("src/codegen/c99/main.uya", "entries[1024]")
     require_absent("src/codegen/c99/internal.uya", "C99_CHECKER_MAX_MONO_INSTANCES")
+    require_absent("src/codegen/c99/internal.uya", "async_param_names: [&byte: C99_MAX_CALL_ARGS]")
+    require_absent("src/codegen/c99/function.uya", "while pi < param_count && pi < C99_MAX_CALL_ARGS")
     require_absent("lib/std/async_frame.uya", "entries: [AsyncFrameDescriptor: 1024]")
 
 

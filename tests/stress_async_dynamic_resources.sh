@@ -110,7 +110,7 @@ run_compiler_stage() {
     run_stage "compiler fixed-limit source scan" \
         run_logged_command "verify_async_compiler_no_fixed_limits.py" \
         python3 "$SCRIPT_DIR/verify_async_compiler_no_fixed_limits.py"
-    run_stage "async params past legacy 16" \
+    run_stage "async params past fixed 64" \
         run_uya_test_file "$REPO_ROOT/tests/test_async_param_capacity_dynamic.uya" \
         "tests/test_async_param_capacity_dynamic.uya"
     run_stage "async awaits past legacy 256" \

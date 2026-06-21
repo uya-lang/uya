@@ -181,6 +181,12 @@
 ## 未完成前不得宣称完成的条件
 
 - [ ] 仍存在 `16/32/64/512/1024` 这类固定上限决定正常功能成败。
+  - [ ] 复核 `ThreadPool` 兼容常量 `16/32` 不再决定 `async_compute` 正常提交成败。
+    验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+  - [ ] 复核 `LinuxEpoll` 跨过旧 `64/1024` 初始容量后仍动态增长。
+    验证：`../uya/bin/uya test tests/test_async_event_dynamic_growth.uya`
+  - [ ] 复核 `AsyncFramePool` 跨过旧 `128/4096` 初始容量后仍动态增长。
+    验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
 - [ ] 仍需要 `fork` fallback 才能掩盖线程池饱和。
 - [ ] 仍把 `tests/error_async_too_many_params.uya` 这类旧人为上限测试当成正确口径。
 - [ ] 文档仍声称“量产已完成”，但源码和闸门没有证据支撑。
