@@ -1951,3 +1951,13 @@
     - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：14 tests passed，85 assertions passed）
     - 验证：`../uya/bin/uya test tests/test_async_io.uya`（通过：12 tests passed，19 assertions passed）
     - 验证：`git diff --check`（通过）
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+任务路径：
+- [ ] `lib/std/thread.uya`
+  - [ ] 将 `AsyncComputeFuture<T>` 分解为：
+    - [x] worker 提交/排队
+      - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，28 tests / 111 assertions）
+      - 验证：`../uya/bin/uya test tests/test_async_compute_generic_wrapper.uya`（通过，2 tests）
+      - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`（通过，11 tests）

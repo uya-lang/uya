@@ -1119,6 +1119,38 @@ fn async_thread_slot_wait(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
     };
 }
 
+// 拆出 worker submit/queue awaitable，后续 `@async_fn` 组合层可直接 await。
+struct AsyncWorkerSubmitFuture : Future<!usize> {
+    pool: &ThreadPool,
+    compute_fn: &void,
+    task_kind: i32,
+    arg_bits: usize,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        const slot_idx: i32 = thread_pool_submit_slot_raw(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
+        if slot_idx < 0 {
+            return Poll<!usize>.Ready(thread_generic_error_usize());
+        }
+        if thread_pool_has_pending(self.pool) {
+            waker.wake();
+        }
+        return async_poll_ready_ok_usize(slot_idx as usize);
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) Future<!usize> {
+    return AsyncWorkerSubmitFuture{
+        pool: pool,
+        compute_fn: compute_fn,
+        task_kind: task_kind,
+        arg_bits: arg_bits,
+    };
+}
+
 // 线程结果桥接保留在 `std.thread`：它依赖 ThreadPool slot/worker 协议，而不是通用 fd runtime 叶子。
 // 对外只暴露单个 awaitable，`AsyncComputeFuture` 不再手工拼接 slot wait + pipe read 两段桥接。
 struct AsyncWorkerResultFuture : Future<!usize> {
@@ -1252,15 +1284,6 @@ struct ThreadAsyncComputeCore {
         return 0;
     }
 
-    fn start_execution(self: &Self) !i32 {
-        const submitted_slot_idx: i32 = thread_pool_submit_slot_raw(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
-        if submitted_slot_idx >= 0 {
-            self.slot_idx = submitted_slot_idx;
-            return submitted_slot_idx;
-        }
-        return thread_generic_error_i32();
-    }
-
     fn finish_from_raw_value(self: &Self, raw_value: usize) Poll<!usize> {
         var value: usize = raw_value;
         if self.slot_idx >= 0 {
@@ -1362,10 +1385,18 @@ export struct AsyncComputeFuture<T> : Future<!T> {
             }
         }
         if self.core.slot_idx < 0 {
-            const start_result: !i32 = self.core.start_execution();
-            _ = start_result catch {
-                const err_value: !usize = start_result as! usize;
-                return self.finish_from_raw_poll(Poll<!usize>.Ready(err_value), waker);
+            const submit_future: Future<!usize> = async_worker_submit(self.core.pool, self.core.compute_fn, self.core.task_kind, self.core.arg_bits);
+            const submit_poll: Poll<!usize> = submit_future.poll(waker);
+            match submit_poll {
+                .Ready(submit_result) => {
+                    const submitted_slot_bits: usize = submit_result catch {
+                        return self.finish_from_raw_poll(submit_poll, waker);
+                    };
+                    self.core.slot_idx = submitted_slot_bits as i32;
+                },
+                .Pending(_) => {
+                    return Poll<!T>.Pending({});
+                },
             };
         }
 

@@ -809,6 +809,16 @@ test "async_compute_thread_bridge_is_unified_behind_helpers" {
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn poll_worker_result(self: &Self, waker: &Waker) Poll<!usize> {\0" as &const byte) as i32, 0);
 }
 
+test "async_compute_thread_submission_is_unified_behind_helper" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const submit_future: Future<!usize> = async_worker_submit(self.core.pool, self.core.compute_fn, self.core.task_kind, self.core.arg_bits);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn start_execution(self: &Self) !i32 {\0" as &const byte) as i32, 0);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const start_result: !i32 = self.core.start_execution();\0" as &const byte) as i32, 0);
+}
+
 test "async_compute_i32_cancelled_queued_slot_returns_cancelled" {
     var pool: ThreadPool = thread_pool_new(1);
     defer {

@@ -157,7 +157,6 @@
 
 - [ ] `lib/std/thread.uya`
   - [ ] 将 `AsyncComputeFuture<T>` 分解为：
-    - [ ] worker 提交/排队
     - [ ] 结果 ready 通知
     - [ ] cancel / cleanup
     - [ ] one-shot fallback 或其替代策略
