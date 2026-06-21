@@ -2826,3 +2826,12 @@
     - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过：28 tests；新增 `async_runtime_metrics_linux_epoll_report_registered_fd_and_resize_count`）
     - 验证：`../uya/bin/uya test --c99 tests/test_async_event_config.uya`（通过：2 tests）
     - 验证：`../uya/bin/uya test --c99 tests/test_async_event_dynamic_growth.uya`（通过：1 test）
+
+## Phase 4：生产级可靠性与可观测性
+- 为 async runtime 增加统一指标：
+  - [x] thread pool queue depth / running workers / saturation count
+    - 结果：`ThreadPoolMetrics` 新增 `running_workers` / `saturation_count`，`AsyncRuntimeMetrics` 新增 thread pool 统一快照字段与 `async_runtime_metrics_linux_epoll_with_thread_pool()`。
+    - 验证：`../uya/bin/uya test --c99 tests/test_async_thread_pool_dynamic_growth.uya`（通过：4 tests）
+    - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过：29 tests）
+    - 验证：`../uya/bin/uya test --c99 tests/test_std_thread.uya`（通过：34 tests）
+    - 验证：`../uya/bin/uya test --c99 tests/test_async_runtime_shared_semantics.uya`（通过：4 tests）

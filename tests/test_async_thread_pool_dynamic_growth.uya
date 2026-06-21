@@ -207,6 +207,8 @@ test "thread_pool_metrics_capture_capacity_queue_depth_and_drain_time" {
     try assert_eq_i32(initial_metrics.task_slot_capacity, pool.task_slot_capacity);
     try assert_eq_i32(initial_metrics.queue_depth, 0);
     try assert_eq_i32(initial_metrics.peak_queue_depth, 0);
+    try assert_eq_i32(initial_metrics.running_workers, 0);
+    try assert_eq_u64(initial_metrics.saturation_count, 0u64);
     try assert_eq_u64(initial_metrics.cancel_count, 0u64);
     try assert_eq_u64(initial_metrics.drain_count, 0u64);
 
@@ -259,6 +261,8 @@ test "thread_pool_metrics_capture_capacity_queue_depth_and_drain_time" {
     try assert_eq_i32(queued_metrics.started_workers, 1);
     try expect(queued_metrics.queue_depth >= DYNAMIC_QUEUE_PRESSURE_TARGET);
     try expect(queued_metrics.peak_queue_depth >= queued_metrics.queue_depth);
+    try assert_eq_i32(queued_metrics.running_workers, 1);
+    try expect(queued_metrics.saturation_count >= 1u64);
 
     i = 0 as usize;
     while i < DYNAMIC_TASK_COUNT {
@@ -270,6 +274,8 @@ test "thread_pool_metrics_capture_capacity_queue_depth_and_drain_time" {
     const final_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
     try assert_eq_i32(final_metrics.queue_depth, 0);
     try expect(final_metrics.peak_queue_depth > THREAD_POOL_MAX_TASK_SLOTS);
+    try assert_eq_i32(final_metrics.running_workers, 0);
+    try expect(final_metrics.saturation_count >= queued_metrics.saturation_count);
     try expect(final_metrics.drain_count >= 1u64);
     try expect(final_metrics.last_drain_time_us > 0u64);
     try expect(final_metrics.max_drain_time_us >= final_metrics.last_drain_time_us);
@@ -315,11 +321,14 @@ test "thread_pool_metrics_record_cancelled_async_compute" {
 
     const cancelled_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
     try assert_eq_u64(cancelled_metrics.cancel_count, 1u64);
+    try expect(cancelled_metrics.saturation_count >= 1u64);
 
     const value: i32 = try block_on<i32>(first);
     try assert_eq_i32(value, 1);
 
     const final_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
     try assert_eq_i32(final_metrics.queue_depth, 0);
+    try assert_eq_i32(final_metrics.running_workers, 0);
     try assert_eq_u64(final_metrics.cancel_count, 1u64);
+    try expect(final_metrics.saturation_count >= cancelled_metrics.saturation_count);
 }

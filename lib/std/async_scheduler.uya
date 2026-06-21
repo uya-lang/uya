@@ -13,6 +13,7 @@ use std;
 use std.async;
 use std.async_event;
 use std.async_frame;
+use std.thread;
 use std.mem.allocator.IAllocator;
 use libc.stdlib;
 use libc.syscall;
@@ -449,7 +450,7 @@ export struct SchedulerMetrics {
 
 /// async runtime 统一指标快照。
 /// 参数：无；通过 `async_runtime_metrics_linux_epoll` 读取指定 scheduler + LinuxEpoll 的聚合值。
-/// 返回值：包含 scheduler 的 frame/queue 指标，以及 Linux epoll 的当前/峰值注册 fd 数和扩容次数。
+/// 返回值：包含 scheduler 的 frame/queue 指标、Linux epoll 的当前/峰值注册 fd 数和扩容次数，以及可选 thread pool 的队列/运行/饱和指标。
 export struct AsyncRuntimeMetrics {
     frame_alloc_count: u64,
     frame_free_count: u64,
@@ -460,6 +461,9 @@ export struct AsyncRuntimeMetrics {
     epoll_registered_fd_count: i32,
     epoll_peak_registered_fd_count: i32,
     epoll_resize_count: i32,
+    thread_pool_queue_depth: i32,
+    thread_pool_running_workers: i32,
+    thread_pool_saturation_count: u64,
 }
 
 /// 调度器。持有 async frame pool，同 scheduler 内的任务共享 pool 分配器。
@@ -622,6 +626,23 @@ export fn scheduler_metrics(self: &Scheduler) SchedulerMetrics {
 /// 参数：`self` 为 scheduler 指针，可为空；`loop` 为 LinuxEpoll 指针，可为空。
 /// 返回值：聚合后的统一指标；scheduler 或 epoll 为空时，对应字段返回 0。
 export fn async_runtime_metrics_linux_epoll(self: &Scheduler, loop: &LinuxEpoll) AsyncRuntimeMetrics {
+    return async_runtime_metrics_linux_epoll_with_thread_pool(self, loop, null as &ThreadPool);
+}
+
+fn async_runtime_metrics_apply_thread_pool(metrics: &AsyncRuntimeMetrics, pool: &ThreadPool) void {
+    if metrics == null || pool == null {
+        return;
+    }
+    const pool_metrics: ThreadPoolMetrics = thread_pool_metrics(pool);
+    metrics.thread_pool_queue_depth = pool_metrics.queue_depth;
+    metrics.thread_pool_running_workers = pool_metrics.running_workers;
+    metrics.thread_pool_saturation_count = pool_metrics.saturation_count;
+}
+
+/// 获取 async runtime 当前统一指标快照（scheduler + Linux epoll + 可选 thread pool）。
+/// 参数：`self` 为 scheduler 指针，可为空；`loop` 为 LinuxEpoll 指针，可为空；`pool` 为 thread pool 指针，可为空。
+/// 返回值：聚合后的统一指标；对应组件为空时，其字段返回 0。
+export fn async_runtime_metrics_linux_epoll_with_thread_pool(self: &Scheduler, loop: &LinuxEpoll, pool: &ThreadPool) AsyncRuntimeMetrics {
     const scheduler_snapshot: SchedulerMetrics = scheduler_metrics(self);
     var metrics: AsyncRuntimeMetrics = AsyncRuntimeMetrics{
         frame_alloc_count: scheduler_snapshot.frame_alloc_count,
@@ -633,13 +654,16 @@ export fn async_runtime_metrics_linux_epoll(self: &Scheduler, loop: &LinuxEpoll)
         epoll_registered_fd_count: 0,
         epoll_peak_registered_fd_count: 0,
         epoll_resize_count: 0,
+        thread_pool_queue_depth: 0,
+        thread_pool_running_workers: 0,
+        thread_pool_saturation_count: 0u64,
     };
-    if loop == null {
-        return metrics;
+    if loop != null {
+        metrics.epoll_registered_fd_count = linux_epoll_registered_count(loop);
+        metrics.epoll_peak_registered_fd_count = linux_epoll_peak_registered_count(loop);
+        metrics.epoll_resize_count = linux_epoll_resize_count(loop);
     }
-    metrics.epoll_registered_fd_count = linux_epoll_registered_count(loop);
-    metrics.epoll_peak_registered_fd_count = linux_epoll_peak_registered_count(loop);
-    metrics.epoll_resize_count = linux_epoll_resize_count(loop);
+    async_runtime_metrics_apply_thread_pool(&metrics, pool);
     return metrics;
 }
 

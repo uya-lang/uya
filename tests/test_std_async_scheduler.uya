@@ -6,6 +6,7 @@ use std.async_frame.AsyncFramePool;
 use std.async_frame.async_frame_pool_alloc_aligned;
 use std.async_frame.async_frame_pool_free_aligned;
 use std.async_scheduler;
+use std.thread;
 use std.testing.assert_eq_i32;
 use libc.atoi;
 use libc.getenv;
@@ -29,6 +30,43 @@ fn ready(v: i32) Future<!i32> {
 fn ready_u32(v: u32) Future<!u32> {
     const p: Poll<!u32> = Poll<!u32>.Ready(ok<u32>(v));
     return Future<!u32>{ state: p };
+}
+
+fn delayed_metric_add_one_i32(v: i32) i32 {
+    const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 50 * 1000 * 1000 };
+    var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    _ = sys_nanosleep(&req, &rem) catch {};
+    return v + 1;
+}
+
+fn scheduler_metrics_sleep_wait_poll() void {
+    const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 1 * 1000 * 1000 };
+    var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    _ = sys_nanosleep(&req, &rem) catch {};
+}
+
+fn wait_thread_pool_pending_at_least(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < 2000 {
+        if thread_pool_pending_count(pool) >= target {
+            return 1;
+        }
+        scheduler_metrics_sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn wait_thread_pool_running_workers_at_least(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < 2000 {
+        if thread_pool_metrics(pool).running_workers >= target {
+            return 1;
+        }
+        scheduler_metrics_sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
 }
 
 struct SchedulerFutureHolder {
@@ -227,6 +265,47 @@ test "async_runtime_metrics_linux_epoll_report_registered_fd_and_resize_count" {
     try assert_eq_i32(after_deregister.epoll_registered_fd_count, 0);
     try assert_eq_i32(after_deregister.epoll_peak_registered_fd_count >= 3, true);
     try assert_eq_i32(after_deregister.epoll_resize_count, metrics.epoll_resize_count);
+}
+
+test "async_runtime_metrics_linux_epoll_with_thread_pool_report_queue_depth_running_workers_and_saturation" {
+    var s: Scheduler = scheduler_new();
+    var ep: LinuxEpoll = try linux_epoll_create_config(0, 2, 1);
+    var pool: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
+        worker_count: 1,
+        pending_capacity: THREAD_POOL_MAX_PENDING + 4,
+        task_slot_capacity: THREAD_POOL_MAX_PENDING + 4,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
+    });
+    defer {
+        thread_pool_shutdown(&pool);
+        _ = scheduler_test_sys_close(ep.epfd) catch {};
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_metric_add_one_i32 as &void, 0);
+    var second: Future<!i32> = async_compute<i32>(&pool, &delayed_metric_add_one_i32 as &void, 1);
+    var first_waker: Waker = Waker{};
+    var second_waker: Waker = Waker{};
+
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+
+    try assert_eq_i32(wait_thread_pool_pending_at_least(&pool, 1), 1);
+    try assert_eq_i32(wait_thread_pool_running_workers_at_least(&pool, 1), 1);
+
+    const metrics: AsyncRuntimeMetrics = async_runtime_metrics_linux_epoll_with_thread_pool(&s, &ep, &pool);
+    try assert_eq_i32(metrics.thread_pool_queue_depth >= 1, true);
+    try assert_eq_i32(metrics.thread_pool_running_workers, 1);
+    try assert_eq_i32(metrics.thread_pool_saturation_count >= 1u64, true);
+
+    try assert_eq_i32(try scheduler_run_i32(&s, first), 1);
+    try assert_eq_i32(try scheduler_run_i32(&s, second), 2);
+
+    const final_metrics: AsyncRuntimeMetrics = async_runtime_metrics_linux_epoll_with_thread_pool(&s, &ep, &pool);
+    try assert_eq_i32(final_metrics.thread_pool_queue_depth, 0);
+    try assert_eq_i32(final_metrics.thread_pool_running_workers, 0);
+    try assert_eq_i32(final_metrics.thread_pool_saturation_count >= metrics.thread_pool_saturation_count, true);
 }
 
 test "scheduler_run_u32" {

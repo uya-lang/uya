@@ -333,6 +333,7 @@ struct ThreadPoolSharedState {
     pending_tail: atomic i32,
     pending_count: atomic i32,
     peak_pending_count: atomic i32,
+    saturation_count: atomic u64,
     drain_count: atomic u64,
     last_drain_time_us: atomic u64,
     max_drain_time_us: atomic u64,
@@ -359,6 +360,7 @@ export struct ThreadPool {
     _workers: &ThreadWorker,
     _workers_bytes: usize,
     _metrics_peak_queue_depth: i32,
+    _metrics_saturation_count: u64,
     _metrics_cancel_count: u64,
     _metrics_drain_count: u64,
     _metrics_last_drain_time_us: u64,
@@ -378,14 +380,16 @@ export struct ThreadPoolConfig {
 
 /// `ThreadPool` 运行时指标快照。
 /// 参数：无；通过 `thread_pool_metrics` 读取指定实例的当前值。
-/// 返回值：包含容量、队列深度、取消次数和排空耗时等观测字段。
+/// 返回值：包含容量、队列深度、当前运行 worker 数、饱和累计次数、取消次数和排空耗时等观测字段。
 export struct ThreadPoolMetrics {
     worker_capacity: i32,
     queue_capacity: i32,
     task_slot_capacity: i32,
     started_workers: i32,
+    running_workers: i32,
     queue_depth: i32,
     peak_queue_depth: i32,
+    saturation_count: u64,
     cancel_count: u64,
     drain_count: u64,
     last_drain_time_us: u64,
@@ -471,11 +475,49 @@ fn thread_pool_record_cancel(pool: &ThreadPool) void {
     pool._metrics_cancel_count = pool._metrics_cancel_count + 1u64;
 }
 
+fn thread_pool_running_worker_count(pool: &ThreadPool) i32 {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return 0;
+    }
+    var running_workers: i32 = 0;
+    var slot_idx: i32 = 0;
+    const slot_capacity: i32 = thread_pool_task_slot_capacity(pool);
+    while slot_idx < slot_capacity {
+        if pool._shared_state.slots[slot_idx as usize].state == THREAD_SLOT_STATE_RUNNING {
+            running_workers = running_workers + 1;
+        }
+        slot_idx = slot_idx + 1;
+    }
+    return running_workers;
+}
+
+fn thread_pool_available_worker_headroom(pool: &ThreadPool) i32 {
+    if pool == null as &ThreadPool {
+        return 0;
+    }
+    var headroom: i32 = pool.worker_count - thread_pool_running_worker_count(pool);
+    if headroom < 0 {
+        headroom = 0;
+    }
+    return headroom;
+}
+
+fn thread_pool_record_saturation_if_needed(pool: &ThreadPool) void {
+    if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
+        return;
+    }
+    if pool._shared_state.pending_count <= thread_pool_available_worker_headroom(pool) {
+        return;
+    }
+    pool._shared_state.saturation_count = pool._shared_state.saturation_count + 1u64;
+}
+
 fn thread_pool_cache_shared_metrics(pool: &ThreadPool) void {
     if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) {
         return;
     }
     pool._metrics_peak_queue_depth = pool._shared_state.peak_pending_count;
+    pool._metrics_saturation_count = pool._shared_state.saturation_count;
     pool._metrics_drain_count = pool._shared_state.drain_count;
     pool._metrics_last_drain_time_us = pool._shared_state.last_drain_time_us;
     pool._metrics_max_drain_time_us = pool._shared_state.max_drain_time_us;
@@ -546,6 +588,7 @@ fn thread_pool_ensure_shared_state(pool: &ThreadPool) i32 {
     shared_state.pending_tail = 0;
     shared_state.pending_count = 0;
     shared_state.peak_pending_count = 0;
+    shared_state.saturation_count = 0u64;
     shared_state.drain_count = 0u64;
     shared_state.last_drain_time_us = 0u64;
     shared_state.max_drain_time_us = 0u64;
@@ -1080,6 +1123,7 @@ fn thread_pool_enqueue_slot(pool: &ThreadPool, slot_idx: i32) i32 {
         if thread_shared_slot_is_valid(pool._shared_state, slot_idx) {
             pool._shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_QUEUED;
         }
+        thread_pool_record_saturation_if_needed(pool);
         return 1;
     }
     return 0;
@@ -1732,6 +1776,7 @@ export fn thread_pool_new_with_config(config: ThreadPoolConfig) ThreadPool {
         _workers: null as &ThreadWorker,
         _workers_bytes: 0 as usize,
         _metrics_peak_queue_depth: 0,
+        _metrics_saturation_count: 0u64,
         _metrics_cancel_count: 0u64,
         _metrics_drain_count: 0u64,
         _metrics_last_drain_time_us: 0u64,
@@ -1760,7 +1805,7 @@ export fn thread_pool_pending_count(pool: &ThreadPool) i32 {
 
 /// 获取线程池当前指标快照。
 /// 参数：`pool` 为线程池实例；空指针返回全零快照。
-/// 返回值：包含容量、队列深度、取消次数和排空耗时等当前已知指标。
+/// 返回值：包含容量、队列深度、当前运行 worker 数、饱和累计次数、取消次数和排空耗时等当前已知指标。
 export fn thread_pool_metrics(pool: &ThreadPool) ThreadPoolMetrics {
     if pool == null as &ThreadPool {
         return ThreadPoolMetrics{};
@@ -1771,8 +1816,10 @@ export fn thread_pool_metrics(pool: &ThreadPool) ThreadPoolMetrics {
         queue_capacity: pool.pending_capacity,
         task_slot_capacity: pool.task_slot_capacity,
         started_workers: pool._started_workers,
+        running_workers: thread_pool_running_worker_count(pool),
         queue_depth: thread_pool_pending_len(pool),
         peak_queue_depth: pool._metrics_peak_queue_depth,
+        saturation_count: pool._metrics_saturation_count,
         cancel_count: pool._metrics_cancel_count,
         drain_count: pool._metrics_drain_count,
         last_drain_time_us: pool._metrics_last_drain_time_us,
