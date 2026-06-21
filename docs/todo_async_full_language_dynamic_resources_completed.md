@@ -2383,3 +2383,12 @@
       结果：6 tests passed，0 failed
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`
       结果：1 test passed，0 failed
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.8 建议执行顺序
+- [x] `rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
+  - [x] 最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在；其中 substrate 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`）
+    - 验证：`rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
+    - 结果：仅命中 `lib/std/async.uya:1277` 的 `AsyncWaitFdFuture`，以及 `lib/std/thread.uya` 的 `AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`
+    - 验证：`bash -lc 'actual=$(rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob "*.uya" | sed -E "s#^.*struct ([^ ]+) : Future<.*#\\1#" | sort); expected=$(printf "%s\\n" AsyncThreadSlotWaitFuture AsyncWaitFdFuture AsyncWorkerCancelFuture AsyncWorkerComputeFuture AsyncWorkerResultFuture AsyncWorkerSubmitFuture | sort); if [ "$actual" = "$expected" ]; then echo "ALLOWLIST_OK"; printf "%s\\n" "$actual"; else echo "ALLOWLIST_MISMATCH"; exit 1; fi'`
+    - 结果：`ALLOWLIST_OK`，命中集合与允许名单完全一致
