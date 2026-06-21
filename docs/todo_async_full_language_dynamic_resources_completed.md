@@ -2592,3 +2592,17 @@
   - 结果：通过；生成产物中包含 `_uya_async_frame_descriptor_entries[21]` 与 `_uya_async_frame_descriptor_count = 21`。
   - 验证：`../uya/bin/uya --c99 tests/test_c99_async_frame_empty_descriptors.uya -o /tmp/uya_async_frame_empty_descriptors.c`
   - 结果：通过；生成产物中包含 `_uya_async_frame_descriptor_entries[1]` 与 `_uya_async_frame_descriptor_count = 0`。
+父级任务路径：# Uya 异步生产化 TODO（完整语法 + 动态资源） > ## Phase 3：运行时 async 资源动态化 > ### 3.3 AsyncFramePool
+- [x] 为 pool 建立明确的 ownership 跟踪，修掉 reset/free 语义只能靠注释解释的隐患。
+  - 完成记录：`lib/std/async_frame.uya` 为每块 frame 增加 `owner_kind + generation` header，`async_frame_pool_free*` / `async_frame_pool_reset` 现在会区分 caller buffer、池内 heap 复用和 debug heap fallback；reset 后旧 generation frame 不会再回灌到当前 pool。
+  - 完成记录：新增 ownership 回归，并把受 header 开销影响的 buffer 容量测试扩大到仍验证相同动态容量语义的范围。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya`
+  - 结果：通过；新增 3 条 ownership/reset 回归全部通过。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_align_pool.uya`
+  - 结果：通过；对齐与大 per-bucket buffer 路径回归通过。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
+  - 结果：通过；bucket / slot 动态增长回归通过。
+  - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`
+  - 结果：通过；scheduler 绑定 frame pool 路径 24 项通过。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`
+  - 结果：通过；IAllocator 失败路径回归通过。

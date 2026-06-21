@@ -64,7 +64,7 @@ fn test_pool_config_above_legacy_bucket_limit() !void {
 }
 
 fn test_pool_config_above_legacy_per_bucket_limit() !void {
-    var storage: [byte: 8192] = [];
+    var storage: [byte: 131072] = [];
     var pool: AsyncFramePool = AsyncFramePool{};
     var config: AsyncFramePoolConfig = AsyncFramePoolConfig{};
     config.max_buckets = 1;
@@ -73,7 +73,7 @@ fn test_pool_config_above_legacy_per_bucket_limit() !void {
     config.stack_limit = 65536usize;
     async_frame_pool_init_with_config(&pool, &config);
     pool.buffer = &storage[0] as &byte;
-    pool.buffer_size = 8192usize;
+    pool.buffer_size = 131072usize;
     pool.buffer_used = 0usize;
 
     var i: i32 = 0;

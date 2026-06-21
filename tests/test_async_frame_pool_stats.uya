@@ -9,6 +9,7 @@ use std.async_frame.async_frame_pool_init_with_buffer;
 use std.async_frame.async_frame_pool_alloc_aligned;
 use std.async_frame.async_frame_pool_free_aligned;
 use std.async_frame.async_frame_pool_stats;
+use std.async_frame.async_frame_pool_reset;
 use std.testing.expect;
 use std.testing.run_test;
 use std.async;
@@ -90,7 +91,7 @@ fn test_pool_buffer_prefers_stack_and_large_heap() !void {
 }
 
 fn test_pool_config_initial_capacity_can_grow() !void {
-    var storage: [byte: 128] = [];
+    var storage: [byte: 256] = [];
     var pool: AsyncFramePool = AsyncFramePool{};
     var config: AsyncFramePoolConfig = AsyncFramePoolConfig{};
     config.max_buckets = 1;
@@ -99,7 +100,7 @@ fn test_pool_config_initial_capacity_can_grow() !void {
     config.stack_limit = 65536usize;
     async_frame_pool_init_with_config(&pool, &config);
     pool.buffer = &storage[0] as &byte;
-    pool.buffer_size = 128usize;
+    pool.buffer_size = 256usize;
     pool.buffer_used = 0usize;
 
     const first: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
@@ -154,7 +155,7 @@ fn test_pool_config_allows_more_than_default_buckets() !void {
 }
 
 fn test_pool_config_allows_more_than_default_per_bucket() !void {
-    var storage: [byte: 8192] = [];
+    var storage: [byte: 131072] = [];
     var pool: AsyncFramePool = AsyncFramePool{};
     var config: AsyncFramePoolConfig = AsyncFramePoolConfig{};
     config.max_buckets = 1;
@@ -163,7 +164,7 @@ fn test_pool_config_allows_more_than_default_per_bucket() !void {
     config.stack_limit = 65536usize;
     async_frame_pool_init_with_config(&pool, &config);
     pool.buffer = &storage[0] as &byte;
-    pool.buffer_size = 8192usize;
+    pool.buffer_size = 131072usize;
     pool.buffer_used = 0usize;
 
     var i: i32 = 0;
@@ -181,6 +182,70 @@ fn test_pool_config_allows_more_than_default_per_bucket() !void {
     try expect(total_alloc == 4097);
     try expect(full_count == 0);
     try expect(heap_fallback == 0);
+}
+
+fn test_pool_reset_discards_old_caller_buffer_frame() !void {
+    var storage: [byte: 128] = [];
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init_with_buffer(&pool, &storage[0] as &byte, 128usize, 0, 65536usize);
+
+    const ptr: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    try expect(ptr != null);
+
+    async_frame_pool_reset(&pool);
+    async_frame_pool_free_aligned(&pool, ptr, 32usize, 8usize);
+
+    var total_alloc: i32 = 0;
+    var total_free: i32 = 0;
+    var full_count: i32 = 0;
+    var heap_fallback: i32 = 0;
+    async_frame_pool_stats(&pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 0);
+    try expect(total_free == 0);
+    try expect(pool.buffer_used == 0usize);
+    try expect(heap_fallback == 0);
+}
+
+fn test_pool_reset_discards_old_pool_heap_frame() !void {
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init(&pool, 0, 65536usize);
+
+    const ptr: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    try expect(ptr != null);
+
+    async_frame_pool_reset(&pool);
+    async_frame_pool_free_aligned(&pool, ptr, 32usize, 8usize);
+
+    var total_alloc: i32 = 0;
+    var total_free: i32 = 0;
+    var full_count: i32 = 0;
+    var heap_fallback: i32 = 0;
+    async_frame_pool_stats(&pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 0);
+    try expect(total_free == 0);
+    try expect(full_count == 0);
+    try expect(heap_fallback == 0);
+}
+
+fn test_debug_heap_fallback_free_bypasses_pool_reuse() !void {
+    var storage: [byte: 64] = [];
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init_with_buffer(&pool, &storage[0] as &byte, 64usize, 1, 16usize);
+
+    const ptr: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    try expect(ptr != null);
+
+    async_frame_pool_free_aligned(&pool, ptr, 32usize, 8usize);
+
+    var total_alloc: i32 = 0;
+    var total_free: i32 = 0;
+    var full_count: i32 = 0;
+    var heap_fallback: i32 = 0;
+    async_frame_pool_stats(&pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 0);
+    try expect(total_free == 0);
+    try expect(full_count == 0);
+    try expect(heap_fallback == 1);
 }
 
 test "async_frame_pool_stats" {
@@ -201,4 +266,16 @@ test "async_frame_pool_config_allows_more_than_default_buckets" {
 
 test "async_frame_pool_config_allows_more_than_default_per_bucket" {
     run_test("async_frame_pool_config_allows_more_than_default_per_bucket", test_pool_config_allows_more_than_default_per_bucket);
+}
+
+test "async_frame_pool_reset_discards_old_caller_buffer_frame" {
+    run_test("async_frame_pool_reset_discards_old_caller_buffer_frame", test_pool_reset_discards_old_caller_buffer_frame);
+}
+
+test "async_frame_pool_reset_discards_old_pool_heap_frame" {
+    run_test("async_frame_pool_reset_discards_old_pool_heap_frame", test_pool_reset_discards_old_pool_heap_frame);
+}
+
+test "async_frame_pool_debug_heap_fallback_free_bypasses_pool_reuse" {
+    run_test("async_frame_pool_debug_heap_fallback_free_bypasses_pool_reuse", test_debug_heap_fallback_free_bypasses_pool_reuse);
 }
