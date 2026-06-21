@@ -2143,3 +2143,17 @@
         - 扩展验证结果：通过（3 tests / 6 assertions）
         - 扩展验证：`../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`
         - 扩展验证结果：通过（1 test / 2 assertions）
+
+## 2026-06-21
+
+路径上下文：
+- `# Uya 异步生产化 TODO（完整语法 + 动态资源）`
+- `## Phase 1.5：标准库手工 Future 清零迁移`
+- `### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零`
+- 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界
+  - 要么连当前真实残留的 runtime future 也继续消灭
+    - 继续消灭 `lib/std/async.uya` 中 fd syscall residual（`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`），或在 line 160 路线里正式转为 substrate
+      - [x] 把 `AsyncWritevFuture` 迁到 `export @async_fn fn async_writev(...)` + `async_wait_writable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
+        - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`，通过（4 tests passed, 0 failed）
+        - 验证：`../uya/bin/uya test tests/test_async_fd.uya`，通过（14 tests passed, 0 failed）
+        - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`，通过（1 test passed, 0 failed）

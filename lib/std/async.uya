@@ -945,102 +945,92 @@ fn async_fd_set_nonblocking(fd: i32) !i32 {
     return fd;
 }
 
-struct AsyncWritevFuture : Future<!usize> {
-    fd: i32,
-    head: &const byte,
-    head_len: usize,
-    body: &const byte,
-    body_len: usize,
-    head_sent: usize = 0,
-    body_sent: usize = 0,
-    nonblocking_ready: i32 = 0,
+const ASYNC_WRITEV_STEP_WRITTEN: i32 = 0;
+const ASYNC_WRITEV_STEP_RETRY: i32 = 1;
+const ASYNC_WRITEV_STEP_WAIT_WRITABLE: i32 = 2;
 
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_usize();
+fn async_writev_try_step(fd: i32, iov: &const IOVec, iovcnt: i32, out_n: &isize) !i32 {
+    const write_result: !isize = sys_writev(fd, iov, iovcnt);
+    const n: isize = write_result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EINTR as u32 {
+            return ASYNC_WRITEV_STEP_RETRY;
         }
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                const err_value: !usize = ready_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
+        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+            return ASYNC_WRITEV_STEP_WAIT_WRITABLE;
         }
-
-        while true {
-            if self.head_sent >= self.head_len && self.body_sent >= self.body_len {
-                return async_poll_ready_ok_usize(self.head_len + self.body_len);
-            }
-
-            var iov: [IOVec: 2] = [];
-            var iovcnt: i32 = 0;
-            if self.head_sent < self.head_len {
-                const head_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(self.head as &void) + self.head_sent) as *const byte;
-                iov[iovcnt as usize] = IOVec{ iov_base: head_ptr, iov_len: self.head_len - self.head_sent };
-                iovcnt = iovcnt + 1;
-            }
-            if self.body_sent < self.body_len {
-                const body_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(self.body as &void) + self.body_sent) as *const byte;
-                iov[iovcnt as usize] = IOVec{ iov_base: body_ptr, iov_len: self.body_len - self.body_sent };
-                iovcnt = iovcnt + 1;
-            }
-
-            const write_result: !isize = sys_writev(self.fd, &iov[0], iovcnt);
-            const n: isize = write_result catch |err| {
-                const err_id: u32 = @error_id(err);
-                if err_id == libc_EINTR as u32 {
-                    continue;
-                }
-                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                    return async_poll_pending_writable_usize(waker, self.fd);
-                }
-                const err_value: !usize = write_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            if n <= 0 {
-                return Poll<!usize>.Ready(error.WriteZero);
-            }
-
-            var advanced: usize = n as usize;
-            if self.head_sent < self.head_len {
-                const head_rem: usize = self.head_len - self.head_sent;
-                if advanced >= head_rem {
-                    self.head_sent = self.head_len;
-                    advanced = advanced - head_rem;
-                } else {
-                    self.head_sent = self.head_sent + advanced;
-                    advanced = 0;
-                }
-            }
-            if advanced > 0 && self.body_sent < self.body_len {
-                self.body_sent = self.body_sent + advanced;
-                if self.body_sent > self.body_len {
-                    self.body_sent = self.body_len;
-                }
-            }
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
+        return err;
+    };
+    *out_n = n;
+    return ASYNC_WRITEV_STEP_WRITTEN;
 }
 
 /// 异步以 `writev(2)` 发送两段 buffer，直到全部写完。
 /// 参数说明：`fd` 为目标 fd；`head`/`head_len` 为第一段；`body`/`body_len` 为第二段，长度可为 0。
 /// 返回值说明：成功返回 `head_len + body_len`；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，其他错误原样透传，写入 0 字节返回 `error.WriteZero`。
-export fn async_writev(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {
+export @async_fn fn async_writev(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {
     if fd < 0 {
-        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncWritevFuture{
-        fd: fd,
-        head: head,
-        head_len: head_len,
-        body: body,
-        body_len: body_len,
-    };
+
+    var head_sent: usize = 0;
+    var body_sent: usize = 0;
+    var nonblocking_ready: i32 = 0;
+    while head_sent < head_len || body_sent < body_len {
+        const wait_writable_result: !usize = @await async_wait_writable(fd, 0 as u64);
+        _ = try wait_writable_result;
+        if nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(fd);
+            nonblocking_ready = 1;
+        }
+
+        var iov: [IOVec: 2] = [];
+        var iovcnt: i32 = 0;
+        if head_sent < head_len {
+            const head_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(head as &void) + head_sent) as *const byte;
+            iov[iovcnt as usize] = IOVec{ iov_base: head_ptr, iov_len: head_len - head_sent };
+            iovcnt = iovcnt + 1;
+        }
+        if body_sent < body_len {
+            const body_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(body as &void) + body_sent) as *const byte;
+            iov[iovcnt as usize] = IOVec{ iov_base: body_ptr, iov_len: body_len - body_sent };
+            iovcnt = iovcnt + 1;
+        }
+
+        var n: isize = 0;
+        const step_result: !i32 = async_writev_try_step(fd, &iov[0], iovcnt, &n);
+        const step: i32 = step_result catch |err| {
+            return err;
+        };
+        if step == ASYNC_WRITEV_STEP_RETRY {
+            continue;
+        }
+        if step == ASYNC_WRITEV_STEP_WAIT_WRITABLE {
+            continue;
+        }
+        if n <= 0 {
+            return error.WriteZero;
+        }
+
+        var advanced: usize = n as usize;
+        if head_sent < head_len {
+            const head_rem: usize = head_len - head_sent;
+            if advanced >= head_rem {
+                head_sent = head_len;
+                advanced = advanced - head_rem;
+            } else {
+                head_sent = head_sent + advanced;
+                advanced = 0;
+            }
+        }
+        if advanced > 0 && body_sent < body_len {
+            body_sent = body_sent + advanced;
+            if body_sent > body_len {
+                body_sent = body_len;
+            }
+        }
+    }
+    return head_len + body_len;
 }
 
 struct AsyncSendFileFuture : Future<!usize> {
