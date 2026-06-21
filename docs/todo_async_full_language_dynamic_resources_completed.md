@@ -2811,3 +2811,11 @@
       - `../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过：新增 `scheduler_metrics_report_frame_alloc_and_free`、`scheduler_metrics_report_frame_full_and_fallback`）
       - `../uya/bin/uya test tests/test_async_frame_align_pool.uya`（通过）
       - `../uya/bin/uya test tests/test_http_uyagin.uya`（通过）
+
+## Phase 4：生产级可靠性与可观测性
+
+父级任务：为 async runtime 增加统一指标
+  - [x] scheduler queue depth
+    - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过，27 tests / 287 assertions）
+    - 验证：`../uya/bin/uya test tests/test_tls_async_runtime_io.uya`（通过，1 test / 16 assertions）
+    - 验证：`../uya/bin/uya test tests/test_http_uyagin_async_boundary.uya`（通过，6 tests / 29 assertions）

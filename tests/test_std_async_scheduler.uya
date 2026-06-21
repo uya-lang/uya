@@ -205,6 +205,8 @@ var scheduler_queue_register_count: i32 = 0;
 var scheduler_queue_task_poll_counts: [i32: 3] = [];
 var scheduler_queue_registered_wakers: [usize: 8] = [];
 var scheduler_queue_registered_count: i32 = 0;
+var scheduler_metrics_queue_depth_seen: [i32: 2] = [];
+var scheduler_metrics_peak_queue_depth_seen: [i32: 2] = [];
 var scheduler_interest_switch_poll_count: i32 = 0;
 var scheduler_interest_switch_waker_count: i32 = 0;
 var scheduler_interest_switch_seen_count: i32 = 0;
@@ -406,6 +408,24 @@ struct QueuePendingOnReadableThenReadyU32 : Future<!u32> {
             return Poll<!u32>.Pending({});
         }
         return Poll<!u32>.Ready(ok<u32>(self.value));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
+struct QueueDepthMetricsRecorderFuture : Future<!i32> {
+    scheduler: &Scheduler,
+    slot: i32,
+    value: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        _ = waker;
+        const metrics: SchedulerMetrics = scheduler_metrics(self.scheduler);
+        scheduler_metrics_queue_depth_seen[self.slot as usize] = metrics.queue_depth;
+        scheduler_metrics_peak_queue_depth_seen[self.slot as usize] = metrics.peak_queue_depth;
+        return Poll<!i32>.Ready(ok<i32>(self.value));
     }
 
     fn release(self: &Self) void {
@@ -672,6 +692,39 @@ test "scheduler_run_task_queue_i32_with_shared_event_loop" {
     try assert_eq_i32(scheduler_queue_task_poll_counts[0], 2);
     try assert_eq_i32(scheduler_queue_task_poll_counts[1], 2);
     try assert_eq_i32(scheduler_queue_task_poll_counts[2], 2);
+}
+
+test "scheduler_metrics_report_queue_depth_during_task_queue_run" {
+    scheduler_metrics_queue_depth_seen[0] = 0;
+    scheduler_metrics_queue_depth_seen[1] = 0;
+    scheduler_metrics_peak_queue_depth_seen[0] = 0;
+    scheduler_metrics_peak_queue_depth_seen[1] = 0;
+
+    var s: Scheduler = scheduler_new();
+    const initial_metrics: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(initial_metrics.queue_depth, 0);
+    try assert_eq_i32(initial_metrics.peak_queue_depth, 0);
+
+    var queue: TaskQueue_i32 = task_queue_i32_new();
+    const first: Future<!i32> = QueueDepthMetricsRecorderFuture{ scheduler: &s, slot: 0, value: 21 };
+    const second: Future<!i32> = QueueDepthMetricsRecorderFuture{ scheduler: &s, slot: 1, value: 34 };
+    const first_idx: i32 = try queue.push(first);
+    const second_idx: i32 = try queue.push(second);
+    const loop: EventLoop = test_event_loop();
+    const completed: i32 = try scheduler_run_task_queue_i32_with_event_loop(&s, loop, &queue, 0);
+    const final_metrics: SchedulerMetrics = scheduler_metrics(&s);
+
+    try assert_eq_i32(first_idx, 0);
+    try assert_eq_i32(second_idx, 1);
+    try assert_eq_i32(completed, 2);
+    try assert_eq_i32(queue.result(first_idx), 21);
+    try assert_eq_i32(queue.result(second_idx), 34);
+    try assert_eq_i32(scheduler_metrics_queue_depth_seen[0], 2);
+    try assert_eq_i32(scheduler_metrics_queue_depth_seen[1], 1);
+    try assert_eq_i32(scheduler_metrics_peak_queue_depth_seen[0], 2);
+    try assert_eq_i32(scheduler_metrics_peak_queue_depth_seen[1], 2);
+    try assert_eq_i32(final_metrics.queue_depth, 0);
+    try assert_eq_i32(final_metrics.peak_queue_depth, 2);
 }
 
 test "scheduler_run_task_queue_inline_repolls_before_event_registration" {

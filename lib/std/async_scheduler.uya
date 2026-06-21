@@ -437,12 +437,14 @@ export fn task_queue_usize_capacity(queue: &TaskQueue_usize) i32 {
 
 /// `Scheduler` 运行时指标快照。
 /// 参数：无；通过 `scheduler_metrics` 读取指定实例的当前值。
-/// 返回值：包含 async frame pool 的累计 alloc/free/full/debug heap fallback 计数。
+/// 返回值：包含 async frame pool 的累计 alloc/free/full/debug heap fallback 计数，以及调度中的当前/历史峰值队列深度。
 export struct SchedulerMetrics {
     frame_alloc_count: u64,
     frame_free_count: u64,
     frame_full_count: u64,
     frame_heap_fallback_count: u64,
+    queue_depth: i32,
+    peak_queue_depth: i32,
 }
 
 /// 调度器。持有 async frame pool，同 scheduler 内的任务共享 pool 分配器。
@@ -453,7 +455,27 @@ export struct Scheduler {
     _metrics_frame_alloc_seen: u64,
     _metrics_frame_free_seen: u64,
     _metrics_heap_fallback_seen: u64,
+    _metrics_queue_depth: i32,
+    _metrics_peak_queue_depth: i32,
     _inline_repoll_limit: i32,
+}
+
+fn scheduler_normalize_queue_depth(depth: i32) i32 {
+    if depth < 0 {
+        return 0;
+    }
+    return depth;
+}
+
+fn scheduler_set_queue_depth(self: &Scheduler, depth: i32) void {
+    if self == null {
+        return;
+    }
+    const next_depth: i32 = scheduler_normalize_queue_depth(depth);
+    self._metrics_queue_depth = next_depth;
+    if next_depth > self._metrics_peak_queue_depth {
+        self._metrics_peak_queue_depth = next_depth;
+    }
 }
 
 /// 辅助：将 AsyncFramePool 值装箱为 IAllocator（利用 return 隐式转换）。
@@ -498,6 +520,8 @@ export fn scheduler_init_with_config(self: &Scheduler, frame_buffer_bytes: usize
     self._metrics_frame_alloc_seen = 0u64;
     self._metrics_frame_free_seen = 0u64;
     self._metrics_heap_fallback_seen = 0u64;
+    self._metrics_queue_depth = 0;
+    self._metrics_peak_queue_depth = 0;
     self._inline_repoll_limit = scheduler_normalize_inline_repoll_limit(inline_repoll_limit);
 }
 
@@ -563,7 +587,7 @@ export fn scheduler_frame_pool(self: &Scheduler) &AsyncFramePool {
 
 /// 获取调度器当前运行时指标快照。
 /// 参数：self 为调度器实例；空指针或未初始化 frame pool 时返回全零快照。
-/// 返回值：包含当前已知的 async frame alloc/free/full/debug heap fallback 计数。
+/// 返回值：包含当前已知的 async frame alloc/free/full/debug heap fallback 计数，以及当前/历史峰值队列深度。
 export fn scheduler_metrics(self: &Scheduler) SchedulerMetrics {
     if self == null || self._frame_pool == null {
         return SchedulerMetrics{};
@@ -574,6 +598,8 @@ export fn scheduler_metrics(self: &Scheduler) SchedulerMetrics {
         frame_free_count: pool.total_free_count as u64,
         frame_full_count: pool.pool_full_count as u64,
         frame_heap_fallback_count: pool.debug_heap_fallback_count as u64,
+        queue_depth: self._metrics_queue_depth,
+        peak_queue_depth: self._metrics_peak_queue_depth,
     };
 }
 
@@ -585,6 +611,8 @@ export fn scheduler_run<T>(self: &Scheduler, f: Future<!T>) !T {
     const old_alloc: &IAllocator = get_async_frame_allocator();
     set_async_frame_allocator(&alloc);
     defer { set_async_frame_allocator(old_alloc); }
+    scheduler_set_queue_depth(self, 1);
+    defer { scheduler_set_queue_depth(self, 0); }
     var w: Waker = Waker{};
     while true {
         w.reset();
@@ -619,6 +647,8 @@ export fn scheduler_run_with_event_loop<T>(self: &Scheduler, loop: EventLoop, f:
     const old_alloc: &IAllocator = get_async_frame_allocator();
     set_async_frame_allocator(&alloc);
     defer { set_async_frame_allocator(old_alloc); }
+    scheduler_set_queue_depth(self, 1);
+    defer { scheduler_set_queue_depth(self, 0); }
 
     var w: Waker = Waker{ _io_fd: 0 - 1, _event_fd: 0 - 1 };
     var io_registered_fd: i32 = 0 - 1;
@@ -690,6 +720,9 @@ export fn scheduler_run_pair_i32_with_event_loop(self: &Scheduler, loop: EventLo
     const old_alloc: &IAllocator = get_async_frame_allocator();
     set_async_frame_allocator(&alloc);
     defer { set_async_frame_allocator(old_alloc); }
+    var remaining: i32 = 2;
+    scheduler_set_queue_depth(self, remaining);
+    defer { scheduler_set_queue_depth(self, 0); }
 
     var first_done: i32 = 0;
     var second_done: i32 = 0;
@@ -727,6 +760,8 @@ export fn scheduler_run_pair_i32_with_event_loop(self: &Scheduler, loop: EventLo
                         return ok_val as! i32;
                     };
                     first_done = 1;
+                    remaining = remaining - 1;
+                    scheduler_set_queue_depth(self, remaining);
                     made_progress = 1;
                 },
                 .Pending(_) => {
@@ -752,6 +787,8 @@ export fn scheduler_run_pair_i32_with_event_loop(self: &Scheduler, loop: EventLo
                         return ok_val as! i32;
                     };
                     second_done = 1;
+                    remaining = remaining - 1;
+                    scheduler_set_queue_depth(self, remaining);
                     made_progress = 1;
                 },
                 .Pending(_) => {
@@ -797,6 +834,9 @@ export fn scheduler_run_task_queue_with_event_loop<T>(self: &Scheduler, loop: Ev
     const old_alloc: &IAllocator = get_async_frame_allocator();
     set_async_frame_allocator(&alloc);
     defer { set_async_frame_allocator(old_alloc); }
+    var remaining: i32 = queue.len;
+    scheduler_set_queue_depth(self, remaining);
+    defer { scheduler_set_queue_depth(self, 0); }
 
     var completed: i32 = 0;
     defer {
@@ -852,6 +892,8 @@ export fn scheduler_run_task_queue_with_event_loop<T>(self: &Scheduler, loop: Ev
                     slot.done = 1;
                     scheduler_cleanup_slot_resources(loop, &slot.waker, &slot.io_epoll_fd, &slot.event_epoll_fd);
                     completed = completed + 1;
+                    remaining = remaining - 1;
+                    scheduler_set_queue_depth(self, remaining);
                     made_progress = 1;
                 },
                 .Pending(_) => {
