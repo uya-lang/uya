@@ -11,6 +11,11 @@
 - [todo_mini_to_full.md](todo_mini_to_full.md) §16/19/26 — 主待办中异步/标准库/并发安全条目
 - [async_loop_await_design.md](async_loop_await_design.md) — 循环 await 设计文档
 
+> **2026-06-22 同步说明**
+>
+> 本文档保留的是 2026-03/04 阶段“异步运行时完善 + HTTP 服务器路线图”的历史拆解，不是当前 async 生产化权威闸门。
+> 当前是否达到“完整语法 + 动态资源 + 共享 runtime 发布闸门”，必须回到 [todo_async_full_language_dynamic_resources.md](todo_async_full_language_dynamic_resources.md)、[async_status_matrix.md](async_status_matrix.md) 与 `tests/async_shared_runtime_mix.sh` 判断。
+
 ---
 
 ## 第一部分：异步运行时硬伤修复
@@ -34,7 +39,7 @@
 | 6 | **无跨线程唤醒** | `lib/std/async.uya` `Waker` | `async_compute` worker 完成后主线程无法被唤醒，只能 busy-wait | 为 `Waker` 增加 `eventfd` 绑定/关闭，`Scheduler` 在 `Pending` 时同步注册 `eventfd + io fd`；worker/外部线程 `wake()` 直接写 `eventfd` 唤醒主 `EventLoop` | ✅ 已完成（`test_std_async_scheduler.uya` 外部 wake + `async_compute` 路径） |
 | 7 | **block_on busy-wait** | `lib/std/async.uya` `block_on_*` 系列函数 | CPU 100% 占用，无法用于生产 | 集成 EventLoop：poll 返回 Pending 时注册 epoll，epoll_wait 等待唤醒 | ✅ 已完成（`block_on_with_event_loop`） |
 | 8 | **循环变量持久化硬编码** | `src/codegen/c99/function.uya` | 仅 `n`+`written` 组合被识别为循环变量；其他变量名在 await 后值丢失 | 已改为基于「循环内定义 + 跨 await 引用」的作用域分析 | ✅ 已完成（不再依赖 n/written/total 特判） |
-| 8a | **async 状态机 lowering 缺陷（主链路已收口）** | `collect_awaits_recursive` + emit | Bug A: 连续 while+await 循环状态转移失败；Bug B: await 间同步代码被吃掉；Bug C: `return try @await` 生成非法 C；Bug D: 分裂点局部变量丢失；复合表达式中的 `try @await` 未走正确回放路径 | 相关回归已通过；Bug A/B/C/D 与复合表达式 `try @await` 均已转正 | ✅ 已完成 |
+| 8a | **async 状态机 lowering 缺陷（历史主链路缺口已转正）** | `collect_awaits_recursive` + emit | Bug A: 连续 while+await 循环状态转移失败；Bug B: await 间同步代码被吃掉；Bug C: `return try @await` 生成非法 C；Bug D: 分裂点局部变量丢失；复合表达式中的 `try @await` 未走正确回放路径 | 相关回归已通过；Bug A/B/C/D 与复合表达式 `try @await` 均已转正；该结论仅表示当时主链路缺口关闭，不等于当前 async 生产化已完成 | ✅ 已完成 |
 | 9 | **Waker 单 fd** | `lib/std/async.uya:12` `_io_fd: i32` | 无法同时关注读+写或多个 fd | 改为数组或链表；单 fd 时退化为当前行为 | 待办 |
 | 10 | **错误类型不一致** | `async_event`/`async_scheduler` | 调用方难以统一错误处理 | 定义 `std.async.Error` 枚举，统一所有异步错误 | ✅ 已完成（`EventLoopSlotsFull` 等已统一） |
 
@@ -96,7 +101,7 @@ Phase 1: Socket API
 | **Phase 9** | epoll 多路复用服务器 | P0 硬伤修复 + Phase 5 | ⚠️ 基础落地（`epoll_server.uya` 已有 accept/slot/event 原语；lowering 侧阻塞已解除，后续以 handler/scheduler 收口为主） |
 | **Phase 10** | 中间件 + 异步 Handler + http.client | Phase 9 + P1 修复 | 📋 待开始 |
 
-**阻塞服务器里程碑**（Phase 1-8）：✅ 已完成
+**阻塞服务器里程碑**（Phase 1-8，历史阶段记录）：✅ 已完成；不等于当前 async 生产化或共享 runtime 发布闸门已完成
 **完整异步服务器**（Phase 9-10）：⚠️ 不再受 P1 #8a 阻塞，当前主要剩余高层 handler / middleware / client API 收口
 
 ---

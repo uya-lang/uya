@@ -3121,3 +3121,13 @@ Phase 5：发布闸门与文档同步
   - 验证：`../uya/bin/uya test tests/test_async_param_capacity_dynamic.uya`（通过：`async_param_capacity_grows_past_64`）
   - 验证：`bash tests/verify_async_large_state_machine.sh`（通过：`verify_async_large_state_machine: ok (control=23 stress=548 delta=525)`）
   - 结果：主 todo 已统一改用 `tests/test_async_param_capacity_dynamic.uya` 与 `tests/verify_async_large_state_machine.sh`，不再把旧固定失败口径当成当前依据。
+
+## Phase 5：发布闸门与文档同步
+
+## 未完成前不得宣称完成的条件
+
+- [x] 文档仍声称“量产已完成”，但源码和闸门没有证据支撑。
+  - 验证：`rg -n "量产已完成|已完全量产|主链路已收口|压测、release 闸门、文档同步。~~ ✅ 已完成|阻塞服务器里程碑.*已完成$" docs/async_production_todo.md docs/todo_async_runtime_and_http.md docs/async_status_matrix.md docs/std_async_design.md`
+    结果：`docs/async_production_todo.md` 与 `docs/todo_async_runtime_and_http.md` 已改为历史/非当前发布口径；剩余命中仅为限制性说明或“本表不再单独给出该结论”的否定语境。
+  - 验证：`git diff --check`
+    结果：通过。

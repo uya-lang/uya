@@ -7,6 +7,7 @@
 >
 > 本文档是 2026-04 阶段的历史量产收口记录，不再单独代表当前 async 生产化目标的完成定义。
 > 当前权威 TODO 请看：[todo_async_full_language_dynamic_resources.md](todo_async_full_language_dynamic_resources.md)。
+> 本文中出现的“已完成”“通过”“压测通过”等表述，只表示 2026-04 当时的阶段验收记录，不等于当前源码、测试闸门和 release 口径已经重新证明 async 生产化完成。
 > 新目标额外要求：
 > 1. `@async_fn` 支持完整 Uya 函数体语法，而不只是若干已收口形态。
 > 2. async 相关资源改成动态或可配置，而不是继续依赖 `16/32/64/512/1024` 这类固定容量。
@@ -36,7 +37,7 @@
 - [x] 已知限制被文档化：跨平台 async 后端、连接池、TLS 会话复用、DNS A/AAAA 并发可作为量产后二阶段。
   - 见 [P2：量产后二阶段能力](#p2量产后二阶段能力)。
 
-## P0：编译器 async lowering 稳定化（已完成）
+## P0：编译器 async lowering 稳定化（2026-04 历史收口已完成）
 
 - [x] 修复复杂状态机 lowering 错位导致的运行期 SIGSEGV。
   - 关联：`buglist.md` 中 `@async_fn` 复杂状态机 lowering 后行为错位导致 SIGSEGV。
@@ -69,7 +70,7 @@
   - 修复：将复合表达式内的 `try @await` 纳入 async transform 的回放/替换路径，并补齐 `@await` 结果类型预注册与重复诊断去重。
   - 验收：`tests/test_async_compound_try_await.uya` 通过。
 
-## P1：异步运行时硬化（已完成）
+## P1：异步运行时硬化（2026-04 历史收口已完成）
 
 - [x] 将 `LinuxEpoll` 注册状态显式化。
   - 位置：`lib/std/async_event.uya`。
@@ -154,6 +155,8 @@
 
 ## 验收清单（2026-04 历史验收）
 
+以下命令和结果是 2026-04 的历史验收记录，只用于说明当时做过哪些阶段性检查；当前 release 闸门是否成立，仍需回到 `docs/todo_async_full_language_dynamic_resources.md`、`tests/verify_async_full_language_matrix.sh` 与 `tests/async_shared_runtime_mix.sh` 重新判断。
+
 - [x] `make b` 自举一致。
 - [x] `make check` 关键子集通过（`test_std_async_event`、`test_async_fd`、`test_std_async_scheduler`、`test_std_dns_async_transport`、`test_http1_async_client`）。
 - [x] `make check` 全量通过（2026-04-14 `@frame(foo)` + pinned 语义实现后）。
@@ -168,14 +171,16 @@
 
 ## 推进顺序
 
+以下 4 步是 2026-04 当时的历史推进顺序，不代表当前 release 闸门已经再次跑通。
+
 1. ~~先关闭 P0 lowering：SIGSEGV、Bug B、Bug D、`return error.X`。~~ ✅ 已完成
 2. ~~再硬化 `LinuxEpoll` / `Waker` / 生命周期释放。~~ ✅ 已完成（LinuxEpoll 显式状态机 + fd 复用测试 + epoll 常量修复 + deregister 修正）
 3. ~~收敛 DNS / HTTP / HTTPS 主链路，移除或正式化绕过方案。~~ ✅ 已完成（超时策略启用，变量提升 bug 修复）
-4. ~~压测、release 闸门、文档同步。~~ ✅ 已完成
+4. ~~压测、release 闸门、文档同步。~~ ✅ 仅表示 2026-04 历史收口已记录；当前仍需以 `docs/todo_async_full_language_dynamic_resources.md` 和共享 runtime 闸门重新验收
 
-## 当前状态摘要（截至 2026-04-16）
+## 2026-04 历史状态摘要（非当前发布结论）
 
-**已完成**：
+**当时已完成**：
 - ✅ P0 编译器 async lowering 稳定化全部完成（含变量提升 bug 修复）
 - ✅ LinuxEpoll 显式状态机（SlotState + generation）
 - ✅ **修复 epoll_ctl 常量错位**：`EPOLL_CTL_MOD` 与 `EPOLL_CTL_DEL` 在 `lib/libc/syscall.uya`、`lib/syscall/linux.uya` 中被错误互换，现已恢复为内核正确值
