@@ -1,6 +1,6 @@
 # Uya 异步生产化 TODO（完整语法 + 动态资源）
 
-**最后更新**：2026-06-17  
+**最后更新**：2026-06-21
 **当前定位**：本文件是当前“让异步编程生产级可用”目标的权威 TODO。  
 **口径说明**：在本文件完成前，`docs/async_production_todo.md`、`docs/async_status_matrix.md`、`docs/std_async_design.md` 中“量产已完成”或“主链路已收口”的表述都只能视为历史阶段结论，不能直接当作本目标的完成依据。
 
@@ -20,7 +20,6 @@
 
 | 模块 | 现状 | 影响 |
 |------|------|------|
-| `src/codegen/c99/internal.uya` | `C99_ASYNC_MAX_AWAITS=4096` 且大量数组按此大小静态展开 | 仍是固定容量设计，不是动态结构 |
 | `src/checker/async_frame_meta.uya` | `MAX_ASYNC_FRAME_METAS=512` | async frame 元信息会在大工程中截断 |
 | `src/codegen/c99/main.uya` | 生成 `_uya_async_frame_descriptors` 时仍按 `MAX_ASYNC_FRAME_METAS` 截断 | codegen 与 runtime descriptor 上限耦合 |
 
@@ -42,7 +41,6 @@
 | **通用语言边界** | iterator `for` 接口值（同步与 async checker 均失败，非 async 独有缺口） | `src/checker/check_node_extra.uya`、`tests/error_for_iterator_interface_value.uya`、`tests/error_async_for_iterator_interface_await.uya` |
 | 语法/语义不支持 | iterator `for` 引用绑定 + `@await`（历史缺口，现已转入 `tests/test_async_for_iterator_ref_await.uya` 正向回归） | `src/codegen/c99/function.uya`、`tests/test_async_for_iterator_ref_await.uya` |
 | 语法/语义已收口 | 无 await 的 `!Future<Future<T>>` + 同步 `try` 返回（C99 发射与 host C 编译已由专项脚本验证） | `tests/test_async_nested_future_poll.uya`、`tests/verify_async_nested_future_boundary.sh` |
-| **编译器内部固定容量** | `C99_ASYNC_MAX_AWAITS=4096` 静态数组 | `src/codegen/c99/internal.uya` |
 | 编译器内部固定容量 | `MAX_ASYNC_FRAME_METAS=512` | `src/checker/async_frame_meta.uya` |
 | 编译器内部固定容量 | frame descriptor 静默截断到 `512` | `src/codegen/c99/main.uya` |
 | **运行时/协议层固定容量** | epoll slot/event `1024`、`find_slot()` 线性扫 | `lib/std/async_event.uya` |
@@ -165,7 +163,6 @@
 
 ## Phase 2：编译器 async 资源动态化
 
-- [ ] 把 `src/codegen/c99/internal.uya` 的 `C99_ASYNC_MAX_AWAITS` 固定数组改成 arena/vector 风格的动态结构。
 - [ ] 把 `src/checker/async_frame_meta.uya` 的 `MAX_ASYNC_FRAME_METAS` 改成动态元信息表。
 - [ ] 把 `src/codegen/c99/main.uya` 的 async frame descriptor emission 改成“按真实数量生成”，不再静默截断到 `512`。
 - [ ] 为“超大 async 函数”建立新的错误模型：

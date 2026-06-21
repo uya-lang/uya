@@ -2424,3 +2424,18 @@
   - 验证结果：通过，`verify_async_full_dynamic_resources_gate: unit-scan stages passed`。
   - 验证命令：`git diff --check`
   - 验证结果：通过。
+
+## 2026-06-21
+
+路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` > `## Phase 2：编译器 async 资源动态化`
+
+- [x] 把 `src/codegen/c99/internal.uya` 的 `C99_ASYNC_MAX_AWAITS` 固定数组改成 arena/vector 风格的动态结构。
+  - 完成内容：核验后确认该任务已由当前实现满足；`src/codegen/c99/internal.uya` 仅保留 `C99_ASYNC_INITIAL_AWAIT_CAPACITY` 与 `async_collect_*` 指针/容量字段，`src/codegen/c99/function.uya` 通过 `c99_ensure_async_await_capacity()` 使用 arena 按需扩容 await 收集/绑定表。本轮未再改生产代码，pending 状态属于 todo 文档滞后。
+  - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+  - 验证结果：通过，`ok: docs/todo_async_full_language_dynamic_resources.md has 1 active task`。
+  - 验证命令：`../uya/bin/uya test tests/test_async_await_capacity_dynamic.uya`
+  - 验证结果：通过，`async_await_capacity_grows_past_256` 1/1 tests passed。
+  - 验证命令：`tmp_c="$(mktemp /tmp/uya_async_await_capacity_dynamic.XXXXXX.c)"; ../uya/bin/uya --c99 tests/test_async_await_capacity_dynamic.uya -o "$tmp_c"; grep -n "if (s->state == 261)" "$tmp_c"; rm -f "$tmp_c"`
+  - 验证结果：通过，生成的 C99 状态机包含 `if (s->state == 261)`。
+  - 验证命令：`work_dir="$(mktemp -d /tmp/uya_async_await_capacity.XXXXXX)"; ...; ../uya/bin/uya --c99 "$src" -o "$out_c"; grep -n 'if (s->state == 4098)' "$out_c"`
+  - 验证结果：通过，临时生成的 `4097` 个 `@await` 压力样本成功完成 C99 代码生成，并命中最终状态 `4098`。
