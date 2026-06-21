@@ -820,6 +820,17 @@ test "async_compute_i32_queue_runs_multiple_tasks_with_single_worker_scheduler" 
     try assert_eq_i32(thread_wait_pending_count(&pool, 0), 1);
 }
 
+test "async_compute_thread_worker_bridge_is_formally_runtime_substrate" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "// worker bridge substrate：当前 runtime 中第二类允许保留的手写 poll() 例外。\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "// 它直接承接 ThreadPool shared slot / result pipe / cooperative cancel / cleanup 协议，当前不能无损下沉成通用 fd wait substrate。\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "struct AsyncThreadSlotWaitFuture : Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "struct AsyncWorkerComputeFuture : Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "export struct AsyncComputeFuture<T> : Future<!T> {\0" as &const byte) as i32, 0);
+}
+
 test "async_compute_thread_bridge_is_unified_behind_helpers" {
     var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
     const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);

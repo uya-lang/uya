@@ -2223,3 +2223,16 @@
         - TDD：新增 `async_accept_boundary_uses_async_fn_and_wait_substrate` 后首次运行 `../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya` 失败：`source_contains_cstr(&src[0], len, accept_start) as i32 == 1 (actual: 0, expected: 1)`
         - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya` 通过（9 tests, 34 assertions）
         - 验证：`../uya/bin/uya test tests/test_async_fd.uya` 通过（14 tests, 85 assertions）
+## 2026-06-21
+
+父级路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` → `## Phase 1.5：标准库手工 Future 清零迁移` → `### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零` → `- [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：` → `  - [ ] 要么连当前真实残留的 runtime future 也继续消灭`
+
+- [x] 继续消灭 `lib/std/thread.uya` 中 worker bridge residual（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`），或在 line 160 路线里正式转为 substrate
+  - 结果：本轮按 line 160 路线正式收口为 runtime substrate；`lib/std/thread.uya` 为 worker bridge 追加明确边界注释，主 todo 的 1.5.1 / 1.5.6 同步改写为 `runtime substrate（线程调度桥接）` / `std.thread worker 调度桥接 substrate`。
+  - 原因：这组 leaf 直接依赖 ThreadPool shared slot / pending queue / result pipe / cooperative cancel / cleanup 协议，当前 `@async_fn` / 通用 fd wait substrate 还不能无损替代直接 `waker.is_cancelled()` 与 slot 生命周期控制。
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
+  - 结果：通过（34 tests passed，144 assertions passed）
+  - 验证：`rg -n "worker bridge substrate|线程调度桥接 substrate|runtime substrate（线程调度桥接）|第二类允许保留的手写 poll\\(\\) 例外" lib/std/thread.uya docs/todo_async_full_language_dynamic_resources.md`
+  - 结果：命中 `lib/std/thread.uya:1104` 与 `docs/todo_async_full_language_dynamic_resources.md:130`，主 todo / 源码口径一致。
+  - 验证：`git diff --check`
+  - 结果：通过。

@@ -1101,6 +1101,9 @@ fn thread_async_drain_result_fd(read_fd: i32) void {
     }
 }
 
+// worker bridge substrate：当前 runtime 中第二类允许保留的手写 poll() 例外。
+// 它直接承接 ThreadPool shared slot / result pipe / cooperative cancel / cleanup 协议，当前不能无损下沉成通用 fd wait substrate。
+// 对外业务入口继续只暴露 `@async_fn async_compute<T>`；这组 leaf 只负责线程调度桥接。
 // 拆出 slot-wait awaitable，供后续 `@async_fn` 直接复用。
 struct AsyncThreadSlotWaitFuture : Future<!usize> {
     pool: &ThreadPool,
@@ -1170,7 +1173,8 @@ fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg
     };
 }
 
-// 线程结果桥接保留在 `std.thread`：它依赖 ThreadPool slot/worker 协议，而不是通用 fd runtime 叶子。
+// worker result leaf 仍留在上述 substrate 内部：
+// 它依赖 ThreadPool slot/worker 协议，而不是通用 fd runtime 叶子。
 // raw compute substrate 只对上层暴露单个 awaitable，不再让 typed wrapper 手工拼接 slot wait + pipe read 两段桥接。
 struct AsyncWorkerResultFuture : Future<!usize> {
     pool: &ThreadPool,
