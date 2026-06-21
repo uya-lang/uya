@@ -3021,3 +3021,15 @@ Phase 5：发布闸门与文档同步
     - 结果：通过。
     - 验证：`rg -n "当前同步说明|当前后续入口|git 状态|LinuxEpoll=1024|TaskQueue=64" docs/async_production_todo.md`
     - 结果：确认已新增“当前同步说明”“当前后续入口”，且旧 `git 状态` 小节已移除。
+
+## Phase 5：发布闸门与文档同步
+
+路径：文档同步
+
+- [x] `docs/async_status_matrix.md`
+  - 验证：
+    - `../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`
+    - `../uya/bin/uya test --c99 tests/test_async_compute_dynamic_resource_pressure.uya`
+    - `bash tests/verify_async_nested_future_boundary.sh`
+    - `git diff --check`
+  - 验证结果：通过。`test_std_async_scheduler.uya` 31 tests passed；`test_async_compute_dynamic_resource_pressure.uya` 1 test passed；`verify_async_nested_future_boundary.sh` 确认 nested future 子集、`!Future<Future<T>>` 的 C99 发射与宿主 `cc` 编译通过；`git diff --check` 无输出。
