@@ -6241,8 +6241,8 @@ struct TimeSpec {
 
 struct EpollEvent {
     uint32_t events;
-    uint32_t _pad;
-    uint64_t data;
+    uint32_t data_lo;
+    uint32_t data_hi;
 };
 
 struct tm {
@@ -8353,6 +8353,8 @@ struct err_union_int32_t libc_sys_fcntl(int32_t fd, int32_t cmd, int32_t arg);
 struct err_union_int32_t libc_sys_pipe2(int32_t * pipefd, int32_t flags);
 struct err_union_int32_t libc_sys_poll(struct PollFd * fds, size_t nfds, int32_t timeout_ms);
 struct err_union_int32_t libc_sys_eventfd(uint32_t initval, int32_t flags);
+struct EpollEvent libc_epoll_event_with_fd(uint32_t events, int32_t fd);
+int32_t libc_epoll_event_fd(struct EpollEvent * event);
 struct err_union_int32_t libc_sys_epoll_create1(int32_t flags);
 struct err_union_int32_t libc_sys_epoll_ctl(int32_t epfd, int32_t op, int32_t fd, const struct EpollEvent * event);
 struct err_union_int32_t libc_sys_epoll_ctl_del(int32_t epfd, int32_t fd);
@@ -31499,6 +31501,23 @@ struct err_union_int32_t libc_sys_eventfd(uint32_t initval, int32_t flags) {
         }
 }
 
+struct EpollEvent libc_epoll_event_with_fd(uint32_t events, int32_t fd) {
+    (void)events;
+    (void)fd;
+        {
+        struct EpollEvent _uya_ret = (struct EpollEvent){.events = events, .data_lo = (uint32_t)fd, .data_hi = (uint32_t)0};
+        return _uya_ret;
+        }
+}
+
+int32_t libc_epoll_event_fd(struct EpollEvent * event) {
+    (void)event;
+        {
+        int32_t _uya_ret = (int32_t)event->data_lo;
+        return _uya_ret;
+        }
+}
+
 struct err_union_int32_t libc_sys_epoll_create1(int32_t flags) {
     (void)flags;
         {
@@ -31521,7 +31540,7 @@ struct err_union_int32_t libc_sys_epoll_ctl(int32_t epfd, int32_t op, int32_t fd
 struct err_union_int32_t libc_sys_epoll_ctl_del(int32_t epfd, int32_t fd) {
     (void)epfd;
     (void)fd;
-    struct EpollEvent dummy = (struct EpollEvent){.events = 0, ._pad = 0, .data = 0};
+    struct EpollEvent dummy = libc_epoll_event_with_fd((uint32_t)0, 0);
         {
         struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)libc_EPOLL_CTL_DEL, (int64_t)fd, (int64_t)(&dummy)); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;

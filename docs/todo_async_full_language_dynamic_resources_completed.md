@@ -3004,3 +3004,12 @@ Phase 5：发布闸门与文档同步
   - [x] `make clean`
     - 验证命令：`make clean`
     - 验证结果：退出码 0；输出 `清理构建产物...`、`✓ 清理完成`
+
+## Phase 5：发布闸门与文档同步
+
+- [x] 收口前至少跑通：
+  - [x] `make backup-all`
+    - 验证命令：`make clean`
+    - 验证结果：通过。
+    - 验证命令：`make backup-all`
+    - 验证结果：通过；完成冷启动自举、`check` 全量验证、多文件备份与单文件 seed 更新。`make check` 按 Makefile 默认跳过了 `benchmarks/http_bench_async_epoll.uya C99`（未设 `UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1`）。
