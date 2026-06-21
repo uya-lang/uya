@@ -167,7 +167,6 @@
 ### 3.3 AsyncFramePool
 
 - [ ] 区分：
-  - [ ] 真正来自 caller buffer 的 frame
   - [ ] 池内复用 frame
   - [ ] debug heap fallback frame
 - [ ] 默认生产路径不应依赖 heap fallback 才能跑通。

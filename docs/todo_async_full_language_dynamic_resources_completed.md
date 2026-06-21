@@ -2606,3 +2606,11 @@
   - 结果：通过；scheduler 绑定 frame pool 路径 24 项通过。
   - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`
   - 结果：通过；IAllocator 失败路径回归通过。
+
+父级任务路径：# Uya 异步生产化 TODO（完整语法 + 动态资源） > ## Phase 3：运行时 async 资源动态化 > ### 3.3 AsyncFramePool > - [ ] 区分：
+  - [x] 真正来自 caller buffer 的 frame
+    - 完成记录：`lib/std/async_frame.uya` 将 frame header 收紧为 8 字节的 `storage_kind + alloc_kind + generation`，新增 `async_frame_pool_ptr_is_direct_caller_buffer()`；首次直接从 caller buffer 切出的 frame 仍可识别，而经 free list 再借出的同一指针会重标为普通 pool 路径，不再被误判为 fresh caller buffer。
+    - 验证命令：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya`
+    - 验证结果：通过；9 项测试通过，新增 `async_frame_pool_direct_caller_buffer_frame_stays_distinct_from_pool_reuse` 通过。
+    - 扩展验证命令：`../uya/bin/uya test tests/test_async_frame_align_pool.uya`；`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`；`../uya/bin/uya test tests/test_std_async_scheduler.uya`
+    - 扩展验证结果：通过；分别 4 / 2 / 24 项测试通过。

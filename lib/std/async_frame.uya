@@ -45,15 +45,19 @@ struct AsyncFramePoolBucket {
     free_count: i32,
 }
 
-// 每块 frame 前都带一个轻量 header，记录来源和 pool generation。
+// 每块 frame 前都带一个轻量 header，记录底层存储归属、当前借出分类和 pool generation。
 struct AsyncFrameAllocHeader {
-    owner_kind: i32,
+    storage_kind: i16,
+    alloc_kind: i16,
     generation: u32,
 }
 
-const ASYNC_FRAME_OWNER_CALLER_BUFFER: i32 = 1;
-const ASYNC_FRAME_OWNER_POOL_HEAP: i32 = 2;
-const ASYNC_FRAME_OWNER_DEBUG_HEAP: i32 = 3;
+const ASYNC_FRAME_STORAGE_CALLER_BUFFER: i32 = 1;
+const ASYNC_FRAME_STORAGE_HEAP: i32 = 2;
+
+const ASYNC_FRAME_ALLOC_CALLER_BUFFER: i32 = 1;
+const ASYNC_FRAME_ALLOC_POOL: i32 = 2;
+const ASYNC_FRAME_ALLOC_DEBUG_HEAP: i32 = 3;
 
 const ASYNC_FRAME_POOL_IALLOC_ALIGN: usize = 8;
 
@@ -496,7 +500,7 @@ fn async_frame_pool_alloc_bytes(size: usize, align: usize) usize {
     return @size_of(AsyncFrameAllocHeader) + @size_of(usize) + block_align - 1usize + size;
 }
 
-fn async_frame_pool_write_alloc_header(raw_ptr: &byte, owner_kind: i32, generation: u32, align: usize) &byte {
+fn async_frame_pool_write_alloc_header(raw_ptr: &byte, storage_kind: i32, alloc_kind: i32, generation: u32, align: usize) &byte {
     if raw_ptr == null {
         return null;
     }
@@ -505,7 +509,8 @@ fn async_frame_pool_write_alloc_header(raw_ptr: &byte, owner_kind: i32, generati
         effective_align = 1usize;
     }
     const header: &AsyncFrameAllocHeader = raw_ptr as &AsyncFrameAllocHeader;
-    header.owner_kind = owner_kind;
+    header.storage_kind = storage_kind as i16;
+    header.alloc_kind = alloc_kind as i16;
     header.generation = generation;
     const raw_addr: usize = @usize_from_ptr(raw_ptr as &void);
     const payload_addr: usize = async_frame_pool_align_up(raw_addr + @size_of(AsyncFrameAllocHeader) + @size_of(usize), effective_align);
@@ -529,12 +534,20 @@ fn async_frame_pool_header_from_ptr(ptr: &byte) &AsyncFrameAllocHeader {
     return raw_addr as &AsyncFrameAllocHeader;
 }
 
-fn async_frame_pool_ptr_owner_kind(ptr: &byte) i32 {
+fn async_frame_pool_ptr_storage_kind(ptr: &byte) i32 {
     const header: &AsyncFrameAllocHeader = async_frame_pool_header_from_ptr(ptr);
     if header == null {
         return 0;
     }
-    return header.owner_kind;
+    return header.storage_kind as i32;
+}
+
+fn async_frame_pool_ptr_alloc_kind(ptr: &byte) i32 {
+    const header: &AsyncFrameAllocHeader = async_frame_pool_header_from_ptr(ptr);
+    if header == null {
+        return 0;
+    }
+    return header.alloc_kind as i32;
 }
 
 fn async_frame_pool_ptr_generation(ptr: &byte) u32 {
@@ -543,6 +556,22 @@ fn async_frame_pool_ptr_generation(ptr: &byte) u32 {
         return 0u32;
     }
     return header.generation;
+}
+
+fn async_frame_pool_set_alloc_kind(ptr: &byte, alloc_kind: i32) void {
+    const header: &AsyncFrameAllocHeader = async_frame_pool_header_from_ptr(ptr);
+    if header == null {
+        return;
+    }
+    header.alloc_kind = alloc_kind as i16;
+}
+
+/// 调试辅助：判断当前 frame 是否是本轮直接从 caller buffer 切出的 fresh frame。
+///
+/// 参数：ptr 为 async frame pool 返回的 payload 指针。
+/// 返回值：若该 frame 尚未经过 pool free list 再借出，且当前借出路径直接来自 caller buffer，则返回 true。
+export fn async_frame_pool_ptr_is_direct_caller_buffer(ptr: &byte) bool {
+    return async_frame_pool_ptr_alloc_kind(ptr) == ASYNC_FRAME_ALLOC_CALLER_BUFFER;
 }
 
 fn async_frame_pool_release_tracked_ptr(ptr: &byte) void {
@@ -554,7 +583,7 @@ fn async_frame_pool_release_tracked_ptr(ptr: &byte) void {
         free(ptr as *void);
         return;
     }
-    if header.owner_kind == ASYNC_FRAME_OWNER_CALLER_BUFFER {
+    if (header.storage_kind as i32) == ASYNC_FRAME_STORAGE_CALLER_BUFFER {
         return;
     }
     free(header as *void);
@@ -593,7 +622,7 @@ fn async_frame_pool_alloc_from_buffer(pool: &AsyncFramePool, size: usize, align:
         return null;
     }
     const raw_ptr: &byte = &pool.buffer[used];
-    const ptr: &byte = async_frame_pool_write_alloc_header(raw_ptr, ASYNC_FRAME_OWNER_CALLER_BUFFER, pool.generation, align);
+    const ptr: &byte = async_frame_pool_write_alloc_header(raw_ptr, ASYNC_FRAME_STORAGE_CALLER_BUFFER, ASYNC_FRAME_ALLOC_CALLER_BUFFER, pool.generation, align);
     if ptr == null {
         return null;
     }
@@ -622,7 +651,7 @@ fn async_frame_pool_heap_fallback_alloc(pool: &AsyncFramePool, size: usize, alig
     const raw_ptr: &byte = malloc(total_size) as &byte;
     if raw_ptr != null {
         pool.debug_heap_fallback_count = pool.debug_heap_fallback_count + 1;
-        return async_frame_pool_write_alloc_header(raw_ptr, ASYNC_FRAME_OWNER_DEBUG_HEAP, pool.generation, align);
+        return async_frame_pool_write_alloc_header(raw_ptr, ASYNC_FRAME_STORAGE_HEAP, ASYNC_FRAME_ALLOC_DEBUG_HEAP, pool.generation, align);
     }
     return null;
 }
@@ -636,7 +665,7 @@ fn async_frame_pool_heap_alloc(pool: &AsyncFramePool, size: usize, align: usize)
     if raw_ptr == null {
         return null;
     }
-    return async_frame_pool_write_alloc_header(raw_ptr, ASYNC_FRAME_OWNER_POOL_HEAP, pool.generation, align);
+    return async_frame_pool_write_alloc_header(raw_ptr, ASYNC_FRAME_STORAGE_HEAP, ASYNC_FRAME_ALLOC_POOL, pool.generation, align);
 }
 
 // 从帧池分配
@@ -671,6 +700,7 @@ export fn async_frame_pool_alloc(pool: &AsyncFramePool, frame_id: u32) &byte {
             if slot_ptr != null {
                 const ptr: &byte = slot_ptr[0];
                 slot_ptr[0] = null;
+                async_frame_pool_set_alloc_kind(ptr, ASYNC_FRAME_ALLOC_POOL);
                 bucket.alloc_count = bucket.alloc_count + 1;
                 pool.total_alloc_count = pool.total_alloc_count + 1;
                 return ptr;
@@ -730,6 +760,7 @@ export fn async_frame_pool_alloc_aligned(pool: &AsyncFramePool, size: usize, ali
             if slot_ptr != null {
                 const ptr: &byte = slot_ptr[0];
                 slot_ptr[0] = null;
+                async_frame_pool_set_alloc_kind(ptr, ASYNC_FRAME_ALLOC_POOL);
                 bucket.alloc_count = bucket.alloc_count + 1;
                 pool.total_alloc_count = pool.total_alloc_count + 1;
                 return ptr;
@@ -767,20 +798,21 @@ export fn async_frame_pool_free_aligned(pool: &AsyncFramePool, ptr: &byte, size:
     if pool == null || ptr == null {
         return;
     }
-    const owner_kind: i32 = async_frame_pool_ptr_owner_kind(ptr);
+    const storage_kind: i32 = async_frame_pool_ptr_storage_kind(ptr);
+    const alloc_kind: i32 = async_frame_pool_ptr_alloc_kind(ptr);
     const owner_generation: u32 = async_frame_pool_ptr_generation(ptr);
-    if owner_kind == ASYNC_FRAME_OWNER_DEBUG_HEAP {
+    if alloc_kind == ASYNC_FRAME_ALLOC_DEBUG_HEAP {
         async_frame_pool_release_tracked_ptr(ptr);
         return;
     }
     if owner_generation != pool.generation {
-        if owner_kind == ASYNC_FRAME_OWNER_CALLER_BUFFER {
+        if storage_kind == ASYNC_FRAME_STORAGE_CALLER_BUFFER {
             return;
         }
         async_frame_pool_release_tracked_ptr(ptr);
         return;
     }
-    if owner_kind != ASYNC_FRAME_OWNER_CALLER_BUFFER && owner_kind != ASYNC_FRAME_OWNER_POOL_HEAP {
+    if storage_kind != ASYNC_FRAME_STORAGE_CALLER_BUFFER && storage_kind != ASYNC_FRAME_STORAGE_HEAP {
         async_frame_pool_release_tracked_ptr(ptr);
         return;
     }
@@ -789,7 +821,7 @@ export fn async_frame_pool_free_aligned(pool: &AsyncFramePool, ptr: &byte, size:
         _ = async_frame_bucket_grow_slots(bucket);
     }
     if bucket == null || bucket.slot_count >= bucket.capacity {
-        if owner_kind == ASYNC_FRAME_OWNER_CALLER_BUFFER {
+        if storage_kind == ASYNC_FRAME_STORAGE_CALLER_BUFFER {
             return;
         }
         async_frame_pool_release_tracked_ptr(ptr);
@@ -822,7 +854,7 @@ export fn async_frame_pool_free(pool: &AsyncFramePool, ptr: &byte, frame_id: u32
     }
     const desc: &AsyncFrameDescriptor = async_frame_pool_descriptor(frame_id);
     if desc == null || desc.size == 0 {
-        if async_frame_pool_ptr_owner_kind(ptr) == ASYNC_FRAME_OWNER_CALLER_BUFFER {
+        if async_frame_pool_ptr_storage_kind(ptr) == ASYNC_FRAME_STORAGE_CALLER_BUFFER {
             return;
         }
         async_frame_pool_release_tracked_ptr(ptr);
@@ -853,8 +885,8 @@ export fn async_frame_pool_reset(pool: &AsyncFramePool) void {
             }
             const p: &byte = slot_ptr[0];
             if p != null {
-                const owner_kind: i32 = async_frame_pool_ptr_owner_kind(p);
-                if owner_kind == ASYNC_FRAME_OWNER_POOL_HEAP || owner_kind == ASYNC_FRAME_OWNER_DEBUG_HEAP {
+                const storage_kind: i32 = async_frame_pool_ptr_storage_kind(p);
+                if storage_kind == ASYNC_FRAME_STORAGE_HEAP {
                     async_frame_pool_release_tracked_ptr(p);
                 }
                 slot_ptr[0] = null;

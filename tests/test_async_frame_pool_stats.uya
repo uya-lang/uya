@@ -8,6 +8,7 @@ use std.async_frame.async_frame_pool_init_with_config;
 use std.async_frame.async_frame_pool_init_with_buffer;
 use std.async_frame.async_frame_pool_alloc_aligned;
 use std.async_frame.async_frame_pool_free_aligned;
+use std.async_frame.async_frame_pool_ptr_is_direct_caller_buffer;
 use std.async_frame.async_frame_pool_stats;
 use std.async_frame.async_frame_pool_reset;
 use std.testing.expect;
@@ -206,6 +207,23 @@ fn test_pool_reset_discards_old_caller_buffer_frame() !void {
     try expect(heap_fallback == 0);
 }
 
+fn test_direct_caller_buffer_frame_stays_distinct_from_pool_reuse() !void {
+    var storage: [byte: 128] = [];
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init_with_buffer(&pool, &storage[0] as &byte, 128usize, 0, 65536usize);
+
+    const first: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    try expect(first != null);
+    try expect(async_frame_pool_ptr_is_direct_caller_buffer(first));
+
+    async_frame_pool_free_aligned(&pool, first, 32usize, 8usize);
+
+    const second: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    try expect(second != null);
+    try expect(@usize_from_ptr(first as &void) == @usize_from_ptr(second as &void));
+    try expect(!async_frame_pool_ptr_is_direct_caller_buffer(second));
+}
+
 fn test_pool_reset_discards_old_pool_heap_frame() !void {
     var pool: AsyncFramePool = AsyncFramePool{};
     async_frame_pool_init(&pool, 0, 65536usize);
@@ -270,6 +288,10 @@ test "async_frame_pool_config_allows_more_than_default_per_bucket" {
 
 test "async_frame_pool_reset_discards_old_caller_buffer_frame" {
     run_test("async_frame_pool_reset_discards_old_caller_buffer_frame", test_pool_reset_discards_old_caller_buffer_frame);
+}
+
+test "async_frame_pool_direct_caller_buffer_frame_stays_distinct_from_pool_reuse" {
+    run_test("async_frame_pool_direct_caller_buffer_frame_stays_distinct_from_pool_reuse", test_direct_caller_buffer_frame_stays_distinct_from_pool_reuse);
 }
 
 test "async_frame_pool_reset_discards_old_pool_heap_frame" {
