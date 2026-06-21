@@ -1995,3 +1995,10 @@
     - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
     - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
     - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+上下文：`lib/std/thread.uya`
+- [x] 先提炼 `async_worker_result` / `async_thread_slot_wait` 之类可 await 原语，再把对外 `async_compute<T>` 改写为 `@async_fn` 组合层。
+  - 验证：`../uya/bin/uya test --c99 tests/test_std_thread.uya`（通过：31 tests）
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_compute_generic_wrapper.uya`（通过：2 tests）
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_compute_types.uya`（通过：11 tests）

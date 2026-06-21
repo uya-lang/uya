@@ -1625,45 +1625,71 @@ fn thread_f64_arg_bits(arg: f64) usize {
 
 // 执行 T -> T 计算，并返回 Future<!T>（装箱后的接口对象）。
 // 说明：复用 ThreadPool 的 worker 线程；池满载时进入共享槽位 FIFO，容量不足时返回资源错误。
-// 通用 async_compute<T> 顶层入口。
-// 依赖单态化后的常量条件裁剪，仅保留与 T 对应的 concrete future 分支。
-export fn async_compute<T>(pool: &ThreadPool, compute_fn: &void, arg: T) Future<!T> {
+// 通用 async_compute<T> 顶层入口：对外只暴露 @async_fn 组合层，内部 substrate 仍由 AsyncComputeFuture<T> 驱动。
+export @async_fn fn async_compute<T>(pool: &ThreadPool, compute_fn: &void, arg: T) Future<!T> {
     if thread_type_is_i32(T) {
-        return thread_async_compute_future_new<i32>(pool, compute_fn, THREAD_TASK_KIND_I32, arg as usize);
+        const compute_leaf: AsyncComputeFuture<i32> = thread_async_compute_future_new<i32>(pool, compute_fn, THREAD_TASK_KIND_I32, arg as usize);
+        const compute_future: Future<!i32> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_usize(T) {
-        return thread_async_compute_future_new<usize>(pool, compute_fn, THREAD_TASK_KIND_USIZE, arg as usize);
+        const compute_leaf: AsyncComputeFuture<usize> = thread_async_compute_future_new<usize>(pool, compute_fn, THREAD_TASK_KIND_USIZE, arg as usize);
+        const compute_future: Future<!usize> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_u32(T) {
-        return thread_async_compute_future_new<u32>(pool, compute_fn, THREAD_TASK_KIND_U32, arg as usize);
+        const compute_leaf: AsyncComputeFuture<u32> = thread_async_compute_future_new<u32>(pool, compute_fn, THREAD_TASK_KIND_U32, arg as usize);
+        const compute_future: Future<!u32> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_i64(T) {
-        return thread_async_compute_future_new<i64>(pool, compute_fn, THREAD_TASK_KIND_I64, arg as usize);
+        const compute_leaf: AsyncComputeFuture<i64> = thread_async_compute_future_new<i64>(pool, compute_fn, THREAD_TASK_KIND_I64, arg as usize);
+        const compute_future: Future<!i64> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_u64(T) {
-        return thread_async_compute_future_new<u64>(pool, compute_fn, THREAD_TASK_KIND_U64, arg as usize);
+        const compute_leaf: AsyncComputeFuture<u64> = thread_async_compute_future_new<u64>(pool, compute_fn, THREAD_TASK_KIND_U64, arg as usize);
+        const compute_future: Future<!u64> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_i16(T) {
-        return thread_async_compute_future_new<i16>(pool, compute_fn, THREAD_TASK_KIND_I16, arg as usize);
+        const compute_leaf: AsyncComputeFuture<i16> = thread_async_compute_future_new<i16>(pool, compute_fn, THREAD_TASK_KIND_I16, arg as usize);
+        const compute_future: Future<!i16> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_u16(T) {
-        return thread_async_compute_future_new<u16>(pool, compute_fn, THREAD_TASK_KIND_U16, arg as usize);
+        const compute_leaf: AsyncComputeFuture<u16> = thread_async_compute_future_new<u16>(pool, compute_fn, THREAD_TASK_KIND_U16, arg as usize);
+        const compute_future: Future<!u16> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_i8(T) {
-        return thread_async_compute_future_new<i8>(pool, compute_fn, THREAD_TASK_KIND_I8, arg as usize);
+        const compute_leaf: AsyncComputeFuture<i8> = thread_async_compute_future_new<i8>(pool, compute_fn, THREAD_TASK_KIND_I8, arg as usize);
+        const compute_future: Future<!i8> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_u8(T) {
-        return thread_async_compute_future_new<u8>(pool, compute_fn, THREAD_TASK_KIND_U8, arg as usize);
+        const compute_leaf: AsyncComputeFuture<u8> = thread_async_compute_future_new<u8>(pool, compute_fn, THREAD_TASK_KIND_U8, arg as usize);
+        const compute_future: Future<!u8> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_bool(T) {
-        return thread_async_compute_future_new<bool>(pool, compute_fn, THREAD_TASK_KIND_BOOL, thread_bool_to_usize(arg));
+        const compute_leaf: AsyncComputeFuture<bool> = thread_async_compute_future_new<bool>(pool, compute_fn, THREAD_TASK_KIND_BOOL, thread_bool_to_usize(arg));
+        const compute_future: Future<!bool> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_f32(T) {
-        return thread_async_compute_future_new<f32>(pool, compute_fn, THREAD_TASK_KIND_F32, thread_f32_arg_bits(arg));
+        const compute_leaf: AsyncComputeFuture<f32> = thread_async_compute_future_new<f32>(pool, compute_fn, THREAD_TASK_KIND_F32, thread_f32_arg_bits(arg));
+        const compute_future: Future<!f32> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     if thread_type_is_f64(T) {
-        return thread_async_compute_future_new<f64>(pool, compute_fn, THREAD_TASK_KIND_F64, thread_f64_arg_bits(arg));
+        const compute_leaf: AsyncComputeFuture<f64> = thread_async_compute_future_new<f64>(pool, compute_fn, THREAD_TASK_KIND_F64, thread_f64_arg_bits(arg));
+        const compute_future: Future<!f64> = compute_leaf;
+        return (try @await compute_future) as T;
     }
     const close_result: !i32 = sys_close(0 - 1);
-    return Future<!T>{ state: Poll<!T>.Ready(close_result as! T) };
+    const _unreachable: i32 = close_result catch |err| {
+        return err;
+    };
+    return _unreachable as T;
 }

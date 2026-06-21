@@ -156,7 +156,6 @@
 > `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
 - [ ] `lib/std/thread.uya`
-  - [ ] 先提炼 `async_worker_result` / `async_thread_slot_wait` 之类可 await 原语，再把对外 `async_compute<T>` 改写为 `@async_fn` 组合层。
   - [ ] 把 `sys_fork()` fallback 的默认路径从“隐藏在手写 future 内部”改成显式策略决策。
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
   - [ ] 要么连 `AsyncFdReadFuture` / `AsyncFdWriteFuture` / `AsyncComputeFuture<T>` 也消灭

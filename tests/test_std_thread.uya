@@ -819,6 +819,17 @@ test "async_compute_thread_submission_is_unified_behind_helper" {
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const start_result: !i32 = self.core.start_execution();\0" as &const byte) as i32, 0);
 }
 
+test "async_compute_public_entry_is_async_fn_composition" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "export @async_fn fn async_compute<T>(pool: &ThreadPool, compute_fn: &void, arg: T) Future<!T> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const compute_leaf: AsyncComputeFuture<i32> = thread_async_compute_future_new<i32>(pool, compute_fn, THREAD_TASK_KIND_I32, arg as usize);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const compute_future: Future<!i32> = compute_leaf;\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "return (try @await compute_future) as T;\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "export fn async_compute<T>(pool: &ThreadPool, compute_fn: &void, arg: T) Future<!T> {\0" as &const byte) as i32, 0);
+}
+
 test "async_compute_submission_strategy_is_queue_or_error_without_fork_fallback" {
     var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
     const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
