@@ -157,7 +157,6 @@
 
 - [ ] `lib/std/thread.uya`
   - [ ] 将 `AsyncComputeFuture<T>` 分解为：
-    - [ ] 结果 ready 通知
     - [ ] cancel / cleanup
     - [ ] one-shot fallback 或其替代策略
   - [ ] 先提炼 `async_worker_result` / `async_thread_slot_wait` 之类可 await 原语，再把对外 `async_compute<T>` 改写为 `@async_fn` 组合层。

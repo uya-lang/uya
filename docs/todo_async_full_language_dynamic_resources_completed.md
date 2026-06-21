@@ -1961,3 +1961,12 @@
       - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，28 tests / 111 assertions）
       - 验证：`../uya/bin/uya test tests/test_async_compute_generic_wrapper.uya`（通过，2 tests）
       - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`（通过，11 tests）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+路径：`lib/std/thread.uya` > 将 `AsyncComputeFuture<T>` 分解为：
+    - [x] 结果 ready 通知
+      - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
+      - 结果：通过；28/28 测试通过，覆盖 `async_compute_i32_completed_queued_slot_is_ready_on_first_late_poll`、`async_compute_thread_bridge_is_unified_behind_helpers`、取消与排队回归。
+      - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`
+      - 结果：通过；11/11 `async_compute` 类型矩阵测试通过。
