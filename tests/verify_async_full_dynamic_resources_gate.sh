@@ -56,6 +56,8 @@ run_unit_scan_stages() {
         run_uya_test "tests/test_async_thread_pool_dynamic_growth.uya"
     run_stage "async event config" \
         run_uya_test "tests/test_async_event_config.uya"
+    run_stage "async event dynamic growth" \
+        run_uya_test "tests/test_async_event_dynamic_growth.uya"
     run_stage "async multi fd concurrency" \
         run_uya_test "tests/test_async_multi_fd_concurrent.uya"
 

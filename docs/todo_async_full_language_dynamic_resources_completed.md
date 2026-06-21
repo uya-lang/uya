@@ -2748,3 +2748,13 @@
     - 最小验证：`../uya/bin/uya test tests/test_https_loopback.uya`；`../uya/bin/uya test tests/test_https_websocket_loopback.uya`
     - 验证：`../uya/bin/uya test tests/test_https_loopback.uya`（通过）；`../uya/bin/uya test tests/test_https_websocket_loopback.uya`（通过）
     - 扩展验证：`../uya/bin/uya test tests/test_tls_async_runtime_boundary.uya`（通过）；`../uya/bin/uya test tests/test_tls_async_io_future.uya`（通过）
+## Phase 3：运行时 async 资源动态化
+### 3.5 协议层临时 buffer
+
+- [x] 新增 `tests/test_async_event_dynamic_growth.uya`
+  - 完成：新增 `tests/test_async_event_dynamic_growth.uya`，固定 `LinuxEpoll` 从 `64` 个 slot 起步、注册第 `65` 个 fd 后自动扩容，并在 `event_capacity = 1` 时逐个 poll 唤醒全部 waker 的回归。
+  - 完成：将 `tests/test_async_event_dynamic_growth.uya` 接入 `tests/verify_async_full_dynamic_resources_gate.sh` 的 `unit-scan`。
+  - 验证：`../uya/bin/uya test tests/test_async_event_dynamic_growth.uya`（通过，1 tests / 137 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_event_config.uya`（通过，2 tests / 11 assertions）
+  - 验证：`../uya/bin/uya test tests/test_std_async_event_fd_reuse.uya`（通过，5 tests / 28 assertions）
+  - 验证：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`（通过）

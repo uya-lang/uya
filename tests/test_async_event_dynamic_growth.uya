@@ -1,0 +1,105 @@
+// test_async_event_dynamic_growth.uya
+// 验证 LinuxEpoll 在跨过旧 slot 常量边界后仍会自动扩容，并保持 poll/wake 语义正确。
+
+use std.async;
+use std.async_event;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+use libc.syscall;
+
+const TEST_O_NONBLOCK: i32 = 0x800;
+const LEGACY_SLOT_CAPACITY: i32 = 64;
+const TARGET_REGISTERED_FDS: i32 = LEGACY_SLOT_CAPACITY + 1;
+const TARGET_POLL_EVENT_CAPACITY: i32 = 1;
+
+fn test_sys_pipe2(pipefd: &i32, flags: i32) !i32 {
+    return @syscall(SYS_pipe2, pipefd as i64, flags as i64) as! i32;
+}
+
+fn test_sys_close(fd: i32) !i32 {
+    return @syscall(SYS_close, fd as i64) as! i32;
+}
+
+fn test_sys_write(fd: i32, buf: &const byte, count: usize) !isize {
+    return @syscall(SYS_write, fd as i64, buf as i64, count as i64) as! isize;
+}
+
+fn close_pipe_pairs(read_fds: [i32: TARGET_REGISTERED_FDS], write_fds: [i32: TARGET_REGISTERED_FDS], count: i32) void {
+    var i: i32 = 0;
+    while i < count {
+        const idx: usize = i as usize;
+        if read_fds[idx] >= 0 {
+            _ = test_sys_close(read_fds[idx]) catch {};
+        }
+        if write_fds[idx] >= 0 {
+            _ = test_sys_close(write_fds[idx]) catch {};
+        }
+        i = i + 1;
+    }
+}
+
+test "linux_epoll_grows_past_legacy_slot_capacity_and_wakes_all_registered_fds" {
+    var ep: LinuxEpoll = try linux_epoll_create_config(0, LEGACY_SLOT_CAPACITY, TARGET_POLL_EVENT_CAPACITY);
+    defer {
+        _ = test_sys_close(ep.epfd) catch {};
+    }
+
+    var read_fds: [i32: TARGET_REGISTERED_FDS] = [0 - 1: TARGET_REGISTERED_FDS];
+    var write_fds: [i32: TARGET_REGISTERED_FDS] = [0 - 1: TARGET_REGISTERED_FDS];
+    defer {
+        close_pipe_pairs(read_fds, write_fds, TARGET_REGISTERED_FDS);
+    }
+
+    var wakers: [Waker: TARGET_REGISTERED_FDS] = [];
+    var handled: [i32: TARGET_REGISTERED_FDS] = [0: TARGET_REGISTERED_FDS];
+
+    var i: i32 = 0;
+    while i < TARGET_REGISTERED_FDS {
+        const idx: usize = i as usize;
+        var fds: [i32: 2] = [];
+        _ = try test_sys_pipe2(&fds[0], TEST_O_NONBLOCK);
+        read_fds[idx] = fds[0];
+        write_fds[idx] = fds[1];
+        wakers[idx] = Waker{};
+        _ = try ep.register(read_fds[idx], EventKind.Readable({}), &wakers[idx]);
+        i = i + 1;
+    }
+
+    try expect(linux_epoll_slot_capacity(&ep) > LEGACY_SLOT_CAPACITY);
+    try assert_eq_i32(linux_epoll_registered_count(&ep), TARGET_REGISTERED_FDS);
+    try expect(linux_epoll_peak_registered_count(&ep) >= TARGET_REGISTERED_FDS);
+    try expect(linux_epoll_resize_count(&ep) >= 1);
+    try expect(linux_epoll_lookup_capacity(&ep) > linux_epoll_slot_capacity(&ep));
+
+    var payload: [byte: 1] = [7];
+    i = 0;
+    while i < TARGET_REGISTERED_FDS {
+        const idx: usize = i as usize;
+        _ = try test_sys_write(write_fds[idx], &payload[0], 1usize);
+        i = i + 1;
+    }
+
+    var wake_count: i32 = 0;
+    while wake_count < TARGET_REGISTERED_FDS {
+        try assert_eq_i32(try ep.poll(0), 1);
+
+        var advanced: i32 = 0;
+        i = 0;
+        while i < TARGET_REGISTERED_FDS {
+            const idx: usize = i as usize;
+            if handled[idx] == 0 && wakers[idx].is_woken() {
+                handled[idx] = 1;
+                wake_count = wake_count + 1;
+                advanced = 1;
+                _ = try ep.deregister(read_fds[idx]);
+                break;
+            }
+            i = i + 1;
+        }
+
+        try assert_eq_i32(advanced, 1);
+    }
+
+    try assert_eq_i32(linux_epoll_registered_count(&ep), 0);
+    try expect(linux_epoll_peak_registered_count(&ep) >= TARGET_REGISTERED_FDS);
+}

@@ -172,7 +172,6 @@
 
 **验收**：
 
-- [ ] 新增 `tests/test_async_event_dynamic_growth.uya`
 - [ ] 新增 `tests/test_async_task_queue_dynamic_growth.uya`
 - [ ] 新增 `tests/test_async_frame_pool_dynamic_growth.uya`
 - [ ] 新增 `tests/test_async_thread_pool_dynamic_growth.uya`
