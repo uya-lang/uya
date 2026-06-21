@@ -2638,3 +2638,14 @@
     - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`（通过：1 个测试文件，2 tests，4236 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_frame_align_pool.uya`（通过：1 个测试文件，4 tests，4235 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`（通过：1 个测试文件，1 tests）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.3 AsyncFramePool
+
+- [x] 默认生产路径不应依赖 heap fallback 才能跑通。
+  - 完成记录：`AsyncFramePool` 在 caller buffer 用尽时先提交正常的 pool heap block，再把 debug heap fallback 留作最终兜底；新增 buffer 耗尽回归避免默认生产路径再靠 fallback 跑通。
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_frame_pool_stats.uya`（通过，12 tests / 0 failed）
+  - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过，24 tests / 0 failed）
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_frame_align_pool.uya`（通过，4 tests / 0 failed）
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_frame_pool_full.uya`（通过，1 suite / 0 failed）

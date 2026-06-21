@@ -166,8 +166,6 @@
 
 ### 3.3 AsyncFramePool
 
-- [ ] 默认生产路径不应依赖 heap fallback 才能跑通。
-
 ### 3.4 ThreadPool / async_compute
 
 - [ ] 将 `lib/std/thread.uya` 的 worker / pending / task slot 数量改成动态或可配置。

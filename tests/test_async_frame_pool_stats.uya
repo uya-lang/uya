@@ -193,6 +193,37 @@ fn test_pool_config_allows_more_than_default_per_bucket() !void {
     try expect(heap_fallback == 0);
 }
 
+fn test_pool_buffer_exhaustion_uses_pool_heap_before_debug_fallback() !void {
+    var storage: [byte: 128] = [];
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init_with_buffer(&pool, &storage[0] as &byte, 128usize, 1, 65536usize);
+
+    const first: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    const second: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    const third: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+
+    try expect(first != null);
+    try expect(second != null);
+    try expect(third != null);
+    try expect(ptr_in_range(&storage[0] as &byte, 128usize, first));
+    try expect(ptr_in_range(&storage[0] as &byte, 128usize, second));
+    try expect(!ptr_in_range(&storage[0] as &byte, 128usize, third));
+
+    async_frame_pool_free_aligned(&pool, first, 32usize, 8usize);
+    async_frame_pool_free_aligned(&pool, second, 32usize, 8usize);
+    async_frame_pool_free_aligned(&pool, third, 32usize, 8usize);
+
+    var total_alloc: i32 = 0;
+    var total_free: i32 = 0;
+    var full_count: i32 = 0;
+    var heap_fallback: i32 = 0;
+    async_frame_pool_stats(&pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 3);
+    try expect(total_free == 3);
+    try expect(full_count == 0);
+    try expect(heap_fallback == 0);
+}
+
 fn test_pool_reset_discards_old_caller_buffer_frame() !void {
     var storage: [byte: 128] = [];
     var pool: AsyncFramePool = AsyncFramePool{};
@@ -364,6 +395,10 @@ test "async_frame_pool_config_allows_more_than_default_buckets" {
 
 test "async_frame_pool_config_allows_more_than_default_per_bucket" {
     run_test("async_frame_pool_config_allows_more_than_default_per_bucket", test_pool_config_allows_more_than_default_per_bucket);
+}
+
+test "async_frame_pool_buffer_exhaustion_uses_pool_heap_before_debug_fallback" {
+    run_test("async_frame_pool_buffer_exhaustion_uses_pool_heap_before_debug_fallback", test_pool_buffer_exhaustion_uses_pool_heap_before_debug_fallback);
 }
 
 test "async_frame_pool_reset_discards_old_caller_buffer_frame" {

@@ -719,6 +719,13 @@ export fn async_frame_pool_alloc(pool: &AsyncFramePool, frame_id: u32) &byte {
     const ptr: &byte = async_frame_pool_alloc_from_buffer(pool, desc.size, desc.align);
     if ptr == null {
         if pool.buffer != null {
+            const heap_ptr: &byte = async_frame_pool_heap_alloc(pool, desc.size, desc.align);
+            if heap_ptr != null {
+                bucket.committed_count = bucket.committed_count + 1;
+                bucket.alloc_count = bucket.alloc_count + 1;
+                pool.total_alloc_count = pool.total_alloc_count + 1;
+                return heap_ptr;
+            }
             const fallback_ptr: &byte = async_frame_pool_heap_fallback_alloc(pool, desc.size, desc.align);
             if fallback_ptr == null {
                 pool.pool_full_count = pool.pool_full_count + 1;
@@ -778,6 +785,13 @@ export fn async_frame_pool_alloc_aligned(pool: &AsyncFramePool, size: usize, ali
     const ptr: &byte = async_frame_pool_alloc_from_buffer(pool, size, align);
     if ptr == null {
         if pool.buffer != null {
+            const heap_ptr: &byte = async_frame_pool_heap_alloc(pool, size, align);
+            if heap_ptr != null {
+                bucket.committed_count = bucket.committed_count + 1;
+                bucket.alloc_count = bucket.alloc_count + 1;
+                pool.total_alloc_count = pool.total_alloc_count + 1;
+                return heap_ptr;
+            }
             const fallback_ptr: &byte = async_frame_pool_heap_fallback_alloc(pool, size, align);
             if fallback_ptr != null {
                 return fallback_ptr;
