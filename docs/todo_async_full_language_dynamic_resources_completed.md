@@ -2453,3 +2453,15 @@
   - 验证：`python3 tests/verify_async_compiler_no_fixed_limits.py`
   - 验证：`../uya/bin/uya test tests/test_c99_async_frame_descriptors.uya`
   - 验证：临时生成 `tests/build/generated_async_descriptor_513.uya`，运行 `../uya/bin/uya --c99 tests/build/generated_async_descriptor_513.uya -o /tmp/uya-async-desc-513.XXXXXX.c`，检查得到 `_uya_async_frame_descriptor_entries[533]`、`_uya_async_frame_descriptor_count = 533`，且 `generated_async_512` frame 已发射。
+
+## Phase 2：编译器 async 资源动态化
+
+父级任务：为“超大 async 函数”建立新的错误模型
+
+  - [x] 若只是旧的人为上限，不应再报错
+    验证：
+    `../uya/bin/uya test tests/test_async_await_capacity_dynamic.uya`（通过：`async_await_capacity_grows_past_256`）
+    `../uya/bin/uya test tests/test_async_param_capacity_dynamic.uya`（通过：`async_param_capacity_grows_past_16`）
+    `../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`（通过：3 个测试）
+    `python3 tests/verify_async_compiler_no_fixed_limits.py`（通过：未发现残留固定 async 容量常量）
+    `UYA_COMPILER=../uya/bin/uya bash tests/verify_async_await_capacity.sh`（通过：4097 个 `@await` 样本成功生成状态机，仅保留大小警告）
