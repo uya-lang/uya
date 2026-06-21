@@ -466,7 +466,7 @@ export struct LinuxEpoll : EventLoop {
                     const slot_idx: i32 = self.find_slot(fd);
                     if slot_idx >= 0 && self.slot_wakers[slot_idx] != 0 as usize {
                         const waker: &Waker = (self.slot_wakers[slot_idx] as &void) as &Waker;
-                        waker.wake();
+                        waker.wake_from_event_loop();
                         woke_count = woke_count + 1;
                     }
                 }
@@ -484,7 +484,7 @@ export struct LinuxEpoll : EventLoop {
             const slot_idx: i32 = self.find_slot(fd);
             if slot_idx >= 0 && self.slot_wakers[slot_idx] != 0 as usize {
                 const waker: &Waker = (self.slot_wakers[slot_idx] as &void) as &Waker;
-                waker.wake();
+                waker.wake_from_event_loop();
             }
             i = i + 1;
         }

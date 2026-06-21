@@ -170,8 +170,6 @@
 
 ## Phase 4：生产级可靠性与可观测性
 
-- [ ] 为 async runtime 增加统一指标：
-  - [ ] timeout / cancel / wake 来源统计
 - [ ] 建立长压测与泄漏验证：
   - [ ] fd 不泄漏
   - [ ] frame 不泄漏

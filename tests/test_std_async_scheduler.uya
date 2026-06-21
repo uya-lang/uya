@@ -348,6 +348,9 @@ var scheduler_interest_switch_waker_count: i32 = 0;
 var scheduler_interest_switch_seen_count: i32 = 0;
 var scheduler_interest_switch_seen: [i32: 4] = [];
 var scheduler_inline_pending_poll_count: i32 = 0;
+var scheduler_timeout_wake_poll_count: i32 = 0;
+var scheduler_timeout_wake_registered_wakers: [usize: 4] = [];
+var scheduler_timeout_wake_registered_count: i32 = 0;
 
 struct TestEventLoop : EventLoop {
     fn register(self: &Self, fd: i32, interest: EventKind, waker: &Waker) !i32 {
@@ -689,6 +692,58 @@ struct InterestSwitchEventLoop : EventLoop {
     }
 }
 
+struct TimeoutThenWakeEventLoop : EventLoop {
+    fn register(self: &Self, fd: i32, interest: EventKind, waker: &Waker) !i32 {
+        _ = self;
+        _ = fd;
+        _ = interest;
+        scheduler_timeout_wake_registered_wakers[scheduler_timeout_wake_registered_count as usize] = (waker as &void) as usize;
+        scheduler_timeout_wake_registered_count = scheduler_timeout_wake_registered_count + 1;
+        return 0;
+    }
+
+    fn deregister(self: &Self, fd: i32) !i32 {
+        _ = self;
+        _ = fd;
+        return 0;
+    }
+
+    fn poll(self: &Self, timeout_ms: i32) !i32 {
+        _ = self;
+        _ = timeout_ms;
+        scheduler_timeout_wake_poll_count = scheduler_timeout_wake_poll_count + 1;
+        if scheduler_timeout_wake_poll_count == 1 {
+            return 0;
+        }
+        var i: i32 = 0;
+        while i < scheduler_timeout_wake_registered_count {
+            const w: &Waker = (scheduler_timeout_wake_registered_wakers[i as usize] as &void) as &Waker;
+            w.wake_from_event_loop();
+            i = i + 1;
+        }
+        const woke_count: i32 = scheduler_timeout_wake_registered_count;
+        scheduler_timeout_wake_registered_count = 0;
+        return woke_count;
+    }
+}
+
+struct TimeoutThenReadyFuture : Future<!i32> {
+    fd: i32,
+    value: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        if scheduler_timeout_wake_poll_count < 2 {
+            waker.wait_readable(self.fd);
+            return Poll<!i32>.Pending({});
+        }
+        return Poll<!i32>.Ready(ok<i32>(self.value));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
 struct ReadableThenWritableFuture : Future<!i32> {
     fd: i32,
     stage: i32,
@@ -1022,6 +1077,10 @@ test "scheduler_run_task_queue_marks_cancelled_slots" {
     try assert_eq_i32(queue.error_id(cancelled_idx) as i32, @error_id(error.Cancelled) as i32);
     try assert_eq_i32(queue.is_done(ready_idx) as i32, 1);
     try assert_eq_i32(queue.result(ready_idx), 55);
+
+    const metrics: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(metrics.cancel_result_count as i32, 1);
+    try assert_eq_i32(metrics.wake_cancel_count as i32, 1);
 }
 
 test "scheduler_run_with_event_loop_handles_external_eventfd_wake" {
@@ -1043,6 +1102,36 @@ test "scheduler_run_with_event_loop_handles_external_eventfd_wake" {
 
     try assert_eq_i32(result, 321);
     try assert_eq_i32(shared_flag[0], 1);
+}
+
+test "async_runtime_metrics_report_timeout_and_wake_sources" {
+    scheduler_timeout_wake_poll_count = 0;
+    scheduler_timeout_wake_registered_count = 0;
+    scheduler_timeout_wake_registered_wakers[0] = 0usize;
+    scheduler_timeout_wake_registered_wakers[1] = 0usize;
+    scheduler_timeout_wake_registered_wakers[2] = 0usize;
+    scheduler_timeout_wake_registered_wakers[3] = 0usize;
+    scheduler_loop_poll_count = 0;
+    scheduler_wake_poll_count = 0;
+
+    var s: Scheduler = scheduler_new();
+    const timeout_loop: EventLoop = TimeoutThenWakeEventLoop{};
+    const timeout_future: Future<!i32> = TimeoutThenReadyFuture{ fd: 808, value: 66 };
+    const timeout_result: i32 = try scheduler_run_with_event_loop<i32>(&s, timeout_loop, timeout_future, 5);
+    try assert_eq_i32(timeout_result, 66);
+
+    const inline_loop: EventLoop = test_event_loop();
+    const inline_future: Future<!i32> = wake_then_ready_future();
+    const inline_result: i32 = try scheduler_run_with_event_loop<i32>(&s, inline_loop, inline_future, 0);
+    try assert_eq_i32(inline_result, 123);
+
+    const metrics: AsyncRuntimeMetrics = async_runtime_metrics_linux_epoll_with_thread_pool(&s, null as &LinuxEpoll, null as &ThreadPool);
+    try assert_eq_i32(metrics.timeout_wait_count as i32, 1);
+    try assert_eq_i32(metrics.timeout_result_count as i32, 0);
+    try assert_eq_i32(metrics.cancel_result_count as i32, 0);
+    try assert_eq_i32(metrics.wake_inline_count as i32, 1);
+    try assert_eq_i32(metrics.wake_event_loop_count as i32, 1);
+    try assert_eq_i32(metrics.wake_cancel_count as i32, 0);
 }
 
 test "scheduler_run_with_event_loop_reregisters_same_fd_when_interest_changes" {

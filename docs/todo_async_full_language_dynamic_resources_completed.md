@@ -2835,3 +2835,16 @@
     - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过：29 tests）
     - 验证：`../uya/bin/uya test --c99 tests/test_std_thread.uya`（通过：34 tests）
     - 验证：`../uya/bin/uya test --c99 tests/test_async_runtime_shared_semantics.uya`（通过：4 tests）
+
+## Phase 4：生产级可靠性与可观测性
+
+- [x] 为 async runtime 增加统一指标：
+  - [x] timeout / cancel / wake 来源统计
+    - 验证命令：`../uya/bin/uya test tests/test_std_async_scheduler.uya`
+    - 验证结果：通过，30 tests / 315 assertions；新增并验证 `timeout_wait_count`、`timeout_result_count`、`cancel_result_count`、`wake_inline_count`、`wake_event_loop_count`、`wake_cancel_count`。
+    - 验证命令：`../uya/bin/uya test tests/test_std_async_event.uya`
+    - 验证结果：通过。
+    - 验证命令：`../uya/bin/uya test tests/test_async_fd.uya`
+    - 验证结果：通过，14 tests / 85 assertions。
+    - 验证命令：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+    - 验证结果：通过，4 tests / 108 assertions。

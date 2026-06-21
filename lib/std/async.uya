@@ -166,11 +166,17 @@ fn waker_eventfd_drain(fd: i32) void {
     }
 }
 
+const WAKER_WAKE_SOURCE_NONE: i32 = 0;
+const WAKER_WAKE_SOURCE_EXPLICIT: i32 = 1;
+const WAKER_WAKE_SOURCE_EVENT_LOOP: i32 = 2;
+const WAKER_WAKE_SOURCE_CANCEL: i32 = 3;
+
 /// 最小唤醒器。
 /// 当前仅维护“是否被唤醒”的可观察状态，供 Future 在 poll 内请求立即重试。
 /// 后续可在此基础上扩展到事件循环注册、任务队列与跨线程唤醒。
 export struct Waker {
     _wake_count: atomic i32,
+    _wake_source: atomic i32,
     _io_fd: i32,
     _io_interest: i32,
     _event_fd: i32,
@@ -178,7 +184,10 @@ export struct Waker {
     _event_fd_bound: atomic i32,
     _cancelled: atomic i32,
 
-    fn wake(self: &Self) void {
+    fn wake_with_source(self: &Self, source: i32) void {
+        if self._wake_count == 0 || self._wake_source != WAKER_WAKE_SOURCE_CANCEL || source == WAKER_WAKE_SOURCE_CANCEL {
+            self._wake_source = source;
+        }
         self._wake_count = self._wake_count + 1;
         if self._event_fd_bound != 0 {
             var notify_fd: i32 = self._event_write_fd;
@@ -191,8 +200,17 @@ export struct Waker {
         }
     }
 
+    fn wake(self: &Self) void {
+        self.wake_with_source(WAKER_WAKE_SOURCE_EXPLICIT);
+    }
+
+    fn wake_from_event_loop(self: &Self) void {
+        self.wake_with_source(WAKER_WAKE_SOURCE_EVENT_LOOP);
+    }
+
     fn reset(self: &Self) void {
         self._wake_count = 0;
+        self._wake_source = WAKER_WAKE_SOURCE_NONE;
         if self._event_fd_bound != 0 && self._event_fd >= 0 {
             waker_eventfd_drain(self._event_fd);
         }
@@ -200,6 +218,14 @@ export struct Waker {
 
     fn is_woken(self: &Self) bool {
         return self._wake_count != 0;
+    }
+
+    fn wake_source_is_event_loop(self: &Self) bool {
+        return self._wake_source == WAKER_WAKE_SOURCE_EVENT_LOOP;
+    }
+
+    fn wake_source_is_cancel(self: &Self) bool {
+        return self._wake_source == WAKER_WAKE_SOURCE_CANCEL;
     }
 
     fn wait_readable(self: &Self, fd: i32) void {
@@ -278,7 +304,7 @@ export struct Waker {
 
     fn cancel(self: &Self) void {
         self._cancelled = 1;
-        self.wake();
+        self.wake_with_source(WAKER_WAKE_SOURCE_CANCEL);
     }
 
     fn clear_cancelled(self: &Self) void {

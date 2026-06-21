@@ -446,6 +446,12 @@ export struct SchedulerMetrics {
     frame_heap_fallback_count: u64,
     queue_depth: i32,
     peak_queue_depth: i32,
+    timeout_wait_count: u64,
+    timeout_result_count: u64,
+    cancel_result_count: u64,
+    wake_inline_count: u64,
+    wake_event_loop_count: u64,
+    wake_cancel_count: u64,
 }
 
 /// async runtime 统一指标快照。
@@ -458,6 +464,12 @@ export struct AsyncRuntimeMetrics {
     frame_heap_fallback_count: u64,
     queue_depth: i32,
     peak_queue_depth: i32,
+    timeout_wait_count: u64,
+    timeout_result_count: u64,
+    cancel_result_count: u64,
+    wake_inline_count: u64,
+    wake_event_loop_count: u64,
+    wake_cancel_count: u64,
     epoll_registered_fd_count: i32,
     epoll_peak_registered_fd_count: i32,
     epoll_resize_count: i32,
@@ -476,6 +488,12 @@ export struct Scheduler {
     _metrics_heap_fallback_seen: u64,
     _metrics_queue_depth: i32,
     _metrics_peak_queue_depth: i32,
+    _metrics_timeout_wait_count: u64,
+    _metrics_timeout_result_count: u64,
+    _metrics_cancel_result_count: u64,
+    _metrics_wake_inline_count: u64,
+    _metrics_wake_event_loop_count: u64,
+    _metrics_wake_cancel_count: u64,
     _inline_repoll_limit: i32,
 }
 
@@ -495,6 +513,42 @@ fn scheduler_set_queue_depth(self: &Scheduler, depth: i32) void {
     if next_depth > self._metrics_peak_queue_depth {
         self._metrics_peak_queue_depth = next_depth;
     }
+}
+
+fn scheduler_record_wait_timeout(self: &Scheduler) void {
+    if self == null {
+        return;
+    }
+    self._metrics_timeout_wait_count = self._metrics_timeout_wait_count + 1u64;
+}
+
+fn scheduler_record_ready_error_id(self: &Scheduler, error_id: u32) void {
+    if self == null || error_id == 0 as u32 {
+        return;
+    }
+    if error_id == @error_id(error.Cancelled) as u32 {
+        self._metrics_cancel_result_count = self._metrics_cancel_result_count + 1u64;
+        return;
+    }
+    if error_id == @error_id(error.TimedOut) as u32 ||
+       error_id == @error_id(error.AsyncDeadlineExceeded) as u32 {
+        self._metrics_timeout_result_count = self._metrics_timeout_result_count + 1u64;
+    }
+}
+
+fn scheduler_record_wake_source(self: &Scheduler, waker: &Waker) void {
+    if self == null || waker == null || !waker.is_woken() {
+        return;
+    }
+    if waker.wake_source_is_cancel() {
+        self._metrics_wake_cancel_count = self._metrics_wake_cancel_count + 1u64;
+        return;
+    }
+    if waker.wake_source_is_event_loop() {
+        self._metrics_wake_event_loop_count = self._metrics_wake_event_loop_count + 1u64;
+        return;
+    }
+    self._metrics_wake_inline_count = self._metrics_wake_inline_count + 1u64;
 }
 
 /// 辅助：将 AsyncFramePool 值装箱为 IAllocator（利用 return 隐式转换）。
@@ -541,6 +595,12 @@ export fn scheduler_init_with_config(self: &Scheduler, frame_buffer_bytes: usize
     self._metrics_heap_fallback_seen = 0u64;
     self._metrics_queue_depth = 0;
     self._metrics_peak_queue_depth = 0;
+    self._metrics_timeout_wait_count = 0u64;
+    self._metrics_timeout_result_count = 0u64;
+    self._metrics_cancel_result_count = 0u64;
+    self._metrics_wake_inline_count = 0u64;
+    self._metrics_wake_event_loop_count = 0u64;
+    self._metrics_wake_cancel_count = 0u64;
     self._inline_repoll_limit = scheduler_normalize_inline_repoll_limit(inline_repoll_limit);
 }
 
@@ -619,6 +679,12 @@ export fn scheduler_metrics(self: &Scheduler) SchedulerMetrics {
         frame_heap_fallback_count: pool.debug_heap_fallback_count as u64,
         queue_depth: self._metrics_queue_depth,
         peak_queue_depth: self._metrics_peak_queue_depth,
+        timeout_wait_count: self._metrics_timeout_wait_count,
+        timeout_result_count: self._metrics_timeout_result_count,
+        cancel_result_count: self._metrics_cancel_result_count,
+        wake_inline_count: self._metrics_wake_inline_count,
+        wake_event_loop_count: self._metrics_wake_event_loop_count,
+        wake_cancel_count: self._metrics_wake_cancel_count,
     };
 }
 
@@ -651,6 +717,12 @@ export fn async_runtime_metrics_linux_epoll_with_thread_pool(self: &Scheduler, l
         frame_heap_fallback_count: scheduler_snapshot.frame_heap_fallback_count,
         queue_depth: scheduler_snapshot.queue_depth,
         peak_queue_depth: scheduler_snapshot.peak_queue_depth,
+        timeout_wait_count: scheduler_snapshot.timeout_wait_count,
+        timeout_result_count: scheduler_snapshot.timeout_result_count,
+        cancel_result_count: scheduler_snapshot.cancel_result_count,
+        wake_inline_count: scheduler_snapshot.wake_inline_count,
+        wake_event_loop_count: scheduler_snapshot.wake_event_loop_count,
+        wake_cancel_count: scheduler_snapshot.wake_cancel_count,
         epoll_registered_fd_count: 0,
         epoll_peak_registered_fd_count: 0,
         epoll_resize_count: 0,
@@ -679,11 +751,15 @@ export fn scheduler_run<T>(self: &Scheduler, f: Future<!T>) !T {
     defer { scheduler_set_queue_depth(self, 0); }
     var w: Waker = Waker{};
     while true {
+        scheduler_record_wake_source(self, &w);
         w.reset();
         w.clear_io_interest();
         const p: Poll<!T> = f.poll(&w);
         match p {
-            .Ready(ok_val) => { return ok_val; },
+            .Ready(ok_val) => {
+                scheduler_record_ready_error_id(self, ok_val.error_id);
+                return ok_val;
+            },
             .Pending(_) => { },
         };
     }
@@ -721,11 +797,15 @@ export fn scheduler_run_with_event_loop<T>(self: &Scheduler, loop: EventLoop, f:
     defer { scheduler_cleanup_waker(loop, &w, &io_registered_fd, &event_registered_fd); }
 
     while true {
+        scheduler_record_wake_source(self, &w);
         w.reset();
         w.clear_io_interest();
         const p: Poll<!T> = f.poll(&w);
         match p {
-            .Ready(ok_val) => { return ok_val; },
+            .Ready(ok_val) => {
+                scheduler_record_ready_error_id(self, ok_val.error_id);
+                return ok_val;
+            },
             .Pending(_) => {
                 if w.is_woken() {
                     inline_repoll_count = 0;
@@ -748,15 +828,21 @@ export fn scheduler_run_with_event_loop<T>(self: &Scheduler, loop: EventLoop, f:
                 };
                 if registered != 0 {
                     const poll_result: !i32 = loop.poll(timeout_ms);
-                    _ = poll_result catch {
+                    const poll_count: i32 = poll_result catch {
                         return poll_result as! T;
                     };
+                    if poll_count == 0 {
+                        scheduler_record_wait_timeout(self);
+                    }
                     continue;
                 }
                 const poll_result: !i32 = loop.poll(1);
-                _ = poll_result catch {
+                const poll_count: i32 = poll_result catch {
                     return poll_result as! T;
                 };
+                if poll_count == 0 {
+                    scheduler_record_wait_timeout(self);
+                }
             },
         };
     }
@@ -815,11 +901,13 @@ export fn scheduler_run_pair_i32_with_event_loop(self: &Scheduler, loop: EventLo
         var registered: i32 = 0;
 
         if first_done == 0 {
+            scheduler_record_wake_source(self, &first_waker);
             first_waker.reset();
             first_waker.clear_io_interest();
             const first_poll: Poll<!i32> = first.poll(&first_waker);
             match first_poll {
                 .Ready(ok_val) => {
+                    scheduler_record_ready_error_id(self, ok_val.error_id);
                     *first_result = ok_val catch {
                         return ok_val as! i32;
                     };
@@ -842,11 +930,13 @@ export fn scheduler_run_pair_i32_with_event_loop(self: &Scheduler, loop: EventLo
         }
 
         if second_done == 0 {
+            scheduler_record_wake_source(self, &second_waker);
             second_waker.reset();
             second_waker.clear_io_interest();
             const second_poll: Poll<!i32> = second.poll(&second_waker);
             match second_poll {
                 .Ready(ok_val) => {
+                    scheduler_record_ready_error_id(self, ok_val.error_id);
                     *second_result = ok_val catch {
                         return ok_val as! i32;
                     };
@@ -876,15 +966,21 @@ export fn scheduler_run_pair_i32_with_event_loop(self: &Scheduler, loop: EventLo
         }
         if registered != 0 {
             const poll_result: !i32 = loop.poll(timeout_ms);
-            _ = poll_result catch {
+            const poll_count: i32 = poll_result catch {
                 return poll_result as! i32;
             };
+            if poll_count == 0 {
+                scheduler_record_wait_timeout(self);
+            }
             continue;
         }
         const poll_result: !i32 = loop.poll(1);
-        _ = poll_result catch {
+        const poll_count: i32 = poll_result catch {
             return poll_result as! i32;
         };
+        if poll_count == 0 {
+            scheduler_record_wait_timeout(self);
+        }
     }
 
     return 2;
@@ -932,12 +1028,14 @@ export fn scheduler_run_task_queue_with_event_loop<T>(self: &Scheduler, loop: Ev
                 return prepare_result as! i32;
             };
 
+            scheduler_record_wake_source(self, &slot.waker);
             slot.waker.reset();
             slot.waker.clear_io_interest();
             const p: Poll<!T> = slot.future.poll(&slot.waker);
             match p {
                 .Ready(ok_val) => {
                     const ready_result: !T = ok_val;
+                    scheduler_record_ready_error_id(self, ready_result.error_id);
                     if ready_result.error_id != 0 {
                         slot.error_id = ready_result.error_id;
                         if ready_result.error_id == @error_id(error.Cancelled) {
@@ -987,15 +1085,21 @@ export fn scheduler_run_task_queue_with_event_loop<T>(self: &Scheduler, loop: Ev
         }
         if registered != 0 {
             const poll_result: !i32 = loop.poll(timeout_ms);
-            _ = poll_result catch {
+            const poll_count: i32 = poll_result catch {
                 return poll_result as! i32;
             };
+            if poll_count == 0 {
+                scheduler_record_wait_timeout(self);
+            }
             continue;
         }
         const poll_result: !i32 = loop.poll(1);
-        _ = poll_result catch {
+        const poll_count: i32 = poll_result catch {
             return poll_result as! i32;
         };
+        if poll_count == 0 {
+            scheduler_record_wait_timeout(self);
+        }
     }
 
     return completed;
