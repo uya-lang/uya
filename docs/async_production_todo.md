@@ -1,6 +1,6 @@
 # Uya 异步量产 TODO
 
-**最后更新**：2026-06-18（2026-04 历史收口记录保留；补充当前生产收口口径，避免把旧主链路结论误读为共享 async runtime 矩阵已完成）
+**最后更新**：2026-06-21（2026-04 历史收口记录保留；补充当前生产收口口径，避免把旧主链路结论误读为共享 async runtime 矩阵已完成）
 **目标范围**：Linux + C99 后端 + `@async_fn` / `@await` / `Future` / `Poll` / `Waker` + `AsyncFd` / `LinuxEpoll`，优先保障 DNS、HTTP/1.1、HTTPS 客户端主链路达到可量产状态。
 
 > **2026-06-17 注意**
@@ -13,10 +13,17 @@
 > 3. HTTP、DNS、TLS、`async_compute` 与 `Scheduler` 必须被同一套共享 runtime 语义矩阵验证，不能只凭单项主链路测试通过宣称“已完全量产”。
 > 4. 文档口径必须与当前源码和验证闸门一致，不能仅凭本文历史结论宣称“已量产”。
 >
-> 当前这些项都是新的生产阻塞项，不再归入“量产后二阶段”：
-> - 固定容量：`TaskQueue=64`、`LinuxEpoll=1024`、thread pool/async frame/descriptor/meta 表等硬编码上限仍会改变生产行为。
-> - 语法禁区：接口值迭代、nested future 边界、direct err-union await 以外的完整函数体语法矩阵尚未全部证明。
-> - 回退路径：thread `fork()` fallback、frame/debug heap fallback、HTTP scratch buffer 等路径必须被去除、配置化或纳入显式生产验收。
+> 2026-06-21 同步：
+> - 旧文档里把 `LinuxEpoll=1024`、`TaskQueue=64`、descriptor/meta 表固定上限写成“当前阻塞”的表述已经过时，见下方“当前同步说明”。
+> - 当前真正的生产阻塞判断，请回到 `docs/todo_async_full_language_dynamic_resources.md`、`docs/async_status_matrix.md` 与 `docs/async_runtime_semantics_matrix.md`。
+
+## 当前同步说明（2026-06-21）
+
+- 不应再把 `LinuxEpoll=1024` 当作当前产品上限。`lib/std/async_event.uya` 中 `LinuxEpoll` 仍以 `1024` 作为兼容默认初始容量，但 slot / lookup / poll scratch 存储在满载时会自动扩容。
+- 不应再把默认 `TaskQueue=64` 当作固定功能上限。`lib/std/async_scheduler.uya` 的 `task_queue_new<T>()` 以 `64` 起步，但默认队列会在 `push()` 时 `grow_slots()`；只有 `task_queue_new_with_capacity<T>()` 才把容量当成调用方显式上限。
+- 不应再把 async frame descriptor/meta 表写成固定 `512`。`src/checker/async_frame_meta.uya` 已支持 meta 扩容，`src/codegen/c99/main.uya` 现按 `async_frame_meta_count` 真实数量发射 `_uya_async_frame_descriptors`。
+- 不应再把 direct err-union await 或本文提到的 nested future 路径写成当前未解阻塞。对应路径已有 `tests/test_async_await_direct_err_union.uya`、`tests/test_async_nested_future_poll.uya` 与 `tests/verify_async_nested_future_boundary.sh` 正向回归。
+- 当前仍未完成的生产收口，应回到 `docs/todo_async_full_language_dynamic_resources.md`、`docs/async_status_matrix.md` 与 `docs/async_runtime_semantics_matrix.md`：完整函数体语法矩阵、共享 runtime 统一验收，以及真实仍存在的 fixed scratch/fallback/compat 上限需要分别审计。
 
 ## 量产定义（历史阶段口径）
 
@@ -136,7 +143,7 @@
   - chunked 响应支持或公开 API 明确返回 `HttpChunkedNotSupported`。
   - 验收：`test_https_production`、`test_https_real_site`、`test_https_loopback` 行为一致。
 
-## P2：量产后二阶段能力
+## P2：量产后二阶段能力（2026-04 历史口径）
 
 - [ ] DNS A / AAAA 并发聚合，减少高 RTT 下延迟。
   - 当前状态：`dns_client_query_all_any_async` 采用顺序 `A -> AAAA` 查询，功能正确但延迟未优化。
@@ -145,7 +152,7 @@
 - [ ] macOS kqueue / Windows IOCP 后端。
 - [ ] 更细粒度性能优化，建立每 release 的 async benchmark baseline。
 
-## 验收清单
+## 验收清单（2026-04 历史验收）
 
 - [x] `make b` 自举一致。
 - [x] `make check` 关键子集通过（`test_std_async_event`、`test_async_fd`、`test_std_async_scheduler`、`test_std_dns_async_transport`、`test_http1_async_client`）。
@@ -269,33 +276,20 @@
 | 读 body 循环 | ✅ | N/A | `http_check_deadline` 已启用 |
 | EventLoop 层 | ✅ | N/A | `block_on_with_event_loop_deadline` 检查 deadline |
 
-### 已知问题
+### 历史已知问题（2026-04 快照）
 
 1. **跨模块 `time.xxx` 调用在 `@async_fn` 中的 bug**：`use std.time` 后在 `@async_fn` 中调用 `time.now_ms()` 触发编译器错误（符号名生成 mismatch）。各模块临时使用本地时间函数绕过。待修复后可统一使用 `lib/std/time.uya`，删除重复时间函数。
 2. **`catch { value }` 语法解析问题**：`expr catch { 0 as u64 }` 在复杂上下文可能触发 "unexpected token '}'" 错误。使用中间变量绕过。
 3. **`@async_fn` 内 await transition 的 compiler lowering 限制**：当 `@await` 位于 `while` / `if` 等控制流块内部时，状态机在某些 transition 点会返回 Pending 但未设置 I/O interest，导致 `block_on_with_event_loop` 若不做 workaround 会出现 1000ms 空等。当前已通过 `block_on_with_event_loop` 的 `loop.poll(1)` 重试 workaround 规避。长远应在 compiler lowering 层修复，使 transition 后直接 fallthrough 到新 future 的 poll。
 
-### 验证状态
+### 历史验证状态（2026-04 快照）
 
 - `make b`（自举）：✅ 通过
 - `make tests`：✅ 核心 async 网络测试通过（`test_http1_async_client`、`test_std_dns_async_transport`、`test_https_loopback` 等）
 - `make check`：✅ 全量通过（2026-04-14 `@frame(foo)` + pinned 语义实现后）
 
-### git 状态
+### 当前后续入口（2026-06-21 同步）
 
-```
-modified:   docs/async_production_todo.md
-modified:   lib/libc/syscall.uya
-modified:   lib/std/async_event.uya
-modified:   lib/std/async_scheduler.uya
-modified:   lib/syscall/linux.uya
-```
-
-### 下一步（量产后二阶段）
-
-1. DNS A/AAAA 并发聚合查询
-2. 修复 `@async_fn` 内多层 `while`+`@await` 的 state 回跳缺失 bug（完整落地 `http1_read_chunked_body_async`）
-3. 修复跨模块 `time.xxx` bug 后统一使用 `lib/std/time.uya`，删除重复时间函数
-4. HTTP 连接池与 keep-alive
-5. TLS 会话复用
-6. macOS kqueue / Windows IOCP 后端
+- 当前权威排期：`docs/todo_async_full_language_dynamic_resources.md`
+- 当前能力/阻塞快照：`docs/async_status_matrix.md`
+- 共享 runtime 统一验收矩阵：`docs/async_runtime_semantics_matrix.md`

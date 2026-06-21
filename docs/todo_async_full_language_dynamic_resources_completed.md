@@ -3013,3 +3013,11 @@ Phase 5：发布闸门与文档同步
     - 验证结果：通过。
     - 验证命令：`make backup-all`
     - 验证结果：通过；完成冷启动自举、`check` 全量验证、多文件备份与单文件 seed 更新。`make check` 按 Makefile 默认跳过了 `benchmarks/http_bench_async_epoll.uya C99`（未设 `UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1`）。
+## Phase 5：发布闸门与文档同步
+
+文档同步：
+  - [x] `docs/async_production_todo.md`
+    - 验证：`git diff --check`
+    - 结果：通过。
+    - 验证：`rg -n "当前同步说明|当前后续入口|git 状态|LinuxEpoll=1024|TaskQueue=64" docs/async_production_todo.md`
+    - 结果：确认已新增“当前同步说明”“当前后续入口”，且旧 `git 状态` 小节已移除。
