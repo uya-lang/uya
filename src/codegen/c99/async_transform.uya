@@ -2,9 +2,6 @@
 
 use lower.async;
 
-export const MAX_SEGMENTS: i32 = 4098;
-export const MAX_LOCALS: i32 = 4096;
-
 export fn async_transform_build_plan(
     plan: &AsyncLowerPlan,
     arena: &CompilerArena,

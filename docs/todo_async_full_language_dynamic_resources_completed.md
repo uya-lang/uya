@@ -2411,3 +2411,16 @@
 - [x] `make check`
   验证命令：`make check`
   验证结果：通过；1047/1047 程序测试通过，后续 proof optimization、顶层函数可达性、nested async split-C、async frame descriptor、split-C cache、check CLI、UPM、exec vm、microapp、SIMD select、slice 参数 C99、结构体数组字段复制 / typed route 回归、macOS hosted seed extern、@syscall 交叉、SIMD NEON 与 `benchmarks/http_bench.uya` C99 均通过；`benchmarks/http_bench_async_epoll.uya` 按 Makefile 默认未启用。
+
+## Phase 2：编译器 async 资源动态化
+
+- [x] 把 `src/codegen/c99/async_transform.uya` 的 `MAX_SEGMENTS`、`MAX_LOCALS` 改成 growable 存储。
+  - 完成内容：删除 `src/codegen/c99/async_transform.uya` 里残留的 `MAX_SEGMENTS` / `MAX_LOCALS` 固定常量；真实 growable async lowering plan 继续由 `src/lower/async.uya` 的动态扩容逻辑负责。补充 `tests/verify_async_compiler_no_fixed_limits.py`，把这两个兼容层残留常量纳入固定上限扫描，并同步清理相关测试注释与主 todo 审计口径。
+  - 验证命令：`python3 tests/verify_async_compiler_no_fixed_limits.py`
+  - 验证结果：通过。
+  - 验证命令：`../uya/bin/uya test tests/test_async_await_capacity_dynamic.uya`
+  - 验证结果：通过，1/1 tests passed。
+  - 验证命令：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`
+  - 验证结果：通过，`verify_async_full_dynamic_resources_gate: unit-scan stages passed`。
+  - 验证命令：`git diff --check`
+  - 验证结果：通过。

@@ -1,7 +1,7 @@
 // test_async_large_state_machine_syntax.uya
 // 压力回归：中等规模 @async_fn 状态机（~30 @await）。
 // 验证状态机在较多段数时仍能正确编译、运行，保持变量跨段绑定。
-// 注意：当前 MAX_SEGMENTS=258，本测试保持在安全范围内（~30 await）。
+// 注意：旧的 MAX_SEGMENTS 固定上限已移除；本测试保留为中等规模语法/状态机回归。
 
 use std.async;
 use std.testing.assert_eq_i32;

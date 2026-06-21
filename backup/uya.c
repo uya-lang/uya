@@ -11230,8 +11230,6 @@ __attribute__((used)) const int32_t EXEC_VM_REF_KIND_BASE = 65536;
 
 __attribute__((used)) const int32_t EXEC_VM_REF_KIND_INDEX_BASE = 131072;
 
-const int32_t MAX_SEGMENTS = 4098;
-const int32_t MAX_LOCALS = 4096;
 __attribute__((used)) const int32_t ASYNC_LOWER_INITIAL_PLAN_CAPACITY = 64;
 
 __attribute__((used)) const int32_t FMT_BUF_SIZE = 64;
