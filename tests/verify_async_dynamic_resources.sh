@@ -9,10 +9,10 @@ export UYA_ROOT="$REPO_ROOT/lib/"
 MODE="${1:-all}"
 
 case "$MODE" in
-    all|module-regressions|unit-scan)
+    all|module-regressions|unit-scan|smoke|backup-all)
         ;;
     *)
-        echo "usage: $0 [all|module-regressions|unit-scan]"
+        echo "usage: $0 [all|module-regressions|unit-scan|smoke|backup-all]"
         exit 2
         ;;
 esac
@@ -73,7 +73,19 @@ run_unit_scan() {
         bash "$SCRIPT_DIR/verify_async_full_dynamic_resources_gate.sh" unit-scan
 }
 
-require_compiler
+run_dynamic_resource_smoke() {
+    run_stage "dynamic resource smoke" \
+        bash "$SCRIPT_DIR/stress_async_dynamic_resources.sh" smoke
+}
+
+run_backup_all_gate() {
+    run_stage "dynamic resource backup-all gate" \
+        bash "$SCRIPT_DIR/verify_async_full_dynamic_resources_gate.sh" backup-all
+}
+
+if [ "$MODE" = "all" ] || [ "$MODE" = "module-regressions" ] || [ "$MODE" = "unit-scan" ] || [ "$MODE" = "smoke" ]; then
+    require_compiler
+fi
 
 if [ "$MODE" = "all" ] || [ "$MODE" = "module-regressions" ]; then
     run_module_regressions
@@ -81,6 +93,14 @@ fi
 
 if [ "$MODE" = "all" ] || [ "$MODE" = "unit-scan" ]; then
     run_unit_scan
+fi
+
+if [ "$MODE" = "all" ] || [ "$MODE" = "smoke" ]; then
+    run_dynamic_resource_smoke
+fi
+
+if [ "$MODE" = "backup-all" ]; then
+    run_backup_all_gate
 fi
 
 echo "verify_async_dynamic_resources: $MODE stages passed"

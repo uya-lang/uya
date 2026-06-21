@@ -2950,3 +2950,22 @@ Phase 5：发布闸门与文档同步
     - 结果：通过。
     - 验证：`bash tests/verify_async_full_language_matrix.sh native`
     - 结果：脚本成功用 `../uya/bin/uya` 跑入真实 baseline；随后在既有回归 `tests/test_std_dns_async_composition_shape.uya` 失败，断言 `@await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms)` 未命中，与本轮脚本路径契约收紧无关。
+
+## 2026-06-21
+
+路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` > `## Phase 5：发布闸门与文档同步` > `新增/更新权威验证脚本：`
+
+  - [x] `tests/verify_async_dynamic_resources.sh`
+    - 完成内容：扩展脚本模式，新增 `smoke` 与 `backup-all` 委托；同步修正 DNS 组合层源码形状回归，并为 thread pool drain metrics 回归补上等待，稳定 `unit-scan`。
+    - 验证：`bash tests/verify_async_dynamic_resources.sh smoke`
+    - 结果：通过，输出 `verify_async_dynamic_resources: smoke stages passed`。
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`
+    - 结果：通过，1 test passed，21 assertions。
+    - 验证：`for i in 1 2 3 4 5; do ../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya >/tmp/uya_thread_pool_dynamic_growth_$i.log 2>&1 || { cat /tmp/uya_thread_pool_dynamic_growth_$i.log; exit 1; }; done`
+    - 结果：连续 5 轮通过，用于确认 thread pool drain metrics 回归稳定。
+    - 验证：`bash -n tests/verify_async_dynamic_resources.sh`
+    - 结果：通过。
+    - 验证：`bash tests/verify_async_dynamic_resources.sh all`
+    - 结果：通过，输出 `verify_async_dynamic_resources: all stages passed`。
+    - 验证：`git diff --check`
+    - 结果：通过。

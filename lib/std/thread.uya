@@ -440,15 +440,15 @@ fn thread_shared_record_peak_queue_depth(shared_state: &ThreadPoolSharedState) v
 }
 
 fn thread_shared_record_drain_metrics(shared_state: &ThreadPoolSharedState, drain_us: u64) void {
-    if shared_state == null as &ThreadPoolSharedState || drain_us == 0u64 {
+    if shared_state == null as &ThreadPoolSharedState {
         return;
     }
-    shared_state.drain_count = shared_state.drain_count + 1u64;
-    shared_state.last_drain_time_us = drain_us;
     shared_state.total_drain_time_us = shared_state.total_drain_time_us + drain_us;
     if drain_us > shared_state.max_drain_time_us {
         shared_state.max_drain_time_us = drain_us;
     }
+    shared_state.last_drain_time_us = drain_us;
+    shared_state.drain_count = shared_state.drain_count + 1u64;
 }
 
 fn thread_shared_begin_drain(started_us: u64) u64 {
@@ -463,7 +463,10 @@ fn thread_shared_finish_drain(shared_state: &ThreadPoolSharedState, started_us: 
         return 0u64;
     }
     const ended_us: u64 = thread_now_monotonic_us();
-    const drain_us: u64 = thread_elapsed_us(started_us, ended_us);
+    var drain_us: u64 = thread_elapsed_us(started_us, ended_us);
+    if drain_us == 0u64 {
+        drain_us = 1u64;
+    }
     thread_shared_record_drain_metrics(shared_state, drain_us);
     return 0u64;
 }

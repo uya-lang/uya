@@ -117,7 +117,7 @@ test "dns_async_transport_and_aggregate_use_async_fn_composition" {
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, ".poll(\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_connect(fd, &sockaddr[0] as &void, 16 as u32, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_socket_send(fd, send_base as &const byte, remaining, deadline_ms)\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms)\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&src[0], len, tcp_start, transport_start, "@await async_socket_recv(fd, prefix_recv_base, DNS_TCP_FRAME_HEADER_BYTES - bytes_received, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, "const udp_result: !usize = @await udp_future;\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, "const tcp_n: usize = try @await tcp_future;\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, ".poll(\0" as &const byte) as i32, 0);
