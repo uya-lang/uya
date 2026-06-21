@@ -10,6 +10,7 @@ use std.async_frame.async_frame_pool_default;
 use std.async_frame.async_frame_pool_alloc_aligned;
 use std.async_frame.async_frame_pool_free_aligned;
 use std.async_frame.async_frame_pool_ptr_is_direct_caller_buffer;
+use std.async_frame.async_frame_pool_ptr_is_debug_heap_fallback;
 use std.async_frame.async_frame_pool_stats;
 use std.async_frame.async_frame_pool_reset;
 use std.mem.allocator.IAllocator;
@@ -273,6 +274,25 @@ fn test_debug_heap_fallback_free_bypasses_pool_reuse() !void {
     try expect(heap_fallback == 1);
 }
 
+fn test_debug_heap_fallback_frame_stays_distinct_from_pool_heap_frame() !void {
+    var storage: [byte: 64] = [];
+    var debug_pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init_with_buffer(&debug_pool, &storage[0] as &byte, 64usize, 1, 16usize);
+
+    const fallback_ptr: &byte = async_frame_pool_alloc_aligned(&debug_pool, 32usize, 8usize);
+    try expect(fallback_ptr != null);
+    try expect(async_frame_pool_ptr_is_debug_heap_fallback(fallback_ptr));
+    try expect(!async_frame_pool_ptr_is_direct_caller_buffer(fallback_ptr));
+    async_frame_pool_free_aligned(&debug_pool, fallback_ptr, 32usize, 8usize);
+
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init(&pool, 0, 65536usize);
+    const pooled_ptr: &byte = async_frame_pool_alloc_aligned(&pool, 32usize, 8usize);
+    try expect(pooled_ptr != null);
+    try expect(!async_frame_pool_ptr_is_debug_heap_fallback(pooled_ptr));
+    async_frame_pool_free_aligned(&pool, pooled_ptr, 32usize, 8usize);
+}
+
 fn test_default_async_path_uses_default_pool_and_reuses_frame() !void {
     const old_alloc: &IAllocator = get_async_frame_allocator();
     set_async_frame_allocator(null);
@@ -360,6 +380,10 @@ test "async_frame_pool_reset_discards_old_pool_heap_frame" {
 
 test "async_frame_pool_debug_heap_fallback_free_bypasses_pool_reuse" {
     run_test("async_frame_pool_debug_heap_fallback_free_bypasses_pool_reuse", test_debug_heap_fallback_free_bypasses_pool_reuse);
+}
+
+test "async_frame_pool_debug_heap_fallback_frame_stays_distinct_from_pool_heap_frame" {
+    run_test("async_frame_pool_debug_heap_fallback_frame_stays_distinct_from_pool_heap_frame", test_debug_heap_fallback_frame_stays_distinct_from_pool_heap_frame);
 }
 
 test "async_frame_pool_default_async_path_uses_default_pool_and_reuses_frame" {

@@ -2625,3 +2625,16 @@
     - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`（通过）
     - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过）
     - 验证：`../uya/bin/uya test tests/test_c99_async_frame_descriptors.uya`（通过）
+## Phase 3：运行时 async 资源动态化
+
+### 3.3 AsyncFramePool
+
+父级任务路径：# Uya 异步生产化 TODO（完整语法 + 动态资源） > ## Phase 3：运行时 async 资源动态化 > ### 3.3 AsyncFramePool
+
+- [x] 区分：
+  - [x] debug heap fallback frame
+    - 完成记录：`lib/std/async_frame.uya` 新增 `async_frame_pool_ptr_is_debug_heap_fallback()`，把 debug heap fallback frame 作为独立调试分类公开出来；`tests/test_async_frame_pool_stats.uya` 新增正反断言，显式区分 debug heap fallback、direct caller buffer 和普通 pool heap frame。
+    - 验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya`（通过：1 个测试文件，11 tests，4293 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`（通过：1 个测试文件，2 tests，4236 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_frame_align_pool.uya`（通过：1 个测试文件，4 tests，4235 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`（通过：1 个测试文件，1 tests）

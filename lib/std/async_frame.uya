@@ -574,6 +574,14 @@ export fn async_frame_pool_ptr_is_direct_caller_buffer(ptr: &byte) bool {
     return async_frame_pool_ptr_alloc_kind(ptr) == ASYNC_FRAME_ALLOC_CALLER_BUFFER;
 }
 
+/// 调试辅助：判断当前 frame 是否来自 debug heap fallback。
+///
+/// 参数：ptr 为 async frame pool 返回的 payload 指针。
+/// 返回值：若该 frame 是在显式 debug heap fallback 开关下直接回退到 heap 分配，则返回 true。
+export fn async_frame_pool_ptr_is_debug_heap_fallback(ptr: &byte) bool {
+    return async_frame_pool_ptr_alloc_kind(ptr) == ASYNC_FRAME_ALLOC_DEBUG_HEAP;
+}
+
 fn async_frame_pool_release_tracked_ptr(ptr: &byte) void {
     if ptr == null {
         return;
