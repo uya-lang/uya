@@ -2086,3 +2086,15 @@
       - 验证结果：通过（32 个子测试，134 条断言）
       - 验证命令：`rg -n "AsyncComputeFuture" src/codegen/c99/structs.uya`
       - 验证结果：无输出，exit 1
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+路径：如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界 / 要么连当前真实残留的 runtime future 也继续消灭
+
+- [x] 若继续删除 `AsyncComputeFuture<T>`，最后把 `ThreadAsyncComputeCore` 的 submit/result/cancel/cleanup/typed decode 状态机迁进通用 async frame 或其他明确 substrate，并删掉该 struct；完成条件：`lib/std/thread.uya` 不再定义 `AsyncComputeFuture<T>`，且保留 `async_worker_submit/result/cancel` 取消与清理语义；验证：`rg -n "AsyncComputeFuture|async_worker_submit|async_worker_result|async_worker_cancel" lib/std/thread.uya`
+  - 验证：`rg -n "AsyncComputeFuture|async_worker_submit|async_worker_result|async_worker_cancel" lib/std/thread.uya`（命中 `1164`、`1228`、`1247`、`1266`、`1409`、`1421`、`1436`，仅保留 `async_worker_*` helper 与调用点，`AsyncComputeFuture` 已消失）
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过：33 tests，139 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_compute_codegen_lowering_boundary.uya`（通过：1 test，8 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_compute_generic_wrapper.uya`（通过：2 tests，2 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`（通过：11 tests，11 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`（通过：1 test）

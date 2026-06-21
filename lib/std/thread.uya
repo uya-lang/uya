@@ -1,7 +1,7 @@
 // lib/std/thread.uya - 线程与异步计算最小实现
 //
 // 模块路径：use std.thread
-// 当前提供：ThreadPool + 泛型 AsyncComputeFuture<T>（整数/bool/f32/f64）+ 入口 async_compute<T>
+// 当前提供：ThreadPool + 基于 raw compute substrate 的 async_compute<T>（整数/bool/f32/f64）
 
 use std.async;
 use std.macro_typeinfo.TypeInfo;
@@ -112,8 +112,7 @@ fn thread_generic_error_f64() !f64 {
     return close_result as! f64;
 }
 
-/// 经 `ok<bool>` 包装，确保单态 `std_ok_bool` 被注册。
-/// `AsyncComputeFuture.finish_from_raw_poll` 内仅有 `ok<T>`（T 为形参），checker 不会为 bool 生成具体 ok 单态。
+/// 经 `ok<bool>` 包装，确保 `thread_async_compute_bool` 路径注册具体 `ok<bool>` 单态。
 fn thread_ok_bool(value: bool) !bool {
     const result: !bool = ok<bool>(value);
     return result;
@@ -1172,7 +1171,7 @@ fn async_worker_submit(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg
 }
 
 // 线程结果桥接保留在 `std.thread`：它依赖 ThreadPool slot/worker 协议，而不是通用 fd runtime 叶子。
-// 对外只暴露单个 awaitable，`AsyncComputeFuture` 不再手工拼接 slot wait + pipe read 两段桥接。
+// raw compute substrate 只对上层暴露单个 awaitable，不再让 typed wrapper 手工拼接 slot wait + pipe read 两段桥接。
 struct AsyncWorkerResultFuture : Future<!usize> {
     pool: &ThreadPool,
     slot_idx: i32,
@@ -1328,177 +1327,220 @@ fn thread_async_try_cancel_now(pool: &ThreadPool, slot_idx: i32) i32 {
     return 0;
 }
 
-struct ThreadAsyncComputeCore {
+fn thread_async_compute_resolve_raw_value(pool: &ThreadPool, slot_idx: i32, raw_value: usize) !usize {
+    if slot_idx < 0 {
+        return raw_value;
+    }
+
+    if !thread_pool_has_shared_state(pool) || !thread_pool_slot_is_valid(pool, slot_idx) {
+        return thread_generic_error_usize();
+    }
+    if raw_value != slot_idx as usize {
+        return thread_generic_error_usize();
+    }
+
+    const slot_state: i32 = pool._shared_state.slots[slot_idx as usize].state;
+    if slot_state != THREAD_SLOT_STATE_DONE {
+        return thread_generic_error_usize();
+    }
+    return pool._shared_state.slots[slot_idx as usize].result_bits;
+}
+
+struct AsyncWorkerComputeFuture : Future<!usize> {
     pool: &ThreadPool,
     compute_fn: &void,
     task_kind: i32,
     arg_bits: usize,
     slot_idx: i32,
     first_poll: i32,
-
-    fn finish_from_raw_value(self: &Self, raw_value: usize) Poll<!usize> {
-        var value: usize = raw_value;
-        if self.slot_idx >= 0 {
-            if !thread_pool_has_shared_state(self.pool) || !thread_pool_slot_is_valid(self.pool, self.slot_idx) {
-                return Poll<!usize>.Ready(thread_generic_error_usize());
-            }
-            if raw_value != self.slot_idx as usize {
-                return Poll<!usize>.Ready(thread_generic_error_usize());
-            }
-            const pool_ref: &ThreadPool = self.pool;
-            const slot_state: i32 = pool_ref._shared_state.slots[self.slot_idx as usize].state;
-            if slot_state != THREAD_SLOT_STATE_DONE {
-                return Poll<!usize>.Ready(thread_generic_error_usize());
-            }
-            value = pool_ref._shared_state.slots[self.slot_idx as usize].result_bits;
-        }
-
-        const ok_value: !usize = ok<usize>(value);
-        return Poll<!usize>.Ready(ok_value);
-    }
-}
-
-/// 线程池异步计算 Future 的泛型实现（整数/bool：`as T` + `ok<T>`；f32/f64：管道内为 u32/u64 位模式）。
-/// `finish_from_raw_poll` 内按 T 分发（勿抽成泛型顶层 fn：C99 可达性不会从方法体单态收集到该 helper）。
-export struct AsyncComputeFuture<T> : Future<!T> {
-    core: ThreadAsyncComputeCore,
     done: i32,
     cancel_requested: i32,
-    state: Poll<!T>,
+    state: Poll<!usize>,
 
-    fn finish(self: &Self, result: !T) Poll<!T> {
-        self.core.slot_idx = thread_async_cleanup_slot(self.core.pool, self.core.slot_idx);
-        self.state = Poll<!T>.Ready(result);
+    fn finish(self: &Self, result: !usize) Poll<!usize> {
+        self.slot_idx = thread_async_cleanup_slot(self.pool, self.slot_idx);
+        self.state = Poll<!usize>.Ready(result);
         self.done = 1;
         return self.state;
     }
 
-    fn finish_with_pending_wake(self: &Self, result: !T, waker: &Waker) Poll<!T> {
-        const result_poll: Poll<!T> = self.finish(result);
-        if thread_pool_has_pending(self.core.pool) {
+    fn finish_with_pending_wake(self: &Self, result: !usize, waker: &Waker) Poll<!usize> {
+        const result_poll: Poll<!usize> = self.finish(result);
+        if thread_pool_has_pending(self.pool) {
             waker.wake();
         }
         return result_poll;
     }
 
-    fn finish_cancelled(self: &Self, waker: &Waker) Poll<!T> {
-        const cancelled_value: !T = error.Cancelled;
+    fn finish_cancelled(self: &Self, waker: &Waker) Poll<!usize> {
+        const cancelled_value: !usize = error.Cancelled;
         return self.finish_with_pending_wake(cancelled_value, waker);
     }
 
-    fn finish_from_raw_poll(self: &Self, raw_poll: Poll<!usize>, waker: &Waker) Poll<!T> {
+    fn finish_from_raw_poll(self: &Self, raw_poll: Poll<!usize>, waker: &Waker) Poll<!usize> {
         match raw_poll {
             .Ready(raw_result) => {
                 if self.cancel_requested != 0 {
                     return self.finish_cancelled(waker);
                 }
-                const raw_value: usize = raw_result catch {
-                    const err_value: !T = raw_result as! T;
-                    return self.finish_with_pending_wake(err_value, waker);
-                };
-                if thread_type_is_bool(T) {
-                    const b: bool = raw_value != 0 as usize;
-                    const ok_value: !T = thread_ok_bool(b) as! T;
-                    return self.finish_with_pending_wake(ok_value, waker);
-                }
-                if thread_type_is_f32(T) {
-                    const bits_u32: u32 = raw_value as u32;
-                    const f32_val: f32 = *((&bits_u32 as *const u32) as *const f32);
-                    const ok_value: !T = thread_ok_f32(f32_val) as! T;
-                    return self.finish_with_pending_wake(ok_value, waker);
-                }
-                if thread_type_is_f64(T) {
-                    const bits_u64: u64 = raw_value as u64;
-                    const f64_val: f64 = *((&bits_u64 as *const u64) as *const f64);
-                    const ok_value: !T = thread_ok_f64(f64_val) as! T;
-                    return self.finish_with_pending_wake(ok_value, waker);
-                }
-                const ok_value: !T = ok<T>(raw_value as T);
-                return self.finish_with_pending_wake(ok_value, waker);
+                return self.finish_with_pending_wake(raw_result, waker);
             },
             .Pending(_) => {
-                return Poll<!T>.Pending({});
+                return Poll<!usize>.Pending({});
             },
         };
         abort();
-        return Poll<!T>.Pending({});
+        return Poll<!usize>.Pending({});
     }
 
-    fn poll(self: &Self, waker: &Waker) Poll<!T> {
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
         if self.done != 0 {
             return self.state;
         }
-        if self.core.first_poll == 0 {
-            self.core.first_poll = 1;
+        if self.first_poll == 0 {
+            self.first_poll = 1;
             waker.wake();
-            return Poll<!T>.Pending({});
+            return Poll<!usize>.Pending({});
         }
         if waker.is_cancelled() {
             self.cancel_requested = 1;
         }
         if self.cancel_requested != 0 {
-            const cancel_future: Future<!usize> = async_worker_cancel(self.core.pool, self.core.slot_idx);
+            const cancel_future: Future<!usize> = async_worker_cancel(self.pool, self.slot_idx);
             const cancel_poll: Poll<!usize> = cancel_future.poll(waker);
             match cancel_poll {
                 .Ready(_) => {
                     return self.finish_cancelled(waker);
                 },
                 .Pending(_) => {
-                    return Poll<!T>.Pending({});
+                    return Poll<!usize>.Pending({});
                 },
             };
         }
-        if self.core.slot_idx < 0 {
-            const submit_future: Future<!usize> = async_worker_submit(self.core.pool, self.core.compute_fn, self.core.task_kind, self.core.arg_bits);
+        if self.slot_idx < 0 {
+            const submit_future: Future<!usize> = async_worker_submit(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
             const submit_poll: Poll<!usize> = submit_future.poll(waker);
             match submit_poll {
                 .Ready(submit_result) => {
                     const submitted_slot_bits: usize = submit_result catch {
                         return self.finish_from_raw_poll(submit_poll, waker);
                     };
-                    self.core.slot_idx = submitted_slot_bits as i32;
+                    self.slot_idx = submitted_slot_bits as i32;
                 },
                 .Pending(_) => {
-                    return Poll<!T>.Pending({});
+                    return Poll<!usize>.Pending({});
                 },
             };
         }
 
-        const raw_future: Future<!usize> = async_worker_result(self.core.pool, self.core.slot_idx);
+        const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
         const raw_poll: Poll<!usize> = raw_future.poll(waker);
         match raw_poll {
             .Ready(raw_result) => {
                 const raw_value: usize = raw_result catch {
                     return self.finish_from_raw_poll(raw_poll, waker);
                 };
-                const value_poll: Poll<!usize> = self.core.finish_from_raw_value(raw_value);
+                const resolved_value: !usize = thread_async_compute_resolve_raw_value(self.pool, self.slot_idx, raw_value);
+                const value_poll: Poll<!usize> = Poll<!usize>.Ready(resolved_value);
                 return self.finish_from_raw_poll(value_poll, waker);
             },
             .Pending(_) => {
-                return Poll<!T>.Pending({});
+                return Poll<!usize>.Pending({});
             },
         };
         abort();
-        return Poll<!T>.Pending({});
+        return Poll<!usize>.Pending({});
     }
 
     fn release(self: &Self) void {
-        _ = self;
+        async_box_free_current(self as &byte);
     }
 }
 
-export type AsyncComputeI32Future = AsyncComputeFuture<i32>;
-export type AsyncComputeUsizeFuture = AsyncComputeFuture<usize>;
-export type AsyncComputeU32Future = AsyncComputeFuture<u32>;
-export type AsyncComputeI64Future = AsyncComputeFuture<i64>;
-export type AsyncComputeU64Future = AsyncComputeFuture<u64>;
-export type AsyncComputeI16Future = AsyncComputeFuture<i16>;
-export type AsyncComputeU16Future = AsyncComputeFuture<u16>;
-export type AsyncComputeI8Future = AsyncComputeFuture<i8>;
-export type AsyncComputeU8Future = AsyncComputeFuture<u8>;
-export type AsyncComputeBoolFuture = AsyncComputeFuture<bool>;
-export type AsyncComputeF32Future = AsyncComputeFuture<f32>;
-export type AsyncComputeF64Future = AsyncComputeFuture<f64>;
+fn async_worker_compute(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) Future<!usize> {
+    return AsyncWorkerComputeFuture{
+        pool: pool,
+        compute_fn: compute_fn,
+        task_kind: task_kind,
+        arg_bits: arg_bits,
+        slot_idx: 0 - 1,
+        first_poll: 0,
+        done: 0,
+        cancel_requested: 0,
+        state: Poll<!usize>.Pending({}),
+    };
+}
+
+@async_fn fn thread_async_compute_i32(pool: &ThreadPool, compute_fn: &void, arg: i32) Future<!i32> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_I32, arg as usize);
+    return (try @await compute_future) as i32;
+}
+
+@async_fn fn thread_async_compute_usize(pool: &ThreadPool, compute_fn: &void, arg: usize) Future<!usize> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_USIZE, arg);
+    return try @await compute_future;
+}
+
+@async_fn fn thread_async_compute_u32(pool: &ThreadPool, compute_fn: &void, arg: u32) Future<!u32> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_U32, arg as usize);
+    const value: u32 = (try @await compute_future) as u32;
+    return value;
+}
+
+@async_fn fn thread_async_compute_i64(pool: &ThreadPool, compute_fn: &void, arg: i64) Future<!i64> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_I64, arg as usize);
+    const value: i64 = (try @await compute_future) as i64;
+    return value;
+}
+
+@async_fn fn thread_async_compute_u64(pool: &ThreadPool, compute_fn: &void, arg: u64) Future<!u64> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_U64, arg as usize);
+    const value: u64 = (try @await compute_future) as u64;
+    return value;
+}
+
+@async_fn fn thread_async_compute_i16(pool: &ThreadPool, compute_fn: &void, arg: i16) Future<!i16> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_I16, arg as usize);
+    const value: i16 = (try @await compute_future) as i16;
+    return value;
+}
+
+@async_fn fn thread_async_compute_u16(pool: &ThreadPool, compute_fn: &void, arg: u16) Future<!u16> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_U16, arg as usize);
+    const value: u16 = (try @await compute_future) as u16;
+    return value;
+}
+
+@async_fn fn thread_async_compute_i8(pool: &ThreadPool, compute_fn: &void, arg: i8) Future<!i8> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_I8, arg as usize);
+    const value: i8 = (try @await compute_future) as i8;
+    return value;
+}
+
+@async_fn fn thread_async_compute_u8(pool: &ThreadPool, compute_fn: &void, arg: u8) Future<!u8> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_U8, arg as usize);
+    const value: u8 = (try @await compute_future) as u8;
+    return value;
+}
+
+@async_fn fn thread_async_compute_bool(pool: &ThreadPool, compute_fn: &void, arg: bool) Future<!bool> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_BOOL, thread_bool_to_usize(arg));
+    return (try @await compute_future) != 0 as usize;
+}
+
+@async_fn fn thread_async_compute_f32(pool: &ThreadPool, compute_fn: &void, arg: f32) Future<!f32> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_F32, thread_f32_arg_bits(arg));
+    const bits_u32: u32 = (try @await compute_future) as u32;
+    const f32_val: f32 = *((&bits_u32 as *const u32) as *const f32);
+    return f32_val;
+}
+
+@async_fn fn thread_async_compute_f64(pool: &ThreadPool, compute_fn: &void, arg: f64) Future<!f64> {
+    const compute_future: Future<!usize> = async_worker_compute(pool, compute_fn, THREAD_TASK_KIND_F64, thread_f64_arg_bits(arg));
+    const bits_u64: u64 = (try @await compute_future) as u64;
+    const f64_val: f64 = *((&bits_u64 as *const u64) as *const f64);
+    return f64_val;
+}
 
 fn thread_pool_default_scaled_capacity(worker_count: i32, per_worker: i32) i32 {
     var normalized_workers: i32 = thread_pool_normalize_config_capacity(worker_count);
@@ -1628,23 +1670,6 @@ export fn thread_pool_shutdown(pool: &ThreadPool) void {
     pool._next_worker = 0;
 }
 
-/// 构造 `AsyncComputeFuture<T>`：共享槽位状态机在 `ThreadAsyncComputeCore` 中。
-fn thread_async_compute_future_new<T>(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) AsyncComputeFuture<T> {
-    return AsyncComputeFuture<T>{
-        core: ThreadAsyncComputeCore{
-            pool: pool,
-            compute_fn: compute_fn,
-            task_kind: task_kind,
-            arg_bits: arg_bits,
-            slot_idx: 0 - 1,
-            first_poll: 0,
-        },
-        done: 0,
-        cancel_requested: 0,
-        state: Poll<!T>.Pending({}),
-    };
-}
-
 fn thread_f32_arg_bits(arg: f32) usize {
     const bits: u32 = *(&arg as *const u32);
     return bits as usize;
@@ -1657,66 +1682,54 @@ fn thread_f64_arg_bits(arg: f64) usize {
 
 // 执行 T -> T 计算，并返回 Future<!T>（装箱后的接口对象）。
 // 说明：复用 ThreadPool 的 worker 线程；池满载时进入共享槽位 FIFO，容量不足时返回资源错误。
-// 通用 async_compute<T> 顶层入口：对外只暴露 @async_fn 组合层，内部 substrate 仍由 AsyncComputeFuture<T> 驱动。
+// 通用 async_compute<T> 顶层入口：对外只暴露 @async_fn 组合层，内部 substrate 由 raw compute awaitable 驱动。
 export @async_fn fn async_compute<T>(pool: &ThreadPool, compute_fn: &void, arg: T) Future<!T> {
     if thread_type_is_i32(T) {
-        const compute_leaf: AsyncComputeFuture<i32> = thread_async_compute_future_new<i32>(pool, compute_fn, THREAD_TASK_KIND_I32, arg as usize);
-        const compute_future: Future<!i32> = compute_leaf;
+        const compute_future: Future<!i32> = thread_async_compute_i32(pool, compute_fn, arg as i32);
         return (try @await compute_future) as T;
     }
     if thread_type_is_usize(T) {
-        const compute_leaf: AsyncComputeFuture<usize> = thread_async_compute_future_new<usize>(pool, compute_fn, THREAD_TASK_KIND_USIZE, arg as usize);
-        const compute_future: Future<!usize> = compute_leaf;
+        const compute_future: Future<!usize> = thread_async_compute_usize(pool, compute_fn, arg as usize);
         return (try @await compute_future) as T;
     }
     if thread_type_is_u32(T) {
-        const compute_leaf: AsyncComputeFuture<u32> = thread_async_compute_future_new<u32>(pool, compute_fn, THREAD_TASK_KIND_U32, arg as usize);
-        const compute_future: Future<!u32> = compute_leaf;
+        const compute_future: Future<!u32> = thread_async_compute_u32(pool, compute_fn, arg as u32);
         return (try @await compute_future) as T;
     }
     if thread_type_is_i64(T) {
-        const compute_leaf: AsyncComputeFuture<i64> = thread_async_compute_future_new<i64>(pool, compute_fn, THREAD_TASK_KIND_I64, arg as usize);
-        const compute_future: Future<!i64> = compute_leaf;
+        const compute_future: Future<!i64> = thread_async_compute_i64(pool, compute_fn, arg as i64);
         return (try @await compute_future) as T;
     }
     if thread_type_is_u64(T) {
-        const compute_leaf: AsyncComputeFuture<u64> = thread_async_compute_future_new<u64>(pool, compute_fn, THREAD_TASK_KIND_U64, arg as usize);
-        const compute_future: Future<!u64> = compute_leaf;
+        const compute_future: Future<!u64> = thread_async_compute_u64(pool, compute_fn, arg as u64);
         return (try @await compute_future) as T;
     }
     if thread_type_is_i16(T) {
-        const compute_leaf: AsyncComputeFuture<i16> = thread_async_compute_future_new<i16>(pool, compute_fn, THREAD_TASK_KIND_I16, arg as usize);
-        const compute_future: Future<!i16> = compute_leaf;
+        const compute_future: Future<!i16> = thread_async_compute_i16(pool, compute_fn, arg as i16);
         return (try @await compute_future) as T;
     }
     if thread_type_is_u16(T) {
-        const compute_leaf: AsyncComputeFuture<u16> = thread_async_compute_future_new<u16>(pool, compute_fn, THREAD_TASK_KIND_U16, arg as usize);
-        const compute_future: Future<!u16> = compute_leaf;
+        const compute_future: Future<!u16> = thread_async_compute_u16(pool, compute_fn, arg as u16);
         return (try @await compute_future) as T;
     }
     if thread_type_is_i8(T) {
-        const compute_leaf: AsyncComputeFuture<i8> = thread_async_compute_future_new<i8>(pool, compute_fn, THREAD_TASK_KIND_I8, arg as usize);
-        const compute_future: Future<!i8> = compute_leaf;
+        const compute_future: Future<!i8> = thread_async_compute_i8(pool, compute_fn, arg as i8);
         return (try @await compute_future) as T;
     }
     if thread_type_is_u8(T) {
-        const compute_leaf: AsyncComputeFuture<u8> = thread_async_compute_future_new<u8>(pool, compute_fn, THREAD_TASK_KIND_U8, arg as usize);
-        const compute_future: Future<!u8> = compute_leaf;
+        const compute_future: Future<!u8> = thread_async_compute_u8(pool, compute_fn, arg as u8);
         return (try @await compute_future) as T;
     }
     if thread_type_is_bool(T) {
-        const compute_leaf: AsyncComputeFuture<bool> = thread_async_compute_future_new<bool>(pool, compute_fn, THREAD_TASK_KIND_BOOL, thread_bool_to_usize(arg));
-        const compute_future: Future<!bool> = compute_leaf;
+        const compute_future: Future<!bool> = thread_async_compute_bool(pool, compute_fn, arg as bool);
         return (try @await compute_future) as T;
     }
     if thread_type_is_f32(T) {
-        const compute_leaf: AsyncComputeFuture<f32> = thread_async_compute_future_new<f32>(pool, compute_fn, THREAD_TASK_KIND_F32, thread_f32_arg_bits(arg));
-        const compute_future: Future<!f32> = compute_leaf;
+        const compute_future: Future<!f32> = thread_async_compute_f32(pool, compute_fn, arg as f32);
         return (try @await compute_future) as T;
     }
     if thread_type_is_f64(T) {
-        const compute_leaf: AsyncComputeFuture<f64> = thread_async_compute_future_new<f64>(pool, compute_fn, THREAD_TASK_KIND_F64, thread_f64_arg_bits(arg));
-        const compute_future: Future<!f64> = compute_leaf;
+        const compute_future: Future<!f64> = thread_async_compute_f64(pool, compute_fn, arg as f64);
         return (try @await compute_future) as T;
     }
     const close_result: !i32 = sys_close(0 - 1);

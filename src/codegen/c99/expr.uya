@@ -1307,35 +1307,17 @@ fn c99_try_emit_async_compute_inline_call(
     }
 
     const lowering: AsyncComputeLoweringInfo = c99_get_async_compute_lowering_info(codegen, resolved_type_arg, "_uya_arg" as &byte);
-    if lowering.concrete_new_c == null || lowering.concrete_struct_c == null ||
-        lowering.concrete_vtable_c == null || lowering.return_iface_c == null ||
-        lowering.arg_bits_c == null || lowering.task_kind_val == 0 {
+    if lowering.entry_c == null {
         return 0;
     }
 
-    const arg_c: &byte = c99_type_to_c(codegen, resolved_type_arg);
-    if arg_c == null {
-        return 0;
-    }
-
-    fputs("(({" as *byte, codegen.emit_stream as *void);
-    fprintf(codegen.emit_stream as *void, "%s _uya_arg = " as *byte, arg_c as *byte);
-    gen_expr(codegen, expr.call_expr_args[2]);
-    fputs(";\n    struct " as *byte, codegen.emit_stream as *void);
-    fprintf(codegen.emit_stream as *void, "%s _uya_tmp = %s(" as *byte,
-        lowering.concrete_struct_c as *byte, lowering.concrete_new_c as *byte);
+    fprintf(codegen.emit_stream as *void, "%s(" as *byte, lowering.entry_c as *byte);
     gen_expr(codegen, expr.call_expr_args[0]);
     fputs(", " as *byte, codegen.emit_stream as *void);
     gen_expr(codegen, expr.call_expr_args[1]);
-    fprintf(codegen.emit_stream as *void, ", %d, %s);\n" as *byte,
-        lowering.task_kind_val, lowering.arg_bits_c as *byte);
-    fprintf(codegen.emit_stream as *void, "    struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s));\n" as *byte,
-        lowering.concrete_struct_c as *byte, lowering.concrete_struct_c as *byte,
-        lowering.concrete_struct_c as *byte);
-    fputs("    if (_uya_box != (void*)0) { *_uya_box = _uya_tmp; }\n" as *byte, codegen.emit_stream as *void);
-    fprintf(codegen.emit_stream as *void, "    (%s){ .vtable = (void*)&%s, .data = (void*)_uya_box };\n" as *byte,
-        lowering.return_iface_c as *byte, lowering.concrete_vtable_c as *byte);
-    fputs("}))" as *byte, codegen.emit_stream as *void);
+    fputs(", " as *byte, codegen.emit_stream as *void);
+    gen_expr(codegen, expr.call_expr_args[2]);
+    fputs(")" as *byte, codegen.emit_stream as *void);
     return 1;
 }
 

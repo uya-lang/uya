@@ -6776,18 +6776,20 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
     fprintf(codegen.emit_stream as *void, "static struct %s *%s(void) {\n" as *byte, async_struct as *byte, alloc_name as *byte);
     fprintf(codegen.emit_stream as *void, "    const size_t _uya_frame_header_size = __builtin_offsetof(struct { uintptr_t _uya_alloc_owner; struct %s _uya_payload; }, _uya_payload);\n" as *byte, async_struct as *byte);
     fputs("    struct uya_interface_IAllocator *a = std_get_async_frame_allocator();\n" as *byte, codegen.emit_stream as *void);
-    fprintf(codegen.emit_stream as *void, "    if (a != (void*)0) { struct err_union_uint8_tptr r = ((struct uya_vtable_IAllocator *)a->vtable)->alloc(a->data, _uya_frame_header_size + sizeof(struct %s)); if (r.error_id == 0) { uintptr_t *_uya_hdr = (uintptr_t *)r.value; *_uya_hdr = (uintptr_t)a; return (struct %s *)((uint8_t *)r.value + _uya_frame_header_size); } return (struct %s *)0; }\n" as *byte, async_struct as *byte, async_struct as *byte, async_struct as *byte);
+    fprintf(codegen.emit_stream as *void, "    if (a != (void*)0) { struct err_union_uint8_tptr r = ((struct uya_vtable_IAllocator *)a->vtable)->alloc(a->data, _uya_frame_header_size + sizeof(struct %s)); if (r.error_id == 0) { uintptr_t *_uya_hdr = (uintptr_t *)r.value; *_uya_hdr = (uintptr_t)a; __builtin_memset((void *)((uint8_t *)r.value + _uya_frame_header_size), 0, sizeof(struct %s)); return (struct %s *)((uint8_t *)r.value + _uya_frame_header_size); } return (struct %s *)0; }\n" as *byte, async_struct as *byte, async_struct as *byte, async_struct as *byte, async_struct as *byte);
     fprintf(codegen.emit_stream as *void, "    void *head = __atomic_load_n((void **)&%s_pool_head, __ATOMIC_ACQUIRE);\n" as *byte, alloc_name as *byte);
     fprintf(codegen.emit_stream as *void, "    while (head != (void*)0) {\n" as *byte);
     fprintf(codegen.emit_stream as *void, "        void *next = *(void**)head;\n" as *byte);
     fprintf(codegen.emit_stream as *void, "        if (__atomic_compare_exchange_n((void **)&%s_pool_head, &head, next, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {\n" as *byte, alloc_name as *byte);
     fprintf(codegen.emit_stream as *void, "            __atomic_sub_fetch((int32_t *)&%s_pool_count, 1, __ATOMIC_RELAXED);\n" as *byte, alloc_name as *byte);
     fprintf(codegen.emit_stream as *void, "            *(uintptr_t *)head = 0;\n" as *byte);
+    fprintf(codegen.emit_stream as *void, "            __builtin_memset((void *)((uint8_t *)head + _uya_frame_header_size), 0, sizeof(struct %s));\n" as *byte, async_struct as *byte);
     fprintf(codegen.emit_stream as *void, "            return (struct %s *)((uint8_t *)head + _uya_frame_header_size);\n" as *byte, async_struct as *byte);
     fputs("        }\n    }\n" as *byte, codegen.emit_stream as *void);
     fprintf(codegen.emit_stream as *void, "    uint8_t *_uya_raw = (uint8_t *)malloc(_uya_frame_header_size + sizeof(struct %s));\n" as *byte, async_struct as *byte);
     fputs("    if (_uya_raw == (void*)0) return (void*)0;\n" as *byte, codegen.emit_stream as *void);
     fputs("    *(uintptr_t *)_uya_raw = 0;\n" as *byte, codegen.emit_stream as *void);
+    fprintf(codegen.emit_stream as *void, "    __builtin_memset((void *)(_uya_raw + _uya_frame_header_size), 0, sizeof(struct %s));\n" as *byte, async_struct as *byte);
     fprintf(codegen.emit_stream as *void, "    return (struct %s *)(_uya_raw + _uya_frame_header_size);\n}\n" as *byte, async_struct as *byte);
     fprintf(codegen.emit_stream as *void, "static void %s(struct %s *p) {\n" as *byte, free_name as *byte, async_struct as *byte);
     fputs("    if (p == (void*)0) return;\n" as *byte, codegen.emit_stream as *void);
@@ -7395,12 +7397,7 @@ fn get_mono_function_name(codegen: &C99CodeGenerator, generic_name: &byte, type_
 }
 
 struct AsyncComputeLoweringInfo {
-    concrete_new_c: &byte,
-    concrete_struct_c: &byte,
-    concrete_vtable_c: &byte,
-    return_iface_c: &byte,
-    task_kind_val: i32,
-    arg_bits_c: &byte
+    entry_c: &byte
 }
 
 fn c99_async_compute_task_kind(type_name: &byte) i32 {
@@ -7444,6 +7441,49 @@ fn c99_async_compute_task_kind(type_name: &byte) i32 {
         return 12;
     }
     return 0;
+}
+
+fn c99_async_compute_entry_name(type_name: &byte) &byte {
+    if type_name == null {
+        return null;
+    }
+    if strcmp(type_name as *byte, "i32" as *byte) == 0 {
+        return "thread_async_compute_i32" as &byte;
+    }
+    if strcmp(type_name as *byte, "u32" as *byte) == 0 {
+        return "thread_async_compute_u32" as &byte;
+    }
+    if strcmp(type_name as *byte, "usize" as *byte) == 0 {
+        return "thread_async_compute_usize" as &byte;
+    }
+    if strcmp(type_name as *byte, "i64" as *byte) == 0 {
+        return "thread_async_compute_i64" as &byte;
+    }
+    if strcmp(type_name as *byte, "u64" as *byte) == 0 {
+        return "thread_async_compute_u64" as &byte;
+    }
+    if strcmp(type_name as *byte, "i16" as *byte) == 0 {
+        return "thread_async_compute_i16" as &byte;
+    }
+    if strcmp(type_name as *byte, "u16" as *byte) == 0 {
+        return "thread_async_compute_u16" as &byte;
+    }
+    if strcmp(type_name as *byte, "i8" as *byte) == 0 {
+        return "thread_async_compute_i8" as &byte;
+    }
+    if strcmp(type_name as *byte, "u8" as *byte) == 0 {
+        return "thread_async_compute_u8" as &byte;
+    }
+    if strcmp(type_name as *byte, "bool" as *byte) == 0 {
+        return "thread_async_compute_bool" as &byte;
+    }
+    if strcmp(type_name as *byte, "f32" as *byte) == 0 {
+        return "thread_async_compute_f32" as &byte;
+    }
+    if strcmp(type_name as *byte, "f64" as *byte) == 0 {
+        return "thread_async_compute_f64" as &byte;
+    }
+    return null;
 }
 
 fn c99_async_compute_alloc_formatted_name(codegen: &C99CodeGenerator, fmt: &byte, left: &byte, right: &byte) &byte {
@@ -7514,12 +7554,7 @@ fn c99_async_compute_future_iface_safe_name(codegen: &C99CodeGenerator, type_arg
 
 fn c99_get_async_compute_lowering_info(codegen: &C99CodeGenerator, type_arg: &ASTNode, arg_name: &byte) AsyncComputeLoweringInfo {
     var info: AsyncComputeLoweringInfo = AsyncComputeLoweringInfo{
-        concrete_new_c: null,
-        concrete_struct_c: null,
-        concrete_vtable_c: null,
-        return_iface_c: null,
-        task_kind_val: 0,
-        arg_bits_c: null,
+        entry_c: null,
     };
     if codegen == null || type_arg == null || arg_name == null ||
         type_arg.type != ASTNodeType.AST_TYPE_NAMED || type_arg.type_named_name == null {
@@ -7527,36 +7562,15 @@ fn c99_get_async_compute_lowering_info(codegen: &C99CodeGenerator, type_arg: &AS
     }
 
     const type_name: &byte = type_arg.type_named_name;
-    info.task_kind_val = c99_async_compute_task_kind(type_name);
-    if info.task_kind_val == 0 {
+    const entry_name: &byte = c99_async_compute_entry_name(type_name);
+    if entry_name == null {
         return info;
     }
-    info.arg_bits_c = c99_async_compute_arg_bits_expr(codegen, type_name, arg_name);
-
-    const mono_args: & & ASTNode = c99_async_compute_single_type_arg(codegen, type_arg);
-    if mono_args == null {
+    const entry_decl: &ASTNode = find_function_decl_c99(codegen, entry_name);
+    if entry_decl == null {
         return info;
     }
-    info.concrete_struct_c = get_mono_struct_name(codegen, "AsyncComputeFuture" as &byte, mono_args, 1);
-
-    const new_decl: &ASTNode = find_function_decl_c99(codegen, "thread_async_compute_future_new" as &byte);
-    if new_decl != null {
-        info.concrete_new_c = get_mono_function_name(codegen, new_decl.fn_decl_name, mono_args, 1, new_decl);
-    }
-
-    const iface_safe: &byte = c99_async_compute_future_iface_safe_name(codegen, type_arg);
-    if iface_safe == null {
-        return info;
-    }
-    info.return_iface_c = c99_async_compute_alloc_formatted_name(codegen,
-        "struct uya_interface_%s%s" as &byte, iface_safe, "" as &byte);
-
-    const struct_safe: &byte = get_safe_c_identifier(codegen, info.concrete_struct_c);
-    if struct_safe == null {
-        return info;
-    }
-    info.concrete_vtable_c = c99_async_compute_alloc_formatted_name(codegen,
-        "uya_vtable_%s_%s" as &byte, iface_safe, struct_safe);
+    info.entry_c = get_c_name_for_function_decl(codegen, entry_decl);
     return info;
 }
 
@@ -7568,7 +7582,7 @@ fn substitute_type_arg(codegen: &C99CodeGenerator, type_node: &ASTNode) &ASTNode
 
     // 对于命名类型：先函数/方法形参，再结构体/联合体单态形参。
     // （c99_type_to_c_uncached 仍「先 struct 再 current」以固定 Poll<!T> 等字段 C 类型；substitute 用于单态函数体/签名时，
-    //  若残留 Future vtable 的 struct_type_*（如 T→!i32），不得抢占本函数的 T→i32，否则 AsyncComputeFuture<T> 会变成 err 双包。）
+    //  若残留 Future vtable 的 struct_type_*（如 T→!i32），不得抢占本函数的 T→i32，否则 async_compute<T> wrapper 会变成 err 双包。）
     if type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null {
         const name: &byte = type_node.type_named_name;
         var i: i32 = 0;
@@ -7894,14 +7908,12 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
         return;
     }
     // async_compute<T> 单态：宏 thread_type_is_*(T) 在 C 体生成阶段无法可靠折叠，展开体会落回错误分支。
-    // 改为从泛型声明与 Future<!T> 形状推导所需 C 符号，避免在 backend 里维护具体单态名字表。
+    // 改为直接转发到 thread_async_compute_* concrete wrapper，避免展开泛型体里的类型分发。
     if orig_name != null && strcmp(orig_name as *byte, "async_compute" as *byte) == 0 &&
         type_arg_count == 1 && type_args[0] != null &&
         type_args[0].type == ASTNodeType.AST_TYPE_NAMED && type_args[0].type_named_name != null {
         const lowering: AsyncComputeLoweringInfo = c99_get_async_compute_lowering_info(codegen, type_args[0], "arg" as &byte);
-        if lowering.concrete_new_c != null && lowering.concrete_struct_c != null &&
-            lowering.concrete_vtable_c != null && lowering.arg_bits_c != null &&
-            lowering.task_kind_val != 0 {
+        if lowering.entry_c != null {
             const saved_type_params2: &TypeParam = codegen.current_type_params;
             const saved_type_param_count2: i32 = codegen.current_type_param_count;
             const saved_type_args2: & & ASTNode = codegen.current_type_args;
@@ -7944,15 +7956,8 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
                 fputs("..." as *byte, codegen.emit_stream as *void);
             }
             fputs(") {\n" as *byte, codegen.emit_stream as *void);
-            fprintf(codegen.emit_stream as *void, "    struct %s _uya_tmp = %s(pool, compute_fn, %d, %s);\n" as *byte,
-                lowering.concrete_struct_c as *byte, lowering.concrete_new_c as *byte,
-                lowering.task_kind_val, lowering.arg_bits_c as *byte);
-            fprintf(codegen.emit_stream as *void, "    struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s));\n" as *byte,
-                lowering.concrete_struct_c as *byte, lowering.concrete_struct_c as *byte,
-                lowering.concrete_struct_c as *byte);
-            fprintf(codegen.emit_stream as *void, "    if (_uya_box != (void*)0) { *_uya_box = _uya_tmp; }\n" as *byte);
-            fprintf(codegen.emit_stream as *void, "    return (%s){ .vtable = (void*)&%s, .data = (void*)_uya_box };\n" as *byte,
-                return_c2 as *byte, lowering.concrete_vtable_c as *byte);
+            fprintf(codegen.emit_stream as *void, "    return %s(pool, compute_fn, arg);\n" as *byte,
+                lowering.entry_c as *byte);
             fputs("}\n" as *byte, codegen.emit_stream as *void);
 
             codegen.current_type_params = saved_type_params2;
