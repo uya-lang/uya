@@ -68,8 +68,10 @@ test "async_fd_runtime_substrate_boundary_keeps_only_wait_primitives_handwritten
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export fn async_wait_writable(fd: i32, deadline_ms: u64) Future<!usize> {\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Future<!usize> {\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn async_fd_write_future(fd: i32, data: &const byte, count: usize) Future<!usize> {\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&src[0], len, "@await async_wait_readable(fd, deadline_ms)\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&src[0], len, "@await async_wait_writable(fd, deadline_ms)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncFdReadFuture : Future<!usize>\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncFdWriteFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncFdReadLeafFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncFdWriteLeafFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "return async_fd_write_future(self.fd, data, count);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "return async_fd_read_future(self.fd, buf, count);\0" as &const byte) as i32, 1);
 }

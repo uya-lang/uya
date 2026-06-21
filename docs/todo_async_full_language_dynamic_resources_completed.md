@@ -1939,3 +1939,15 @@
   - 验证：`rg -n 'struct AsyncFdWriteFuture|struct AsyncFdReadFuture|fn async_fd_set_nonblocking|async_poll_pending_readable_usize|async_poll_pending_writable_usize' lib/std/async.uya` -> 命中 `async_poll_pending_readable_usize`/`async_poll_pending_writable_usize`、`async_fd_set_nonblocking`、`AsyncFdWriteFuture`、`AsyncFdReadFuture`，符合“共性 helper 已存在、剩余手写状态集中在 readiness 注册”的判断。
   - 验证：`../uya/bin/uya test tests/test_async_fd.uya` -> `14 tests passed, 0 failed; 85 assertions passed`
   - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya` -> `1 test passed, 0 failed; 39 assertions passed`
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+- [x] `lib/std/async.uya`
+  - 结论（2026-06-21 代码核对）：`AsyncFdReadFuture` / `AsyncFdWriteFuture` 的读写 syscall 与 buffer 处理已经可以下沉成 `async_wait_readable` / `async_wait_writable`（或单个 `interest` 参数化 wait primitive）+ `@async_fn` 包装；真正仍需手写 `poll()` 的只剩 readiness wait substrate，因为当前 `@async_fn` 仍需要一个可 `@await` 的 future 来承接 `Waker.wait_*`、deadline 与 cancel 语义。
+  - [x] 如果必须保留叶子手写 future，要求把例外收敛到 `async_wait_*` wait primitive，搬离高层 helper 路径，并文档化为 runtime substrate 的唯一例外。
+    - 完成内容：移除 `AsyncFdWriteLeafFuture` / `AsyncFdReadLeafFuture`，`AsyncFd.write/read` 统一改为返回 `async_fd_write_future` / `async_fd_read_future`，把剩余手写 `poll()` 收敛回 `AsyncWaitFdFuture` readiness substrate。
+    - 完成内容：`lib/std/async.uya` 现已用源码注释明确 `AsyncWaitFdFuture` 与导出的 `async_wait_readable` / `async_wait_writable` 是 runtime 中唯一允许保留的手写 `poll()` 例外。
+    - 完成内容：针对当前 `@async_fn` 控制流 lowering 在首个 `@await` transition 可能先返回一次 `Pending` 的已知限制，`tests/test_async_fd.uya` 仅对 `AsyncFd.read/write` 新增“一次过渡 Pending 容忍”检查；其余真正 leaf future 的取消断言保持不变。
+    - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`（通过：1 tests passed，10 assertions passed）
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：14 tests passed，85 assertions passed）
+    - 验证：`../uya/bin/uya test tests/test_async_io.uya`（通过：12 tests passed，19 assertions passed）
+    - 验证：`git diff --check`（通过）

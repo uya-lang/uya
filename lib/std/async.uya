@@ -1210,83 +1210,13 @@ export fn async_wait_writable(fd: i32, deadline_ms: u64) Future<!usize> {
     };
 }
 
-struct AsyncFdWriteLeafFuture : Future<!usize> {
-    fd: i32,
-    data: &const byte,
-    count: usize,
-    nonblocking_ready: i32 = 0,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_usize();
-        }
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                const err_value: !usize = ready_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
-        }
-        const result: !isize = sys_write(self.fd, self.data as *const byte, self.count);
-        const n: isize = result catch |err| {
-            const err_id: u32 = @error_id(err);
-            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                return async_poll_pending_writable_usize(waker, self.fd);
-            }
-            const err_value: !usize = result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        return async_poll_ready_ok_usize(n as usize);
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
-struct AsyncFdReadLeafFuture : Future<!usize> {
-    fd: i32,
-    buf: &byte,
-    count: usize,
-    nonblocking_ready: i32 = 0,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_usize();
-        }
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                const err_value: !usize = ready_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
-        }
-        const result: !isize = sys_read(self.fd, self.buf as *byte, self.count);
-        const n: isize = result catch |err| {
-            const err_id: u32 = @error_id(err);
-            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                return async_poll_pending_readable_usize(waker, self.fd);
-            }
-            const err_value: !usize = result as! usize;
-            return Poll<!usize>.Ready(err_value);
-        };
-        return async_poll_ready_ok_usize(n as usize);
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 /// 基于 fd 的异步 I/O 包装。
 /// 当前对外 helper 走 `@async_fn` 组合；手写 `poll()` 仅保留在 `async_wait_*` substrate。
 export struct AsyncFd : AsyncWriter, AsyncReader {
     fd: i32,
 
     fn write(self: &Self, data: &const byte, count: usize) Future<!usize> {
-        return AsyncFdWriteLeafFuture{ fd: self.fd, data: data, count: count };
+        return async_fd_write_future(self.fd, data, count);
     }
 
     fn write_all(self: &Self, data: &const byte, count: usize) Future<!usize> {
@@ -1299,7 +1229,7 @@ export struct AsyncFd : AsyncWriter, AsyncReader {
     }
 
     fn read(self: &Self, buf: &byte, count: usize) Future<!usize> {
-        return AsyncFdReadLeafFuture{ fd: self.fd, buf: buf, count: count };
+        return async_fd_read_future(self.fd, buf, count);
     }
 
     fn read_exact(self: &Self, buf: &byte, count: usize) Future<!usize> {
@@ -1318,7 +1248,13 @@ export fn async_fd_new(fd: i32) AsyncFd {
 export @async_fn fn async_fd_read_deadline_future(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize> {
     var nonblocking_ready: i32 = 0;
     while true {
-        _ = try @await async_wait_readable(fd, deadline_ms);
+        const wait_readable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+            fd: fd,
+            interest: ASYNC_WAIT_INTEREST_READABLE,
+            deadline_ms: deadline_ms,
+        };
+        const wait_readable_fut: Future<!usize> = wait_readable_leaf;
+        _ = try @await wait_readable_fut;
         if nonblocking_ready == 0 {
             _ = try async_fd_set_nonblocking(fd);
             nonblocking_ready = 1;
@@ -1346,7 +1282,13 @@ export @async_fn fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Futu
 export @async_fn fn async_fd_write_deadline_future(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
     var nonblocking_ready: i32 = 0;
     while true {
-        _ = try @await async_wait_writable(fd, deadline_ms);
+        const wait_writable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+            fd: fd,
+            interest: ASYNC_WAIT_INTEREST_WRITABLE,
+            deadline_ms: deadline_ms,
+        };
+        const wait_writable_fut: Future<!usize> = wait_writable_leaf;
+        _ = try @await wait_writable_fut;
         if nonblocking_ready == 0 {
             _ = try async_fd_set_nonblocking(fd);
             nonblocking_ready = 1;
