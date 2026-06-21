@@ -50,6 +50,8 @@ run_unit_scan_stages() {
         run_uya_test "tests/test_async_await_capacity_dynamic.uya"
     run_stage "async param dynamic capacity" \
         run_uya_test "tests/test_async_param_capacity_dynamic.uya"
+    run_stage "async task queue dynamic growth" \
+        run_uya_test "tests/test_async_task_queue_dynamic_growth.uya"
     run_stage "async frame pool dynamic growth" \
         run_uya_test "tests/test_async_frame_pool_dynamic_growth.uya"
     run_stage "async thread pool dynamic growth" \

@@ -1,0 +1,77 @@
+// test_async_task_queue_dynamic_growth.uya
+// 验证 TaskQueue 默认容量在跨过旧 64 槽边界后仍会自动增长，
+// 并且 scheduler 能完整运行增长后的队列。
+
+use std.async;
+use std.async_event;
+use std.async_scheduler;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+const LEGACY_TASK_QUEUE_CAPACITY: i32 = 64;
+const TARGET_TASK_COUNT: i32 = LEGACY_TASK_QUEUE_CAPACITY + 4;
+
+fn ready(v: i32) Future<!i32> {
+    const p: Poll<!i32> = Poll<!i32>.Ready(ok<i32>(v));
+    return Future<!i32>{ state: p };
+}
+
+struct NoopEventLoop : EventLoop {
+    fn register(self: &Self, fd: i32, interest: EventKind, waker: &Waker) !i32 {
+        _ = self;
+        _ = fd;
+        _ = interest;
+        _ = waker;
+        return 0;
+    }
+
+    fn deregister(self: &Self, fd: i32) !i32 {
+        _ = self;
+        _ = fd;
+        return 0;
+    }
+
+    fn poll(self: &Self, timeout_ms: i32) !i32 {
+        _ = self;
+        _ = timeout_ms;
+        return 0;
+    }
+}
+
+test "task_queue_default_capacity_grows_past_legacy_64" {
+    var queue: TaskQueue_i32 = task_queue_i32_new();
+    try assert_eq_i32(task_queue_i32_capacity(&queue), LEGACY_TASK_QUEUE_CAPACITY);
+
+    var i: i32 = 0;
+    while i < TARGET_TASK_COUNT {
+        const idx: i32 = try queue.push(ready(i));
+        try assert_eq_i32(idx, i);
+        i = i + 1;
+    }
+
+    try expect(task_queue_i32_capacity(&queue) > LEGACY_TASK_QUEUE_CAPACITY);
+    try expect(task_queue_i32_capacity(&queue) >= TARGET_TASK_COUNT);
+}
+
+test "scheduler_runs_grown_generic_task_queue_past_legacy_64" {
+    var scheduler: Scheduler = scheduler_new();
+    var queue: TaskQueue<i32> = task_queue_new<i32>();
+
+    var i: i32 = 0;
+    while i < TARGET_TASK_COUNT {
+        _ = try queue.push(ready(1000 + i));
+        i = i + 1;
+    }
+
+    const loop: EventLoop = NoopEventLoop{};
+    const completed: i32 = try scheduler_run_task_queue_with_event_loop<i32>(&scheduler, loop, &queue, 0);
+    try assert_eq_i32(completed, TARGET_TASK_COUNT);
+    try expect(queue.capacity > LEGACY_TASK_QUEUE_CAPACITY);
+
+    i = 0;
+    while i < TARGET_TASK_COUNT {
+        try assert_eq_i32(queue.is_done(i) as i32, 1);
+        try assert_eq_i32(queue.result(i), 1000 + i);
+        i = i + 1;
+    }
+}
