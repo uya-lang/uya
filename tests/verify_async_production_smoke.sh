@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
+COMPILER="$REPO_ROOT/../uya/bin/uya"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 
 if [ ! -x "$COMPILER" ]; then
@@ -38,4 +38,7 @@ run_step "HTTP async epoll runtime smoke" \
 run_step "HTTP async epoll fd leak smoke" \
     bash "$SCRIPT_DIR/verify_async_no_fd_leak.sh"
 
-echo "verify_async_production_smoke: full-language, shared runtime, nested future, and HTTP async epoll smoke matrix passed"
+run_step "async cancel cleanup smoke" \
+    bash "$SCRIPT_DIR/verify_async_cancel_cleanup.sh"
+
+echo "verify_async_production_smoke: full-language, shared runtime, nested future, HTTP async epoll, fd leak, and cancel cleanup smoke matrix passed"

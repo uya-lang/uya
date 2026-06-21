@@ -2898,3 +2898,16 @@ verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP
     - 结果：`baseline_fd=11 baseline_eventfd=0`，`final_fd=11 final_eventfd=0`
     - 验证：`bash tests/stress_http_async_epoll.sh 5 1`
     - 结果：`baseline fd/eventfd: 59/0`，`recovered fd/eventfd: 59/0`，`wrk exit=0`
+
+## Phase 4：生产级可靠性与可观测性
+
+- [x] 建立长压测与泄漏验证：
+  - [x] 取消后资源能稳定回收
+    - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（31 tests / 329 assertions，通过）
+    - 验证：`bash tests/verify_async_cancel_cleanup.sh`（默认 3 轮；`tests/test_std_async_scheduler.uya` 与 `tests/test_async_runtime_shared_semantics.uya` 全部通过）
+    - 验证：`git diff --check`（通过）
+
+**验收**：
+
+- [x] 新增 `tests/verify_async_cancel_cleanup.sh`
+  - 验证：`bash -n tests/verify_async_production_smoke.sh`（通过；已接入 `verify_async_cancel_cleanup.sh`）

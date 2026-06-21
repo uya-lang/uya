@@ -170,8 +170,6 @@
 
 ## Phase 4：生产级可靠性与可观测性
 
-- [ ] 建立长压测与泄漏验证：
-  - [ ] 取消后资源能稳定回收
 - [ ] 清理“只在 bench/特定 demo 下成立”的 workaround，把生产路径与测试绕过分开。
 - [ ] 对 `http1_async`、DNS、TLS、`async_compute` 做混合压力测试，验证共享 runtime 不互相踩资源上限。
 
@@ -180,7 +178,6 @@
 - [ ] `tests/stress_http_async_epoll.sh`
 - [ ] `tests/verify_http_bench_async_epoll_runtime.sh`
 - [ ] 新增 `tests/verify_async_no_fd_leak.sh`
-- [ ] 新增 `tests/verify_async_cancel_cleanup.sh`
 
 ## Phase 5：发布闸门与文档同步
 

@@ -608,6 +608,33 @@ struct CancelAwareFuture : Future<!i32> {
     }
 }
 
+struct CancelRegisteredQueueSlotFuture : Future<!usize> {
+    queue: &TaskQueue_usize,
+    target_idx: i32,
+    saw_registered_io: &i32,
+    saw_registered_event: &i32,
+    cancelled: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if self.cancelled == 0 {
+            const slot: &TaskQueueSlot_usize = &self.queue.slots[self.target_idx as usize];
+            if slot.io_epoll_fd < 0 || slot.event_epoll_fd < 0 {
+                waker.wake();
+                return Poll<!usize>.Pending({});
+            }
+            self.saw_registered_io[0] = 1;
+            self.saw_registered_event[0] = 1;
+            _ = self.queue.cancel(self.target_idx);
+            self.cancelled = 1;
+        }
+        return Poll<!usize>.Ready(ok<usize>(1usize));
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
 struct ExternalWakeThenReady : Future<!i32> {
     shared_flag: &i32,
     child_pid: i32,
@@ -1081,6 +1108,56 @@ test "scheduler_run_task_queue_marks_cancelled_slots" {
     const metrics: SchedulerMetrics = scheduler_metrics(&s);
     try assert_eq_i32(metrics.cancel_result_count as i32, 1);
     try assert_eq_i32(metrics.wake_cancel_count as i32, 1);
+}
+
+test "scheduler_run_task_queue_cleans_registered_cancelled_slot_resources" {
+    var s: Scheduler = scheduler_new();
+    var queue: TaskQueue_usize = task_queue_usize_new();
+    var epoll_impl: LinuxEpoll = try linux_epoll_create(0);
+    defer {
+        _ = scheduler_test_sys_close(epoll_impl.epfd) catch {};
+    }
+
+    var blocked_fds: [i32: 2] = [0 - 1: 2];
+    defer {
+        _ = scheduler_test_sys_close(blocked_fds[0]) catch {};
+        _ = scheduler_test_sys_close(blocked_fds[1]) catch {};
+    }
+    _ = try scheduler_test_sys_pipe2(&blocked_fds[0], TEST_SCHEDULER_O_NONBLOCK);
+
+    var reader: AsyncFd = async_fd_new(blocked_fds[0]);
+    var buf: [byte: 4] = [];
+    var saw_registered_io: i32 = 0;
+    var saw_registered_event: i32 = 0;
+    const blocked_idx: i32 = try queue.push(reader.read_exact(&buf[0], 4));
+    const cancel_signal: Future<!usize> = CancelRegisteredQueueSlotFuture{
+        queue: &queue,
+        target_idx: blocked_idx,
+        saw_registered_io: &saw_registered_io,
+        saw_registered_event: &saw_registered_event,
+        cancelled: 0,
+    };
+    const cancel_signal_idx: i32 = try queue.push(cancel_signal);
+
+    const loop: EventLoop = epoll_impl;
+    const completed: i32 = try scheduler_run_task_queue_usize_with_event_loop(&s, loop, &queue, 0);
+
+    try assert_eq_i32(completed, 2);
+    try assert_eq_i32(queue.is_done(blocked_idx) as i32, 1);
+    try assert_eq_i32(queue.is_cancelled(blocked_idx) as i32, 1);
+    try assert_eq_i32(queue.error_id(blocked_idx) as i32, @error_id(error.Cancelled) as i32);
+    try assert_eq_i32(queue.result(cancel_signal_idx) as i32, 1);
+    try assert_eq_i32(queue.error_id(cancel_signal_idx) as i32, 0);
+    try assert_eq_i32(saw_registered_io, 1);
+    try assert_eq_i32(saw_registered_event, 1);
+    try assert_eq_i32(queue.slots[blocked_idx as usize].io_epoll_fd, 0 - 1);
+    try assert_eq_i32(queue.slots[blocked_idx as usize].event_epoll_fd, 0 - 1);
+    try assert_eq_i32(linux_epoll_registered_count(&epoll_impl), 0);
+
+    const metrics: AsyncRuntimeMetrics = async_runtime_metrics_linux_epoll(&s, &epoll_impl);
+    try assert_eq_i32(metrics.cancel_result_count as i32, 1);
+    try assert_eq_i32(metrics.wake_cancel_count as i32, 1);
+    try assert_eq_i32(metrics.epoll_registered_fd_count, 0);
 }
 
 test "scheduler_run_with_event_loop_handles_external_eventfd_wake" {
