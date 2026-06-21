@@ -3080,3 +3080,13 @@ Phase 5：发布闸门与文档同步
     验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`（通过：4 个 async boundary tests）
     验证：`bash -n tests/stress_async_dynamic_resources.sh`（通过）
     验证：`git diff --check`（通过）
+
+## 未完成前不得宣称完成的条件
+父级任务路径：`仍存在 16/32/64/512/1024 这类固定上限决定正常功能成败。`
+
+  - [x] 复核 `ThreadPool` 兼容常量 `16/32` 不再决定 `async_compute` 正常提交成败。
+    验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+    结果：通过。4 个测试通过，109 个断言通过。
+    补充验证：`../uya/bin/uya test tests/test_async_compute_dynamic_resource_pressure.uya`
+    结果：通过。1 个测试通过，53 个断言通过。
+    说明：删除未使用的 `use std.async_scheduler;`，避免无关 `async_scheduler` / `async_event` 代码生成崩溃干扰 `ThreadPool` 动态容量验证。
