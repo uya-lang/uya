@@ -140,9 +140,21 @@ baseline_tests=(
     "tests/test_async_compute_types.uya"
     "tests/test_std_dns_async_composition_shape.uya"
     "tests/test_async_std_business_future_boundary.uya"
+    "tests/test_http1_async_connect_boundary.uya"
     "tests/test_http1_async_client.uya"
+    "tests/test_http_uyagin_async_boundary.uya"
     "tests/test_http_uyagin_recover_observe.uya"
 )
+
+run_handwritten_future_whitelist_gate() {
+    local label="$1"
+
+    echo "==> verify_async_handwritten_future_whitelist ($label)"
+    if ! python3 "$SCRIPT_DIR/verify_async_handwritten_future_whitelist.py"; then
+        echo "runtime hand-written Future whitelist gate failed ($label)"
+        exit 1
+    fi
+}
 
 run_baseline_matrix() {
     local label="$1"
@@ -204,8 +216,10 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "uya-c99" ]; then
     run_baseline_matrix "uya-c99" "--uya" "--c99"
 fi
 
+run_handwritten_future_whitelist_gate "$MODE"
+
 if [ "$MODE" = "native" ]; then
-    echo "verify_async_full_language_matrix: native baseline passed"
+    echo "verify_async_full_language_matrix: native baseline, HTTP/1+UyaGin boundary regressions, and hand-written Future whitelist passed"
     exit 0
 fi
 
@@ -218,13 +232,13 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "uya-c99" ]; then
 fi
 
 if [ "$MODE" = "c99" ]; then
-    echo "verify_async_full_language_matrix: C99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+    echo "verify_async_full_language_matrix: C99 baseline, HTTP/1+UyaGin boundary regressions, hand-written Future whitelist, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
     exit 0
 fi
 
 if [ "$MODE" = "uya-c99" ]; then
-    echo "verify_async_full_language_matrix: --uya --c99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+    echo "verify_async_full_language_matrix: --uya --c99 baseline, HTTP/1+UyaGin boundary regressions, hand-written Future whitelist, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
     exit 0
 fi
 
-echo "verify_async_full_language_matrix: native baseline, C99 baseline, --uya --c99 baseline, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"
+echo "verify_async_full_language_matrix: native baseline, C99 baseline, --uya --c99 baseline, HTTP/1+UyaGin boundary regressions, hand-written Future whitelist, iterator for boundaries, forbidden @await positions, nested future boundary, shared runtime matrix, and macro combo passed"

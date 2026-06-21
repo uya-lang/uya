@@ -2337,3 +2337,14 @@
     - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，34 tests，144 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，1 test，26 assertions）
     - 验证：`git diff --check`（通过）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.7 配套测试与闸门
+父级任务：将这些模块回归纳入：
+  - [x] `tests/verify_async_full_language_matrix.sh`
+    - 验证：`bash tests/verify_async_full_language_matrix.sh native`
+    - 结果：通过；新增 `test_http1_async_connect_boundary.uya`、`test_http_uyagin_async_boundary.uya` 与 `verify_async_handwritten_future_whitelist.py` 已纳入矩阵
+    - 验证：`bash tests/verify_async_full_language_matrix.sh c99`
+    - 结果：通过；含 `verify_async_await_capacity.sh`、`verify_async_nested_future_boundary.sh`、`verify_async_shared_runtime_matrix.sh`
+    - 验证：`bash tests/verify_async_full_language_matrix.sh uya-c99`
+    - 结果：通过；`--uya --c99` 路径同样覆盖新增边界回归与 whitelist 闸门
