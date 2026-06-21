@@ -2793,3 +2793,12 @@
   结果：通过；覆盖 compiler fixed-limit source scan、4097 await C99 stress、runtime dynamic growth suite（含 1024/1025 epoll 临时边界用例）与 protocol/runtime async suite。
   验证：`git diff --check`
   结果：通过。
+## Phase 3：运行时 async 资源动态化
+
+### 3.5 协议层临时 buffer
+
+- [x] 压测时不再因为 `16/32/64/512/1024` 这类旧常量直接失败
+  - 验证：`bash tests/stress_async_dynamic_resources.sh protocol`
+  - 结果：默认 `2` 轮 `protocol/runtime async suite` 通过，输出 `stress_async_dynamic_resources: protocol stages passed`
+  - 验证：`ASYNC_DYNAMIC_PROTOCOL_ITERATIONS=5 bash tests/stress_async_dynamic_resources.sh protocol`
+  - 结果：加压 `5` 轮 `protocol/runtime async suite` 通过，输出 `stress_async_dynamic_resources: protocol stages passed`
