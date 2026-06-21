@@ -819,6 +819,15 @@ test "async_compute_thread_submission_is_unified_behind_helper" {
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const start_result: !i32 = self.core.start_execution();\0" as &const byte) as i32, 0);
 }
 
+test "async_compute_submission_strategy_is_queue_or_error_without_fork_fallback" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "if thread_pool_queue_or_error_slot(pool, slot_idx) != 0 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "sys_fork(\0" as &const byte) as i32, 0);
+}
+
 test "async_compute_cancel_cleanup_is_unified_behind_helpers" {
     var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
     const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);

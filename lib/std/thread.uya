@@ -900,15 +900,23 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
     return kicked;
 }
 
+// 显式替代旧 one-shot fallback：先走共享 pending 队列，容量不足时直接返回资源错误。
+fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {
+    if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
+        return 1;
+    }
+    thread_pool_release_slot(pool, slot_idx);
+    return 0;
+}
+
 fn thread_pool_submit_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) i32 {
     const slot_idx: i32 = thread_pool_reserve_slot_raw(pool, compute_fn, task_kind, arg_bits);
     if slot_idx < 0 {
         return 0 - 1;
     }
-    if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
+    if thread_pool_queue_or_error_slot(pool, slot_idx) != 0 {
         return slot_idx;
     }
-    thread_pool_release_slot(pool, slot_idx);
     return 0 - 1;
 }
 

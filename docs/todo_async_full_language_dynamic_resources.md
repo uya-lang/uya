@@ -124,7 +124,7 @@
 | 模块 | 手工 Future | 类型 | 当前作用 |
 |------|------|------|------|
 | `lib/std/async.uya` | `AsyncFdWriteFuture`、`AsyncFdReadFuture` | runtime substrate 候选 | fd 非阻塞 read/write，直接封装 `Waker.wait_readable/wait_writable` |
-| `lib/std/thread.uya` | `AsyncComputeFuture<T>` | runtime substrate 候选 / 调度桥接 | worker slot / eventfd / pipe / cancel / one-shot fallback |
+| `lib/std/thread.uya` | `AsyncComputeFuture<T>` | runtime substrate 候选 / 调度桥接 | worker slot / pipe / cancel / shared queue + capacity error strategy |
 | `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture` | 传输层叶子 | UDP/TCP 非阻塞 connect/send/recv + timeout/fallback |
 | `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | 协议层 I/O 叶子 | nonblocking connect + deadline |
 | `lib/std/http/uyagin.uya` | `UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` | 服务端 syscall/I/O 热路径 | writev/sendfile/read-parse/accept 等高性能热路径 |
@@ -156,8 +156,6 @@
 > `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
 - [ ] `lib/std/thread.uya`
-  - [ ] 将 `AsyncComputeFuture<T>` 分解为：
-    - [ ] one-shot fallback 或其替代策略
   - [ ] 先提炼 `async_worker_result` / `async_thread_slot_wait` 之类可 await 原语，再把对外 `async_compute<T>` 改写为 `@async_fn` 组合层。
   - [ ] 把 `sys_fork()` fallback 的默认路径从“隐藏在手写 future 内部”改成显式策略决策。
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：

@@ -1984,3 +1984,14 @@
   - 结果：11 tests passed, 0 failed。
   - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`
   - 结果：4 tests passed, 0 failed。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+父级路径：`lib/std/thread.uya`
+
+- [x] 将 `AsyncComputeFuture<T>` 分解为：
+  - [x] one-shot fallback 或其替代策略
+    - 结果：`lib/std/thread.uya` 新增 `thread_pool_queue_or_error_slot()`，显式固定替代策略为“共享 pending 队列；容量不足时返回资源错误”，并由结构闸门确认文件内不存在 `sys_fork(` 隐式 fallback。
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
+    - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+    - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`
