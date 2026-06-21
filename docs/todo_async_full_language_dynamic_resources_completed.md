@@ -1918,3 +1918,10 @@
 - [x] 将 `UyaginConnReadParseFuture` / `UyaginConnReadParseIntoFuture` 改为 `@async_fn` + 通用 read helper。
   - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过：1/1 tests passed）
   - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过：25/25 tests passed）
+
+上下文：# Uya 异步生产化 TODO（完整语法 + 动态资源） > ## Phase 1.5：标准库手工 Future 清零迁移 > ### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+- [x] `lib/std/http/uyagin.uya`
+  - [x] 迁移后再评估是否仍需专门 slot-level manual polling。
+    - 结论：仍需保留 slot-level manual polling。`uyagin_serve_conn_slot_async` 已承担单连接协议/keep-alive 逻辑；`uyagin_engine_run` 中残留的手写 `poll()` 只负责 accept、新连接占槽、per-connection deadline / graceful shutdown 与 fd interest 同步。当前 `Scheduler` 入口仍是“给定一组 future 跑到完成”，还不能在运行中动态接纳/回收连接任务。
+    - 验证记录：2026-06-21 运行 `../uya/bin/uya test --c99 tests/test_http_uyagin.uya` 通过（25 tests passed）；`git diff --check` 通过。

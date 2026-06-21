@@ -1895,6 +1895,9 @@ fn uyagin_engine_run(engine: &Engine, srv: &HttpServer, loop: EventLoop, schedul
     return uyagin_run_simple_blocking(engine, srv, opts, controller);
 }
 }, {
+// 协议/连接处理本体已迁到 @async_fn，但生产 server loop 仍需保留 slot 级手写 poll：
+// 它同时负责 accept、新连接占槽、deadline/优雅停机判断，以及为活跃连接 frame 同步 fd interest。
+// 当前 Scheduler 入口仍是“给定一组 future 跑到完成”，还不能在运行中动态接纳/回收连接任务。
 fn uyagin_engine_run(engine: &Engine, srv: &HttpServer, loop: EventLoop, scheduler: &Scheduler, opts: &EngineRunOptions, controller: &EngineRunController) !i32 {
     if engine == null || srv == null || srv.listen_fd < 0 || opts == null || scheduler == null {
         return error.InvalidRequest;

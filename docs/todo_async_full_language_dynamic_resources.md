@@ -144,9 +144,6 @@
 
 ### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
 
-- [ ] `lib/std/http/uyagin.uya`
-  - [ ] 迁移后再评估是否仍需专门 slot-level manual polling。
-
 ### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
 
 > **最终 substrate 边界（2026-06-21 代码核对）**
