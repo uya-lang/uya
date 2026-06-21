@@ -16,6 +16,7 @@ use libc.syscall;
 export const THREAD_POOL_MAX_WORKERS: i32 = 32;
 export const THREAD_POOL_MAX_PENDING: i32 = 32;
 export const THREAD_POOL_MAX_TASK_SLOTS: i32 = 16;
+export const THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR: i32 = 1;
 const THREAD_POOL_MAX_CONFIG_CAPACITY: i32 = 4096;
 const THREAD_POOL_DEFAULT_PENDING_PER_WORKER: i32 = 4;
 const THREAD_POOL_DEFAULT_SLOT_PER_WORKER: i32 = 4;
@@ -343,6 +344,7 @@ export struct ThreadPool {
     worker_count: i32,
     pending_capacity: i32,
     task_slot_capacity: i32,
+    submit_strategy: i32,
     _started_workers: i32,
     _next_worker: i32,
     _shared_state: &ThreadPoolSharedState,
@@ -351,12 +353,13 @@ export struct ThreadPool {
 }
 
 /// `ThreadPool` 容量配置。
-/// 参数：`worker_count` 为最大 worker 数，`pending_capacity` 为等待队列容量，`task_slot_capacity` 为共享任务槽容量。
+/// 参数：`worker_count` 为最大 worker 数，`pending_capacity` 为等待队列容量，`task_slot_capacity` 为共享任务槽容量，`submit_strategy` 为饱和时的显式提交策略。
 /// 返回值：此结构体用于传入 `thread_pool_new_with_config`，各字段会按资源保护上限归一化。
 export struct ThreadPoolConfig {
     worker_count: i32,
     pending_capacity: i32,
     task_slot_capacity: i32,
+    submit_strategy: i32,
 }
 
 fn thread_worker_set_nonblock(fd: i32) !i32 {
@@ -909,12 +912,21 @@ fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {
     return 0;
 }
 
+fn thread_pool_apply_submission_strategy(pool: &ThreadPool, slot_idx: i32) i32 {
+    const submission_strategy: i32 = thread_pool_submission_strategy(pool);
+    if submission_strategy == THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR {
+        return thread_pool_queue_or_error_slot(pool, slot_idx);
+    }
+    thread_pool_release_slot(pool, slot_idx);
+    return 0;
+}
+
 fn thread_pool_submit_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) i32 {
     const slot_idx: i32 = thread_pool_reserve_slot_raw(pool, compute_fn, task_kind, arg_bits);
     if slot_idx < 0 {
         return 0 - 1;
     }
-    if thread_pool_queue_or_error_slot(pool, slot_idx) != 0 {
+    if thread_pool_apply_submission_strategy(pool, slot_idx) != 0 {
         return slot_idx;
     }
     return 0 - 1;
@@ -1500,6 +1512,13 @@ fn thread_pool_default_scaled_capacity(worker_count: i32, per_worker: i32) i32 {
     return thread_pool_normalize_config_capacity(normalized_workers * normalized_per_worker);
 }
 
+fn thread_pool_normalize_submit_strategy(value: i32) i32 {
+    if value == THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR {
+        return value;
+    }
+    return THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR;
+}
+
 // 线程池最小构造：使用懒启动 worker 池，默认 pending/task slot 随 worker 数扩展。
 export fn thread_pool_new(worker_count: i32) ThreadPool {
     const pending_capacity: i32 = thread_pool_default_scaled_capacity(worker_count, THREAD_POOL_DEFAULT_PENDING_PER_WORKER);
@@ -1508,6 +1527,7 @@ export fn thread_pool_new(worker_count: i32) ThreadPool {
         worker_count: worker_count,
         pending_capacity: pending_capacity,
         task_slot_capacity: task_slot_capacity,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
 }
 
@@ -1527,22 +1547,34 @@ fn thread_pool_normalize_config_capacity(value: i32) i32 {
 }
 
 /// 使用显式容量配置构造 `ThreadPool`。
-/// 参数：`config` 提供 worker、pending 队列和 task slot 容量；无效或极端过大的值会归一化到资源保护上限。
+/// 参数：`config` 提供 worker、pending 队列、task slot 容量和显式提交策略；无效或极端过大的值会归一化到资源保护上限。
 /// 返回值：返回懒启动线程池，实际容量保存在公开字段中，后续调度按这些容量边界执行。
 export fn thread_pool_new_with_config(config: ThreadPoolConfig) ThreadPool {
     const normalized: i32 = thread_pool_normalize_config_capacity(config.worker_count);
     const normalized_pending: i32 = thread_pool_normalize_config_capacity(config.pending_capacity);
     const normalized_slots: i32 = thread_pool_normalize_config_capacity(config.task_slot_capacity);
+    const normalized_submit_strategy: i32 = thread_pool_normalize_submit_strategy(config.submit_strategy);
     return ThreadPool{
         worker_count: normalized,
         pending_capacity: normalized_pending,
         task_slot_capacity: normalized_slots,
+        submit_strategy: normalized_submit_strategy,
         _started_workers: 0,
         _next_worker: 0,
         _shared_state: null as &ThreadPoolSharedState,
         _workers: null as &ThreadWorker,
         _workers_bytes: 0 as usize,
     };
+}
+
+/// 读取线程池当前生效的提交策略。
+/// 参数：`pool` 为待读取的线程池；空指针按默认策略处理。
+/// 返回值：返回归一化后的提交策略，当前默认值为 `THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR`。
+export fn thread_pool_submission_strategy(pool: &ThreadPool) i32 {
+    if pool == null as &ThreadPool {
+        return THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR;
+    }
+    return thread_pool_normalize_submit_strategy(pool.submit_strategy);
 }
 
 export fn thread_pool_started_workers(pool: &ThreadPool) i32 {

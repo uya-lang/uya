@@ -286,27 +286,33 @@ test "thread_pool_new_with_config_normalizes_invalid_capacities" {
         worker_count: 0,
         pending_capacity: 0,
         task_slot_capacity: 0,
+        submit_strategy: 0,
     });
     const p1: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
         worker_count: 3,
         pending_capacity: 5,
         task_slot_capacity: 7,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
     const pabove_legacy: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
         worker_count: THREAD_POOL_MAX_WORKERS + 5,
         pending_capacity: THREAD_POOL_MAX_PENDING + 5,
         task_slot_capacity: THREAD_POOL_MAX_TASK_SLOTS + 5,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
 
     try assert_eq_i32(p0.worker_count, 1);
     try assert_eq_i32(p0.pending_capacity, 1);
     try assert_eq_i32(p0.task_slot_capacity, 1);
+    try assert_eq_i32(thread_pool_submission_strategy(&p0), THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR);
     try assert_eq_i32(p1.worker_count, 3);
     try assert_eq_i32(p1.pending_capacity, 5);
     try assert_eq_i32(p1.task_slot_capacity, 7);
+    try assert_eq_i32(thread_pool_submission_strategy(&p1), THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR);
     try assert_eq_i32(pabove_legacy.worker_count, THREAD_POOL_MAX_WORKERS + 5);
     try assert_eq_i32(pabove_legacy.pending_capacity, THREAD_POOL_MAX_PENDING + 5);
     try assert_eq_i32(pabove_legacy.task_slot_capacity, THREAD_POOL_MAX_TASK_SLOTS + 5);
+    try assert_eq_i32(thread_pool_submission_strategy(&pabove_legacy), THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR);
 }
 
 test "thread_pool_config_can_exceed_legacy_static_limits" {
@@ -314,6 +320,7 @@ test "thread_pool_config_can_exceed_legacy_static_limits" {
         worker_count: THREAD_POOL_MAX_WORKERS + 1,
         pending_capacity: THREAD_POOL_MAX_PENDING + 1,
         task_slot_capacity: THREAD_POOL_MAX_TASK_SLOTS + 1,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
     defer {
         thread_pool_shutdown(&pool);
@@ -341,6 +348,7 @@ test "thread_pool_reports_resource_error_when_configured_slots_are_full" {
         worker_count: 1,
         pending_capacity: 1,
         task_slot_capacity: 1,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
     defer {
         thread_pool_shutdown(&pool);
@@ -369,6 +377,19 @@ test "thread_pool_reports_resource_error_when_configured_slots_are_full" {
 
     try assert_eq_i32(saw_error, 1);
     try assert_eq_i32(try thread_test_drive_future_i32(first), 20);
+}
+
+test "thread_pool_default_submission_strategy_is_explicit_queue_or_error" {
+    const default_pool: ThreadPool = thread_pool_new(2);
+    const configured_pool: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
+        worker_count: 2,
+        pending_capacity: 4,
+        task_slot_capacity: 4,
+        submit_strategy: 0,
+    });
+
+    try assert_eq_i32(thread_pool_submission_strategy(&default_pool), THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR);
+    try assert_eq_i32(thread_pool_submission_strategy(&configured_pool), THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR);
 }
 
 test "async_compute_i32_reports_pending_before_ready" {
@@ -442,6 +463,7 @@ test "async_compute_i32_drains_after_pending_queue_pressure" {
         worker_count: 1,
         pending_capacity: 16,
         task_slot_capacity: 16,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
     defer {
         thread_pool_shutdown(&pool);
@@ -834,8 +856,12 @@ test "async_compute_submission_strategy_is_queue_or_error_without_fork_fallback"
     var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
     const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
 
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "export const THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR: i32 = 1;\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "submit_strategy: i32,\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const submission_strategy: i32 = thread_pool_submission_strategy(pool);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "if submission_strategy == THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR {\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
-    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "if thread_pool_queue_or_error_slot(pool, slot_idx) != 0 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "return thread_pool_queue_or_error_slot(pool, slot_idx);\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "sys_fork(\0" as &const byte) as i32, 0);
 }
 

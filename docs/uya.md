@@ -5493,9 +5493,9 @@ fn fetch() !Future<&[i8]> { ... }  // 正确
 
 **`ThreadPool`**：
 - 线程池，用于 CPU 密集型异步任务
-- 当前实现提供 `thread_pool_new()`、`thread_pool_new_with_config(ThreadPoolConfig)` / `thread_pool_shutdown()`，在 Linux 上以可复用 worker 线程池承载计算；`ThreadPoolConfig` 可显式配置 worker 数、pending FIFO 容量和 task slot 容量，运行时会按当前编译期上限归一化
+- 当前实现提供 `thread_pool_new()`、`thread_pool_new_with_config(ThreadPoolConfig)` / `thread_pool_shutdown()`，在 Linux 上以可复用 worker 线程池承载计算；`ThreadPoolConfig` 可显式配置 worker 数、pending FIFO 容量、task slot 容量和 `submit_strategy`，运行时会按当前编译期上限与已支持策略归一化
 - 共享状态中已包含可配置有效容量内的任务槽位、共享 FIFO 队列与 `worker_idx` 绑定；worker 通过 slot 索引取任务并写回结果
-- 当共享槽位任务需要执行时，当前统一先进入共享 FIFO 队列；调用线程负责唤醒空闲 worker 进入 drain 路径，而具体取队首 slot 与后续连续取活都由 worker 在线程池共享队列中完成；调用线程会按共享状态回刷本地 worker `busy/active_slot`；共享槽位参数/结果按 **raw bits** 传输，并由 **`task_kind`** 区分多种标量 **`T`**（含整数、`bool`、`f32`/`f64` 等）的调用路径；future 侧对 shared-slot 的提交与推进仍经池级 helper（如 **`thread_pool_submit_slot_*()`**、**`thread_pool_try_progress_slot()`**、**`thread_pool_try_kick_drain()`**），shared-slot / bind / read-result 的大部分状态机在共享 **`ThreadAsyncComputeCore`** 中实现，再由泛型 **`AsyncComputeFuture<T>`**（及 **`AsyncComputeI32Future`** 等 typedef）把内部轮询映射为 **`Poll<!T>`**；slot 已到 **`DONE`** 后 future 仍可迟绑定 worker 结果 fd（late-poll 回归已覆盖）。队列满时当前仍回退 one-shot 子进程
+- 当共享槽位任务需要执行时，当前统一先进入共享 FIFO 队列；调用线程负责唤醒空闲 worker 进入 drain 路径，而具体取队首 slot 与后续连续取活都由 worker 在线程池共享队列中完成；调用线程会按共享状态回刷本地 worker `busy/active_slot`；共享槽位参数/结果按 **raw bits** 传输，并由 **`task_kind`** 区分多种标量 **`T`**（含整数、`bool`、`f32`/`f64` 等）的调用路径；future 侧对 shared-slot 的提交与推进仍经池级 helper（如 **`thread_pool_submit_slot_*()`**、**`thread_pool_try_progress_slot()`**、**`thread_pool_try_kick_drain()`**），shared-slot / bind / read-result 的大部分状态机在共享 **`ThreadAsyncComputeCore`** 中实现，再由泛型 **`AsyncComputeFuture<T>`**（及 **`AsyncComputeI32Future`** 等 typedef）把内部轮询映射为 **`Poll<!T>`**；slot 已到 **`DONE`** 后 future 仍可迟绑定 worker 结果 fd（late-poll 回归已覆盖）。当前默认 `submit_strategy` 为显式 `queue-or-error`：先入共享队列，容量不足时直接返回资源错误，不再默默回退到 `sys_fork()` one-shot
 - 与异步运行时集成
 
 **`async_compute<T>`**：

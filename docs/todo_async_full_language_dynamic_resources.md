@@ -12,7 +12,7 @@
 |------|------|------|
 | `lib/std/async_event.uya` | `LinuxEpoll` 的 slot / event 数组均固定 `1024`，`find_slot()` 线性扫描固定容量 | 并发 fd 上限、退化 O(n)、容量达到上限时只能报错 |
 | `lib/std/async_scheduler.uya` | `TaskQueue<T>` 默认队列已自动增长；scheduler 自带 `_frame_stack_buffer[8192]`，inline repoll 上限默认 `1024` | 池后备缓冲和默认轮询策略仍需继续收口 |
-| `lib/std/thread.uya` | `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16`，满载后还会回退到 `sys_fork()` one-shot | 线程池容量与退化路径写死，生产行为不可预测 |
+| `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回资源错误） | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
 | `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512` | frame 元信息和池容量都有硬上限 |
 | `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096` | 大 header / 扩展请求场景不是真动态 |
 
@@ -155,8 +155,6 @@
 >
 > `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
-- [ ] `lib/std/thread.uya`
-  - [ ] 把 `sys_fork()` fallback 的默认路径从“隐藏在手写 future 内部”改成显式策略决策。
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
   - [ ] 要么连 `AsyncFdReadFuture` / `AsyncFdWriteFuture` / `AsyncComputeFuture<T>` 也消灭
   - [ ] 要么把这三类定义为语言/runtime substrate，不再算作标准库业务层 hand-written future

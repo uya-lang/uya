@@ -2002,3 +2002,17 @@
   - 验证：`../uya/bin/uya test --c99 tests/test_std_thread.uya`（通过：31 tests）
   - 验证：`../uya/bin/uya test --c99 tests/test_async_compute_generic_wrapper.uya`（通过：2 tests）
   - 验证：`../uya/bin/uya test --c99 tests/test_async_compute_types.uya`（通过：11 tests）
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+父级路径：`lib/std/thread.uya`
+
+- [x] `lib/std/thread.uya`
+  - [x] 把 `sys_fork()` fallback 的默认路径从“隐藏在手写 future 内部”改成显式策略决策。
+    - 结果：`ThreadPoolConfig` / `ThreadPool` 新增显式 `submit_strategy`，默认归一化为 `THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR`；`thread_pool_submit_slot_raw()` 改为按 pool policy 分发，`async_compute` 的饱和路径不再隐藏在手写 future 内部。
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
+    - 结果：32 tests passed, 0 failed。
+    - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`
+    - 结果：1 test passed, 0 failed。
+    - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`
+    - 结果：11 tests passed, 0 failed。
+    - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`
+    - 结果：4 tests passed, 0 failed。

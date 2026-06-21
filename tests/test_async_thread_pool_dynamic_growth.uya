@@ -16,6 +16,7 @@ fn make_dynamic_pool() ThreadPool {
         worker_count: THREAD_POOL_MAX_WORKERS + 1,
         pending_capacity: DYNAMIC_CAPACITY,
         task_slot_capacity: DYNAMIC_CAPACITY,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
     });
 }
 
