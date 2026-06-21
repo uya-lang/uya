@@ -168,7 +168,6 @@
 **阶段验收**：
 
 - [ ] `rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
-  - [ ] 组合层迁移后，不再出现 `WebSocketClientReconnectFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`
   - [ ] 最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在；其中 substrate 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`）
 - [ ] `./tests/verify_async_full_language_matrix.sh`
 - [ ] `make check`

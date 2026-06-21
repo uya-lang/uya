@@ -2370,3 +2370,16 @@
     - 结果：`ok: docs/todo_async_full_language_dynamic_resources.md has 1 active task`
     - 验证：`git diff --check`
     - 结果：通过（无输出）
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.8 建议执行顺序
+父级任务路径：`rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
+  - [x] 组合层迁移后，不再出现 `WebSocketClientReconnectFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`
+    - 验证：`rg -nP '^(export )?struct (?!Future<|Task<).*: Future<' lib/std --glob '*.uya'`
+      结果：仅剩 `AsyncWaitFdFuture`、`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`
+    - 验证：`../uya/bin/uya test tests/test_http_websocket_reconnect.uya`
+      结果：7 tests passed，0 failed
+    - 验证：`../uya/bin/uya test tests/test_http_uyagin_async_boundary.uya`
+      结果：6 tests passed，0 failed
+    - 验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`
+      结果：1 test passed，0 failed
