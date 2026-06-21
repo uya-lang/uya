@@ -5,6 +5,8 @@ use std.async_event;
 use std.async_frame.AsyncFramePool;
 use std.async_scheduler;
 use std.testing.assert_eq_i32;
+use libc.atoi;
+use libc.getenv;
 use libc.syscall;
 
 fn ready(v: i32) Future<!i32> {
@@ -38,6 +40,17 @@ fn immediate_ready_future(v: i32) Future<!i32> {
     return ImmediateReadyFuture{ value: v };
 }
 
+fn scheduler_expected_default_frame_buffer_size() usize {
+    const env: &byte = getenv("UYA_SCHEDULER_FRAME_BUFFER_BYTES");
+    if env != null && env[0] != 0 as byte {
+        const parsed: i32 = atoi(env as &const byte);
+        if parsed > 0 {
+            return parsed as usize;
+        }
+    }
+    return 8192usize;
+}
+
 @async_fn
 fn add_async() Future<!i32> {
     const a: i32 = try @await ready(10);
@@ -58,6 +71,14 @@ test "scheduler_new_uses_stack_backed_frame_pool" {
     try assert_eq_i32(pool.buffer_size > 0usize, true);
     try assert_eq_i32(pool.stack_limit > 0usize, true);
     try assert_eq_i32(scheduler_frame_buffer_size(&s) > 0usize, true);
+}
+
+test "scheduler_new_uses_runtime_default_frame_buffer_size" {
+    var s: Scheduler = scheduler_new();
+    const expected: usize = scheduler_expected_default_frame_buffer_size();
+    const pool: &AsyncFramePool = scheduler_frame_pool(&s);
+    try assert_eq_i32(pool.buffer_size == expected, true);
+    try assert_eq_i32(scheduler_frame_buffer_size(&s) == expected, true);
 }
 
 test "scheduler_new_with_config_sets_frame_buffer_and_inline_repoll" {

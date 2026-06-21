@@ -941,6 +941,19 @@
     - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya` 通过。
     - 相关验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya`、`../uya/bin/uya test tests/test_async_frame_pool_negative.uya`、`../uya/bin/uya test tests/test_async_frame_align_pool.uya` 均通过。
 
+## 2026-06-21 本轮完成
+
+上下文：# Uya 异步生产化 TODO（完整语法 + 动态资源） > ## Phase 3：运行时 async 资源动态化 > ### 3.2 Scheduler / TaskQueue
+
+  - [x] 把 scheduler 的 `_frame_stack_buffer[8192]` 改成显式配置或动态后备存储策略。
+    - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`
+    - 结果：通过；新增 `scheduler_new_uses_runtime_default_frame_buffer_size`，常态默认路径下 21 tests / 244 assertions 全通过。
+    - 验证：`UYA_SCHEDULER_FRAME_BUFFER_BYTES=12288 ../uya/bin/uya test tests/test_std_async_scheduler.uya`
+    - 结果：通过；`scheduler_new()` 读取环境变量后的 frame buffer 大小断言通过，21 tests / 244 assertions 全通过。
+    - 回归：`../uya/bin/uya test tests/test_async_fd.uya`
+    - 结果：通过；14 tests / 85 assertions 全通过。
+    - 文档同步：`docs/todo_async_full_language_dynamic_resources.md` 与 `docs/async_runtime_semantics_matrix.md` 已改为“frame pool backing buffer 支持实例配置与 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` 默认策略”的当前口径。
+
 ## 完成定义
 
 父级任务路径：runtime 的队列、slot、descriptor、frame pool、线程池容量为动态或可配置策略，而不是 `16/32/64/512/1024` 这种常量边界。
