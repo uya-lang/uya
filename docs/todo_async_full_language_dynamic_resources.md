@@ -124,9 +124,6 @@
 | 模块 | 手工 Future | 类型 | 当前作用 |
 |------|------|------|------|
 | `lib/std/async.uya` | `AsyncWaitFdFuture` | runtime substrate 候选 | fd readiness wait substrate；`async_fd_read_deadline_future` / `async_fd_write_deadline_future` 已只在 `@async_fn` 里 `@await` 它 |
-| `lib/std/async.uya` | `AsyncJoin2UsizeResultsFuture` | 组合层 runtime helper 残留 | 并发驱动两个 `Future<!usize>` 并聚合 `error_id` / 输出槽，当前仍是手写 `poll()` |
-| `lib/std/async.uya` | `AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture` | fd syscall / transport leaf 残留 | nonblocking syscall + would-block 重试 + deadline/cancel；目前统一驻留在 `std.async` |
-| `lib/std/async.uya` | `AsyncReadParseFuture`、`AsyncReadParseIntoFuture` | 协议壳 residual | HTTP request read/parse 壳；虽已搬到 `std.async`，仍带 `std.http.parse` 语义，不应和纯 wait substrate 混为一谈 |
 | `lib/std/thread.uya` | `AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture` | runtime substrate（线程调度桥接） | ThreadPool shared slot / pending queue / result pipe / cooperative cancel / cleanup 协议仍需手写 `poll()` 直接串接 |
 | `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture` | 传输层叶子 | UDP/TCP 非阻塞 connect/send/recv + timeout/fallback |
 | `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | 协议层 I/O 叶子 | nonblocking connect + deadline |
@@ -134,7 +131,7 @@
 
 - 代码核对说明（2026-06-21）：
   - `WebSocketClientReconnectFuture`、`WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 已不再以 `struct ... : Future<...>` 形式存在。
-  - 当前组合层已经主要收口到 `@async_fn` 或 `async_join2_usize_results(...)`；本 phase 后续只继续清理仍留在业务模块里的 syscall/I/O 叶子状态机。
+  - `async_join2_usize_results`、`async_writev`、`async_sendfile`、`async_connect`、`async_socket_send`、`async_socket_recv`、`async_accept`、`async_read_parse`、`async_read_parse_into` 已不再保留手写 `struct ... : Future<...>`；`std.async` 侧当前只剩 `AsyncWaitFdFuture` 一个 hand-written `poll()` substrate。
   - `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_read_parse` / `async_read_parse_into` 已统一到 `lib/std/async.uya`，`http1_async` / `uyagin` / `dns` 已通过 `@await` 组合；线程桥接 awaitable 已收口到 `lib/std/thread.uya` 专属 helper，协议层待办只剩真实未统一叶子。
 
 ### 1.5.2 迁移顺序原则
@@ -151,18 +148,19 @@
 
 > **最终 substrate 边界（2026-06-21 代码核对）**
 >
-> 在 1.5.4 / 1.5.5 收口后，当前真实残留的手写 `poll()` 已经收口成三类 runtime 边界叶子：
+> 在 1.5.4 / 1.5.5 收口后，当前真实残留的 hand-written `poll()` 已经收口成两类 runtime substrate 边界叶子：
 >
 > - fd readiness wait substrate：`lib/std/async.uya` 的 `AsyncWaitFdFuture`
-> - `std.async` syscall / 聚合 / 协议壳 residual：`AsyncJoin2UsizeResultsFuture`、`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`、`AsyncReadParseFuture`、`AsyncReadParseIntoFuture`
 > - `std.thread` worker 调度桥接 substrate：`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`
+>
+> `std.async` syscall / 聚合 / 协议壳 residual（`AsyncJoin2UsizeResultsFuture`、`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`、`AsyncReadParseFuture`、`AsyncReadParseIntoFuture`）已在前序叶子中清零，不再计入“当前真实残留”。
 >
 > `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
-  - [ ] 要么连当前真实残留的 runtime future 也继续消灭（当前仍剩 `std.async` syscall / 聚合 / 协议壳 residual；`std.thread` worker bridge 已按 substrate 收口）
-  - [ ] 要么把这三类定义为语言/runtime substrate，不再算作标准库业务层 hand-written future
-  - [ ] 二者必须选其一，不能长期模糊
+  - [ ] 在上述纠偏基础上，把现存两类 hand-written `poll()`（`AsyncWaitFdFuture` + `std.thread` worker 调度桥接）正式定义为语言/runtime substrate，并同步 1.5.7 闸门口径
+    - 完成条件：1.5.6 / 1.5.7 明确“业务层 hand-written future = 0；runtime 例外 = 上述两类 substrate”，不再保留模糊选项
+    - 最小验证：`rg -n "AsyncWaitFdFuture|AsyncThreadSlotWaitFuture|AsyncWorkerSubmitFuture|AsyncWorkerResultFuture|AsyncWorkerCancelFuture|AsyncWorkerComputeFuture|最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在" docs/todo_async_full_language_dynamic_resources.md lib/std/async.uya lib/std/thread.uya`
 
 ### 1.5.7 配套测试与闸门
 

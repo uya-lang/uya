@@ -2236,3 +2236,12 @@
   - 结果：命中 `lib/std/thread.uya:1104` 与 `docs/todo_async_full_language_dynamic_resources.md:130`，主 todo / 源码口径一致。
   - 验证：`git diff --check`
   - 结果：通过。
+
+路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` → `## Phase 1.5：标准库手工 Future 清零迁移` → `### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零` → `如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界`
+
+- [x] 先按当前代码纠偏 runtime residual 清单：`std.async` syscall / 聚合 / 协议壳 residual 已全部清零，1.5.1 / 1.5.6 只保留 `AsyncWaitFdFuture` 与 `std.thread` worker bridge 两类当前真实残留
+  - 完成条件：主 todo 不再把 `AsyncJoin2UsizeResultsFuture`、`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`、`AsyncReadParseFuture`、`AsyncReadParseIntoFuture` 记为“当前真实残留”
+  - 最小验证：`rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya`
+  - 验证：`rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya` 只命中 `lib/std/async.uya` 的 `Future<T>` / `Task<T>` / `AsyncWaitFdFuture` 和 `lib/std/thread.uya` 的五个 worker bridge leaf。
+  - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`（通过：1 个测试文件，9 tests passed，34 assertions passed）
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过：1 个测试文件，34 tests passed，144 assertions passed）
