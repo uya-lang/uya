@@ -2294,3 +2294,16 @@
     - 验证：`../uya/bin/uya test tests/test_std_dns_async_query_aggregate.uya`（通过，3 tests，6 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`（通过，1 test，2 assertions）
     - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`（通过，4 tests，47 assertions）
+### 1.5.7 配套测试与闸门
+
+父级路径：`为每个迁移模块补 dedicated regression`
+  - [x] HTTP1：connect timeout / happy path / closed peer
+    - 实现：扩展 `tests/test_http1_async_client.uya`，保留现有 loopback happy path 与 response-timeout 回归，并新增 closed peer runtime 回归；同时扩展 `tests/test_http1_async_connect_boundary.uya`，用结构性断言锁定 HTTP1 connect 路径仍通过 `async_connect` deadline 映射到 `HttpTimeout`，避免依赖不稳定的外部黑洞网络制造 TCP SYN 超时。
+    - 验证：`../uya/bin/uya test tests/test_http1_async_client.uya`
+    - 验证结果：通过（10 tests passed，16 assertions passed），覆盖 happy path、response timeout 和 `http1_async_get_closed_peer_returns_connection_closed`。
+    - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`
+    - 验证结果：通过（3 tests passed，8 assertions passed），覆盖 `async_connect` deadline 到 `http_map_async_deadline_i32` 的映射边界。
+    - 验证：`../uya/bin/uya test tests/test_async_fd.uya`
+    - 验证结果：通过（14 tests passed，85 assertions passed），确认底层 `async_connect_expired_deadline_returns_async_deadline_exceeded` 基线仍然成立。
+    - 验证：`git diff --check`
+    - 验证结果：通过。

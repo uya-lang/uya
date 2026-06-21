@@ -116,3 +116,19 @@ test "http1_request_async_no_manual_ready_wrapper_remnants" {
     try assert_eq_i32(source_contains_cstr(&src[0], len, "fn http1_async_err_invalid() !Http1AsyncResponse {\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "const err_resp: Http1AsyncResponse = try http1_async_err_\0" as &const byte) as i32, 0);
 }
+
+test "http1_connect_boundary_maps_async_deadline_to_http_timeout" {
+    var src: [byte: HTTP1_SOURCE_MAX] = [0: HTTP1_SOURCE_MAX];
+    const len: usize = try read_source(HTTP1_SOURCE_PATH, &src[0], HTTP1_SOURCE_MAX);
+
+    try assert_eq_i32(
+        source_contains_followed_by_cstr(
+            &src[0],
+            len,
+            "const connect_result: !i32 = @await async_connect(fd, &addr[0] as &void, 16 as u32, deadline_ms);\0" as &const byte,
+            "const connected_fd: i32 = try http_map_async_deadline_i32(connect_result);\0" as &const byte,
+            96,
+        ) as i32,
+        1,
+    );
+}

@@ -162,7 +162,6 @@
 ### 1.5.7 配套测试与闸门
 
 - [ ] 为每个迁移模块补 dedicated regression：
-  - [ ] HTTP1：connect timeout / happy path / closed peer
   - [ ] WebSocket：message aggregate / heartbeat / reconnect
   - [ ] UyaGin：accept / read-parse / writev / sendfile / recover / observe
   - [ ] Thread：queue full / cancel / result ready / no hidden fork fallback

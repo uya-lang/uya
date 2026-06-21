@@ -263,6 +263,12 @@ fn wait_child_ok(pid: i32) void {
             write_stderr_msg(&"client:timeout:result"[0: 21]);
         } else if code == 53 {
             write_stderr_msg(&"client:timeout:unexpected-ready"[0: 30]);
+        } else if code == 61 {
+            write_stderr_msg(&"client:closed_peer:epoll"[0: 24]);
+        } else if code == 62 {
+            write_stderr_msg(&"client:closed_peer:result"[0: 25]);
+        } else if code == 63 {
+            write_stderr_msg(&"client:closed_peer:unexpected-ready"[0: 34]);
         } else {
             write_stderr_msg(&"other"[0: 5]);
         }
@@ -557,6 +563,36 @@ fn run_async_get_timeout_client(port: u16) void {
     sys_exit(53);
 }
 
+fn run_async_closed_peer_client(port: u16) void {
+    const url_buf_cap: usize = 64;
+    var url_buf: [byte: 64] = [];
+    const path: &[byte] = &"/closed"[0: 7];
+    const url_len: usize = fill_loopback_url(&url_buf[0] as &byte, url_buf_cap, port, path);
+    const url: &[byte] = url_buf[0: url_len];
+
+    const loop: LinuxEpoll = linux_epoll_create(0) catch {
+        write_stderr_msg(&"client:closed_peer:epoll\n"[0: 25]);
+        sys_exit(61);
+        return;
+    };
+    const fut: Future<!Http1AsyncResponse> = http1_async_get(url, null, 5000);
+    const out: !Http1AsyncResponse = block_on_with_event_loop<Http1AsyncResponse>(&loop, fut, 1000);
+    const resp: Http1AsyncResponse = out catch |err| {
+        if @error_id(err) == @error_id(error.ConnectionClosed) {
+            sys_exit(0);
+            return;
+        }
+        write_stderr_msg(&"client:closed_peer:result\n"[0: 26]);
+        write_err_kind(&"client:closed_peer err="[0: 23], @error_id(err));
+        write_stderr_msg(&"\n"[0: 1]);
+        sys_exit(62);
+        return;
+    };
+    write_stderr_msg(&"client:closed_peer:unexpected-ready\n"[0: 34]);
+    http1_async_response_free(&resp);
+    sys_exit(63);
+}
+
 fn async_http1_get_server_roundtrip() !void {
     const srv: HttpServer = try listen_loopback_server();
     const child_pid: i32 = fork();
@@ -731,6 +767,29 @@ fn async_http1_get_times_out_while_waiting_for_response() !void {
     http_server_close(&srv);
 }
 
+fn async_http1_get_closed_peer_returns_connection_closed() !void {
+    const srv: HttpServer = try listen_loopback_server();
+    const child_pid: i32 = fork();
+    if child_pid == 0 {
+        http_server_close(&srv);
+        run_async_closed_peer_client(srv.port);
+    }
+    if child_pid <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+
+    var srv_tmp: HttpServer = HttpServer{ listen_fd: srv.listen_fd, port: srv.port };
+    const conn: Conn = try http_server_accept(&srv_tmp);
+    const sfd: i32 = conn.fd;
+    const pr: ParseResult = try http_recv_parse_request(sfd);
+    try assert_eq_i32(pr.request.method as i32, Method.GET as i32);
+    try assert_eq_i32(pr.request.path_len, 7);
+    _ = sys_close(sfd) catch {};
+
+    wait_child_ok(child_pid);
+    http_server_close(&srv);
+}
+
 test "http1_async_get_invalid_url" {
     const bad_url: &[byte] = &"ftp://127.0.0.1/"[0: 16];
     const fut: Future<!Http1AsyncResponse> = http1_async_get(bad_url, null, 0);
@@ -862,4 +921,12 @@ test "http1_async_get_request_timeout_applies_while_waiting_for_response" {
         return;
     }
     try async_http1_get_times_out_while_waiting_for_response();
+}
+
+test "http1_async_get_closed_peer_returns_connection_closed" {
+    if !http_loopback_tests_supported() {
+        write_stderr_msg(&"skip:http1_loopback\n"[0: 20]);
+        return;
+    }
+    try async_http1_get_closed_peer_returns_connection_closed();
 }
