@@ -2098,3 +2098,15 @@
   - 验证：`../uya/bin/uya test tests/test_async_compute_generic_wrapper.uya`（通过：2 tests，2 assertions）
   - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`（通过：11 tests，11 assertions）
   - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`（通过：1 test）
+
+## 2026-06-21 归档：Phase 1.5.6 runtime residual 清单纠偏与 L159 拆分
+
+> 父级路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` → `## Phase 1.5：标准库手工 Future 清零迁移` → `### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零` → `如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界` → `要么连当前真实残留的 runtime future 也继续消灭`
+
+- [x] 先把“当前真实残留”的清单纠偏到源码真实对象，并按三类 residual 拆出后续叶子；完成条件：1.5.1 / 1.5.6 不再使用过时 `AsyncComputeFuture<T>` 口径，且 line 159 后续子任务只引用当前源码中的真实 future 名称。
+  - 完成内容：将 1.5.1 的手工 Future 清单从过时的 `AsyncComputeFuture<T>` 纠偏到当前源码中的 `AsyncJoin2UsizeResultsFuture`、`AsyncWaitFdFuture`、`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`、`AsyncReadParseFuture`、`AsyncReadParseIntoFuture`，以及 `AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`。
+  - 完成内容：将 1.5.6 的“最终 substrate 边界”口径改写为三类真实 residual，并把 L159 拆成 `std.async` 组合/协议壳、`std.async` fd syscall、`std.thread` worker bridge 三个后续叶子，避免继续用过时名字推进。
+  - 验证：`rg -n "struct AsyncJoin2UsizeResultsFuture|struct AsyncWaitFdFuture|struct AsyncWritevFuture|struct AsyncSendFileFuture|struct AsyncConnectFuture|struct AsyncSocketSendFuture|struct AsyncSocketRecvFuture|struct AsyncAcceptFuture|struct AsyncReadParseFuture|struct AsyncReadParseIntoFuture|struct AsyncThreadSlotWaitFuture|struct AsyncWorkerSubmitFuture|struct AsyncWorkerResultFuture|struct AsyncWorkerCancelFuture|struct AsyncWorkerComputeFuture|AsyncComputeFuture" lib/std/async.uya lib/std/thread.uya docs/todo_async_full_language_dynamic_resources.md`
+  - 验证结果：命中 `lib/std/async.uya` 的 9 个 residual 与 `lib/std/thread.uya` 的 5 个 worker bridge residual；`AsyncComputeFuture` 仅出现在本轮说明文字中，不再作为 1.5.1 / 1.5.6 的残留对象。
+  - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`（通过：1 tests，10 assertions）
+  - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过：1 tests，39 assertions）
