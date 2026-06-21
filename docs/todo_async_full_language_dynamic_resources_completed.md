@@ -2938,3 +2938,15 @@ verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP
 
   - 新增 `tests/async_shared_runtime_mix.sh`，让 `stress_http_async_epoll.sh`、`verify_http_bench_async_epoll_runtime.sh`、`verify_async_no_fd_leak.sh` 在同一轮里并发跑 shared runtime 的 HTTP/DNS/TLS/async_compute 波次
   - 新增 `tests/test_async_compute_dynamic_resource_pressure.uya`，用稳定的动态队列压力回归覆盖 async_compute 资源上限，不把对 `drain_count` 时序敏感的内部度量绑进混合验收脚本
+## 2026-06-21
+
+Phase 5：发布闸门与文档同步
+新增/更新权威验证脚本：
+  - [x] `tests/verify_async_full_language_matrix.sh`
+    - 完成内容：固定脚本使用 `../uya/bin/uya` 与仓库内 `lib/`，移除外部 `UYA_COMPILER` 覆盖入口；新增 `tests/verify_async_full_language_matrix_contract.sh`，把编译器路径和关键阶段覆盖收敛成可执行契约。
+    - 验证：`bash tests/verify_async_full_language_matrix_contract.sh`
+    - 结果：通过，输出 `verify_async_full_language_matrix_contract: compiler path and stage coverage contracts passed`。
+    - 验证：`bash -n tests/verify_async_full_language_matrix.sh`
+    - 结果：通过。
+    - 验证：`bash tests/verify_async_full_language_matrix.sh native`
+    - 结果：脚本成功用 `../uya/bin/uya` 跑入真实 baseline；随后在既有回归 `tests/test_std_dns_async_composition_shape.uya` 失败，断言 `@await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms)` 未命中，与本轮脚本路径契约收紧无关。

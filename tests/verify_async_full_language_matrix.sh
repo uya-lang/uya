@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
-export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
+COMPILER="$REPO_ROOT/../uya/bin/uya"
+export UYA_ROOT="$REPO_ROOT/lib/"
 MODE="${1:-all}"
 
 case "$MODE" in
