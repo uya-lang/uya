@@ -2765,3 +2765,12 @@
 - [x] 新增 `tests/test_async_task_queue_dynamic_growth.uya`
   - 验证：`../uya/bin/uya test tests/test_async_task_queue_dynamic_growth.uya`（通过：2 tests）
   - 验证：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`（通过：新增 `async task queue dynamic growth` 阶段并完成全量 unit-scan）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.5 协议层临时 buffer
+
+- [x] 新增 `tests/test_async_frame_pool_dynamic_growth.uya`
+  - 说明：仓库中该测试文件已存在；本轮复核确认主 todo 此项为未同步残留，测试内容覆盖 AsyncFramePool bucket table 与 bucket slot 动态增长。
+  - 验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
+  - 结果：通过（1 个测试文件，2 tests，4236 assertions）
