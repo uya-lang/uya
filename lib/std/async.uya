@@ -1503,94 +1503,44 @@ export fn async_accept(listen_fd: i32) Future<!i32> {
     return AsyncAcceptFuture{ listen_fd: listen_fd };
 }
 
-struct AsyncReadParseFuture : Future<!ParseResult> {
-    fd: i32,
-    base: &byte,
-    cap: usize,
-    filled: &usize,
-    nonblocking_ready: i32 = 0,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!ParseResult> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_parse_result();
-        }
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                const err_value: !ParseResult = ready_result as! ParseResult;
-                return Poll<!ParseResult>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
-        }
-
-        while true {
-            const cur: usize = *self.filled;
-            if cur > self.cap {
-                return Poll<!ParseResult>.Ready(error.PayloadTooLarge);
-            }
-            const sl: &[byte] = self.base[0: cur];
-            const parsed: !ParseResult = http_parse_request(sl);
-            match parsed {
-                error.IncompleteRequest => {
-                    if cur >= self.cap {
-                        return Poll<!ParseResult>.Ready(error.PayloadTooLarge);
-                    }
-                    var read_len: usize = self.cap - cur;
-                    if read_len > 8192 {
-                        read_len = 8192;
-                    }
-                    const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(self.base as &void) + cur) as &byte;
-                    const read_result: !isize = sys_read(self.fd, read_dst as *byte, read_len);
-                    const n: isize = read_result catch |err| {
-                        const err_id: u32 = @error_id(err);
-                        if err_id == libc_EINTR as u32 {
-                            continue;
-                        }
-                        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                            return async_poll_pending_readable_parse_result(waker, self.fd);
-                        }
-                        return Poll<!ParseResult>.Ready(read_result as! ParseResult);
-                    };
-                    if n <= 0 {
-                        return Poll<!ParseResult>.Ready(error.ConnectionClosed);
-                    }
-                    *self.filled = cur + (n as usize);
-                },
-                else => {
-                    var pr: ParseResult = parsed catch {
-                        return Poll<!ParseResult>.Ready(parsed);
-                    };
-                    if request_has_chunked_transfer_encoding(&pr.request) {
-                        const decode_result: !usize = http_decode_chunked_body_inplace(&pr);
-                        _ = decode_result catch {
-                            return Poll<!ParseResult>.Ready(decode_result as! ParseResult);
-                        };
-                    }
-                    const ready_result: !ParseResult = pr as! ParseResult;
-                    return Poll<!ParseResult>.Ready(ready_result);
-                },
-            };
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 /// 异步读到一个完整 HTTP 请求并返回解析结果。
 /// 参数说明：`fd` 为可读 fd；`base`/`cap`/`filled` 描述调用方持有的接收缓冲区与当前已填充字节数。
 /// 返回值说明：成功返回 `ParseResult`；遇 `EAGAIN`/`EWOULDBLOCK` 时挂起，连接关闭、解析失败和容量不足等错误原样透传。
-export fn async_read_parse(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {
+export @async_fn fn async_read_parse(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {
     if fd < 0 || base == null || filled == null {
-        return Future<!ParseResult>{ state: Poll<!ParseResult>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncReadParseFuture{
-        fd: fd,
-        base: base,
-        cap: cap,
-        filled: filled,
-    };
+
+    while true {
+        const cur: usize = *filled;
+        if cur > cap {
+            return error.PayloadTooLarge;
+        }
+        const sl: &[byte] = base[0: cur];
+        const parsed: !ParseResult = http_parse_request(sl);
+        if parsed.error_id == @error_id(error.IncompleteRequest) {
+            if cur >= cap {
+                return error.PayloadTooLarge;
+            }
+            var read_len: usize = cap - cur;
+            if read_len > 8192 {
+                read_len = 8192;
+            }
+            const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(base as &void) + cur) as &byte;
+            const n: usize = try @await async_fd_read_future(fd, read_dst, read_len);
+            if n == 0 {
+                return error.ConnectionClosed;
+            }
+            *filled = cur + n;
+            continue;
+        }
+
+        var pr: ParseResult = try parsed;
+        if request_has_chunked_transfer_encoding(&pr.request) {
+            _ = try http_decode_chunked_body_inplace(&pr);
+        }
+        return pr;
+    }
 }
 
 struct AsyncReadParseIntoFuture : Future<!usize> {

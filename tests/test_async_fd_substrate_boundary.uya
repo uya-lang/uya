@@ -45,6 +45,46 @@ fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) b
     return source_contains(hay, hay_len, needle, strlen(needle));
 }
 
+fn find_marker(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) usize {
+    if needle_len == 0 {
+        return 0;
+    }
+    if hay_len < needle_len {
+        return hay_len + 1;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return hay_len + 1;
+}
+
+fn source_section_contains_cstr(hay: &const byte, hay_len: usize, start_marker: &const byte, end_marker: &const byte, needle: &const byte) bool {
+    const start_len: usize = strlen(start_marker);
+    const end_len: usize = strlen(end_marker);
+    const start: usize = find_marker(hay, hay_len, start_marker, start_len);
+    if start > hay_len {
+        return false;
+    }
+    const body_start: usize = start + start_len;
+    var body_end: usize = hay_len;
+    if end_len > 0 {
+        const end_rel: usize = find_marker(
+            @ptr_from_usize(@usize_from_ptr(hay as &void) + body_start) as &const byte,
+            hay_len - body_start,
+            end_marker,
+            end_len,
+        );
+        if end_rel <= hay_len - body_start {
+            body_end = body_start + end_rel;
+        }
+    }
+    return source_contains_cstr(@ptr_from_usize(@usize_from_ptr(hay as &void) + body_start) as &const byte, body_end - body_start, needle);
+}
+
 fn read_async_source(buf: &byte, cap: usize) !usize {
     const fd: i32 = sys_open(ASYNC_SOURCE_PATH, O_RDONLY as i32, 0) catch {
         return error.AsyncFdBoundarySourceOpenFailed;
@@ -74,4 +114,24 @@ test "async_fd_runtime_substrate_boundary_keeps_only_wait_primitives_handwritten
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncFdWriteLeafFuture : Future<!usize>\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "return async_fd_write_future(self.fd, data, count);\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "return async_fd_read_future(self.fd, buf, count);\0" as &const byte) as i32, 1);
+}
+
+test "async_read_parse_boundary_uses_async_fn_and_async_fd_read_future" {
+    var src: [byte: ASYNC_SOURCE_MAX] = [0: ASYNC_SOURCE_MAX];
+    const len: usize = try read_async_source(&src[0], ASYNC_SOURCE_MAX);
+    const read_parse_start: &const byte = "export @async_fn fn async_read_parse(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {\0" as &const byte;
+    const read_parse_end: &const byte = "export fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {\0" as &const byte;
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, read_parse_start) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncReadParseFuture : Future<!ParseResult>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(
+        source_section_contains_cstr(
+            &src[0],
+            len,
+            read_parse_start,
+            read_parse_end,
+            "const n: usize = try @await async_fd_read_future(fd, read_dst, read_len);\0" as &const byte,
+        ) as i32,
+        1,
+    );
 }

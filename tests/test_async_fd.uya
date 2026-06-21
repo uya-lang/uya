@@ -156,6 +156,21 @@ fn poll_usize_allow_transition_pending(f: Future<!usize>, w: &Waker) Poll<!usize
     return out;
 }
 
+fn poll_parse_result_allow_transition_pending(f: Future<!ParseResult>, w: &Waker) Poll<!ParseResult> {
+    var out: Poll<!ParseResult> = f.poll(w);
+    match out {
+        .Ready(_) => { return out; },
+        .Pending(_) => {},
+    };
+    out = f.poll(w);
+    match out {
+        .Ready(_) => { return out; },
+        .Pending(_) => {},
+    };
+    out = f.poll(w);
+    return out;
+}
+
 fn expect_pending_usize_interest(p: Poll<!usize>, w: &Waker, fd: i32, interest: i32) !void {
     match p {
         .Ready(_) => { return error.ExpectedPending; },
@@ -393,7 +408,7 @@ fn test_async_read_parse_cancelled_returns_cancelled() !void {
     const f: Future<!ParseResult> = async_read_parse(read_fd, &buf[0], 256, &filled);
     var wk: Waker = Waker{};
     wk.cancel();
-    try assert_cancelled_poll_parse_result(f.poll(&wk));
+    try assert_cancelled_poll_parse_result(poll_parse_result_allow_transition_pending(f, &wk));
     try assert_fd_still_blocking(read_fd);
 }
 

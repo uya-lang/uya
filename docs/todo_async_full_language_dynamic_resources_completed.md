@@ -2110,3 +2110,12 @@
   - 验证结果：命中 `lib/std/async.uya` 的 9 个 residual 与 `lib/std/thread.uya` 的 5 个 worker bridge residual；`AsyncComputeFuture` 仅出现在本轮说明文字中，不再作为 1.5.1 / 1.5.6 的残留对象。
   - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`（通过：1 tests，10 assertions）
   - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过：1 tests，39 assertions）
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+路径：`如果要做到“标准库里 0 手写业务 Future”` → `要么连当前真实残留的 runtime future 也继续消灭` → `继续消灭 lib/std/async.uya 中组合/协议壳 residual（AsyncJoin2UsizeResultsFuture、AsyncReadParseFuture、AsyncReadParseIntoFuture）`
+  - [x] 将 `async_read_parse(...)` 迁移为 `@async_fn` + `async_fd_read_future(...)`，删除 `AsyncReadParseFuture`
+    - 最小验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`
+    - 验证命令：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`
+    - 验证结果：通过；`async_read_parse` 已是 `@async_fn`，`AsyncReadParseFuture` 已从 `lib/std/async.uya` 删除，结构边界测试共 2 项通过。
+    - 验证命令：`../uya/bin/uya test tests/test_async_fd.uya`
+    - 验证结果：通过；`async_io_leaf_futures_return_cancelled_when_waker_cancelled` 等共 14 项通过。`async_read_parse` 取消路径按当前 `@async_fn` lowering 固定为最多两次过渡 `Pending` 后返回 `Cancelled`，且 fd 仍保持 blocking。
