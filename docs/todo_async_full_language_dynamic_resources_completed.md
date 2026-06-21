@@ -2029,3 +2029,12 @@
       - 结果：主 todo 在 1.5.1 / 1.5.6 只保留 `AsyncWaitFdFuture` 作为 async substrate，旧 `AsyncFd*Future` 不再被记为残留对象。
       - 验证：`git diff --check`
       - 结果：通过。
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+任务路径：
+- [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - [ ] 要么连当前真实残留的 runtime future 也继续消灭
+    - [x] 评估 `AsyncWaitFdFuture` 是否还能继续下沉成更细的语言/runtime wait primitive；完成条件：给出“继续消灭”或“保留为 substrate”的单一路径，并能用代码现状解释；验证：`rg -n "struct AsyncWaitFdFuture|export fn async_wait_readable|export fn async_wait_writable|export @async_fn fn async_fd_(read|write)" lib/std/async.uya`
+      - 结论：保留为 substrate；当前 `Future<T>` / `@async_fn` 仍只能通过 `poll(self, waker)` 驱动，而 `Waker` 只暴露 `wait_readable()` / `wait_writable()` 两个 I/O interest 原语，去掉这个 leaf 只会把 fd readiness wait 挪成新的语言/runtime/codegen 特判。
+      - 代码依据：`lib/std/async.uya:1154` 定义 `AsyncWaitFdFuture`；`1194` / `1205` 仅导出 `async_wait_readable` / `async_wait_writable`；`1248-1309` 的 `async_fd_read_deadline_future` / `async_fd_write_deadline_future` 已是 `@async_fn` 包装，只在循环里 `@await` readiness wait 后重试 `sys_read` / `sys_write`，业务 syscall/buffer 状态机没有留在 wait leaf 里。
+      - 验证：`rg -n "struct AsyncWaitFdFuture|export fn async_wait_readable|export fn async_wait_writable|export @async_fn fn async_fd_(read|write)" lib/std/async.uya` 命中 `1154` / `1194` / `1205` / `1248` / `1275` / `1282` / `1309`；`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya` 通过（1 passed, 0 failed）。
