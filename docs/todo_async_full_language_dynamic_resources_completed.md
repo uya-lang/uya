@@ -2482,3 +2482,9 @@
     - 验证结果：通过；输出 `verify_async_lowering_plan_architecture: centralized async lowering plan confirmed`。
     - 验证命令：`git diff --check`
     - 验证结果：通过；无输出。
+
+## Phase 2：编译器 async 资源动态化
+- 父级任务：补齐 await 容量压力测试到旧上限附近：
+  - [x] 不再把 “>256 await 编译失败” 视为正确
+    - 验证：`git show --stat --summary cc993def -- tests/test_async_await_limits_and_segments.uya tests/error_async_too_many_awaits.uya docs/todo_async_full_language_dynamic_resources.md` 显示 `tests/error_async_too_many_awaits.uya` 已在 `cc993def0f12b81e13fc2e3aa294cad1adc11ff9` 删除。
+    - 验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya` 通过（3 tests / 4 assertions）。
