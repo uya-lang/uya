@@ -2348,3 +2348,13 @@
     - 结果：通过；含 `verify_async_await_capacity.sh`、`verify_async_nested_future_boundary.sh`、`verify_async_shared_runtime_matrix.sh`
     - 验证：`bash tests/verify_async_full_language_matrix.sh uya-c99`
     - 结果：通过；`--uya --c99` 路径同样覆盖新增边界回归与 whitelist 闸门
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.7 配套测试与闸门
+
+- [x] 将这些模块回归纳入：
+  - [x] 后续 `tests/verify_async_dynamic_resources.sh`
+    - 验证命令：`bash tests/verify_async_dynamic_resources.sh module-regressions`
+    - 验证结果：通过，输出 `verify_async_dynamic_resources: module-regressions stages passed`
+    - 验证命令：`bash tests/verify_async_dynamic_resources.sh unit-scan`
+    - 验证结果：通过，输出 `verify_async_dynamic_resources: unit-scan stages passed`

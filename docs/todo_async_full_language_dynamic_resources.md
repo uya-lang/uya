@@ -159,11 +159,6 @@
 >
 > `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
-### 1.5.7 配套测试与闸门
-
-- [ ] 将这些模块回归纳入：
-  - [ ] 后续 `tests/verify_async_dynamic_resources.sh`
-
 ### 1.5.8 建议执行顺序
 
 1. [ ] 先完成 Phase 1 的语法缺口，尤其是 `catch`、`defer/errdefer`、`match`。
