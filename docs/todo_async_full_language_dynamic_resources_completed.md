@@ -2245,3 +2245,12 @@
   - 验证：`rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya` 只命中 `lib/std/async.uya` 的 `Future<T>` / `Task<T>` / `AsyncWaitFdFuture` 和 `lib/std/thread.uya` 的五个 worker bridge leaf。
   - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`（通过：1 个测试文件，9 tests passed，34 assertions passed）
   - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过：1 个测试文件，34 tests passed，144 assertions passed）
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+- [x] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - [x] 在上述纠偏基础上，把现存两类 hand-written `poll()`（`AsyncWaitFdFuture` + `std.thread` worker 调度桥接）正式定义为语言/runtime substrate，并同步 1.5.7 闸门口径
+    - 完成条件：1.5.6 / 1.5.7 明确“业务层 hand-written future = 0；runtime 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接”，不再保留模糊选项
+    - 最小验证：`rg -n "AsyncWaitFdFuture|AsyncThreadSlotWaitFuture|AsyncWorkerSubmitFuture|AsyncWorkerResultFuture|AsyncWorkerCancelFuture|AsyncWorkerComputeFuture|最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在" docs/todo_async_full_language_dynamic_resources.md lib/std/async.uya lib/std/thread.uya`
+    - 验证：`rg -n "AsyncWaitFdFuture|AsyncThreadSlotWaitFuture|AsyncWorkerSubmitFuture|AsyncWorkerResultFuture|AsyncWorkerCancelFuture|AsyncWorkerComputeFuture|最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在" docs/todo_async_full_language_dynamic_resources.md lib/std/async.uya lib/std/thread.uya` 命中 `docs/todo_async_full_language_dynamic_resources.md`、`lib/std/async.uya`、`lib/std/thread.uya`；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md` 输出 `ok: ... has 1 active task`；`git diff --check` 通过
