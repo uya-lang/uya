@@ -2402,3 +2402,12 @@
 - [x] `./tests/verify_async_full_language_matrix.sh`
   - 验证命令：`UYA_COMPILER=../uya/bin/uya ./tests/verify_async_full_language_matrix.sh`
   - 验证结果：通过；native / `--c99` / `--uya --c99` baseline、hand-written Future whitelist、nested future boundary、shared runtime matrix 与 macro combo 全部通过；`4097 await` 容量验证仅发出状态机体积告警，不再失败。
+
+2026-06-21
+# Uya 异步生产化 TODO（完整语法 + 动态资源）
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.8 建议执行顺序
+阶段验收：
+- [x] `make check`
+  验证命令：`make check`
+  验证结果：通过；1047/1047 程序测试通过，后续 proof optimization、顶层函数可达性、nested async split-C、async frame descriptor、split-C cache、check CLI、UPM、exec vm、microapp、SIMD select、slice 参数 C99、结构体数组字段复制 / typed route 回归、macOS hosted seed extern、@syscall 交叉、SIMD NEON 与 `benchmarks/http_bench.uya` C99 均通过；`benchmarks/http_bench_async_epoll.uya` 按 Makefile 默认未启用。

@@ -165,10 +165,6 @@
 4. [ ] 再做 1.5.5，迁移 DNS / HTTP1 / WebSocket / UyaGin 热路径。
 5. [ ] 最后做 1.5.6，把 runtime 叶子手写 future 收缩到最终边界并清零或正式归类。
 
-**阶段验收**：
-
-- [ ] `make check`
-
 ## Phase 2：编译器 async 资源动态化
 
 - [ ] 把 `src/codegen/c99/async_transform.uya` 的 `MAX_SEGMENTS`、`MAX_LOCALS` 改成 growable 存储。
