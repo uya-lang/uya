@@ -1,0 +1,453 @@
+use std.async;
+use std.http.types;
+use std.http.uyagin;
+use std.string.strlen;
+use std.testing.assert_eq_i32;
+use std.testing.assert_eq_u64;
+use std.testing.assert_true;
+use libc.syscall;
+
+error UyaginSourceOpenFailed;
+error UyaginSourceReadFailed;
+
+const UYAGIN_SOURCE_PATH: &const byte = "lib/std/http/uyagin.uya\0" as &const byte;
+const UYAGIN_SOURCE_MAX: usize = 131072;
+const LARGE_WRITE_BODY_LEN: usize = 1024;
+
+struct RecoverErrorHandler : AsyncHandler {}
+
+RecoverErrorHandler {
+    @async_fn
+    fn handle(self: &Self, ctx: &GinContext) Future<!i32> {
+        _ = self;
+        _ = ctx;
+        return error.HandlerMissing;
+    }
+}
+
+fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
+    if start + needle_len > hay_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle_len {
+        if hay[start + i] != needle[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn source_contains(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) bool {
+    if needle_len == 0 {
+        return true;
+    }
+    if hay_len < needle_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) bool {
+    return source_contains(hay, hay_len, needle, strlen(needle));
+}
+
+fn find_slice(hay: &[const byte], needle: &[const byte]) usize {
+    if needle.len == 0 {
+        return 0;
+    }
+    if hay.len < needle.len {
+        return hay.len;
+    }
+    var i: usize = 0;
+    while i + needle.len <= hay.len {
+        var matched: bool = true;
+        var j: usize = 0;
+        while j < needle.len {
+            if hay.ptr[i + j] != needle.ptr[j] {
+                matched = false;
+                break;
+            }
+            j = j + 1;
+        }
+        if matched {
+            return i;
+        }
+        i = i + 1;
+    }
+    return hay.len;
+}
+
+fn slice_has(hay: &[const byte], needle: &[const byte]) bool {
+    return find_slice(hay, needle) < hay.len;
+}
+
+fn slice_eq_bytes(a: &[byte], b: &[const byte]) bool {
+    if a.len != b.len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < a.len {
+        if a.ptr[i] != b.ptr[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn read_uyagin_source(buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(UYAGIN_SOURCE_PATH, O_RDONLY as i32, 0) catch {
+        return error.UyaginSourceOpenFailed;
+    };
+    const n: isize = sys_read(fd, buf as *byte, cap) catch {
+        _ = sys_close(fd) catch {};
+        return error.UyaginSourceReadFailed;
+    };
+    _ = sys_close(fd) catch {};
+    if n < 0 {
+        return error.UyaginSourceReadFailed;
+    }
+    return (n as! usize).value;
+}
+
+fn fill_request_path(req: &Request, path: &[const byte]) void {
+    var i: usize = 0;
+    while i < path.len && i < MAX_URI_LENGTH as usize {
+        req.path[i] = path.ptr[i];
+        i = i + 1;
+    }
+    req.path_len = path.len as i32;
+}
+
+fn write_all_fd(fd: i32, data: &[const byte]) !void {
+    var total: usize = 0;
+    while total < data.len {
+        const written: isize = try sys_write(fd, data.ptr + total, data.len - total);
+        if written <= 0 {
+            return error.ConnectionClosed;
+        }
+        total = total + (written as usize);
+    }
+}
+
+fn init_basic_request(req: &Request, method: Method, path: &[const byte], body: &[byte]) void {
+    req.method = method;
+    req.http11 = true;
+    req.path_len = 0;
+    var i: usize = 0;
+    while i < MAX_URI_LENGTH as usize {
+        req.path[i] = 0;
+        i = i + 1;
+    }
+    req.path_param_count = 0;
+    i = 0;
+    while i < MAX_PATH_PARAMS as usize {
+        req.path_params[i].key = [];
+        req.path_params[i].value = [];
+        i = i + 1;
+    }
+    req.query_count = 0;
+    req.header_count = 0;
+    req.body = body;
+    fill_request_path(req, path);
+}
+
+fn run_engine_request_with_log(engine: &Engine, method: Method, path: &[const byte], out: &byte, out_cap: usize, log_out: &byte, log_cap: usize, log_n_out: &isize) !isize {
+    var empty_raw: [byte: 1] = [];
+    var req: Request = Request{
+        method: method,
+        http11: true,
+        path: [],
+        path_len: 0,
+        path_params: [],
+        path_param_count: 0,
+        query: [],
+        query_count: 0,
+        headers: [],
+        header_count: 0,
+        body: empty_raw[0: 0],
+    };
+    fill_request_path(&req, path);
+
+    var resp_fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&resp_fds[0], 0);
+    var log_fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&log_fds[0], 0);
+    var cfg: UyaginConfig = uyagin_config(engine);
+    cfg.access_log.fd = log_fds[1];
+    uyagin_set_config(engine, cfg);
+
+    var ctx: GinContext = uyagin_context_new(resp_fds[1], &req, false, null);
+    const fut: Future<!i32> = engine.handle(&ctx);
+    _ = try block_on<i32>(fut);
+    _ = sys_close(resp_fds[1]) catch {};
+    _ = sys_close(log_fds[1]) catch {};
+    const resp_n: isize = try sys_read(resp_fds[0], out, out_cap);
+    *log_n_out = try sys_read(log_fds[0], log_out, log_cap);
+    _ = sys_close(resp_fds[0]) catch {};
+    _ = sys_close(log_fds[0]) catch {};
+    return resp_n;
+}
+
+test "uyagin_async_boundary_source_uses_async_wrappers_without_manual_future" {
+    var src: [byte: UYAGIN_SOURCE_MAX] = [0: UYAGIN_SOURCE_MAX];
+    const len: usize = try read_uyagin_source(&src[0], UYAGIN_SOURCE_MAX);
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn uyagin_writev_all_future(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn uyagin_sendfile_future(fd: i32, file_fd: i32, total_len: usize) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn uyagin_send_file_body_async(fd: i32, file_fd: i32, total_len: usize) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "export fn uyagin_conn_read_parse_async(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn uyagin_conn_read_parse_into_future(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn uyagin_accept_async(srv: &HttpServer) Future<!i32>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "export @async_fn fn uyagin_run_chain_recover(engine: &Engine, ctx: &GinContext, route: &GinRoute) Future<!i32>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn uyagin_observe_request_future(engine: &Engine, ctx: &GinContext, inner: Future<!i32>) Future<!i32>\0" as &const byte) as i32, 1);
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginWritevFuture\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginSendFileBodyFuture\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginConnReadParseFuture\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginConnReadParseIntoFuture\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginAcceptFuture\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginRecoverFuture\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct UyaginObserveFuture\0" as &const byte) as i32, 0);
+}
+
+test "uyagin_async_boundary_accept_helper_preserves_nonblock_and_nodelay" {
+    var listener: GinListener = try uyagin_listen_loopback(0, 64);
+    defer {
+        _ = sys_close(listener.server.listen_fd) catch {};
+    }
+
+    const client_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    defer {
+        _ = sys_close(client_fd) catch {};
+    }
+
+    var addr: [byte: 16] = [];
+    fill_sockaddr_loopback_16(listener.server.port, &addr[0] as &byte);
+    _ = try sys_connect(client_fd, &addr[0] as &void, 16 as u32);
+
+    var srv: HttpServer = listener.server;
+    const accepted_fd: i32 = try block_on<i32>(uyagin_accept_async(&srv));
+    defer {
+        _ = sys_close(accepted_fd) catch {};
+    }
+
+    const accepted_flags: i32 = try sys_fcntl(accepted_fd, F_GETFL, 0);
+    try assert_true((accepted_flags & O_NONBLOCK) != 0);
+    var nodelay: i32 = 0;
+    var nodelay_len: u32 = 4 as u32;
+    _ = try sys_getsockopt(accepted_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay as *void, &nodelay_len);
+    try assert_eq_i32(nodelay, 1);
+}
+
+test "uyagin_async_boundary_read_parse_helper_decodes_chunked_request" {
+    const request: &[const byte] =
+        "POST /chunk HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
+
+    var parse_fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&parse_fds[0], 0);
+    defer {
+        _ = sys_close(parse_fds[0]) catch {};
+        _ = sys_close(parse_fds[1]) catch {};
+    }
+    try write_all_fd(parse_fds[1], request);
+    _ = sys_close(parse_fds[1]) catch {};
+    parse_fds[1] = -1;
+
+    var parse_buf: [byte: 256] = [];
+    var parse_filled: usize = 0;
+    const parsed: ParseResult = try block_on<ParseResult>(uyagin_conn_read_parse_async(parse_fds[0], &parse_buf[0] as &byte, 256, &parse_filled));
+    try assert_eq_i32(parsed.request.method as i32, Method.POST as i32);
+    try assert_eq_i32(parsed.request.path_len, 6);
+    if !slice_eq_bytes(parsed.request.body, "hello world") {
+        try assert_eq_i32(0, 1);
+    }
+    try assert_eq_i32(parse_filled == request.len, true);
+    try assert_eq_i32(parsed.consumed == request.len, true);
+}
+
+test "uyagin_async_boundary_large_response_uses_writev_path" {
+    var body: [byte: LARGE_WRITE_BODY_LEN] = [];
+    var i: usize = 0;
+    while i < LARGE_WRITE_BODY_LEN {
+        body[i] = 'x' as byte;
+        i = i + 1;
+    }
+
+    var empty_raw: [byte: 1] = [];
+    var req: Request = Request{
+        method: Method.GET,
+        http11: true,
+        path: [],
+        path_len: 0,
+        path_params: [],
+        path_param_count: 0,
+        query: [],
+        query_count: 0,
+        headers: [],
+        header_count: 0,
+        body: empty_raw[0: 0],
+    };
+    fill_request_path(&req, "/writev");
+
+    var fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&fds[0], 0);
+    defer {
+        _ = sys_close(fds[0]) catch {};
+        _ = sys_close(fds[1]) catch {};
+    }
+
+    var ctx: GinContext = uyagin_context_new(fds[1], &req, false, null);
+    const wire: usize = try block_on<usize>(
+        uyagin_send_context_response_raw_bytes_body_async(
+            &ctx,
+            Status.OK,
+            "text/plain",
+            &body[0] as &byte,
+            LARGE_WRITE_BODY_LEN,
+        ),
+    );
+    try assert_true(wire > LARGE_WRITE_BODY_LEN);
+    _ = sys_close(fds[1]) catch {};
+    fds[1] = -1;
+
+    var rb: [byte: 1600] = [];
+    const n: isize = try sys_read(fds[0], &rb[0] as *byte, 1600);
+    if n <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+    const resp: &[byte] = rb[0: n as usize];
+    if !slice_has(resp, "HTTP/1.1 200 OK") {
+        try assert_eq_i32(0, 1);
+    }
+    if !slice_has(resp, "Content-Length: 1024") {
+        try assert_eq_i32(0, 1);
+    }
+    try assert_eq_i32(resp.ptr[resp.len - 1] as i32, 'x' as i32);
+}
+
+test "uyagin_async_boundary_file_body_uses_sendfile_path" {
+    const file_path: &[const byte] = "/tmp/uya_uyagin_async_boundary_sendfile.txt";
+    const file_body: &[const byte] = "sendfile-path";
+    _ = sys_unlink(file_path.ptr) catch {};
+    const write_file_fd: i32 = try sys_open(file_path.ptr, (O_CREAT | O_TRUNC | O_WRONLY) as i32, 0o600);
+    _ = try sys_write(write_file_fd, file_body.ptr, file_body.len);
+    _ = try sys_close(write_file_fd);
+
+    const read_file_fd: i32 = try sys_open(file_path.ptr, O_RDONLY as i32, 0);
+    defer {
+        _ = sys_close(read_file_fd) catch {};
+        _ = sys_unlink(file_path.ptr) catch {};
+    }
+
+    var empty_raw: [byte: 1] = [];
+    var req: Request = Request{
+        method: Method.GET,
+        http11: true,
+        path: [],
+        path_len: 0,
+        path_params: [],
+        path_param_count: 0,
+        query: [],
+        query_count: 0,
+        headers: [],
+        header_count: 0,
+        body: empty_raw[0: 0],
+    };
+    fill_request_path(&req, "/sendfile");
+
+    var fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&fds[0], 0);
+    defer {
+        _ = sys_close(fds[0]) catch {};
+        _ = sys_close(fds[1]) catch {};
+    }
+
+    var ctx: GinContext = uyagin_context_new(fds[1], &req, false, null);
+    const empty_bytes: &[byte] = empty_raw[0: 0];
+    var body: UyaginResponseBody = UyaginResponseBody{
+        kind: 3,
+        content_type: "text/plain",
+        bytes: empty_bytes,
+        file_fd: read_file_fd,
+        file_len: file_body.len,
+    };
+    const wire: usize = try block_on<usize>(uyagin_send_context_response_body_trait_async(&ctx, Status.OK, &body));
+    try assert_true(wire >= file_body.len);
+    _ = sys_close(fds[1]) catch {};
+    fds[1] = -1;
+
+    var rb: [byte: 512] = [];
+    const n: isize = try sys_read(fds[0], &rb[0] as *byte, 512);
+    if n <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+    const resp: &[byte] = rb[0: n as usize];
+    if !slice_has(resp, "HTTP/1.1 200 OK") {
+        try assert_eq_i32(0, 1);
+    }
+    if !slice_has(resp, "Content-Length: 13") {
+        try assert_eq_i32(0, 1);
+    }
+    if !slice_has(resp, "sendfile-path") {
+        try assert_eq_i32(0, 1);
+    }
+}
+
+test "uyagin_async_boundary_recover_finishes_before_observe_logs_and_metrics" {
+    var engine: Engine = uyagin_new();
+    var handler_impl: RecoverErrorHandler = RecoverErrorHandler{};
+    const handler: AsyncHandler = handler_impl;
+    try engine.GET("/err", handler);
+
+    var run_opts: EngineRunOptions = uyagin_run_options_default();
+    run_opts.mode = UyaginMode.Debug;
+    var access_opts: UyaginAccessLogOptions = uyagin_access_log_options_default();
+    access_opts.enabled = true;
+    access_opts.sample_every = 1u32;
+    uyagin_set_config(&engine, UyaginConfig{
+        allocator: null,
+        limits: uyagin_limits_default(),
+        run_options: run_opts,
+        access_log: access_opts,
+    });
+
+    var rb: [byte: 512] = [];
+    var logb: [byte: 1024] = [];
+    var log_n: isize = 0;
+    const resp_n: isize = try run_engine_request_with_log(&engine, Method.GET, "/err", &rb[0] as &byte, 512, &logb[0] as &byte, 1024, &log_n);
+    if resp_n <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+    if log_n <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+
+    const resp: &[byte] = rb[0: resp_n as usize];
+    if !slice_has(resp, "500 Internal Server Error") {
+        try assert_eq_i32(0, 1);
+    }
+
+    const log: &[byte] = logb[0: log_n as usize];
+    const trace_idx: usize = find_slice(log, "uyagin: trace error=HandlerMissing status=500");
+    const access_idx: usize = find_slice(log, "uyagin: access GET /err status=500");
+    try assert_true(trace_idx < log.len);
+    try assert_true(access_idx < log.len);
+    try assert_true(trace_idx < access_idx);
+    if !slice_has(log, "wrote=1") {
+        try assert_eq_i32(0, 1);
+    }
+
+    const metrics: &UyaginMetrics = uyagin_metrics(&engine);
+    try assert_eq_u64(metrics.request_count, 1u64);
+    try assert_eq_u64(metrics.status_500_count, 1u64);
+}

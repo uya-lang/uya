@@ -2318,3 +2318,11 @@
     - 验证结果：通过
     - 验证：`git diff --check`
     - 验证结果：通过
+
+### 2026-06-21 Phase 1.5.7 配套测试与闸门
+路径：为每个迁移模块补 dedicated regression
+- [x] UyaGin：accept / read-parse / writev / sendfile / recover / observe
+  - 交付：新增 `tests/test_http_uyagin_async_boundary.uya`，集中覆盖源码形态闸门，以及 accept/read-parse/writev/sendfile/recover/observe 行为回归。
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin_async_boundary.uya`（通过，6 tests，29 assertions）
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过，25 tests，37 assertions）
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin_recover_observe.uya`（通过，2 tests，9 assertions）
