@@ -2195,3 +2195,16 @@
         - 验证：`../uya/bin/uya test tests/test_async_fd.uya` 通过（14 tests passed, 0 failed）
         - 已通过：`make clean`（清理构建产物完成）
         - 已通过：`make backup-all`（完整自举、`make check` 与 seed/backup 更新通过）
+
+## 2026-06-21
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+上下文路径：
+- [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - [ ] 要么连当前真实残留的 runtime future 也继续消灭
+    - [ ] 继续消灭 `lib/std/async.uya` 中 fd syscall residual（`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`），或在 line 160 路线里正式转为 substrate
+      - [x] 把 `AsyncSocketRecvFuture` 迁到 `export @async_fn fn async_socket_recv(...)` + `async_wait_readable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
+        验证结果：
+        `../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`：通过（8 tests, 31 assertions）
+        `../uya/bin/uya test tests/test_async_fd.uya`：通过（14 tests, 85 assertions）
