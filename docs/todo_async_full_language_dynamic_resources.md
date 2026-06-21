@@ -168,8 +168,6 @@
 
 ### 3.4 ThreadPool / async_compute
 
-- [ ] 明确 `async_compute` 饱和后的生产策略：
-  - [ ] 不再默默回退到 `sys_fork()` 作为默认生产路径
 - [ ] 为 thread pool 增加容量、排队深度、取消、排空时间的指标。
 
 ### 3.5 协议层临时 buffer

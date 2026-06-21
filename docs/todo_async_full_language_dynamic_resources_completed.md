@@ -2682,3 +2682,13 @@
     - 验证：`../uya/bin/uya test tests/test_std_thread.uya` 通过（34/34）。
     - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya` 通过（2/2）。
     - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya` 通过（11/11）。
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.4 ThreadPool / async_compute
+
+- [x] 明确 `async_compute` 饱和后的生产策略：
+  - [x] 不再默默回退到 `sys_fork()` 作为默认生产路径
+    - 验证：`../uya/bin/uya test --c99 tests/test_std_thread.uya`（通过：34 tests，144 assertions）
+    - 验证：`../uya/bin/uya test --c99 tests/test_async_thread_pool_dynamic_growth.uya`（通过：2 tests，54 assertions）
+    - 验证：`../uya/bin/uya test --c99 tests/test_std_thread_async_boundary.uya`（通过：4 tests，16 assertions）
