@@ -2392,3 +2392,13 @@
     - 结果：仅命中 `lib/std/async.uya:1277` 的 `AsyncWaitFdFuture`，以及 `lib/std/thread.uya` 的 `AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`
     - 验证：`bash -lc 'actual=$(rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob "*.uya" | sed -E "s#^.*struct ([^ ]+) : Future<.*#\\1#" | sort); expected=$(printf "%s\\n" AsyncThreadSlotWaitFuture AsyncWaitFdFuture AsyncWorkerCancelFuture AsyncWorkerComputeFuture AsyncWorkerResultFuture AsyncWorkerSubmitFuture | sort); if [ "$actual" = "$expected" ]; then echo "ALLOWLIST_OK"; printf "%s\\n" "$actual"; else echo "ALLOWLIST_MISMATCH"; exit 1; fi'`
     - 结果：`ALLOWLIST_OK`，命中集合与允许名单完全一致
+
+## Phase 1.5：标准库手工 Future 清零迁移
+
+### 1.5.8 建议执行顺序
+
+**阶段验收**：
+
+- [x] `./tests/verify_async_full_language_matrix.sh`
+  - 验证命令：`UYA_COMPILER=../uya/bin/uya ./tests/verify_async_full_language_matrix.sh`
+  - 验证结果：通过；native / `--c99` / `--uya --c99` baseline、hand-written Future whitelist、nested future boundary、shared runtime matrix 与 macro combo 全部通过；`4097 await` 容量验证仅发出状态机体积告警，不再失败。

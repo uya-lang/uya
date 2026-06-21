@@ -167,7 +167,6 @@
 
 **阶段验收**：
 
-- [ ] `./tests/verify_async_full_language_matrix.sh`
 - [ ] `make check`
 
 ## Phase 2：编译器 async 资源动态化
