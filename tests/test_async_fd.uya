@@ -407,7 +407,7 @@ fn test_async_accept_cancelled_returns_cancelled() !void {
     const f: Future<!i32> = async_accept(listen_fd);
     var wk: Waker = Waker{};
     wk.cancel();
-    try assert_cancelled_poll_i32(f.poll(&wk));
+    try assert_cancelled_poll_i32(poll_i32_allow_transition_pending(f, &wk));
     try assert_fd_still_blocking(listen_fd);
 }
 

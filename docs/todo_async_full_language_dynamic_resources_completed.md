@@ -2208,3 +2208,18 @@
         验证结果：
         `../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`：通过（8 tests, 31 assertions）
         `../uya/bin/uya test tests/test_async_fd.uya`：通过（14 tests, 85 assertions）
+### 2026-06-21
+
+上下文：
+# Uya 异步生产化 TODO（完整语法 + 动态资源）
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+父级路径：
+- [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - [ ] 要么连当前真实残留的 runtime future 也继续消灭
+    - [x] 继续消灭 `lib/std/async.uya` 中 fd syscall residual（`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`），或在 line 160 路线里正式转为 substrate
+      - [x] 把 `AsyncAcceptFuture` 迁到 `export @async_fn fn async_accept(...)` + `async_wait_readable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
+        - TDD：新增 `async_accept_boundary_uses_async_fn_and_wait_substrate` 后首次运行 `../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya` 失败：`source_contains_cstr(&src[0], len, accept_start) as i32 == 1 (actual: 0, expected: 1)`
+        - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya` 通过（9 tests, 34 assertions）
+        - 验证：`../uya/bin/uya test tests/test_async_fd.uya` 通过（14 tests, 85 assertions）

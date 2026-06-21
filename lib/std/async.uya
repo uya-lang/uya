@@ -1525,60 +1525,42 @@ export @async_fn fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_
     }
 }
 
-struct AsyncAcceptFuture : Future<!i32> {
-    listen_fd: i32,
-    listen_nonblocking_ready: i32 = 0,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_i32();
-        }
-        if self.listen_nonblocking_ready == 0 {
-            const listen_nonblock: !i32 = async_fd_set_nonblocking(self.listen_fd);
-            _ = listen_nonblock catch {
-                const err_value: !i32 = listen_nonblock as! i32;
-                return Poll<!i32>.Ready(err_value);
-            };
-            self.listen_nonblocking_ready = 1;
-        }
-
-        while true {
-            const accepted: !i32 = sys_accept(self.listen_fd, null, 0);
-            const fd: i32 = accepted catch |err| {
-                const err_id: u32 = @error_id(err);
-                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                    return async_poll_pending_readable_i32(waker, self.listen_fd);
-                }
-                if err_id == libc_EINTR as u32 {
-                    continue;
-                }
-                const err_value: !i32 = accepted as! i32;
-                return Poll<!i32>.Ready(err_value);
-            };
-
-            const accepted_nonblock: !i32 = async_fd_set_nonblocking(fd);
-            _ = accepted_nonblock catch {
-                _ = sys_close(fd) catch {};
-                const err_value: !i32 = accepted_nonblock as! i32;
-                return Poll<!i32>.Ready(err_value);
-            };
-            return async_poll_ready_ok_i32(fd);
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 /// 异步 accept 一个连接，并把监听 fd 与返回的连接 fd 都切到 nonblocking。
 /// 参数说明：`listen_fd` 为已进入 listen 状态的 socket fd，必须大于等于 0。
 /// 返回值说明：成功返回已接受且已设为 nonblocking 的连接 fd；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，其他错误原样透传。
-export fn async_accept(listen_fd: i32) Future<!i32> {
+export @async_fn fn async_accept(listen_fd: i32) Future<!i32> {
     if listen_fd < 0 {
-        return Future<!i32>{ state: Poll<!i32>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncAcceptFuture{ listen_fd: listen_fd };
+    var listen_nonblocking_ready: i32 = 0;
+    while true {
+        const wait_readable_result: !usize = @await async_wait_readable(listen_fd, 0 as u64);
+        _ = try wait_readable_result;
+        if listen_nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(listen_fd);
+            listen_nonblocking_ready = 1;
+        }
+        while true {
+            const accepted: !i32 = sys_accept(listen_fd, null, 0);
+            const fd: i32 = accepted catch |err| {
+                const err_id: u32 = @error_id(err);
+                if err_id == libc_EINTR as u32 {
+                    continue;
+                }
+                if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+                    break;
+                }
+                return err;
+            };
+
+            const accepted_nonblock: !i32 = async_fd_set_nonblocking(fd);
+            _ = accepted_nonblock catch |err| {
+                _ = sys_close(fd) catch {};
+                return err;
+            };
+            return fd;
+        }
+    }
 }
 
 /// 异步读到一个完整 HTTP 请求并返回解析结果。
