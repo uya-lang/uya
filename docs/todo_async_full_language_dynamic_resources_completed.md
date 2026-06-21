@@ -3098,3 +3098,9 @@ Phase 5：发布闸门与文档同步
     结果：通过，2 tests / 150 assertions；新增默认 `linux_epoll_create(0)` 跨过 `1024 -> 1025` 的正式回归。
     补充验证：`../uya/bin/uya test tests/test_std_async_event.uya`（通过，1 test）
     补充验证：`../uya/bin/uya test tests/test_async_event_config.uya`（通过，2 tests / 11 assertions）
+## 未完成前不得宣称完成的条件
+
+- [x] 仍存在 `16/32/64/512/1024` 这类固定上限决定正常功能成败。
+  - [x] 复核 `AsyncFramePool` 跨过旧 `128/4096` 初始容量后仍动态增长。
+    验证：`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`
+    结果：通过；`async_frame_pool_bucket_table_dynamic_growth` 与 `async_frame_pool_bucket_slot_dynamic_growth` 均 OK，`Assertions Passed: 4236`。
