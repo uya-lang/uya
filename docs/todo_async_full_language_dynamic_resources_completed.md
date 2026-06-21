@@ -2071,3 +2071,18 @@
         - `../uya/bin/uya test tests/test_std_thread.uya`：通过
         - `rg -n "std_thread_async_compute_future_new_|AsyncComputeFuture_" src/codegen/c99/expr.uya src/codegen/c99/function.uya`：无输出
         - `git diff --check`：通过
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+父级路径：
+- 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - 要么连当前真实残留的 runtime future 也继续消灭
+
+    - [x] 若继续删除 `AsyncComputeFuture<T>`，再让泛型 `struct<T> : Future<!T>` 的 vtable/interface 单态化不再依赖 `AsyncComputeFuture` 专项修补；完成条件：`src/codegen/c99/structs.uya` 不再保留 `AsyncComputeFuture` 特判；验证：`rg -n "AsyncComputeFuture" src/codegen/c99/structs.uya`
+      - 验证命令：`../uya/bin/uya test tests/test_async_compute_codegen_lowering_boundary.uya`
+      - 验证结果：通过（1 个测试，5 条断言）
+      - 验证命令：`../uya/bin/uya test tests/test_std_thread.uya`
+      - 验证结果：通过（32 个子测试，134 条断言）
+      - 验证命令：`rg -n "AsyncComputeFuture" src/codegen/c99/structs.uya`
+      - 验证结果：无输出，exit 1

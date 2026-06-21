@@ -9,6 +9,7 @@ error AsyncComputeCodegenSourceReadFailed;
 
 const EXPR_SOURCE_PATH: &const byte = "src/codegen/c99/expr.uya\0" as &const byte;
 const FUNCTION_SOURCE_PATH: &const byte = "src/codegen/c99/function.uya\0" as &const byte;
+const STRUCTS_SOURCE_PATH: &const byte = "src/codegen/c99/structs.uya\0" as &const byte;
 const CODEGEN_SOURCE_MAX: usize = 262144;
 
 fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
@@ -83,5 +84,9 @@ test "async_compute_c99_lowering_derives_symbols_instead_of_hardcoded_tables" {
     try assert_source_lacks_text(
         FUNCTION_SOURCE_PATH,
         "AsyncComputeFuture_\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        STRUCTS_SOURCE_PATH,
+        "AsyncComputeFuture\0" as &const byte,
     );
 }

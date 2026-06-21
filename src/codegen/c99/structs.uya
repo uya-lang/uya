@@ -1874,6 +1874,59 @@ fn collect_interface_method_sigs(codegen: &C99CodeGenerator, interface_name: &by
     return collect_interface_method_sigs_internal(codegen, interface_name, sigs, max_sigs, 0);
 }
 
+fn c99_parse_type_text(codegen: &C99CodeGenerator, text: &byte) &ASTNode {
+    if codegen == null || codegen.arena == null || text == null {
+        return null;
+    }
+    var lexer: Lexer = Lexer{};
+    const text_len_usize: usize = strlen(text as *byte);
+    if lexer_init(&lexer, text, text_len_usize, "(c99_iface_type)\0" as &byte, codegen.arena) != 0 {
+        return null;
+    }
+    var parser: Parser = Parser{};
+    if parser_init(&parser, &lexer, codegen.arena) != 0 {
+        return null;
+    }
+    const parsed: &ASTNode = parser_parse_type(&parser);
+    if parsed == null || parser.current_token == null || parser_match(&parser, TokenType.TOKEN_EOF) == 0 {
+        return null;
+    }
+    return parsed;
+}
+
+fn c99_resolve_interface_decl_type_args(codegen: &C99CodeGenerator, iface_text: &byte, iface_decl: &ASTNode,
+    type_params: &TypeParam, type_args: & &ASTNode, type_arg_count: i32, out_arg_count: &i32) & & ASTNode {
+    if out_arg_count != null {
+        out_arg_count[0] = 0;
+    }
+    if codegen == null || iface_text == null || iface_decl == null || iface_decl.interface_decl_name == null {
+        return null;
+    }
+    const parsed_iface: &ASTNode = c99_parse_type_text(codegen, iface_text);
+    if parsed_iface == null || parsed_iface.type != ASTNodeType.AST_TYPE_NAMED ||
+        parsed_iface.type_named_name == null ||
+        strcmp(parsed_iface.type_named_name as *byte, iface_decl.interface_decl_name as *byte) != 0 ||
+        parsed_iface.type_named_type_arg_count <= 0 || parsed_iface.type_named_type_args == null {
+        return null;
+    }
+    const parsed_arg_count: i32 = parsed_iface.type_named_type_arg_count;
+    const resolved_args: & & ASTNode = compiler_arena_alloc(codegen.arena,
+        (@size_of(&ASTNode) * parsed_arg_count) as usize) as & & ASTNode;
+    if resolved_args == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < parsed_arg_count {
+        resolved_args[i] = substitute_type_arg_explicit(codegen, parsed_iface.type_named_type_args[i],
+            type_params, type_args, type_arg_count);
+        i = i + 1;
+    }
+    if out_arg_count != null {
+        out_arg_count[0] = parsed_arg_count;
+    }
+    return resolved_args;
+}
+
 // 在 vtable 等之前输出所有 union 的 struct uya_tagged_X 前向声明，避免 vtable 参数列表中 "declared inside parameter list" 警告/错误
 fn emit_union_tagged_forward_decls(codegen: &C99CodeGenerator) void {
     if codegen == null || codegen.program_node == null {
@@ -2194,69 +2247,18 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
             }
 
             // ===== 情况 A：非泛型 struct 实现了泛型接口实例（如 Getter<i32>）=====
-            // iface_name 中带 '<...>'，需要把 T 替换成具体类型，否则会生成含 T 的 C 签名导致链接失败。
-            // 泛型结构体（如 AsyncComputeFuture<T>: Future<!T>）不得走此分支：否则会生成
-            // uya_vtable_Future_err_T_AsyncComputeFuture 等非法占位（应由下方 mono_instances 单态生成）。
+            // iface_name 中带 '<...>'，需要把接口声明文本重新 parse 成 AST，再按当前上下文展开实参，
+            // 否则会生成残留 T 的 C 签名导致链接失败。
             if is_generic_interface_c99(iface_decl) != 0 && lt != null && is_generic_struct_c99(decl) == 0 {
-                // 解析 `<...>` 内的类型参数（仅支持简单命名类型，足够覆盖测试用例）
-                const gt: *byte = strrchr(iface_name as *byte, 62);  // '>'
-                if gt != null && gt > lt {
-                    var args: [&ASTNode: 8] = [];
-                    var arg_count: i32 = 0;
-                    var p: *byte = lt + 1;
-                    while p < gt && arg_count < 8 {
-                        while p < gt && (*p == 32 || *p == 9 || *p == 10 || *p == 13) { p = p + 1; } // ws
-                        const start: *byte = p;
-                        while p < gt && *p != 44 { p = p + 1; } // ','
-                        var end: *byte = p;
-                        while end > start && (*(end - 1) == 32 || *(end - 1) == 9 || *(end - 1) == 10 || *(end - 1) == 13) { end = end - 1; }
-                        const len: i32 = ptr_diff(end, start);
-                        if len > 0 {
-                            const name_buf: &byte = compiler_arena_alloc(codegen.arena, (len + 1) as usize) as &byte;
-                            if name_buf != null {
-                                memcpy(name_buf as *void, start as *void, len as usize);
-                                if len >= 0 && len < 1000000 {
-                                    name_buf[len] = 0;
-                                }
-                                var type_arg_node: &ASTNode = null;
-                                // Future<!usize> 等：尖括号内为 !Payload，须建成错误联合类型节点，不能当作名为 "!usize" 的命名类型
-                                if len > 1 && (name_buf[0] as i32) == 33 {
-                                    const inner_n: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, codegen.arena, null);
-                                    if inner_n != null {
-                                        inner_n.type_named_name = &name_buf[1] as &byte;
-                                        inner_n.type_named_type_args = null;
-                                        inner_n.type_named_type_arg_count = 0;
-                                        const eu_n: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, 0, 0, codegen.arena, null);
-                                        if eu_n != null {
-                                            eu_n.type_error_union_payload_type = inner_n;
-                                            type_arg_node = eu_n;
-                                        }
-                                    }
-                                } else {
-                                    const tn: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, codegen.arena, null);
-                                    if tn != null {
-                                        tn.type_named_name = name_buf;
-                                        tn.type_named_type_args = null;
-                                        tn.type_named_type_arg_count = 0;
-                                        type_arg_node = tn;
-                                    }
-                                }
-                                if type_arg_node != null {
-                                    args[arg_count] = type_arg_node;
-                                    arg_count = arg_count + 1;
-                                }
-                            }
-                        }
-                        if p < gt && *p == 44 { p = p + 1; }
-                    }
-
-                    if arg_count == iface_decl.interface_decl_type_param_count && arg_count > 0 {
-                        const arg_arr: & & ASTNode = &args[0] as & & ASTNode;
-                        // 若类型实参未解析（如 T），不要在模板处生成 vtable（应由具体单态实例生成）
-                        if has_unresolved_mono_type_args(iface_decl, arg_arr, arg_count) != 0 {
-                            // fallthrough：让后续 mono_instances 分支去处理具体实例
-                            // 注意：不要 continue
-                        } else {
+                var arg_count: i32 = 0;
+                const arg_arr: & & ASTNode = c99_resolve_interface_decl_type_args(codegen, iface_name, iface_decl,
+                    null, null, 0, &arg_count);
+                if arg_count == iface_decl.interface_decl_type_param_count && arg_count > 0 {
+                    // 若类型实参未解析（如 T），不要在模板处生成 vtable（应由具体单态实例生成）
+                    if has_unresolved_mono_type_args(iface_decl, arg_arr, arg_count) != 0 {
+                        // fallthrough：让后续 mono_instances 分支去处理具体实例
+                        // 注意：不要 continue
+                    } else {
                         const mono_iface: &byte = get_mono_struct_name(codegen, iface_decl.interface_decl_name, arg_arr, arg_count);
                         const safe_mono_iface: &byte = get_safe_c_identifier(codegen, mono_iface);
                         if safe_mono_iface != null {
@@ -2355,7 +2357,6 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                             j = j + 1;
                             continue;
                         }
-                        }
                     }
                 }
             }
@@ -2371,8 +2372,7 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                         mi = mi + 1;
                         continue;
                     }
-                    if has_unresolved_mono_type_args(decl, inst.type_args, inst.type_arg_count) != 0 ||
-                        has_unresolved_mono_type_args(iface_decl, inst.type_args, iface_decl.interface_decl_type_param_count) != 0 {
+                    if has_unresolved_mono_type_args(decl, inst.type_args, inst.type_arg_count) != 0 {
                         mi = mi + 1;
                         continue;
                     }
@@ -2382,25 +2382,18 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                     if decl.struct_decl_type_param_count > 0 && decl.struct_decl_type_params != null {
                         mono_struct = get_mono_struct_name(codegen, struct_name, inst.type_args, inst.type_arg_count);
                     }
-                    // AsyncComputeFuture<T> : Future<!T> — Future 的单态实参应为 !T（如 err_i64），不能直接用 T（i64）。
                     var iface_mono_args_ptr: & & ASTNode = inst.type_args;
                     var iface_mono_arg_count: i32 = iface_decl.interface_decl_type_param_count;
-                    if struct_name != null && strcmp(struct_name as *byte, "AsyncComputeFuture" as *byte) == 0 &&
-                        iface_decl.interface_decl_name != null &&
-                        strcmp(iface_decl.interface_decl_name as *byte, "Future" as *byte) == 0 &&
-                        decl.struct_decl_type_param_count == 1 && inst.type_arg_count == 1 &&
-                        iface_decl.interface_decl_type_param_count == 1 &&
-                        inst.type_args != null && inst.type_args[0] != null && codegen.arena != null {
-                        const eu_wrap: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, decl.line, decl.column, codegen.arena, decl.filename);
-                        if eu_wrap != null {
-                            eu_wrap.type_error_union_payload_type = inst.type_args[0];
-                            const ap2: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode)) as & & ASTNode;
-                            if ap2 != null {
-                                ap2[0] = eu_wrap;
-                                iface_mono_args_ptr = ap2;
-                                iface_mono_arg_count = 1;
-                            }
-                        }
+                    var parsed_iface_arg_count: i32 = 0;
+                    const parsed_iface_args: & & ASTNode = c99_resolve_interface_decl_type_args(codegen, iface_name, iface_decl,
+                        decl.struct_decl_type_params, inst.type_args, inst.type_arg_count, &parsed_iface_arg_count);
+                    if parsed_iface_args != null && parsed_iface_arg_count == iface_decl.interface_decl_type_param_count {
+                        iface_mono_args_ptr = parsed_iface_args;
+                        iface_mono_arg_count = parsed_iface_arg_count;
+                    }
+                    if has_unresolved_mono_type_args(iface_decl, iface_mono_args_ptr, iface_mono_arg_count) != 0 {
+                        mi = mi + 1;
+                        continue;
                     }
                     const mono_iface: &byte = get_mono_struct_name(codegen, iface_decl.interface_decl_name, iface_mono_args_ptr, iface_mono_arg_count);
                     const safe_mono_struct: &byte = get_safe_c_identifier(codegen, mono_struct);
@@ -2780,7 +2773,7 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
         var type_name: &byte = type_arg.type_named_name;
         
         // 在单态化上下文中替换类型参数（如 T → i32）
-        // 先函数/方法形参，再结构体/联合体单态形参（与 substitute_type_arg 一致；避免残留 Future vtable 的 struct_type_* 把 T 解成 !i32，单态名成 AsyncComputeFuture_err_i32）。
+        // 先函数/方法形参，再结构体/联合体单态形参（与 substitute_type_arg 一致；避免残留 Future vtable 的 struct_type_* 抢占单态后缀推导）。
         // c99_type_to_c_uncached 命名类型「裸 T」仍先 struct 再 current，用于 Poll<!T> 等字段；后缀拼接走本函数，二者分工。
         var resolved_type: &ASTNode = type_arg;
         var found: i32 = 0;
