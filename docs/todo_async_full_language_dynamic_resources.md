@@ -162,7 +162,6 @@
 ### 1.5.7 配套测试与闸门
 
 - [ ] 为每个迁移模块补 dedicated regression：
-  - [ ] WebSocket：message aggregate / heartbeat / reconnect
   - [ ] UyaGin：accept / read-parse / writev / sendfile / recover / observe
   - [ ] Thread：queue full / cancel / result ready / no hidden fork fallback
 - [ ] 将这些模块回归纳入：
