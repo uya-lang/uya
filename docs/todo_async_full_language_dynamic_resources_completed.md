@@ -2879,3 +2879,11 @@ verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP
       - 结果：通过；baseline_fd=11，round_1/2/3 post_fd=11，final_fd=11。
     - 验证命令：UYA_COMPILER=../uya/bin/uya bash tests/verify_http_bench_async_epoll_runtime.sh
       - 结果：通过；/ 与 /json 返回 HTTP/1.1 200 OK。
+
+## Phase 4：生产级可靠性与可观测性
+
+- [ ] 建立长压测与泄漏验证：
+  - [x] frame 不泄漏
+    - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya` 通过；新增 `uyagin_serve_conn_releases_scheduler_frames_after_connection_close`，32 轮 loopback 连接后 `scheduler_metrics.frame_alloc_count == frame_free_count`，`uyagin_metrics.frame_alloc_count == frame_free_count`。
+    - 验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya` 通过。
+    - 验证：`git diff --check` 通过。

@@ -962,6 +962,54 @@ test "uyagin_accept_uses_async_accept_helper_and_preserves_nodelay" {
     try assert_eq_i32(nodelay, 1);
 }
 
+test "uyagin_serve_conn_releases_scheduler_frames_after_connection_close" {
+    var engine: Engine = uyagin_new();
+    var h: PingHandler = PingHandler{};
+    const hi: AsyncHandler = h;
+    try engine.GET("/ping", hi);
+
+    var listener: GinListener = try uyagin_listen_loopback(0, 64);
+    defer {
+        _ = sys_close(listener.server.listen_fd) catch {};
+    }
+
+    var srv: HttpServer = listener.server;
+    const req: &[byte] = &"GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"[0: 59];
+    var scheduler: Scheduler = scheduler_new();
+    var round: i32 = 0;
+    while round < 32 {
+        const client_fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        var addr: [byte: 16] = [];
+        fill_sockaddr_loopback_16(listener.server.port, &addr[0] as &byte);
+        _ = try sys_connect(client_fd, &addr[0] as &void, 16 as u32);
+
+        const server_fd: i32 = try block_on<i32>(uyagin_accept_async(&srv));
+        try write_all_fd(client_fd, req);
+
+        const served: i32 = try scheduler_run<!i32>(&scheduler, uyagin_serve_conn(&engine, server_fd, &scheduler));
+        try assert_eq_i32(served, 1);
+
+        var resp_buf: [byte: 512] = [];
+        const n: isize = try sys_read(client_fd, &resp_buf[0] as *byte, 512);
+        _ = sys_close(client_fd) catch {};
+        if n <= 0 { try assert_eq_i32(0, 1); }
+        const resp: &[byte] = resp_buf[0: n as usize];
+        try assert_true(slice_has(resp, "HTTP/1.1 200 OK"));
+        try assert_true(slice_has(resp, "pong"));
+        round = round + 1;
+    }
+
+    const scheduler_metrics_value: SchedulerMetrics = scheduler_metrics(&scheduler);
+    try assert_eq_u64(scheduler_metrics_value.frame_alloc_count, scheduler_metrics_value.frame_free_count);
+    try assert_eq_u64(scheduler_metrics_value.frame_full_count, 0u64);
+    try assert_eq_u64(scheduler_metrics_value.frame_heap_fallback_count, 0u64);
+
+    const engine_metrics: &UyaginMetrics = uyagin_metrics(&engine);
+    try assert_eq_u64(engine_metrics.request_count, 32u64);
+    try assert_eq_u64(engine_metrics.frame_alloc_count, engine_metrics.frame_free_count);
+    try assert_eq_u64(engine_metrics.heap_fallback_count, 0u64);
+}
+
 test "uyagin_body_traits_static_arena_file" {
     var engine: Engine = uyagin_new();
     var hs: StaticTraitHandler = StaticTraitHandler{};
