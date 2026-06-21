@@ -2669,3 +2669,16 @@
   - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，2 tests / 54 assertions）
   - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，34 tests / 144 assertions）
   - 验证：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`（通过）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.4 ThreadPool / async_compute
+
+父级任务：`明确 `async_compute` 饱和后的生产策略：`
+
+  - [x] 要么显式返回容量错误
+    - 结果：`lib/std/thread.uya` 的 `async_compute` 提交饱和路径现在显式返回 `error.TaskQueueFull`，不再把 slot/pending 容量打满混成泛化 `EBADF` 风格错误。
+    - 验证：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya` 通过；`thread_async_boundary_queue_full_returns_explicit_capacity_error` 断言 `error.TaskQueueFull` 成功。
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya` 通过（34/34）。
+    - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya` 通过（2/2）。
+    - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya` 通过（11/11）。

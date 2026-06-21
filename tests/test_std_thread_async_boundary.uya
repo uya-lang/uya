@@ -119,7 +119,7 @@ fn read_thread_source(buf: &byte, cap: usize) !usize {
     return (n as! usize).value;
 }
 
-test "thread_async_boundary_queue_full_returns_resource_error" {
+test "thread_async_boundary_queue_full_returns_explicit_capacity_error" {
     var pool: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
         worker_count: 1,
         pending_capacity: 1,
@@ -142,8 +142,10 @@ test "thread_async_boundary_queue_full_returns_resource_error" {
     var saw_error: i32 = 0;
     match second_poll {
         .Ready(v) => {
-            const _value: i32 = v catch |_| {
-                saw_error = 1;
+            const _value: i32 = v catch |err| {
+                if @error_id(err) == @error_id(error.TaskQueueFull) {
+                    saw_error = 1;
+                }
                 0;
             };
             _ = _value;
@@ -239,7 +241,7 @@ test "thread_async_boundary_source_uses_queue_or_error_without_hidden_fork_fallb
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, "export const THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR: i32 = 1;\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "const submission_strategy: i32 = thread_pool_submission_strategy(pool);\0" as &const byte) as i32, 1);
-    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "return thread_pool_queue_or_error_slot(pool, slot_idx);\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "sys_fork(\0" as &const byte) as i32, 0);
 }

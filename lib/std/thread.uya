@@ -169,6 +169,10 @@ fn thread_cancelled_error_usize() !usize {
     return error.Cancelled;
 }
 
+fn thread_capacity_error_i32() !i32 {
+    return error.TaskQueueFull;
+}
+
 mc thread_type_is_i32(T: type) expr {
     const info: TypeInfo = @mc_type(T);
     info.type_id == 2;
@@ -488,9 +492,9 @@ fn thread_shared_pending_capacity(shared_state: &ThreadPoolSharedState) i32 {
     return shared_state.pending_capacity;
 }
 
-fn thread_pool_reserve_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) i32 {
+fn thread_pool_reserve_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) !i32 {
     if thread_pool_ensure_shared_state(pool) == 0 {
-        return 0 - 1;
+        return thread_generic_error_i32();
     }
 
     var i: i32 = 0;
@@ -503,12 +507,13 @@ fn thread_pool_reserve_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind:
             pool._shared_state.slots[i as usize].arg_bits = arg_bits;
             pool._shared_state.slots[i as usize].result_bits = 0 as usize;
             pool._shared_state.slots[i as usize].state = THREAD_SLOT_STATE_READY;
-            return i;
+            const reserved_idx: i32 = i;
+            return reserved_idx;
         }
         i = i + 1;
     }
 
-    return 0 - 1;
+    return thread_capacity_error_i32();
 }
 
 fn thread_shared_clear_slot(shared_state: &ThreadPoolSharedState, slot_idx: i32) void {
@@ -903,43 +908,38 @@ fn thread_pool_try_progress_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
 }
 
 // 显式替代旧 one-shot fallback：先走共享 pending 队列，容量不足时直接返回资源错误。
-fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {
+fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {
     if thread_pool_enqueue_slot(pool, slot_idx) != 0 {
-        return 1;
+        const queued_idx: i32 = slot_idx;
+        return queued_idx;
     }
     thread_pool_release_slot(pool, slot_idx);
-    return 0;
+    return thread_capacity_error_i32();
 }
 
-fn thread_pool_apply_submission_strategy(pool: &ThreadPool, slot_idx: i32) i32 {
+fn thread_pool_apply_submission_strategy(pool: &ThreadPool, slot_idx: i32) !i32 {
     const submission_strategy: i32 = thread_pool_submission_strategy(pool);
     if submission_strategy == THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR {
         return thread_pool_queue_or_error_slot(pool, slot_idx);
     }
     thread_pool_release_slot(pool, slot_idx);
-    return 0;
+    return thread_generic_error_i32();
 }
 
-fn thread_pool_submit_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) i32 {
-    const slot_idx: i32 = thread_pool_reserve_slot_raw(pool, compute_fn, task_kind, arg_bits);
-    if slot_idx < 0 {
-        return 0 - 1;
-    }
-    if thread_pool_apply_submission_strategy(pool, slot_idx) != 0 {
-        return slot_idx;
-    }
-    return 0 - 1;
+fn thread_pool_submit_slot_raw(pool: &ThreadPool, compute_fn: &void, task_kind: i32, arg_bits: usize) !i32 {
+    const slot_idx: i32 = try thread_pool_reserve_slot_raw(pool, compute_fn, task_kind, arg_bits);
+    return try thread_pool_apply_submission_strategy(pool, slot_idx);
 }
 
-fn thread_pool_submit_slot_i32(pool: &ThreadPool, compute_fn: &void, arg: i32) i32 {
+fn thread_pool_submit_slot_i32(pool: &ThreadPool, compute_fn: &void, arg: i32) !i32 {
     return thread_pool_submit_slot_raw(pool, compute_fn, THREAD_TASK_KIND_I32, arg as usize);
 }
 
-fn thread_pool_submit_slot_usize(pool: &ThreadPool, compute_fn: &void, arg: usize) i32 {
+fn thread_pool_submit_slot_usize(pool: &ThreadPool, compute_fn: &void, arg: usize) !i32 {
     return thread_pool_submit_slot_raw(pool, compute_fn, THREAD_TASK_KIND_USIZE, arg);
 }
 
-fn thread_pool_submit_slot_u32(pool: &ThreadPool, compute_fn: &void, arg: u32) i32 {
+fn thread_pool_submit_slot_u32(pool: &ThreadPool, compute_fn: &void, arg: u32) !i32 {
     return thread_pool_submit_slot_raw(pool, compute_fn, THREAD_TASK_KIND_U32, arg as usize);
 }
 
@@ -1149,10 +1149,11 @@ struct AsyncWorkerSubmitFuture : Future<!usize> {
     arg_bits: usize,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        const slot_idx: i32 = thread_pool_submit_slot_raw(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
-        if slot_idx < 0 {
-            return Poll<!usize>.Ready(thread_generic_error_usize());
-        }
+        const submit_result: !i32 = thread_pool_submit_slot_raw(self.pool, self.compute_fn, self.task_kind, self.arg_bits);
+        const slot_idx: i32 = submit_result catch {
+            const err_value: !usize = submit_result as! usize;
+            return Poll<!usize>.Ready(err_value);
+        };
         if thread_pool_has_pending(self.pool) {
             waker.wake();
         }

@@ -872,7 +872,7 @@ test "async_compute_submission_strategy_is_queue_or_error_without_fork_fallback"
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "submit_strategy: i32,\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const submission_strategy: i32 = thread_pool_submission_strategy(pool);\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "if submission_strategy == THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR {\0" as &const byte) as i32, 1);
-    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) !i32 {\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "return thread_pool_queue_or_error_slot(pool, slot_idx);\0" as &const byte) as i32, 1);
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "sys_fork(\0" as &const byte) as i32, 0);
 }
