@@ -2977,3 +2977,10 @@ Phase 5：发布闸门与文档同步
     - 完成内容：将 production smoke 入口改成成功时只输出阶段摘要、失败时回放完整子 gate 日志；同时把 `tests/verify_async_full_language_matrix.sh` 及其调用的 `tests/verify_async_await_capacity.sh`、`tests/verify_async_nested_future_boundary.sh`、`tests/verify_async_shared_runtime_matrix.sh` 的编译器路径统一为 `../uya/bin/uya`，去掉对 `UYA_COMPILER` 覆盖的依赖。
     - 验证命令：`bash -n tests/verify_async_production_smoke.sh tests/verify_async_full_language_matrix.sh tests/verify_async_await_capacity.sh tests/verify_async_nested_future_boundary.sh tests/verify_async_shared_runtime_matrix.sh`；`bash tests/verify_async_smoke_gate_separation.sh`；`bash tests/verify_async_production_smoke.sh`
     - 验证结果：全部通过；`verify_async_production_smoke.sh` 输出摘要 `verify_async_production_smoke: full-language, shared runtime, nested future, and cancel cleanup smoke matrix passed`。
+
+## Phase 5：发布闸门与文档同步
+
+路径：收口前至少跑通：
+  - [x] `make uya`
+    - 验证：`make uya`
+    - 结果：exit code 0；输出显示 `✓ 编译成功！`、`✓ 自举编译器构建完成: bin/uya（静态链接，零依赖）`、`✓ bin/uya.c 已更新`。

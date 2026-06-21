@@ -171,7 +171,6 @@
 ## Phase 5：发布闸门与文档同步
 
 - [ ] 收口前至少跑通：
-  - [ ] `make uya`
   - [ ] `make tests-uya`
   - [ ] `make check`
   - [ ] `make clean`
