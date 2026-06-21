@@ -4,6 +4,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+SCRIPT_DIR="$ROOT/tests"
+REPO_ROOT="$ROOT"
+BUILD_DIR="$SCRIPT_DIR/build"
+mkdir -p "$BUILD_DIR"
+source "$SCRIPT_DIR/async_shared_runtime_mix.sh"
 
 DURATION_SEC="${1:-1800}"   # 默认 30 分钟
 SAMPLE_INTERVAL="${2:-1}"   # 默认 1 秒采样
@@ -11,12 +16,14 @@ PORT=8876
 BIN="/tmp/uya_stress_http_async_epoll"
 REPORT="/tmp/uya_stress_http_async_epoll_report.txt"
 WRK_LOG="/tmp/uya_stress_http_async_epoll_wrk.log"
+MIX_LOG="/tmp/uya_stress_http_async_epoll_mix.log"
 COMPILER="$ROOT/../uya/bin/uya"
 export UYA_ROOT="${UYA_ROOT:-$ROOT/lib/}"
 FD_TOLERANCE="${ASYNC_STRESS_FD_TOLERANCE:-4}"
 EVENTFD_TOLERANCE="${ASYNC_STRESS_EVENTFD_TOLERANCE:-0}"
 RECOVERY_POLLS="${ASYNC_STRESS_RECOVERY_POLLS:-50}"
 RECOVERY_SLEEP_SECONDS="${ASYNC_STRESS_RECOVERY_SLEEP_SECONDS:-0.10}"
+MIX_ROUNDS="${ASYNC_STRESS_MIX_ROUNDS:-3}"
 
 check_cmd() {
     if ! command -v "$1" &>/dev/null; then
@@ -25,6 +32,7 @@ check_cmd() {
     fi
 }
 check_cmd wrk
+check_cmd curl
 
 if [[ ! -x "$COMPILER" ]]; then
     echo "错误: 缺少编译器 $COMPILER" >&2
@@ -81,6 +89,10 @@ wait_for_fd_recovery() {
     return 1
 }
 
+run_mixed_runtime_waves() {
+    run_async_shared_runtime_stress "$COMPILER" "$BUILD_DIR" "$MIX_ROUNDS" "stress_http_async_epoll"
+}
+
 echo "[1/5] 编译 benchmarks/http_bench_async_epoll.uya ..."
 "$COMPILER" --c99 "$ROOT/benchmarks/http_bench_async_epoll.uya" -o "$BIN"
 
@@ -115,6 +127,9 @@ echo "[3/5] 开始压测 ${DURATION_SEC}s (wrk -t4 -c100 -d${DURATION_SEC}s) ...
 wrk -t4 -c100 -d"${DURATION_SEC}s" --latency "http://127.0.0.1:$PORT/" > "$WRK_LOG" 2>&1 &
 WRK_PID=$!
 
+run_mixed_runtime_waves > "$MIX_LOG" 2>&1 &
+MIX_PID=$!
+
 echo "[4/5] 采样 RSS/fd (每 ${SAMPLE_INTERVAL}s) ..."
 START_EPOCH=$(date +%s)
 while kill -0 "$WRK_PID" 2>/dev/null; do
@@ -133,6 +148,11 @@ wait "$WRK_PID" 2>/dev/null || true
 WRK_EC=$?
 END_EPOCH=$(date +%s)
 ACTUAL_DURATION=$((END_EPOCH - START_EPOCH))
+if wait "$MIX_PID"; then
+    MIX_EC=0
+else
+    MIX_EC=$?
+fi
 RECOVERY_EC=0
 if ! wait_for_fd_recovery "$BASELINE_FD" "$BASELINE_EVENTFD"; then
     RECOVERY_EC=1
@@ -143,6 +163,7 @@ echo "=============================================="
 echo "压测时长: ${ACTUAL_DURATION}s (目标 ${DURATION_SEC}s)"
 echo "服务端 PID: $SERVER_PID"
 echo "wrk 退出码: $WRK_EC"
+echo "mixed runtime 退出码: $MIX_EC"
 echo "baseline fd/eventfd: ${BASELINE_FD}/${BASELINE_EVENTFD}"
 echo "recovered fd/eventfd: ${RECOVERED_FD}/${RECOVERED_EVENTFD}"
 echo "--- RSS/fd 趋势 (前 5 行) ---"
@@ -152,6 +173,10 @@ echo "--- RSS/fd 趋势 (后 5 行) ---"
 tail -n 5 "$REPORT"
 echo "--- wrk 摘要 ---"
 tail -n 20 "$WRK_LOG"
+if [[ $MIX_EC -ne 0 && -f "$MIX_LOG" ]]; then
+    echo "--- mixed runtime 摘要 ---"
+    tail -n 80 "$MIX_LOG"
+fi
 echo "=============================================="
 
 # 简单判稳：如果 RSS 最后一行比中间某时刻高出 50% 则警告
@@ -178,5 +203,8 @@ if [[ $WRK_EC -ne 0 ]]; then
 fi
 if [[ $RECOVERY_EC -ne 0 ]]; then
     exit 5
+fi
+if [[ $MIX_EC -ne 0 ]]; then
+    exit 6
 fi
 echo "ok: stress_http_async_epoll 完成"

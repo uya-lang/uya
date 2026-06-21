@@ -4,10 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
+COMPILER="$REPO_ROOT/../uya/bin/uya"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 BUILD_DIR="$SCRIPT_DIR/build"
 mkdir -p "$BUILD_DIR"
+source "$SCRIPT_DIR/async_shared_runtime_mix.sh"
 
 SRC="$REPO_ROOT/benchmarks/http_bench_async_epoll.uya"
 OUT_C="$BUILD_DIR/verify_http_bench_async_epoll_runtime.c"
@@ -37,6 +38,26 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+run_http_probe_burst() {
+    local base_url="$1"
+    local rounds="${2:-12}"
+    local pids=()
+    local i=0
+    local pid=""
+
+    while [ "$i" -lt "$rounds" ]; do
+        curl -fsS --http1.1 -H 'Connection: close' --max-time 2 "$base_url/" >/dev/null &
+        pids+=("$!")
+        curl -fsS --http1.1 -H 'Connection: close' --max-time 2 "$base_url/json" >/dev/null &
+        pids+=("$!")
+        i=$((i + 1))
+    done
+
+    for pid in "${pids[@]}"; do
+        wait "$pid"
+    done
+}
 
 echo "验证：启动服务并检查 HTTP 响应 ..."
 "$OUT_BIN" >"$BUILD_DIR/http_bench_async_epoll_runtime.log" 2>&1 &
@@ -77,6 +98,19 @@ if ! grep -q "^hello$" "$root_body"; then
 fi
 if ! grep -q "^\{\"ok\":true\}$" "$json_body"; then
     echo "✗ /json body 非 {\"ok\":true}"
+    exit 1
+fi
+
+echo "验证：bench 服务负载下运行共享 runtime 混合冒烟 ..."
+run_http_probe_burst "$BASE_URL" 12 &
+http_probe_pid=$!
+if ! run_async_shared_runtime_smoke "$COMPILER" "$BUILD_DIR" "http_bench_runtime"; then
+    wait "$http_probe_pid" || true
+    echo "✗ 共享 runtime 混合冒烟失败"
+    exit 1
+fi
+if ! wait "$http_probe_pid"; then
+    echo "✗ 混合冒烟期间 HTTP 探测失败"
     exit 1
 fi
 

@@ -2918,3 +2918,23 @@ verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP
   - 完成内容：新增 `tests/verify_async_bench_runtime_smoke.sh`，把 `http_bench_async_epoll` 的 compile/runtime/fd-leak smoke 独立成 bench/runtime gate；`tests/verify_async_production_smoke.sh` 不再把 benchmark/demo smoke 混入 production gate，只保留 full-language、shared runtime、nested future 与 cancel cleanup；新增 `tests/verify_async_smoke_gate_separation.sh` 固定这条边界。
   - 验证：`bash tests/verify_async_smoke_gate_separation.sh`（通过）；`bash tests/verify_async_bench_runtime_smoke.sh`（通过；compile/runtime/fd leak 全部通过）；`bash tests/verify_async_cancel_cleanup.sh`（通过）。
   - 额外验证：`bash tests/verify_async_production_smoke.sh` 运行到 full-language matrix 阶段失败；现有失败点为 `tests/test_std_dns_async_composition_shape.uya` 断言源码形状未命中 `@await async_socket_recv(fd, prefix_recv_base, 2 - bytes_received, deadline_ms)`，与本轮 gate 拆分改动无关。
+## Phase 4：生产级可靠性与可观测性
+
+- [x] 对 `http1_async`、DNS、TLS、`async_compute` 做混合压力测试，验证共享 runtime 不互相踩资源上限。
+
+  **验收**：
+
+  - [x] `tests/stress_http_async_epoll.sh`
+    验证：`ASYNC_STRESS_MIX_ROUNDS=1 bash tests/stress_http_async_epoll.sh 5 1`
+    结果：通过；`wrk 退出码: 0`，`mixed runtime 退出码: 0`，`recovered fd/eventfd: 59/0`
+  - [x] `tests/verify_http_bench_async_epoll_runtime.sh`
+    验证：`bash tests/verify_http_bench_async_epoll_runtime.sh`
+    结果：通过；bench 服务响应正常，并发 mixed runtime smoke 通过
+  - [x] 新增 `tests/verify_async_no_fd_leak.sh`
+    验证：`bash tests/verify_async_no_fd_leak.sh`
+    结果：通过；3 轮 mixed runtime + HTTP 负载后 `final_fd=11`、`final_eventfd=0`
+
+  备注：
+
+  - 新增 `tests/async_shared_runtime_mix.sh`，让 `stress_http_async_epoll.sh`、`verify_http_bench_async_epoll_runtime.sh`、`verify_async_no_fd_leak.sh` 在同一轮里并发跑 shared runtime 的 HTTP/DNS/TLS/async_compute 波次
+  - 新增 `tests/test_async_compute_dynamic_resource_pressure.uya`，用稳定的动态队列压力回归覆盖 async_compute 资源上限，不把对 `drain_count` 时序敏感的内部度量绑进混合验收脚本

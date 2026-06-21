@@ -7,6 +7,7 @@ COMPILER="$REPO_ROOT/../uya/bin/uya"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 BUILD_DIR="$SCRIPT_DIR/build"
 mkdir -p "$BUILD_DIR"
+source "$SCRIPT_DIR/async_shared_runtime_mix.sh"
 
 SRC="$REPO_ROOT/benchmarks/http_bench_async_epoll.uya"
 OUT_C="$BUILD_DIR/verify_async_no_fd_leak.c"
@@ -203,10 +204,25 @@ printf 'baseline_fd=%s baseline_eventfd=%s threads=%s rounds=%s requests_per_rou
 
 round=1
 while [ "$round" -le "$ROUNDS" ]; do
+    round_failed=0
+    echo "==> round $round/$ROUNDS shared runtime mix"
+    run_async_shared_runtime_wave "$COMPILER" "$BUILD_DIR" "fd_leak_round_${round}" &
+    mix_pid=$!
     echo "==> round $round/$ROUNDS root route"
-    run_request_batch "round $round root" "$BASE_URL/"
+    if ! run_request_batch "round $round root" "$BASE_URL/"; then
+        round_failed=1
+    fi
     echo "==> round $round/$ROUNDS json route"
-    run_request_batch "round $round json" "$BASE_URL/json"
+    if [ "$round_failed" -eq 0 ] && ! run_request_batch "round $round json" "$BASE_URL/json"; then
+        round_failed=1
+    fi
+    if ! wait "$mix_pid"; then
+        echo "shared runtime mix failed during round $round"
+        round_failed=1
+    fi
+    if [ "$round_failed" -ne 0 ]; then
+        exit 1
+    fi
     wait_for_fd_recovery "$baseline_fd" "$baseline_eventfd" "round_$round"
     round=$((round + 1))
 done

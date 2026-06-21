@@ -1,0 +1,131 @@
+use std.async;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+use std.thread;
+use libc.syscall;
+
+const PRESSURE_CAPACITY: i32 = THREAD_POOL_MAX_PENDING + 4;
+const PRESSURE_TASK_COUNT: usize = 20 as usize;
+const PRESSURE_PENDING_TARGET: i32 = THREAD_POOL_MAX_TASK_SLOTS + 1;
+const PRESSURE_WAIT_RETRIES: i32 = 2000;
+const PRESSURE_WAVES: i32 = 2;
+
+fn delayed_add_one_i32(v: i32) i32 {
+    const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 50 * 1000 * 1000 };
+    var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    _ = sys_nanosleep(&req, &rem) catch {};
+    return v + 1;
+}
+
+fn sleep_wait_poll() void {
+    const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 1 * 1000 * 1000 };
+    var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    _ = sys_nanosleep(&req, &rem) catch {};
+}
+
+fn wait_started_workers(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < PRESSURE_WAIT_RETRIES {
+        if thread_pool_started_workers(pool) == target {
+            return 1;
+        }
+        sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn wait_pending_at_least(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < PRESSURE_WAIT_RETRIES {
+        if thread_pool_pending_count(pool) >= target {
+            return 1;
+        }
+        sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn make_pressure_pool() ThreadPool {
+    return thread_pool_new_with_config(ThreadPoolConfig{
+        worker_count: 1,
+        pending_capacity: PRESSURE_CAPACITY,
+        task_slot_capacity: PRESSURE_CAPACITY,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
+    });
+}
+
+fn run_pressure_wave(pool: &ThreadPool) !void {
+    var futures: [Future<!i32>: 20] = [
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 0),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 1),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 2),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 3),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 4),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 5),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 6),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 7),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 8),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 9),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 10),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 11),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 12),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 13),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 14),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 15),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 16),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 17),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 18),
+        async_compute<i32>(pool, &delayed_add_one_i32 as &void, 19),
+    ];
+    var wakers: [Waker: 20] = [
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+        Waker{}, Waker{}, Waker{}, Waker{}, Waker{},
+    ];
+    var i: usize = 0 as usize;
+
+    while i < PRESSURE_TASK_COUNT {
+        _ = futures[i].poll(&wakers[i]);
+        i = i + 1 as usize;
+    }
+
+    i = 0 as usize;
+    while i < PRESSURE_TASK_COUNT {
+        _ = futures[i].poll(&wakers[i]);
+        i = i + 1 as usize;
+    }
+
+    try assert_eq_i32(wait_started_workers(pool, 1), 1);
+    try assert_eq_i32(wait_pending_at_least(pool, PRESSURE_PENDING_TARGET), 1);
+    try expect(thread_pool_pending_count(pool) > THREAD_POOL_MAX_TASK_SLOTS);
+
+    i = 0 as usize;
+    while i < PRESSURE_TASK_COUNT {
+        const value: i32 = try block_on<i32>(futures[i]);
+        try assert_eq_i32(value, i as i32 + 1);
+        i = i + 1 as usize;
+    }
+
+    try assert_eq_i32(thread_pool_pending_count(pool), 0);
+    try assert_eq_i32(thread_pool_started_workers(pool), 1);
+}
+
+test "async_compute_dynamic_resource_pressure_survives_repeated_queue_stress" {
+    var pool: ThreadPool = make_pressure_pool();
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    try assert_eq_i32(pool.worker_count, 1);
+    try expect(pool.pending_capacity > THREAD_POOL_MAX_PENDING);
+    try expect(pool.task_slot_capacity > THREAD_POOL_MAX_TASK_SLOTS);
+
+    var wave: i32 = 0;
+    while wave < PRESSURE_WAVES {
+        try run_pressure_wave(&pool);
+        wave = wave + 1;
+    }
+}

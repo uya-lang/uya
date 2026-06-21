@@ -168,16 +168,6 @@
 
 ### 3.4 ThreadPool / async_compute
 
-## Phase 4：生产级可靠性与可观测性
-
-- [ ] 对 `http1_async`、DNS、TLS、`async_compute` 做混合压力测试，验证共享 runtime 不互相踩资源上限。
-
-**验收**：
-
-- [ ] `tests/stress_http_async_epoll.sh`
-- [ ] `tests/verify_http_bench_async_epoll_runtime.sh`
-- [ ] 新增 `tests/verify_async_no_fd_leak.sh`
-
 ## Phase 5：发布闸门与文档同步
 
 - [ ] 新增/更新权威验证脚本：
