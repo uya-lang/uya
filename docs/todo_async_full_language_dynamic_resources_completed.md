@@ -1910,3 +1910,11 @@
   - 结果：通过；14 个相关异步 fd/sendfile 测试全部通过。
   - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`
   - 结果：通过；25 个 uyagin 回归测试全部通过。
+
+### 1.5.5 第三批：把协议/服务端热路径 future 改写成 `@async_fn`
+
+上下文：`lib/std/http/uyagin.uya`
+
+- [x] 将 `UyaginConnReadParseFuture` / `UyaginConnReadParseIntoFuture` 改为 `@async_fn` + 通用 read helper。
+  - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`（通过：1/1 tests passed）
+  - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过：25/25 tests passed）

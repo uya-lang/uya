@@ -816,7 +816,7 @@ test "async_read_parse_helpers_decode_chunked_request_and_preserve_err_out" {
 
     var parse_buf: [byte: 256] = [];
     var parse_filled: usize = 0;
-    const parsed: ParseResult = try block_on<ParseResult>(async_read_parse(parse_fds[0], &parse_buf[0] as &byte, 256, &parse_filled));
+    const parsed: ParseResult = try block_on<ParseResult>(uyagin_conn_read_parse_async(parse_fds[0], &parse_buf[0] as &byte, 256, &parse_filled));
     try assert_eq_i32(parsed.request.method as i32, Method.POST as i32);
     try assert_eq_i32(parsed.request.path_len, 6);
     if !slice_eq_bytes(parsed.request.body, "hello world") {

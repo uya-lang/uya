@@ -151,6 +151,33 @@ test "std_business_protocol_and_composition_async_boundaries_stay_on_async_fn" {
         UYAGIN_SOURCE_PATH,
         "return try @await async_sendfile(fd, file_fd, total_len);\0" as &const byte,
     );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn fn uyagin_conn_read_more_future(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!usize> {\0" as &const byte,
+        "struct UyaginConnReadMoreFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn fn uyagin_conn_read_parse_future(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {\0" as &const byte,
+        "struct UyaginConnReadParseFuture : Future<!ParseResult>\0" as &const byte,
+    );
+    try assert_source_has_async_boundary(
+        UYAGIN_SOURCE_PATH,
+        "@async_fn fn uyagin_conn_read_parse_into_future(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {\0" as &const byte,
+        "struct UyaginConnReadParseIntoFuture : Future<!usize>\0" as &const byte,
+    );
+    try assert_source_has_text(
+        UYAGIN_SOURCE_PATH,
+        "const n: usize = try @await async_fd_read_future(fd, read_dst, read_len);\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        UYAGIN_SOURCE_PATH,
+        "return async_read_parse(fd, base, cap, filled);\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        UYAGIN_SOURCE_PATH,
+        "return async_read_parse_into(fd, base, cap, filled, out, err_out);\0" as &const byte,
+    );
 
     try assert_source_has_async_boundary(
         DNS_SOURCE_PATH,
