@@ -15,6 +15,7 @@ use std.http.parse.http_parse_request_into;
 use std.http.parse.http_decode_chunked_body_inplace;
 use std.mem.allocator.IAllocator;
 use std.string.strlen;
+use std.time.deadline_after_ms;
 use std.time.deadline_expired;
 
 /// 线程本地 async frame 分配器（通过 pthread TSD 绑定）
@@ -532,74 +533,190 @@ export fn async_poll_pending_readable_parse_result(waker: &Waker, fd: i32) Poll<
     return async_poll_pending_parse_result();
 }
 
-struct AsyncJoin2UsizeResultsFuture : Future<!usize> {
-    first: Future<!usize>,
-    first_out: &usize,
-    first_error_out: &u32,
-    first_done: i32,
-    second: Future<!usize>,
-    second_out: &usize,
-    second_error_out: &u32,
-    second_done: i32,
+fn async_join2_store_usize_result(result: !usize, out: &usize, error_out: &u32) void {
+    error_out[0] = result.error_id;
+    if result.error_id == 0u32 {
+        out[0] = result.value;
+        return;
+    }
+    out[0] = 0;
+}
 
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if self.first_done == 0 {
-            const first_poll: Poll<!usize> = self.first.poll(waker);
-            match first_poll {
-                .Pending(_) => {},
-                .Ready(first_result) => {
-                    self.first_done = 1;
-                    self.first_error_out[0] = first_result.error_id;
-                    if first_result.error_id == 0u32 {
-                        self.first_out[0] = first_result.value;
-                    } else {
-                        self.first_out[0] = 0;
-                    }
-                },
-            };
-        }
-        if self.second_done == 0 {
-            const second_poll: Poll<!usize> = self.second.poll(waker);
-            match second_poll {
-                .Pending(_) => {},
-                .Ready(second_result) => {
-                    self.second_done = 1;
-                    self.second_error_out[0] = second_result.error_id;
-                    if second_result.error_id == 0u32 {
-                        self.second_out[0] = second_result.value;
-                    } else {
-                        self.second_out[0] = 0;
-                    }
-                },
-            };
-        }
-        if self.first_done == 0 || self.second_done == 0 {
-            return Poll<!usize>.Pending({});
-        }
-        return async_poll_ready_ok_usize(2);
+fn async_join2_has_io_interest(waker: &Waker) bool {
+    return waker.has_io_interest() && waker.io_fd() >= 0;
+}
+
+fn async_join2_interest_to_epoll_events(interest: i32) u32 {
+    if interest == 2 {
+        return EPOLLOUT as u32;
+    }
+    if interest == 1 {
+        return EPOLLIN as u32;
+    }
+    return 0 as u32;
+}
+
+fn async_join2_register_epoll_interest(epfd: i32, fd: i32, events: u32) !i32 {
+    if fd < 0 || events == 0u32 {
+        return 0;
+    }
+    var ev: EpollEvent = EpollEvent{ events: events, _pad: 0, data: fd as u64 };
+    _ = try sys_epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+    return 1;
+}
+
+fn async_join2_register_epoll_pair(epfd: i32, first_waker: &Waker, second_waker: &Waker) !i32 {
+    var first_fd: i32 = 0 - 1;
+    var first_events: u32 = 0;
+    if async_join2_has_io_interest(first_waker) {
+        first_fd = first_waker.io_fd();
+        first_events = async_join2_interest_to_epoll_events(first_waker.io_interest_code());
     }
 
-    fn release(self: &Self) void {
-        self.first.release();
-        self.second.release();
-        async_box_free_current(self as &byte);
+    var second_fd: i32 = 0 - 1;
+    var second_events: u32 = 0;
+    if async_join2_has_io_interest(second_waker) {
+        second_fd = second_waker.io_fd();
+        second_events = async_join2_interest_to_epoll_events(second_waker.io_interest_code());
     }
+
+    if first_fd >= 0 && first_fd == second_fd {
+        first_events = first_events | second_events;
+        second_fd = 0 - 1;
+        second_events = 0;
+    }
+
+    var registered: i32 = 0;
+    registered = registered + (try async_join2_register_epoll_interest(epfd, first_fd, first_events));
+    registered = registered + (try async_join2_register_epoll_interest(epfd, second_fd, second_events));
+    return registered;
+}
+
+fn async_join2_wait_deadline_ms() !u64 {
+    return deadline_after_ms(16 as u32);
+}
+
+@async_fn fn async_join2_wait_single_fd(fd: i32, interest: i32) Future<!usize> {
+    const deadline_ms: u64 = try async_join2_wait_deadline_ms();
+    if interest == 2 {
+        const wait_result: !usize = @await async_wait_writable(fd, deadline_ms);
+        _ = wait_result catch |err| {
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return 0 as usize;
+            }
+            return err;
+        };
+        return 1 as usize;
+    }
+    if interest == 1 {
+        const wait_result: !usize = @await async_wait_readable(fd, deadline_ms);
+        _ = wait_result catch |err| {
+            if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+                return 0 as usize;
+            }
+            return err;
+        };
+        return 1 as usize;
+    }
+    return error.FutureNotReady;
+}
+
+@async_fn fn async_join2_wait_pending_linux(first_waker: &Waker, second_waker: &Waker) Future<!usize> {
+    const epfd: i32 = try sys_epoll_create1(EPOLL_CLOEXEC);
+    const deadline_ms: u64 = try async_join2_wait_deadline_ms();
+    defer {
+        _ = sys_close(epfd) catch {};
+    }
+    const registered: i32 = try async_join2_register_epoll_pair(epfd, first_waker, second_waker);
+    if registered == 0 {
+        return 0 as usize;
+    }
+    const wait_result: !usize = @await async_wait_readable(epfd, deadline_ms);
+    _ = wait_result catch |err| {
+        if @error_id(err) == @error_id(error.AsyncDeadlineExceeded) {
+            return 0 as usize;
+        }
+        return err;
+    };
+    return registered as usize;
+}
+
+@async_fn fn async_join2_wait_pending_fallback(first_waker: &Waker, second_waker: &Waker) Future<!usize> {
+    if async_join2_has_io_interest(first_waker) {
+        return try @await async_join2_wait_single_fd(first_waker.io_fd(), first_waker.io_interest_code());
+    }
+    if async_join2_has_io_interest(second_waker) {
+        return try @await async_join2_wait_single_fd(second_waker.io_fd(), second_waker.io_interest_code());
+    }
+    return 0 as usize;
+}
+
+@async_fn fn async_join2_wait_pending(first_waker: &Waker, second_waker: &Waker) Future<!usize> {
+    std.cfg(std.target_os == .tos_linux, {
+        return try @await async_join2_wait_pending_linux(first_waker, second_waker);
+    }, {
+        return try @await async_join2_wait_pending_fallback(first_waker, second_waker);
+    })
 }
 
 /// 并发驱动两个 `Future<!usize>` 直到都完成。
 /// 参数说明：`first`/`second` 为待并发轮询的 future；`*_out` 写入成功值；`*_error_out` 写入各自 `error_id`。
 /// 返回值说明：两者都完成后返回 `2`；无论子 future 成功还是失败，本 future 都返回成功并把结果写入输出参数。
-export fn async_join2_usize_results(first: Future<!usize>, first_out: &usize, first_error_out: &u32, second: Future<!usize>, second_out: &usize, second_error_out: &u32) Future<!usize> {
-    return AsyncJoin2UsizeResultsFuture{
-        first: first,
-        first_out: first_out,
-        first_error_out: first_error_out,
-        first_done: 0,
-        second: second,
-        second_out: second_out,
-        second_error_out: second_error_out,
-        second_done: 0,
-    };
+export @async_fn fn async_join2_usize_results(first: Future<!usize>, first_out: &usize, first_error_out: &u32, second: Future<!usize>, second_out: &usize, second_error_out: &u32) Future<!usize> {
+    var first_done: i32 = 0;
+    var second_done: i32 = 0;
+    var first_waker: Waker = Waker{ _io_fd: 0 - 1, _event_fd: 0 - 1 };
+    var second_waker: Waker = Waker{ _io_fd: 0 - 1, _event_fd: 0 - 1 };
+
+    while first_done == 0 || second_done == 0 {
+        var made_progress: i32 = 0;
+
+        if first_done == 0 {
+            first_waker.reset();
+            first_waker.clear_io_interest();
+            const first_poll: Poll<!usize> = first.poll(&first_waker);
+            match first_poll {
+                .Pending(_) => {
+                    if first_waker.is_woken() {
+                        made_progress = 1;
+                    }
+                },
+                .Ready(first_result) => {
+                    first_done = 1;
+                    made_progress = 1;
+                    async_join2_store_usize_result(first_result, first_out, first_error_out);
+                },
+            };
+        }
+
+        if second_done == 0 {
+            second_waker.reset();
+            second_waker.clear_io_interest();
+            const second_poll: Poll<!usize> = second.poll(&second_waker);
+            match second_poll {
+                .Pending(_) => {
+                    if second_waker.is_woken() {
+                        made_progress = 1;
+                    }
+                },
+                .Ready(second_result) => {
+                    second_done = 1;
+                    made_progress = 1;
+                    async_join2_store_usize_result(second_result, second_out, second_error_out);
+                },
+            };
+        }
+
+        if first_done != 0 && second_done != 0 {
+            return 2 as usize;
+        }
+        if made_progress != 0 {
+            continue;
+        }
+        _ = try @await async_join2_wait_pending(&first_waker, &second_waker);
+    }
+
+    return 2 as usize;
 }
 
 // 注册常用 `ok<T>` 单态，供 poll_ready / 线程异步计算等生成的 C 链接（勿调用对应 `std_ok_*` 以免递归）。

@@ -2131,3 +2131,15 @@
         - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`（通过：3 tests, 16 assertions）
         - 验证：`../uya/bin/uya test tests/test_async_fd.uya`（通过：14 tests, 85 assertions）
         - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过：25 tests, 37 assertions）
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+路径：`如果要做到“标准库里 0 手写业务 Future”` -> `要么连当前真实残留的 runtime future 也继续消灭`
+    - [x] 继续消灭 `lib/std/async.uya` 中组合/协议壳 residual（`AsyncJoin2UsizeResultsFuture`、`AsyncReadParseIntoFuture`）
+      - [x] 在不把 `dns_client_query_all_any_async` 退化为串行 A/AAAA 查询的前提下，消灭 `AsyncJoin2UsizeResultsFuture`
+        - 最小验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`
+        - 验证命令：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`
+        - 验证结果：通过（1 test / 21 assertions）
+        - 扩展验证：`../uya/bin/uya test tests/test_std_dns_async_query_aggregate.uya`
+        - 扩展验证结果：通过（3 tests / 6 assertions）
+        - 扩展验证：`../uya/bin/uya test tests/test_async_runtime_shared_dns.uya`
+        - 扩展验证结果：通过（1 test / 2 assertions）

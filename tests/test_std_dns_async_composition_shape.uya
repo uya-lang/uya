@@ -8,6 +8,7 @@ error DnsAsyncShapeSourceOpenFailed;
 error DnsAsyncShapeSourceReadFailed;
 
 const DNS_SOURCE_PATH: &const byte = "lib/std/net/dns.uya\0" as &const byte;
+const ASYNC_SOURCE_PATH: &const byte = "lib/std/async.uya\0" as &const byte;
 const DNS_SOURCE_MAX: usize = 131072;
 
 fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
@@ -81,8 +82,8 @@ fn source_section_contains_cstr(hay: &const byte, hay_len: usize, start_marker: 
     return source_contains_cstr(section_ptr, body_len, needle);
 }
 
-fn read_dns_source(buf: &byte, cap: usize) !usize {
-    const fd: i32 = sys_open(DNS_SOURCE_PATH, O_RDONLY as i32, 0) catch {
+fn read_source(path: &const byte, buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(path, O_RDONLY as i32, 0) catch {
         return error.DnsAsyncShapeSourceOpenFailed;
     };
     const n: isize = sys_read(fd, buf as *byte, cap) catch {
@@ -98,11 +99,13 @@ fn read_dns_source(buf: &byte, cap: usize) !usize {
 
 test "dns_async_transport_and_aggregate_use_async_fn_composition" {
     var src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
-    const len: usize = try read_dns_source(&src[0], DNS_SOURCE_MAX);
+    const len: usize = try read_source(DNS_SOURCE_PATH, &src[0], DNS_SOURCE_MAX);
     const tcp_start: &const byte = "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {\0" as &const byte;
     const transport_start: &const byte = "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize> {\0" as &const byte;
     const aggregate_start: &const byte = "@async_fn fn dns_client_query_all_any_async(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize> {\0" as &const byte;
     const aggregate_end: &const byte = "export fn dns_client_query_a_tcp_future(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize) Future<!usize> {\0" as &const byte;
+    const join_start: &const byte = "export @async_fn fn async_join2_usize_results(first: Future<!usize>, first_out: &usize, first_error_out: &u32, second: Future<!usize>, second_out: &usize, second_error_out: &u32) Future<!usize> {\0" as &const byte;
+    const join_end: &const byte = "fn async_registry_ok_monos() void {\0" as &const byte;
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn dns_tcp_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "@async_fn fn dns_query_transport_future_new(ctx: &DnsClient, host: &const byte, host_len: usize, out: &byte, out_max: usize, out_len: &usize, mode: i32) Future<!usize>\0" as &const byte) as i32, 1);
@@ -120,4 +123,12 @@ test "dns_async_transport_and_aggregate_use_async_fn_composition" {
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, transport_start, aggregate_start, ".poll(\0" as &const byte) as i32, 0);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, aggregate_start, aggregate_end, "async_join2_usize_results(a_future, &a_n, &a_err_id, aaaa_future, &aaaa_n, &aaaa_err_id)\0" as &const byte) as i32, 1);
     try assert_eq_i32(source_section_contains_cstr(&src[0], len, aggregate_start, aggregate_end, ".poll(\0" as &const byte) as i32, 0);
+
+    var async_src: [byte: DNS_SOURCE_MAX] = [0: DNS_SOURCE_MAX];
+    const async_len: usize = try read_source(ASYNC_SOURCE_PATH, &async_src[0], DNS_SOURCE_MAX);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "struct AsyncJoin2UsizeResultsFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "return AsyncJoin2UsizeResultsFuture{\0" as &const byte) as i32, 0);
+    try assert_eq_i32(source_contains_cstr(&async_src[0], async_len, "export @async_fn fn async_join2_usize_results(first: Future<!usize>, first_out: &usize, first_error_out: &u32, second: Future<!usize>, second_out: &usize, second_error_out: &u32) Future<!usize>\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&async_src[0], async_len, join_start, join_end, "const first_poll: Poll<!usize> = first.poll(&first_waker);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_section_contains_cstr(&async_src[0], async_len, join_start, join_end, "const second_poll: Poll<!usize> = second.poll(&second_waker);\0" as &const byte) as i32, 1);
 }

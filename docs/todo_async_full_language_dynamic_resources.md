@@ -161,9 +161,6 @@
 
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
   - [ ] 要么连当前真实残留的 runtime future 也继续消灭
-    - [ ] 继续消灭 `lib/std/async.uya` 中组合/协议壳 residual（`AsyncJoin2UsizeResultsFuture`、`AsyncReadParseIntoFuture`）
-      - [ ] 在不把 `dns_client_query_all_any_async` 退化为串行 A/AAAA 查询的前提下，消灭 `AsyncJoin2UsizeResultsFuture`
-        - 最小验证：`../uya/bin/uya test tests/test_std_dns_async_composition_shape.uya`
     - [ ] 继续消灭 `lib/std/async.uya` 中 fd syscall residual（`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`），或在 line 160 路线里正式转为 substrate
     - [ ] 继续消灭 `lib/std/thread.uya` 中 worker bridge residual（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`），或在 line 160 路线里正式转为 substrate
   - [ ] 要么把这三类定义为语言/runtime substrate，不再算作标准库业务层 hand-written future
