@@ -16,12 +16,12 @@
 | `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512` | frame 元信息和池容量都有硬上限 |
 | `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096` | 大 header / 扩展请求场景不是真动态 |
 
-### 2. 编译器 async 相关容量仍有硬编码
+### 2. 编译器 async 容量路径现状
 
 | 模块 | 现状 | 影响 |
 |------|------|------|
-| `src/checker/async_frame_meta.uya` | `MAX_ASYNC_FRAME_METAS=512` | async frame 元信息会在大工程中截断 |
-| `src/codegen/c99/main.uya` | 生成 `_uya_async_frame_descriptors` 时仍按 `MAX_ASYNC_FRAME_METAS` 截断 | codegen 与 runtime descriptor 上限耦合 |
+| `src/checker/async_frame_meta.uya` | async frame meta 表已按需扩容，不再固定 `512` | 剩余风险转为大样本验证覆盖，而非静默截断 |
+| `src/codegen/c99/main.uya` | `_uya_async_frame_descriptors` 已按 `async_frame_meta_count` 真实数量生成 | 仍需把 `>512` frame 压测固化到仓库回归 |
 
 ### 3. 已知语法/语义缺口仍存在
 
@@ -41,8 +41,8 @@
 | **通用语言边界** | iterator `for` 接口值（同步与 async checker 均失败，非 async 独有缺口） | `src/checker/check_node_extra.uya`、`tests/error_for_iterator_interface_value.uya`、`tests/error_async_for_iterator_interface_await.uya` |
 | 语法/语义不支持 | iterator `for` 引用绑定 + `@await`（历史缺口，现已转入 `tests/test_async_for_iterator_ref_await.uya` 正向回归） | `src/codegen/c99/function.uya`、`tests/test_async_for_iterator_ref_await.uya` |
 | 语法/语义已收口 | 无 await 的 `!Future<Future<T>>` + 同步 `try` 返回（C99 发射与 host C 编译已由专项脚本验证） | `tests/test_async_nested_future_poll.uya`、`tests/verify_async_nested_future_boundary.sh` |
-| 编译器内部固定容量 | `MAX_ASYNC_FRAME_METAS=512` | `src/checker/async_frame_meta.uya` |
-| 编译器内部固定容量 | frame descriptor 静默截断到 `512` | `src/codegen/c99/main.uya` |
+| 编译器容量路径已动态化 | async frame meta 表按需扩容 | `src/checker/async_frame_meta.uya` |
+| 编译器容量路径已动态化 | frame descriptor 按真实数量发射，不再固定 `512` | `src/codegen/c99/main.uya` |
 | **运行时/协议层固定容量** | epoll slot/event `1024`、`find_slot()` 线性扫 | `lib/std/async_event.uya` |
 | 运行时/协议层固定容量 | `TaskQueue<T>` 默认队列已自动增长，显式容量队列仍保留调用方配置上限 | `lib/std/async_scheduler.uya` |
 | 运行时/协议层固定容量 | `_frame_stack_buffer[8192]`、inline repoll `1024` | `lib/std/async_scheduler.uya` |
@@ -87,8 +87,6 @@
 
 > 待清理项登记（silent truncation / emitter stderr / workaround）：
 > - `src/codegen/c99/function.uya:758`："简化处理：使用临时缓冲区" → 确认是否仍为临时方案
-> - `src/checker/async_frame_meta.uya:41,49,58`：`MAX_ASYNC_FRAME_METAS=512` 静默截断 → 待 Phase 2 动态化
-> - `src/codegen/c99/main.uya`：frame descriptor 静默截断到 512 → 待 Phase 2 动态化
 > - `tests/error_async_too_many_awaits.uya`、`tests/error_async_too_many_params.uya`：旧人为上限测试 → 待 Phase 2 替换为压力测试
 > - `tests/test_async_defer_errdefer.uya`：已迁入 `try @await` 错误传播触发 `errdefer` 的正向回归；默认回归不再排除旧边界文件
 > - **已有覆盖**（20项）：基础解析、Ready/Pending、err-union await、if/else if、while、for range/array/iter、复合表达式、大状态机、方法/接口、frame、runtime/scheduler/client、sync/async对齐矩阵、match/catch/defer/errdefer、宏展开、nested future（边界明确）
@@ -163,7 +161,6 @@
 
 ## Phase 2：编译器 async 资源动态化
 
-- [ ] 把 `src/codegen/c99/main.uya` 的 async frame descriptor emission 改成“按真实数量生成”，不再静默截断到 `512`。
 - [ ] 为“超大 async 函数”建立新的错误模型：
   - [ ] 若只是旧的人为上限，不应再报错
   - [ ] 若真因内存耗尽或编译器资源不足失败，要给出明确诊断，而不是静默丢字段/丢状态

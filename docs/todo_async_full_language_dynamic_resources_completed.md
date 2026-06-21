@@ -2445,3 +2445,11 @@
 - [x] 把 `src/checker/async_frame_meta.uya` 的 `MAX_ASYNC_FRAME_METAS` 改成动态元信息表。
   - 验证：`python3 tests/verify_async_compiler_no_fixed_limits.py`（通过）
   - 验证：`../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`（通过，3 个子测试全部通过）
+
+## Phase 2：编译器 async 资源动态化
+
+父级任务路径：Phase 2：编译器 async 资源动态化。
+- [x] 把 `src/codegen/c99/main.uya` 的 async frame descriptor emission 改成“按真实数量生成”，不再静默截断到 `512`。
+  - 验证：`python3 tests/verify_async_compiler_no_fixed_limits.py`
+  - 验证：`../uya/bin/uya test tests/test_c99_async_frame_descriptors.uya`
+  - 验证：临时生成 `tests/build/generated_async_descriptor_513.uya`，运行 `../uya/bin/uya --c99 tests/build/generated_async_descriptor_513.uya -o /tmp/uya-async-desc-513.XXXXXX.c`，检查得到 `_uya_async_frame_descriptor_entries[533]`、`_uya_async_frame_descriptor_count = 533`，且 `generated_async_512` frame 已发射。
