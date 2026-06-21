@@ -2016,3 +2016,16 @@
     - 结果：11 tests passed, 0 failed。
     - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`
     - 结果：4 tests passed, 0 failed。
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+路径：
+- [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - [ ] 要么连当前真实残留的 runtime future 也继续消灭
+    - [x] 先把 `lib/std/async.uya` 的 substrate 清单纠偏为当前真实残留 `AsyncWaitFdFuture`，同步 1.5.1 / 1.5.6 文案并保留验证命令；完成条件：主 todo 仅把 `AsyncWaitFdFuture` 记为 async runtime substrate 残留
+      - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`
+      - 结果：1 个测试通过；`async_wait_readable` / `async_wait_writable` 仍保留，`AsyncFdReadFuture` / `AsyncFdWriteFuture` 结构体不存在。
+      - 验证：`rg -n "AsyncFdReadFuture|AsyncFdWriteFuture|AsyncWaitFdFuture" docs/todo_async_full_language_dynamic_resources.md`
+      - 结果：主 todo 在 1.5.1 / 1.5.6 只保留 `AsyncWaitFdFuture` 作为 async substrate，旧 `AsyncFd*Future` 不再被记为残留对象。
+      - 验证：`git diff --check`
+      - 结果：通过。

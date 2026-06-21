@@ -123,7 +123,7 @@
 
 | 模块 | 手工 Future | 类型 | 当前作用 |
 |------|------|------|------|
-| `lib/std/async.uya` | `AsyncFdWriteFuture`、`AsyncFdReadFuture` | runtime substrate 候选 | fd 非阻塞 read/write，直接封装 `Waker.wait_readable/wait_writable` |
+| `lib/std/async.uya` | `AsyncWaitFdFuture` | runtime substrate 候选 | fd readiness wait substrate；具体 read/write helper 已收口为 `@async_fn` |
 | `lib/std/thread.uya` | `AsyncComputeFuture<T>` | runtime substrate 候选 / 调度桥接 | worker slot / pipe / cancel / shared queue + capacity error strategy |
 | `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture` | 传输层叶子 | UDP/TCP 非阻塞 connect/send/recv + timeout/fallback |
 | `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | 协议层 I/O 叶子 | nonblocking connect + deadline |
@@ -150,13 +150,15 @@
 >
 > 在 1.5.4 / 1.5.5 收口后，若仍有手写 `poll()`，只允许剩下两组底座能力：
 >
-> - `lib/std/async.uya`：`AsyncFdReadFuture` / `AsyncFdWriteFuture`
+> - `lib/std/async.uya`：`AsyncWaitFdFuture`
 > - `lib/std/thread.uya`：`AsyncComputeFuture<T>`
 >
 > `Http1ConnectFuture`、`DnsUdpFuture`、`DnsTcpFuture`、`UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` 都不计入 substrate，必须在前面阶段迁移出业务模块，不能作为“底座例外”无限期保留。
 
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
-  - [ ] 要么连 `AsyncFdReadFuture` / `AsyncFdWriteFuture` / `AsyncComputeFuture<T>` 也消灭
+  - [ ] 要么连当前真实残留的 runtime future 也继续消灭
+    - [ ] 评估 `AsyncWaitFdFuture` 是否还能继续下沉成更细的语言/runtime wait primitive；完成条件：给出“继续消灭”或“保留为 substrate”的单一路径，并能用代码现状解释；验证：`rg -n "struct AsyncWaitFdFuture|export fn async_wait_readable|export fn async_wait_writable|export @async_fn fn async_fd_(read|write)" lib/std/async.uya`
+    - [ ] 评估 `AsyncComputeFuture<T>` 是否能在不扩大 codegen/runtime 特判面的前提下消灭；完成条件：明确列出仍阻塞彻底消灭的状态机/代码生成依赖，或完成实际迁移；验证：`rg -n "AsyncComputeFuture|async_worker_submit|async_worker_result|async_worker_cancel|AsyncComputeFuture_" lib/std/thread.uya src/codegen/c99`
   - [ ] 要么把这三类定义为语言/runtime substrate，不再算作标准库业务层 hand-written future
   - [ ] 二者必须选其一，不能长期模糊
 
