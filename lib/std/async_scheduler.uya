@@ -25,7 +25,7 @@ error TimedOut;
 
 export const TASK_QUEUE_CAPACITY: i32 = 64;
 export const TASK_QUEUE_I32_CAPACITY: i32 = TASK_QUEUE_CAPACITY;
-const SCHEDULER_INLINE_REPOLL_LIMIT: i32 = 1024;
+const SCHEDULER_COMPAT_INLINE_REPOLL_LIMIT: i32 = 1024;
 const SCHEDULER_DEFAULT_FRAME_BUFFER_BYTES: usize = 8192;
 
 // 本地时间辅助函数（避免跨模块 time.xxx 调用在泛型函数中的编译器 bug）
@@ -151,6 +151,17 @@ fn scheduler_normalize_inline_repoll_limit(limit: i32) i32 {
     return limit;
 }
 
+fn scheduler_env_looks_like_int(env: &byte) bool {
+    if env == null || env[0] == 0 as byte {
+        return false;
+    }
+    const first: byte = env[0];
+    if first == 43 as byte || first == 45 as byte {
+        return env[1] >= 48 as byte && env[1] <= 57 as byte;
+    }
+    return first >= 48 as byte && first <= 57 as byte;
+}
+
 fn scheduler_runtime_default_frame_buffer_bytes() usize {
     var buffer_size: usize = SCHEDULER_DEFAULT_FRAME_BUFFER_BYTES;
     const env: &byte = getenv("UYA_SCHEDULER_FRAME_BUFFER_BYTES" as &const byte);
@@ -161,6 +172,15 @@ fn scheduler_runtime_default_frame_buffer_bytes() usize {
         }
     }
     return buffer_size;
+}
+
+fn scheduler_runtime_default_inline_repoll_limit() i32 {
+    var limit: i32 = SCHEDULER_COMPAT_INLINE_REPOLL_LIMIT;
+    const env: &byte = getenv("UYA_SCHEDULER_INLINE_REPOLL_LIMIT" as &const byte);
+    if scheduler_env_looks_like_int(env) {
+        limit = atoi(env as &const byte);
+    }
+    return scheduler_normalize_inline_repoll_limit(limit);
 }
 
 fn scheduler_cleanup_waker(loop: EventLoop, waker: &Waker, io_registered_fd: &i32, event_registered_fd: &i32) void {
@@ -432,8 +452,9 @@ fn scheduler_pool_to_allocator(pool: &AsyncFramePool) IAllocator {
 }
 
 /// 创建调度器并初始化其 async frame pool。
+/// 默认 inline repoll 策略读取 runtime 默认值。
 export fn scheduler_init(self: &Scheduler) void {
-    scheduler_init_with_config(self, 0usize, SCHEDULER_INLINE_REPOLL_LIMIT);
+    scheduler_init_with_config(self, 0usize, scheduler_runtime_default_inline_repoll_limit());
 }
 
 /// 使用显式资源配置创建调度器。
@@ -467,7 +488,7 @@ export fn scheduler_init_with_config(self: &Scheduler, frame_buffer_bytes: usize
     self._metrics_frame_alloc_seen = 0u64;
     self._metrics_frame_free_seen = 0u64;
     self._metrics_heap_fallback_seen = 0u64;
-    self._inline_repoll_limit = inline_repoll_limit;
+    self._inline_repoll_limit = scheduler_normalize_inline_repoll_limit(inline_repoll_limit);
 }
 
 /// 创建调度器并初始化其 async frame pool。
@@ -507,10 +528,10 @@ export fn scheduler_new_with_inline_repoll_limit(limit: i32) Scheduler {
 
 /// 获取调度器 inline repoll 上限。
 /// 参数：self 为调度器指针。
-/// 返回：当前 inline repoll 上限；空指针时返回默认值。
+/// 返回：当前 inline repoll 上限；空指针时返回 runtime 默认策略（`UYA_SCHEDULER_INLINE_REPOLL_LIMIT` 或兼容默认值）。
 export fn scheduler_inline_repoll_limit(self: &Scheduler) i32 {
     if self == null {
-        return SCHEDULER_INLINE_REPOLL_LIMIT;
+        return scheduler_runtime_default_inline_repoll_limit();
     }
     return scheduler_normalize_inline_repoll_limit(self._inline_repoll_limit);
 }
@@ -866,9 +887,9 @@ export fn scheduler_run_task_queue_usize_with_event_loop(self: &Scheduler, loop:
 
 /// 使用 EventLoop 的 block_on：poll 返回 Pending 时注册 epoll / eventfd，阻塞等待。
 /// timeout_ms：-1 无限等待，>0 单次 epoll_wait 最大等待毫秒数（注意：累计无上限）
-/// 如需总超时保护，请使用 block_on_with_event_loop_deadline
+/// 默认 inline repoll 策略读取 runtime 默认值；如需总超时保护，请使用 block_on_with_event_loop_deadline
 export fn block_on_with_event_loop<T>(loop: EventLoop, f: Future<!T>, timeout_ms: i32) !T {
-    return block_on_with_event_loop_inline_repoll_limit<T>(loop, f, timeout_ms, SCHEDULER_INLINE_REPOLL_LIMIT);
+    return block_on_with_event_loop_inline_repoll_limit<T>(loop, f, timeout_ms, scheduler_runtime_default_inline_repoll_limit());
 }
 
 /// 使用 EventLoop 的 block_on，并显式设置 inline repoll 上限。
@@ -929,7 +950,7 @@ export fn block_on_with_event_loop_inline_repoll_limit<T>(loop: EventLoop, f: Fu
 /// 每轮循环检查 deadline 是否过期，过期则返回 error.TimedOut。
 /// epoll_wait 的超时取 timeout_ms 和 deadline_remaining 的较小值。
 export fn block_on_with_event_loop_deadline<T>(loop: EventLoop, f: Future<!T>, timeout_ms: i32, deadline_ms: u64) !T {
-    return block_on_with_event_loop_deadline_inline_repoll_limit<T>(loop, f, timeout_ms, deadline_ms, SCHEDULER_INLINE_REPOLL_LIMIT);
+    return block_on_with_event_loop_deadline_inline_repoll_limit<T>(loop, f, timeout_ms, deadline_ms, scheduler_runtime_default_inline_repoll_limit());
 }
 
 /// 使用 EventLoop 的 block_on（带 deadline 总超时保护）并显式设置 inline repoll 上限。

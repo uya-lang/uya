@@ -11,7 +11,7 @@
 | 模块 | 现状 | 影响 |
 |------|------|------|
 | `lib/std/async_event.uya` | `LinuxEpoll` 的 slot / event 数组均固定 `1024`，`find_slot()` 线性扫描固定容量 | 并发 fd 上限、退化 O(n)、容量达到上限时只能报错 |
-| `lib/std/async_scheduler.uya` | `TaskQueue<T>` 默认队列已自动增长；scheduler frame pool backing buffer 已支持实例级配置与 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` 默认策略；inline repoll 上限默认 `1024` | 默认轮询策略仍需继续收口 |
+| `lib/std/async_scheduler.uya` | `TaskQueue<T>` 默认队列已自动增长；scheduler frame pool backing buffer 与 inline repoll 默认策略均支持实例级配置与 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` / `UYA_SCHEDULER_INLINE_REPOLL_LIMIT` | 默认路径不再写死 `1024`；剩余风险转为跨 HTTP/DNS/TLS/`async_compute` 共享调度 smoke 不足 |
 | `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回资源错误） | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
 | `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512` | frame 元信息和池容量都有硬上限 |
 | `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096` | 大 header / 扩展请求场景不是真动态 |
@@ -45,7 +45,6 @@
 | 编译器容量路径已动态化 | frame descriptor 按真实数量发射，不再固定 `512` | `src/codegen/c99/main.uya` |
 | **运行时/协议层固定容量** | epoll slot/event `1024`、`find_slot()` 线性扫 | `lib/std/async_event.uya` |
 | 运行时/协议层固定容量 | `TaskQueue<T>` 默认队列已自动增长，显式容量队列仍保留调用方配置上限 | `lib/std/async_scheduler.uya` |
-| 运行时/协议层固定容量 | inline repoll `1024`（frame buffer 已改为实例配置 / 环境默认策略） | `lib/std/async_scheduler.uya` |
 | 运行时/协议层固定容量 | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`MAX_PER_BUCKET=4096`、descriptor 表 `512` | `lib/std/async_frame.uya` |
 | 运行时/协议层固定容量 | `THREAD_POOL_MAX_WORKERS=32`、`MAX_PENDING=32`、`MAX_TASK_SLOTS=16`、`fork()` fallback | `lib/std/thread.uya` |
 | 运行时/协议层固定容量 | 请求头 scratch buffer 固定 `4096` | `lib/std/http/http1_async.uya` |
@@ -164,7 +163,6 @@
 
 ### 3.2 Scheduler / TaskQueue
 
-- [ ] 评估并收口 `SCHEDULER_INLINE_REPOLL_LIMIT=1024` 的策略，让它成为调度策略参数，而不是写死常量。
 
 ### 3.3 AsyncFramePool
 

@@ -2559,3 +2559,16 @@
   - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过，20 tests / 242 assertions）
   - 验证：`git diff --check`（通过）
   - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`（通过，1 active task）
+## Phase 3：运行时 async 资源动态化
+
+### 3.2 Scheduler / TaskQueue
+
+- [x] 评估并收口 `SCHEDULER_INLINE_REPOLL_LIMIT=1024` 的策略，让它成为调度策略参数，而不是写死常量。
+  - 实现：`Scheduler` 默认 inline repoll 策略统一读取 `UYA_SCHEDULER_INLINE_REPOLL_LIMIT`，`scheduler_new()`、`scheduler_inline_repoll_limit(null)`、`block_on_with_event_loop*()` 默认路径不再散落裸 `1024`。
+  - 验证：`UYA_SCHEDULER_INLINE_REPOLL_LIMIT=1 ../uya/bin/uya test tests/test_std_async_scheduler.uya`
+  - 结果：通过，24 tests / 0 failed；新增默认策略测试覆盖 `scheduler_new()`、`block_on_with_event_loop()` 和 `block_on_with_event_loop_deadline()`。
+  - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`
+  - 结果：通过，24 tests / 0 failed。
+  - 验证：`git diff --check`
+  - 结果：通过，无 diff 格式错误。
+  - 文档同步：`docs/todo_async_full_language_dynamic_resources.md`、`docs/async_runtime_semantics_matrix.md` 已更新为默认策略口径。
