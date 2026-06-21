@@ -2310,9 +2310,11 @@
 
 ### 1.5.7 配套测试与闸门
 
-父级任务：为每个迁移模块补 dedicated regression：
+父级路径：`为每个迁移模块补 dedicated regression`
   - [x] WebSocket：message aggregate / heartbeat / reconnect
     - 验证：`bash tests/verify_async_websocket_regressions.sh`
-      结果：通过；脚本串行运行 `tests/test_http_websocket_async_read_message_shape.uya`、`tests/test_http_websocket_read_message_semantics.uya`、`tests/test_http_websocket_heartbeat.uya`、`tests/test_http_websocket_reconnect.uya`
+    - 验证结果：通过；脚本串行运行 `tests/test_http_websocket_async_read_message_shape.uya`、`tests/test_http_websocket_read_message_semantics.uya`、`tests/test_http_websocket_heartbeat.uya`、`tests/test_http_websocket_reconnect.uya`
     - 扩展验证：`../uya/bin/uya test tests/test_http_websocket_module_smoke.uya`
-      结果：通过
+    - 验证结果：通过
+    - 验证：`git diff --check`
+    - 验证结果：通过
