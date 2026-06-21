@@ -2658,3 +2658,14 @@
   - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过：1 test，26 assertions）
   - 扩展验证：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya`（通过：4 tests，16 assertions）
   - 扩展验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过：34 tests，144 assertions）
+
+## Phase 3：运行时 async 资源动态化
+
+### 3.4 ThreadPool / async_compute
+
+父级任务：`明确 `async_compute` 饱和后的生产策略：`
+- [x] 要么动态排队并背压
+  - 完成：`tests/test_async_thread_pool_dynamic_growth.uya` 新增单 worker 饱和背压回归，验证共享队列在 `task_slot_capacity > THREAD_POOL_MAX_TASK_SLOTS` 时可排队 20 个 delayed 任务、pending 深度超过旧 `16` 边界并最终排空。
+  - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，2 tests / 54 assertions）
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，34 tests / 144 assertions）
+  - 验证：`bash tests/verify_async_full_dynamic_resources_gate.sh unit-scan`（通过）

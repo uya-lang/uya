@@ -169,7 +169,6 @@
 ### 3.4 ThreadPool / async_compute
 
 - [ ] 明确 `async_compute` 饱和后的生产策略：
-  - [ ] 要么动态排队并背压
   - [ ] 要么显式返回容量错误
   - [ ] 不再默默回退到 `sys_fork()` 作为默认生产路径
 - [ ] 为 thread pool 增加容量、排队深度、取消、排空时间的指标。
