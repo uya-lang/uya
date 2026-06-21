@@ -170,7 +170,6 @@
 
 ## Phase 4：生产级可靠性与可观测性
 
-- [ ] 清理“只在 bench/特定 demo 下成立”的 workaround，把生产路径与测试绕过分开。
 - [ ] 对 `http1_async`、DNS、TLS、`async_compute` 做混合压力测试，验证共享 runtime 不互相踩资源上限。
 
 **验收**：

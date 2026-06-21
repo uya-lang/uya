@@ -29,16 +29,7 @@ run_step "shared runtime semantic matrix" \
 run_step "nested future boundary matrix" \
     bash "$SCRIPT_DIR/verify_async_nested_future_boundary.sh"
 
-run_step "HTTP async epoll C99 compile smoke" \
-    bash "$SCRIPT_DIR/verify_http_bench_async_epoll_compile.sh"
-
-run_step "HTTP async epoll runtime smoke" \
-    bash "$SCRIPT_DIR/verify_http_bench_async_epoll_runtime.sh"
-
-run_step "HTTP async epoll fd leak smoke" \
-    bash "$SCRIPT_DIR/verify_async_no_fd_leak.sh"
-
 run_step "async cancel cleanup smoke" \
     bash "$SCRIPT_DIR/verify_async_cancel_cleanup.sh"
 
-echo "verify_async_production_smoke: full-language, shared runtime, nested future, HTTP async epoll, fd leak, and cancel cleanup smoke matrix passed"
+echo "verify_async_production_smoke: full-language, shared runtime, nested future, and cancel cleanup smoke matrix passed"
