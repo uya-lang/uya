@@ -11,6 +11,16 @@ use libc.atoi;
 use libc.getenv;
 use libc.syscall;
 
+const TEST_SCHEDULER_O_NONBLOCK: i32 = 0x800;
+
+fn scheduler_test_sys_pipe2(pipefd: &i32, flags: i32) !i32 {
+    return @syscall(SYS_pipe2, pipefd as i64, flags as i64) as! i32;
+}
+
+fn scheduler_test_sys_close(fd: i32) !i32 {
+    return @syscall(SYS_close, fd as i64) as! i32;
+}
+
 fn ready(v: i32) Future<!i32> {
     const p: Poll<!i32> = Poll<!i32>.Ready(ok<i32>(v));
     return Future<!i32>{ state: p };
@@ -170,6 +180,53 @@ test "scheduler_metrics_report_frame_full_and_fallback" {
     try assert_eq_i32(after_fallback.frame_full_count as i32, 1);
     try assert_eq_i32(after_fallback.frame_heap_fallback_count as i32, 1);
     async_frame_pool_free_aligned(pool, fallback_ptr, 16usize, 8usize);
+}
+
+test "async_runtime_metrics_linux_epoll_report_registered_fd_and_resize_count" {
+    var s: Scheduler = scheduler_new();
+    var ep: LinuxEpoll = try linux_epoll_create_config(0, 2, 1);
+    defer {
+        _ = scheduler_test_sys_close(ep.epfd) catch {};
+    }
+
+    var fds1: [i32: 2] = [0 - 1: 2];
+    var fds2: [i32: 2] = [0 - 1: 2];
+    var fds3: [i32: 2] = [0 - 1: 2];
+    defer {
+        _ = scheduler_test_sys_close(fds1[0]) catch {};
+        _ = scheduler_test_sys_close(fds1[1]) catch {};
+        _ = scheduler_test_sys_close(fds2[0]) catch {};
+        _ = scheduler_test_sys_close(fds2[1]) catch {};
+        _ = scheduler_test_sys_close(fds3[0]) catch {};
+        _ = scheduler_test_sys_close(fds3[1]) catch {};
+    }
+
+    _ = try scheduler_test_sys_pipe2(&fds1[0], TEST_SCHEDULER_O_NONBLOCK);
+    _ = try scheduler_test_sys_pipe2(&fds2[0], TEST_SCHEDULER_O_NONBLOCK);
+    _ = try scheduler_test_sys_pipe2(&fds3[0], TEST_SCHEDULER_O_NONBLOCK);
+
+    var w1: Waker = Waker{};
+    var w2: Waker = Waker{};
+    var w3: Waker = Waker{};
+    _ = try ep.register(fds1[0], EventKind.Readable({}), &w1);
+    _ = try ep.register(fds2[0], EventKind.Readable({}), &w2);
+    _ = try ep.register(fds3[0], EventKind.Readable({}), &w3);
+
+    const metrics: AsyncRuntimeMetrics = async_runtime_metrics_linux_epoll(&s, &ep);
+    try assert_eq_i32(metrics.frame_alloc_count as i32, 0);
+    try assert_eq_i32(metrics.queue_depth, 0);
+    try assert_eq_i32(metrics.epoll_registered_fd_count, 3);
+    try assert_eq_i32(metrics.epoll_peak_registered_fd_count >= 3, true);
+    try assert_eq_i32(metrics.epoll_resize_count >= 1, true);
+
+    _ = ep.deregister(fds1[0]) catch {};
+    _ = ep.deregister(fds2[0]) catch {};
+    _ = ep.deregister(fds3[0]) catch {};
+
+    const after_deregister: AsyncRuntimeMetrics = async_runtime_metrics_linux_epoll(&s, &ep);
+    try assert_eq_i32(after_deregister.epoll_registered_fd_count, 0);
+    try assert_eq_i32(after_deregister.epoll_peak_registered_fd_count >= 3, true);
+    try assert_eq_i32(after_deregister.epoll_resize_count, metrics.epoll_resize_count);
 }
 
 test "scheduler_run_u32" {

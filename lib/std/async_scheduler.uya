@@ -447,6 +447,21 @@ export struct SchedulerMetrics {
     peak_queue_depth: i32,
 }
 
+/// async runtime 统一指标快照。
+/// 参数：无；通过 `async_runtime_metrics_linux_epoll` 读取指定 scheduler + LinuxEpoll 的聚合值。
+/// 返回值：包含 scheduler 的 frame/queue 指标，以及 Linux epoll 的当前/峰值注册 fd 数和扩容次数。
+export struct AsyncRuntimeMetrics {
+    frame_alloc_count: u64,
+    frame_free_count: u64,
+    frame_full_count: u64,
+    frame_heap_fallback_count: u64,
+    queue_depth: i32,
+    peak_queue_depth: i32,
+    epoll_registered_fd_count: i32,
+    epoll_peak_registered_fd_count: i32,
+    epoll_resize_count: i32,
+}
+
 /// 调度器。持有 async frame pool，同 scheduler 内的任务共享 pool 分配器。
 export struct Scheduler {
     _frame_pool: &AsyncFramePool,
@@ -601,6 +616,31 @@ export fn scheduler_metrics(self: &Scheduler) SchedulerMetrics {
         queue_depth: self._metrics_queue_depth,
         peak_queue_depth: self._metrics_peak_queue_depth,
     };
+}
+
+/// 获取 async runtime 当前统一指标快照（scheduler + Linux epoll）。
+/// 参数：`self` 为 scheduler 指针，可为空；`loop` 为 LinuxEpoll 指针，可为空。
+/// 返回值：聚合后的统一指标；scheduler 或 epoll 为空时，对应字段返回 0。
+export fn async_runtime_metrics_linux_epoll(self: &Scheduler, loop: &LinuxEpoll) AsyncRuntimeMetrics {
+    const scheduler_snapshot: SchedulerMetrics = scheduler_metrics(self);
+    var metrics: AsyncRuntimeMetrics = AsyncRuntimeMetrics{
+        frame_alloc_count: scheduler_snapshot.frame_alloc_count,
+        frame_free_count: scheduler_snapshot.frame_free_count,
+        frame_full_count: scheduler_snapshot.frame_full_count,
+        frame_heap_fallback_count: scheduler_snapshot.frame_heap_fallback_count,
+        queue_depth: scheduler_snapshot.queue_depth,
+        peak_queue_depth: scheduler_snapshot.peak_queue_depth,
+        epoll_registered_fd_count: 0,
+        epoll_peak_registered_fd_count: 0,
+        epoll_resize_count: 0,
+    };
+    if loop == null {
+        return metrics;
+    }
+    metrics.epoll_registered_fd_count = linux_epoll_registered_count(loop);
+    metrics.epoll_peak_registered_fd_count = linux_epoll_peak_registered_count(loop);
+    metrics.epoll_resize_count = linux_epoll_resize_count(loop);
+    return metrics;
 }
 
 /// 同步运行 Future<!T> 直到 Ready，返回 !T。

@@ -2819,3 +2819,10 @@
     - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过，27 tests / 287 assertions）
     - 验证：`../uya/bin/uya test tests/test_tls_async_runtime_io.uya`（通过，1 test / 16 assertions）
     - 验证：`../uya/bin/uya test tests/test_http_uyagin_async_boundary.uya`（通过，6 tests / 29 assertions）
+## Phase 4：生产级可靠性与可观测性
+
+路径：为 async runtime 增加统一指标
+  - [x] epoll registered fd / resize count
+    - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过：28 tests；新增 `async_runtime_metrics_linux_epoll_report_registered_fd_and_resize_count`）
+    - 验证：`../uya/bin/uya test --c99 tests/test_async_event_config.uya`（通过：2 tests）
+    - 验证：`../uya/bin/uya test --c99 tests/test_async_event_dynamic_growth.uya`（通过：1 test）
