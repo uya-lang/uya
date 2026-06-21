@@ -157,7 +157,6 @@
 
 - [ ] `lib/std/thread.uya`
   - [ ] 将 `AsyncComputeFuture<T>` 分解为：
-    - [ ] cancel / cleanup
     - [ ] one-shot fallback 或其替代策略
   - [ ] 先提炼 `async_worker_result` / `async_thread_slot_wait` 之类可 await 原语，再把对外 `async_compute<T>` 改写为 `@async_fn` 组合层。
   - [ ] 把 `sys_fork()` fallback 的默认路径从“隐藏在手写 future 内部”改成显式策略决策。

@@ -1970,3 +1970,17 @@
       - 结果：通过；28/28 测试通过，覆盖 `async_compute_i32_completed_queued_slot_is_ready_on_first_late_poll`、`async_compute_thread_bridge_is_unified_behind_helpers`、取消与排队回归。
       - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`
       - 结果：通过；11/11 `async_compute` 类型矩阵测试通过。
+
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+路径：`lib/std/thread.uya` > 将 `AsyncComputeFuture<T>` 分解为：
+
+- [x] cancel / cleanup
+  - 结果：提炼 `thread_async_cleanup_slot` 与 `async_worker_cancel` 两个 helper；`AsyncComputeFuture<T>` 的 slot cleanup 与取消等待路径不再内联在 core/poll 中，保留现有 queued/running cancel 语义。
+  - 结果：新增结构性回归 `async_compute_cancel_cleanup_is_unified_behind_helpers`，锁定 cancel / cleanup helper 边界，避免回退到手写内联逻辑。
+  - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
+  - 结果：29 tests passed, 0 failed。
+  - 验证：`../uya/bin/uya test tests/test_async_compute_types.uya`
+  - 结果：11 tests passed, 0 failed。
+  - 验证：`../uya/bin/uya test tests/test_async_runtime_shared_semantics.uya`
+  - 结果：4 tests passed, 0 failed。

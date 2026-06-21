@@ -1216,6 +1216,41 @@ fn async_worker_result(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
     };
 }
 
+struct AsyncWorkerCancelFuture : Future<!usize> {
+    pool: &ThreadPool,
+    slot_idx: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
+        if thread_async_try_cancel_now(self.pool, self.slot_idx) != 0 {
+            return Poll<!usize>.Ready(thread_cancelled_error_usize());
+        }
+
+        const raw_future: Future<!usize> = async_worker_result(self.pool, self.slot_idx);
+        const raw_poll: Poll<!usize> = raw_future.poll(waker);
+        match raw_poll {
+            .Ready(_) => {
+                return Poll<!usize>.Ready(thread_cancelled_error_usize());
+            },
+            .Pending(_) => {
+                return Poll<!usize>.Pending({});
+            },
+        };
+        abort();
+        return Poll<!usize>.Pending({});
+    }
+
+    fn release(self: &Self) void {
+        async_box_free_current(self as &byte);
+    }
+}
+
+fn async_worker_cancel(pool: &ThreadPool, slot_idx: i32) Future<!usize> {
+    return AsyncWorkerCancelFuture{
+        pool: pool,
+        slot_idx: slot_idx,
+    };
+}
+
 fn thread_async_active_worker_idx(pool: &ThreadPool, slot_idx: i32) i32 {
     if pool == null as &ThreadPool || !thread_pool_has_shared_state(pool) || !thread_pool_slot_is_valid(pool, slot_idx) {
         return 0 - 1;
@@ -1236,6 +1271,43 @@ fn thread_async_active_worker_idx(pool: &ThreadPool, slot_idx: i32) i32 {
     return worker_idx;
 }
 
+fn thread_async_cleanup_slot(pool: &ThreadPool, slot_idx: i32) i32 {
+    const worker_idx: i32 = thread_async_active_worker_idx(pool, slot_idx);
+    if worker_idx >= 0 {
+        thread_pool_release_worker(pool, worker_idx);
+    }
+    if slot_idx >= 0 {
+        thread_pool_release_slot(pool, slot_idx);
+    }
+    return 0 - 1;
+}
+
+fn thread_async_try_cancel_now(pool: &ThreadPool, slot_idx: i32) i32 {
+    if slot_idx < 0 {
+        return 1;
+    }
+
+    if !thread_pool_has_shared_state(pool) || !thread_pool_slot_is_valid(pool, slot_idx) {
+        return 1;
+    }
+
+    const shared_state: &ThreadPoolSharedState = pool._shared_state;
+    const slot_state: i32 = shared_state.slots[slot_idx as usize].state;
+    if slot_state == THREAD_SLOT_STATE_READY {
+        thread_shared_clear_slot(shared_state, slot_idx);
+        return 1;
+    }
+    if slot_state == THREAD_SLOT_STATE_QUEUED {
+        if thread_shared_remove_pending_slot(shared_state, slot_idx) != 0 {
+            thread_shared_clear_slot(shared_state, slot_idx);
+        } else {
+            shared_state.slots[slot_idx as usize].state = THREAD_SLOT_STATE_CANCELLED;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 struct ThreadAsyncComputeCore {
     pool: &ThreadPool,
     compute_fn: &void,
@@ -1243,46 +1315,6 @@ struct ThreadAsyncComputeCore {
     arg_bits: usize,
     slot_idx: i32,
     first_poll: i32,
-
-    fn finish_cleanup(self: &Self) void {
-        const worker_idx: i32 = thread_async_active_worker_idx(self.pool, self.slot_idx);
-        if worker_idx >= 0 {
-            thread_pool_release_worker(self.pool, worker_idx);
-        }
-        if self.slot_idx >= 0 {
-            thread_pool_release_slot(self.pool, self.slot_idx);
-            self.slot_idx = 0 - 1;
-        }
-    }
-
-    fn try_cancel_now(self: &Self) i32 {
-        if self.slot_idx < 0 {
-            return 1;
-        }
-
-        if !thread_pool_has_shared_state(self.pool) || !thread_pool_slot_is_valid(self.pool, self.slot_idx) {
-            self.slot_idx = 0 - 1;
-            return 1;
-        }
-
-        const shared_state: &ThreadPoolSharedState = self.pool._shared_state;
-        const slot_state: i32 = shared_state.slots[self.slot_idx as usize].state;
-        if slot_state == THREAD_SLOT_STATE_READY {
-            thread_shared_clear_slot(shared_state, self.slot_idx);
-            self.slot_idx = 0 - 1;
-            return 1;
-        }
-        if slot_state == THREAD_SLOT_STATE_QUEUED {
-            if thread_shared_remove_pending_slot(shared_state, self.slot_idx) != 0 {
-                thread_shared_clear_slot(shared_state, self.slot_idx);
-            } else {
-                shared_state.slots[self.slot_idx as usize].state = THREAD_SLOT_STATE_CANCELLED;
-            }
-            self.slot_idx = 0 - 1;
-            return 1;
-        }
-        return 0;
-    }
 
     fn finish_from_raw_value(self: &Self, raw_value: usize) Poll<!usize> {
         var value: usize = raw_value;
@@ -1315,7 +1347,7 @@ export struct AsyncComputeFuture<T> : Future<!T> {
     state: Poll<!T>,
 
     fn finish(self: &Self, result: !T) Poll<!T> {
-        self.core.finish_cleanup();
+        self.core.slot_idx = thread_async_cleanup_slot(self.core.pool, self.core.slot_idx);
         self.state = Poll<!T>.Ready(result);
         self.done = 1;
         return self.state;
@@ -1329,12 +1361,16 @@ export struct AsyncComputeFuture<T> : Future<!T> {
         return result_poll;
     }
 
+    fn finish_cancelled(self: &Self, waker: &Waker) Poll<!T> {
+        const cancelled_value: !T = error.Cancelled;
+        return self.finish_with_pending_wake(cancelled_value, waker);
+    }
+
     fn finish_from_raw_poll(self: &Self, raw_poll: Poll<!usize>, waker: &Waker) Poll<!T> {
         match raw_poll {
             .Ready(raw_result) => {
                 if self.cancel_requested != 0 {
-                    const cancelled_value: !T = error.Cancelled;
-                    return self.finish_with_pending_wake(cancelled_value, waker);
+                    return self.finish_cancelled(waker);
                 }
                 const raw_value: usize = raw_result catch {
                     const err_value: !T = raw_result as! T;
@@ -1379,10 +1415,18 @@ export struct AsyncComputeFuture<T> : Future<!T> {
         }
         if waker.is_cancelled() {
             self.cancel_requested = 1;
-            if self.core.try_cancel_now() != 0 {
-                const cancelled_value: !T = error.Cancelled;
-                return self.finish_with_pending_wake(cancelled_value, waker);
-            }
+        }
+        if self.cancel_requested != 0 {
+            const cancel_future: Future<!usize> = async_worker_cancel(self.core.pool, self.core.slot_idx);
+            const cancel_poll: Poll<!usize> = cancel_future.poll(waker);
+            match cancel_poll {
+                .Ready(_) => {
+                    return self.finish_cancelled(waker);
+                },
+                .Pending(_) => {
+                    return Poll<!T>.Pending({});
+                },
+            };
         }
         if self.core.slot_idx < 0 {
             const submit_future: Future<!usize> = async_worker_submit(self.core.pool, self.core.compute_fn, self.core.task_kind, self.core.arg_bits);

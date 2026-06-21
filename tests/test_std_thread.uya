@@ -819,6 +819,18 @@ test "async_compute_thread_submission_is_unified_behind_helper" {
     try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const start_result: !i32 = self.core.start_execution();\0" as &const byte) as i32, 0);
 }
 
+test "async_compute_cancel_cleanup_is_unified_behind_helpers" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn thread_async_cleanup_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn async_worker_cancel(pool: &ThreadPool, slot_idx: i32) Future<!usize> {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "self.core.slot_idx = thread_async_cleanup_slot(self.core.pool, self.core.slot_idx);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "const cancel_future: Future<!usize> = async_worker_cancel(self.core.pool, self.core.slot_idx);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn finish_cleanup(self: &Self) void {\0" as &const byte) as i32, 0);
+    try assert_eq_i32(thread_source_contains_cstr(&src[0], len, "fn try_cancel_now(self: &Self) i32 {\0" as &const byte) as i32, 0);
+}
+
 test "async_compute_i32_cancelled_queued_slot_returns_cancelled" {
     var pool: ThreadPool = thread_pool_new(1);
     defer {
