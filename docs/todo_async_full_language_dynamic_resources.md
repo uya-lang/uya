@@ -161,8 +161,6 @@
 
 ### 1.5.7 配套测试与闸门
 
-- [ ] 为每个迁移模块增加一条“旧 hand-written future 已删除”的结构性检查：
-  - [ ] 最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在；其中 substrate 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`）；业务层/协议层 hand-written future 必须消失
 - [ ] 为每个迁移模块补 dedicated regression：
   - [ ] DNS：UDP/TCP/fallback/cancel/timeout
   - [ ] HTTP1：connect timeout / happy path / closed peer

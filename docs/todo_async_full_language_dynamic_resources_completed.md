@@ -2263,3 +2263,23 @@
   - [x] `rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya`
     - 验证命令：`rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya`
     - 验证结果：命中 8 条，仅剩 `Future<T>`、`Task<T>`、`AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接 5 个 substrate 例外；`lib/std/http`、`lib/std/net` 无命中。
+
+## 2026-06-21
+
+### 1.5.7 配套测试与闸门
+
+- [x] 为每个迁移模块增加一条“旧 hand-written future 已删除”的结构性检查：
+  - [x] 最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在；其中 substrate 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`）；业务层/协议层 hand-written future 必须消失
+    - 红测：`python3 tests/verify_async_handwritten_future_whitelist.py`
+    - 红测结果：改动前失败，`python3: can't open file '/media/winger/_dde_data/winger/uya/uya/tests/verify_async_handwritten_future_whitelist.py': [Errno 2] No such file or directory`
+    - 完成内容：新增 `tests/verify_async_handwritten_future_whitelist.py`，扫描 `lib/std/**/*.uya` 中全部 `struct ... : Future<` 定义，精确只允许 `lib/std/async.uya` 的 `Future` / `Task` / `AsyncWaitFdFuture` 与 `lib/std/thread.uya` 的 5 个 worker bridge substrate；`lib/std/http`、`lib/std/net` 以及其他 `lib/std` 模块一旦重新引入业务层/协议层 hand-written future 会直接失败。
+    - 验证：`python3 tests/verify_async_handwritten_future_whitelist.py`
+    - 验证结果：通过，输出 `verify_async_handwritten_future_whitelist: runtime shell and substrate whitelist confirmed`。
+    - 验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`
+    - 验证结果：通过（9 tests passed，34 assertions passed）。
+    - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya`
+    - 验证结果：通过（1 test passed，39 assertions passed）。
+    - 验证：`../uya/bin/uya test tests/test_http1_async_connect_boundary.uya`
+    - 验证结果：通过（2 tests passed，7 assertions passed）。
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya`
+    - 验证结果：通过（34 tests passed，144 assertions passed）。
