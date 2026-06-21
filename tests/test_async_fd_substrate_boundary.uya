@@ -120,7 +120,7 @@ test "async_read_parse_boundary_uses_async_fn_and_async_fd_read_future" {
     var src: [byte: ASYNC_SOURCE_MAX] = [0: ASYNC_SOURCE_MAX];
     const len: usize = try read_async_source(&src[0], ASYNC_SOURCE_MAX);
     const read_parse_start: &const byte = "export @async_fn fn async_read_parse(fd: i32, base: &byte, cap: usize, filled: &usize) Future<!ParseResult> {\0" as &const byte;
-    const read_parse_end: &const byte = "export fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {\0" as &const byte;
+    const read_parse_end: &const byte = "export @async_fn fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {\0" as &const byte;
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, read_parse_start) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncReadParseFuture : Future<!ParseResult>\0" as &const byte) as i32, 0);
@@ -131,6 +131,25 @@ test "async_read_parse_boundary_uses_async_fn_and_async_fd_read_future" {
             read_parse_start,
             read_parse_end,
             "const n: usize = try @await async_fd_read_future(fd, read_dst, read_len);\0" as &const byte,
+        ) as i32,
+        1,
+    );
+}
+
+test "async_read_parse_into_boundary_uses_async_fn_and_async_fd_read_future" {
+    var src: [byte: ASYNC_SOURCE_MAX] = [0: ASYNC_SOURCE_MAX];
+    const len: usize = try read_async_source(&src[0], ASYNC_SOURCE_MAX);
+    const read_parse_into_start: &const byte = "export @async_fn fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {\0" as &const byte;
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, read_parse_into_start) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncReadParseIntoFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(
+        source_section_contains_cstr(
+            &src[0],
+            len,
+            read_parse_into_start,
+            "\0" as &const byte,
+            "const read_result: !usize = @await async_fd_read_future(fd, read_dst, read_len);\0" as &const byte,
         ) as i32,
         1,
     );

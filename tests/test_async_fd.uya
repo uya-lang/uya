@@ -145,14 +145,19 @@ fn assert_fd_still_blocking(fd: i32) !void {
 }
 
 // 当前 compiler lowering 在 `@async_fn` 控制流内首个 await transition 可能先返回一次 Pending。
-// AsyncFd.read/write 迁到 `async_wait_*` substrate 后，这里允许吞掉一次过渡 Pending，再检查真实结果。
+// 某些嵌套 `@await` 组合会出现多次过渡 Pending，这里统一吞掉最多两次过渡，再检查真实结果。
 fn poll_usize_allow_transition_pending(f: Future<!usize>, w: &Waker) Poll<!usize> {
-    const first: Poll<!usize> = f.poll(w);
-    var out: Poll<!usize> = first;
-    match first {
-        .Ready(_) => { out = first; },
-        .Pending(_) => { out = f.poll(w); },
+    var out: Poll<!usize> = f.poll(w);
+    match out {
+        .Ready(_) => { return out; },
+        .Pending(_) => {},
     };
+    out = f.poll(w);
+    match out {
+        .Ready(_) => { return out; },
+        .Pending(_) => {},
+    };
+    out = f.poll(w);
     return out;
 }
 
@@ -431,7 +436,7 @@ fn test_async_read_parse_into_cancelled_returns_cancelled() !void {
     const f: Future<!usize> = async_read_parse_into(read_fd, &buf[0], 256, &filled, &out, &err_out);
     var wk: Waker = Waker{};
     wk.cancel();
-    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_cancelled_poll_usize(poll_usize_allow_transition_pending(f, &wk));
     try assert_eq_i32(err_out as i32, 999);
     try assert_fd_still_blocking(read_fd);
 }

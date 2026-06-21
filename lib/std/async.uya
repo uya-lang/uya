@@ -1543,101 +1543,59 @@ export @async_fn fn async_read_parse(fd: i32, base: &byte, cap: usize, filled: &
     }
 }
 
-struct AsyncReadParseIntoFuture : Future<!usize> {
-    fd: i32,
-    base: &byte,
-    cap: usize,
-    filled: &usize,
-    out: &ParseResult,
-    err_out: &u32,
-    nonblocking_ready: i32 = 0,
-
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_usize();
-        }
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                *self.err_out = @error_id(error.ConnectionClosed);
-                return async_poll_ready_ok_usize(0);
-            };
-            self.nonblocking_ready = 1;
-        }
-
-        while true {
-            const cur: usize = *self.filled;
-            if cur > self.cap {
-                *self.err_out = @error_id(error.PayloadTooLarge);
-                return async_poll_ready_ok_usize(0);
-            }
-            const sl: &[byte] = self.base[0: cur];
-            const parsed: !void = http_parse_request_into(sl, self.out);
-            match parsed {
-                error.IncompleteRequest => {
-                    if cur >= self.cap {
-                        return Poll<!usize>.Ready(error.PayloadTooLarge);
-                    }
-                    var read_len: usize = self.cap - cur;
-                    if read_len > 8192 {
-                        read_len = 8192;
-                    }
-                    const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(self.base as &void) + cur) as &byte;
-                    const read_result: !isize = sys_read(self.fd, read_dst as *byte, read_len);
-                    const n: isize = read_result catch |err| {
-                        const err_id: u32 = @error_id(err);
-                        if err_id == libc_EINTR as u32 {
-                            continue;
-                        }
-                        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                            return async_poll_pending_readable_usize(waker, self.fd);
-                        }
-                        *self.err_out = @error_id(error.ConnectionClosed);
-                        return async_poll_ready_ok_usize(0);
-                    };
-                    if n <= 0 {
-                        *self.err_out = @error_id(error.ConnectionClosed);
-                        return async_poll_ready_ok_usize(0);
-                    }
-                    *self.filled = cur + (n as usize);
-                },
-                else => {
-                    _ = parsed catch |err| {
-                        *self.err_out = @error_id(err);
-                        return async_poll_ready_ok_usize(0);
-                    };
-                    if request_has_chunked_transfer_encoding(&self.out.request) {
-                        const decode_result: !usize = http_decode_chunked_body_inplace(self.out);
-                        _ = decode_result catch {
-                            *self.err_out = decode_result.error_id;
-                            return async_poll_ready_ok_usize(0);
-                        };
-                    }
-                    *self.err_out = 0u32;
-                    return async_poll_ready_ok_usize(self.out.consumed);
-                },
-            };
-        }
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
-}
-
 /// 异步读到一个完整 HTTP 请求并把解析结果写入调用方提供的 `out`。
 /// 参数说明：`fd`/`base`/`cap`/`filled` 描述接收缓冲；`out` 用于承接解析结果；`err_out` 返回兼容旧调用点的错误码。
 /// 返回值说明：成功返回 `consumed`；若解析或连接错误需要兼容旧语义，则返回 `0` 并写入 `*err_out`；容量打满的 `PayloadTooLarge` 仍作为 Future 错误返回。
-export fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {
+export @async_fn fn async_read_parse_into(fd: i32, base: &byte, cap: usize, filled: &usize, out: &ParseResult, err_out: &u32) Future<!usize> {
     if fd < 0 || base == null || filled == null || out == null || err_out == null {
-        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncReadParseIntoFuture{
-        fd: fd,
-        base: base,
-        cap: cap,
-        filled: filled,
-        out: out,
-        err_out: err_out,
-    };
+    while true {
+        const cur: usize = *filled;
+        if cur > cap {
+            *err_out = @error_id(error.PayloadTooLarge);
+            return 0 as usize;
+        }
+        const sl: &[byte] = base[0: cur];
+        const parsed: !void = http_parse_request_into(sl, out);
+        if parsed.error_id == @error_id(error.IncompleteRequest) {
+            if cur >= cap {
+                return error.PayloadTooLarge;
+            }
+            var read_len: usize = cap - cur;
+            if read_len > 8192 {
+                read_len = 8192;
+            }
+            const read_dst: &byte = @ptr_from_usize(@usize_from_ptr(base as &void) + cur) as &byte;
+            const read_result: !usize = @await async_fd_read_future(fd, read_dst, read_len);
+            if read_result.error_id != 0u32 {
+                if read_result.error_id == @error_id(error.Cancelled) {
+                    return error.Cancelled;
+                }
+                *err_out = @error_id(error.ConnectionClosed);
+                return 0 as usize;
+            }
+            const n: usize = read_result.value;
+            if n == 0 {
+                *err_out = @error_id(error.ConnectionClosed);
+                return 0 as usize;
+            }
+            *filled = cur + n;
+            continue;
+        }
+
+        _ = parsed catch |err| {
+            *err_out = @error_id(err);
+            return 0 as usize;
+        };
+        if request_has_chunked_transfer_encoding(&out.request) {
+            const decode_result: !usize = http_decode_chunked_body_inplace(out);
+            _ = decode_result catch {
+                *err_out = decode_result.error_id;
+                return 0 as usize;
+            };
+        }
+        *err_out = 0u32;
+        return out.consumed;
+    }
 }
