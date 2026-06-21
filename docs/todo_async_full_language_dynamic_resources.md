@@ -164,7 +164,6 @@
 
 ### 3.1 EventLoop / epoll
 
-- [ ] 将 `lib/std/async_event.uya` 的固定 `1024` slot / event buffer 改成动态容量。
 - [ ] 消灭 `find_slot()` 线性扫固定数组的实现，改成更适合生产的索引结构。
 - [ ] 把“容量满直接失败”改成可增长或可配置策略，并补上指标。
 

@@ -2521,3 +2521,10 @@
 - `bash tests/verify_async_large_state_machine.sh` -> `control=23 stress=548 delta=525`
 - `python3 tests/verify_async_compiler_no_fixed_limits.py`
 - `git diff --check`
+
+## Phase 3：运行时 async 资源动态化
+### 3.1 EventLoop / epoll
+- [x] 将 `lib/std/async_event.uya` 的固定 `1024` slot / event buffer 改成动态容量。
+  验证：`../uya/bin/uya test tests/test_async_event_config.uya`（通过：2 tests passed, 0 failed）
+  验证：`../uya/bin/uya test tests/test_std_async_event.uya`（通过：总计 1，失败 0）
+  说明：`lib/std/async_event.uya` 已提供 `linux_epoll_create_config(...)`、动态分配的 slot / event buffer，以及对应容量查询与运行时测试覆盖。
