@@ -1,0 +1,87 @@
+// test_async_compute_codegen_lowering_boundary.uya - async_compute C99 lowering 不再硬编码具体单态符号
+
+use std.string.strlen;
+use std.testing.assert_eq_i32;
+use libc.syscall;
+
+error AsyncComputeCodegenSourceOpenFailed;
+error AsyncComputeCodegenSourceReadFailed;
+
+const EXPR_SOURCE_PATH: &const byte = "src/codegen/c99/expr.uya\0" as &const byte;
+const FUNCTION_SOURCE_PATH: &const byte = "src/codegen/c99/function.uya\0" as &const byte;
+const CODEGEN_SOURCE_MAX: usize = 262144;
+
+fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
+    if start + needle_len > hay_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle_len {
+        if hay[start + i] != needle[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn source_contains(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) bool {
+    if needle_len == 0 {
+        return true;
+    }
+    if hay_len < needle_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) bool {
+    return source_contains(hay, hay_len, needle, strlen(needle));
+}
+
+fn read_source(path: &const byte, buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(path, O_RDONLY as i32, 0) catch {
+        return error.AsyncComputeCodegenSourceOpenFailed;
+    };
+    const n: isize = sys_read(fd, buf as *byte, cap) catch {
+        _ = sys_close(fd) catch {};
+        return error.AsyncComputeCodegenSourceReadFailed;
+    };
+    _ = sys_close(fd) catch {};
+    if n < 0 {
+        return error.AsyncComputeCodegenSourceReadFailed;
+    }
+    return (n as! usize).value;
+}
+
+fn assert_source_lacks_text(path: &const byte, forbidden: &const byte) !void {
+    var src: [byte: CODEGEN_SOURCE_MAX] = [0: CODEGEN_SOURCE_MAX];
+    const len: usize = try read_source(path, &src[0], CODEGEN_SOURCE_MAX);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, forbidden) as i32, 0);
+}
+
+test "async_compute_c99_lowering_derives_symbols_instead_of_hardcoded_tables" {
+    try assert_source_lacks_text(
+        EXPR_SOURCE_PATH,
+        "std_thread_async_compute_future_new_\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        FUNCTION_SOURCE_PATH,
+        "std_thread_async_compute_future_new_\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        EXPR_SOURCE_PATH,
+        "AsyncComputeFuture_\0" as &const byte,
+    );
+    try assert_source_lacks_text(
+        FUNCTION_SOURCE_PATH,
+        "AsyncComputeFuture_\0" as &const byte,
+    );
+}

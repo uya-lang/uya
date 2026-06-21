@@ -157,7 +157,6 @@
 
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
   - [ ] 要么连当前真实残留的 runtime future 也继续消灭
-    - [ ] 若继续删除 `AsyncComputeFuture<T>`，先让 `async_compute<T>` 的 C99 lowering 不再依赖 `std_thread_async_compute_future_new_<T>` / `AsyncComputeFuture_*` 硬编码；完成条件：`src/codegen/c99/expr.uya` 与 `src/codegen/c99/function.uya` 不再保留这组名字表；验证：`rg -n "std_thread_async_compute_future_new_|AsyncComputeFuture_" src/codegen/c99/expr.uya src/codegen/c99/function.uya`
     - [ ] 若继续删除 `AsyncComputeFuture<T>`，再让泛型 `struct<T> : Future<!T>` 的 vtable/interface 单态化不再依赖 `AsyncComputeFuture` 专项修补；完成条件：`src/codegen/c99/structs.uya` 不再保留 `AsyncComputeFuture` 特判；验证：`rg -n "AsyncComputeFuture" src/codegen/c99/structs.uya`
     - [ ] 若继续删除 `AsyncComputeFuture<T>`，最后把 `ThreadAsyncComputeCore` 的 submit/result/cancel/cleanup/typed decode 状态机迁进通用 async frame 或其他明确 substrate，并删掉该 struct；完成条件：`lib/std/thread.uya` 不再定义 `AsyncComputeFuture<T>`，且保留 `async_worker_submit/result/cancel` 取消与清理语义；验证：`rg -n "AsyncComputeFuture|async_worker_submit|async_worker_result|async_worker_cancel" lib/std/thread.uya`
   - [ ] 要么把这三类定义为语言/runtime substrate，不再算作标准库业务层 hand-written future

@@ -2055,3 +2055,19 @@
   - 结果：通过，主 todo 为 `0 active tasks`。
   - 验证：`git diff --check`
   - 结果：通过。
+
+## Phase 1.5：标准库手工 Future 清零迁移
+### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零
+
+路径：
+- 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
+  - 要么连当前真实残留的 runtime future 也继续消灭
+
+    - [x] 若继续删除 `AsyncComputeFuture<T>`，先让 `async_compute<T>` 的 C99 lowering 不再依赖 `std_thread_async_compute_future_new_<T>` / `AsyncComputeFuture_*` 硬编码；完成条件：`src/codegen/c99/expr.uya` 与 `src/codegen/c99/function.uya` 不再保留这组名字表；验证：`rg -n "std_thread_async_compute_future_new_|AsyncComputeFuture_" src/codegen/c99/expr.uya src/codegen/c99/function.uya`
+      - 验证记录（2026-06-21）：
+        - `../uya/bin/uya test tests/test_async_compute_codegen_lowering_boundary.uya`：通过
+        - `../uya/bin/uya test tests/test_async_compute_generic_wrapper.uya`：通过
+        - `../uya/bin/uya test tests/test_async_compute_types.uya`：通过
+        - `../uya/bin/uya test tests/test_std_thread.uya`：通过
+        - `rg -n "std_thread_async_compute_future_new_|AsyncComputeFuture_" src/codegen/c99/expr.uya src/codegen/c99/function.uya`：无输出
+        - `git diff --check`：通过
