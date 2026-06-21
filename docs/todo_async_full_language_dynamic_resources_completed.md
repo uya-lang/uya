@@ -2502,3 +2502,22 @@
     - 相关验证结果：通过；7 个测试全部通过。
     - 验证：`git diff --check`
     - 验证结果：通过；无输出。
+
+## Phase 2：编译器 async 资源动态化
+
+- [x] 补一个“多 frame / 多 mono instance / 多 generic async”压力样本，验证 descriptor 和 meta 表不会截断。
+
+**验收**：
+
+- [x] `../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
+- [x] 新增 `tests/verify_async_large_state_machine.sh`
+- [x] 新增 `tests/test_async_descriptor_growth.uya`
+- [x] 在旧 `256 await`、`32 locals`、`512 frame meta` 边界附近的样本全部通过
+
+**验证**：
+
+- `../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
+- `../uya/bin/uya test tests/test_async_descriptor_growth.uya`
+- `bash tests/verify_async_large_state_machine.sh` -> `control=23 stress=548 delta=525`
+- `python3 tests/verify_async_compiler_no_fixed_limits.py`
+- `git diff --check`

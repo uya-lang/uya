@@ -8,7 +8,8 @@ const MONO_INSTANCE_INDEX_MASK: i32 = 1023;
 var g_mono_index_cached_checker: &TypeChecker = null;
 var g_mono_index_initialized: i32 = 0;
 var g_mono_index_heads: [i32: MONO_INSTANCE_INDEX_SIZE] = [];
-var g_mono_index_next: [i32: MAX_MONO_INSTANCES] = [];
+var g_mono_index_next: &i32 = null;
+var g_mono_index_next_capacity: i32 = 0;
 
 fn mono_index_head_at(idx: i32) i32 {
     if idx < 0 {
@@ -34,20 +35,22 @@ fn mono_index_next_at(idx: i32) i32 {
     if idx < 0 {
         return 0;
     }
-    if idx >= MAX_MONO_INSTANCES {
+    const items: &i32 = g_mono_index_next;
+    if items == null || idx >= g_mono_index_next_capacity {
         return 0;
     }
-    return g_mono_index_next[idx];
+    return items[idx];
 }
 
 fn mono_index_next_set(idx: i32, value: i32) void {
     if idx < 0 {
         return;
     }
-    if idx >= MAX_MONO_INSTANCES {
+    const items: &i32 = g_mono_index_next;
+    if items == null || idx >= g_mono_index_next_capacity {
         return;
     }
-    g_mono_index_next[idx] = value;
+    items[idx] = value;
 }
 
 fn mono_instance_index_reset() void {
@@ -56,13 +59,80 @@ fn mono_instance_index_reset() void {
         g_mono_index_heads[i] = 0;
         i = i + 1;
     }
-    i = 0;
-    while i < MAX_MONO_INSTANCES {
-        g_mono_index_next[i] = 0;
-        i = i + 1;
-    }
+    g_mono_index_next = null;
+    g_mono_index_next_capacity = 0;
     g_mono_index_cached_checker = null;
     g_mono_index_initialized = 0;
+}
+
+fn mono_instance_index_ensure_capacity(checker: &TypeChecker, needed: i32) i32 {
+    if checker == null || checker.arena == null || needed <= 0 {
+        return -1;
+    }
+    if g_mono_index_next != null && g_mono_index_next_capacity >= needed {
+        return 0;
+    }
+    var new_cap: i32 = g_mono_index_next_capacity;
+    if new_cap < MONO_INSTANCE_INITIAL_CAPACITY {
+        new_cap = MONO_INSTANCE_INITIAL_CAPACITY;
+    }
+    while new_cap < needed {
+        new_cap = new_cap * 2;
+        if new_cap <= 0 {
+            return -1;
+        }
+    }
+    const new_items: &i32 = compiler_arena_alloc(checker.arena, @size_of(i32) * new_cap as usize) as &i32;
+    if new_items == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < new_cap {
+        new_items[i] = 0;
+        i = i + 1;
+    }
+    i = 0;
+    const old_items: &i32 = g_mono_index_next;
+    while i < g_mono_index_next_capacity {
+        if old_items != null {
+            new_items[i] = old_items[i];
+        }
+        i = i + 1;
+    }
+    g_mono_index_next = new_items;
+    g_mono_index_next_capacity = new_cap;
+    return 0;
+}
+
+fn checker_ensure_mono_instance_capacity(checker: &TypeChecker, needed: i32) i32 {
+    if checker == null || checker.arena == null || needed <= 0 {
+        return -1;
+    }
+    if checker.mono_instances != null && checker.mono_instance_capacity >= needed {
+        return mono_instance_index_ensure_capacity(checker, checker.mono_instance_capacity);
+    }
+    var new_cap: i32 = checker.mono_instance_capacity;
+    if new_cap < MONO_INSTANCE_INITIAL_CAPACITY {
+        new_cap = MONO_INSTANCE_INITIAL_CAPACITY;
+    }
+    while new_cap < needed {
+        new_cap = new_cap * 2;
+        if new_cap <= 0 {
+            return -1;
+        }
+    }
+    const new_items: &MonoInstance = compiler_arena_alloc(checker.arena, @size_of(MonoInstance) * new_cap as usize) as &MonoInstance;
+    if new_items == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < checker.mono_instance_count {
+        new_items[i] = checker.mono_instances[i];
+        i = i + 1;
+    }
+    checker.mono_instances = new_items;
+    checker.mono_instance_capacity = new_cap;
+    return mono_instance_index_ensure_capacity(checker, new_cap);
 }
 
 fn mono_instance_index_slot(generic_name: &byte, is_function: i32) i32 {
@@ -83,32 +153,24 @@ fn mono_instance_index_link(checker: &TypeChecker, idx: i32) void {
     if idx >= checker.mono_instance_count {
         return;
     }
-    if idx < 0 || idx >= MAX_MONO_INSTANCES {
+    if checker.mono_instances == null || idx >= checker.mono_instance_capacity {
         return;
     }
-    if idx >= 0 && idx < checker.mono_instance_count && idx < MAX_MONO_INSTANCES {
-        const inst: &MonoInstance = &checker.mono_instances[idx];
-        if inst.generic_name == null {
-            return;
-        }
-        const slot: i32 = mono_instance_index_slot(inst.generic_name, inst.is_function);
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            return;
-        }
-        if slot_idx >= MONO_INSTANCE_INDEX_SIZE {
-            return;
-        }
-        const next_idx: i32 = idx;
-        if next_idx < 0 {
-            return;
-        }
-        if next_idx >= MAX_MONO_INSTANCES {
-            return;
-        }
-        mono_index_next_set(next_idx, mono_index_head_at(slot_idx));
-        mono_index_head_set(slot_idx, idx + 1);
+    const inst: &MonoInstance = &checker.mono_instances[idx];
+    if inst.generic_name == null {
+        return;
     }
+    const slot: i32 = mono_instance_index_slot(inst.generic_name, inst.is_function);
+    const slot_idx: i32 = slot;
+    if slot_idx < 0 || slot_idx >= MONO_INSTANCE_INDEX_SIZE {
+        return;
+    }
+    const next_idx: i32 = idx;
+    if next_idx < 0 || mono_instance_index_ensure_capacity(checker, next_idx + 1) != 0 {
+        return;
+    }
+    mono_index_next_set(next_idx, mono_index_head_at(slot_idx));
+    mono_index_head_set(slot_idx, idx + 1);
 }
 
 fn mono_instance_index_ensure(checker: &TypeChecker) void {
@@ -120,8 +182,12 @@ fn mono_instance_index_ensure(checker: &TypeChecker) void {
     }
     mono_instance_index_reset();
     g_mono_index_cached_checker = checker;
+    if checker.mono_instance_count > 0 &&
+        mono_instance_index_ensure_capacity(checker, checker.mono_instance_count) != 0 {
+        return;
+    }
     var i: i32 = 0;
-    while i < checker.mono_instance_count && i < MAX_MONO_INSTANCES {
+    while i < checker.mono_instance_count {
         mono_instance_index_link(checker, i);
         i = i + 1;
     }
@@ -162,7 +228,10 @@ fn mono_instance_type_args_match(checker: &TypeChecker, inst: &MonoInstance,
 fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
                           type_arg_nodes: & & ASTNode, type_arg_count: i32,
                           is_function: i32) i32 {
-    if checker == null || generic_name == null || checker.mono_instance_count >= MAX_MONO_INSTANCES {
+    if checker == null || generic_name == null {
+        return -1;
+    }
+    if checker_ensure_mono_instance_capacity(checker, checker.mono_instance_count + 1) != 0 {
         return -1;
     }
     mono_instance_index_ensure(checker);
@@ -178,7 +247,8 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     var entry: i32 = mono_index_head_at(slot);
     while entry != 0 {
         const current_idx: i32 = entry - 1;
-        if current_idx >= 0 && current_idx < checker.mono_instance_count && current_idx < MAX_MONO_INSTANCES {
+        if current_idx >= 0 && current_idx < checker.mono_instance_count &&
+            checker.mono_instances != null && current_idx < checker.mono_instance_capacity {
             const inst: &MonoInstance = &checker.mono_instances[current_idx];
             if inst.generic_name != null &&
                 str_equals(inst.generic_name, generic_name) != 0 &&
@@ -191,7 +261,7 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
         if current_idx < 0 {
             break;
         }
-        if current_idx >= @len(g_mono_index_next) {
+        if current_idx >= g_mono_index_next_capacity {
             break;
         }
         entry = mono_index_next_at(current_idx);
@@ -216,18 +286,17 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
         name_copy[ni] = generic_name[ni];
         ni = ni + 1;
     }
-    if idx >= 0 && idx < MAX_MONO_INSTANCES {
-        const inst: &MonoInstance = &checker.mono_instances[idx];
-        inst.generic_name = name_copy;
-        inst.is_function = is_function;
-        inst.type_arg_count = type_arg_count;
+    if checker.mono_instances == null || idx < 0 || idx >= checker.mono_instance_capacity {
+        checker.mono_instance_count = idx;
+        return -1;
     }
+    checker.mono_instances[idx].generic_name = name_copy;
+    checker.mono_instances[idx].is_function = is_function;
+    checker.mono_instances[idx].type_arg_count = type_arg_count;
     
     // 分配类型实参数组
     const type_args_mem: &Type = compiler_arena_alloc(checker.arena, (@size_of(Type)) * (type_arg_count as usize)) as &Type;
-    if idx >= 0 && idx < MAX_MONO_INSTANCES {
-        checker.mono_instances[idx].type_args = type_args_mem;
-    }
+    checker.mono_instances[idx].type_args = type_args_mem;
     if type_args_mem == null {
         checker.mono_instance_count = idx;
         return -1;
@@ -235,9 +304,7 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     
     // 保存 AST 节点数组
     const type_arg_nodes_mem: & & ASTNode = compiler_arena_alloc(checker.arena, (@size_of(&ASTNode)) * (type_arg_count as usize)) as & & ASTNode;
-    if idx >= 0 && idx < MAX_MONO_INSTANCES {
-        checker.mono_instances[idx].type_arg_nodes = type_arg_nodes_mem;
-    }
+    checker.mono_instances[idx].type_arg_nodes = type_arg_nodes_mem;
     if type_arg_nodes_mem == null {
         checker.mono_instance_count = idx;
         return -1;
@@ -247,12 +314,10 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     var k: i32 = 0;
     while k < type_arg_count {
         const arg_type: Type = type_from_ast(checker, type_arg_nodes[k]);
-        if idx >= 0 && idx < MAX_MONO_INSTANCES {
-            const inst: &MonoInstance = &checker.mono_instances[idx];
-            if inst.type_args != null {
-                inst.type_args[k] = copy_type(&arg_type);
-                inst.type_arg_nodes[k] = type_arg_nodes[k];
-            }
+        const inst: &MonoInstance = &checker.mono_instances[idx];
+        if inst.type_args != null {
+            inst.type_args[k] = copy_type(&arg_type);
+            inst.type_arg_nodes[k] = type_arg_nodes[k];
         }
         k = k + 1;
     }

@@ -143,7 +143,9 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     // 初始化泛型相关字段
     checker.current_type_params = null;
     checker.current_type_param_count = 0;
+    checker.mono_instances = null;
     checker.mono_instance_count = 0;
+    checker.mono_instance_capacity = 0;
     
     // 初始化约束系统
     for 0..@len(checker.constraint_var_names) |i| {

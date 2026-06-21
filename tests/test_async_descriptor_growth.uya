@@ -1,0 +1,63 @@
+use std.async;
+use std.testing.assert_eq_i32;
+
+fn ready(v: i32) Future<!i32> {
+    const p: Poll<!i32> = Poll<!i32>.Ready(ok<i32>(v));
+    return Future<!i32>{ state: p };
+}
+
+fn expect_future_i32(f: Future<!i32>, expected: i32) !void {
+    const value: i32 = try block_on<i32>(f);
+    try assert_eq_i32(value, expected);
+}
+
+@async_fn
+fn pair_add<T, U>(lhs: &T, rhs: &U, bias: i32) Future<!i32> {
+    _ = lhs;
+    _ = rhs;
+    const a: i32 = try @await ready(bias);
+    return a + 1;
+}
+
+@async_fn
+fn pair_sub<T, U>(lhs: &T, rhs: &U, bias: i32) Future<!i32> {
+    _ = lhs;
+    _ = rhs;
+    const a: i32 = try @await ready(bias);
+    return a - 1;
+}
+
+@async_fn
+fn single_tag<T>(item: &T, tag: i32) Future<!i32> {
+    _ = item;
+    const v: i32 = try @await ready(tag);
+    return v;
+}
+
+struct Ty00 {}
+struct Ty01 {}
+struct Ty02 {}
+struct Ty03 {}
+
+test "async_descriptor_growth_runtime_smoke" {
+    const t00: Ty00 = Ty00{};
+    const t01: Ty01 = Ty01{};
+    const t02: Ty02 = Ty02{};
+    const t03: Ty03 = Ty03{};
+
+    try expect_future_i32(pair_add<Ty00, Ty01>(&t00, &t01, 17), 18);
+    try expect_future_i32(pair_sub<Ty02, Ty03>(&t02, &t03, 29), 28);
+    try expect_future_i32(single_tag<Ty03>(&t03, 91), 91);
+}
+
+test "async_descriptor_growth_multiple_specializations" {
+    const t00: Ty00 = Ty00{};
+    const t01: Ty01 = Ty01{};
+    const t02: Ty02 = Ty02{};
+    const t03: Ty03 = Ty03{};
+
+    try expect_future_i32(pair_add<Ty01, Ty00>(&t01, &t00, 5), 6);
+    try expect_future_i32(pair_add<Ty03, Ty02>(&t03, &t02, 7), 8);
+    try expect_future_i32(pair_sub<Ty00, Ty02>(&t00, &t02, 11), 10);
+    try expect_future_i32(single_tag<Ty01>(&t01, 13), 13);
+}

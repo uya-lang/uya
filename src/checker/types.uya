@@ -15,7 +15,7 @@ use std.mem.memcpy;
 
 const MAX_ERROR_NAMES: i32 = 1024;
 const MAX_MOVED_NAMES: i32 = 128;
-const MAX_MONO_INSTANCES: i32 = 512;
+const MONO_INSTANCE_INITIAL_CAPACITY: i32 = 64;
 const MAX_UNION_VARIANTS: i32 = 32;
 const MAX_INTERFACE_METHODS: i32 = 128;
 const MAX_INTERFACE_STACK: i32 = 64;
@@ -312,8 +312,9 @@ struct TypeChecker {
     uya_root_dir: &byte,
     current_type_params: &TypeParam,
     current_type_param_count: i32,
-    mono_instances: [MonoInstance: 512],
+    mono_instances: &MonoInstance,
     mono_instance_count: i32,
+    mono_instance_capacity: i32,
     constraint_var_names: [&byte: 64],
     constraint_ops: [i32: 64],
     constraint_values: [i32: 64],

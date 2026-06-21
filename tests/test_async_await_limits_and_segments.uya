@@ -305,6 +305,44 @@ fn preawait_init_kept() Future<!i32> {
     return got;
 }
 
+@async_fn
+fn locals_near_old_limit_kept() Future<!i32> {
+    const l00: i32 = 0;
+    const l01: i32 = 1;
+    const l02: i32 = 2;
+    const l03: i32 = 3;
+    const l04: i32 = 4;
+    const l05: i32 = 5;
+    const l06: i32 = 6;
+    const l07: i32 = 7;
+    const l08: i32 = 8;
+    const l09: i32 = 9;
+    const l10: i32 = 10;
+    const l11: i32 = 11;
+    const l12: i32 = 12;
+    const l13: i32 = 13;
+    const l14: i32 = 14;
+    const l15: i32 = 15;
+    const l16: i32 = 16;
+    const l17: i32 = 17;
+    const l18: i32 = 18;
+    const l19: i32 = 19;
+    const l20: i32 = 20;
+    const l21: i32 = 21;
+    const l22: i32 = 22;
+    const l23: i32 = 23;
+    const l24: i32 = 24;
+    const l25: i32 = 25;
+    const l26: i32 = 26;
+    const l27: i32 = 27;
+    const l28: i32 = 28;
+    const l29: i32 = 29;
+    const l30: i32 = 30;
+    const l31: i32 = 31;
+    const got: i32 = try @await ready(5);
+    return l00 + l15 + l31 + got;
+}
+
 test "async_gap_side_effect_kept_between_awaits" {
     g_gap_side_effect = 0;
     const f: Future<!i32> = await_side_effect_gap();
@@ -326,4 +364,11 @@ test "async_preawait_init_helper_kept_before_first_await" {
     const bo: !i32 = block_on<i32>(f);
     const v: i32 = bo catch { 0 - 1; };
     try assert_eq_i32(v, 7);
+}
+
+test "async_locals_near_old_limit_keep_mapping" {
+    const f: Future<!i32> = locals_near_old_limit_kept();
+    const bo: !i32 = block_on<i32>(f);
+    const v: i32 = bo catch { 0 - 1; };
+    try assert_eq_i32(v, 51);
 }

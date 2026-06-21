@@ -160,17 +160,6 @@
 4. [ ] 再做 1.5.5，迁移 DNS / HTTP1 / WebSocket / UyaGin 热路径。
 5. [ ] 最后做 1.5.6，把 runtime 叶子手写 future 收缩到最终边界并清零或正式归类。
 
-## Phase 2：编译器 async 资源动态化
-
-- [ ] 补一个“多 frame / 多 mono instance / 多 generic async”压力样本，验证 descriptor 和 meta 表不会截断。
-
-**验收**：
-
-- [ ] `../uya/bin/uya test tests/test_async_await_limits_and_segments.uya`
-- [ ] 新增 `tests/verify_async_large_state_machine.sh`
-- [ ] 新增 `tests/test_async_descriptor_growth.uya`
-- [ ] 在旧 `256 await`、`32 locals`、`512 frame meta` 边界附近的样本全部通过
-
 ## Phase 3：运行时 async 资源动态化
 
 ### 3.1 EventLoop / epoll
