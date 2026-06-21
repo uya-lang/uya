@@ -573,7 +573,7 @@ test "epoll_pipeline_two_gets_slot_buffer" {
     while k < n {
         if k >= 0 && k < 8 {
             if !epoll_server_event_is_listen(&srv, &evs[k as usize]) {
-                const cfd_ev: i32 = evs[k as usize].data as i32;
+                const cfd_ev: i32 = epoll_event_fd(&evs[k as usize]);
                 const sidx: i32 = epoll_server_slot_for_fd(&srv, cfd_ev);
                 try assert_eq_i32(sidx, slot as i32);
                 found_client = 1;

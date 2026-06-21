@@ -5,13 +5,19 @@ use std.runtime.entry;
 use libc.syscall;
 
 export fn main() i32 {
+    if @size_of(EpollEvent) != 12usize {
+        return 5;
+    }
+    if @align_of(EpollEvent) != 4 {
+        return 6;
+    }
     const epfd: i32 = sys_epoll_create1(0) catch {
         return 1;
     };
     if epfd < 0 {
         return 2;
     }
-    var ev: EpollEvent = EpollEvent{ events: 0, _pad: 0, data: 0 };
+    var ev: EpollEvent = epoll_event_with_fd(0 as u32, 0);
     const n: i32 = sys_epoll_wait(epfd, &ev, 1, 0) catch {
         return 3;
     };

@@ -9,6 +9,8 @@ use std.testing.assert_eq_i32;
 use libc.syscall;
 
 const TEST_O_NONBLOCK: i32 = 0x800;
+const FD_COLLISION_PIPE_LIMIT: i32 = 32;
+const FD_COLLISION_TARGET_COUNT: i32 = 4;
 
 fn test_sys_pipe2(pipefd: &i32, flags: i32) !i32 {
     return @syscall(SYS_pipe2, pipefd as i64, flags as i64) as! i32;
@@ -20,6 +22,23 @@ fn test_sys_close(fd: i32) !i32 {
 
 fn test_sys_write(fd: i32, buf: &const byte, count: usize) !isize {
     return @syscall(SYS_write, fd as i64, buf as i64, count as i64) as! isize;
+}
+
+fn test_fd_bucket(fd: i32, capacity: i32) i32 {
+    var bucket: i32 = fd;
+    if bucket < 0 {
+        bucket = 0 - bucket;
+    }
+    return bucket % capacity;
+}
+
+fn test_close_pipe_pairs(read_fds: [i32: FD_COLLISION_PIPE_LIMIT], write_fds: [i32: FD_COLLISION_PIPE_LIMIT], count: i32) void {
+    var i: i32 = 0;
+    while i < count {
+        _ = test_sys_close(read_fds[i as usize]) catch {};
+        _ = test_sys_close(write_fds[i as usize]) catch {};
+        i = i + 1;
+    }
 }
 
 test "fd_reuse_basic" {
@@ -294,4 +313,126 @@ test "two_fds_sequential" {
     _ = test_sys_close(w1);
     _ = test_sys_close(r2);
     _ = test_sys_close(w2);
+}
+
+test "fd_lookup_hash_collisions_preserve_live_slots_after_tombstone" {
+    const ep_res: !LinuxEpoll = linux_epoll_create_config(0, 8, 8);
+    const ep: LinuxEpoll = ep_res catch {
+        try assert_eq_i32(0, 41);
+        return;
+    };
+    const lookup_capacity: i32 = linux_epoll_lookup_capacity(&ep);
+    try assert_eq_i32(lookup_capacity > linux_epoll_slot_capacity(&ep), true as i32);
+
+    var all_read_fds: [i32: FD_COLLISION_PIPE_LIMIT] = [0: FD_COLLISION_PIPE_LIMIT];
+    var all_write_fds: [i32: FD_COLLISION_PIPE_LIMIT] = [0: FD_COLLISION_PIPE_LIMIT];
+    var collision_read_fds: [i32: FD_COLLISION_TARGET_COUNT] = [0: FD_COLLISION_TARGET_COUNT];
+    var collision_write_fds: [i32: FD_COLLISION_TARGET_COUNT] = [0: FD_COLLISION_TARGET_COUNT];
+    var collision_count: i32 = 0;
+    var target_bucket: i32 = 0 - 1;
+    var created_count: i32 = 0;
+    while created_count < FD_COLLISION_PIPE_LIMIT && collision_count < FD_COLLISION_TARGET_COUNT {
+        var fds: [i32: 2] = [];
+        _ = test_sys_pipe2(&fds[0], TEST_O_NONBLOCK) catch {
+            test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+            try assert_eq_i32(0, 42);
+            return;
+        };
+        all_read_fds[created_count as usize] = fds[0];
+        all_write_fds[created_count as usize] = fds[1];
+        const bucket: i32 = test_fd_bucket(fds[0], lookup_capacity);
+        if target_bucket < 0 {
+            target_bucket = bucket;
+        }
+        if bucket == target_bucket {
+            collision_read_fds[collision_count as usize] = fds[0];
+            collision_write_fds[collision_count as usize] = fds[1];
+            collision_count = collision_count + 1;
+        }
+        created_count = created_count + 1;
+    }
+    if collision_count != FD_COLLISION_TARGET_COUNT {
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(collision_count, FD_COLLISION_TARGET_COUNT);
+        return;
+    }
+    try assert_eq_i32(test_fd_bucket(collision_read_fds[0], lookup_capacity), target_bucket);
+    try assert_eq_i32(test_fd_bucket(collision_read_fds[1], lookup_capacity), target_bucket);
+    try assert_eq_i32(test_fd_bucket(collision_read_fds[2], lookup_capacity), target_bucket);
+    try assert_eq_i32(test_fd_bucket(collision_read_fds[3], lookup_capacity), target_bucket);
+
+    var w0: Waker = Waker{};
+    var w1: Waker = Waker{};
+    var w2: Waker = Waker{};
+    var w3: Waker = Waker{};
+    _ = ep.register(collision_read_fds[0], EventKind.Readable({}), &w0) catch {
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(0, 43);
+        return;
+    };
+    _ = ep.register(collision_read_fds[1], EventKind.Readable({}), &w1) catch {
+        _ = ep.deregister(collision_read_fds[0]) catch {};
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(0, 44);
+        return;
+    };
+    _ = ep.register(collision_read_fds[2], EventKind.Readable({}), &w2) catch {
+        _ = ep.deregister(collision_read_fds[0]) catch {};
+        _ = ep.deregister(collision_read_fds[1]) catch {};
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(0, 45);
+        return;
+    };
+
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[0]) as i32, 1);
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[1]) as i32, 1);
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[2]) as i32, 1);
+
+    _ = ep.deregister(collision_read_fds[1]) catch {
+        _ = ep.deregister(collision_read_fds[0]) catch {};
+        _ = ep.deregister(collision_read_fds[2]) catch {};
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(0, 46);
+        return;
+    };
+
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[0]) as i32, 1);
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[1]) as i32, 0);
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[2]) as i32, 1);
+
+    _ = ep.register(collision_read_fds[3], EventKind.Readable({}), &w3) catch {
+        _ = ep.deregister(collision_read_fds[0]) catch {};
+        _ = ep.deregister(collision_read_fds[2]) catch {};
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(0, 47);
+        return;
+    };
+
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[3]) as i32, 1);
+    try assert_eq_i32(linux_epoll_is_registered(&ep, collision_read_fds[2]) as i32, 1);
+    try assert_eq_i32(linux_epoll_registered_count(&ep), 3);
+
+    var data: [byte: 1] = [7];
+    _ = test_sys_write(collision_write_fds[0], &data[0], 1) catch {};
+    _ = test_sys_write(collision_write_fds[2], &data[0], 1) catch {};
+    _ = test_sys_write(collision_write_fds[3], &data[0], 1) catch {};
+
+    const ready_n: i32 = ep.poll(0) catch {
+        _ = ep.deregister(collision_read_fds[0]) catch {};
+        _ = ep.deregister(collision_read_fds[2]) catch {};
+        _ = ep.deregister(collision_read_fds[3]) catch {};
+        test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
+        try assert_eq_i32(0, 48);
+        return;
+    };
+    try assert_eq_i32(ready_n, 3);
+    try assert_eq_i32(w0.is_woken() as i32, 1);
+    try assert_eq_i32(w1.is_woken() as i32, 0);
+    try assert_eq_i32(w2.is_woken() as i32, 1);
+    try assert_eq_i32(w3.is_woken() as i32, 1);
+
+    _ = ep.deregister(collision_read_fds[0]) catch {};
+    _ = ep.deregister(collision_read_fds[2]) catch {};
+    _ = ep.deregister(collision_read_fds[3]) catch {};
+    test_close_pipe_pairs(all_read_fds, all_write_fds, created_count);
 }

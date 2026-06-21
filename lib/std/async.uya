@@ -560,7 +560,7 @@ fn async_join2_register_epoll_interest(epfd: i32, fd: i32, events: u32) !i32 {
     if fd < 0 || events == 0u32 {
         return 0;
     }
-    var ev: EpollEvent = EpollEvent{ events: events, _pad: 0, data: fd as u64 };
+    var ev: EpollEvent = epoll_event_with_fd(events, fd);
     _ = try sys_epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
     return 1;
 }

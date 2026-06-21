@@ -2528,3 +2528,11 @@
   验证：`../uya/bin/uya test tests/test_async_event_config.uya`（通过：2 tests passed, 0 failed）
   验证：`../uya/bin/uya test tests/test_std_async_event.uya`（通过：总计 1，失败 0）
   说明：`lib/std/async_event.uya` 已提供 `linux_epoll_create_config(...)`、动态分配的 slot / event buffer，以及对应容量查询与运行时测试覆盖。
+
+## Phase 3：运行时 async 资源动态化
+### 3.1 EventLoop / epoll
+- [x] 消灭 `find_slot()` 线性扫固定数组的实现，改成更适合生产的索引结构。
+  - 验证：`../uya/bin/uya test tests/test_std_async_event_fd_reuse.uya`（通过，5/5；新增碰撞/墓碑链回归）
+  - 验证：`../uya/bin/uya test tests/test_std_async_event.uya`（通过，1/1）
+  - 验证：`../uya/bin/uya test tests/test_epoll_syscall.uya`（通过，1/1；覆盖 `EpollEvent` 12-byte ABI 断言）
+  - 验证：`../uya/bin/uya test tests/test_epoll_server.uya`（通过，8/8）

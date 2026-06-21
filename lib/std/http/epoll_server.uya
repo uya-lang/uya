@@ -68,7 +68,7 @@ export fn epoll_server_listen_into(cfg: &ServerConfig, out: &EpollServer) !void 
         port_out = read_port_from_sockaddr_16(&out_addr[0] as &byte);
     }
     const epfd: i32 = try sys_epoll_create1(EPOLL_CLOEXEC);
-    var ev_listen: EpollEvent = EpollEvent{ events: EPOLLIN as u32, _pad: 0, data: fd as u64 };
+    var ev_listen: EpollEvent = epoll_event_with_fd(EPOLLIN as u32, fd);
     _ = try sys_epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev_listen);
     out.listen_fd = fd;
     out.epfd = epfd;
@@ -131,7 +131,7 @@ fn epoll_register_client_fd(srv: &EpollServer, slot: usize, cfd: i32) !void {
         conn.buf_len = 0;
         conn.buf_pos = 0;
         conn.wants_persist = false;
-        var ev_c: EpollEvent = EpollEvent{ events: EPOLLIN as u32, _pad: 0, data: cfd as u64 };
+        var ev_c: EpollEvent = epoll_event_with_fd(EPOLLIN as u32, cfd);
         const add_res: !i32 = sys_epoll_ctl(srv.epfd, EPOLL_CTL_ADD, cfd, &ev_c);
         match add_res {
             error._ => {
@@ -179,12 +179,12 @@ export fn epoll_server_poll(srv: &EpollServer, timeout_ms: i32) !i32 {
 
 /// 事件是否来自监听套接字（`data` 存 fd，与 `EPOLL_CTL_ADD` 时一致）
 export fn epoll_server_event_is_listen(srv: &EpollServer, ev: &EpollEvent) bool {
-    return (ev.data as i32) == srv.listen_fd;
+    return epoll_event_fd(ev) == srv.listen_fd;
 }
 
 /// 修改已注册 fd 的 epoll 关注事件（如 `EPOLLIN | EPOLLOUT`，用于非阻塞写遇 `ReadWouldBlock` 后等待可写）
 export fn epoll_server_ctl_mod(srv: &EpollServer, cfd: i32, events: u32) !void {
-    var ev: EpollEvent = EpollEvent{ events: events, _pad: 0, data: cfd as u64 };
+    var ev: EpollEvent = epoll_event_with_fd(events, cfd);
     _ = try sys_epoll_ctl(srv.epfd, EPOLL_CTL_MOD, cfd, &ev);
 }
 

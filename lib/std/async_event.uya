@@ -54,11 +54,7 @@ fn event_kind_to_poll(k: EventKind) i16 {
 }
 
 fn epoll_interest_or_default(fd: i32, interest: EventKind) EpollEvent {
-    return EpollEvent{
-        events: event_kind_to_epoll(interest) as u32,
-        _pad: 0,
-        data: fd as u64,
-    };
+    return epoll_event_with_fd(event_kind_to_epoll(interest) as u32, fd);
 }
 
 /// 事件循环统一接口：注册 fd、注销、轮询
@@ -304,7 +300,7 @@ export struct LinuxEpoll : EventLoop {
         };
         var i: i32 = 0;
         while i >= 0 && i < n && i < self.event_capacity {
-            const fd: i32 = self.events[i].data as i32;
+            const fd: i32 = epoll_event_fd(&self.events[i]);
             const slot_idx: i32 = self.find_slot(fd);
             if slot_idx >= 0 && self.slot_wakers[slot_idx] != 0 as usize {
                 const waker: &Waker = (self.slot_wakers[slot_idx] as &void) as &Waker;

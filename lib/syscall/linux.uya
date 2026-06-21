@@ -407,11 +407,24 @@ export fn sys_pipe2(pipefd: &i32, flags: i32) !i32 {
 // epoll 相关（Linux 可扩展 I/O 事件通知）
 // ============================================================
 
-/// epoll_event：与 Linux ABI 兼容（events: u32 + pad + data: u64）
+/// epoll_event：使用 3 个 `u32` 表达 Linux packed ABI（总大小 12 字节）。
+/// 当前运行时只把 `data` 当作 fd 使用，因此通过 helper 编解码低 32 位即可避免 16 字节错配。
 export struct EpollEvent {
     events: u32,
-    _pad: u32,
-    data: u64,
+    data_lo: u32,
+    data_hi: u32,
+}
+
+export fn epoll_event_with_fd(events: u32, fd: i32) EpollEvent {
+    return EpollEvent{
+        events: events,
+        data_lo: fd as u32,
+        data_hi: 0 as u32,
+    };
+}
+
+export fn epoll_event_fd(event: &EpollEvent) i32 {
+    return event.data_lo as i32;
 }
 
 /// epoll_create1 - 创建 epoll 实例
@@ -428,7 +441,7 @@ export fn sys_epoll_ctl(epfd: i32, op: i32, fd: i32, event: &const EpollEvent) !
 
 /// epoll_ctl - 删除 fd（DEL 时 event 在内核中忽略，此处不传）
 export fn sys_epoll_ctl_del(epfd: i32, fd: i32) !i32 {
-    var dummy: EpollEvent = EpollEvent{ events: 0, _pad: 0, data: 0 };
+    var dummy: EpollEvent = epoll_event_with_fd(0 as u32, 0);
     return @syscall(SYS_epoll_ctl, epfd as i64, EPOLL_CTL_DEL as i64, fd as i64, &dummy as i64) as! i32;
 }
 
