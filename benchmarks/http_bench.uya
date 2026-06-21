@@ -1093,9 +1093,7 @@ fn bench_epoll_main_loop(srv: &EpollServer, rt: &Router) void {
                 if epoll_server_event_is_listen(srv, ev) {
                     listen_pending = true;
                 } else {
-                    const cfd: i32 = u64_to_i32(ev.data) catch {
-                        0 - 1;
-                    };
+                    const cfd: i32 = epoll_event_fd(ev);
                     if cfd < 0 {
                         continue;
                     }

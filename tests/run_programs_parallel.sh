@@ -738,6 +738,10 @@ SERIAL_TESTS=(
     # 在 28 线程并行矩阵下偶发因系统资源竞争导致 worker 创建失败或调度延迟，
     # 进而触发断言失败。单独运行时稳定通过，故串行化。
     test_std_thread
+    # test_async_thread_pool_dynamic_growth 会显式拉高 worker / queue / slot 压力；
+    # 在整套高并发矩阵里与其他重型用例并行时，偶发卡在 metrics/drain 阶段并放大内存占用。
+    # 单独运行与单线程脚本路径稳定通过，故移到串行桶以保留语义、隔离宿主资源竞争。
+    test_async_thread_pool_dynamic_growth
 )
 if [ -n "${SERIAL_TESTS_EXTRA:-}" ]; then
     read -r -a SERIAL_TESTS_EXTRA_ARR <<< "$SERIAL_TESTS_EXTRA"

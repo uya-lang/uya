@@ -2991,3 +2991,9 @@ Phase 5：发布闸门与文档同步
   - [x] `make tests-uya`
     - 验证命令：`make tests-uya`
     - 验证结果：通过；1051 个测试全部通过，随后 `upm-check` 通过，命令退出码 `0`。
+## Phase 5：发布闸门与文档同步
+路径：收口前至少跑通：
+  - [x] `make check`
+    - 验证命令：`make check`
+    - 验证结果：通过。主测试 `1051` 项全部通过，UPM / exec vm / microapp / SIMD / syscall / `benchmarks/http_bench.uya C99` 验证通过；`benchmarks/http_bench_async_epoll.uya C99` 仍按 Makefile 默认跳过，需 `UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1` 启用。
+    - 过程说明：修复 `benchmarks/http_bench.uya` 对 `EpollEvent` 的过时 `ev.data` 访问，改为 `epoll_event_fd(ev)`；将 `tests/run_programs_parallel.sh` 中的 `test_async_thread_pool_dynamic_growth` 移入串行桶，隔离高并发整套回归下的资源竞争与挂起。
