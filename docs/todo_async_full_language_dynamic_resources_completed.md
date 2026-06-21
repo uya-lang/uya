@@ -3090,3 +3090,11 @@ Phase 5：发布闸门与文档同步
     补充验证：`../uya/bin/uya test tests/test_async_compute_dynamic_resource_pressure.uya`
     结果：通过。1 个测试通过，53 个断言通过。
     说明：删除未使用的 `use std.async_scheduler;`，避免无关 `async_scheduler` / `async_event` 代码生成崩溃干扰 `ThreadPool` 动态容量验证。
+
+上下文：## 未完成前不得宣称完成的条件
+父级：- [ ] 仍存在 `16/32/64/512/1024` 这类固定上限决定正常功能成败。
+  - [x] 复核 `LinuxEpoll` 跨过旧 `64/1024` 初始容量后仍动态增长。
+    验证：`../uya/bin/uya test tests/test_async_event_dynamic_growth.uya`
+    结果：通过，2 tests / 150 assertions；新增默认 `linux_epoll_create(0)` 跨过 `1024 -> 1025` 的正式回归。
+    补充验证：`../uya/bin/uya test tests/test_std_async_event.uya`（通过，1 test）
+    补充验证：`../uya/bin/uya test tests/test_async_event_config.uya`（通过，2 tests / 11 assertions）
