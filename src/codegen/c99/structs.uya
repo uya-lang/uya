@@ -2691,7 +2691,7 @@ fn is_generic_union_c99(union_decl: &ASTNode) i32 {
 // 检查单态化类型参数是否包含未解析的类型参数
 // 例如：Container<T> 中 T 还是类型参数，而不是具体类型（如 i32）
 fn has_unresolved_mono_type_args(generic_decl: &ASTNode, type_args: & & ASTNode, type_arg_count: i32) i32 {
-    if generic_decl == null || type_args == null || type_arg_count <= 0 {
+    if generic_decl == null {
         return 0;
     }
     
@@ -2715,10 +2715,16 @@ fn has_unresolved_mono_type_args(generic_decl: &ASTNode, type_args: & & ASTNode,
     if type_params == null || type_param_count == 0 {
         return 0;
     }
+    if type_args == null || type_arg_count != type_param_count {
+        return 1;
+    }
     
     var i: i32 = 0;
     while i < type_arg_count {
         const original_arg: &ASTNode = type_args[i];
+        if original_arg == null {
+            return 1;
+        }
         var arg: &ASTNode = original_arg;
         var allow_err_void_mono: i32 = 0;
         // 递归剥离外层包装：!T / ptr T
@@ -2990,7 +2996,13 @@ fn c99_codegen_ensure_mono_struct(codegen: &C99CodeGenerator, generic_name: &byt
     }
     var ai: i32 = 0;
     while ai < type_arg_count {
+        if type_args[ai] == null {
+            return;
+        }
         resolved_args[ai] = substitute_type_arg(codegen, type_args[ai]);
+        if resolved_args[ai] == null {
+            return;
+        }
         ai = ai + 1;
     }
     const wanted_mono_name: &byte = get_mono_struct_name(codegen, generic_name, resolved_args, type_arg_count);

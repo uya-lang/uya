@@ -801,6 +801,13 @@ fn c99_codegen_ensure_mono_function(codegen: &C99CodeGenerator, generic_name: &b
     if codegen == null || generic_name == null || type_args == null || type_arg_count <= 0 {
         return;
     }
+    var ai_check: i32 = 0;
+    while ai_check < type_arg_count {
+        if type_args[ai_check] == null {
+            return;
+        }
+        ai_check = ai_check + 1;
+    }
     var i: i32 = 0;
     while i < codegen.mono_instance_count {
         const inst: MonoInstanceCodegen = codegen.mono_instances[i];
@@ -843,6 +850,13 @@ fn c99_codegen_ensure_mono_method(codegen: &C99CodeGenerator, owner_name: &byte,
     type_args: & & ASTNode, type_arg_count: i32) void {
     if codegen == null || owner_name == null || method_name == null || type_args == null || type_arg_count <= 0 {
         return;
+    }
+    var ai_check: i32 = 0;
+    while ai_check < type_arg_count {
+        if type_args[ai_check] == null {
+            return;
+        }
+        ai_check = ai_check + 1;
     }
     var inst_name_buf: [byte: NAME_BUF_SIZE] = [];
     var pos: i32 = snprintf(&inst_name_buf[0] as *byte, NAME_BUF_SIZE, "%s_%s" as *byte,

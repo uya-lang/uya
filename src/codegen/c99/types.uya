@@ -666,7 +666,8 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
             while spi < codegen.struct_type_param_count {
                 if codegen.struct_type_params[spi].name != null &&
                     strcmp(codegen.struct_type_params[spi].name as *byte, tp_name as *byte) == 0 {
-                    if codegen.struct_type_args != null && spi < codegen.struct_type_arg_count {
+                    if codegen.struct_type_args != null && spi < codegen.struct_type_arg_count &&
+                        codegen.struct_type_args[spi] != null {
                         if codegen.struct_type_args[spi] == type_node {
                             return tp_name;
                         }
@@ -686,7 +687,8 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
             while tpi < codegen.current_type_param_count {
                 if codegen.current_type_params[tpi].name != null &&
                     strcmp(codegen.current_type_params[tpi].name as *byte, tp_name as *byte) == 0 {
-                    if codegen.current_type_args != null && tpi < codegen.current_type_arg_count {
+                    if codegen.current_type_args != null && tpi < codegen.current_type_arg_count &&
+                        codegen.current_type_args[tpi] != null {
                         if codegen.current_type_args[tpi] == type_node {
                             return tp_name;
                         }
@@ -716,7 +718,8 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
                 while spj < codegen.struct_type_param_count {
                     if codegen.struct_type_params[spj].name != null &&
                         strcmp(codegen.struct_type_params[spj].name as *byte, inner_name as *byte) == 0 {
-                        if codegen.struct_type_args != null && spj < codegen.struct_type_arg_count {
+                        if codegen.struct_type_args != null && spj < codegen.struct_type_arg_count &&
+                            codegen.struct_type_args[spj] != null {
                             inner_c = c99_type_to_c(codegen, codegen.struct_type_args[spj]);
                             found_in_struct = 1;
                             break;
@@ -731,7 +734,8 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
                 while tpj < codegen.current_type_param_count {
                     if codegen.current_type_params[tpj].name != null &&
                         strcmp(codegen.current_type_params[tpj].name as *byte, inner_name as *byte) == 0 {
-                        if codegen.current_type_args != null && tpj < codegen.current_type_arg_count {
+                        if codegen.current_type_args != null && tpj < codegen.current_type_arg_count &&
+                            codegen.current_type_args[tpj] != null {
                             inner_c = c99_type_to_c(codegen, codegen.current_type_args[tpj]);
                             found_in_method = 1;
                             break;
@@ -1309,6 +1313,9 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
     } else if type_node.type == ASTNodeType.AST_TYPE_ARRAY {
         const element_type: &ASTNode = type_node.type_array_element_type;
         const size_expr: &ASTNode = type_node.type_array_size_expr;
+        if element_type == null {
+            return ("void" as *byte) as &byte;
+        }
         
         // 评估数组大小（编译时常量）
         var array_size: i32 = -1;

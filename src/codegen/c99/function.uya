@@ -7744,7 +7744,8 @@ fn substitute_type_arg(codegen: &C99CodeGenerator, type_node: &ASTNode) &ASTNode
         while i < codegen.current_type_param_count {
             if codegen.current_type_params[i].name != null &&
                 strcmp(codegen.current_type_params[i].name as *byte, name as *byte) == 0 {
-                if codegen.current_type_args != null && i < codegen.current_type_arg_count {
+                if codegen.current_type_args != null && i < codegen.current_type_arg_count &&
+                    codegen.current_type_args[i] != null {
                     return codegen.current_type_args[i];
                 }
             }
@@ -7755,7 +7756,8 @@ fn substitute_type_arg(codegen: &C99CodeGenerator, type_node: &ASTNode) &ASTNode
         while i < codegen.struct_type_param_count {
             if codegen.struct_type_params[i].name != null &&
                 strcmp(codegen.struct_type_params[i].name as *byte, name as *byte) == 0 {
-                if codegen.struct_type_args != null && i < codegen.struct_type_arg_count {
+                if codegen.struct_type_args != null && i < codegen.struct_type_arg_count &&
+                    codegen.struct_type_args[i] != null {
                     return codegen.struct_type_args[i];
                 }
             }
