@@ -162,10 +162,6 @@
 
 ## Phase 3：运行时 async 资源动态化
 
-### 3.1 EventLoop / epoll
-
-- [ ] 把“容量满直接失败”改成可增长或可配置策略，并补上指标。
-
 ### 3.2 Scheduler / TaskQueue
 
 - [ ] 把 scheduler 的 `_frame_stack_buffer[8192]` 改成显式配置或动态后备存储策略。

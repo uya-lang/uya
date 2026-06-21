@@ -3,6 +3,7 @@
 use std.async;
 use std.async_event;
 use std.testing.assert_eq_i32;
+use std.testing.expect;
 use libc.syscall;
 
 const TEST_O_NONBLOCK: i32 = 0x800;
@@ -32,23 +33,19 @@ test "linux_epoll_configurable_capacity" {
     var w3: Waker = Waker{};
     _ = try ep.register(fds1[0], EventKind.Readable({}), &w1);
     _ = try ep.register(fds2[0], EventKind.Readable({}), &w2);
+    _ = try ep.register(fds3[0], EventKind.Readable({}), &w3);
 
-    const third: !i32 = ep.register(fds3[0], EventKind.Readable({}), &w3);
-    if third.error_id == 0 {
-        _ = test_sys_close(fds1[0]);
-        _ = test_sys_close(fds1[1]);
-        _ = test_sys_close(fds2[0]);
-        _ = test_sys_close(fds2[1]);
-        _ = test_sys_close(fds3[0]);
-        _ = test_sys_close(fds3[1]);
-        try assert_eq_i32(0, 1);
-        return;
-    }
-
-    try assert_eq_i32(linux_epoll_registered_count(&ep), 2);
+    try expect(linux_epoll_slot_capacity(&ep) > 2);
+    try assert_eq_i32(linux_epoll_event_capacity(&ep), 1);
+    try assert_eq_i32(linux_epoll_registered_count(&ep), 3);
+    try expect(linux_epoll_peak_registered_count(&ep) >= 3);
+    try expect(linux_epoll_resize_count(&ep) >= 1);
 
     _ = ep.deregister(fds1[0]) catch {};
     _ = ep.deregister(fds2[0]) catch {};
+    _ = ep.deregister(fds3[0]) catch {};
+    try assert_eq_i32(linux_epoll_registered_count(&ep), 0);
+    try expect(linux_epoll_peak_registered_count(&ep) >= 3);
     _ = test_sys_close(fds1[0]);
     _ = test_sys_close(fds1[1]);
     _ = test_sys_close(fds2[0]);

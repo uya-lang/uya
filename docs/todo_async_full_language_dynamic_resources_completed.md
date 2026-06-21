@@ -2536,3 +2536,13 @@
   - 验证：`../uya/bin/uya test tests/test_std_async_event.uya`（通过，1/1）
   - 验证：`../uya/bin/uya test tests/test_epoll_syscall.uya`（通过，1/1；覆盖 `EpollEvent` 12-byte ABI 断言）
   - 验证：`../uya/bin/uya test tests/test_epoll_server.uya`（通过，8/8）
+## Phase 3：运行时 async 资源动态化
+### 3.1 EventLoop / epoll
+
+- [x] 把“容量满直接失败”改成可增长或可配置策略，并补上指标。
+  - 验证：`../uya/bin/uya test --c99 tests/test_async_event_config.uya`（通过，2 tests / 11 assertions）
+  - 验证：`../uya/bin/uya test --c99 tests/test_std_async_event.uya`（通过）
+  - 验证：`../uya/bin/uya test --c99 tests/test_std_async_event_fd_reuse.uya`（通过，5 tests / 28 assertions）
+  - 验证：`../uya/bin/uya test --c99 tests/test_std_async_scheduler.uya`（通过，20 tests / 242 assertions）
+  - 验证：`git diff --check`（通过）
+  - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`（通过，1 active task）
