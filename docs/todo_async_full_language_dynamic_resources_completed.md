@@ -2614,3 +2614,14 @@
     - 验证结果：通过；9 项测试通过，新增 `async_frame_pool_direct_caller_buffer_frame_stays_distinct_from_pool_reuse` 通过。
     - 扩展验证命令：`../uya/bin/uya test tests/test_async_frame_align_pool.uya`；`../uya/bin/uya test tests/test_async_frame_pool_dynamic_growth.uya`；`../uya/bin/uya test tests/test_std_async_scheduler.uya`
     - 扩展验证结果：通过；分别 4 / 2 / 24 项测试通过。
+## Phase 3：运行时 async 资源动态化
+
+### 3.3 AsyncFramePool
+
+父级路径：- [ ] 区分：
+  - [x] 池内复用 frame
+    - 实现：默认 `get_async_frame_allocator()` 在未显式设置时回退到 `async_frame_pool_default()`，普通 `@async_fn` 默认进入统一池并复用已释放 frame。
+    - 验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya`（通过，新增默认 async 路径使用默认池并复用 frame 的回归）
+    - 验证：`../uya/bin/uya test tests/test_async_frame_pool_full.uya`（通过）
+    - 验证：`../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过）
+    - 验证：`../uya/bin/uya test tests/test_c99_async_frame_descriptors.uya`（通过）

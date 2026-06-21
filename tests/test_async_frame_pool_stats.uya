@@ -6,11 +6,13 @@ use std.async_frame.AsyncFramePoolConfig;
 use std.async_frame.async_frame_pool_init;
 use std.async_frame.async_frame_pool_init_with_config;
 use std.async_frame.async_frame_pool_init_with_buffer;
+use std.async_frame.async_frame_pool_default;
 use std.async_frame.async_frame_pool_alloc_aligned;
 use std.async_frame.async_frame_pool_free_aligned;
 use std.async_frame.async_frame_pool_ptr_is_direct_caller_buffer;
 use std.async_frame.async_frame_pool_stats;
 use std.async_frame.async_frame_pool_reset;
+use std.mem.allocator.IAllocator;
 use std.testing.expect;
 use std.testing.run_test;
 use std.async;
@@ -18,6 +20,11 @@ use std.async;
 @async_fn
 fn dummy_async() Future<!i32> {
     return 1;
+}
+
+@async_fn
+fn default_pool_dummy_async(v: i32) Future<!i32> {
+    return v;
 }
 
 fn test_pool_stats() !void {
@@ -266,6 +273,59 @@ fn test_debug_heap_fallback_free_bypasses_pool_reuse() !void {
     try expect(heap_fallback == 1);
 }
 
+fn test_default_async_path_uses_default_pool_and_reuses_frame() !void {
+    const old_alloc: &IAllocator = get_async_frame_allocator();
+    set_async_frame_allocator(null);
+    defer { set_async_frame_allocator(old_alloc); }
+
+    const default_alloc: &IAllocator = get_async_frame_allocator();
+    try expect(default_alloc != null);
+
+    const pool: &AsyncFramePool = async_frame_pool_default();
+    try expect(pool != null);
+    async_frame_pool_reset(pool);
+
+    var total_alloc: i32 = 0;
+    var total_free: i32 = 0;
+    var full_count: i32 = 0;
+    var heap_fallback: i32 = 0;
+    async_frame_pool_stats(pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 0);
+    try expect(total_free == 0);
+    try expect(full_count == 0);
+    try expect(heap_fallback == 0);
+
+    const first: Future<!i32> = default_pool_dummy_async(11);
+    const first_ptr: usize = @usize_from_ptr(first.data as &void);
+    try expect(first_ptr != 0usize);
+    first.release();
+
+    async_frame_pool_stats(pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 1);
+    try expect(total_free == 1);
+    try expect(full_count == 0);
+    try expect(heap_fallback == 0);
+
+    const second: Future<!i32> = default_pool_dummy_async(22);
+    const second_ptr: usize = @usize_from_ptr(second.data as &void);
+    try expect(second_ptr == first_ptr);
+
+    const p: Poll<!i32> = second.poll(&Waker{});
+    var value: i32 = 0 - 1;
+    match p {
+        .Ready(ok_val) => { value = ok_val catch { 0 - 2; }; },
+        .Pending(_) => { value = 0 - 3; },
+    };
+    try expect(value == 22);
+    second.release();
+
+    async_frame_pool_stats(pool, &total_alloc, &total_free, &full_count, &heap_fallback);
+    try expect(total_alloc == 2);
+    try expect(total_free == 2);
+    try expect(full_count == 0);
+    try expect(heap_fallback == 0);
+}
+
 test "async_frame_pool_stats" {
     run_test("async_frame_pool_stats", test_pool_stats);
 }
@@ -300,4 +360,8 @@ test "async_frame_pool_reset_discards_old_pool_heap_frame" {
 
 test "async_frame_pool_debug_heap_fallback_free_bypasses_pool_reuse" {
     run_test("async_frame_pool_debug_heap_fallback_free_bypasses_pool_reuse", test_debug_heap_fallback_free_bypasses_pool_reuse);
+}
+
+test "async_frame_pool_default_async_path_uses_default_pool_and_reuses_frame" {
+    run_test("async_frame_pool_default_async_path_uses_default_pool_and_reuses_frame", test_default_async_path_uses_default_pool_and_reuses_frame);
 }

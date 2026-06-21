@@ -9,11 +9,14 @@ use libc.pthread;
 use libc.syscall;
 use std;
 use std.async_frame;
+use std.async_frame.AsyncFramePool;
+use std.async_frame.async_frame_pool_default;
 use std.http.types;
 use std.http.parse.http_parse_request;
 use std.http.parse.http_parse_request_into;
 use std.http.parse.http_decode_chunked_body_inplace;
 use std.mem.allocator.IAllocator;
+use std.mem.allocator.MallocAllocator;
 use std.string.strlen;
 use std.time.deadline_after_ms;
 use std.time.deadline_expired;
@@ -22,6 +25,8 @@ use std.time.deadline_expired;
 var _uya_async_frame_allocator_once: pthread_once_t = pthread_once_t{ state: 0 };
 var _uya_async_frame_allocator_key: pthread_key_t = pthread_key_t{ seq: 0, destructor: null };
 var _uya_async_frame_allocator_fallback: &IAllocator = null;
+var _uya_async_frame_default_allocator: IAllocator = MallocAllocator{};
+var _uya_async_frame_default_allocator_initialized: i32 = 0;
 
 /// 初始化当前进程的 async frame allocator 线程本地 key。
 /// 参数：_unused - pthread_once 兼容占位参数，当前实现忽略。
@@ -30,6 +35,19 @@ fn _uya_init_async_frame_allocator_key(_unused: &void) &void {
     _ = _unused;
     _ = pthread_key_create(&_uya_async_frame_allocator_key, null as &void);
     return null as &void;
+}
+
+fn _uya_get_default_async_frame_allocator() &IAllocator {
+    if _uya_async_frame_default_allocator_initialized == 0 {
+        const pool: &AsyncFramePool = async_frame_pool_default();
+        if pool == null {
+            return null;
+        }
+        const alloc: IAllocator = *pool;
+        _uya_async_frame_default_allocator = alloc;
+        _uya_async_frame_default_allocator_initialized = 1;
+    }
+    return &_uya_async_frame_default_allocator;
 }
 
 /// 设置当前线程的 async frame 分配器
@@ -42,17 +60,23 @@ export fn set_async_frame_allocator(alloc: &IAllocator) void {
     _ = pthread_setspecific(_uya_async_frame_allocator_key, alloc as &void);
 }
 
-/// 获取当前线程的 async frame 分配器；未设置或初始化失败时返回 null。
+/// 获取当前线程的 async frame 分配器；未显式设置时回退到默认 AsyncFramePool。
 export fn get_async_frame_allocator() &IAllocator {
     pthread_once(&_uya_async_frame_allocator_once, &_uya_init_async_frame_allocator_key as &void);
     if _uya_async_frame_allocator_key.seq <= 0 {
-        return _uya_async_frame_allocator_fallback;
+        if _uya_async_frame_allocator_fallback != null {
+            return _uya_async_frame_allocator_fallback;
+        }
+        return _uya_get_default_async_frame_allocator();
     }
     const tsd_alloc: &IAllocator = pthread_getspecific(_uya_async_frame_allocator_key) as &IAllocator;
     if tsd_alloc != null {
         return tsd_alloc;
     }
-    return _uya_async_frame_allocator_fallback;
+    if _uya_async_frame_allocator_fallback != null {
+        return _uya_async_frame_allocator_fallback;
+    }
+    return _uya_get_default_async_frame_allocator();
 }
 
 /// 供接口 box / async helper 复用的分配入口：优先当前线程的 async frame allocator。
