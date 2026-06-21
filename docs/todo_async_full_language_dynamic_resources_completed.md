@@ -2254,3 +2254,12 @@
     - 完成条件：1.5.6 / 1.5.7 明确“业务层 hand-written future = 0；runtime 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接”，不再保留模糊选项
     - 最小验证：`rg -n "AsyncWaitFdFuture|AsyncThreadSlotWaitFuture|AsyncWorkerSubmitFuture|AsyncWorkerResultFuture|AsyncWorkerCancelFuture|AsyncWorkerComputeFuture|最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在" docs/todo_async_full_language_dynamic_resources.md lib/std/async.uya lib/std/thread.uya`
     - 验证：`rg -n "AsyncWaitFdFuture|AsyncThreadSlotWaitFuture|AsyncWorkerSubmitFuture|AsyncWorkerResultFuture|AsyncWorkerCancelFuture|AsyncWorkerComputeFuture|最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在" docs/todo_async_full_language_dynamic_resources.md lib/std/async.uya lib/std/thread.uya` 命中 `docs/todo_async_full_language_dynamic_resources.md`、`lib/std/async.uya`、`lib/std/thread.uya`；`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md` 输出 `ok: ... has 1 active task`；`git diff --check` 通过
+
+## 2026-06-21
+
+### 1.5.7 配套测试与闸门
+
+- 父级任务路径：`为每个迁移模块增加一条“旧 hand-written future 已删除”的结构性检查：`
+  - [x] `rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya`
+    - 验证命令：`rg -n "^(export )?struct .*: Future<" lib/std/http lib/std/net lib/std/thread.uya lib/std/async.uya`
+    - 验证结果：命中 8 条，仅剩 `Future<T>`、`Task<T>`、`AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接 5 个 substrate 例外；`lib/std/http`、`lib/std/net` 无命中。
