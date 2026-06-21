@@ -171,7 +171,6 @@
 ## Phase 5：发布闸门与文档同步
 
 - [ ] 文档同步：
-  - [ ] `docs/std_async_design.md`
   - [ ] 如语义/规范改变，再同步 `docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md`
 
 ## 执行顺序

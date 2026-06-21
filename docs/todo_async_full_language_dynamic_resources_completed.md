@@ -3033,3 +3033,14 @@ Phase 5：发布闸门与文档同步
     - `bash tests/verify_async_nested_future_boundary.sh`
     - `git diff --check`
   - 验证结果：通过。`test_std_async_scheduler.uya` 31 tests passed；`test_async_compute_dynamic_resource_pressure.uya` 1 test passed；`verify_async_nested_future_boundary.sh` 确认 nested future 子集、`!Future<Future<T>>` 的 C99 发射与宿主 `cc` 编译通过；`git diff --check` 无输出。
+
+## Phase 5：发布闸门与文档同步
+
+任务路径：文档同步
+
+- [x] `docs/std_async_design.md`
+  - 验证：`git diff --check`
+  - 结果：通过（无 whitespace error / conflict marker）
+  - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+  - 结果：通过（todo 状态结构合法，0 active task）
+  - 说明：同步了 `TaskQueue<T>` 默认自动增长、`Scheduler` runtime 配置、shared runtime 发布闸门入口与动态资源专项验证口径；本轮未发现需要同步 `docs/uya.md`、`docs/grammar_formal.md`、`docs/grammar_quick.md` 的规范变更。
