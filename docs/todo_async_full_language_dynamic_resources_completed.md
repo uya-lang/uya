@@ -1925,3 +1925,17 @@
   - [x] 迁移后再评估是否仍需专门 slot-level manual polling。
     - 结论：仍需保留 slot-level manual polling。`uyagin_serve_conn_slot_async` 已承担单连接协议/keep-alive 逻辑；`uyagin_engine_run` 中残留的手写 `poll()` 只负责 accept、新连接占槽、per-connection deadline / graceful shutdown 与 fd interest 同步。当前 `Scheduler` 入口仍是“给定一组 future 跑到完成”，还不能在运行中动态接纳/回收连接任务。
     - 验证记录：2026-06-21 运行 `../uya/bin/uya test --c99 tests/test_http_uyagin.uya` 通过（25 tests passed）；`git diff --check` 通过。
+
+## 2026-06-21 归档：叶子 `lib/std/async.uya`
+
+> 父级路径：`## Phase 1.5：标准库手工 Future 清零迁移` → `### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零` → `lib/std/async.uya`
+
+- [x] 评估 `AsyncFdReadFuture` / `AsyncFdWriteFuture` 是否可以进一步收敛成更底层 wait primitive + `@async_fn` 包装。
+  - 结论：`AsyncFdReadFuture` / `AsyncFdWriteFuture` 可以继续下沉成 `async_wait_readable` / `async_wait_writable`（或单个 `interest` 参数化 wait primitive）+ `@async_fn` 包装；两者当前 `poll()` 已只剩 cancel、deadline、nonblocking 初始化、单次 `sys_read` / `sys_write` 与 `EAGAIN` 注册 readiness。
+  - 结论：当前还不能直接做到“0 手写 future”，因为 `@async_fn` 仍需要一个可 `@await` 的 readiness future 来承接 `Waker.wait_readable` / `Waker.wait_writable`、deadline 与 cancel 语义；这层才是最终 runtime substrate。
+  - 代码依据：`lib/std/async.uya:1124-1209` 的 `AsyncFdWriteFuture` / `AsyncFdReadFuture` 不保存 partial progress，也不夹带业务分支；若补出 `async_wait_*` 原语，读写本体可改写为 `while true { sys_read/sys_write; would-block => @await async_wait_*; }` 的 `@async_fn` 包装。
+  - 代码依据：`lib/std/async.uya:498-507,823-829` 已有 `async_poll_pending_readable_usize` / `async_poll_pending_writable_usize` 与 `async_fd_set_nonblocking`，说明共性逻辑已被拆出，剩余手写状态可进一步收缩到 readiness wait primitive。
+  - 后续约束：下一叶子应把手写例外从 `AsyncFdReadFuture` / `AsyncFdWriteFuture` 继续收敛到 `async_wait_*` wait primitive，并把它从高层 helper 路径搬离、文档化为 runtime substrate 唯一例外。
+  - 验证：`rg -n 'struct AsyncFdWriteFuture|struct AsyncFdReadFuture|fn async_fd_set_nonblocking|async_poll_pending_readable_usize|async_poll_pending_writable_usize' lib/std/async.uya` -> 命中 `async_poll_pending_readable_usize`/`async_poll_pending_writable_usize`、`async_fd_set_nonblocking`、`AsyncFdWriteFuture`、`AsyncFdReadFuture`，符合“共性 helper 已存在、剩余手写状态集中在 readiness 注册”的判断。
+  - 验证：`../uya/bin/uya test tests/test_async_fd.uya` -> `14 tests passed, 0 failed; 85 assertions passed`
+  - 验证：`../uya/bin/uya test tests/test_async_std_business_future_boundary.uya` -> `1 test passed, 0 failed; 39 assertions passed`
