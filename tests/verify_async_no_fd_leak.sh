@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPILER="${UYA_COMPILER:-$REPO_ROOT/../uya/bin/uya}"
+COMPILER="$REPO_ROOT/../uya/bin/uya"
 export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 BUILD_DIR="$SCRIPT_DIR/build"
 mkdir -p "$BUILD_DIR"
@@ -24,6 +24,7 @@ CONCURRENCY="${ASYNC_NO_FD_LEAK_CONCURRENCY:-8}"
 RECOVERY_POLLS="${ASYNC_NO_FD_LEAK_RECOVERY_POLLS:-50}"
 RECOVERY_SLEEP_SECONDS="${ASYNC_NO_FD_LEAK_RECOVERY_SLEEP_SECONDS:-0.10}"
 FD_TOLERANCE="${ASYNC_NO_FD_LEAK_TOLERANCE:-2}"
+EVENTFD_TOLERANCE="${ASYNC_NO_FD_LEAK_EVENTFD_TOLERANCE:-0}"
 MAX_TIME_SECONDS="${ASYNC_NO_FD_LEAK_MAX_TIME_SECONDS:-2}"
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -64,6 +65,31 @@ trap cleanup EXIT
 count_fds() {
     local pid="$1"
     ls "/proc/$pid/fd" 2>/dev/null | wc -l
+}
+
+count_fd_targets() {
+    local pid="$1"
+    local needle="$2"
+    local path=""
+    local target=""
+    local count=0
+
+    for path in "/proc/$pid/fd/"*; do
+        if [ ! -e "$path" ]; then
+            continue
+        fi
+        target="$(readlink "$path" 2>/dev/null || true)"
+        if [ "$target" = "$needle" ]; then
+            count=$((count + 1))
+        fi
+    done
+
+    printf '%s\n' "$count"
+}
+
+count_eventfds() {
+    local pid="$1"
+    count_fd_targets "$pid" "anon_inode:[eventfd]"
 }
 
 show_server_log_tail() {
@@ -123,11 +149,14 @@ run_request_batch() {
 }
 
 wait_for_fd_recovery() {
-    local baseline="$1"
-    local round_label="$2"
-    local limit=$((baseline + FD_TOLERANCE))
+    local baseline_fd="$1"
+    local baseline_eventfd="$2"
+    local round_label="$3"
+    local fd_limit=$((baseline_fd + FD_TOLERANCE))
+    local eventfd_limit=$((baseline_eventfd + EVENTFD_TOLERANCE))
     local poll=0
-    local current=0
+    local current_fd=0
+    local current_eventfd=0
 
     while [ "$poll" -lt "$RECOVERY_POLLS" ]; do
         if ! kill -0 "$server_pid" 2>/dev/null; then
@@ -135,17 +164,19 @@ wait_for_fd_recovery() {
             show_server_log_tail
             return 1
         fi
-        current="$(count_fds "$server_pid")"
-        if [ "$current" -le "$limit" ]; then
-            printf '%s post_fd=%s baseline=%s tolerance=%s\n' \
-                "$round_label" "$current" "$baseline" "$FD_TOLERANCE" | tee -a "$REPORT"
+        current_fd="$(count_fds "$server_pid")"
+        current_eventfd="$(count_eventfds "$server_pid")"
+        if [ "$current_fd" -le "$fd_limit" ] && [ "$current_eventfd" -le "$eventfd_limit" ]; then
+            printf '%s post_fd=%s baseline_fd=%s fd_tolerance=%s post_eventfd=%s baseline_eventfd=%s eventfd_tolerance=%s\n' \
+                "$round_label" "$current_fd" "$baseline_fd" "$FD_TOLERANCE" \
+                "$current_eventfd" "$baseline_eventfd" "$EVENTFD_TOLERANCE" | tee -a "$REPORT"
             return 0
         fi
         poll=$((poll + 1))
         sleep "$RECOVERY_SLEEP_SECONDS"
     done
 
-    echo "fd count did not recover after $round_label: current=$current baseline=$baseline tolerance=$FD_TOLERANCE"
+    echo "fd/eventfd count did not recover after $round_label: current_fd=$current_fd baseline_fd=$baseline_fd fd_tolerance=$FD_TOLERANCE current_eventfd=$current_eventfd baseline_eventfd=$baseline_eventfd eventfd_tolerance=$EVENTFD_TOLERANCE"
     show_server_log_tail
     return 1
 }
@@ -166,8 +197,9 @@ curl -fsS --http1.1 --max-time "$MAX_TIME_SECONDS" "$BASE_URL/" >/dev/null
 curl -fsS --http1.1 --max-time "$MAX_TIME_SECONDS" "$BASE_URL/json" >/dev/null
 
 baseline_fd="$(count_fds "$server_pid")"
-printf 'baseline_fd=%s threads=%s rounds=%s requests_per_route=%s concurrency=%s\n' \
-    "$baseline_fd" "$THREADS" "$ROUNDS" "$REQUESTS_PER_ROUTE" "$CONCURRENCY" | tee "$REPORT"
+baseline_eventfd="$(count_eventfds "$server_pid")"
+printf 'baseline_fd=%s baseline_eventfd=%s threads=%s rounds=%s requests_per_route=%s concurrency=%s\n' \
+    "$baseline_fd" "$baseline_eventfd" "$THREADS" "$ROUNDS" "$REQUESTS_PER_ROUTE" "$CONCURRENCY" | tee "$REPORT"
 
 round=1
 while [ "$round" -le "$ROUNDS" ]; do
@@ -175,18 +207,25 @@ while [ "$round" -le "$ROUNDS" ]; do
     run_request_batch "round $round root" "$BASE_URL/"
     echo "==> round $round/$ROUNDS json route"
     run_request_batch "round $round json" "$BASE_URL/json"
-    wait_for_fd_recovery "$baseline_fd" "round_$round"
+    wait_for_fd_recovery "$baseline_fd" "$baseline_eventfd" "round_$round"
     round=$((round + 1))
 done
 
 final_fd="$(count_fds "$server_pid")"
-printf 'final_fd=%s baseline_fd=%s tolerance=%s\n' \
-    "$final_fd" "$baseline_fd" "$FD_TOLERANCE" | tee -a "$REPORT"
+final_eventfd="$(count_eventfds "$server_pid")"
+printf 'final_fd=%s baseline_fd=%s fd_tolerance=%s final_eventfd=%s baseline_eventfd=%s eventfd_tolerance=%s\n' \
+    "$final_fd" "$baseline_fd" "$FD_TOLERANCE" \
+    "$final_eventfd" "$baseline_eventfd" "$EVENTFD_TOLERANCE" | tee -a "$REPORT"
 
 if [ "$final_fd" -gt $((baseline_fd + FD_TOLERANCE)) ]; then
     echo "fd leak suspected: final_fd=$final_fd baseline_fd=$baseline_fd tolerance=$FD_TOLERANCE"
     show_server_log_tail
     exit 1
 fi
+if [ "$final_eventfd" -gt $((baseline_eventfd + EVENTFD_TOLERANCE)) ]; then
+    echo "eventfd leak suspected: final_eventfd=$final_eventfd baseline_eventfd=$baseline_eventfd tolerance=$EVENTFD_TOLERANCE"
+    show_server_log_tail
+    exit 1
+fi
 
-echo "verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP load"
+echo "verify_async_no_fd_leak: fd/eventfd count returned to baseline after repeated async HTTP load"

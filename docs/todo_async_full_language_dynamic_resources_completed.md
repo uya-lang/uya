@@ -2887,3 +2887,14 @@ verify_async_no_fd_leak: fd count returned to baseline after repeated async HTTP
     - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya` 通过；新增 `uyagin_serve_conn_releases_scheduler_frames_after_connection_close`，32 轮 loopback 连接后 `scheduler_metrics.frame_alloc_count == frame_free_count`，`uyagin_metrics.frame_alloc_count == frame_free_count`。
     - 验证：`../uya/bin/uya test tests/test_async_frame_pool_stats.uya` 通过。
     - 验证：`git diff --check` 通过。
+
+## Phase 4：生产级可靠性与可观测性
+
+- 建立长压测与泄漏验证：
+  - [x] eventfd 不泄漏
+    - 验证：`bash -n tests/verify_async_no_fd_leak.sh`
+    - 验证：`bash -n tests/stress_http_async_epoll.sh`
+    - 验证：`ASYNC_NO_FD_LEAK_ROUNDS=1 ASYNC_NO_FD_LEAK_REQUESTS_PER_ROUTE=8 ASYNC_NO_FD_LEAK_CONCURRENCY=2 ASYNC_NO_FD_LEAK_MAX_TIME_SECONDS=2 bash tests/verify_async_no_fd_leak.sh`
+    - 结果：`baseline_fd=11 baseline_eventfd=0`，`final_fd=11 final_eventfd=0`
+    - 验证：`bash tests/stress_http_async_epoll.sh 5 1`
+    - 结果：`baseline fd/eventfd: 59/0`，`recovered fd/eventfd: 59/0`，`wrk exit=0`
