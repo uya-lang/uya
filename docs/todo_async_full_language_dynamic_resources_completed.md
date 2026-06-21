@@ -3114,3 +3114,10 @@ Phase 5：发布闸门与文档同步
   - 验证：`rg -n "sys_fork\\(" lib/std/thread.uya`（无输出）
   - 验证：`rg -n "thread_pool_queue_or_error_slot|THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR|thread_capacity_error_i32" lib/std/thread.uya`（命中 queue-or-error 路径与 `error.TaskQueueFull` helper）
   - 备注：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya` 与 `../uya/bin/uya test tests/test_std_thread.uya` 在当前 `../uya/bin/uya` 上会于 `=== 代码生成阶段 ===` 后 `SIGSEGV`（exit 139），因此本轮用可稳定运行的轻量回归补齐同一饱和语义闸门。
+
+## 2026-06-22
+上下文：`## 未完成前不得宣称完成的条件`
+- [x] 仍把 `tests/error_async_too_many_params.uya` 这类旧人为上限测试当成正确口径。
+  - 验证：`../uya/bin/uya test tests/test_async_param_capacity_dynamic.uya`（通过：`async_param_capacity_grows_past_64`）
+  - 验证：`bash tests/verify_async_large_state_machine.sh`（通过：`verify_async_large_state_machine: ok (control=23 stress=548 delta=525)`）
+  - 结果：主 todo 已统一改用 `tests/test_async_param_capacity_dynamic.uya` 与 `tests/verify_async_large_state_machine.sh`，不再把旧固定失败口径当成当前依据。

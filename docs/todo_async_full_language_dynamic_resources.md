@@ -29,7 +29,7 @@
 |------|------|------|
 | `src/checker/check_node_extra.uya` / `src/codegen/c99/function.uya` | `@async_fn` 中迭代器 `for` 当前只支持“具体 struct + 值迭代”；接口类型变量的 `for` 迭代是同步也不支持的通用语言边界，iterator ref 绑定已转为正向回归 | 正向回归：`tests/test_async_for_await.uya`、`tests/test_async_for_iterator_ref_await.uya`；接口值反向回归：`tests/error_for_iterator_interface_value.uya`（同步 checker 失败）与 `tests/error_async_for_iterator_interface_await.uya`（async checker 失败） |
 | `docs/std_async_design.md` | nested future 口径已从“Future<Future<T>>.poll 一概受限”改成当前真实边界 | 值类型双层 poll、无 await 的 `!Future<Future<T>>` + 同步 `try` 返回、C99 发射与 host C 编译均由 `tests/test_async_nested_future_poll.uya` / `tests/verify_async_nested_future_boundary.sh` 固定为正向回归 |
-| `tests/test_async_await_limits_and_segments.uya` / `tests/error_async_too_many_params.uya` | await 旧失败口径已替换为正向回归，但参数上限测试仍把固定失败当成正确行为 | await 方向已不再与“资源动态化”目标正面冲突，参数方向仍待清理 |
+| `tests/test_async_await_limits_and_segments.uya` / `tests/test_async_param_capacity_dynamic.uya` | await 与参数旧失败口径都已替换为正向回归 | 这两条入口都已不再把固定上限失败当成正确行为 |
 | `tests/verify_async_full_language_matrix.sh` | 当前脚本已是高价值基线入口，但还不能单独证明“完整函数体语法已收口” | 它目前覆盖已存在主链路回归、明确禁止位置、nested future 专项和迭代器 interface/ref 边界；仍不覆盖动态容量闸门 |
 
 ### 5. 三类问题明确区分
@@ -80,18 +80,18 @@
 | async 体内 `defer / errdefer` | `tests/test_async_sync_body_matrix.uya` | 已有覆盖 | dedicated async-body 回归已覆盖 success/error 两条清理顺序 |
 | 宏展开后的 expr / stmt 进入 async lowering | `tests/test_async_macro_expand.uya`、`tests/programs/test_ai_prompt_async_macro_combo.uya` | 已有覆盖 | 已验证 pre-await 求值不会在 poll/resume 间丢失或重复执行，程序级 macro combo 也可 build/run |
 | `Future<Future<T>>` / nested future poll | `tests/test_async_nested.uya`、`tests/test_async_nested_future_poll.uya`、`tests/verify_async_nested_future_boundary.sh`、`docs/std_async_design.md` | 已收口为正向回归 | 值类型 `Future<Future<T>>` 双层 poll 已有正向回归；无 await 的 `!Future<Future<T>>` + 同步 `try` 返回、C99 发射与 host C 编译也已由专项脚本验证通过 |
-| 大状态机 / 大量 await / 参数与 meta 动态扩容 | `tests/test_async_await_limits_and_segments.uya`、`tests/error_async_too_many_params.uya` | 部分覆盖 | await 已有 `>32` 正向样本，但仍缺旧 `256 await` 附近成功压力样本；参数上限仍保留旧失败口径 |
+| 大状态机 / 大量 await / 参数与 meta 动态扩容 | `tests/test_async_await_limits_and_segments.uya`、`tests/test_async_param_capacity_dynamic.uya`、`tests/verify_async_large_state_machine.sh` | 已有覆盖 | await 已覆盖旧上限附近的绑定与跨段副作用回归，参数已覆盖跨过旧 `64` 上限的正向样本；descriptor/meta 动态发射由 `verify_async_large_state_machine.sh` 固定验证 |
 
 > 盘点汇总：
 
 > 待清理项登记（silent truncation / emitter stderr / workaround）：
 > - `src/codegen/c99/function.uya:758`："简化处理：使用临时缓冲区" → 确认是否仍为临时方案
-> - `tests/test_async_await_limits_and_segments.uya`：已替代旧 `error_async_too_many_awaits.uya`，但仍需补到旧 `256 await` 上限附近的成功压力样本
-> - `tests/error_async_too_many_params.uya`：旧人为上限测试 → 待 Phase 2 替换为压力测试
+> - `tests/test_async_await_limits_and_segments.uya`：已替代旧 `error_async_too_many_awaits.uya`，并与 `tests/verify_async_large_state_machine.sh` 组合覆盖旧上限附近的成功压力样本
+> - `tests/test_async_param_capacity_dynamic.uya`：已替代旧固定失败口径，覆盖跨过旧 `64` 参数上限的正向样本
 > - `tests/test_async_defer_errdefer.uya`：已迁入 `try @await` 错误传播触发 `errdefer` 的正向回归；默认回归不再排除旧边界文件
 > - **已有覆盖**（20项）：基础解析、Ready/Pending、err-union await、if/else if、while、for range/array/iter、复合表达式、大状态机、方法/接口、frame、runtime/scheduler/client、sync/async对齐矩阵、match/catch/defer/errdefer、宏展开、nested future（边界明确）
 > - **缺失覆盖**：暂无；后续继续审计非显式规范限制的 async 语法缺口
-> - **历史已知限制**：固定参数上限测试（error_async_too_many_params）、iterator interface value for 不支持（同步与 async 通用语言边界）
+> - **历史已知限制**：iterator interface value for 不支持（同步与 async 通用语言边界）
 
 > 建议把 [tests/verify_async_full_language_matrix.sh](../tests/verify_async_full_language_matrix.sh) 当作当前快照入口：
 > 它当前能证明“已有高价值基线 + large state machine + 明确禁止位置 + nested future 专项 + 迭代器 interface/ref 边界”仍成立，但不能单独替代完整语法矩阵或动态容量闸门。
@@ -180,5 +180,4 @@
 
 ## 未完成前不得宣称完成的条件
 
-- [ ] 仍把 `tests/error_async_too_many_params.uya` 这类旧人为上限测试当成正确口径。
 - [ ] 文档仍声称“量产已完成”，但源码和闸门没有证据支撑。
