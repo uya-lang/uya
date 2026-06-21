@@ -162,8 +162,6 @@
 - [ ] 如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界：
   - [ ] 要么连当前真实残留的 runtime future 也继续消灭
     - [ ] 继续消灭 `lib/std/async.uya` 中 fd syscall residual（`AsyncWritevFuture`、`AsyncSendFileFuture`、`AsyncConnectFuture`、`AsyncSocketSendFuture`、`AsyncSocketRecvFuture`、`AsyncAcceptFuture`），或在 line 160 路线里正式转为 substrate
-      - [ ] 把 `AsyncSendFileFuture` 迁到 `export @async_fn fn async_sendfile(...)` + `async_wait_writable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
-      - [ ] 把 `AsyncConnectFuture` 迁到 `export @async_fn fn async_connect(...)` + `async_wait_writable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
       - [ ] 把 `AsyncSocketSendFuture` 迁到 `export @async_fn fn async_socket_send(...)` + `async_wait_writable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
       - [ ] 把 `AsyncSocketRecvFuture` 迁到 `export @async_fn fn async_socket_recv(...)` + `async_wait_readable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`
       - [ ] 把 `AsyncAcceptFuture` 迁到 `export @async_fn fn async_accept(...)` + `async_wait_readable` substrate；验证：`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya`、`../uya/bin/uya test tests/test_async_fd.uya`

@@ -161,6 +161,21 @@ fn poll_usize_allow_transition_pending(f: Future<!usize>, w: &Waker) Poll<!usize
     return out;
 }
 
+fn poll_i32_allow_transition_pending(f: Future<!i32>, w: &Waker) Poll<!i32> {
+    var out: Poll<!i32> = f.poll(w);
+    match out {
+        .Ready(_) => { return out; },
+        .Pending(_) => {},
+    };
+    out = f.poll(w);
+    match out {
+        .Ready(_) => { return out; },
+        .Pending(_) => {},
+    };
+    out = f.poll(w);
+    return out;
+}
+
 fn poll_parse_result_allow_transition_pending(f: Future<!ParseResult>, w: &Waker) Poll<!ParseResult> {
     var out: Poll<!ParseResult> = f.poll(w);
     match out {
@@ -329,7 +344,7 @@ fn test_async_sendfile_cancelled_returns_cancelled() !void {
     const f: Future<!usize> = async_sendfile(write_fd, read_file_fd, 4);
     var wk: Waker = Waker{};
     wk.cancel();
-    try assert_cancelled_poll_usize(f.poll(&wk));
+    try assert_cancelled_poll_usize(poll_usize_allow_transition_pending(f, &wk));
     try assert_fd_still_blocking(write_fd);
 }
 
@@ -373,7 +388,7 @@ fn test_async_connect_cancelled_returns_cancelled() !void {
     const f: Future<!i32> = async_connect(client_fd, &connect_addr[0] as &void, 16 as u32, 0 as u64);
     var wk: Waker = Waker{};
     wk.cancel();
-    try assert_cancelled_poll_i32(f.poll(&wk));
+    try assert_cancelled_poll_i32(poll_i32_allow_transition_pending(f, &wk));
     try assert_fd_still_blocking(client_fd);
 }
 

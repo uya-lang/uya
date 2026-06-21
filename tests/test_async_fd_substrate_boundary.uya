@@ -120,7 +120,7 @@ test "async_writev_boundary_uses_async_fn_and_wait_substrate" {
     var src: [byte: ASYNC_SOURCE_MAX] = [0: ASYNC_SOURCE_MAX];
     const len: usize = try read_async_source(&src[0], ASYNC_SOURCE_MAX);
     const writev_start: &const byte = "export @async_fn fn async_writev(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {\0" as &const byte;
-    const writev_end: &const byte = "export fn async_sendfile(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {\0" as &const byte;
+    const writev_end: &const byte = "export @async_fn fn async_sendfile(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {\0" as &const byte;
 
     try assert_eq_i32(source_contains_cstr(&src[0], len, writev_start) as i32, 1);
     try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncWritevFuture : Future<!usize>\0" as &const byte) as i32, 0);
@@ -131,6 +131,46 @@ test "async_writev_boundary_uses_async_fn_and_wait_substrate" {
             writev_start,
             writev_end,
             "const wait_writable_result: !usize = @await async_wait_writable(fd, 0 as u64);\0" as &const byte,
+        ) as i32,
+        1,
+    );
+}
+
+test "async_sendfile_boundary_uses_async_fn_and_wait_substrate" {
+    var src: [byte: ASYNC_SOURCE_MAX] = [0: ASYNC_SOURCE_MAX];
+    const len: usize = try read_async_source(&src[0], ASYNC_SOURCE_MAX);
+    const sendfile_start: &const byte = "export @async_fn fn async_sendfile(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {\0" as &const byte;
+    const sendfile_end: &const byte = "export @async_fn fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_ms: u64) Future<!i32> {\0" as &const byte;
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, sendfile_start) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncSendFileFuture : Future<!usize>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(
+        source_section_contains_cstr(
+            &src[0],
+            len,
+            sendfile_start,
+            sendfile_end,
+            "const wait_writable_result: !usize = @await async_wait_writable(fd, 0 as u64);\0" as &const byte,
+        ) as i32,
+        1,
+    );
+}
+
+test "async_connect_boundary_uses_async_fn_and_wait_substrate" {
+    var src: [byte: ASYNC_SOURCE_MAX] = [0: ASYNC_SOURCE_MAX];
+    const len: usize = try read_async_source(&src[0], ASYNC_SOURCE_MAX);
+    const connect_start: &const byte = "export @async_fn fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_ms: u64) Future<!i32> {\0" as &const byte;
+    const connect_end: &const byte = "export fn async_accept(listen_fd: i32) Future<!i32> {\0" as &const byte;
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, connect_start) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "struct AsyncConnectFuture : Future<!i32>\0" as &const byte) as i32, 0);
+    try assert_eq_i32(
+        source_section_contains_cstr(
+            &src[0],
+            len,
+            connect_start,
+            connect_end,
+            "const wait_writable_result: !usize = @await async_wait_writable(fd, deadline_ms);\0" as &const byte,
         ) as i32,
         1,
     );

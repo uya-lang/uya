@@ -1033,193 +1033,209 @@ export @async_fn fn async_writev(fd: i32, head: &const byte, head_len: usize, bo
     return head_len + body_len;
 }
 
-struct AsyncSendFileFuture : Future<!usize> {
-    fd: i32,
-    file_fd: i32,
-    total_len: usize,
-    sent: usize = 0,
-    offset: i64 = 0i64,
-    nonblocking_ready: i32 = 0,
-    use_fallback: i32 = 0,
-    chunk: [byte: 4096] = [],
-    chunk_len: usize = 0,
-    chunk_off: usize = 0,
+const ASYNC_SENDFILE_LINUX_STEP_SENT: i32 = 0;
+const ASYNC_SENDFILE_LINUX_STEP_RETRY: i32 = 1;
+const ASYNC_SENDFILE_LINUX_STEP_WAIT_WRITABLE: i32 = 2;
+const ASYNC_SENDFILE_LINUX_STEP_FALLBACK: i32 = 3;
 
-    fn enable_fallback(self: &Self) void {
-        if self.use_fallback != 0 {
-            return;
-        }
-        self.use_fallback = 1;
-        _ = sys_lseek(self.file_fd, self.sent as i64, SEEK_SET) catch {};
+const ASYNC_SENDFILE_WRITE_STEP_WRITTEN: i32 = 0;
+const ASYNC_SENDFILE_WRITE_STEP_RETRY: i32 = 1;
+const ASYNC_SENDFILE_WRITE_STEP_WAIT_WRITABLE: i32 = 2;
+
+const ASYNC_SENDFILE_READ_STEP_FILLED: i32 = 0;
+const ASYNC_SENDFILE_READ_STEP_RETRY: i32 = 1;
+const ASYNC_SENDFILE_READ_STEP_EOF: i32 = 2;
+
+fn async_sendfile_enable_fallback(file_fd: i32, sent: usize, use_fallback: &i32) void {
+    if *use_fallback != 0 {
+        return;
     }
+    *use_fallback = 1;
+    _ = sys_lseek(file_fd, sent as i64, SEEK_SET) catch {};
+}
 
-    fn poll(self: &Self, waker: &Waker) Poll<!usize> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_usize();
-        }
-        if self.nonblocking_ready == 0 {
-            const ready_result: !i32 = async_fd_set_nonblocking(self.fd);
-            _ = ready_result catch {
-                const err_value: !usize = ready_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            self.nonblocking_ready = 1;
-        }
-
-        std.cfg(std.target_os == .tos_linux, {
-        std.cfg(std.target_arch == .ta_x86_64, {
-        if self.use_fallback == 0 && self.chunk_len == 0 {
-            while self.sent < self.total_len {
-                var want_sf: usize = self.total_len - self.sent;
-                if want_sf > 65536 {
-                    want_sf = 65536;
-                }
-                const send_result: !isize = @syscall(40, self.fd as i64, self.file_fd as i64, &self.offset as i64, want_sf as i64) as! isize;
-                const n_sf: isize = send_result catch |err| {
-                    const err_id: u32 = @error_id(err);
-                    if err_id == libc_EINTR as u32 {
-                        continue;
-                    }
-                    if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                        return async_poll_pending_writable_usize(waker, self.fd);
-                    }
-                    self.enable_fallback();
-                    break;
-                };
-                if n_sf <= 0 {
-                    self.enable_fallback();
-                    break;
-                }
-                self.sent = self.sent + (n_sf as usize);
-            }
-            if self.sent >= self.total_len {
-                return async_poll_ready_ok_usize(self.sent);
-            }
-        }
-        }, {
-            self.enable_fallback();
-        })
-        }, {
-            self.enable_fallback();
-        })
-
-        while self.sent < self.total_len {
-            if self.chunk_off < self.chunk_len {
-                const chunk_ptr: *const byte = @ptr_from_usize(@usize_from_ptr(&self.chunk[0] as &void) + self.chunk_off) as *const byte;
-                const write_result: !isize = sys_write(self.fd, chunk_ptr, self.chunk_len - self.chunk_off);
-                const n: isize = write_result catch |err| {
-                    const err_id: u32 = @error_id(err);
-                    if err_id == libc_EINTR as u32 {
-                        continue;
-                    }
-                    if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                        return async_poll_pending_writable_usize(waker, self.fd);
-                    }
-                    const err_value: !usize = write_result as! usize;
-                    return Poll<!usize>.Ready(err_value);
-                };
-                if n <= 0 {
-                    return Poll<!usize>.Ready(error.WriteZero);
-                }
-                self.chunk_off = self.chunk_off + (n as usize);
-                self.sent = self.sent + (n as usize);
-                if self.chunk_off >= self.chunk_len {
-                    self.chunk_off = 0;
-                    self.chunk_len = 0;
-                }
-                continue;
-            }
-
-            var want: usize = self.total_len - self.sent;
-            if want > 4096 {
-                want = 4096;
-            }
-            const read_result: !isize = sys_read(self.file_fd, &self.chunk[0] as *byte, want);
-            const rn: isize = read_result catch |err| {
-                const err_id: u32 = @error_id(err);
-                if err_id == libc_EINTR as u32 {
-                    continue;
-                }
-                const err_value: !usize = read_result as! usize;
-                return Poll<!usize>.Ready(err_value);
-            };
-            if rn <= 0 {
-                return Poll<!usize>.Ready(error.ConnectionClosed);
-            }
-            self.chunk_len = rn as usize;
-            self.chunk_off = 0;
-        }
-        return async_poll_ready_ok_usize(self.sent);
+fn async_sendfile_try_linux_step(fd: i32, file_fd: i32, offset: &i64, remaining: usize, out_n: &isize) i32 {
+    var want_sf: usize = remaining;
+    if want_sf > 65536 {
+        want_sf = 65536;
     }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
+    const send_result: !isize = @syscall(40, fd as i64, file_fd as i64, offset as i64, want_sf as i64) as! isize;
+    const n_sf: isize = send_result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EINTR as u32 {
+            return ASYNC_SENDFILE_LINUX_STEP_RETRY;
+        }
+        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+            return ASYNC_SENDFILE_LINUX_STEP_WAIT_WRITABLE;
+        }
+        return ASYNC_SENDFILE_LINUX_STEP_FALLBACK;
+    };
+    if n_sf <= 0 {
+        return ASYNC_SENDFILE_LINUX_STEP_FALLBACK;
     }
+    *out_n = n_sf;
+    return ASYNC_SENDFILE_LINUX_STEP_SENT;
+}
+
+fn async_sendfile_try_linux(fd: i32, file_fd: i32, total_len: usize, sent: &usize, offset: &i64) i32 {
+    std.cfg(std.target_os == .tos_linux, {
+    std.cfg(std.target_arch == .ta_x86_64, {
+    while *sent < total_len {
+        var n_sf: isize = 0;
+        const linux_step: i32 = async_sendfile_try_linux_step(fd, file_fd, offset, total_len - *sent, &n_sf);
+        if linux_step == ASYNC_SENDFILE_LINUX_STEP_RETRY {
+            continue;
+        }
+        if linux_step == ASYNC_SENDFILE_LINUX_STEP_WAIT_WRITABLE {
+            return ASYNC_SENDFILE_LINUX_STEP_WAIT_WRITABLE;
+        }
+        if linux_step == ASYNC_SENDFILE_LINUX_STEP_FALLBACK {
+            return ASYNC_SENDFILE_LINUX_STEP_FALLBACK;
+        }
+        *sent = *sent + (n_sf as usize);
+    }
+    return ASYNC_SENDFILE_LINUX_STEP_SENT;
+    }, {
+        return ASYNC_SENDFILE_LINUX_STEP_FALLBACK;
+    })
+    }, {
+        return ASYNC_SENDFILE_LINUX_STEP_FALLBACK;
+    })
+}
+
+fn async_sendfile_try_write_step(fd: i32, buf: &const byte, count: usize, out_n: &isize) !i32 {
+    const write_result: !isize = sys_write(fd, buf as *const byte, count);
+    const n: isize = write_result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EINTR as u32 {
+            return ASYNC_SENDFILE_WRITE_STEP_RETRY;
+        }
+        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+            return ASYNC_SENDFILE_WRITE_STEP_WAIT_WRITABLE;
+        }
+        return err;
+    };
+    if n <= 0 {
+        return error.WriteZero;
+    }
+    *out_n = n;
+    return ASYNC_SENDFILE_WRITE_STEP_WRITTEN;
+}
+
+fn async_sendfile_try_read_step(file_fd: i32, buf: &byte, count: usize, out_n: &isize) !i32 {
+    const read_result: !isize = sys_read(file_fd, buf as *byte, count);
+    const rn: isize = read_result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EINTR as u32 {
+            return ASYNC_SENDFILE_READ_STEP_RETRY;
+        }
+        return err;
+    };
+    if rn <= 0 {
+        return ASYNC_SENDFILE_READ_STEP_EOF;
+    }
+    *out_n = rn;
+    return ASYNC_SENDFILE_READ_STEP_FILLED;
 }
 
 /// 异步把文件内容发送到 `fd`，优先走 Linux `sendfile(2)`，失败时退回 `read + write`。
 /// 参数说明：`fd` 为目标 fd；`file_fd` 为已打开文件；`total_len` 为期望发送字节数。
 /// 返回值说明：成功返回实际发送字节数；`EAGAIN`/`EWOULDBLOCK` 时返回 Pending，其他错误原样透传，提前 EOF 返回 `error.ConnectionClosed`。
-export fn async_sendfile(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
+export @async_fn fn async_sendfile(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
     if fd < 0 || file_fd < 0 {
-        return Future<!usize>{ state: Poll<!usize>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncSendFileFuture{
-        fd: fd,
-        file_fd: file_fd,
-        total_len: total_len,
-    };
+    var sent: usize = 0;
+    var offset: i64 = 0i64;
+    var nonblocking_ready: i32 = 0;
+    var use_fallback: i32 = 0;
+    var chunk: [byte: 4096] = [];
+    var chunk_len: usize = 0;
+    var chunk_off: usize = 0;
+    while sent < total_len {
+        const wait_writable_result: !usize = @await async_wait_writable(fd, 0 as u64);
+        _ = try wait_writable_result;
+        if nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(fd);
+            nonblocking_ready = 1;
+        }
+        if use_fallback == 0 && chunk_len == 0 {
+            const linux_step: i32 = async_sendfile_try_linux(fd, file_fd, total_len, &sent, &offset);
+            if linux_step == ASYNC_SENDFILE_LINUX_STEP_SENT {
+                if sent >= total_len {
+                    return sent;
+                }
+            } else if linux_step == ASYNC_SENDFILE_LINUX_STEP_WAIT_WRITABLE {
+                continue;
+            } else {
+                async_sendfile_enable_fallback(file_fd, sent, &use_fallback);
+            }
+        }
+        while sent < total_len {
+            if chunk_off < chunk_len {
+                const chunk_ptr: &const byte = @ptr_from_usize(@usize_from_ptr(&chunk[0] as &void) + chunk_off) as &const byte;
+                var n: isize = 0;
+                const write_step_result: !i32 = async_sendfile_try_write_step(fd, chunk_ptr, chunk_len - chunk_off, &n);
+                const write_step: i32 = write_step_result catch |err| {
+                    return err;
+                };
+                if write_step == ASYNC_SENDFILE_WRITE_STEP_RETRY {
+                    continue;
+                }
+                if write_step == ASYNC_SENDFILE_WRITE_STEP_WAIT_WRITABLE {
+                    break;
+                }
+                chunk_off = chunk_off + (n as usize);
+                sent = sent + (n as usize);
+                if chunk_off >= chunk_len {
+                    chunk_off = 0;
+                    chunk_len = 0;
+                }
+                continue;
+            }
+
+            var want: usize = total_len - sent;
+            if want > 4096 {
+                want = 4096;
+            }
+            var rn: isize = 0;
+            const read_step_result: !i32 = async_sendfile_try_read_step(file_fd, &chunk[0], want, &rn);
+            const read_step: i32 = read_step_result catch |err| {
+                return err;
+            };
+            if read_step == ASYNC_SENDFILE_READ_STEP_RETRY {
+                continue;
+            }
+            if read_step == ASYNC_SENDFILE_READ_STEP_EOF {
+                return error.ConnectionClosed;
+            }
+            chunk_len = rn as usize;
+            chunk_off = 0;
+        }
+    }
+    return sent;
 }
 
-struct AsyncConnectFuture : Future<!i32> {
-    fd: i32,
-    addr: &void,
-    addr_len: u32,
-    deadline_ms: u64,
-    nonblocking_ready: i32 = 0,
+const ASYNC_CONNECT_STEP_CONNECTED: i32 = 0;
+const ASYNC_CONNECT_STEP_RETRY: i32 = 1;
+const ASYNC_CONNECT_STEP_WAIT_WRITABLE: i32 = 2;
 
-    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
-        if waker.is_cancelled() {
-            return async_poll_cancelled_i32();
+fn async_connect_try_step(fd: i32, addr: &void, addr_len: u32) !i32 {
+    const connect_result: !i32 = sys_connect(fd, addr, addr_len);
+    _ = connect_result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EINTR as u32 {
+            return ASYNC_CONNECT_STEP_RETRY;
         }
-        _ = async_check_deadline(self.deadline_ms) catch {
-            return Poll<!i32>.Ready(error.AsyncDeadlineExceeded);
-        };
-
-        if self.nonblocking_ready == 0 {
-            const flags_result: !i32 = sys_fcntl(self.fd, F_GETFL, 0);
-            const flags: i32 = flags_result catch {
-                const err_value: !i32 = flags_result as! i32;
-                return Poll<!i32>.Ready(err_value);
-            };
-            if (flags & O_NONBLOCK) == 0 {
-                const set_result: !i32 = sys_fcntl(self.fd, F_SETFL, flags | O_NONBLOCK);
-                _ = set_result catch {
-                    const err_value: !i32 = set_result as! i32;
-                    return Poll<!i32>.Ready(err_value);
-                };
-            }
-            self.nonblocking_ready = 1;
+        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 || err_id == libc_EINPROGRESS as u32 || err_id == libc_EALREADY as u32 {
+            return ASYNC_CONNECT_STEP_WAIT_WRITABLE;
         }
-
-        const connect_result: !i32 = sys_connect(self.fd, self.addr, self.addr_len);
-        _ = connect_result catch |err| {
-            const err_id: u32 = @error_id(err);
-            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 || err_id == libc_EINPROGRESS as u32 || err_id == libc_EALREADY as u32 {
-                return async_poll_pending_writable_i32(waker, self.fd);
-            }
-            if err_id == libc_EISCONN as u32 {
-                return poll_ready_ok<i32>(self.fd);
-            }
-            const err_value: !i32 = connect_result as! i32;
-            return Poll<!i32>.Ready(err_value);
-        };
-        return poll_ready_ok<i32>(self.fd);
-    }
-
-    fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
-    }
+        if err_id == libc_EISCONN as u32 {
+            return ASYNC_CONNECT_STEP_CONNECTED;
+        }
+        return err;
+    };
+    return ASYNC_CONNECT_STEP_CONNECTED;
 }
 
 // ============================================================
@@ -1542,16 +1558,29 @@ export fn async_socket_recv(fd: i32, buf: &byte, count: usize, deadline_ms: u64)
 /// 异步发起 nonblocking `connect(2)`，在 `EINPROGRESS` / `EAGAIN` 时注册可写兴趣并等待继续。
 /// 参数说明：`fd` 为待连接 socket；`addr` 为目标 `sockaddr` 指针；`addr_len` 为其长度；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
 /// 返回值说明：成功返回已连接的 `fd`；失败返回 connect 错误或 `error.AsyncDeadlineExceeded`，调用方负责按需关闭 `fd`。
-export fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_ms: u64) Future<!i32> {
+export @async_fn fn async_connect(fd: i32, addr: &void, addr_len: u32, deadline_ms: u64) Future<!i32> {
     if fd < 0 || addr_len == 0 {
-        return Future<!i32>{ state: Poll<!i32>.Ready(error.InvalidRequest) };
+        return error.InvalidRequest;
     }
-    return AsyncConnectFuture{
-        fd: fd,
-        addr: addr,
-        addr_len: addr_len,
-        deadline_ms: deadline_ms,
-    };
+    var nonblocking_ready: i32 = 0;
+    while true {
+        const wait_writable_result: !usize = @await async_wait_writable(fd, deadline_ms);
+        _ = try wait_writable_result;
+        if nonblocking_ready == 0 {
+            _ = try async_fd_set_nonblocking(fd);
+            nonblocking_ready = 1;
+        }
+        while true {
+            const connect_step: i32 = try async_connect_try_step(fd, addr, addr_len);
+            if connect_step == ASYNC_CONNECT_STEP_RETRY {
+                continue;
+            }
+            if connect_step == ASYNC_CONNECT_STEP_WAIT_WRITABLE {
+                break;
+            }
+            return fd;
+        }
+    }
 }
 
 struct AsyncAcceptFuture : Future<!i32> {
