@@ -1,0 +1,245 @@
+// test_std_thread_async_boundary.uya - std.thread async worker bridge dedicated regression
+
+use std.thread;
+use std.async;
+use std.async_event;
+use std.async_scheduler;
+use std.string.strlen;
+use std.testing.assert_eq_i32;
+use libc.O_RDONLY;
+use libc.syscall;
+
+error ThreadBoundarySourceOpenFailed;
+error ThreadBoundarySourceReadFailed;
+
+const THREAD_SOURCE_PATH: &const byte = "lib/std/thread.uya\0" as &const byte;
+const THREAD_SOURCE_MAX: usize = 131072;
+const THREAD_TEST_WAIT_RETRIES: i32 = 2000;
+
+fn sleep_briefly() void {
+    const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 10 * 1000 * 1000 };
+    var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    _ = sys_nanosleep(&req, &rem) catch {};
+}
+
+fn sleep_wait_poll() void {
+    const req: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 1 * 1000 * 1000 };
+    var rem: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    _ = sys_nanosleep(&req, &rem) catch {};
+}
+
+fn delayed_double_i32(v: i32) i32 {
+    sleep_briefly();
+    return v * 2;
+}
+
+fn delayed_triple_i32(v: i32) i32 {
+    sleep_briefly();
+    return v * 3;
+}
+
+fn double_i32(v: i32) i32 {
+    return v * 2;
+}
+
+fn thread_test_epoll() !LinuxEpoll {
+    return linux_epoll_create(0);
+}
+
+fn thread_test_drive_future_i32(f: Future<!i32>) !i32 {
+    var s: Scheduler = scheduler_new();
+    var loop_impl: LinuxEpoll = try thread_test_epoll();
+    defer {
+        _ = sys_close(loop_impl.epfd);
+    }
+    const loop: EventLoop = loop_impl;
+    const out: !i32 = scheduler_run_with_event_loop<i32>(&s, loop, f, 1000);
+    return out;
+}
+
+fn thread_wait_pending_count(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < THREAD_TEST_WAIT_RETRIES {
+        if thread_pool_pending_count(pool) == target {
+            return 1;
+        }
+        sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn bytes_equal_at(hay: &const byte, hay_len: usize, start: usize, needle: &const byte, needle_len: usize) bool {
+    if start + needle_len > hay_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle_len {
+        if hay[start + i] != needle[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn source_contains(hay: &const byte, hay_len: usize, needle: &const byte, needle_len: usize) bool {
+    if needle_len == 0 {
+        return true;
+    }
+    if hay_len < needle_len {
+        return false;
+    }
+    var i: usize = 0;
+    while i + needle_len <= hay_len {
+        if bytes_equal_at(hay, hay_len, i, needle, needle_len) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn source_contains_cstr(hay: &const byte, hay_len: usize, needle: &const byte) bool {
+    return source_contains(hay, hay_len, needle, strlen(needle));
+}
+
+fn read_thread_source(buf: &byte, cap: usize) !usize {
+    const fd: i32 = sys_open(THREAD_SOURCE_PATH, O_RDONLY as i32, 0) catch {
+        return error.ThreadBoundarySourceOpenFailed;
+    };
+    const n: isize = sys_read(fd, buf as *byte, cap) catch {
+        _ = sys_close(fd) catch {};
+        return error.ThreadBoundarySourceReadFailed;
+    };
+    _ = sys_close(fd) catch {};
+    if n < 0 {
+        return error.ThreadBoundarySourceReadFailed;
+    }
+    return (n as! usize).value;
+}
+
+test "thread_async_boundary_queue_full_returns_resource_error" {
+    var pool: ThreadPool = thread_pool_new_with_config(ThreadPoolConfig{
+        worker_count: 1,
+        pending_capacity: 1,
+        task_slot_capacity: 1,
+        submit_strategy: THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR,
+    });
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_double_i32 as &void, 10);
+    var second: Future<!i32> = async_compute<i32>(&pool, &delayed_triple_i32 as &void, 7);
+    var w0: Waker = Waker{};
+    var w1: Waker = Waker{};
+    _ = first.poll(&w0);
+    _ = first.poll(&w0);
+    _ = second.poll(&w1);
+
+    const second_poll: Poll<!i32> = second.poll(&w1);
+    var saw_error: i32 = 0;
+    match second_poll {
+        .Ready(v) => {
+            const _value: i32 = v catch |_| {
+                saw_error = 1;
+                0;
+            };
+            _ = _value;
+        },
+        .Pending(_) => { },
+    };
+
+    try assert_eq_i32(saw_error, 1);
+    try assert_eq_i32(try thread_test_drive_future_i32(first), 20);
+}
+
+test "thread_async_boundary_cancelled_queued_slot_returns_cancelled" {
+    var pool: ThreadPool = thread_pool_new(1);
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_double_i32 as &void, 10);
+    var second: Future<!i32> = async_compute<i32>(&pool, &delayed_triple_i32 as &void, 7);
+    var first_waker: Waker = Waker{};
+    var second_waker: Waker = Waker{};
+
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+    _ = first.poll(&first_waker);
+    _ = second.poll(&second_waker);
+
+    try assert_eq_i32(thread_wait_pending_count(&pool, 1), 1);
+
+    second_waker.cancel();
+    const cancelled_poll: Poll<!i32> = second.poll(&second_waker);
+    var cancelled: i32 = 0;
+    match cancelled_poll {
+        .Ready(v) => {
+            const _value: i32 = v catch |err| {
+                if @error_id(err) == @error_id(error.Cancelled) {
+                    cancelled = 1;
+                }
+                0;
+            };
+            _ = _value;
+        },
+        .Pending(_) => { },
+    };
+
+    try assert_eq_i32(cancelled, 1);
+    try assert_eq_i32(thread_pool_pending_count(&pool), 0);
+    try assert_eq_i32(try thread_test_drive_future_i32(first), 20);
+}
+
+test "thread_async_boundary_completed_queued_slot_is_ready_on_first_late_poll" {
+    var pool: ThreadPool = thread_pool_new(1);
+    defer {
+        thread_pool_shutdown(&pool);
+    }
+
+    var first: Future<!i32> = async_compute<i32>(&pool, &delayed_double_i32 as &void, 10);
+    var second: Future<!i32> = async_compute<i32>(&pool, &double_i32 as &void, 7);
+    var w0: Waker = Waker{};
+    var w1: Waker = Waker{};
+
+    _ = first.poll(&w0);
+    _ = second.poll(&w1);
+    _ = first.poll(&w0);
+    _ = second.poll(&w1);
+
+    try assert_eq_i32(thread_wait_pending_count(&pool, 1), 1);
+    try assert_eq_i32(try thread_test_drive_future_i32(first), 20);
+
+    sleep_briefly();
+    sleep_briefly();
+
+    try assert_eq_i32(thread_wait_pending_count(&pool, 0), 1);
+
+    const late_poll: Poll<!i32> = second.poll(&w1);
+    var late_ready: i32 = 0;
+    var late_value: i32 = 0;
+    match late_poll {
+        .Ready(v) => {
+            late_value = try v;
+            late_ready = 1;
+        },
+        .Pending(_) => { },
+    };
+
+    try assert_eq_i32(late_ready, 1);
+    try assert_eq_i32(late_value, 14);
+}
+
+test "thread_async_boundary_source_uses_queue_or_error_without_hidden_fork_fallback" {
+    var src: [byte: THREAD_SOURCE_MAX] = [0: THREAD_SOURCE_MAX];
+    const len: usize = try read_thread_source(&src[0], THREAD_SOURCE_MAX);
+
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "export const THREAD_POOL_SUBMIT_STRATEGY_QUEUE_OR_ERROR: i32 = 1;\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "const submission_strategy: i32 = thread_pool_submission_strategy(pool);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "fn thread_pool_queue_or_error_slot(pool: &ThreadPool, slot_idx: i32) i32 {\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "return thread_pool_queue_or_error_slot(pool, slot_idx);\0" as &const byte) as i32, 1);
+    try assert_eq_i32(source_contains_cstr(&src[0], len, "sys_fork(\0" as &const byte) as i32, 0);
+}

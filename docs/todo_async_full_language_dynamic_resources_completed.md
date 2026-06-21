@@ -2326,3 +2326,14 @@
   - 验证：`../uya/bin/uya test tests/test_http_uyagin_async_boundary.uya`（通过，6 tests，29 assertions）
   - 验证：`../uya/bin/uya test tests/test_http_uyagin.uya`（通过，25 tests，37 assertions）
   - 验证：`../uya/bin/uya test tests/test_http_uyagin_recover_observe.uya`（通过，2 tests，9 assertions）
+
+### 2026-06-21 Phase 1.5.7 配套测试与闸门
+- [x] 为每个迁移模块补 dedicated regression：
+  - [x] Thread：queue full / cancel / result ready / no hidden fork fallback
+    - 交付：新增 `tests/test_std_thread_async_boundary.uya`，集中覆盖 queue full、queued cancel、completed queued slot first late poll ready，以及源码闸门确保 queue-or-error 策略没有 hidden fork fallback。
+    - 红测：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya`
+    - 红测结果：失败，输出 `错误: 'tests/test_std_thread_async_boundary.uya' 既不是文件也不是目录`。
+    - 验证：`../uya/bin/uya test tests/test_std_thread_async_boundary.uya`（通过，4 tests，16 assertions）
+    - 验证：`../uya/bin/uya test tests/test_std_thread.uya`（通过，34 tests，144 assertions）
+    - 验证：`../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya`（通过，1 test，26 assertions）
+    - 验证：`git diff --check`（通过）
