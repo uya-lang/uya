@@ -2984,3 +2984,10 @@ Phase 5：发布闸门与文档同步
   - [x] `make uya`
     - 验证：`make uya`
     - 结果：exit code 0；输出显示 `✓ 编译成功！`、`✓ 自举编译器构建完成: bin/uya（静态链接，零依赖）`、`✓ bin/uya.c 已更新`。
+
+## Phase 5：发布闸门与文档同步
+
+- 收口前至少跑通：
+  - [x] `make tests-uya`
+    - 验证命令：`make tests-uya`
+    - 验证结果：通过；1051 个测试全部通过，随后 `upm-check` 通过，命令退出码 `0`。
