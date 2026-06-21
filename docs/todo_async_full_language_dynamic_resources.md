@@ -125,11 +125,9 @@
 |------|------|------|------|
 | `lib/std/async.uya` | `AsyncWaitFdFuture` | runtime substrate（fd readiness wait） | fd readiness wait substrate；`async_fd_read_deadline_future` / `async_fd_write_deadline_future` 已只在 `@async_fn` 里 `@await` 它 |
 | `lib/std/thread.uya` | `AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture` | runtime substrate（线程调度桥接） | ThreadPool shared slot / pending queue / result pipe / cooperative cancel / cleanup 协议仍需手写 `poll()` 直接串接 |
-| `lib/std/net/dns.uya` | `DnsUdpFuture`、`DnsTcpFuture` | 传输层叶子 | UDP/TCP 非阻塞 connect/send/recv + timeout/fallback |
-| `lib/std/http/http1_async.uya` | `Http1ConnectFuture` | 协议层 I/O 叶子 | nonblocking connect + deadline |
-| `lib/std/http/uyagin.uya` | `UyaginWritevFuture`、`UyaginSendFileBodyFuture`、`UyaginConnReadParseFuture`、`UyaginConnReadParseIntoFuture`、`UyaginAcceptFuture` | 服务端 syscall/I/O 热路径 | writev/sendfile/read-parse/accept 等高性能热路径 |
 
 - 代码核对说明（2026-06-21）：
+  - 阶段验收基线应使用 `rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`；当前只命中 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接 5 个类型。`Future<T>` / `Task<T>` 只是基础包装容器，不计入手工 Future 盘点。
   - `WebSocketClientReconnectFuture`、`WebSocketReadMessageFuture`、`WebSocketHeartbeatTimeoutFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`、`DnsQueryAllAggregateFuture` 已不再以 `struct ... : Future<...>` 形式存在。
   - `async_join2_usize_results`、`async_writev`、`async_sendfile`、`async_connect`、`async_socket_send`、`async_socket_recv`、`async_accept`、`async_read_parse`、`async_read_parse_into` 已不再保留手写 `struct ... : Future<...>`；`std.async` 侧当前只剩 `AsyncWaitFdFuture` 一个 hand-written `poll()` substrate。
   - `async_connect`、`async_accept`、`async_writev`、`async_sendfile`、`async_read_parse` / `async_read_parse_into` 已统一到 `lib/std/async.uya`，`http1_async` / `uyagin` / `dns` 已通过 `@await` 组合；线程桥接 awaitable 已收口到 `lib/std/thread.uya` 专属 helper，协议层待办只剩真实未统一叶子。
@@ -169,8 +167,7 @@
 
 **阶段验收**：
 
-- [ ] `rg -n "^(export )?struct .*: Future<" lib/std --glob '*.uya'`
-  - [ ] 阶段初始基线应只出现当前盘点对象
+- [ ] `rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
   - [ ] 组合层迁移后，不再出现 `WebSocketClientReconnectFuture`、`UyaginRecoverFuture`、`UyaginObserveFuture`、`DnsQueryTransportFuture`
   - [ ] 最终只允许 runtime 核心协议壳类型和经明确定义的 substrate 例外存在；其中 substrate 例外仅指 `AsyncWaitFdFuture` 与 `std.thread` worker 调度桥接（`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`）
 - [ ] `./tests/verify_async_full_language_matrix.sh`

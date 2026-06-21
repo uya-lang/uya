@@ -2358,3 +2358,15 @@
     - 验证结果：通过，输出 `verify_async_dynamic_resources: module-regressions stages passed`
     - 验证命令：`bash tests/verify_async_dynamic_resources.sh unit-scan`
     - 验证结果：通过，输出 `verify_async_dynamic_resources: unit-scan stages passed`
+## 2026-06-21
+
+路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` > `## Phase 1.5：标准库手工 Future 清零迁移` > `### 1.5.8 建议执行顺序`
+
+- [ ] `rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
+  - [x] 阶段初始基线应只出现当前盘点对象
+    - 验证：`rg -nP "^(export )?struct (?!Future<|Task<).*: Future<" lib/std --glob '*.uya'`
+    - 结果：仅命中 `AsyncWaitFdFuture`、`AsyncThreadSlotWaitFuture`、`AsyncWorkerSubmitFuture`、`AsyncWorkerResultFuture`、`AsyncWorkerCancelFuture`、`AsyncWorkerComputeFuture`
+    - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+    - 结果：`ok: docs/todo_async_full_language_dynamic_resources.md has 1 active task`
+    - 验证：`git diff --check`
+    - 结果：通过（无输出）
