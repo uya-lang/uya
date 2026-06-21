@@ -2802,3 +2802,12 @@
   - 结果：默认 `2` 轮 `protocol/runtime async suite` 通过，输出 `stress_async_dynamic_resources: protocol stages passed`
   - 验证：`ASYNC_DYNAMIC_PROTOCOL_ITERATIONS=5 bash tests/stress_async_dynamic_resources.sh protocol`
   - 结果：加压 `5` 轮 `protocol/runtime async suite` 通过，输出 `stress_async_dynamic_resources: protocol stages passed`
+
+## Phase 4：生产级可靠性与可观测性
+
+父级任务：为 async runtime 增加统一指标
+  - [x] frame alloc/free/full/fallback
+    - 验证：
+      - `../uya/bin/uya test tests/test_std_async_scheduler.uya`（通过：新增 `scheduler_metrics_report_frame_alloc_and_free`、`scheduler_metrics_report_frame_full_and_fallback`）
+      - `../uya/bin/uya test tests/test_async_frame_align_pool.uya`（通过）
+      - `../uya/bin/uya test tests/test_http_uyagin.uya`（通过）

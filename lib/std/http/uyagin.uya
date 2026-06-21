@@ -974,24 +974,19 @@ export fn uyagin_collect_metrics(engine: &Engine, scheduler: &Scheduler, request
     }
     engine.metrics.arena_used_bytes += request_arena.used() as u64;
     engine.metrics.arena_reset_count += 1u64;
-    const pool: &AsyncFramePool = scheduler_frame_pool(scheduler);
-    if pool != null {
-        const total_alloc: u64 = pool.total_alloc_count as u64;
-        const total_free: u64 = pool.total_free_count as u64;
-        const total_fallback: u64 = pool.debug_heap_fallback_count as u64;
-        if total_alloc >= scheduler._metrics_frame_alloc_seen {
-            engine.metrics.frame_alloc_count += total_alloc - scheduler._metrics_frame_alloc_seen;
-        }
-        if total_free >= scheduler._metrics_frame_free_seen {
-            engine.metrics.frame_free_count += total_free - scheduler._metrics_frame_free_seen;
-        }
-        if total_fallback >= scheduler._metrics_heap_fallback_seen {
-            engine.metrics.heap_fallback_count += total_fallback - scheduler._metrics_heap_fallback_seen;
-        }
-        scheduler._metrics_frame_alloc_seen = total_alloc;
-        scheduler._metrics_frame_free_seen = total_free;
-        scheduler._metrics_heap_fallback_seen = total_fallback;
+    const runtime_metrics: SchedulerMetrics = scheduler_metrics(scheduler);
+    if runtime_metrics.frame_alloc_count >= scheduler._metrics_frame_alloc_seen {
+        engine.metrics.frame_alloc_count += runtime_metrics.frame_alloc_count - scheduler._metrics_frame_alloc_seen;
     }
+    if runtime_metrics.frame_free_count >= scheduler._metrics_frame_free_seen {
+        engine.metrics.frame_free_count += runtime_metrics.frame_free_count - scheduler._metrics_frame_free_seen;
+    }
+    if runtime_metrics.frame_heap_fallback_count >= scheduler._metrics_heap_fallback_seen {
+        engine.metrics.heap_fallback_count += runtime_metrics.frame_heap_fallback_count - scheduler._metrics_heap_fallback_seen;
+    }
+    scheduler._metrics_frame_alloc_seen = runtime_metrics.frame_alloc_count;
+    scheduler._metrics_frame_free_seen = runtime_metrics.frame_free_count;
+    scheduler._metrics_heap_fallback_seen = runtime_metrics.frame_heap_fallback_count;
 }
 
 fn uyagin_log_fd(engine: &Engine) i32 {

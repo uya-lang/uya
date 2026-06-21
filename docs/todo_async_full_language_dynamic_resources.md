@@ -171,7 +171,6 @@
 ## Phase 4：生产级可靠性与可观测性
 
 - [ ] 为 async runtime 增加统一指标：
-  - [ ] frame alloc/free/full/fallback
   - [ ] scheduler queue depth
   - [ ] epoll registered fd / resize count
   - [ ] thread pool queue depth / running workers / saturation count

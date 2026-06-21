@@ -3,6 +3,8 @@
 use std.async;
 use std.async_event;
 use std.async_frame.AsyncFramePool;
+use std.async_frame.async_frame_pool_alloc_aligned;
+use std.async_frame.async_frame_pool_free_aligned;
 use std.async_scheduler;
 use std.testing.assert_eq_i32;
 use libc.atoi;
@@ -117,6 +119,57 @@ test "scheduler_new_with_config_accepts_frame_buffer_above_default" {
     try assert_eq_i32(pool.buffer != null, true);
     try assert_eq_i32(pool.buffer_size == 24576usize, true);
     try assert_eq_i32(scheduler_frame_buffer_size(&s) == 24576usize, true);
+}
+
+test "scheduler_metrics_report_frame_alloc_and_free" {
+    var s: Scheduler = scheduler_new_with_config(256usize, 3);
+    const pool: &AsyncFramePool = scheduler_frame_pool(&s);
+    const initial_metrics: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(initial_metrics.frame_alloc_count as i32, 0);
+    try assert_eq_i32(initial_metrics.frame_free_count as i32, 0);
+    try assert_eq_i32(initial_metrics.frame_full_count as i32, 0);
+    try assert_eq_i32(initial_metrics.frame_heap_fallback_count as i32, 0);
+
+    const ptr: &byte = async_frame_pool_alloc_aligned(pool, 32usize, 8usize);
+    try assert_eq_i32(ptr != null, true);
+    const after_alloc: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(after_alloc.frame_alloc_count as i32, 1);
+    try assert_eq_i32(after_alloc.frame_free_count as i32, 0);
+    try assert_eq_i32(after_alloc.frame_full_count as i32, 0);
+    try assert_eq_i32(after_alloc.frame_heap_fallback_count as i32, 0);
+
+    async_frame_pool_free_aligned(pool, ptr, 32usize, 8usize);
+    const after_free: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(after_free.frame_alloc_count as i32, 1);
+    try assert_eq_i32(after_free.frame_free_count as i32, 1);
+    try assert_eq_i32(after_free.frame_full_count as i32, 0);
+    try assert_eq_i32(after_free.frame_heap_fallback_count as i32, 0);
+}
+
+test "scheduler_metrics_report_frame_full_and_fallback" {
+    var s: Scheduler = scheduler_new_with_config(256usize, 3);
+    const pool: &AsyncFramePool = scheduler_frame_pool(&s);
+
+    pool.max_buckets = 0;
+    pool.debug_heap_fallback = 0;
+    const full_ptr: &byte = async_frame_pool_alloc_aligned(pool, 16usize, 8usize);
+    try assert_eq_i32(full_ptr == null, true);
+    const after_full: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(after_full.frame_alloc_count as i32, 0);
+    try assert_eq_i32(after_full.frame_free_count as i32, 0);
+    try assert_eq_i32(after_full.frame_full_count as i32, 1);
+    try assert_eq_i32(after_full.frame_heap_fallback_count as i32, 0);
+
+    pool.debug_heap_fallback = 1;
+    pool.stack_limit = 1usize;
+    const fallback_ptr: &byte = async_frame_pool_alloc_aligned(pool, 16usize, 8usize);
+    try assert_eq_i32(fallback_ptr != null, true);
+    const after_fallback: SchedulerMetrics = scheduler_metrics(&s);
+    try assert_eq_i32(after_fallback.frame_alloc_count as i32, 0);
+    try assert_eq_i32(after_fallback.frame_free_count as i32, 0);
+    try assert_eq_i32(after_fallback.frame_full_count as i32, 1);
+    try assert_eq_i32(after_fallback.frame_heap_fallback_count as i32, 1);
+    async_frame_pool_free_aligned(pool, fallback_ptr, 16usize, 8usize);
 }
 
 test "scheduler_run_u32" {

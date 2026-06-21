@@ -435,6 +435,16 @@ export fn task_queue_usize_capacity(queue: &TaskQueue_usize) i32 {
     return task_queue_capacity_internal<usize>(queue);
 }
 
+/// `Scheduler` 运行时指标快照。
+/// 参数：无；通过 `scheduler_metrics` 读取指定实例的当前值。
+/// 返回值：包含 async frame pool 的累计 alloc/free/full/debug heap fallback 计数。
+export struct SchedulerMetrics {
+    frame_alloc_count: u64,
+    frame_free_count: u64,
+    frame_full_count: u64,
+    frame_heap_fallback_count: u64,
+}
+
 /// 调度器。持有 async frame pool，同 scheduler 内的任务共享 pool 分配器。
 export struct Scheduler {
     _frame_pool: &AsyncFramePool,
@@ -549,6 +559,22 @@ export fn scheduler_frame_buffer_size(self: &Scheduler) usize {
 /// 获取调度器绑定的 async frame pool。
 export fn scheduler_frame_pool(self: &Scheduler) &AsyncFramePool {
     return self._frame_pool;
+}
+
+/// 获取调度器当前运行时指标快照。
+/// 参数：self 为调度器实例；空指针或未初始化 frame pool 时返回全零快照。
+/// 返回值：包含当前已知的 async frame alloc/free/full/debug heap fallback 计数。
+export fn scheduler_metrics(self: &Scheduler) SchedulerMetrics {
+    if self == null || self._frame_pool == null {
+        return SchedulerMetrics{};
+    }
+    const pool: &AsyncFramePool = self._frame_pool;
+    return SchedulerMetrics{
+        frame_alloc_count: pool.total_alloc_count as u64,
+        frame_free_count: pool.total_free_count as u64,
+        frame_full_count: pool.pool_full_count as u64,
+        frame_heap_fallback_count: pool.debug_heap_fallback_count as u64,
+    };
 }
 
 /// 同步运行 Future<!T> 直到 Ready，返回 !T。
