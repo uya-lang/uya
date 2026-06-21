@@ -2038,3 +2038,20 @@
       - 结论：保留为 substrate；当前 `Future<T>` / `@async_fn` 仍只能通过 `poll(self, waker)` 驱动，而 `Waker` 只暴露 `wait_readable()` / `wait_writable()` 两个 I/O interest 原语，去掉这个 leaf 只会把 fd readiness wait 挪成新的语言/runtime/codegen 特判。
       - 代码依据：`lib/std/async.uya:1154` 定义 `AsyncWaitFdFuture`；`1194` / `1205` 仅导出 `async_wait_readable` / `async_wait_writable`；`1248-1309` 的 `async_fd_read_deadline_future` / `async_fd_write_deadline_future` 已是 `@async_fn` 包装，只在循环里 `@await` readiness wait 后重试 `sys_read` / `sys_write`，业务 syscall/buffer 状态机没有留在 wait leaf 里。
       - 验证：`rg -n "struct AsyncWaitFdFuture|export fn async_wait_readable|export fn async_wait_writable|export @async_fn fn async_fd_(read|write)" lib/std/async.uya` 命中 `1154` / `1194` / `1205` / `1248` / `1275` / `1282` / `1309`；`../uya/bin/uya test tests/test_async_fd_substrate_boundary.uya` 通过（1 passed, 0 failed）。
+
+## 2026-06-21 归档：Phase 1.5.6 `AsyncComputeFuture<T>` 消灭可行性评估
+
+> 父级路径：`# Uya 异步生产化 TODO（完整语法 + 动态资源）` → `## Phase 1.5：标准库手工 Future 清零迁移` → `### 1.5.6 第四批：runtime 底座手工 Future 最小化与最终清零` → `如果要做到“标准库里 0 手写业务 Future”，必须给 runtime 留一个非常清晰的最终边界` → `要么连当前真实残留的 runtime future 也继续消灭`
+
+- [x] 评估 `AsyncComputeFuture<T>` 是否能在不扩大 codegen/runtime 特判面的前提下消灭；完成条件：明确列出仍阻塞彻底消灭的状态机/代码生成依赖，或完成实际迁移；验证：`rg -n "AsyncComputeFuture|async_worker_submit|async_worker_result|async_worker_cancel|AsyncComputeFuture_" lib/std/thread.uya src/codegen/c99`
+  - 结论：当前不能在“不扩大 codegen/runtime 特判面”的前提下直接消灭 `AsyncComputeFuture<T>`；应先把阻塞拆成后续叶子任务，或改走“定义为 runtime substrate”路线。
+  - 阻塞 1：`lib/std/thread.uya` 中 `ThreadAsyncComputeCore` + `AsyncComputeFuture<T>.poll()` 仍是唯一同时保存 `slot_idx`、`first_poll`、`cancel_requested`、`done/state` 并串起 `async_worker_submit` / `async_worker_result` / `async_worker_cancel` / cleanup / typed decode 的状态机壳；现有 `async_worker_*` 只是叶子 awaitable，本身不能替代这个跨 poll 框架。
+  - 阻塞 2：`src/codegen/c99/function.uya` 与 `src/codegen/c99/expr.uya` 仍把 `async_compute<T>` 硬编码到 `std_thread_async_compute_future_new_<T>`、`AsyncComputeFuture_<T>` 与对应 `uya_vtable_Future_err_<T>_AsyncComputeFuture_<T>`；注释已明确 `thread_type_is_*(T)` 在 C99 函数体生成阶段无法可靠折叠，所以删掉库侧类型不会缩小特判面，反而要求新的 lowering 特判。
+  - 阻塞 3：`src/codegen/c99/structs.uya` 仍保留 `AsyncComputeFuture<T> : Future<!T>` 的专项 vtable/interface 单态修补，说明通用 `struct<T> : Future<!T>` 仍未完全自动化；先删 `AsyncComputeFuture<T>` 只会把这块依赖改名，不会消失。
+  - 后续拆分：主 todo 已把这三个阻塞分别改写成后续 `[ ]` 叶子，避免空父项和模糊结论。
+  - 验证：`rg -n "AsyncComputeFuture|async_worker_submit|async_worker_result|async_worker_cancel|AsyncComputeFuture_" lib/std/thread.uya src/codegen/c99`
+  - 结果：命中 `lib/std/thread.uya` 中 `async_worker_*` 与 `AsyncComputeFuture<T>` 状态机实现，以及 `src/codegen/c99/{expr,function,structs}.uya` 中的专用构造/vtable/单态化分支，和本轮结论一致。
+  - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_async_full_language_dynamic_resources.md`
+  - 结果：通过，主 todo 为 `0 active tasks`。
+  - 验证：`git diff --check`
+  - 结果：通过。
