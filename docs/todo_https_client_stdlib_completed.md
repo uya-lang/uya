@@ -68,3 +68,9 @@ tests/test_std_net_addr.uya
 ### A1. `std.net.addr`
 - [x] tests/test_std_net_addr.uya 通过 --c99
   - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --c99` 通过（6 个测试，76 个断言）。
+
+### A1. `std.net.addr`
+
+- [x] tests/test_std_net_addr.uya 通过 --uya --c99
+  - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --uya --c99` 通过（6 个测试，76 个断言）。
+  - 相关验证：`../uya/bin/uya test tests/test_std_net_addr.uya --c99` 通过（6 个测试，76 个断言）。

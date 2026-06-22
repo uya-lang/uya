@@ -97,52 +97,6 @@ make check
 
 ## 2. 阶段 A：地址、socket、poll、TCP
 
-### A1. `std.net.addr`
-
-目标文件：
-
-```text
-lib/std/net/addr.uya
-tests/test_std_net_addr.uya
-```
-
-函数定义：
-
-```uya
-export enum IpFamily {
-    IPv4,
-    IPv6,
-}
-
-export struct IpAddr {
-    family: IpFamily,
-    bytes: [byte: 16],
-    len: usize,
-}
-
-export struct SocketAddr {
-    ip: IpAddr,
-    port: u16,
-}
-
-export fn ip_addr_zero() IpAddr;
-export fn ip_addr_ipv4(a: byte, b: byte, c: byte, d: byte) IpAddr;
-export fn ip_addr_ipv6(bytes: &const byte, len: usize) !IpAddr;
-export fn ip_addr_is_ipv4(ip: &IpAddr) bool;
-export fn ip_addr_is_ipv6(ip: &IpAddr) bool;
-export fn ip_addr_parse_ipv4(input: &[byte]) !IpAddr;
-export fn ip_addr_parse_ipv6(input: &[byte]) !IpAddr;
-export fn ip_addr_format(ip: &IpAddr, out: &byte, out_max: usize, out_len: &usize) !usize;
-export fn socket_addr_new(ip: IpAddr, port: u16) SocketAddr;
-export fn socket_addr_format(addr: &SocketAddr, out: &byte, out_max: usize, out_len: &usize) !usize;
-```
-
-验收：
-
-```text
-- [ ] tests/test_std_net_addr.uya 通过 --uya --c99
-```
-
 ### A2. `std.net.socket`
 
 目标文件：
