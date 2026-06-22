@@ -109,7 +109,6 @@ tests/test_std_net_addr.uya
 先写测试：
 
 ```text
-- [ ] test_ipv4_parse_rejects_bad_octet
 - [ ] test_ipv4_parse_rejects_trailing_bytes
 - [ ] test_ipv4_display_roundtrip
 - [ ] test_socket_addr_port_range
