@@ -4,6 +4,38 @@ use std.net.addr;
 use std.testing.assert_eq_i32;
 use std.testing.assert_true;
 
+fn assert_byte_slice_eq(actual: &[byte], expected: &[byte]) !void {
+    try assert_eq_i32(actual.len as i32, expected.len as i32);
+    var i: usize = 0;
+    while i < actual.len {
+        try assert_eq_i32(actual.ptr[i] as i32, expected.ptr[i] as i32);
+        i = i + 1usize;
+    }
+}
+
+test "ipv4_display_roundtrip" {
+    const ip: IpAddr = ip_addr_ipv4(203 as byte, 0 as byte, 113 as byte, 7 as byte);
+    var formatted: [byte: 15] = [0: 15];
+    var formatted_len: usize = 0;
+    const written: usize = try ip_addr_format(&ip, &formatted[0], 15usize, &formatted_len);
+    try assert_eq_i32(written as i32, 11);
+    try assert_eq_i32(formatted_len as i32, 11);
+    try assert_byte_slice_eq(&formatted[0: formatted_len], &"203.0.113.7"[0: 11]);
+
+    const parsed: IpAddr = try ip_addr_parse_ipv4(&formatted[0: formatted_len]);
+    try assert_true(ip_addr_is_ipv4(&parsed));
+    try assert_eq_i32(parsed.bytes[0] as i32, 203);
+    try assert_eq_i32(parsed.bytes[1] as i32, 0);
+    try assert_eq_i32(parsed.bytes[2] as i32, 113);
+    try assert_eq_i32(parsed.bytes[3] as i32, 7);
+
+    var roundtrip: [byte: 15] = [0: 15];
+    var roundtrip_len: usize = 0;
+    _ = try ip_addr_format(&parsed, &roundtrip[0], 15usize, &roundtrip_len);
+    try assert_eq_i32(roundtrip_len as i32, formatted_len as i32);
+    try assert_byte_slice_eq(&roundtrip[0: roundtrip_len], &formatted[0: formatted_len]);
+}
+
 test "ipv4_parse_valid" {
     const parsed: IpAddr = try ip_addr_parse_ipv4(&"127.0.0.1"[0: 9]);
     try assert_true(ip_addr_is_ipv4(&parsed));
