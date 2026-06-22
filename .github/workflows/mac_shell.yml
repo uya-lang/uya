@@ -1,0 +1,14 @@
+name: macos ssh debug
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tmate SSH session
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 60
