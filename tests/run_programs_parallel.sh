@@ -928,6 +928,8 @@ if [ "$HOST_OS" = "macos" ] && [ "${SKIP_DARWIN_DEFAULT:-1}" != "0" ]; then
         test_error_value_err_union_arg
         test_generic_async_function_codegen
         test_generic_struct_array_future_method
+        test_http1_async_client
+        test_http_server
         test_http_uyagin
         test_method_call_in_callback_codegen
         test_osal
