@@ -109,12 +109,12 @@ tests/test_std_net_addr.uya
 先写测试：
 
 ```text
-[ ] test_ipv4_parse_valid
-[ ] test_ipv4_parse_rejects_bad_octet
-[ ] test_ipv4_parse_rejects_trailing_bytes
-[ ] test_ipv4_display_roundtrip
-[ ] test_socket_addr_port_range
-[ ] test_ipv6_literal_is_explicitly_unsupported_or_parsed
+- [ ] test_ipv4_parse_valid
+- [ ] test_ipv4_parse_rejects_bad_octet
+- [ ] test_ipv4_parse_rejects_trailing_bytes
+- [ ] test_ipv4_display_roundtrip
+- [ ] test_socket_addr_port_range
+- [ ] test_ipv6_literal_is_explicitly_unsupported_or_parsed
 ```
 
 函数定义：
@@ -151,8 +151,8 @@ export fn socket_addr_format(addr: &SocketAddr, out: &byte, out_max: usize, out_
 验收：
 
 ```text
-[ ] tests/test_std_net_addr.uya 通过 --c99
-[ ] tests/test_std_net_addr.uya 通过 --uya --c99
+- [ ] tests/test_std_net_addr.uya 通过 --c99
+- [ ] tests/test_std_net_addr.uya 通过 --uya --c99
 ```
 
 ### A2. `std.net.socket`
@@ -167,10 +167,10 @@ tests/test_std_net_socket.uya
 先写测试：
 
 ```text
-[ ] test_socket_set_nonblocking_on_valid_fd
-[ ] test_socket_set_cloexec_on_valid_fd
-[ ] test_socket_close_ignores_negative_fd
-[ ] test_socket_errno_maps_would_block
+- [ ] test_socket_set_nonblocking_on_valid_fd
+- [ ] test_socket_set_cloexec_on_valid_fd
+- [ ] test_socket_close_ignores_negative_fd
+- [ ] test_socket_errno_maps_would_block
 ```
 
 函数定义：
@@ -202,10 +202,10 @@ tests/test_std_net_poll.uya
 先写测试：
 
 ```text
-[ ] test_poll_timeout_returns_timeout
-[ ] test_poll_readable_on_pipe
-[ ] test_poll_writable_on_socketpair
-[ ] test_poll_error_on_closed_peer
+- [ ] test_poll_timeout_returns_timeout
+- [ ] test_poll_readable_on_pipe
+- [ ] test_poll_writable_on_socketpair
+- [ ] test_poll_error_on_closed_peer
 ```
 
 函数定义：
@@ -242,15 +242,15 @@ tests/test_std_net_tcp.uya
 先写测试：
 
 ```text
-[ ] test_tcp_connect_loopback
-[ ] test_tcp_connect_refused
-[ ] test_tcp_connect_timeout_gated
-[ ] test_tcp_read_timeout
-[ ] test_tcp_write_all_handles_short_write
-[ ] test_tcp_close_on_drop
-[ ] test_tcp_connect_async_loopback
-[ ] test_tcp_read_write_async_with_event_loop
-[ ] test_tcp_async_timeout_or_cancel
+- [ ] test_tcp_connect_loopback
+- [ ] test_tcp_connect_refused
+- [ ] test_tcp_connect_timeout_gated
+- [ ] test_tcp_read_timeout
+- [ ] test_tcp_write_all_handles_short_write
+- [ ] test_tcp_close_on_drop
+- [ ] test_tcp_connect_async_loopback
+- [ ] test_tcp_read_write_async_with_event_loop
+- [ ] test_tcp_async_timeout_or_cancel
 ```
 
 函数定义：
@@ -283,8 +283,8 @@ export fn tcp_stream_drop(stream: TcpStream) void;
 约束：
 
 ```text
-[ ] HTTP client 主链路必须调用 `tcp_*_async`；同步 `tcp_connect` / read / write wrapper 只能作为 blocking compatibility 或 smoke test 辅助。
-[ ] 同步 wrapper 不能复制维护另一套 socket 状态机；应复用 async transport leaf 或共享的底层非阻塞 helper。
+- [ ] HTTP client 主链路必须调用 `tcp_*_async`；同步 `tcp_connect` / read / write wrapper 只能作为 blocking compatibility 或 smoke test 辅助。
+- [ ] 同步 wrapper 不能复制维护另一套 socket 状态机；应复用 async transport leaf 或共享的底层非阻塞 helper。
 ```
 
 ---
@@ -307,18 +307,18 @@ tests/test_std_dns_loopback.uya
 先写/补强测试：
 
 ```text
-[ ] test_dns_encode_query_example_com_a
-[ ] test_dns_decode_a_answer_fixture
-[ ] test_dns_decode_cname_then_a_fixture
-[ ] test_dns_rejects_compression_loop
-[ ] test_dns_rejects_name_too_long
-[ ] test_dns_hosts_parses_comments_and_aliases
-[ ] test_dns_resolv_conf_parses_multiple_nameservers
-[ ] test_dns_nameserver_fallback_after_timeout
-[ ] test_dns_udp_loopback_mock
-[ ] test_dns_timeout_is_bounded
-[ ] test_dns_a_only_v01_contract
-[ ] test_dns_public_struct_fields_match_current_api
+- [ ] test_dns_encode_query_example_com_a
+- [ ] test_dns_decode_a_answer_fixture
+- [ ] test_dns_decode_cname_then_a_fixture
+- [ ] test_dns_rejects_compression_loop
+- [ ] test_dns_rejects_name_too_long
+- [ ] test_dns_hosts_parses_comments_and_aliases
+- [ ] test_dns_resolv_conf_parses_multiple_nameservers
+- [ ] test_dns_nameserver_fallback_after_timeout
+- [ ] test_dns_udp_loopback_mock
+- [ ] test_dns_timeout_is_bounded
+- [ ] test_dns_a_only_v01_contract
+- [ ] test_dns_public_struct_fields_match_current_api
 ```
 
 已存在公开契约：
@@ -391,9 +391,9 @@ fn dns_query_follow_cname_with_ttl(ctx: &DnsClient, host: &[byte], depth: usize,
 初始范围约束：
 
 ```text
-[ ] 初始 HTTPS client 路径只要求 A 记录可用。
-[ ] AAAA / Happy Eyeballs 留在后续，不作为初始 HTTPS client 验收 gate；但已有 AAAA / IPv6 查询 API 和测试不得回归。
-[ ] CNAME limited chain 必须支持，因为公网域名常见 CNAME。
+- [ ] 初始 HTTPS client 路径只要求 A 记录可用。
+- [ ] AAAA / Happy Eyeballs 留在后续，不作为初始 HTTPS client 验收 gate；但已有 AAAA / IPv6 查询 API 和测试不得回归。
+- [ ] CNAME limited chain 必须支持，因为公网域名常见 CNAME。
 ```
 
 ---
@@ -415,15 +415,15 @@ tests/test_tls_client_realnet.uya
 先写测试：
 
 ```text
-[ ] test_tls_client_config_default_is_secure
-[ ] test_tls_client_loopback_handshake
-[ ] test_tls_client_sni_is_sent
-[ ] test_tls_client_rejects_bad_finished
-[ ] test_tls_client_timeout
-[ ] test_tls_client_close_notify
-[ ] test_tls_client_connect_async_loopback
-[ ] test_tls_stream_async_read_write
-[ ] test_tls_client_realnet_gated_public_hosts
+- [ ] test_tls_client_config_default_is_secure
+- [ ] test_tls_client_loopback_handshake
+- [ ] test_tls_client_sni_is_sent
+- [ ] test_tls_client_rejects_bad_finished
+- [ ] test_tls_client_timeout
+- [ ] test_tls_client_close_notify
+- [ ] test_tls_client_connect_async_loopback
+- [ ] test_tls_stream_async_read_write
+- [ ] test_tls_client_realnet_gated_public_hosts
 ```
 
 函数定义：
@@ -495,14 +495,14 @@ export fn tls_stream_info(stream: &TlsStream) TlsInfo;
 约束：
 
 ```text
-[ ] `TlsStream.state` 必须由 `TlsStream` 拥有，不能引用 `tls_client_connect` 内部局部变量。
-[ ] `tls_client_config_default` 必须使用 `std.mem.allocator.get_allocator()` 或等价默认 allocator；显式配置中的 `allocator` 不得为空。
-[ ] `SslContext` / `SslContext13` 中的 `hs`、`hs13`、`rec` 指针必须指向同一个 `TlsClientState` 内的稳定存储。
-[ ] `TlsInfo.server_name` 必须复制自 config/server_name，而不是保存调用方传入切片。
-[ ] `tls_stream_close` 必须关闭底层 TCP、发送 best-effort close_notify，并释放 `TlsClientState`；重复 close 必须 no-op。
-[ ] HTTP client 主链路必须调用 `tls_*_async`；同步 TLS wrapper 只能作为 blocking compatibility 或 smoke test 辅助。
-[ ] 同步 wrapper 不能复制维护另一套 handshake/read/write 状态机；应复用 async transport leaf 或共享的底层状态推进 helper。
-[ ] 若初始只落地 TLS 1.2，`max_version` / `min_version` 必须显式拒绝 TLS 1.3，不能把 1.3 配置静默降级到 1.2。
+- [ ] `TlsStream.state` 必须由 `TlsStream` 拥有，不能引用 `tls_client_connect` 内部局部变量。
+- [ ] `tls_client_config_default` 必须使用 `std.mem.allocator.get_allocator()` 或等价默认 allocator；显式配置中的 `allocator` 不得为空。
+- [ ] `SslContext` / `SslContext13` 中的 `hs`、`hs13`、`rec` 指针必须指向同一个 `TlsClientState` 内的稳定存储。
+- [ ] `TlsInfo.server_name` 必须复制自 config/server_name，而不是保存调用方传入切片。
+- [ ] `tls_stream_close` 必须关闭底层 TCP、发送 best-effort close_notify，并释放 `TlsClientState`；重复 close 必须 no-op。
+- [ ] HTTP client 主链路必须调用 `tls_*_async`；同步 TLS wrapper 只能作为 blocking compatibility 或 smoke test 辅助。
+- [ ] 同步 wrapper 不能复制维护另一套 handshake/read/write 状态机；应复用 async transport leaf 或共享的底层状态推进 helper。
+- [ ] 若初始只落地 TLS 1.2，`max_version` / `min_version` 必须显式拒绝 TLS 1.3，不能把 1.3 配置静默降级到 1.2。
 ```
 
 ### C2. X.509 parser, trust store, hostname verify
@@ -522,16 +522,16 @@ tests/test_tls_store.uya
 先写测试：
 
 ```text
-[ ] test_x509_parse_leaf_der_fixture
-[ ] test_x509_parse_pem_bundle
-[ ] test_x509_validity_not_before_after
-[ ] test_x509_san_dns_preferred_over_cn
-[ ] test_x509_wildcard_one_label_only
-[ ] test_x509_wildcard_rejects_public_suffix_shape
-[ ] test_x509_unknown_ca_fails_closed
-[ ] test_x509_incomplete_chain_fails_closed
-[ ] test_x509_eku_server_auth_required
-[ ] test_x509_basic_constraints_ca_required_for_issuer
+- [ ] test_x509_parse_leaf_der_fixture
+- [ ] test_x509_parse_pem_bundle
+- [ ] test_x509_validity_not_before_after
+- [ ] test_x509_san_dns_preferred_over_cn
+- [ ] test_x509_wildcard_one_label_only
+- [ ] test_x509_wildcard_rejects_public_suffix_shape
+- [ ] test_x509_unknown_ca_fails_closed
+- [ ] test_x509_incomplete_chain_fails_closed
+- [ ] test_x509_eku_server_auth_required
+- [ ] test_x509_basic_constraints_ca_required_for_issuer
 ```
 
 函数定义（`TrustStore` 使用 `lib/tls/x509/trust_store.uya` 已导出的现有类型）：
@@ -579,17 +579,17 @@ export fn x509_cert_is_valid_at(cert: &X509Cert, now_unix: i64) bool;
 约束：
 
 ```text
-[ ] 仓库已有 `lib/tls/x509/trust_store.uya` 导出的 `TrustStore`，当前布局为 `certs: [Cert: TRUST_STORE_MAX_CERTS]`、`der_storage`、`count`。
-[ ] 本阶段不得另起一个不兼容的同名公开类型；应迁移现有 `TrustStore` 到这里需要的语义，或新增 adapter/helper 函数把现有 `TrustStore` 接到 `x509_verify_chain`。
-[ ] 若 `X509Cert` 与现有 `Cert` 需要同时存在，必须先定义单向 adapter 或迁移计划；不得在 TODO 示例中重新声明 `TrustStore`。
+- [ ] 仓库已有 `lib/tls/x509/trust_store.uya` 导出的 `TrustStore`，当前布局为 `certs: [Cert: TRUST_STORE_MAX_CERTS]`、`der_storage`、`count`。
+- [ ] 本阶段不得另起一个不兼容的同名公开类型；应迁移现有 `TrustStore` 到这里需要的语义，或新增 adapter/helper 函数把现有 `TrustStore` 接到 `x509_verify_chain`。
+- [ ] 若 `X509Cert` 与现有 `Cert` 需要同时存在，必须先定义单向 adapter 或迁移计划；不得在 TODO 示例中重新声明 `TrustStore`。
 ```
 
 验收：
 
 ```text
-[ ] 默认 verify peer。
-[ ] 证书错误 fail closed。
-[ ] insecure config 只能在测试或显式 opt-in 使用。
+- [ ] 默认 verify peer。
+- [ ] 证书错误 fail closed。
+- [ ] insecure config 只能在测试或显式 opt-in 使用。
 ```
 
 ---
@@ -608,13 +608,13 @@ tests/test_http_client_url.uya
 先写测试：
 
 ```text
-[ ] test_url_parse_https_default_port
-[ ] test_url_parse_explicit_port
-[ ] test_url_parse_query_preserved
-[ ] test_url_parse_default_path
-[ ] test_url_rejects_empty_host
-[ ] test_url_rejects_unsupported_scheme
-[ ] test_url_ipv6_literal_is_explicitly_unsupported_or_parsed
+- [ ] test_url_parse_https_default_port
+- [ ] test_url_parse_explicit_port
+- [ ] test_url_parse_query_preserved
+- [ ] test_url_parse_default_path
+- [ ] test_url_rejects_empty_host
+- [ ] test_url_rejects_unsupported_scheme
+- [ ] test_url_ipv6_literal_is_explicitly_unsupported_or_parsed
 ```
 
 函数定义：
@@ -651,14 +651,14 @@ tests/test_http_client_header.uya
 先写测试：
 
 ```text
-[ ] test_header_get_case_insensitive
-[ ] test_header_set_replaces_existing
-[ ] test_header_add_allows_multi_value_except_content_length
-[ ] test_header_rejects_crlf_in_name
-[ ] test_header_rejects_crlf_in_value
-[ ] test_header_total_size_limit
-[ ] test_duplicate_content_length_rejected
-[ ] test_transfer_encoding_content_length_conflict_rejected
+- [ ] test_header_get_case_insensitive
+- [ ] test_header_set_replaces_existing
+- [ ] test_header_add_allows_multi_value_except_content_length
+- [ ] test_header_rejects_crlf_in_name
+- [ ] test_header_rejects_crlf_in_value
+- [ ] test_header_total_size_limit
+- [ ] test_duplicate_content_length_rejected
+- [ ] test_transfer_encoding_content_length_conflict_rejected
 ```
 
 函数定义：
@@ -695,8 +695,8 @@ export fn header_map_validate_message_framing(map: &HeaderMap) !void;
 约束：
 
 ```text
-[ ] `HeaderMap` 只拥有 header slot，不拥有 name/value 字节；调用方必须保证切片背后的 storage 生命周期覆盖 map 使用期。
-[ ] `HTTP_MAX_HEADER_BYTES` 只能作为默认值；HTTP client 必须使用 `ClientConfig.max_response_header_bytes` 调用 `header_map_validate_total_size`，不能硬写全局上限。
+- [ ] `HeaderMap` 只拥有 header slot，不拥有 name/value 字节；调用方必须保证切片背后的 storage 生命周期覆盖 map 使用期。
+- [ ] `HTTP_MAX_HEADER_BYTES` 只能作为默认值；HTTP client 必须使用 `ClientConfig.max_response_header_bytes` 调用 `header_map_validate_total_size`，不能硬写全局上限。
 ```
 
 ### D3. Request encoder
@@ -712,13 +712,13 @@ tests/test_http_client_request_encode.uya
 先写测试：
 
 ```text
-[ ] test_request_encode_get_no_body
-[ ] test_request_encode_post_content_length
-[ ] test_request_encode_host_added
-[ ] test_request_encode_host_with_non_default_port
-[ ] test_request_encode_query_preserved
-[ ] test_request_encode_user_agent_default
-[ ] test_request_encode_rejects_invalid_header
+- [ ] test_request_encode_get_no_body
+- [ ] test_request_encode_post_content_length
+- [ ] test_request_encode_host_added
+- [ ] test_request_encode_host_with_non_default_port
+- [ ] test_request_encode_query_preserved
+- [ ] test_request_encode_user_agent_default
+- [ ] test_request_encode_rejects_invalid_header
 ```
 
 函数定义：
@@ -771,9 +771,9 @@ export fn http_request_encode_headers(req: &HttpRequest, out: &byte, out_max: us
 约束：
 
 ```text
-[ ] `CancelToken` 与 `cancel_token_*` helper 放在 `cancel.uya`；`request.uya` 只引用它们。
-[ ] `cancelled` 使用 `0/1` 表示 false/true；Uya 当前只允许整数原子类型，不能使用 `atomic bool`。`cancel_token_is_cancelled` 对外仍返回 `bool`。
-[ ] 初始请求体只支持 `Empty` 与 `Bytes`。后续若增加 streaming upload，必须先定义 `HttpBodyReader` / async 读接口，再新增 `BodyKind.Reader`，不得留下无 payload 的 enum 分支。
+- [ ] `CancelToken` 与 `cancel_token_*` helper 放在 `cancel.uya`；`request.uya` 只引用它们。
+- [ ] `cancelled` 使用 `0/1` 表示 false/true；Uya 当前只允许整数原子类型，不能使用 `atomic bool`。`cancel_token_is_cancelled` 对外仍返回 `bool`。
+- [ ] 初始请求体只支持 `Empty` 与 `Bytes`。后续若增加 streaming upload，必须先定义 `HttpBodyReader` / async 读接口，再新增 `BodyKind.Reader`，不得留下无 payload 的 enum 分支。
 ```
 
 ### D4. Response parser
@@ -788,14 +788,14 @@ tests/test_http_client_response_parse.uya
 先写测试：
 
 ```text
-[ ] test_response_parse_status_line
-[ ] test_response_parse_content_length
-[ ] test_response_parse_404_body
-[ ] test_response_parse_head_no_body
-[ ] test_response_parse_204_no_body
-[ ] test_response_rejects_bad_status_code
-[ ] test_response_header_too_large
-[ ] test_response_body_too_large
+- [ ] test_response_parse_status_line
+- [ ] test_response_parse_content_length
+- [ ] test_response_parse_404_body
+- [ ] test_response_parse_head_no_body
+- [ ] test_response_parse_204_no_body
+- [ ] test_response_rejects_bad_status_code
+- [ ] test_response_header_too_large
+- [ ] test_response_body_too_large
 ```
 
 函数定义：
@@ -848,12 +848,12 @@ export fn http_response_free(resp: &HttpResponse) void;
 约束：
 
 ```text
-[ ] `body` 只是视图；当 `body_owned == true` 时，`http_response_free` 必须通过 `body_allocator.dealloc(body_storage)` 释放底层存储。
-[ ] `headers` 与 `reason` 只是视图；当 response 跨出 parser/read 函数返回给调用者时，必须指向 `header_storage` 中的稳定副本。
-[ ] 当 `header_owned == true` 时，`http_response_free` 必须通过 `header_allocator.dealloc(header_storage)` 释放底层存储。
-[ ] `header_allocator` / `body_allocator` 使用 `std.mem.allocator.IAllocator`；当对应 `*_owned == false` 时允许为空，`http_response_free` 必须 no-op。
-[ ] `header_storage`、`header_capacity`、`header_owned`、`body_storage`、`body_capacity`、`body_owned` 必须在所有成功和错误路径初始化，避免泄漏、悬垂切片或误释放。
-[ ] `complete == true` 只表示响应头和按 `body_mode` 要求的 body 都已完整读取；连接池复用必须同时检查 `complete` 与 keep-alive。
+- [ ] `body` 只是视图；当 `body_owned == true` 时，`http_response_free` 必须通过 `body_allocator.dealloc(body_storage)` 释放底层存储。
+- [ ] `headers` 与 `reason` 只是视图；当 response 跨出 parser/read 函数返回给调用者时，必须指向 `header_storage` 中的稳定副本。
+- [ ] 当 `header_owned == true` 时，`http_response_free` 必须通过 `header_allocator.dealloc(header_storage)` 释放底层存储。
+- [ ] `header_allocator` / `body_allocator` 使用 `std.mem.allocator.IAllocator`；当对应 `*_owned == false` 时允许为空，`http_response_free` 必须 no-op。
+- [ ] `header_storage`、`header_capacity`、`header_owned`、`body_storage`、`body_capacity`、`body_owned` 必须在所有成功和错误路径初始化，避免泄漏、悬垂切片或误释放。
+- [ ] `complete == true` 只表示响应头和按 `body_mode` 要求的 body 都已完整读取；连接池复用必须同时检查 `complete` 与 keep-alive。
 ```
 
 ---
@@ -872,13 +872,13 @@ tests/test_http_client_chunked.uya
 先写测试：
 
 ```text
-[ ] test_chunked_decode_wikipedia_fixture
-[ ] test_chunked_ignores_extension
-[ ] test_chunked_rejects_bad_size
-[ ] test_chunked_rejects_missing_crlf
-[ ] test_chunked_enforces_single_chunk_limit
-[ ] test_chunked_enforces_total_limit
-[ ] test_chunked_skips_or_parses_trailers
+- [ ] test_chunked_decode_wikipedia_fixture
+- [ ] test_chunked_ignores_extension
+- [ ] test_chunked_rejects_bad_size
+- [ ] test_chunked_rejects_missing_crlf
+- [ ] test_chunked_enforces_single_chunk_limit
+- [ ] test_chunked_enforces_total_limit
+- [ ] test_chunked_skips_or_parses_trailers
 ```
 
 函数定义：
@@ -921,14 +921,14 @@ tests/test_http_sse.uya
 先写测试：
 
 ```text
-[ ] test_sse_single_data_event
-[ ] test_sse_multiline_data_joins_with_newline
-[ ] test_sse_comment_ignored
-[ ] test_sse_event_name
-[ ] test_sse_id_and_retry_preserved
-[ ] test_sse_split_across_tcp_chunks
-[ ] test_sse_done_is_data_not_protocol_magic
-[ ] test_sse_finish_flushes_partial_line_correctly
+- [ ] test_sse_single_data_event
+- [ ] test_sse_multiline_data_joins_with_newline
+- [ ] test_sse_comment_ignored
+- [ ] test_sse_event_name
+- [ ] test_sse_id_and_retry_preserved
+- [ ] test_sse_split_across_tcp_chunks
+- [ ] test_sse_done_is_data_not_protocol_magic
+- [ ] test_sse_finish_flushes_partial_line_correctly
 ```
 
 函数定义：
@@ -968,9 +968,9 @@ export fn sse_emit_event(parser: &SseParser, sink: &SseSink) !void;
 初始范围约束：
 
 ```text
-[ ] raw pass-through 不等待完整 SSE event。
-[ ] parsed mode 只能旁路统计，不能阻塞转发。
-[ ] [DONE] 只作为普通 data 内容，不写死任何上层协议语义。
+- [ ] raw pass-through 不等待完整 SSE event。
+- [ ] parsed mode 只能旁路统计，不能阻塞转发。
+- [ ] [DONE] 只作为普通 data 内容，不写死任何上层协议语义。
 ```
 
 ---
@@ -1013,9 +1013,9 @@ export @async_fn fn transport_write_all_async(t: &TransportStream, src: &const b
 约束：
 
 ```text
-[ ] `TransportStream` 只能拥有一个底层 stream：PlainTcp 分支拥有 `TcpStream`，Tls 分支拥有 `TlsStream`，不得同时按值保存 `TcpStream` 和 `TlsStream`。
-[ ] `transport_read` / `transport_write_all` / `transport_close` 必须 match `inner` 只操作有效分支，并设置 `closed` 防止 double close。
-[ ] `TlsStream` 已拥有握手后的 `TcpStream`；TLS transport 不得再复制保存同一个 fd。
+- [ ] `TransportStream` 只能拥有一个底层 stream：PlainTcp 分支拥有 `TcpStream`，Tls 分支拥有 `TlsStream`，不得同时按值保存 `TcpStream` 和 `TlsStream`。
+- [ ] `transport_read` / `transport_write_all` / `transport_close` 必须 match `inner` 只操作有效分支，并设置 `closed` 防止 double close。
+- [ ] `TlsStream` 已拥有握手后的 `TcpStream`；TLS transport 不得再复制保存同一个 fd。
 ```
 
 ### F2. Client config and non-stream request
@@ -1031,17 +1031,17 @@ tests/test_https_client_loopback.uya
 先写测试：
 
 ```text
-[ ] test_http_client_get_loopback_content_length
-[ ] test_http_client_post_loopback_content_length
-[ ] test_http_client_reads_error_status_body
-[ ] test_http_client_tls_loopback_verify_ok
-[ ] test_http_client_tls_loopback_verify_fail
-[ ] test_http_client_first_byte_timeout
-[ ] test_http_client_total_timeout
-[ ] test_http_client_cancel_before_connect
-[ ] test_http_client_cancel_during_read
-[ ] test_http_client_request_async_awaits_dns_connect_tls
-[ ] test_http_client_request_blocking_wraps_async_path
+- [ ] test_http_client_get_loopback_content_length
+- [ ] test_http_client_post_loopback_content_length
+- [ ] test_http_client_reads_error_status_body
+- [ ] test_http_client_tls_loopback_verify_ok
+- [ ] test_http_client_tls_loopback_verify_fail
+- [ ] test_http_client_first_byte_timeout
+- [ ] test_http_client_total_timeout
+- [ ] test_http_client_cancel_before_connect
+- [ ] test_http_client_cancel_during_read
+- [ ] test_http_client_request_async_awaits_dns_connect_tls
+- [ ] test_http_client_request_blocking_wraps_async_path
 ```
 
 函数定义：
@@ -1132,14 +1132,14 @@ export @async_fn fn client_request_async(client: &Client, req: &HttpRequest, out
 约束：
 
 ```text
-[ ] `client_request_async` 不得用无条件 `defer transport_close` 结束请求。
-[ ] `client_config_default` 必须使用 `std.mem.allocator.get_allocator()` 或等价默认 allocator；显式配置中的 `allocator` 不得为空。
-[ ] 连接成功后应使用 `defer client_release_transport(..., reusable)`；`reusable` 默认 false，只在完整读取且 keep-alive 后置 true。
-[ ] `client_server_name_for_url` 必须优先返回非空 `client.config.server_name_override`，否则返回 `url.host`。
-[ ] response 完整读取且 `meta.keep_alive && client.config.keep_alive` 时，连接必须归还 pool；否则必须 close。
-[ ] `conn_key_init` 失败必须填充 `metrics.error_kind`，并且不得触碰未初始化的 transport。
-[ ] DNS/connect/TLS/write/read/status 错误路径必须填充 `metrics.error_kind`；实现可以在 helper 内写入更精确分类，或返回可被 `client_error_kind_from_error_id` 稳定映射的错误 ID。
-[ ] 已经获得 transport 的路径必须关闭或标记连接不可复用。
+- [ ] `client_request_async` 不得用无条件 `defer transport_close` 结束请求。
+- [ ] `client_config_default` 必须使用 `std.mem.allocator.get_allocator()` 或等价默认 allocator；显式配置中的 `allocator` 不得为空。
+- [ ] 连接成功后应使用 `defer client_release_transport(..., reusable)`；`reusable` 默认 false，只在完整读取且 keep-alive 后置 true。
+- [ ] `client_server_name_for_url` 必须优先返回非空 `client.config.server_name_override`，否则返回 `url.host`。
+- [ ] response 完整读取且 `meta.keep_alive && client.config.keep_alive` 时，连接必须归还 pool；否则必须 close。
+- [ ] `conn_key_init` 失败必须填充 `metrics.error_kind`，并且不得触碰未初始化的 transport。
+- [ ] DNS/connect/TLS/write/read/status 错误路径必须填充 `metrics.error_kind`；实现可以在 helper 内写入更精确分类，或返回可被 `client_error_kind_from_error_id` 稳定映射的错误 ID。
+- [ ] 已经获得 transport 的路径必须关闭或标记连接不可复用。
 ```
 
 ### F3. Streaming request
@@ -1155,14 +1155,14 @@ tests/test_http_client_cancel.uya
 先写测试：
 
 ```text
-[ ] test_stream_headers_event_before_data
-[ ] test_stream_raw_data_pass_through
-[ ] test_stream_sse_parsed_events
-[ ] test_stream_downstream_cancel_closes_upstream
-[ ] test_stream_first_packet_marks_retry_boundary
-[ ] test_stream_error_after_first_packet_returns_stream_error
-[ ] test_stream_async_awaits_raw_sink_write
-[ ] test_stream_blocking_helper_wraps_async_path
+- [ ] test_stream_headers_event_before_data
+- [ ] test_stream_raw_data_pass_through
+- [ ] test_stream_sse_parsed_events
+- [ ] test_stream_downstream_cancel_closes_upstream
+- [ ] test_stream_first_packet_marks_retry_boundary
+- [ ] test_stream_error_after_first_packet_returns_stream_error
+- [ ] test_stream_async_awaits_raw_sink_write
+- [ ] test_stream_blocking_helper_wraps_async_path
 ```
 
 函数定义：
@@ -1199,10 +1199,10 @@ export fn client_stream_blocking(client: &Client, req: &HttpRequest, sink: &Stre
 约束：
 
 ```text
-[ ] client_stream_raw_async 每收到一段 body bytes 就 @await sink.on_event_async(Data)，不能等完整 SSE event。
-[ ] client_stream_sse_async 可以旁路解析 SSE，但 raw 转发优先。
-[ ] blocking helper 只能调用 async 主路径，不能复制一套读写循环。
-[ ] stream 完成、取消、协议错误和 sink 错误都必须写回 `metrics`，供上层调用者统一处理延迟与错误分类。
+- [ ] client_stream_raw_async 每收到一段 body bytes 就 @await sink.on_event_async(Data)，不能等完整 SSE event。
+- [ ] client_stream_sse_async 可以旁路解析 SSE，但 raw 转发优先。
+- [ ] blocking helper 只能调用 async 主路径，不能复制一套读写循环。
+- [ ] stream 完成、取消、协议错误和 sink 错误都必须写回 `metrics`，供上层调用者统一处理延迟与错误分类。
 ```
 
 ### F4. Connection pool
@@ -1217,12 +1217,12 @@ tests/test_http_client_pool.uya
 先写测试：
 
 ```text
-[ ] test_pool_reuses_second_request_same_host
-[ ] test_pool_does_not_reuse_different_host
-[ ] test_pool_does_not_reuse_connection_close
-[ ] test_pool_does_not_reuse_unread_body
-[ ] test_pool_idle_timeout_closes
-[ ] test_pool_tls_error_closes
+- [ ] test_pool_reuses_second_request_same_host
+- [ ] test_pool_does_not_reuse_different_host
+- [ ] test_pool_does_not_reuse_connection_close
+- [ ] test_pool_does_not_reuse_unread_body
+- [ ] test_pool_idle_timeout_closes
+- [ ] test_pool_tls_error_closes
 ```
 
 函数定义：
@@ -1266,11 +1266,11 @@ export fn conn_key_init(key: &ConnKey, scheme: HttpScheme, host: &[byte], port: 
 约束：
 
 ```text
-[ ] `ConnKey` 长期保存在 pool 中，必须拥有 host/server_name 副本；不得保存来自 URL parser 或临时 buffer 的切片。
-[ ] `conn_key_init` 负责长度检查、复制和清零终止；host/server_name 超过容量时返回错误。
-[ ] `conn_pool_put` / `conn_pool_get` 表示所有权转移：放入 pool 后 caller 的 `TransportStream` 必须标记为 closed/empty，取出后 pool slot 不再关闭同一 fd。
-[ ] `ConnPool` 的物理存储必须随 `max_idle_conns` 增长或收缩，不得把 `[PooledConn: 64]` 一类固定数组作为产品容量上限。
-[ ] `conn_pool_put` 如果因分配失败或超过策略上限无法保存连接，必须关闭传入 stream 并把 caller stream 标记为 closed/empty，不能泄漏 fd。
+- [ ] `ConnKey` 长期保存在 pool 中，必须拥有 host/server_name 副本；不得保存来自 URL parser 或临时 buffer 的切片。
+- [ ] `conn_key_init` 负责长度检查、复制和清零终止；host/server_name 超过容量时返回错误。
+- [ ] `conn_pool_put` / `conn_pool_get` 表示所有权转移：放入 pool 后 caller 的 `TransportStream` 必须标记为 closed/empty，取出后 pool slot 不再关闭同一 fd。
+- [ ] `ConnPool` 的物理存储必须随 `max_idle_conns` 增长或收缩，不得把 `[PooledConn: 64]` 一类固定数组作为产品容量上限。
+- [ ] `conn_pool_put` 如果因分配失败或超过策略上限无法保存连接，必须关闭传入 stream 并把 caller stream 标记为 closed/empty，不能泄漏 fd。
 ```
 
 ### F5. Metrics and error classification
@@ -1285,16 +1285,16 @@ tests/test_http_client_errors.uya
 先写测试：
 
 ```text
-[ ] test_metrics_init_error_kind_none
-[ ] test_metrics_mark_done_uses_explicit_time
-[ ] test_error_kind_success_status_none
-[ ] test_error_kind_dns
-[ ] test_error_kind_connect
-[ ] test_error_kind_tls
-[ ] test_error_kind_timeout_first_byte
-[ ] test_error_kind_status_429
-[ ] test_error_kind_status_5xx
-[ ] test_error_kind_status_401_not_retryable
+- [ ] test_metrics_init_error_kind_none
+- [ ] test_metrics_mark_done_uses_explicit_time
+- [ ] test_error_kind_success_status_none
+- [ ] test_error_kind_dns
+- [ ] test_error_kind_connect
+- [ ] test_error_kind_tls
+- [ ] test_error_kind_timeout_first_byte
+- [ ] test_error_kind_status_429
+- [ ] test_error_kind_status_5xx
+- [ ] test_error_kind_status_401_not_retryable
 ```
 
 函数定义：
@@ -1345,11 +1345,11 @@ export fn client_metrics_mark_done(m: &ClientMetrics, now_ms: u64) void;
 约束：
 
 ```text
-[ ] `client_metrics_init` 必须把 `error_kind` 初始化为 `ClientErrorKind.None`。
-[ ] `client_error_kind_from_status` 对 2xx/3xx 返回 `ClientErrorKind.None`，对 429 返回 `RateLimited`，对其他 4xx/5xx 返回对应分类。
-[ ] `client_metrics_mark_error` 只写错误分类；完成时间必须由 `client_metrics_mark_done(metrics, now_ms)` 显式写入。
-[ ] 成功、取消、协议错误、状态错误和 transport 错误路径都必须调用 `client_metrics_mark_done`；成功路径不得把 `None` 改成 `Unknown`。
-[ ] `client_error_is_retryable(ClientErrorKind.None, ...)` 必须返回 false。
+- [ ] `client_metrics_init` 必须把 `error_kind` 初始化为 `ClientErrorKind.None`。
+- [ ] `client_error_kind_from_status` 对 2xx/3xx 返回 `ClientErrorKind.None`，对 429 返回 `RateLimited`，对其他 4xx/5xx 返回对应分类。
+- [ ] `client_metrics_mark_error` 只写错误分类；完成时间必须由 `client_metrics_mark_done(metrics, now_ms)` 显式写入。
+- [ ] 成功、取消、协议错误、状态错误和 transport 错误路径都必须调用 `client_metrics_mark_done`；成功路径不得把 `None` 改成 `Unknown`。
+- [ ] `client_error_is_retryable(ClientErrorKind.None, ...)` 必须返回 false。
 ```
 
 ---
@@ -1367,11 +1367,11 @@ tests/verify_http_client_realnet.sh
 先写测试：
 
 ```text
-[ ] test_realnet_example_com_headers
-[ ] test_realnet_iana_org_headers
-[ ] test_realnet_cloudflare_headers
-[ ] test_realnet_public_https_headers
-[ ] test_realnet_skip_without_UYA_NET_TEST
+- [ ] test_realnet_example_com_headers
+- [ ] test_realnet_iana_org_headers
+- [ ] test_realnet_cloudflare_headers
+- [ ] test_realnet_public_https_headers
+- [ ] test_realnet_skip_without_UYA_NET_TEST
 ```
 
 函数定义：
@@ -1393,13 +1393,13 @@ UYA_NET_TEST=1 ./tests/verify_http_client_realnet.sh
 必须证明：
 
 ```text
-[ ] DNS resolve
-[ ] TCP connect timeout
-[ ] TLS handshake + SNI
-[ ] certificate verify + hostname verify
-[ ] HTTP request write
-[ ] HTTP response header read
-[ ] no libcurl/OpenSSL/mbedTLS/c-ares runtime dependency
+- [ ] DNS resolve
+- [ ] TCP connect timeout
+- [ ] TLS handshake + SNI
+- [ ] certificate verify + hostname verify
+- [ ] HTTP request write
+- [ ] HTTP response header read
+- [ ] no libcurl/OpenSSL/mbedTLS/c-ares runtime dependency
 ```
 
 ---
@@ -1409,13 +1409,13 @@ UYA_NET_TEST=1 ./tests/verify_http_client_realnet.sh
 标准库完成：
 
 ```text
-[ ] 所有可复用网络/TLS/HTTP/SSE 代码位于 Uya 仓库。
-[ ] 每个 public function 有至少一个正向测试或被端到端测试覆盖。
-[ ] 每个 parser 有 malformed 输入测试。
-[ ] request 与 stream 均支持 cancel_token。
-[ ] first_byte_timeout_ms 与 tls_timeout_ms 有独立测试。
-[ ] TLS 默认 verify peer，证书错误 fail closed。
-[ ] realnet gate 可验证公网 HTTPS 域名的 TLS + HTTP header read。
-[ ] make check 通过。
-[ ] 相关测试通过 --c99 与 --uya --c99。
+- [ ] 所有可复用网络/TLS/HTTP/SSE 代码位于 Uya 仓库。
+- [ ] 每个 public function 有至少一个正向测试或被端到端测试覆盖。
+- [ ] 每个 parser 有 malformed 输入测试。
+- [ ] request 与 stream 均支持 cancel_token。
+- [ ] first_byte_timeout_ms 与 tls_timeout_ms 有独立测试。
+- [ ] TLS 默认 verify peer，证书错误 fail closed。
+- [ ] realnet gate 可验证公网 HTTPS 域名的 TLS + HTTP header read。
+- [ ] make check 通过。
+- [ ] 相关测试通过 --c99 与 --uya --c99。
 ```
