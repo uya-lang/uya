@@ -419,7 +419,14 @@ link_generated_test_output() {
     fi
 
     rm -f "$link_log_file"
-    "${link_cmd[@]}" > /dev/null 2> "$link_log_file" && link_succeeded=true
+    local link_timeout="${UYA_LINK_TIMEOUT:-300}"
+    local link_exit=0
+    run_command_with_timeout "$link_timeout" "${link_cmd[@]}" > /dev/null 2> "$link_log_file" || link_exit=$?
+    if [ $link_exit -eq 0 ]; then
+        link_succeeded=true
+    elif [ $link_exit -eq 124 ]; then
+        echo "链接超时（>${link_timeout}s）" > "$link_log_file"
+    fi
     if [ "$link_succeeded" = true ]; then
         rm -f "$link_log_file"
         echo "$exe_file"
@@ -429,12 +436,12 @@ link_generated_test_output() {
     return 1
 }
 
-run_test_binary_with_timeout() {
+run_command_with_timeout() {
     local test_timeout="$1"
     shift
 
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${test_timeout}s" "$@" > /dev/null 2>&1
+        timeout "${test_timeout}s" "$@"
         return $?
     fi
 
@@ -469,11 +476,18 @@ run_test_binary_with_timeout() {
                 exit 128 + ($status & 127);
             }
             exit (($status >> 8) & 255);
-        ' "$test_timeout" "$@" > /dev/null 2>&1
+        ' "$test_timeout" "$@"
         return $?
     fi
 
-    "$@" > /dev/null 2>&1
+    "$@"
+}
+
+run_test_binary_with_timeout() {
+    local test_timeout="$1"
+    shift
+
+    run_command_with_timeout "$test_timeout" "$@" > /dev/null 2>&1
 }
 
 # 统一测试执行函数：支持单文件、多文件和目录聚合用例
@@ -515,11 +529,14 @@ run_compiled_test_args() {
         fi
     done
 
-    compiler_output=$(cd "$compiler_work_dir" && "$COMPILER" --c99 "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
+    local compile_timeout="${UYA_COMPILE_TIMEOUT:-300}"
+    compiler_output=$(cd "$compiler_work_dir" && run_command_with_timeout "$compile_timeout" "$COMPILER" --c99 "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
     compiler_exit=$?
     if [ $compiler_exit -ne 0 ]; then
         if [ "$expect_fail" = true ]; then
             echo "PASS:$base_name:预期编译失败" > "$result_file"
+        elif [ $compiler_exit -eq 124 ]; then
+            echo "FAIL:$base_name:编译超时（>${compile_timeout}s）" > "$result_file"
         else
             echo "FAIL:$base_name:编译失败(退出码:$compiler_exit)" > "$result_file"
             # 并行任务的 stdout 可能交错，但在 CI 里能直接看到"具体报错行/信息"
@@ -717,7 +734,7 @@ process_ready_single_results() {
 }
 
 # 导出函数和变量供子进程使用
-export -f generate_test_id link_generated_test_output run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch
+export -f generate_test_id link_generated_test_output run_command_with_timeout run_test_binary_with_timeout run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch
 export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE REPO_ROOT
 
 SKIP_TESTS=()
@@ -1070,6 +1087,9 @@ if [ ${#serial_single_tests[@]} -gt 0 ]; then
         fi
 
         > "$result_file"
+        if [ "$ERRORS_ONLY" = false ]; then
+            echo "  -> 运行 ${base_name}"
+        fi
         run_single_test "$test_item" "$result_file"
 
         result=$(tr -d '\0' < "$result_file" 2>/dev/null || true)
