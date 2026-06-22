@@ -1,0 +1,16 @@
+// test_std_net_addr.uya - 验证 std.net.addr 的基础地址解析行为
+
+use std.net.addr;
+use std.testing.assert_eq_i32;
+use std.testing.assert_true;
+
+test "ipv4_parse_valid" {
+    const parsed: IpAddr = try ip_addr_parse_ipv4(&"127.0.0.1"[0: 9]);
+    try assert_true(ip_addr_is_ipv4(&parsed));
+    try assert_eq_i32(parsed.len as i32, 4);
+    try assert_eq_i32(parsed.bytes[0] as i32, 127);
+    try assert_eq_i32(parsed.bytes[1] as i32, 0);
+    try assert_eq_i32(parsed.bytes[2] as i32, 0);
+    try assert_eq_i32(parsed.bytes[3] as i32, 1);
+    try assert_eq_i32(parsed.bytes[4] as i32, 0);
+}
