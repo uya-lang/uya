@@ -29,7 +29,7 @@ jobs:
 
     - name: Configure Codex
       env:
-        GPT001_KEY: ${{ secrets.GPT001_KEY }}
+        GPT001_KEY: ${{ secrets.GPT001_KEY || vars.GPT001_KEY }}
       run: |
         mkdir -p ~/.codex
         if [ -z "${GPT001_KEY}" ]; then
@@ -58,8 +58,8 @@ jobs:
 
     - name: Configure SSH keys
       env:
-        ID_RSA: ${{ secrets.ID_RSA }}
-        ID_RSA_PUB: ${{ secrets.ID_RSA_PUB }}
+        ID_RSA: ${{ secrets.ID_RSA || vars.ID_RSA }}
+        ID_RSA_PUB: ${{ secrets.ID_RSA_PUB || vars.ID_RSA_PUB }}
       run: |
         mkdir -p ~/.ssh
         if [ -z "${ID_RSA}" ]; then
