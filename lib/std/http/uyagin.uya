@@ -1753,19 +1753,31 @@ fn uyagin_server_set_reuseport(fd: i32) void {
 fn uyagin_listen_loopback_server(port: u16, listen_backlog: i32, reuse_port: bool) !HttpServer {
     const fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     var one: i32 = 1;
-    _ = try sys_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one as &void, 4 as u32);
+    _ = sys_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one as &void, 4 as u32) catch |err| {
+        _ = sys_close(fd) catch {};
+        return err;
+    };
     if reuse_port {
         _ = sys_setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one as &void, 4 as u32) catch {};
     }
     var addr: [byte: 16] = [];
     fill_sockaddr_loopback_16(port, &addr[0] as &byte);
-    _ = try sys_bind(fd, &addr[0] as &void, 16 as u32);
-    _ = try sys_listen(fd, listen_backlog);
+    _ = sys_bind(fd, &addr[0] as &void, 16 as u32) catch |err| {
+        _ = sys_close(fd) catch {};
+        return err;
+    };
+    _ = sys_listen(fd, listen_backlog) catch |err| {
+        _ = sys_close(fd) catch {};
+        return err;
+    };
     var port_out: u16 = port;
     if port == 0 {
         var alen: u32 = 16;
         var out_addr: [byte: 16] = [];
-        _ = try sys_getsockname(fd, &out_addr[0] as &void, &alen);
+        _ = sys_getsockname(fd, &out_addr[0] as &void, &alen) catch |err| {
+            _ = sys_close(fd) catch {};
+            return err;
+        };
         port_out = read_port_from_sockaddr_16(&out_addr[0] as &byte);
     }
     return HttpServer{ listen_fd: fd, port: port_out };

@@ -959,7 +959,7 @@ test "uyagin_accept_uses_async_accept_helper_and_preserves_nodelay" {
     var nodelay: i32 = 0;
     var nodelay_len: u32 = 4 as u32;
     _ = try sys_getsockopt(accepted_b, IPPROTO_TCP, TCP_NODELAY, &nodelay as *void, &nodelay_len);
-    try assert_eq_i32(nodelay, 1);
+    try assert_true(nodelay != 0);
 }
 
 test "uyagin_serve_conn_releases_scheduler_frames_after_connection_close" {

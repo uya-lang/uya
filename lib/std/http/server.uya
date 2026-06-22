@@ -2,6 +2,7 @@
 //
 // 模块路径：use std.http.server
 
+use std;
 use std.http.types;
 use std.http.parse.http_parse_request;
 use std.http.parse.http_parse_request_into;
@@ -131,8 +132,13 @@ export fn fill_sockaddr_loopback_16(port_host: u16, out: &byte) void {
         out[i] = 0;
         i = i + 1;
     }
-    out[0] = 2;
-    out[1] = 0;
+    std.cfg(std.target_os == .tos_macos, {
+        out[0] = 16;
+        out[1] = AF_INET as byte;
+    }, {
+        out[0] = AF_INET as byte;
+        out[1] = 0;
+    })
     const pnet: u16 = htons_host_to_be(port_host);
     out[2] = (pnet & (0xFF as u16)) as byte;
     out[3] = ((pnet >> 8) & (0xFF as u16)) as byte;
@@ -166,16 +172,28 @@ export fn http_server_listen(cfg: &ServerConfig) !HttpServer {
     }
     const fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     var one: i32 = 1;
-    _ = try sys_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one as &void, 4 as u32);
+    _ = sys_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one as &void, 4 as u32) catch |err| {
+        _ = sys_close(fd) catch {};
+        return err;
+    };
     var addr: [byte: 16] = [];
     fill_sockaddr_loopback_16(cfg.port, &addr[0] as &byte);
-    _ = try sys_bind(fd, &addr[0] as &void, 16 as u32);
-    _ = try sys_listen(fd, http_listen_backlog(cfg.max_connections));
+    _ = sys_bind(fd, &addr[0] as &void, 16 as u32) catch |err| {
+        _ = sys_close(fd) catch {};
+        return err;
+    };
+    _ = sys_listen(fd, http_listen_backlog(cfg.max_connections)) catch |err| {
+        _ = sys_close(fd) catch {};
+        return err;
+    };
     var port_out: u16 = cfg.port;
     if cfg.port == 0 {
         var alen: u32 = 16;
         var out: [byte: 16] = [];
-        _ = try sys_getsockname(fd, &out[0] as &void, &alen);
+        _ = sys_getsockname(fd, &out[0] as &void, &alen) catch |err| {
+            _ = sys_close(fd) catch {};
+            return err;
+        };
         port_out = read_port_from_sockaddr_16(&out[0] as &byte);
     }
     return HttpServer{ listen_fd: fd, port: port_out };
