@@ -6,9 +6,9 @@ on:
 jobs:
   debug:
     runs-on: macos-latest
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup tmate SSH session
+      - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 360
