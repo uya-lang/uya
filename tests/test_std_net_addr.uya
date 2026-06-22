@@ -19,3 +19,8 @@ test "ipv4_parse_rejects_bad_octet" {
     const parsed: !IpAddr = ip_addr_parse_ipv4(&"256.0.0.1"[0: 9]);
     try assert_eq_i32(parsed.error_id as i32, @error_id(error.NetAddrInvalidIpv4) as i32);
 }
+
+test "ipv4_parse_rejects_trailing_bytes" {
+    const parsed: !IpAddr = ip_addr_parse_ipv4(&"127.0.0.1x"[0: 10]);
+    try assert_eq_i32(parsed.error_id as i32, @error_id(error.NetAddrInvalidIpv4) as i32);
+}

@@ -16,3 +16,12 @@
   验证命令：../uya/bin/uya test tests/test_std_net_addr.uya
   验证结果：通过；ipv4_parse_valid 与 ipv4_parse_rejects_bad_octet 均 OK，Assertions Passed: 8。
 ```
+### A1. `std.net.addr`
+
+先写测试：
+
+```text
+- [x] test_ipv4_parse_rejects_trailing_bytes
+  验证：`../uya/bin/uya test tests/test_std_net_addr.uya`
+  结果：通过，3 tests，0 failed；新增 `ipv4_parse_rejects_trailing_bytes` 覆盖 `127.0.0.1x` 尾随字节拒绝路径。
+```
