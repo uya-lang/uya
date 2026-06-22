@@ -33,3 +33,10 @@
   - 验证结果：通过；`ipv4_display_roundtrip` 在内的 4 个测试全部通过。
   - 验证命令：`git diff --check`
   - 验证结果：通过；未发现空白或补丁格式问题。
+
+### A1. `std.net.addr`
+
+- [x] test_socket_addr_port_range
+  - 说明：新增 `socket_addr_new` / `socket_addr_format` 端口边界测试，覆盖 `0` 和 `65535`，无生产代码改动。
+  - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --c99` 通过（5 个测试，75 个断言）。
+  - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --uya --c99` 通过（5 个测试，75 个断言）。

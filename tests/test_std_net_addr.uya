@@ -56,3 +56,24 @@ test "ipv4_parse_rejects_trailing_bytes" {
     const parsed: !IpAddr = ip_addr_parse_ipv4(&"127.0.0.1x"[0: 10]);
     try assert_eq_i32(parsed.error_id as i32, @error_id(error.NetAddrInvalidIpv4) as i32);
 }
+
+test "socket_addr_port_range" {
+    const zero_addr: SocketAddr = socket_addr_new(ip_addr_ipv4(127 as byte, 0 as byte, 0 as byte, 1 as byte), 0u16);
+    const max_addr: SocketAddr = socket_addr_new(ip_addr_ipv4(127 as byte, 0 as byte, 0 as byte, 1 as byte), 65535u16);
+    try assert_eq_i32(zero_addr.port as i32, 0);
+    try assert_eq_i32(max_addr.port as i32, 65535);
+
+    var zero_formatted: [byte: 21] = [0: 21];
+    var zero_len: usize = 0;
+    const zero_written: usize = try socket_addr_format(&zero_addr, &zero_formatted[0], 21usize, &zero_len);
+    try assert_eq_i32(zero_written as i32, 11);
+    try assert_eq_i32(zero_len as i32, 11);
+    try assert_byte_slice_eq(&zero_formatted[0: zero_len], &"127.0.0.1:0"[0: 11]);
+
+    var max_formatted: [byte: 21] = [0: 21];
+    var max_len: usize = 0;
+    const max_written: usize = try socket_addr_format(&max_addr, &max_formatted[0], 21usize, &max_len);
+    try assert_eq_i32(max_written as i32, 15);
+    try assert_eq_i32(max_len as i32, 15);
+    try assert_byte_slice_eq(&max_formatted[0: max_len], &"127.0.0.1:65535"[0: 15]);
+}
