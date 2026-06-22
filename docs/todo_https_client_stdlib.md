@@ -67,8 +67,11 @@ lib/std/http/
 2. 先运行最窄验证，确认测试能暴露缺口。
 3. 再实现函数。
 4. 再运行对应 test_*.uya 的 --c99 与 --uya --c99 路径。
-5. 最后运行 make check 或相关 verify 脚本。
+5. 阶段收口时运行 make check、make backup-all 或相关 verify 脚本。
 ```
+
+为了加快开发速度，单个任务完成后可以只运行对应点测；`make backup-all`
+作为阶段性验证，在一组相关任务收口、准备提交或更新自举备份时执行。
 
 推荐命令：
 
@@ -109,7 +112,6 @@ tests/test_std_net_socket.uya
 先写测试：
 
 ```text
-- [ ] test_socket_close_ignores_negative_fd
 - [ ] test_socket_errno_maps_would_block
 ```
 

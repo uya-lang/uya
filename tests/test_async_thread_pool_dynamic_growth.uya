@@ -51,6 +51,19 @@ fn wait_pending_at_least(pool: &ThreadPool, target: i32) i32 {
     return 0;
 }
 
+fn wait_running_workers(pool: &ThreadPool, target: i32) i32 {
+    var i: i32 = 0;
+    while i < DYNAMIC_WAIT_RETRIES {
+        const metrics: ThreadPoolMetrics = thread_pool_metrics(pool);
+        if metrics.running_workers == target {
+            return 1;
+        }
+        sleep_wait_poll();
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn wait_drain_metrics_recorded(pool: &ThreadPool) i32 {
     var i: i32 = 0;
     while i < DYNAMIC_WAIT_RETRIES {
@@ -316,6 +329,7 @@ test "thread_pool_metrics_capture_capacity_queue_depth_and_drain_time" {
 
     try assert_eq_i32(wait_started_workers(&pool, 1), 1);
     try assert_eq_i32(wait_pending_at_least(&pool, DYNAMIC_QUEUE_PRESSURE_TARGET), 1);
+    try assert_eq_i32(wait_running_workers(&pool, 1), 1);
 
     const queued_metrics: ThreadPoolMetrics = thread_pool_metrics(&pool);
     try assert_eq_i32(queued_metrics.started_workers, 1);

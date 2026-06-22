@@ -24,3 +24,13 @@ export fn net_socket_set_nonblocking(fd: i32) !void {
 export fn net_socket_set_cloexec(fd: i32) !void {
     try net_socket_enable_flag(fd, F_GETFD, F_SETFD, FD_CLOEXEC);
 }
+
+/// 关闭 socket fd，并忽略无效 fd 与关闭阶段错误。
+/// 参数说明：`fd` 为可能无效的 socket 文件描述符；当 `fd < 0` 时直接返回。
+/// 返回值说明：无返回值；若 `close(2)` 失败则静默忽略。
+export fn net_socket_close(fd: i32) void {
+    if fd < 0 {
+        return;
+    }
+    _ = sys_close(fd) catch {};
+}

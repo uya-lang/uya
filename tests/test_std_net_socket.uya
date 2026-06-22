@@ -86,3 +86,7 @@ test "socket_set_cloexec_on_valid_fd" {
     const flags_after: i32 = try sys_fcntl(fd, F_GETFD, 0);
     try assert_true((flags_after & FD_CLOEXEC) != 0);
 }
+
+test "socket_close_ignores_negative_fd" {
+    net_socket_close(0 - 1);
+}

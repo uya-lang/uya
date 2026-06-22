@@ -96,3 +96,21 @@ tests/test_std_net_addr.uya
   - `../uya/bin/uya test tests/test_tcp_basic.uya`（3 个测试通过，0 个失败）
   - `../uya/bin/uya test tests/test_syscall_ioctl.uya`（3 个测试通过，0 个失败）
 ```
+
+### A2. `std.net.socket`
+上下文：修复 `docs/todo_https_client_stdlib_failed.md`
+
+```text
+- [x] test_socket_close_ignores_negative_fd
+  - 实现：`lib/std/net/socket.uya` 新增 `net_socket_close(fd)`；`fd < 0` 直接返回，`close(2)` 错误静默忽略。
+  - 测试：`tests/test_std_net_socket.uya` 新增 `socket_close_ignores_negative_fd`。
+  - 失败归档修复：`make backup-all` 旧阻塞点来自 `test_async_thread_pool_dynamic_growth` 在 worker 已创建、队列已积压、但 slot 尚未标记为 RUNNING 的调度窗口读取 `running_workers`；已在该测试中等待 running worker 可见后再采样 queued metrics。
+  - 验证：`export UYA_ROOT="$PWD" && ../uya/bin/uya test tests/test_std_net_socket.uya --c99` 通过（3 tests, 0 failed, 4 assertions passed）。
+  - 验证：`export UYA_ROOT="$PWD" && ../uya/bin/uya test tests/test_std_net_socket.uya --uya --c99` 通过（3 tests, 0 failed, 4 assertions passed）。
+  - 验证：`export UYA_ROOT="$PWD" && ../uya/bin/uya test tests/test_tcp_basic.uya` 通过（3 tests, 0 failed, 10 assertions passed）。
+  - 验证：`export UYA_ROOT="$PWD" && ../uya/bin/uya test tests/test_syscall_ioctl.uya` 通过（3 tests, 0 failed, 3 assertions passed）。
+  - 验证：`export UYA_ROOT="$PWD" && for i in 1 2 3; do timeout 90s ../uya/bin/uya test tests/test_async_thread_pool_dynamic_growth.uya || exit $?; done` 通过（每轮 5 tests, 0 failed, 113 assertions passed）。
+  - 验证：`export UYA_ROOT="$PWD" && timeout 90s ../uya/bin/uya test tests/test_async_compute_dynamic_resource_pressure.uya` 通过（1 test, 0 failed, 53 assertions passed）。
+  - 验证：`./tests/run_programs_parallel.sh --hide-pass` 通过（1054 tests, 0 failed）。
+  - 验证：`make clean && make backup-all` 通过。
+```
