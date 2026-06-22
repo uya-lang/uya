@@ -429,6 +429,53 @@ link_generated_test_output() {
     return 1
 }
 
+run_test_binary_with_timeout() {
+    local test_timeout="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${test_timeout}s" "$@" > /dev/null 2>&1
+        return $?
+    fi
+
+    if command -v perl >/dev/null 2>&1; then
+        perl -e '
+            my $timeout = shift @ARGV;
+            my $pid = fork();
+            if (!defined $pid) {
+                exit 125;
+            }
+            if ($pid == 0) {
+                exec @ARGV;
+                exit 127;
+            }
+
+            my $timed_out = 0;
+            $SIG{ALRM} = sub {
+                $timed_out = 1;
+                kill "TERM", $pid;
+                select undef, undef, undef, 1.0;
+                kill "KILL", $pid;
+            };
+            alarm $timeout;
+            waitpid($pid, 0);
+            my $status = $?;
+            alarm 0;
+
+            if ($timed_out) {
+                exit 124;
+            }
+            if ($status & 127) {
+                exit 128 + ($status & 127);
+            }
+            exit (($status >> 8) & 255);
+        ' "$test_timeout" "$@" > /dev/null 2>&1
+        return $?
+    fi
+
+    "$@" > /dev/null 2>&1
+}
+
 # 统一测试执行函数：支持单文件、多文件和目录聚合用例
 run_compiled_test_args() {
     set +e
@@ -517,14 +564,10 @@ run_compiled_test_args() {
             ;;
     esac
     local run_exit=0
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "${test_timeout}s" "$exe_file" > /dev/null 2>&1 || run_exit=$?
-    else
-        "$exe_file" > /dev/null 2>&1 || run_exit=$?
-    fi
+    run_test_binary_with_timeout "$test_timeout" "$exe_file" || run_exit=$?
     if [ $run_exit -eq 0 ]; then
         echo "PASS:$base_name:测试通过" > "$result_file"
-    elif command -v timeout >/dev/null 2>&1 && [ $run_exit -eq 124 ]; then
+    elif [ $run_exit -eq 124 ]; then
         echo "FAIL:$base_name:测试运行超时（>${test_timeout}s）" > "$result_file"
     else
         echo "FAIL:$base_name:测试失败（退出码: $run_exit）" > "$result_file"
