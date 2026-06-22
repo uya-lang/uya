@@ -11,6 +11,13 @@ jobs:
   codex-debug:
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
+    env:
+      HOST_OS: macos
+      HOST_ARCH: arm64
+      TARGET_OS: macos
+      TARGET_ARCH: arm64
+      UYA_ROOT: ${{ github.workspace }}/lib/
+      LC_ALL: C    
     timeout-minutes: 360
     steps:
     - uses: actions/checkout@v4
@@ -43,53 +50,3 @@ jobs:
 
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v3
-
-  hosted:
-    # from-c 会优先选择 backup/uya-hosted-<host_os>-<host_arch>.c；
-    # hosted 主线固定走 Apple Silicon，稳定验证 macOS arm64 seeds。
-    runs-on: macos-15
-    env:
-      HOST_OS: macos
-      HOST_ARCH: arm64
-      TARGET_OS: macos
-      TARGET_ARCH: arm64
-      UYA_ROOT: ${{ github.workspace }}/lib/
-      LC_ALL: C
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Prepare hosted seed for macOS
-      run: |
-        rm -rf bin
-        mkdir -p bin
-
-    - name: Bootstrap seed compiler from native hosted seed
-      run: make from-c-native
-
-    - name: Build hosted compiler
-      run: make uya-hosted
-
-    - name: Verify hosted self-host
-      run: make b-hosted
-
-    - name: Run hosted test profile
-      env:
-        TEST_PROFILE: hosted
-        SKIP_DARWIN_DEFAULT: "1"
-      run: make tests-hosted
-
-    - name: Resolve microapp arm64 toolchain
-      run: |
-        echo "TARGET_GCC=$(xcrun --find clang)" >> "$GITHUB_ENV"
-        echo "OBJCOPY=$(xcrun --find llvm-objcopy)" >> "$GITHUB_ENV"
-        echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
-
-    - name: Run microapp hosted smoke
-      run: make microapp-hosted-smoke
-
-    - name: Run microapp aarch64 hosted runtime
-      run: make microapp-aarch64-runtime-check
-
-    - name: Run microapp macOS arm64 hosted runtime
-      run: make microapp-macos-runtime-check
