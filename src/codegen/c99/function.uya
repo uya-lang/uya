@@ -6126,14 +6126,40 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         while bind_i < await_count {
             const bind_safe_name: &byte = get_safe_c_identifier(codegen, await_bind_names[bind_i]);
             if await_bind_types[bind_i] != null && bind_safe_name != null {
-                c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], "_uya_bind_" as &byte, bind_safe_name);
+                var bind_seen: i32 = 0;
+                var prev_bind_i: i32 = 0;
+                while prev_bind_i < bind_i {
+                    const prev_bind_safe: &byte = get_safe_c_identifier(codegen, await_bind_names[prev_bind_i]);
+                    if prev_bind_safe != null && strcmp(prev_bind_safe as *byte, bind_safe_name as *byte) == 0 {
+                        bind_seen = 1;
+                        prev_bind_i = bind_i;
+                    } else {
+                        prev_bind_i = prev_bind_i + 1;
+                    }
+                }
+                if bind_seen == 0 {
+                    c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], "_uya_bind_" as &byte, bind_safe_name);
+                }
             }
             bind_i = bind_i + 1;
         }
         while loc_i < codegen.async_local_count && loc_i < @len(codegen.async_local_names) {
             const lname_safe: &byte = get_safe_c_identifier(codegen, codegen.async_local_names[loc_i]);
             if codegen.async_local_types[loc_i] != null && lname_safe != null {
-                c99_emit_struct_field_decl_fragment(codegen, codegen.async_local_types[loc_i], "_uya_loc_" as &byte, lname_safe);
+                var loc_seen: i32 = 0;
+                var prev_loc_i: i32 = 0;
+                while prev_loc_i < loc_i {
+                    const prev_lname_safe: &byte = get_safe_c_identifier(codegen, codegen.async_local_names[prev_loc_i]);
+                    if prev_lname_safe != null && strcmp(prev_lname_safe as *byte, lname_safe as *byte) == 0 {
+                        loc_seen = 1;
+                        prev_loc_i = loc_i;
+                    } else {
+                        prev_loc_i = prev_loc_i + 1;
+                    }
+                }
+                if loc_seen == 0 {
+                    c99_emit_struct_field_decl_fragment(codegen, codegen.async_local_types[loc_i], "_uya_loc_" as &byte, lname_safe);
+                }
             }
             loc_i = loc_i + 1;
         }

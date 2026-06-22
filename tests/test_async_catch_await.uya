@@ -134,6 +134,27 @@ fn catch_early_return_with_await(fail: i32) Future<!i32> {
     return x + 1000;
 }
 
+@async_fn
+fn branch_duplicate_await_bind_name(which: i32) Future<!i32> {
+    if which == 0 {
+        const wait_result: !i32 = @await maybe_fail(11, 0);
+        const value: i32 = wait_result catch |err| {
+            _ = err;
+            return -1;
+        };
+        return value;
+    }
+    if which == 1 {
+        const wait_result: !i32 = @await maybe_fail(23, 0);
+        const value: i32 = wait_result catch |err| {
+            _ = err;
+            return -2;
+        };
+        return value;
+    }
+    return 0;
+}
+
 test "async_catch_success_path" {
     const f: Future<!i32> = catch_success_path(0);
     const r: !i32 = block_on<i32>(f);
@@ -204,4 +225,16 @@ test "async_catch_early_return_with_await" {
     const r: !i32 = block_on<i32>(f);
     const v: i32 = r catch { -1; };
     try assert_eq_i32(v, 777);
+}
+
+test "async_branch_duplicate_await_bind_name" {
+    const first_f: Future<!i32> = branch_duplicate_await_bind_name(0);
+    const first_r: !i32 = block_on<i32>(first_f);
+    const first: i32 = first_r catch { -1; };
+    try assert_eq_i32(first, 11);
+
+    const second_f: Future<!i32> = branch_duplicate_await_bind_name(1);
+    const second_r: !i32 = block_on<i32>(second_f);
+    const second: i32 = second_r catch { -1; };
+    try assert_eq_i32(second, 23);
 }

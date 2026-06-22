@@ -6,8 +6,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPILER="$REPO_ROOT/bin/uya"
-export UYA_ROOT="$REPO_ROOT/lib/"
+COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
+export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 OUT_C="$SCRIPT_DIR/build/function_reachability_verify.c"
 CALLBACK_OUT_C="$SCRIPT_DIR/build/function_reachability_address_taken.c"
 MICROAPP_OUT_C="$SCRIPT_DIR/build/function_reachability_microapp.c"

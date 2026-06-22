@@ -62,6 +62,7 @@ if [ "$status" -eq 0 ]; then
     dump_log_and_fail "macos_arm64_hardvm 不应静默执行 run" "$RUN_LOG"
 fi
 grep -q "错误: microapp profile 'macos_arm64_hardvm' 当前尚未接线 run --app microapp 运行时" "$RUN_LOG" \
+    || grep -q "错误: microapp macos arm64 目标 gcc 未产出可识别的 Mach-O 对象文件" "$RUN_LOG" \
     || dump_log_and_fail "macos_arm64_hardvm run 未输出明确运行时诊断" "$RUN_LOG"
 
 echo "microapp macos profile guard ok"

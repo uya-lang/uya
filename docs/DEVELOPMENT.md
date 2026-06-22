@@ -188,8 +188,8 @@ git add -A && git commit -m "fix: 描述修复内容"
 | `make b` | 自举验证：编译器编译自身，验证输出一致性 |
 | `make tests-uya` | 运行自举编译器测试 |
 | `make tests-emcc` | 运行独立 emcc/unknown target smoke（需本机安装 emcc 与 node；不默认包含在 `make check` / `make release-dirty`） |
-| `make release` | 最终 release 验证：要求工作树干净，执行 clean + 自举 + 测试 + 备份 + 发布构建 |
-| `make release-dirty` | 本地调试用的完整 release 流程；会先 clean，再执行 release 步骤，但不要求工作树干净 |
+| `make release` | 最终 release 验证：要求工作树干净，执行 clean + 平台对应自举/测试 + seed 刷新 + 发布构建 |
+| `make release-dirty` | 本地调试用的完整 release 流程；会先 clean，再执行平台对应 release 步骤，但不要求工作树干净 |
 | `make release-clean` | 在 Git HEAD 干净快照中执行 `make release`，忽略未提交修改，适合作为 CI 对照 |
 | `make tests-c` | （已废弃）运行 C 编译器测试 |
 | `make clean` | 清理构建产物 |

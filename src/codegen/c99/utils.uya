@@ -938,6 +938,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
         return 0;
     }
     if program == null || program.type != ASTNodeType.AST_PROGRAM {
+        fprintf(libc.stderr, "错误: split-C mirror prepare 收到非程序 AST\n" as *byte);
         return -1;
     }
     var uniq: [[byte: 512]: 128] = [];
@@ -996,6 +997,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     while nui < uniq_count {
         var merged: [byte: 512] = [];
         if c99_mirror_normalize_one_path(&uniq[nui][0] as &byte, &merged[0] as &byte, 512) != 0 {
+            fprintf(libc.stderr, "错误: split-C mirror 无法规范化路径: %s\n" as *byte, &uniq[nui][0] as *byte);
             return -1;
         }
         if nui >= 0 && nui < @len(uniq) {
@@ -1024,21 +1026,25 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
             const src: &byte = &uniq[ci][0] as &byte;
             var rel_c_buf: [byte: 512] = [];
             if c99_mirror_rel_c_from_key(src, lcp, &rel_c_buf[0] as &byte, 512) != 0 {
+                fprintf(libc.stderr, "错误: split-C mirror 无法生成相对 C 路径: src=%s lcp=%d\n" as *byte, src as *byte, lcp);
                 return -1;
             }
             const key_copy: &byte = c99_arena_strdup(codegen.arena, src);
             if key_copy == null {
+                fprintf(libc.stderr, "错误: split-C mirror 复制路径失败: %s\n" as *byte, src as *byte);
                 return -1;
             }
             codegen.split_mirror_keys[ci] = key_copy;
             var fullp: [byte: 1024] = [];
             const fl: i32 = snprintf(&fullp[0] as *byte, 1024, "%s/%s" as *byte, codegen.split_dir as *byte, &rel_c_buf[0] as *byte);
             if fl <= 0 || fl >= 1024 {
+                fprintf(libc.stderr, "错误: split-C mirror 输出路径过长: dir=%s rel=%s\n" as *byte, codegen.split_dir as *byte, &rel_c_buf[0] as *byte);
                 return -1;
             }
             c99_mkdir_p_for_file(&fullp[0] as &byte);
             const fh: *void = fopen(&fullp[0] as *byte, "w" as *byte);
             if fh == null {
+                fprintf(libc.stderr, "错误: split-C mirror 无法打开输出文件: %s\n" as *byte, &fullp[0] as *byte);
                 return -1;
             }
             fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n\n" as *byte, fh as *void);
@@ -1090,11 +1096,13 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     var comp: [byte: 1024] = [];
     const cl: i32 = snprintf(&comp[0] as *byte, 1024, "%s/uya_common.c" as *byte, codegen.split_dir as *byte);
     if cl <= 0 || cl >= 1024 {
+        fprintf(libc.stderr, "错误: split-C mirror common 输出路径过长: dir=%s\n" as *byte, codegen.split_dir as *byte);
         return -1;
     }
     c99_mkdir_p_for_file(&comp[0] as &byte);
     const ch: *void = fopen(&comp[0] as *byte, "w" as *byte);
     if ch == null {
+        fprintf(libc.stderr, "错误: split-C mirror 无法打开 common 输出文件: %s\n" as *byte, &comp[0] as *byte);
         return -1;
     }
     fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n\n" as *byte, ch as *void);

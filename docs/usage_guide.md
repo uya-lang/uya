@@ -146,8 +146,8 @@ make release
 | `make tests-emcc` | 运行独立 emcc/unknown target smoke（需 `emcc` 与 `node`；不默认包含在 `make check` / `make release-dirty` 中） |
 | `make from-c` | 从备份恢复并构建 |
 | `make backup` | 验证 + 备份 |
-| `make release` | 构建发布版本（-O3 优化） |
-| `make release-dirty` | 在当前工作树强行执行完整 release；会先 `clean`，再跑 `from-c` / `uya` / `b` / `check` / `backup-all-seed` / `release-build`，只适合本地调试 |
+| `make release` | 构建发布版本（-O3 优化）；Linux 走 nostdlib 主线，非 Linux 走 hosted 主线 |
+| `make release-dirty` | 在当前工作树强行执行完整 release；会先 `clean`，再按平台运行 nostdlib 或 hosted 验证、刷新对应 seed 并执行 `release-build`，只适合本地调试 |
 | `make release-clean` | 在 Git HEAD 干净快照里执行 `make release`，会忽略未提交修改，更接近 CI |
 | `make clean` | 清理构建产物 |
 

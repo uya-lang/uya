@@ -83,6 +83,12 @@ if [ ! -f "$RUNTIME_C" ]; then
     exit 1
 fi
 
+if ! command -v "$TARGET_GCC" >/dev/null 2>&1; then
+    echo "⊘ 未找到 ${TARGET_GCC}，跳过 microapp MMU 运行 fixture 编译/运行"
+    echo "microapp MMU codegen ok"
+    exit 0
+fi
+
 if ! "$TARGET_GCC" -std=c99 -O2 "$RUNTIME_C" -o "$RUNTIME_EXE" -lm >"$COMPILE_LOG" 2>&1; then
     cat "$COMPILE_LOG"
     echo "✗ microapp MMU 运行 fixture 编译失败"

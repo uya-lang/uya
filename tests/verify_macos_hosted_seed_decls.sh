@@ -11,12 +11,19 @@ OUT_C="$OUT_DIR/uya-hosted.c"
 
 mkdir -p "$OUT_DIR"
 
-if [ -x "$REPO_ROOT/bin/uya" ]; then
+if [ -n "${UYA_COMPILER:-}" ]; then
+    COMPILER="$UYA_COMPILER"
+elif [ -x "$REPO_ROOT/bin/uya" ]; then
     COMPILER="$REPO_ROOT/bin/uya"
 elif [ -x "$REPO_ROOT/bin/uya-hosted" ]; then
     COMPILER="$REPO_ROOT/bin/uya-hosted"
 else
     echo "✗ 未找到可用编译器（请先 make uya 或 make uya-hosted）"
+    exit 1
+fi
+
+if [ ! -x "$COMPILER" ]; then
+    echo "✗ 编译器不可执行: $COMPILER"
     exit 1
 fi
 

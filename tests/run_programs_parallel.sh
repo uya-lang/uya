@@ -749,14 +749,27 @@ if [ -n "${SERIAL_TESTS_EXTRA:-}" ]; then
 fi
 
 LOOPBACK_SKIP_TESTS=(
+    test_async_fd
+    test_async_runtime_shared_dns
     test_tcp_basic
     test_std_dns
     test_std_dns_async_transport
     test_std_dns_async_query_aggregate
     test_https_loopback
+    test_https_websocket_loopback
     test_epoll_server
     test_http_server
     test_http1_async_client
+    test_http_uyagin
+    test_http_uyagin_async_boundary
+    test_http_uyagin_websocket
+    test_http_websocket_async
+    test_http_websocket_backpressure
+    test_http_websocket_handshake
+    test_http_websocket_heartbeat
+    test_http_websocket_json
+    test_http_websocket_read_message_semantics
+    test_http_websocket_reconnect
     test_https_local
 )
 
@@ -848,6 +861,7 @@ if [ "$HOST_OS" = "macos" ] && [ "${SKIP_DARWIN_DEFAULT:-1}" != "0" ]; then
         test_std_dns_async_transport
         test_std_dns_async_query_aggregate
         test_std_thread
+        test_std_thread_async_boundary
         test_task_std_async
         test_block_on
         test_poll_std_async

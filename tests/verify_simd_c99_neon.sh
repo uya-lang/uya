@@ -6,8 +6,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-COMPILER="$REPO_ROOT/bin/uya"
-export UYA_ROOT="$REPO_ROOT/lib/"
+COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
+export UYA_ROOT="${UYA_ROOT:-$REPO_ROOT/lib/}"
 OUT_C="$SCRIPT_DIR/build/simd_c99_neon_verify.c"
 ZIG="${ZIG:-/home/winger/zig/zig}"
 ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$SCRIPT_DIR/build/.zig-cache-global}"
