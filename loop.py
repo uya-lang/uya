@@ -17,7 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-CHECKBOX_RE = re.compile(r"^(?P<prefix>\s*[-*]\s*)\[(?P<state>[^\]]*)\](?P<rest>.*)$")
+CHECKBOX_RE = re.compile(
+    r"^(?P<prefix>\s*[-*]\s*)\[(?P<state>[^\]]*)\](?P<rest>(?:\s.*|$))$"
+)
 HEADING_RE = re.compile(r"^(?P<marks>#{1,6})\s+(?P<title>.*)$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 VALID_STATES = {" ", "x", "~", "f"}

@@ -1,0 +1,81 @@
+name: macos_shell_x86-ci
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  codex-debug-x86:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15-intel
+    environment: WINGER_ID_RSA
+    env:
+      HOST_OS: macos
+      HOST_ARCH: x86_64
+      TARGET_OS: macos
+      TARGET_ARCH: x86_64
+      UYA_ROOT: ${{ github.workspace }}/lib/
+      LC_ALL: C
+    timeout-minutes: 360
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Codex CLI
+      run: |
+        npm install -g @openai/codex
+        codex --version
+
+    - name: Configure Codex
+      env:
+        GPT001_KEY: ${{ secrets.GPT001_KEY || vars.GPT001_KEY }}
+      run: |
+        mkdir -p ~/.codex
+        if [ -z "${GPT001_KEY}" ]; then
+          echo "GPT001_KEY is required"
+          exit 1
+        fi
+        printf '%s\n' "${GPT001_KEY}" > ~/.codex/auth.json
+        chmod 600 ~/.codex/auth.json
+        cat > ~/.codex/config.toml <<'EOF'
+        model_provider = "OpenAI"
+        model = "gpt-5.5"
+        review_model = "gpt-5.5"
+        model_reasoning_effort = "xhigh"
+        disable_response_storage = true
+        network_access = "enabled"
+        windows_wsl_setup_acknowledged = true
+        model_context_window = 1050000
+        model_auto_compact_token_limit = 230000
+
+        [model_providers.OpenAI]
+        name = "OpenAI"
+        base_url = "https://gpt001.iotalking.top"
+        wire_api = "responses"
+        requires_openai_auth = true
+        EOF
+
+    - name: Configure SSH keys
+      env:
+        ID_RSA: ${{ secrets.ID_RSA || vars.ID_RSA }}
+        ID_RSA_PUB: ${{ secrets.ID_RSA_PUB || vars.ID_RSA_PUB }}
+      run: |
+        mkdir -p ~/.ssh
+        if [ -z "${ID_RSA}" ]; then
+          echo "ID_RSA is required"
+          exit 1
+        fi
+        if [ -z "${ID_RSA_PUB}" ]; then
+          echo "ID_RSA_PUB is required"
+          exit 1
+        fi
+        printf '%s\n' "${ID_RSA}" > ~/.ssh/id_rsa
+        printf '%s\n' "${ID_RSA_PUB}" > ~/.ssh/id_rsa.pub
+        chmod 700 ~/.ssh
+        chmod 600 ~/.ssh/id_rsa
+        chmod 644 ~/.ssh/id_rsa.pub
+
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
