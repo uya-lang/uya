@@ -40,3 +40,26 @@
   - 说明：新增 `socket_addr_new` / `socket_addr_format` 端口边界测试，覆盖 `0` 和 `65535`，无生产代码改动。
   - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --c99` 通过（5 个测试，75 个断言）。
   - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --uya --c99` 通过（5 个测试，75 个断言）。
+
+### A1. `std.net.addr`
+
+上下文：## 2. 阶段 A：地址、socket、poll、TCP
+
+目标文件：
+
+```text
+lib/std/net/addr.uya
+tests/test_std_net_addr.uya
+```
+
+已完成任务：
+
+```text
+- [x] test_ipv6_literal_is_explicitly_unsupported_or_parsed
+  验证：
+  - ../uya/bin/uya test tests/test_std_net_addr.uya -> 通过（6 tests passed, 0 failed）
+  - python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_https_client_stdlib.md -> 通过（1 active task）
+  - git diff --check -> 通过
+  - make clean -> 通过
+  - make backup-all -> 通过
+```

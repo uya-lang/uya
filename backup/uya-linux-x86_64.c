@@ -343,33 +343,33 @@ static struct err_union_int32_t uya_macos_err_i32(int err) { return (struct err_
 static struct err_union_int32_t uya_macos_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }
 static struct err_union_int64_t uya_macos_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }
 static struct err_union_int64_t uya_macos_ok_i64(int64_t value) { return (struct err_union_int64_t){ .error_id = 0, .value = value }; }
-struct err_union_int64_t uya_macos_write(int32_t fd, const char *buf, size_t count) {
+static struct err_union_int64_t uya_macos_write(int32_t fd, const char *buf, size_t count) {
     intptr_t ret = uya_host_write((int)fd, buf, count);
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
 }
-struct err_union_int64_t uya_macos_read(int32_t fd, char *buf, size_t count) {
+static struct err_union_int64_t uya_macos_read(int32_t fd, char *buf, size_t count) {
     if (buf == (char *)0 && count != 0) return uya_macos_err_i64(22);
     intptr_t ret = uya_host_read((int)fd, buf, count);
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
 }
-struct err_union_int32_t uya_macos_open(const char *pathname, int32_t flags, int32_t mode) {
+static struct err_union_int32_t uya_macos_open(const char *pathname, int32_t flags, int32_t mode) {
     int ret = uya_host_open(pathname, (int)flags, (int)mode);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_close(int32_t fd) {
+static struct err_union_int32_t uya_macos_close(int32_t fd) {
     int ret = uya_host_close((int)fd);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int64_t uya_macos_lseek(int32_t fd, int64_t offset, int32_t whence) {
+static struct err_union_int64_t uya_macos_lseek(int32_t fd, int64_t offset, int32_t whence) {
     int64_t ret = uya_host_lseek((int)fd, offset, (int)whence);
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64(ret);
 }
-struct err_union_int32_t uya_macos_access(const char *pathname, int32_t mode) {
+static struct err_union_int32_t uya_macos_access(const char *pathname, int32_t mode) {
     static uya_macos_access_fn real_access = (uya_macos_access_fn)0;
     if (real_access == (uya_macos_access_fn)0) real_access = (uya_macos_access_fn)dlsym((void *)-1, "access");
     if (real_access == (uya_macos_access_fn)0) return uya_macos_err_i32(78);
@@ -388,7 +388,7 @@ static void uya_macos_copy_stat(struct Stat *dst, const struct uya_macos_native_
     dst_stat->st_ctime = (int64_t)src->st_ctime; dst_stat->st_ctime_nsec = (int64_t)src->st_ctimensec;
     dst_stat->_unused0 = 0; dst_stat->_unused1 = 0; dst_stat->_unused2 = 0;
 }
-struct err_union_int32_t uya_macos_stat(const char *pathname, struct Stat *statbuf) {
+static struct err_union_int32_t uya_macos_stat(const char *pathname, struct Stat *statbuf) {
     struct uya_macos_native_stat_call native_stat;
     if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_macos_err_i32(22);
     static uya_macos_stat_fn real_stat = (uya_macos_stat_fn)0;
@@ -398,21 +398,21 @@ struct err_union_int32_t uya_macos_stat(const char *pathname, struct Stat *statb
     uya_macos_copy_stat(statbuf, &native_stat);
     return uya_macos_ok_i32(0);
 }
-struct err_union_int32_t uya_macos_fstat(int32_t fd, struct Stat *statbuf) {
+static struct err_union_int32_t uya_macos_fstat(int32_t fd, struct Stat *statbuf) {
     struct uya_macos_native_stat_call native_stat;
     if (statbuf == (struct Stat *)0) return uya_macos_err_i32(22);
     if (uya_macos_real_fstat((int)fd, &native_stat) != 0) return uya_macos_err_i32(uya_macos_errno_value());
     uya_macos_copy_stat(statbuf, &native_stat);
     return uya_macos_ok_i32(0);
 }
-struct err_union_int32_t uya_macos_lstat(const char *pathname, struct Stat *statbuf) {
+static struct err_union_int32_t uya_macos_lstat(const char *pathname, struct Stat *statbuf) {
     struct uya_macos_native_stat_call native_stat;
     if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_macos_err_i32(22);
     if (uya_macos_real_lstat(pathname, &native_stat) != 0) return uya_macos_err_i32(uya_macos_errno_value());
     uya_macos_copy_stat(statbuf, &native_stat);
     return uya_macos_ok_i32(0);
 }
-struct err_union_int64_t uya_macos_readlink(const char *pathname, char *buf, size_t bufsiz) {
+static struct err_union_int64_t uya_macos_readlink(const char *pathname, char *buf, size_t bufsiz) {
     if (pathname == (const char *)0 || buf == (char *)0) return uya_macos_err_i64(22);
     static uya_macos_readlink_fn real_readlink = (uya_macos_readlink_fn)0;
     if (real_readlink == (uya_macos_readlink_fn)0) real_readlink = (uya_macos_readlink_fn)dlsym((void *)-1, "readlink");
@@ -421,7 +421,7 @@ struct err_union_int64_t uya_macos_readlink(const char *pathname, char *buf, siz
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
 }
-struct err_union_int32_t uya_macos_chdir(const char *pathname) {
+static struct err_union_int32_t uya_macos_chdir(const char *pathname) {
     static uya_macos_path_i_fn real_chdir = (uya_macos_path_i_fn)0;
     if (real_chdir == (uya_macos_path_i_fn)0) real_chdir = (uya_macos_path_i_fn)dlsym((void *)-1, "chdir");
     if (real_chdir == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);
@@ -429,7 +429,7 @@ struct err_union_int32_t uya_macos_chdir(const char *pathname) {
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int64_t uya_macos_getcwd(char *buf, size_t size) {
+static struct err_union_int64_t uya_macos_getcwd(char *buf, size_t size) {
     if (buf == (char *)0 || size == 0) return uya_macos_err_i64(22);
     static uya_macos_getcwd_fn real_getcwd = (uya_macos_getcwd_fn)0;
     if (real_getcwd == (uya_macos_getcwd_fn)0) real_getcwd = (uya_macos_getcwd_fn)dlsym((void *)-1, "getcwd");
@@ -439,12 +439,12 @@ struct err_union_int64_t uya_macos_getcwd(char *buf, size_t size) {
     if (len >= size || len > 0x7fffffffu) return uya_macos_err_i64(34);
     return uya_macos_ok_i64((int64_t)len);
 }
-struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {
+static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {
     int ret = fcntl((int)fd, (int)cmd, (int)arg);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_dup2(int32_t oldfd, int32_t newfd) {
+static struct err_union_int32_t uya_macos_dup2(int32_t oldfd, int32_t newfd) {
     static uya_macos_dup2_fn real_dup2 = (uya_macos_dup2_fn)0;
     if (real_dup2 == (uya_macos_dup2_fn)0) real_dup2 = (uya_macos_dup2_fn)dlsym((void *)-1, "dup2");
     if (real_dup2 == (uya_macos_dup2_fn)0) return uya_macos_err_i32(78);
@@ -452,7 +452,7 @@ struct err_union_int32_t uya_macos_dup2(int32_t oldfd, int32_t newfd) {
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_fcntl_getpath(int32_t fd, char *buf, size_t size) {
+static struct err_union_int32_t uya_macos_fcntl_getpath(int32_t fd, char *buf, size_t size) {
     size_t len = 0;
     if (buf == (char *)0) return uya_macos_err_i32(22);
     if (size < 1024u) return uya_macos_err_i32(34);
@@ -475,7 +475,7 @@ static int uya_macos_apply_pipe_flags(int fd, int flags) {
     }
     return 0;
 }
-struct err_union_int32_t uya_macos_pipe2(int32_t *pipefd, int32_t flags) {
+static struct err_union_int32_t uya_macos_pipe2(int32_t *pipefd, int32_t flags) {
     int fds[2];
     int err = 0;
     if (pipefd == (int32_t *)0) return uya_macos_err_i32(22);
@@ -489,7 +489,7 @@ struct err_union_int32_t uya_macos_pipe2(int32_t *pipefd, int32_t flags) {
     pipefd[0] = (int32_t)fds[0]; pipefd[1] = (int32_t)fds[1];
     return uya_macos_ok_i32(0);
 }
-struct err_union_int32_t uya_macos_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {
+static struct err_union_int32_t uya_macos_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {
     struct uya_macos_native_timespec native_tp;
     struct uya_macos_uya_timespec *uya_tp = (struct uya_macos_uya_timespec *)tp;
     if (uya_tp == (struct uya_macos_uya_timespec *)0) return uya_macos_err_i32(22);
@@ -497,7 +497,7 @@ struct err_union_int32_t uya_macos_clock_gettime(int32_t clock_id, struct TimeSp
     uya_tp->tv_sec = native_tp.tv_sec; uya_tp->tv_nsec = native_tp.tv_nsec;
     return uya_macos_ok_i32(0);
 }
-struct err_union_int32_t uya_macos_nanosleep(const struct TimeSpec *req, struct TimeSpec *rem) {
+static struct err_union_int32_t uya_macos_nanosleep(const struct TimeSpec *req, struct TimeSpec *rem) {
     struct uya_macos_native_timespec native_req;
     struct uya_macos_native_timespec native_rem;
     const struct uya_macos_uya_timespec *uya_req = (const struct uya_macos_uya_timespec *)req;
@@ -511,7 +511,7 @@ struct err_union_int32_t uya_macos_nanosleep(const struct TimeSpec *req, struct 
     uya_rem->tv_sec = 0; uya_rem->tv_nsec = 0;
     return uya_macos_ok_i32(0);
 }
-struct err_union_int32_t uya_macos_system(const char *cmd) {
+static struct err_union_int32_t uya_macos_system(const char *cmd) {
     static uya_macos_path_i_fn real_system = (uya_macos_path_i_fn)0;
     if (real_system == (uya_macos_path_i_fn)0) real_system = (uya_macos_path_i_fn)dlsym((void *)-1, "system");
     if (real_system == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);
@@ -519,102 +519,102 @@ struct err_union_int32_t uya_macos_system(const char *cmd) {
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_socket(int32_t domain, int32_t type, int32_t protocol) {
+static struct err_union_int32_t uya_macos_socket(int32_t domain, int32_t type, int32_t protocol) {
     int ret = uya_host_socket((int)domain, (int)type, (int)protocol);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_bind(int32_t sockfd, void *addr, uint32_t addrlen) {
+static struct err_union_int32_t uya_macos_bind(int32_t sockfd, void *addr, uint32_t addrlen) {
     int ret = uya_host_bind((int)sockfd, (const void *)addr, addrlen);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_listen(int32_t sockfd, int32_t backlog) {
+static struct err_union_int32_t uya_macos_listen(int32_t sockfd, int32_t backlog) {
     int ret = uya_host_listen((int)sockfd, (int)backlog);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_accept(int32_t sockfd, void *addr, uint32_t *addrlen) {
+static struct err_union_int32_t uya_macos_accept(int32_t sockfd, void *addr, uint32_t *addrlen) {
     int ret = uya_host_accept((int)sockfd, addr, addrlen);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_connect(int32_t sockfd, void *addr, uint32_t addrlen) {
+static struct err_union_int32_t uya_macos_connect(int32_t sockfd, void *addr, uint32_t addrlen) {
     int ret = uya_host_connect((int)sockfd, (const void *)addr, addrlen);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int64_t uya_macos_sendto(int32_t sockfd, const char *buf, size_t len, int32_t flags, void *dest, uint32_t destlen) {
+static struct err_union_int64_t uya_macos_sendto(int32_t sockfd, const char *buf, size_t len, int32_t flags, void *dest, uint32_t destlen) {
     intptr_t ret = uya_host_sendto((int)sockfd, (const void *)buf, len, (int)flags, (const void *)dest, destlen);
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
 }
-struct err_union_int64_t uya_macos_recvfrom(int32_t sockfd, char *buf, size_t len, int32_t flags, void *src, uint32_t *srclen) {
+static struct err_union_int64_t uya_macos_recvfrom(int32_t sockfd, char *buf, size_t len, int32_t flags, void *src, uint32_t *srclen) {
     intptr_t ret = uya_host_recvfrom((int)sockfd, (void *)buf, len, (int)flags, src, srclen);
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
 }
-struct err_union_int32_t uya_macos_shutdown(int32_t sockfd, int32_t how) {
+static struct err_union_int32_t uya_macos_shutdown(int32_t sockfd, int32_t how) {
     int ret = uya_host_shutdown((int)sockfd, (int)how);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_setsockopt(int32_t sockfd, int32_t level, int32_t optname, void *optval, uint32_t optlen) {
+static struct err_union_int32_t uya_macos_setsockopt(int32_t sockfd, int32_t level, int32_t optname, void *optval, uint32_t optlen) {
     int ret = uya_host_setsockopt((int)sockfd, (int)level, (int)optname, (const void *)optval, optlen);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_getsockname(int32_t sockfd, void *addr, uint32_t *addrlen) {
+static struct err_union_int32_t uya_macos_getsockname(int32_t sockfd, void *addr, uint32_t *addrlen) {
     int ret = uya_host_getsockname((int)sockfd, addr, addrlen);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_getpeername(int32_t sockfd, void *addr, uint32_t *addrlen) {
+static struct err_union_int32_t uya_macos_getpeername(int32_t sockfd, void *addr, uint32_t *addrlen) {
     int ret = uya_host_getpeername((int)sockfd, addr, addrlen);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int32_t uya_macos_poll(struct PollFd *fds, size_t nfds, int32_t timeout_ms) {
+static struct err_union_int32_t uya_macos_poll(struct PollFd *fds, size_t nfds, int32_t timeout_ms) {
     if (nfds > (size_t)0xffffffffu) return uya_macos_err_i32(22);
     int ret = uya_host_poll((void *)fds, (uint32_t)nfds, (int)timeout_ms);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-struct err_union_int64_t uya_macos_fork(void) {
+static struct err_union_int64_t uya_macos_fork(void) {
     int ret = uya_host_fork();
     if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());
     return uya_macos_ok_i64((int64_t)ret);
 }
-struct err_union_int32_t uya_macos_waitpid(int32_t pid, int32_t *status, int32_t options) {
+static struct err_union_int32_t uya_macos_waitpid(int32_t pid, int32_t *status, int32_t options) {
     int ret = uya_host_waitpid((int)pid, (int *)status, (int)options);
     if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());
     return uya_macos_ok_i32(ret);
 }
-int32_t uya_macos_getpid(void) {
+static int32_t uya_macos_getpid(void) {
     static uya_macos_pid_fn real_getpid = (uya_macos_pid_fn)0;
     if (real_getpid == (uya_macos_pid_fn)0) real_getpid = (uya_macos_pid_fn)dlsym((void *)-1, "getpid");
     if (real_getpid == (uya_macos_pid_fn)0) return 0;
     return (int32_t)real_getpid();
 }
-int32_t uya_macos_getppid(void) {
+static int32_t uya_macos_getppid(void) {
     static uya_macos_pid_fn real_getppid = (uya_macos_pid_fn)0;
     if (real_getppid == (uya_macos_pid_fn)0) real_getppid = (uya_macos_pid_fn)dlsym((void *)-1, "getppid");
     if (real_getppid == (uya_macos_pid_fn)0) return 0;
     return (int32_t)real_getppid();
 }
-void uya_macos_exit(int32_t status) {
+static void uya_macos_exit(int32_t status) {
     static uya_macos_exit_fn real_exit = (uya_macos_exit_fn)0;
     if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, "_exit");
     if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);
     __builtin_trap();
 }
-void *uya_macos_host_opendir(const char *path) {
+static void *uya_macos_host_opendir(const char *path) {
     static uya_macos_opendir_fn real_opendir = (uya_macos_opendir_fn)0;
     if (real_opendir == (uya_macos_opendir_fn)0) real_opendir = (uya_macos_opendir_fn)dlsym((void *)-1, "opendir");
     if (real_opendir == (uya_macos_opendir_fn)0) return (void *)0;
     return real_opendir(path);
 }
-int32_t uya_macos_host_readdir_fill(void *dirp, void *out) {
+static int32_t uya_macos_host_readdir_fill(void *dirp, void *out) {
     unsigned char *src = (unsigned char *)0;
     unsigned char *dst = (unsigned char *)0;
     size_t clear_idx = 0;
@@ -638,7 +638,7 @@ int32_t uya_macos_host_readdir_fill(void *dirp, void *out) {
     dst[19 + name_len] = 0;
     return 1;
 }
-int32_t uya_macos_host_closedir(void *dirp) {
+static int32_t uya_macos_host_closedir(void *dirp) {
     if (dirp == (void *)0) return -1;
     static uya_macos_closedir_fn real_closedir = (uya_macos_closedir_fn)0;
     if (real_closedir == (uya_macos_closedir_fn)0) real_closedir = (uya_macos_closedir_fn)dlsym((void *)-1, "closedir");
@@ -10353,7 +10353,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10390,7 +10390,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -132595,14 +132595,40 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         while (bind_i < await_count) {
             uint8_t * const bind_safe_name = get_safe_c_identifier(codegen, await_bind_names[bind_i]);
             if (((await_bind_types[bind_i] != NULL) && (bind_safe_name != NULL))) {
-                (void)(c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], (uint8_t *)(uint8_t *)str3568, bind_safe_name)                );
+                int32_t bind_seen = 0;
+                int32_t prev_bind_i = 0;
+                while (prev_bind_i < bind_i) {
+                    uint8_t * const prev_bind_safe = get_safe_c_identifier(codegen, await_bind_names[prev_bind_i]);
+                    if (((prev_bind_safe != NULL) && (std_string_strcmp((uint8_t *)prev_bind_safe, (uint8_t *)bind_safe_name) == 0))) {
+                        bind_seen = 1;
+                        prev_bind_i = bind_i;
+                    } else {
+                        prev_bind_i = (prev_bind_i + 1);
+                    }
+                }
+                if (bind_seen == 0) {
+                    (void)(c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], (uint8_t *)(uint8_t *)str3568, bind_safe_name)                    );
+                }
             }
             bind_i = (bind_i + 1);
         }
         while (((loc_i < codegen->async_local_count) && (loc_i < (sizeof(codegen->async_local_names) / sizeof((codegen->async_local_names)[0]))))) {
             uint8_t * const lname_safe = get_safe_c_identifier(codegen, codegen->async_local_names[loc_i]);
             if (((codegen->async_local_types[loc_i] != NULL) && (lname_safe != NULL))) {
-                (void)(c99_emit_struct_field_decl_fragment(codegen, codegen->async_local_types[loc_i], (uint8_t *)(uint8_t *)str3569, lname_safe)                );
+                int32_t loc_seen = 0;
+                int32_t prev_loc_i = 0;
+                while (prev_loc_i < loc_i) {
+                    uint8_t * const prev_lname_safe = get_safe_c_identifier(codegen, codegen->async_local_names[prev_loc_i]);
+                    if (((prev_lname_safe != NULL) && (std_string_strcmp((uint8_t *)prev_lname_safe, (uint8_t *)lname_safe) == 0))) {
+                        loc_seen = 1;
+                        prev_loc_i = loc_i;
+                    } else {
+                        prev_loc_i = (prev_loc_i + 1);
+                    }
+                }
+                if (loc_seen == 0) {
+                    (void)(c99_emit_struct_field_decl_fragment(codegen, codegen->async_local_types[loc_i], (uint8_t *)(uint8_t *)str3569, lname_safe)                    );
+                }
             }
             loc_i = (loc_i + 1);
         }
@@ -138841,33 +138867,33 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_ok_i64(int64_t value) { return (struct err_union_int64_t){ .error_id = 0, .value = value }; }\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_write(int32_t fd, const char *buf, size_t count) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_write(int32_t fd, const char *buf, size_t count) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    intptr_t ret = uya_host_write((int)fd, buf, count);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_read(int32_t fd, char *buf, size_t count) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_read(int32_t fd, char *buf, size_t count) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (buf == (char *)0 && count != 0) return uya_macos_err_i64(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    intptr_t ret = uya_host_read((int)fd, buf, count);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_open(const char *pathname, int32_t flags, int32_t mode) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_open(const char *pathname, int32_t flags, int32_t mode) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_open(pathname, (int)flags, (int)mode);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_close(int32_t fd) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_close(int32_t fd) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_close((int)fd);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_lseek(int32_t fd, int64_t offset, int32_t whence) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_lseek(int32_t fd, int64_t offset, int32_t whence) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t ret = uya_host_lseek((int)fd, offset, (int)whence);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_access(const char *pathname, int32_t mode) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_access(const char *pathname, int32_t mode) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_access_fn real_access = (uya_macos_access_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_access == (uya_macos_access_fn)0) real_access = (uya_macos_access_fn)dlsym((void *)-1, \"access\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_access == (uya_macos_access_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
@@ -138886,7 +138912,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dst_stat->st_ctime = (int64_t)src->st_ctime; dst_stat->st_ctime_nsec = (int64_t)src->st_ctimensec;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dst_stat->_unused0 = 0; dst_stat->_unused1 = 0; dst_stat->_unused2 = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_stat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_stat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_native_stat_call native_stat;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_stat_fn real_stat = (uya_macos_stat_fn)0;\n", (void *)codegen->emit_stream)    );
@@ -138896,21 +138922,21 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_macos_copy_stat(statbuf, &native_stat);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_fstat(int32_t fd, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_fstat(int32_t fd, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_native_stat_call native_stat;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (statbuf == (struct Stat *)0) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_macos_real_fstat((int)fd, &native_stat) != 0) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_macos_copy_stat(statbuf, &native_stat);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_lstat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_lstat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_native_stat_call native_stat;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_macos_real_lstat(pathname, &native_stat) != 0) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_macos_copy_stat(statbuf, &native_stat);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_readlink(const char *pathname, char *buf, size_t bufsiz) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_readlink(const char *pathname, char *buf, size_t bufsiz) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (pathname == (const char *)0 || buf == (char *)0) return uya_macos_err_i64(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_readlink_fn real_readlink = (uya_macos_readlink_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_readlink == (uya_macos_readlink_fn)0) real_readlink = (uya_macos_readlink_fn)dlsym((void *)-1, \"readlink\");\n", (void *)codegen->emit_stream)    );
@@ -138919,7 +138945,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_chdir(const char *pathname) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_chdir(const char *pathname) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path_i_fn real_chdir = (uya_macos_path_i_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_chdir == (uya_macos_path_i_fn)0) real_chdir = (uya_macos_path_i_fn)dlsym((void *)-1, \"chdir\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_chdir == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
@@ -138927,7 +138953,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_getcwd(char *buf, size_t size) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_getcwd(char *buf, size_t size) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (buf == (char *)0 || size == 0) return uya_macos_err_i64(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_getcwd_fn real_getcwd = (uya_macos_getcwd_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_getcwd == (uya_macos_getcwd_fn)0) real_getcwd = (uya_macos_getcwd_fn)dlsym((void *)-1, \"getcwd\");\n", (void *)codegen->emit_stream)    );
@@ -138937,12 +138963,12 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (len >= size || len > 0x7fffffffu) return uya_macos_err_i64(34);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)len);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = fcntl((int)fd, (int)cmd, (int)arg);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_dup2(int32_t oldfd, int32_t newfd) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_dup2(int32_t oldfd, int32_t newfd) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_dup2_fn real_dup2 = (uya_macos_dup2_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_dup2 == (uya_macos_dup2_fn)0) real_dup2 = (uya_macos_dup2_fn)dlsym((void *)-1, \"dup2\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_dup2 == (uya_macos_dup2_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
@@ -138950,7 +138976,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_fcntl_getpath(int32_t fd, char *buf, size_t size) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_fcntl_getpath(int32_t fd, char *buf, size_t size) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str474, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (buf == (char *)0) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (size < 1024u) return uya_macos_err_i32(34);\n", (void *)codegen->emit_stream)    );
@@ -138973,7 +138999,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str478, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_pipe2(int32_t *pipefd, int32_t flags) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_pipe2(int32_t *pipefd, int32_t flags) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int fds[2];\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int err = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (pipefd == (int32_t *)0) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
@@ -138987,7 +139013,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    pipefd[0] = (int32_t)fds[0]; pipefd[1] = (int32_t)fds[1];\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_native_timespec native_tp;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_uya_timespec *uya_tp = (struct uya_macos_uya_timespec *)tp;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_tp == (struct uya_macos_uya_timespec *)0) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
@@ -138995,7 +139021,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_tp->tv_sec = native_tp.tv_sec; uya_tp->tv_nsec = native_tp.tv_nsec;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_nanosleep(const struct TimeSpec *req, struct TimeSpec *rem) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_nanosleep(const struct TimeSpec *req, struct TimeSpec *rem) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_native_timespec native_req;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_macos_native_timespec native_rem;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    const struct uya_macos_uya_timespec *uya_req = (const struct uya_macos_uya_timespec *)req;\n", (void *)codegen->emit_stream)    );
@@ -139009,7 +139035,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_rem->tv_sec = 0; uya_rem->tv_nsec = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_system(const char *cmd) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_system(const char *cmd) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_path_i_fn real_system = (uya_macos_path_i_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_system == (uya_macos_path_i_fn)0) real_system = (uya_macos_path_i_fn)dlsym((void *)-1, \"system\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_system == (uya_macos_path_i_fn)0) return uya_macos_err_i32(78);\n", (void *)codegen->emit_stream)    );
@@ -139017,102 +139043,102 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_socket(int32_t domain, int32_t type, int32_t protocol) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_socket(int32_t domain, int32_t type, int32_t protocol) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_socket((int)domain, (int)type, (int)protocol);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_bind(int32_t sockfd, void *addr, uint32_t addrlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_bind(int32_t sockfd, void *addr, uint32_t addrlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_bind((int)sockfd, (const void *)addr, addrlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_listen(int32_t sockfd, int32_t backlog) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_listen(int32_t sockfd, int32_t backlog) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_listen((int)sockfd, (int)backlog);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_accept(int32_t sockfd, void *addr, uint32_t *addrlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_accept(int32_t sockfd, void *addr, uint32_t *addrlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_accept((int)sockfd, addr, addrlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_connect(int32_t sockfd, void *addr, uint32_t addrlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_connect(int32_t sockfd, void *addr, uint32_t addrlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_connect((int)sockfd, (const void *)addr, addrlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_sendto(int32_t sockfd, const char *buf, size_t len, int32_t flags, void *dest, uint32_t destlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_sendto(int32_t sockfd, const char *buf, size_t len, int32_t flags, void *dest, uint32_t destlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    intptr_t ret = uya_host_sendto((int)sockfd, (const void *)buf, len, (int)flags, (const void *)dest, destlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_recvfrom(int32_t sockfd, char *buf, size_t len, int32_t flags, void *src, uint32_t *srclen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_recvfrom(int32_t sockfd, char *buf, size_t len, int32_t flags, void *src, uint32_t *srclen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    intptr_t ret = uya_host_recvfrom((int)sockfd, (void *)buf, len, (int)flags, src, srclen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_shutdown(int32_t sockfd, int32_t how) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_shutdown(int32_t sockfd, int32_t how) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_shutdown((int)sockfd, (int)how);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_setsockopt(int32_t sockfd, int32_t level, int32_t optname, void *optval, uint32_t optlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_setsockopt(int32_t sockfd, int32_t level, int32_t optname, void *optval, uint32_t optlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_setsockopt((int)sockfd, (int)level, (int)optname, (const void *)optval, optlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_getsockname(int32_t sockfd, void *addr, uint32_t *addrlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_getsockname(int32_t sockfd, void *addr, uint32_t *addrlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_getsockname((int)sockfd, addr, addrlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_getpeername(int32_t sockfd, void *addr, uint32_t *addrlen) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_getpeername(int32_t sockfd, void *addr, uint32_t *addrlen) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_getpeername((int)sockfd, addr, addrlen);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_poll(struct PollFd *fds, size_t nfds, int32_t timeout_ms) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_poll(struct PollFd *fds, size_t nfds, int32_t timeout_ms) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (nfds > (size_t)0xffffffffu) return uya_macos_err_i32(22);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_poll((void *)fds, (uint32_t)nfds, (int)timeout_ms);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int64_t uya_macos_fork(void) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_macos_fork(void) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_fork();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i64(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_macos_waitpid(int32_t pid, int32_t *status, int32_t options) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_waitpid(int32_t pid, int32_t *status, int32_t options) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = uya_host_waitpid((int)pid, (int *)status, (int)options);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(ret);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_macos_getpid(void) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_getpid(void) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_pid_fn real_getpid = (uya_macos_pid_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_getpid == (uya_macos_pid_fn)0) real_getpid = (uya_macos_pid_fn)dlsym((void *)-1, \"getpid\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_getpid == (uya_macos_pid_fn)0) return 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_getpid();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_macos_getppid(void) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_getppid(void) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_pid_fn real_getppid = (uya_macos_pid_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_getppid == (uya_macos_pid_fn)0) real_getppid = (uya_macos_pid_fn)dlsym((void *)-1, \"getppid\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_getppid == (uya_macos_pid_fn)0) return 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int32_t)real_getppid();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"void uya_macos_exit(int32_t status) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void uya_macos_exit(int32_t status) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_exit_fn real_exit = (uya_macos_exit_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_exit == (uya_macos_exit_fn)0) real_exit = (uya_macos_exit_fn)dlsym((void *)-1, \"_exit\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_exit != (uya_macos_exit_fn)0) real_exit((int)status);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    __builtin_trap();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"void *uya_macos_host_opendir(const char *path) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void *uya_macos_host_opendir(const char *path) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_opendir_fn real_opendir = (uya_macos_opendir_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_opendir == (uya_macos_opendir_fn)0) real_opendir = (uya_macos_opendir_fn)dlsym((void *)-1, \"opendir\");\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_opendir == (uya_macos_opendir_fn)0) return (void *)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return real_opendir(path);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_macos_host_readdir_fill(void *dirp, void *out) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_host_readdir_fill(void *dirp, void *out) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned char *src = (unsigned char *)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned char *dst = (unsigned char *)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    size_t clear_idx = 0;\n", (void *)codegen->emit_stream)    );
@@ -139136,7 +139162,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dst[19 + name_len] = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return 1;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_macos_host_closedir(void *dirp) {\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_macos_host_closedir(void *dirp) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dirp == (void *)0) return -1;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static uya_macos_closedir_fn real_closedir = (uya_macos_closedir_fn)0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (real_closedir == (uya_macos_closedir_fn)0) real_closedir = (uya_macos_closedir_fn)dlsym((void *)-1, \"closedir\");\n", (void *)codegen->emit_stream)    );
@@ -159865,6 +159891,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
                 }
     }
     if (((program == NULL) || (program->type != main_ASTNodeType_AST_PROGRAM))) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror prepare 收到非程序 AST\n")        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -159922,6 +159949,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
     while (nui < uniq_count) {
         uint8_t merged[512] = {0};
         if (c99_mirror_normalize_one_path((uint8_t *)(&uniq[nui][0]), (uint8_t *)(&merged[0]), 512) != 0) {
+            (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法规范化路径: %s\n", (uint8_t *)(&uniq[nui][0]))            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -159953,6 +159981,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             uint8_t * const src = (uint8_t *)(&uniq[ci][0]);
             uint8_t rel_c_buf[512] = {0};
             if (c99_mirror_rel_c_from_key(src, lcp, (uint8_t *)(&rel_c_buf[0]), 512) != 0) {
+                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法生成相对 C 路径: src=%s lcp=%d\n", (uint8_t *)src, lcp)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -159960,6 +159989,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             }
             uint8_t * const key_copy = c99_arena_strdup(codegen->arena, src);
             if (key_copy == NULL) {
+                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 复制路径失败: %s\n", (uint8_t *)src)                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -159969,6 +159999,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             uint8_t fullp[1024] = {0};
             const int32_t fl = snprintf((char *)(uint8_t *)(&fullp[0]), 1024, (const char *)str1666, (uint8_t *)codegen->split_dir, (uint8_t *)(&rel_c_buf[0]));
             if (((fl <= 0) || (fl >= 1024))) {
+                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 输出路径过长: dir=%s rel=%s\n", (uint8_t *)codegen->split_dir, (uint8_t *)(&rel_c_buf[0]))                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -159977,6 +160008,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             (void)(c99_mkdir_p_for_file((uint8_t *)(&fullp[0]))            );
             void * const fh = std_io_fopen((uint8_t *)(&fullp[0]), (uint8_t *)(uint8_t *)str10);
             if (fh == NULL) {
+                (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法打开输出文件: %s\n", (uint8_t *)(&fullp[0]))                );
                                 {
                     int32_t _uya_ret = (-1);
                     return _uya_ret;
@@ -160027,6 +160059,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
     uint8_t comp[1024] = {0};
     const int32_t cl = snprintf((char *)(uint8_t *)(&comp[0]), 1024, (const char *)"%s/uya_common.c", (uint8_t *)codegen->split_dir);
     if (((cl <= 0) || (cl >= 1024))) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror common 输出路径过长: dir=%s\n", (uint8_t *)codegen->split_dir)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -160035,6 +160068,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
     (void)(c99_mkdir_p_for_file((uint8_t *)(&comp[0]))    );
     void * const ch = std_io_fopen((uint8_t *)(&comp[0]), (uint8_t *)(uint8_t *)str10);
     if (ch == NULL) {
+        (void)(fprintf(stderr, (const char *)"错误: split-C mirror 无法打开 common 输出文件: %s\n", (uint8_t *)(&comp[0]))        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -166282,7 +166316,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -167529,7 +167563,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -167773,7 +167807,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_391543956_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

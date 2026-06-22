@@ -106,12 +106,6 @@ lib/std/net/addr.uya
 tests/test_std_net_addr.uya
 ```
 
-先写测试：
-
-```text
-- [ ] test_ipv6_literal_is_explicitly_unsupported_or_parsed
-```
-
 函数定义：
 
 ```uya
