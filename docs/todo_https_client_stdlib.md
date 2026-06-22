@@ -140,7 +140,6 @@ export fn socket_addr_format(addr: &SocketAddr, out: &byte, out_max: usize, out_
 验收：
 
 ```text
-- [ ] tests/test_std_net_addr.uya 通过 --c99
 - [ ] tests/test_std_net_addr.uya 通过 --uya --c99
 ```
 

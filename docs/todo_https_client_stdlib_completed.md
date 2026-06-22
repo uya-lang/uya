@@ -63,3 +63,8 @@ tests/test_std_net_addr.uya
   - make clean -> 通过
   - make backup-all -> 通过
 ```
+
+## 2. 阶段 A：地址、socket、poll、TCP
+### A1. `std.net.addr`
+- [x] tests/test_std_net_addr.uya 通过 --c99
+  - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --c99` 通过（6 个测试，76 个断言）。
