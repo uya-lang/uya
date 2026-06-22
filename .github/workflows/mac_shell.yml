@@ -28,8 +28,16 @@ jobs:
         codex --version
 
     - name: Configure Codex
+      env:
+        GPT001_KEY: ${{ secrets.GPT001_KEY }}
       run: |
         mkdir -p ~/.codex
+        if [ -z "${GPT001_KEY}" ]; then
+          echo "GPT001_KEY is required"
+          exit 1
+        fi
+        printf '%s\n' "${GPT001_KEY}" > ~/.codex/auth.json
+        chmod 600 ~/.codex/auth.json
         cat > ~/.codex/config.toml <<'EOF'
         model_provider = "OpenAI"
         model = "gpt-5.5"
@@ -47,6 +55,26 @@ jobs:
         wire_api = "responses"
         requires_openai_auth = true
         EOF
+
+    - name: Configure SSH keys
+      env:
+        ID_RSA: ${{ secrets.ID_RSA }}
+        ID_RSA_PUB: ${{ secrets.ID_RSA_PUB }}
+      run: |
+        mkdir -p ~/.ssh
+        if [ -z "${ID_RSA}" ]; then
+          echo "ID_RSA is required"
+          exit 1
+        fi
+        if [ -z "${ID_RSA_PUB}" ]; then
+          echo "ID_RSA_PUB is required"
+          exit 1
+        fi
+        printf '%s\n' "${ID_RSA}" > ~/.ssh/id_rsa
+        printf '%s\n' "${ID_RSA_PUB}" > ~/.ssh/id_rsa.pub
+        chmod 700 ~/.ssh
+        chmod 600 ~/.ssh/id_rsa
+        chmod 644 ~/.ssh/id_rsa.pub
 
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v3
