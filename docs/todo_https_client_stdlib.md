@@ -109,8 +109,6 @@ tests/test_std_net_socket.uya
 先写测试：
 
 ```text
-- [ ] test_socket_set_nonblocking_on_valid_fd
-- [ ] test_socket_set_cloexec_on_valid_fd
 - [ ] test_socket_close_ignores_negative_fd
 - [ ] test_socket_errno_maps_would_block
 ```

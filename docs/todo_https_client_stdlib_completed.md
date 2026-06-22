@@ -74,3 +74,25 @@ tests/test_std_net_addr.uya
 - [x] tests/test_std_net_addr.uya 通过 --uya --c99
   - 验证：`../uya/bin/uya test tests/test_std_net_addr.uya --uya --c99` 通过（6 个测试，76 个断言）。
   - 相关验证：`../uya/bin/uya test tests/test_std_net_addr.uya --c99` 通过（6 个测试，76 个断言）。
+
+### A2. `std.net.socket`
+上下文：先写测试
+
+```text
+- [x] test_socket_set_nonblocking_on_valid_fd
+  验证：
+  - `../uya/bin/uya test tests/test_std_net_socket.uya`（1 个测试通过，0 个失败）
+  - `../uya/bin/uya test tests/test_tcp_basic.uya`（3 个测试通过，0 个失败）
+  - `../uya/bin/uya test tests/test_syscall_ioctl.uya`（3 个测试通过，0 个失败）
+```
+
+### A2. `std.net.socket`
+上下文：先写测试
+
+```text
+- [x] test_socket_set_cloexec_on_valid_fd
+  验证：
+  - `../uya/bin/uya test tests/test_std_net_socket.uya`（2 个测试通过，0 个失败）
+  - `../uya/bin/uya test tests/test_tcp_basic.uya`（3 个测试通过，0 个失败）
+  - `../uya/bin/uya test tests/test_syscall_ioctl.uya`（3 个测试通过，0 个失败）
+```

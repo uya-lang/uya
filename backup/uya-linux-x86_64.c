@@ -31765,6 +31765,7 @@ __attribute__((used)) struct err_union_int32_t sys_getsockopt(int32_t sockfd, in
         struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall5(libc_SYS_getsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
+        return (struct err_union_int32_t){0};
 }
 
 __attribute__((used)) struct err_union_int32_t sys_getsockname(int32_t sockfd, void * addr, uint32_t * addrlen) {
