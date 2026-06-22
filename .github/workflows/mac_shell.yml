@@ -11,4 +11,4 @@ jobs:
 
       - name: Setup tmate SSH session
         uses: mxschmitt/action-tmate@v3
-        timeout-minutes: 60
+        timeout-minutes: 360
