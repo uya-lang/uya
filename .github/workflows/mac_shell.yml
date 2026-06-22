@@ -11,6 +11,7 @@ jobs:
   codex-debug:
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
+    environment: WINGER_ID_RSA
     env:
       HOST_OS: macos
       HOST_ARCH: arm64
