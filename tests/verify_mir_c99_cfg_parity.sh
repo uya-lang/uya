@@ -12,6 +12,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 if_case="$tmp_dir/local_if_return.uya"
 nested_case="$tmp_dir/nested_branch.uya"
 loop_case="$tmp_dir/loop_backedge.uya"
+block_break_continue_case="$tmp_dir/block_break_continue.uya"
 
 cat >"$if_case" <<'UYA'
 export fn main() i32 {
@@ -48,6 +49,26 @@ export fn main() i32 {
 }
 UYA
 
+cat >"$block_break_continue_case" <<'UYA'
+export fn main() i32 {
+    var i: i32 = 0;
+    var sum: i32 = 0;
+    {
+        while i < 6 {
+            i = i + 1;
+            if i == 2 {
+                continue;
+            }
+            if i == 5 {
+                break;
+            }
+            sum = sum + i;
+        }
+    }
+    return sum;
+}
+UYA
+
 run_case() {
     local case_file="$1"
     MIR_C99_GENERATE_CMD='./tests/mir_c99_generate.sh {input} {output} {log}' \
@@ -58,5 +79,6 @@ run_case() {
 run_case "$if_case"
 run_case "$nested_case"
 run_case "$loop_case"
+run_case "$block_break_continue_case"
 
-echo "OK: MIR-C99 CFG parity matched C99 oracle"
+echo "OK: MIR-C99 CFG parity matched C99 oracle, including block/break/continue"

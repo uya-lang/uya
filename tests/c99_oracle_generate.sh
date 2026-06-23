@@ -17,7 +17,7 @@ output="$2"
 log="$3"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
-compiler="${C99_ORACLE_COMPILER:-$repo_root/bin/cmd/build}"
+compiler="../uya/bin/uya"
 project_root="."
 
 if [[ $# -eq 5 ]]; then
@@ -44,10 +44,7 @@ if [[ ! -f "$input" ]]; then
     exit 66
 fi
 
-if [[ ! -x "$compiler" ]]; then
-    compiler="$repo_root/bin/uya"
-fi
-if [[ ! -x "$compiler" ]]; then
+if [[ ! -x "$repo_root/$compiler" ]]; then
     {
         printf 'C99 oracle generator command\n'
         printf 'input=%s\n' "$input"

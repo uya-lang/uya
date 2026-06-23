@@ -1271,3 +1271,17 @@ Context:
         - `bash tests/verify_portable_mir_language_coverage.sh` -> PASS。
         - `bash tests/verify_mir_c99_cfg_parity.sh` -> PASS；现有 CFG parity matched C99 oracle（oracle C 编译有既有 pedantic warnings）。
         - `git diff --check` -> PASS。
+
+### 4.15 Full Language Parity
+父级路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG` -> `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED`
+
+    - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-MIR-C99-EMIT`:
+      让上述结构化 CFG 经 MIR-C99 unit output 写出可编译运行的低级 C99。
+      - 最小验证：更新 statement/CFG MIR-C99 parity shard，覆盖 if/while/block/break/continue。
+      - 完成条件：host C99 编译运行结果与 C99 oracle 对齐，且 no-legacy-fallback guard 通过。
+      - 验证记录：
+        - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`：通过；包含 `verify_mir_c99_cfg_parity.sh` 新增 block/break/continue 用例，MIR-C99 输出经 host C99 编译运行并与 C99 oracle 对齐，no-legacy-fallback guard 通过。
+        - `bash tests/verify_mir_c99_unit_output_sections.sh`：通过；unit output section/function-body 合同验证通过，临时合并源码经 `../uya/bin/uya fmt` 语法烟测。
+        - `bash tests/verify_mir_c99_generator_driver_handoff.sh`：通过；默认 generator 到 source-to-PortableMIR / `mir_c99_driver_run` handoff 证据通过。
+        - `git diff --check`：通过。
+        - `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`：通过，归档前主 todo 有 1 个 active task。

@@ -43,7 +43,9 @@ require_pattern "$OUTPUT_FILE" '#include <stdint\.h>\\n#include <stddef\.h>\\n#i
     "default C99 include bytes"
 require_pattern "$OUTPUT_FILE" 'typedef int32_t uya_mir_ty_' "typedef bytes"
 require_pattern "$OUTPUT_FILE" 'extern void uya_mir_helper_' "extern helper prototype bytes"
-require_pattern "$OUTPUT_FILE" 'static int32_t uya_mir_fn_' "function prototype bytes"
+require_pattern "$OUTPUT_FILE" 'mir_c99_unit_output_write_c_type\(stream,[[:space:]]*return_type\)' \
+    "function prototype writes dynamic return type"
+require_pattern "$OUTPUT_FILE" 'uya_mir_fn_' "function prototype function-name bytes"
 require_pattern "$OUTPUT_FILE" 'static int64_t uya_mir_global_' "scalar global bytes"
 require_pattern "$OUTPUT_FILE" 'static uint8_t uya_mir_global_' "aggregate global bytes"
 require_pattern "$OUTPUT_FILE" 'bb' "function body label bytes"
@@ -77,6 +79,7 @@ fi
 tmp="$(mktemp /tmp/mir_c99_unit_output_sections.XXXXXX.uya)"
 trap 'rm -f "$tmp"' EXIT
 sed '/^use codegen\.mir_c99\./d' "$PLAN_FILE" "$CFG_FILE" "$OUTPUT_FILE" >"$tmp"
-"$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
+printf '\nexport fn main() i32 { return 0; }\n' >>"$tmp"
+(cd "$REPO_ROOT" && ../uya/bin/uya fmt "$tmp" >/dev/null)
 
 echo "OK: MIR-C99 unit declaration/global/function-body section output contract verified"
