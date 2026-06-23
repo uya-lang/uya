@@ -130,6 +130,22 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个
       `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
       `AST_SYSCALL / syscall_requires_target_capability`。
+    - 子任务拆分（2026-06-24，本轮）：
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET`:
+        让首个 `MIR-C99 unit output 写出失败` real CLI 用例收敛为具体 capability diagnostic
+        或真实支持，不再停在通用写出失败。
+        - 最小验证：
+          - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_function.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-GENERIC-REOPEN`:
+        在 fixed `../uya/bin/uya` 能再次重建 current-source `cmd/build` 后，重开首个 generic
+        `PortableMIR lowering 尚未覆盖当前程序` bucket。
+        - 最小验证：
+          - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-portablemir-reopen.c`
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT-NEXT`:
+        在上述 generic bucket 继续下降后重跑主语言面，更新剩余 failure matrix 与 capability
+        diagnostic 分布。
+        - 最小验证：
+          - `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。

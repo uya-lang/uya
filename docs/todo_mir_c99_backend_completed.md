@@ -1680,3 +1680,27 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
         - 通用报错分布：`596` 个 `错误: MIR-C99 extern lowering 失败`、`263` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个 `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
         - capability diagnostic 分布：`182` 个 `AST_TEST_STMT / test_driver_not_lowered`、`5` 个 `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`5` 个 `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`4` 个 `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个 `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个 `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个 `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个 `AST_SYSCALL / syscall_requires_target_capability`。
         - 对照 spot-check：`UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 --safety-proof tests/assignment.uya -o /tmp/mir_c99_recount_assignment_safety.c` 与 `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 --safety-proof tests/test_asm_const_output.uya -o /tmp/mir_c99_recount_asm_const_output_safety.c` 均稳定收敛到 `AST_TEST_STMT` capability diagnostic 和 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`，说明本轮重计数已回到真实 MIR-C99 诊断面，而不是脚本包装导致的假性 `exit 139`。
+# MIR-C99 Backend TODO
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+
+    - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VERIFIER-FIRST-BUCKET`:
+      固定首个 real CLI `PortableMIR verifier 失败` 用例与 focused gate，避免后续修复继续淹没在
+      full-suite matrix 中。
+      - 最小验证：
+        - `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
+      - 完成条件：
+        - gate 通过，并固定 `tests/test_function_reachability_codegen.uya` 的 `[MIR-C99]`
+          路由与 verifier diagnostic。
+      - 验证（2026-06-24，本轮）：
+        - `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
+          => `OK: MIR-C99 first verifier bucket fails closed with a stable real-CLI verifier diagnostic`
+        - gate 内部固定执行
+          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_function_reachability_codegen.uya -o <tmp>/test_function_reachability_codegen.c`，
+          当前稳定命中 `[MIR-C99]` 路由、`错误: MIR-C99 PortableMIR verifier 失败: code=7 function=6 block=2 inst=2 value=2 type=1 operand=-1`
+          与 `MIR-C99 verifier inst: op=3 type=1 result=2 operand_start=2 operand_count=1 flags=3`，且 reject 后不留下非空输出。
+        - `git diff --check -- docs/todo_mir_c99_backend.md tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
+          通过。
