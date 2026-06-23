@@ -105,12 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
   - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
-  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-AST-ENTRY`: 接通 AST 层
-    `for` / `match` / `test` driver 入口到通用 statement CFG lowering。
-    - 最小验证：新增或更新 for/match/test driver shard，并通过真实 `--mir-c99`
-      host-C parity。
-    - 完成条件：AST 入口映射不再绕过 PortableMIR statement CFG。
-
 - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`: 补齐表达式、value、place 和常量模型。
   - 覆盖范围：整数/布尔/浮点/字符串/char/int-limit/null 常量，非零 f32/f64 payload，
     一元/二元/逻辑/转换，call result，member/field，array/slice index，slice ptr/len，
