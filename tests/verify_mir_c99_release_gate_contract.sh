@@ -30,6 +30,8 @@ require_pattern "$MAKEFILE" 'verify_mir_c99_self_build_convergence_audit\.sh' \
     'Makefile wires convergence audit gate into check flow'
 require_pattern "$MAKEFILE" 'verify_mir_c99_cmd_build_host_binary_attempt_gate\.sh' \
     'Makefile wires host compiler candidate gate into check flow'
+require_pattern "$MAKEFILE" 'verify_mir_c99_full_language_baseline_truth\.sh' \
+    'Makefile wires full-language baseline truth gate into check flow'
 require_pattern "$MAKEFILE" '跳过 MIR-C99 release gate（设 UYA_MIR_C99_RELEASE_GATE=optional 或 required 启用；默认 UYA_MIR_C99_RELEASE_GATE=off）' \
     'Makefile explains disabled release gate stage'
 require_pattern "$MAKEFILE" '执行 MIR-C99 release gate（optional）\.\.\.' \

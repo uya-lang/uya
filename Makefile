@@ -1024,6 +1024,17 @@ check: uya cmd-build-current cmd-check cmd-run cmd-microapp
 				echo "✗ MIR-C99 cmd/build host compiler candidate gate 验证失败（optional）"; \
 				exit 1; \
 			fi; \
+			if bash ./tests/verify_mir_c99_full_language_baseline_truth.sh > /tmp/verify_out.txt 2>&1; then \
+				grep -E "OK:|baseline_|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=0; \
+			else \
+				cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=1; \
+			fi; \
+			if [ $$VERIFY_EXIT -ne 0 ]; then \
+				echo "✗ MIR-C99 full-language baseline truth gate 验证失败（optional）"; \
+				exit 1; \
+			fi; \
 		elif [ "$${UYA_MIR_C99_RELEASE_GATE:-off}" = "required" ]; then \
 			echo "执行 MIR-C99 release gate（required）..."; \
 			if bash ./tests/verify_mir_c99_self_build_convergence_audit.sh > /tmp/verify_out.txt 2>&1; then \
@@ -1046,6 +1057,17 @@ check: uya cmd-build-current cmd-check cmd-run cmd-microapp
 			fi; \
 			if [ $$VERIFY_EXIT -ne 0 ]; then \
 				echo "✗ MIR-C99 cmd/build host compiler candidate gate 验证失败（required）"; \
+				exit 1; \
+			fi; \
+			if bash ./tests/verify_mir_c99_full_language_baseline_truth.sh > /tmp/verify_out.txt 2>&1; then \
+				grep -E "OK:|baseline_|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=0; \
+			else \
+				cat /tmp/verify_out.txt; \
+				VERIFY_EXIT=1; \
+			fi; \
+			if [ $$VERIFY_EXIT -ne 0 ]; then \
+				echo "✗ MIR-C99 full-language baseline truth gate 验证失败（required）"; \
 				exit 1; \
 			fi; \
 		else \
@@ -1169,10 +1191,12 @@ check-hosted: b-hosted
 		echo "执行 MIR-C99 release gate（optional）..."; \
 		bash ./tests/verify_mir_c99_self_build_convergence_audit.sh; \
 		bash ./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh; \
+		bash ./tests/verify_mir_c99_full_language_baseline_truth.sh; \
 	elif [ "$${UYA_MIR_C99_RELEASE_GATE:-off}" = "required" ]; then \
 		echo "执行 MIR-C99 release gate（required）..."; \
 		bash ./tests/verify_mir_c99_self_build_convergence_audit.sh; \
 		bash ./tests/verify_mir_c99_cmd_build_host_binary_attempt_gate.sh; \
+		bash ./tests/verify_mir_c99_full_language_baseline_truth.sh; \
 	else \
 		echo "跳过 MIR-C99 release gate（设 UYA_MIR_C99_RELEASE_GATE=optional 或 required 启用；默认 UYA_MIR_C99_RELEASE_GATE=off）"; \
 	fi

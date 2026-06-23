@@ -13,3 +13,27 @@
 ## 已修复的外部门禁记录
 
 - 2026-06-15：`bash tests/verify_full_language_backend_parity.sh` 曾失败，关键错误为 `error: hello native reject missing reason=native_hosted_portable_mir_lowering_missing`。已修复：gate 现在接受当前 fail-closed 诊断 `native_hosted_portable_mir_preflight_failed`，并要求 `native_hosted_preflight: status=-1` 与 `native_hosted_portable_mir_frontier:` 证据；复验默认模式通过，当前输出 `OK: full language backend parity: 18 cases (parity=18, reject=0)`。硬收口模式 `UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh` 已通过，当前输出同为 `OK: full language backend parity: 18 cases (parity=18, reject=0)`；覆盖 hello、multi-file use、generic、method、interface、error union / catch、defer、errdefer、struct/union/enum、slice/array、pointer、atomic、vector/mask、c_import、builtins、stdlib entry 和 print pair 的 native executable parity。
+
+### 4.15 Full Language Parity
+
+父级路径：无父级 checkbox
+
+- [f] `MIR-C99-FULL-SUPPORT-BASELINE-TRUTH`: 重新固定 full-language 口径下的真实基线，不把
+  HelloWorld、hosted native parity、fixture generator 或 fixed-shape smoke 记为完成。
+  当前证据（2026-06-23）：`bash tests/verify_mir_c99_cli_helloworld.sh` 通过；
+  `bash tests/verify_mir_c99_cli_distinct_outputs.sh` 失败在 `src/main.uya` 的
+  `MIR-C99 PortableMIR lowering 尚未覆盖当前程序`；
+  `./bin/uya build --mir-c99 tests/extern_function.uya -o <tmp>.c` 失败于
+  `MIR-C99 unit output 写出失败`；`bash tests/verify_portable_mir_language_coverage.sh`
+  通过；`UYA_FULL_LANGUAGE_PARITY_NATIVE=1 bash tests/verify_full_language_backend_parity.sh`
+  通过但只算 native 证据。
+  - 验收：新增或更新一个 fail-closed 基线门禁，显式区分 `--mir-c99`、hosted native、
+    fixture generator 和 legacy C99；该门禁必须能复现上述当前失败，不允许静默成功。
+  - 失败原因（2026-06-23）：已新增 `tests/verify_mir_c99_full_language_baseline_truth.sh` 并接入 Makefile optional/required MIR-C99 release gate；但本轮真实门禁运行被固定编译器路径缺失阻塞，无法复现目标中列出的 `src/main.uya` 和 `tests/extern_function.uya` 当前失败。
+  - 阻塞命令：`bash tests/verify_mir_c99_full_language_baseline_truth.sh`
+  - 关键错误：`error: missing fixed compiler path ../uya/bin/uya; this gate refuses PATH, UYA_BIN, --uya-bin, and local bin/uya fallback`
+  - 已验证命令：
+    - `bash tests/verify_mir_c99_release_gate_contract.sh`：通过，确认 Makefile 已接入 `verify_mir_c99_full_language_baseline_truth.sh`。
+    - `bash -n tests/verify_mir_c99_full_language_baseline_truth.sh`：通过。
+    - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：失败于固定编译器路径缺失。
+  - 后续重开条件：提供可执行的 `../uya/bin/uya` 后，重跑 `bash tests/verify_mir_c99_full_language_baseline_truth.sh`；若输出 `baseline_mir_c99_src_main=fail_closed:portable_mir_lowering_missing`、`baseline_mir_c99_extern_function=fail_closed:unit_output_write_failed` 且最终 OK，再将该基线门禁任务从失败归档重开为完成。
