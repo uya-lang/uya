@@ -1,26 +1,8 @@
-use compiler_driver;
-use std.runtime.get_argc;
-use std.runtime.get_argv;
-use libc;
-use libc.fprintf;
-use libc.strcmp;
+use build_compiler_driver;
 
 /// `cmd/build` 独立可执行入口。
 /// 参数说明：无，直接读取进程 argv。
 /// 返回值说明：返回 build CLI 的退出码。
 export fn main() i32 {
-    const argc: i32 = get_argc();
-    if argc >= 2 {
-        const arg1: &byte = get_argv(1);
-        if arg1 != null {
-            if strcmp(arg1 as *byte, "--help" as *byte) == 0 ||
-               strcmp(arg1 as *byte, "-h" as *byte) == 0 {
-                fprintf(libc.stdout, "Uya build compiler\n" as *byte);
-                fprintf(libc.stdout, "用法: %s build <文件> [-o <输出>] [选项]\n" as *byte, get_argv(0) as *byte);
-                fprintf(libc.stdout, "说明: 当前 real-CLI candidate 默认委托 build 子命令路径。\n" as *byte);
-                return 0;
-            }
-        }
-    }
-    return compiler_driver_build_main();
+    return build_compiler_driver_main();
 }

@@ -88,6 +88,7 @@ export const MIR_INST_OP_STORE: i32 = 2;
 export const MIR_INST_OP_CALL: i32 = 3;
 export const MIR_INST_OP_ASM_BLOCK: i32 = 4;
 export const MIR_INST_OP_I32_ADD: i32 = 5;
+export const MIR_INST_OP_I32_EQ: i32 = 6;
 export const MIR_INST_OP_DROP_VALUE: i32 = 15;
 export const MIR_INST_OP_DROP_IN_PLACE: i32 = 16;
 export const MIR_INST_OP_ATOMIC_LOAD: i32 = 17;
@@ -519,7 +520,7 @@ export fn portable_mir_inst_op_is_integer_arithmetic(op: i32) i32 {
 /// 参数说明：`op` 为待分类的 MIR instruction opcode。
 /// 返回值说明：整数比较 opcode 返回 1，否则返回 0。
 export fn portable_mir_inst_op_is_integer_compare(op: i32) i32 {
-    if op == MIR_INST_OP_I32_LE {
+    if op == MIR_INST_OP_I32_EQ || op == MIR_INST_OP_I32_LE {
         return 1;
     }
     if op >= MIR_INST_OP_INT_CMP_MIN && op <= MIR_INST_OP_INT_CMP_MAX {

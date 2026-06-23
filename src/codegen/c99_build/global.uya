@@ -760,6 +760,68 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
             li = li + 1;
         }
     }
+    if codegen.checker != null {
+        const imported_item: &ImportedItem = checker_import_table_lookup_local_name(
+            codegen.checker, name);
+        if imported_item != null && imported_item.item_type == 10 &&
+            imported_item.module_name != null && imported_item.original_name != null {
+            const imported_decl: &ASTNode = c99_find_module_export_decl(codegen,
+                imported_item.module_name, imported_item.original_name, 10);
+            if imported_decl != null {
+                if imported_decl.type == ASTNodeType.AST_VAR_DECL &&
+                    imported_decl.var_decl_name != null {
+                    const imported_ref: &byte = get_c_name_for_global_constant(codegen,
+                        imported_decl.var_decl_name, imported_decl.filename,
+                        imported_decl.var_decl_is_export);
+                    c99_ident_ref_cache_store(codegen, name, imported_ref);
+                    return imported_ref;
+                }
+                if imported_decl.type == ASTNodeType.AST_EXTERN_VAR_DECL &&
+                    imported_decl.extern_var_decl_name != null {
+                    const imported_ref: &byte = get_c_name_for_global_constant(codegen,
+                        imported_decl.extern_var_decl_name, imported_decl.filename,
+                        imported_decl.extern_var_decl_is_export);
+                    c99_ident_ref_cache_store(codegen, name, imported_ref);
+                    return imported_ref;
+                }
+            }
+        }
+        const name_id: i32 = semantic_db_find_interned_name(
+            &codegen.checker.semantic_db, name);
+        if name_id >= 0 {
+            var range: SemanticGlobalVarRange = SemanticGlobalVarRange{
+                name_id: -1,
+                global_start: -1,
+                global_count: 0,
+            };
+            if semantic_db_find_global_var_range(&codegen.checker.semantic_db, name_id,
+                &range) != 0 {
+                var offset: i32 = 0;
+                while offset < range.global_count {
+                    const decl_id: i32 = semantic_db_global_var_range_decl_id(
+                        &codegen.checker.semantic_db, &range, offset);
+                    const decl: &ASTNode = semantic_db_decl_ast_node(
+                        &codegen.checker.semantic_db, decl_id);
+                    if decl != null && decl.type == ASTNodeType.AST_VAR_DECL &&
+                        decl.var_decl_name != null {
+                        const global_ref: &byte = get_c_name_for_global_constant(codegen,
+                            decl.var_decl_name, decl.filename, decl.var_decl_is_export);
+                        c99_ident_ref_cache_store(codegen, name, global_ref);
+                        return global_ref;
+                    }
+                    if decl != null && decl.type == ASTNodeType.AST_EXTERN_VAR_DECL &&
+                        decl.extern_var_decl_name != null {
+                        const global_ref: &byte = get_c_name_for_global_constant(codegen,
+                            decl.extern_var_decl_name, decl.filename,
+                            decl.extern_var_decl_is_export);
+                        c99_ident_ref_cache_store(codegen, name, global_ref);
+                        return global_ref;
+                    }
+                    offset = offset + 1;
+                }
+            }
+        }
+    }
     const cached_ref: &byte = c99_ident_ref_cache_lookup(codegen, name);
     if cached_ref != null {
         return cached_ref;
@@ -773,9 +835,10 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
         }
         i = i + 1;
     }
-    // 镜像分 TU：vtable/测试等可能在「公共」.c 中先于其它源文件里的全局定义生成，
-    // global_variables 尚未登记；从合并 program 解析与 gen_global_var / gen_extern_var_decl 一致的 C 名
-    if result == null && codegen.split_mirror != 0 && codegen.program_node != null &&
+    // build-only legacy C99 路径里，libc/syscall 常量可能在函数体引用前尚未登记到
+    // global_variables；回退到合并 program 解析与 gen_global_var / gen_extern_var_decl
+    // 一致的 C 名，避免退化成裸 O_RDONLY / SYS_* / EPOLL_* 标识符。
+    if result == null && codegen.program_node != null &&
         codegen.program_node.type == ASTNodeType.AST_PROGRAM {
         var pdi: i32 = 0;
         while pdi < codegen.program_node.program_decl_count {

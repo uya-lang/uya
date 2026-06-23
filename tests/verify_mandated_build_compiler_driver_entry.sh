@@ -55,6 +55,8 @@ reject_pattern "$CMD_BUILD_STDERR" "error:.*\\bSYS_[A-Za-z0-9_]+\\b" \
     "cmd/build host C compile still references bare SYS_* constants"
 reject_pattern "$CMD_BUILD_STDERR" "error:.*\\bEPOLL_[A-Za-z0-9_]+\\b" \
     "cmd/build host C compile still references bare EPOLL_* constants"
+reject_pattern "$CMD_BUILD_STDERR" "error:.*\\bMIR_INST_OP_I32_EQ\\b" \
+    "cmd/build host C compile still references missing MIR_INST_OP_I32_EQ contract"
 
 set +e
 UYA_ROOT="$REPO_ROOT" "$CMD_BUILD_BIN" --help >"$HELP_STDOUT" 2>"$HELP_STDERR"
