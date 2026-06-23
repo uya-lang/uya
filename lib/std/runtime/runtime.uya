@@ -21,6 +21,11 @@ use std;
 export var saved_argc: i32 = 0;
 export var saved_argv: & &byte = null;
 export var saved_envp: & &byte = null;
+// fixed ../uya/bin/uya 生成 current-source C99 时，会把这些运行时全局写成
+// `std_runtime_saved_*` 符号名；这里保留一份同值导出定义，确保 fresh cmd/build 可链接。
+export var std_runtime_saved_argc: i32 = 0;
+export var std_runtime_saved_argv: & &byte = null;
+export var std_runtime_saved_envp: & &byte = null;
 
 // ============================================================
 // 运行时支持函数

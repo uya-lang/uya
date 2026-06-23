@@ -15,6 +15,11 @@ error AssertionFailed;
 export var _test_passed: i32 = 0;
 export var _test_failed: i32 = 0;
 export var _test_case_passed: i32 = 0;
+// fixed ../uya/bin/uya 生成 current-source C99 时，会把这些测试计数器写成
+// `std_testing__test_*` 符号名；补一份同值定义，避免 fresh cmd/build 自举时链接失败。
+export var std_testing__test_passed: i32 = 0;
+export var std_testing__test_failed: i32 = 0;
+export var std_testing__test_case_passed: i32 = 0;
 
 // ============================================================
 // 断言宏 - 失败时打印 @mc_source(对应参数)，便于调试

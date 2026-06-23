@@ -1704,3 +1704,17 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
           与 `MIR-C99 verifier inst: op=3 type=1 result=2 operand_start=2 operand_count=1 flags=3`，且 reject 后不留下非空输出。
         - `git diff --check -- docs/todo_mir_c99_backend.md tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
           通过。
+## 4.15 Full Language Parity
+Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET-REOPEN-AFTER-CURRENT-UYA-REBUILD`:
+  在 current checkout 能重新产出可执行 compiler 并可替换 fixed `../uya/bin/uya`
+  后，重开真实首个 `MIR-C99 unit output 写出失败` bucket。当前 real CLI 首个单文件
+  case 已漂移为 `tests/test_exec_vm_try_unsupported.uya`，不再是
+  `tests/extern_function.uya`。
+  - 最小验证：
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`
+  - 验证（2026-06-24）：
+    - `bash tests/verify_cmd_build_entry.sh`：通过；fixed `../uya/bin/uya` 可重新产出 current-source `cmd/build` 并直接执行 build CLI。
+    - `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o <tmp>/cmd-build.fresh --no-split-c --project-root "$PWD/src/"`：通过；fresh `cmd/build` 已同步到 sibling `../uya/bin/cmd/build`。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`：退出码 `1`，真实日志进入 `[MIR-C99]` 路由并稳定报 `structured_i32_preflight_fail: index=0 type=10 locals=0 exprs=0` 与 `错误: MIR-C99 unit output 写出失败`，产物未生成。
