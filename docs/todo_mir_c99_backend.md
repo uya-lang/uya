@@ -105,10 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
   - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
-  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CLEANUP-ERROR`: 补齐 `DEFER`、
-    `ERRDEFER`、`DROP` 与 `ERROR_PROPAGATION` 的 cleanup/error CFG lowering。
-    - 最小验证：cleanup/error statement focused shard 走真实 `--mir-c99` 生成、编译、运行。
-    - 完成条件：defer/errdefer/drop/error propagation 的成功和错误路径均与 C99 oracle 对齐。
   - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-AST-DRIVERS`: 补齐 AST 层
     `for` / `match` / `test` driver 入口到通用 Core/MIR statement lowering 的映射。
     - 最小验证：for、match statement 和 test driver focused shard 走真实 `--mir-c99`
