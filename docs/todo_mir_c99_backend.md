@@ -97,14 +97,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.15 Full Language Parity
 
-- [ ] `MIR-C99-FULL-SUPPORT-TEST-HARNESS-AND-NO-MAIN`: 修复 test 文件、无 main 文件和
-  helper-only 文件的 MIR-C99 入口策略，消除 no-main false positive。
-  - 覆盖范围：`test "..."` blocks、`std.testing` helper、test main wrapper、无 main
-    library/module、extern-only 或 declaration-heavy module。
-  - 验收：`tests/test_array_bounds.uya`、`tests/test_block_comment.uya` 等 test shard
-    不再靠伪 `int main(void) { return uya_mir_fn_N(); }` 成功；无 main 输入要么生成正确
-    test harness，要么给出稳定 diagnostic。
-
 - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
   - 验收：
     - `bash tests/verify_mir_c99_cli_helloworld.sh` 通过。
