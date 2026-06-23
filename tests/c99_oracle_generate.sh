@@ -63,7 +63,7 @@ trap 'rm -f "$tmp_stdout" "$tmp_stderr"' EXIT
 set +e
 (
     cd "$repo_root"
-    UYA_ROOT="$repo_root" "$compiler" --c99 "$input" -o "$output" --no-split-c --project-root "$project_root"
+    UYA_ROOT="$repo_root/lib/" "$compiler" build --c99 "$input" -o "$output" --no-split-c --project-root "$project_root"
 ) >"$tmp_stdout" 2>"$tmp_stderr"
 status=$?
 set -e

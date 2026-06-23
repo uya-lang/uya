@@ -1332,3 +1332,17 @@ Context:
       - `git diff --check`：通过。
       - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`：通过，主 todo 状态整洁。
       - 额外检查：`bash tests/verify_mir_c99_unit_output_sections.sh` 未计入本叶子验收；固定 launcher 缺少 `../uya/bin/cmd/fmt`，该脚本在 `../uya/bin/uya fmt` 处失败。
+
+### 4.15 Full Language Parity
+
+父级任务路径：
+- [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG`: 补齐 CoreStmt/AST statement 到 MIR 的通用
+  CFG lowering，而不是仅支持尾部 `return i32` 和少量表达式语句。
+  - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-SHARD-HARNESS`: 为 statement/CFG shard 固定真实
+    `--mir-c99` CLI 验证入口，使用 `../uya/bin/uya`，并检查不走 legacy fallback。
+    - 最小验证：statement shard 的 focused gate 输出 MIR-C99 C，host C99 compiler 编译运行并与 oracle 对齐。
+    - 完成条件：验证命令不依赖当前仓库 `bin/uya`、PATH 或环境覆盖。
+    - 验证命令：
+      - `bash tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh`
+      - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`
+    - 结果：通过。focused gate 使用 `/media/winger/_dde_home/winger/uya/uya-1.0/../uya/bin/uya`，真实 `build --mir-c99` 生成 statement MIR-C99 C，以 `-std=c99 -O2 -fno-builtin -Werror` 编译运行并与同一固定编译器生成的 C99 oracle 对齐；CFG frontier 仍 fail-closed，未出现 legacy fallback 证据。

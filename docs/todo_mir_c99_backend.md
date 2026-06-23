@@ -105,10 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
   - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
-  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-SHARD-HARNESS`: 为 statement/CFG shard 固定真实
-    `--mir-c99` CLI 验证入口，使用 `../uya/bin/uya`，并检查不走 legacy fallback。
-    - 最小验证：statement shard 的 focused gate 输出 MIR-C99 C，host C99 compiler 编译运行并与 oracle 对齐。
-    - 完成条件：验证命令不依赖当前仓库 `bin/uya`、PATH 或环境覆盖。
   - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CORE-STRUCTURED`: 补齐
     `LOCAL_DECL`、`ASSIGN`、`EXPR`、`RETURN`、`IF`、`WHILE` 与 block 的通用
     CoreStmt 到 PortableMIR/MIR-C99 lowering。

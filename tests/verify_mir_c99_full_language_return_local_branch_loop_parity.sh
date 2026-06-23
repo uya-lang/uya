@@ -9,6 +9,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 MATRIX_DOC="$REPO_ROOT/docs/portable_mir_language_coverage.md"
 
+bash "$REPO_ROOT/tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh"
 bash "$REPO_ROOT/tests/verify_mir_c99_cfg_parity.sh"
 bash "$REPO_ROOT/tests/verify_mir_c99_integer_value_parity.sh"
 
