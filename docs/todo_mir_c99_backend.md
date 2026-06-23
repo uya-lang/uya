@@ -108,6 +108,37 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     `MIR-C99-FULL-SUPPORT-CLI-SUITE-SRC-MAIN-DISTINCT-OUTPUTS`。
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
     失败项只剩具体 capability diagnostic，并逐项归零。
+    - 当前基线（2026-06-24，本轮）：`tests/run_programs_parallel.sh` 已修复相对
+      `UYA_COMPILER` 路径解析；`UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8
+      CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS=''
+      ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 现已进入真实 MIR-C99
+      失败面，不再停在 `line 497: ../uya/bin/uya: No such file or directory`。
+    - 本轮真实基线：`1024` 项中 `151` 通过、`873` 失败；失败分布为 `789` 个
+      `错误: MIR-C99 extern lowering 失败`、`81` 个
+      `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个
+      `错误: MIR-C99 unit output 写出失败`、`2` 个 `PortableMIR verifier 失败`。
+    - 已出现的具体 capability diagnostic：`19` 个
+      `AST_TEST_STMT / test_driver_not_lowered`，`1` 个
+      `AST_SYSCALL / syscall_requires_target_capability`。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-LOWERING-FIRST-BUCKET`:
+      让首个 generic `extern lowering 失败` 用例收敛为具体 capability diagnostic
+      或真实支持，不再停在通用报错。
+      - 验收：
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/assignment.uya -o /tmp/uya-mir-c99-main-language-extern.c`
+          不再输出 `错误: MIR-C99 extern lowering 失败`。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET`:
+      让首个 generic `PortableMIR lowering 尚未覆盖当前程序` 用例收敛为具体
+      capability diagnostic 或真实支持，不再停在通用报错。
+      - 验收：
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-main-language-portablemir.c`
+          不再输出 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT`: 在首批具体
+      bucket 收敛后重跑主语言面，更新剩余 failure matrix 和 capability diagnostic
+      分布。
+      - 验收：
+        - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
+          LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+          失败项计数下降，且通用报错按 bucket 记录到 TODO/归档。
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。

@@ -31,6 +31,27 @@ ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+resolve_tool_path() {
+    local tool_path="$1"
+
+    if [ -z "$tool_path" ] || [[ "$tool_path" == /* ]]; then
+        printf '%s\n' "$tool_path"
+        return
+    fi
+
+    if [ -e "$tool_path" ]; then
+        realpath "$tool_path" 2>/dev/null || printf '%s/%s\n' "$(pwd)" "$tool_path"
+        return
+    fi
+
+    if [ -e "$REPO_ROOT/$tool_path" ]; then
+        realpath "$REPO_ROOT/$tool_path" 2>/dev/null || printf '%s/%s\n' "$REPO_ROOT" "$tool_path"
+        return
+    fi
+
+    printf '%s\n' "$tool_path"
+}
+
 COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 TEST_DIR="$SCRIPT_DIR"
 BUILD_DIR="$TEST_DIR/build"
@@ -225,6 +246,7 @@ done
 if [ "$USE_UYA" = true ]; then
     COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 fi
+COMPILER="$(resolve_tool_path "$COMPILER")"
 
 if [ "$USE_MIR_C99" = true ]; then
     BUILD_DIR="$TEST_DIR/build_mir_c99"

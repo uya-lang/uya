@@ -1620,3 +1620,17 @@ Context:
     - `bash tests/verify_mir_c99_cli_helloworld.sh` -> `OK: uya build --mir-c99 examples/HelloWorld.uya emits and runs MIR-C99 C`
   - 补充观察：
     - `bash tests/verify_mandated_build_compiler_driver_entry.sh` 当前失败于 `src/cmd/build_bootstrap/main.uya` host C compile 裸名 `std_runtime_saved_envp` / `TYPED_PROGRAM_INVALID_ID` / `FUNCTION_SCOPE_BINDING_*`；未阻塞本叶子验收，后续如需恢复 fixed compiler 直接重建 `build_bootstrap`，需单独收口。
+
+## 4.15 Full Language Parity
+
+Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RUNNER-COMPILER-PATH`: 修复 `tests/run_programs_parallel.sh` 在 `compiler_work_dir` 中错误解析相对 `UYA_COMPILER` 的问题。
+  - 验收：
+    - `bash tests/verify_run_programs_parallel_compiler_path.sh`
+    - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+  - 结果：
+    - `bash tests/verify_run_programs_parallel_compiler_path.sh`：通过。
+    - 全量主语言面真实基线不再出现 `./tests/run_programs_parallel.sh: line 497: ../uya/bin/uya: No such file or directory`，已进入真实 MIR-C99 失败面。
+    - 汇总：`1024` 项中 `151` 通过、`873` 失败；失败分布为 `789` 个 `错误: MIR-C99 extern lowering 失败`、`81` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个 `错误: MIR-C99 unit output 写出失败`、`2` 个 `PortableMIR verifier 失败`。
+    - 已出现的具体 capability diagnostic：`19` 个 `AST_TEST_STMT / test_driver_not_lowered`，`1` 个 `AST_SYSCALL / syscall_requires_target_capability`。
