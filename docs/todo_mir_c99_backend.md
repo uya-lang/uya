@@ -117,30 +117,37 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `UYA_TEST_STDOUT_LINEBUF=1`，否则 `tests/run_programs_parallel.sh` 会自包装
       `stdbuf`，把真实 MIR-C99 失败面打成空输出 `编译失败(退出码:139)`；下列
       failure matrix 以关闭该包装后的结果为准。
-    - 本轮真实重计数：`1024` 项中 `155` 通过、`869` 失败；失败分布为 `596` 个
+    - 本轮真实重计数（2026-06-24，本轮续跑）：`1024` 项中 `155` 通过、`869` 失败；失败分布为 `596` 个
       `错误: MIR-C99 extern lowering 失败`、`263` 个
       `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个
       `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
-    - 已出现的具体 capability diagnostic：`182` 个
-      `AST_TEST_STMT / test_driver_not_lowered`、`5` 个
-      `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`5` 个
-      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`4` 个
+    - 已出现的具体 capability diagnostic（共 `202` 个）：`147` 个
+      `AST_TEST_STMT / test_driver_not_lowered`、`15` 个
+      `AST_ASM / inline_asm_requires_target_capability`、`9` 个
+      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`6` 个
+      `AST_MATCH_EXPR / match_expr_requires_expr_value_place`、`5` 个
+      `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`4` 个
+      `AST_STRING_INTERP / string_interp_requires_expr_value_place`、`4` 个
       `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个
+      `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`、`2` 个
       `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个
       `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个
+      `AST_SYSCALL / syscall_requires_target_capability`、`1` 个
+      `AST_PTR_FROM_USIZE / ptr_from_usize_requires_target_capability`、`1` 个
+      `AST_INT_LIMIT / int_limit_requires_expr_value_place`、`1` 个
+      `AST_FOR_STMT / for_driver_not_lowered`、`1` 个
       `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
-      `AST_SYSCALL / syscall_requires_target_capability`。
+      `AST_ASM_TARGET / asm_target_requires_target_capability`。
     - 子任务拆分（2026-06-24，本轮）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-GENERIC-REOPEN`:
-        在 fixed `../uya/bin/uya` 能再次重建 current-source `cmd/build` 后，重开首个 generic
-        `PortableMIR lowering 尚未覆盖当前程序` bucket。
-        - 最小验证：
-          - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-portablemir-reopen.c`
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT-NEXT`:
-        在上述 generic bucket 继续下降后重跑主语言面，更新剩余 failure matrix 与 capability
-        diagnostic 分布。
-        - 最小验证：
-          - `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+      - 进展（2026-06-24，本轮）：`tests/test_asm_const_output.uya` 已从
+        `AST_TEST_STMT / test_driver_not_lowered` 重开为
+        `AST_ASM / inline_asm_requires_target_capability`。
+      - 进展（2026-06-24，本轮续跑）：已按真实 CLI 统一重跑主语言面；`AST_TEST_STMT /
+        test_driver_not_lowered` 从 `182` 个降到 `147` 个，并显式暴露 `15` 个
+        `AST_ASM / inline_asm_requires_target_capability`。generic capability 总量仍为
+        `202` 个，同时新增 `AST_MATCH_EXPR`、`AST_STRING_INTERP`、
+        `AST_USIZE_FROM_PTR`、`AST_PTR_FROM_USIZE`、`AST_INT_LIMIT`、`AST_FOR_STMT`、
+        `AST_ASM_TARGET` 等具体 bucket。
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。
