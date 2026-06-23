@@ -97,26 +97,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.15 Full Language Parity
 
-调用 ABI / runtime/capability 的失败 handoff 已归档；后续待办继续保留为独立叶子任务：
-
-- [ ] `MIR-C99-CALL-ABI-RUNTIME-FULL-CALL-SURFACE`: 在 fixed `../uya/bin/uya` 的 real
-  `--mir-c99` 路由恢复后，按 focused real-CLI shard 收口 direct/method/function
-  pointer、interface dispatch、globals/imports 和 runtime helper 调用面。
-  - 前置说明：`MIR-C99-CALL-ABI-RUNTIME-REAL-EXTERN-CLI-ROUTE` 已转入 failed archive；
-    其余子任务必须在 fixed `../uya/bin/uya build --mir-c99 tests/extern_function.uya`
-    能进入真实 `[MIR-C99]` 路由后再继续。
-  - [ ] `MIR-C99-CALL-ABI-RUNTIME-REAL-CLI-RUNTIME-HELPER-PRINT-PARAMS-SHARDS`: 补齐
-    stdout/stderr、env/file/heap/string helper、`@print` / `@println`、
-    source-location builtins、`@params`。
-    - 最小验证：新增并运行
-      `bash tests/verify_mir_c99_runtime_helper_call_surface_real_cli.sh`，要求 fixed
-      `../uya/bin/uya` 对 runtime helper / print / params focused case 走真实
-      `[MIR-C99]`，host C99 compiler 编译运行，并与 `--c99` oracle 对齐。
-    - 完成条件：focused runtime helper / print / params case 全部转绿，且日志/产物
-      拒绝 legacy C99 fallback。
-  - 父任务验收：对应 shard 与 real `--mir-c99` CLI parity/diagnostic gate 全部转绿，
-    仍以 extern/c-import host C99 parity 为最终收口口径。
-
 - [ ] `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS`: 对暂不支持或目标相关能力
   给出稳定 MIR-C99 capability diagnostic，不再落到 generic lowering missing。
   - 覆盖范围：atomic 首版支持/拒绝边界、SIMD vector/mask 首版支持/拒绝边界、
