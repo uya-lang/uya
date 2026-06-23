@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+#
+# Focused real-CLI harness for MIR-C99 globals/import/link surface coverage.
+#
+# This gate must use ../uya/bin/uya directly. It only counts as success when:
+#   1. the parent preflight `tests/extern_function.uya` enters the real
+#      `--mir-c99` route;
+#   2. focused global-initializer, extern-global, and @c_import
+#      object/library/search-path cases all enter the real `--mir-c99` route;
+#   3. the emitted C is MIR-C99 unit-output C, not legacy C99 fallback; and
+#   4. host C compilation/linking (including .cimports.sh sidecars) matches the
+#      legacy `--c99` oracle.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPILER="$REPO_ROOT/../uya/bin/uya"
+HOST_CC="${HOST_CC:-cc}"
+HOST_AR="${AR:-ar}"
+
+if [[ ! -x "$COMPILER" ]]; then
+    echo "error: fixed MIR-C99 global/import compiler is missing or not executable: $COMPILER" >&2
+    exit 69
+fi
+if ! command -v "$HOST_CC" >/dev/null 2>&1; then
+    echo "error: host C compiler is missing: $HOST_CC" >&2
+    exit 70
+fi
+if ! command -v "$HOST_AR" >/dev/null 2>&1; then
+    echo "error: host archive tool is missing: $HOST_AR" >&2
+    exit 71
+fi
+
+tmp_dir="$(mktemp -d /tmp/uya-mir-c99-global-import-link-real-cli.XXXXXX)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+compile_c() {
+    local input_c="$1"
+    local output_bin="$2"
+    local sidecar_file="${input_c}imports.sh"
+    local object_dir="${output_bin}.objects"
+    local link_out="$tmp_dir/$(basename "$output_bin").cc.out"
+    local link_err="$tmp_dir/$(basename "$output_bin").cc.err"
+    local -a link_cmd=("$HOST_CC" -std=c99 -Wall -Wextra -pedantic "$input_c")
+    local -a cimport_objects=()
+
+    if [[ -f "$sidecar_file" ]]; then
+        mkdir -p "$object_dir"
+        # shellcheck disable=SC1090
+        . "$sidecar_file"
+        local ci=0
+        while [[ "$ci" -lt "${UYA_CIMPORT_COUNT:-0}" ]]; do
+            local src_var="UYA_CIMPORT_SRC_${ci}"
+            local cflag_count_var="UYA_CIMPORT_CFLAGC_${ci}"
+            local src_path="${!src_var}"
+            local cflag_count="${!cflag_count_var:-0}"
+            local obj_path="$object_dir/cimport_${ci}.o"
+            local -a compile_cmd=("$HOST_CC" -std=c99 -Wall -Wextra -pedantic -c)
+            local cj=0
+            while [[ "$cj" -lt "$cflag_count" ]]; do
+                local cflag_var="UYA_CIMPORT_CFLAG_${ci}_${cj}"
+                compile_cmd+=("${!cflag_var}")
+                cj=$((cj + 1))
+            done
+            compile_cmd+=("$src_path" -o "$obj_path")
+            if ! "${compile_cmd[@]}" >"$tmp_dir/$(basename "$output_bin").cimport_${ci}.out" \
+                2>"$tmp_dir/$(basename "$output_bin").cimport_${ci}.err"; then
+                echo "error: host C compile failed for sidecar import $src_path" >&2
+                cat "$tmp_dir/$(basename "$output_bin").cimport_${ci}.out" >&2 || true
+                cat "$tmp_dir/$(basename "$output_bin").cimport_${ci}.err" >&2 || true
+                exit 1
+            fi
+            cimport_objects+=("$obj_path")
+            ci=$((ci + 1))
+        done
+        link_cmd+=("${cimport_objects[@]}")
+        local ldflag_count="${UYA_CIMPORT_LDFLAGC:-0}"
+        local li=0
+        while [[ "$li" -lt "$ldflag_count" ]]; do
+            local ldflag_var="UYA_CIMPORT_LDFLAG_${li}"
+            link_cmd+=("${!ldflag_var}")
+            li=$((li + 1))
+        done
+    fi
+
+    link_cmd+=(-o "$output_bin")
+    if ! "${link_cmd[@]}" >"$link_out" 2>"$link_err"; then
+        echo "error: host C link failed for $input_c" >&2
+        cat "$link_out" >&2 || true
+        cat "$link_err" >&2 || true
+        exit 1
+    fi
+}
+
+run_binary_capture() {
+    local bin="$1"
+    local prefix="$2"
+    set +e
+    "$bin" >"$prefix.stdout" 2>"$prefix.stderr"
+    local status=$?
+    set -e
+    printf '%s\n' "$status" >"$prefix.exit"
+}
+
+build_and_compare_case() {
+    local case_name="$1"
+    local case_file="$2"
+    local mir_c="$tmp_dir/${case_name}.mir.c"
+    local mir_bin="$tmp_dir/${case_name}.mir"
+    local oracle_c="$tmp_dir/${case_name}.oracle.c"
+    local oracle_bin="$tmp_dir/${case_name}.oracle"
+    local mir_log="$tmp_dir/${case_name}.mir.log"
+    local oracle_log="$tmp_dir/${case_name}.oracle.log"
+
+    if ! "$COMPILER" build --mir-c99 "$case_file" -o "$mir_c" --no-split-c --project-root "$tmp_dir" \
+        >"$mir_log" 2>&1; then
+        echo "error: $case_name real --mir-c99 build failed before parity comparison" >&2
+        sed -n '1,160p' "$mir_log" >&2 || true
+        exit 1
+    fi
+    "$COMPILER" build --c99 "$case_file" -o "$oracle_c" --no-split-c --project-root "$tmp_dir" \
+        >"$oracle_log" 2>&1
+
+    if ! grep -q '\[MIR-C99\]' "$mir_log"; then
+        echo "error: $case_name did not enter the real --mir-c99 route" >&2
+        sed -n '1,160p' "$mir_log" >&2 || true
+        exit 1
+    fi
+    if ! grep -q 'generated by MIR-C99 unit output writer' "$mir_c"; then
+        echo "error: $case_name did not emit MIR-C99 unit-output C" >&2
+        sed -n '1,60p' "$mir_c" >&2 || true
+        exit 1
+    fi
+    if grep -q 'C99 代码由 Uya Mini 编译器生成' "$mir_c"; then
+        echo "error: $case_name real-CLI probe fell back to legacy C99 output" >&2
+        sed -n '1,60p' "$mir_c" >&2 || true
+        exit 1
+    fi
+
+    compile_c "$mir_c" "$mir_bin"
+    compile_c "$oracle_c" "$oracle_bin"
+
+    run_binary_capture "$mir_bin" "$tmp_dir/${case_name}.candidate"
+    run_binary_capture "$oracle_bin" "$tmp_dir/${case_name}.oracle"
+
+    diff -u "$tmp_dir/${case_name}.oracle.stdout" "$tmp_dir/${case_name}.candidate.stdout"
+    diff -u "$tmp_dir/${case_name}.oracle.stderr" "$tmp_dir/${case_name}.candidate.stderr"
+    diff -u "$tmp_dir/${case_name}.oracle.exit" "$tmp_dir/${case_name}.candidate.exit"
+}
+
+preflight_c="$tmp_dir/extern_function_preflight.c"
+preflight_log="$tmp_dir/extern_function_preflight.log"
+if ! "$COMPILER" build --mir-c99 "$REPO_ROOT/tests/extern_function.uya" -o "$preflight_c" \
+    >"$preflight_log" 2>&1; then
+    echo "error: fixed compiler preflight failed closed before globals/imports shard" >&2
+    sed -n '1,160p' "$preflight_log" >&2 || true
+    exit 1
+fi
+if ! grep -q '\[MIR-C99\]' "$preflight_log"; then
+    echo "error: fixed compiler preflight did not enter the real --mir-c99 route for tests/extern_function.uya" >&2
+    sed -n '1,160p' "$preflight_log" >&2 || true
+    exit 1
+fi
+if ! grep -q 'generated by MIR-C99 unit output writer' "$preflight_c"; then
+    echo "error: fixed compiler preflight did not emit MIR-C99 unit-output C" >&2
+    sed -n '1,60p' "$preflight_c" >&2 || true
+    exit 1
+fi
+if grep -q 'C99 代码由 Uya Mini 编译器生成' "$preflight_c"; then
+    echo "error: fixed compiler preflight fell back to legacy C99 output" >&2
+    sed -n '1,60p' "$preflight_c" >&2 || true
+    exit 1
+fi
+
+mkdir -p "$tmp_dir/c_import"
+
+cat >"$tmp_dir/global_initializer.uya" <<'UYA'
+var global_values: [i32: 4] = [3, 5, 8, 13];
+
+export fn main() i32 {
+    return global_values[0] + global_values[2] + global_values[3];
+}
+UYA
+
+cat >"$tmp_dir/c_import/globals.c" <<'C_EOF'
+int external_counter = 17;
+int imported_bias(void) {
+    return 6;
+}
+C_EOF
+
+cat >"$tmp_dir/extern_global.uya" <<'UYA'
+@c_import("c_import/globals.c");
+
+extern var external_counter: i32;
+extern fn imported_bias() i32;
+
+export fn main() i32 {
+    return external_counter + imported_bias();
+}
+UYA
+
+cat >"$tmp_dir/c_import/object_impl.c" <<'C_EOF'
+int object_value(void) {
+    return 11;
+}
+C_EOF
+
+cat >"$tmp_dir/c_import/library_impl.c" <<'C_EOF'
+int library_value(void) {
+    return 31;
+}
+C_EOF
+
+"$HOST_CC" -std=c99 -Wall -Wextra -pedantic -c \
+    "$tmp_dir/c_import/library_impl.c" -o "$tmp_dir/c_import/library_impl.o"
+"$HOST_AR" rcs "$tmp_dir/c_import/libanswer.a" "$tmp_dir/c_import/library_impl.o"
+
+cat >"$tmp_dir/c_import_link_inputs.uya" <<UYA
+@c_import("c_import/object_impl.c", "", "-L$tmp_dir/c_import -lanswer");
+
+extern fn object_value() i32;
+extern fn library_value() i32;
+
+export fn main() i32 {
+    return object_value() + library_value();
+}
+UYA
+
+build_and_compare_case global_initializer "$tmp_dir/global_initializer.uya"
+build_and_compare_case extern_global "$tmp_dir/extern_global.uya"
+build_and_compare_case c_import_link_inputs "$tmp_dir/c_import_link_inputs.uya"
+
+echo "OK: MIR-C99 real CLI global/import/link surface parity matched C99 oracle"
