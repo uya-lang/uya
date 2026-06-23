@@ -18,6 +18,17 @@ CMD_BUILD_STDERR="$TMP_DIR/cmd-build.err"
 HELP_STDOUT="$TMP_DIR/help.out"
 HELP_STDERR="$TMP_DIR/help.err"
 
+reject_pattern() {
+    local file="$1"
+    local pattern="$2"
+    local description="$3"
+    if grep -Eq "$pattern" "$file"; then
+        echo "error: unexpected ${description}: $file" >&2
+        cat "$file" >&2
+        exit 1
+    fi
+}
+
 if [[ ! -x "$MANDATED_COMPILER" ]]; then
     echo "error: missing mandated compiler: $MANDATED_COMPILER" >&2
     exit 1
@@ -27,11 +38,23 @@ UYA_ROOT="$REPO_ROOT" "$MANDATED_COMPILER" build "$BOOTSTRAP_ENTRY" \
     -o "$BOOTSTRAP_BIN" --project-root "$REPO_ROOT/src/" --no-split-c \
     >"$BOOTSTRAP_STDOUT" 2>"$BOOTSTRAP_STDERR"
 test -x "$BOOTSTRAP_BIN"
+reject_pattern "$BOOTSTRAP_STDERR" "error:.*\\bO_RDONLY\\b" \
+    "bootstrap host C compile still references bare O_RDONLY"
+reject_pattern "$BOOTSTRAP_STDERR" "error:.*\\bSYS_[A-Za-z0-9_]+\\b" \
+    "bootstrap host C compile still references bare SYS_* constants"
+reject_pattern "$BOOTSTRAP_STDERR" "error:.*\\bEPOLL_[A-Za-z0-9_]+\\b" \
+    "bootstrap host C compile still references bare EPOLL_* constants"
 
 UYA_ROOT="$REPO_ROOT" "$BOOTSTRAP_BIN" build "$CMD_BUILD_ENTRY" \
     -o "$CMD_BUILD_BIN" --project-root "$REPO_ROOT/src/" --no-split-c \
     >"$CMD_BUILD_STDOUT" 2>"$CMD_BUILD_STDERR"
 test -x "$CMD_BUILD_BIN"
+reject_pattern "$CMD_BUILD_STDERR" "error:.*\\bO_RDONLY\\b" \
+    "cmd/build host C compile still references bare O_RDONLY"
+reject_pattern "$CMD_BUILD_STDERR" "error:.*\\bSYS_[A-Za-z0-9_]+\\b" \
+    "cmd/build host C compile still references bare SYS_* constants"
+reject_pattern "$CMD_BUILD_STDERR" "error:.*\\bEPOLL_[A-Za-z0-9_]+\\b" \
+    "cmd/build host C compile still references bare EPOLL_* constants"
 
 set +e
 UYA_ROOT="$REPO_ROOT" "$CMD_BUILD_BIN" --help >"$HELP_STDOUT" 2>"$HELP_STDERR"

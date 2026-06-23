@@ -99,19 +99,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 调用 ABI / runtime/capability 的失败 handoff 已归档；后续待办继续保留为独立叶子任务：
 
-- [ ] `MIR-C99-CALL-ABI-RUNTIME-CURRENT-SOURCE-CMD-BUILD-BOOTSTRAP`: 先修通
-  `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya`
-  的 current-source build CLI 产出链路，解决 legacy C99 bootstrap 生成的
-  `libc_*` 常量在 host C 编译阶段仍被裸 `O_RDONLY` / `SYS_*` / `EPOLL_*` /
-  socket syscall 名引用的问题。
-  - 覆盖范围：`src/cmd/build_bootstrap/main.uya` mandated compiler 入口、
-    `src/cmd/build/main.uya` current-source build-only CLI、bootstrap 生成的
-    current-source `cmd/build` host C compile/link。
-  - 验收：`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya`
-    `-o /tmp/build-bootstrap --project-root "$PWD/src/" --no-split-c` 通过；
-    `UYA_ROOT="$PWD" /tmp/build-bootstrap build src/cmd/build/main.uya`
-    `-o /tmp/cmd-build --project-root "$PWD/src/" --no-split-c` 通过；
-    `/tmp/cmd-build --help` 退出码为 `0`。
 - [ ] `MIR-C99-CALL-ABI-RUNTIME-EXTERN-SYMBOL-AND-UNIT-OUTPUT`: 补齐 extern symbol/prototype
   metadata 与 unit output call/prototype 写出，让 `tests/extern_function.uya` 不再失败于
   unit output write。

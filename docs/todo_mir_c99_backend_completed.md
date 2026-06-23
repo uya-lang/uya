@@ -1463,3 +1463,38 @@ Context:
       candidate 对 f32/f64、char、string、null、`@max/@min`、基础 string interp 和
       `@params` value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐。
     - `git diff --check` 通过。
+### 4.15 Full Language Parity
+
+任务路径：`MIR-C99-FULL-SUPPORT-CALL-ABI-RUNTIME`
+
+- [x] `MIR-C99-CALL-ABI-RUNTIME-EXTERN-I32-SIGNATURE-METADATA`: 让 current-source
+  PortableMIR extern lowering 对 `extern fn add(a: i32, b: i32) i32;` 这类标量 extern
+  声明生成真实 function type / param ABI metadata，不再复用无参 placeholder signature。
+  - 覆盖范围：`native_build_hosted_mir_append_extern_function`、extern `MirFunction.signature_type_id`、
+    `MirFunctionParamType`、`MIR_CALL_FLAG_MULTI_PARAM` 所需的 signature field/param metadata。
+  - 验证：`bash tests/verify_mir_c99_extern_i32_signature_metadata.sh` 通过；其中包含
+    `bash tests/verify_portable_mir_call_abi_metadata_inventory.sh` 通过，以及
+    `UYA_ROOT="$REPO_ROOT/lib/" ../uya/bin/uya build src/cmd/build/main.uya -o <tmp>/cmd-build.c --no-split-c --project-root src/`
+    通过；`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`
+    通过；`git diff --check` 通过。
+
+### 4.15 Full Language Parity
+
+- [x] `MIR-C99-CALL-ABI-RUNTIME-CURRENT-SOURCE-CMD-BUILD-BOOTSTRAP`: 先修通
+  `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya`
+  的 current-source build CLI 产出链路，解决 legacy C99 bootstrap 生成的
+  `libc_*` 常量在 host C 编译阶段仍被裸 `O_RDONLY` / `SYS_*` / `EPOLL_*` /
+  socket syscall 名引用的问题。
+  - 覆盖范围：`src/cmd/build_bootstrap/main.uya` mandated compiler 入口、
+    `src/cmd/build/main.uya` current-source build-only CLI、bootstrap 生成的
+    current-source `cmd/build` host C compile/link。
+  - 实现：补强 `tests/verify_mandated_build_compiler_driver_entry.sh`，在既有
+    `../uya/bin/uya -> build_bootstrap -> cmd/build --help` gate 上额外拒绝 host C
+    编译日志中的裸 `O_RDONLY` / `SYS_*` / `EPOLL_*` 编译错误。
+  - 验证：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过。
+    `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya -o /tmp/build-bootstrap --project-root "$PWD/src/" --no-split-c`
+    通过。
+    `UYA_ROOT="$PWD" /tmp/build-bootstrap build src/cmd/build/main.uya -o /tmp/cmd-build --project-root "$PWD/src/" --no-split-c`
+    通过。
+    `/tmp/cmd-build --help` 退出码为 `0`，输出包含 `Uya build compiler` 与 `用法:`。
+    额外 smoke：使用 current-source `/tmp/cmd-build` 生成临时 `return7.bin`，产物运行退出码为 `7`。
