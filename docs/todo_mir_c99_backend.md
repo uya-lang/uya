@@ -99,13 +99,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 调用 ABI / runtime/capability 的失败 handoff 已归档；后续待办继续保留为独立叶子任务：
 
-- [ ] `MIR-C99-CALL-ABI-RUNTIME-EXTERN-SYMBOL-AND-UNIT-OUTPUT`: 补齐 extern symbol/prototype
-  metadata 与 unit output call/prototype 写出，让 `tests/extern_function.uya` 不再失败于
-  unit output write。
-  - 覆盖范围：extern function C symbol/prototype metadata、extern call expression emission、
-    `tests/extern_function.uya` 的 real `--mir-c99` unit output。
-  - 验收：`../uya/bin/uya build --mir-c99 tests/extern_function.uya -o <tmp>/extern_function.c`
-    进入真实 `[MIR-C99]` 路由；host C99 compiler 可编译并与 C99 oracle 对齐。
 - [ ] `MIR-C99-CALL-ABI-RUNTIME-FULL-CALL-SURFACE`: 在 extern 路径打通后补齐 direct call、
   method/monomorphized call、interface vtable dispatch、generic interface dispatch、
   function pointer call、aggregate return/out-param、error-union return、float/double ABI、

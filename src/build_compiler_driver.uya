@@ -29793,6 +29793,46 @@ fn native_build_hosted_mir_function_signature_type(type_id: i32,
         flags: MIR_CALL_CONV_C,
     };
 }
+fn native_build_hosted_mir_append_extern_i32_signature_type(
+    module: &PortableMirModule, decl: &ASTNode, out_signature_type_id: &i32) i32 {
+    if out_signature_type_id != null {
+        *out_signature_type_id = MIR_TYPE_INVALID_ID;
+    }
+    if module == null || decl == null || decl.type != ASTNodeType.AST_FN_DECL ||
+       decl.fn_decl_name == null || decl.fn_decl_is_extern == 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || out_signature_type_id == null ||
+       native_build_type_is_i32(decl.fn_decl_return_type) == 0 {
+        return -1;
+    }
+    if decl.fn_decl_param_count > 0 && decl.fn_decl_params == null {
+        return -1;
+    }
+    var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
+        return -1;
+    }
+    const signature_type_id: i32 = module.type_count as i32;
+    const param_start: i32 = module.function_param_type_count as i32;
+    var i: i32 = 0;
+    while i < decl.fn_decl_param_count {
+        const param: &ASTNode = decl.fn_decl_params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL ||
+           native_build_type_is_i32(param.var_decl_type) == 0 ||
+           native_build_hosted_mir_append_function_param_type(module,
+               signature_type_id, i, i32_type_id) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    var signature: MirType = native_build_hosted_mir_function_signature_type(
+        signature_type_id, i32_type_id, param_start, decl.fn_decl_param_count);
+    if portable_mir_append_type(module, &signature) != 0 {
+        return -1;
+    }
+    *out_signature_type_id = signature_type_id;
+    return 0;
+}
 fn native_build_hosted_mir_append_hosted_helper_signature_type(
     module: &PortableMirModule, synth_decl_id: i32,
     out_signature_type_id: &i32) i32 {
@@ -29943,12 +29983,13 @@ fn native_build_hosted_mir_append_hosted_print_helpers(module: &PortableMirModul
     return 0;
 }
 fn native_build_hosted_mir_append_extern_function(module: &PortableMirModule,
-    decl_index: i32) i32 {
-    if module == null || decl_index < 0 {
+    decl_index: i32, decl: &ASTNode) i32 {
+    if module == null || decl_index < 0 || decl == null {
         return -1;
     }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+    if native_build_hosted_mir_append_extern_i32_signature_type(module, decl,
+        &signature_type_id) != 0 {
         return -1;
     }
     const function_id: i32 = module.function_count as i32;
@@ -29994,7 +30035,7 @@ fn native_build_hosted_mir_append_program_externs(module: &PortableMirModule,
     while i < program.program_decl_count {
         const decl: &ASTNode = program.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_extern != 0 {
-            if native_build_hosted_mir_append_extern_function(module, i) != 0 {
+            if native_build_hosted_mir_append_extern_function(module, i, decl) != 0 {
                 return -1;
             }
         }
@@ -53744,6 +53785,37 @@ fn mir_c99_write_unit_output_file(output_path: &byte,
     return 0;
 }
 
+fn native_build_mir_c99_bind_extern_symbol_names(module: &PortableMirModule,
+    cfg_plan: &MirC99CfgPlan, program: &ASTNode) i32 {
+    if module == null || cfg_plan == null || program == null ||
+       program.type != ASTNodeType.AST_PROGRAM || program.program_decls == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction = semantic_vector_item_ptr(&module.functions,
+            i) as &MirFunction;
+        if function != null && (function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+            if function.decl_id < 0 {
+                i = i + 1usize;
+                continue;
+            }
+            if function.decl_id >= program.program_decl_count {
+                return -1;
+            }
+            const decl: &ASTNode = program.program_decls[function.decl_id];
+            if decl == null || decl.type != ASTNodeType.AST_FN_DECL ||
+               decl.fn_decl_is_extern == 0 || decl.fn_decl_name == null ||
+               mir_c99_cfg_bind_extern_symbol_name(cfg_plan, function.function_id,
+                    decl.fn_decl_name) != 0 {
+                return -1;
+            }
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
     out_kind: & & byte, out_reason: & & byte, out_file: & & byte,
     out_line: &i32) i32 {
@@ -54115,6 +54187,14 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
        driver_result.status != MIR_C99_DRIVER_STATUS_DONE {
         fprintf(libc.stderr, "错误: MIR-C99 driver 失败: %d\n" as *byte,
             driver_result.diagnostic_code);
+        mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
+            &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
+        portable_mir_module_release(&module);
+        return 1;
+    }
+    if native_build_mir_c99_bind_extern_symbol_names(&module, &cfg_plan,
+        program) != 0 {
+        fprintf(libc.stderr, "错误: MIR-C99 extern symbol 绑定失败\n" as *byte);
         mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
             &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
         portable_mir_module_release(&module);

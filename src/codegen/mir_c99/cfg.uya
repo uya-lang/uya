@@ -45,6 +45,7 @@ export struct MirC99FunctionPlanEntry {
     unit_id: i32,
     c_name_source_id: i32,
     signature_type_id: MirTypeId,
+    extern_symbol_name: &byte,
     block_start: i32,
     block_count: i32,
     entry_block_id: MirBlockId,
@@ -203,6 +204,7 @@ fn mir_c99_cfg_function_entry_from_mir(function: &MirFunction, unit_id: i32) Mir
             unit_id: unit_id,
             c_name_source_id: MIR_FUNCTION_INVALID_ID,
             signature_type_id: MIR_TYPE_INVALID_ID,
+            extern_symbol_name: null,
             block_start: -1,
             block_count: 0,
             entry_block_id: MIR_BLOCK_INVALID_ID,
@@ -219,6 +221,7 @@ fn mir_c99_cfg_function_entry_from_mir(function: &MirFunction, unit_id: i32) Mir
         unit_id: unit_id,
         c_name_source_id: function.function_id,
         signature_type_id: function.signature_type_id,
+        extern_symbol_name: null,
         block_start: function.block_start,
         block_count: function.block_count,
         entry_block_id: function.entry_block_id,
@@ -1443,6 +1446,28 @@ export fn mir_c99_cfg_function_entry_ptr(cfg_plan: &MirC99CfgPlan, index: i32) &
         return null;
     }
     return semantic_vector_item_ptr(&cfg_plan.functions, index as usize) as &MirC99FunctionPlanEntry;
+}
+
+/// 功能说明：为指定 MIR function 绑定 extern C 符号名。
+/// 参数说明：`cfg_plan` 为 CFG plan，`function_id` 为目标函数，`symbol_name` 为 extern C 符号文本。
+/// 返回值说明：成功返回 `0`，参数非法、未找到函数或符号名为空返回 `-1`。
+export fn mir_c99_cfg_bind_extern_symbol_name(cfg_plan: &MirC99CfgPlan,
+    function_id: MirFunctionId, symbol_name: &byte) i32 {
+    if cfg_plan == null || function_id == MIR_FUNCTION_INVALID_ID ||
+       symbol_name == null || symbol_name[0] == 0 as byte {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < cfg_plan.functions.count {
+        const entry: &MirC99FunctionPlanEntry =
+            semantic_vector_item_ptr(&cfg_plan.functions, i) as &MirC99FunctionPlanEntry;
+        if entry != null && entry.function_id == function_id {
+            entry.extern_symbol_name = symbol_name;
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    return -1;
 }
 
 /// 功能说明：按下标读取 MIR-C99 block plan 条目。
