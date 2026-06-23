@@ -88,3 +88,26 @@
     - 阻塞命令：`../uya/bin/uya --version`
     - 关键错误：`/bin/bash: line 1: ../uya/bin/uya: No such file or directory`；`ls ../uya/bin` -> `No such file or directory`。
     - 后续重开条件：在仓库根目录相对路径提供可执行 `../uya/bin/uya` 后，重开此任务，从真实 CLI 入口 TDD 和最小验证继续。
+
+### 2026-06-23 - Full Language Parity / Statement CFG
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`
+
+  - [f] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-BASELINE`: 在固定编译器路径
+    `../uya/bin/uya` 下建立真实 `--mir-c99` statement/CFG shard 基线，覆盖
+    local decl、assign、if、while、loop backedge 和 return，不允许走 legacy fallback。
+    - 最小验证：`test -x ../uya/bin/uya`；
+      `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`
+    - 完成条件：固定路径编译器存在，statement/CFG shard 由真实 `--mir-c99`
+      生成 `.c`，经 host C99 compiler 编译运行通过，并能从日志确认未走 legacy fallback。
+    - 失败原因：本轮硬约束要求所有 Uya 验证、构建、测试、运行都使用项目根目录相对路径
+      `../uya/bin/uya`，但该路径当前不存在；不能用本仓库 `bin/uya`、PATH 上的
+      `uya` 或环境变量覆盖替代，因此无法进入 statement/CFG shard 的真实 `--mir-c99`
+      TDD 验证。
+    - 阻塞命令：`../uya/bin/uya --version`
+    - 关键错误：`/bin/bash: line 1: ../uya/bin/uya: No such file or directory`
+    - 已运行检查：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`
+      在拆分后通过；`test -x ../uya/bin/uya` 返回 1。
+    - 后续重开条件：在当前仓库根目录相对路径提供可执行 `../uya/bin/uya` 后，重开此
+      baseline 子任务，先新增/运行 statement/CFG shard 的 failing test，再实现真实
+      `--mir-c99` CFG lowering。
