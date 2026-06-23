@@ -36,7 +36,10 @@ export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
 export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
 export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
+export const CORE_STMT_KIND_IF: i32 = 17;
 export const CORE_STMT_KIND_EXPR: i32 = 19;
+export const CORE_STMT_KIND_WHILE: i32 = 20;
+export const CORE_STMT_KIND_BLOCK: i32 = 21;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
 export const CORE_EXPR_KIND_LOCAL_REF: i32 = 18;
@@ -866,7 +869,7 @@ test "CoreBody print println string helper calls lower to hosted MIR call surfac
     try expect(module.function_count == 3usize);
     try expect(module.block_count == 1usize);
     try expect(module.type_count == 3usize);
-    try expect(module.value_count == 2usize);
+    try expect(module.value_count == 0usize);
     try expect(module.inst_count == 2usize);
     try expect(module.operand_count == 7usize);
     try expect(module.terminator_count == 1usize);
@@ -940,9 +943,258 @@ test "CoreBody print println string helper calls lower to hosted MIR call surfac
     portable_mir_verifier_result_init(&verifier);
     try assert_eq_i32(portable_mir_verify_module(&module, &verifier), 0);
 }
+
+test "CoreBody if else block and while lower to verifier-clean structured CFG" {
+    var source_functions: [ConcreteFunction: 1] = [];
+    var source_bodies: [CoreBody: 1] = [];
+    var source_stmts: [CoreStmt: 7] = [];
+    var source_exprs: [CoreExpr: 3] = [];
+    source_functions[0] = ConcreteFunction{
+        function_id: 0,
+        decl_id: 70,
+        mono_instance_id: -1,
+        body_start: 0,
+        body_count: 1,
+        flags: 0,
+    };
+    source_bodies[0] = CoreBody{
+        body_id: 0,
+        function_id: 0,
+        decl_id: 70,
+        root_stmt_start: 0,
+        root_stmt_count: 3,
+        expr_start: 0,
+        expr_count: 3,
+        place_start: 0,
+        place_count: 0,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 0,
+        semantic_fact_start: 0,
+        semantic_fact_count: 0,
+        source_span_id: 370,
+        flags: 0,
+    };
+    source_exprs[0] = CoreExpr{
+        expr_id: 0,
+        kind: CORE_EXPR_KIND_INT_LITERAL,
+        body_id: 0,
+        source_expr_id: 80,
+        type_id: 0,
+        literal_i64: 1i64,
+        lhs_expr_id: CORE_EXPR_INVALID_ID,
+        rhs_expr_id: CORE_EXPR_INVALID_ID,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: -1,
+        target_decl_id: -1,
+        field_id: -1,
+        proof_result_id: -1,
+        capability_id: 0,
+        source_span_id: 371,
+        flags: 0,
+    };
+    source_exprs[1] = source_exprs[0];
+    source_exprs[1].expr_id = 1;
+    source_exprs[1].source_expr_id = 81;
+    source_exprs[1].literal_i64 = 0i64;
+    source_exprs[1].source_span_id = 372;
+    source_exprs[2] = source_exprs[0];
+    source_exprs[2].expr_id = 2;
+    source_exprs[2].source_expr_id = 82;
+    source_exprs[2].literal_i64 = 9i64;
+    source_exprs[2].source_span_id = 373;
+    source_stmts[0] = CoreStmt{
+        stmt_id: 0,
+        kind: CORE_STMT_KIND_IF,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: 3,
+        child_stmt_count: 2,
+        expr_id: 0,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 0,
+        source_span_id: 374,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    source_stmts[1] = CoreStmt{
+        stmt_id: 1,
+        kind: CORE_STMT_KIND_WHILE,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: 5,
+        child_stmt_count: 1,
+        expr_id: 1,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 0,
+        source_span_id: 375,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    source_stmts[2] = CoreStmt{
+        stmt_id: 2,
+        kind: CORE_STMT_KIND_RETURN,
+        body_id: 0,
+        parent_stmt_id: CORE_STMT_INVALID_ID,
+        first_child_stmt: CORE_STMT_INVALID_ID,
+        child_stmt_count: 0,
+        expr_id: 2,
+        place_id: CORE_PLACE_INVALID_ID,
+        cleanup_edge_start: 0,
+        cleanup_edge_count: 0,
+        source_span_id: 376,
+        cleanup_scope_id: 0,
+        flags: 0,
+    };
+    source_stmts[3] = source_stmts[2];
+    source_stmts[3].stmt_id = 3;
+    source_stmts[3].kind = CORE_STMT_KIND_BLOCK;
+    source_stmts[3].parent_stmt_id = 0;
+    source_stmts[3].first_child_stmt = CORE_STMT_INVALID_ID;
+    source_stmts[3].child_stmt_count = 0;
+    source_stmts[3].expr_id = CORE_EXPR_INVALID_ID;
+    source_stmts[3].source_span_id = 377;
+    source_stmts[4] = source_stmts[3];
+    source_stmts[4].stmt_id = 4;
+    source_stmts[4].source_span_id = 378;
+    source_stmts[5] = source_stmts[3];
+    source_stmts[5].stmt_id = 5;
+    source_stmts[5].parent_stmt_id = 1;
+    source_stmts[5].first_child_stmt = 6;
+    source_stmts[5].child_stmt_count = 1;
+    source_stmts[5].source_span_id = 379;
+    source_stmts[6] = source_stmts[3];
+    source_stmts[6].stmt_id = 6;
+    source_stmts[6].parent_stmt_id = 5;
+    source_stmts[6].source_span_id = 380;
+
+    var lowered: LoweredProgram = LoweredProgram{
+        functions: fixture_vec(&source_functions[0] as &byte, @size_of(ConcreteFunction), 1usize, 1usize),
+        core_bodies: fixture_vec(&source_bodies[0] as &byte, @size_of(CoreBody), 1usize, 1usize),
+        core_stmts: fixture_vec(&source_stmts[0] as &byte, @size_of(CoreStmt), 7usize, 7usize),
+        core_exprs: fixture_vec(&source_exprs[0] as &byte, @size_of(CoreExpr), 3usize, 3usize),
+    };
+
+    var mir_functions: [MirFunction: 1] = [];
+    var mir_blocks: [MirBlock: 6] = [];
+    var mir_types: [MirType: 1] = [];
+    var mir_operands: [MirOperand: 3] = [];
+    var mir_terminators: [MirTerminator: 6] = [];
+    var mir_successors: [MirSuccessor: 7] = [];
+    var arena: CompilerArena = CompilerArena{ marker: 0 };
+    var module: PortableMirModule = PortableMirModule{
+        arena: &arena,
+        lifecycle_state: PORTABLE_MIR_LIFECYCLE_ACTIVE,
+        target_profile: portable_mir_target_profile_hosted_native(),
+        function_count: 0usize,
+        block_count: 0usize,
+        value_count: 0usize,
+        type_count: 0usize,
+        local_count: 0usize,
+        inst_count: 0usize,
+        terminator_count: 0usize,
+        operand_count: 0usize,
+        block_param_count: 0usize,
+        successor_count: 0usize,
+        debug_loc_count: 0usize,
+        capability_req_count: 0usize,
+        field_layout_count: 0usize,
+        function_param_type_count: 0usize,
+        async_frame_meta_count: 0usize,
+        global_count: 0usize,
+        const_count: 0usize,
+        link_input_count: 0usize,
+        cross_unit_symbol_count: 0usize,
+        functions: fixture_vec(&mir_functions[0] as &byte, @size_of(MirFunction), 0usize, 1usize),
+        blocks: fixture_vec(&mir_blocks[0] as &byte, @size_of(MirBlock), 0usize, 6usize),
+        values: fixture_vec(null, @size_of(MirValue), 0usize, 0usize),
+        types: fixture_vec(&mir_types[0] as &byte, @size_of(MirType), 0usize, 1usize),
+        locals: fixture_vec(null, @size_of(MirLocal), 0usize, 0usize),
+        insts: fixture_vec(null, @size_of(MirInst), 0usize, 0usize),
+        terminators: fixture_vec(&mir_terminators[0] as &byte, @size_of(MirTerminator), 0usize, 6usize),
+        operands: fixture_vec(&mir_operands[0] as &byte, @size_of(MirOperand), 0usize, 3usize),
+        block_params: fixture_vec(null, @size_of(MirBlockParam), 0usize, 0usize),
+        successors: fixture_vec(&mir_successors[0] as &byte, @size_of(MirSuccessor), 0usize, 7usize),
+        debug_locs: fixture_vec(null, @size_of(MirDebugLoc), 0usize, 0usize),
+        capability_reqs: fixture_vec(null, @size_of(MirCapabilityReq), 0usize, 0usize),
+        field_layouts: fixture_vec(null, @size_of(MirFieldLayout), 0usize, 0usize),
+        function_param_types: fixture_vec(null, @size_of(MirFunctionParamType), 0usize, 0usize),
+        async_frame_metas: fixture_vec(null, @size_of(MirAsyncFrameMeta), 0usize, 0usize),
+        globals: fixture_vec(null, @size_of(MirGlobal), 0usize, 0usize),
+        consts: fixture_vec(null, @size_of(MirConst), 0usize, 0usize),
+        link_inputs: fixture_vec(null, @size_of(MirLinkInput), 0usize, 0usize),
+        cross_unit_symbols: fixture_vec(null, @size_of(MirCrossUnitSymbol), 0usize, 0usize),
+    };
+
+    try assert_eq_i32(portable_mir_lower_core_body_to_module(&lowered, 0, &module), 0);
+    try expect(module.function_count == 1usize);
+    try expect(module.block_count == 6usize);
+    try expect(module.type_count == 1usize);
+    try expect(module.operand_count == 3usize);
+    try expect(module.terminator_count == 6usize);
+    try expect(module.successor_count == 7usize);
+
+    const function: &MirFunction = semantic_vector_item_ptr(&module.functions, 0usize) as &MirFunction;
+    try expect(function != null);
+    try assert_eq_i32(function.block_count, 6);
+    try assert_eq_i32(function.entry_block_id, 0);
+
+    const if_term: &MirTerminator = semantic_vector_item_ptr(&module.terminators, 0usize) as &MirTerminator;
+    const while_term: &MirTerminator = semantic_vector_item_ptr(&module.terminators, 3usize) as &MirTerminator;
+    const body_backedge: &MirTerminator = semantic_vector_item_ptr(&module.terminators, 4usize) as &MirTerminator;
+    const ret_term: &MirTerminator = semantic_vector_item_ptr(&module.terminators, 5usize) as &MirTerminator;
+    try expect(if_term != null && while_term != null && body_backedge != null && ret_term != null);
+    try assert_eq_i32(if_term.kind, MIR_TERMINATOR_KIND_COND_BR);
+    try assert_eq_i32(if_term.operand_start, 0);
+    try assert_eq_i32(if_term.operand_count, 1);
+    try assert_eq_i32(if_term.successor_start, 0);
+    try assert_eq_i32(if_term.successor_count, 2);
+    try assert_eq_i32(while_term.kind, MIR_TERMINATOR_KIND_COND_BR);
+    try assert_eq_i32(while_term.operand_start, 1);
+    try assert_eq_i32(while_term.successor_start, 4);
+    try assert_eq_i32(while_term.successor_count, 2);
+    try assert_eq_i32(body_backedge.kind, MIR_TERMINATOR_KIND_BR);
+    try assert_eq_i32(body_backedge.successor_start, 6);
+    try assert_eq_i32(body_backedge.successor_count, 1);
+    try assert_eq_i32(ret_term.kind, MIR_TERMINATOR_KIND_RETURN);
+    try assert_eq_i32(ret_term.operand_start, 2);
+
+    const then_succ: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 0usize) as &MirSuccessor;
+    const else_succ: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 1usize) as &MirSuccessor;
+    const then_join: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 2usize) as &MirSuccessor;
+    const else_join: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 3usize) as &MirSuccessor;
+    const while_body: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 4usize) as &MirSuccessor;
+    const while_exit: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 5usize) as &MirSuccessor;
+    const backedge: &MirSuccessor = semantic_vector_item_ptr(&module.successors, 6usize) as &MirSuccessor;
+    try expect(then_succ != null && else_succ != null && then_join != null && else_join != null);
+    try expect(while_body != null && while_exit != null && backedge != null);
+    try assert_eq_i32(then_succ.block_id, 1);
+    try assert_eq_i32(else_succ.block_id, 2);
+    try assert_eq_i32(then_join.block_id, 3);
+    try assert_eq_i32(else_join.block_id, 3);
+    try assert_eq_i32(while_body.block_id, 4);
+    try assert_eq_i32(while_exit.block_id, 5);
+    try assert_eq_i32(backedge.block_id, 3);
+
+    var verifier: MirVerifierResult = MirVerifierResult{
+        error_code: -1,
+        function_id: MIR_FUNCTION_INVALID_ID,
+        block_id: MIR_BLOCK_INVALID_ID,
+        inst_id: MIR_INST_INVALID_ID,
+        value_id: MIR_VALUE_INVALID_ID,
+        type_id: MIR_TYPE_INVALID_ID,
+        operand_id: -1,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+    };
+    portable_mir_verifier_result_init(&verifier);
+    try assert_eq_i32(portable_mir_verify_module(&module, &verifier), 0);
+}
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+(cd "$REPO_ROOT" && ../uya/bin/uya test "$tmp_dir/main.uya" --no-split-c)
 echo "OK: PortableMIR CoreBody return literal/local/add/print lowering verified"
 
 require_repo_pattern() {

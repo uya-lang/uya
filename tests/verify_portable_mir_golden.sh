@@ -85,7 +85,10 @@ export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
 export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
 export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
+export const CORE_STMT_KIND_IF: i32 = 17;
 export const CORE_STMT_KIND_EXPR: i32 = 19;
+export const CORE_STMT_KIND_WHILE: i32 = 20;
+export const CORE_STMT_KIND_BLOCK: i32 = 21;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
 export const CORE_EXPR_KIND_LOCAL_REF: i32 = 18;
@@ -839,7 +842,7 @@ bb#2 f=0 params=0+0 insts=6+3 term=2 flags=0
 bb#3 f=0 params=0+0 insts=9+0 term=3 flags=1
 EOF
 
-if ! (cd "$REPO_ROOT" && ./bin/uya build "$tmp_dir/main.uya" -o "$tmp_dir/mir-golden" \
+if ! (cd "$REPO_ROOT" && ../uya/bin/uya build "$tmp_dir/main.uya" -o "$tmp_dir/mir-golden" \
     --no-split-c --project-root "$tmp_dir" >"$build_out" 2>"$build_err"); then
     cat "$build_out" >&2
     cat "$build_err" >&2

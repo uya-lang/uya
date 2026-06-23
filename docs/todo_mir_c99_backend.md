@@ -109,11 +109,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     `WHILE`、block、`break` / `continue` 的 CoreStmt 到 PortableMIR CFG lowering。
     - 最小验证：新增或更新 statement/CFG shard，并让结构化控制流用例通过。
     - 完成条件：分支、循环 backedge、break/continue 均生成 verifier-clean MIR-C99 C。
-    - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-IF-WHILE`:
-      将 `IF`、`WHILE`、block 的 CoreStmt 树 lowering 到 PortableMIR multi-block
-      CFG、`COND_BR`、loop backedge 和 verifier-clean successor 表。
-      - 最小验证：新增或更新 PortableMIR CoreBody CFG lowering shard。
-      - 完成条件：if/else、嵌套 block、while backedge 生成 verifier-clean PortableMIR。
     - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-BREAK-CONTINUE`:
       接通 `break` / `continue` 到当前 loop 的 break/continue target block。
       - 最小验证：新增 break/continue loop CoreBody CFG lowering shard。

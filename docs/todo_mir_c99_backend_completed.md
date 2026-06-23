@@ -1243,3 +1243,19 @@ Context:
         `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`；
         `bash -n tests/verify_lowered_program_core_verifier.sh tests/verify_portable_mir_lowering_contract.sh`；
         `git diff --check`。
+
+### 4.15 Full Language Parity
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG` -> `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED`
+
+    - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-IF-WHILE`:
+      将 `IF`、`WHILE`、block 的 CoreStmt 树 lowering 到 PortableMIR multi-block
+      CFG、`COND_BR`、loop backedge 和 verifier-clean successor 表。
+      - 最小验证：新增或更新 PortableMIR CoreBody CFG lowering shard。
+      - 完成条件：if/else、嵌套 block、while backedge 生成 verifier-clean PortableMIR。
+      - 验证记录（2026-06-23）：
+        - `./tests/verify_portable_mir_core_body_lowering.sh`：通过；4 个 Uya 测试全通过，覆盖 return literal/local/add/print 和 if/else + nested block + while backedge structured CFG，`portable_mir_verify_module` clean。
+        - `./tests/verify_portable_mir_verifier.sh`：通过；5 个 verifier contract 测试全通过。
+        - `bash ./tests/verify_portable_mir_golden.sh`：通过；golden dump 对齐。
+        - `./tests/verify_portable_mir_language_coverage.sh`：通过；coverage matrix 覆盖 AST/Core kind。
+        - `git diff --check`：通过。

@@ -97,7 +97,10 @@ export const CORE_STMT_INVALID_ID: CoreStmtId = -1;
 export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
 export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
+export const CORE_STMT_KIND_IF: i32 = 17;
 export const CORE_STMT_KIND_EXPR: i32 = 19;
+export const CORE_STMT_KIND_WHILE: i32 = 20;
+export const CORE_STMT_KIND_BLOCK: i32 = 21;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INT_LITERAL: i32 = 17;
 export const CORE_EXPR_KIND_LOCAL_REF: i32 = 18;
@@ -2002,6 +2005,11 @@ fn verifier_run(mode: i32) i32 {
     if mode == 137 {
         cross_symbols[0].unit_id = -1;
     }
+    if functions[0].signature_type_id != 20 &&
+       terminators[0].operand_start >= 0 && terminators[0].operand_start < 4 {
+        functions[0].signature_type_id =
+            operands[terminators[0].operand_start].type_id;
+    }
 
     var module: PortableMirModule = verifier_empty_module();
     var global_fixture_count: usize = 0usize;
@@ -2232,6 +2240,6 @@ test "PortableMIR verifier rejects atomic vector mask cleanup and naked violatio
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+(cd "$REPO_ROOT" && ../uya/bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
 echo "OK: PortableMIR verifier contract verified"

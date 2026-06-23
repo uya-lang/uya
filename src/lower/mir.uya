@@ -1699,6 +1699,9 @@ struct PortableMirLowerContext {
     body_id: CoreBodyId,
     function_id: MirFunctionId,
     block_id: MirBlockId,
+    block_inst_start: i32,
+    next_block_id: MirBlockId,
+    terminated: i32,
     i32_type_id: MirTypeId,
     void_type_id: MirTypeId,
     pointer_type_id: MirTypeId,
@@ -2155,6 +2158,145 @@ fn portable_mir_lower_append_void_call_inst(ctx: &PortableMirLowerContext,
     return 0;
 }
 
+fn portable_mir_lower_alloc_block_id(ctx: &PortableMirLowerContext) i32 {
+    if ctx == null || ctx.next_block_id < 0 {
+        return -1;
+    }
+    const block_id: i32 = ctx.next_block_id;
+    ctx.next_block_id = ctx.next_block_id + 1;
+    return block_id;
+}
+
+fn portable_mir_lower_start_block(ctx: &PortableMirLowerContext,
+    block_id: MirBlockId) i32 {
+    if ctx == null || ctx.module == null || block_id < 0 {
+        return -1;
+    }
+    const inst_start: i32 = portable_mir_lower_count_to_i32(ctx.module.inst_count);
+    if inst_start < 0 {
+        return -1;
+    }
+    ctx.block_id = block_id;
+    ctx.block_inst_start = inst_start;
+    ctx.terminated = 0;
+    return 0;
+}
+
+fn portable_mir_lower_append_successor_to(ctx: &PortableMirLowerContext,
+    block_id: MirBlockId) i32 {
+    if ctx == null || ctx.module == null || block_id < 0 {
+        return -1;
+    }
+    const successor_id: i32 = portable_mir_lower_count_to_i32(
+        ctx.module.successor_count);
+    if successor_id < 0 {
+        return -1;
+    }
+    var successor: MirSuccessor = MirSuccessor{
+        successor_id: successor_id,
+        block_id: block_id,
+        arg_start: 0,
+        arg_count: 0,
+        flags: 0,
+    };
+    if portable_mir_append_successor(ctx.module, &successor) != 0 {
+        return -1;
+    }
+    return successor_id;
+}
+
+fn portable_mir_lower_append_two_successors(ctx: &PortableMirLowerContext,
+    first_block_id: MirBlockId, second_block_id: MirBlockId) i32 {
+    const first: i32 = portable_mir_lower_append_successor_to(ctx,
+        first_block_id);
+    if first < 0 {
+        return -1;
+    }
+    const second: i32 = portable_mir_lower_append_successor_to(ctx,
+        second_block_id);
+    if second != first + 1 {
+        return -1;
+    }
+    return first;
+}
+
+fn portable_mir_lower_finish_current_block(ctx: &PortableMirLowerContext,
+    terminator_kind: i32, operand_start: i32, operand_count: i32,
+    successor_start: i32, successor_count: i32) i32 {
+    if ctx == null || ctx.module == null || ctx.terminated != 0 ||
+       ctx.block_id < 0 || ctx.block_inst_start < 0 {
+        return -1;
+    }
+    const terminator_id: i32 = portable_mir_lower_count_to_i32(
+        ctx.module.terminator_count);
+    const inst_count: i32 = portable_mir_lower_count_delta_to_i32(
+        ctx.module.inst_count, ctx.block_inst_start);
+    if terminator_id < 0 || inst_count < 0 {
+        return -1;
+    }
+    var terminator: MirTerminator = MirTerminator{
+        terminator_id: terminator_id,
+        function_id: ctx.function_id,
+        block_id: ctx.block_id,
+        kind: terminator_kind,
+        operand_start: operand_start,
+        operand_count: operand_count,
+        successor_start: successor_start,
+        successor_count: successor_count,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var block: MirBlock = MirBlock{
+        block_id: ctx.block_id,
+        function_id: ctx.function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: ctx.block_inst_start,
+        inst_count: inst_count,
+        terminator_id: terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    if portable_mir_append_terminator(ctx.module, &terminator) != 0 ||
+       portable_mir_append_block(ctx.module, &block) != 0 {
+        return -1;
+    }
+    ctx.terminated = 1;
+    return 0;
+}
+
+fn portable_mir_lower_finish_br(ctx: &PortableMirLowerContext,
+    target_block_id: MirBlockId) i32 {
+    const successor_start: i32 = portable_mir_lower_append_successor_to(ctx,
+        target_block_id);
+    if successor_start < 0 {
+        return -1;
+    }
+    return portable_mir_lower_finish_current_block(ctx,
+        MIR_TERMINATOR_KIND_BR, 0, 0, successor_start, 1);
+}
+
+fn portable_mir_lower_finish_cond_br(ctx: &PortableMirLowerContext,
+    cond_operand: MirOperandId, then_block_id: MirBlockId,
+    else_block_id: MirBlockId) i32 {
+    const successor_start: i32 = portable_mir_lower_append_two_successors(ctx,
+        then_block_id, else_block_id);
+    if cond_operand < 0 || successor_start < 0 {
+        return -1;
+    }
+    return portable_mir_lower_finish_current_block(ctx,
+        MIR_TERMINATOR_KIND_COND_BR, cond_operand, 1, successor_start, 2);
+}
+
+fn portable_mir_lower_finish_return(ctx: &PortableMirLowerContext,
+    return_operand: MirOperandId) i32 {
+    if return_operand < 0 {
+        return -1;
+    }
+    return portable_mir_lower_finish_current_block(ctx,
+        MIR_TERMINATOR_KIND_RETURN, return_operand, 1, 0, 0);
+}
+
 fn portable_mir_lower_call_stmt_to_module(ctx: &PortableMirLowerContext,
     stmt: &CoreStmt) i32 {
     if ctx == null || stmt == null || stmt.expr_id < 0 {
@@ -2220,13 +2362,139 @@ fn portable_mir_lower_call_stmt_to_module(ctx: &PortableMirLowerContext,
 
 fn portable_mir_lower_stmt_to_module(ctx: &PortableMirLowerContext,
     stmt: &CoreStmt) i32 {
-    if ctx == null || stmt == null || stmt.child_stmt_count != 0 {
+    if ctx == null || stmt == null {
         return -1;
     }
+    if ctx.terminated != 0 {
+        return -1;
+    }
+    if stmt.kind == CORE_STMT_KIND_RETURN {
+        if stmt.child_stmt_count != 0 || stmt.expr_id < 0 {
+            return -1;
+        }
+        const return_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+            stmt.expr_id);
+        return portable_mir_lower_finish_return(ctx, return_operand);
+    }
     if stmt.kind == CORE_STMT_KIND_EXPR {
+        if stmt.child_stmt_count != 0 {
+            return -1;
+        }
         return portable_mir_lower_call_stmt_to_module(ctx, stmt);
     }
+    if stmt.kind == CORE_STMT_KIND_BLOCK {
+        return portable_mir_lower_stmt_range_to_module(ctx,
+            stmt.first_child_stmt, stmt.child_stmt_count);
+    }
+    if stmt.kind == CORE_STMT_KIND_IF {
+        return portable_mir_lower_if_stmt_to_module(ctx, stmt);
+    }
+    if stmt.kind == CORE_STMT_KIND_WHILE {
+        return portable_mir_lower_while_stmt_to_module(ctx, stmt);
+    }
     return -1;
+}
+
+fn portable_mir_lower_stmt_range_to_module(ctx: &PortableMirLowerContext,
+    first_stmt_id: CoreStmtId, stmt_count: i32) i32 {
+    if ctx == null || stmt_count < 0 {
+        return -1;
+    }
+    if stmt_count == 0 {
+        return 0;
+    }
+    if first_stmt_id < 0 {
+        return -1;
+    }
+    var offset: i32 = 0;
+    while offset < stmt_count {
+        const stmt_id: CoreStmtId = first_stmt_id + offset;
+        const stmt: &CoreStmt = portable_mir_lower_find_core_stmt(ctx.program,
+            ctx.body_id, stmt_id);
+        if stmt == null || portable_mir_lower_stmt_to_module(ctx, stmt) != 0 {
+            return -1;
+        }
+        if ctx.terminated != 0 && offset != stmt_count - 1 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn portable_mir_lower_if_stmt_to_module(ctx: &PortableMirLowerContext,
+    stmt: &CoreStmt) i32 {
+    if ctx == null || stmt == null || stmt.expr_id < 0 ||
+       stmt.child_stmt_count < 1 || stmt.child_stmt_count > 2 ||
+       stmt.first_child_stmt < 0 {
+        return -1;
+    }
+    const cond_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+        stmt.expr_id);
+    const then_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
+    const else_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
+    const join_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
+    if cond_operand < 0 || then_block_id < 0 || else_block_id < 0 ||
+       join_block_id < 0 {
+        return -1;
+    }
+    if portable_mir_lower_finish_cond_br(ctx, cond_operand, then_block_id,
+       else_block_id) != 0 {
+        return -1;
+    }
+    if portable_mir_lower_start_block(ctx, then_block_id) != 0 ||
+       portable_mir_lower_stmt_range_to_module(ctx, stmt.first_child_stmt,
+        1) != 0 {
+        return -1;
+    }
+    if ctx.terminated == 0 &&
+       portable_mir_lower_finish_br(ctx, join_block_id) != 0 {
+        return -1;
+    }
+    if portable_mir_lower_start_block(ctx, else_block_id) != 0 {
+        return -1;
+    }
+    if stmt.child_stmt_count == 2 &&
+       portable_mir_lower_stmt_range_to_module(ctx, stmt.first_child_stmt + 1,
+        1) != 0 {
+        return -1;
+    }
+    if ctx.terminated == 0 &&
+       portable_mir_lower_finish_br(ctx, join_block_id) != 0 {
+        return -1;
+    }
+    return portable_mir_lower_start_block(ctx, join_block_id);
+}
+
+fn portable_mir_lower_while_stmt_to_module(ctx: &PortableMirLowerContext,
+    stmt: &CoreStmt) i32 {
+    if ctx == null || stmt == null || stmt.expr_id < 0 ||
+       stmt.child_stmt_count != 1 || stmt.first_child_stmt < 0 {
+        return -1;
+    }
+    const cond_block_id: i32 = ctx.block_id;
+    const body_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
+    const exit_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
+    const cond_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+        stmt.expr_id);
+    if cond_block_id < 0 || body_block_id < 0 || exit_block_id < 0 ||
+       cond_operand < 0 {
+        return -1;
+    }
+    if portable_mir_lower_finish_cond_br(ctx, cond_operand, body_block_id,
+       exit_block_id) != 0 {
+        return -1;
+    }
+    if portable_mir_lower_start_block(ctx, body_block_id) != 0 ||
+       portable_mir_lower_stmt_range_to_module(ctx, stmt.first_child_stmt,
+        stmt.child_stmt_count) != 0 {
+        return -1;
+    }
+    if ctx.terminated == 0 &&
+       portable_mir_lower_finish_br(ctx, cond_block_id) != 0 {
+        return -1;
+    }
+    return portable_mir_lower_start_block(ctx, exit_block_id);
 }
 
 fn portable_mir_lower_expr_to_operand(ctx: &PortableMirLowerContext,
@@ -2264,9 +2532,9 @@ fn portable_mir_lower_expr_to_operand(ctx: &PortableMirLowerContext,
     return -1;
 }
 
-/// 功能说明：将一个已冻结 CoreBody 的 return i32 表达式 lower 到 PortableMIR module。
+/// 功能说明：将一个已冻结 CoreBody 的 i32 return/expr/if/while/block 语句树 lower 到 PortableMIR module。
 /// 参数说明：`program` 提供 LoweredProgram 的 CoreBody/CoreStmt/CoreExpr 表；`body_id` 指向待 lowering 的 CoreBody；`module` 为已初始化的输出 PortableMIR module。
-/// 返回值说明：支持的单 `return` i32 字面量、local ref 或 i32 add 表达式成功返回 `0`；参数无效、形状未覆盖或追加失败返回 `-1`。
+/// 返回值说明：支持的 i32 return、hosted helper expr、结构化 if/while/block CFG 成功返回 `0`；参数无效、形状未覆盖或追加失败返回 `-1`。
 export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
     body_id: CoreBodyId, module: &PortableMirModule) i32 {
     if program == null || body_id < 0 || module == null ||
@@ -2321,7 +2589,7 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         local_start: local_start,
         local_count: 0,
         block_start: block_id,
-        block_count: 1,
+        block_count: 0,
         entry_block_id: block_id,
         cleanup_model: 0,
         capability_req_start: 0,
@@ -2345,46 +2613,25 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         body_id: body.body_id,
         function_id: function_id,
         block_id: block_id,
+        block_inst_start: inst_start,
+        next_block_id: block_id + 1,
+        terminated: 0,
         i32_type_id: i32_type_id,
         void_type_id: MIR_TYPE_INVALID_ID,
         pointer_type_id: MIR_TYPE_INVALID_ID,
     };
-    var return_operand_id: i32 = MIR_VALUE_INVALID_ID;
-    var stmt_offset: i32 = 0;
-    while stmt_offset < body.root_stmt_count {
-        const current_stmt_id: CoreStmtId = body.root_stmt_start + stmt_offset;
-        const current_stmt: &CoreStmt = portable_mir_lower_find_core_stmt(program,
-            body.body_id, current_stmt_id);
-        if current_stmt == null {
-            return -1;
-        }
-        if current_stmt.kind == CORE_STMT_KIND_RETURN {
-            if stmt_offset != body.root_stmt_count - 1 || return_operand_id >= 0 {
-                return -1;
-            }
-            return_operand_id = portable_mir_lower_expr_to_operand(&ctx,
-                current_stmt.expr_id);
-            if return_operand_id < 0 {
-                return -1;
-            }
-        } else {
-            if return_operand_id >= 0 ||
-               portable_mir_lower_stmt_to_module(&ctx, current_stmt) != 0 {
-                return -1;
-            }
-        }
-        stmt_offset = stmt_offset + 1;
-    }
-    if return_operand_id < 0 {
+    if portable_mir_lower_stmt_range_to_module(&ctx, body.root_stmt_start,
+       body.root_stmt_count) != 0 || ctx.terminated == 0 {
         return -1;
     }
-    const terminator_id: i32 =
-        portable_mir_lower_count_to_i32(module.terminator_count);
     const local_count: i32 =
         portable_mir_lower_count_delta_to_i32(module.local_count, local_start);
-    const inst_count: i32 =
-        portable_mir_lower_count_delta_to_i32(module.inst_count, inst_start);
-    if terminator_id < 0 || local_count < 0 || inst_count < 0 {
+    if local_count < 0 {
+        return -1;
+    }
+    const block_count: i32 =
+        portable_mir_lower_count_delta_to_i32(module.block_count, block_id);
+    if block_count <= 0 {
         return -1;
     }
     const function_out: &MirFunction = portable_mir_lower_function_ptr(module,
@@ -2393,33 +2640,7 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         return -1;
     }
     function_out.local_count = local_count;
-    var terminator: MirTerminator = MirTerminator{
-        terminator_id: terminator_id,
-        function_id: function_id,
-        block_id: block_id,
-        kind: MIR_TERMINATOR_KIND_RETURN,
-        operand_start: return_operand_id,
-        operand_count: 1,
-        successor_start: 0,
-        successor_count: 0,
-        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: 0,
-    };
-    var block: MirBlock = MirBlock{
-        block_id: block_id,
-        function_id: function_id,
-        param_start: 0,
-        param_count: 0,
-        inst_start: inst_start,
-        inst_count: inst_count,
-        terminator_id: terminator_id,
-        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: 0,
-    };
-    if portable_mir_append_terminator(module, &terminator) != 0 ||
-       portable_mir_append_block(module, &block) != 0 {
-        return -1;
-    }
+    function_out.block_count = block_count;
     return 0;
 }
 
