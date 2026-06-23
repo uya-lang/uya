@@ -1634,3 +1634,26 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
     - 全量主语言面真实基线不再出现 `./tests/run_programs_parallel.sh: line 497: ../uya/bin/uya: No such file or directory`，已进入真实 MIR-C99 失败面。
     - 汇总：`1024` 项中 `151` 通过、`873` 失败；失败分布为 `789` 个 `错误: MIR-C99 extern lowering 失败`、`81` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个 `错误: MIR-C99 unit output 写出失败`、`2` 个 `PortableMIR verifier 失败`。
     - 已出现的具体 capability diagnostic：`19` 个 `AST_TEST_STMT / test_driver_not_lowered`，`1` 个 `AST_SYSCALL / syscall_requires_target_capability`。
+
+# MIR-C99 Backend TODO
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+
+    - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-LOWERING-FIRST-BUCKET`:
+      让首个 generic `extern lowering 失败` 用例收敛为具体 capability diagnostic
+      或真实支持，不再停在通用报错。
+      - 验收：
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/assignment.uya -o /tmp/uya-mir-c99-main-language-extern.c`
+          通过；不再输出 `错误: MIR-C99 extern lowering 失败`，现收敛到
+          `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/assignment.uya line=6`
+          和 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+        - `bash tests/verify_mir_c99_full_language_extern_capability_reject.sh`
+          通过；固定 `../uya/bin/uya` 验收路径已锁定为上面的 `AST_TEST_STMT` capability diagnostic。
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya test tests/assignment.uya`
+          通过；`3` 个 assignment 测试全部通过，说明 `lib/std/testing/testing.uya`
+          改为 `@print/@println` 后未破坏基础断言路径。
+        - `git diff --check -- lib/std/testing/testing.uya tests/verify_mir_c99_full_language_extern_capability_reject.sh docs/todo_mir_c99_backend.md`
+          通过。
