@@ -1412,3 +1412,23 @@ Context:
       `bash tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh` 通过；
       `bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过；
       `bash tests/verify_portable_mir_language_coverage.sh` 通过。
+
+### 4.15 Full Language Parity
+
+任务路径：`MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`
+
+- [x] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-REJECT-CONST-BUILTIN-ENTRYPOINTS`: 先把
+  real CLI 下当前仍统一掉到 generic lowering missing 的 value/builtin 入口改成稳定
+  capability diagnostic。
+  - 覆盖范围：`AST_INT_LIMIT`、`AST_STRING_INTERP`、`AST_PARAMS` 与 builtin `@params`
+    的真实 `../uya/bin/uya build --mir-c99` fail-closed 路径。
+  - 最小验证：`bash tests/verify_mir_c99_full_language_value_entry_reject.sh`
+  - 完成条件：对应 case 失败时输出稳定 `mir_c99_capability_diagnostic`，不再只剩
+    generic lowering missing；覆盖矩阵状态改成 `reject` 并记录 real-CLI 证据。
+  - 验证：
+    - `bash tests/verify_mir_c99_full_language_value_entry_reject.sh`
+    - `bash tests/verify_portable_mir_language_coverage.sh`
+    - `git diff --check`
+  - 结果：通过。real current-source CLI candidate 现在会分别输出
+    `AST_INT_LIMIT` / `AST_STRING_INTERP` / `AST_PARAMS` 的稳定 capability diagnostic，
+    覆盖矩阵对应项已同步为 `reject`。

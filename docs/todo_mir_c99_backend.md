@@ -105,6 +105,23 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：覆盖矩阵中仍为 MIR-C99 `missing` 的普通值/表达式项转成 `partial`/`done`
     或明确 `reject`；对应 `tests/verify_mir_c99_full_language_*_parity.sh` 走真实
     `--mir-c99` CLI 或明确注明 generator-only 时不得标 full-language done。
+  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-BASIC-PLACE-REAL-CLI`: 让基础 address /
+    deref / field / index / slice ptr-len-index 走真实 `--mir-c99` CLI，而不是 generator-only
+    shard。
+    - 最小验证：真实 `../uya/bin/uya build --mir-c99` + host C compiler parity/reject 脚本，
+      至少覆盖 pointer、array、slice 三类 fixture。
+  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-AGGREGATE-MEMBER-INIT`: 让 struct / array /
+    tuple / union initializer、member/field、aggregate copy/move 进入真实 CLI 证据面。
+    - 最小验证：真实 `--mir-c99` aggregate/member parity 脚本覆盖 struct/tuple/union/array
+      基本初始化与读写。
+  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL`: 收敛 float/double、
+    char、string、null 和非零 float payload 的常量模型，避免 generator-only value smoke。
+    - 最小验证：真实 `--mir-c99` const/value parity 或明确 reject 脚本覆盖 f32/f64、char、
+      string、null、`i32.max`/`i32.min` 等样例。
+  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-MATCH-ERROR-METADATA`: 收敛 match payload、
+    error-union value、`@error_id` / `@error_name` 的真实 CLI lowering 或稳定 reject。
+    - 最小验证：真实 `--mir-c99` case 覆盖 match/error-union/error metadata；若暂不能支持，
+      则输出稳定 capability diagnostic 并在 coverage matrix 登记 `reject`。
 
 - [ ] `MIR-C99-FULL-SUPPORT-CALL-ABI-RUNTIME`: 补齐真实调用 ABI 和 runtime/capability
   handoff。

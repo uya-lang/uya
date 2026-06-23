@@ -124,11 +124,11 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_NUMBER` | done | missing | `CORE_EXPR_KIND_INT_LITERAL`。 |
 | `AST_FLOAT` | partial | partial | MIR-C99 full-language float/double parity shard 覆盖 f32/f64 literal、arithmetic、comparison 和 cast；非零 literal payload 的完整 MIR 常量模型仍按后续 value-plan 收敛。 |
 | `AST_BOOL` | done | missing | `true`/`false`。 |
-| `AST_INT_LIMIT` | missing | missing | `i32.min`/`u64.max` 等暂未在 MIR-C99 shard 中独立验证。 |
+| `AST_INT_LIMIT` | missing | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `const limit: i32 = @max;` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_INT_LIMIT reason=int_limit_requires_expr_value_place`；真实 int-limit lowering 待 `expr/value/place` 收敛。 |
 | `AST_STRING` | done | partial | MIR-C99 已支持 string global initializer plan/output 和 dedupe id；完整字符串 parity 待后续 shard。 |
 | `AST_CHAR` | done | missing | C99 通过。 |
-| `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
-| `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
+| `AST_STRING_INTERP` | partial | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `"text${expr}text"` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_STRING_INTERP reason=string_interp_requires_expr_value_place`；runtime helper/value lowering 待补。 |
+| `AST_PARAMS` | missing | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_PARAMS reason=params_tuple_requires_expr_value_place`；`@params` 当前仍只走 pre-MIR helper 路径。 |
 | `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`；cleanup/error statement parity shard 覆盖 `try` 与 defer/errdefer/drop cleanup edge 的组合路径。 |
 | `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；error-id binding parity shard 覆盖 `catch |err|` 绑定。 |
 | `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；error-id binding parity shard 覆盖 `@error_id(error.Name)` 读取。 |
@@ -250,7 +250,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@naked_fn` | done | missing | `verify_portable_mir_naked_fn.sh` 固定。 |
 | `@vector` | done | missing | `simd` shard。 |
 | `@mask` | done | missing | 同上。 |
-| `@params` | partial | missing | `build_compiler_driver.uya` 内 pre-MIR helper 路径。 |
+| `@params` | partial | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_PARAMS reason=params_tuple_requires_expr_value_place`；MIR-C99 仍未接入参数元组 value lowering。 |
 | `@src_name`/`@src_path`/`@src_line`/`@src_col`/`@func_name` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `@embed`/`@embed_dir` | missing | missing | 编译期嵌入未迁 MIR。 |
 | `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |

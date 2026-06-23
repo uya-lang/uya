@@ -53793,6 +53793,51 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         }
         return 1;
     }
+    if node.type == ASTNodeType.AST_INT_LIMIT {
+        if out_kind != null {
+            *out_kind = "AST_INT_LIMIT" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "int_limit_requires_expr_value_place" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_STRING_INTERP {
+        if out_kind != null {
+            *out_kind = "AST_STRING_INTERP" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "string_interp_requires_expr_value_place" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_PARAMS {
+        if out_kind != null {
+            *out_kind = "AST_PARAMS" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "params_tuple_requires_expr_value_place" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
     if node.type == ASTNodeType.AST_FOR_STMT {
         if node.for_stmt_is_range == 0 || node.for_stmt_is_ref != 0 ||
            node.for_stmt_var_name == null || node.for_stmt_range_start == null ||
