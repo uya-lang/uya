@@ -97,19 +97,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.15 Full Language Parity
 
-- [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`: 补齐表达式、value、place 和常量模型。
-  - 覆盖范围：整数/布尔/浮点/字符串/char/int-limit/null 常量，非零 f32/f64 payload，
-    一元/二元/逻辑/转换，call result，member/field，array/slice index，slice ptr/len，
-    address-of/deref/pointer offset，struct/array/tuple/union initializer，aggregate
-    copy/move，match payload，error-union value 和 `@error_id` / `@error_name`。
-  - 验收：覆盖矩阵中仍为 MIR-C99 `missing` 的普通值/表达式项转成 `partial`/`done`
-    或明确 `reject`；对应 `tests/verify_mir_c99_full_language_*_parity.sh` 走真实
-    `--mir-c99` CLI 或明确注明 generator-only 时不得标 full-language done。
-  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-MATCH-ERROR-METADATA`: 收敛 match payload、
-    error-union value、`@error_id` / `@error_name` 的真实 CLI lowering 或稳定 reject。
-    - 最小验证：真实 `--mir-c99` case 覆盖 match/error-union/error metadata；若暂不能支持，
-      则输出稳定 capability diagnostic 并在 coverage matrix 登记 `reject`。
-
 - [ ] `MIR-C99-FULL-SUPPORT-CALL-ABI-RUNTIME`: 补齐真实调用 ABI 和 runtime/capability
   handoff。
   - 覆盖范围：direct call、extern C call、method/monomorphized call、interface vtable

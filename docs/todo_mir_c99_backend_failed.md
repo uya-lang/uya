@@ -243,3 +243,23 @@
     - 最小验证：真实 `--mir-c99` const/value parity 或明确 reject 脚本覆盖 f32/f64、char、
       string、null、`i32.max`/`i32.min` 等样例。
 - 归档说明：主 todo 遗留的是孤立 `[f]` 叶子；原条目未附失败原因、阻塞命令、关键错误和重开条件。
+
+### 4.15 Full Language Parity
+
+- [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`: 补齐表达式、value、place 和常量模型。
+  - 覆盖范围：整数/布尔/浮点/字符串/char/int-limit/null 常量，非零 f32/f64 payload，
+    一元/二元/逻辑/转换，call result，member/field，array/slice index，slice ptr/len，
+    address-of/deref/pointer offset，struct/array/tuple/union initializer，aggregate
+    copy/move，match payload，error-union value 和 `@error_id` / `@error_name`。
+  - 验收：覆盖矩阵中仍为 MIR-C99 `missing` 的普通值/表达式项转成 `partial`/`done`
+    或明确 `reject`；对应 `tests/verify_mir_c99_full_language_*_parity.sh` 走真实
+    `--mir-c99` CLI 或明确注明 generator-only 时不得标 full-language done。
+  - [f] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-MATCH-ERROR-METADATA`: 收敛 match payload、
+    error-union value、`@error_id` / `@error_name` 的真实 CLI lowering 或稳定 reject。
+    - 最小验证：真实 `--mir-c99` case 覆盖 match/error-union/error metadata；若暂不能支持，
+      则输出稳定 capability diagnostic 并在 coverage matrix 登记 `reject`。
+    - 失败原因：本轮严格要求所有 Uya 验证走 `../uya/bin/uya`。直接对 `tests/fixtures/mir_c99_cmd_build_full_language_union.uya`、`tests/fixtures/mir_c99_cmd_build_full_language_error_catch_success.uya`、`tests/fixtures/mir_c99_cmd_build_full_language_error_id_binding_success.uya` 运行 `../uya/bin/uya build --mir-c99 ...` 时，固定 sibling 编译器仍静默输出 legacy C99，不产生 `[MIR-C99]`/unit-output 证据；尝试先用同一 fixed compiler 构建 current-source CLI（`src/main.uya`）再跑真实 `--mir-c99`，又被 fixed compiler 自身的 split-C `clock()` 原型冲突阻塞，当前仓库内无法完成真实 CLI parity/reject 收敛。
+    - 阻塞命令：`UYA_ROOT=/home/winger/uya/uya-1.0/lib/ ../uya/bin/uya build src/main.uya -o <tmp>/uya-current-source --project-root .`
+    - 关键错误：`home/winger/uya/uya-1.0/lib/std/platform.c:17:17: error: conflicting types for 'clock'; have 'uint64_t(void)'`；`./uya_part1_types.h:179:16: note: previous declaration of 'clock' with type 'int64_t(void)'`。
+    - 额外证据：`../uya/bin/uya build --mir-c99 tests/fixtures/mir_c99_cmd_build_full_language_union.uya -o <tmp>/union.c --project-root .` 返回 0，但输出头为 `// C99 代码由 Uya Mini 编译器生成`，不是 MIR-C99 unit output。
+    - 重开条件：先在 `../uya/bin/uya` 所在 sibling 仓库修复 current repo split-C build 的 `clock()` 原型冲突，并让真实 `--mir-c99` 对上述 fixture 不再静默回落 legacy C99；之后再把现有 generator-only shard 改成真实 CLI parity/reject。
