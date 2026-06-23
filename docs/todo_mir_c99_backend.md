@@ -97,19 +97,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.15 Full Language Parity
 
-- [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG`: 补齐 CoreStmt/AST statement 到 MIR 的通用
-  CFG lowering，而不是仅支持尾部 `return i32` 和少量表达式语句。
-  - 覆盖范围：`LOCAL_DECL`、`ASSIGN`、`EXPR`、`RETURN`、`IF`、`WHILE`、loop
-    backedge、`break` / `continue`、block、`DEFER`、`ERRDEFER`、`DROP`、
-    `ERROR_PROPAGATION`，以及 AST 层的 `for` / `match` / `test` driver 入口映射。
-  - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
-    至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
-  - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
-  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-AST-DRIVERS`: 补齐 AST 层
-    `for` / `match` / `test` driver 入口到通用 Core/MIR statement lowering 的映射。
-    - 最小验证：for、match statement 和 test driver focused shard 走真实 `--mir-c99`
-      或给出明确 MIR-C99 capability diagnostic。
-    - 完成条件：覆盖矩阵记录真实 per-kind 状态，不能以 generator-only 或 legacy C99 证据标完成。
 - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`: 补齐表达式、value、place 和常量模型。
   - 覆盖范围：整数/布尔/浮点/字符串/char/int-limit/null 常量，非零 f32/f64 payload，
     一元/二元/逻辑/转换，call result，member/field，array/slice index，slice ptr/len，

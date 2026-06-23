@@ -1,7 +1,7 @@
 # PortableMIR Language Coverage Matrix
 
 **状态**: Phase 9B 覆盖矩阵合同
-**更新日期**: 2026-06-14
+**更新日期**: 2026-06-23
 **配套 TODO**: `docs/todo_compiler_1s.md` (Phase 9B)
 **MIR-C99 TODO**: `docs/todo_mir_c99_backend.md`
 **MIR-C99 parity harness**: 待新增；当前以现有 C99 backend 作为行为 oracle
@@ -96,13 +96,13 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_C_IMPORT_DECL` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；sidecar object parity 待补。 |
 | `AST_IF_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；break/continue cleanup edge 待补。 |
 | `AST_WHILE_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 待补。 |
-| `AST_FOR_STMT` | done | partial | MIR-C99 control-flow async full-language parity shard 覆盖 range for 和 array for；break/continue cleanup edge 待补。 |
+| `AST_FOR_STMT` | done | partial | `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh` 现以真实 `../uya/bin/uya build --mir-c99` 覆盖 simple range `for 0..N |i|`，验证 AST driver 入口经 structured CoreStmt lowering 合成 `LOCAL_DECL -> WHILE -> BLOCK + increment` 并与 `--c99` oracle 对齐；array/ref for 与 current-loop `continue` 仍待后续 capability 收口。 |
 | `AST_BREAK_STMT` | done | partial | MIR-C99 statement/CFG real CLI shard 覆盖 nested loop `break` 到当前 loop exit；cleanup/error edge 待补。 |
 | `AST_CONTINUE_STMT` | done | partial | MIR-C99 statement/CFG real CLI shard 覆盖 nested loop `continue` 到当前 loop condition/backedge；cleanup/error edge 待补。 |
 | `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
 | `AST_DEFER_STMT` | done | partial | MIR-C99 cleanup/resource async full-language parity shard 覆盖 async error path 上的 defer cleanup；Core defer return-order shard 覆盖同步 return cleanup 顺序；cleanup/error statement parity shard 覆盖 defer 与 errdefer/drop/try error propagation 的组合 cleanup 顺序。 |
 | `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer；cleanup/resource async full-language parity shard 覆盖 async error path 上的 errdefer cleanup；cleanup/error statement parity shard 覆盖 errdefer 仅在组合 error propagation 路径执行。 |
-| `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
+| `AST_TEST_STMT` | missing | reject | `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh` 现要求真实 `--mir-c99` 对 `test "..." { ... }` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered`；test driver 真实 lowering 仍待后续 AST driver 入口任务继续扩展。 |
 | `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic compound assignment 当前由 atomic compound-add reject shard 明确 capability reject；aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖纯表达式语句入口（如 nested block 内的 scalar add expr stmt），并与 C99 oracle 行为一致。 |
 | `AST_BLOCK` | done | partial | MIR-C99 control-flow async full-language parity shard 覆盖 async nested block；表达式语句入口仍待专用 shard。 |
@@ -132,7 +132,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`；cleanup/error statement parity shard 覆盖 `try` 与 defer/errdefer/drop cleanup edge 的组合路径。 |
 | `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；error-id binding parity shard 覆盖 `catch |err|` 绑定。 |
 | `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；error-id binding parity shard 覆盖 `@error_id(error.Name)` 读取。 |
-| `AST_MATCH_EXPR` | done | partial | MIR-C99 full-language union parity shard 覆盖 `match union_value { .number(x) => x, .payload(p) => p.left + p.right }`。 |
+| `AST_MATCH_EXPR` | done | reject | `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh` 现要求普通 `match` expression 走真实 `--mir-c99` 并 fail-closed 输出 `mir_c99_capability_diagnostic: kind=AST_MATCH_EXPR reason=match_expr_requires_expr_value_place`；此前 union generator smoke 不再计作 real-CLI full-language 证据，真实 value/place lowering 待 `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`。 |
 | `AST_MC_EVAL` | partial | missing | 宏内求值；MIR 端走 pre-MIR helper。 |
 | `AST_MC_CODE` | partial | missing | 宏内生成代码。 |
 | `AST_MC_AST` | partial | missing | 宏内获取 AST。 |
