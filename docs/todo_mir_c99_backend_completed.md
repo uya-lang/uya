@@ -1657,3 +1657,26 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
           改为 `@print/@println` 后未破坏基础断言路径。
         - `git diff --check -- lib/std/testing/testing.uya tests/verify_mir_c99_full_language_extern_capability_reject.sh docs/todo_mir_c99_backend.md`
           通过。
+
+# MIR-C99 Backend TODO
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+
+    - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT`: 在首批具体
+      bucket 收敛后重跑主语言面，更新剩余 failure matrix 和 capability diagnostic
+      分布。
+      - 验收：
+        - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
+          LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+          失败项计数下降，且通用报错按 bucket 记录到 TODO/归档。
+      - 结果：
+        - 非 TTY 自动化下，需设 `UYA_TEST_STDOUT_LINEBUF=1` 关闭
+          `tests/run_programs_parallel.sh` 的 `stdbuf` 自包装；否则同命令会退化成空输出
+          `编译失败(退出码:139)`，不能代表真实 MIR-C99 失败面。
+        - `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`：`1024` 项中 `155` 通过、`869` 失败，较上轮 `151/873` 增加 `4` 个通过、减少 `4` 个失败。
+        - 通用报错分布：`596` 个 `错误: MIR-C99 extern lowering 失败`、`263` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个 `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
+        - capability diagnostic 分布：`182` 个 `AST_TEST_STMT / test_driver_not_lowered`、`5` 个 `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`5` 个 `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`4` 个 `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个 `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个 `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个 `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个 `AST_SYSCALL / syscall_requires_target_capability`。
+        - 对照 spot-check：`UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 --safety-proof tests/assignment.uya -o /tmp/mir_c99_recount_assignment_safety.c` 与 `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 --safety-proof tests/test_asm_const_output.uya -o /tmp/mir_c99_recount_asm_const_output_safety.c` 均稳定收敛到 `AST_TEST_STMT` capability diagnostic 和 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`，说明本轮重计数已回到真实 MIR-C99 诊断面，而不是脚本包装导致的假性 `exit 139`。

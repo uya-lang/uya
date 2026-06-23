@@ -113,20 +113,23 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS=''
       ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 现已进入真实 MIR-C99
       失败面，不再停在 `line 497: ../uya/bin/uya: No such file or directory`。
-    - 本轮真实基线：`1024` 项中 `151` 通过、`873` 失败；失败分布为 `789` 个
-      `错误: MIR-C99 extern lowering 失败`、`81` 个
+    - 当前自动化备注（2026-06-24，本轮）：若 stdout 非 TTY，需设
+      `UYA_TEST_STDOUT_LINEBUF=1`，否则 `tests/run_programs_parallel.sh` 会自包装
+      `stdbuf`，把真实 MIR-C99 失败面打成空输出 `编译失败(退出码:139)`；下列
+      failure matrix 以关闭该包装后的结果为准。
+    - 本轮真实重计数：`1024` 项中 `155` 通过、`869` 失败；失败分布为 `596` 个
+      `错误: MIR-C99 extern lowering 失败`、`263` 个
       `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个
-      `错误: MIR-C99 unit output 写出失败`、`2` 个 `PortableMIR verifier 失败`。
-    - 已出现的具体 capability diagnostic：`19` 个
-      `AST_TEST_STMT / test_driver_not_lowered`，`1` 个
+      `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
+    - 已出现的具体 capability diagnostic：`182` 个
+      `AST_TEST_STMT / test_driver_not_lowered`、`5` 个
+      `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`5` 个
+      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`4` 个
+      `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个
+      `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个
+      `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个
+      `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
       `AST_SYSCALL / syscall_requires_target_capability`。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT`: 在首批具体
-      bucket 收敛后重跑主语言面，更新剩余 failure matrix 和 capability diagnostic
-      分布。
-      - 验收：
-        - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
-          LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
-          失败项计数下降，且通用报错按 bucket 记录到 TODO/归档。
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。
