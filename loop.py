@@ -219,7 +219,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="gpt-5.5",
+        default="gpt-5.4",
         help=(
             "Optional model passed to the selected runner. Codex defaults to "
             "CODEX_MODEL or `gpt-5.5`; Kimi defaults to KIMI_MODEL or its config. "
@@ -228,7 +228,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--reasoning-effort",
-        default=os.environ.get("CODEX_REASONING_EFFORT", "high"),
+        default=os.environ.get("CODEX_REASONING_EFFORT", "xhigh"),
         choices=("", "minimal", "low", "medium", "high", "xhigh"),
         help=(
             "Optional reasoning effort passed to Codex via "
