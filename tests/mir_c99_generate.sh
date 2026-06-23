@@ -2341,6 +2341,61 @@ if [[ -n "$atomic_i32_add_fields" ]]; then
     fi
 fi
 
+emit_direct_builtin_capability_reject() {
+    local subset="$1"
+    local kind="$2"
+    local reason="$3"
+    rm -f "$output" "${output}imports.sh"
+    {
+        printf 'MIR-C99 generator command\n'
+        printf 'input=%s\n' "$input"
+        printf 'output=%s\n' "$output"
+        printf 'handoff_status=verified\n'
+        printf 'writer_status=rejected\n'
+        printf 'subset=%s\n' "$subset"
+        printf 'status=rejected\n'
+        printf 'reject_reason=%s\n' "$reason"
+        printf 'mir_c99_capability_diagnostic: kind=%s reason=%s\n' "$kind" "$reason"
+    } >"$log"
+    echo "error: MIR-C99 direct builtin requires explicit target capability: $kind" >&2
+    exit 78
+}
+
+if grep -Eq '@asm[[:space:]]*\{' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "inline_asm_capability" \
+        "AST_ASM" \
+        "inline_asm_requires_target_capability"
+fi
+
+if grep -Eq '@asm_target[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "asm_target_capability" \
+        "AST_ASM_TARGET" \
+        "asm_target_requires_target_capability"
+fi
+
+if grep -Eq '@syscall[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "syscall_capability" \
+        "AST_SYSCALL" \
+        "syscall_requires_target_capability"
+fi
+
+if grep -Eq '@ptr_from_usize[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "ptr_from_usize_capability" \
+        "AST_PTR_FROM_USIZE" \
+        "ptr_from_usize_requires_target_capability"
+fi
+
+if grep -Eq '@usize_from_ptr[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "usize_from_ptr_capability" \
+        "AST_USIZE_FROM_PTR" \
+        "usize_from_ptr_requires_target_capability"
+fi
+
 local_if_fields="$(perl -0ne 'if (/export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*([0-9]+)\s*;\s*if\s+\1\s*==\s*([0-9]+)\s*\{\s*return\s+([0-9]+)\s*;\s*\}\s*return\s+([0-9]+)\s*;\s*\}/s) { print "$1 $2 $3 $4 $5\n"; }' "$input")"
 if [[ -n "$local_if_fields" ]]; then
     read -r local_name initial_value compare_value then_value else_value <<<"$local_if_fields"

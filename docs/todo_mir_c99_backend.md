@@ -104,6 +104,17 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     `@embed` / `@embed_dir`、varargs builtins、宏内 `mc_*` 运行期边界。
   - 验收：覆盖矩阵中相关 `missing` 行转成带复现命令的 `reject` 或真实 parity；
     reject case 必须产生 MIR-C99 capability diagnostic，并通过 no-legacy-fallback 检查。
+  - 说明：atomic / SIMD 首版 reject 证据已在 completed archive 落地；本父任务剩余缺口按下列子叶子继续收口。
+  - [ ] `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS-EMBED-VARARGS`: 收口
+    `@embed` / `@embed_dir`、`@va_start` / `@va_end` / `@va_arg` / `@va_copy`
+    的 capability reject。
+    - 最小验证：新增 real-CLI reject 脚本 + `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`
+    - 完成条件：相关 AST/builtin matrix 行从 `missing` 改成 `reject`，并记录复现命令。
+  - [ ] `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS-MC-RUNTIME-BOUNDARY`: 收口
+    宏内 `mc_*` 运行期边界的 capability reject。
+    - 最小验证：新增 real-CLI reject 脚本 + `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`
+    - 完成条件：相关 `AST_MC_*` / builtin matrix 行从 `missing` 或 `partial`
+      收口到带复现命令的 `reject` 或真实 parity，并保留稳定 diagnostic reason。
 
 - [ ] `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI`: 将 async 相关 completed-archive/generator
   parity 提升为真实 `--mir-c99` CLI 语言面证据。

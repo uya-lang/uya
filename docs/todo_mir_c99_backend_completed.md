@@ -1498,3 +1498,26 @@ Context:
     通过。
     `/tmp/cmd-build --help` 退出码为 `0`，输出包含 `Uya build compiler` 与 `用法:`。
     额外 smoke：使用 current-source `/tmp/cmd-build` 生成临时 `return7.bin`，产物运行退出码为 `7`。
+
+### 4.15 Full Language Parity
+
+- `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS`
+  - [x] `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS-DIRECT-BUILTINS`: 先收口
+    `@asm` / `@asm_target`、`@syscall`、`@ptr_from_usize`、`@usize_from_ptr`
+    的 current-source generator / build-driver capability reject。
+    - 最小验证：`bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh`
+      和 `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`
+    - 完成条件：current-source `tests/mir_c99_generate.sh` 对以上 case fail-closed，
+      输出稳定 `mir_c99_capability_diagnostic`，相关 coverage matrix 行从 `missing`
+      改成 `reject`，且 reject 日志不出现 legacy fallback 证据。
+    - 验证：`bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` -> PASS；
+      覆盖 `AST_ASM`、`AST_ASM_TARGET`、`AST_SYSCALL`、`AST_PTR_FROM_USIZE`、
+      `AST_USIZE_FROM_PTR` 的 fail-closed reject，确认 `tests/mir_c99_generate.sh`
+      输出稳定 `mir_c99_capability_diagnostic`，不生成 `.c`，相关 coverage matrix 行已切到 `reject`。
+    - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> PASS。
+    - 验证：`bash -n tests/mir_c99_generate.sh tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` -> PASS。
+    - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> PASS（标完成前 1 个 active task）。
+    - 验证：`git diff --check` -> PASS。
+    - 额外检查：`../uya/bin/uya check src/build_compiler_driver.uya --project-root src/` 未运行成功；
+      固定路径缺少 `../uya/bin/cmd/check`，错误为 `错误: 缺少可执行子命令 ../uya/bin/cmd/check；请先运行 make cmds`，
+      本轮未改用其他 Uya 编译器。

@@ -148,17 +148,17 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_FUNC_NAME` | done | missing | C99 builtin。 |
 | `AST_EMBED` | missing | missing | `@embed("path")` 编译期嵌入未迁 MIR。 |
 | `AST_EMBED_DIR` | missing | missing | `@embed_dir("path")` 同上。 |
-| `AST_SYSCALL` | missing | missing | `@syscall(nr, ...)` 需要 capability diagnostic 和 MIR-C99 parity/reject 记录。 |
-| `AST_PTR_FROM_USIZE` | missing | missing | `@ptr_from_usize`。 |
-| `AST_USIZE_FROM_PTR` | missing | missing | `@usize_from_ptr`。 |
+| `AST_SYSCALL` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@syscall(nr, ...)` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_SYSCALL reason=syscall_requires_target_capability`。 |
+| `AST_PTR_FROM_USIZE` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@ptr_from_usize` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_PTR_FROM_USIZE reason=ptr_from_usize_requires_target_capability`。 |
+| `AST_USIZE_FROM_PTR` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@usize_from_ptr` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_USIZE_FROM_PTR reason=usize_from_ptr_requires_target_capability`。 |
 | `AST_ERROR_ID` | done | partial | MIR-C99 full-language error-id binding parity shard 覆盖 `@error_id(err)` 与 `@error_id(error.Name)`。 |
 | `AST_ERROR_NAME` | done | partial | MIR-C99 full-language error-id binding parity shard 邻接覆盖 `@error_name(err)`。 |
 | `AST_VA_START` | missing | missing | `@va_start` 仅 `c_import` 边界使用。 |
 | `AST_VA_END` | missing | missing | 同上。 |
 | `AST_VA_ARG` | missing | missing | 同上。 |
 | `AST_VA_COPY` | missing | missing | 同上。 |
-| `AST_ASM` | missing | missing | `@asm { ... }` 需要 capability diagnostic 和 MIR-C99 reject 记录。 |
-| `AST_ASM_TARGET` | missing | missing | `@asm_target()` 平台检测。 |
+| `AST_ASM` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm { ... }` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability`。 |
+| `AST_ASM_TARGET` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm_target()` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_ASM_TARGET reason=asm_target_requires_target_capability`。 |
 | `AST_PRINT` | done | missing | `@print(expr)` C99 已完整 codegen（`c99/expr.uya:9167`）；MIR-C99 `@print` parity 待补。 |
 | `AST_PRINTLN` | done | partial | `bash tests/verify_mir_c99_cli_helloworld.sh` 覆盖 `examples/HelloWorld.uya` 中的 `@println` 字符串输出；目标合同 `docs/helloworld_parity_target.md` 的 bare / split / return-as-expr 变体仍待 full parity。 |
 | `AST_TYPE_NAMED` | done | missing | Phase 9A 验证。 |
@@ -183,7 +183,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
 | `CORE_STMT_KIND_RETURN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar return。 |
-| `CORE_STMT_KIND_ASM` | partial | missing | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
+| `CORE_STMT_KIND_ASM` | partial | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm { ... }` fail-closed，并输出稳定 capability diagnostic。 |
 | `CORE_STMT_KIND_DEFER` | done | partial | MIR-C99 full-language defer normal-scope return-order parity shard 覆盖 `defer { value = 9; }` 和单行 `defer value = 9;` 在 return local / return const 场景下的执行顺序；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
 | `CORE_STMT_KIND_ERRDEFER` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回 cleanup 和 success path no-op；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
 | `CORE_STMT_KIND_DROP` | done | partial | MIR-C99 lexical drop scope / return cleanup parity shard 覆盖离开词法作用域和函数提前 return 时执行 drop cleanup；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
@@ -241,9 +241,9 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@len` | done | missing | `array_len` shard 覆盖。 |
 | `@print` | done | missing | MIR-C99 `@print` parity 待补。 |
 | `@println` | done | partial | `bash tests/verify_mir_c99_cli_helloworld.sh` 覆盖 HelloWorld 字符串输出。 |
-| `@syscall` | missing | missing | capability diagnostic 和 MIR-C99 parity/reject 待补。 |
-| `@ptr_from_usize` | missing | missing | microapp 路径。 |
-| `@usize_from_ptr` | missing | missing | microapp 路径。 |
+| `@syscall` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@syscall` fail-closed 并输出稳定 capability diagnostic。 |
+| `@ptr_from_usize` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@ptr_from_usize` fail-closed 并输出稳定 capability diagnostic。 |
+| `@usize_from_ptr` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@usize_from_ptr` fail-closed 并输出稳定 capability diagnostic。 |
 | `@error_id` | done | partial | MIR-C99 full-language error-id binding parity shard 覆盖 `@error_id(err)` 与 `@error_id(error.Name)`。 |
 | `@error_name` | done | partial | MIR-C99 full-language error-id binding parity shard 邻接覆盖 `@error_name(err)`。 |
 | `@c_import` | done | partial | MIR-C99 已保留 @c_import object/library/search path link plan；最小 @c_import parity 待补。 |
@@ -253,7 +253,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@params` | partial | partial | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` 基础 value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐；更广参数元组 lowering 仍待继续扩面。 |
 | `@src_name`/`@src_path`/`@src_line`/`@src_col`/`@func_name` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `@embed`/`@embed_dir` | missing | missing | 编译期嵌入未迁 MIR。 |
-| `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |
+| `@asm`/`@asm_target` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm` / `@asm_target` fail-closed 并输出稳定 capability diagnostic。 |
 | `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | missing | `c_import` 边界。 |
 | `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
 | `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource async full-language parity shard 覆盖 async error union cleanup、defer/errdefer 和 frame release。 |

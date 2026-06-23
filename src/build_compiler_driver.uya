@@ -53933,6 +53933,81 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         }
         return 1;
     }
+    if node.type == ASTNodeType.AST_ASM {
+        if out_kind != null {
+            *out_kind = "AST_ASM" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "inline_asm_requires_target_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_ASM_TARGET {
+        if out_kind != null {
+            *out_kind = "AST_ASM_TARGET" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "asm_target_requires_target_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_SYSCALL {
+        if out_kind != null {
+            *out_kind = "AST_SYSCALL" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "syscall_requires_target_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        if out_kind != null {
+            *out_kind = "AST_PTR_FROM_USIZE" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "ptr_from_usize_requires_target_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        if out_kind != null {
+            *out_kind = "AST_USIZE_FROM_PTR" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "usize_from_ptr_requires_target_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
     if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
         var i: i32 = 0;
         while i < node.program_decl_count {
