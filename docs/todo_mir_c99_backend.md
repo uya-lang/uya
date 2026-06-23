@@ -105,13 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 前置说明：`MIR-C99-CALL-ABI-RUNTIME-REAL-EXTERN-CLI-ROUTE` 已转入 failed archive；
     其余子任务必须在 fixed `../uya/bin/uya build --mir-c99 tests/extern_function.uya`
     能进入真实 `[MIR-C99]` 路由后再继续。
-  - [ ] `MIR-C99-CALL-ABI-RUNTIME-REAL-CLI-CALL-ABI-SHARDS`: 补齐 direct call、
-    method/monomorphized call、function pointer call、aggregate return/out-param、
-    error-union return、float/double ABI。
-    - 最小验证：新增并运行 `bash tests/verify_mir_c99_call_surface_real_cli.sh`，要求
-      fixed `../uya/bin/uya` 对 focused call ABI case 走真实 `[MIR-C99]`，host C99
-      compiler 编译运行，并与 `--c99` oracle 对齐。
-    - 完成条件：focused call ABI case 全部转绿，且日志/产物拒绝 legacy C99 fallback。
   - [ ] `MIR-C99-CALL-ABI-RUNTIME-REAL-CLI-INTERFACE-DISPATCH-SHARDS`: 补齐 interface
     vtable dispatch、generic interface dispatch。
     - 最小验证：新增并运行
