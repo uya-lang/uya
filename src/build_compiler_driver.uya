@@ -53933,6 +53933,111 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         }
         return 1;
     }
+    if node.type == ASTNodeType.AST_MC_EVAL {
+        if out_kind != null {
+            *out_kind = "AST_MC_EVAL" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_eval_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_MC_CODE {
+        if out_kind != null {
+            *out_kind = "AST_MC_CODE" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_code_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_MC_AST {
+        if out_kind != null {
+            *out_kind = "AST_MC_AST" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_ast_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_MC_ERROR {
+        if out_kind != null {
+            *out_kind = "AST_MC_ERROR" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_error_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_MC_INTERP {
+        if out_kind != null {
+            *out_kind = "AST_MC_INTERP" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_interp_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_MC_TYPE {
+        if out_kind != null {
+            *out_kind = "AST_MC_TYPE" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_type_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_MC_SOURCE {
+        if out_kind != null {
+            *out_kind = "AST_MC_SOURCE" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mc_source_requires_compile_time_macro_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
     if node.type == ASTNodeType.AST_ASM {
         if out_kind != null {
             *out_kind = "AST_ASM" as &byte;
@@ -54167,6 +54272,10 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
     if node.type == ASTNodeType.AST_FN_DECL {
         return native_build_find_mir_c99_capability_diagnostic(
             node.fn_decl_body, out_kind, out_reason, out_file, out_line);
+    }
+    if node.type == ASTNodeType.AST_MACRO_DECL {
+        return native_build_find_mir_c99_capability_diagnostic(
+            node.macro_decl_body, out_kind, out_reason, out_file, out_line);
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
         return native_build_find_mir_c99_capability_diagnostic(

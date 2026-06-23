@@ -2361,6 +2361,26 @@ emit_direct_builtin_capability_reject() {
     exit 78
 }
 
+emit_macro_builtin_capability_reject() {
+    local subset="$1"
+    local kind="$2"
+    local reason="$3"
+    rm -f "$output" "${output}imports.sh"
+    {
+        printf 'MIR-C99 generator command\n'
+        printf 'input=%s\n' "$input"
+        printf 'output=%s\n' "$output"
+        printf 'handoff_status=verified\n'
+        printf 'writer_status=rejected\n'
+        printf 'subset=%s\n' "$subset"
+        printf 'status=rejected\n'
+        printf 'reject_reason=%s\n' "$reason"
+        printf 'mir_c99_capability_diagnostic: kind=%s reason=%s\n' "$kind" "$reason"
+    } >"$log"
+    echo "error: MIR-C99 macro builtin still requires compile-time macro capability: $kind" >&2
+    exit 78
+}
+
 if grep -Eq '@asm[[:space:]]*\{' "$input"; then
     emit_direct_builtin_capability_reject \
         "inline_asm_capability" \
@@ -2436,6 +2456,55 @@ if grep -Eq '@va_copy[[:space:]]*\(' "$input"; then
         "va_copy_capability" \
         "AST_VA_COPY" \
         "va_copy_requires_c_variadic_capability"
+fi
+
+if grep -Eq '\$\{' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_interp_capability" \
+        "AST_MC_INTERP" \
+        "mc_interp_requires_compile_time_macro_capability"
+fi
+
+if grep -Eq '@mc_source[[:space:]]*\(' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_source_capability" \
+        "AST_MC_SOURCE" \
+        "mc_source_requires_compile_time_macro_capability"
+fi
+
+if grep -Eq '@mc_type[[:space:]]*\(' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_type_capability" \
+        "AST_MC_TYPE" \
+        "mc_type_requires_compile_time_macro_capability"
+fi
+
+if grep -Eq '@mc_eval[[:space:]]*\(' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_eval_capability" \
+        "AST_MC_EVAL" \
+        "mc_eval_requires_compile_time_macro_capability"
+fi
+
+if grep -Eq '@mc_code[[:space:]]*\(' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_code_capability" \
+        "AST_MC_CODE" \
+        "mc_code_requires_compile_time_macro_capability"
+fi
+
+if grep -Eq '@mc_ast[[:space:]]*\(' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_ast_capability" \
+        "AST_MC_AST" \
+        "mc_ast_requires_compile_time_macro_capability"
+fi
+
+if grep -Eq '@mc_error[[:space:]]*\(' "$input"; then
+    emit_macro_builtin_capability_reject \
+        "mc_error_capability" \
+        "AST_MC_ERROR" \
+        "mc_error_requires_compile_time_macro_capability"
 fi
 
 local_if_fields="$(perl -0ne 'if (/export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*([0-9]+)\s*;\s*if\s+\1\s*==\s*([0-9]+)\s*\{\s*return\s+([0-9]+)\s*;\s*\}\s*return\s+([0-9]+)\s*;\s*\}/s) { print "$1 $2 $3 $4 $5\n"; }' "$input")"

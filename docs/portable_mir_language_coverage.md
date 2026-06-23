@@ -133,13 +133,13 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；error-id binding parity shard 覆盖 `catch |err|` 绑定。 |
 | `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；error-id binding parity shard 覆盖 `@error_id(error.Name)` 读取。 |
 | `AST_MATCH_EXPR` | done | reject | `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh` 现要求普通 `match` expression 走真实 `--mir-c99` 并 fail-closed 输出 `mir_c99_capability_diagnostic: kind=AST_MATCH_EXPR reason=match_expr_requires_expr_value_place`；此前 union generator smoke 不再计作 real-CLI full-language 证据，真实 value/place lowering 待 `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`。 |
-| `AST_MC_EVAL` | partial | missing | 宏内求值；MIR 端走 pre-MIR helper。 |
-| `AST_MC_CODE` | partial | missing | 宏内生成代码。 |
-| `AST_MC_AST` | partial | missing | 宏内获取 AST。 |
-| `AST_MC_ERROR` | partial | missing | 宏内报错。 |
-| `AST_MC_INTERP` | partial | missing | 宏内插值。 |
-| `AST_MC_TYPE` | partial | missing | 宏内类型反射。 |
-| `AST_MC_SOURCE` | partial | missing | 宏内源码字符串序列化。 |
+| `AST_MC_EVAL` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `@mc_eval` 的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_EVAL reason=mc_eval_requires_compile_time_macro_capability`。 |
+| `AST_MC_CODE` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `@mc_code` 的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_CODE reason=mc_code_requires_compile_time_macro_capability`。 |
+| `AST_MC_AST` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `@mc_ast` 的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_AST reason=mc_ast_requires_compile_time_macro_capability`。 |
+| `AST_MC_ERROR` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `@mc_error` 的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_ERROR reason=mc_error_requires_compile_time_macro_capability`。 |
+| `AST_MC_INTERP` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `${}` 插值的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_INTERP reason=mc_interp_requires_compile_time_macro_capability`。 |
+| `AST_MC_TYPE` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `@mc_type` 的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_TYPE reason=mc_type_requires_compile_time_macro_capability`。 |
+| `AST_MC_SOURCE` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对含 `@mc_source` 的宏源 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_MC_SOURCE reason=mc_source_requires_compile_time_macro_capability`。 |
 | `AST_AWAIT_EXPR` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource async full-language parity shard 覆盖 async error union cleanup、defer/errdefer 和 frame release。 |
 | `AST_SRC_NAME` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `AST_SRC_PATH` | done | missing | C99 builtin。 |
@@ -255,7 +255,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@embed`/`@embed_dir` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@embed` / `@embed_dir` fail-closed 并输出稳定 capability diagnostic。 |
 | `@asm`/`@asm_target` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm` / `@asm_target` fail-closed 并输出稳定 capability diagnostic。 |
 | `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@va_*` fail-closed 并输出稳定 capability diagnostic。 |
-| `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
+| `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | reject | `bash tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` 现要求 current-source generator 对宏内 builtin fail-closed，并输出稳定 capability diagnostic。 |
 | `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource async full-language parity shard 覆盖 async error union cleanup、defer/errdefer 和 frame release。 |
 
 ---
