@@ -1775,3 +1775,24 @@ Context:
         退出码 `1`，日志显示 `[MIR-C99]` 与
         `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability file=tests/test_asm_const_output.uya line=5`，
         随后 fail-closed 为 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`，且未生成输出文件。
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+
+    - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT-AFTER-NESTED-TEST-DIAG`:
+      在 nested `test` capability diagnostic 固定后重跑主语言面，更新 failure matrix
+      与 capability diagnostic 分布。
+      - 验证（2026-06-24，本轮）：
+        - `bash tests/verify_mir_c99_test_stmt_nested_capability_diag.sh`
+          => `OK: MIR-C99 top-level test capability diagnostics now descend into nested unsupported nodes`
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-recount-after-nested-asm.c`
+          => 退出码 `1`，输出 `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability file=tests/test_asm_const_output.uya line=5`，随后
+          `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+        - `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+          => 退出码 `1`；`总计: 1024`、`通过: 155`、`失败: 869`。
+      - 结果：
+        - 顶层失败项口径下，`859` 个编译失败收敛为 `596` 个 `错误: MIR-C99 extern lowering 失败`、`259` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`1` 个 `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
+        - 其余 `10` 个为非编译失败：`2` 个链接失败（`test_export_for_c`、`test_export_for_c_complete`）、`6` 个单文件运行失败（`test_module_use_simple`、`test_function_reachability_tuple_expr`、`test_c99_import_main_codegen`、`test_function_reachability_string_interp_expr`、`test_array_bounds`、`test_module_export`）、`2` 个聚合多文件失败（`multifile`、`cross_deps`）。
+        - 显式 capability diagnostic 总量保持 `202`，分布与当前主 todo 基线一致：`147` 个 `AST_TEST_STMT / test_driver_not_lowered`、`15` 个 `AST_ASM / inline_asm_requires_target_capability`、`9` 个 `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`6` 个 `AST_MATCH_EXPR / match_expr_requires_expr_value_place`、`5` 个 `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`4` 个 `AST_STRING_INTERP / string_interp_requires_expr_value_place`、`4` 个 `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个 `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`、`2` 个 `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个 `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个 `AST_INT_LIMIT / int_limit_requires_expr_value_place`、`1` 个 `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个 `AST_FOR_STMT / for_driver_not_lowered`、`1` 个 `AST_PTR_FROM_USIZE / ptr_from_usize_requires_target_capability`、`1` 个 `AST_SYSCALL / syscall_requires_target_capability`、`1` 个 `AST_ASM_TARGET / asm_target_requires_target_capability`。
+        - 结论：nested `test` capability diagnostic 固定后的主语言面重计数已完成复核；当前主 todo 中的 failure matrix 与 capability diagnostic 分布已按本轮真实 CLI 结果刷新。

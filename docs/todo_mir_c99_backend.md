@@ -117,11 +117,14 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `UYA_TEST_STDOUT_LINEBUF=1`，否则 `tests/run_programs_parallel.sh` 会自包装
       `stdbuf`，把真实 MIR-C99 失败面打成空输出 `编译失败(退出码:139)`；下列
       failure matrix 以关闭该包装后的结果为准。
-    - 本轮真实重计数（2026-06-24，本轮续跑）：`1024` 项中 `155` 通过、`869` 失败；失败分布为 `596` 个
-      `错误: MIR-C99 extern lowering 失败`、`263` 个
-      `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个
+    - 本轮真实重计数（2026-06-24，本轮续跑复核）：`1024` 项中 `155` 通过、`869` 失败。
+    - 顶层失败项口径下，`859` 个编译失败收敛为 `596` 个
+      `错误: MIR-C99 extern lowering 失败`、`259` 个
+      `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`1` 个
       `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
-    - 已出现的具体 capability diagnostic（共 `202` 个）：`147` 个
+    - 其余 `10` 个为非编译失败：`2` 个链接失败、`6` 个单文件运行失败、`2` 个
+      `multifile/cross_deps` 聚合失败。
+    - 已出现的具体 capability diagnostic（共 `202` 个，本轮复核分布不变）：`147` 个
       `AST_TEST_STMT / test_driver_not_lowered`、`15` 个
       `AST_ASM / inline_asm_requires_target_capability`、`9` 个
       `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`6` 个
@@ -148,9 +151,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `202` 个，同时新增 `AST_MATCH_EXPR`、`AST_STRING_INTERP`、
         `AST_USIZE_FROM_PTR`、`AST_PTR_FROM_USIZE`、`AST_INT_LIMIT`、`AST_FOR_STMT`、
         `AST_ASM_TARGET` 等具体 bucket。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT-AFTER-NESTED-TEST-DIAG`:
-      在 nested `test` capability diagnostic 固定后重跑主语言面，更新 failure matrix
-      与 capability diagnostic 分布。
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-FIRST-BUCKET-NEXT`:
       让首个 generic `错误: MIR-C99 extern lowering 失败` real CLI 用例收敛为具体
       capability diagnostic 或真实支持。
