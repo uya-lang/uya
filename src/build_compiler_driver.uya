@@ -53837,6 +53837,11 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         return 0;
     }
     if node.type == ASTNodeType.AST_TEST_STMT {
+        if native_build_find_mir_c99_capability_diagnostic(
+            node.test_stmt_body, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
         if out_kind != null {
             *out_kind = "AST_TEST_STMT" as &byte;
         }

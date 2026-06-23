@@ -1749,3 +1749,29 @@ Context:
       - failure matrix：`596` 个 `错误: MIR-C99 extern lowering 失败`、`263` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`2` 个 `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
       - capability diagnostic 分布：`147` 个 `AST_TEST_STMT / test_driver_not_lowered`、`15` 个 `AST_ASM / inline_asm_requires_target_capability`、`9` 个 `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`6` 个 `AST_MATCH_EXPR / match_expr_requires_expr_value_place`、`5` 个 `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`4` 个 `AST_STRING_INTERP / string_interp_requires_expr_value_place`、`4` 个 `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个 `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`、`2` 个 `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个 `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个 `AST_SYSCALL / syscall_requires_target_capability`、`1` 个 `AST_PTR_FROM_USIZE / ptr_from_usize_requires_target_capability`、`1` 个 `AST_INT_LIMIT / int_limit_requires_expr_value_place`、`1` 个 `AST_FOR_STMT / for_driver_not_lowered`、`1` 个 `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个 `AST_ASM_TARGET / asm_target_requires_target_capability`。
       - 结果：generic capability 总量仍为 `202` 个，其中 `AST_TEST_STMT / test_driver_not_lowered` 从 `182` 个降到 `147` 个，`tests/test_asm_const_output.uya` 等 `@asm` 用例已显式暴露为 `AST_ASM` bucket。
+
+### 2026-06-24 - Full Language Parity / Main Language
+
+来源：`docs/todo_mir_c99_backend.md`
+
+标题上下文：`### 4.15 Full Language Parity`
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-NESTED-TEST-CAPABILITY-DIAGNOSTIC`:
+    让顶层 `test` 块内部的 unsupported 节点优先暴露真实 capability diagnostic，
+    不再被外层 `AST_TEST_STMT / test_driver_not_lowered` 抢占。
+    - 最小验证：
+      - `bash tests/verify_mir_c99_test_stmt_nested_capability_diag.sh`
+      - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o <tmp>.c`
+    - 完成条件：
+      - 顶层 `test` 包裹的 `@asm` real CLI case 输出
+        `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability`
+      - reject 不留下非空 MIR-C99 输出文件。
+    - 已验证（2026-06-24）：
+      - `bash tests/verify_mir_c99_test_stmt_nested_capability_diag.sh`：通过，输出
+        `OK: MIR-C99 top-level test capability diagnostics now descend into nested unsupported nodes`。
+      - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-test-asm-const-direct.c`：
+        退出码 `1`，日志显示 `[MIR-C99]` 与
+        `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability file=tests/test_asm_const_output.uya line=5`，
+        随后 fail-closed 为 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`，且未生成输出文件。

@@ -148,6 +148,21 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `202` 个，同时新增 `AST_MATCH_EXPR`、`AST_STRING_INTERP`、
         `AST_USIZE_FROM_PTR`、`AST_PTR_FROM_USIZE`、`AST_INT_LIMIT`、`AST_FOR_STMT`、
         `AST_ASM_TARGET` 等具体 bucket。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT-AFTER-NESTED-TEST-DIAG`:
+      在 nested `test` capability diagnostic 固定后重跑主语言面，更新 failure matrix
+      与 capability diagnostic 分布。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-FIRST-BUCKET-NEXT`:
+      让首个 generic `错误: MIR-C99 extern lowering 失败` real CLI 用例收敛为具体
+      capability diagnostic 或真实支持。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET-NEXT`:
+      让首个 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` real CLI
+      用例收敛为具体 capability diagnostic 或真实支持。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET-NEXT`:
+      让首个 `错误: MIR-C99 unit output 写出失败` real CLI 用例收敛为具体
+      capability diagnostic 或真实支持。
+    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VERIFIER-FIRST-BUCKET-NEXT`:
+      固定首个 `PortableMIR verifier 失败` real CLI 用例和 focused gate，避免后续修复
+      继续淹没在主语言全量输出中。
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。
