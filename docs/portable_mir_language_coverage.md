@@ -177,7 +177,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 ## 4. CoreStmt 覆盖
 
-`src/lower/core.uya` 中 `CORE_STMT_KIND_*` 11 个常量。
+`src/lower/core.uya` 中 `CORE_STMT_KIND_*` 14 个常量。
 
 | kind | 状态 | MIR-C99 状态 | 备注 |
 |------|------|---------------|------|
@@ -192,6 +192,9 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `CORE_STMT_KIND_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assignment。 |
 | `CORE_STMT_KIND_EXPR` | done | missing | 表达式语句入口。 |
 | `CORE_STMT_KIND_WHILE` | partial | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；control-flow async full-language parity shard 覆盖 async while；break/continue 和复杂 cleanup edge 待补。 |
+| `CORE_STMT_KIND_BLOCK` | partial | missing | 结构化 block statement surface 已纳入 Core contract 和 PortableMIR feature mapping；CFG lowering 待后续 leaf 接通。 |
+| `CORE_STMT_KIND_BREAK` | partial | missing | loop `break` statement surface 已纳入 Core contract 和 PortableMIR feature mapping；loop target lowering 待后续 leaf 接通。 |
+| `CORE_STMT_KIND_CONTINUE` | partial | missing | loop `continue` statement surface 已纳入 Core contract 和 PortableMIR feature mapping；loop target lowering 待后续 leaf 接通。 |
 
 ---
 

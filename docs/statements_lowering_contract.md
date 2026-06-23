@@ -44,6 +44,10 @@ CoreBody → PortableMIR lowering 合同，涵盖：
 | `CORE_STMT_KIND_IF` | done | `AST_IF_STMT` | 1 个 cond block + 2 个 successor（then/else 或 then/fallthrough）+ `MIR_TERMINATOR_KIND_COND_BR` | `tests/verify_hosted_native_main_local_if_preflight.sh` shard |
 | `CORE_STMT_KIND_ASSIGN` | done | `AST_ASSIGN`（含 `+=` 等复合） | `MIR_INST_OP_STORE` 或 `MIR_INST_OP_LOCAL_SET`；atomic 走 atomic op | `tests/verify_hosted_native_full_language_smoke.sh` `atomic` shard（`atomic_value += 2`） |
 | `CORE_STMT_KIND_EXPR` | done | `AST_EXPR_STMT` | 内部 expr 转 1+ MirInst，结果丢弃 | `tests/verify_hosted_native_helloworld_parity.sh` bare/split/return-as-expr 三变体 |
+| `CORE_STMT_KIND_WHILE` | partial | `AST_WHILE_STMT` | cond block + body block + loop exit block，body 尾部回到 cond block | MIR-C99 structured CFG leaf 待补 |
+| `CORE_STMT_KIND_BLOCK` | partial | block body / scope body | 子 statement range 保持结构化顺序，供 CFG lowering 展开 | `tests/verify_lowered_program_core_verifier.sh` contract shard |
+| `CORE_STMT_KIND_BREAK` | partial | `AST_BREAK_STMT` | `MIR_TERMINATOR_KIND_BR` 到当前 loop exit target | MIR-C99 structured CFG break/continue leaf 待补 |
+| `CORE_STMT_KIND_CONTINUE` | partial | `AST_CONTINUE_STMT` | `MIR_TERMINATOR_KIND_BR` 到当前 loop continue/backedge target | MIR-C99 structured CFG break/continue leaf 待补 |
 
 ### 2.1 状态语义
 

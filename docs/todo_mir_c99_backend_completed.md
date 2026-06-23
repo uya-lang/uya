@@ -1221,3 +1221,25 @@ Context:
     - 验证：2026-06-23 `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> PASS，归档前主 todo 仅 1 个 active leaf。
     - 验证：2026-06-23 `git diff --check` -> PASS。
     - 额外检查：2026-06-23 `bash tests/verify_mir_c99_full_language_baseline_truth.sh` 未运行成功，原因是固定编译器 `../uya/bin/uya` 缺失；本轮未改用其他 Uya 编译器。
+### 4.15 Full Language Parity
+
+父级路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG` -> `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED`
+
+  - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-CORE-KINDS`:
+      为 `block`、`break`、`continue` 补齐 CoreStmt kind 合同、CoreIR verifier
+      认可路径、PortableMIR feature mapping 和覆盖矩阵入口。
+      - 最小验证：`bash tests/verify_lowered_program_core_verifier.sh` 和
+        `bash tests/verify_portable_mir_lowering_contract.sh` 覆盖新增 kind。
+      - 完成条件：Core contract 能稳定表达 block/break/continue，后续 CFG lowering
+        不再需要臆造 statement kind。
+      - 验证（2026-06-23）：先红灯确认 `bash tests/verify_lowered_program_core_verifier.sh`
+        失败于 `CoreIR block statement surface` 缺失，`bash tests/verify_portable_mir_lowering_contract.sh`
+        失败于 `CORE_STMT_KIND_BLOCK` 未映射 control-flow feature；随后恢复固定验证路径
+        `../uya/bin/uya`（在相邻 `../uya` 执行 `make from-c`），并通过：
+        `bash tests/verify_lowered_program_core_verifier.sh`（4 tests / 155 assertions）；
+        `bash tests/verify_portable_mir_lowering_contract.sh`（1 test / 42 assertions）；
+        `bash tests/verify_portable_mir_language_coverage.sh`；
+        `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`；
+        `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`；
+        `bash -n tests/verify_lowered_program_core_verifier.sh tests/verify_portable_mir_lowering_contract.sh`；
+        `git diff --check`。

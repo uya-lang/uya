@@ -135,6 +135,9 @@ export const CORE_STMT_KIND_IF: i32 = 17;
 export const CORE_STMT_KIND_ASSIGN: i32 = 18;
 export const CORE_STMT_KIND_EXPR: i32 = 19;
 export const CORE_STMT_KIND_WHILE: i32 = 20;
+export const CORE_STMT_KIND_BLOCK: i32 = 21;
+export const CORE_STMT_KIND_BREAK: i32 = 22;
+export const CORE_STMT_KIND_CONTINUE: i32 = 23;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
 export const CORE_EXPR_KIND_INDEX: i32 = 12;
 export const CORE_EXPR_KIND_SLICE: i32 = 13;
@@ -200,6 +203,9 @@ test "PortableMIR lowering contract covers full language CoreBody features" {
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_DEFER), MIR_LOWER_FEATURE_CLEANUP_PATH), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_IF), MIR_LOWER_FEATURE_CONTROL_FLOW), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_WHILE), MIR_LOWER_FEATURE_CONTROL_FLOW), 1);
+    try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_BLOCK), MIR_LOWER_FEATURE_CONTROL_FLOW), 1);
+    try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_BREAK), MIR_LOWER_FEATURE_CALL_RETURN_BRANCH), 1);
+    try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_CONTINUE), MIR_LOWER_FEATURE_CALL_RETURN_BRANCH), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_ASSIGN), MIR_LOWER_FEATURE_COPY_MOVE_DROP), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_stmt_kind(CORE_STMT_KIND_EXPR), MIR_LOWER_FEATURE_CALL_RETURN_BRANCH), 1);
     try assert_eq_i32(portable_mir_lowering_mask_has(portable_mir_lowering_feature_for_expr_kind(CORE_EXPR_KIND_CALL), MIR_LOWER_FEATURE_CALL_RETURN_BRANCH), 1);
@@ -240,6 +246,6 @@ test "PortableMIR lowering contract covers full language CoreBody features" {
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+(cd "$REPO_ROOT" && UYA_ROOT="$REPO_ROOT" ../uya/bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
 echo "OK: PortableMIR lowering contract verified"

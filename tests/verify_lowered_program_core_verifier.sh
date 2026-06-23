@@ -35,6 +35,9 @@ require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP' "clean
 require_pattern "$LOWER_CORE_FILE" 'COREIR_VERIFY_ERR_CAPABILITY_SEMANTICS' "capability 语义污染诊断码"
 require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_ASSIGN' "CoreIR 局部赋值 statement surface"
 require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_EXPR' "CoreIR 裸 call expression statement surface"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_BLOCK' "CoreIR block statement surface"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_BREAK' "CoreIR break statement surface"
+require_pattern "$LOWER_CORE_FILE" 'CORE_STMT_KIND_CONTINUE' "CoreIR continue statement surface"
 require_pattern "$LOWER_CORE_FILE" 'CORE_EXPR_KIND_I32_LE' "CoreIR i32 <= expression surface"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir_result' "带诊断的 CoreIR verifier API"
 require_pattern "$LOWER_CORE_FILE" 'lowered_program_verify_coreir' "CoreIR verifier 便捷 API"
@@ -399,6 +402,6 @@ test "CoreIR verifier rejects incomplete cleanup and capability semantic polluti
 }
 EOF
 
-(cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --project-root "$tmp_dir")
+(cd "$REPO_ROOT" && UYA_ROOT="$REPO_ROOT" ../uya/bin/uya test "$tmp_dir/main.uya" --project-root "$tmp_dir")
 
 echo "✓ CoreIR verifier contract verified"

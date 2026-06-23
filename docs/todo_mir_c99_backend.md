@@ -109,6 +109,19 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     `WHILE`、block、`break` / `continue` 的 CoreStmt 到 PortableMIR CFG lowering。
     - 最小验证：新增或更新 statement/CFG shard，并让结构化控制流用例通过。
     - 完成条件：分支、循环 backedge、break/continue 均生成 verifier-clean MIR-C99 C。
+    - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-IF-WHILE`:
+      将 `IF`、`WHILE`、block 的 CoreStmt 树 lowering 到 PortableMIR multi-block
+      CFG、`COND_BR`、loop backedge 和 verifier-clean successor 表。
+      - 最小验证：新增或更新 PortableMIR CoreBody CFG lowering shard。
+      - 完成条件：if/else、嵌套 block、while backedge 生成 verifier-clean PortableMIR。
+    - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-BREAK-CONTINUE`:
+      接通 `break` / `continue` 到当前 loop 的 break/continue target block。
+      - 最小验证：新增 break/continue loop CoreBody CFG lowering shard。
+      - 完成条件：break 跳到 loop exit，continue 跳到 loop condition/backedge，均通过 verifier。
+    - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-MIR-C99-EMIT`:
+      让上述结构化 CFG 经 MIR-C99 unit output 写出可编译运行的低级 C99。
+      - 最小验证：更新 statement/CFG MIR-C99 parity shard，覆盖 if/while/block/break/continue。
+      - 完成条件：host C99 编译运行结果与 C99 oracle 对齐，且 no-legacy-fallback guard 通过。
   - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-DEFER-ERROR`: 补齐 `DEFER`、
     `ERRDEFER`、`DROP`、`ERROR_PROPAGATION` 的 cleanup/error CFG lowering。
     - 最小验证：新增或更新 cleanup/error statement shard，并通过真实 `--mir-c99`
