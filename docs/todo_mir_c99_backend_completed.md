@@ -1346,3 +1346,35 @@ Context:
       - `bash tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh`
       - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`
     - 结果：通过。focused gate 使用 `/media/winger/_dde_home/winger/uya/uya-1.0/../uya/bin/uya`，真实 `build --mir-c99` 生成 statement MIR-C99 C，以 `-std=c99 -O2 -fno-builtin -Werror` 编译运行并与同一固定编译器生成的 C99 oracle 对齐；CFG frontier 仍 fail-closed，未出现 legacy fallback 证据。
+
+父级任务路径：
+- [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG`: 补齐 CoreStmt/AST statement 到 MIR 的通用
+  CFG lowering，而不是仅支持尾部 `return i32` 和少量表达式语句。
+  - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-LOOP-EDGES`: 补齐 loop backedge、
+    `break` / `continue` 到 MIR-C99 CFG 的通用 lowering。
+    - 最小验证：含嵌套 loop、`break`、`continue` 的 focused shard 走真实 `--mir-c99`
+      生成、编译、运行。
+    - 完成条件：`AST_BREAK_STMT` / `AST_CONTINUE_STMT` 的 MIR-C99 状态不再是 `missing`。
+    - 实现：`src/build_compiler_driver.uya` 的 structured safe CoreBody builder 补齐
+      `AST_BREAK_STMT` / `AST_CONTINUE_STMT` 映射，并修正 `IF` / `WHILE`
+      child stmt 起点必须使用 `first_descendant_stmt_id`；`src/lower/mir.uya`
+      的 `while` lowering 在当前 block 已有前置指令时切出独立 condition block，避免
+      loop backedge 重新执行 preheader/local init；`src/lower/mir_verifier.uya`、
+      `src/codegen/mir_c99/cfg.uya` 与 `src/build_compiler_driver.uya` 的 block lookup
+      改为按 `block_id` 查找，允许嵌套 CFG block 按真实追加顺序落表；coverage matrix
+      与 full-language parity gate 同步把 `AST_BREAK_STMT` / `AST_CONTINUE_STMT`、
+      `CORE_STMT_KIND_BREAK` / `CORE_STMT_KIND_CONTINUE` 升到 MIR-C99 `partial`。
+    - 验证（2026-06-23）：
+      - `bash tests/verify_mandated_build_compiler_driver_entry.sh`：通过，确认固定
+        `../uya/bin/uya` 仍可 bootstrap 当前源码 `cmd/build` 入口。
+      - 刷新固定 build CLI：`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya -o <tmp>/build-bootstrap --project-root src/ --no-split-c`；
+        `UYA_ROOT="$PWD" <tmp>/build-bootstrap build src/cmd/build/main.uya -o <tmp>/cmd-build --project-root src/`；
+        随后同步 `<tmp>/cmd-build` 到 `../uya/bin/cmd/build`。
+      - `bash tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh`：通过；新增
+        nested loop `break` / `continue` case，真实 MIR-C99 C 经 host C99 编译运行并与
+        C99 oracle 对齐，不含 legacy fallback 证据。
+      - `bash tests/verify_portable_mir_core_body_lowering.sh`：通过。
+      - `bash tests/verify_portable_mir_verifier.sh`：通过。
+      - `bash tests/verify_mir_c99_cfg_parity.sh`：通过。
+      - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`：通过。
+      - `git diff --check`：通过。

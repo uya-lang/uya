@@ -12923,6 +12923,239 @@ fn native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl: &ASTNode
     }
     return 1;
 }
+
+fn native_build_hosted_structured_i32_expr_count(expr: &ASTNode,
+    locals: &NativeBuildLocalTable) i32 {
+    if expr == null || locals == null {
+        return -1;
+    }
+    if expr.type == ASTNodeType.AST_NUMBER {
+        const value_result: !i32 = expr.number_value_i64 as! i32;
+        const value: i32 = value_result catch { return -1; };
+        _ = value;
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
+        if native_build_local_find(locals, expr.identifier_name) < 0 {
+            return -1;
+        }
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR &&
+       expr.binary_expr_left != null && expr.binary_expr_right != null {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp catch { return -1; };
+        if op != TokenType.TOKEN_PLUS && op != TokenType.TOKEN_LESS &&
+           op != TokenType.TOKEN_LESS_EQUAL {
+            return -1;
+        }
+        if op == TokenType.TOKEN_LESS &&
+           expr.binary_expr_right.type != ASTNodeType.AST_NUMBER {
+            return -1;
+        }
+        const left_count: i32 =
+            native_build_hosted_structured_i32_expr_count(expr.binary_expr_left,
+                locals);
+        const right_count: i32 =
+            native_build_hosted_structured_i32_expr_count(expr.binary_expr_right,
+                locals);
+        if left_count < 0 || right_count < 0 {
+            return -1;
+        }
+        return left_count + right_count + 1;
+    }
+    return -1;
+}
+
+fn native_build_hosted_structured_i32_stmt_is_expr(stmt: &ASTNode) i32 {
+    if stmt == null {
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_NUMBER ||
+       stmt.type == ASTNodeType.AST_IDENTIFIER ||
+       stmt.type == ASTNodeType.AST_BINARY_EXPR {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_structured_i32_stmt_count(stmt: &ASTNode,
+    locals: &NativeBuildLocalTable, out_expr_count: &i32) i32 {
+    if stmt == null || locals == null || out_expr_count == null {
+        return -1;
+    }
+    if native_build_hosted_structured_i32_stmt_is_expr(stmt) != 0 {
+        const expr_count: i32 =
+            native_build_hosted_structured_i32_expr_count(stmt, locals);
+        if expr_count < 0 {
+            return -1;
+        }
+        *out_expr_count = *out_expr_count + expr_count;
+        return 1;
+    }
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        if stmt.var_decl_name == null ||
+           native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+           stmt.var_decl_init == null {
+            return -1;
+        }
+        const init_count: i32 =
+            native_build_hosted_structured_i32_expr_count(stmt.var_decl_init,
+                locals);
+        if init_count < 0 ||
+           native_build_local_add_i32_const(locals, stmt.var_decl_name, 0) < 0 {
+            return -1;
+        }
+        *out_expr_count = *out_expr_count + init_count;
+        return 1;
+    }
+    if stmt.type == ASTNodeType.AST_ASSIGN {
+        if stmt.assign_dest == null || stmt.assign_src == null ||
+           stmt.assign_dest.type != ASTNodeType.AST_IDENTIFIER ||
+           stmt.assign_dest.identifier_name == null ||
+           native_build_local_find(locals, stmt.assign_dest.identifier_name) < 0 {
+            return -1;
+        }
+        const assign_count: i32 =
+            native_build_hosted_structured_i32_expr_count(stmt.assign_src,
+                locals);
+        if assign_count < 0 {
+            return -1;
+        }
+        *out_expr_count = *out_expr_count + assign_count;
+        return 1;
+    }
+    if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        if stmt.return_stmt_expr == null {
+            return -1;
+        }
+        const return_count: i32 =
+            native_build_hosted_structured_i32_expr_count(stmt.return_stmt_expr,
+                locals);
+        if return_count < 0 {
+            return -1;
+        }
+        *out_expr_count = *out_expr_count + return_count;
+        return 1;
+    }
+    if stmt.type == ASTNodeType.AST_BREAK_STMT ||
+       stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+        return 1;
+    }
+    if stmt.type == ASTNodeType.AST_IF_STMT {
+        if stmt.if_stmt_condition == null ||
+           stmt.if_stmt_then_branch == null ||
+           stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK {
+            return -1;
+        }
+        const cond_count: i32 =
+            native_build_hosted_structured_i32_expr_count(stmt.if_stmt_condition,
+                locals);
+        if cond_count < 0 {
+            return -1;
+        }
+        *out_expr_count = *out_expr_count + cond_count;
+        var total: i32 = 1;
+        const then_count: i32 =
+            native_build_hosted_structured_i32_stmt_count(
+                stmt.if_stmt_then_branch, locals, out_expr_count);
+        if then_count < 0 {
+            return -1;
+        }
+        total = total + then_count;
+        if stmt.if_stmt_else_branch != null {
+            if stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK {
+                return -1;
+            }
+            const else_count: i32 =
+                native_build_hosted_structured_i32_stmt_count(
+                    stmt.if_stmt_else_branch, locals, out_expr_count);
+            if else_count < 0 {
+                return -1;
+            }
+            total = total + else_count;
+        }
+        return total;
+    }
+    if stmt.type == ASTNodeType.AST_WHILE_STMT {
+        if stmt.while_stmt_condition == null || stmt.while_stmt_body == null ||
+           stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK {
+            return -1;
+        }
+        const cond_count: i32 =
+            native_build_hosted_structured_i32_expr_count(
+                stmt.while_stmt_condition, locals);
+        const body_count: i32 =
+            native_build_hosted_structured_i32_stmt_count(stmt.while_stmt_body,
+                locals, out_expr_count);
+        if cond_count < 0 || body_count < 0 {
+            return -1;
+        }
+        *out_expr_count = *out_expr_count + cond_count;
+        return body_count + 1;
+    }
+    if stmt.type == ASTNodeType.AST_BLOCK {
+        if stmt.block_stmt_count < 0 ||
+           (stmt.block_stmt_count > 0 && stmt.block_stmts == null) {
+            return -1;
+        }
+        var total: i32 = 1;
+        var i: i32 = 0;
+        while i < stmt.block_stmt_count {
+            const child_count: i32 =
+                native_build_hosted_structured_i32_stmt_count(
+                    stmt.block_stmts[i], locals, out_expr_count);
+            if child_count < 0 {
+                return -1;
+            }
+            total = total + child_count;
+            i = i + 1;
+        }
+        return total;
+    }
+    return -1;
+}
+
+fn native_build_hosted_structured_i32_body_supported(
+    decl: &ASTNode, checker: &TypeChecker) i32 {
+    if decl == null || checker == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count <= 1 {
+        return 0;
+    }
+    var locals: NativeBuildLocalTable =
+        native_build_local_table_init(checker.arena,
+            decl.fn_decl_body.block_stmt_count + 16);
+    if locals.names == null {
+        return 0;
+    }
+    var expr_count: i32 = 0;
+    var stmt_count: i32 = 0;
+    var i: i32 = 0;
+    while i < decl.fn_decl_body.block_stmt_count {
+        const child_count: i32 =
+            native_build_hosted_structured_i32_stmt_count(
+                decl.fn_decl_body.block_stmts[i], &locals, &expr_count);
+        if child_count < 0 {
+            fprintf(libc.stderr,
+                "structured_i32_preflight_fail: index=%d type=%d locals=%d exprs=%d\n" as *byte,
+                i, decl.fn_decl_body.block_stmts[i].type, locals.count,
+                expr_count);
+            return 0;
+        }
+        stmt_count = stmt_count + child_count;
+        i = i + 1;
+    }
+    if stmt_count >= decl.fn_decl_body.block_stmt_count &&
+       expr_count > 0 && locals.count > 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, decl: &ASTNode,
     checker: &TypeChecker) i32 {
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_is_extern != 0 ||
@@ -12990,6 +13223,10 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         return 1;
     }
     if native_build_hosted_decl_can_materialize_simd_vector_mask_body(decl, checker) != 0 {
+        return 1;
+    }
+    if native_build_hosted_structured_i32_body_supported(decl,
+        checker) != 0 {
         return 1;
     }
     if native_build_hosted_decl_can_materialize_guard_call_tail_return_body(decl,
@@ -25714,6 +25951,532 @@ fn native_build_hosted_coreir_append_const1_i32_call_body(
     }
     return 0;
 }
+fn native_build_hosted_coreir_append_structured_i32_expr(
+    lowered: &LoweredProgram, checker: &TypeChecker, body_id: i32,
+    place_start: i32, locals: &NativeBuildLocalTable, expr: &ASTNode) i32 {
+    if lowered == null || checker == null || locals == null || expr == null {
+        return CORE_EXPR_INVALID_ID;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, expr, &type_id) != 0 {
+        return CORE_EXPR_INVALID_ID;
+    }
+    const expr_id: i32 = lowered.core_expr_count as i32;
+    if expr.type == ASTNodeType.AST_NUMBER {
+        if native_build_hosted_coreir_append_int_literal_expr(lowered, body_id,
+            expr, type_id) != 0 {
+            return CORE_EXPR_INVALID_ID;
+        }
+        return expr_id;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
+        const slot: i32 = native_build_local_find(locals, expr.identifier_name);
+        if slot < 0 {
+            return CORE_EXPR_INVALID_ID;
+        }
+        var local_ref: CoreExpr = CoreExpr{
+            expr_id: expr_id,
+            kind: CORE_EXPR_KIND_LOCAL_REF,
+            body_id: body_id,
+            source_expr_id: expr.expr_id,
+            type_id: type_id,
+            literal_i64: 0i64,
+            lhs_expr_id: CORE_EXPR_INVALID_ID,
+            rhs_expr_id: CORE_EXPR_INVALID_ID,
+            callee_expr_id: CORE_EXPR_INVALID_ID,
+            place_id: place_start + slot,
+            target_function_id: TYPED_PROGRAM_INVALID_ID,
+            target_decl_id: TYPED_PROGRAM_INVALID_ID,
+            field_id: TYPED_PROGRAM_INVALID_ID,
+            proof_result_id: TYPED_PROGRAM_INVALID_ID,
+            capability_id: TYPED_PROGRAM_INVALID_ID,
+            source_span_id: expr.line,
+            flags: 0,
+        };
+        if lowered_program_append_core_expr(lowered, &local_ref) != 0 {
+            return CORE_EXPR_INVALID_ID;
+        }
+        return expr_id;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR &&
+       expr.binary_expr_left != null && expr.binary_expr_right != null {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp catch { return CORE_EXPR_INVALID_ID; };
+        const lhs_expr_id: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals, expr.binary_expr_left);
+        if lhs_expr_id == CORE_EXPR_INVALID_ID {
+            return CORE_EXPR_INVALID_ID;
+        }
+        var rhs_expr_id: i32 = CORE_EXPR_INVALID_ID;
+        if op == TokenType.TOKEN_LESS {
+            if expr.binary_expr_right.type != ASTNodeType.AST_NUMBER {
+                return CORE_EXPR_INVALID_ID;
+            }
+            const rhs_value_result: !i32 =
+                expr.binary_expr_right.number_value_i64 as! i32;
+            const rhs_value: i32 = rhs_value_result catch {
+                return CORE_EXPR_INVALID_ID;
+            };
+            rhs_expr_id = lowered.core_expr_count as i32;
+            if native_build_hosted_coreir_append_i32_const_expr(lowered,
+                body_id, expr.binary_expr_right, type_id, rhs_value - 1) != 0 {
+                return CORE_EXPR_INVALID_ID;
+            }
+        } else {
+            rhs_expr_id =
+                native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                    checker, body_id, place_start, locals,
+                    expr.binary_expr_right);
+            if rhs_expr_id == CORE_EXPR_INVALID_ID {
+                return CORE_EXPR_INVALID_ID;
+            }
+        }
+        const result_expr_id: i32 = lowered.core_expr_count as i32;
+        if op == TokenType.TOKEN_PLUS {
+            if native_build_hosted_coreir_append_i32_add_expr(lowered, body_id,
+                expr, type_id, lhs_expr_id, rhs_expr_id) != 0 {
+                return CORE_EXPR_INVALID_ID;
+            }
+            return result_expr_id;
+        }
+        if op == TokenType.TOKEN_LESS || op == TokenType.TOKEN_LESS_EQUAL {
+            var le_expr: CoreExpr = CoreExpr{
+                expr_id: result_expr_id,
+                kind: CORE_EXPR_KIND_I32_LE,
+                body_id: body_id,
+                source_expr_id: expr.expr_id,
+                type_id: type_id,
+                literal_i64: 0i64,
+                lhs_expr_id: lhs_expr_id,
+                rhs_expr_id: rhs_expr_id,
+                callee_expr_id: CORE_EXPR_INVALID_ID,
+                place_id: CORE_PLACE_INVALID_ID,
+                target_function_id: TYPED_PROGRAM_INVALID_ID,
+                target_decl_id: TYPED_PROGRAM_INVALID_ID,
+                field_id: TYPED_PROGRAM_INVALID_ID,
+                proof_result_id: TYPED_PROGRAM_INVALID_ID,
+                capability_id: TYPED_PROGRAM_INVALID_ID,
+                source_span_id: expr.line,
+                flags: 0,
+            };
+            if lowered_program_append_core_expr(lowered, &le_expr) != 0 {
+                return CORE_EXPR_INVALID_ID;
+            }
+            return result_expr_id;
+        }
+    }
+    return CORE_EXPR_INVALID_ID;
+}
+
+fn native_build_hosted_coreir_append_structured_place(
+    lowered: &LoweredProgram, body_id: i32, place_id: i32,
+    type_id: TypeId, source_expr_id: i32, source_span_id: i32) i32 {
+    if lowered == null || place_id < 0 ||
+       type_id == TYPED_PROGRAM_INVALID_ID {
+        return -1;
+    }
+    var place: CorePlace = CorePlace{
+        place_id: place_id,
+        kind: CORE_PLACE_KIND_LOCAL,
+        body_id: body_id,
+        source_expr_id: source_expr_id,
+        type_id: type_id,
+        base_place_id: CORE_PLACE_INVALID_ID,
+        index_expr_id: CORE_EXPR_INVALID_ID,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: source_span_id,
+        flags: CORE_PLACE_FLAG_STACK_SLOT,
+    };
+    return lowered_program_append_core_place(lowered, &place);
+}
+
+fn native_build_hosted_coreir_append_structured_stmt_with_id(
+    lowered: &LoweredProgram, checker: &TypeChecker, body_id: i32,
+    place_start: i32, locals: &NativeBuildLocalTable, stmt: &ASTNode,
+    stmt_id: i32, first_descendant_stmt_id: i32, out_next_stmt_id: &i32) i32 {
+    if lowered == null || checker == null || locals == null || stmt == null ||
+       stmt_id < 0 || first_descendant_stmt_id < 0 || out_next_stmt_id == null {
+        return -1;
+    }
+    if native_build_hosted_structured_i32_stmt_is_expr(stmt) != 0 {
+        const expr_stmt_id: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals, stmt);
+        if expr_stmt_id == CORE_EXPR_INVALID_ID {
+            return -1;
+        }
+        var expr_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_EXPR,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_stmt_id,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &expr_stmt) != 0 {
+            return -1;
+        }
+        *out_next_stmt_id = first_descendant_stmt_id;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        if stmt.var_decl_name == null || stmt.var_decl_init == null ||
+           native_build_type_is_i32(stmt.var_decl_type) == 0 {
+            return -1;
+        }
+        const slot: i32 = native_build_local_find(locals, stmt.var_decl_name);
+        var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if slot < 0 || native_build_hosted_ensure_expr_type_id(checker,
+           stmt.var_decl_init, &type_id) != 0 {
+            return -1;
+        }
+        const expr_id: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals, stmt.var_decl_init);
+        if expr_id == CORE_EXPR_INVALID_ID ||
+           native_build_hosted_coreir_append_structured_place(lowered,
+            body_id, place_start + slot, type_id, stmt.var_decl_init.expr_id,
+            stmt.line) != 0 {
+            return -1;
+        }
+        var core_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_LOCAL_DECL,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_id,
+            place_id: place_start + slot,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: CORE_STMT_FLAG_LOCAL_STACK_SLOT,
+        };
+        if lowered_program_append_core_stmt(lowered, &core_stmt) != 0 {
+            return -1;
+        }
+        *out_next_stmt_id = first_descendant_stmt_id;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_ASSIGN {
+        if stmt.assign_dest == null || stmt.assign_src == null ||
+           stmt.assign_dest.type != ASTNodeType.AST_IDENTIFIER ||
+           stmt.assign_dest.identifier_name == null {
+            return -1;
+        }
+        const slot2: i32 = native_build_local_find(locals,
+            stmt.assign_dest.identifier_name);
+        const expr_id2: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals, stmt.assign_src);
+        if slot2 < 0 || expr_id2 == CORE_EXPR_INVALID_ID {
+            return -1;
+        }
+        var assign_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_ASSIGN,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_id2,
+            place_id: place_start + slot2,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &assign_stmt) != 0 {
+            return -1;
+        }
+        *out_next_stmt_id = first_descendant_stmt_id;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        if stmt.return_stmt_expr == null {
+            return -1;
+        }
+        const expr_id3: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals, stmt.return_stmt_expr);
+        if expr_id3 == CORE_EXPR_INVALID_ID {
+            return -1;
+        }
+        var return_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_RETURN,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: expr_id3,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &return_stmt) != 0 {
+            return -1;
+        }
+        *out_next_stmt_id = first_descendant_stmt_id;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_BREAK_STMT ||
+       stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+        var loop_stmt_kind: i32 = CORE_STMT_KIND_BREAK;
+        if stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+            loop_stmt_kind = CORE_STMT_KIND_CONTINUE;
+        }
+        var loop_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: loop_stmt_kind,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: CORE_STMT_INVALID_ID,
+            child_stmt_count: 0,
+            expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &loop_stmt) != 0 {
+            return -1;
+        }
+        *out_next_stmt_id = first_descendant_stmt_id;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_BLOCK {
+        if stmt.block_stmt_count < 0 ||
+           (stmt.block_stmt_count > 0 && stmt.block_stmts == null) {
+            return -1;
+        }
+        var first_child_stmt: i32 = CORE_STMT_INVALID_ID;
+        if stmt.block_stmt_count > 0 {
+            first_child_stmt = first_descendant_stmt_id;
+        }
+        var block_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_BLOCK,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: first_child_stmt,
+            child_stmt_count: stmt.block_stmt_count,
+            expr_id: CORE_EXPR_INVALID_ID,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &block_stmt) != 0 {
+            return -1;
+        }
+        var next_stmt_id: i32 = first_descendant_stmt_id + stmt.block_stmt_count;
+        var bi: i32 = 0;
+        while bi < stmt.block_stmt_count {
+            var child_next_stmt_id: i32 = next_stmt_id;
+            if native_build_hosted_coreir_append_structured_stmt_with_id(
+                lowered, checker, body_id, place_start, locals,
+                stmt.block_stmts[bi], first_descendant_stmt_id + bi,
+                next_stmt_id, &child_next_stmt_id) != 0 {
+                return -1;
+            }
+            next_stmt_id = child_next_stmt_id;
+            bi = bi + 1;
+        }
+        *out_next_stmt_id = next_stmt_id;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_IF_STMT {
+        const cond_expr_id: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals,
+                stmt.if_stmt_condition);
+        if cond_expr_id == CORE_EXPR_INVALID_ID ||
+           stmt.if_stmt_then_branch == null ||
+           stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK {
+            return -1;
+        }
+        var child_count: i32 = 1;
+        if stmt.if_stmt_else_branch != null {
+            if stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK {
+                return -1;
+            }
+            child_count = 2;
+        }
+        var if_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_IF,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: first_descendant_stmt_id,
+            child_stmt_count: child_count,
+            expr_id: cond_expr_id,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &if_stmt) != 0 ||
+           first_descendant_stmt_id < 0 {
+            return -1;
+        }
+        var next_stmt_id2: i32 = first_descendant_stmt_id + child_count;
+        var then_next_stmt_id: i32 = next_stmt_id2;
+        if native_build_hosted_coreir_append_structured_stmt_with_id(lowered,
+            checker, body_id, place_start, locals, stmt.if_stmt_then_branch,
+            first_descendant_stmt_id, next_stmt_id2,
+            &then_next_stmt_id) != 0 {
+            return -1;
+        }
+        next_stmt_id2 = then_next_stmt_id;
+        if child_count == 2 {
+            var else_next_stmt_id: i32 = next_stmt_id2;
+            if native_build_hosted_coreir_append_structured_stmt_with_id(
+                lowered, checker, body_id, place_start, locals,
+                stmt.if_stmt_else_branch, first_descendant_stmt_id + 1,
+                next_stmt_id2, &else_next_stmt_id) != 0 {
+                return -1;
+            }
+            next_stmt_id2 = else_next_stmt_id;
+        }
+        *out_next_stmt_id = next_stmt_id2;
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_WHILE_STMT {
+        const cond_expr_id2: i32 =
+            native_build_hosted_coreir_append_structured_i32_expr(lowered,
+                checker, body_id, place_start, locals,
+                stmt.while_stmt_condition);
+        if cond_expr_id2 == CORE_EXPR_INVALID_ID ||
+           stmt.while_stmt_body == null ||
+           stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK {
+            return -1;
+        }
+        var while_stmt: CoreStmt = CoreStmt{
+            stmt_id: stmt_id,
+            kind: CORE_STMT_KIND_WHILE,
+            body_id: body_id,
+            parent_stmt_id: CORE_STMT_INVALID_ID,
+            first_child_stmt: first_descendant_stmt_id,
+            child_stmt_count: 1,
+            expr_id: cond_expr_id2,
+            place_id: CORE_PLACE_INVALID_ID,
+            cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+            cleanup_edge_count: 0,
+            source_span_id: stmt.line,
+            cleanup_scope_id: TYPED_PROGRAM_INVALID_ID,
+            flags: 0,
+        };
+        if lowered_program_append_core_stmt(lowered, &while_stmt) != 0 {
+            return -1;
+        }
+        return native_build_hosted_coreir_append_structured_stmt_with_id(
+            lowered, checker, body_id, place_start, locals,
+            stmt.while_stmt_body, first_descendant_stmt_id,
+            first_descendant_stmt_id + 1, out_next_stmt_id);
+    }
+    return -1;
+}
+
+fn native_build_hosted_coreir_append_structured_i32_body(
+    lowered: &LoweredProgram, checker: &TypeChecker, function_id: i32,
+    decl_index: i32, decl: &ASTNode) i32 {
+    if lowered == null || checker == null || decl == null ||
+       native_build_hosted_structured_i32_body_supported(decl,
+        checker) == 0 {
+        return -1;
+    }
+    var locals: NativeBuildLocalTable =
+        native_build_local_table_init(checker.arena,
+            decl.fn_decl_body.block_stmt_count + 16);
+    if locals.names == null {
+        return -1;
+    }
+    var expr_count: i32 = 0;
+    var stmt_count: i32 = 0;
+    var i: i32 = 0;
+    while i < decl.fn_decl_body.block_stmt_count {
+        const child_count: i32 =
+            native_build_hosted_structured_i32_stmt_count(
+                decl.fn_decl_body.block_stmts[i], &locals, &expr_count);
+        if child_count < 0 {
+            return -1;
+        }
+        stmt_count = stmt_count + child_count;
+        i = i + 1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const place_start: i32 = lowered.core_place_count as i32;
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: decl.fn_decl_body.block_stmt_count,
+        expr_start: expr_start,
+        expr_count: expr_count,
+        place_start: place_start,
+        place_count: locals.count,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    if stmt_count < decl.fn_decl_body.block_stmt_count ||
+       lowered_program_append_core_body(lowered, &body) != 0 {
+        return -1;
+    }
+    var next_stmt_id: i32 = stmt_start + decl.fn_decl_body.block_stmt_count;
+    i = 0;
+    while i < decl.fn_decl_body.block_stmt_count {
+        var child_next_stmt_id: i32 = next_stmt_id;
+        if native_build_hosted_coreir_append_structured_stmt_with_id(lowered,
+            checker, body_id, place_start, &locals,
+            decl.fn_decl_body.block_stmts[i], stmt_start + i, next_stmt_id,
+            &child_next_stmt_id) != 0 {
+            return -1;
+        }
+        next_stmt_id = child_next_stmt_id;
+        i = i + 1;
+    }
+    const appended_stmt_count: i32 =
+        (lowered.core_stmt_count as i32) - stmt_start;
+    const appended_expr_count: i32 =
+        (lowered.core_expr_count as i32) - expr_start;
+    const appended_place_count: i32 =
+        (lowered.core_place_count as i32) - place_start;
+    if appended_stmt_count != stmt_count || appended_expr_count != expr_count ||
+       appended_place_count != locals.count {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
     checker: &TypeChecker, program: &ASTNode, function_id: i32, decl_index: i32,
     decl: &ASTNode) i32 {
@@ -25838,6 +26601,11 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         &extern_arg1) != null {
         return native_build_hosted_coreir_append_extern_const2_call_body(lowered,
             checker, program, function_id, decl_index, decl);
+    }
+    if native_build_hosted_structured_i32_body_supported(decl,
+        checker) != 0 {
+        return native_build_hosted_coreir_append_structured_i32_body(lowered,
+            checker, function_id, decl_index, decl);
     }
     const body_id: i32 = lowered.core_body_count as i32;
     var root_stmt_start: i32 = CORE_STMT_INVALID_ID;
@@ -41781,18 +42549,43 @@ fn native_build_hosted_mir_lower_safe_core_body_function(
     const body_id: i32 = lowered_plan.lowered.core_body_count as i32;
     if native_build_hosted_coreir_append_safe_core_body(&lowered_plan.lowered,
         checker, program, lowered_function_id, decl_index, decl) != 0 {
+        fprintf(libc.stderr,
+            "native_hosted_safe_core_body_coreir_fail: decl=%s line=%d\n" as *byte,
+            decl.fn_decl_name as *byte, decl.line);
         lowered_program_release(&lowered_plan.lowered);
         return -1;
     }
     var core_result: CoreVerifierResult = native_build_empty_core_verifier_result();
     if lowered_program_verify_coreir_result(&lowered_plan.lowered,
         &core_result) != 0 {
+        fprintf(libc.stderr,
+            "native_hosted_safe_core_body_core_verify_fail: decl=%s line=%d code=%d stmt=%d expr=%d place=%d cleanup=%d\n" as *byte,
+            decl.fn_decl_name as *byte, decl.line, core_result.error_code,
+            core_result.stmt_id, core_result.expr_id, core_result.place_id,
+            core_result.cleanup_edge_id);
         lowered_program_release(&lowered_plan.lowered);
         return -1;
     }
     const mir_function_id: i32 = module.function_count as i32;
     if portable_mir_lower_core_body_to_module(&lowered_plan.lowered,
         body_id, module) != 0 {
+        var dump_i: usize = 0usize;
+        while dump_i < lowered_plan.lowered.core_stmts.count {
+            const dump_stmt: &CoreStmt =
+                semantic_vector_item_ptr(&lowered_plan.lowered.core_stmts,
+                    dump_i) as &CoreStmt;
+            if dump_stmt != null && dump_stmt.body_id == body_id {
+                fprintf(libc.stderr,
+                    "native_hosted_safe_core_body_stmt_dump: stmt=%d kind=%d first=%d child_count=%d expr=%d place=%d\n" as *byte,
+                    dump_stmt.stmt_id, dump_stmt.kind, dump_stmt.first_child_stmt,
+                    dump_stmt.child_stmt_count, dump_stmt.expr_id,
+                    dump_stmt.place_id);
+            }
+            dump_i = dump_i + 1usize;
+        }
+        fprintf(libc.stderr,
+            "native_hosted_safe_core_body_portable_mir_fail: decl=%s line=%d body=%d\n" as *byte,
+            decl.fn_decl_name as *byte, decl.line, body_id);
         lowered_program_release(&lowered_plan.lowered);
         return -1;
     }
@@ -42687,6 +43480,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                         return -1;
                     }
                     body_function_count = body_function_count + 1;
+                } else if has_safe_core_body != 0 {
+                    if native_build_hosted_mir_lower_safe_core_body_function(module,
+                        checker, program, lowered_function_id, i,
+                        source_core_body_id, decl) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
                 }
                 source_core_body_id = source_core_body_id + 1;
             }
@@ -43045,11 +43845,19 @@ fn native_build_hosted_mir_function_for_decl(module: &PortableMirModule,
 }
 fn native_build_hosted_mir_block_ptr(module: &PortableMirModule,
     block_id: i32) &MirBlock {
-    if module == null || block_id < 0 ||
-       (block_id as usize) >= module.blocks.count {
+    if module == null || block_id < 0 {
         return null;
     }
-    return semantic_vector_item_ptr(&module.blocks, block_id as usize) as &MirBlock;
+    var i: usize = 0usize;
+    while i < module.blocks.count {
+        const block: &MirBlock = semantic_vector_item_ptr(&module.blocks, i)
+            as &MirBlock;
+        if block != null && block.block_id == block_id {
+            return block;
+        }
+        i = i + 1usize;
+    }
+    return null;
 }
 fn native_build_hosted_mir_inst_ptr(module: &PortableMirModule,
     inst_id: i32) &MirInst {

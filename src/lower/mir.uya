@@ -1644,6 +1644,30 @@ fn portable_mir_lower_i32_type(type_id: MirTypeId, source_type_id: TypeId) MirTy
     };
 }
 
+fn portable_mir_lower_bool_type(type_id: MirTypeId, source_type_id: TypeId) MirType {
+    return MirType{
+        type_id: type_id,
+        kind: MIR_TYPE_KIND_BOOL,
+        source_type_id: source_type_id,
+        size_bytes: 1usize,
+        align_bytes: 1usize,
+        layout_id: source_type_id,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 0usize,
+        element_type_id: MIR_TYPE_INVALID_ID,
+        pointee_type_id: MIR_TYPE_INVALID_ID,
+        field_start: 0,
+        field_count: 0,
+        lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: MIR_ABI_CLASS_INTEGER,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        flags: 0,
+    };
+}
+
 fn portable_mir_lower_void_type(type_id: MirTypeId, source_type_id: TypeId) MirType {
     return MirType{
         type_id: type_id,
@@ -1703,6 +1727,7 @@ struct PortableMirLowerContext {
     next_block_id: MirBlockId,
     terminated: i32,
     i32_type_id: MirTypeId,
+    bool_type_id: MirTypeId,
     void_type_id: MirTypeId,
     pointer_type_id: MirTypeId,
     loop_break_block_id: MirBlockId,
@@ -1743,6 +1768,54 @@ fn portable_mir_lower_function_ptr(module: &PortableMirModule,
     return semantic_vector_item_ptr(&module.functions, index) as &MirFunction;
 }
 
+fn portable_mir_lower_find_local_for_place(ctx: &PortableMirLowerContext,
+    place_id: CorePlaceId) &MirLocal {
+    if ctx == null || ctx.module == null || place_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < ctx.module.locals.count {
+        const local: &MirLocal =
+            semantic_vector_item_ptr(&ctx.module.locals, i) as &MirLocal;
+        if local != null && local.function_id == ctx.function_id &&
+           local.source_symbol_id == place_id {
+            return local;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn portable_mir_lower_ensure_local_for_place(ctx: &PortableMirLowerContext,
+    place_id: CorePlaceId) i32 {
+    if ctx == null || ctx.module == null || place_id < 0 {
+        return -1;
+    }
+    const existing: &MirLocal = portable_mir_lower_find_local_for_place(ctx,
+        place_id);
+    if existing != null {
+        return existing.local_id;
+    }
+    const local_id: i32 = portable_mir_lower_count_to_i32(ctx.module.local_count);
+    if local_id < 0 {
+        return -1;
+    }
+    var local: MirLocal = MirLocal{
+        local_id: local_id,
+        function_id: ctx.function_id,
+        type_id: ctx.i32_type_id,
+        source_symbol_id: place_id,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        alignment: 4usize,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    if portable_mir_append_local(ctx.module, &local) != 0 {
+        return -1;
+    }
+    return local_id;
+}
+
 fn portable_mir_lower_ensure_void_type(ctx: &PortableMirLowerContext,
     source_type_id: TypeId) i32 {
     if ctx == null || ctx.module == null {
@@ -1760,6 +1833,26 @@ fn portable_mir_lower_ensure_void_type(ctx: &PortableMirLowerContext,
         return -1;
     }
     ctx.void_type_id = type_id;
+    return type_id;
+}
+
+fn portable_mir_lower_ensure_bool_type(ctx: &PortableMirLowerContext,
+    source_type_id: TypeId) i32 {
+    if ctx == null || ctx.module == null {
+        return -1;
+    }
+    if ctx.bool_type_id != MIR_TYPE_INVALID_ID {
+        return ctx.bool_type_id;
+    }
+    const type_id: i32 = portable_mir_lower_count_to_i32(ctx.module.type_count);
+    if type_id < 0 {
+        return -1;
+    }
+    var typ: MirType = portable_mir_lower_bool_type(type_id, source_type_id);
+    if portable_mir_append_type(ctx.module, &typ) != 0 {
+        return -1;
+    }
+    ctx.bool_type_id = type_id;
     return type_id;
 }
 
@@ -1906,21 +1999,9 @@ fn portable_mir_lower_append_local_ref_operand(ctx: &PortableMirLowerContext,
     if ctx == null || ctx.module == null || expr == null || expr.place_id < 0 {
         return -1;
     }
-    const local_id: i32 = portable_mir_lower_count_to_i32(ctx.module.local_count);
+    const local_id: i32 = portable_mir_lower_ensure_local_for_place(ctx,
+        expr.place_id);
     if local_id < 0 {
-        return -1;
-    }
-    var local: MirLocal = MirLocal{
-        local_id: local_id,
-        function_id: ctx.function_id,
-        type_id: ctx.i32_type_id,
-        source_symbol_id: expr.place_id,
-        address_space: MIR_ADDRESS_SPACE_GENERIC,
-        alignment: 4usize,
-        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: 0,
-    };
-    if portable_mir_append_local(ctx.module, &local) != 0 {
         return -1;
     }
     const operand_id: i32 = portable_mir_lower_count_to_i32(ctx.module.operand_count);
@@ -1943,21 +2024,25 @@ fn portable_mir_lower_append_local_ref_operand(ctx: &PortableMirLowerContext,
     return operand_id;
 }
 
-fn portable_mir_lower_append_i32_add_result_operand(ctx: &PortableMirLowerContext,
-    expr: &CoreExpr, operand_start: i32) i32 {
+fn portable_mir_lower_append_i32_binary_result_operand(ctx: &PortableMirLowerContext,
+    expr: &CoreExpr, operand_start: i32, op: i32) i32 {
     if ctx == null || ctx.module == null || expr == null || operand_start < 0 {
         return -1;
     }
+    var result_type_id: i32 = ctx.i32_type_id;
+    if portable_mir_inst_op_is_integer_compare(op) != 0 {
+        result_type_id = portable_mir_lower_ensure_bool_type(ctx, expr.type_id);
+    }
     const value_id: i32 = portable_mir_lower_count_to_i32(ctx.module.value_count);
     const inst_id: i32 = portable_mir_lower_count_to_i32(ctx.module.inst_count);
-    if value_id < 0 || inst_id < 0 {
+    if value_id < 0 || inst_id < 0 || result_type_id < 0 {
         return -1;
     }
     var value: MirValue = MirValue{
         value_id: value_id,
         function_id: ctx.function_id,
         block_id: ctx.block_id,
-        type_id: ctx.i32_type_id,
+        type_id: result_type_id,
         defining_inst_id: inst_id,
         local_id: MIR_LOCAL_INVALID_ID,
         param_index: -1,
@@ -1969,8 +2054,8 @@ fn portable_mir_lower_append_i32_add_result_operand(ctx: &PortableMirLowerContex
         inst_id: inst_id,
         function_id: ctx.function_id,
         block_id: ctx.block_id,
-        op: MIR_INST_OP_I32_ADD,
-        type_id: ctx.i32_type_id,
+        op: op,
+        type_id: result_type_id,
         result_value_id: value_id,
         operand_start: operand_start,
         operand_count: 2,
@@ -1993,7 +2078,7 @@ fn portable_mir_lower_append_i32_add_result_operand(ctx: &PortableMirLowerContex
         kind: 0,
         value_id: value_id,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: ctx.i32_type_id,
+        type_id: result_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
         immediate_i32: 0,
         flags: 0,
@@ -2002,6 +2087,67 @@ fn portable_mir_lower_append_i32_add_result_operand(ctx: &PortableMirLowerContex
         return -1;
     }
     return operand_id;
+}
+
+fn portable_mir_lower_append_local_set_inst(ctx: &PortableMirLowerContext,
+    place_id: CorePlaceId, source_operand_id: MirOperandId) i32 {
+    if ctx == null || ctx.module == null || place_id < 0 ||
+       source_operand_id < 0 {
+        return -1;
+    }
+    const local_id: i32 = portable_mir_lower_ensure_local_for_place(ctx,
+        place_id);
+    const source: &MirOperand = portable_mir_lower_operand_ptr(ctx,
+        source_operand_id);
+    if local_id < 0 || source == null {
+        return -1;
+    }
+    const operand_start: i32 = portable_mir_lower_count_to_i32(ctx.module.operand_count);
+    if operand_start < 0 {
+        return -1;
+    }
+    var dest_operand: MirOperand = MirOperand{
+        operand_id: operand_start,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: local_id,
+        type_id: ctx.i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var source_copy: MirOperand = MirOperand{
+        operand_id: operand_start + 1,
+        kind: source.kind,
+        value_id: source.value_id,
+        local_id: source.local_id,
+        type_id: source.type_id,
+        capability_req_id: source.capability_req_id,
+        immediate_i32: source.immediate_i32,
+        flags: source.flags,
+    };
+    const inst_id: i32 = portable_mir_lower_count_to_i32(ctx.module.inst_count);
+    if inst_id < 0 ||
+       portable_mir_append_operand(ctx.module, &dest_operand) != 0 ||
+       portable_mir_append_operand(ctx.module, &source_copy) != 0 {
+        return -1;
+    }
+    var inst: MirInst = MirInst{
+        inst_id: inst_id,
+        function_id: ctx.function_id,
+        block_id: ctx.block_id,
+        op: MIR_INST_OP_LOCAL_SET,
+        type_id: ctx.i32_type_id,
+        result_value_id: MIR_VALUE_INVALID_ID,
+        operand_start: operand_start,
+        operand_count: 2,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: 0,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    return portable_mir_append_inst(ctx.module, &inst);
 }
 
 fn portable_mir_lower_operand_ptr(ctx: &PortableMirLowerContext,
@@ -2378,11 +2524,30 @@ fn portable_mir_lower_stmt_to_module(ctx: &PortableMirLowerContext,
             stmt.expr_id);
         return portable_mir_lower_finish_return(ctx, return_operand);
     }
-    if stmt.kind == CORE_STMT_KIND_EXPR {
-        if stmt.child_stmt_count != 0 {
+    if stmt.kind == CORE_STMT_KIND_LOCAL_DECL ||
+       stmt.kind == CORE_STMT_KIND_ASSIGN {
+        if stmt.child_stmt_count != 0 || stmt.expr_id < 0 ||
+           stmt.place_id < 0 {
             return -1;
         }
-        return portable_mir_lower_call_stmt_to_module(ctx, stmt);
+        const source_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+            stmt.expr_id);
+        return portable_mir_lower_append_local_set_inst(ctx, stmt.place_id,
+            source_operand);
+    }
+    if stmt.kind == CORE_STMT_KIND_EXPR {
+        if stmt.child_stmt_count != 0 || stmt.expr_id < 0 {
+            return -1;
+        }
+        if portable_mir_lower_call_stmt_to_module(ctx, stmt) == 0 {
+            return 0;
+        }
+        const ignored_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+            stmt.expr_id);
+        if ignored_operand < 0 {
+            return -1;
+        }
+        return 0;
     }
     if stmt.kind == CORE_STMT_KIND_BLOCK {
         return portable_mir_lower_stmt_range_to_module(ctx,
@@ -2500,9 +2665,24 @@ fn portable_mir_lower_while_stmt_to_module(ctx: &PortableMirLowerContext,
        stmt.child_stmt_count != 1 || stmt.first_child_stmt < 0 {
         return -1;
     }
-    const cond_block_id: i32 = ctx.block_id;
+    var cond_block_id: i32 = ctx.block_id;
+    const current_block_inst_count: i32 = portable_mir_lower_count_delta_to_i32(
+        ctx.module.inst_count, ctx.block_inst_start);
+    if current_block_inst_count < 0 {
+        return -1;
+    }
+    if current_block_inst_count > 0 {
+        cond_block_id = portable_mir_lower_alloc_block_id(ctx);
+    }
     const body_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
     const exit_block_id: i32 = portable_mir_lower_alloc_block_id(ctx);
+    if current_block_inst_count > 0 {
+        if cond_block_id < 0 ||
+           portable_mir_lower_finish_br(ctx, cond_block_id) != 0 ||
+           portable_mir_lower_start_block(ctx, cond_block_id) != 0 {
+            return -1;
+        }
+    }
     const cond_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
         stmt.expr_id);
     if cond_block_id < 0 || body_block_id < 0 || exit_block_id < 0 ||
@@ -2562,8 +2742,24 @@ fn portable_mir_lower_expr_to_operand(ctx: &PortableMirLowerContext,
         if operand_start < 0 {
             return -1;
         }
-        return portable_mir_lower_append_i32_add_result_operand(ctx, expr,
-            operand_start);
+        return portable_mir_lower_append_i32_binary_result_operand(ctx, expr,
+            operand_start, MIR_INST_OP_I32_ADD);
+    }
+    if expr.kind == CORE_EXPR_KIND_I32_LE {
+        const lhs_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+            expr.lhs_expr_id);
+        if lhs_operand < 0 {
+            return -1;
+        }
+        const rhs_operand: i32 = portable_mir_lower_expr_to_operand(ctx,
+            expr.rhs_expr_id);
+        const operand_start: i32 = portable_mir_lower_binary_operand_start(ctx,
+            lhs_operand, rhs_operand);
+        if operand_start < 0 {
+            return -1;
+        }
+        return portable_mir_lower_append_i32_binary_result_operand(ctx, expr,
+            operand_start, MIR_INST_OP_I32_LE);
     }
     return -1;
 }
@@ -2653,6 +2849,7 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         next_block_id: block_id + 1,
         terminated: 0,
         i32_type_id: i32_type_id,
+        bool_type_id: MIR_TYPE_INVALID_ID,
         void_type_id: MIR_TYPE_INVALID_ID,
         pointer_type_id: MIR_TYPE_INVALID_ID,
         loop_break_block_id: MIR_BLOCK_INVALID_ID,

@@ -274,8 +274,19 @@ fn portable_mir_verify_function_ptr(module: &PortableMirModule, id: MirFunctionI
 }
 
 fn portable_mir_verify_block_ptr(module: &PortableMirModule, id: MirBlockId) &MirBlock {
-    if module == null || id < 0 || (id as usize) >= module.blocks.count { return null; }
-    return semantic_vector_item_ptr(&module.blocks, id as usize) as &MirBlock;
+    if module == null || id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < module.blocks.count {
+        const block: &MirBlock = semantic_vector_item_ptr(&module.blocks, i)
+            as &MirBlock;
+        if block != null && block.block_id == id {
+            return block;
+        }
+        i = i + 1usize;
+    }
+    return null;
 }
 
 fn portable_mir_verify_value_ptr(module: &PortableMirModule, id: MirValueId) &MirValue {
@@ -1969,9 +1980,7 @@ fn portable_mir_verify_inst_shape(module: &PortableMirModule, inst: &MirInst, re
             inst.operand_start + 1);
         if dest_operand == null || dest_operand.local_id == MIR_LOCAL_INVALID_ID ||
            dest_operand.value_id != MIR_VALUE_INVALID_ID ||
-           source_operand == null ||
-           (source_operand.value_id == MIR_VALUE_INVALID_ID &&
-            source_operand.local_id == MIR_LOCAL_INVALID_ID) {
+           source_operand == null {
             return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND, inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id, inst.type_id, -1, MIR_CAPABILITY_REQ_INVALID_ID, inst.debug_loc_id);
         }
     }
@@ -2096,10 +2105,10 @@ fn portable_mir_verify_terminators(module: &PortableMirModule, result: &MirVerif
 }
 
 fn portable_mir_verify_block(module: &PortableMirModule, block: &MirBlock, index: usize, result: &MirVerifierResult) i32 {
-    if block == null || block.block_id != index as i32 ||
+    if block == null || block.block_id < 0 ||
        portable_mir_verify_function_ptr(module, block.function_id) == null ||
        portable_mir_verify_range(block.inst_start, block.inst_count, module.insts.count) == 0 {
-        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_BLOCK, block.function_id, index as i32, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, block.debug_loc_id);
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_BLOCK, block.function_id, block.block_id, MIR_INST_INVALID_ID, MIR_VALUE_INVALID_ID, MIR_TYPE_INVALID_ID, -1, MIR_CAPABILITY_REQ_INVALID_ID, block.debug_loc_id);
     }
     if block.terminator_id == MIR_TERMINATOR_INVALID_ID ||
        portable_mir_verify_terminator_ptr(module, block.terminator_id) == null {

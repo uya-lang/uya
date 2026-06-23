@@ -105,11 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
   - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
-  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-LOOP-EDGES`: 补齐 loop backedge、
-    `break` / `continue` 到 MIR-C99 CFG 的通用 lowering。
-    - 最小验证：含嵌套 loop、`break`、`continue` 的 focused shard 走真实 `--mir-c99`
-      生成、编译、运行。
-    - 完成条件：`AST_BREAK_STMT` / `AST_CONTINUE_STMT` 的 MIR-C99 状态不再是 `missing`。
   - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CLEANUP-ERROR`: 补齐 `DEFER`、
     `ERRDEFER`、`DROP` 与 `ERROR_PROPAGATION` 的 cleanup/error CFG lowering。
     - 最小验证：cleanup/error statement focused shard 走真实 `--mir-c99` 生成、编译、运行。

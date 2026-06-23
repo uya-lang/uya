@@ -97,14 +97,14 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_IF_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；break/continue cleanup edge 待补。 |
 | `AST_WHILE_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；break/continue 待补。 |
 | `AST_FOR_STMT` | done | partial | MIR-C99 control-flow async full-language parity shard 覆盖 range for 和 array for；break/continue cleanup edge 待补。 |
-| `AST_BREAK_STMT` | done | missing | 走 loop/cleanup edge。 |
-| `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
+| `AST_BREAK_STMT` | done | partial | MIR-C99 statement/CFG real CLI shard 覆盖 nested loop `break` 到当前 loop exit；cleanup/error edge 待补。 |
+| `AST_CONTINUE_STMT` | done | partial | MIR-C99 statement/CFG real CLI shard 覆盖 nested loop `continue` 到当前 loop condition/backedge；cleanup/error edge 待补。 |
 | `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
 | `AST_DEFER_STMT` | done | partial | MIR-C99 cleanup/resource async full-language parity shard 覆盖 async error path 上的 defer cleanup；Core defer return-order shard 覆盖同步 return cleanup 顺序；cleanup/error statement parity shard 覆盖 defer 与 errdefer/drop/try error propagation 的组合 cleanup 顺序。 |
 | `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer；cleanup/resource async full-language parity shard 覆盖 async error path 上的 errdefer cleanup；cleanup/error statement parity shard 覆盖 errdefer 仅在组合 error propagation 路径执行。 |
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
 | `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic compound assignment 当前由 atomic compound-add reject shard 明确 capability reject；aggregate assign 由专用 shard 覆盖。 |
-| `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
+| `AST_EXPR_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖纯表达式语句入口（如 nested block 内的 scalar add expr stmt），并与 C99 oracle 行为一致。 |
 | `AST_BLOCK` | done | partial | MIR-C99 control-flow async full-language parity shard 覆盖 async nested block；表达式语句入口仍待专用 shard。 |
 | `AST_BINARY_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar arithmetic/comparison in branch/loop；完整类型矩阵待后续 shard。 |
 | `AST_UNARY_EXPR` | done | partial | MIR-C99 full-language pointer parity shard 覆盖 `&local` 取地址和 `*ptr` 解引用 load/store；其他一元运算由后续 shard 覆盖。 |
@@ -191,11 +191,11 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `CORE_STMT_KIND_LOCAL_DECL` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local declaration。 |
 | `CORE_STMT_KIND_IF` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；control-flow async full-language parity shard 覆盖 async if/else-if。 |
 | `CORE_STMT_KIND_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assignment。 |
-| `CORE_STMT_KIND_EXPR` | done | missing | 表达式语句入口。 |
+| `CORE_STMT_KIND_EXPR` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖纯表达式语句入口，允许 scalar value expr 在 statement 位置求值并丢弃结果。 |
 | `CORE_STMT_KIND_WHILE` | done | partial | PortableMIR CoreBody structured CFG shard 覆盖 condition `COND_BR`、body block、loop backedge、break 到 exit 和 continue 到 condition；MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 loop backedge；control-flow async full-language parity shard 覆盖 async while；复杂 cleanup edge 待补。 |
-| `CORE_STMT_KIND_BLOCK` | done | missing | PortableMIR CoreBody structured CFG shard 覆盖 nested block 递归 lowering；MIR-C99 emitter/parity 待后续 shard 接通。 |
-| `CORE_STMT_KIND_BREAK` | done | missing | PortableMIR CoreBody structured CFG shard 覆盖 loop `break` 生成 `BR` 到当前 loop exit；MIR-C99 emitter/parity 待后续 shard 接通。 |
-| `CORE_STMT_KIND_CONTINUE` | done | missing | PortableMIR CoreBody structured CFG shard 覆盖 loop `continue` 生成 `BR` 到当前 loop condition/backedge；MIR-C99 emitter/parity 待后续 shard 接通。 |
+| `CORE_STMT_KIND_BLOCK` | done | partial | PortableMIR CoreBody structured CFG shard 覆盖 nested block 递归 lowering；MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 nested block 内的 expr/assign/return control flow。 |
+| `CORE_STMT_KIND_BREAK` | done | partial | PortableMIR CoreBody structured CFG shard 覆盖 loop `break` 生成 `BR` 到当前 loop exit；MIR-C99 statement/CFG real CLI shard 覆盖 nested loop parity，cleanup/error edge 待补。 |
+| `CORE_STMT_KIND_CONTINUE` | done | partial | PortableMIR CoreBody structured CFG shard 覆盖 loop `continue` 生成 `BR` 到当前 loop condition/backedge；MIR-C99 statement/CFG real CLI shard 覆盖 nested loop parity，cleanup/error edge 待补。 |
 
 ---
 

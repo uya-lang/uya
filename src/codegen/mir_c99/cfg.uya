@@ -590,12 +590,19 @@ fn mir_c99_cfg_async_state_edge_from_mir(module: &PortableMirModule,
 }
 
 fn mir_c99_cfg_block_ptr(module: &PortableMirModule, block_id: MirBlockId) &MirBlock {
-    const block_index: i32 = block_id as i32;
-    if module == null || block_index < 0 ||
-       (block_index as usize) >= module.blocks.count {
+    if module == null || block_id < 0 {
         return null;
     }
-    return semantic_vector_item_ptr(&module.blocks, block_index as usize) as &MirBlock;
+    var i: usize = 0usize;
+    while i < module.blocks.count {
+        const block: &MirBlock = semantic_vector_item_ptr(&module.blocks, i)
+            as &MirBlock;
+        if block != null && block.block_id == block_id {
+            return block;
+        }
+        i = i + 1usize;
+    }
+    return null;
 }
 
 fn mir_c99_cfg_inst_block_ptr(module: &PortableMirModule, inst: &MirInst) &MirBlock {
