@@ -1560,3 +1560,31 @@ Context:
     - 验证：`bash -n tests/mir_c99_generate.sh tests/verify_mir_c99_full_language_macro_builtin_capability_reject.sh` -> PASS。
     - 验证：`git diff --check` -> PASS。
     - 说明：`../uya/bin/uya check src/build_compiler_driver.uya --project-root src/` 当前因仓库缺少可执行 `cmd/check` 失败；`../uya/bin/uya build src/build_compiler_driver.uya -o /tmp/uya-build-driver-check.c --project-root src/` 仅复现既有“文件不包含 main 函数”，未作为本叶子完成 gate。
+
+### 4.15 Full Language Parity
+
+父任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-REAL-CLI-GATES`: 固定 HelloWorld / distinct-output
+  gate 走 `../uya/bin/uya`，并在真实 `--mir-c99` route 缺失时 fail closed。
+  - 验收：
+    - `bash tests/verify_mir_c99_cli_helloworld.sh` 使用 `../uya/bin/uya`；未进入 real
+      `--mir-c99` route 时输出明确诊断。
+    - `bash tests/verify_mir_c99_cli_distinct_outputs.sh` 使用 `../uya/bin/uya`；未进入
+      real `--mir-c99` route 时输出明确诊断。
+    - 当前真实阻塞固定为 `后端类型: C99` / legacy banner，而不是 HelloWorld-like
+      假阳性通过。
+  - 验证：
+    - `python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`
+      -> `ok: docs/todo_mir_c99_backend.md has 1 active task`
+    - `bash tests/verify_mir_c99_cli_helloworld.sh`
+      -> fail closed：`HelloWorld CLI did not enter the real --mir-c99 route`，日志显示
+      `后端类型: C99`。
+    - `bash tests/verify_mir_c99_cli_distinct_outputs.sh`
+      -> fail closed：`HelloWorld CLI did not enter the real --mir-c99 route`，日志显示
+      `后端类型: C99`。
+    - `bash tests/verify_mir_c99_global_import_link_real_cli.sh`
+      -> fail closed：preflight 未进入 real `--mir-c99` route，日志显示 `后端类型: C99`。
+    - `bash tests/verify_mir_c99_interface_call_surface_real_cli.sh`
+      -> fail closed：interface dispatch 未进入 real `--mir-c99` route，日志显示
+      `后端类型: C99`。

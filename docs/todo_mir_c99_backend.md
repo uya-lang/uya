@@ -98,12 +98,33 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 ### 4.15 Full Language Parity
 
 - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+  - 当前基线（2026-06-24）：固定 `../uya/bin/uya` 的 HelloWorld / distinct-output /
+    focused real-CLI gate 已统一 fail closed 到同一阻塞：编译日志显示 `后端类型: C99`，
+    真实 `--mir-c99` route 还未接管 CLI。
+  - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HELLOWORLD-REAL-ROUTE`: 让 HelloWorld CLI 真实进入
+    MIR-C99 route，并经 host C 编译运行。
+    - 验收：`bash tests/verify_mir_c99_cli_helloworld.sh` 通过。
+  - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-DISTINCT-OUTPUTS`: 让 `src/main.uya` 输出进入
+    MIR-C99 route，且不是 legacy C99，也不是 HelloWorld-like 固定输出。
+    - 验收：`bash tests/verify_mir_c99_cli_distinct_outputs.sh` 通过。
+  - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+    失败项只剩具体 capability diagnostic，并逐项归零。
+    - 验收：
+      - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
+        LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。
+      - 失败项必须归档为具体 language kind / capability diagnostic。
+  - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
+    generator 前提 gate 与真实 CLI 结论一致。
+    - 验收：
+      - `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过。
+      - `bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过。
   - 验收：
     - `bash tests/verify_mir_c99_cli_helloworld.sh` 通过。
     - `bash tests/verify_mir_c99_cli_distinct_outputs.sh` 通过，且 `src/main.uya` 输出不是
       legacy C99，也不是 HelloWorld-like 固定输出。
-    - `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
-      主语言面通过；失败项必须归档为具体 language kind / capability diagnostic。
+    - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
+      LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过；
+      失败项必须归档为具体 language kind / capability diagnostic。
     - `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 和
       `bash tests/verify_mir_c99_oracle_parity_requires_generators.sh` 通过。
 
