@@ -760,10 +760,6 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
             li = li + 1;
         }
     }
-    const cached_ref: &byte = c99_ident_ref_cache_lookup(codegen, name);
-    if cached_ref != null {
-        return cached_ref;
-    }
     var i: i32 = 0;
     var result: &byte = null;
     while i < codegen.global_variable_count {
@@ -773,9 +769,9 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
         }
         i = i + 1;
     }
-    // 镜像分 TU：vtable/测试等可能在「公共」.c 中先于其它源文件里的全局定义生成，
-    // global_variables 尚未登记；从合并 program 解析与 gen_global_var / gen_extern_var_decl 一致的 C 名
-    if result == null && codegen.split_mirror != 0 && codegen.program_node != null &&
+    // full-C99 与镜像分 TU 路径里，都可能出现函数体引用早于 global_variables 登记的情况；
+    // 从合并 program 解析与 gen_global_var / gen_extern_var_decl 一致的 C 名，避免退化成裸 O_RDONLY / SYS_* / EPOLL_*。
+    if result == null && codegen.program_node != null &&
         codegen.program_node.type == ASTNodeType.AST_PROGRAM {
         var pdi: i32 = 0;
         while pdi < codegen.program_node.program_decl_count {
@@ -806,6 +802,16 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
             }
             pdi = pdi + 1;
         }
+    }
+    if result != null {
+        c99_ident_ref_cache_store(codegen, name, result);
+        return result;
+    }
+    // 旧 full-C99 路径里，函数名回退结果可能在全局常量登记前被缓存成裸名；
+    // 先完成全局常量回查，再读缓存，避免后续命中陈旧的 O_RDONLY / SYS_* / EPOLL_*。
+    const cached_ref: &byte = c99_ident_ref_cache_lookup(codegen, name);
+    if cached_ref != null {
+        return cached_ref;
     }
     if result == null {
         result = get_c_name_for_global_function(codegen, name, 0);

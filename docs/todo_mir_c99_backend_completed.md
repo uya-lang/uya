@@ -1588,3 +1588,19 @@ Context:
     - `bash tests/verify_mir_c99_interface_call_surface_real_cli.sh`
       -> fail closed：interface dispatch 未进入 real `--mir-c99` route，日志显示
       `后端类型: C99`。
+
+### 4.15 Full Language Parity
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE`
+
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-BUILD-ENTRY-RECOVERY`: 恢复 fixed/current-source
+    `cmd/build` 的真实 build CLI 入口，消除 host C compile 裸 `O_RDONLY` / `SYS_*`
+    blocker。
+    - 验收：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过。
+    - 实现：放开 `src/codegen/c99/global.uya` 的 program-level 全局常量回查条件，
+      让 full-C99 路径在 `global_variables` 尚未登记时仍能回落到合并 program 解析，
+      不再把导出常量退化成裸 `O_RDONLY` / `SYS_*` / `EPOLL_*`。
+    - 验证：`cp bin/cmd/build ../uya/bin/cmd/build` 先恢复 fixed `../uya/bin/uya`
+      所委托的 real build CLI，然后运行
+      `bash tests/verify_mandated_build_compiler_driver_entry.sh`
+      结果：`OK: mandated compiler can bootstrap a current-source build CLI entry and build cmd/build`
