@@ -263,3 +263,23 @@
     - 关键错误：`home/winger/uya/uya-1.0/lib/std/platform.c:17:17: error: conflicting types for 'clock'; have 'uint64_t(void)'`；`./uya_part1_types.h:179:16: note: previous declaration of 'clock' with type 'int64_t(void)'`。
     - 额外证据：`../uya/bin/uya build --mir-c99 tests/fixtures/mir_c99_cmd_build_full_language_union.uya -o <tmp>/union.c --project-root .` 返回 0，但输出头为 `// C99 代码由 Uya Mini 编译器生成`，不是 MIR-C99 unit output。
     - 重开条件：先在 `../uya/bin/uya` 所在 sibling 仓库修复 current repo split-C build 的 `clock()` 原型冲突，并让真实 `--mir-c99` 对上述 fixture 不再静默回落 legacy C99；之后再把现有 generator-only shard 改成真实 CLI parity/reject。
+### 4.15 Full Language Parity
+
+- [f] `MIR-C99-FULL-SUPPORT-CALL-ABI-RUNTIME`: 补齐真实调用 ABI 和 runtime/capability
+  handoff。
+  - [ ] `MIR-C99-CALL-ABI-RUNTIME-EXTERN-SYMBOL-AND-UNIT-OUTPUT`: 补齐 extern symbol/prototype
+    metadata 与 unit output call/prototype 写出，让 `tests/extern_function.uya` 不再失败于
+    unit output write。
+    - 覆盖范围：extern function C symbol/prototype metadata、extern call expression emission、
+      `tests/extern_function.uya` 的 real `--mir-c99` unit output。
+    - 验收：`../uya/bin/uya build --mir-c99 tests/extern_function.uya -o <tmp>/extern_function.c`
+      进入真实 `[MIR-C99]` 路由；host C99 compiler 可编译并与 C99 oracle 对齐。
+  - [ ] `MIR-C99-CALL-ABI-RUNTIME-FULL-CALL-SURFACE`: 在 extern 路径打通后补齐 direct call、
+    method/monomorphized call、interface vtable dispatch、generic interface dispatch、
+    function pointer call、aggregate return/out-param、error-union return、float/double ABI、
+    global initializer、extern globals、`@c_import` object/library/search path、stdout/stderr、
+    env/file/heap/string helper、`@print` / `@println`、source-location builtins、`@params`。
+    - 验收：对应 shard 与 real `--mir-c99` CLI parity/diagnostic gate 全部转绿，父任务验收
+      仍以 extern/c-import host C99 parity 为最终收口口径。
+
+归档说明：本轮归档清理仅移动失败 handoff，未开始子任务已在主 todo 中保留为独立 `[ ]` 任务。
