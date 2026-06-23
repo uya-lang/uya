@@ -120,12 +120,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     - 已出现的具体 capability diagnostic：`19` 个
       `AST_TEST_STMT / test_driver_not_lowered`，`1` 个
       `AST_SYSCALL / syscall_requires_target_capability`。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET`:
-      让首个 generic `PortableMIR lowering 尚未覆盖当前程序` 用例收敛为具体
-      capability diagnostic 或真实支持，不再停在通用报错。
-      - 验收：
-        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-main-language-portablemir.c`
-          不再输出 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-SUITE-RECOUNT`: 在首批具体
       bucket 收敛后重跑主语言面，更新剩余 failure matrix 和 capability diagnostic
       分布。

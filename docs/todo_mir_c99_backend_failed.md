@@ -866,3 +866,23 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE`
     或 `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`。随后重跑
     `bash tests/verify_mir_c99_cli_distinct_outputs.sh`，再继续定位 `src/main.uya`
     的真实 MIR-C99 blocker。
+
+## 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [f] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET`:
+  让首个 generic `PortableMIR lowering 尚未覆盖当前程序` 用例收敛为具体
+  capability diagnostic 或真实支持，不再停在通用报错。
+  - 验收：
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-main-language-portablemir.c`
+      不再输出 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+  - 失败原因（2026-06-24，本轮）：
+    - 固定 `../uya/bin/uya` 当前无法重建 current-source `cmd/build`，所以无法让验收入口命中本轮需要修改的 build driver 行为。
+    - 阻塞命令：`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o /tmp/uya-cmd-build-portablemir-first-bucket --no-split-c --project-root src/`
+    - 关键错误：`lower_core_LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED undeclared`、`lower_mir_PORTABLE_MIR_LIFECYCLE_UNINITIALIZED undeclared`、`typed_program_TYPED_PROGRAM_INVALID_ID undeclared`。
+    - 次级阻塞命令：`UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya -o /tmp/uya-build-bootstrap-portablemir-first-bucket --no-split-c --project-root src/`
+    - 关键错误：`std_runtime_saved_envp undeclared`、`std_runtime_saved_argc/std_runtime_saved_argv undeclared`、`typed_program_TYPED_PROGRAM_INVALID_ID undeclared`。
+    - 已验证现状：`UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-main-language-portablemir.c` 仍输出 `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_asm_const_output.uya line=3`，随后落到通用 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+    - 重开条件：先恢复固定 `../uya/bin/uya` 能成功重建 current-source `src/cmd/build/main.uya` 或 `src/cmd/build_bootstrap/main.uya` 并同步 sibling `../uya/bin/cmd/build`，再重新推进这个 bucket。
