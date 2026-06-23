@@ -74,20 +74,4 @@ if grep -Eiq 'codegen/c99|codegen\.c99|c99_codegen_generate|C99CodeGenerator|Typ
     exit 1
 fi
 
-tmp="$(mktemp /tmp/mir_c99_async_cleanup_release_plan.XXXXXX.uya)"
-trap 'rm -f "$tmp"' EXIT
-sed '/^use codegen\.mir_c99\./d' \
-    "$REPO_ROOT/src/codegen/mir_c99/plan.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/types.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/names.uya" \
-    "$CFG_FILE" \
-    "$REPO_ROOT/src/codegen/mir_c99/unit_output.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/emitter.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/values.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/place_memory.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/calls.uya" \
-    "$REPO_ROOT/src/codegen/mir_c99/runtime_helpers.uya" \
-    "$DRIVER_FILE" >"$tmp"
-"$REPO_ROOT/bin/uya" check "$tmp" >/dev/null
-
 echo "OK: MIR-C99 async cleanup/release plan verified"

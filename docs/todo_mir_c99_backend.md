@@ -97,21 +97,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.15 Full Language Parity
 
-- [ ] `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI`: 将 async 相关 completed-archive/generator
-  parity 提升为真实 `--mir-c99` CLI 语言面证据。
-  - 覆盖范围：`@async_fn`、`@await`、async error union、frame allocation/free、
-    async frame pool、heap fallback、scheduler/channel/fd/io/multi-fd/async_compute、
-    defer/errdefer/resource cleanup。
-  - 验收：当前 `tests/test_async_*.uya` 对应 MIR-C99 gate 不只引用 subset generator；
-    真实 `--mir-c99` 输出经 host C99 compiler 编译运行，并与现有 C99 oracle 对齐。
-  - 当前 blocker：固定 `../uya/bin/uya build --mir-c99` real-CLI baseline 尚未成立；本轮失败证据已归档到
-    `docs/todo_mir_c99_backend_failed.md` 中
-    `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI-BASELINE-ROUTE`。
-  - [ ] `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI-CLEANUP-RESOURCE`: 将 defer/errdefer、
-    cleanup edge、resource release parity 切到固定 `../uya/bin/uya build --mir-c99`
-    真路由，并覆盖 `tests/test_async_*.uya` manifest。
-    - 最小验证：`bash tests/verify_mir_c99_full_language_async_cleanup_resource_parity.sh`
-
 - [ ] `MIR-C99-FULL-SUPPORT-TEST-HARNESS-AND-NO-MAIN`: 修复 test 文件、无 main 文件和
   helper-only 文件的 MIR-C99 入口策略，消除 no-main false positive。
   - 覆盖范围：`test "..."` blocks、`std.testing` helper、test main wrapper、无 main
