@@ -29,7 +29,7 @@ UYA_ROOT="$REPO_ROOT" "$MANDATED_COMPILER" build "$BOOTSTRAP_ENTRY" \
 test -x "$BOOTSTRAP_BIN"
 
 UYA_ROOT="$REPO_ROOT" "$BOOTSTRAP_BIN" build "$CMD_BUILD_ENTRY" \
-    -o "$CMD_BUILD_BIN" --project-root "$REPO_ROOT/src/" \
+    -o "$CMD_BUILD_BIN" --project-root "$REPO_ROOT/src/" --no-split-c \
     >"$CMD_BUILD_STDOUT" 2>"$CMD_BUILD_STDERR"
 test -x "$CMD_BUILD_BIN"
 

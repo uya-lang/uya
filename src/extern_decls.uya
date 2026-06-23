@@ -14,14 +14,14 @@ use std.runtime.get_argc;
 use std.runtime.get_argv;
 use std.runtime.ptr_diff;
 
-// ===== 文件 I/O（std.io 与 libc 混用：可变参数 fprintf 用 libc 以兼容 FILE*）=====
-use std.io.fopen;
-use std.io.fclose;
-use std.io.fread;
-use std.io.fwrite;
-use std.io.fgetc;
-use std.io.fputs;
-use std.io.fflush;
+// ===== 文件 I/O（直接走 libc，避免 bootstrap 链路再拉入 std.io.file 的 sys_* wrapper）=====
+use libc.fopen;
+use libc.fclose;
+use libc.fread;
+use libc.fwrite;
+use libc.fgetc;
+use libc.fputs;
+use libc.fflush;
 use libc.fprintf;
 
 // ===== 字符串操作（std.string）=====

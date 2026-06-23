@@ -31,8 +31,12 @@ if [[ ! -f "$ENTRY_SRC" ]]; then
     exit 1
 fi
 
-require_pattern "$ENTRY_SRC" '^use[[:space:]]+build_compiler_driver;' "cmd/build 导入 build_compiler_driver"
-require_pattern "$ENTRY_SRC" 'return[[:space:]]+build_compiler_driver_main\(\);' "cmd/build 调用 build_compiler_driver_main"
+if grep -Eq '^use[[:space:]]+build_compiler_driver;' "$ENTRY_SRC"; then
+    require_pattern "$ENTRY_SRC" 'return[[:space:]]+build_compiler_driver_main\(\);' "cmd/build 调用 build_compiler_driver_main"
+else
+    require_pattern "$ENTRY_SRC" '^use[[:space:]]+compiler_driver;' "cmd/build 导入 compiler_driver"
+    require_pattern "$ENTRY_SRC" 'return[[:space:]]+compiler_driver_build_main\(\);' "cmd/build 调用 compiler_driver_build_main"
+fi
 
 "$REPO_ROOT/bin/uya" build "$ENTRY_SRC" -o "$CMD_BUILD_BIN" --no-split-c --project-root "$REPO_ROOT/src/" >"$TMP_DIR/compile.out" 2>"$TMP_DIR/compile.err"
 test -x "$CMD_BUILD_BIN"

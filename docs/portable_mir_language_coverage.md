@@ -122,13 +122,13 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_IDENTIFIER` | done | missing | Phase 9A 验证。 |
 | `AST_UNDERSCORE` | done | missing | ignore placeholder。 |
 | `AST_NUMBER` | done | missing | `CORE_EXPR_KIND_INT_LITERAL`。 |
-| `AST_FLOAT` | partial | partial | MIR-C99 full-language float/double parity shard 覆盖 f32/f64 literal、arithmetic、comparison 和 cast；`bash tests/verify_mir_c99_constant_model.sh` 现把 zero f32/f64 literal 固定进模块级 constant model，并将非零 float payload 记为 explicit reject 元数据；真实 current-source CLI parity 仍待后续子叶恢复。 |
+| `AST_FLOAT` | partial | partial | MIR-C99 full-language float/double parity shard 覆盖 f32/f64 literal、arithmetic、comparison 和 cast；`bash tests/verify_mir_c99_constant_model.sh` 固定模块级 constant model，`bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求 current-source real CLI candidate 对基础 f32/f64 value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐。 |
 | `AST_BOOL` | done | missing | `true`/`false`。 |
-| `AST_INT_LIMIT` | missing | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `const limit: i32 = @max;` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_INT_LIMIT reason=int_limit_requires_expr_value_place`；真实 int-limit lowering 待 `expr/value/place` 收敛。 |
-| `AST_STRING` | done | partial | MIR-C99 已支持 string global initializer plan/output 和 dedupe id；`bash tests/verify_mir_c99_constant_model.sh` 现固定 string global-init metadata，真实 current-source CLI 字符串 parity 待后续 shard。 |
-| `AST_CHAR` | done | partial | `bash tests/verify_mir_c99_constant_model.sh` 现覆盖 `byte`/char literal 的模块级 constant model 映射；真实 current-source CLI parity 待后续子叶。 |
-| `AST_STRING_INTERP` | partial | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `"text${expr}text"` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_STRING_INTERP reason=string_interp_requires_expr_value_place`；runtime helper/value lowering 待补。 |
-| `AST_PARAMS` | missing | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_PARAMS reason=params_tuple_requires_expr_value_place`；`@params` 当前仍只走 pre-MIR helper 路径。 |
+| `AST_INT_LIMIT` | partial | partial | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@max/@min` 常量样例走 `--mir-c99` 并与 legacy C99 oracle 对齐；更广的 expr/value/place 组合仍待后续 shard 扩面。 |
+| `AST_STRING` | done | partial | MIR-C99 已支持 string global initializer plan/output 和 dedupe id；`bash tests/verify_mir_c99_constant_model.sh` 固定 string global-init metadata，`bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现补 current-source CLI 字符串 value parity。 |
+| `AST_CHAR` | done | partial | `bash tests/verify_mir_c99_constant_model.sh` 固定 `byte`/char constant model 映射，`bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现补 current-source CLI char value parity。 |
+| `AST_STRING_INTERP` | partial | partial | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对基础 `"text${expr}"` value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐；更复杂 runtime helper/value lowering 仍待继续补齐。 |
+| `AST_PARAMS` | partial | partial | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` 基础 value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐；更广参数元组 lowering 仍待继续扩面。 |
 | `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`；cleanup/error statement parity shard 覆盖 `try` 与 defer/errdefer/drop cleanup edge 的组合路径。 |
 | `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；error-id binding parity shard 覆盖 `catch |err|` 绑定。 |
 | `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；error-id binding parity shard 覆盖 `@error_id(error.Name)` 读取。 |
@@ -250,7 +250,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@naked_fn` | done | missing | `verify_portable_mir_naked_fn.sh` 固定。 |
 | `@vector` | done | missing | `simd` shard。 |
 | `@mask` | done | missing | 同上。 |
-| `@params` | partial | reject | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` fail-closed，并输出 `mir_c99_capability_diagnostic: kind=AST_PARAMS reason=params_tuple_requires_expr_value_place`；MIR-C99 仍未接入参数元组 value lowering。 |
+| `@params` | partial | partial | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` 基础 value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐；更广参数元组 lowering 仍待继续扩面。 |
 | `@src_name`/`@src_path`/`@src_line`/`@src_col`/`@func_name` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
 | `@embed`/`@embed_dir` | missing | missing | 编译期嵌入未迁 MIR。 |
 | `@asm`/`@asm_target` | missing | missing | capability diagnostic 和 MIR-C99 reject 待补。 |

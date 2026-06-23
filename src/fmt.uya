@@ -24,7 +24,7 @@ fn read_file(filename: &byte, buffer: &byte, buffer_size: usize) i32 {
 
 // 写入字节到输出
 fn write_output(buf: &byte, len: usize) void {
-    _ = write_stdout_bytes(buf as &const byte, len);
+    _ = fwrite(buf as *void, 1usize, len, libc.stdout as *void);
 }
 
 fn write_file(path: &byte, buf: &byte, len: usize) i32 {

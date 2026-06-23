@@ -35,6 +35,10 @@ use cmd.upm.upm_lib.upm_build_plan_init;
 use cmd.upm.upm_lib.upm_prepare_build_plan;
 use fmt;
 
+extern "libc" fn getpid() i32;
+extern "libc" fn kill(pid: i32, signum: i32) i32;
+extern "libc" fn rename(oldpath: &const byte, newpath: &const byte) i32;
+
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器
 
@@ -383,25 +387,16 @@ fn split_c_read_lock_owner_pid(lock_dir: &byte, pid_out: &i32) i32 {
     if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
         return 1;
     }
-    const fd_result: !i32 = sys_open(&pid_path[0] as *const byte, O_RDONLY as i32, 0);
-    const fd: i32 = fd_result catch {
+    const file: &FILE = fopen(&pid_path[0] as *byte, "r" as *byte);
+    if file == null {
         return 1;
-    };
+    }
     var buf: [byte: 64] = [];
-    const read_result: !isize = sys_read(fd, &buf[0] as *byte, 63usize);
-    const bytes_read: isize = read_result catch {
-        _ = sys_close(fd) catch { 0; };
-        return 1;
-    };
-    _ = sys_close(fd) catch { 0; };
-    if bytes_read <= 0 as isize {
+    const line: &byte = fgets(&buf[0] as &byte, 64, file);
+    fclose(file);
+    if line == null {
         return 1;
     }
-    var len: usize = bytes_read as usize;
-    if len >= 64usize {
-        len = 63usize;
-    }
-    buf[len] = 0 as byte;
     const pid: i32 = split_c_parse_owner_pid(&buf[0] as &byte);
     if pid <= 0 {
         return 1;
@@ -425,19 +420,10 @@ fn split_c_owner_pid_is_alive(pid: i32) i32 {
     if pid <= 0 {
         return 0;
     }
-    const probe: !i32 = sys_kill(pid as i64, 0);
-    if probe.error_id == 0u32 {
+    if kill(pid, 0) == 0 {
         return 1;
     }
-    const eid: i32 = probe.error_id as i32;
-    if eid == EPERM {
-        return 1;
-    }
-    if eid == ESRCH {
-        return 0;
-    }
-    // 其它错误保守按「仍占锁」处理，避免误删活锁。
-    return 1;
+    return 0;
 }
 
 fn split_c_try_reclaim_stale_lock(lock_dir: &byte) i32 {
@@ -479,8 +465,7 @@ fn split_c_lock_take_ownership(lock_dir: &byte) i32 {
         split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
         return 1;
     }
-    const rename_result: !i32 = sys_rename(&stage_dir[0] as &byte, lock_dir);
-    if rename_result.error_id != 0u32 {
+    if rename(&stage_dir[0] as &byte, lock_dir) != 0 {
         split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
         return 1;
     }

@@ -109,12 +109,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     char、string、null 和非零 float payload 的常量模型，避免 generator-only value smoke。
     - 最小验证：真实 `--mir-c99` const/value parity 或明确 reject 脚本覆盖 f32/f64、char、
       string、null、`i32.max`/`i32.min` 等样例。
-    - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL-REAL-CLI`: 恢复
-      current-source `cmd/build` candidate 链路后，用真实 `--mir-c99` const/value parity
-      或 fail-closed diagnostic 覆盖 f32/f64、char、string、null、`i32.max`/`i32.min`。
-      - 最小验证：恢复 `bash tests/verify_mandated_build_compiler_driver_entry.sh` 所需
-        candidate build 链路，并扩展 `bash tests/verify_mir_c99_full_language_value_entry_reject.sh`
-        到本组样例。
   - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-MATCH-ERROR-METADATA`: 收敛 match payload、
     error-union value、`@error_id` / `@error_name` 的真实 CLI lowering 或稳定 reject。
     - 最小验证：真实 `--mir-c99` case 覆盖 match/error-union/error metadata；若暂不能支持，

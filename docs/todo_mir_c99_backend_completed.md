@@ -1441,3 +1441,25 @@ Context:
   - 最小验证：`bash tests/verify_mir_c99_constant_model.sh` 与 `bash tests/verify_portable_mir_language_coverage.sh`。
   - 验证：`bash tests/verify_mir_c99_constant_model.sh` 通过；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`git diff --check` 通过。
   - 说明：曾尝试 `UYA_ROOT="$PWD/lib/" ../uya/bin/uya test tests/test_mir_c99_constant_model.uya --project-root src/ --no-split-c` 做更接近运行态的模块级单测，但 mandated compiler 在导入 `src/lower/mir.uya` 时先触发既有 29 个类型/移动错误，属于当前环境中的前置兼容性故障，未作为本项通过条件；因此本项改用源码 contract + coverage matrix 固定常量模型与 string global-init 边界。
+### 2026-06-23
+
+上下文：`# MIR-C99 Backend TODO > 4.15 Full Language Parity > MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE > MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL`
+
+- [x] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL-REAL-CLI`: 恢复
+  current-source `cmd/build` candidate 链路后，用真实 `--mir-c99` const/value parity
+  或 fail-closed diagnostic 覆盖 f32/f64、char、string、null、`i32.max`/`i32.min`。
+  - 最小验证：恢复 `bash tests/verify_mandated_build_compiler_driver_entry.sh` 所需
+    candidate build 链路，并扩展 `bash tests/verify_mir_c99_full_language_value_entry_reject.sh`
+    到本组样例。
+  - 实现：恢复 `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya`
+    的 real-CLI candidate 链路；`cmd/build` 入口临时委托 `compiler_driver_build_main()`，
+    并为裸 `--help` 补齐独立入口返回 `0` 的兼容路径；同步收紧 bootstrap/current-source
+    driver 的宿主 libc 调用、`exec/vm` 的本地整数平方根 helper、`extern_decls` 的 libc
+    I/O 入口，以及覆盖矩阵文案。
+  - 验证：
+    - `bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过。
+    - `bash tests/verify_cmd_build_entry.sh` 通过。
+    - `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 通过；现要求 real-CLI
+      candidate 对 f32/f64、char、string、null、`@max/@min`、基础 string interp 和
+      `@params` value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐。
+    - `git diff --check` 通过。

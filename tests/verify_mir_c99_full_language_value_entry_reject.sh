@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Real-CLI reject gate for MIR-C99 value/expr entrypoints that are still
-# expected to fail closed before full expr/value/place lowering lands.
+# Real-CLI parity gate for MIR-C99 value/expr entrypoints handled by the
+# current-source cmd/build candidate.
 
 set -euo pipefail
 
@@ -15,18 +15,69 @@ if [[ ! -x "$COMPILER" ]]; then
     exit 69
 fi
 
-tmp_dir="$(mktemp -d /tmp/uya-mir-c99-value-reject.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-mir-c99-value-parity.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
-CANDIDATE_BIN=""
+BOOTSTRAP_BIN="$tmp_dir/build-bootstrap"
+CANDIDATE_BIN="$tmp_dir/cmd-build-candidate"
 
+float_case="$tmp_dir/float_case.uya"
+char_case="$tmp_dir/char_case.uya"
+string_case="$tmp_dir/string_case.uya"
+null_case="$tmp_dir/null_case.uya"
 int_limit_case="$tmp_dir/int_limit_case.uya"
 string_interp_case="$tmp_dir/string_interp_case.uya"
 params_case="$tmp_dir/params_case.uya"
 
+cat >"$float_case" <<'UYA'
+export fn main() i32 {
+    const xf: f32 = 1.25f32;
+    const yd: f64 = 2.5;
+    const total: f64 = xf as f64 + yd;
+    if total > 3.74 && total < 3.76 {
+        return 0;
+    }
+    return 1;
+}
+UYA
+
+cat >"$char_case" <<'UYA'
+export fn main() i32 {
+    const ch: byte = 'A';
+    if ch == 'A' {
+        return 0;
+    }
+    return 1;
+}
+UYA
+
+cat >"$string_case" <<'UYA'
+export fn main() i32 {
+    const msg: [byte: 3] = "hi";
+    if msg[0] == 'h' && msg[1] == 'i' && msg[2] == 0 as byte {
+        return 0;
+    }
+    return 1;
+}
+UYA
+
+cat >"$null_case" <<'UYA'
+export fn main() i32 {
+    const p: *byte = null;
+    if p == null {
+        return 0;
+    }
+    return 1;
+}
+UYA
+
 cat >"$int_limit_case" <<'UYA'
 export fn main() i32 {
-    const limit: i32 = @max;
-    return limit;
+    const maxv: i32 = @max;
+    const minv: i32 = @min;
+    if maxv > 2147483646 && minv < -2147483647 {
+        return 0;
+    }
+    return 1;
 }
 UYA
 
@@ -34,10 +85,10 @@ cat >"$string_interp_case" <<'UYA'
 export fn main() i32 {
     const value: i32 = 7;
     const msg: [i8: 32] = "value=${value}\n";
-    if @len(msg) == 0usize {
-        return 1;
+    if msg[0] == 'v' && msg[6] == '7' {
+        return 0;
     }
-    return 0;
+    return 1;
 }
 UYA
 
@@ -47,18 +98,37 @@ fn pair_sum(a: i32, b: i32) i32 {
 }
 
 export fn main() i32 {
-    return pair_sum(3, 4);
+    if pair_sum(3, 4) == 7 {
+        return 0;
+    }
+    return 1;
 }
 UYA
 
 build_candidate() {
+    local bootstrap_log="$tmp_dir/build_bootstrap.generate.log"
     local candidate_log="$tmp_dir/cmd_build_candidate.generate.log"
-    CANDIDATE_BIN="$tmp_dir/cmd_build_candidate"
 
     if ! (
         cd "$REPO_ROOT"
-        UYA_ROOT="$REPO_ROOT/lib/" ../uya/bin/uya build \
-            src/cmd/build/main.uya -o "$CANDIDATE_BIN" --no-split-c --project-root src
+        UYA_ROOT="$REPO_ROOT" "$COMPILER" build \
+            src/cmd/build_bootstrap/main.uya -o "$BOOTSTRAP_BIN" \
+            --project-root "$REPO_ROOT/src/" --no-split-c
+    ) >"$bootstrap_log" 2>&1; then
+        echo "error: real-CLI bootstrap build failed" >&2
+        cat "$bootstrap_log" >&2
+        exit 1
+    fi
+    if [[ ! -x "$BOOTSTRAP_BIN" ]]; then
+        echo "error: bootstrap binary not executable: $BOOTSTRAP_BIN" >&2
+        exit 1
+    fi
+
+    if ! (
+        cd "$REPO_ROOT"
+        UYA_ROOT="$REPO_ROOT" "$BOOTSTRAP_BIN" build \
+            src/cmd/build/main.uya -o "$CANDIDATE_BIN" \
+            --project-root "$REPO_ROOT/src/" --no-split-c
     ) >"$candidate_log" 2>&1; then
         echo "error: MIR-C99 value-entry real CLI candidate build failed" >&2
         cat "$candidate_log" >&2
@@ -70,59 +140,38 @@ build_candidate() {
     fi
 }
 
-run_expect_diag() {
-    local name="$1"
-    local input="$2"
-    local output="$3"
-    local log="$4"
-    local pattern="$5"
-
-    set +e
-    (
-        cd "$REPO_ROOT"
-        UYA_ROOT="$REPO_ROOT/lib/" "$CANDIDATE_BIN" build --mir-c99 "$input" \
-            -o "$output" --project-root "$REPO_ROOT"
-    ) >"$log" 2>&1
-    local status=$?
-    set -e
-
-    if [[ $status -eq 0 ]]; then
-        echo "error: expected $name to fail closed under real --mir-c99" >&2
-        exit 1
-    fi
-    grep -q '\[MIR-C99\]' "$log"
-    grep -q "$pattern" "$log"
-    if [[ -e "$output" && -s "$output" ]]; then
-        echo "error: $name left a non-empty MIR-C99 output after fail-closed diagnostic" >&2
-        exit 1
-    fi
+run_parity_case() {
+    local case_file="$1"
+    MIR_C99_GENERATE_CMD="cd \"$REPO_ROOT\" && UYA_ROOT=\"$REPO_ROOT\" \"$CANDIDATE_BIN\" build --mir-c99 {input} -o {output} --project-root \"$REPO_ROOT\" --no-split-c" \
+    C99_ORACLE_GENERATE_CMD="bash \"$REPO_ROOT/tests/c99_oracle_generate.sh\" {input} {output} {log} --project-root \"$REPO_ROOT\"" \
+    bash "$REPO_ROOT/tests/verify_mir_c99_oracle_parity_harness.sh" --case "$case_file" >/dev/null
 }
 
-require_matrix_reject() {
+require_matrix_status() {
     local kind="$1"
-    if ! grep -Eq "\\| \`$kind\` \\| [^|]+ \\| reject \\|" "$MATRIX_DOC"; then
-        echo "error: $kind must be marked reject in the MIR-C99 coverage matrix" >&2
+    local status="$2"
+    if ! grep -Eq "\\| \`$kind\` \\| [^|]+ \\| $status \\|" "$MATRIX_DOC"; then
+        echo "error: $kind must be marked $status in the MIR-C99 coverage matrix" >&2
         exit 1
     fi
 }
 
 build_candidate
 
-run_expect_diag "int-limit value" "$int_limit_case" "$tmp_dir/int_limit_case.mir.c" \
-    "$tmp_dir/int_limit_case.mir.log" \
-    'mir_c99_capability_diagnostic: kind=AST_INT_LIMIT reason=int_limit_requires_expr_value_place'
+run_parity_case "$float_case"
+run_parity_case "$char_case"
+run_parity_case "$string_case"
+run_parity_case "$null_case"
+run_parity_case "$int_limit_case"
+run_parity_case "$string_interp_case"
+run_parity_case "$params_case"
 
-run_expect_diag "string interpolation value" "$string_interp_case" "$tmp_dir/string_interp_case.mir.c" \
-    "$tmp_dir/string_interp_case.mir.log" \
-    'mir_c99_capability_diagnostic: kind=AST_STRING_INTERP reason=string_interp_requires_expr_value_place'
+require_matrix_status "AST_FLOAT" "partial"
+require_matrix_status "AST_INT_LIMIT" "partial"
+require_matrix_status "AST_STRING" "partial"
+require_matrix_status "AST_CHAR" "partial"
+require_matrix_status "AST_STRING_INTERP" "partial"
+require_matrix_status "AST_PARAMS" "partial"
+require_matrix_status "@params" "partial"
 
-run_expect_diag "params tuple builtin" "$params_case" "$tmp_dir/params_case.mir.c" \
-    "$tmp_dir/params_case.mir.log" \
-    'mir_c99_capability_diagnostic: kind=AST_PARAMS reason=params_tuple_requires_expr_value_place'
-
-require_matrix_reject "AST_INT_LIMIT"
-require_matrix_reject "AST_STRING_INTERP"
-require_matrix_reject "AST_PARAMS"
-require_matrix_reject "@params"
-
-echo "OK: MIR-C99 real CLI fail-closed value entry diagnostics are explicit"
+echo "OK: MIR-C99 real CLI value entry parity matched the C99 oracle"

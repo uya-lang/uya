@@ -13,10 +13,9 @@ use libc.fork;
 use libc.waitpid;
 use libc.execve;
 use libc.read;
+use libc.close;
 use libc.dup2;
 use libc._exit;
-use libc.sys_close;
-use libc.sys_pipe2;
 use libc.stat;
 use libc.system;
 use libc.snprintf;
@@ -31,6 +30,8 @@ use std.string.strncmp;
 use std.string.strcpy;
 use std.string.strcat;
 use std.string.strrchr;
+
+extern "libc" fn pipe(pipefd: &i32) i32;
 
 const UPM_PATH_MAX: usize = 4096;
 const UPM_LINE_MAX: i32 = 2048;
@@ -2053,18 +2054,17 @@ fn upm_exec_argv_capture_first_line(argv: &(&byte), out: &byte, cap: usize, fail
         return 1;
     }
     var pipe_fds: [i32: 2] = [];
-    const pipe_result: !i32 = sys_pipe2(&pipe_fds[0], 0);
-    pipe_result catch {
+    if pipe(&pipe_fds[0]) != 0 {
         fprintf(libc.stderr, "错误: 无法创建管道\n" as *byte);
         return 1;
-    };
+    }
     const pid: i32 = fork();
     if pid == 0 {
-        _ = sys_close(pipe_fds[0]) catch {};
+        _ = close(pipe_fds[0]);
         if dup2(pipe_fds[1], 1) < 0 {
             _exit(127);
         }
-        _ = sys_close(pipe_fds[1]) catch {};
+        _ = close(pipe_fds[1]);
         var empty_env: [&byte: 1] = [null];
         var envp: &(&byte) = &empty_env[0] as &(&byte);
         if saved_envp != null {
@@ -2073,9 +2073,9 @@ fn upm_exec_argv_capture_first_line(argv: &(&byte), out: &byte, cap: usize, fail
         execve(argv[0], argv as &(&byte), envp as & &byte);
         _exit(127);
     }
-    _ = sys_close(pipe_fds[1]) catch {};
+    _ = close(pipe_fds[1]);
     if pid < 0 {
-        _ = sys_close(pipe_fds[0]) catch {};
+        _ = close(pipe_fds[0]);
         fprintf(libc.stderr, "错误: 无法创建子进程\n" as *byte);
         return 1;
     }
@@ -2088,7 +2088,7 @@ fn upm_exec_argv_capture_first_line(argv: &(&byte), out: &byte, cap: usize, fail
         }
         const rn_checked: !usize = read_result as! usize;
         const rn: usize = rn_checked catch {
-            _ = sys_close(pipe_fds[0]) catch {};
+            _ = close(pipe_fds[0]);
             return 1;
         };
         var scan: usize = 0;
@@ -2096,7 +2096,7 @@ fn upm_exec_argv_capture_first_line(argv: &(&byte), out: &byte, cap: usize, fail
             if out[filled + scan] == 10 as byte || out[filled + scan] == 13 as byte {
                 out[filled + scan] = 0 as byte;
                 filled = filled + scan;
-                _ = sys_close(pipe_fds[0]) catch {};
+                _ = close(pipe_fds[0]);
                 var status: i32 = 0;
                 if waitpid(pid, &status, 0) < 0 {
                     return 1;
@@ -2114,7 +2114,7 @@ fn upm_exec_argv_capture_first_line(argv: &(&byte), out: &byte, cap: usize, fail
         }
         filled = filled + rn;
     }
-    _ = sys_close(pipe_fds[0]) catch {};
+    _ = close(pipe_fds[0]);
     out[filled] = 0 as byte;
     var status: i32 = 0;
     if waitpid(pid, &status, 0) < 0 {

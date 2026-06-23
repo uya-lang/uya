@@ -4,7 +4,6 @@ use libc;
 use libc.puts;
 use libc.atoi;
 use libc.atoll;
-use libc.isqrt;
 use libc.strcmp;
 use libc.llabs;
 use libc.mkdir;
@@ -18,6 +17,29 @@ use libc.strlen;
 
 const EXEC_VM_REF_KIND_BASE: i32 = 65536;
 const EXEC_VM_REF_KIND_INDEX_BASE: i32 = 131072;
+
+fn exec_vm_isqrt(n: u64) u64 {
+    if n == 0u64 {
+        return 0u64;
+    }
+    if n == 1u64 {
+        return 1u64;
+    }
+    var guess: u64 = n / 2u64;
+    if guess == 0u64 {
+        guess = 1u64;
+    }
+    var i: i32 = 0;
+    while i < 100 {
+        const next: u64 = (guess + n / guess) / 2u64;
+        if next >= guess {
+            break;
+        }
+        guess = next;
+        i = i + 1;
+    }
+    return guess;
+}
 
 fn exec_vm_slot_ref(frame: &ExecFrame, idx: i32) &ExecValue {
     if frame == null || idx < 0 || idx >= EXEC_MAX_FRAME_SLOTS {
@@ -1273,7 +1295,7 @@ fn exec_vm_call_host(function: &BCFunction, site: &BCHostCallSite, frame: &ExecF
             exec_backend_set_error(function.decl, "exec: isqrt 参数槽位非法" as *byte, 0);
             return -1;
         }
-        out_value[0] = exec_make_u64(isqrt(arg0.i64_value as u64));
+        out_value[0] = exec_make_u64(exec_vm_isqrt(arg0.i64_value as u64));
         return 0;
     }
     if site.id == ExecHostCallId.EXEC_HOST_CALL_STRCMP {
