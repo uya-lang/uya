@@ -37,3 +37,30 @@
     - `bash -n tests/verify_mir_c99_full_language_baseline_truth.sh`：通过。
     - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：失败于固定编译器路径缺失。
   - 后续重开条件：提供可执行的 `../uya/bin/uya` 后，重跑 `bash tests/verify_mir_c99_full_language_baseline_truth.sh`；若输出 `baseline_mir_c99_src_main=fail_closed:portable_mir_lowering_missing`、`baseline_mir_c99_extern_function=fail_closed:unit_output_write_failed` 且最终 OK，再将该基线门禁任务从失败归档重开为完成。
+### 2026-06-23 - Full Language Parity / Generic CoreBody Lowering
+
+父级路径：`MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-LOWERING`
+
+  - [f] `MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-FUNCTION-INVENTORY`: 从真实
+    `../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c` 失败日志和现有
+    convergence audit 中生成按通用能力分类的 CoreBody/function 缺口清单，不再绑定具体
+    helper frontier。
+    - 最小验证：baseline truth gate 和 self-build convergence audit 仍 fail-closed/记录
+      blocked categories；新增清单不引用 legacy C99 成功作为 MIR-C99 证据。
+    - 完成条件：缺口清单按 CFG、place/memory、call ABI、runtime helper、
+      emitter/output、link/absence 等能力分类，并指向后续叶子的真实验证 gate。
+    - 失败原因（2026-06-23）：本轮硬约束要求所有 Uya 验证、构建、测试和运行都必须使用
+      `../uya/bin/uya`，但该固定编译器路径当前不存在，无法采集真实 `src/main.uya --mir-c99`
+      失败日志，也无法运行 baseline truth gate。
+    - 阻塞命令：
+      - `../uya/bin/uya build --mir-c99 src/main.uya -o "$tmp_dir/main.c"` -> exit 127，
+        关键错误：`/bin/bash: line 2: ../uya/bin/uya: No such file or directory`。
+      - `bash tests/verify_mir_c99_full_language_baseline_truth.sh` -> exit 1，
+        关键错误：`error: missing fixed compiler path ../uya/bin/uya; this gate refuses PATH, UYA_BIN, --uya-bin, and local bin/uya fallback`。
+    - 已运行但不足以完成：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` -> pass，
+      输出 `OK: MIR-C99 self-build convergence audit records real compiler candidate status and grouped blockers`。
+    - 后续重开条件：恢复可执行的 `../uya/bin/uya` 后，重新运行真实
+      `../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`、
+      `bash tests/verify_mir_c99_full_language_baseline_truth.sh` 和
+      `bash tests/verify_mir_c99_self_build_convergence_audit.sh`，再生成按 CFG、place/memory、
+      call ABI、runtime helper、emitter/output、link/absence 分类的缺口清单。
