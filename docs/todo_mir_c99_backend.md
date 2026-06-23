@@ -131,11 +131,13 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
       `AST_SYSCALL / syscall_requires_target_capability`。
     - 子任务拆分（2026-06-24，本轮）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET`:
-        让首个 `MIR-C99 unit output 写出失败` real CLI 用例收敛为具体 capability diagnostic
-        或真实支持，不再停在通用写出失败。
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET-REOPEN-AFTER-CURRENT-UYA-REBUILD`:
+        在 current checkout 能重新产出可执行 compiler 并可替换 fixed `../uya/bin/uya`
+        后，重开真实首个 `MIR-C99 unit output 写出失败` bucket。当前 real CLI 首个单文件
+        case 已漂移为 `tests/test_exec_vm_try_unsupported.uya`，不再是
+        `tests/extern_function.uya`。
         - 最小验证：
-          - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_function.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`
+          - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`
       - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-GENERIC-REOPEN`:
         在 fixed `../uya/bin/uya` 能再次重建 current-source `cmd/build` 后，重开首个 generic
         `PortableMIR lowering 尚未覆盖当前程序` bucket。

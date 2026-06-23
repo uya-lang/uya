@@ -886,3 +886,36 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE`
     - 关键错误：`std_runtime_saved_envp undeclared`、`std_runtime_saved_argc/std_runtime_saved_argv undeclared`、`typed_program_TYPED_PROGRAM_INVALID_ID undeclared`。
     - 已验证现状：`UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o /tmp/uya-mir-c99-main-language-portablemir.c` 仍输出 `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_asm_const_output.uya line=3`，随后落到通用 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
     - 重开条件：先恢复固定 `../uya/bin/uya` 能成功重建 current-source `src/cmd/build/main.uya` 或 `src/cmd/build_bootstrap/main.uya` 并同步 sibling `../uya/bin/cmd/build`，再重新推进这个 bucket。
+
+# MIR-C99 Backend TODO
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+
+    - [f] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET`:
+      让首个 `MIR-C99 unit output 写出失败` real CLI 用例收敛为具体 capability diagnostic
+      或真实支持，不再停在通用写出失败。
+      - 原最小验证：
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_function.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`
+      - 失败原因（2026-06-24）：
+        - 当前 fixed `../uya/bin/uya` 已不再把 `tests/extern_function.uya` 归到 unit-output bucket；同命令实际进入 `[MIR-C99]` 后失败于 `错误: MIR-C99 extern lowering 失败`，该叶子的原验收样例已失真。
+        - 现存 real CLI `unit output 写出失败` 的首个单文件 bucket 已漂移到 `tests/test_exec_vm_try_unsupported.uya`，关键日志为 `structured_i32_preflight_fail: index=0 type=10 locals=0 exprs=0` 后跟 `错误: MIR-C99 unit output 写出失败`。
+        - 为让当前 checkout 源码影响 fixed 验收路径，本轮尝试 `make uya` 重建 current-source compiler；但构建在 `.uyacache/uya_common.c` / `src/main.c` 阶段即被无关 blocker 卡住：`std_runtime_saved_argc`、`std_runtime_saved_argv`、`std_runtime_saved_envp` 未声明，无法得到可替换 fixed path 的 current-source compiler。
+      - 阻塞命令：
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_function.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o /tmp/uya-mir-c99-unit-output-real-first-bucket.c`
+        - `make uya`
+      - 关键错误：
+        - `错误: MIR-C99 extern lowering 失败`
+        - `structured_i32_preflight_fail: index=0 type=10 locals=0 exprs=0`
+        - `错误: MIR-C99 unit output 写出失败`
+        - `uya_common.c:185:28: error: ‘std_runtime_saved_argc’ undeclared`
+        - `src/main.c:227:9: error: ‘std_runtime_saved_envp’ undeclared`
+      - 已验证（2026-06-24）：
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_function.uya -o /tmp/uya-mir-c99-unit-output-first-bucket.c`：失败，进入 `[MIR-C99]` 后报 `错误: MIR-C99 extern lowering 失败`。
+        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o /tmp/uya-mir-c99-unit-output-real-first-bucket.c`：失败，日志固定为 `structured_i32_preflight_fail: index=0 type=10 locals=0 exprs=0` 与 `错误: MIR-C99 unit output 写出失败`。
+        - `make uya`：失败，`.uyacache/uya_common.c` 与 `src/main.c` 编译阶段出现 `std_runtime_saved_*` 未声明。
+      - 后续重开条件：
+        - 先修复当前 checkout `make uya` 的 `std_runtime_saved_*` 构建 blocker，得到可执行 current-source compiler 并同步到固定 `../uya/bin/uya` 路径；随后按新的真实 bucket `tests/test_exec_vm_try_unsupported.uya` 重开本项，决定是收敛为 capability diagnostic 还是真实 unit-output 支持。
