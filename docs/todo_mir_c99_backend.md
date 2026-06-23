@@ -105,10 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：覆盖矩阵中仍为 MIR-C99 `missing` 的普通值/表达式项转成 `partial`/`done`
     或明确 `reject`；对应 `tests/verify_mir_c99_full_language_*_parity.sh` 走真实
     `--mir-c99` CLI 或明确注明 generator-only 时不得标 full-language done。
-  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL`: 收敛 float/double、
-    char、string、null 和非零 float payload 的常量模型，避免 generator-only value smoke。
-    - 最小验证：真实 `--mir-c99` const/value parity 或明确 reject 脚本覆盖 f32/f64、char、
-      string、null、`i32.max`/`i32.min` 等样例。
   - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-MATCH-ERROR-METADATA`: 收敛 match payload、
     error-union value、`@error_id` / `@error_name` 的真实 CLI lowering 或稳定 reject。
     - 最小验证：真实 `--mir-c99` case 覆盖 match/error-union/error metadata；若暂不能支持，
