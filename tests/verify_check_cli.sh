@@ -12,8 +12,16 @@ cleanup() {
 trap cleanup EXIT
 
 "$ROOT_DIR/bin/uya" check tests/check_cli_no_main.uya >"$OK_LOG" 2>&1
-grep -q '类型检查通过' "$OK_LOG"
-grep -q '检查完成：checker 通过（未执行代码生成）' "$OK_LOG"
+if ! grep -Eq '类型检查通过|检查: ok' "$OK_LOG"; then
+    echo "✗ check 成功路径缺少检查通过提示"
+    cat "$OK_LOG"
+    exit 1
+fi
+if ! grep -Eq '检查完成：checker 通过（未执行代码生成）|完成: checker-only' "$OK_LOG"; then
+    echo "✗ check 成功路径缺少 checker-only 完成提示"
+    cat "$OK_LOG"
+    exit 1
+fi
 if grep -q '代码生成完成' "$OK_LOG"; then
     echo "✗ check 不应进入代码生成阶段"
     cat "$OK_LOG"

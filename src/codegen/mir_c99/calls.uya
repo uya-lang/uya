@@ -276,6 +276,21 @@ fn mir_c99_call_target_kind_for_operand(target: &MirOperand) i32 {
     return MIR_C99_CALL_TARGET_KIND_UNSUPPORTED;
 }
 
+fn mir_c99_call_infer_legacy_target_kind(callee: &MirFunction) i32 {
+    if callee == null {
+        return MIR_C99_CALL_TARGET_KIND_UNSUPPORTED;
+    }
+    if (callee.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 &&
+       callee.calling_convention == MIR_CALL_CONV_C {
+        return MIR_C99_CALL_TARGET_KIND_EXTERN;
+    }
+    if (callee.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 &&
+       callee.calling_convention == MIR_CALL_CONV_UYA {
+        return MIR_C99_CALL_TARGET_KIND_DIRECT;
+    }
+    return MIR_C99_CALL_TARGET_KIND_UNSUPPORTED;
+}
+
 fn mir_c99_call_callee_matches_target(target_kind: i32, callee: &MirFunction) i32 {
     if callee == null {
         return 0;
@@ -357,7 +372,8 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
     }
     const target: &MirOperand = mir_c99_call_operand_ptr(module, inst.operand_start);
     if target == null ||
-       (target.kind != MIR_OPERAND_KIND_CALL_TARGET_DIRECT &&
+       (target.kind != 0 &&
+        target.kind != MIR_OPERAND_KIND_CALL_TARGET_DIRECT &&
         target.kind != MIR_OPERAND_KIND_CALL_TARGET_EXTERN &&
         target.kind != MIR_OPERAND_KIND_CALL_TARGET_METHOD_INSTANCE &&
         target.kind != MIR_OPERAND_KIND_CALL_TARGET_FUNCTION_POINTER) {
@@ -400,6 +416,13 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
     }
     const callee: &MirFunction = mir_c99_call_function_ptr(module,
         target.immediate_i32);
+    if target_kind == MIR_C99_CALL_TARGET_KIND_UNSUPPORTED &&
+       target.kind == 0 && target.value_id == MIR_VALUE_INVALID_ID {
+        target_kind = mir_c99_call_infer_legacy_target_kind(callee);
+    }
+    if target_kind == MIR_C99_CALL_TARGET_KIND_UNSUPPORTED {
+        return mir_c99_call_reject_entry(inst);
+    }
     if mir_c99_call_callee_matches_target(target_kind, callee) == 0 {
         if target_kind != MIR_C99_CALL_TARGET_KIND_FUNCTION_POINTER {
             return mir_c99_call_reject_entry(inst);
@@ -409,13 +432,19 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
         signature_type_id = callee.signature_type_id;
     }
     const signature: &MirType = mir_c99_call_type_ptr(module, signature_type_id);
-    if signature == null || signature.kind != MIR_TYPE_KIND_FUNCTION ||
-       mir_c99_call_float_abi_status(module, inst, signature) ==
-        MIR_C99_CALL_STATUS_REJECT {
+    if signature == null {
         return mir_c99_call_reject_entry(inst);
     }
-    const return_type: &MirType = mir_c99_call_type_ptr(module,
-        signature.element_type_id);
+    var return_type: &MirType = null;
+    if signature.kind == MIR_TYPE_KIND_FUNCTION {
+        if mir_c99_call_float_abi_status(module, inst, signature) ==
+           MIR_C99_CALL_STATUS_REJECT {
+            return mir_c99_call_reject_entry(inst);
+        }
+        return_type = mir_c99_call_type_ptr(module, signature.element_type_id);
+    } else {
+        return_type = signature;
+    }
     if return_type == null {
         return mir_c99_call_reject_entry(inst);
     }
@@ -425,14 +454,17 @@ fn mir_c99_call_entry_from_mir(module: &PortableMirModule,
     if return_kind == MIR_C99_CALL_RETURN_KIND_UNSUPPORTED {
         return mir_c99_call_reject_entry(inst);
     }
-    float_abi_arg_count =
-        mir_c99_call_signature_float_abi_arg_count(module, signature);
-    if float_abi_arg_count < 0 {
-        return mir_c99_call_reject_entry(inst);
-    }
-    required_call_flags = mir_c99_call_signature_required_flags(module, signature);
-    if required_call_flags < 0 {
-        return mir_c99_call_reject_entry(inst);
+    if signature.kind == MIR_TYPE_KIND_FUNCTION {
+        float_abi_arg_count =
+            mir_c99_call_signature_float_abi_arg_count(module, signature);
+        if float_abi_arg_count < 0 {
+            return mir_c99_call_reject_entry(inst);
+        }
+        required_call_flags = mir_c99_call_signature_required_flags(module,
+            signature);
+        if required_call_flags < 0 {
+            return mir_c99_call_reject_entry(inst);
+        }
     }
     var entry: MirC99CallEntry = MirC99CallEntry{
         inst_id: inst.inst_id,

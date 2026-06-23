@@ -58,3 +58,6 @@ src/.uyacache-native-refresh/
 loop.log
 1.c
 1
+tests/build_mir_c99/tests/tests_test_array_bounds/test_array_bounds.bin
+tests/build_mir_c99/tests/tests_test_block_comment/test_block_comment.compiler_output.log
+tests/build_mir_c99/tests/tests_extern_function/extern_function.compiler_output.log

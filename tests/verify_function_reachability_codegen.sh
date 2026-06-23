@@ -16,7 +16,9 @@ IMPORT_MAIN_OUT_C="$SCRIPT_DIR/build/function_reachability_import_main.c"
 IMPORT_MAIN_EXE="$SCRIPT_DIR/build/function_reachability_import_main"
 
 extract_generated_microapp_c_path() {
-    printf '%s\n' "$1" | sed -n 's/^输出文件: \(.*uya_output[^ ]*\.c\)$/\1/p' | head -n 1
+    printf '%s\n' "$1" | sed -n \
+        -e 's/^输出文件: \(.*uya_output[^ ]*\.c\)$/\1/p' \
+        -e 's/^代码生成: ok (\(.*uya_output[^)]*\.c\))$/\1/p' | head -n 1
 }
 
 mkdir -p "$SCRIPT_DIR/build"

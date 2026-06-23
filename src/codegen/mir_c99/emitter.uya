@@ -176,6 +176,7 @@ export fn mir_c99_emitter_record_unit_outputs(emitter: &MirC99Emitter) i32 {
         const unit: &MirC99Unit = mir_c99_plan_unit_ptr(emitter.plan, unit_index);
         var writer: MirC99UnitOutputWriter = MirC99UnitOutputWriter{
             status: MIR_C99_OUTPUT_STATUS_ERROR,
+            module: null,
             plan: null,
             unit: null,
             cfg_plan: null,
@@ -193,7 +194,8 @@ export fn mir_c99_emitter_record_unit_outputs(emitter: &MirC99Emitter) i32 {
             },
             diagnostic_code: 0,
         };
-        if mir_c99_unit_output_writer_begin(&writer, emitter.plan, unit) != 0 ||
+        if mir_c99_unit_output_writer_begin(&writer, emitter.portable_mir,
+           emitter.plan, unit) != 0 ||
            mir_c99_unit_output_writer_bind_cfg(&writer, emitter.cfg_plan) != 0 {
             return -1;
         }

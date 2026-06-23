@@ -847,6 +847,7 @@ export struct MirConst {
     dedupe_id: i32,
     byte_offset: usize,
     byte_count: usize,
+    string_data: &byte,
     scalar_i64: i64,
     debug_loc_id: MirDebugLocId,
     flags: i32,
@@ -2122,6 +2123,38 @@ fn portable_mir_lower_append_call_result(ctx: &PortableMirLowerContext,
     return value_id;
 }
 
+fn portable_mir_lower_append_void_call_inst(ctx: &PortableMirLowerContext,
+    operand_start: i32, operand_count: i32, helper_decl_id: DeclId,
+    void_type_id: MirTypeId) i32 {
+    if ctx == null || ctx.module == null || operand_start < 0 ||
+       operand_count <= 0 || void_type_id < 0 {
+        return -1;
+    }
+    const inst_id: i32 = portable_mir_lower_count_to_i32(ctx.module.inst_count);
+    if inst_id < 0 {
+        return -1;
+    }
+    var inst: MirInst = MirInst{
+        inst_id: inst_id,
+        function_id: ctx.function_id,
+        block_id: ctx.block_id,
+        op: MIR_INST_OP_CALL,
+        type_id: void_type_id,
+        result_value_id: MIR_VALUE_INVALID_ID,
+        operand_start: operand_start,
+        operand_count: operand_count,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: helper_decl_id,
+    };
+    if portable_mir_append_inst(ctx.module, &inst) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn portable_mir_lower_call_stmt_to_module(ctx: &PortableMirLowerContext,
     stmt: &CoreStmt) i32 {
     if ctx == null || stmt == null || stmt.expr_id < 0 {
@@ -2178,8 +2211,8 @@ fn portable_mir_lower_call_stmt_to_module(ctx: &PortableMirLowerContext,
         }
         operand_count = 4;
     }
-    if portable_mir_lower_append_call_result(ctx, expr, operand_start,
-       operand_count, helper_decl_id) < 0 {
+    if portable_mir_lower_append_void_call_inst(ctx, operand_start,
+       operand_count, helper_decl_id, void_type_id) != 0 {
         return -1;
     }
     return 0;

@@ -2,6 +2,7 @@
 
 use codegen.mir_c99.cfg;
 use codegen.mir_c99.plan;
+use lower.mir;
 use libc.FILE;
 use libc.fputc;
 use libc.fputs;
@@ -39,6 +40,7 @@ export struct MirC99UnitOutputStats {
 /// 返回值说明：无。
 export struct MirC99UnitOutputWriter {
     status: i32,
+    module: &PortableMirModule,
     plan: &MirC99Plan,
     unit: &MirC99Unit,
     cfg_plan: &MirC99CfgPlan,
@@ -133,6 +135,52 @@ fn mir_c99_unit_output_write_i64(stream: &FILE, value: i64) i32 {
     return 0;
 }
 
+fn mir_c99_unit_output_write_c_string_byte(stream: &FILE, ch: byte) i32 {
+    if stream == null {
+        return -1;
+    }
+    if ch == 34 as byte {
+        return mir_c99_unit_output_write(stream, "\\\"" as &byte);
+    }
+    if ch == 92 as byte {
+        return mir_c99_unit_output_write(stream, "\\\\" as &byte);
+    }
+    if ch == 10 as byte {
+        return mir_c99_unit_output_write(stream, "\\n" as &byte);
+    }
+    if ch == 13 as byte {
+        return mir_c99_unit_output_write(stream, "\\r" as &byte);
+    }
+    if ch == 9 as byte {
+        return mir_c99_unit_output_write(stream, "\\t" as &byte);
+    }
+    if fputc(ch as i32, stream as *void) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_c_string_literal(stream: &FILE,
+    text: &byte, byte_count: usize) i32 {
+    if stream == null || text == null {
+        return -1;
+    }
+    if fputc(34, stream as *void) < 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < byte_count {
+        if mir_c99_unit_output_write_c_string_byte(stream, text[i]) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    if fputc(34, stream as *void) < 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn mir_c99_unit_output_write_ref_line(stream: &FILE, prefix: &byte, ref: &MirC99Ref, suffix: &byte) i32 {
     if stream == null || prefix == null || ref == null || suffix == null {
         return -1;
@@ -205,14 +253,18 @@ fn mir_c99_unit_output_write_global_initializer(writer: &MirC99UnitOutputWriter,
         return 0;
     }
     if init.init_kind == MIR_GLOBAL_INIT_STRING {
-        if init.byte_count == 0usize || init.dedupe_id < 0 {
+        if init.byte_count == 0usize || init.dedupe_id < 0 ||
+           init.string_data == null {
             return -1;
         }
-        if mir_c99_unit_output_write(stream, "static const uint8_t uya_mir_string_" as &byte) != 0 ||
+        if mir_c99_unit_output_write(stream, "static const char uya_mir_string_" as &byte) != 0 ||
            mir_c99_unit_output_write_i32(stream, init.dedupe_id) != 0 ||
            mir_c99_unit_output_write(stream, "[" as &byte) != 0 ||
-           mir_c99_unit_output_write_i32(stream, init.byte_count as i32) != 0 ||
-           mir_c99_unit_output_write(stream, "] = { 0 };\n" as &byte) != 0 {
+           mir_c99_unit_output_write_i32(stream, (init.byte_count + 1usize) as i32) != 0 ||
+           mir_c99_unit_output_write(stream, "] = " as &byte) != 0 ||
+           mir_c99_unit_output_write_c_string_literal(stream, init.string_data,
+            init.byte_count) != 0 ||
+           mir_c99_unit_output_write(stream, ";\n" as &byte) != 0 {
             return -1;
         }
         return 0;
@@ -295,6 +347,203 @@ fn mir_c99_unit_output_terminator_plan_ptr(writer: &MirC99UnitOutputWriter,
     return null;
 }
 
+fn mir_c99_unit_output_inst_ptr(writer: &MirC99UnitOutputWriter,
+    inst_id: MirInstId) &MirInst {
+    if writer == null || writer.module == null || inst_id < 0 ||
+       (inst_id as usize) >= writer.module.insts.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&writer.module.insts,
+        inst_id as usize) as &MirInst;
+}
+
+fn mir_c99_unit_output_operand_ptr(writer: &MirC99UnitOutputWriter,
+    operand_id: MirOperandId) &MirOperand {
+    if writer == null || writer.module == null || operand_id < 0 ||
+       (operand_id as usize) >= writer.module.operands.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&writer.module.operands,
+        operand_id as usize) as &MirOperand;
+}
+
+fn mir_c99_unit_output_type_ptr(writer: &MirC99UnitOutputWriter,
+    type_id: MirTypeId) &MirType {
+    if writer == null || writer.module == null || type_id < 0 ||
+       (type_id as usize) >= writer.module.types.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&writer.module.types,
+        type_id as usize) as &MirType;
+}
+
+fn mir_c99_unit_output_string_initializer_for_dedupe(
+    writer: &MirC99UnitOutputWriter, dedupe_id: i32) &MirC99GlobalInitializerPlanEntry {
+    if writer == null || writer.plan == null || dedupe_id < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < writer.plan.global_initializers.count {
+        const init: &MirC99GlobalInitializerPlanEntry =
+            semantic_vector_item_ptr(&writer.plan.global_initializers,
+                i) as &MirC99GlobalInitializerPlanEntry;
+        if init != null && init.init_kind == MIR_GLOBAL_INIT_STRING &&
+           init.dedupe_id == dedupe_id {
+            return init;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn mir_c99_unit_output_function_return_type(writer: &MirC99UnitOutputWriter,
+    function: &MirC99FunctionPlanEntry) &MirType {
+    if writer == null || function == null {
+        return null;
+    }
+    const signature: &MirType =
+        mir_c99_unit_output_type_ptr(writer, function.signature_type_id);
+    if signature == null {
+        return null;
+    }
+    if signature.kind == MIR_TYPE_KIND_FUNCTION {
+        return mir_c99_unit_output_type_ptr(writer, signature.element_type_id);
+    }
+    return signature;
+}
+
+fn mir_c99_unit_output_write_c_type(stream: &FILE, typ: &MirType) i32 {
+    if stream == null || typ == null {
+        return -1;
+    }
+    if typ.kind == MIR_TYPE_KIND_VOID {
+        return mir_c99_unit_output_write(stream, "void" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_BOOL {
+        return mir_c99_unit_output_write(stream, "bool" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_I8 {
+        return mir_c99_unit_output_write(stream, "int8_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_U8 || typ.kind == MIR_TYPE_KIND_BYTE {
+        return mir_c99_unit_output_write(stream, "uint8_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_I16 {
+        return mir_c99_unit_output_write(stream, "int16_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_U16 {
+        return mir_c99_unit_output_write(stream, "uint16_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_I32 {
+        return mir_c99_unit_output_write(stream, "int32_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_U32 {
+        return mir_c99_unit_output_write(stream, "uint32_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_I64 {
+        return mir_c99_unit_output_write(stream, "int64_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_U64 {
+        return mir_c99_unit_output_write(stream, "uint64_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_ISIZE {
+        return mir_c99_unit_output_write(stream, "intptr_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_USIZE {
+        return mir_c99_unit_output_write(stream, "uintptr_t" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_F32 {
+        return mir_c99_unit_output_write(stream, "float" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_F64 {
+        return mir_c99_unit_output_write(stream, "double" as &byte);
+    }
+    if typ.kind == MIR_TYPE_KIND_POINTER ||
+       typ.kind == MIR_TYPE_KIND_FUNCTION_POINTER {
+        return mir_c99_unit_output_write(stream, "void *" as &byte);
+    }
+    return -1;
+}
+
+fn mir_c99_unit_output_write_function_decl_head(writer: &MirC99UnitOutputWriter,
+    stream: &FILE, function: &MirC99FunctionPlanEntry) i32 {
+    const return_type: &MirType =
+        mir_c99_unit_output_function_return_type(writer, function);
+    if return_type == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream, "static " as &byte) != 0 ||
+       mir_c99_unit_output_write_c_type(stream, return_type) != 0 ||
+       mir_c99_unit_output_write(stream, " uya_mir_fn_" as &byte) != 0 ||
+       mir_c99_unit_output_write_i32(stream, function.c_name_source_id) != 0 ||
+       mir_c99_unit_output_write(stream, "(void)" as &byte) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_print_call(writer: &MirC99UnitOutputWriter,
+    stream: &FILE, inst: &MirInst) i32 {
+    if writer == null || stream == null || inst == null ||
+       inst.op != MIR_INST_OP_CALL || inst.operand_count < 2 {
+        return -1;
+    }
+    if inst.flags == MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
+        return mir_c99_unit_output_write(stream, "fputc('\\n', stdout);\n" as &byte);
+    }
+    if inst.flags != MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_STR ||
+       inst.operand_count < 4 {
+        return 0;
+    }
+    const ptr_operand: &MirOperand = mir_c99_unit_output_operand_ptr(writer,
+        inst.operand_start + 2);
+    const len_operand: &MirOperand = mir_c99_unit_output_operand_ptr(writer,
+        inst.operand_start + 3);
+    if ptr_operand == null || len_operand == null ||
+       ptr_operand.immediate_i32 < 0 || len_operand.immediate_i32 < 0 {
+        return -1;
+    }
+    const init: &MirC99GlobalInitializerPlanEntry =
+        mir_c99_unit_output_string_initializer_for_dedupe(writer,
+            ptr_operand.immediate_i32);
+    if init == null {
+        return -1;
+    }
+    if mir_c99_unit_output_write(stream,
+        "fwrite(uya_mir_string_" as &byte) != 0 ||
+       mir_c99_unit_output_write_i32(stream, init.dedupe_id) != 0 ||
+       mir_c99_unit_output_write(stream, ", 1, " as &byte) != 0 ||
+       mir_c99_unit_output_write_i32(stream, len_operand.immediate_i32) != 0 ||
+       mir_c99_unit_output_write(stream, ", stdout);\n" as &byte) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn mir_c99_unit_output_write_block_insts(writer: &MirC99UnitOutputWriter,
+    stream: &FILE, block: &MirC99BlockPlanEntry) i32 {
+    if writer == null || stream == null || block == null {
+        return -1;
+    }
+    var offset: i32 = 0;
+    while offset < block.inst_count {
+        const inst: &MirInst = mir_c99_unit_output_inst_ptr(writer,
+            block.inst_start + offset);
+        if inst == null {
+            return -1;
+        }
+        if inst.op == MIR_INST_OP_NOP {
+            offset = offset + 1;
+            continue;
+        }
+        if mir_c99_unit_output_write_print_call(writer, stream, inst) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
 fn mir_c99_unit_output_write_block_label(stream: &FILE, block: &MirC99BlockPlanEntry) i32 {
     if stream == null || block == null || block.c_label_source_id == MIR_BLOCK_INVALID_ID {
         return -1;
@@ -311,8 +560,9 @@ fn mir_c99_unit_output_write_block_label(stream: &FILE, block: &MirC99BlockPlanE
     return 0;
 }
 
-fn mir_c99_unit_output_write_terminator(stream: &FILE, term: &MirC99TerminatorPlanEntry) i32 {
-    if stream == null || term == null {
+fn mir_c99_unit_output_write_terminator(writer: &MirC99UnitOutputWriter,
+    stream: &FILE, term: &MirC99TerminatorPlanEntry) i32 {
+    if writer == null || stream == null || term == null {
         return -1;
     }
     if term.kind == MIR_TERMINATOR_KIND_BR {
@@ -322,6 +572,22 @@ fn mir_c99_unit_output_write_terminator(stream: &FILE, term: &MirC99TerminatorPl
         return mir_c99_cfg_emit_cond_br_goto(term, stream);
     }
     if term.kind == MIR_TERMINATOR_KIND_RETURN {
+        if term.operand_count == 0 {
+            return mir_c99_unit_output_write(stream, "return;\n" as &byte);
+        }
+        const operand: &MirOperand = mir_c99_unit_output_operand_ptr(writer,
+            term.operand_start);
+        if operand == null {
+            return -1;
+        }
+        if operand.value_id == MIR_VALUE_INVALID_ID {
+            if mir_c99_unit_output_write(stream, "return " as &byte) != 0 ||
+               mir_c99_unit_output_write_i32(stream, operand.immediate_i32) != 0 ||
+               mir_c99_unit_output_write(stream, ";\n" as &byte) != 0 {
+                return -1;
+            }
+            return 0;
+        }
         return mir_c99_cfg_emit_return(term, stream);
     }
     return -1;
@@ -337,9 +603,11 @@ fn mir_c99_unit_output_write_function_body(writer: &MirC99UnitOutputWriter,
     if function == null || function.status != MIR_C99_CFG_FUNCTION_STATUS_PLANNED {
         return -1;
     }
-    if mir_c99_unit_output_write(stream, "static int32_t uya_mir_fn_" as &byte) != 0 ||
-       mir_c99_unit_output_write_i32(stream, function.c_name_source_id) != 0 ||
-       mir_c99_unit_output_write(stream, "(void) {\n" as &byte) != 0 {
+    if (function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        return 0;
+    }
+    if mir_c99_unit_output_write_function_decl_head(writer, stream, function) != 0 ||
+       mir_c99_unit_output_write(stream, " {\n" as &byte) != 0 {
         return -1;
     }
     var offset: i32 = 0;
@@ -349,9 +617,12 @@ fn mir_c99_unit_output_write_function_body(writer: &MirC99UnitOutputWriter,
         if block == null || mir_c99_unit_output_write_block_label(stream, block) != 0 {
             return -1;
         }
+        if mir_c99_unit_output_write_block_insts(writer, stream, block) != 0 {
+            return -1;
+        }
         const term: &MirC99TerminatorPlanEntry =
             mir_c99_unit_output_terminator_plan_ptr(writer, block.terminator_id);
-        if mir_c99_unit_output_write_terminator(stream, term) != 0 {
+        if mir_c99_unit_output_write_terminator(writer, stream, term) != 0 {
             return -1;
         }
         offset = offset + 1;
@@ -408,12 +679,13 @@ fn mir_c99_unit_output_refresh_stats(writer: &MirC99UnitOutputWriter) i32 {
 /// 参数说明：`writer` 为输出 writer，`plan` 为 MIR-C99 plan，`unit` 为待输出 unit。
 /// 返回值说明：成功返回 `0`，参数非法或 plan 未激活返回 `-1`。
 export fn mir_c99_unit_output_writer_begin(writer: &MirC99UnitOutputWriter,
-    plan: &MirC99Plan, unit: &MirC99Unit) i32 {
-    if writer == null || plan == null || unit == null ||
+    module: &PortableMirModule, plan: &MirC99Plan, unit: &MirC99Unit) i32 {
+    if writer == null || module == null || plan == null || unit == null ||
        plan.lifecycle_state != MIR_C99_PLAN_LIFECYCLE_ACTIVE {
         return -1;
     }
     writer.status = MIR_C99_OUTPUT_STATUS_READY;
+    writer.module = module;
     writer.plan = plan;
     writer.unit = unit;
     writer.cfg_plan = null;
@@ -463,10 +735,10 @@ export fn mir_c99_unit_output_write_include_section(writer: &MirC99UnitOutputWri
         return -1;
     }
     if writer.unit.includes.count == 0usize {
-        if mir_c99_unit_output_write(stream, "#include <stdint.h>\n#include <stddef.h>\n#include <stdbool.h>\n" as &byte) != 0 {
+        if mir_c99_unit_output_write(stream, "#include <stdint.h>\n#include <stddef.h>\n#include <stdbool.h>\n#include <stdio.h>\n" as &byte) != 0 {
             return -1;
         }
-        return 3;
+        return 4;
     }
     if mir_c99_unit_output_write_ref_table(stream, &writer.unit.includes,
         "#include \"uya_mir_include_" as &byte, ".h\"\n" as &byte) != 0 {
@@ -513,15 +785,26 @@ export fn mir_c99_unit_output_write_extern_prototype_section(writer: &MirC99Unit
 /// 参数说明：`writer` 为已初始化 writer，`stream` 为 C 输出流。
 /// 返回值说明：成功返回写出条目数，参数非法或写出失败返回 `-1`。
 export fn mir_c99_unit_output_write_function_prototype_section(writer: &MirC99UnitOutputWriter, stream: &FILE) i32 {
-    if writer == null || writer.unit == null || stream == null {
+    if writer == null || writer.unit == null || writer.cfg_plan == null || stream == null {
         return -1;
     }
     if mir_c99_unit_output_write(stream, "\n/* mir-c99 function prototypes */\n" as &byte) != 0 {
         return -1;
     }
-    if mir_c99_unit_output_write_ref_table(stream, &writer.unit.prototypes,
-        "static int32_t uya_mir_fn_" as &byte, "(void);\n" as &byte) != 0 {
-        return -1;
+    var i: usize = 0usize;
+    while i < writer.unit.prototypes.count {
+        const ref: &MirC99Ref = mir_c99_unit_output_ref_ptr(&writer.unit.prototypes, i);
+        if ref == null {
+            return -1;
+        }
+        const function: &MirC99FunctionPlanEntry =
+            mir_c99_unit_output_function_plan_ptr(writer, ref.source_id);
+        if function == null ||
+           mir_c99_unit_output_write_function_decl_head(writer, stream, function) != 0 ||
+           mir_c99_unit_output_write(stream, ";\n" as &byte) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
     }
     return writer.unit.prototypes.count as i32;
 }

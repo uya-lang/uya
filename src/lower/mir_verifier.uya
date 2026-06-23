@@ -1423,8 +1423,9 @@ fn portable_mir_verify_print_helper_call_abi(module: &PortableMirModule,
        inst.flags != MIR_EXTERN_HOSTED_HELPER_UYA_WRITE_NEWLINE {
         return 0;
     }
-    if inst.op != MIR_INST_OP_CALL || inst.result_value_id == MIR_VALUE_INVALID_ID ||
-       typ == null || typ.kind != MIR_TYPE_KIND_I32 ||
+    if inst.op != MIR_INST_OP_CALL ||
+       inst.result_value_id != MIR_VALUE_INVALID_ID ||
+       typ == null || typ.kind != MIR_TYPE_KIND_VOID ||
        inst.calling_convention != MIR_CALL_CONV_C ||
        (inst.runtime_capability_mask & MIR_RUNTIME_CAP_C_EXTERN) == 0 {
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_TYPE_MISMATCH,
@@ -1508,8 +1509,17 @@ fn portable_mir_verify_call_target_operand(module: &PortableMirModule,
     }
     const target: &MirOperand = portable_mir_verify_operand_ptr(module,
         inst.operand_start);
-    if target == null ||
-       portable_mir_operand_kind_is_call_target(target.kind) == 0 {
+    if target == null {
+        return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
+            inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
+            inst.type_id, inst.operand_start, MIR_CAPABILITY_REQ_INVALID_ID,
+            inst.debug_loc_id);
+    }
+    if portable_mir_operand_kind_is_call_target(target.kind) == 0 {
+        if target.kind == 0 && target.value_id == MIR_VALUE_INVALID_ID &&
+           portable_mir_verify_function_ptr(module, target.immediate_i32) != null {
+            return 0;
+        }
         return portable_mir_verify_fail(result, MIR_VERIFY_ERR_INVALID_OPERAND,
             inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
             inst.type_id, inst.operand_start, MIR_CAPABILITY_REQ_INVALID_ID,
@@ -1534,8 +1544,11 @@ fn portable_mir_verify_function_return_type(module: &PortableMirModule,
     }
     const signature: &MirType = portable_mir_verify_type_ptr(module,
         function.signature_type_id);
-    if signature == null || signature.kind != MIR_TYPE_KIND_FUNCTION {
+    if signature == null {
         return MIR_TYPE_INVALID_ID;
+    }
+    if signature.kind != MIR_TYPE_KIND_FUNCTION {
+        return signature.type_id;
     }
     return signature.element_type_id;
 }
@@ -1574,7 +1587,7 @@ fn portable_mir_verify_call_signature_type(module: &PortableMirModule,
     }
     const signature: &MirType = portable_mir_verify_type_ptr(module,
         callee.signature_type_id);
-    if signature == null || signature.kind != MIR_TYPE_KIND_FUNCTION {
+    if signature == null {
         return null;
     }
     return signature;
@@ -1613,6 +1626,9 @@ fn portable_mir_verify_call_abi_metadata(module: &PortableMirModule,
             inst.function_id, inst.block_id, inst.inst_id, inst.result_value_id,
             inst.type_id, inst.operand_start, MIR_CAPABILITY_REQ_INVALID_ID,
             inst.debug_loc_id);
+    }
+    if signature.kind != MIR_TYPE_KIND_FUNCTION {
+        return 0;
     }
     const return_type: &MirType = portable_mir_verify_type_ptr(module,
         signature.element_type_id);

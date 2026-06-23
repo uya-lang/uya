@@ -58,6 +58,7 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 - self-build frontier 必须归因到通用语言结构：CFG、place/memory、call ABI、cleanup/error、runtime capability 或 MIR instruction coverage。
 - self-build stage gate 只能检查 no-silent-fallback 和通用能力类别，不得把下一轮绑定到具体 helper 名、固定 body shape 或“下一处 pending body”。
 - `make backup-all` 只放到阶段收口或发布前；普通叶子优先跑 focused gate、coverage verifier、`git diff --check`。
+- backup flow 保留现有 C99 seed，新增 MIR-C99 seed 只在自举稳定后进入。
 - `./bin/uya test` 默认仍走现有 AST/LoweredProgram C99 后端，只能作为 legacy/oracle 回归信号；MIR-C99 `done` 必须使用 `tests/verify_mir_c99_*` parity gate 或配置了 `MIR_C99_GENERATE_CMD` 的 oracle parity harness，并由 host C compiler 编译运行生成的 MIR-C99 `.c`。
 - `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 必须随 MIR-C99 TODO 状态更新一起运行，防止把 legacy C99 测试误记为 MIR-C99 验收证据。
 - 自动循环执行时优先使用 `loop.py` 提供的目标行号、父级 checkbox 和小范围摘录；只在需要确认上下文时读取附近行，避免打印整份历史 todo 或 `loop.log`。
@@ -82,7 +83,9 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
 
 ### 4.15 Full Language Parity
 
-失败项已移至 `docs/todo_mir_c99_backend_failed.md`；完整语言 parity 当前没有可执行的未归档叶子任务。
+- [~] `MIR-C99-FULL-PARITY-REAL-CLI-ROUTING-AND-TESTS`: `./bin/uya build --mir-c99` 必须走真实 `PortableMIR -> MirC99Plan -> mir_c99_unit_output`，不得复用旧 C99 emitter 或只换 banner；先固定 `examples/HelloWorld.uya` 与 `src/main.uya` 不同输入的真实输出边界，再逐步让 `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 的 tests 单侧通过数收敛到完整通过。当前证据（2026-06-15）：`bash tests/verify_mir_c99_cli_helloworld.sh` 通过；`bash tests/verify_mir_c99_cli_distinct_outputs.sh` 失败在 `src/main.uya` lowering 未覆盖，而不是旧 C99 伪输出。
+
+失败项已移至 `docs/todo_mir_c99_backend_failed.md`；完整语言 parity 继续以本叶子作为当前可执行入口。
 
 ### 4.16 Self Build
 
@@ -105,6 +108,7 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 ### 4.17 Release Gates
 
 当前没有可执行的未归档叶子任务；release gate、文档同步和 HelloWorld CLI 证据已移至 `docs/todo_mir_c99_backend_completed.md`。后续若要把 MIR-C99 从当前 subset/frontier 提升为完整默认后端，必须新增明确 leaf，并继续按本文件完成定义验证。
+- 历史 release gate 叶子 wording 保持为：`make check` / `make check-hosted` 增加 MIR-C99 可选或必选门禁，按阶段切换。
 
 
 

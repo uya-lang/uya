@@ -71,6 +71,24 @@ done
 UYA_ROOT="$ROOT_DIR" "$ROOT_DIR/bin/uya" build "$BUILD_ENTRY" -o "$CMD_BUILD" --no-split-c --project-root "$ROOT_DIR/src/" >"$TMP_DIR/build.out" 2>"$TMP_DIR/build.err"
 test -x "$CMD_BUILD"
 
+UYA_ROOT="$ROOT_DIR" "$CMD_BUILD" --help >"$TMP_DIR/help.out" 2>"$TMP_DIR/help.err" || true
+HELP_REQUIRED=(
+    'build-only seed'
+    '--mir-c99'
+    'PortableMIR -> MIR-C99'
+    'seed 边界'
+    '不包含 exec/vm 后端'
+    '不解析 upm manifest'
+    '不生成 microapp/outlibc'
+)
+for pattern in "${HELP_REQUIRED[@]}"; do
+    if ! grep -q -- "$pattern" "$TMP_DIR/help.err"; then
+        echo "错误: cmd/build --help 缺少文案: $pattern" >&2
+        cat "$TMP_DIR/help.err" >&2
+        exit 1
+    fi
+done
+
 if grep -Eq 'src/(exec|microapp|fmt|kernel)|src/cmd/upm|cmd/upm|kernel\.(image|payload)' "$TMP_DIR/build.err"; then
     echo "错误: cmd/build 编译依赖列表含有非 build 子系统" >&2
     grep -En 'src/(exec|microapp|fmt|kernel)|src/cmd/upm|cmd/upm|kernel\.(image|payload)' "$TMP_DIR/build.err" >&2

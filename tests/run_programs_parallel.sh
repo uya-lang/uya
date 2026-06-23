@@ -39,6 +39,7 @@ ERRORS_ONLY=false
 # 为 true 时：不打印每条「通过」的 ✓ 行，其余输出与 ERRORS_ONLY=false 相同（供 make tests 默认使用）
 HIDE_PASS_OUTPUT=false
 USE_C99=true
+USE_MIR_C99=false
 USE_UYA=false
 _DEFAULT_PARALLEL_JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 PARALLEL_JOBS=${PARALLEL_JOBS:-$_DEFAULT_PARALLEL_JOBS}
@@ -120,6 +121,7 @@ show_usage() {
     echo "  --hide-pass         不打印每条通过的 ✓，其余输出与默认相同（失败项仍完整显示）"
     echo "  -j <N>              并行任务数（默认 CPU 核数）"
     echo "  --c99               使用 C99 后端（默认）"
+    echo "  --mir-c99           使用 MIR-C99 后端生成 .c，再交给宿主 C 编译器链接运行"
     echo "  --uya               使用 src 编译的编译器"
     echo ""
     echo "环境变量:"
@@ -195,6 +197,12 @@ while [ $# -gt 0 ]; do
             ;;
         --c99)
             USE_C99=true
+            USE_MIR_C99=false
+            shift
+            ;;
+        --mir-c99)
+            USE_C99=false
+            USE_MIR_C99=true
             shift
             ;;
         --uya)
@@ -215,9 +223,19 @@ done
 
 # 根据 --uya 选项设置编译器路径
 if [ "$USE_UYA" = true ]; then
-    USE_C99=true
     COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 fi
+
+if [ "$USE_MIR_C99" = true ]; then
+    BUILD_DIR="$TEST_DIR/build_mir_c99"
+fi
+
+mkdir -p "$BUILD_DIR"
+mkdir -p "$BUILD_DIR/multifile"
+mkdir -p "$BUILD_DIR/cross_deps"
+mkdir -p "$BUILD_DIR/parallel_results"
+mkdir -p "$BUILD_DIR/tests"
+mkdir -p "$BUILD_DIR/multifile_tests"
 
 # 检查编译器是否存在
 if [ -z "$COMPILER" ] || [ ! -f "$COMPILER" ] || [ ! -x "$COMPILER" ]; then
@@ -471,7 +489,12 @@ run_compiled_test_args() {
         fi
     done
 
-    compiler_output=$(cd "$compiler_work_dir" && "$COMPILER" build --c99 "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
+    local backend_flag="--c99"
+    if [ "$USE_MIR_C99" = true ]; then
+        backend_flag="--mir-c99"
+    fi
+
+    compiler_output=$(cd "$compiler_work_dir" && "$COMPILER" build "$backend_flag" "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
     compiler_exit=$?
     if [ $compiler_exit -ne 0 ]; then
         if [ "$expect_fail" = true ]; then
@@ -678,7 +701,7 @@ process_ready_single_results() {
 
 # 导出函数和变量供子进程使用
 export -f generate_test_id link_generated_test_output run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch
-export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE REPO_ROOT
+export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 USE_MIR_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE REPO_ROOT
 
 SKIP_TESTS=()
 if [ -n "${SKIP_TESTS_EXTRA:-}" ]; then

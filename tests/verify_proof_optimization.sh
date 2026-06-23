@@ -23,7 +23,10 @@ if [ $STATUS -ne 0 ]; then
 fi
 
 # 检查证明优化次数
-PROOF_COUNT=$(echo "$COMPILE_OUT" | grep '证明优化:' | sed 's/.*证明优化: *\([0-9]*\).*/\1/' || echo "0")
+PROOF_COUNT=$(echo "$COMPILE_OUT" | sed -n 's/.*proof=\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ -z "$PROOF_COUNT" ]; then
+    PROOF_COUNT=$(echo "$COMPILE_OUT" | sed -n 's/.*证明优化: *\([0-9][0-9]*\).*/\1/p' | head -1)
+fi
 if [ -z "$PROOF_COUNT" ] || [ "$PROOF_COUNT" -lt 6 ]; then
     echo "✗ 证明优化次数不足: 期望 >= 6, 实际: $PROOF_COUNT"
     exit 1
