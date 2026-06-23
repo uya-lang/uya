@@ -1310,3 +1310,25 @@ Context:
     - 验证：`bash tests/verify_mir_c99_cleanup_error_statement_parity.sh` 通过，新增 cleanup/error statement shard 覆盖 success/error 两条路径上的 `defer`、`errdefer`、lexical `drop` 与 `try`/error propagation，MIR-C99 C 与 C99 oracle host-C 编译运行结果一致，generator log 不含 legacy C99 fallback。
     - 回归验证：`bash tests/verify_mir_c99_full_language_defer_parity.sh`、`bash tests/verify_mir_c99_full_language_errdefer_parity.sh`、`bash tests/verify_mir_c99_full_language_try_propagation_parity.sh`、`bash tests/verify_mir_c99_lexical_drop_parity.sh` 均通过。
     - 收口验证：`bash tests/verify_portable_mir_language_coverage.sh`、`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`、`bash -n tests/mir_c99_generate.sh tests/verify_mir_c99_cleanup_error_statement_parity.sh tests/verify_mir_c99_full_language_defer_parity.sh tests/verify_mir_c99_full_language_errdefer_parity.sh tests/verify_mir_c99_full_language_try_propagation_parity.sh tests/verify_mir_c99_lexical_drop_parity.sh`、`git diff --check` 均通过。
+
+### 4.15 Full Language Parity
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`
+
+  - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-FIXED-UYA-BASELINE`: 恢复并验证固定
+    编译器路径 `../uya/bin/uya` 可用于 MIR-C99 full-language 基线，不依赖 PATH、
+    `UYA_BIN`、`--uya-bin` 或当前仓库 `bin/uya`。
+    - 最小验证：`../uya/bin/uya --version`；`bash tests/verify_mir_c99_full_language_baseline_truth.sh`。
+    - 完成条件：命令均通过，且 baseline truth gate 继续证明 HelloWorld 走真实
+      `--mir-c99`，`src/main.uya` 与 `tests/extern_function.uya` 仍按当前边界 fail-closed。
+    - 验证（2026-06-23）：
+      - `../uya/bin/uya --version`：通过，输出 `Uya 编译器版本 v0.9.9`。
+      - 红灯：`bash tests/verify_mir_c99_full_language_baseline_truth.sh` 初次失败，固定路径旧二进制把 `--mir-c99` 作为 legacy C99 处理，日志显示 `后端类型: C99`，缺少 `[MIR-C99]`。
+      - 恢复：用固定路径 `../uya/bin/uya` 编译当前 launcher，备份旧 `../uya/bin/uya`，同步 launcher 到 `../uya/bin/uya`；同步并重建 `../uya/bin/cmd/build`。
+      - 修复：`src/build_compiler_driver.uya` 在 `MIR-C99 unit output 写出失败` 时执行 `unlink(output_path)`，避免留下半成品 C。
+      - 重建：`make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya` 通过；随后同步 `bin/cmd/build` 到 `../uya/bin/cmd/build`。
+      - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过，输出 `baseline_mir_c99_helloworld=pass`、`baseline_mir_c99_src_main=fail_closed:portable_mir_lowering_missing`、`baseline_mir_c99_extern_function=fail_closed:unit_output_write_failed`。
+      - `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`：通过。
+      - `git diff --check`：通过。
+      - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`：通过，主 todo 状态整洁。
+      - 额外检查：`bash tests/verify_mir_c99_unit_output_sections.sh` 未计入本叶子验收；固定 launcher 缺少 `../uya/bin/cmd/fmt`，该脚本在 `../uya/bin/uya fmt` 处失败。

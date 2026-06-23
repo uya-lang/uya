@@ -52710,6 +52710,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
     if mir_c99_write_unit_output_file(output_path, &module, &plan,
         &cfg_plan, program) != 0 {
         fprintf(libc.stderr, "错误: MIR-C99 unit output 写出失败\n" as *byte);
+        unlink(output_path as *byte);
         mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
             &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
         portable_mir_module_release(&module);

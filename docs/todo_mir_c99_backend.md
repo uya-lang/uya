@@ -105,6 +105,30 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
   - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
+  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-SHARD-HARNESS`: 为 statement/CFG shard 固定真实
+    `--mir-c99` CLI 验证入口，使用 `../uya/bin/uya`，并检查不走 legacy fallback。
+    - 最小验证：statement shard 的 focused gate 输出 MIR-C99 C，host C99 compiler 编译运行并与 oracle 对齐。
+    - 完成条件：验证命令不依赖当前仓库 `bin/uya`、PATH 或环境覆盖。
+  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CORE-STRUCTURED`: 补齐
+    `LOCAL_DECL`、`ASSIGN`、`EXPR`、`RETURN`、`IF`、`WHILE` 与 block 的通用
+    CoreStmt 到 PortableMIR/MIR-C99 lowering。
+    - 最小验证：return/local/assign/expr/branch/loop focused shard 走真实 `--mir-c99`
+      生成、编译、运行。
+    - 完成条件：覆盖矩阵相关 statement kind 至少为 MIR-C99 `partial`，且无 legacy fallback 证据。
+  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-LOOP-EDGES`: 补齐 loop backedge、
+    `break` / `continue` 到 MIR-C99 CFG 的通用 lowering。
+    - 最小验证：含嵌套 loop、`break`、`continue` 的 focused shard 走真实 `--mir-c99`
+      生成、编译、运行。
+    - 完成条件：`AST_BREAK_STMT` / `AST_CONTINUE_STMT` 的 MIR-C99 状态不再是 `missing`。
+  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CLEANUP-ERROR`: 补齐 `DEFER`、
+    `ERRDEFER`、`DROP` 与 `ERROR_PROPAGATION` 的 cleanup/error CFG lowering。
+    - 最小验证：cleanup/error statement focused shard 走真实 `--mir-c99` 生成、编译、运行。
+    - 完成条件：defer/errdefer/drop/error propagation 的成功和错误路径均与 C99 oracle 对齐。
+  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-AST-DRIVERS`: 补齐 AST 层
+    `for` / `match` / `test` driver 入口到通用 Core/MIR statement lowering 的映射。
+    - 最小验证：for、match statement 和 test driver focused shard 走真实 `--mir-c99`
+      或给出明确 MIR-C99 capability diagnostic。
+    - 完成条件：覆盖矩阵记录真实 per-kind 状态，不能以 generator-only 或 legacy C99 证据标完成。
 - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE`: 补齐表达式、value、place 和常量模型。
   - 覆盖范围：整数/布尔/浮点/字符串/char/int-limit/null 常量，非零 f32/f64 payload，
     一元/二元/逻辑/转换，call result，member/field，array/slice index，slice ptr/len，
