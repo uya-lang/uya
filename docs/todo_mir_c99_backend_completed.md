@@ -1285,3 +1285,15 @@ Context:
         - `bash tests/verify_mir_c99_generator_driver_handoff.sh`：通过；默认 generator 到 source-to-PortableMIR / `mir_c99_driver_run` handoff 证据通过。
         - `git diff --check`：通过。
         - `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`：通过，归档前主 todo 有 1 个 active task。
+
+### 4.15 Full Language Parity
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`: 补齐 CoreStmt/AST statement 到 MIR 的通用 CFG lowering。
+
+  - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED`: 补齐通用 `IF`、
+    `WHILE`、block、`break` / `continue` 的 CoreStmt 到 PortableMIR CFG lowering。
+    - 最小验证：新增或更新 statement/CFG shard，并让结构化控制流用例通过。
+    - 完成条件：分支、循环 backedge、break/continue 均生成 verifier-clean MIR-C99 C。
+    - 验证：`test -x ../uya/bin/uya && ../uya/bin/uya --version` => `v0.10.0`。
+    - 验证：`bash tests/verify_portable_mir_core_body_lowering.sh` => 5 tests passed；覆盖 structured CFG 与 break/continue lowering，并通过 PortableMIR verifier。
+    - 验证：`CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' bash tests/verify_mir_c99_cfg_parity.sh` => `OK: MIR-C99 CFG parity matched C99 oracle, including block/break/continue`。
