@@ -105,10 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：覆盖矩阵中仍为 MIR-C99 `missing` 的普通值/表达式项转成 `partial`/`done`
     或明确 `reject`；对应 `tests/verify_mir_c99_full_language_*_parity.sh` 走真实
     `--mir-c99` CLI 或明确注明 generator-only 时不得标 full-language done。
-  - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-AGGREGATE-MEMBER-INIT`: 让 struct / array /
-    tuple / union initializer、member/field、aggregate copy/move 进入真实 CLI 证据面。
-    - 最小验证：真实 `--mir-c99` aggregate/member parity 脚本覆盖 struct/tuple/union/array
-      基本初始化与读写。
   - [ ] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL`: 收敛 float/double、
     char、string、null 和非零 float payload 的常量模型，避免 generator-only value smoke。
     - 最小验证：真实 `--mir-c99` const/value parity 或明确 reject 脚本覆盖 f32/f64、char、
