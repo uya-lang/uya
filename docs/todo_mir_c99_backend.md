@@ -107,10 +107,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 当前 blocker：固定 `../uya/bin/uya build --mir-c99` real-CLI baseline 尚未成立；本轮失败证据已归档到
     `docs/todo_mir_c99_backend_failed.md` 中
     `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI-BASELINE-ROUTE`。
-  - [ ] `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI-FRAME-POOL-FALLBACK`: 将 frame
-    allocation/free、async frame pool 与 `--async-frame-heap=on` fallback parity
-    切到固定 `../uya/bin/uya build --mir-c99` 真路由。
-    - 最小验证：`bash tests/verify_mir_c99_full_language_async_frame_pool_parity.sh`
   - [ ] `MIR-C99-FULL-SUPPORT-ASYNC-REAL-CLI-SCHEDULER-IO-COMPUTE`: 将
     scheduler/channel/fd/io/multi-fd/async_compute parity 切到固定
     `../uya/bin/uya build --mir-c99` 真路由。
