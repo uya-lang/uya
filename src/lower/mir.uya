@@ -1705,6 +1705,8 @@ struct PortableMirLowerContext {
     i32_type_id: MirTypeId,
     void_type_id: MirTypeId,
     pointer_type_id: MirTypeId,
+    loop_break_block_id: MirBlockId,
+    loop_continue_block_id: MirBlockId,
 }
 
 fn portable_mir_lower_count_to_i32(count: usize) i32 {
@@ -2392,6 +2394,32 @@ fn portable_mir_lower_stmt_to_module(ctx: &PortableMirLowerContext,
     if stmt.kind == CORE_STMT_KIND_WHILE {
         return portable_mir_lower_while_stmt_to_module(ctx, stmt);
     }
+    if stmt.kind == CORE_STMT_KIND_BREAK ||
+       stmt.kind == CORE_STMT_KIND_CONTINUE {
+        return portable_mir_lower_loop_jump_stmt_to_module(ctx, stmt);
+    }
+    return -1;
+}
+
+fn portable_mir_lower_loop_jump_stmt_to_module(ctx: &PortableMirLowerContext,
+    stmt: &CoreStmt) i32 {
+    if ctx == null || stmt == null || stmt.child_stmt_count != 0 ||
+       stmt.expr_id != CORE_EXPR_INVALID_ID ||
+       stmt.place_id != CORE_PLACE_INVALID_ID {
+        return -1;
+    }
+    if stmt.kind == CORE_STMT_KIND_BREAK {
+        if ctx.loop_break_block_id < 0 {
+            return -1;
+        }
+        return portable_mir_lower_finish_br(ctx, ctx.loop_break_block_id);
+    }
+    if stmt.kind == CORE_STMT_KIND_CONTINUE {
+        if ctx.loop_continue_block_id < 0 {
+            return -1;
+        }
+        return portable_mir_lower_finish_br(ctx, ctx.loop_continue_block_id);
+    }
     return -1;
 }
 
@@ -2485,11 +2513,19 @@ fn portable_mir_lower_while_stmt_to_module(ctx: &PortableMirLowerContext,
        exit_block_id) != 0 {
         return -1;
     }
+    const old_break_block_id: i32 = ctx.loop_break_block_id;
+    const old_continue_block_id: i32 = ctx.loop_continue_block_id;
+    ctx.loop_break_block_id = exit_block_id;
+    ctx.loop_continue_block_id = cond_block_id;
     if portable_mir_lower_start_block(ctx, body_block_id) != 0 ||
        portable_mir_lower_stmt_range_to_module(ctx, stmt.first_child_stmt,
         stmt.child_stmt_count) != 0 {
+        ctx.loop_break_block_id = old_break_block_id;
+        ctx.loop_continue_block_id = old_continue_block_id;
         return -1;
     }
+    ctx.loop_break_block_id = old_break_block_id;
+    ctx.loop_continue_block_id = old_continue_block_id;
     if ctx.terminated == 0 &&
        portable_mir_lower_finish_br(ctx, cond_block_id) != 0 {
         return -1;
@@ -2532,9 +2568,9 @@ fn portable_mir_lower_expr_to_operand(ctx: &PortableMirLowerContext,
     return -1;
 }
 
-/// 功能说明：将一个已冻结 CoreBody 的 i32 return/expr/if/while/block 语句树 lower 到 PortableMIR module。
+/// 功能说明：将一个已冻结 CoreBody 的 i32 return/expr/if/while/block/break/continue 语句树 lower 到 PortableMIR module。
 /// 参数说明：`program` 提供 LoweredProgram 的 CoreBody/CoreStmt/CoreExpr 表；`body_id` 指向待 lowering 的 CoreBody；`module` 为已初始化的输出 PortableMIR module。
-/// 返回值说明：支持的 i32 return、hosted helper expr、结构化 if/while/block CFG 成功返回 `0`；参数无效、形状未覆盖或追加失败返回 `-1`。
+/// 返回值说明：支持的 i32 return、hosted helper expr、结构化 if/while/block/break/continue CFG 成功返回 `0`；参数无效、形状未覆盖或追加失败返回 `-1`。
 export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
     body_id: CoreBodyId, module: &PortableMirModule) i32 {
     if program == null || body_id < 0 || module == null ||
@@ -2619,6 +2655,8 @@ export fn portable_mir_lower_core_body_to_module(program: &LoweredProgram,
         i32_type_id: i32_type_id,
         void_type_id: MIR_TYPE_INVALID_ID,
         pointer_type_id: MIR_TYPE_INVALID_ID,
+        loop_break_block_id: MIR_BLOCK_INVALID_ID,
+        loop_continue_block_id: MIR_BLOCK_INVALID_ID,
     };
     if portable_mir_lower_stmt_range_to_module(&ctx, body.root_stmt_start,
        body.root_stmt_count) != 0 || ctx.terminated == 0 {

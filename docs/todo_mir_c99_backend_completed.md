@@ -1259,3 +1259,15 @@ Context:
         - `bash ./tests/verify_portable_mir_golden.sh`：通过；golden dump 对齐。
         - `./tests/verify_portable_mir_language_coverage.sh`：通过；coverage matrix 覆盖 AST/Core kind。
         - `git diff --check`：通过。
+
+归档上下文：`docs/todo_mir_c99_backend.md` / `# MIR-C99 Backend TODO` / `## 4. 任务清单` / `### 4.15 Full Language Parity`
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG` -> `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED`
+    - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-STRUCTURED-BREAK-CONTINUE`:
+      接通 `break` / `continue` 到当前 loop 的 break/continue target block。
+      - 最小验证：新增 break/continue loop CoreBody CFG lowering shard。
+      - 完成条件：break 跳到 loop exit，continue 跳到 loop condition/backedge，均通过 verifier。
+      - 验证：
+        - `bash tests/verify_portable_mir_core_body_lowering.sh` -> PASS；新增 `CoreBody break and continue lower to current loop targets`，5 tests passed，178 assertions passed。
+        - `bash tests/verify_portable_mir_language_coverage.sh` -> PASS。
+        - `bash tests/verify_mir_c99_cfg_parity.sh` -> PASS；现有 CFG parity matched C99 oracle（oracle C 编译有既有 pedantic warnings）。
+        - `git diff --check` -> PASS。
