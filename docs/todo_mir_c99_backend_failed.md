@@ -283,3 +283,37 @@
       仍以 extern/c-import host C99 parity 为最终收口口径。
 
 归档说明：本轮归档清理仅移动失败 handoff，未开始子任务已在主 todo 中保留为独立 `[ ]` 任务。
+
+### 4.15 Full Language Parity
+
+任务路径：`MIR-C99-CALL-ABI-RUNTIME-EXTERN-SYMBOL-AND-UNIT-OUTPUT`
+
+- [f] `MIR-C99-CALL-ABI-RUNTIME-EXTERN-SYMBOL-AND-UNIT-OUTPUT`: 补齐 extern symbol/prototype
+  metadata 与 unit output call/prototype 写出，让 `tests/extern_function.uya` 不再失败于
+  unit output write。
+  - 覆盖范围：extern function C symbol/prototype metadata、extern call expression emission、
+    `tests/extern_function.uya` 的 real `--mir-c99` unit output。
+  - 验收：`../uya/bin/uya build --mir-c99 tests/extern_function.uya -o <tmp>/extern_function.c`
+    进入真实 `[MIR-C99]` 路由；host C99 compiler 可编译并与 C99 oracle 对齐。
+  - 失败原因（2026-06-24）：当前 fixed `../uya/bin/uya` 直跑
+    `tests/extern_function.uya --mir-c99` 仍落到 legacy C99；继续按当前仓库 bootstrap
+    设计改走 `../uya/bin/uya -> src/cmd/build_bootstrap/main.uya -> src/cmd/build/main.uya`
+    的 current-source build CLI 链路后，bootstrap 生成的 `cmd/build` 仍在 host C 编译阶段失败，
+    未能产出可继续验证 extern MIR-C99 真路由的 current-source build CLI。
+  - 阻塞命令：
+    `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build_bootstrap/main.uya -o /tmp/build-bootstrap --project-root "$PWD/src/" --no-split-c`
+    通过；
+    `UYA_ROOT="$PWD" /tmp/build-bootstrap build src/cmd/build/main.uya -o /tmp/cmd-build --project-root "$PWD/src/" --no-split-c`
+    失败。
+  - 关键错误：bootstrap 生成的 `/tmp/uya_output_*.c` 在 host C 编译阶段出现
+    `O_RDONLY` / `S_IRWXU` 与成批 `SYS_*` / `EPOLL_*` / socket syscall 名未声明；同一生成 C
+    中同时存在 `const int64_t libc_O_RDONLY = 0;`、`const int64_t libc_SYS_writev = 20;`
+    等前缀常量，说明当前真实 blocker 是 legacy C99 bootstrap 对 current-source build-only
+    driver 的未限定常量名输出。
+  - 已验证现状：`bash tests/verify_mir_c99_cmd_build_self_preflight.sh` 在切换
+    `src/cmd/build/main.uya -> build_compiler_driver` 时可通过 source/generator preflight，
+    但真实 mandated bootstrap 仍无法把 current-source `cmd/build` 编译成可执行 build CLI，
+    因而 `tests/extern_function.uya` 的 real current-source `--mir-c99` 路径无法继续复现。
+  - 重开条件：先完成主 todo 新增前置叶子
+    `MIR-C99-CALL-ABI-RUNTIME-CURRENT-SOURCE-CMD-BUILD-BOOTSTRAP`，让 mandated compiler
+    + bootstrap 链稳定产出 current-source `cmd/build`，再重试本 extern leaf。
