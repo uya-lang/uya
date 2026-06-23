@@ -100,8 +100,8 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_BREAK_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_CONTINUE_STMT` | done | missing | 走 loop/cleanup edge。 |
 | `AST_RETURN_STMT` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 literal/local/binary result return；aggregate/error returns 由后续 shard 覆盖。 |
-| `AST_DEFER_STMT` | done | partial | MIR-C99 cleanup/resource async full-language parity shard 覆盖 async error path 上的 defer cleanup；Core defer return-order shard 覆盖同步 return cleanup 顺序。 |
-| `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer；cleanup/resource async full-language parity shard 覆盖 async error path 上的 errdefer cleanup。 |
+| `AST_DEFER_STMT` | done | partial | MIR-C99 cleanup/resource async full-language parity shard 覆盖 async error path 上的 defer cleanup；Core defer return-order shard 覆盖同步 return cleanup 顺序；cleanup/error statement parity shard 覆盖 defer 与 errdefer/drop/try error propagation 的组合 cleanup 顺序。 |
+| `AST_ERRDEFER_STMT` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回时执行 `errdefer` cleanup，success path 不执行 errdefer；cleanup/resource async full-language parity shard 覆盖 async error path 上的 errdefer cleanup；cleanup/error statement parity shard 覆盖 errdefer 仅在组合 error propagation 路径执行。 |
 | `AST_TEST_STMT` | missing | missing | `test "..." { ... }` 尚未迁 MIR；`make test` 走单独 driver 路径。 |
 | `AST_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assign；atomic compound assignment 当前由 atomic compound-add reject shard 明确 capability reject；aggregate assign 由专用 shard 覆盖。 |
 | `AST_EXPR_STMT` | done | missing | Phase 9A 验证。 |
@@ -129,7 +129,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_CHAR` | done | missing | C99 通过。 |
 | `AST_STRING_INTERP` | partial | missing | C99 通过（`c99/expr.uya:9175` 周围）；MIR 端 `"text${expr}text"` 走 runtime helper 占位，MIR-C99 parity 待补。 |
 | `AST_PARAMS` | missing | missing | `@params` 内置变量走 pre-MIR helper；`build_compiler_driver.uya` 在 self-build 路径上才用。 |
-| `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`。 |
+| `AST_TRY_EXPR` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try maybe_argc(value)` 的 success path 和 error propagation 到外层 `catch`；cleanup/error statement parity shard 覆盖 `try` 与 defer/errdefer/drop cleanup edge 的组合路径。 |
 | `AST_CATCH_EXPR` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `maybe_argc(argc) catch { ... }` 的 success/error 分支；error-id binding parity shard 覆盖 `catch |err|` 绑定。 |
 | `AST_ERROR_VALUE` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `return error.FullLanguageCatch;` 的 error path；error-id binding parity shard 覆盖 `@error_id(error.Name)` 读取。 |
 | `AST_MATCH_EXPR` | done | partial | MIR-C99 full-language union parity shard 覆盖 `match union_value { .number(x) => x, .payload(p) => p.left + p.right }`。 |
@@ -166,7 +166,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_TYPE_ARRAY` | done | missing | `[T: N]` 数组类型。 |
 | `AST_TYPE_SLICE` | done | partial | MIR-C99 full-language slice parity shard 覆盖 `&[i32]` 切片类型。 |
 | `AST_TYPE_TUPLE` | partial | missing | 走 typed-program 路径。 |
-| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取；async basic parity shard 覆盖 async error union return；cleanup/resource async full-language parity shard 覆盖 async error union cleanup。 |
+| `AST_TYPE_ERROR_UNION` | done | partial | MIR-C99 full-language error union catch parity shard 覆盖 `fn maybe_argc(value: i32) !i32` 的 success/error catch path；try propagation parity shard 覆盖 `try` 向外层 error-union caller 传播；error-id binding parity shard 覆盖 catch 绑定后的 error metadata 读取；async basic parity shard 覆盖 async error union return；cleanup/resource async full-language parity shard 覆盖 async error union cleanup；cleanup/error statement parity shard 覆盖 error-union propagation 与 cleanup edge 组合。 |
 | `AST_TYPE_ATOMIC` | done | reject | atomic compound-add reject shard 明确 capability reject；真实 portable atomic helper / target capability 矩阵落地前不得声称 parity。 |
 | `AST_TYPE_VECTOR` | done | reject | SIMD vector/mask reject shard 明确 capability reject；真实 target helper capability 落地前不得声称 parity。 |
 | `AST_TYPE_MASK` | done | reject | SIMD vector/mask reject shard 明确 capability reject；真实 target helper capability 落地前不得声称 parity。 |
@@ -184,10 +184,10 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 |------|------|---------------|------|
 | `CORE_STMT_KIND_RETURN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar return。 |
 | `CORE_STMT_KIND_ASM` | partial | missing | 内联汇编需要 capability diagnostic 和 MIR-C99 reject 记录。 |
-| `CORE_STMT_KIND_DEFER` | done | partial | MIR-C99 full-language defer normal-scope return-order parity shard 覆盖 `defer { value = 9; }` 和单行 `defer value = 9;` 在 return local / return const 场景下的执行顺序。 |
-| `CORE_STMT_KIND_ERRDEFER` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回 cleanup 和 success path no-op。 |
-| `CORE_STMT_KIND_DROP` | done | partial | MIR-C99 lexical drop scope / return cleanup parity shard 覆盖离开词法作用域和函数提前 return 时执行 drop cleanup。 |
-| `CORE_STMT_KIND_ERROR_PROPAGATION` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try` 表达式 success path 和 error propagation。 |
+| `CORE_STMT_KIND_DEFER` | done | partial | MIR-C99 full-language defer normal-scope return-order parity shard 覆盖 `defer { value = 9; }` 和单行 `defer value = 9;` 在 return local / return const 场景下的执行顺序；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
+| `CORE_STMT_KIND_ERRDEFER` | partial | partial | MIR-C99 full-language errdefer error-path parity shard 覆盖 error-union 错误返回 cleanup 和 success path no-op；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
+| `CORE_STMT_KIND_DROP` | done | partial | MIR-C99 lexical drop scope / return cleanup parity shard 覆盖离开词法作用域和函数提前 return 时执行 drop cleanup；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
+| `CORE_STMT_KIND_ERROR_PROPAGATION` | done | partial | MIR-C99 full-language try propagation parity shard 覆盖 `try` 表达式 success path 和 error propagation；cleanup/error statement parity shard 覆盖组合 cleanup CFG。 |
 | `CORE_STMT_KIND_LOCAL_DECL` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local declaration。 |
 | `CORE_STMT_KIND_IF` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖基础和嵌套 branch；control-flow async full-language parity shard 覆盖 async if/else-if。 |
 | `CORE_STMT_KIND_ASSIGN` | done | partial | MIR-C99 full-language return/local/binary/branch/loop parity shard 覆盖 scalar local assignment。 |

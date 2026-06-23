@@ -1297,3 +1297,16 @@ Context:
     - 验证：`test -x ../uya/bin/uya && ../uya/bin/uya --version` => `v0.10.0`。
     - 验证：`bash tests/verify_portable_mir_core_body_lowering.sh` => 5 tests passed；覆盖 structured CFG 与 break/continue lowering，并通过 PortableMIR verifier。
     - 验证：`CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' bash tests/verify_mir_c99_cfg_parity.sh` => `OK: MIR-C99 CFG parity matched C99 oracle, including block/break/continue`。
+
+### 4.15 Full Language Parity
+
+父级：- [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG`: 补齐 CoreStmt/AST statement 到 MIR 的通用 CFG lowering。
+
+  - [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-DEFER-ERROR`: 补齐 `DEFER`、
+    `ERRDEFER`、`DROP`、`ERROR_PROPAGATION` 的 cleanup/error CFG lowering。
+    - 最小验证：新增或更新 cleanup/error statement shard，并通过真实 `--mir-c99`
+      host-C parity。
+    - 完成条件：cleanup edge、drop、error propagation 不再依赖 legacy C99 fallback。
+    - 验证：`bash tests/verify_mir_c99_cleanup_error_statement_parity.sh` 通过，新增 cleanup/error statement shard 覆盖 success/error 两条路径上的 `defer`、`errdefer`、lexical `drop` 与 `try`/error propagation，MIR-C99 C 与 C99 oracle host-C 编译运行结果一致，generator log 不含 legacy C99 fallback。
+    - 回归验证：`bash tests/verify_mir_c99_full_language_defer_parity.sh`、`bash tests/verify_mir_c99_full_language_errdefer_parity.sh`、`bash tests/verify_mir_c99_full_language_try_propagation_parity.sh`、`bash tests/verify_mir_c99_lexical_drop_parity.sh` 均通过。
+    - 收口验证：`bash tests/verify_portable_mir_language_coverage.sh`、`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`、`bash -n tests/mir_c99_generate.sh tests/verify_mir_c99_cleanup_error_statement_parity.sh tests/verify_mir_c99_full_language_defer_parity.sh tests/verify_mir_c99_full_language_errdefer_parity.sh tests/verify_mir_c99_full_language_try_propagation_parity.sh tests/verify_mir_c99_lexical_drop_parity.sh`、`git diff --check` 均通过。

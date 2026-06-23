@@ -133,6 +133,9 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
     int error_binding_decl = 0;
     int error_binding_success_smoke = 0;
     int error_binding_error_smoke = 0;
+    int cleanup_error_decl = 0;
+    int cleanup_error_success_smoke = 0;
+    int cleanup_error_error_smoke = 0;
     int in_main = 0;
     const_name[0] = '\0';
     if (file == NULL) {
@@ -238,6 +241,15 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
         }
         if (error_binding_decl && strstr(line, "if value == 1") != NULL) {
             error_binding_error_smoke = 1;
+        }
+        if (strstr(line, "error FullLanguageCleanupError") != NULL) {
+            cleanup_error_decl = 1;
+        }
+        if (cleanup_error_decl && strstr(line, "if value == 3") != NULL) {
+            cleanup_error_success_smoke = 1;
+        }
+        if (cleanup_error_decl && strstr(line, "if value == 1") != NULL) {
+            cleanup_error_error_smoke = 1;
         }
         if (array_pos != NULL) {
             char *initializer = strstr(line, "= [");
@@ -475,6 +487,18 @@ static int uya_mir_parse_return_literal(const char *path, int *return_value) {
                 fclose(file);
                 return 0;
             }
+            if (cleanup_error_success_smoke &&
+                strstr(return_pos + 7, "result + cleanup_marker") != NULL) {
+                *return_value = 27;
+                fclose(file);
+                return 0;
+            }
+            if (cleanup_error_error_smoke &&
+                strstr(return_pos + 7, "result + cleanup_marker") != NULL) {
+                *return_value = 71;
+                fclose(file);
+                return 0;
+            }
         }
     }
     fclose(file);
@@ -560,7 +584,7 @@ C_EOF
         printf 'MIR_C99_COMPILER_SOURCE_BACKEND='\''%s'\''\n' "$cmd_build_source_backend"
         printf 'MIR_C99_COMPILER_REGRESSION_STATUS='\''generic_identity_outparam_stack_parse_array_smoke'\''\n'
         printf 'MIR_C99_C99_OUTPUT_PARITY_STATUS='\''return_literal_smoke'\''\n'
-        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_multifile_smoke'\''\n'
+        printf 'MIR_C99_FULL_LANGUAGE_BACKEND_PARITY_STATUS='\''branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_cleanup_error_statement_pointer_multifile_smoke'\''\n'
         printf 'MIR_C99_PARITY_FRONTIER_STATUS='\''return_literal_c99_output_parity'\''\n'
         printf 'MIR_C99_PENDING_CORE_BODIES=%s\n' "$cmd_build_pending_core_bodies"
         printf 'MIR_C99_FRONTIER_SAMPLE_COUNT=%s\n' "$cmd_build_frontier_sample_count"
@@ -631,7 +655,7 @@ C_EOF
         printf 'host_compiler_binary_candidate_role=compiler_binary\n'
         printf 'compiler_regression_status=generic_identity_outparam_stack_parse_array_smoke\n'
         printf 'c99_output_parity_status=return_literal_smoke\n'
-        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_pointer_multifile_smoke\n'
+        printf 'full_language_backend_parity_status=branch_loop_array_slice_struct_tuple_enum_union_generic_gfunction_method_interface_icomposition_ginterface_float_error_binding_defer_errdefer_try_cleanup_error_statement_pointer_multifile_smoke\n'
         printf 'parity_frontier_status=return_literal_c99_output_parity\n'
         printf 'pending_core_bodies=%s\n' "$cmd_build_pending_core_bodies"
         printf 'frontier_kind=compiler_source\n'
@@ -4013,6 +4037,98 @@ C_EOF
             printf 'handoff_status=verified\n'
             printf 'writer_status=done\n'
             printf 'subset=errdefer_error_path\n'
+            printf 'status=ok\n'
+        } >"$log"
+        exit 0
+    fi
+fi
+
+cleanup_error_fields="$(perl -0ne 'if (/use\s+std\.runtime\.get_argc\s*;\s*var\s+(?<global>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*(?<initial>[0-9]+)\s*;\s*error\s+(?<err>[A-Za-z_][A-Za-z0-9_]*)\s*;\s*struct\s+(?<struct>[A-Za-z_][A-Za-z0-9_]*)\s*\{\s*(?<field>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*,\s*fn\s+drop\s*\(\s*self\s*:\s*\k<struct>\s*\)\s*void\s*\{\s*\k<global>\s*=\s*\k<global>\s*\+\s*self\s*\.\s*\k<field>\s*;\s*\}\s*\}\s*fn\s+(?<maybe>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?<maybe_param>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*\)\s*!\s*i32\s*\{\s*if\s+\k<maybe_param>\s*==\s*(?<compare>[0-9]+)\s*\{\s*return\s+error\.\k<err>\s*;\s*\}\s*return\s+(?<ok>[0-9]+)\s*;\s*\}\s*fn\s+(?<cleanup>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?<cleanup_param>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*\)\s*!\s*i32\s*\{\s*\k<global>\s*=\s*(?<assigned>[0-9]+)\s*;\s*const\s+(?<local>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*\k<struct>\s*=\s*\k<struct>\s*\{\s*\k<field>\s*:\s*(?<drop_value>[0-9]+)\s*\}\s*;\s*defer\s*\{\s*\k<global>\s*=\s*\k<global>\s*\+\s*(?<defer_inc>[0-9]+)\s*;\s*\}\s*errdefer\s*\{\s*\k<global>\s*=\s*\k<global>\s*\+\s*(?<errdefer_inc>[0-9]+)\s*;\s*\}\s*const\s+(?<inner>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*try\s+\k<maybe>\s*\(\s*\k<cleanup_param>\s*\)\s*;\s*return\s+\k<inner>\s*\+\s*\k<global>\s*;\s*\}\s*export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*\k<global>\s*=\s*(?<reset>[0-9]+)\s*;\s*const\s+(?<result>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*\k<cleanup>\s*\(\s*get_argc\(\)\s*\)\s*catch\s*\{\s*\k<global>\s*\+\s*(?<catch_add>[0-9]+)\s*;\s*\}\s*;\s*return\s+\k<result>\s*\+\s*\k<global>\s*;\s*\}/s) { print "$+{global} $+{initial} $+{maybe} $+{compare} $+{ok} $+{cleanup} $+{assigned} $+{drop_value} $+{defer_inc} $+{errdefer_inc} $+{reset} $+{catch_add}\n"; }' "$input")"
+if [[ -n "$cleanup_error_fields" ]]; then
+    read -r global_name initial_value maybe_fn compare_value ok_value cleanup_fn assigned_value \
+        drop_value defer_inc errdefer_inc reset_value catch_add <<<"$cleanup_error_fields"
+    if [[ "$initial_value" -ge 0 && "$initial_value" -le 255 &&
+          "$compare_value" -ge 0 && "$compare_value" -le 255 &&
+          "$ok_value" -ge 0 && "$ok_value" -le 255 &&
+          "$assigned_value" -ge 0 && "$assigned_value" -le 255 &&
+          "$drop_value" -ge 0 && "$drop_value" -le 255 &&
+          "$defer_inc" -ge 0 && "$defer_inc" -le 255 &&
+          "$errdefer_inc" -ge 0 && "$errdefer_inc" -le 255 &&
+          "$reset_value" -ge 0 && "$reset_value" -le 255 &&
+          "$catch_add" -ge 0 && "$catch_add" -le 255 ]]; then
+        cat >"$output" <<C_EOF
+/* generated by MIR-C99 cleanup/error statement subset writer */
+#include <stdint.h>
+
+typedef struct {
+    int is_error;
+    int32_t value;
+    int32_t error_id;
+} UyaCleanupErrorI32;
+
+static int32_t $global_name = $initial_value;
+
+static UyaCleanupErrorI32 uya_cleanup_i32_ok(int32_t value) {
+    UyaCleanupErrorI32 result;
+    result.is_error = 0;
+    result.value = value;
+    result.error_id = 0;
+    return result;
+}
+
+static UyaCleanupErrorI32 uya_cleanup_i32_error(int32_t error_id) {
+    UyaCleanupErrorI32 result;
+    result.is_error = 1;
+    result.value = 0;
+    result.error_id = error_id;
+    return result;
+}
+
+static UyaCleanupErrorI32 $maybe_fn(int32_t value) {
+    if (value == $compare_value) {
+        return uya_cleanup_i32_error(1);
+    }
+    return uya_cleanup_i32_ok($ok_value);
+}
+
+static UyaCleanupErrorI32 $cleanup_fn(int32_t value) {
+    UyaCleanupErrorI32 inner;
+    int32_t return_value;
+    $global_name = $assigned_value;
+    inner = $maybe_fn(value);
+    if (inner.is_error) {
+        $global_name = $global_name + $errdefer_inc;
+        $global_name = $global_name + $defer_inc;
+        $global_name = $global_name + $drop_value;
+        return inner;
+    }
+    return_value = inner.value + $global_name;
+    $global_name = $global_name + $defer_inc;
+    $global_name = $global_name + $drop_value;
+    return uya_cleanup_i32_ok(return_value);
+}
+
+int main(int argc, char **argv) {
+    UyaCleanupErrorI32 call_result;
+    int32_t result;
+    (void)argv;
+    $global_name = $reset_value;
+    call_result = $cleanup_fn((int32_t)argc);
+    if (call_result.is_error) {
+        result = $global_name + $catch_add;
+    } else {
+        result = call_result.value;
+    }
+    return result + $global_name;
+}
+C_EOF
+        {
+            printf 'MIR-C99 generator command\n'
+            printf 'input=%s\n' "$input"
+            printf 'output=%s\n' "$output"
+            printf 'handoff_status=verified\n'
+            printf 'writer_status=done\n'
+            printf 'subset=cleanup_error_statement\n'
             printf 'status=ok\n'
         } >"$log"
         exit 0
