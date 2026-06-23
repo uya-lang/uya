@@ -1432,3 +1432,12 @@ Context:
   - 结果：通过。real current-source CLI candidate 现在会分别输出
     `AST_INT_LIMIT` / `AST_STRING_INTERP` / `AST_PARAMS` 的稳定 capability diagnostic，
     覆盖矩阵对应项已同步为 `reject`。
+
+### 4.15 Full Language Parity
+
+路径：`MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE` -> `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL`
+
+- [x] `MIR-C99-FULL-SUPPORT-EXPR-VALUE-PLACE-FLOAT-CONSTANT-MODEL-PLAN`: 先收敛 `MirC99ValuePlan` / string global-init plan 的模块级常量模型；对 byte/null/i32 limit/zero float 建稳定分类，对非零 f32/f64 payload 给出 explicit reject 元数据。
+  - 最小验证：`bash tests/verify_mir_c99_constant_model.sh` 与 `bash tests/verify_portable_mir_language_coverage.sh`。
+  - 验证：`bash tests/verify_mir_c99_constant_model.sh` 通过；`bash tests/verify_portable_mir_language_coverage.sh` 通过；`git diff --check` 通过。
+  - 说明：曾尝试 `UYA_ROOT="$PWD/lib/" ../uya/bin/uya test tests/test_mir_c99_constant_model.uya --project-root src/ --no-split-c` 做更接近运行态的模块级单测，但 mandated compiler 在导入 `src/lower/mir.uya` 时先触发既有 29 个类型/移动错误，属于当前环境中的前置兼容性故障，未作为本项通过条件；因此本项改用源码 contract + coverage matrix 固定常量模型与 string global-init 边界。

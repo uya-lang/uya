@@ -22,6 +22,7 @@ export const MIR_C99_CONSTANT_KIND_ZERO: i32 = 2;
 export const MIR_C99_CONSTANT_KIND_NULL: i32 = 3;
 export const MIR_C99_CONSTANT_KIND_F32_LITERAL: i32 = 4;
 export const MIR_C99_CONSTANT_KIND_F64_LITERAL: i32 = 5;
+export const MIR_C99_CONSTANT_KIND_BYTE_LITERAL: i32 = 6;
 
 export const MIR_C99_CONSTANT_STATUS_MISSING: i32 = 0;
 export const MIR_C99_CONSTANT_STATUS_READY: i32 = 1;
@@ -29,6 +30,10 @@ export const MIR_C99_CONSTANT_STATUS_REJECT: i32 = 2;
 
 export const MIR_C99_VALUE_DIAG_UNSUPPORTED_ATOMIC_CAPABILITY: i32 = -2401;
 export const MIR_C99_VALUE_DIAG_UNSUPPORTED_VECTOR_MASK_CAPABILITY: i32 = -2402;
+export const MIR_C99_VALUE_DIAG_UNSUPPORTED_FLOAT_CONSTANT_PAYLOAD: i32 = -2403;
+
+export const MIR_C99_CONSTANT_REJECT_REASON_NONE: i32 = 0;
+export const MIR_C99_CONSTANT_REJECT_REASON_FLOAT_PAYLOAD: i32 = 1;
 
 export const MIR_C99_EXPR_KIND_UNSUPPORTED: i32 = 0;
 export const MIR_C99_EXPR_KIND_I32_ADD: i32 = 1;
@@ -76,6 +81,7 @@ export struct MirC99ConstantEntry {
     c_literal_source_id: i32,
     constant_kind: i32,
     immediate_i32: i32,
+    reject_reason: i32,
     flags: i32,
     status: i32,
 }
@@ -129,8 +135,20 @@ fn mir_c99_value_temp_kind_for_type(typ: &MirType) i32 {
     if typ.kind == MIR_TYPE_KIND_I32 {
         return MIR_C99_VALUE_TEMP_KIND_I32;
     }
+    if typ.kind == MIR_TYPE_KIND_BYTE {
+        return MIR_C99_VALUE_TEMP_KIND_BYTE;
+    }
     if typ.kind == MIR_TYPE_KIND_USIZE {
         return MIR_C99_VALUE_TEMP_KIND_USIZE;
+    }
+    if typ.kind == MIR_TYPE_KIND_ISIZE {
+        return MIR_C99_VALUE_TEMP_KIND_ISIZE;
+    }
+    if typ.kind == MIR_TYPE_KIND_F32 {
+        return MIR_C99_VALUE_TEMP_KIND_F32;
+    }
+    if typ.kind == MIR_TYPE_KIND_F64 {
+        return MIR_C99_VALUE_TEMP_KIND_F64;
     }
     if typ.kind == MIR_TYPE_KIND_POINTER {
         return MIR_C99_VALUE_TEMP_KIND_POINTER;
@@ -157,11 +175,20 @@ fn mir_c99_constant_kind_for_operand(typ: &MirType, operand: &MirOperand) i32 {
     if operand.immediate_i32 == 0 && typ.kind == MIR_TYPE_KIND_POINTER {
         return MIR_C99_CONSTANT_KIND_NULL;
     }
-    if typ.kind == MIR_TYPE_KIND_F32 && operand.immediate_i32 == 0 {
-        return MIR_C99_CONSTANT_KIND_F32_LITERAL;
+    if typ.kind == MIR_TYPE_KIND_F32 {
+        if operand.immediate_i32 == 0 {
+            return MIR_C99_CONSTANT_KIND_F32_LITERAL;
+        }
+        return MIR_C99_CONSTANT_KIND_UNSUPPORTED;
     }
-    if typ.kind == MIR_TYPE_KIND_F64 && operand.immediate_i32 == 0 {
-        return MIR_C99_CONSTANT_KIND_F64_LITERAL;
+    if typ.kind == MIR_TYPE_KIND_F64 {
+        if operand.immediate_i32 == 0 {
+            return MIR_C99_CONSTANT_KIND_F64_LITERAL;
+        }
+        return MIR_C99_CONSTANT_KIND_UNSUPPORTED;
+    }
+    if typ.kind == MIR_TYPE_KIND_BYTE {
+        return MIR_C99_CONSTANT_KIND_BYTE_LITERAL;
     }
     if operand.immediate_i32 == 0 {
         return MIR_C99_CONSTANT_KIND_ZERO;
@@ -170,6 +197,21 @@ fn mir_c99_constant_kind_for_operand(typ: &MirType, operand: &MirOperand) i32 {
         return MIR_C99_CONSTANT_KIND_I32_LITERAL;
     }
     return MIR_C99_CONSTANT_KIND_UNSUPPORTED;
+}
+
+fn mir_c99_constant_reject_reason_for_operand(typ: &MirType,
+    operand: &MirOperand) i32 {
+    if typ == null || operand == null {
+        return MIR_C99_CONSTANT_REJECT_REASON_NONE;
+    }
+    if mir_c99_operand_is_constant_literal(operand) == 0 {
+        return MIR_C99_CONSTANT_REJECT_REASON_NONE;
+    }
+    if (typ.kind == MIR_TYPE_KIND_F32 || typ.kind == MIR_TYPE_KIND_F64) &&
+       operand.immediate_i32 != 0 {
+        return MIR_C99_CONSTANT_REJECT_REASON_FLOAT_PAYLOAD;
+    }
+    return MIR_C99_CONSTANT_REJECT_REASON_NONE;
 }
 
 fn mir_c99_expression_kind_for_inst(inst: &MirInst) i32 {
@@ -339,12 +381,15 @@ fn mir_c99_constant_entry_from_operand(module: &PortableMirModule,
             c_literal_source_id: -1,
             constant_kind: MIR_C99_CONSTANT_KIND_UNSUPPORTED,
             immediate_i32: 0,
+            reject_reason: MIR_C99_CONSTANT_REJECT_REASON_NONE,
             flags: 0,
             status: MIR_C99_CONSTANT_STATUS_REJECT,
         };
     }
     const typ: &MirType = mir_c99_value_type_ptr(module, operand.type_id);
     const constant_kind: i32 = mir_c99_constant_kind_for_operand(typ, operand);
+    const reject_reason: i32 = mir_c99_constant_reject_reason_for_operand(typ,
+        operand);
     var status: i32 = MIR_C99_CONSTANT_STATUS_READY;
     if constant_kind == MIR_C99_CONSTANT_KIND_UNSUPPORTED {
         status = MIR_C99_CONSTANT_STATUS_REJECT;
@@ -355,6 +400,7 @@ fn mir_c99_constant_entry_from_operand(module: &PortableMirModule,
         c_literal_source_id: operand.operand_id,
         constant_kind: constant_kind,
         immediate_i32: operand.immediate_i32,
+        reject_reason: reject_reason,
         flags: operand.flags,
         status: status,
     };
@@ -473,6 +519,19 @@ export fn mir_c99_value_plan_append_constant(value_plan: &MirC99ValuePlan,
     }
     const entry: MirC99ConstantEntry = mir_c99_constant_entry_from_operand(module, operand);
     if entry.status == MIR_C99_CONSTANT_STATUS_REJECT {
+        if entry.reject_reason != MIR_C99_CONSTANT_REJECT_REASON_NONE {
+            if semantic_vector_append(&value_plan.constants, &entry as &const void) != 0 {
+                return -1;
+            }
+            value_plan.constant_count = value_plan.constants.count;
+            value_plan.reject_count = value_plan.reject_count + 1usize;
+            if entry.reject_reason == MIR_C99_CONSTANT_REJECT_REASON_FLOAT_PAYLOAD &&
+               value_plan.diagnostic_code == 0 {
+                value_plan.diagnostic_code =
+                    MIR_C99_VALUE_DIAG_UNSUPPORTED_FLOAT_CONSTANT_PAYLOAD;
+            }
+            return -1;
+        }
         return 0;
     }
     if semantic_vector_append(&value_plan.constants, &entry as &const void) != 0 {
