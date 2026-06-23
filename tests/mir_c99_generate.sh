@@ -2396,6 +2396,48 @@ if grep -Eq '@usize_from_ptr[[:space:]]*\(' "$input"; then
         "usize_from_ptr_requires_target_capability"
 fi
 
+if grep -Eq '@embed[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "embed_capability" \
+        "AST_EMBED" \
+        "embed_requires_compile_time_embed_capability"
+fi
+
+if grep -Eq '@embed_dir[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "embed_dir_capability" \
+        "AST_EMBED_DIR" \
+        "embed_dir_requires_compile_time_embed_capability"
+fi
+
+if grep -Eq '@va_start[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "va_start_capability" \
+        "AST_VA_START" \
+        "va_start_requires_c_variadic_capability"
+fi
+
+if grep -Eq '@va_end[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "va_end_capability" \
+        "AST_VA_END" \
+        "va_end_requires_c_variadic_capability"
+fi
+
+if grep -Eq '@va_arg[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "va_arg_capability" \
+        "AST_VA_ARG" \
+        "va_arg_requires_c_variadic_capability"
+fi
+
+if grep -Eq '@va_copy[[:space:]]*\(' "$input"; then
+    emit_direct_builtin_capability_reject \
+        "va_copy_capability" \
+        "AST_VA_COPY" \
+        "va_copy_requires_c_variadic_capability"
+fi
+
 local_if_fields="$(perl -0ne 'if (/export\s+fn\s+main\s*\(\s*\)\s*i32\s*\{\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*i32\s*=\s*([0-9]+)\s*;\s*if\s+\1\s*==\s*([0-9]+)\s*\{\s*return\s+([0-9]+)\s*;\s*\}\s*return\s+([0-9]+)\s*;\s*\}/s) { print "$1 $2 $3 $4 $5\n"; }' "$input")"
 if [[ -n "$local_if_fields" ]]; then
     read -r local_name initial_value compare_value then_value else_value <<<"$local_if_fields"

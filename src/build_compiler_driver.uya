@@ -54008,6 +54008,96 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         }
         return 1;
     }
+    if node.type == ASTNodeType.AST_EMBED {
+        if out_kind != null {
+            *out_kind = "AST_EMBED" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "embed_requires_compile_time_embed_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_EMBED_DIR {
+        if out_kind != null {
+            *out_kind = "AST_EMBED_DIR" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "embed_dir_requires_compile_time_embed_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_VA_START {
+        if out_kind != null {
+            *out_kind = "AST_VA_START" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "va_start_requires_c_variadic_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_VA_END {
+        if out_kind != null {
+            *out_kind = "AST_VA_END" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "va_end_requires_c_variadic_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_VA_ARG {
+        if out_kind != null {
+            *out_kind = "AST_VA_ARG" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "va_arg_requires_c_variadic_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_VA_COPY {
+        if out_kind != null {
+            *out_kind = "AST_VA_COPY" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "va_copy_requires_c_variadic_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
     if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
         var i: i32 = 0;
         while i < node.program_decl_count {

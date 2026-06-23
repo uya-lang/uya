@@ -146,17 +146,17 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `AST_SRC_LINE` | done | missing | C99 builtin。 |
 | `AST_SRC_COL` | done | missing | C99 builtin。 |
 | `AST_FUNC_NAME` | done | missing | C99 builtin。 |
-| `AST_EMBED` | missing | missing | `@embed("path")` 编译期嵌入未迁 MIR。 |
-| `AST_EMBED_DIR` | missing | missing | `@embed_dir("path")` 同上。 |
+| `AST_EMBED` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@embed("path")` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_EMBED reason=embed_requires_compile_time_embed_capability`。 |
+| `AST_EMBED_DIR` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@embed_dir("path")` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_EMBED_DIR reason=embed_dir_requires_compile_time_embed_capability`。 |
 | `AST_SYSCALL` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@syscall(nr, ...)` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_SYSCALL reason=syscall_requires_target_capability`。 |
 | `AST_PTR_FROM_USIZE` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@ptr_from_usize` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_PTR_FROM_USIZE reason=ptr_from_usize_requires_target_capability`。 |
 | `AST_USIZE_FROM_PTR` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@usize_from_ptr` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_USIZE_FROM_PTR reason=usize_from_ptr_requires_target_capability`。 |
 | `AST_ERROR_ID` | done | partial | MIR-C99 full-language error-id binding parity shard 覆盖 `@error_id(err)` 与 `@error_id(error.Name)`。 |
 | `AST_ERROR_NAME` | done | partial | MIR-C99 full-language error-id binding parity shard 邻接覆盖 `@error_name(err)`。 |
-| `AST_VA_START` | missing | missing | `@va_start` 仅 `c_import` 边界使用。 |
-| `AST_VA_END` | missing | missing | 同上。 |
-| `AST_VA_ARG` | missing | missing | 同上。 |
-| `AST_VA_COPY` | missing | missing | 同上。 |
+| `AST_VA_START` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@va_start` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_VA_START reason=va_start_requires_c_variadic_capability`。 |
+| `AST_VA_END` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@va_end` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_VA_END reason=va_end_requires_c_variadic_capability`。 |
+| `AST_VA_ARG` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@va_arg` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_VA_ARG reason=va_arg_requires_c_variadic_capability`。 |
+| `AST_VA_COPY` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@va_copy` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_VA_COPY reason=va_copy_requires_c_variadic_capability`。 |
 | `AST_ASM` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm { ... }` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability`。 |
 | `AST_ASM_TARGET` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm_target()` fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_ASM_TARGET reason=asm_target_requires_target_capability`。 |
 | `AST_PRINT` | done | missing | `@print(expr)` C99 已完整 codegen（`c99/expr.uya:9167`）；MIR-C99 `@print` parity 待补。 |
@@ -252,9 +252,9 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | `@mask` | done | missing | 同上。 |
 | `@params` | partial | partial | `bash tests/verify_mir_c99_full_language_value_entry_reject.sh` 现要求真实 current-source CLI candidate 对 `@params.0` 基础 value case 走 `--mir-c99` 并与 legacy C99 oracle 对齐；更广参数元组 lowering 仍待继续扩面。 |
 | `@src_name`/`@src_path`/`@src_line`/`@src_col`/`@func_name` | done | missing | C99 builtin；MIR-C99 runtime helper parity 待补。 |
-| `@embed`/`@embed_dir` | missing | missing | 编译期嵌入未迁 MIR。 |
+| `@embed`/`@embed_dir` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@embed` / `@embed_dir` fail-closed 并输出稳定 capability diagnostic。 |
 | `@asm`/`@asm_target` | missing | reject | `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh` 现要求 current-source generator 对 `@asm` / `@asm_target` fail-closed 并输出稳定 capability diagnostic。 |
-| `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | missing | `c_import` 边界。 |
+| `@va_start`/`@va_end`/`@va_arg`/`@va_copy` | missing | reject | `bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` 现要求 current-source generator 对 `@va_*` fail-closed 并输出稳定 capability diagnostic。 |
 | `@mc_eval`/`@mc_code`/`@mc_ast`/`@mc_error`/`@mc_interp`/`@mc_type`/`@mc_source` | partial | missing | 宏内 builtin；MIR 端走 pre-MIR helper。 |
 | `@await` | partial | partial | MIR-C99 full-language async basic parity shard 覆盖 direct `@await` binding；control-flow async full-language parity shard 覆盖 if/else-if/while/for/nested/multiple await 与 compound try-await；frame/pool async full-language parity shard 覆盖 @frame method poll 与 inline temp await；cleanup/resource async full-language parity shard 覆盖 async error union cleanup、defer/errdefer 和 frame release。 |
 

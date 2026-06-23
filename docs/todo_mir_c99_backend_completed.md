@@ -1521,3 +1521,20 @@ Context:
     - 额外检查：`../uya/bin/uya check src/build_compiler_driver.uya --project-root src/` 未运行成功；
       固定路径缺少 `../uya/bin/cmd/check`，错误为 `错误: 缺少可执行子命令 ../uya/bin/cmd/check；请先运行 make cmds`，
       本轮未改用其他 Uya 编译器。
+
+### 4.15 Full Language Parity
+
+- `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS`
+  - [x] `MIR-C99-FULL-SUPPORT-UNSUPPORTED-CAPABILITY-DIAGNOSTICS-EMBED-VARARGS`: 收口
+    `@embed` / `@embed_dir`、`@va_start` / `@va_end` / `@va_arg` / `@va_copy`
+    的 capability reject。
+    - 最小验证：新增 real-CLI reject 脚本 + `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh`
+    - 完成条件：相关 AST/builtin matrix 行从 `missing` 改成 `reject`，并记录复现命令。
+    - 验证：`bash tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` -> PASS；
+      覆盖 `AST_EMBED`、`AST_EMBED_DIR`、`AST_VA_START`、`AST_VA_END`、`AST_VA_ARG`、
+      `AST_VA_COPY` 的 fail-closed reject，确认 `tests/mir_c99_generate.sh`
+      输出稳定 `mir_c99_capability_diagnostic`，不生成 `.c`，相关 coverage matrix 行已切到 `reject`。
+    - 验证：`bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> PASS。
+    - 验证：`bash -n tests/mir_c99_generate.sh tests/verify_mir_c99_full_language_embed_varargs_capability_reject.sh` -> PASS。
+    - 验证：`python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> PASS（标完成前 1 个 active task）。
+    - 验证：`git diff --check` -> PASS。
