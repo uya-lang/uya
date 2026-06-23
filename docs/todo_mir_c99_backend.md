@@ -105,12 +105,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
   - 验收：`PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     至少在 statement/CFG shard 上不走 legacy fallback，并输出可编译运行的 MIR-C99 C。
   - 继续实现前必须先恢复固定验证路径 `../uya/bin/uya`；已失败的 baseline 子任务见失败归档。
-  - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CORE-STRUCTURED`: 补齐
-    `LOCAL_DECL`、`ASSIGN`、`EXPR`、`RETURN`、`IF`、`WHILE` 与 block 的通用
-    CoreStmt 到 PortableMIR/MIR-C99 lowering。
-    - 最小验证：return/local/assign/expr/branch/loop focused shard 走真实 `--mir-c99`
-      生成、编译、运行。
-    - 完成条件：覆盖矩阵相关 statement kind 至少为 MIR-C99 `partial`，且无 legacy fallback 证据。
   - [ ] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-LOOP-EDGES`: 补齐 loop backedge、
     `break` / `continue` 到 MIR-C99 CFG 的通用 lowering。
     - 最小验证：含嵌套 loop、`break`、`continue` 的 focused shard 走真实 `--mir-c99`
@@ -240,6 +234,9 @@ helper-frontier 历史回归边界（2026-06-14，非 4.16 active path）：
 - HelloWorld 是第一个端到端 parity 目标，但必须在独立边界、最小 C99 子集和 oracle harness 落地后执行。
 - async frame 属于完整 Uya 语法支持范围，不能作为 MIR-C99 首版长期 reject。
 - 任何以现有 C99 emitter 成功、fixed-shape smoke 成功或 self-build helper 成功为证据的条目都不得标成 `[x]`。
+- generic CoreBody / PortableMIR 迁移期间禁止新增 one-off materializer。
+  禁止：为了让单个 case 变绿继续新增 helper 名；应优先把缺口建模为通用
+  CoreStmt/CoreExpr/CorePlace lowering、verifier 或 emitter 能力。
 - 按 full-language 口径，`docs/todo_mir_c99_backend.md` 当前重新打开的主线不是
   “继续追加更多 fixture smoke”，而是让真实 `--mir-c99` CLI 覆盖普通 Uya 程序、测试
   harness、self-build 和 release gate。
