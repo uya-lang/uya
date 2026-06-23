@@ -1204,3 +1204,20 @@ Context:
     - 结果：通过。
     - 验证：`bash tests/verify_portable_mir_language_coverage.sh`。
     - 结果：通过；coverage matrix 与 `src/ast.uya`、`src/lower/core.uya` 一致。
+
+### 4.15 Full Language Parity
+
+父级任务：`MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-LOWERING`
+
+  - [x] `MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-NO-NEW-ONE-OFF-GUARD`: 建立
+    `native_build_hosted_decl_can_materialize_*_body` 基线和验证脚本，防止后续继续新增固定
+    helper 名、statement count 或源码字符串识别的 one-off materializer。
+    - 最小验证：`bash tests/verify_mir_c99_generic_corebody_no_new_one_off_materializers.sh`
+      和 `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` 通过。
+    - 完成条件：验证脚本只允许删除/迁走既有 helper，不允许新增 helper 名；todo 保留
+      `src/main.uya` 全量验收在父级，不把 guard 误记为 full-language parity 完成。
+    - 验证：2026-06-23 `bash tests/verify_mir_c99_generic_corebody_no_new_one_off_materializers.sh` -> PASS，输出 `OK: MIR-C99 generic CoreBody migration has no new one-off materializer helpers`。
+    - 验证：2026-06-23 `bash tests/verify_mir_c99_todo_no_legacy_test_evidence.sh` -> PASS，输出 `OK: MIR-C99 TODO does not use legacy bin/uya test as MIR-C99 evidence`。
+    - 验证：2026-06-23 `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> PASS，归档前主 todo 仅 1 个 active leaf。
+    - 验证：2026-06-23 `git diff --check` -> PASS。
+    - 额外检查：2026-06-23 `bash tests/verify_mir_c99_full_language_baseline_truth.sh` 未运行成功，原因是固定编译器 `../uya/bin/uya` 缺失；本轮未改用其他 Uya 编译器。
