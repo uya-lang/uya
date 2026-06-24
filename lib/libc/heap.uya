@@ -39,6 +39,10 @@ struct ChunkHeader {
     size: usize,
 }
 
+struct ChunkFooter {
+    size: usize,
+}
+
 struct FreeChunk {
     header: ChunkHeader,
     prev: &FreeChunk,
@@ -117,6 +121,33 @@ fn get_size(hdr: &ChunkHeader) usize {
     return hdr.size - (hdr.size & CHUNK_FLAG_FREE);
 }
 
+fn raw_chunk_size(raw: usize) usize {
+    return raw - (raw & CHUNK_FLAG_FREE);
+}
+
+fn chunk_overhead() usize {
+    return @size_of(ChunkHeader) + @size_of(ChunkFooter);
+}
+
+fn chunk_total_for_payload(payload: usize) usize {
+    return heap_align_up(payload + chunk_overhead());
+}
+
+fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
+    const sz: usize = get_size(hdr);
+    return (((hdr as &byte) + sz - @size_of(ChunkFooter)) as &ChunkFooter);
+}
+
+fn write_footer(hdr: &ChunkHeader) void {
+    var footer: &ChunkFooter = to_footer(hdr);
+    footer.size = hdr.size;
+}
+
+fn set_free_and_footer(hdr: &ChunkHeader, free: bool) void {
+    set_free(hdr, free);
+    write_footer(hdr);
+}
+
 fn remove_free(chunk: &FreeChunk) void {
     if is_null(chunk as &void) { return; }
     if !is_null(chunk.prev as &void) {
@@ -136,15 +167,86 @@ fn set_prev_link(target: &FreeChunk, prev: &FreeChunk) void {
 
 fn add_free(chunk: &FreeChunk) void {
     if is_null(chunk as &void) { return; }
-    set_free(&chunk.header, true);
+    set_free_and_footer(&chunk.header, true);
     chunk.prev = null;
     chunk.next = free_list_head;
     set_prev_link(free_list_head, chunk);
     free_list_head = chunk;
 }
 
+fn region_start_addr(region: &HeapRegion) usize {
+    return region.base as usize;
+}
+
+fn region_end_addr(region: &HeapRegion) usize {
+    return (region.base as usize) + region.size;
+}
+
+fn find_region_for_header(hdr: &ChunkHeader) &HeapRegion {
+    const addr: usize = hdr as usize;
+    var region: &HeapRegion = heap_regions;
+    while !is_null(region as &void) {
+        if addr >= region_start_addr(region) && addr < region_end_addr(region) {
+            return region;
+        }
+        region = region.next;
+    }
+    return null;
+}
+
+fn next_chunk_in_region(region: &HeapRegion, hdr: &ChunkHeader) &ChunkHeader {
+    const next_addr: usize = (hdr as usize) + get_size(hdr);
+    if next_addr >= region_end_addr(region) { return null; }
+    return next_addr as &ChunkHeader;
+}
+
+fn prev_chunk_in_region(region: &HeapRegion, hdr: &ChunkHeader) &ChunkHeader {
+    const base: usize = region_start_addr(region);
+    const addr: usize = hdr as usize;
+    if addr == base { return null; }
+
+    var footer: &ChunkFooter = (((hdr as &byte) - @size_of(ChunkFooter)) as &ChunkFooter);
+    const prev_sz: usize = raw_chunk_size(footer.size);
+    if prev_sz < chunk_total_for_payload(MIN_CHUNK_SIZE) { return null; }
+    if addr < base + prev_sz { return null; }
+    return (((hdr as &byte) - prev_sz) as &ChunkHeader);
+}
+
+fn merge_free_neighbors(region: &HeapRegion, chunk: &FreeChunk) &FreeChunk {
+    var merged: &FreeChunk = chunk;
+    var merged_hdr: &ChunkHeader = &merged.header;
+
+    set_free_and_footer(merged_hdr, true);
+
+    while true {
+        var next_hdr: &ChunkHeader = next_chunk_in_region(region, merged_hdr);
+        if !is_null(next_hdr as &void) && next_hdr.magic == CHUNK_MAGIC && is_free(next_hdr) {
+            remove_free(next_hdr as &FreeChunk);
+            merged_hdr.magic = CHUNK_MAGIC;
+            merged_hdr.size = get_size(merged_hdr) + get_size(next_hdr);
+            set_free_and_footer(merged_hdr, true);
+            continue;
+        }
+
+        var prev_hdr: &ChunkHeader = prev_chunk_in_region(region, merged_hdr);
+        if !is_null(prev_hdr as &void) && prev_hdr.magic == CHUNK_MAGIC && is_free(prev_hdr) {
+            remove_free(prev_hdr as &FreeChunk);
+            prev_hdr.magic = CHUNK_MAGIC;
+            prev_hdr.size = get_size(prev_hdr) + get_size(merged_hdr);
+            set_free_and_footer(prev_hdr, true);
+            merged = prev_hdr as &FreeChunk;
+            merged_hdr = prev_hdr;
+            continue;
+        }
+
+        break;
+    }
+
+    return merged;
+}
+
 fn morecore(needed: usize) &ChunkHeader {
-    var alloc_size: usize = needed + @size_of(ChunkHeader);
+    var alloc_size: usize = chunk_total_for_payload(needed);
     if alloc_size < HEAP_PAGE_SIZE { alloc_size = HEAP_PAGE_SIZE; }
     const region_size_aligned: usize = ((@size_of(HeapRegion) + MALLOC_ALIGN - 1) / MALLOC_ALIGN) * MALLOC_ALIGN;
     const map_size: usize = alloc_size + region_size_aligned;
@@ -159,7 +261,7 @@ fn morecore(needed: usize) &ChunkHeader {
     var hdr: &ChunkHeader = (((mapped as &byte) + region_size_aligned) as &ChunkHeader);
     hdr.magic = CHUNK_MAGIC;
     hdr.size = alloc_size;
-    set_free(hdr, true);
+    set_free_and_footer(hdr, true);
 
     region.base = hdr;
     region.size = alloc_size;
@@ -174,10 +276,11 @@ fn morecore(needed: usize) &ChunkHeader {
 }
 
 fn find_chunk(needed: usize) &FreeChunk {
+    const needed_total: usize = chunk_total_for_payload(needed);
     var cur: &FreeChunk = free_list_head;
     while !is_null(cur as &void) {
         var sz: usize = get_size(&cur.header);
-        if sz >= needed + @size_of(ChunkHeader) {
+        if sz >= needed_total {
             return cur;
         }
         cur = cur.next;
@@ -188,17 +291,17 @@ fn find_chunk(needed: usize) &FreeChunk {
 fn split_chunk(chunk: &FreeChunk, needed: usize) void {
     var hdr: &ChunkHeader = &chunk.header;
     var sz: usize = get_size(hdr);
-    var alloc_size: usize = needed + @size_of(ChunkHeader);
+    var alloc_size: usize = chunk_total_for_payload(needed);
     var rem: usize = sz - alloc_size;
 
-    if rem >= MIN_CHUNK_SIZE + @size_of(ChunkHeader) {
+    if rem >= chunk_total_for_payload(MIN_CHUNK_SIZE) {
         hdr.size = alloc_size;
-        if is_free(hdr) { hdr.size = alloc_size + 1; }
+        write_footer(hdr);
 
         var new_hdr: &ChunkHeader = (((hdr as &byte) + alloc_size) as &ChunkHeader);
         new_hdr.magic = CHUNK_MAGIC;
         new_hdr.size = rem;
-        set_free(new_hdr, true);
+        set_free_and_footer(new_hdr, true);
 
         var new_chunk: &FreeChunk = (new_hdr as &FreeChunk);
         new_chunk.prev = null;
@@ -225,7 +328,7 @@ fn _malloc_impl(size: usize) &void {
     if is_null(chunk as &void) { return null; }
 
     remove_free(chunk);
-    set_free(&chunk.header, false);
+    set_free_and_footer(&chunk.header, false);
     split_chunk(chunk, aligned);
 
     return to_user_ptr(&chunk.header);
@@ -244,9 +347,14 @@ fn _free_impl(ptr: &void) void {
 
     var hdr: &ChunkHeader = to_header(ptr);
     if hdr.magic != CHUNK_MAGIC { return; }
+    if is_free(hdr) { return; }
+
+    var region: &HeapRegion = find_region_for_header(hdr);
+    if is_null(region as &void) { return; }
 
     var chunk: &FreeChunk = (hdr as &FreeChunk);
-    add_free(chunk);
+    var merged: &FreeChunk = merge_free_neighbors(region, chunk);
+    add_free(merged);
 }
 
 export extern "libc" fn free(ptr: &void) void {
@@ -269,7 +377,7 @@ fn _realloc_impl(ptr: &void, size: usize) &void {
     var hdr: &ChunkHeader = to_header(ptr);
     if hdr.magic != CHUNK_MAGIC { return null; }
 
-    var old_sz: usize = get_size(hdr) - @size_of(ChunkHeader);
+    var old_sz: usize = get_size(hdr) - chunk_overhead();
     if size <= old_sz { return ptr; }
 
     var new_ptr: &void = _malloc_impl(size);

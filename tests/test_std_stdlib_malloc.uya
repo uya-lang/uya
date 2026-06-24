@@ -1,9 +1,10 @@
-// 测试 std.c.stdlib 模块（只测试 malloc 和 calloc，不测试 free）
+// 测试 std.c.stdlib 模块（malloc/calloc/free）
 use std.runtime.entry;
 // 测试：内存分配函数
 
 use libc.malloc;
 use libc.calloc;
+use libc.free;
 use libc.memcmp;
 
 export fn main() i32 {
@@ -56,7 +57,42 @@ export fn main() i32 {
             return 5;
         }
     }
+
+    // ============================================================
+    // 测试 4: free 合并相邻空闲块
+    // ============================================================
+    {
+        const p1: &void = malloc(1000);
+        const p2: &void = malloc(2800);
+        if p1 == null {
+            return 6;
+        }
+        if p2 == null {
+            free(p1);
+            return 7;
+        }
+
+        var b1: &byte = p1 as &byte;
+        var b2: &byte = p2 as &byte;
+        b1[0] = 17 as byte;
+        b2[0] = 34 as byte;
+
+        free(p1);
+        free(p2);
+
+        const merged: &void = malloc(3600);
+        if merged == null {
+            return 8;
+        }
+        if merged != p1 {
+            free(merged);
+            return 9;
+        }
+
+        var bm: &byte = merged as &byte;
+        bm[0] = 51 as byte;
+        free(merged);
+    }
     
     return 0;  // 所有测试通过
 }
-

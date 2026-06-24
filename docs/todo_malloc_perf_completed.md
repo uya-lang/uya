@@ -143,3 +143,16 @@
   - [x] 无新增分配失败、free-list 复用或 split/free 路径无回归
 
 ---
+
+## 2026-06-24 Task 2.1 完成归档
+
+父级任务路径：阶段 2：碎片化根治
+
+  - [x] Task 2.1：实现 free 时相邻块合并
+    - 完成内容：`lib/libc/heap.uya` 引入 `ChunkFooter` boundary tag，chunk 总长改为 header + payload + footer 后再对齐；`free` 时通过 footer 找前块、通过 header size 找后块，仅在同一 `HeapRegion` 内合并相邻空闲块；同步调整 `malloc`/`split`/`find_chunk`/`realloc` 的容量计算并避免重复释放重新入链。
+    - 新增回归：`tests/test_std_stdlib_malloc.uya` 覆盖两个相邻块释放后可满足单块无法满足的大分配，并断言复用第一个块地址。
+    - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过。
+    - 验证命令：`../uya/bin/uya test tests/test_stdlib.uya`：通过。
+    - 验证命令：`../uya/bin/uya test tests/test_std_stdlib.uya`：通过。
+    - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc_only.uya`：通过。
+    - 验证命令：`git diff --check`：通过。
