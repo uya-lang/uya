@@ -569,3 +569,49 @@
    - `../uya/bin/uya test tests/test_libc_heap_large_path.uya`：通过，3 tests / 41 assertions。
    - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过，总计 1 个测试，1 通过，0 失败。
    - 实现位置：`lib/libc/heap.uya:41` 定义 `NUM_BINS`，`lib/libc/heap.uya:75` 定义 `bins`。
+
+# libc malloc/free 性能优化 TODO
+## 阶段 3：分配速度优化（预计 3-5 天）
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+- [x] **统一 size class 转换函数**：
+   ```uya
+   fn normalize_payload_size(size: usize) usize {
+       var aligned: usize = heap_align_up(size);
+       if aligned < MIN_CHUNK_SIZE {
+           return MIN_CHUNK_SIZE;
+       }
+       return aligned;
+   }
+
+   fn chunk_payload_capacity(hdr: &ChunkHeader) usize {
+       // 阶段 2 后使用 CHUNK_OVERHEAD；若 Task 3.1 独立先做，
+       // 则临时等价为 get_size(hdr) - @size_of(ChunkHeader)。
+       return get_size(hdr) - CHUNK_OVERHEAD;
+   }
+
+   fn bin_index_for_payload(payload_size: usize) usize {
+       const size: usize = normalize_payload_size(payload_size);
+       if size < 64 { return 0; }
+       if size < 128 { return 1; }
+       if size < 256 { return 2; }
+       if size < 512 { return 3; }
+       if size < 1024 { return 4; }
+       if size < 2048 { return 5; }
+       if size < 4096 { return 6; }
+       return 7;
+   }
+
+   fn bin_index_for_request(requested_payload: usize) usize {
+       return bin_index_for_payload(requested_payload);
+   }
+
+   fn bin_index_for_chunk(hdr: &ChunkHeader) usize {
+       return bin_index_for_payload(chunk_payload_capacity(hdr));
+   }
+   ```
+   验证：
+   - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：通过（3 tests，75 assertions）
+   - `../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`：通过（1 test，9 assertions）
+   - `../uya/bin/uya test tests/test_libc_heap_large_path.uya`：通过（3 tests，41 assertions）
+   - `../uya/bin/uya test tests/test_libc_heap_realloc_in_place.uya`：通过（2 tests，3386 assertions）
+   - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（总计 1，失败 0）

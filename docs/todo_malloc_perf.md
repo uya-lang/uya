@@ -224,43 +224,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 **实现要点**：
 
-- [ ] **统一 size class 转换函数**：
-   ```uya
-   fn normalize_payload_size(size: usize) usize {
-       var aligned: usize = heap_align_up(size);
-       if aligned < MIN_CHUNK_SIZE {
-           return MIN_CHUNK_SIZE;
-       }
-       return aligned;
-   }
-
-   fn chunk_payload_capacity(hdr: &ChunkHeader) usize {
-       // 阶段 2 后使用 CHUNK_OVERHEAD；若 Task 3.1 独立先做，
-       // 则临时等价为 get_size(hdr) - @size_of(ChunkHeader)。
-       return get_size(hdr) - CHUNK_OVERHEAD;
-   }
-
-   fn bin_index_for_payload(payload_size: usize) usize {
-       const size: usize = normalize_payload_size(payload_size);
-       if size < 64 { return 0; }
-       if size < 128 { return 1; }
-       if size < 256 { return 2; }
-       if size < 512 { return 3; }
-       if size < 1024 { return 4; }
-       if size < 2048 { return 5; }
-       if size < 4096 { return 6; }
-       return 7;
-   }
-
-   fn bin_index_for_request(requested_payload: usize) usize {
-       return bin_index_for_payload(requested_payload);
-   }
-
-   fn bin_index_for_chunk(hdr: &ChunkHeader) usize {
-       return bin_index_for_payload(chunk_payload_capacity(hdr));
-   }
-   ```
-
 - [ ] **修改 find_chunk**：`find_chunk(requested_payload)` 使用 `bin_index_for_request(requested_payload)` 起跳，bin 为空或当前 bin 无合适块时向更大 bin 逐级查找；比较容量时仍用 `chunk_total_for_payload(normalize_payload_size(requested_payload))` 验证真实 chunk total 足够，避免只按 payload class 命中但实际容不下 footer。
 
 - [ ] **修改 add_free/remove_free**：用 `bin_index_for_chunk(&chunk.header)` 维护 bin 链表，不允许直接把 `get_size(hdr)` 传给 bin 函数。
