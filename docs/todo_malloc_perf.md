@@ -2,7 +2,8 @@
 
 **创建日期**: 2026-06-18
 **优先级**: P1（性能基础设施）
-**当前状态**: 阶段 1-4 已完成；待执行收口验证
+**当前状态**: 阶段 1-4 已完成；`make check` 已于 2026-06-25 通过并归档，待执行 `make clean && make backup-all`
+**测试结果**: 2026-06-25 `make check` 通过；验证记录见 `docs/todo_malloc_perf_completed.md`
 **关联文档**: `docs/libc_malloc_design.md`
 **基线说明**: 阶段 1 对照基线固定为提交 `bee7df32`：`ChunkHeader` 为 16B、`FreeChunk` 为 32B、未引入 footer。当前实现已完成阶段 2，`ChunkHeader + ChunkFooter` 开销为 24B，阶段 3 起的性能对比以此为新基线。
 
@@ -14,7 +15,6 @@
 
 - [ ] 收口验证
   已归档：`make check` 已于 2026-06-25 通过，验证记录见 `docs/todo_malloc_perf_completed.md`
-  - [ ] 本文档的任务状态、测试结果和最后更新日期已同步
   - [ ] 需要提交时按仓库规则运行 `make clean && make backup-all`
 
 ---

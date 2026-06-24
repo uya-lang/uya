@@ -317,3 +317,12 @@
   - [x] `make check` 通过
     - 验证命令：`env UYA_CMD_BOOTSTRAP_COMPILER="../uya/bin/uya" make check`
     - 验证结果：通过。自举、1061 个程序测试、UPM 套件、exec vm 专项回归、microapp 聚合套件，以及 SIMD / @syscall / http_bench C99 专项验证通过；`benchmarks/http_bench_async_epoll.uya C99` 按 Makefile 默认跳过。
+
+路径上下文：## 可勾选执行清单 > 收口验证
+  - [x] 本文档的任务状态、测试结果和最后更新日期已同步
+    验证命令：`rg -n '当前状态|测试结果|最后更新|收口验证' docs/todo_malloc_perf.md`
+    验证结果：第 5-6 行与第 511 行已同步；主 todo 仅保留未完成的 `make clean && make backup-all`。
+    验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_malloc_perf.md`
+    验证结果：`ok: docs/todo_malloc_perf.md has 0 active tasks`
+    验证命令：`git diff --check`
+    验证结果：通过
