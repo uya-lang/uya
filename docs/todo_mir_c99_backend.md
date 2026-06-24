@@ -156,9 +156,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `AST_FN_DECL / extern_signature_requires_i32_scalars`
         （`lib/libc/errno.uya:145`），focused gate=
         `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET-NEXT`:
-      让首个 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` real CLI
-      用例收敛为具体 capability diagnostic 或真实支持。
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET-NEXT`:
       让首个 `错误: MIR-C99 unit output 写出失败` real CLI 用例收敛为具体
       capability diagnostic 或真实支持。

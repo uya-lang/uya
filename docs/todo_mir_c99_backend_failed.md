@@ -919,3 +919,20 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE`
         - `make uya`：失败，`.uyacache/uya_common.c` 与 `src/main.c` 编译阶段出现 `std_runtime_saved_*` 未声明。
       - 后续重开条件：
         - 先修复当前 checkout `make uya` 的 `std_runtime_saved_*` 构建 blocker，得到可执行 current-source compiler 并同步到固定 `../uya/bin/uya` 路径；随后按新的真实 bucket `tests/test_exec_vm_try_unsupported.uya` 重开本项，决定是收敛为 capability diagnostic 还是真实 unit-output 支持。
+### 4.15 Full Language Parity
+
+父级任务路径：
+`MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+`MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，失败项只剩具体 capability diagnostic，并逐项归零。
+
+- [f] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET-NEXT`:
+  让首个 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` real CLI
+  用例收敛为具体 capability diagnostic 或真实支持。
+  - 失败说明（2026-06-24，按主 todo 当前基线补记）：真实 blocker 仍是首个 generic
+    `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` bucket，尚未收敛为具体
+    capability diagnostic；主 todo 遗留条目只保留了 `[f]` 状态，本轮按归档清理规则迁出。
+  - 相关上下文：`src/main.uya` 仍 fail-closed 于
+    `MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+  - 归档验证（2026-06-24）：
+    - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`
+    - `git diff --check`
