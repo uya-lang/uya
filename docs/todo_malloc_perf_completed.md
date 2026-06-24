@@ -451,3 +451,14 @@
     - `UYA_COMPILER="$(pwd)/../uya/bin/uya" ./tests/run_programs_parallel.sh tests/programs/test_heap.uya` -> 通过（总计 1，通过 1，失败 0）
     - `../uya/bin/uya test tests/programs/test_heap.uya` -> 通过（3 tests passed，0 failed）
     说明：直接传相对路径 `UYA_COMPILER=../uya/bin/uya` 会因脚本进入 `compiler_work` 子目录而失效；本次验收使用同一二进制的绝对路径形式调用脚本。
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+- 父级路径：`[ ] **重写 _free_impl**：释放时检查前后邻居并合并`
+- **验收标准**:
+  - [x] 新增确定性测试：构造相邻 A/B chunk，并用 guard/fill chunk 避免页尾剩余块干扰；释放 B 再释放 A 后，申请 A+B 可容纳的大块必须返回 A 的原地址，证明发生相邻合并而不是从非相邻空闲块或新 mmap 获取
+    验证：
+    - `../uya/bin/uya test tests/test_libc_heap_coalescing_adjacent.uya`：1/1 通过
+    - `../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`：1/1 通过
+    - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：3/3 通过
+    - `../uya/bin/uya test tests/test_libc_heap_tcache_metrics.uya`：1/1 通过

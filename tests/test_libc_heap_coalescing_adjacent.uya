@@ -1,0 +1,93 @@
+use std.testing.expect;
+use std.testing.assert;
+use libc.malloc;
+use libc.free;
+use libc.heap_flush_current_thread_cache;
+
+const GUARD_LEFT_SIZE: usize = 32usize;
+const BLOCK_A_SIZE: usize = 1536usize;
+const BLOCK_B_SIZE: usize = 1024usize;
+const FILL_TAIL_SIZE: usize = 1376usize;
+const MERGED_REQUEST_SIZE: usize = 2400usize;
+const MAX_ATTEMPTS: usize = 16usize;
+const GUARD_TOTAL_SIZE: usize = 64usize;
+const BLOCK_A_TOTAL_SIZE: usize = 1568usize;
+const BLOCK_B_TOTAL_SIZE: usize = 1056usize;
+
+fn alloc_checked(size: usize) !&void {
+    const ptr: &void = malloc(size);
+    try expect(ptr != null);
+    return ptr;
+}
+
+fn free_and_flush(ptr: &void) void {
+    free(ptr);
+    heap_flush_current_thread_cache();
+}
+
+fn matches_guard_ab_fill_layout(guard_left: &void, block_a: &void, block_b: &void, fill_tail: &void) bool {
+    const guard_addr: usize = @usize_from_ptr(guard_left);
+    const a_addr: usize = @usize_from_ptr(block_a);
+    const b_addr: usize = @usize_from_ptr(block_b);
+    const fill_addr: usize = @usize_from_ptr(fill_tail);
+
+    if a_addr != guard_addr + GUARD_TOTAL_SIZE { return false; }
+    if b_addr != a_addr + BLOCK_A_TOTAL_SIZE { return false; }
+    if fill_addr != b_addr + BLOCK_B_TOTAL_SIZE { return false; }
+    return true;
+}
+
+test "heap_coalesces_adjacent_ab_chunks_before_reusing_for_bigger_request" {
+    // 这些尺寸会在当前 4 KiB region 布局下刚好吃满一页，避免 B 右侧留下可误判的尾部空闲块。
+    var guards: [&void: MAX_ATTEMPTS] = [];
+    var blocks_a: [&void: MAX_ATTEMPTS] = [];
+    var blocks_b: [&void: MAX_ATTEMPTS] = [];
+    var fills: [&void: MAX_ATTEMPTS] = [];
+    var found: bool = false;
+    var found_index: usize = 0usize;
+
+    var i: usize = 0usize;
+    while i < MAX_ATTEMPTS {
+        guards[i] = try alloc_checked(GUARD_LEFT_SIZE);
+        blocks_a[i] = try alloc_checked(BLOCK_A_SIZE);
+        blocks_b[i] = try alloc_checked(BLOCK_B_SIZE);
+        fills[i] = try alloc_checked(FILL_TAIL_SIZE);
+        if matches_guard_ab_fill_layout(guards[i], blocks_a[i], blocks_b[i], fills[i]) {
+            found = true;
+            found_index = i;
+            break;
+        }
+        i = i + 1usize;
+    }
+
+    try assert(found, "failed to carve an exact guard/A/B/fill page layout");
+    try assert(MERGED_REQUEST_SIZE > BLOCK_A_SIZE, "merged request must exceed block A");
+    try assert(MERGED_REQUEST_SIZE > BLOCK_B_SIZE, "merged request must exceed block B");
+
+    const guard_left: &void = guards[found_index];
+    const block_a: &void = blocks_a[found_index];
+    const block_b: &void = blocks_b[found_index];
+    const fill_tail: &void = fills[found_index];
+
+    free_and_flush(block_b);
+    free_and_flush(block_a);
+
+    const merged: &void = try alloc_checked(MERGED_REQUEST_SIZE);
+    try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_a), "merged allocation must reuse block A address");
+
+    free(merged);
+    free(fill_tail);
+    free(guard_left);
+
+    var cleanup_i: usize = 0usize;
+    while cleanup_i < MAX_ATTEMPTS {
+        if cleanup_i != found_index {
+            if guards[cleanup_i] != null { free(guards[cleanup_i]); }
+            if blocks_a[cleanup_i] != null { free(blocks_a[cleanup_i]); }
+            if blocks_b[cleanup_i] != null { free(blocks_b[cleanup_i]); }
+            if fills[cleanup_i] != null { free(fills[cleanup_i]); }
+        }
+        cleanup_i = cleanup_i + 1usize;
+    }
+    heap_flush_current_thread_cache();
+}
