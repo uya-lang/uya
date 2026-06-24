@@ -1015,6 +1015,41 @@ fn native_build_extern_signature_checker_type_supported(typ: &Type) i32 {
         return native_build_extern_signature_checker_type_supported(
             typ.error_union_payload_type);
     }
+    if typ.kind == TypeKind.TYPE_SLICE {
+        if typ.slice_element_type == null {
+            return 0;
+        }
+        return native_build_extern_signature_checker_type_supported(
+            typ.slice_element_type);
+    }
+    if typ.kind == TypeKind.TYPE_UNION {
+        if typ.union_name == null || typ.union_type_arg_count != 0 ||
+           checker.program_node == null {
+            return 0;
+        }
+        const union_decl: &ASTNode = native_build_find_union_decl_by_name(
+            checker.program_node, typ.union_name);
+        if union_decl == null || union_decl.union_decl_variants == null ||
+           union_decl.union_decl_variant_count <= 0 {
+            return 0;
+        }
+        var union_index: i32 = 0;
+        while union_index < union_decl.union_decl_variant_count {
+            const variant: &ASTNode = union_decl.union_decl_variants[union_index];
+            if variant == null || variant.type != ASTNodeType.AST_VAR_DECL ||
+               variant.var_decl_type == null {
+                return 0;
+            }
+            const variant_type: Type = type_from_ast(checker,
+                variant.var_decl_type);
+            if native_build_extern_signature_checker_type_supported(
+                &variant_type) == 0 {
+                return 0;
+            }
+            union_index = union_index + 1;
+        }
+        return 1;
+    }
     if typ.kind != TypeKind.TYPE_STRUCT || typ.struct_name == null ||
        typ.struct_type_arg_count != 0 || checker.program_node == null {
         return 0;
@@ -1106,6 +1141,59 @@ fn native_build_extern_signature_checker_type_size_align(typ: &Type,
         }
         *out_size_bytes = total_size_bytes;
         *out_align_bytes = max_align_bytes;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_SLICE && typ.slice_element_type != null {
+        var element_size_bytes: i32 = 0;
+        var element_align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(
+            typ.slice_element_type, &element_size_bytes,
+            &element_align_bytes) != 0 {
+            return -1;
+        }
+        *out_size_bytes = 16;
+        *out_align_bytes = 8;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_UNION && typ.union_name != null &&
+       checker.program_node != null {
+        const union_decl: &ASTNode = native_build_find_union_decl_by_name(
+            checker.program_node, typ.union_name);
+        if union_decl == null || union_decl.union_decl_variants == null ||
+           union_decl.union_decl_variant_count <= 0 {
+            return -1;
+        }
+        var max_size_bytes: i32 = 0;
+        var max_align_bytes: i32 = 1;
+        var union_index: i32 = 0;
+        while union_index < union_decl.union_decl_variant_count {
+            const variant: &ASTNode = union_decl.union_decl_variants[union_index];
+            if variant == null || variant.type != ASTNodeType.AST_VAR_DECL ||
+               variant.var_decl_type == null {
+                return -1;
+            }
+            const variant_type: Type = type_from_ast(checker,
+                variant.var_decl_type);
+            var field_size_bytes: i32 = 0;
+            var field_align_bytes: i32 = 0;
+            if native_build_extern_signature_checker_type_size_align(
+                &variant_type, &field_size_bytes, &field_align_bytes) != 0 {
+                return -1;
+            }
+            if field_size_bytes > max_size_bytes {
+                max_size_bytes = field_size_bytes;
+            }
+            if field_align_bytes > max_align_bytes {
+                max_align_bytes = field_align_bytes;
+            }
+            union_index = union_index + 1;
+        }
+        *out_size_bytes = native_build_extern_signature_align_up_i32(
+            max_size_bytes, max_align_bytes);
+        *out_align_bytes = max_align_bytes;
+        if *out_size_bytes < 0 {
+            return -1;
+        }
         return 0;
     }
     if typ.kind != TypeKind.TYPE_STRUCT || typ.struct_name == null ||
@@ -30709,6 +30797,153 @@ fn native_build_hosted_mir_append_extern_signature_resolved_type(
             flags: 0,
         };
         if portable_mir_append_type(module, &error_union_type) != 0 {
+            return -1;
+        }
+        *out_type_id = type_id;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_SLICE && typ.slice_element_type != null {
+        var element_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if native_build_hosted_mir_append_extern_signature_resolved_type(module,
+            typ.slice_element_type, &element_type_id) != 0 {
+            return -1;
+        }
+        var pointer_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if native_build_hosted_mir_ensure_pointer_type(module,
+            element_type_id, &pointer_type_id) != 0 {
+            return -1;
+        }
+        var len_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_USIZE, &len_type_id) != 0 {
+            return -1;
+        }
+        const type_id: i32 = module.type_count as i32;
+        const field_start: i32 = module.field_layout_count as i32;
+        var ptr_layout: MirFieldLayout = MirFieldLayout{
+            field_layout_id: module.field_layout_count as i32,
+            owner_type_id: type_id,
+            field_index: 0,
+            field_type_id: pointer_type_id,
+            offset_bytes: 0usize,
+            size_bytes: 8usize,
+            align_bytes: 8usize,
+            flags: 0,
+        };
+        if portable_mir_append_field_layout(module, &ptr_layout) != 0 {
+            return -1;
+        }
+        var len_layout: MirFieldLayout = MirFieldLayout{
+            field_layout_id: module.field_layout_count as i32,
+            owner_type_id: type_id,
+            field_index: 1,
+            field_type_id: len_type_id,
+            offset_bytes: 8usize,
+            size_bytes: 8usize,
+            align_bytes: 8usize,
+            flags: 0,
+        };
+        if portable_mir_append_field_layout(module, &len_layout) != 0 {
+            return -1;
+        }
+        var slice_type: MirType = MirType{
+            type_id: type_id,
+            kind: MIR_TYPE_KIND_SLICE,
+            source_type_id: -1,
+            size_bytes: 16usize,
+            align_bytes: 8usize,
+            layout_id: -1,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: 8usize,
+            atomic_align_bytes: 0usize,
+            element_type_id: element_type_id,
+            pointee_type_id: pointer_type_id,
+            field_start: field_start,
+            field_count: 2,
+            lane_count: 2,
+            lane_stride_bytes: 8usize,
+            mask_representation: 0,
+            abi_class: MIR_ABI_CLASS_AGGREGATE,
+            address_space: MIR_ADDRESS_SPACE_GENERIC,
+            flags: 0,
+        };
+        if portable_mir_append_type(module, &slice_type) != 0 {
+            return -1;
+        }
+        *out_type_id = type_id;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_UNION && typ.union_name != null &&
+       typ.union_type_arg_count == 0 && checker.program_node != null {
+        const decl: &ASTNode = native_build_find_union_decl_by_name(
+            checker.program_node, typ.union_name);
+        if decl == null || decl.union_decl_variants == null ||
+           decl.union_decl_variant_count <= 0 {
+            return -1;
+        }
+        const type_id: i32 = module.type_count as i32;
+        const field_start: i32 = module.field_layout_count as i32;
+        var field_index: i32 = 0;
+        while field_index < decl.union_decl_variant_count {
+            const variant: &ASTNode = decl.union_decl_variants[field_index];
+            if variant == null || variant.type != ASTNodeType.AST_VAR_DECL ||
+               variant.var_decl_type == null {
+                return -1;
+            }
+            const variant_type: Type = type_from_ast(checker,
+                variant.var_decl_type);
+            var field_type_id: i32 = MIR_TYPE_INVALID_ID;
+            var field_size_bytes: i32 = 0;
+            var field_align_bytes: i32 = 0;
+            if native_build_hosted_mir_append_extern_signature_resolved_type(module,
+                &variant_type, &field_type_id) != 0 ||
+               native_build_extern_signature_checker_type_size_align(
+                &variant_type, &field_size_bytes, &field_align_bytes) != 0 {
+                return -1;
+            }
+            var layout: MirFieldLayout = MirFieldLayout{
+                field_layout_id: module.field_layout_count as i32,
+                owner_type_id: type_id,
+                field_index: field_index,
+                field_type_id: field_type_id,
+                offset_bytes: 0usize,
+                size_bytes: field_size_bytes as usize,
+                align_bytes: field_align_bytes as usize,
+                flags: 0,
+            };
+            if portable_mir_append_field_layout(module, &layout) != 0 {
+                return -1;
+            }
+            field_index = field_index + 1;
+        }
+        var size_bytes: i32 = 0;
+        var align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(typ,
+            &size_bytes, &align_bytes) != 0 {
+            return -1;
+        }
+        var union_type: MirType = MirType{
+            type_id: type_id,
+            kind: MIR_TYPE_KIND_UNION,
+            source_type_id: -1,
+            size_bytes: size_bytes as usize,
+            align_bytes: align_bytes as usize,
+            layout_id: -1,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: 0usize,
+            atomic_align_bytes: 0usize,
+            element_type_id: MIR_TYPE_INVALID_ID,
+            pointee_type_id: MIR_TYPE_INVALID_ID,
+            field_start: field_start,
+            field_count: decl.union_decl_variant_count,
+            lane_count: 0,
+            lane_stride_bytes: 0usize,
+            mask_representation: 0,
+            abi_class: MIR_ABI_CLASS_AGGREGATE,
+            address_space: MIR_ADDRESS_SPACE_GENERIC,
+            flags: 0,
+        };
+        if portable_mir_append_type(module, &union_type) != 0 {
             return -1;
         }
         *out_type_id = type_id;

@@ -211,6 +211,13 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `test_driver_not_lowered=149`、
         `vector_type_requires_target_helper_capability=48`、
         `inline_asm_requires_target_capability=15`。
+      - 本轮拆分（2026-06-24，本轮续做）：
+        - 进展（2026-06-24，本轮）：`MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-SIGNATURE-UNION-SLICE-TAIL`
+          已完成并归档；`tests/test_extern_union.uya` 已从 generic
+          `extern_signature_requires_i32_scalars` 前移到
+          `错误: MIR-C99 PortableMIR verifier 失败: code=16`，`tests/test_slice_param_c99_emit.uya`
+          已前移到
+          `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_slice_param_c99_emit.uya line=19`。
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
     generator 前提 gate 与真实 CLI 结论一致。
     - 验收：

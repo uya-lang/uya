@@ -2114,3 +2114,36 @@ Parent path:
       退出码 `1`，失败前移到
       `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`
       （`lib/std/testing/testing.uya:40`）。
+
+### 4.15 Full Language Parity
+Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-SIGNATURE-UNION-SLICE-TAIL`:
+  扩展 imported extern 的 `union` / `&[T]` 签名尾项，让 real CLI 不再把
+  `tests/test_extern_union.uya`、`tests/test_slice_param_c99_emit.uya`
+  卡在 `AST_FN_DECL / extern_signature_requires_i32_scalars`。
+  - 最小验证：
+    `bash tests/verify_mir_c99_full_language_extern_signature_union_slice_tail.sh`
+  - 完成说明（2026-06-24，本轮）：
+    `src/build_compiler_driver.uya` 为 extern signature checker / MIR type
+    builder 新增 `TYPE_UNION`、`TYPE_SLICE` 支持，并补齐 union variant
+    layout / slice ptr+len layout；随后用
+    `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`
+    重建 current-source `bin/cmd/build` 并同步到 sibling
+    `../uya/bin/cmd/build`，使 fixed `../uya/bin/uya` 的 real CLI 命中本轮源码。
+    `tests/test_extern_union.uya` 现前移到
+    `错误: MIR-C99 PortableMIR verifier 失败: code=16`；`tests/test_slice_param_c99_emit.uya`
+    现前移到
+    `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_slice_param_c99_emit.uya line=19`。
+  - 验证：
+    `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`：通过。
+    `cp bin/cmd/build ../uya/bin/cmd/build`：通过。
+    `bash tests/verify_mir_c99_full_language_extern_signature_union_slice_tail.sh`：通过，输出
+    `OK: MIR-C99 extern union and slice signature tail no longer stop at extern_signature_requires_i32_scalars`。
+    `bash tests/verify_mir_c99_full_language_extern_signature_common_types.sh`：通过。
+    `bash tests/verify_mir_c99_full_language_extern_signature_aggregate_error_union.sh`：通过。
+    `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_extern_union.uya -o /tmp/uya-mir-c99-extern-union-tail.c`：
+    失败前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`。
+    `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_slice_param_c99_emit.uya -o /tmp/uya-mir-c99-slice-tail.c`：
+    失败前移到
+    `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_slice_param_c99_emit.uya line=19`。
