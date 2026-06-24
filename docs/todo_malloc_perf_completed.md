@@ -699,3 +699,11 @@
 - [x] 多文件集成测试：`./tests/run_programs_parallel.sh tests/programs/test_heap.uya`
   - 验证命令：`./tests/run_programs_parallel.sh tests/programs/test_heap.uya`
   - 验证结果：通过；总计 1，通过 1，失败 0
+
+## 测试策略
+
+### 回归测试（每次改动后必须运行）
+
+- [x] malloc 程序回归：`./tests/run_programs_parallel.sh malloc_test.uya`
+  验证命令：`mkdir -p tests/build/tests/tests_malloc_test && ln -sfn ../../../../ tests/build/tests/tests_malloc_test/uya && UYA_COMPILER=../uya/bin/uya ./tests/run_programs_parallel.sh malloc_test.uya`
+  验证结果：通过（总计 1 个测试；通过 1；失败 0）
