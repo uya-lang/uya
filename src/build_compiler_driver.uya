@@ -949,6 +949,46 @@ fn native_build_type_is_usize(type_node: &ASTNode) i32 {
     }
     return 0;
 }
+fn native_build_extern_signature_named_type_supported(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED ||
+       type_node.type_named_name == null {
+        return 0;
+    }
+    if str_equals(type_node.type_named_name, "void" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "bool" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "byte" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "i8" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "u8" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "i16" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "u16" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "i32" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "u32" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "i64" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "u64" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "isize" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "usize" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "f32" as *byte) != 0 ||
+       str_equals(type_node.type_named_name, "f64" as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+fn native_build_extern_signature_type_supported(type_node: &ASTNode) i32 {
+    if native_build_extern_signature_named_type_supported(type_node) != 0 {
+        return 1;
+    }
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_POINTER {
+        return 0;
+    }
+    if type_node.type_pointer_pointed_type == null {
+        return 0;
+    }
+    if native_build_extern_signature_type_supported(
+        type_node.type_pointer_pointed_type) != 0 {
+        return 1;
+    }
+    return 1;
+}
 fn native_build_type_named_equals(type_node: &ASTNode, name: &byte) i32 {
     if type_node == null || name == null ||
        type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
@@ -29940,7 +29980,49 @@ fn native_build_hosted_mir_bool_type(type_id: i32) MirType {
         flags: 0,
     };
 }
-fn native_build_hosted_mir_i32_pointer_type(type_id: i32, pointee_type_id: i32) MirType {
+fn native_build_hosted_mir_scalar_type(type_id: i32, kind: i32) MirType {
+    var size_bytes: usize = 0usize;
+    var align_bytes: usize = 0usize;
+    if kind == MIR_TYPE_KIND_BOOL || kind == MIR_TYPE_KIND_I8 ||
+       kind == MIR_TYPE_KIND_U8 || kind == MIR_TYPE_KIND_BYTE {
+        size_bytes = 1usize;
+        align_bytes = 1usize;
+    } else if kind == MIR_TYPE_KIND_I16 || kind == MIR_TYPE_KIND_U16 {
+        size_bytes = 2usize;
+        align_bytes = 2usize;
+    } else if kind == MIR_TYPE_KIND_I32 || kind == MIR_TYPE_KIND_U32 ||
+              kind == MIR_TYPE_KIND_F32 {
+        size_bytes = 4usize;
+        align_bytes = 4usize;
+    } else if kind == MIR_TYPE_KIND_I64 || kind == MIR_TYPE_KIND_U64 ||
+              kind == MIR_TYPE_KIND_ISIZE || kind == MIR_TYPE_KIND_USIZE ||
+              kind == MIR_TYPE_KIND_F64 {
+        size_bytes = 8usize;
+        align_bytes = 8usize;
+    }
+    return MirType{
+        type_id: type_id,
+        kind: kind,
+        source_type_id: -1,
+        size_bytes: size_bytes,
+        align_bytes: align_bytes,
+        layout_id: -1,
+        tag_offset_bytes: 0usize,
+        payload_offset_bytes: 0usize,
+        atomic_align_bytes: 0usize,
+        element_type_id: MIR_TYPE_INVALID_ID,
+        pointee_type_id: MIR_TYPE_INVALID_ID,
+        field_start: 0,
+        field_count: 0,
+        lane_count: 0,
+        lane_stride_bytes: 0usize,
+        mask_representation: 0,
+        abi_class: portable_mir_abi_class_for_type_kind(kind),
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        flags: 0,
+    };
+}
+fn native_build_hosted_mir_pointer_type(type_id: i32, pointee_type_id: i32) MirType {
     return MirType{
         type_id: type_id,
         kind: MIR_TYPE_KIND_POINTER,
@@ -29962,6 +30044,9 @@ fn native_build_hosted_mir_i32_pointer_type(type_id: i32, pointee_type_id: i32) 
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         flags: 0,
     };
+}
+fn native_build_hosted_mir_i32_pointer_type(type_id: i32, pointee_type_id: i32) MirType {
+    return native_build_hosted_mir_pointer_type(type_id, pointee_type_id);
 }
 fn native_build_hosted_mir_stack_i32_array64_type(type_id: i32, source_type_id: TypeId) MirType {
     return MirType{
@@ -30066,9 +30151,14 @@ fn native_build_hosted_mir_ensure_i32_type(module: &PortableMirModule,
     if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
         return -1;
     }
-    if module.type_count > 1usize {
-        *out_type_id = 1;
-        return 0;
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if typ != null && typ.kind == MIR_TYPE_KIND_I32 {
+            *out_type_id = typ.type_id;
+            return 0;
+        }
+        i = i + 1usize;
     }
     const type_id: i32 = module.type_count as i32;
     var typ: MirType = native_build_hosted_mir_i32_type(type_id);
@@ -30085,6 +30175,15 @@ fn native_build_hosted_mir_append_bool_type(module: &PortableMirModule,
     }
     if module == null || out_type_id == null {
         return -1;
+    }
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if typ != null && typ.kind == MIR_TYPE_KIND_BOOL {
+            *out_type_id = typ.type_id;
+            return 0;
+        }
+        i = i + 1usize;
     }
     const type_id: i32 = module.type_count as i32;
     var typ: MirType = native_build_hosted_mir_bool_type(type_id);
@@ -30106,12 +30205,76 @@ fn native_build_hosted_mir_ensure_i32_pointer_type(module: &PortableMirModule,
     if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
         return -1;
     }
-    if module.type_count > 2usize {
-        *out_type_id = 2;
-        return 0;
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if typ != null && typ.kind == MIR_TYPE_KIND_POINTER &&
+           typ.pointee_type_id == i32_type_id {
+            *out_type_id = typ.type_id;
+            return 0;
+        }
+        i = i + 1usize;
     }
     const type_id: i32 = module.type_count as i32;
-    var typ: MirType = native_build_hosted_mir_i32_pointer_type(type_id, i32_type_id);
+    var typ: MirType = native_build_hosted_mir_pointer_type(type_id, i32_type_id);
+    if portable_mir_append_type(module, &typ) != 0 {
+        return -1;
+    }
+    *out_type_id = type_id;
+    return 0;
+}
+fn native_build_hosted_mir_ensure_scalar_type(module: &PortableMirModule,
+    kind: i32, out_type_id: &i32) i32 {
+    if out_type_id != null {
+        *out_type_id = MIR_TYPE_INVALID_ID;
+    }
+    if module == null || out_type_id == null || kind == MIR_TYPE_KIND_VOID ||
+       portable_mir_abi_class_for_type_kind(kind) == 0 {
+        return -1;
+    }
+    var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if typ != null && typ.kind == kind {
+            *out_type_id = typ.type_id;
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    const type_id: i32 = module.type_count as i32;
+    var typ: MirType = native_build_hosted_mir_scalar_type(type_id, kind);
+    if typ.size_bytes == 0usize || typ.align_bytes == 0usize ||
+       portable_mir_append_type(module, &typ) != 0 {
+        return -1;
+    }
+    *out_type_id = type_id;
+    return 0;
+}
+fn native_build_hosted_mir_ensure_pointer_type(module: &PortableMirModule,
+    pointee_type_id: i32, out_type_id: &i32) i32 {
+    if out_type_id != null {
+        *out_type_id = MIR_TYPE_INVALID_ID;
+    }
+    if module == null || out_type_id == null || pointee_type_id < 0 ||
+       native_build_hosted_mir_type_ptr(module, pointee_type_id) == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < module.types.count {
+        const typ: &MirType = semantic_vector_item_ptr(&module.types, i) as &MirType;
+        if typ != null && typ.kind == MIR_TYPE_KIND_POINTER &&
+           typ.pointee_type_id == pointee_type_id {
+            *out_type_id = typ.type_id;
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    const type_id: i32 = module.type_count as i32;
+    var typ: MirType = native_build_hosted_mir_pointer_type(type_id, pointee_type_id);
     if portable_mir_append_type(module, &typ) != 0 {
         return -1;
     }
@@ -30171,7 +30334,87 @@ fn native_build_hosted_mir_function_signature_type(type_id: i32,
         flags: MIR_CALL_CONV_C,
     };
 }
-fn native_build_hosted_mir_append_extern_i32_signature_type(
+fn native_build_hosted_mir_append_extern_signature_ast_type(
+    module: &PortableMirModule, type_node: &ASTNode, out_type_id: &i32) i32 {
+    if out_type_id != null {
+        *out_type_id = MIR_TYPE_INVALID_ID;
+    }
+    if module == null || type_node == null || out_type_id == null {
+        return -1;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_POINTER {
+        var pointee_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if type_node.type_pointer_pointed_type != null &&
+           native_build_hosted_mir_append_extern_signature_ast_type(module,
+                type_node.type_pointer_pointed_type, &pointee_type_id) == 0 {
+        } else if native_build_hosted_mir_ensure_signature_type(module,
+                &pointee_type_id) != 0 {
+            return -1;
+        }
+        return native_build_hosted_mir_ensure_pointer_type(module, pointee_type_id,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "void" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_signature_type(module, out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "bool" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_BOOL,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "byte" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_BYTE,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "i8" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_I8,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "u8" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U8,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "i16" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_I16,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "u16" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U16,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "i32" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_i32_type(module, out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "u32" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U32,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "i64" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_I64,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "u64" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U64,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "isize" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_ISIZE,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "usize" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_USIZE,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "f32" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_F32,
+            out_type_id);
+    }
+    if native_build_type_named_equals(type_node, "f64" as &byte) != 0 {
+        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_F64,
+            out_type_id);
+    }
+    return -1;
+}
+fn native_build_hosted_mir_append_extern_signature_type(
     module: &PortableMirModule, decl: &ASTNode, out_signature_type_id: &i32) i32 {
     if out_signature_type_id != null {
         *out_signature_type_id = MIR_TYPE_INVALID_ID;
@@ -30180,14 +30423,15 @@ fn native_build_hosted_mir_append_extern_i32_signature_type(
        decl.fn_decl_name == null || decl.fn_decl_is_extern == 0 ||
        decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
        decl.fn_decl_is_varargs != 0 || out_signature_type_id == null ||
-       native_build_type_is_i32(decl.fn_decl_return_type) == 0 {
+       native_build_extern_signature_type_supported(decl.fn_decl_return_type) == 0 {
         return -1;
     }
     if decl.fn_decl_param_count > 0 && decl.fn_decl_params == null {
         return -1;
     }
-    var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
+    var return_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_append_extern_signature_ast_type(module,
+        decl.fn_decl_return_type, &return_type_id) != 0 {
         return -1;
     }
     const signature_type_id: i32 = module.type_count as i32;
@@ -30195,16 +30439,19 @@ fn native_build_hosted_mir_append_extern_i32_signature_type(
     var i: i32 = 0;
     while i < decl.fn_decl_param_count {
         const param: &ASTNode = decl.fn_decl_params[i];
+        var param_type_id: i32 = MIR_TYPE_INVALID_ID;
         if param == null || param.type != ASTNodeType.AST_VAR_DECL ||
-           native_build_type_is_i32(param.var_decl_type) == 0 ||
-           native_build_hosted_mir_append_function_param_type(module,
-               signature_type_id, i, i32_type_id) != 0 {
+           native_build_extern_signature_type_supported(param.var_decl_type) == 0 ||
+           native_build_hosted_mir_append_extern_signature_ast_type(module,
+               param.var_decl_type, &param_type_id) != 0 ||
+           native_build_hosted_mir_append_function_param_type(module, signature_type_id,
+               i, param_type_id) != 0 {
             return -1;
         }
         i = i + 1;
     }
     var signature: MirType = native_build_hosted_mir_function_signature_type(
-        signature_type_id, i32_type_id, param_start, decl.fn_decl_param_count);
+        signature_type_id, return_type_id, param_start, decl.fn_decl_param_count);
     if portable_mir_append_type(module, &signature) != 0 {
         return -1;
     }
@@ -30397,7 +30644,7 @@ fn native_build_hosted_mir_append_extern_function(module: &PortableMirModule,
         return -1;
     }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_append_extern_i32_signature_type(module, decl,
+    if native_build_hosted_mir_append_extern_signature_type(module, decl,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -54349,7 +54596,7 @@ fn native_build_find_mir_c99_extern_signature_reason(decl: &ASTNode,
         }
         return 1;
     }
-    if native_build_type_is_i32(decl.fn_decl_return_type) == 0 {
+    if native_build_extern_signature_type_supported(decl.fn_decl_return_type) == 0 {
         if out_reason != null {
             *out_reason = "extern_signature_requires_i32_scalars" as &byte;
         }
@@ -54365,7 +54612,7 @@ fn native_build_find_mir_c99_extern_signature_reason(decl: &ASTNode,
     while i < decl.fn_decl_param_count {
         const param: &ASTNode = decl.fn_decl_params[i];
         if param == null || param.type != ASTNodeType.AST_VAR_DECL ||
-           native_build_type_is_i32(param.var_decl_type) == 0 {
+           native_build_extern_signature_type_supported(param.var_decl_type) == 0 {
             if out_reason != null {
                 *out_reason = "extern_signature_requires_i32_scalars" as &byte;
             }

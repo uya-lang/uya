@@ -179,6 +179,36 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。
       - 失败项必须归档为具体 language kind / capability diagnostic。
+    - 本轮拆分（2026-06-24）：
+      - 进展（2026-06-24，本轮）：`make -B cmd-build
+        UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya` 已成功重建 current-source
+        `bin/cmd/build`，并同步 sibling `../uya/bin/cmd/build`；`tests/test_mem_allocator.uya`、
+        `tests/test_ffi_cast.uya`、`tests/extern_ffi_no_struct.uya` 已不再命中
+        `extern_signature_requires_i32_scalars`。
+      - 进展（2026-06-24，本轮）：`tests/test_mem_allocator.uya` 现前移到
+        `AST_TEST_STMT / test_driver_not_lowered`；`tests/test_ffi_cast.uya` 与
+        `tests/extern_ffi_no_struct.uya` 现前移到 `PortableMIR verifier 失败: code=16`；
+        `tests/test_simple_fn.uya` 也已不再卡在 `lib/std/runtime/entry/entry.uya:79` 的
+        extern-signature 旧边界。
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-SIGNATURE-AGGREGATE-ERROR-UNION`:
+        继续处理 imported extern 的 aggregate / error-union 返回 ABI，让 real CLI
+        不再把 `tests/test_async_return_value.uya`、`tests/test_syscall_time.uya`、
+        `tests/test_https_google.uya` 卡在 `lib/libc/pthread.uya:1018`
+        (`pthread_self() -> pthread_t`) 或 `lib/libc/syscall.uya` 的 `!i32/!i64`
+        return surface。
+        - 最小验证：
+          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_async_return_value.uya -o /tmp/uya-mir-c99-async-return-value.c`
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-EXTERN-BODY`:
+        单独处理 `lib/std/runtime/entry/entry.uya:79` 的 `export extern fn main`
+        路径，让它从“签名不支持”前移到真实 body/link frontier，再决定是直接支持还是给出更精确
+        的 fail-closed 边界。
+        - 最小验证：
+          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_simple_fn.uya -o /tmp/uya-mir-c99-entry-main.c`
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-AFTER-EXTERN-SIGNATURE`:
+        重跑主语言面 matrix，记录 `AST_FN_DECL / extern_signature_requires_i32_scalars`
+        下降后的新 failure 分布，并据此选择下一个主导 bucket。
+        - 最小验证：
+          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
     generator 前提 gate 与真实 CLI 结论一致。
     - 验收：

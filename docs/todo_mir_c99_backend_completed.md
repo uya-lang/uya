@@ -1970,3 +1970,25 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
     - 最小验证：
       `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
       -> 通过，输出 `OK: MIR-C99 real CLI extern signature bucket now fails closed with explicit capability diagnostics`。
+
+### 4.15 Full Language Parity
+
+父级任务路径：
+`MIR-C99-FULL-SUPPORT-CLI-SUITE`
+`MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-SIGNATURE-COMMON-TYPES`:
+  先扩展 imported extern 的常用 `void` / 整数标量 / `bool` / `byte` / pointer 签名；本轮只覆盖非 aggregate、非 error-union 的 direct extern ABI，让 real CLI 不再把 `tests/test_mem_allocator.uya`、`tests/test_ffi_cast.uya`、`tests/extern_ffi_no_struct.uya` 卡在 `AST_FN_DECL / extern_signature_requires_i32_scalars`。
+  - 最小验证：
+    `bash tests/verify_mir_c99_full_language_extern_signature_common_types.sh`
+  - 完成说明（2026-06-24，本轮）：
+    `src/build_compiler_driver.uya` 为 extern 签名新增 `void` / 常用整数标量 / `bool` / `byte` / pointer 的 AST->MirType 映射，并把 `native_build_hosted_mir_append_extern_signature_type` 从 i32-only 扩展到新的 common-type surface。
+    `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya` 本轮已成功重建 current-source `bin/cmd/build`，随后同步 sibling `../uya/bin/cmd/build`，让固定 `../uya/bin/uya` 的 real CLI 真正加载到本轮源码变更。
+    `tests/test_mem_allocator.uya` 现前移到 `AST_TEST_STMT / test_driver_not_lowered`；`tests/test_ffi_cast.uya` 与 `tests/extern_ffi_no_struct.uya` 现前移到 `PortableMIR verifier 失败: code=16`；三者都不再命中 `extern_signature_requires_i32_scalars`。
+  - 验证：
+    `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`：通过，`bin/cmd/build` 生成成功。
+    `bash tests/verify_mir_c99_full_language_extern_signature_common_types.sh`：通过，输出 `OK: MIR-C99 imported extern signatures no longer stop at extern_signature_requires_i32_scalars`。
+    `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_mem_allocator.uya -o /tmp/uya-mir-c99-mem-repro/out.c`：失败前移到 `AST_TEST_STMT / test_driver_not_lowered`。
+    `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_ffi_cast.uya -o /tmp/uya-mir-c99-sample/out.c`：失败前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`。
+    `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_ffi_no_struct.uya -o /tmp/uya-mir-c99-sample/out.c`：失败前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`。
+    `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/extern_ffi_no_struct.uya`：runner 入口同样前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`，未回退到旧 extern-signature generic。
