@@ -4800,9 +4800,12 @@ struct ASTNode;
 struct Token;
 struct Lexer;
 struct ChunkHeader;
+struct ChunkFooter;
 struct FreeChunk;
 struct HeapRegion;
+struct LargeRegion;
 struct pthread_t;
+struct pthread_heap_cache_t;
 struct pthread_desc;
 struct pthread_registry_entry;
 struct pthread_mutexattr_t;
@@ -6008,6 +6011,10 @@ struct ChunkHeader {
     size_t size;
 };
 
+struct ChunkFooter {
+    size_t size;
+};
+
 struct FreeChunk {
     struct ChunkHeader header;
     struct FreeChunk * prev;
@@ -6020,6 +6027,14 @@ struct HeapRegion {
     size_t size;
 };
 
+struct LargeRegion {
+    struct LargeRegion * next;
+    void * map_base;
+    size_t map_size;
+    size_t user_size;
+    struct ChunkHeader * hdr;
+};
+
 struct pthread_t {
     int64_t tid;
     void * stack;
@@ -6029,6 +6044,15 @@ struct pthread_t {
     void * result;
     void * start_routine;
     void * arg;
+};
+
+struct pthread_heap_cache_t {
+    void * heads[7];
+    size_t counts[7];
+    size_t last_region_start;
+    size_t last_region_end;
+    uint64_t alloc_hit_count;
+    uint64_t alloc_miss_count;
 };
 
 struct pthread_desc {
@@ -6048,6 +6072,7 @@ struct pthread_desc {
     _Atomic(int32_t) cancel_type;
     _Atomic(int32_t) cancel_pending;
     void * * tsd_values;
+    struct pthread_heap_cache_t heap_cache;
 };
 
 struct pthread_registry_entry {
@@ -7999,20 +8024,81 @@ int32_t toascii(int32_t c);
 char * strerror(int32_t errnum);
 static __attribute__((used)) void _heap_lock_acquire();
 static __attribute__((used)) void _heap_lock_release();
+static __attribute__((used)) void heap_debug_note_lock_acquire(bool contended);
+static __attribute__((used)) void heap_debug_note_tcache_alloc_hit(struct pthread_heap_cache_t * cache);
+static __attribute__((used)) void heap_debug_note_tcache_alloc_miss(struct pthread_heap_cache_t * cache);
 static __attribute__((used)) size_t heap_align_up(size_t size);
+static __attribute__((used)) size_t normalize_payload_size(size_t size);
 static __attribute__((used)) bool is_null(void * ptr);
 static __attribute__((used)) struct ChunkHeader * to_header(void * ptr);
 static __attribute__((used)) void * to_user_ptr(struct ChunkHeader * hdr);
+static __attribute__((used)) bool heap_cache_region_hit(struct pthread_heap_cache_t * cache, size_t addr);
+static __attribute__((used)) void heap_cache_record_region(struct pthread_heap_cache_t * cache, struct HeapRegion * region);
+static __attribute__((used)) bool owns_ptr_with_cache(void * ptr, struct pthread_heap_cache_t * cache);
 static __attribute__((used)) bool owns_ptr(void * ptr);
 static __attribute__((used)) bool is_free(struct ChunkHeader * hdr);
+static __attribute__((used)) bool is_tcache(struct ChunkHeader * hdr);
 static __attribute__((used)) void set_free(struct ChunkHeader * hdr, bool free);
+static __attribute__((used)) void set_tcache(struct ChunkHeader * hdr, bool cached);
 static __attribute__((used)) size_t get_size(struct ChunkHeader * hdr);
+static __attribute__((used)) size_t raw_chunk_size(size_t raw);
+static __attribute__((used)) size_t chunk_overhead();
+static __attribute__((used)) size_t chunk_total_for_payload(size_t payload);
+static __attribute__((used)) size_t chunk_payload_capacity(struct ChunkHeader * hdr);
+static __attribute__((used)) bool chunk_uses_tcache(struct ChunkHeader * hdr);
+static __attribute__((used)) size_t bin_index_for_payload(size_t payload_size);
+static __attribute__((used)) size_t bin_index_for_request(size_t requested_payload);
+static __attribute__((used)) size_t bin_index_for_chunk(struct ChunkHeader * hdr);
+size_t libc_heap_debug_last_find_start_bin();
+size_t libc_heap_debug_last_find_steps();
+int32_t libc_heap_debug_last_split_remainder_bin();
+size_t libc_heap_debug_bin_length(size_t bin_index);
+size_t libc_heap_debug_tcache_bin_length(size_t bin_index);
+size_t libc_heap_debug_tcache_total_count();
+size_t libc_heap_debug_large_region_count();
+size_t libc_heap_debug_large_mmap_count();
+size_t libc_heap_debug_large_munmap_count();
+uint64_t libc_heap_debug_lock_acquire_count();
+uint64_t libc_heap_debug_lock_contention_count();
+uint64_t libc_heap_debug_tcache_alloc_hit_count();
+uint64_t libc_heap_debug_tcache_alloc_miss_count();
+static __attribute__((used)) bool request_uses_tcache(size_t size);
+static __attribute__((used)) struct pthread_heap_cache_t * current_thread_heap_cache();
+static __attribute__((used)) struct FreeChunk * tcache_head(struct pthread_heap_cache_t * cache, size_t bin_index);
+static __attribute__((used)) void tcache_set_head(struct pthread_heap_cache_t * cache, size_t bin_index, struct FreeChunk * head);
+static __attribute__((used)) size_t tcache_count(struct pthread_heap_cache_t * cache, size_t bin_index);
+static __attribute__((used)) void tcache_set_count(struct pthread_heap_cache_t * cache, size_t bin_index, size_t count);
+static __attribute__((used)) bool tcache_push_chunk(struct pthread_heap_cache_t * cache, size_t bin_index, struct FreeChunk * chunk);
+static __attribute__((used)) struct FreeChunk * tcache_take_chunk(struct pthread_heap_cache_t * cache, size_t needed);
+static __attribute__((used)) bool tcache_remove_exact_chunk(struct pthread_heap_cache_t * cache, struct ChunkHeader * target);
+static __attribute__((used)) struct ChunkFooter * to_footer(struct ChunkHeader * hdr);
+static __attribute__((used)) void write_footer(struct ChunkHeader * hdr);
+static __attribute__((used)) void set_free_and_footer(struct ChunkHeader * hdr, bool free);
+static __attribute__((used)) void tcache_flush_bin_locked(struct pthread_heap_cache_t * cache, size_t bin_index);
+static __attribute__((used)) void tcache_flush_all_locked(struct pthread_heap_cache_t * cache);
+void libc_heap_flush_current_thread_cache();
+static __attribute__((used)) void * tcache_refill_locked(struct pthread_heap_cache_t * cache, size_t size);
+static __attribute__((used)) bool try_tcache_free_locked(void * ptr);
+static __attribute__((used)) bool try_tcache_free_fast(void * ptr);
 static __attribute__((used)) void remove_free(struct FreeChunk * chunk);
 static __attribute__((used)) void set_prev_link(struct FreeChunk * target, struct FreeChunk * prev);
 static __attribute__((used)) void add_free(struct FreeChunk * chunk);
+static __attribute__((used)) size_t region_start_addr(struct HeapRegion * region);
+static __attribute__((used)) size_t region_end_addr(struct HeapRegion * region);
+static __attribute__((used)) size_t large_region_meta_size();
+static __attribute__((used)) struct LargeRegion * find_large_region(void * ptr);
+static __attribute__((used)) struct LargeRegion * take_large_region(void * ptr);
+static __attribute__((used)) void restore_large_region(struct LargeRegion * region);
+static __attribute__((used)) void unmap_large_region(struct LargeRegion * region);
+static __attribute__((used)) struct HeapRegion * find_region_for_header(struct ChunkHeader * hdr);
+static __attribute__((used)) struct ChunkHeader * next_chunk_in_region(struct HeapRegion * region, struct ChunkHeader * hdr);
+static __attribute__((used)) struct ChunkHeader * prev_chunk_in_region(struct HeapRegion * region, struct ChunkHeader * hdr);
+static __attribute__((used)) struct FreeChunk * merge_free_neighbors(struct HeapRegion * region, struct FreeChunk * chunk);
 static __attribute__((used)) struct ChunkHeader * morecore(size_t needed);
+static __attribute__((used)) void * _malloc_large(size_t requested, size_t aligned);
 static __attribute__((used)) struct FreeChunk * find_chunk(size_t needed);
-static __attribute__((used)) void split_chunk(struct FreeChunk * chunk, size_t needed);
+static __attribute__((used)) void split_allocated_chunk(struct ChunkHeader * hdr, size_t needed);
+static __attribute__((used)) bool try_expand_chunk_in_place(struct ChunkHeader * hdr, size_t needed);
 static __attribute__((used)) void * _malloc_impl(size_t size);
 void * malloc(size_t size);
 static __attribute__((used)) void _free_impl(void * ptr);
@@ -8113,6 +8199,7 @@ static __attribute__((used)) void _pthread_registry_insert(int64_t tid, struct p
 static __attribute__((used)) struct pthread_desc * _pthread_registry_find(int64_t tid);
 static __attribute__((used)) void _pthread_registry_remove(int64_t tid);
 static __attribute__((used)) struct pthread_desc * _pthread_desc_self();
+struct pthread_heap_cache_t * libc_pthread_current_heap_cache();
 static __attribute__((used)) int32_t _pthread_clock_gettime(int32_t clock_id, struct timespec * tp);
 static __attribute__((used)) void _pthread_run_tsd_destructors(struct pthread_desc * desc);
 static __attribute__((used)) void _pthread_thread_exit(struct pthread_desc * desc, void * retval);
@@ -10376,7 +10463,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10413,7 +10500,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -10748,11 +10835,25 @@ __attribute__((used)) const int32_t HEAP_ATOMIC_SEQ_CST = 5;
 
 __attribute__((used)) const size_t MALLOC_ALIGN = 16;
 
-__attribute__((used)) const size_t MIN_CHUNK_SIZE = 64;
+__attribute__((used)) const size_t MIN_CHUNK_SIZE = 32;
 
 __attribute__((used)) const size_t HEAP_PAGE_SIZE = 4096;
 
 __attribute__((used)) const uint64_t CHUNK_MAGIC = ((int64_t)(uint32_t)0xDEADBEEFULL + ((int64_t)(uint32_t)0x0ULL << 32));
+
+__attribute__((used)) const size_t CHUNK_FLAG_FREE = 1;
+
+__attribute__((used)) const size_t CHUNK_FLAG_TCACHE = 2;
+
+__attribute__((used)) const size_t CHUNK_STATE_MASK = (CHUNK_FLAG_FREE | CHUNK_FLAG_TCACHE);
+
+__attribute__((used)) const size_t NUM_BINS = 8;
+
+__attribute__((used)) const size_t TCACHE_MAX_SIZE = 2048;
+
+__attribute__((used)) const size_t TCACHE_BATCH = 8;
+
+__attribute__((used)) const size_t NUM_TCACHE_BINS = 7;
 
 const double libc_E = 2.71828182845904509;
 const double libc_PI = 3.14159265358979311;
@@ -11560,9 +11661,25 @@ __attribute__((used)) size_t g_compiler_arena_failure_request_bytes = 0;
 
 __attribute__((used)) _Atomic(int32_t) _heap_lock = 0;
 
-__attribute__((used)) struct FreeChunk * free_list_head = NULL;
+__attribute__((used)) struct FreeChunk * bins[8] = {0};
 
 __attribute__((used)) struct HeapRegion * heap_regions = NULL;
+
+__attribute__((used)) struct LargeRegion * large_regions = NULL;
+
+__attribute__((used)) size_t _heap_debug_last_find_steps = 0;
+
+__attribute__((used)) size_t _heap_debug_last_find_start_bin = 0;
+
+__attribute__((used)) int32_t _heap_debug_last_split_remainder_bin = (0 - 1);
+
+__attribute__((used)) size_t _heap_debug_large_mmap_count = 0;
+
+__attribute__((used)) size_t _heap_debug_large_munmap_count = 0;
+
+__attribute__((used)) uint64_t _heap_debug_lock_acquire_count = 0ULL;
+
+__attribute__((used)) uint64_t _heap_debug_lock_contention_count = 0ULL;
 
 __attribute__((used)) int32_t _remquo_quo = 0;
 
@@ -11574,7 +11691,7 @@ __attribute__((used)) void * _pthread_start_arg_tmp = NULL;
 
 __attribute__((used)) struct pthread_registry_entry _pthread_registry[1024] = {0};
 
-__attribute__((used)) struct pthread_desc _pthread_main_desc = {.tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .resources_released = 0, .started = 1, .result = NULL, .pub_handle = NULL, .start_routine = NULL, .arg = NULL, .joinstate = 0, .cancel_state = 0, .cancel_type = 0, .cancel_pending = 0, .tsd_values = NULL};
+__attribute__((used)) struct pthread_desc _pthread_main_desc = {.tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .resources_released = 0, .started = 1, .result = NULL, .pub_handle = NULL, .start_routine = NULL, .arg = NULL, .joinstate = 0, .cancel_state = 0, .cancel_type = 0, .cancel_pending = 0, .tsd_values = NULL, .heap_cache = {.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL}};
 
 __attribute__((used)) struct pthread_t _pthread_main_handle = {.tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .result = NULL, .start_routine = NULL, .arg = NULL};
 
@@ -20888,13 +21005,40 @@ __attribute__((used)) char * strerror(int32_t errnum) {
 
 static __attribute__((used)) void _heap_lock_acquire() {
     int32_t expected = 0;
+    bool contended = false;
     while (__atomic_compare_exchange_n((int32_t *)(&_heap_lock), (&expected), 1, 0, HEAP_ATOMIC_SEQ_CST, HEAP_ATOMIC_SEQ_CST) == 0) {
+        contended = true;
         expected = 0;
     }
+    (void)(heap_debug_note_lock_acquire(contended)    );
 }
 
 static __attribute__((used)) void _heap_lock_release() {
     _heap_lock = 0;
+}
+
+static __attribute__((used)) void heap_debug_note_lock_acquire(bool contended) {
+    (void)contended;
+    _heap_debug_lock_acquire_count = (_heap_debug_lock_acquire_count + 1ULL);
+    if (contended) {
+        _heap_debug_lock_contention_count = (_heap_debug_lock_contention_count + 1ULL);
+    }
+}
+
+static __attribute__((used)) void heap_debug_note_tcache_alloc_hit(struct pthread_heap_cache_t * cache) {
+    (void)cache;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    cache->alloc_hit_count = (cache->alloc_hit_count + 1ULL);
+}
+
+static __attribute__((used)) void heap_debug_note_tcache_alloc_miss(struct pthread_heap_cache_t * cache) {
+    (void)cache;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    cache->alloc_miss_count = (cache->alloc_miss_count + 1ULL);
 }
 
 static __attribute__((used)) size_t heap_align_up(size_t size) {
@@ -20915,6 +21059,18 @@ static __attribute__((used)) size_t heap_align_up(size_t size) {
     }
         {
         size_t _uya_ret = ((q + 1) * MALLOC_ALIGN);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t normalize_payload_size(size_t size) {
+    (void)size;
+    size_t aligned = heap_align_up(size);
+    if (aligned < MIN_CHUNK_SIZE) {
+        aligned = MIN_CHUNK_SIZE;
+    }
+        {
+        size_t _uya_ret = aligned;
         return _uya_ret;
         }
 }
@@ -20943,16 +21099,53 @@ static __attribute__((used)) void * to_user_ptr(struct ChunkHeader * hdr) {
         }
 }
 
-static __attribute__((used)) bool owns_ptr(void * ptr) {
+static __attribute__((used)) bool heap_cache_region_hit(struct pthread_heap_cache_t * cache, size_t addr) {
+    (void)cache;
+    (void)addr;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (((cache->last_region_start == 0ULL) || (cache->last_region_end <= cache->last_region_start))) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+        {
+        bool _uya_ret = ((addr >= cache->last_region_start) && (addr < cache->last_region_end));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void heap_cache_record_region(struct pthread_heap_cache_t * cache, struct HeapRegion * region) {
+    (void)cache;
+    (void)region;
+    if (((cache == (struct pthread_heap_cache_t *)NULL) || (region == (struct HeapRegion *)NULL))) {
+        return;
+    }
+    cache->last_region_start = ((size_t)region->base + (int32_t)sizeof(struct ChunkHeader));
+    cache->last_region_end = ((size_t)region->base + region->size);
+}
+
+static __attribute__((used)) bool owns_ptr_with_cache(void * ptr, struct pthread_heap_cache_t * cache) {
     (void)ptr;
+    (void)cache;
     const size_t addr = (size_t)ptr;
+    if (heap_cache_region_hit(cache, addr)) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
     struct HeapRegion * region = heap_regions;
     while ((!is_null((void *)region))) {
-        const size_t base = (size_t)region->base;
-        const size_t size = region->size;
-        const size_t start = (base + (int32_t)sizeof(struct ChunkHeader));
-        const size_t end = (base + size);
+        const size_t start = ((size_t)region->base + (int32_t)sizeof(struct ChunkHeader));
+        const size_t end = ((size_t)region->base + region->size);
         if (((addr >= start) && (addr < end))) {
+            (void)(heap_cache_record_region(cache, region)            );
                         {
                 bool _uya_ret = true;
                 return _uya_ret;
@@ -20966,10 +21159,26 @@ static __attribute__((used)) bool owns_ptr(void * ptr) {
         }
 }
 
+static __attribute__((used)) bool owns_ptr(void * ptr) {
+    (void)ptr;
+        {
+        bool _uya_ret = owns_ptr_with_cache(ptr, current_thread_heap_cache());
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) bool is_free(struct ChunkHeader * hdr) {
     (void)hdr;
         {
-        bool _uya_ret = (((int64_t)hdr->size % (int64_t)2) != 0);
+        bool _uya_ret = ((hdr->size & CHUNK_FLAG_FREE) != 0);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) bool is_tcache(struct ChunkHeader * hdr) {
+    (void)hdr;
+        {
+        bool _uya_ret = ((hdr->size & CHUNK_FLAG_TCACHE) != 0);
         return _uya_ret;
         }
 }
@@ -20977,9 +21186,20 @@ static __attribute__((used)) bool is_free(struct ChunkHeader * hdr) {
 static __attribute__((used)) void set_free(struct ChunkHeader * hdr, bool free) {
     (void)hdr;
     (void)free;
-    size_t base = ((size_t)((int64_t)hdr->size / (int64_t)2) * 2);
+    size_t base = (hdr->size - (hdr->size & CHUNK_STATE_MASK));
     if (free) {
-        hdr->size = (base + 1);
+        hdr->size = (base | CHUNK_FLAG_FREE);
+    } else {
+        hdr->size = base;
+    }
+}
+
+static __attribute__((used)) void set_tcache(struct ChunkHeader * hdr, bool cached) {
+    (void)hdr;
+    (void)cached;
+    size_t base = (hdr->size - (hdr->size & CHUNK_STATE_MASK));
+    if (cached) {
+        hdr->size = (base | CHUNK_FLAG_TCACHE);
     } else {
         hdr->size = base;
     }
@@ -20988,7 +21208,665 @@ static __attribute__((used)) void set_free(struct ChunkHeader * hdr, bool free) 
 static __attribute__((used)) size_t get_size(struct ChunkHeader * hdr) {
     (void)hdr;
         {
-        size_t _uya_ret = ((size_t)((int64_t)hdr->size / (int64_t)2) * 2);
+        size_t _uya_ret = (hdr->size - (hdr->size & CHUNK_STATE_MASK));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t raw_chunk_size(size_t raw) {
+    (void)raw;
+        {
+        size_t _uya_ret = (raw - (raw & CHUNK_STATE_MASK));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t chunk_overhead() {
+        {
+        size_t _uya_ret = ((int32_t)sizeof(struct ChunkHeader) + (int32_t)sizeof(struct ChunkFooter));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t chunk_total_for_payload(size_t payload) {
+    (void)payload;
+        {
+        size_t _uya_ret = heap_align_up((payload + chunk_overhead()));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t chunk_payload_capacity(struct ChunkHeader * hdr) {
+    (void)hdr;
+        {
+        size_t _uya_ret = (get_size(hdr) - chunk_overhead());
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) bool chunk_uses_tcache(struct ChunkHeader * hdr) {
+    (void)hdr;
+        {
+        bool _uya_ret = (get_size(hdr) <= chunk_total_for_payload(TCACHE_MAX_SIZE));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t bin_index_for_payload(size_t payload_size) {
+    (void)payload_size;
+    const size_t size = normalize_payload_size(payload_size);
+    if (size < 64) {
+                {
+            size_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (size < 128) {
+                {
+            size_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (size < 256) {
+                {
+            size_t _uya_ret = 2;
+            return _uya_ret;
+                }
+    }
+    if (size < 512) {
+                {
+            size_t _uya_ret = 3;
+            return _uya_ret;
+                }
+    }
+    if (size < 1024) {
+                {
+            size_t _uya_ret = 4;
+            return _uya_ret;
+                }
+    }
+    if (size < 2048) {
+                {
+            size_t _uya_ret = 5;
+            return _uya_ret;
+                }
+    }
+    if (size < 4096) {
+                {
+            size_t _uya_ret = 6;
+            return _uya_ret;
+                }
+    }
+        {
+        size_t _uya_ret = 7;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t bin_index_for_request(size_t requested_payload) {
+    (void)requested_payload;
+        {
+        size_t _uya_ret = bin_index_for_payload(requested_payload);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t bin_index_for_chunk(struct ChunkHeader * hdr) {
+    (void)hdr;
+        {
+        size_t _uya_ret = bin_index_for_payload(chunk_payload_capacity(hdr));
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_last_find_start_bin() {
+        {
+        size_t _uya_ret = _heap_debug_last_find_start_bin;
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_last_find_steps() {
+        {
+        size_t _uya_ret = _heap_debug_last_find_steps;
+        return _uya_ret;
+        }
+}
+
+int32_t libc_heap_debug_last_split_remainder_bin() {
+        {
+        int32_t _uya_ret = _heap_debug_last_split_remainder_bin;
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_bin_length(size_t bin_index) {
+    (void)bin_index;
+    if (bin_index >= NUM_BINS) {
+                {
+            size_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    size_t len = 0;
+    struct FreeChunk * cur = bins[bin_index];
+    while ((!is_null((void *)cur))) {
+        len = (len + 1);
+        cur = cur->next;
+    }
+    if (bin_index < NUM_TCACHE_BINS) {
+        len = (len + tcache_count(current_thread_heap_cache(), bin_index));
+    }
+        {
+        size_t _uya_ret = len;
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_tcache_bin_length(size_t bin_index) {
+    (void)bin_index;
+    if (bin_index >= NUM_TCACHE_BINS) {
+                {
+            size_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+        {
+        size_t _uya_ret = tcache_count(current_thread_heap_cache(), bin_index);
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_tcache_total_count() {
+    size_t total = 0ULL;
+    size_t bin_index = 0ULL;
+    while (bin_index < NUM_TCACHE_BINS) {
+        total = (total + tcache_count(current_thread_heap_cache(), bin_index));
+        bin_index = (bin_index + 1ULL);
+    }
+        {
+        size_t _uya_ret = total;
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_large_region_count() {
+    size_t len = 0;
+    struct LargeRegion * cur = large_regions;
+    while ((!is_null((void *)cur))) {
+        len = (len + 1);
+        cur = cur->next;
+    }
+        {
+        size_t _uya_ret = len;
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_large_mmap_count() {
+        {
+        size_t _uya_ret = _heap_debug_large_mmap_count;
+        return _uya_ret;
+        }
+}
+
+size_t libc_heap_debug_large_munmap_count() {
+        {
+        size_t _uya_ret = _heap_debug_large_munmap_count;
+        return _uya_ret;
+        }
+}
+
+uint64_t libc_heap_debug_lock_acquire_count() {
+        {
+        uint64_t _uya_ret = _heap_debug_lock_acquire_count;
+        return _uya_ret;
+        }
+}
+
+uint64_t libc_heap_debug_lock_contention_count() {
+        {
+        uint64_t _uya_ret = _heap_debug_lock_contention_count;
+        return _uya_ret;
+        }
+}
+
+uint64_t libc_heap_debug_tcache_alloc_hit_count() {
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            uint64_t _uya_ret = 0ULL;
+            return _uya_ret;
+                }
+    }
+        {
+        uint64_t _uya_ret = cache->alloc_hit_count;
+        return _uya_ret;
+        }
+}
+
+uint64_t libc_heap_debug_tcache_alloc_miss_count() {
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            uint64_t _uya_ret = 0ULL;
+            return _uya_ret;
+                }
+    }
+        {
+        uint64_t _uya_ret = cache->alloc_miss_count;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) bool request_uses_tcache(size_t size) {
+    (void)size;
+        {
+        bool _uya_ret = (normalize_payload_size(size) <= TCACHE_MAX_SIZE);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct pthread_heap_cache_t * current_thread_heap_cache() {
+        {
+        struct pthread_heap_cache_t * _uya_ret = libc_pthread_current_heap_cache();
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct FreeChunk * tcache_head(struct pthread_heap_cache_t * cache, size_t bin_index) {
+    (void)cache;
+    (void)bin_index;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            struct FreeChunk * _uya_ret = (struct FreeChunk *)NULL;
+            return _uya_ret;
+                }
+    }
+    if (bin_index >= NUM_TCACHE_BINS) {
+                {
+            struct FreeChunk * _uya_ret = (struct FreeChunk *)NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct FreeChunk * _uya_ret = (struct FreeChunk *)cache->heads[bin_index];
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void tcache_set_head(struct pthread_heap_cache_t * cache, size_t bin_index, struct FreeChunk * head) {
+    (void)cache;
+    (void)bin_index;
+    (void)head;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    if (bin_index >= NUM_TCACHE_BINS) {
+        return;
+    }
+    cache->heads[bin_index] = (void *)head;
+}
+
+static __attribute__((used)) size_t tcache_count(struct pthread_heap_cache_t * cache, size_t bin_index) {
+    (void)cache;
+    (void)bin_index;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            size_t _uya_ret = 0ULL;
+            return _uya_ret;
+                }
+    }
+    if (bin_index >= NUM_TCACHE_BINS) {
+                {
+            size_t _uya_ret = 0ULL;
+            return _uya_ret;
+                }
+    }
+        {
+        size_t _uya_ret = cache->counts[bin_index];
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void tcache_set_count(struct pthread_heap_cache_t * cache, size_t bin_index, size_t count) {
+    (void)cache;
+    (void)bin_index;
+    (void)count;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    if (bin_index >= NUM_TCACHE_BINS) {
+        return;
+    }
+    cache->counts[bin_index] = count;
+}
+
+static __attribute__((used)) bool tcache_push_chunk(struct pthread_heap_cache_t * cache, size_t bin_index, struct FreeChunk * chunk) {
+    (void)cache;
+    (void)bin_index;
+    (void)chunk;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (chunk == (struct FreeChunk *)NULL) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (bin_index >= NUM_TCACHE_BINS) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    (void)(set_tcache((&chunk->header), true)    );
+    (void)(write_footer((&chunk->header))    );
+    chunk->prev = NULL;
+    chunk->next = tcache_head(cache, bin_index);
+    (void)(set_prev_link(chunk->next, chunk)    );
+    (void)(tcache_set_head(cache, bin_index, chunk)    );
+    (void)(tcache_set_count(cache, bin_index, (tcache_count(cache, bin_index) + 1ULL))    );
+        {
+        bool _uya_ret = true;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct FreeChunk * tcache_take_chunk(struct pthread_heap_cache_t * cache, size_t needed) {
+    (void)cache;
+    (void)needed;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            struct FreeChunk * _uya_ret = (struct FreeChunk *)NULL;
+            return _uya_ret;
+                }
+    }
+    const size_t needed_payload = normalize_payload_size(needed);
+    size_t bin_index = bin_index_for_request(needed_payload);
+    _heap_debug_last_find_start_bin = bin_index;
+    _heap_debug_last_find_steps = 0ULL;
+    while (bin_index < NUM_TCACHE_BINS) {
+        struct FreeChunk * prev = NULL;
+        struct FreeChunk * cur = tcache_head(cache, bin_index);
+        while ((!is_null((void *)cur))) {
+            _heap_debug_last_find_steps = (_heap_debug_last_find_steps + 1ULL);
+            if (chunk_payload_capacity((&cur->header)) >= needed_payload) {
+                if ((!is_null((void *)prev))) {
+                    prev->next = cur->next;
+                } else {
+                    (void)(tcache_set_head(cache, bin_index, cur->next)                    );
+                }
+                if ((!is_null((void *)cur->next))) {
+                    cur->next->prev = prev;
+                }
+                cur->prev = NULL;
+                cur->next = NULL;
+                (void)(tcache_set_count(cache, bin_index, (tcache_count(cache, bin_index) - 1ULL))                );
+                (void)(set_tcache((&cur->header), false)                );
+                (void)(write_footer((&cur->header))                );
+                                {
+                    struct FreeChunk * _uya_ret = cur;
+                    return _uya_ret;
+                                }
+            }
+            prev = cur;
+            cur = cur->next;
+        }
+        bin_index = (bin_index + 1ULL);
+    }
+        {
+        struct FreeChunk * _uya_ret = (struct FreeChunk *)NULL;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) bool tcache_remove_exact_chunk(struct pthread_heap_cache_t * cache, struct ChunkHeader * target) {
+    (void)cache;
+    (void)target;
+    if (((cache == (struct pthread_heap_cache_t *)NULL) || (target == (struct ChunkHeader *)NULL))) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    size_t bin_index = 0ULL;
+    while (bin_index < NUM_TCACHE_BINS) {
+        struct FreeChunk * prev = NULL;
+        struct FreeChunk * cur = tcache_head(cache, bin_index);
+        while ((!is_null((void *)cur))) {
+            if ((uintptr_t)((void *)cur) == (uintptr_t)((void *)target)) {
+                if ((!is_null((void *)prev))) {
+                    prev->next = cur->next;
+                } else {
+                    (void)(tcache_set_head(cache, bin_index, cur->next)                    );
+                }
+                if ((!is_null((void *)cur->next))) {
+                    cur->next->prev = prev;
+                }
+                cur->prev = NULL;
+                cur->next = NULL;
+                (void)(tcache_set_count(cache, bin_index, (tcache_count(cache, bin_index) - 1ULL))                );
+                (void)(set_tcache((&cur->header), false)                );
+                                {
+                    bool _uya_ret = true;
+                    return _uya_ret;
+                                }
+            }
+            prev = cur;
+            cur = cur->next;
+        }
+        bin_index = (bin_index + 1ULL);
+    }
+        {
+        bool _uya_ret = false;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct ChunkFooter * to_footer(struct ChunkHeader * hdr) {
+    (void)hdr;
+    const size_t sz = get_size(hdr);
+        {
+        struct ChunkFooter * _uya_ret = (struct ChunkFooter *)(((uint8_t *)hdr + sz) - (int32_t)sizeof(struct ChunkFooter));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void write_footer(struct ChunkHeader * hdr) {
+    (void)hdr;
+    struct ChunkFooter * footer = to_footer(hdr);
+    footer->size = hdr->size;
+}
+
+static __attribute__((used)) void set_free_and_footer(struct ChunkHeader * hdr, bool free) {
+    (void)hdr;
+    (void)free;
+    (void)(set_free(hdr, free)    );
+    (void)(write_footer(hdr)    );
+}
+
+static __attribute__((used)) void tcache_flush_bin_locked(struct pthread_heap_cache_t * cache, size_t bin_index) {
+    (void)cache;
+    (void)bin_index;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    if (bin_index >= NUM_TCACHE_BINS) {
+        return;
+    }
+    struct FreeChunk * cur = tcache_head(cache, bin_index);
+    (void)(tcache_set_head(cache, bin_index, (struct FreeChunk *)NULL)    );
+    (void)(tcache_set_count(cache, bin_index, 0ULL)    );
+    while ((!is_null((void *)cur))) {
+        struct FreeChunk * const next = cur->next;
+        cur->prev = NULL;
+        cur->next = NULL;
+        (void)(_free_impl(to_user_ptr((&cur->header)))        );
+        cur = next;
+    }
+}
+
+static __attribute__((used)) void tcache_flush_all_locked(struct pthread_heap_cache_t * cache) {
+    (void)cache;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    size_t bin_index = 0ULL;
+    while (bin_index < NUM_TCACHE_BINS) {
+        if (tcache_count(cache, bin_index) > 0ULL) {
+            (void)(tcache_flush_bin_locked(cache, bin_index)            );
+        }
+        bin_index = (bin_index + 1ULL);
+    }
+}
+
+void libc_heap_flush_current_thread_cache() {
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+        return;
+    }
+    (void)(_heap_lock_acquire()    );
+    (void)(tcache_flush_all_locked(cache)    );
+    (void)(_heap_lock_release()    );
+}
+
+static __attribute__((used)) void * tcache_refill_locked(struct pthread_heap_cache_t * cache, size_t size) {
+    (void)cache;
+    (void)size;
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            void * _uya_ret = _malloc_impl(size);
+            return _uya_ret;
+                }
+    }
+        {
+        void * _uya_ret = _malloc_impl(size);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) bool try_tcache_free_locked(void * ptr) {
+    (void)ptr;
+    if (is_null(ptr)) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    if ((!is_null((void *)find_large_region(ptr)))) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if ((!owns_ptr(ptr))) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    struct ChunkHeader * const hdr = to_header(ptr);
+    if (hdr->magic != CHUNK_MAGIC) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    if ((is_free(hdr) || is_tcache(hdr))) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    if ((!chunk_uses_tcache(hdr))) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    const size_t bin_index = bin_index_for_chunk(hdr);
+    if (bin_index >= NUM_TCACHE_BINS) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (tcache_count(cache, bin_index) >= TCACHE_BATCH) {
+        (void)(tcache_flush_bin_locked(cache, bin_index)        );
+    }
+        {
+        bool _uya_ret = tcache_push_chunk(cache, bin_index, (struct FreeChunk *)hdr);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) bool try_tcache_free_fast(void * ptr) {
+    (void)ptr;
+    if (is_null(ptr)) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    if (cache == (struct pthread_heap_cache_t *)NULL) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    struct ChunkHeader * const hdr = to_header(ptr);
+    if (hdr->magic != CHUNK_MAGIC) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if ((is_free(hdr) || is_tcache(hdr))) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    if ((!chunk_uses_tcache(hdr))) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if ((!owns_ptr_with_cache(ptr, cache))) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    const size_t bin_index = bin_index_for_chunk(hdr);
+    if (bin_index >= NUM_TCACHE_BINS) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (tcache_count(cache, bin_index) >= TCACHE_BATCH) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+        {
+        bool _uya_ret = tcache_push_chunk(cache, bin_index, (struct FreeChunk *)hdr);
         return _uya_ret;
         }
 }
@@ -20998,14 +21876,20 @@ static __attribute__((used)) void remove_free(struct FreeChunk * chunk) {
     if (is_null((void *)chunk)) {
         return;
     }
+    const size_t bin_index = bin_index_for_chunk((&chunk->header));
+    if (bin_index >= NUM_BINS) {
+        return;
+    }
     if ((!is_null((void *)chunk->prev))) {
         chunk->prev->next = chunk->next;
     } else {
-        free_list_head = chunk->next;
+        bins[bin_index] = chunk->next;
     }
     if ((!is_null((void *)chunk->next))) {
         chunk->next->prev = chunk->prev;
     }
+    chunk->prev = NULL;
+    chunk->next = NULL;
 }
 
 static __attribute__((used)) void set_prev_link(struct FreeChunk * target, struct FreeChunk * prev) {
@@ -21022,16 +21906,223 @@ static __attribute__((used)) void add_free(struct FreeChunk * chunk) {
     if (is_null((void *)chunk)) {
         return;
     }
-    (void)(set_free((&chunk->header), true)    );
+    (void)(set_free_and_footer((&chunk->header), true)    );
+    const size_t bin_index = bin_index_for_chunk((&chunk->header));
+    if (bin_index >= NUM_BINS) {
+        return;
+    }
     chunk->prev = NULL;
-    chunk->next = free_list_head;
-    (void)(set_prev_link(free_list_head, chunk)    );
-    free_list_head = chunk;
+    chunk->next = bins[bin_index];
+    (void)(set_prev_link(bins[bin_index], chunk)    );
+    bins[bin_index] = chunk;
+}
+
+static __attribute__((used)) size_t region_start_addr(struct HeapRegion * region) {
+    (void)region;
+        {
+        size_t _uya_ret = (size_t)region->base;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t region_end_addr(struct HeapRegion * region) {
+    (void)region;
+        {
+        size_t _uya_ret = ((size_t)region->base + region->size);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t large_region_meta_size() {
+        {
+        size_t _uya_ret = heap_align_up((int32_t)sizeof(struct LargeRegion));
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct LargeRegion * find_large_region(void * ptr) {
+    (void)ptr;
+    struct LargeRegion * region = large_regions;
+    while ((!is_null((void *)region))) {
+        if (to_user_ptr(region->hdr) == ptr) {
+                        {
+                struct LargeRegion * _uya_ret = region;
+                return _uya_ret;
+                        }
+        }
+        region = region->next;
+    }
+        {
+        struct LargeRegion * _uya_ret = NULL;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct LargeRegion * take_large_region(void * ptr) {
+    (void)ptr;
+    struct LargeRegion * prev = NULL;
+    struct LargeRegion * region = large_regions;
+    while ((!is_null((void *)region))) {
+        if (to_user_ptr(region->hdr) == ptr) {
+            if (is_null((void *)prev)) {
+                large_regions = region->next;
+            } else {
+                prev->next = region->next;
+            }
+            region->next = NULL;
+                        {
+                struct LargeRegion * _uya_ret = region;
+                return _uya_ret;
+                        }
+        }
+        prev = region;
+        region = region->next;
+    }
+        {
+        struct LargeRegion * _uya_ret = NULL;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void restore_large_region(struct LargeRegion * region) {
+    (void)region;
+    if (is_null((void *)region)) {
+        return;
+    }
+    region->next = large_regions;
+    large_regions = region;
+}
+
+static __attribute__((used)) void unmap_large_region(struct LargeRegion * region) {
+    (void)region;
+    if (is_null((void *)region)) {
+        return;
+    }
+    struct err_union_int32_t result = sys_munmap(region->map_base, region->map_size);
+    (void)(({ struct err_union_int32_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+        (void)(restore_large_region(region)        );
+        return;
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })    );
+    _heap_debug_large_munmap_count = (_heap_debug_large_munmap_count + 1);
+}
+
+static __attribute__((used)) struct HeapRegion * find_region_for_header(struct ChunkHeader * hdr) {
+    (void)hdr;
+    const size_t addr = (size_t)hdr;
+    struct HeapRegion * region = heap_regions;
+    while ((!is_null((void *)region))) {
+        if (((addr >= region_start_addr(region)) && (addr < region_end_addr(region)))) {
+                        {
+                struct HeapRegion * _uya_ret = region;
+                return _uya_ret;
+                        }
+        }
+        region = region->next;
+    }
+        {
+        struct HeapRegion * _uya_ret = NULL;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct ChunkHeader * next_chunk_in_region(struct HeapRegion * region, struct ChunkHeader * hdr) {
+    (void)region;
+    (void)hdr;
+    const size_t next_addr = ((size_t)hdr + get_size(hdr));
+    if (next_addr >= region_end_addr(region)) {
+                {
+            struct ChunkHeader * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct ChunkHeader * _uya_ret = (struct ChunkHeader *)next_addr;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct ChunkHeader * prev_chunk_in_region(struct HeapRegion * region, struct ChunkHeader * hdr) {
+    (void)region;
+    (void)hdr;
+    const size_t base = region_start_addr(region);
+    const size_t addr = (size_t)hdr;
+    if (addr == base) {
+                {
+            struct ChunkHeader * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    struct ChunkFooter * footer = (struct ChunkFooter *)((uint8_t *)hdr - (int32_t)sizeof(struct ChunkFooter));
+    const size_t prev_sz = raw_chunk_size(footer->size);
+    if (prev_sz < chunk_total_for_payload(MIN_CHUNK_SIZE)) {
+                {
+            struct ChunkHeader * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    if (addr < (base + prev_sz)) {
+                {
+            struct ChunkHeader * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct ChunkHeader * _uya_ret = (struct ChunkHeader *)((uint8_t *)hdr - prev_sz);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct FreeChunk * merge_free_neighbors(struct HeapRegion * region, struct FreeChunk * chunk) {
+    (void)region;
+    (void)chunk;
+    struct FreeChunk * merged = chunk;
+    struct ChunkHeader * merged_hdr = (&merged->header);
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    (void)(set_free_and_footer(merged_hdr, true)    );
+    while (true) {
+        struct ChunkHeader * next_hdr = next_chunk_in_region(region, merged_hdr);
+        if ((((!is_null((void *)next_hdr)) && (next_hdr->magic == CHUNK_MAGIC)) && is_free(next_hdr))) {
+            (void)(remove_free((struct FreeChunk *)next_hdr)            );
+            merged_hdr->magic = CHUNK_MAGIC;
+            merged_hdr->size = (get_size(merged_hdr) + get_size(next_hdr));
+            (void)(set_free_and_footer(merged_hdr, true)            );
+            continue;
+        }
+        if (((((!is_null((void *)next_hdr)) && (next_hdr->magic == CHUNK_MAGIC)) && is_tcache(next_hdr)) && tcache_remove_exact_chunk(cache, next_hdr))) {
+            merged_hdr->magic = CHUNK_MAGIC;
+            merged_hdr->size = (get_size(merged_hdr) + get_size(next_hdr));
+            (void)(set_free_and_footer(merged_hdr, true)            );
+            continue;
+        }
+        struct ChunkHeader * prev_hdr = prev_chunk_in_region(region, merged_hdr);
+        if ((((!is_null((void *)prev_hdr)) && (prev_hdr->magic == CHUNK_MAGIC)) && is_free(prev_hdr))) {
+            (void)(remove_free((struct FreeChunk *)prev_hdr)            );
+            prev_hdr->magic = CHUNK_MAGIC;
+            prev_hdr->size = (get_size(prev_hdr) + get_size(merged_hdr));
+            (void)(set_free_and_footer(prev_hdr, true)            );
+            merged = (struct FreeChunk *)prev_hdr;
+            merged_hdr = prev_hdr;
+            continue;
+        }
+        if (((((!is_null((void *)prev_hdr)) && (prev_hdr->magic == CHUNK_MAGIC)) && is_tcache(prev_hdr)) && tcache_remove_exact_chunk(cache, prev_hdr))) {
+            prev_hdr->magic = CHUNK_MAGIC;
+            prev_hdr->size = (get_size(prev_hdr) + get_size(merged_hdr));
+            (void)(set_free_and_footer(prev_hdr, true)            );
+            merged = (struct FreeChunk *)prev_hdr;
+            merged_hdr = prev_hdr;
+            continue;
+        }
+        break;
+    }
+        {
+        struct FreeChunk * _uya_ret = merged;
+        return _uya_ret;
+        }
 }
 
 static __attribute__((used)) struct ChunkHeader * morecore(size_t needed) {
     (void)needed;
-    size_t alloc_size = (needed + (int32_t)sizeof(struct ChunkHeader));
+    size_t alloc_size = chunk_total_for_payload(needed);
     if (alloc_size < HEAP_PAGE_SIZE) {
         alloc_size = HEAP_PAGE_SIZE;
     }
@@ -21054,7 +22145,7 @@ static __attribute__((used)) struct ChunkHeader * morecore(size_t needed) {
     struct ChunkHeader * hdr = (struct ChunkHeader *)((uint8_t *)mapped + region_size_aligned);
     hdr->magic = CHUNK_MAGIC;
     hdr->size = alloc_size;
-    (void)(set_free(hdr, true)    );
+    (void)(set_free_and_footer(hdr, true)    );
     region->base = hdr;
     region->size = alloc_size;
     region->next = heap_regions;
@@ -21068,18 +22159,64 @@ static __attribute__((used)) struct ChunkHeader * morecore(size_t needed) {
         }
 }
 
+static __attribute__((used)) void * _malloc_large(size_t requested, size_t aligned) {
+    (void)requested;
+    (void)aligned;
+    const size_t meta_size = large_region_meta_size();
+    const size_t total = ((meta_size + (int32_t)sizeof(struct ChunkHeader)) + aligned);
+    struct err_union_voidptr result = sys_mmap((void *)NULL, total, (libc_PROT_READ | libc_PROT_WRITE), (libc_MAP_PRIVATE | libc_MAP_ANONYMOUS), (0 - 1), 0);
+    void * const mapped = ({ struct err_union_voidptr _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            void * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    if (mapped == NULL) {
+                {
+            void * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    struct LargeRegion * region = (struct LargeRegion *)mapped;
+    struct ChunkHeader * hdr = (struct ChunkHeader *)((uint8_t *)mapped + meta_size);
+    hdr->magic = CHUNK_MAGIC;
+    hdr->size = (aligned + (int32_t)sizeof(struct ChunkHeader));
+    (void)(set_free(hdr, false)    );
+    region->map_base = mapped;
+    region->map_size = total;
+    region->user_size = requested;
+    region->hdr = hdr;
+    region->next = large_regions;
+    large_regions = region;
+    _heap_debug_large_mmap_count = (_heap_debug_large_mmap_count + 1);
+        {
+        void * _uya_ret = to_user_ptr(hdr);
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) struct FreeChunk * find_chunk(size_t needed) {
     (void)needed;
-    struct FreeChunk * cur = free_list_head;
-    while ((!is_null((void *)cur))) {
-        size_t sz = get_size((&cur->header));
-        if (sz >= (needed + (int32_t)sizeof(struct ChunkHeader))) {
-                        {
-                struct FreeChunk * _uya_ret = cur;
-                return _uya_ret;
-                        }
+    const size_t needed_payload = normalize_payload_size(needed);
+    const size_t needed_total = chunk_total_for_payload(needed_payload);
+    const size_t start_bin = bin_index_for_request(needed_payload);
+    _heap_debug_last_find_start_bin = start_bin;
+    _heap_debug_last_find_steps = 0;
+    size_t bin_index = start_bin;
+    while (bin_index < NUM_BINS) {
+        struct FreeChunk * cur = bins[bin_index];
+        while ((!is_null((void *)cur))) {
+            _heap_debug_last_find_steps = (_heap_debug_last_find_steps + 1);
+            size_t sz = get_size((&cur->header));
+            if (sz >= needed_total) {
+                                {
+                    struct FreeChunk * _uya_ret = cur;
+                    return _uya_ret;
+                                }
+            }
+            cur = cur->next;
         }
-        cur = cur->next;
+        bin_index = (bin_index + 1);
     }
         {
         struct FreeChunk * _uya_ret = NULL;
@@ -21087,27 +22224,85 @@ static __attribute__((used)) struct FreeChunk * find_chunk(size_t needed) {
         }
 }
 
-static __attribute__((used)) void split_chunk(struct FreeChunk * chunk, size_t needed) {
-    (void)chunk;
+static __attribute__((used)) void split_allocated_chunk(struct ChunkHeader * hdr, size_t needed) {
+    (void)hdr;
     (void)needed;
-    struct ChunkHeader * hdr = (&chunk->header);
+    _heap_debug_last_split_remainder_bin = (0 - 1);
     size_t sz = get_size(hdr);
-    size_t alloc_size = (needed + (int32_t)sizeof(struct ChunkHeader));
+    size_t alloc_payload = normalize_payload_size(needed);
+    size_t alloc_size = chunk_total_for_payload(alloc_payload);
     size_t rem = (sz - alloc_size);
-    if (rem >= (MIN_CHUNK_SIZE + (int32_t)sizeof(struct ChunkHeader))) {
+    if (rem >= chunk_total_for_payload(MIN_CHUNK_SIZE)) {
         hdr->size = alloc_size;
-        if (is_free(hdr)) {
-            hdr->size = (alloc_size + 1);
-        }
+        (void)(write_footer(hdr)        );
         struct ChunkHeader * new_hdr = (struct ChunkHeader *)((uint8_t *)hdr + alloc_size);
         new_hdr->magic = CHUNK_MAGIC;
         new_hdr->size = rem;
-        (void)(set_free(new_hdr, true)        );
+        (void)(set_free_and_footer(new_hdr, true)        );
         struct FreeChunk * new_chunk = (struct FreeChunk *)new_hdr;
         new_chunk->prev = NULL;
         new_chunk->next = NULL;
         (void)(add_free(new_chunk)        );
+        _heap_debug_last_split_remainder_bin = (int32_t)bin_index_for_chunk(new_hdr);
     }
+}
+
+static __attribute__((used)) bool try_expand_chunk_in_place(struct ChunkHeader * hdr, size_t needed) {
+    (void)hdr;
+    (void)needed;
+    struct HeapRegion * const region = find_region_for_header(hdr);
+    if (is_null((void *)region)) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+    const size_t current_total = get_size(hdr);
+    const size_t needed_total = chunk_total_for_payload(needed);
+    if (current_total >= needed_total) {
+                {
+            bool _uya_ret = true;
+            return _uya_ret;
+                }
+    }
+    struct ChunkHeader * const next_hdr = next_chunk_in_region(region, hdr);
+    if (is_null((void *)next_hdr)) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (next_hdr->magic != CHUNK_MAGIC) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    const size_t merged_total = (current_total + get_size(next_hdr));
+    if (merged_total < needed_total) {
+                {
+            bool _uya_ret = false;
+            return _uya_ret;
+                }
+    }
+    if (is_free(next_hdr)) {
+        (void)(remove_free((struct FreeChunk *)next_hdr)        );
+    } else {
+        if (((!is_tcache(next_hdr)) || (!tcache_remove_exact_chunk(cache, next_hdr)))) {
+                        {
+                bool _uya_ret = false;
+                return _uya_ret;
+                        }
+        }
+    }
+    hdr->size = merged_total;
+    (void)(set_free_and_footer(hdr, false)    );
+    (void)(split_allocated_chunk(hdr, needed)    );
+        {
+        bool _uya_ret = true;
+        return _uya_ret;
+        }
 }
 
 static __attribute__((used)) void * _malloc_impl(size_t size) {
@@ -21118,9 +22313,13 @@ static __attribute__((used)) void * _malloc_impl(size_t size) {
             return _uya_ret;
                 }
     }
-    size_t aligned = heap_align_up(size);
-    if (aligned < MIN_CHUNK_SIZE) {
-        aligned = MIN_CHUNK_SIZE;
+    _heap_debug_last_split_remainder_bin = (0 - 1);
+    const size_t aligned = normalize_payload_size(size);
+    if (aligned >= HEAP_PAGE_SIZE) {
+                {
+            void * _uya_ret = _malloc_large(size, aligned);
+            return _uya_ret;
+                }
     }
     struct FreeChunk * chunk = find_chunk(aligned);
     if (is_null((void *)chunk)) {
@@ -21141,8 +22340,8 @@ static __attribute__((used)) void * _malloc_impl(size_t size) {
                 }
     }
     (void)(remove_free(chunk)    );
-    (void)(set_free((&chunk->header), false)    );
-    (void)(split_chunk(chunk, aligned)    );
+    (void)(set_free_and_footer((&chunk->header), false)    );
+    (void)(split_allocated_chunk((&chunk->header), aligned)    );
         {
         void * _uya_ret = to_user_ptr((&chunk->header));
         return _uya_ret;
@@ -21151,7 +22350,35 @@ static __attribute__((used)) void * _malloc_impl(size_t size) {
 
 __attribute__((used)) void * malloc(size_t size) {
     (void)size;
+    if (size == 0) {
+                {
+            void * _uya_ret = NULL;
+            return _uya_ret;
+                }
+    }
+    if (request_uses_tcache(size)) {
+        struct pthread_heap_cache_t * const cache = current_thread_heap_cache();
+        if (cache != (struct pthread_heap_cache_t *)NULL) {
+            struct FreeChunk * const cached = tcache_take_chunk(cache, size);
+            if ((!is_null((void *)cached))) {
+                (void)(heap_debug_note_tcache_alloc_hit(cache)                );
+                                {
+                    void * _uya_ret = to_user_ptr((&cached->header));
+                    return _uya_ret;
+                                }
+            }
+            (void)(heap_debug_note_tcache_alloc_miss(cache)            );
+            (void)(_heap_lock_acquire()            );
+            void * const result_tcache = tcache_refill_locked(cache, size);
+            (void)(_heap_lock_release()            );
+                        {
+                void * _uya_ret = result_tcache;
+                return _uya_ret;
+                        }
+        }
+    }
     (void)(_heap_lock_acquire()    );
+    (void)(tcache_flush_all_locked(current_thread_heap_cache())    );
     void * const result = _malloc_impl(size);
     (void)(_heap_lock_release()    );
         {
@@ -21165,6 +22392,11 @@ static __attribute__((used)) void _free_impl(void * ptr) {
     if (is_null(ptr)) {
         return;
     }
+    struct LargeRegion * large = take_large_region(ptr);
+    if ((!is_null((void *)large))) {
+        (void)(unmap_large_region(large)        );
+        return;
+    }
     if ((!owns_ptr(ptr))) {
         return;
     }
@@ -21172,14 +22404,27 @@ static __attribute__((used)) void _free_impl(void * ptr) {
     if (hdr->magic != CHUNK_MAGIC) {
         return;
     }
+    if (is_free(hdr)) {
+        return;
+    }
+    struct HeapRegion * region = find_region_for_header(hdr);
+    if (is_null((void *)region)) {
+        return;
+    }
     struct FreeChunk * chunk = (struct FreeChunk *)hdr;
-    (void)(add_free(chunk)    );
+    struct FreeChunk * merged = merge_free_neighbors(region, chunk);
+    (void)(add_free(merged)    );
 }
 
 __attribute__((used)) void free(void * ptr) {
     (void)ptr;
+    if (try_tcache_free_fast(ptr)) {
+        return;
+    }
     (void)(_heap_lock_acquire()    );
-    (void)(_free_impl(ptr)    );
+    if ((!try_tcache_free_locked(ptr))) {
+        (void)(_free_impl(ptr)        );
+    }
     (void)(_heap_lock_release()    );
 }
 
@@ -21200,6 +22445,26 @@ static __attribute__((used)) void * _realloc_impl(void * ptr, size_t size) {
             return _uya_ret;
                 }
     }
+    struct LargeRegion * large_region = find_large_region(ptr);
+    if ((!is_null((void *)large_region))) {
+        void * new_ptr_large = _malloc_impl(size);
+        if (is_null(new_ptr_large)) {
+                        {
+                void * _uya_ret = NULL;
+                return _uya_ret;
+                        }
+        }
+        size_t copy_len = size;
+        if (large_region->user_size < copy_len) {
+            copy_len = large_region->user_size;
+        }
+        (void)((uint8_t *)memcpy((char *)(uint8_t *)new_ptr_large, (const char *)(const uint8_t *)ptr, copy_len));
+        (void)(_free_impl(ptr)        );
+                {
+            void * _uya_ret = new_ptr_large;
+            return _uya_ret;
+                }
+    }
     if ((!owns_ptr(ptr))) {
                 {
             void * _uya_ret = NULL;
@@ -21213,8 +22478,15 @@ static __attribute__((used)) void * _realloc_impl(void * ptr, size_t size) {
             return _uya_ret;
                 }
     }
-    size_t old_sz = (get_size(hdr) - (int32_t)sizeof(struct ChunkHeader));
+    size_t old_sz = chunk_payload_capacity(hdr);
     if (size <= old_sz) {
+                {
+            void * _uya_ret = ptr;
+            return _uya_ret;
+                }
+    }
+    const size_t needed = normalize_payload_size(size);
+    if (try_expand_chunk_in_place(hdr, needed)) {
                 {
             void * _uya_ret = ptr;
             return _uya_ret;
@@ -21239,6 +22511,9 @@ __attribute__((used)) void * realloc(void * ptr, size_t size) {
     (void)ptr;
     (void)size;
     (void)(_heap_lock_acquire()    );
+    if ((!request_uses_tcache(size))) {
+        (void)(tcache_flush_all_locked(current_thread_heap_cache())        );
+    }
     void * const result = _realloc_impl(ptr, size);
     (void)(_heap_lock_release()    );
         {
@@ -23230,6 +24505,7 @@ __attribute__((used)) char * memchr(const char * s, int32_t c, size_t n) {
 
 
 
+
 static __attribute__((used,noinline)) void * _pthread_call_start(void * start_fn, void * start_arg) {
     (void)start_fn;
     (void)start_arg;
@@ -23322,6 +24598,21 @@ static __attribute__((used)) struct pthread_desc * _pthread_desc_self() {
         }
 }
 
+struct pthread_heap_cache_t * libc_pthread_current_heap_cache() {
+    (void)(libc_pthread_self());
+    struct pthread_desc * const desc = _pthread_desc_self();
+    if (desc == NULL) {
+                {
+            struct pthread_heap_cache_t * _uya_ret = (struct pthread_heap_cache_t *)NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct pthread_heap_cache_t * _uya_ret = (&desc->heap_cache);
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t _pthread_clock_gettime(int32_t clock_id, struct timespec * tp) {
     (void)clock_id;
     (void)tp;
@@ -23375,6 +24666,7 @@ static __attribute__((used)) void _pthread_thread_exit(struct pthread_desc * des
     if (desc != NULL) {
         desc->result = retval;
         (void)(_pthread_run_tsd_destructors(desc)        );
+        (void)(libc_heap_flush_current_thread_cache()        );
         __atomic_store_n((int32_t *)&(desc->exited), 1, __ATOMIC_SEQ_CST);
         while (true) {
             const int32_t state = __atomic_load_n((int32_t *)&(desc->joinstate), __ATOMIC_SEQ_CST);
@@ -23602,6 +24894,7 @@ __attribute__((used)) int32_t libc_pthread_create(struct pthread_t * thread, con
     __atomic_store_n((int32_t *)&(desc->cancel_type), libc_PTHREAD_CANCEL_DEFERRED, __ATOMIC_SEQ_CST);
     __atomic_store_n((int32_t *)&(desc->cancel_pending), 0, __ATOMIC_SEQ_CST);
     desc->tsd_values = NULL;
+    desc->heap_cache = (struct pthread_heap_cache_t){.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL};
     (void)(libc_pthread_mutex_lock((&_pthread_create_mutex)));
     _pthread_child_desc = desc;
     int64_t tid = 0;
@@ -166116,7 +167409,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -167363,7 +168656,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -167607,7 +168900,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_391543956_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

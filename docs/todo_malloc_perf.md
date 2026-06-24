@@ -13,12 +13,6 @@
 
 完成某项后把对应 `- [ ]` 改为 `- [x]`。阶段级 checkbox 只有在该阶段所有任务、测试和性能记录都完成后再勾选。
 
-- [ ] 收口验证
-  已归档：`make check` 已于 2026-06-25 通过，验证记录见 `docs/todo_malloc_perf_completed.md`
-  - [ ] 需要提交时按仓库规则运行 `make clean && make backup-all`
-
----
-
 ## 概述
 
 本文档基于对 `lib/libc/heap.uya` 完整实现的性能审计，列出了当前 malloc/free/realloc 实现的性能瓶颈与优化任务。当前实现采用 **mmap + size-segregated 双向自由链表 + 全局自旋锁** 策略，在单线程场景下可正常工作，但在多线程、长时间运行、或大量小对象场景下仍存在显著性能问题。

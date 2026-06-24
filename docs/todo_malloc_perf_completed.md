@@ -326,3 +326,13 @@
     验证结果：`ok: docs/todo_malloc_perf.md has 0 active tasks`
     验证命令：`git diff --check`
     验证结果：通过
+## 2026-06-25 收口验证
+
+路径：`## 可勾选执行清单`
+
+- [x] 收口验证
+  已归档：`make check` 已于 2026-06-25 通过，验证记录见 `docs/todo_malloc_perf_completed.md`
+  - [x] 需要提交时按仓库规则运行 `make clean && make backup-all`
+    验证命令：`make clean`；`make backup-all`
+    验证结果：两者均退出码 `0`。`make backup-all` 完成自举、全量验证、`backup/uyacache` 备份，以及 `backup/uya.c`、`backup/uya-linux-x86_64.c`、`backup/uya-hosted.c`、`backup/uya-hosted-linux-x86_64.c`、`backup/uya-hosted-macos-arm64.c`、`backup/uya-hosted-macos-x86_64.c`、`backup/uya-hosted-macos.c` 刷新。
+    关键摘要：`UPM`、`exec vm`、`microapp`、`@syscall C99`、`SIMD C99 NEON`、`http_bench C99` 通过；`benchmarks/http_bench_async_epoll.uya` 按脚本提示未启用检查而跳过。
