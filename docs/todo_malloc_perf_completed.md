@@ -194,3 +194,15 @@
     - 验证：`../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`，随后执行 `./tests/build/bench_malloc_phase2_current`；输出 `budget8_rounds=64`、`peak_mmap_count=1`、`inplace_hit_rate_pct=100`、`copy_bytes=0`。
     - 验证：先执行 `git worktree add --detach ../uya_stage1_bench bee7df32`，再执行 `env UYA_ROOT=../uya_stage1_bench/lib ../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_baseline`，随后执行 `./tests/build/bench_malloc_phase2_baseline`；输出 `budget8_rounds=7`、`peak_mmap_count=65`、`inplace_hit_rate_pct=0`、`copy_bytes=4032000`。
     - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（当前实现 1/1 通过）。
+
+## 阶段 3：分配速度优化
+- [x] Task 3.1：实现 size-segregated free lists
+  - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya` 通过（4 个 bin 行为/large-path 测试）。
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过。
+  - 验证：`../uya/bin/uya test tests/programs/test_heap.uya` 通过。
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib.uya` 通过。
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc_only.uya` 通过。
+  - 验证：`../uya/bin/uya test tests/malloc_test.uya` 通过（12 个 malloc 综合用例）。
+  - 验证：`../uya/bin/uya test tests/test_mem_allocator.uya` 通过（8 个 allocator 用例）。
+  - 验证：`../uya/bin/uya test tests/test_stdlib.uya` 通过。
+  - 验证：`../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_current` 成功；随后执行 `./tests/build/bench_malloc_phase3_current`，输出 `malloc_phase3_random ops=10000 allocs=5120 frees=4880 peak_active=255 elapsed_ns=8444787 avg_ns=844 checksum=5856720`。

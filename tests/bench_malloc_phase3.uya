@@ -1,0 +1,142 @@
+// bench_malloc_phase3.uya - 阶段 3 size-segregated bins 随机分配/释放基准
+// 输出：
+//   1. 10000 次随机大小 alloc/free 操作总耗时（ns）
+//   2. 平均每次操作耗时（ns）
+//   3. 分配/释放计数与峰值活跃槽位
+
+use std.runtime.entry;
+use libc.malloc;
+use libc.free;
+use libc.sys_clock_gettime;
+use libc.CLOCK_MONOTONIC;
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+
+const BENCH_OPS: i32 = 10000;
+const BENCH_SLOT_COUNT: usize = 256;
+const BENCH_CLASS_COUNT: usize = 8;
+const BENCH_SIZE_CLASSES: [usize: BENCH_CLASS_COUNT] = [
+    32usize, 64usize, 128usize, 256usize,
+    512usize, 1024usize, 2048usize, 4096usize,
+];
+
+fn bench_now_ns() u64 {
+    var ts: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    const now_result: !i32 = sys_clock_gettime(CLOCK_MONOTONIC, &ts);
+    _ = now_result catch {
+        return 0u64;
+    };
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return 0u64;
+    }
+    return (ts.tv_sec as u64) * (1000000000 as u64) + (ts.tv_nsec as u64);
+}
+
+fn bench_elapsed_ns(start_ns: u64, end_ns: u64) u64 {
+    if end_ns <= start_ns {
+        return 0u64;
+    }
+    return end_ns - start_ns;
+}
+
+fn bench_next_rand(state: &u64) u64 {
+    state[0] = state[0] * 6364136223846793005u64 + 1u64;
+    return state[0];
+}
+
+fn bench_pick_size(state: &u64) usize {
+    const idx: usize = (bench_next_rand(state) % (BENCH_CLASS_COUNT as u64)) as usize;
+    if idx >= BENCH_CLASS_COUNT { return BENCH_SIZE_CLASSES[0]; }
+    return BENCH_SIZE_CLASSES[idx];
+}
+
+fn bench_pick_slot(state: &u64) usize {
+    return (bench_next_rand(state) % (BENCH_SLOT_COUNT as u64)) as usize;
+}
+
+fn run_random_alloc_free_bench(elapsed_ns: &u64, alloc_count: &i32, free_count: &i32, peak_active: &i32, checksum: &u64) i32 {
+    var ptrs: [&void: BENCH_SLOT_COUNT] = [];
+    var sizes: [usize: BENCH_SLOT_COUNT] = [];
+    var rng: u64 = 0x123456789ABCDEFu64;
+    var active: i32 = 0;
+
+    alloc_count[0] = 0;
+    free_count[0] = 0;
+    peak_active[0] = 0;
+    checksum[0] = 0u64;
+
+    const start_ns: u64 = bench_now_ns();
+
+    var op: i32 = 0;
+    while op < BENCH_OPS {
+        const slot: usize = bench_pick_slot(&rng);
+        if slot >= BENCH_SLOT_COUNT {
+            return 2;
+        }
+        if ptrs[slot] == null {
+            const size: usize = bench_pick_size(&rng);
+            const ptr: &void = malloc(size);
+            if ptr == null {
+                return 1;
+            }
+
+            var bytes: &byte = ptr as &byte;
+            bytes[0] = ((size + slot) % 251usize) as byte;
+            ptrs[slot] = ptr;
+            sizes[slot] = size;
+            alloc_count[0] = alloc_count[0] + 1;
+            active = active + 1;
+            if active > peak_active[0] {
+                peak_active[0] = active;
+            }
+        } else {
+            var bytes: &byte = ptrs[slot] as &byte;
+            checksum[0] = checksum[0] + (bytes[0] as u64) + (sizes[slot] as u64);
+            free(ptrs[slot]);
+            ptrs[slot] = null;
+            sizes[slot] = 0usize;
+            free_count[0] = free_count[0] + 1;
+            active = active - 1;
+        }
+        op = op + 1;
+    }
+
+    const end_ns: u64 = bench_now_ns();
+    elapsed_ns[0] = bench_elapsed_ns(start_ns, end_ns);
+
+    var slot: usize = 0usize;
+    while slot < BENCH_SLOT_COUNT {
+        if ptrs[slot] != null {
+            var bytes: &byte = ptrs[slot] as &byte;
+            checksum[0] = checksum[0] + (bytes[0] as u64) + (sizes[slot] as u64);
+            free(ptrs[slot]);
+        }
+        slot = slot + 1usize;
+    }
+
+    return 0;
+}
+
+export fn main() i32 {
+    var elapsed_ns: u64 = 0u64;
+    var alloc_count: i32 = 0;
+    var free_count: i32 = 0;
+    var peak_active: i32 = 0;
+    var checksum: u64 = 0u64;
+
+    const rc: i32 = run_random_alloc_free_bench(&elapsed_ns, &alloc_count, &free_count, &peak_active, &checksum);
+    if rc != 0 {
+        printf("bench_malloc_phase3: rc=%d\n" as *byte, rc);
+        return 1;
+    }
+
+    printf("malloc_phase3_random ops=%d allocs=%d frees=%d peak_active=%d elapsed_ns=%lu avg_ns=%lu checksum=%lu\n" as *byte,
+           BENCH_OPS,
+           alloc_count,
+           free_count,
+           peak_active,
+           elapsed_ns,
+           elapsed_ns / (BENCH_OPS as u64),
+           checksum);
+    return 0;
+}

@@ -4,7 +4,7 @@
 
 本文档记录了 Uya 语言 libc 内存分配器的 musl 风格实现方案。
 
-## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-24）- musl 风格空闲链表
+## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-24）- musl 风格 size-segregated bins
 
 ### 核心特性
 
@@ -32,8 +32,8 @@ struct FreeChunk {
 当前实现已经引入 footer。`hdr.size` 记录整个 chunk 的总字节数，覆盖 `ChunkHeader + 用户可写区域/空闲链表覆盖区 + ChunkFooter`，并继续使用最低位标记 free 状态。`chunk_overhead()` 固定为 `16B header + 8B footer = 24B`，`chunk_total_for_payload()` 对 `payload + 24B` 再做 16 字节对齐，因此当前最小 chunk 总大小是 `heap_align_up(32 + 24) = 64B`。这意味着最小分配块虽然请求/归一化 payload 为 32B，但实际可写空间为 `64 - 24 = 40B`；空闲时其中前 16B 被 `prev/next` 链表指针复用。
 
 **malloc:**
-- 使用空闲链表管理已释放的内存块
-- 首次适配算法查找合适大小的块
+- 使用 8 个按 payload size class 分箱的空闲链表管理已释放的内存块
+- 从目标 bin 起跳，按 bin 从小到大执行首次适配
 - 块分割：大块使用时分割剩余部分回到空闲链表
 - 按需扩展：没有合适块时使用 mmap 扩展堆
 
@@ -126,7 +126,7 @@ fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
 
 ```
 1. 对齐大小到 16 字节
-2. 查找空闲链表（首次适配）
+2. 计算目标 size class，从对应 bin 起跳查找空闲链表（首次适配）
 3. 如果没有合适块：
    - 调用 mmap 扩展堆
    - 添加到空闲链表
@@ -157,9 +157,9 @@ fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
 3. ✅ **boundary tag footer + 块合并**：已实现
 
 ### 长期
-1. **更优 free list 策略**：如 size-segregated free lists，降低首次适配扫描成本
-2. **最佳适配算法**：代替首次适配
-3. **多个空闲链表**：按大小分类（类似 musl）
+1. **最佳适配算法**：在 bin 内进一步减少碎片和扫描成本
+2. **大块 mmap/munmap 快速路径**：让 `>=4096` 请求不污染普通堆 bins
+3. **per-thread cache**：降低多线程场景的全局锁竞争
 
 ## 测试验证
 

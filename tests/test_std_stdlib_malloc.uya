@@ -138,6 +138,39 @@ export fn main() i32 {
 
         free(grown);
     }
+
+    // ============================================================
+    // 测试 6: >=4096 的普通堆 chunk 在 Task 3.2 前仍可 free/realloc
+    // ============================================================
+    {
+        const large: &void = malloc(4096);
+        if large == null {
+            return 16;
+        }
+
+        var large_bytes: &byte = large as &byte;
+        large_bytes[0] = 90 as byte;
+        large_bytes[4095usize] = 91 as byte;
+
+        const grown_large: &void = realloc(large, 5000);
+        if grown_large == null {
+            free(large);
+            return 17;
+        }
+
+        var grown_large_bytes: &byte = grown_large as &byte;
+        if grown_large_bytes[0] != 90 as byte || grown_large_bytes[4095usize] != 91 as byte {
+            free(grown_large);
+            return 18;
+        }
+        grown_large_bytes[4999usize] = 92 as byte;
+        if grown_large_bytes[4999usize] != 92 as byte {
+            free(grown_large);
+            return 19;
+        }
+
+        free(grown_large);
+    }
     
     return 0;  // 所有测试通过
 }

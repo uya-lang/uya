@@ -33,6 +33,7 @@ const MIN_CHUNK_SIZE: usize = 32;
 const HEAP_PAGE_SIZE: usize = 4096;
 const CHUNK_MAGIC: u64 = 3735928559;  // 0xDEADBEEF
 const CHUNK_FLAG_FREE: usize = 1;
+const NUM_BINS: usize = 8;
 
 struct ChunkHeader {
     magic: u64,
@@ -55,9 +56,12 @@ struct HeapRegion {
     size: usize,
 }
 
-var free_list_head: &FreeChunk = null;
+var bins: [&FreeChunk: NUM_BINS] = [];
 var heap_regions: &HeapRegion = null;
 var _last_region_hit: &HeapRegion = null;
+var _heap_debug_last_find_steps: usize = 0;
+var _heap_debug_last_find_start_bin: usize = 0;
+var _heap_debug_last_split_remainder_bin: i32 = 0 - 1;
 
 // 勿命名 align_up：与 std/mem/arena 的两参数 align_up 合并后会解析错误
 fn heap_align_up(size: usize) usize {
@@ -68,7 +72,7 @@ fn heap_align_up(size: usize) usize {
     return (q + 1) * MALLOC_ALIGN;
 }
 
-fn normalized_payload_size(size: usize) usize {
+fn normalize_payload_size(size: usize) usize {
     var aligned: usize = heap_align_up(size);
     if aligned < MIN_CHUNK_SIZE { aligned = MIN_CHUNK_SIZE; }
     return aligned;
@@ -139,6 +143,58 @@ fn chunk_total_for_payload(payload: usize) usize {
     return heap_align_up(payload + chunk_overhead());
 }
 
+fn chunk_payload_capacity(hdr: &ChunkHeader) usize {
+    return get_size(hdr) - chunk_overhead();
+}
+
+fn bin_index_for_payload(payload_size: usize) usize {
+    const size: usize = normalize_payload_size(payload_size);
+    if size < 64 { return 0; }
+    if size < 128 { return 1; }
+    if size < 256 { return 2; }
+    if size < 512 { return 3; }
+    if size < 1024 { return 4; }
+    if size < 2048 { return 5; }
+    if size < 4096 { return 6; }
+    return 7;
+}
+
+fn bin_index_for_request(requested_payload: usize) usize {
+    return bin_index_for_payload(requested_payload);
+}
+
+fn bin_index_for_chunk(hdr: &ChunkHeader) usize {
+    return bin_index_for_payload(chunk_payload_capacity(hdr));
+}
+
+/// 返回值：上一次 `find_chunk` 从哪个 bin 起跳。
+export fn heap_debug_last_find_start_bin() usize {
+    return _heap_debug_last_find_start_bin;
+}
+
+/// 返回值：上一次 `find_chunk` 实际检查的 free chunk 数量。
+export fn heap_debug_last_find_steps() usize {
+    return _heap_debug_last_find_steps;
+}
+
+/// 返回值：上一次 split 产生的剩余 chunk 所在 bin；若未 split 则返回 -1。
+export fn heap_debug_last_split_remainder_bin() i32 {
+    return _heap_debug_last_split_remainder_bin;
+}
+
+/// 返回值：指定 bin 当前链表中的 free chunk 数量；越界索引返回 0。
+export fn heap_debug_bin_length(bin_index: usize) usize {
+    if bin_index >= NUM_BINS { return 0; }
+
+    var len: usize = 0;
+    var cur: &FreeChunk = bins[bin_index];
+    while !is_null(cur as &void) {
+        len = len + 1;
+        cur = cur.next;
+    }
+    return len;
+}
+
 fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
     const sz: usize = get_size(hdr);
     return (((hdr as &byte) + sz - @size_of(ChunkFooter)) as &ChunkFooter);
@@ -156,14 +212,18 @@ fn set_free_and_footer(hdr: &ChunkHeader, free: bool) void {
 
 fn remove_free(chunk: &FreeChunk) void {
     if is_null(chunk as &void) { return; }
+    const bin_index: usize = bin_index_for_chunk(&chunk.header);
+    if bin_index >= NUM_BINS { return; }
     if !is_null(chunk.prev as &void) {
         chunk.prev.next = chunk.next;
     } else {
-        free_list_head = chunk.next;
+        bins[bin_index] = chunk.next;
     }
     if !is_null(chunk.next as &void) {
         chunk.next.prev = chunk.prev;
     }
+    chunk.prev = null;
+    chunk.next = null;
 }
 
 fn set_prev_link(target: &FreeChunk, prev: &FreeChunk) void {
@@ -174,10 +234,12 @@ fn set_prev_link(target: &FreeChunk, prev: &FreeChunk) void {
 fn add_free(chunk: &FreeChunk) void {
     if is_null(chunk as &void) { return; }
     set_free_and_footer(&chunk.header, true);
+    const bin_index: usize = bin_index_for_chunk(&chunk.header);
+    if bin_index >= NUM_BINS { return; }
     chunk.prev = null;
-    chunk.next = free_list_head;
-    set_prev_link(free_list_head, chunk);
-    free_list_head = chunk;
+    chunk.next = bins[bin_index];
+    set_prev_link(bins[bin_index], chunk);
+    bins[bin_index] = chunk;
 }
 
 fn region_start_addr(region: &HeapRegion) usize {
@@ -282,21 +344,33 @@ fn morecore(needed: usize) &ChunkHeader {
 }
 
 fn find_chunk(needed: usize) &FreeChunk {
-    const needed_total: usize = chunk_total_for_payload(needed);
-    var cur: &FreeChunk = free_list_head;
-    while !is_null(cur as &void) {
-        var sz: usize = get_size(&cur.header);
-        if sz >= needed_total {
-            return cur;
+    const needed_payload: usize = normalize_payload_size(needed);
+    const needed_total: usize = chunk_total_for_payload(needed_payload);
+    const start_bin: usize = bin_index_for_request(needed_payload);
+    _heap_debug_last_find_start_bin = start_bin;
+    _heap_debug_last_find_steps = 0;
+
+    var bin_index: usize = start_bin;
+    while bin_index < NUM_BINS {
+        var cur: &FreeChunk = bins[bin_index];
+        while !is_null(cur as &void) {
+            _heap_debug_last_find_steps = _heap_debug_last_find_steps + 1;
+            var sz: usize = get_size(&cur.header);
+            if sz >= needed_total {
+                return cur;
+            }
+            cur = cur.next;
         }
-        cur = cur.next;
+        bin_index = bin_index + 1;
     }
     return null;
 }
 
 fn split_allocated_chunk(hdr: &ChunkHeader, needed: usize) void {
+    _heap_debug_last_split_remainder_bin = 0 - 1;
     var sz: usize = get_size(hdr);
-    var alloc_size: usize = chunk_total_for_payload(needed);
+    var alloc_payload: usize = normalize_payload_size(needed);
+    var alloc_size: usize = chunk_total_for_payload(alloc_payload);
     var rem: usize = sz - alloc_size;
 
     if rem >= chunk_total_for_payload(MIN_CHUNK_SIZE) {
@@ -312,6 +386,7 @@ fn split_allocated_chunk(hdr: &ChunkHeader, needed: usize) void {
         new_chunk.prev = null;
         new_chunk.next = null;
         add_free(new_chunk);
+        _heap_debug_last_split_remainder_bin = bin_index_for_chunk(new_hdr) as i32;
     }
 }
 
@@ -340,7 +415,8 @@ fn try_expand_chunk_in_place(hdr: &ChunkHeader, needed: usize) bool {
 fn _malloc_impl(size: usize) &void {
     if size == 0 { return null; }
 
-    const aligned: usize = normalized_payload_size(size);
+    _heap_debug_last_split_remainder_bin = 0 - 1;
+    const aligned: usize = normalize_payload_size(size);
 
     var chunk: &FreeChunk = find_chunk(aligned);
 
@@ -403,10 +479,10 @@ fn _realloc_impl(ptr: &void, size: usize) &void {
     var hdr: &ChunkHeader = to_header(ptr);
     if hdr.magic != CHUNK_MAGIC { return null; }
 
-    var old_sz: usize = get_size(hdr) - chunk_overhead();
+    var old_sz: usize = chunk_payload_capacity(hdr);
     if size <= old_sz { return ptr; }
 
-    const needed: usize = normalized_payload_size(size);
+    const needed: usize = normalize_payload_size(size);
     if try_expand_chunk_in_place(hdr, needed) {
         return ptr;
     }
