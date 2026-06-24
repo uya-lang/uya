@@ -1821,3 +1821,22 @@ Context:
       - `bash tests/verify_mir_c99_full_language_extern_capability_reject.sh`：通过，确认旧 `tests/assignment.uya` extern focused gate 未回归。
       - `bash tests/verify_portable_mir_language_coverage.sh`：通过。
       - `git diff --check -- src/build_compiler_driver.uya tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh docs/portable_mir_language_coverage.md docs/todo_mir_c99_backend.md`：通过。
+## 4.15 Full Language Parity
+Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET-NEXT`:
+  让首个 `错误: MIR-C99 unit output 写出失败` real CLI 用例收敛为具体
+  capability diagnostic 或真实支持。
+  - 最小验证：
+    - `bash tests/verify_mir_c99_full_language_unit_output_first_bucket.sh`
+  - 完成条件：
+    - fixed `../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o <tmp>.c`
+      不再停在通用 `错误: MIR-C99 unit output 写出失败`，而是稳定输出
+      `mir_c99_capability_diagnostic: kind=AST_CATCH_EXPR reason=catch_return_not_lowered`。
+  - 验证（2026-06-24，本轮）：
+    - `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o <tmp>/cmd-build.fresh --no-split-c --project-root "$PWD/src/"`：通过；fresh `cmd/build` 已安装到 sibling `../uya/bin/cmd/build`，使 mandated fixed CLI 命中本轮源码。
+    - `bash tests/verify_mir_c99_full_language_unit_output_first_bucket.sh`
+      => `OK: MIR-C99 first unit-output bucket fails closed with a stable AST_CATCH_EXPR diagnostic`
+    - `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
+      => `OK: MIR-C99 first verifier bucket fails closed with a stable real-CLI verifier diagnostic`
+    - `git diff --check -- src/build_compiler_driver.uya docs/portable_mir_language_coverage.md docs/todo_mir_c99_backend.md tests/verify_mir_c99_full_language_unit_output_first_bucket.sh`：通过。

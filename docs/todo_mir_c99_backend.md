@@ -156,9 +156,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `AST_FN_DECL / extern_signature_requires_i32_scalars`
         （`lib/libc/errno.uya:145`），focused gate=
         `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET-NEXT`:
-      让首个 `错误: MIR-C99 unit output 写出失败` real CLI 用例收敛为具体
-      capability diagnostic 或真实支持。
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VERIFIER-FIRST-BUCKET-NEXT`:
       固定首个 `PortableMIR verifier 失败` real CLI 用例和 focused gate，避免后续修复
       继续淹没在主语言全量输出中。
