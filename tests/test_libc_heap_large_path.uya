@@ -107,3 +107,37 @@ test "heap_large_realloc_to_small_returns_normal_chunk_and_unmaps_large_region" 
 
     free(shrunk);
 }
+
+test "heap_near_threshold_normal_chunk_does_not_use_large_region_metadata" {
+    const before_regions: usize = heap_debug_large_region_count();
+    const before_mmaps: usize = heap_debug_large_mmap_count();
+    const before_munmaps: usize = heap_debug_large_munmap_count();
+
+    // 4080 payload 仍走普通堆路径，但 chunk total 会超过 4 KiB。
+    const ptr: &void = try alloc_checked(4000usize);
+    try assert_true(heap_debug_large_region_count() == before_regions);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps);
+
+    const bytes: &byte = ptr as &byte;
+    bytes[0] = 101 as byte;
+    bytes[3999usize] = 102 as byte;
+
+    const grown: &void = realloc(ptr, 4080usize);
+    try expect(grown != null);
+    try assert_true(heap_debug_large_region_count() == before_regions);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps);
+
+    const grown_bytes: &byte = grown as &byte;
+    try assert_true(grown_bytes[0] == 101 as byte);
+    try assert_true(grown_bytes[3999usize] == 102 as byte);
+    grown_bytes[4079usize] = 103 as byte;
+    try assert_true(grown_bytes[4079usize] == 103 as byte);
+
+    free(grown);
+
+    try assert_true(heap_debug_large_region_count() == before_regions);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps);
+}

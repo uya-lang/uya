@@ -222,13 +222,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 **bin 口径**：上表统一表示“对齐后的用户 payload size class”，不是 `ChunkHeader + payload + footer` 的 chunk total size。阶段 2 引入 footer 后，最小 payload 仍是 32，但最小 chunk total 会变成 `chunk_total_for_payload(32)`；bin 0 不能因为直接传入 chunk total 而空置。所有入口必须先用同一组转换函数归一化，禁止在 `find_chunk`、`add_free/remove_free`、`split_chunk` 中混用 payload size 与 chunk total size。
 
-**实现要点**：
-
-- [ ] **大块快速路径不在本任务实现**：Task 3.1 只负责把仍由普通堆管理的 chunk 放入正确 bin；`>=4096` 的 chunk 在 Task 3.2 完成前继续走普通堆顶层 bin/现有 `morecore` 路径，不能在这里绕过 `owns_ptr()` 直接 mmap/munmap。
-
-- **验收标准**:
-  - [ ] 在 Task 3.2 未完成时，`>=4096` 的普通堆 chunk 仍能正常 `free/realloc`，不会被错误地当作独立 mmap 块处理
-
 ---
 
 ## 阶段 4：多线程扩展（预计 5-10 天）

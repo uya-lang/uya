@@ -670,3 +670,18 @@
     - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya` 通过（4 个测试，83 个断言）
     - 验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya` 通过（1 个测试，9 个断言）
     - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（测试模块通过）
+
+## 阶段 3：分配速度优化（预计 3-5 天）
+
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+
+父级任务路径：**实现要点** → **验收标准**
+父级 checkbox：`[ ] **大块快速路径不在本任务实现**：Task 3.1 只负责把仍由普通堆管理的 chunk 放入正确 bin；`>=4096` 的 chunk 在 Task 3.2 完成前继续走普通堆顶层 bin/现有 `morecore` 路径，不能在这里绕过 `owns_ptr()` 直接 mmap/munmap。`
+
+  - [x] 在 Task 3.2 未完成时，`>=4096` 的普通堆 chunk 仍能正常 `free/realloc`，不会被错误地当作独立 mmap 块处理
+    - 实现说明：新增 `tests/test_libc_heap_large_path.uya` 的 near-threshold 回归，用 `malloc(4000)` + `realloc(..., 4080)` 覆盖“payload 仍走普通堆、chunk total 已超过 4 KiB”的边界，并校验 `heap_debug_large_region_count/heap_debug_large_mmap_count/heap_debug_large_munmap_count` 在 alloc/realloc/free 前后都不变化。
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_large_path.uya`（通过，4 个测试，55 个断言）
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya tests/test_libc_heap_large_path.uya tests/test_std_stdlib_malloc.uya`（通过，8 个测试，138 个断言）
+    - 验证：`git diff --check -- docs/todo_malloc_perf.md tests/test_libc_heap_large_path.uya`（通过）
+    - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_malloc_perf.md`（通过，输出 `ok: docs/todo_malloc_perf.md has 0 active tasks`）
+    - 说明：当前 `lib/libc/heap.uya` 已包含 Task 3.2 的 large mmap 路径；本轮未修改生产代码，只补阶段 3 遗留边界回归并完成 todo 收口。
