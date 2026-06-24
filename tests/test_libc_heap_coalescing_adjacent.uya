@@ -13,6 +13,7 @@ const MAX_ATTEMPTS: usize = 16usize;
 const GUARD_TOTAL_SIZE: usize = 64usize;
 const BLOCK_A_TOTAL_SIZE: usize = 1568usize;
 const BLOCK_B_TOTAL_SIZE: usize = 1056usize;
+const STABILITY_ROUNDS: usize = 2048usize;
 
 const TRIPLE_BLOCK_A_SIZE: usize = 768usize;
 const TRIPLE_BLOCK_B_SIZE: usize = 1024usize;
@@ -86,6 +87,40 @@ fn verify_ab_roundtrip(block_a: &void, block_b: &void, merged: &void, free_left_
     const merged_again: &void = try alloc_checked(MERGED_REQUEST_SIZE);
     try assert(@usize_from_ptr(merged_again) == @usize_from_ptr(block_a), "re-merged allocation must reuse original A address");
     free_and_flush(merged_again);
+}
+
+fn run_ab_stability_rounds(block_a: &void, block_b: &void) !void {
+    var round: usize = 0usize;
+    var current_a: &void = block_a;
+    var current_b: &void = block_b;
+
+    while round < STABILITY_ROUNDS {
+        const free_left_first: bool = (round % 2usize) != 0usize;
+        if free_left_first {
+            free(current_a);
+            free(current_b);
+        } else {
+            free(current_b);
+            free(current_a);
+        }
+
+        const merged: &void = try alloc_checked(MERGED_REQUEST_SIZE);
+        try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_a), "long-run merged allocation must reuse original A address");
+
+        free(merged);
+
+        current_a = try alloc_checked(BLOCK_A_SIZE);
+        try assert(@usize_from_ptr(current_a) == @usize_from_ptr(block_a), "long-run split block A must reuse original A address");
+
+        current_b = try alloc_checked(BLOCK_B_SIZE);
+        try assert(@usize_from_ptr(current_b) == @usize_from_ptr(block_b), "long-run split block B must reuse original B address");
+
+        round = round + 1usize;
+    }
+
+    free(current_b);
+    free(current_a);
+    heap_flush_current_thread_cache();
 }
 
 fn verify_abc_roundtrip(block_a: &void, block_b: &void, block_c: &void, merged: &void) !void {
@@ -276,6 +311,55 @@ test "heap_coalesces_middle_chunk_with_both_free_neighbors_and_roundtrips_cleanl
             free_if_non_null(blocks_a[cleanup_i]);
             free_if_non_null(blocks_b[cleanup_i]);
             free_if_non_null(blocks_c[cleanup_i]);
+            free_if_non_null(fills[cleanup_i]);
+        }
+        cleanup_i = cleanup_i + 1usize;
+    }
+    heap_flush_current_thread_cache();
+}
+
+test "heap_coalescing_stays_stable_under_long_fragmentation_pressure" {
+    heap_flush_current_thread_cache();
+
+    var guards: [&void: MAX_ATTEMPTS] = [];
+    var blocks_a: [&void: MAX_ATTEMPTS] = [];
+    var blocks_b: [&void: MAX_ATTEMPTS] = [];
+    var fills: [&void: MAX_ATTEMPTS] = [];
+    var found: bool = false;
+    var found_index: usize = 0usize;
+
+    var i: usize = 0usize;
+    while i < MAX_ATTEMPTS {
+        guards[i] = try alloc_checked(GUARD_LEFT_SIZE);
+        blocks_a[i] = try alloc_checked(BLOCK_A_SIZE);
+        blocks_b[i] = try alloc_checked(BLOCK_B_SIZE);
+        fills[i] = try alloc_checked(FILL_TAIL_SIZE);
+        if matches_guard_ab_fill_layout(guards[i], blocks_a[i], blocks_b[i], fills[i]) {
+            found = true;
+            found_index = i;
+            break;
+        }
+        i = i + 1usize;
+    }
+
+    try assert(found, "failed to carve an exact guard/A/B/fill page layout for long-run stability");
+
+    const guard_left: &void = guards[found_index];
+    const block_a: &void = blocks_a[found_index];
+    const block_b: &void = blocks_b[found_index];
+    const fill_tail: &void = fills[found_index];
+
+    try run_ab_stability_rounds(block_a, block_b);
+
+    free_and_flush(fill_tail);
+    free_and_flush(guard_left);
+
+    var cleanup_i: usize = 0usize;
+    while cleanup_i < MAX_ATTEMPTS {
+        if cleanup_i != found_index {
+            free_if_non_null(guards[cleanup_i]);
+            free_if_non_null(blocks_a[cleanup_i]);
+            free_if_non_null(blocks_b[cleanup_i]);
             free_if_non_null(fills[cleanup_i]);
         }
         cleanup_i = cleanup_i + 1usize;

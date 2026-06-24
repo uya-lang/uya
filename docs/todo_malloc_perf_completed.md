@@ -476,3 +476,54 @@
       - `../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`：通过（1 test，9 assertions）
       - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：通过（3 tests，75 assertions）
       - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（exit 0）
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+
+- [x] **重写 `_free_impl`**：释放时检查前后邻居并合并：
+   ```uya
+   fn _free_impl(ptr: &void) void {
+       if is_null(ptr) { return; }
+       if !owns_ptr(ptr) { return; }
+
+       var hdr: &ChunkHeader = to_header(ptr);
+       if hdr.magic != CHUNK_MAGIC { return; }
+       var region: &HeapRegion = find_region_for_header(hdr);
+       if is_null(region as &void) { return; }
+
+       set_free(hdr, true);
+       write_footer(hdr);
+
+       // 尝试合并后一个 chunk
+       var next: &ChunkHeader = next_chunk_in_region(region, hdr);
+       if !is_null(next as &void) && next.magic == CHUNK_MAGIC && is_free(next) {
+           // 合并：扩大当前 chunk，从自由链表移除 next
+           remove_free(next as &FreeChunk);
+           hdr.size = get_size(hdr) + get_size(next);
+           set_free(hdr, true);
+           write_footer(hdr);
+       }
+
+       // 尝试合并前一个 chunk
+       var prev: &ChunkHeader = prev_chunk_in_region(region, hdr);
+       if !is_null(prev as &void) && prev.magic == CHUNK_MAGIC && is_free(prev) {
+           remove_free(prev as &FreeChunk);
+           prev.size = get_size(prev) + get_size(hdr);
+           set_free(prev, true);
+           write_footer(prev);
+           hdr = prev;  // 合并后 hdr 指向前一个
+       }
+
+       // 将合并后的 chunk 加入自由链表
+       add_free(hdr as &FreeChunk);
+   }
+   ```
+
+- **注意**: 引入 footer 后，`morecore` 分配的 chunk 和 `split_chunk` 产生的新 chunk 都需要正确写入 footer。footer 会增加 allocator 内部开销，但不能减少 `malloc(size)` 承诺给用户的可写字节数。所有 `get_size(hdr) - @size_of(ChunkHeader)` 的可用空间计算都要改为 `get_size(hdr) - CHUNK_OVERHEAD`。所有存入 `hdr.size` 的 chunk 总长必须保持 `MALLOC_ALIGN` 对齐，不能只对齐 payload。
+- **验收标准**:
+  - [x] 长时间运行稳定性（无内存泄漏、无碎片假性 OOM）
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_coalescing_adjacent.uya`（4 tests passed，新增长期碎片压力回归通过，12339 assertions）。
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`（1 test passed）。
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya`（3 tests passed）。
+    - 验证：`../uya/bin/uya run tests/bench_malloc_phase2.uya`（`malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`；`malloc_phase2_realloc iterations=4000 inplace_hits=4000 inplace_hit_rate_pct=100 copy_bytes=0`）。
