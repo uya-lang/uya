@@ -527,3 +527,12 @@
     - 验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`（1 test passed）。
     - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya`（3 tests passed）。
     - 验证：`../uya/bin/uya run tests/bench_malloc_phase2.uya`（`malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`；`malloc_phase2_realloc iterations=4000 inplace_hits=4000 inplace_hit_rate_pct=100 copy_bytes=0`）。
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+
+### Task 2.2: realloc 原地扩展优化
+
+- **验收标准**:
+  - [x] `./bin/uya test tests/test_std_stdlib_malloc.uya` 全部通过
+    - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+    - 验证结果：通过（总计 1，失败 0）
