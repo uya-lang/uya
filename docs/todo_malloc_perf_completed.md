@@ -441,3 +441,13 @@
     - [x] `./bin/uya test tests/test_std_stdlib_malloc.uya` 全部通过
       - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
       - 验证结果：`总计: 1 个测试；通过: 1；失败: 0`
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+父级任务路径：`[ ] **重写 _free_impl**：释放时检查前后邻居并合并：`
+
+  - [x] `./tests/run_programs_parallel.sh tests/programs/test_heap.uya` 通过
+    验证：
+    - `UYA_COMPILER="$(pwd)/../uya/bin/uya" ./tests/run_programs_parallel.sh tests/programs/test_heap.uya` -> 通过（总计 1，通过 1，失败 0）
+    - `../uya/bin/uya test tests/programs/test_heap.uya` -> 通过（3 tests passed，0 failed）
+    说明：直接传相对路径 `UYA_COMPILER=../uya/bin/uya` 会因脚本进入 `compiler_work` 子目录而失效；本次验收使用同一二进制的绝对路径形式调用脚本。
