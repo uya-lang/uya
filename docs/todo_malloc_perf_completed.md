@@ -429,3 +429,15 @@
   验证结果：通过，1 test / 9 assertions。
   验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
   验证结果：通过，1 个测试文件通过，0 失败。
+
+## 2026-06-25
+
+# libc malloc/free 性能优化 TODO
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+父级任务路径：
+- [ ] **重写 `_free_impl`**：释放时检查前后邻居并合并：
+  - **验收标准**:
+    - [x] `./bin/uya test tests/test_std_stdlib_malloc.uya` 全部通过
+      - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+      - 验证结果：`总计: 1 个测试；通过: 1；失败: 0`

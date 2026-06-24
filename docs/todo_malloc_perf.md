@@ -209,7 +209,6 @@ struct ChunkFooter {
 
 - **注意**: 引入 footer 后，`morecore` 分配的 chunk 和 `split_chunk` 产生的新 chunk 都需要正确写入 footer。footer 会增加 allocator 内部开销，但不能减少 `malloc(size)` 承诺给用户的可写字节数。所有 `get_size(hdr) - @size_of(ChunkHeader)` 的可用空间计算都要改为 `get_size(hdr) - CHUNK_OVERHEAD`。所有存入 `hdr.size` 的 chunk 总长必须保持 `MALLOC_ALIGN` 对齐，不能只对齐 payload。
 - **验收标准**:
-  - [ ] `./bin/uya test tests/test_std_stdlib_malloc.uya` 全部通过
   - [ ] `./tests/run_programs_parallel.sh tests/programs/test_heap.uya` 通过
   - [ ] 新增确定性测试：构造相邻 A/B chunk，并用 guard/fill chunk 避免页尾剩余块干扰；释放 B 再释放 A 后，申请 A+B 可容纳的大块必须返回 A 的原地址，证明发生相邻合并而不是从非相邻空闲块或新 mmap 获取
   - [ ] 新增确定性测试：分别覆盖向后合并、向前合并、同时合并前后两个空闲邻居，合并后再次分配/释放不破坏自由链表
