@@ -693,3 +693,9 @@
 - [x] 快速单元测试：`./bin/uya test tests/test_std_stdlib_malloc.uya`
   - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
   - 验证结果：通过，`总计: 1`，`通过: 1`，`失败: 0`
+
+## 测试策略
+### 回归测试（每次改动后必须运行）
+- [x] 多文件集成测试：`./tests/run_programs_parallel.sh tests/programs/test_heap.uya`
+  - 验证命令：`./tests/run_programs_parallel.sh tests/programs/test_heap.uya`
+  - 验证结果：通过；总计 1，通过 1，失败 0
