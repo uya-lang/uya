@@ -182,3 +182,15 @@
     - 验证：`../uya/bin/uya test tests/malloc_test.uya` 通过
     - 验证：`../uya/bin/uya test tests/test_mem_heap.uya` 通过
     - 验证：`../uya/bin/uya test tests/test_stdlib.uya` 通过
+
+## 2026-06-24
+
+原始位置：`docs/todo_malloc_perf.md`
+阶段路径：`阶段 2：碎片化根治`
+
+- [x] 阶段 2：碎片化根治
+  - [x] 阶段 2 性能收益报告补充实测数据
+    - 完成内容：新增 `tests/bench_malloc_phase2.uya`，用同一组 workload 对比阶段 1 基线提交 `bee7df32` 与当前提交 `4fffff4a` 的碎片复用和 `realloc` 行为，并把实测结果写回本文“性能收益报告”。
+    - 验证：`../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`，随后执行 `./tests/build/bench_malloc_phase2_current`；输出 `budget8_rounds=64`、`peak_mmap_count=1`、`inplace_hit_rate_pct=100`、`copy_bytes=0`。
+    - 验证：先执行 `git worktree add --detach ../uya_stage1_bench bee7df32`，再执行 `env UYA_ROOT=../uya_stage1_bench/lib ../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_baseline`，随后执行 `./tests/build/bench_malloc_phase2_baseline`；输出 `budget8_rounds=7`、`peak_mmap_count=65`、`inplace_hit_rate_pct=0`、`copy_bytes=4032000`。
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（当前实现 1/1 通过）。

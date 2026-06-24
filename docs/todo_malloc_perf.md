@@ -2,9 +2,9 @@
 
 **创建日期**: 2026-06-18
 **优先级**: P1（性能基础设施）
-**当前状态**: 阶段 1 已完成，阶段 2 进行中
+**当前状态**: 阶段 1-2 已完成，阶段 3 待开始
 **关联文档**: `docs/libc_malloc_design.md`
-**基线说明**: 当前实现以 `lib/libc/heap.uya` 为准：`ChunkHeader` 为 16B，`FreeChunk` 为 32B，尚未引入 footer；阶段 2 引入 footer 时必须同步更新设计文档中的布局和开销说明。
+**基线说明**: 阶段 1 对照基线固定为提交 `bee7df32`：`ChunkHeader` 为 16B、`FreeChunk` 为 32B、未引入 footer。当前实现已完成阶段 2，`ChunkHeader + ChunkFooter` 开销为 24B，阶段 3 起的性能对比以此为新基线。
 
 ---
 
@@ -12,8 +12,6 @@
 
 完成某项后把对应 `- [ ]` 改为 `- [x]`。阶段级 checkbox 只有在该阶段所有任务、测试和性能记录都完成后再勾选。
 
-- [ ] 阶段 2：碎片化根治
-  - [ ] 阶段 2 性能收益报告补充实测数据
 - [ ] 阶段 3：分配速度优化
   - [ ] Task 3.1：实现 size-segregated free lists
   - [ ] Task 3.2：大块分配走 mmap/munmap 快速路径
@@ -34,7 +32,7 @@
 
 本文档基于对 `lib/libc/heap.uya` 完整实现的性能审计，列出了当前 malloc/free/realloc 实现的性能瓶颈与优化任务。当前实现采用 **mmap + 双向自由链表 first-fit + 全局自旋锁** 策略，在单线程场景下可正常工作，但在多线程、长时间运行、或大量小对象场景下存在显著性能问题。
 
-### 当前实现概要
+### 阶段 1 基线实现概要
 
 | 特性 | 状态 | 文件 |
 |------|------|------|
@@ -50,11 +48,11 @@
 
 ## 性能收益报告
 
-本节记录的是基于当前实现结构的**预期收益报告**，不是已完成优化后的实测结论。每个阶段落地后都必须用下文的基准口径补充真实数据，避免只依赖理论复杂度判断。
+本节先保留阶段 1 基线上的**预期收益分析**，再追加各阶段落地后的实测记录。每个阶段都必须用下文的基准口径补充真实数据，避免只依赖理论复杂度判断。
 
 ### 基线瓶颈
 
-当前 allocator 的主要成本来自以下路径：
+阶段 1 基线 allocator 的主要成本来自以下路径：
 
 | 路径 | 当前成本 | 典型触发场景 | 影响 |
 |------|----------|--------------|------|
@@ -112,6 +110,19 @@
 | realloc in-place hit rate | realloc 原地扩展比例 | 越高越好 |
 | copy bytes during realloc | realloc 扩容复制字节数 | 越低越好 |
 | lock acquisitions / contention | 多线程锁获取和竞争次数 | 越低越好 |
+
+### 阶段 2 实测记录（2026-06-24）
+
+日期：2026-06-24
+提交：基线 `bee7df32`；当前 `4fffff4a`
+平台：Linux 6.12.65-amd64-desktop-rolling x86_64 GNU/Linux，page size 4096B
+编译命令：`../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`；`git worktree add --detach ../uya_stage1_bench bee7df32` 后执行 `env UYA_ROOT=../uya_stage1_bench/lib ../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_baseline`
+测试命令：`./tests/build/bench_malloc_phase2_current`；`./tests/build/bench_malloc_phase2_baseline`；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+样本规模：碎片压力 64 轮 `malloc(1000) -> malloc(2800) -> free -> free -> malloc(3600) -> free`；`realloc` 压力 4000 轮 `malloc(1000) + malloc(1000) + free(next) + realloc(1800)`
+基线结果：`budget8_rounds=7`；`peak_mmap_count=65`；`peak_mapped_bytes=532480`；`big_page_reuse_hits=1`；`inplace_hit_rate_pct=0`；`copy_bytes=4032000`
+优化后结果：`budget8_rounds=64`；`peak_mmap_count=1`；`peak_mapped_bytes=8192`；`big_page_reuse_hits=64`；`inplace_hit_rate_pct=100`；`copy_bytes=0`
+变化：8-region 预算下碎片压力可持续轮数 `7 -> 64`（+57，约 9.1x）；峰值 `mmap` 次数 `65 -> 1`（-98.5%）；峰值 mapped bytes `532480B -> 8192B`（-524288B，-98.5%）；`realloc` 原地命中率 `0% -> 100%`，复制字节 `4032000B -> 0B`
+结论：阶段 2 已把该 workload 从“几乎每轮新增 region”收敛到“单 region 循环复用”，并把相邻空闲块扩容场景的复制成本降到 0；后续阶段可以把关注点收敛到查找延迟和多线程锁竞争。
 
 
 ## 阶段 2：碎片化根治（预计 3-5 天）

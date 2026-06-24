@@ -1,0 +1,202 @@
+// bench_malloc_phase2.uya - 阶段 2 malloc/coalescing/realloc 实测基准
+// 输出：
+//   1. 碎片压力下的可持续轮数
+//   2. 该 workload 的 mmap region 数（按观测到的唯一 page base 计）
+//   3. realloc 原地扩展命中率
+//   4. realloc 扩容复制字节数
+//
+// 说明：
+// - workload 只使用 < 4 KiB 的请求，因此 `morecore()` 的 chunk 区域始终为 4096B。
+// - 当前实现与阶段 1 基线都把 `HeapRegion` 元数据放在映射前缀，32B 元数据 + 4096B chunk
+//   会让每次 `mmap` 的 VMA 向上取整到 8192B；因此 `unique_regions * 8192` 就是本 workload
+//   下的峰值 mapped bytes。
+
+use std.runtime.entry;
+use libc.malloc;
+use libc.free;
+use libc.realloc;
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+
+const BENCH_CHUNK_MAGIC: u64 = 3735928559;
+const BENCH_CHUNK_FLAG_FREE: usize = 1;
+const BENCH_PAGE_SIZE: usize = 4096;
+const BENCH_REGION_VM_BYTES: usize = 8192;
+
+const FRAG_ROUNDS: i32 = 64;
+const FRAG_REGION_BUDGET: i32 = 8;
+const FRAG_A_SIZE: usize = 1000;
+const FRAG_B_SIZE: usize = 2800;
+const FRAG_BIG_SIZE: usize = 3600;
+
+const REALLOC_ITERATIONS: i32 = 4000;
+const REALLOC_OLD_SIZE: usize = 1000;
+const REALLOC_NEW_SIZE: usize = 1800;
+
+struct BenchChunkHeader {
+    magic: u64,
+    size: usize,
+}
+
+fn raw_chunk_size(raw: usize) usize {
+    return raw - (raw & BENCH_CHUNK_FLAG_FREE);
+}
+
+fn chunk_header(ptr: &void) &BenchChunkHeader {
+    return (((ptr as &byte) - @size_of(BenchChunkHeader)) as &BenchChunkHeader);
+}
+
+fn page_base(ptr: &void) usize {
+    const addr: usize = ptr as usize;
+    const q: usize = addr / BENCH_PAGE_SIZE;
+    return q * BENCH_PAGE_SIZE;
+}
+
+fn maybe_record_region(region_bases: &usize, region_count: &i32, ptr: &void) void {
+    if ptr == null { return; }
+
+    const base: usize = page_base(ptr);
+    var i: i32 = 0;
+    while i < region_count[0] {
+        if region_bases[i as usize] == base {
+            return;
+        }
+        i = i + 1;
+    }
+    region_bases[region_count[0] as usize] = base;
+    region_count[0] = region_count[0] + 1;
+}
+
+fn infer_copy_bytes(old_ptr: &void) usize {
+    const hdr: &BenchChunkHeader = chunk_header(old_ptr);
+    if hdr.magic != BENCH_CHUNK_MAGIC {
+        return 0;
+    }
+
+    const total: usize = raw_chunk_size(hdr.size);
+    // 本基准固定 `REALLOC_OLD_SIZE = 1000`：
+    // - 阶段 1：alloc total = 1024，复制 1008B
+    // - 阶段 2：alloc total = 1040，复制 1016B
+    if total > 1024 {
+        return total - 24;
+    }
+    return total - @size_of(BenchChunkHeader);
+}
+
+fn run_fragmentation_bench(completed_rounds: &i32, unique_regions: &i32, budget_rounds: &i32, big_reuse_hits: &i32) i32 {
+    var region_bases: [usize: 96] = [];
+    completed_rounds[0] = 0;
+    unique_regions[0] = 0;
+    budget_rounds[0] = 0;
+    big_reuse_hits[0] = 0;
+
+    var first_big_page: usize = 0;
+    var round: i32 = 0;
+    while round < FRAG_ROUNDS {
+        const a: &void = malloc(FRAG_A_SIZE);
+        if a == null { return 1; }
+        maybe_record_region(&region_bases[0], unique_regions, a);
+
+        const b: &void = malloc(FRAG_B_SIZE);
+        if b == null {
+            free(a);
+            return 2;
+        }
+        maybe_record_region(&region_bases[0], unique_regions, b);
+
+        free(b);
+        free(a);
+
+        const big: &void = malloc(FRAG_BIG_SIZE);
+        if big == null {
+            return 3;
+        }
+        maybe_record_region(&region_bases[0], unique_regions, big);
+
+        const big_page: usize = page_base(big);
+        if round == 0 {
+            first_big_page = big_page;
+        }
+        if big_page == first_big_page {
+            big_reuse_hits[0] = big_reuse_hits[0] + 1;
+        }
+
+        free(big);
+
+        completed_rounds[0] = completed_rounds[0] + 1;
+        if unique_regions[0] <= FRAG_REGION_BUDGET {
+            budget_rounds[0] = completed_rounds[0];
+        }
+        round = round + 1;
+    }
+    return 0;
+}
+
+fn run_realloc_bench(iterations_done: &i32, inplace_hits: &i32, copied_bytes: &i64) i32 {
+    iterations_done[0] = 0;
+    inplace_hits[0] = 0;
+    copied_bytes[0] = 0;
+
+    var i: i32 = 0;
+    while i < REALLOC_ITERATIONS {
+        const head: &void = malloc(REALLOC_OLD_SIZE);
+        if head == null { return 1; }
+        const tail: &void = malloc(REALLOC_OLD_SIZE);
+        if tail == null {
+            free(head);
+            return 2;
+        }
+
+        free(tail);
+
+        const moved_copy_bytes: usize = infer_copy_bytes(head);
+        const grown: &void = realloc(head, REALLOC_NEW_SIZE);
+        if grown == null { return 3; }
+
+        if grown == head {
+            inplace_hits[0] = inplace_hits[0] + 1;
+        } else {
+            copied_bytes[0] = copied_bytes[0] + (moved_copy_bytes as i64);
+        }
+
+        free(grown);
+        iterations_done[0] = iterations_done[0] + 1;
+        i = i + 1;
+    }
+    return 0;
+}
+
+export fn main() i32 {
+    var frag_rounds: i32 = 0;
+    var frag_regions: i32 = 0;
+    var frag_budget_rounds: i32 = 0;
+    var frag_reuse_hits: i32 = 0;
+    const frag_rc: i32 = run_fragmentation_bench(&frag_rounds, &frag_regions, &frag_budget_rounds, &frag_reuse_hits);
+    if frag_rc != 0 {
+        printf("bench_malloc_phase2: fragment rc=%d\n" as *byte, frag_rc);
+        return 1;
+    }
+
+    var realloc_iters: i32 = 0;
+    var realloc_inplace_hits: i32 = 0;
+    var realloc_copy_bytes: i64 = 0;
+    const realloc_rc: i32 = run_realloc_bench(&realloc_iters, &realloc_inplace_hits, &realloc_copy_bytes);
+    if realloc_rc != 0 {
+        printf("bench_malloc_phase2: realloc rc=%d\n" as *byte, realloc_rc);
+        return 2;
+    }
+
+    printf("malloc_phase2_frag rounds=%d budget8_rounds=%d unique_regions=%d peak_mmap_count=%d peak_mapped_bytes=%zu big_page_reuse_hits=%d\n" as *byte,
+           frag_rounds,
+           frag_budget_rounds,
+           frag_regions,
+           frag_regions,
+           (frag_regions as usize) * BENCH_REGION_VM_BYTES,
+           frag_reuse_hits);
+    printf("malloc_phase2_realloc iterations=%d inplace_hits=%d inplace_hit_rate_pct=%d copy_bytes=%ld\n" as *byte,
+           realloc_iters,
+           realloc_inplace_hits,
+           (realloc_inplace_hits * 100) / realloc_iters,
+           realloc_copy_bytes);
+    return 0;
+}
