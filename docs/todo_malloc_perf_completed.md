@@ -636,3 +636,16 @@
   - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya`（通过，4 tests passed）
   - 验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`（通过）
   - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`（通过）
+
+## 阶段 3：分配速度优化（预计 3-5 天）
+
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+
+父级任务路径：**实现要点** → **验收标准**
+父级 checkbox：`[ ] **大块快速路径不在本任务实现**：Task 3.1 只负责把仍由普通堆管理的 chunk 放入正确 bin；`>=4096` 的 chunk 在 Task 3.2 完成前继续走普通堆顶层 bin/现有 `morecore` 路径，不能在这里绕过 `owns_ptr()` 直接 mmap/munmap。
+
+  - [x] `./bin/uya test tests/test_std_stdlib_malloc.uya` 全部通过
+    - 验证：2026-06-25 `../uya/bin/uya test tests/test_std_stdlib_malloc.uya` → 总计 1 个测试，通过 1，失败 0。
+    - 补充回归：`../uya/bin/uya test tests/test_libc_heap_bins.uya` → 4 tests passed，83 assertions；总计 1 个测试，通过 1，失败 0。
+    - 补充回归：`../uya/bin/uya test tests/test_libc_heap_large_path.uya` → 3 tests passed，41 assertions；总计 1 个测试，通过 1，失败 0。
+    - 说明：当前分支已满足该验收项，本轮未修改生产代码。
