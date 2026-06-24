@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
-# Real fixed-CLI gate for the first MIR-C99 PortableMIR verifier bucket.
+# Real fixed-CLI gate proving the old first MIR-C99 PortableMIR verifier bucket
+# no longer ends in a verifier failure.
 #
 # This gate must:
 #   - run the exact fixed `../uya/bin/uya build --mir-c99 tests/test_function_reachability_codegen.uya`
 #     acceptance path;
 #   - require stable `[MIR-C99]` routing evidence;
-#   - require the current fail-closed verifier diagnostic instead of generic
-#     lowering or unit-output failures.
+#   - require the old verifier diagnostic to be gone;
+#   - require the current fail-closed frontier instead.
 
 set -euo pipefail
 
@@ -52,21 +53,16 @@ fi
 for forbidden in \
     '错误: MIR-C99 extern lowering 失败' \
     '错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序' \
-    '错误: MIR-C99 unit output 写出失败'; do
+    '错误: MIR-C99 PortableMIR verifier 失败'; do
     if grep -Fq "$forbidden" "$CASE_LOG"; then
         cat "$CASE_LOG" >&2
         fail "verifier bucket log still contains unexpected generic failure: $forbidden"
     fi
 done
 
-grep -Fq '错误: MIR-C99 PortableMIR verifier 失败: code=7 function=6 block=2 inst=2 value=2 type=1 operand=-1' "$CASE_LOG" || {
+grep -Fq '错误: MIR-C99 unit output 写出失败' "$CASE_LOG" || {
     cat "$CASE_LOG" >&2
-    fail "verifier bucket is missing the expected first PortableMIR verifier diagnostic"
-}
-
-grep -Fq 'MIR-C99 verifier inst: op=3 type=1 result=2 operand_start=2 operand_count=1 flags=3' "$CASE_LOG" || {
-    cat "$CASE_LOG" >&2
-    fail "verifier bucket is missing the expected verifier instruction witness"
+    fail "verifier-first-bucket log did not converge to the current unit-output frontier"
 }
 
 if [[ -e "$CASE_OUT" && -s "$CASE_OUT" ]]; then
@@ -74,4 +70,4 @@ if [[ -e "$CASE_OUT" && -s "$CASE_OUT" ]]; then
     fail "verifier bucket reject left a non-empty MIR-C99 output: $CASE_OUT"
 fi
 
-echo "OK: MIR-C99 first verifier bucket fails closed with a stable real-CLI verifier diagnostic"
+echo "OK: MIR-C99 first verifier bucket no longer ends in a PortableMIR verifier failure"

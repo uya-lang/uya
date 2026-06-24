@@ -13224,7 +13224,7 @@ fn native_build_hosted_structured_i32_body_supported(
        decl.fn_decl_body == null ||
        decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
        decl.fn_decl_body.block_stmts == null ||
-       decl.fn_decl_body.block_stmt_count <= 1 {
+       decl.fn_decl_body.block_stmt_count <= 0 {
         return 0;
     }
     var locals: NativeBuildLocalTable =
@@ -13713,8 +13713,45 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
         var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
         var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
         var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_const_value: i32 = 0;
+        var target_const1_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_const1_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_const1_arg0: i32 = 0;
+        var target_add_left_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_add_left_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_add_right_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_add_right_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_extern_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_extern_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+        var target_extern_arg0: i32 = 0;
+        var target_extern_arg1: i32 = 0;
         if native_build_hosted_return_call_target(program, call_expr, &target_function_id,
             &target_decl_index) != 0 &&
+           target_decl_index >= 0 &&
+           target_decl_index < program.program_decl_count &&
+           program.program_decls[target_decl_index] != null &&
+           (program.program_decls[target_decl_index].fn_decl_is_extern != 0 ||
+            native_build_hosted_return_i32_const_expr(
+                program.program_decls[target_decl_index], &target_const_value) != null ||
+            native_build_hosted_return_call_expr(
+                program.program_decls[target_decl_index]) != null ||
+            native_build_hosted_return_const1_i32_call_expr(program,
+                program.program_decls[target_decl_index],
+                &target_const1_function_id, &target_const1_decl_index,
+                &target_const1_arg0) != null ||
+            native_build_hosted_return_add_zero_arg_calls_expr(program,
+                program.program_decls[target_decl_index],
+                &target_add_left_function_id, &target_add_left_decl_index,
+                &target_add_right_function_id,
+                &target_add_right_decl_index) != null ||
+            native_build_hosted_return_extern_const2_call_expr(program,
+                program.program_decls[target_decl_index],
+                &target_extern_function_id, &target_extern_decl_index,
+                &target_extern_arg0, &target_extern_arg1) != null ||
+            native_build_hosted_structured_i32_body_supported(
+                program.program_decls[target_decl_index], checker) != 0 ||
+            native_build_decl_is_identity_generic_i32_fn(
+                program.program_decls[target_decl_index]) != 0) &&
            native_build_hosted_ensure_expr_type_id(checker, call_expr, &call_type_id) == 0 {
             return 1;
         }
@@ -30221,6 +30258,37 @@ fn native_build_hosted_mir_append_hosted_helper_signature_type(
     *out_signature_type_id = signature_type_id;
     return 0;
 }
+fn native_build_hosted_mir_append_internal_i32_signature_type(
+    module: &PortableMirModule, param_count: i32,
+    out_signature_type_id: &i32) i32 {
+    if out_signature_type_id != null {
+        *out_signature_type_id = MIR_TYPE_INVALID_ID;
+    }
+    if module == null || out_signature_type_id == null || param_count < 0 {
+        return -1;
+    }
+    var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
+        return -1;
+    }
+    const signature_type_id: i32 = module.type_count as i32;
+    const param_start: i32 = module.function_param_type_count as i32;
+    var i: i32 = 0;
+    while i < param_count {
+        if native_build_hosted_mir_append_function_param_type(module,
+            signature_type_id, i, i32_type_id) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    var signature: MirType = native_build_hosted_mir_function_signature_type(
+        signature_type_id, i32_type_id, param_start, param_count);
+    if portable_mir_append_type(module, &signature) != 0 {
+        return -1;
+    }
+    *out_signature_type_id = signature_type_id;
+    return 0;
+}
 fn native_build_hosted_mir_append_stack_i32_array64_type(module: &PortableMirModule,
     source_type_id: TypeId, out_type_id: &i32) i32 {
     if out_type_id != null {
@@ -30362,6 +30430,22 @@ fn native_build_hosted_mir_append_extern_function(module: &PortableMirModule,
         flags: MIR_FUNCTION_FLAG_EXTERN,
     };
     return portable_mir_append_function(module, &function);
+}
+fn native_build_hosted_mir_find_existing_function_by_decl_index(
+    module: &PortableMirModule, decl_index: i32) &MirFunction {
+    if module == null || decl_index < 0 {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const function: &MirFunction =
+            semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
+        if function != null && function.decl_id == decl_index {
+            return function;
+        }
+        i = i + 1usize;
+    }
+    return null;
 }
 fn native_build_hosted_mir_append_program_externs(module: &PortableMirModule,
     program: &ASTNode, out_mir_extern_function_count: &i32) i32 {
@@ -30752,7 +30836,7 @@ fn native_build_hosted_mir_append_build_driver_run_entry_prefix_body_function(
         decl_id: decl_index,
         source_core_body_id: source_core_body_id,
         symbol_id: decl_index,
-        signature_type_id: i32_type_id,
+        signature_type_id: signature_type_id,
         param_start: 0,
         param_count: 0,
         local_start: local_id,
@@ -38791,7 +38875,7 @@ fn native_build_hosted_mir_append_one_param_two_if_const_return_body_function(
         return -1;
     };
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 1,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -39278,7 +39362,7 @@ fn native_build_hosted_mir_append_identity_generic_i32_body_function(
         return -1;
     }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 1,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -39387,8 +39471,18 @@ fn native_build_hosted_mir_append_const1_i32_call_body_function(
     if call_expr == null || call_expr.call_expr_args == null {
         return -1;
     }
+    const target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            target_decl_index);
+    if target_function == null || target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 0,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -39452,20 +39546,20 @@ fn native_build_hosted_mir_append_const1_i32_call_body_function(
         result_value_id: value_id,
         operand_start: call_operand_id,
         operand_count: 2,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: target_function.calling_convention,
+        runtime_capability_mask: target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: target_decl_index,
+        flags: 0,
     };
     var call_operand: MirOperand = MirOperand{
         operand_id: call_operand_id,
-        kind: 0,
+        kind: call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: target_function_id,
+        immediate_i32: target_function.function_id,
         flags: 0,
     };
     var arg_operand: MirOperand = MirOperand{
@@ -40045,8 +40139,19 @@ fn native_build_hosted_mir_append_call_body_function(module: &PortableMirModule,
         &target_decl_index) == 0 {
         return -1;
     }
+    const target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            target_decl_index);
+    if target_function == null || target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 0,
+        &signature_type_id) != 0 {
         return -1;
     }
     var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
@@ -40108,20 +40213,20 @@ fn native_build_hosted_mir_append_call_body_function(module: &PortableMirModule,
         result_value_id: value_id,
         operand_start: call_operand_id,
         operand_count: 1,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: target_function.calling_convention,
+        runtime_capability_mask: target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: target_decl_index,
+        flags: 0,
     };
     var call_operand: MirOperand = MirOperand{
         operand_id: call_operand_id,
-        kind: 0,
+        kind: call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: target_function_id,
+        immediate_i32: target_function.function_id,
         flags: 0,
     };
     var return_operand: MirOperand = MirOperand{
@@ -40219,8 +40324,18 @@ fn native_build_hosted_mir_append_type_is_i32_like_scalar_body_function(
         &target_decl_index) == 0 {
         return -1;
     }
+    const target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            target_decl_index);
+    if target_function == null || target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 1,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -40297,20 +40412,20 @@ fn native_build_hosted_mir_append_type_is_i32_like_scalar_body_function(
         result_value_id: result_value_id,
         operand_start: call_operand_id,
         operand_count: 2,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: target_function.calling_convention,
+        runtime_capability_mask: target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: target_decl_index,
+        flags: 0,
     };
     var call_operand: MirOperand = MirOperand{
         operand_id: call_operand_id,
-        kind: 0,
+        kind: call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: target_function_id,
+        immediate_i32: target_function.function_id,
         flags: 0,
     };
     var arg_operand: MirOperand = MirOperand{
@@ -40398,8 +40513,18 @@ fn native_build_hosted_mir_append_type_is_byte_ptr_body_function(
         &target_decl_index) == 0 {
         return -1;
     }
+    const target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            target_decl_index);
+    if target_function == null || target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 1,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -40476,20 +40601,20 @@ fn native_build_hosted_mir_append_type_is_byte_ptr_body_function(
         result_value_id: result_value_id,
         operand_start: call_operand_id,
         operand_count: 2,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: target_function.calling_convention,
+        runtime_capability_mask: target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: target_decl_index,
+        flags: 0,
     };
     var call_operand: MirOperand = MirOperand{
         operand_id: call_operand_id,
-        kind: 0,
+        kind: call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: target_function_id,
+        immediate_i32: target_function.function_id,
         flags: 0,
     };
     var arg_operand: MirOperand = MirOperand{
@@ -40577,8 +40702,18 @@ fn native_build_hosted_mir_append_type_is_i32_ptr_body_function(
         &target_decl_index) == 0 {
         return -1;
     }
+    const target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            target_decl_index);
+    if target_function == null || target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 1,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -40655,20 +40790,20 @@ fn native_build_hosted_mir_append_type_is_i32_ptr_body_function(
         result_value_id: result_value_id,
         operand_start: call_operand_id,
         operand_count: 2,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: target_function.calling_convention,
+        runtime_capability_mask: target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: target_decl_index,
+        flags: 0,
     };
     var call_operand: MirOperand = MirOperand{
         operand_id: call_operand_id,
-        kind: 0,
+        kind: call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: target_function_id,
+        immediate_i32: target_function.function_id,
         flags: 0,
     };
     var arg_operand: MirOperand = MirOperand{
@@ -40756,8 +40891,18 @@ fn native_build_hosted_mir_append_type_is_i32_like_ptr_body_function(
         &target_decl_index) == 0 {
         return -1;
     }
+    const target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            target_decl_index);
+    if target_function == null || target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module,
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 1,
         &signature_type_id) != 0 {
         return -1;
     }
@@ -40834,20 +40979,20 @@ fn native_build_hosted_mir_append_type_is_i32_like_ptr_body_function(
         result_value_id: result_value_id,
         operand_start: call_operand_id,
         operand_count: 2,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: target_function.calling_convention,
+        runtime_capability_mask: target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: target_decl_index,
+        flags: 0,
     };
     var call_operand: MirOperand = MirOperand{
         operand_id: call_operand_id,
-        kind: 0,
+        kind: call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: target_function_id,
+        immediate_i32: target_function.function_id,
         flags: 0,
     };
     var arg_operand: MirOperand = MirOperand{
@@ -40924,8 +41069,28 @@ fn native_build_hosted_mir_append_add_zero_arg_calls_body_function(module: &Port
        add_expr.binary_expr_right == null {
         return -1;
     }
+    const left_target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            left_decl_index);
+    const right_target_function: &MirFunction =
+        native_build_hosted_mir_find_existing_function_by_decl_index(module,
+            right_decl_index);
+    if left_target_function == null || right_target_function == null ||
+       left_target_function.signature_type_id < 0 ||
+       right_target_function.signature_type_id < 0 {
+        return -1;
+    }
+    var left_call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (left_target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        left_call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
+    var right_call_operand_kind: i32 = MIR_OPERAND_KIND_CALL_TARGET_DIRECT;
+    if (right_target_function.flags & MIR_FUNCTION_FLAG_EXTERN) != 0 {
+        right_call_operand_kind = MIR_OPERAND_KIND_CALL_TARGET_EXTERN;
+    }
     var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
-    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+    if native_build_hosted_mir_append_internal_i32_signature_type(module, 0,
+        &signature_type_id) != 0 {
         return -1;
     }
     var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
@@ -41018,11 +41183,11 @@ fn native_build_hosted_mir_append_add_zero_arg_calls_body_function(module: &Port
         result_value_id: call0_value_id,
         operand_start: call0_operand_id,
         operand_count: 1,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: left_target_function.calling_convention,
+        runtime_capability_mask: left_target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: left_decl_index,
+        flags: 0,
     };
     var call1_inst: MirInst = MirInst{
         inst_id: call1_inst_id,
@@ -41033,11 +41198,11 @@ fn native_build_hosted_mir_append_add_zero_arg_calls_body_function(module: &Port
         result_value_id: call1_value_id,
         operand_start: call1_operand_id,
         operand_count: 1,
-        calling_convention: MIR_CALL_CONV_UYA,
-        runtime_capability_mask: 0,
+        calling_convention: right_target_function.calling_convention,
+        runtime_capability_mask: right_target_function.runtime_capability_mask,
         address_space: MIR_ADDRESS_SPACE_GENERIC,
         debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
-        flags: right_decl_index,
+        flags: 0,
     };
     var add_inst: MirInst = MirInst{
         inst_id: add_inst_id,
@@ -41056,22 +41221,22 @@ fn native_build_hosted_mir_append_add_zero_arg_calls_body_function(module: &Port
     };
     var call0_operand: MirOperand = MirOperand{
         operand_id: call0_operand_id,
-        kind: 0,
+        kind: left_call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: left_target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: left_function_id,
+        immediate_i32: left_target_function.function_id,
         flags: 0,
     };
     var call1_operand: MirOperand = MirOperand{
         operand_id: call1_operand_id,
-        kind: 0,
+        kind: right_call_operand_kind,
         value_id: MIR_VALUE_INVALID_ID,
         local_id: MIR_LOCAL_INVALID_ID,
-        type_id: signature_type_id,
+        type_id: right_target_function.signature_type_id,
         capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
-        immediate_i32: right_function_id,
+        immediate_i32: right_target_function.function_id,
         flags: 0,
     };
     var add_left_operand: MirOperand = MirOperand{

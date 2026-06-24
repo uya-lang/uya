@@ -1944,3 +1944,21 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
       `AST_VAR_DECL / local_decl_requires_i32_scalar_storage`；
       全部 `7` 例不再输出 generic
       `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+
+## 4. 任务清单
+### 4.15 Full Language Parity
+`MIR-C99-FULL-SUPPORT-CLI-SUITE`
+`MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-VERIFIER-FAILURES`:
+    收敛剩余 `3` 个 `PortableMIR verifier 失败`：
+    `tests/test_function_reachability_codegen.uya`、
+    `tests/test_function_reachability_codegen_microapp.uya`、
+    `tests/test_semantic_lookup_function_family.uya`。
+    - 最小验证：
+      `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_function_reachability_codegen.uya tests/test_function_reachability_codegen_microapp.uya tests/test_semantic_lookup_function_family.uya`
+    - 完成说明：
+      `src/build_compiler_driver.uya` 中 direct-call MIR helper 现在按已追加 `decl_id` 查找真实 callee，相关内部 `i32` helper 使用真实函数签名；旧 first verifier bucket 已从 `PortableMIR verifier 失败` 前移。当前结果为：`tests/test_semantic_lookup_function_family.uya` 通过，`tests/test_function_reachability_codegen_microapp.uya` 收敛到 `AST_ASSIGN / assign_dest_requires_local_i32_binding`，`tests/test_function_reachability_codegen.uya` 已不再命中 verifier，当前 frontier 为 `错误: MIR-C99 unit output 写出失败`。
+    - 验证：
+      `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`：通过。
+      `bash tests/verify_mir_c99_full_language_remaining_verifier_failures.sh`：通过，输出 `OK: MIR-C99 remaining verifier-failure cases no longer end in PortableMIR verifier failures`。
+      `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`：通过，输出 `OK: MIR-C99 first verifier bucket no longer ends in a PortableMIR verifier failure`。

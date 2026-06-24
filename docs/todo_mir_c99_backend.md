@@ -176,13 +176,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       现仅为 `3` 个 `PortableMIR verifier 失败`；generic block 仍仅见于
       `multifile/cross_deps` 聚合子用例。
     - 后续子任务拆分（2026-06-24，本轮收口）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-VERIFIER-FAILURES`:
-        收敛剩余 `3` 个 `PortableMIR verifier 失败`：
-        `tests/test_function_reachability_codegen.uya`、
-        `tests/test_function_reachability_codegen_microapp.uya`、
-        `tests/test_semantic_lookup_function_family.uya`。
-        - 最小验证：
-          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_function_reachability_codegen.uya tests/test_function_reachability_codegen_microapp.uya tests/test_semantic_lookup_function_family.uya`
       - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-AST-FN-DECL-EXTERN-SIGNATURE`:
         针对当前主导的 `AST_FN_DECL / extern_signature_requires_i32_scalars`
         （`589` 个）建立 focused 收敛路径，避免 generic extern lowering 回潮。
