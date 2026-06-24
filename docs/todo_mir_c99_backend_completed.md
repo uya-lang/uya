@@ -2077,3 +2077,40 @@ Path: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LA
           - 结论：下一个主导 bucket 选为
             `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
             （`lib/std/runtime/entry/entry.uya:79`）。
+### 4.15 Full Language Parity
+
+Parent path:
+- `MIR-C99-FULL-SUPPORT-CLI-SUITE`
+- `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-EXTERN-MAIN-RUNTIME-BRIDGE`:
+  处理新的主导 bucket
+  `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
+  （`lib/std/runtime/entry/entry.uya:79`），先让 `tests/test_simple_fn.uya`
+  之外的主语言 real CLI 样例继续从 runtime bridge 入口边界收敛。
+  - 进展（2026-06-24，本轮）：
+    - MIR-C99 real CLI 不再把 `lib/std/runtime/entry/entry.uya:79` 的
+      `export extern fn main` 记为 extern frontier；runtime entry main 已从
+      PortableMIR extern 收集、extern capability diagnostic 和 hosted link plan 中摘除，
+      由 MIR-C99 主入口 wrapper 直接接管真实 `main` 入口。
+    - `tests/test_outlibc_basic.uya` 现可直接 `--mir-c99` 成功输出；
+      `tests/test_simple_fn.uya` 现前移到
+      `AST_SYSCALL / syscall_requires_target_capability`
+      （`lib/std/runtime/entry/entry.uya:53`）；
+      `tests/test_zero_deps.uya` 现前移到
+      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`
+      （`lib/std/testing/testing.uya:40`）。
+  - 最小验证：
+    `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`
+  - 验证：
+    - `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`：通过。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_outlibc_basic.uya -o /tmp/uya-mir-c99-outlibc-basic.c`：
+      退出码 `0`，`代码生成: ok`。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_simple_fn.uya -o /tmp/uya-mir-c99-simple-fn.c`：
+      退出码 `1`，失败前移到
+      `AST_SYSCALL / syscall_requires_target_capability`
+      （`lib/std/runtime/entry/entry.uya:53`）。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_zero_deps.uya -o /tmp/uya-mir-c99-zero-deps.c`：
+      退出码 `1`，失败前移到
+      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`
+      （`lib/std/testing/testing.uya:40`）。

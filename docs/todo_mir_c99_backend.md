@@ -211,13 +211,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `test_driver_not_lowered=149`、
         `vector_type_requires_target_helper_capability=48`、
         `inline_asm_requires_target_capability=15`。
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-EXTERN-MAIN-RUNTIME-BRIDGE`:
-        处理新的主导 bucket
-        `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
-        （`lib/std/runtime/entry/entry.uya:79`），先让 `tests/test_simple_fn.uya`
-        之外的主语言 real CLI 样例继续从 runtime bridge 入口边界收敛。
-        - 最小验证：
-          `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
     generator 前提 gate 与真实 CLI 结论一致。
     - 验收：

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Focused real-CLI gate for std.runtime.entry export extern main.
+# Focused real-CLI gate for std.runtime.entry runtime-bridge convergence.
 
 set -euo pipefail
 
@@ -9,10 +9,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIXED_UYA="$REPO_ROOT/../uya/bin/uya"
 TMP_DIR="$(mktemp -d /tmp/uya-mir-c99-entry-extern-body.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-
-CASE_FILE="tests/test_simple_fn.uya"
-CASE_LOG="$TMP_DIR/test_simple_fn.log"
-CASE_OUT="$TMP_DIR/test_simple_fn.c"
 
 fail() {
     echo "error: $*" >&2
@@ -23,42 +19,59 @@ if [[ ! -x "$FIXED_UYA" ]]; then
     fail "missing fixed compiler path: $FIXED_UYA"
 fi
 
-set +e
-(
-    cd "$REPO_ROOT"
-    UYA_ROOT="$REPO_ROOT/lib/" "$FIXED_UYA" build --mir-c99 "$CASE_FILE" -o "$CASE_OUT"
-) >"$CASE_LOG" 2>&1
-status=$?
-set -e
+build_case() {
+    local case_file="$1"
+    local expect_success="$2"
+    local case_name
+    case_name="$(basename "$case_file" .uya)"
+    local case_log="$TMP_DIR/${case_name}.log"
+    local case_out="$TMP_DIR/${case_name}.c"
 
-grep -Fq '[MIR-C99]' "$CASE_LOG" || {
-    cat "$CASE_LOG" >&2
-    fail "entry extern body log is missing [MIR-C99] routing evidence"
-}
+    set +e
+    (
+        cd "$REPO_ROOT"
+        UYA_ROOT="$REPO_ROOT/lib/" "$FIXED_UYA" build --mir-c99 "$case_file" -o "$case_out"
+    ) >"$case_log" 2>&1
+    local status=$?
+    set -e
 
-if [[ "$status" -eq 0 ]]; then
-    cat "$CASE_LOG" >&2
-    fail "entry extern body unexpectedly succeeded; update this gate to the new success contract first"
-fi
+    grep -Fq '[MIR-C99]' "$case_log" || {
+        cat "$case_log" >&2
+        fail "$case_file log is missing [MIR-C99] routing evidence"
+    }
 
-for forbidden in \
-    'extern_signature_requires_i32_scalars' \
-    '错误: MIR-C99 extern lowering 失败' \
-    '错误: MIR-C99 PortableMIR verifier 失败'; do
-    if grep -Fq "$forbidden" "$CASE_LOG"; then
-        cat "$CASE_LOG" >&2
-        fail "entry extern body log still contains unexpected frontier: $forbidden"
+    if grep -Fq 'entry_extern_main_requires_runtime_bridge' "$case_log"; then
+        cat "$case_log" >&2
+        fail "$case_file is still blocked by std.runtime.entry runtime bridge"
     fi
-done
 
-grep -Eq 'mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=entry_extern_main_requires_runtime_bridge file=.*/lib/std/runtime/entry/entry\.uya line=79' "$CASE_LOG" || {
-    cat "$CASE_LOG" >&2
-    fail "entry extern body log did not converge to the dedicated runtime-bridge capability diagnostic"
+    if [[ "$expect_success" == "success" ]]; then
+        if [[ "$status" -ne 0 ]]; then
+            cat "$case_log" >&2
+            fail "$case_file should now build successfully through real --mir-c99"
+        fi
+        if [[ ! -s "$case_out" ]]; then
+            cat "$case_log" >&2
+            fail "$case_file succeeded but did not emit a non-empty MIR-C99 output"
+        fi
+        return 0
+    fi
+
+    if [[ "$status" -eq 0 ]]; then
+        if [[ ! -s "$case_out" ]]; then
+            cat "$case_log" >&2
+            fail "$case_file succeeded but did not emit a non-empty MIR-C99 output"
+        fi
+        return 0
+    fi
+
+    grep -Eq 'mir_c99_capability_diagnostic: kind=|错误: MIR-C99 ' "$case_log" || {
+        cat "$case_log" >&2
+        fail "$case_file moved past entry bridge but did not report a stable next frontier"
+    }
 }
 
-if [[ -e "$CASE_OUT" && -s "$CASE_OUT" ]]; then
-    cat "$CASE_LOG" >&2
-    fail "entry extern body reject left a non-empty MIR-C99 output: $CASE_OUT"
-fi
+build_case "tests/test_outlibc_basic.uya" success
+build_case "tests/test_zero_deps.uya" frontier
 
-echo "OK: MIR-C99 entry extern main now fails closed at the dedicated runtime-bridge boundary"
+echo "OK: MIR-C99 real CLI cases now move past the std.runtime.entry runtime-bridge boundary"
