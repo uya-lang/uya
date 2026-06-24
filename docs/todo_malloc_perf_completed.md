@@ -336,3 +336,67 @@
     验证命令：`make clean`；`make backup-all`
     验证结果：两者均退出码 `0`。`make backup-all` 完成自举、全量验证、`backup/uyacache` 备份，以及 `backup/uya.c`、`backup/uya-linux-x86_64.c`、`backup/uya-hosted.c`、`backup/uya-hosted-linux-x86_64.c`、`backup/uya-hosted-macos-arm64.c`、`backup/uya-hosted-macos-x86_64.c`、`backup/uya-hosted-macos.c` 刷新。
     关键摘要：`UPM`、`exec vm`、`microapp`、`@syscall C99`、`SIMD C99 NEON`、`http_bench C99` 通过；`benchmarks/http_bench_async_epoll.uya` 按脚本提示未启用检查而跳过。
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+
+- [x] **添加 footer 辅助函数**：
+   ```uya
+   const CHUNK_FLAG_FREE: usize = 1;
+   // 当前 ABI 下为 24B；它不是 16 的倍数，不能直接作为 chunk 总长公式的最终结果。
+   const CHUNK_OVERHEAD: usize = @size_of(ChunkHeader) + @size_of(ChunkFooter);
+
+   fn raw_chunk_size(raw: usize) usize {
+       return raw & ~CHUNK_FLAG_FREE;
+   }
+
+   fn chunk_total_for_payload(payload: usize) usize {
+       return heap_align_up(payload + CHUNK_OVERHEAD);
+   }
+
+   fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
+       const sz: usize = get_size(hdr);
+       return (((hdr as &byte) + sz - @size_of(ChunkFooter)) as &ChunkFooter);
+   }
+
+   fn write_footer(hdr: &ChunkHeader) void {
+       var footer: &ChunkFooter = to_footer(hdr);
+       footer.size = hdr.size;
+   }
+
+   fn find_region_for_header(hdr: &ChunkHeader) &HeapRegion {
+       const addr: usize = hdr as usize;
+       var region: &HeapRegion = heap_regions;
+       while !is_null(region as &void) {
+           const base: usize = region.base as usize;
+           const end: usize = base + region.size;
+           if addr >= base && addr < end {
+               return region;
+           }
+           region = region.next;
+       }
+       return null;
+   }
+
+   fn next_chunk_in_region(region: &HeapRegion, hdr: &ChunkHeader) &ChunkHeader {
+       const sz: usize = get_size(hdr);
+       const next_addr: usize = (hdr as usize) + sz;
+       const end: usize = (region.base as usize) + region.size;
+       if next_addr >= end { return null; }
+       return next_addr as &ChunkHeader;
+   }
+
+   fn prev_chunk_in_region(region: &HeapRegion, hdr: &ChunkHeader) &ChunkHeader {
+       const base: usize = region.base as usize;
+       const addr: usize = hdr as usize;
+       if addr == base { return null; }
+       // 从前一个 footer 读取 size，计算出前一个 chunk 的起始地址
+       const footer_addr: &ChunkFooter = ((hdr as &byte) - @size_of(ChunkFooter)) as &ChunkFooter;
+       const prev_sz: usize = raw_chunk_size(footer_addr.size);
+       if prev_sz < chunk_total_for_payload(MIN_CHUNK_SIZE) || addr < base + prev_sz { return null; }
+       return ((hdr as &byte) - prev_sz) as &ChunkHeader;
+   }
+   ```
+   验证：
+   - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`（通过）
+   - `../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_round && ./tests/build/bench_malloc_phase2_round`（通过；`malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`；`malloc_phase2_realloc iterations=4000 inplace_hits=4000 inplace_hit_rate_pct=100 copy_bytes=0`）
