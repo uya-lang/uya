@@ -170,3 +170,15 @@
     - 验证：`git diff --check -- docs/libc_malloc_design.md docs/todo_malloc_perf.md`（通过）
     - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_malloc_perf.md`（通过，输出 `ok: docs/todo_malloc_perf.md has 1 active task`）
     - 验证：`rg -n "ChunkFooter|chunk_overhead|最小 chunk 总大小|boundary tag footer|合并相邻空闲块" docs/libc_malloc_design.md`（命中 footer 结构、24B 开销、64B 最小 chunk 和合并说明）
+
+### 2026-06-24
+阶段路径：`阶段 2：碎片化根治`
+  - [x] 阶段 2 回归测试和新增确定性测试全部通过
+    - 完成内容：确认阶段 2 已新增的确定性覆盖全部通过，包括 `tests/test_std_stdlib_malloc.uya` 中“释放相邻块后合并复用首块地址”和“`realloc` 借用 next free chunk 原地扩展且保留旧数据”两条关键路径。
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc_only.uya` 通过
+    - 验证：`../uya/bin/uya test tests/programs/test_heap.uya` 通过
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib.uya` 通过
+    - 验证：`../uya/bin/uya test tests/malloc_test.uya` 通过
+    - 验证：`../uya/bin/uya test tests/test_mem_heap.uya` 通过
+    - 验证：`../uya/bin/uya test tests/test_stdlib.uya` 通过
