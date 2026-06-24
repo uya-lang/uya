@@ -151,9 +151,11 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `202` 个，同时新增 `AST_MATCH_EXPR`、`AST_STRING_INTERP`、
         `AST_USIZE_FROM_PTR`、`AST_PTR_FROM_USIZE`、`AST_INT_LIMIT`、`AST_FOR_STMT`、
         `AST_ASM_TARGET` 等具体 bucket。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-FIRST-BUCKET-NEXT`:
-      让首个 generic `错误: MIR-C99 extern lowering 失败` real CLI 用例收敛为具体
-      capability diagnostic 或真实支持。
+      - 进展（2026-06-24，本轮续跑）：`tests/test_https_google.uya` 已不再停在 generic
+        `错误: MIR-C99 extern lowering 失败`；fixed `../uya/bin/uya` 现收敛到
+        `AST_FN_DECL / extern_signature_requires_i32_scalars`
+        （`lib/libc/errno.uya:145`），focused gate=
+        `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`。
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET-NEXT`:
       让首个 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` real CLI
       用例收敛为具体 capability diagnostic 或真实支持。

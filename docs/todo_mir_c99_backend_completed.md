@@ -1796,3 +1796,28 @@ Context:
         - 其余 `10` 个为非编译失败：`2` 个链接失败（`test_export_for_c`、`test_export_for_c_complete`）、`6` 个单文件运行失败（`test_module_use_simple`、`test_function_reachability_tuple_expr`、`test_c99_import_main_codegen`、`test_function_reachability_string_interp_expr`、`test_array_bounds`、`test_module_export`）、`2` 个聚合多文件失败（`multifile`、`cross_deps`）。
         - 显式 capability diagnostic 总量保持 `202`，分布与当前主 todo 基线一致：`147` 个 `AST_TEST_STMT / test_driver_not_lowered`、`15` 个 `AST_ASM / inline_asm_requires_target_capability`、`9` 个 `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`6` 个 `AST_MATCH_EXPR / match_expr_requires_expr_value_place`、`5` 个 `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`4` 个 `AST_STRING_INTERP / string_interp_requires_expr_value_place`、`4` 个 `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个 `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`、`2` 个 `AST_PARAMS / params_tuple_requires_expr_value_place`、`2` 个 `AST_MC_INTERP / mc_interp_requires_compile_time_macro_capability`、`1` 个 `AST_INT_LIMIT / int_limit_requires_expr_value_place`、`1` 个 `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个 `AST_FOR_STMT / for_driver_not_lowered`、`1` 个 `AST_PTR_FROM_USIZE / ptr_from_usize_requires_target_capability`、`1` 个 `AST_SYSCALL / syscall_requires_target_capability`、`1` 个 `AST_ASM_TARGET / asm_target_requires_target_capability`。
         - 结论：nested `test` capability diagnostic 固定后的主语言面重计数已完成复核；当前主 todo 中的 failure matrix 与 capability diagnostic 分布已按本轮真实 CLI 结果刷新。
+
+### 2026-06-24 - Full Language Parity / Main Language
+
+来源：`docs/todo_mir_c99_backend.md`
+
+标题上下文：`### 4.15 Full Language Parity`
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-FIRST-BUCKET-NEXT`:
+    让首个 generic `错误: MIR-C99 extern lowering 失败` real CLI 用例收敛为具体
+    capability diagnostic 或真实支持。
+    - 最小验证：
+      - `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+      - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_https_google.uya -o /tmp/uya-mir-c99-extern-signature-inspect.2zLK9T/test_https_google.c`
+    - 完成条件：
+      - `tests/test_https_google.uya` 不再输出 generic `错误: MIR-C99 extern lowering 失败`。
+      - fixed `../uya/bin/uya` 输出 `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_signature_requires_i32_scalars file=.*/lib/libc/errno.uya line=145`。
+    - 已验证（2026-06-24）：
+      - `UYA_ROOT="$PWD" ../uya/bin/uya build src/cmd/build/main.uya -o /tmp/uya-cmd-build-current.2T4wpW --project-root src/ --no-split-c`：通过；生成的新 `cmd/build` 已同步到 fixed `../uya/bin/cmd/build`，使真实 CLI 吃到当前源码改动。
+      - `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`：通过，输出 `OK: MIR-C99 real CLI extern signature bucket now fails closed with explicit capability diagnostics`。
+      - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_https_google.uya -o /tmp/uya-mir-c99-extern-signature-inspect.2zLK9T/test_https_google.c`：退出码 `1`，日志显示 `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_signature_requires_i32_scalars file=/home/winger/uya/uya-1.0/lib/libc/errno.uya line=145`，随后 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+      - `bash tests/verify_mir_c99_full_language_extern_capability_reject.sh`：通过，确认旧 `tests/assignment.uya` extern focused gate 未回归。
+      - `bash tests/verify_portable_mir_language_coverage.sh`：通过。
+      - `git diff --check -- src/build_compiler_driver.uya tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh docs/portable_mir_language_coverage.md docs/todo_mir_c99_backend.md`：通过。

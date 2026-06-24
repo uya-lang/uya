@@ -53818,6 +53818,113 @@ fn native_build_mir_c99_bind_extern_symbol_names(module: &PortableMirModule,
     return 0;
 }
 
+fn native_build_find_mir_c99_extern_signature_reason(decl: &ASTNode,
+    out_reason: & & byte) i32 {
+    if out_reason != null {
+        *out_reason = null;
+    }
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL ||
+       decl.fn_decl_is_extern == 0 {
+        return 0;
+    }
+    if decl.fn_decl_is_async != 0 {
+        if out_reason != null {
+            *out_reason = "extern_async_requires_sync_lowering" as &byte;
+        }
+        return 1;
+    }
+    if decl.fn_decl_is_naked != 0 {
+        if out_reason != null {
+            *out_reason = "extern_naked_requires_target_capability" as &byte;
+        }
+        return 1;
+    }
+    if decl.fn_decl_is_varargs != 0 {
+        if out_reason != null {
+            *out_reason = "extern_varargs_requires_c_variadic_capability" as &byte;
+        }
+        return 1;
+    }
+    if native_build_type_is_i32(decl.fn_decl_return_type) == 0 {
+        if out_reason != null {
+            *out_reason = "extern_signature_requires_i32_scalars" as &byte;
+        }
+        return 1;
+    }
+    if decl.fn_decl_param_count > 0 && decl.fn_decl_params == null {
+        if out_reason != null {
+            *out_reason = "extern_signature_requires_i32_scalars" as &byte;
+        }
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < decl.fn_decl_param_count {
+        const param: &ASTNode = decl.fn_decl_params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL ||
+           native_build_type_is_i32(param.var_decl_type) == 0 {
+            if out_reason != null {
+                *out_reason = "extern_signature_requires_i32_scalars" as &byte;
+            }
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_find_mir_c99_extern_capability_diagnostic(node: &ASTNode,
+    out_kind: & & byte, out_reason: & & byte, out_file: & & byte,
+    out_line: &i32) i32 {
+    if out_kind != null {
+        *out_kind = null;
+    }
+    if out_reason != null {
+        *out_reason = null;
+    }
+    if out_file != null {
+        *out_file = null;
+    }
+    if out_line != null {
+        *out_line = 0;
+    }
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            if native_build_find_mir_c99_extern_capability_diagnostic(
+                node.program_decls[i], out_kind, out_reason, out_file,
+                out_line) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type != ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    var extern_reason: &byte = null;
+    if native_build_find_mir_c99_extern_signature_reason(node,
+        &extern_reason) == 0 {
+        return 0;
+    }
+    if out_kind != null {
+        *out_kind = "AST_FN_DECL" as &byte;
+    }
+    if out_reason != null {
+        *out_reason = extern_reason;
+    }
+    if out_file != null {
+        *out_file = node.filename;
+    }
+    if out_line != null {
+        *out_line = node.line;
+    }
+    return 1;
+}
+
 fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
     out_kind: & & byte, out_reason: & & byte, out_file: & & byte,
     out_line: &i32) i32 {
@@ -54277,6 +54384,23 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         return 0;
     }
     if node.type == ASTNodeType.AST_FN_DECL {
+        var extern_reason: &byte = null;
+        if native_build_find_mir_c99_extern_signature_reason(node,
+            &extern_reason) != 0 {
+            if out_kind != null {
+                *out_kind = "AST_FN_DECL" as &byte;
+            }
+            if out_reason != null {
+                *out_reason = extern_reason;
+            }
+            if out_file != null {
+                *out_file = node.filename;
+            }
+            if out_line != null {
+                *out_line = node.line;
+            }
+            return 1;
+        }
         return native_build_find_mir_c99_capability_diagnostic(
             node.fn_decl_body, out_kind, out_reason, out_file, out_line);
     }
@@ -54356,18 +54480,34 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
     return 0;
 }
 
-fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode) void {
+fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode) i32 {
     var kind: &byte = null;
     var reason: &byte = null;
     var file: &byte = null;
     var line: i32 = 0;
     if native_build_find_mir_c99_capability_diagnostic(program, &kind, &reason,
         &file, &line) == 0 || kind == null || reason == null {
-        return;
+        return 0;
     }
     fprintf(libc.stderr,
         "mir_c99_capability_diagnostic: kind=%s reason=%s file=%s line=%d\n" as *byte,
         kind, reason, file, line);
+    return 1;
+}
+
+fn native_build_print_mir_c99_extern_capability_diagnostic(program: &ASTNode) i32 {
+    var kind: &byte = null;
+    var reason: &byte = null;
+    var file: &byte = null;
+    var line: i32 = 0;
+    if native_build_find_mir_c99_extern_capability_diagnostic(program, &kind,
+        &reason, &file, &line) == 0 || kind == null || reason == null {
+        return 0;
+    }
+    fprintf(libc.stderr,
+        "mir_c99_capability_diagnostic: kind=%s reason=%s file=%s line=%d\n" as *byte,
+        kind, reason, file, line);
+    return 1;
 }
 
 fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
@@ -54381,7 +54521,12 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
     if native_build_hosted_mir_append_program_externs(&module, program,
         &mir_extern_function_count) != 0 {
         portable_mir_module_release(&module);
-        fprintf(libc.stderr, "错误: MIR-C99 extern lowering 失败\n" as *byte);
+        if native_build_print_mir_c99_extern_capability_diagnostic(program) != 0 {
+            fprintf(libc.stderr,
+                "错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序\n" as *byte);
+        } else {
+            fprintf(libc.stderr, "错误: MIR-C99 extern lowering 失败\n" as *byte);
+        }
         return 1;
     }
     var mir_body_function_count: i32 = 0;
