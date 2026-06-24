@@ -555,3 +555,17 @@
     - 验证结果：通过，3 个测试全部通过，Assertions Passed: 41
     - 验证命令：`git diff --check`
     - 验证结果：通过，无 whitespace / conflict 标记问题
+
+## 阶段 3：分配速度优化（预计 3-5 天）
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+- [x] **定义 bin 数组**：
+   ```uya
+   const NUM_BINS: usize = 8;
+   // 每个 bin 是一个双向链表的头
+   var bins: [&FreeChunk: NUM_BINS] = [];
+   ```
+   验证：
+   - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：通过，3 tests / 75 assertions。
+   - `../uya/bin/uya test tests/test_libc_heap_large_path.uya`：通过，3 tests / 41 assertions。
+   - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过，总计 1 个测试，1 通过，0 失败。
+   - 实现位置：`lib/libc/heap.uya:41` 定义 `NUM_BINS`，`lib/libc/heap.uya:75` 定义 `bins`。

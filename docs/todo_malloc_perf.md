@@ -224,13 +224,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 **实现要点**：
 
-- [ ] **定义 bin 数组**：
-   ```uya
-   const NUM_BINS: usize = 8;
-   // 每个 bin 是一个双向链表的头
-   var bins: [&FreeChunk: NUM_BINS] = [];
-   ```
-
 - [ ] **统一 size class 转换函数**：
    ```uya
    fn normalize_payload_size(size: usize) usize {
