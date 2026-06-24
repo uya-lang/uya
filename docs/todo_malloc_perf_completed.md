@@ -685,3 +685,11 @@
     - 验证：`git diff --check -- docs/todo_malloc_perf.md tests/test_libc_heap_large_path.uya`（通过）
     - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_malloc_perf.md`（通过，输出 `ok: docs/todo_malloc_perf.md has 0 active tasks`）
     - 说明：当前 `lib/libc/heap.uya` 已包含 Task 3.2 的 large mmap 路径；本轮未修改生产代码，只补阶段 3 遗留边界回归并完成 todo 收口。
+
+## 测试策略
+
+### 回归测试（每次改动后必须运行）
+
+- [x] 快速单元测试：`./bin/uya test tests/test_std_stdlib_malloc.uya`
+  - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+  - 验证结果：通过，`总计: 1`，`通过: 1`，`失败: 0`

@@ -250,7 +250,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 ### 回归测试（每次改动后必须运行）
 
-- [ ] 快速单元测试：`./bin/uya test tests/test_std_stdlib_malloc.uya`
 - [ ] 多文件集成测试：`./tests/run_programs_parallel.sh tests/programs/test_heap.uya`
 - [ ] malloc 程序回归：`./tests/run_programs_parallel.sh malloc_test.uya`
 - [ ] 阶段完成后全量验证：`make check`
