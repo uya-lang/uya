@@ -227,7 +227,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 - [ ] **大块快速路径不在本任务实现**：Task 3.1 只负责把仍由普通堆管理的 chunk 放入正确 bin；`>=4096` 的 chunk 在 Task 3.2 完成前继续走普通堆顶层 bin/现有 `morecore` 路径，不能在这里绕过 `owns_ptr()` 直接 mmap/munmap。
 
 - **验收标准**:
-  - [ ] 覆盖每个 bin 的分配/释放/跨 bin 查找：小 bin 为空时能向更大 bin 查找，split 后剩余 chunk 进入正确 bin
   - [ ] 在 Task 3.2 未完成时，`>=4096` 的普通堆 chunk 仍能正常 `free/realloc`，不会被错误地当作独立 mmap 块处理
 
 ---
