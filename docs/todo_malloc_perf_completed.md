@@ -649,3 +649,13 @@
     - 补充回归：`../uya/bin/uya test tests/test_libc_heap_bins.uya` → 4 tests passed，83 assertions；总计 1 个测试，通过 1，失败 0。
     - 补充回归：`../uya/bin/uya test tests/test_libc_heap_large_path.uya` → 3 tests passed，41 assertions；总计 1 个测试，通过 1，失败 0。
     - 说明：当前分支已满足该验收项，本轮未修改生产代码。
+
+## 阶段 3：分配速度优化（预计 3-5 天）
+
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+
+验收标准：
+  - [x] 新增基准测试：连续 10000 次随机大小分配/释放，对比优化前后耗时
+    - 编译命令：`../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_current`；`git worktree add --detach ../uya_malloc_phase2_baseline 13b6d9ce`；`env UYA_ROOT=../uya_malloc_phase2_baseline/lib ../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_baseline`
+    - 验证命令：`./tests/build/bench_malloc_phase3_current` 与 `./tests/build/bench_malloc_phase3_baseline` 各运行 30 次并统计 `elapsed_ns/avg_ns`；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`；`../uya/bin/uya test tests/test_libc_heap_bins.uya`；`../uya/bin/uya test tests/test_libc_heap_large_path.uya`
+    - 验证结果：两边 `ops/allocs/frees/peak_active/checksum` 均为 `10000/5120/4880/255/5856720`；`current avg_ns mean/p50/p95/p99 = 9539.2/9516/9795/9845`，`elapsed_ns mean/p50/p95/p99 = 95397216.7/95167802/97954960/98456404`；`baseline avg_ns mean/p50/p95/p99 = 753.9/752/782/800`，`elapsed_ns mean/p50/p95/p99 = 7543820.0/7528989/7820270/8004785`；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`、`../uya/bin/uya test tests/test_libc_heap_bins.uya`、`../uya/bin/uya test tests/test_libc_heap_large_path.uya` 全部通过。
