@@ -201,11 +201,23 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
         （`lib/std/runtime/entry/entry.uya:79`），focused gate=
         `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`。
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-AFTER-EXTERN-SIGNATURE`:
-        重跑主语言面 matrix，记录 `AST_FN_DECL / extern_signature_requires_i32_scalars`
-        下降后的新 failure 分布，并据此选择下一个主导 bucket。
+      - 进展（2026-06-24，本轮收口）：real CLI 主语言面 matrix
+        `总计: 1024 / 通过: 156 / 失败: 868`；按 summary failure 重计后，
+        `extern_signature_requires_i32_scalars` 已下降到 `2`
+        （`tests/test_extern_union.uya:10`、
+        `tests/test_slice_param_c99_emit.uya:5`），新 top buckets 为
+        `entry_extern_main_requires_runtime_bridge=365`、
+        `extern_varargs_requires_c_variadic_capability=209`、
+        `test_driver_not_lowered=149`、
+        `vector_type_requires_target_helper_capability=48`、
+        `inline_asm_requires_target_capability=15`。
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-EXTERN-MAIN-RUNTIME-BRIDGE`:
+        处理新的主导 bucket
+        `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
+        （`lib/std/runtime/entry/entry.uya:79`），先让 `tests/test_simple_fn.uya`
+        之外的主语言 real CLI 样例继续从 runtime bridge 入口边界收敛。
         - 最小验证：
-          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+          `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
     generator 前提 gate 与真实 CLI 结论一致。
     - 验收：

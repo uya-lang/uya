@@ -2052,3 +2052,28 @@ Path: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LA
     失败闭合到 `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=entry_extern_main_requires_runtime_bridge`
     `file=/media/winger/_dde_home/winger/uya/uya-1.0/lib/std/runtime/entry/entry.uya line=79`，不再出现
     `extern_signature_requires_i32_scalars` 或 `PortableMIR verifier 失败: code=16`。
+
+## 2026-06-24
+
+### 4.15 Full Language Parity
+
+任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+      - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-AFTER-EXTERN-SIGNATURE`:
+        重跑主语言面 matrix，记录 `AST_FN_DECL / extern_signature_requires_i32_scalars`
+        下降后的新 failure 分布，并据此选择下一个主导 bucket。
+        - 最小验证：
+          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+        - 验证（2026-06-24，本轮）：
+          - `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+            -> `总计: 1024 / 通过: 156 / 失败: 868`
+          - 失败分布（按 summary failure 重计）：`entry_extern_main_requires_runtime_bridge=365`、
+            `extern_varargs_requires_c_variadic_capability=209`、
+            `test_driver_not_lowered=149`、
+            `vector_type_requires_target_helper_capability=48`、
+            `inline_asm_requires_target_capability=15`。
+          - `extern_signature_requires_i32_scalars` 已下降到 `2`：
+            `tests/test_extern_union.uya:10`、`tests/test_slice_param_c99_emit.uya:5`。
+          - 结论：下一个主导 bucket 选为
+            `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
+            （`lib/std/runtime/entry/entry.uya:79`）。
