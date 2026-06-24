@@ -6,6 +6,7 @@ use libc.heap_debug_bin_length;
 use libc.heap_debug_last_find_steps;
 use libc.heap_debug_last_find_start_bin;
 use libc.heap_debug_last_split_remainder_bin;
+use libc.heap_flush_current_thread_cache;
 
 fn alloc_checked(size: usize) !&void {
     const ptr: &void = malloc(size);
@@ -105,4 +106,25 @@ test "heap_split_remainder_rebins_into_smaller_class" {
     try assert_true(heap_debug_bin_length(6usize) == before_bin6);
 
     free(medium);
+}
+
+test "heap_split_remainder_uses_payload_bin_for_bin0_tail" {
+    heap_flush_current_thread_cache();
+
+    const big: &void = try alloc_checked(4000usize);
+    free(big);
+
+    const before_bin0: usize = heap_debug_bin_length(0usize);
+
+    const near_full: &void = try alloc_checked(4000usize);
+    try assert_true(heap_debug_last_find_start_bin() == 6usize);
+    try assert_true(heap_debug_last_split_remainder_bin() == 0);
+    try assert_true(heap_debug_bin_length(0usize) == before_bin0 + 1usize);
+
+    const tail_reuse: &void = try alloc_checked(32usize);
+    try assert_true(heap_debug_last_find_start_bin() == 0usize);
+    try assert_true(heap_debug_bin_length(0usize) == before_bin0);
+
+    free(tail_reuse);
+    free(near_full);
 }
