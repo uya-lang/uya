@@ -14,9 +14,10 @@
 /* mir-c99 globals */
 
 /* mir-c99 function bodies */
-static int32_t uya_mir_fn_4(void) {
+static int32_t uya_mir_fn_3(void) {
+int32_t tmp0 = 0;
 bb0:
 return 3;
 }
 
-int main(void) { return uya_mir_fn_4(); }
+int main(void) { return uya_mir_fn_3(); }
