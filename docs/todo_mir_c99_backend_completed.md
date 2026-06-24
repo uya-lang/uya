@@ -1880,3 +1880,22 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
         - 结果摘要：`tests/assignment.uya` 与 `tests/test_https_google.uya` 在真实
           `../uya/bin/uya build --mir-c99` 路径下都只保留 capability diagnostic，
           不再输出 generic `PortableMIR lowering 尚未覆盖当前程序`，reject 也未留下非空输出文件。
+
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-FIRST-GENERIC-LOWERING-BUCKET`:
+    在 capability fail-closed cleanup 后，重选并收敛首个仍停在 generic
+    `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 的非 capability 样例。
+    - 最小验证：先重跑主语言面计数，锁定新的首个 generic lowering case，再补 focused
+      real-CLI gate。
+    - 验证（2026-06-24，本轮）：
+      - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`：通过，`ok: docs/todo_mir_c99_backend.md has 1 active task`。
+      - `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`：退出码 `1`；`总计: 1024`、`通过: 155`、`失败: 869`。按本轮 `tests/build_mir_c99` 产物与测试枚举顺序复核，新的首个 generic-only 样例锁定为 `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya`。
+      - `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`：通过；本地 `bin/cmd/build` 已用受约束 fixed compiler 重建，并同步到 sibling `../uya/bin/cmd/build`。
+      - `bash tests/verify_mir_c99_full_language_simd_select_first_bucket.sh`：通过，输出 `OK: MIR-C99 real CLI SIMD select first bucket now fails closed with explicit capability diagnostics`。
+      - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya -o /tmp/uya-mir-c99-simd-select-direct.c`：退出码 `1`，日志进入 `[MIR-C99]` 路由，输出 `mir_c99_capability_diagnostic: kind=AST_TYPE_VECTOR reason=vector_type_requires_target_helper_capability file=tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya line=2`，不再输出 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+      - `bash tests/verify_mir_c99_full_language_simd_vector_mask_reject.sh`：通过，保持 SIMD vector/mask 的显式 reject 边界与 coverage 证据不回退。
+    - 结果：主语言面新的首个 generic PortableMIR lowering bucket 已从 `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya` 收敛到 `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`；下一轮可直接重跑主语言面 matrix，确认 generic compile failure 计数继续下降。

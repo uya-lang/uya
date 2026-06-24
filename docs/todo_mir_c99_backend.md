@@ -142,11 +142,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
       `AST_ASM_TARGET / asm_target_requires_target_capability`。
     - 子任务拆分（2026-06-24，本轮）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-FIRST-GENERIC-LOWERING-BUCKET`:
-        在 capability fail-closed cleanup 后，重选并收敛首个仍停在 generic
-        `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 的非 capability 样例。
-        - 最小验证：先重跑主语言面计数，锁定新的首个 generic lowering case，再补 focused
-          real-CLI gate。
       - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-MATRIX`:
         重跑主语言面 `--mir-c99` 并刷新 failure matrix，确认 generic compile failure 计数
         随上述收敛继续下降。
@@ -161,6 +156,15 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `202` 个，同时新增 `AST_MATCH_EXPR`、`AST_STRING_INTERP`、
         `AST_USIZE_FROM_PTR`、`AST_PTR_FROM_USIZE`、`AST_INT_LIMIT`、`AST_FOR_STMT`、
         `AST_ASM_TARGET` 等具体 bucket。
+      - 进展（2026-06-24，本轮续跑）：按本轮 `1024 / 155 / 869` 的真实 CLI 重计数与
+        `tests/build_mir_c99` 产物复核，新的首个 generic
+        `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 非 capability 样例已锁定为
+        `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya`。
+      - 进展（2026-06-24，本轮续跑）：fixed `../uya/bin/uya` 现已把
+        `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya` 从 generic lowering 收敛到
+        `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`
+        （`line=2`），focused gate=
+        `bash tests/verify_mir_c99_full_language_simd_select_first_bucket.sh`。
       - 进展（2026-06-24，本轮续跑）：`tests/test_https_google.uya` 已不再停在 generic
         `错误: MIR-C99 extern lowering 失败`；fixed `../uya/bin/uya` 现收敛到
         `AST_FN_DECL / extern_signature_requires_i32_scalars`

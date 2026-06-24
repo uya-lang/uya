@@ -54012,6 +54012,36 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         }
         return 1;
     }
+    if node.type == ASTNodeType.AST_TYPE_VECTOR {
+        if out_kind != null {
+            *out_kind = "AST_TYPE_VECTOR" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "vector_type_requires_target_helper_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_TYPE_MASK {
+        if out_kind != null {
+            *out_kind = "AST_TYPE_MASK" as &byte;
+        }
+        if out_reason != null {
+            *out_reason = "mask_type_requires_target_helper_capability" as &byte;
+        }
+        if out_file != null {
+            *out_file = node.filename;
+        }
+        if out_line != null {
+            *out_line = node.line;
+        }
+        return 1;
+    }
     if node.type == ASTNodeType.AST_STRING_INTERP {
         if out_kind != null {
             *out_kind = "AST_STRING_INTERP" as &byte;
@@ -54417,7 +54447,104 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
         }
         return 0;
     }
+    if node.type == ASTNodeType.AST_TYPE_ALIAS {
+        return native_build_find_mir_c99_capability_diagnostic(
+            node.type_alias_target_type, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if node.type == ASTNodeType.AST_STRUCT_DECL {
+        if node.struct_decl_fields != null {
+            var field_index: i32 = 0;
+            while field_index < node.struct_decl_field_count {
+                if native_build_find_mir_c99_capability_diagnostic(
+                    node.struct_decl_fields[field_index], out_kind, out_reason,
+                    out_file, out_line) != 0 {
+                    return 1;
+                }
+                field_index = field_index + 1;
+            }
+        }
+        if node.struct_decl_methods != null {
+            var method_index: i32 = 0;
+            while method_index < node.struct_decl_method_count {
+                if native_build_find_mir_c99_capability_diagnostic(
+                    node.struct_decl_methods[method_index], out_kind, out_reason,
+                    out_file, out_line) != 0 {
+                    return 1;
+                }
+                method_index = method_index + 1;
+            }
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_UNION_DECL {
+        if node.union_decl_variants != null {
+            var variant_index: i32 = 0;
+            while variant_index < node.union_decl_variant_count {
+                if native_build_find_mir_c99_capability_diagnostic(
+                    node.union_decl_variants[variant_index], out_kind,
+                    out_reason, out_file, out_line) != 0 {
+                    return 1;
+                }
+                variant_index = variant_index + 1;
+            }
+        }
+        if node.union_decl_methods != null {
+            var union_method_index: i32 = 0;
+            while union_method_index < node.union_decl_method_count {
+                if native_build_find_mir_c99_capability_diagnostic(
+                    node.union_decl_methods[union_method_index], out_kind,
+                    out_reason, out_file, out_line) != 0 {
+                    return 1;
+                }
+                union_method_index = union_method_index + 1;
+            }
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_INTERFACE_DECL &&
+       node.interface_decl_method_sigs != null {
+        var sig_index: i32 = 0;
+        while sig_index < node.interface_decl_method_sig_count {
+            if native_build_find_mir_c99_capability_diagnostic(
+                node.interface_decl_method_sigs[sig_index], out_kind,
+                out_reason, out_file, out_line) != 0 {
+                return 1;
+            }
+            sig_index = sig_index + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_METHOD_BLOCK &&
+       node.method_block_methods != null {
+        var block_method_index: i32 = 0;
+        while block_method_index < node.method_block_method_count {
+            if native_build_find_mir_c99_capability_diagnostic(
+                node.method_block_methods[block_method_index], out_kind,
+                out_reason, out_file, out_line) != 0 {
+                return 1;
+            }
+            block_method_index = block_method_index + 1;
+        }
+        return 0;
+    }
     if node.type == ASTNodeType.AST_FN_DECL {
+        if node.fn_decl_params != null {
+            var param_index: i32 = 0;
+            while param_index < node.fn_decl_param_count {
+                if native_build_find_mir_c99_capability_diagnostic(
+                    node.fn_decl_params[param_index], out_kind, out_reason,
+                    out_file, out_line) != 0 {
+                    return 1;
+                }
+                param_index = param_index + 1;
+            }
+        }
+        if native_build_find_mir_c99_capability_diagnostic(
+            node.fn_decl_return_type, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
         var extern_reason: &byte = null;
         if native_build_find_mir_c99_extern_signature_reason(node,
             &extern_reason) != 0 {
@@ -54443,10 +54570,19 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
             node.macro_decl_body, out_kind, out_reason, out_file, out_line);
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
+        if native_build_find_mir_c99_capability_diagnostic(
+            node.var_decl_type, out_kind, out_reason, out_file, out_line) != 0 {
+            return 1;
+        }
         return native_build_find_mir_c99_capability_diagnostic(
             node.var_decl_init, out_kind, out_reason, out_file, out_line);
     }
     if node.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        if native_build_find_mir_c99_capability_diagnostic(
+            node.extern_var_decl_var_type, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
         return native_build_find_mir_c99_capability_diagnostic(
             node.extern_var_decl_init_expr, out_kind, out_reason, out_file,
             out_line);
@@ -54533,6 +54669,62 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
             return 1;
         }
         return 0;
+    }
+    if node.type == ASTNodeType.AST_TYPE_NAMED &&
+       node.type_named_type_args != null {
+        var type_arg_index: i32 = 0;
+        while type_arg_index < node.type_named_type_arg_count {
+            if native_build_find_mir_c99_capability_diagnostic(
+                node.type_named_type_args[type_arg_index], out_kind,
+                out_reason, out_file, out_line) != 0 {
+                return 1;
+            }
+            type_arg_index = type_arg_index + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_TYPE_POINTER {
+        return native_build_find_mir_c99_capability_diagnostic(
+            node.type_pointer_pointed_type, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if node.type == ASTNodeType.AST_TYPE_ARRAY {
+        if native_build_find_mir_c99_capability_diagnostic(
+            node.type_array_element_type, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
+        return native_build_find_mir_c99_capability_diagnostic(
+            node.type_array_size_expr, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if node.type == ASTNodeType.AST_TYPE_SLICE {
+        if native_build_find_mir_c99_capability_diagnostic(
+            node.type_slice_element_type, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
+        return native_build_find_mir_c99_capability_diagnostic(
+            node.type_slice_size_expr, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if node.type == ASTNodeType.AST_TYPE_TUPLE &&
+       node.type_tuple_element_types != null {
+        var tuple_index: i32 = 0;
+        while tuple_index < node.type_tuple_element_count {
+            if native_build_find_mir_c99_capability_diagnostic(
+                node.type_tuple_element_types[tuple_index], out_kind,
+                out_reason, out_file, out_line) != 0 {
+                return 1;
+            }
+            tuple_index = tuple_index + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        return native_build_find_mir_c99_capability_diagnostic(
+            node.type_error_union_payload_type, out_kind, out_reason,
+            out_file, out_line);
     }
     if node.type == ASTNodeType.AST_TRY_EXPR {
         return native_build_find_mir_c99_capability_diagnostic(
