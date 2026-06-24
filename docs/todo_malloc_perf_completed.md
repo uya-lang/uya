@@ -623,3 +623,8 @@
   验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_cross_bin.uya` 通过（1 个测试，通过 1，失败 0）。
   验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya` 通过（1 个测试，通过 1，失败 0）。
   验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（1 个测试，通过 1，失败 0）。
+## 阶段 3：分配速度优化（预计 3-5 天）
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+- [x] **修改 add_free/remove_free**：用 `bin_index_for_chunk(&chunk.header)` 维护 bin 链表，不允许直接把 `get_size(hdr)` 传给 bin 函数。
+  - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya`（通过；覆盖 32B payload 落入 bin 0、各 size class free/reuse、跨 bin 查找）
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`（通过）
