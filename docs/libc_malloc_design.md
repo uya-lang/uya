@@ -4,7 +4,7 @@
 
 本文档记录了 Uya 语言 libc 内存分配器的 musl 风格实现方案。
 
-## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-19）- musl 风格空闲链表
+## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-24）- musl 风格空闲链表
 
 ### 核心特性
 
@@ -16,7 +16,12 @@ struct ChunkHeader {
     size: usize,   // 块大小，低 1 位=空闲标志
 }
 
-// 空闲块（32 字节，第一个字段必须是 header）
+// 边界标记 footer（8 字节，镜像 header.size）
+struct ChunkFooter {
+    size: usize,
+}
+
+// 空闲块前缀（32 字节，第一个字段必须是 header）
 struct FreeChunk {
     header: ChunkHeader,  // 偏移 0-15
     prev: &FreeChunk,     // 偏移 16
@@ -24,7 +29,7 @@ struct FreeChunk {
 }
 ```
 
-当前实现没有 footer；每个 chunk 的 `size` 记录 `ChunkHeader + 用户可写 payload` 的总字节数，并使用最低位标记 free 状态。若按 `docs/todo_malloc_perf.md` 阶段 2 引入 footer，需要同步把 chunk 总开销、split 阈值和用户可写空间计算改为新的 `CHUNK_OVERHEAD`。
+当前实现已经引入 footer。`hdr.size` 记录整个 chunk 的总字节数，覆盖 `ChunkHeader + 用户可写区域/空闲链表覆盖区 + ChunkFooter`，并继续使用最低位标记 free 状态。`chunk_overhead()` 固定为 `16B header + 8B footer = 24B`，`chunk_total_for_payload()` 对 `payload + 24B` 再做 16 字节对齐，因此当前最小 chunk 总大小是 `heap_align_up(32 + 24) = 64B`。这意味着最小分配块虽然请求/归一化 payload 为 32B，但实际可写空间为 `64 - 24 = 40B`；空闲时其中前 16B 被 `prev/next` 链表指针复用。
 
 **malloc:**
 - 使用空闲链表管理已释放的内存块
@@ -33,8 +38,9 @@ struct FreeChunk {
 - 按需扩展：没有合适块时使用 mmap 扩展堆
 
 **free:**
-- 将块添加到空闲链表头部
-- 简化版：暂不合并相邻空闲块（待实现）
+- 先写入当前块 footer
+- 通过 footer 边界标记向前/向后查找相邻 chunk
+- 合并相邻空闲块后再加入空闲链表头部
 
 **calloc:**
 - 调用 malloc 分配内存
@@ -72,40 +78,48 @@ if is_null(chunk as &void) { return null; }
 if !is_null(chunk.prev as &void) { ... }
 ```
 
-#### 3. 当前低位标记实现
+#### 3. 当前低位标记与 footer 实现
 
 ```uya
-// 检查奇数（代替 size & 1）
+const CHUNK_FLAG_FREE: usize = 1;
+
 fn is_free(hdr: &ChunkHeader) bool {
-    return ((hdr.size as i64) % (2 as i64)) != 0;
+    return (hdr.size & CHUNK_FLAG_FREE) != 0;
 }
 
-// 清除低 1 位（代替 size & ~1）
 fn get_size(hdr: &ChunkHeader) usize {
-    return ((hdr.size as i64) / (2 as i64)) as usize * 2;
+    return hdr.size - (hdr.size & CHUNK_FLAG_FREE);
 }
 
-// 16 字节对齐
-fn align_up(size: usize) usize {
-    if size == 0 { return 16; }
-    var q: usize = size / 16;
-    var r: usize = size - q * 16;
-    if r == 0 { return size; }
-    return (q + 1) * 16;
+fn chunk_overhead() usize {
+    return @size_of(ChunkHeader) + @size_of(ChunkFooter);
+}
+
+fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
+    const sz: usize = get_size(hdr);
+    return (((hdr as &byte) + sz - @size_of(ChunkFooter)) as &ChunkFooter);
 }
 ```
 
 ### 内存布局
 
 ```
-内存地址：  [0          16        24      32]
-            +-----------+---------+--------+
-FreeChunk:  | ChunkHeader | prev  | next   |
-            +-----------+---------+--------+
-                         ↑
-                    与 ChunkHeader 起始地址相同
+分配态 chunk（总大小 = header + payload + footer，再按 16B 对齐）：
+[0          16                             sz-8      sz]
++-----------+------------------------------+----------+
+| Header16B | user payload / free overlay  | Footer8B |
++-----------+------------------------------+----------+
 
-因此可以安全转换：(chunk as &ChunkHeader) 或 (hdr as &FreeChunk)
+空闲态 chunk（`FreeChunk` 只覆盖 chunk 起始的 32B 前缀）：
+[0          16        24      32                   sz-8      sz]
++-----------+---------+-------+--------------------+----------+
+| Header16B | prev8B  | next8B| remaining payload  | Footer8B |
++-----------+---------+-------+--------------------+----------+
+
+`ChunkFooter.size` 镜像保存 `hdr.size`，因此 `prev_chunk_in_region()` 可以先读取前一个 chunk 的 footer，再常数时间回退到前一个 header。
+
+`FreeChunk` 与 `ChunkHeader` 仍然共用同一起始地址，因此可以安全转换 `(chunk as &ChunkHeader)` 和 `(hdr as &FreeChunk)`。
+
 ```
 
 ### malloc 流程
@@ -118,8 +132,8 @@ FreeChunk:  | ChunkHeader | prev  | next   |
    - 添加到空闲链表
    - 重新查找
 4. 从空闲链表移除
-5. 清除空闲标志
-6. 分割块（如果剩余空间足够）
+5. 清除空闲标志并写入 footer
+6. 分割块（如果剩余空间达到最小 chunk 总大小）
 7. 返回用户指针
 ```
 
@@ -130,8 +144,9 @@ FreeChunk:  | ChunkHeader | prev  | next   |
 2. owns_ptr(ptr) 所属 region 校验
 3. 获取块头部
 4. 验证魔数
-5. 转换为 FreeChunk
-6. 添加到空闲链表头部
+5. 写入当前块 footer 并执行相邻空闲块合并
+6. 转换为合并后的 FreeChunk
+7. 添加到空闲链表头部
 ```
 
 ## 改进建议
@@ -139,10 +154,10 @@ FreeChunk:  | ChunkHeader | prev  | next   |
 ### 短期
 1. ✅ **空闲链表管理**：已实现
 2. ✅ **块分割**：已实现
-3. ⏳ **块合并**：free 时合并相邻空闲块（减少碎片）
+3. ✅ **boundary tag footer + 块合并**：已实现
 
 ### 长期
-1. **块合并完整实现**：向前和向后合并
+1. **更优 free list 策略**：如 size-segregated free lists，降低首次适配扫描成本
 2. **最佳适配算法**：代替首次适配
 3. **多个空闲链表**：按大小分类（类似 musl）
 

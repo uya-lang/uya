@@ -163,3 +163,10 @@
     - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（显式编入 `../uya/lib/libc/heap.uya`，新增 `realloc` 原地扩展用例通过）
     - 验证：`../uya/bin/uya test tests/test_std_stdlib.uya` 通过
     - 验证：`../uya/bin/uya test tests/programs/test_heap.uya` 通过
+
+### 2026-06-24
+阶段路径：`阶段 2：碎片化根治`
+  - [x] 同步 `docs/libc_malloc_design.md` 中的 footer 布局和开销说明
+    - 验证：`git diff --check -- docs/libc_malloc_design.md docs/todo_malloc_perf.md`（通过）
+    - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_malloc_perf.md`（通过，输出 `ok: docs/todo_malloc_perf.md has 1 active task`）
+    - 验证：`rg -n "ChunkFooter|chunk_overhead|最小 chunk 总大小|boundary tag footer|合并相邻空闲块" docs/libc_malloc_design.md`（命中 footer 结构、24B 开销、64B 最小 chunk 和合并说明）
