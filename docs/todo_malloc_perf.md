@@ -2,7 +2,7 @@
 
 **创建日期**: 2026-06-18
 **优先级**: P1（性能基础设施）
-**当前状态**: 阶段 1-3 已完成；阶段 4 已完成 Task 4.1 与热路径锁争用修复/吞吐复测，待补充性能收益报告
+**当前状态**: 阶段 1-4 已完成；待执行收口验证
 **关联文档**: `docs/libc_malloc_design.md`
 **基线说明**: 阶段 1 对照基线固定为提交 `bee7df32`：`ChunkHeader` 为 16B、`FreeChunk` 为 32B、未引入 footer。当前实现已完成阶段 2，`ChunkHeader + ChunkFooter` 开销为 24B，阶段 3 起的性能对比以此为新基线。
 
@@ -12,8 +12,6 @@
 
 完成某项后把对应 `- [ ]` 改为 `- [x]`。阶段级 checkbox 只有在该阶段所有任务、测试和性能记录都完成后再勾选。
 
-- [ ] 阶段 4：多线程扩展
-  - [ ] 阶段 4 性能收益报告补充实测数据
 - [ ] 收口验证
   - [ ] `make check` 通过
   - [ ] 本文档的任务状态、测试结果和最后更新日期已同步
@@ -130,6 +128,19 @@
 变化：`avg_ns` mean `778.6 -> 1211.7`（+55.6%，等价吞吐约 `1284357 -> 825287 ops/sec`）；P50 `781 -> 1200`（+53.6%）；P95 `820 -> 1281`（+56.2%）；P99 `823 -> 1316`（+59.9%）；`elapsed_ns` mean `7.79ms -> 12.12ms`（+55.6%）
 当前实现诊断：`tests/test_libc_heap_bins.uya` 覆盖的跨 bin 复用场景中 `heap_debug_last_find_start_bin() == 6` 且 `heap_debug_last_find_steps() == 1`；split 后 remainder 会回到 bin 6。`tests/test_libc_heap_large_path.uya` 验证 1MiB malloc/free 与 large realloc 前后 8 个普通 bin 长度保持不变，large `mmap/munmap` 计数按预期变化。
 结论：阶段 3 已验证结构性目标，目标 bin 起跳查找和 large path 隔离都正确生效；但在包含 `4096` size class 的当前混合 workload 上，large 直连 `mmap/munmap` 成本超过了 bins 带来的查找收益，整体分配延迟较阶段 2 回退约 54%-60%。后续进入阶段 4 前，应把“小中对象 bins”与“临界大块阈值”拆成独立基准口径，避免把两类效应混成单一吞吐结论。
+
+### 阶段 4 实测记录（2026-06-25）
+
+日期：2026-06-25
+提交：当前 `6bfd45bc`
+平台：Linux 6.12.65-amd64-desktop-rolling #25.01.01.11 SMP PREEMPT_DYNAMIC Wed Jan 14 15:36:12 CST 2026 x86_64 GNU/Linux
+编译命令：`../uya/bin/uya build tests/bench_malloc_phase4.uya -o tests/build/bench_malloc_phase4_current`；`../uya/bin/uya build tests/test_libc_heap_tcache.uya -o tests/build/test_libc_heap_tcache`
+测试命令：`../uya/bin/uya test tests/test_libc_heap_tcache_metrics.uya`；`./tests/build/test_libc_heap_tcache`；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`；`./tests/build/bench_malloc_phase4_current` 连续运行 10 次
+样本规模：每次 benchmark 覆盖 `1/2/4/8` 线程；每线程执行 `4000` 轮、每轮对 `32/64/128/256/512/1024/2048` 七个 size class 各做 `8` 次 `malloc + free`；单次进程总操作数分别为 `448000/896000/1792000/3584000`；统计 10 次进程级重复运行的 `throughput_ops_per_sec`、`elapsed_ns`、`lock_acquires`、`lock_contentions`、`tcache_hit_rate_bp`
+基线结果：阶段 3 提交 `df801ee9` 尚未提供 `tests/bench_malloc_phase4.uya` 与 `tcache` 指标接口，本阶段按扩展目标使用单线程结果作为对照：`threads=1 throughput_ops_per_sec mean/p50/p95 = 895340.3/892860/903168`；`elapsed_ns mean/p50/p95 = 500391895.7/499741555/506360838`；`lock_acquires = 58`；`lock_contentions = 0`；`tcache_hit_rate = 99.97%`
+优化后结果：`threads=2 throughput_ops_per_sec mean/p50/p95 = 1470225.6/1585868/1622179`；`elapsed_ns mean/p50/p95 = 623685488.2/562662469/814806604`；`lock_acquires p50 = 116`；`lock_contentions mean/p50 = 15.3/16`；`tcache_hit_rate mean/p50 = 92.61%/99.97%`。`threads=4 throughput_ops_per_sec mean/p50/p95 = 2682543.8/2738881/2922646`；`elapsed_ns mean/p50/p95 = 673119004.7/639752442/776733531`；`lock_acquires p50 = 232`；`lock_contentions mean/p50 = 206.6/203`；`tcache_hit_rate mean/p50 = 98.35%/99.97%`。`threads=8 throughput_ops_per_sec mean/p50/p95 = 4564436.2/4586196/4922242`；`elapsed_ns mean/p50/p95 = 788061208.4/774960887/925131264`；`lock_acquires p50 = 464`；`lock_contentions mean/p50 = 426.3/424`；`tcache_hit_rate mean/p50 = 99.78%/99.97%`
+变化：相对单线程基线，`2/4/8` 线程吞吐均值分别达到 `1.64x/3.00x/5.10x`，P50 达到 `1.78x/3.07x/5.14x`；典型样本的 `lock_acquires` 仅随线程数近线性增长 `58 -> 116 -> 232 -> 464`。在 10 次进程级重复里，`threads=2/4/8` 分别有 `7/10`、`7/10`、`9/10` 样本维持 `99.97%` 的 `tcache` 命中率，其余样本出现额外 refill/miss 长尾并拉低均值。
+结论：阶段 4 已实测达到文档目标“4 线程吞吐 > 单线程 2.5x”，并把大多数小对象热路径的全局锁获取压缩到“每线程仅为每个 size class 做一次冷启动 refill”的量级。当前残余风险主要是 fresh-process 样本里偶发的 `tcache` 冷启动长尾；若后续需要更稳定的均值口径，可在 benchmark 中加入预热轮或拉长采样时间。
 
 
 ## 阶段 2：碎片化根治（预计 3-5 天）

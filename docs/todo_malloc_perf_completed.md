@@ -298,3 +298,15 @@
     - 结果：`threads=4 throughput_ops_per_sec=2891477 lock_acquires=232 lock_contentions=202 tcache_hits=895776 tcache_misses=224`
     - 结果：`threads=8 throughput_ops_per_sec=4684753 lock_acquires=464 lock_contentions=432 tcache_hits=1791552 tcache_misses=448`
     - 结论：4 线程吞吐为单线程 `3.23x`，满足“4 线程 > 单线程 2.5x”目标；单线程吞吐较本轮修复前基线 `850584 -> 896069`
+
+## 2026-06-25 本轮完成
+
+来源：`docs/todo_malloc_perf.md`
+
+- [x] 阶段 4：多线程扩展
+  - [x] 阶段 4 性能收益报告补充实测数据
+    - 完成内容：在“性能收益报告”追加阶段 4 的 10 次进程级重复实测，补充 `1/2/4/8` 线程吞吐、锁获取/竞争和 `tcache` 命中率，并注明阶段 3 缺少同口径 benchmark 的对照限制。
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_tcache_metrics.uya` 通过（总计 1，失败 0，assertions 16）。
+    - 验证：`../uya/bin/uya build tests/test_libc_heap_tcache.uya -o tests/build/test_libc_heap_tcache` 成功；随后执行 `./tests/build/test_libc_heap_tcache` 通过（exit 0）。
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（总计 1，失败 0）。
+    - 验证：`../uya/bin/uya build tests/bench_malloc_phase4.uya -o tests/build/bench_malloc_phase4_current` 成功；随后执行 `./tests/build/bench_malloc_phase4_current` 连续 10 次，生成 `40` 条 `threads=1/2/4/8` 样本并完成统计。
