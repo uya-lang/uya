@@ -1913,3 +1913,34 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
     `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
     `git diff --check -- docs/todo_mir_c99_backend.md` -> 通过
   - 结果摘要：`tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya` 已从 generic lowering 收敛到 `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`；`tests/test_https_google.uya` 已从 generic `extern lowering 失败` 收敛到 `AST_FN_DECL / extern_signature_requires_i32_scalars`；顶层 generic compile failure 现仅剩 `10` 个。
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级路径：
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE`
+- [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-GENERIC-LOWERING`:
+    将剩余 `7` 个顶层 generic `PortableMIR lowering 尚未覆盖当前程序`
+    收敛为具体 capability diagnostic，覆盖 `tests/test_cfg_target.uya`、
+    `tests/test_exec_vm_const_pool.uya`、`tests/test_exec_vm_defer.uya`、
+    `tests/test_exec_vm_drop_local.uya`、`tests/test_exec_vm_hir_scope.uya`、
+    `tests/test_exec_vm_local_load_store.uya`、
+    `tests/test_struct_array_field_typed_empty_init.uya`。
+    - 最小验证：
+      `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_cfg_target.uya tests/test_exec_vm_const_pool.uya tests/test_exec_vm_defer.uya tests/test_exec_vm_drop_local.uya tests/test_exec_vm_hir_scope.uya tests/test_exec_vm_local_load_store.uya tests/test_struct_array_field_typed_empty_init.uya`
+    - 实际验证（2026-06-24）：
+      `bash tests/verify_mir_c99_full_language_remaining_generic_lowering_capability_reject.sh`
+      -> `OK: remaining generic MIR-C99 lowering bucket now fails closed with explicit capability diagnostics`
+    - 结果（2026-06-24）：
+      `tests/test_cfg_target.uya` /
+      `tests/test_exec_vm_const_pool.uya` -> `AST_BINARY_EXPR /
+      binary_expr_requires_general_expr_lowering`；
+      `tests/test_exec_vm_defer.uya` /
+      `tests/test_exec_vm_hir_scope.uya` /
+      `tests/test_exec_vm_local_load_store.uya` -> `AST_CALL_EXPR /
+      call_expr_requires_call_lowering`；
+      `tests/test_exec_vm_drop_local.uya` -> `AST_ASSIGN /
+      assign_dest_requires_local_i32_binding`；
+      `tests/test_struct_array_field_typed_empty_init.uya` ->
+      `AST_VAR_DECL / local_decl_requires_i32_scalar_storage`；
+      全部 `7` 例不再输出 generic
+      `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。

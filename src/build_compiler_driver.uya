@@ -13241,10 +13241,6 @@ fn native_build_hosted_structured_i32_body_supported(
             native_build_hosted_structured_i32_stmt_count(
                 decl.fn_decl_body.block_stmts[i], &locals, &expr_count);
         if child_count < 0 {
-            fprintf(libc.stderr,
-                "structured_i32_preflight_fail: index=%d type=%d locals=%d exprs=%d\n" as *byte,
-                i, decl.fn_decl_body.block_stmts[i].type, locals.count,
-                expr_count);
             return 0;
         }
         stmt_count = stmt_count + child_count;
@@ -13253,6 +13249,349 @@ fn native_build_hosted_structured_i32_body_supported(
     if stmt_count >= decl.fn_decl_body.block_stmt_count &&
        expr_count > 0 && locals.count > 0 {
         return 1;
+    }
+    return 0;
+}
+
+fn native_build_set_mir_c99_capability_diagnostic(
+    node: &ASTNode, kind: &byte, reason: &byte, out_kind: & & byte,
+    out_reason: & & byte, out_file: & & byte, out_line: &i32) i32 {
+    if out_kind != null {
+        *out_kind = kind;
+    }
+    if out_reason != null {
+        *out_reason = reason;
+    }
+    if out_file != null {
+        if node != null {
+            *out_file = node.filename;
+        } else {
+            *out_file = null;
+        }
+    }
+    if out_line != null {
+        if node != null {
+            *out_line = node.line;
+        } else {
+            *out_line = 0;
+        }
+    }
+    return 1;
+}
+
+fn native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+    expr: &ASTNode, locals: &NativeBuildLocalTable, out_kind: & & byte,
+    out_reason: & & byte, out_file: & & byte, out_line: &i32) i32 {
+    if expr == null || locals == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        if expr.identifier_name != null &&
+           native_build_local_find(locals, expr.identifier_name) >= 0 {
+            return 0;
+        }
+        return native_build_set_mir_c99_capability_diagnostic(expr,
+            "AST_IDENTIFIER" as &byte,
+            "identifier_requires_local_i32_binding" as &byte, out_kind,
+            out_reason, out_file, out_line);
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        if expr.binary_expr_left == null || expr.binary_expr_right == null {
+            return native_build_set_mir_c99_capability_diagnostic(expr,
+                "AST_BINARY_EXPR" as &byte,
+                "binary_expr_requires_general_expr_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp catch {
+            return native_build_set_mir_c99_capability_diagnostic(expr,
+                "AST_BINARY_EXPR" as &byte,
+                "binary_expr_requires_general_expr_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        };
+        if op != TokenType.TOKEN_PLUS && op != TokenType.TOKEN_LESS &&
+           op != TokenType.TOKEN_LESS_EQUAL {
+            return native_build_set_mir_c99_capability_diagnostic(expr,
+                "AST_BINARY_EXPR" as &byte,
+                "binary_expr_requires_general_expr_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        if op == TokenType.TOKEN_LESS &&
+           expr.binary_expr_right.type != ASTNodeType.AST_NUMBER {
+            return native_build_set_mir_c99_capability_diagnostic(expr,
+                "AST_BINARY_EXPR" as &byte,
+                "binary_expr_requires_general_expr_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        if native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            expr.binary_expr_left, locals, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
+        return native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            expr.binary_expr_right, locals, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        return native_build_set_mir_c99_capability_diagnostic(expr,
+            "AST_CALL_EXPR" as &byte,
+            "call_expr_requires_call_lowering" as &byte, out_kind,
+            out_reason, out_file, out_line);
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return native_build_set_mir_c99_capability_diagnostic(expr,
+            "AST_MEMBER_ACCESS" as &byte,
+            "member_access_requires_general_expr_lowering" as &byte,
+            out_kind, out_reason, out_file, out_line);
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return native_build_set_mir_c99_capability_diagnostic(expr,
+            "AST_ARRAY_ACCESS" as &byte,
+            "array_access_requires_general_expr_lowering" as &byte,
+            out_kind, out_reason, out_file, out_line);
+    }
+    if expr.type == ASTNodeType.AST_STRUCT_INIT {
+        return native_build_set_mir_c99_capability_diagnostic(expr,
+            "AST_STRUCT_INIT" as &byte,
+            "struct_init_requires_general_expr_lowering" as &byte,
+            out_kind, out_reason, out_file, out_line);
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
+        return native_build_set_mir_c99_capability_diagnostic(expr,
+            "AST_ARRAY_LITERAL" as &byte,
+            "array_literal_requires_general_expr_lowering" as &byte,
+            out_kind, out_reason, out_file, out_line);
+    }
+    return 0;
+}
+
+fn native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+    stmt: &ASTNode, locals: &NativeBuildLocalTable, out_kind: & & byte,
+    out_reason: & & byte, out_file: & & byte, out_line: &i32) i32 {
+    if stmt == null || locals == null {
+        return 0;
+    }
+    if native_build_hosted_structured_i32_stmt_is_expr(stmt) != 0 {
+        return native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt, locals, out_kind, out_reason, out_file, out_line);
+    }
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        if stmt.var_decl_name == null || stmt.var_decl_init == null ||
+           native_build_type_is_i32(stmt.var_decl_type) == 0 {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_VAR_DECL" as &byte,
+                "local_decl_requires_i32_scalar_storage" as &byte, out_kind,
+                out_reason, out_file, out_line);
+        }
+        if native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt.var_decl_init, locals, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
+        if native_build_local_add_i32_const(locals, stmt.var_decl_name, 0) < 0 {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_VAR_DECL" as &byte,
+                "local_decl_requires_i32_scalar_storage" as &byte, out_kind,
+                out_reason, out_file, out_line);
+        }
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_ASSIGN {
+        if stmt.assign_dest == null || stmt.assign_src == null ||
+           stmt.assign_dest.type != ASTNodeType.AST_IDENTIFIER ||
+           stmt.assign_dest.identifier_name == null ||
+           native_build_local_find(locals,
+            stmt.assign_dest.identifier_name) < 0 {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_ASSIGN" as &byte,
+                "assign_dest_requires_local_i32_binding" as &byte, out_kind,
+                out_reason, out_file, out_line);
+        }
+        return native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt.assign_src, locals, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        if stmt.return_stmt_expr == null {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_RETURN_STMT" as &byte,
+                "return_stmt_requires_general_expr_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        return native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt.return_stmt_expr, locals, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if stmt.type == ASTNodeType.AST_FOR_STMT {
+        if stmt.for_stmt_is_range == 0 || stmt.for_stmt_is_ref != 0 ||
+           stmt.for_stmt_var_name == null || stmt.for_stmt_range_start == null ||
+           stmt.for_stmt_range_end == null ||
+           stmt.for_stmt_range_end.type != ASTNodeType.AST_NUMBER ||
+           stmt.for_stmt_body == null ||
+           stmt.for_stmt_body.type != ASTNodeType.AST_BLOCK ||
+           native_build_hosted_stmt_has_continue_for_current_loop(
+            stmt.for_stmt_body, 0) != 0 {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_FOR_STMT" as &byte, "for_driver_not_lowered" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        if native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt.for_stmt_range_start, locals, out_kind, out_reason,
+            out_file, out_line) != 0 {
+            return 1;
+        }
+        if native_build_local_add_i32_const(locals, stmt.for_stmt_var_name, 0) < 0 {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_FOR_STMT" as &byte, "for_driver_not_lowered" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        return native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+            stmt.for_stmt_body, locals, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if stmt.type == ASTNodeType.AST_BREAK_STMT ||
+       stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_IF_STMT {
+        if stmt.if_stmt_condition == null || stmt.if_stmt_then_branch == null ||
+           stmt.if_stmt_then_branch.type != ASTNodeType.AST_BLOCK {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_IF_STMT" as &byte,
+                "if_stmt_requires_block_control_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        if native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt.if_stmt_condition, locals, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
+        if native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+            stmt.if_stmt_then_branch, locals, out_kind, out_reason, out_file,
+            out_line) != 0 {
+            return 1;
+        }
+        if stmt.if_stmt_else_branch != null {
+            if stmt.if_stmt_else_branch.type != ASTNodeType.AST_BLOCK {
+                return native_build_set_mir_c99_capability_diagnostic(stmt,
+                    "AST_IF_STMT" as &byte,
+                    "if_stmt_requires_block_control_lowering" as &byte,
+                    out_kind, out_reason, out_file, out_line);
+            }
+            return native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+                stmt.if_stmt_else_branch, locals, out_kind, out_reason,
+                out_file, out_line);
+        }
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_WHILE_STMT {
+        if stmt.while_stmt_condition == null || stmt.while_stmt_body == null ||
+           stmt.while_stmt_body.type != ASTNodeType.AST_BLOCK {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_WHILE_STMT" as &byte,
+                "while_stmt_requires_block_control_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        if native_build_find_mir_c99_structured_i32_expr_capability_diagnostic(
+            stmt.while_stmt_condition, locals, out_kind, out_reason,
+            out_file, out_line) != 0 {
+            return 1;
+        }
+        return native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+            stmt.while_stmt_body, locals, out_kind, out_reason, out_file,
+            out_line);
+    }
+    if stmt.type == ASTNodeType.AST_BLOCK {
+        if stmt.block_stmt_count < 0 ||
+           (stmt.block_stmt_count > 0 && stmt.block_stmts == null) {
+            return native_build_set_mir_c99_capability_diagnostic(stmt,
+                "AST_BLOCK" as &byte,
+                "block_requires_structured_stmt_lowering" as &byte,
+                out_kind, out_reason, out_file, out_line);
+        }
+        var i: i32 = 0;
+        while i < stmt.block_stmt_count {
+            if native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+                stmt.block_stmts[i], locals, out_kind, out_reason, out_file,
+                out_line) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if stmt.type == ASTNodeType.AST_CALL_EXPR {
+        return native_build_set_mir_c99_capability_diagnostic(stmt,
+            "AST_CALL_EXPR" as &byte,
+            "call_expr_requires_call_lowering" as &byte, out_kind,
+            out_reason, out_file, out_line);
+    }
+    if stmt.type == ASTNodeType.AST_DEFER_STMT {
+        return native_build_set_mir_c99_capability_diagnostic(stmt,
+            "AST_DEFER_STMT" as &byte,
+            "defer_stmt_requires_cleanup_lowering" as &byte, out_kind,
+            out_reason, out_file, out_line);
+    }
+    if stmt.type == ASTNodeType.AST_ERRDEFER_STMT {
+        return native_build_set_mir_c99_capability_diagnostic(stmt,
+            "AST_ERRDEFER_STMT" as &byte,
+            "errdefer_stmt_requires_cleanup_lowering" as &byte, out_kind,
+            out_reason, out_file, out_line);
+    }
+    return 0;
+}
+
+fn native_build_find_mir_c99_structured_i32_body_capability_diagnostic(
+    decl: &ASTNode, checker: &TypeChecker, out_kind: & & byte,
+    out_reason: & & byte, out_file: & & byte, out_line: &i32) i32 {
+    if decl == null || checker == null ||
+       native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_body == null ||
+       decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmts == null ||
+       decl.fn_decl_body.block_stmt_count <= 1 {
+        return 0;
+    }
+    var locals: NativeBuildLocalTable =
+        native_build_local_table_init(checker.arena,
+            decl.fn_decl_body.block_stmt_count + 16);
+    if locals.names == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < decl.fn_decl_body.block_stmt_count {
+        if native_build_find_mir_c99_structured_i32_stmt_capability_diagnostic(
+            decl.fn_decl_body.block_stmts[i], &locals, out_kind, out_reason,
+            out_file, out_line) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_find_mir_c99_structured_i32_capability_diagnostic(
+    program: &ASTNode, checker: &TypeChecker, out_kind: & & byte,
+    out_reason: & & byte, out_file: & & byte, out_line: &i32) i32 {
+    if program == null || checker == null ||
+       program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+           native_build_hosted_decl_can_materialize_safe_core_body(program,
+            decl, checker) == 0 &&
+           native_build_find_mir_c99_structured_i32_body_capability_diagnostic(
+            decl, checker, out_kind, out_reason, out_file, out_line) != 0 {
+            return 1;
+        }
+        i = i + 1;
     }
     return 0;
 }
@@ -54733,14 +55072,23 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
     return 0;
 }
 
-fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode) i32 {
+fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode,
+    checker: &TypeChecker) i32 {
     var kind: &byte = null;
     var reason: &byte = null;
     var file: &byte = null;
     var line: i32 = 0;
     if native_build_find_mir_c99_capability_diagnostic(program, &kind, &reason,
         &file, &line) == 0 || kind == null || reason == null {
-        return 0;
+        kind = null;
+        reason = null;
+        file = null;
+        line = 0;
+        if native_build_find_mir_c99_structured_i32_capability_diagnostic(
+            program, checker, &kind, &reason, &file, &line) == 0 ||
+           kind == null || reason == null {
+            return 0;
+        }
     }
     fprintf(libc.stderr,
         "mir_c99_capability_diagnostic: kind=%s reason=%s file=%s line=%d\n" as *byte,
@@ -54784,7 +55132,8 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
         program, &mir_body_function_count) != 0 ||
        mir_body_function_count <= 0 {
         portable_mir_module_release(&module);
-        if native_build_print_mir_c99_capability_diagnostic(program) == 0 {
+        if native_build_print_mir_c99_capability_diagnostic(program,
+            checker) == 0 {
             fprintf(libc.stderr,
                 "错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序\n" as *byte);
         }
@@ -54879,7 +55228,8 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
     }
     if mir_c99_write_unit_output_file(output_path, &module, &plan,
         &cfg_plan, program) != 0 {
-        if native_build_print_mir_c99_capability_diagnostic(program) == 0 {
+        if native_build_print_mir_c99_capability_diagnostic(program,
+            checker) == 0 {
             fprintf(libc.stderr, "错误: MIR-C99 unit output 写出失败\n" as *byte);
         }
         unlink(output_path as *byte);

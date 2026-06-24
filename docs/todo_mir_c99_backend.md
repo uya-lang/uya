@@ -160,20 +160,22 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_FN_DECL / extern_signature_requires_i32_scalars`
       （`lib/libc/errno.uya:145`），focused gate=
       `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`。
-    - 进展（2026-06-24，本轮收口）：顶层 generic compile failure 已降到 `10` 个
-      （`7` 个 `PortableMIR lowering 尚未覆盖当前程序` + `3` 个
-      `PortableMIR verifier 失败`）；剩余 generic block 仅见于
+    - 进展（2026-06-24，本轮收口）：顶层 `7` 个 generic
+      `PortableMIR lowering 尚未覆盖当前程序` 已全部收敛为具体 capability
+      diagnostic：`tests/test_cfg_target.uya` /
+      `tests/test_exec_vm_const_pool.uya` -> `AST_BINARY_EXPR /
+      binary_expr_requires_general_expr_lowering`；
+      `tests/test_exec_vm_defer.uya` /
+      `tests/test_exec_vm_hir_scope.uya` /
+      `tests/test_exec_vm_local_load_store.uya` -> `AST_CALL_EXPR /
+      call_expr_requires_call_lowering`；
+      `tests/test_exec_vm_drop_local.uya` -> `AST_ASSIGN /
+      assign_dest_requires_local_i32_binding`；
+      `tests/test_struct_array_field_typed_empty_init.uya` ->
+      `AST_VAR_DECL / local_decl_requires_i32_scalar_storage`。顶层剩余 block
+      现仅为 `3` 个 `PortableMIR verifier 失败`；generic block 仍仅见于
       `multifile/cross_deps` 聚合子用例。
     - 后续子任务拆分（2026-06-24，本轮收口）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-GENERIC-LOWERING`:
-        将剩余 `7` 个顶层 generic `PortableMIR lowering 尚未覆盖当前程序`
-        收敛为具体 capability diagnostic，覆盖 `tests/test_cfg_target.uya`、
-        `tests/test_exec_vm_const_pool.uya`、`tests/test_exec_vm_defer.uya`、
-        `tests/test_exec_vm_drop_local.uya`、`tests/test_exec_vm_hir_scope.uya`、
-        `tests/test_exec_vm_local_load_store.uya`、
-        `tests/test_struct_array_field_typed_empty_init.uya`。
-        - 最小验证：
-          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_cfg_target.uya tests/test_exec_vm_const_pool.uya tests/test_exec_vm_defer.uya tests/test_exec_vm_drop_local.uya tests/test_exec_vm_hir_scope.uya tests/test_exec_vm_local_load_store.uya tests/test_struct_array_field_typed_empty_init.uya`
       - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-VERIFIER-FAILURES`:
         收敛剩余 `3` 个 `PortableMIR verifier 失败`：
         `tests/test_function_reachability_codegen.uya`、
