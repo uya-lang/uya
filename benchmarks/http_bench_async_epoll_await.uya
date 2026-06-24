@@ -596,6 +596,9 @@ struct BenchContext {
             return 0 as usize;
         }
 
+        if slot >= BENCH_MAX_THREADS as usize {
+            return 0 as usize;
+        }
         const slot_ref: &BenchSlot = &ctx.slots[slot];
         while slot_ref.cli_woff < slot_ref.cli_resp_len {
             const wn: usize = try @await bench_write_async(
@@ -651,7 +654,13 @@ fn bench_worker_thread(_arg: &void) &void {
     if worker_id < 0 || worker_id >= BENCH_MAX_THREADS {
         return null as &void;
     }
-    const ptr: &BenchContext = &g_worker_contexts[worker_id as usize];
+    // 转 usize 后就地用 @len 守卫，使定长数组 g_worker_contexts 的边界证明通过。
+    // (as! 为 checked cast，返回 !usize，取 .value；当前编译器不跨 as 传递范围事实)
+    const wid: usize = (worker_id as! usize).value;
+    if wid >= @len(g_worker_contexts) {
+        return null as &void;
+    }
+    const ptr: &BenchContext = &g_worker_contexts[wid];
     const slot_cap: i32 = bench_thread_slot_cap(_arg);
     ptr.slot_cap = slot_cap;
     _ = ptr.run();

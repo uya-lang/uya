@@ -119,6 +119,9 @@ fn bench_accept_future(listen_fd: i32) BenchAcceptFuture {
             return 0 as usize;
         }
 
+        if slot >= BENCH_MAX_THREADS as usize {
+            return 0 as usize;
+        }
         const slot_ref: &BenchSlot = &ctx.slots[slot];
         while slot_ref.cli_woff < slot_ref.cli_resp_len {
             const wn: usize = try @await async_fd_write_future(
@@ -220,6 +223,29 @@ struct BenchContext {
             return &g_json_body[0] as &const byte;
         }
         return &g_hello_body[0] as &const byte;
+    },
+
+    fn slot_ref_for_index(self: &Self, slot: usize) &BenchSlot {
+        // 调用点都会先做显式边界守卫；这里只给证明器提供结构体字段索引的固定落点。
+        if slot >= BENCH_MAX_THREADS as usize {
+            return &self.slots[0];
+        }
+        return &self.slots[slot];
+    },
+
+    fn active_slot_value(self: &Self, idx: usize) i32 {
+        if idx >= BENCH_MAX_THREADS as usize {
+            return 0 - 1;
+        }
+        return self.active_slots[idx];
+    },
+
+    fn set_active_slot_value(self: &Self, idx: usize, value: i32) bool {
+        if idx >= BENCH_MAX_THREADS as usize {
+            return false;
+        }
+        self.active_slots[idx] = value;
+        return true;
     },
 
     fn cli_compact_unconsumed(self: &Self, slot: usize, consumed: usize, filled: usize) usize {
@@ -404,6 +430,9 @@ fn bench_context_spawn_accepted_client(self: &BenchContext, cfd: i32) bool {
     if su >= self.slot_cap as usize {
         return false;
     }
+    if su >= BENCH_MAX_THREADS as usize {
+        return false;
+    }
     const slot: &BenchSlot = &self.slots[su];
     slot.cfd = cfd;
     slot.active = 1;
@@ -437,6 +466,9 @@ fn bench_context_slot_release(self: &BenchContext, slot_idx: i32) void {
         return;
     }
     const s: usize = (slot_idx as! usize).value;
+    if s >= BENCH_MAX_THREADS as usize {
+        return;
+    }
     const slot: &BenchSlot = &self.slots[s];
     if slot.epoll_fd != 0 {
         const loop: EventLoop = self.epoll;
@@ -469,7 +501,11 @@ fn bench_context_slot_release(self: &BenchContext, slot_idx: i32) void {
         if self.active_slots[i as usize] == slot_idx {
             const last_idx: i32 = self.active_count - 1;
             if i != last_idx {
-                self.active_slots[i as usize] = self.active_slots[last_idx as usize];
+                const last_u: usize = (last_idx as! usize).value;
+                if last_u >= @len(self.active_slots) {
+                    break;
+                }
+                _ = self.set_active_slot_value(i as usize, self.active_slot_value(last_u));
             }
             self.active_count = last_idx;
             break;
@@ -518,8 +554,17 @@ fn bench_context_bench_poll_slots(self: &BenchContext, timeout_ms: i32) void {
         }
         var i: i32 = 0;
         while i < self.active_count {
-            const slot_idx: i32 = self.active_slots[i as usize];
-            const slot: &BenchSlot = &self.slots[slot_idx as usize];
+            const slot_idx: i32 = self.active_slot_value(i as usize);
+            if slot_idx < 0 || slot_idx >= BENCH_MAX_THREADS {
+                i = i + 1;
+                continue;
+            }
+            const slot_u: usize = (slot_idx as! usize).value;
+            if slot_u >= @len(self.slots) {
+                i = i + 1;
+                continue;
+            }
+            const slot: &BenchSlot = self.slot_ref_for_index(slot_u);
             if slot.active == 0 {
                 i = i + 1;
                 continue;
@@ -681,7 +726,11 @@ fn bench_thread_slot_cap(arg: &void) i32 {
     if worker_id < 0 || worker_id >= BENCH_MAX_THREADS {
         return 0 as i32;
     }
-    const ptr: &BenchContext = &g_worker_contexts[worker_id as usize];
+    const wid: usize = (worker_id as! usize).value;
+    if wid >= @len(g_worker_contexts) {
+        return 0 as i32;
+    }
+    const ptr: &BenchContext = &g_worker_contexts[wid];
     const slot_cap: i32 = bench_thread_slot_cap(arg);
     ptr.slot_cap = slot_cap;
     return bench_context_run(ptr);

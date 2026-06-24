@@ -172,35 +172,87 @@ check_dep() {
     fi
 }
 
+wrk_latency_to_us() {
+    local token="${1:-}"
+    local value
+
+    token="${token//$'\r'/}"
+    token="${token//$'\n'/}"
+    token="${token// /}"
+    if [ -z "$token" ]; then
+        echo "0"
+        return
+    fi
+
+    case "$token" in
+        *ns)
+            value="${token%ns}"
+            awk "BEGIN { printf \"%.2f\", $value / 1000.0 }"
+            ;;
+        *us)
+            printf '%s' "${token%us}"
+            ;;
+        *ms)
+            value="${token%ms}"
+            awk "BEGIN { printf \"%.2f\", $value * 1000.0 }"
+            ;;
+        *s)
+            value="${token%s}"
+            awk "BEGIN { printf \"%.2f\", $value * 1000000.0 }"
+            ;;
+        *m)
+            value="${token%m}"
+            awk "BEGIN { printf \"%.2f\", $value * 60000000.0 }"
+            ;;
+        *)
+            echo "0"
+            ;;
+    esac
+}
+
 # 解析 wrk 输出，返回格式: req|count|dur|p50|p95|p99|rps
 parse_wrk() {
     local output="$1"
     local req=0
     local count=0
     local dur=0
+    local avg_token=""
+    local p50_token=""
+    local p95_token=""
+    local p99_token=""
     local p50=0
     local p95=0
     local p99=0
     local rps=0
 
-    rps=$(echo "$output" | grep "Requests/sec:" | sed 's/.*Requests\/sec: *//' | awk '{print $1}' | head -1)
+    rps=$(printf '%s\n' "$output" | awk '/Requests\/sec:/ {print $2; exit}')
     if [ -z "$rps" ]; then rps=0; fi
 
-    req=$(echo "$output" | grep "requests in" | awk '{print $1}' | head -1)
+    req=$(printf '%s\n' "$output" | awk '/requests in/ {print $1; exit}')
     if [ -z "$req" ]; then req=0; fi
 
-    count=$(echo "$output" | grep "requests in" | awk '{print $4}' | sed 's/s//' | sed 's/,//' | head -1)
-    if [ -z "$count" ]; then count=0; fi
+    count="$req"
 
-    dur=$(echo "$output" | grep "50.00%" | head -1 | awk '{print $2}' | sed 's/[a-zA-Z]//g')
-    p95=$(echo "$output" | grep "95.00%" | head -1 | awk '{print $2}' | sed 's/[a-zA-Z]//g')
-    p99=$(echo "$output" | grep "99.00%" | head -1 | awk '{print $2}' | sed 's/[a-zA-Z]//g')
+    dur=$(printf '%s\n' "$output" | awk '/requests in/ {gsub(/,/, "", $4); sub(/[smh]$/, "", $4); print $4; exit}')
+    if [ -z "$dur" ]; then dur=0; fi
 
-    if [ -z "$dur" ] || [ "$dur" = "0" ]; then
-        dur=$(echo "$output" | grep "Latency" | head -1 | awk '{print $2}' | sed 's/[a-zA-Z]//g')
+    avg_token=$(printf '%s\n' "$output" | awk '/^[[:space:]]*Latency[[:space:]]/ {print $2; exit}')
+    p50_token=$(printf '%s\n' "$output" | awk '/^[[:space:]]*50(%|\.00%)/ {print $2; exit}')
+    p95_token=$(printf '%s\n' "$output" | awk '/^[[:space:]]*95(%|\.00%)/ {print $2; exit}')
+    p99_token=$(printf '%s\n' "$output" | awk '/^[[:space:]]*99(%|\.00%)/ {print $2; exit}')
+
+    # 某些 wrk 版本默认只输出 50/75/90/99 分位；缺少 95% 时退回 90% 近似值，避免显示为 0。
+    if [ -z "$p95_token" ]; then
+        p95_token=$(printf '%s\n' "$output" | awk '/^[[:space:]]*90(%|\.00%)/ {print $2; exit}')
     fi
-    if [ -z "$p95" ]; then p95=0; fi
-    if [ -z "$p99" ]; then p99=0; fi
+
+    if [ -z "$p50_token" ]; then p50_token="$avg_token"; fi
+    if [ -z "$p95_token" ]; then p95_token="$avg_token"; fi
+    if [ -z "$p99_token" ]; then p99_token="$avg_token"; fi
+
+    p50=$(wrk_latency_to_us "$p50_token")
+    p95=$(wrk_latency_to_us "$p95_token")
+    p99=$(wrk_latency_to_us "$p99_token")
 
     echo "$req|$count|$dur|$p50|$p95|$p99|$rps"
 }
@@ -383,9 +435,9 @@ run_benchmark() {
     fi
 
     # 运行 wrk
-    echo "运行 wrk -t${WRK_THREADS} -c${WRK_CONNECTIONS} -d${WRK_DURATION} $url" >&2
+    echo "运行 wrk --latency -t${WRK_THREADS} -c${WRK_CONNECTIONS} -d${WRK_DURATION} $url" >&2
     local output
-    output=$(wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_DURATION" "$url" 2>&1)
+    output=$(wrk --latency -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_DURATION" "$url" 2>&1)
     echo "$output" >&2
 
     # 解析结果
@@ -985,20 +1037,45 @@ main() {
         fi
     }
 
+    summary_rows=""
+
+    append_summary_row() {
+        local name="$1"
+        local qps="$2"
+        local ab_req="$3"
+        local ab_failed="$4"
+        local ab_rps="$5"
+        local ka_req="$6"
+        local ka_failed="$7"
+        local ka_rps="$8"
+
+        summary_rows+="${name}|${qps}|${ab_req}|${ab_failed}|${ab_rps}|${ka_req}|${ka_failed}|${ka_rps}"$'\n'
+    }
+
+    print_sorted_rows() {
+        while IFS='|' read -r name qps ab_req ab_failed ab_rps ka_req ka_failed ka_rps; do
+            if [ -z "$name" ]; then
+                continue
+            fi
+            print_row "$name" "$qps" "$ab_req" "$ab_failed" "$ab_rps" "$ka_req" "$ka_failed" "$ka_rps"
+        done < <(printf '%s' "$summary_rows" | sort -t '|' -k2,2gr -k1,1)
+    }
+
     log_info "统一对比结果"
     echo "=========================================="
     print_header
     print_sep
-    if bench_enabled "uya"; then print_row "http_bench.uya" "$uya_rps" "$uya_ab_req" "$uya_ab_failed" "$uya_ab_rps" "$uya_ka_req" "$uya_ka_failed" "$uya_ka_rps"; fi
-    if bench_enabled "uya-fork"; then print_row "http_bench_fork.uya" "$uya_fork_rps" "$uya_fork_ab_req" "$uya_fork_ab_failed" "$uya_fork_ab_rps" "$uya_fork_ka_req" "$uya_fork_ka_failed" "$uya_fork_ka_rps"; fi
-    if bench_enabled "uya-async-epoll"; then print_row "http_bench_async_epoll.uya" "$uya_epoll_rps" "$uya_epoll_ab_req" "$uya_epoll_ab_failed" "$uya_epoll_ab_rps" "$uya_epoll_ka_req" "$uya_epoll_ka_failed" "$uya_epoll_ka_rps"; fi
-    if bench_enabled "uya-async-await"; then print_row "http_bench_async_epoll_await.uya" "$uya_async_await_rps" "$uya_async_await_ab_req" "$uya_async_await_ab_failed" "$uya_async_await_ab_rps" "$uya_async_await_ka_req" "$uya_async_await_ka_failed" "$uya_async_await_ka_rps"; fi
-    if bench_enabled "uya-async-await-simple"; then print_row "http_bench_async_epoll_await_simple.uya" "$uya_async_await_simple_rps" "$uya_async_await_simple_ab_req" "$uya_async_await_simple_ab_failed" "$uya_async_await_simple_ab_rps" "$uya_async_await_simple_ka_req" "$uya_async_await_simple_ka_failed" "$uya_async_await_simple_ka_rps"; fi
-    if bench_enabled "uya-async-await-stack"; then print_row "http_bench_async_epoll_await_stack.uya" "$uya_async_await_stack_rps" "$uya_async_await_stack_ab_req" "$uya_async_await_stack_ab_failed" "$uya_async_await_stack_ab_rps" "$uya_async_await_stack_ka_req" "$uya_async_await_stack_ka_failed" "$uya_async_await_stack_ka_rps"; fi
-    if bench_enabled "go"; then print_row "http_bench.go" "$go_rps" "$go_ab_req" "$go_ab_failed" "$go_ab_rps" "$go_ka_req" "$go_ka_failed" "$go_ka_rps"; fi
-    if bench_enabled "c"; then print_row "http_bench.c" "$c_rps" "$c_ab_req" "$c_ab_failed" "$c_ab_rps" "$c_ka_req" "$c_ka_failed" "$c_ka_rps"; fi
-    if bench_enabled "c-async-epoll"; then print_row "http_bench_async_epoll.c" "$c_async_epoll_rps" "$c_async_epoll_ab_req" "$c_async_epoll_ab_failed" "$c_async_epoll_ab_rps" "$c_async_epoll_ka_req" "$c_async_epoll_ka_failed" "$c_async_epoll_ka_rps"; fi
-    if bench_enabled "tokio"; then print_row "http_bench_tokio" "$tokio_rps_val" "$tokio_ab_req" "$tokio_ab_failed" "$tokio_ab_rps" "$tokio_ka_req" "$tokio_ka_failed" "$tokio_ka_rps"; fi
+    if bench_enabled "uya"; then append_summary_row "http_bench.uya" "$uya_rps" "$uya_ab_req" "$uya_ab_failed" "$uya_ab_rps" "$uya_ka_req" "$uya_ka_failed" "$uya_ka_rps"; fi
+    if bench_enabled "uya-fork"; then append_summary_row "http_bench_fork.uya" "$uya_fork_rps" "$uya_fork_ab_req" "$uya_fork_ab_failed" "$uya_fork_ab_rps" "$uya_fork_ka_req" "$uya_fork_ka_failed" "$uya_fork_ka_rps"; fi
+    if bench_enabled "uya-async-epoll"; then append_summary_row "http_bench_async_epoll.uya" "$uya_epoll_rps" "$uya_epoll_ab_req" "$uya_epoll_ab_failed" "$uya_epoll_ab_rps" "$uya_epoll_ka_req" "$uya_epoll_ka_failed" "$uya_epoll_ka_rps"; fi
+    if bench_enabled "uya-async-await"; then append_summary_row "http_bench_async_epoll_await.uya" "$uya_async_await_rps" "$uya_async_await_ab_req" "$uya_async_await_ab_failed" "$uya_async_await_ab_rps" "$uya_async_await_ka_req" "$uya_async_await_ka_failed" "$uya_async_await_ka_rps"; fi
+    if bench_enabled "uya-async-await-simple"; then append_summary_row "http_bench_async_epoll_await_simple.uya" "$uya_async_await_simple_rps" "$uya_async_await_simple_ab_req" "$uya_async_await_simple_ab_failed" "$uya_async_await_simple_ab_rps" "$uya_async_await_simple_ka_req" "$uya_async_await_simple_ka_failed" "$uya_async_await_simple_ka_rps"; fi
+    if bench_enabled "uya-async-await-stack"; then append_summary_row "http_bench_async_epoll_await_stack.uya" "$uya_async_await_stack_rps" "$uya_async_await_stack_ab_req" "$uya_async_await_stack_ab_failed" "$uya_async_await_stack_ab_rps" "$uya_async_await_stack_ka_req" "$uya_async_await_stack_ka_failed" "$uya_async_await_stack_ka_rps"; fi
+    if bench_enabled "go"; then append_summary_row "http_bench.go" "$go_rps" "$go_ab_req" "$go_ab_failed" "$go_ab_rps" "$go_ka_req" "$go_ka_failed" "$go_ka_rps"; fi
+    if bench_enabled "c"; then append_summary_row "http_bench.c" "$c_rps" "$c_ab_req" "$c_ab_failed" "$c_ab_rps" "$c_ka_req" "$c_ka_failed" "$c_ka_rps"; fi
+    if bench_enabled "c-async-epoll"; then append_summary_row "http_bench_async_epoll.c" "$c_async_epoll_rps" "$c_async_epoll_ab_req" "$c_async_epoll_ab_failed" "$c_async_epoll_ab_rps" "$c_async_epoll_ka_req" "$c_async_epoll_ka_failed" "$c_async_epoll_ka_rps"; fi
+    if bench_enabled "tokio"; then append_summary_row "http_bench_tokio" "$tokio_rps_val" "$tokio_ab_req" "$tokio_ab_failed" "$tokio_ab_rps" "$tokio_ka_req" "$tokio_ka_failed" "$tokio_ka_rps"; fi
+    print_sorted_rows
     print_sep
     echo "=========================================="
 
