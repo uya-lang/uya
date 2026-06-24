@@ -1962,3 +1962,11 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
       `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`：通过。
       `bash tests/verify_mir_c99_full_language_remaining_verifier_failures.sh`：通过，输出 `OK: MIR-C99 remaining verifier-failure cases no longer end in PortableMIR verifier failures`。
       `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`：通过，输出 `OK: MIR-C99 first verifier bucket no longer ends in a PortableMIR verifier failure`。
+
+- 路径：`# MIR-C99 Backend TODO` > `## 4. 任务清单` > `### 4.15 Full Language Parity` > `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+  - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-AST-FN-DECL-EXTERN-SIGNATURE`:
+    针对当前主导的 `AST_FN_DECL / extern_signature_requires_i32_scalars`
+    （`589` 个）建立 focused 收敛路径，避免 generic extern lowering 回潮。
+    - 最小验证：
+      `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+      -> 通过，输出 `OK: MIR-C99 real CLI extern signature bucket now fails closed with explicit capability diagnostics`。

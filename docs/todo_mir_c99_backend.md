@@ -175,12 +175,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_VAR_DECL / local_decl_requires_i32_scalar_storage`。顶层剩余 block
       现仅为 `3` 个 `PortableMIR verifier 失败`；generic block 仍仅见于
       `multifile/cross_deps` 聚合子用例。
-    - 后续子任务拆分（2026-06-24，本轮收口）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-AST-FN-DECL-EXTERN-SIGNATURE`:
-        针对当前主导的 `AST_FN_DECL / extern_signature_requires_i32_scalars`
-        （`589` 个）建立 focused 收敛路径，避免 generic extern lowering 回潮。
-        - 最小验证：
-          `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。
