@@ -206,3 +206,35 @@
   - 验证：`../uya/bin/uya test tests/test_mem_allocator.uya` 通过（8 个 allocator 用例）。
   - 验证：`../uya/bin/uya test tests/test_stdlib.uya` 通过。
   - 验证：`../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_current` 成功；随后执行 `./tests/build/bench_malloc_phase3_current`，输出 `malloc_phase3_random ops=10000 allocs=5120 frees=4880 peak_active=255 elapsed_ns=8444787 avg_ns=844 checksum=5856720`。
+
+## 2026-06-25
+
+任务路径：阶段 3：分配速度优化
+
+### Task 3.2: 大块分配走 mmap/munmap 快速路径
+
+- [x] Task 3.2：大块分配走 mmap/munmap 快速路径
+- **优先级**: P1
+- **预计时间**: 1 天（可独立于 Task 3.1；直接 mmap/munmap 行为只在本任务验收）
+- **文件**: `lib/libc/heap.uya`
+- **方案**: 请求大小 ≥ 4096 字节时，直接从 mmap 分配独立映射，free 时直接 munmap。不经过自由链表，不参与 split/coalesce。大块不能只写 `ChunkHeader` 后返回：现有 `free/realloc` 会先通过 `owns_ptr()` 验证，小块 `heap_regions` 不包含独立大块映射，因此必须维护独立的大块映射表或把大块安全登记到可验证的 region 表中。`_free_impl/_realloc_impl` 的入口顺序必须先查 large-region metadata，命中后直接走 large 路径；未命中才继续走普通 `owns_ptr()` 验证。
+- **large 布局约束**: large path 使用独立的 header-only 布局，不写 footer，也不使用 `CHUNK_OVERHEAD`、`chunk_total_for_payload`、`to_footer/write_footer`、`split_chunk` 或 `coalesce` helper。`ChunkHeader` 只作为 `to_user_ptr/to_header` 兼容层和 magic 校验哨兵；真实映射大小、用户 payload 大小、free/realloc/copy 长度都以 `LargeRegion` 元数据为准。
+- **完成说明**:
+  - [x] 新增 `LargeRegion` 链表和 `heap_debug_large_region_count/mmap_count/munmap_count`，让 large-path 具备最小可观测性。
+  - [x] `malloc` 对 `>=4096` 请求直接走独立 `mmap`，不进入普通 bins，也不参与 split/coalesce。
+  - [x] `_free_impl` 先查 large-region，再执行 `munmap`，避免被普通 `owns_ptr()` 提前过滤。
+  - [x] `_realloc_impl` 对 large 指针统一走“重新分配 + 复制前缀 + 释放旧映射”，并支持 large-to-large 与 large-to-small。
+  - [x] bin 回归测试已更新到阶段 3 语义；`docs/libc_malloc_design.md` 已同步 large-path 当前实现。
+- **验收标准**:
+  - [x] 新增最小 debug/test 观测能力（例如 large region 数量、普通自由链表/bin 计数，或 mmap/munmap 计数），large-path 验收不能只依赖现有 malloc 测试是否通过
+  - [x] 分配/释放 1MB 块不污染自由链表，不触发无意义的 split/coalesce
+  - [x] large 指针的 `free` 会实际 `munmap`，不会被 `owns_ptr()` 提前过滤
+  - [x] large 指针的 `realloc` 支持复制到新块并释放旧映射
+  - [x] 新增确定性测试：large malloc 后 large-region 计数增加，free 后计数减少且普通自由链表/bin 状态不变
+  - [x] 新增确定性测试：large realloc 到更大块会保留旧内容前缀、登记新映射、释放旧映射；large realloc 到小块时行为与设计一致并有明确断言
+- **验证**:
+  - `../uya/bin/uya test tests/test_libc_heap_large_path.uya` -> 3 tests passed, 41 assertions
+  - `../uya/bin/uya test tests/test_libc_heap_bins.uya` -> 3 tests passed, 75 assertions
+  - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya` -> 1 test passed
+  - `../uya/bin/uya test tests/malloc_test.uya` -> 12 subtests passed
+  - `git diff --check` -> 通过

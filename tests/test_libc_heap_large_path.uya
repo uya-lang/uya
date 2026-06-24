@@ -1,0 +1,109 @@
+use std.testing.expect;
+use std.testing.assert_true;
+use libc.malloc;
+use libc.free;
+use libc.realloc;
+use libc.heap_debug_bin_length;
+use libc.heap_debug_large_region_count;
+use libc.heap_debug_large_mmap_count;
+use libc.heap_debug_large_munmap_count;
+
+fn alloc_checked(size: usize) !&void {
+    const ptr: &void = malloc(size);
+    try expect(ptr != null);
+    return ptr;
+}
+
+fn snapshot_bins(out: &usize) void {
+    var i: usize = 0usize;
+    while i < 8usize {
+        out[i] = heap_debug_bin_length(i);
+        i = i + 1usize;
+    }
+}
+
+fn assert_bins_equal(expected: &usize) !void {
+    var i: usize = 0usize;
+    while i < 8usize {
+        try assert_true(heap_debug_bin_length(i) == expected[i]);
+        i = i + 1usize;
+    }
+}
+
+test "heap_large_malloc_free_uses_direct_mmap_without_polluting_bins" {
+    var before_bins: [usize: 8] = [];
+    snapshot_bins(&before_bins[0]);
+
+    const before_regions: usize = heap_debug_large_region_count();
+    const before_mmaps: usize = heap_debug_large_mmap_count();
+    const before_munmaps: usize = heap_debug_large_munmap_count();
+
+    const ptr: &void = try alloc_checked(1024usize * 1024usize);
+    try assert_true(heap_debug_large_region_count() == before_regions + 1usize);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps + 1usize);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps);
+    try assert_bins_equal(&before_bins[0]);
+
+    const bytes: &byte = ptr as &byte;
+    bytes[0] = 17 as byte;
+    bytes[(1024usize * 1024usize) - 1usize] = 23 as byte;
+
+    free(ptr);
+
+    try assert_true(heap_debug_large_region_count() == before_regions);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps + 1usize);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps + 1usize);
+    try assert_bins_equal(&before_bins[0]);
+}
+
+test "heap_large_realloc_grows_and_releases_old_mapping" {
+    const before_regions: usize = heap_debug_large_region_count();
+    const before_mmaps: usize = heap_debug_large_mmap_count();
+    const before_munmaps: usize = heap_debug_large_munmap_count();
+
+    const ptr: &void = try alloc_checked(4096usize);
+    const bytes: &byte = ptr as &byte;
+    bytes[0] = 44 as byte;
+    bytes[4095usize] = 55 as byte;
+
+    const grown: &void = realloc(ptr, 9000usize);
+    try expect(grown != null);
+    try assert_true(heap_debug_large_region_count() == before_regions + 1usize);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps + 2usize);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps + 1usize);
+
+    const grown_bytes: &byte = grown as &byte;
+    try assert_true(grown_bytes[0] == 44 as byte);
+    try assert_true(grown_bytes[4095usize] == 55 as byte);
+    grown_bytes[8999usize] = 66 as byte;
+    try assert_true(grown_bytes[8999usize] == 66 as byte);
+
+    free(grown);
+
+    try assert_true(heap_debug_large_region_count() == before_regions);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps + 2usize);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps + 2usize);
+}
+
+test "heap_large_realloc_to_small_returns_normal_chunk_and_unmaps_large_region" {
+    const before_regions: usize = heap_debug_large_region_count();
+    const before_mmaps: usize = heap_debug_large_mmap_count();
+    const before_munmaps: usize = heap_debug_large_munmap_count();
+
+    const ptr: &void = try alloc_checked(6000usize);
+    const bytes: &byte = ptr as &byte;
+    bytes[0] = 77 as byte;
+    bytes[255usize] = 88 as byte;
+
+    const shrunk: &void = realloc(ptr, 256usize);
+    try expect(shrunk != null);
+    try assert_true(heap_debug_large_region_count() == before_regions);
+    try assert_true(heap_debug_large_mmap_count() == before_mmaps + 1usize);
+    try assert_true(heap_debug_large_munmap_count() == before_munmaps + 1usize);
+
+    const shrunk_bytes: &byte = shrunk as &byte;
+    try assert_true(shrunk_bytes[0] == 77 as byte);
+    try assert_true(shrunk_bytes[255usize] == 88 as byte);
+
+    free(shrunk);
+}

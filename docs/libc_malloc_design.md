@@ -4,7 +4,7 @@
 
 本文档记录了 Uya 语言 libc 内存分配器的 musl 风格实现方案。
 
-## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-24）- musl 风格 size-segregated bins
+## 当前实现（与 `lib/libc/heap.uya` 同步，截至 2026-06-25）- 小块 bins + large mmap 直连
 
 ### 核心特性
 
@@ -35,12 +35,14 @@ struct FreeChunk {
 - 使用 8 个按 payload size class 分箱的空闲链表管理已释放的内存块
 - 从目标 bin 起跳，按 bin 从小到大执行首次适配
 - 块分割：大块使用时分割剩余部分回到空闲链表
-- 按需扩展：没有合适块时使用 mmap 扩展堆
+- 小于 4096B 的请求在没有合适块时使用 mmap 扩展普通堆 region
+- 大于等于 4096B 的请求直接走独立 mmap 映射，不进入普通 bins
 
 **free:**
 - 先写入当前块 footer
 - 通过 footer 边界标记向前/向后查找相邻 chunk
 - 合并相邻空闲块后再加入空闲链表头部
+- large 直连映射不写 footer，不参与 split/coalesce，直接从 large-region 表中删除并 munmap
 
 **calloc:**
 - 调用 malloc 分配内存
@@ -49,6 +51,7 @@ struct FreeChunk {
 **realloc:**
 - 原地优化：新大小≤旧大小时直接返回
 - 否则分配新内存 → 复制旧数据 → 释放旧内存
+- 若旧指针来自 large 直连映射，则按新大小重新走 malloc 路径，复制 `min(old_user_size, new_size)` 后释放旧映射
 
 ### 关键技术
 
@@ -122,19 +125,33 @@ fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
 
 ```
 
+large 直连映射（独立元数据 + header-only chunk，无 footer）：
+[0                meta_size          meta_size+16         map_size]
++-----------------+------------------+--------------------+
+| LargeRegion     | ChunkHeader 16B  | user payload       |
++-----------------+------------------+--------------------+
+
+large path 只保留 `ChunkHeader` 作为 `to_header/to_user_ptr` 兼容层与 magic 哨兵；真实映射长度、
+用户请求大小、munmap 长度都存放在 `LargeRegion` 元数据中。
+```
+
 ### malloc 流程
 
 ```
 1. 对齐大小到 16 字节
-2. 计算目标 size class，从对应 bin 起跳查找空闲链表（首次适配）
-3. 如果没有合适块：
-   - 调用 mmap 扩展堆
+2. 若对齐后的 payload 大小 ≥ 4096B：
+   - 直接 mmap 独立映射
+   - 在映射头部写入 `LargeRegion` 元数据
+   - 返回 header 之后的用户指针
+3. 否则计算目标 size class，从对应 bin 起跳查找空闲链表（首次适配）
+4. 如果没有合适块：
+   - 调用 mmap 扩展普通堆 region
    - 添加到空闲链表
    - 重新查找
-4. 从空闲链表移除
-5. 清除空闲标志并写入 footer
-6. 分割块（如果剩余空间达到最小 chunk 总大小）
-7. 返回用户指针
+5. 从空闲链表移除
+6. 清除空闲标志并写入 footer
+7. 分割块（如果剩余空间达到最小 chunk 总大小）
+8. 返回用户指针
 ```
 
 ### free 流程
@@ -158,14 +175,14 @@ fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
 
 ### 长期
 1. **最佳适配算法**：在 bin 内进一步减少碎片和扫描成本
-2. **大块 mmap/munmap 快速路径**：让 `>=4096` 请求不污染普通堆 bins
-3. **per-thread cache**：降低多线程场景的全局锁竞争
+2. **per-thread cache**：降低多线程场景的全局锁竞争
 
 ## 测试验证
 
 ```bash
 ./bin/uya test tests/test_std_stdlib_malloc.uya
-./tests/run_programs_parallel.sh tests/programs/test_heap.uya
+./bin/uya test tests/test_libc_heap_bins.uya
+./bin/uya test tests/test_libc_heap_large_path.uya
 ```
 
 ## 参考资料

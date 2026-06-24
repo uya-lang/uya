@@ -2,7 +2,6 @@ use std.testing.expect;
 use std.testing.assert_true;
 use libc.malloc;
 use libc.free;
-use libc.realloc;
 use libc.heap_debug_bin_length;
 use libc.heap_debug_last_find_steps;
 use libc.heap_debug_last_find_start_bin;
@@ -60,13 +59,13 @@ test "heap_bins_skip_smaller_free_chunks" {
 }
 
 test "heap_bins_track_each_size_class" {
-    const sample_sizes: [usize: 8] = [32usize, 64usize, 128usize, 256usize, 512usize, 1024usize, 2048usize, 4096usize];
-    var left_guards: [&void: 8] = [];
-    var right_guards: [&void: 8] = [];
-    var targets: [&void: 8] = [];
+    const sample_sizes: [usize: 7] = [32usize, 64usize, 128usize, 256usize, 512usize, 1024usize, 2048usize];
+    var left_guards: [&void: 7] = [];
+    var right_guards: [&void: 7] = [];
+    var targets: [&void: 7] = [];
 
     var i: usize = 0usize;
-    while i < 8usize {
+    while i < 7usize {
         const size: usize = sample_sizes[i];
         const bin: usize = expected_bin_for_size(size);
 
@@ -86,7 +85,7 @@ test "heap_bins_track_each_size_class" {
     }
 
     i = 0usize;
-    while i < 8usize {
+    while i < 7usize {
         free(targets[i]);
         free(left_guards[i]);
         free(right_guards[i]);
@@ -95,32 +94,15 @@ test "heap_bins_track_each_size_class" {
 }
 
 test "heap_split_remainder_rebins_into_smaller_class" {
-    const big: &void = try alloc_checked(8192usize);
+    const big: &void = try alloc_checked(3500usize);
     free(big);
 
     const before_bin6: usize = heap_debug_bin_length(6usize);
-    const before_bin7: usize = heap_debug_bin_length(7usize);
 
-    const medium: &void = try alloc_checked(5000usize);
-    try assert_true(heap_debug_last_find_start_bin() == 7usize);
+    const medium: &void = try alloc_checked(2000usize);
+    try assert_true(heap_debug_last_find_start_bin() == 5usize);
     try assert_true(heap_debug_last_split_remainder_bin() == 6);
-    try assert_true(heap_debug_bin_length(7usize) + 1usize == before_bin7);
-    try assert_true(heap_debug_bin_length(6usize) == before_bin6 + 1usize);
+    try assert_true(heap_debug_bin_length(6usize) == before_bin6);
 
     free(medium);
-}
-
-test "heap_large_bin_chunk_still_reallocs_before_task_3_2" {
-    const ptr: &void = try alloc_checked(4096usize);
-    const bytes: &byte = ptr as &byte;
-    bytes[0] = 11 as byte;
-    bytes[4095usize] = 22 as byte;
-
-    const grown: &void = realloc(ptr, 5000usize);
-    try expect(grown != null);
-
-    const grown_bytes: &byte = grown as &byte;
-    try assert_true(grown_bytes[0] == 11 as byte);
-    try assert_true(grown_bytes[4095usize] == 22 as byte);
-    free(grown);
 }

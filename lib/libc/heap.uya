@@ -56,12 +56,23 @@ struct HeapRegion {
     size: usize,
 }
 
+struct LargeRegion {
+    next: &LargeRegion,
+    map_base: *void,
+    map_size: usize,
+    user_size: usize,
+    hdr: &ChunkHeader,
+}
+
 var bins: [&FreeChunk: NUM_BINS] = [];
 var heap_regions: &HeapRegion = null;
+var large_regions: &LargeRegion = null;
 var _last_region_hit: &HeapRegion = null;
 var _heap_debug_last_find_steps: usize = 0;
 var _heap_debug_last_find_start_bin: usize = 0;
 var _heap_debug_last_split_remainder_bin: i32 = 0 - 1;
+var _heap_debug_large_mmap_count: usize = 0;
+var _heap_debug_large_munmap_count: usize = 0;
 
 // 勿命名 align_up：与 std/mem/arena 的两参数 align_up 合并后会解析错误
 fn heap_align_up(size: usize) usize {
@@ -195,6 +206,27 @@ export fn heap_debug_bin_length(bin_index: usize) usize {
     return len;
 }
 
+/// 返回值：当前 large mmap 直连分配的活动 region 数量。
+export fn heap_debug_large_region_count() usize {
+    var len: usize = 0;
+    var cur: &LargeRegion = large_regions;
+    while !is_null(cur as &void) {
+        len = len + 1;
+        cur = cur.next;
+    }
+    return len;
+}
+
+/// 返回值：large mmap 直连路径累计成功执行的 mmap 次数。
+export fn heap_debug_large_mmap_count() usize {
+    return _heap_debug_large_mmap_count;
+}
+
+/// 返回值：large mmap 直连路径累计成功执行的 munmap 次数。
+export fn heap_debug_large_munmap_count() usize {
+    return _heap_debug_large_munmap_count;
+}
+
 fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
     const sz: usize = get_size(hdr);
     return (((hdr as &byte) + sz - @size_of(ChunkFooter)) as &ChunkFooter);
@@ -248,6 +280,56 @@ fn region_start_addr(region: &HeapRegion) usize {
 
 fn region_end_addr(region: &HeapRegion) usize {
     return (region.base as usize) + region.size;
+}
+
+fn large_region_meta_size() usize {
+    return heap_align_up(@size_of(LargeRegion));
+}
+
+fn find_large_region(ptr: &void) &LargeRegion {
+    var region: &LargeRegion = large_regions;
+    while !is_null(region as &void) {
+        if to_user_ptr(region.hdr) == ptr {
+            return region;
+        }
+        region = region.next;
+    }
+    return null;
+}
+
+fn take_large_region(ptr: &void) &LargeRegion {
+    var prev: &LargeRegion = null;
+    var region: &LargeRegion = large_regions;
+    while !is_null(region as &void) {
+        if to_user_ptr(region.hdr) == ptr {
+            if is_null(prev as &void) {
+                large_regions = region.next;
+            } else {
+                prev.next = region.next;
+            }
+            region.next = null;
+            return region;
+        }
+        prev = region;
+        region = region.next;
+    }
+    return null;
+}
+
+fn restore_large_region(region: &LargeRegion) void {
+    if is_null(region as &void) { return; }
+    region.next = large_regions;
+    large_regions = region;
+}
+
+fn unmap_large_region(region: &LargeRegion) void {
+    if is_null(region as &void) { return; }
+    const result: !i32 = sys_munmap(region.map_base, region.map_size);
+    result catch {
+        restore_large_region(region);
+        return;
+    };
+    _heap_debug_large_munmap_count = _heap_debug_large_munmap_count + 1;
 }
 
 fn find_region_for_header(hdr: &ChunkHeader) &HeapRegion {
@@ -343,6 +425,31 @@ fn morecore(needed: usize) &ChunkHeader {
     return hdr;
 }
 
+fn _malloc_large(requested: usize, aligned: usize) &void {
+    const meta_size: usize = large_region_meta_size();
+    const total: usize = meta_size + @size_of(ChunkHeader) + aligned;
+    const result: !*void = sys_mmap(null as *void, total,
+                                    PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, 0 - 1, 0);
+    const mapped: *void = result catch { return null; };
+    if mapped == null { return null; }
+
+    var region: &LargeRegion = mapped as &LargeRegion;
+    var hdr: &ChunkHeader = (((mapped as &byte) + meta_size) as &ChunkHeader);
+    hdr.magic = CHUNK_MAGIC;
+    hdr.size = aligned + @size_of(ChunkHeader);
+    set_free(hdr, false);
+
+    region.map_base = mapped;
+    region.map_size = total;
+    region.user_size = requested;
+    region.hdr = hdr;
+    region.next = large_regions;
+    large_regions = region;
+    _heap_debug_large_mmap_count = _heap_debug_large_mmap_count + 1;
+    return to_user_ptr(hdr);
+}
+
 fn find_chunk(needed: usize) &FreeChunk {
     const needed_payload: usize = normalize_payload_size(needed);
     const needed_total: usize = chunk_total_for_payload(needed_payload);
@@ -417,6 +524,9 @@ fn _malloc_impl(size: usize) &void {
 
     _heap_debug_last_split_remainder_bin = 0 - 1;
     const aligned: usize = normalize_payload_size(size);
+    if aligned >= HEAP_PAGE_SIZE {
+        return _malloc_large(size, aligned);
+    }
 
     var chunk: &FreeChunk = find_chunk(aligned);
 
@@ -445,6 +555,12 @@ export extern "libc" fn malloc(size: usize) &void {
 
 fn _free_impl(ptr: &void) void {
     if is_null(ptr) { return; }
+
+    var large: &LargeRegion = take_large_region(ptr);
+    if !is_null(large as &void) {
+        unmap_large_region(large);
+        return;
+    }
     if !owns_ptr(ptr) { return; }
 
     var hdr: &ChunkHeader = to_header(ptr);
@@ -473,6 +589,17 @@ fn _realloc_impl(ptr: &void, size: usize) &void {
     if size == 0 {
         _free_impl(ptr);
         return null;
+    }
+    var large_region: &LargeRegion = find_large_region(ptr);
+    if !is_null(large_region as &void) {
+        var new_ptr_large: &void = _malloc_impl(size);
+        if is_null(new_ptr_large) { return null; }
+
+        var copy_len: usize = size;
+        if large_region.user_size < copy_len { copy_len = large_region.user_size; }
+        _ = memcpy(new_ptr_large as *byte, ptr as *const byte, copy_len);
+        _free_impl(ptr);
+        return new_ptr_large;
     }
     if !owns_ptr(ptr) { return null; }
 
