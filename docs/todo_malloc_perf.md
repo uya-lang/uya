@@ -13,7 +13,7 @@
 完成某项后把对应 `- [ ]` 改为 `- [x]`。阶段级 checkbox 只有在该阶段所有任务、测试和性能记录都完成后再勾选。
 
 - [ ] 收口验证
-  - [ ] `make check` 通过
+  已归档：`make check` 已于 2026-06-25 通过，验证记录见 `docs/todo_malloc_perf_completed.md`
   - [ ] 本文档的任务状态、测试结果和最后更新日期已同步
   - [ ] 需要提交时按仓库规则运行 `make clean && make backup-all`
 

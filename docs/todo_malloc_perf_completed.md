@@ -310,3 +310,10 @@
     - 验证：`../uya/bin/uya build tests/test_libc_heap_tcache.uya -o tests/build/test_libc_heap_tcache` 成功；随后执行 `./tests/build/test_libc_heap_tcache` 通过（exit 0）。
     - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（总计 1，失败 0）。
     - 验证：`../uya/bin/uya build tests/bench_malloc_phase4.uya -o tests/build/bench_malloc_phase4_current` 成功；随后执行 `./tests/build/bench_malloc_phase4_current` 连续 10 次，生成 `40` 条 `threads=1/2/4/8` 样本并完成统计。
+
+## 可勾选执行清单
+完成日期：2026-06-25
+父级任务路径：收口验证
+  - [x] `make check` 通过
+    - 验证命令：`env UYA_CMD_BOOTSTRAP_COMPILER="../uya/bin/uya" make check`
+    - 验证结果：通过。自举、1061 个程序测试、UPM 套件、exec vm 专项回归、microapp 聚合套件，以及 SIMD / @syscall / http_bench C99 专项验证通过；`benchmarks/http_bench_async_epoll.uya C99` 按 Makefile 默认跳过。
