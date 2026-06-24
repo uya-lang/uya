@@ -238,3 +238,13 @@
   - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya` -> 1 test passed
   - `../uya/bin/uya test tests/malloc_test.uya` -> 12 subtests passed
   - `git diff --check` -> 通过
+
+## 2026-06-25
+
+来源标题：可勾选执行清单
+任务路径：阶段 3：分配速度优化
+
+  - [x] 阶段 3 回归测试、bin 覆盖测试和 large-path 测试全部通过
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（总计 1 个测试，通过 1，失败 0）。
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya` 通过（3 个子测试全部通过，75 个断言通过）。
+    - 验证：`../uya/bin/uya test tests/test_libc_heap_large_path.uya` 通过（3 个子测试全部通过，41 个断言通过）。
