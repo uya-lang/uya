@@ -1840,3 +1840,14 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
     - `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
       => `OK: MIR-C99 first verifier bucket fails closed with a stable real-CLI verifier diagnostic`
     - `git diff --check -- src/build_compiler_driver.uya docs/portable_mir_language_coverage.md docs/todo_mir_c99_backend.md tests/verify_mir_c99_full_language_unit_output_first_bucket.sh`：通过。
+
+### 4.15 Full Language Parity
+路径上下文：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+    - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VERIFIER-FIRST-BUCKET-NEXT`:
+      固定首个 `PortableMIR verifier 失败` real CLI 用例和 focused gate，避免后续修复
+      继续淹没在主语言全量输出中。
+      - 最小验证：`bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`
+      - 验证（2026-06-24，本轮）：
+        - `bash -n tests/verify_mir_c99_full_language_verifier_first_bucket.sh`：通过。
+        - `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`：通过，输出
+          `OK: MIR-C99 first verifier bucket fails closed with a stable real-CLI verifier diagnostic`。
