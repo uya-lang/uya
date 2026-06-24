@@ -168,8 +168,6 @@ struct ChunkFooter {
 
 **实现步骤**：
 
-- [ ] **修改 morecore**：创建 chunk 时把 `alloc_size` 设为 `max(chunk_total_for_payload(aligned_payload), HEAP_PAGE_SIZE)`，保持小分配至少映射 4KB region 以复用后续 split/coalesce，并对整个 region chunk 写入 footer。`region.size` 仍记录该 region 内 chunk 区域总字节数。注意 `CHUNK_OVERHEAD = 24B` 时，`aligned_payload + CHUNK_OVERHEAD` 会得到 `8 mod 16` 的 chunk 总长，破坏后续 header 和用户指针的 16 字节对齐；必须对最终 chunk 总长再次执行 `heap_align_up`。
-
 - [ ] **修改 find_chunk**：使用 footer 后，判断空闲块是否足够时必须比较 `chunk_total_for_payload(needed_payload)`，不能继续使用 `needed_payload + @size_of(ChunkHeader)`。否则 first-fit 可能选中一个容得下旧 header 开销、但容不下 footer 后总开销的块。
    ```uya
    fn find_chunk(needed_payload: usize) &FreeChunk {

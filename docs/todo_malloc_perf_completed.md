@@ -400,3 +400,13 @@
    验证：
    - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`（通过）
    - `../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_round && ./tests/build/bench_malloc_phase2_round`（通过；`malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`；`malloc_phase2_realloc iterations=4000 inplace_hits=4000 inplace_hit_rate_pct=100 copy_bytes=0`）
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+
+- [x] **修改 morecore**：创建 chunk 时把 `alloc_size` 设为 `max(chunk_total_for_payload(aligned_payload), HEAP_PAGE_SIZE)`，保持小分配至少映射 4KB region 以复用后续 split/coalesce，并对整个 region chunk 写入 footer。`region.size` 仍记录该 region 内 chunk 区域总字节数。注意 `CHUNK_OVERHEAD = 24B` 时，`aligned_payload + CHUNK_OVERHEAD` 会得到 `8 mod 16` 的 chunk 总长，破坏后续 header 和用户指针的 16 字节对齐；必须对最终 chunk 总长再次执行 `heap_align_up`。
+  - 验证（2026-06-25）：
+    - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（总计 1，通过 1，失败 0）
+    - `../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`：构建成功
+    - `./tests/build/bench_malloc_phase2_current`：`malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`；`malloc_phase2_realloc iterations=4000 inplace_hits=4000 inplace_hit_rate_pct=100 copy_bytes=0`
