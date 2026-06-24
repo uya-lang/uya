@@ -1,0 +1,91 @@
+// bench_malloc_throughput.uya - 单线程固定大小 malloc/free 吞吐基准
+// 输出：
+//   1. 10000 次 64B malloc+free 的总耗时（ns）
+//   2. 平均每对 malloc+free 的耗时（ns）
+//   3. alloc/free 总吞吐（ops/sec，alloc 与 free 各记 1 次操作）
+
+use std.runtime.entry;
+use libc.malloc;
+use libc.free;
+use libc.sys_clock_gettime;
+use libc.CLOCK_MONOTONIC;
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+
+const BENCH_ITERATIONS: i32 = 10000;
+const BENCH_WARMUP_ITERATIONS: i32 = 512;
+const BENCH_ALLOC_SIZE: usize = 64usize;
+const BENCH_LAST_OFFSET: usize = BENCH_ALLOC_SIZE - 1usize;
+
+fn bench_now_ns() u64 {
+    var ts: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    const now_result: !i32 = sys_clock_gettime(CLOCK_MONOTONIC, &ts);
+    _ = now_result catch {
+        return 0u64;
+    };
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return 0u64;
+    }
+    return (ts.tv_sec as u64) * 1000000000u64 + (ts.tv_nsec as u64);
+}
+
+fn bench_elapsed_ns(start_ns: u64, end_ns: u64) u64 {
+    if end_ns <= start_ns {
+        return 0u64;
+    }
+    return end_ns - start_ns;
+}
+
+fn bench_ops_per_sec(total_ops: u64, elapsed_ns: u64) u64 {
+    if elapsed_ns == 0u64 {
+        return 0u64;
+    }
+    return (total_ops * 1000000000u64) / elapsed_ns;
+}
+
+fn run_malloc_free_pairs(iterations: i32, checksum: &u64) i32 {
+    var i: i32 = 0;
+    while i < iterations {
+        const ptr: &void = malloc(BENCH_ALLOC_SIZE);
+        if ptr == null {
+            return 1;
+        }
+
+        var bytes: &byte = ptr as &byte;
+        bytes[0] = (i % 251) as byte;
+        bytes[BENCH_LAST_OFFSET] = ((i + 17) % 251) as byte;
+        checksum[0] = checksum[0] + (bytes[0] as u64) + (bytes[BENCH_LAST_OFFSET] as u64);
+        free(ptr);
+        i = i + 1;
+    }
+    return 0;
+}
+
+export fn main() i32 {
+    var checksum: u64 = 0u64;
+    const warmup_rc: i32 = run_malloc_free_pairs(BENCH_WARMUP_ITERATIONS, &checksum);
+    if warmup_rc != 0 {
+        printf("bench_malloc_throughput: warmup_rc=%d\n" as *byte, warmup_rc);
+        return 1;
+    }
+
+    const start_ns: u64 = bench_now_ns();
+    const rc: i32 = run_malloc_free_pairs(BENCH_ITERATIONS, &checksum);
+    const end_ns: u64 = bench_now_ns();
+    if rc != 0 {
+        printf("bench_malloc_throughput: rc=%d\n" as *byte, rc);
+        return 2;
+    }
+
+    const elapsed_ns: u64 = bench_elapsed_ns(start_ns, end_ns);
+    const total_ops: u64 = (BENCH_ITERATIONS as u64) * 2u64;
+    printf("malloc_throughput_single_thread size=%zu iterations=%d total_ops=%lu elapsed_ns=%lu avg_pair_ns=%lu throughput_ops_per_sec=%lu checksum=%lu\n" as *byte,
+           BENCH_ALLOC_SIZE,
+           BENCH_ITERATIONS,
+           total_ops,
+           elapsed_ns,
+           elapsed_ns / (BENCH_ITERATIONS as u64),
+           bench_ops_per_sec(total_ops, elapsed_ns),
+           checksum);
+    return 0;
+}

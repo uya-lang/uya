@@ -724,3 +724,18 @@
   - 完成内容：复用现有 `tests/bench_malloc_phase2.uya` 的碎片 workload（`malloc(1000) -> malloc(2800) -> free -> free -> malloc(3600) -> free`），确认它已覆盖该测试策略项要求。
   - 验证：`../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`，随后执行 `./tests/build/bench_malloc_phase2_current`；输出 `malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`，未出现假性 OOM。
   - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（1/1）。
+
+# libc malloc/free 性能优化 TODO
+
+## 测试策略
+
+### 新增基准测试
+
+- [x] 吞吐基准：单线程 10000 次 malloc/free 的耗时
+  - 交付：新增 `tests/bench_malloc_throughput.uya`，输出 `elapsed_ns`、`avg_pair_ns` 和 `throughput_ops_per_sec`
+  - 验证：`../uya/bin/uya build tests/bench_malloc_throughput.uya -o tests/build/bench_malloc_throughput`
+  - 结果：编译通过，生成 `tests/build/bench_malloc_throughput`
+  - 验证：`./tests/build/bench_malloc_throughput`
+  - 结果：`malloc_throughput_single_thread size=64 iterations=10000 total_ops=20000 elapsed_ns=130319290 avg_pair_ns=13031 throughput_ops_per_sec=153469 checksum=2620907`
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+  - 结果：`总计: 1 个测试；通过: 1；失败: 0`
