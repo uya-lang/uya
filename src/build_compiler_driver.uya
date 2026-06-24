@@ -31175,14 +31175,23 @@ fn native_build_hosted_mir_append_program_externs(module: &PortableMirModule,
         return -1;
     }
     var i: i32 = 0;
+    var saw_runtime_entry_bridge: i32 = 0;
     while i < program.program_decl_count {
         const decl: &ASTNode = program.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_extern != 0 {
+            if native_build_decl_is_runtime_entry_extern_main_bridge(decl) != 0 {
+                saw_runtime_entry_bridge = 1;
+                i = i + 1;
+                continue;
+            }
             if native_build_hosted_mir_append_extern_function(module, i, decl) != 0 {
                 return -1;
             }
         }
         i = i + 1;
+    }
+    if saw_runtime_entry_bridge != 0 {
+        return -1;
     }
     if native_build_hosted_mir_append_hosted_print_helpers(module) != 0 {
         return -1;
@@ -55086,6 +55095,23 @@ fn native_build_mir_c99_bind_extern_symbol_names(module: &PortableMirModule,
     return 0;
 }
 
+fn native_build_decl_is_runtime_entry_extern_main_bridge(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL ||
+       decl.fn_decl_is_extern == 0 || decl.fn_decl_is_export == 0 ||
+       decl.fn_decl_name == null || decl.filename == null ||
+       decl.fn_decl_body == null {
+        return 0;
+    }
+    if str_equals(decl.fn_decl_name, "main" as *byte) == 0 {
+        return 0;
+    }
+    if strstr(decl.filename as *byte,
+        "lib/std/runtime/entry/entry.uya" as *byte) == null {
+        return 0;
+    }
+    return 1;
+}
+
 fn native_build_find_mir_c99_extern_signature_reason(decl: &ASTNode,
     out_reason: & & byte) i32 {
     if out_reason != null {
@@ -55094,6 +55120,12 @@ fn native_build_find_mir_c99_extern_signature_reason(decl: &ASTNode,
     if decl == null || decl.type != ASTNodeType.AST_FN_DECL ||
        decl.fn_decl_is_extern == 0 {
         return 0;
+    }
+    if native_build_decl_is_runtime_entry_extern_main_bridge(decl) != 0 {
+        if out_reason != null {
+            *out_reason = "entry_extern_main_requires_runtime_bridge" as &byte;
+        }
+        return 1;
     }
     if decl.fn_decl_is_async != 0 {
         if out_reason != null {
@@ -55161,9 +55193,24 @@ fn native_build_find_mir_c99_extern_capability_diagnostic(node: &ASTNode,
     if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
         var i: i32 = 0;
         while i < node.program_decl_count {
+            const decl: &ASTNode = node.program_decls[i];
+            if native_build_decl_is_runtime_entry_extern_main_bridge(decl) != 0 {
+                i = i + 1;
+                continue;
+            }
             if native_build_find_mir_c99_extern_capability_diagnostic(
-                node.program_decls[i], out_kind, out_reason, out_file,
+                decl, out_kind, out_reason, out_file,
                 out_line) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        i = 0;
+        while i < node.program_decl_count {
+            const bridge_decl: &ASTNode = node.program_decls[i];
+            if native_build_decl_is_runtime_entry_extern_main_bridge(bridge_decl) != 0 &&
+               native_build_find_mir_c99_extern_capability_diagnostic(
+                bridge_decl, out_kind, out_reason, out_file, out_line) != 0 {
                 return 1;
             }
             i = i + 1;

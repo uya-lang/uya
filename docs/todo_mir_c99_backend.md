@@ -196,12 +196,11 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
         `lib/libc/syscall.uya` 的 `!i32/!i64` extern-signature 旧边界，real CLI
         现统一前移到 `lib/libc/stdio.uya:882` 的
         `extern_varargs_requires_c_variadic_capability`。
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-EXTERN-BODY`:
-        单独处理 `lib/std/runtime/entry/entry.uya:79` 的 `export extern fn main`
-        路径，让它从“签名不支持”前移到真实 body/link frontier，再决定是直接支持还是给出更精确
-        的 fail-closed 边界。
-        - 最小验证：
-          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_simple_fn.uya -o /tmp/uya-mir-c99-entry-main.c`
+      - 进展（2026-06-24，本轮）：`tests/test_simple_fn.uya` 现从 generic
+        `PortableMIR verifier 失败: code=16` 收敛到
+        `AST_FN_DECL / entry_extern_main_requires_runtime_bridge`
+        （`lib/std/runtime/entry/entry.uya:79`），focused gate=
+        `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`。
       - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-AFTER-EXTERN-SIGNATURE`:
         重跑主语言面 matrix，记录 `AST_FN_DECL / extern_signature_requires_i32_scalars`
         下降后的新 failure 分布，并据此选择下一个主导 bucket。
