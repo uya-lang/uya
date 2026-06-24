@@ -12,9 +12,13 @@ const TEST_BLOCK_A_SIZE: usize = 1000usize;
 const TEST_BLOCK_B_SIZE: usize = 1800usize;
 const TEST_GUARD_SIZE: usize = 32usize;
 const TEST_GROWN_SIZE: usize = 2300usize;
+const TEST_TAIL_DRAIN_SIZE: usize = 900usize;
+const TEST_REMAINDER_REUSE_SIZE: usize = 400usize;
 const TEST_MAX_ATTEMPTS: usize = 8usize;
 const TEST_A_SENTINEL_SEED: usize = 37usize;
+const TEST_GROWN_SENTINEL_SEED: usize = 89usize;
 const TEST_GUARD_SENTINEL_SEED: usize = 113usize;
+const TEST_REMAINDER_SENTINEL_SEED: usize = 173usize;
 
 struct TestReallocLayout {
     block_a: &void,
@@ -144,6 +148,64 @@ test "heap_realloc_grows_in_place_preserves_a_and_keeps_guard_intact" {
     try test_assert_pattern(grown, TEST_BLOCK_A_SIZE, TEST_A_SENTINEL_SEED, "block A sentinel data should survive realloc");
     try test_assert_pattern(layout.guard, TEST_GUARD_SIZE, TEST_GUARD_SENTINEL_SEED, "guard data should remain unchanged");
 
+    free(layout.guard);
+    free(grown);
+    heap_flush_current_thread_cache();
+}
+
+test "heap_realloc_split_remainder_stays_reusable_after_in_place_growth" {
+    const grown_total: usize = test_chunk_total_for_request(TEST_GROWN_SIZE);
+    const merged_total: usize = test_chunk_total_for_request(TEST_BLOCK_A_SIZE) + test_chunk_total_for_request(TEST_BLOCK_B_SIZE);
+    const remainder_total: usize = merged_total - grown_total;
+
+    try assert(remainder_total >= test_chunk_total_for_request(TEST_REMAINDER_REUSE_SIZE),
+               "split remainder must fit the follow-up reuse allocation");
+    try assert(test_chunk_total_for_request(TEST_TAIL_DRAIN_SIZE) > remainder_total,
+               "tail drainer must bypass the split remainder");
+
+    const layout: TestReallocLayout = try test_carve_contiguous_ab_guard_layout();
+    test_write_pattern(layout.guard, TEST_GUARD_SIZE, TEST_GUARD_SENTINEL_SEED);
+
+    free(layout.block_b);
+
+    const grown: &void = realloc(layout.block_a, TEST_GROWN_SIZE);
+    try expect(grown != null);
+    try assert(@usize_from_ptr(grown) == @usize_from_ptr(layout.block_a), "realloc should grow block A in place");
+    test_write_pattern(grown, TEST_GROWN_SIZE, TEST_GROWN_SENTINEL_SEED);
+
+    const expected_remainder_addr: usize = @usize_from_ptr(grown) + grown_total;
+    const old_block_b_addr: usize = @usize_from_ptr(layout.block_b);
+
+    const tail_only: &void = malloc(TEST_TAIL_DRAIN_SIZE);
+    try expect(tail_only != null);
+    const tail_only_addr: usize = @usize_from_ptr(tail_only);
+    try assert(tail_only_addr != old_block_b_addr,
+               "tail-only allocation must not reuse the swallowed next chunk");
+
+    const remainder_first: &void = malloc(TEST_REMAINDER_REUSE_SIZE);
+    try expect(remainder_first != null);
+    const remainder_first_addr: usize = @usize_from_ptr(remainder_first);
+    try assert(remainder_first_addr == expected_remainder_addr,
+               "follow-up allocation should reuse the split remainder chunk");
+    try assert(remainder_first_addr != old_block_b_addr,
+               "swallowed next chunk must be removed from the free list");
+    test_write_pattern(remainder_first, TEST_REMAINDER_REUSE_SIZE, TEST_REMAINDER_SENTINEL_SEED);
+
+    free(remainder_first);
+    heap_flush_current_thread_cache();
+
+    const remainder_second: &void = malloc(TEST_REMAINDER_REUSE_SIZE);
+    try expect(remainder_second != null);
+    const remainder_second_addr: usize = @usize_from_ptr(remainder_second);
+    try assert(remainder_second_addr == expected_remainder_addr,
+               "freed split remainder should stay reusable");
+    test_write_pattern(remainder_second, TEST_REMAINDER_REUSE_SIZE, TEST_REMAINDER_SENTINEL_SEED + 11usize);
+
+    try test_assert_pattern(grown, TEST_GROWN_SIZE, TEST_GROWN_SENTINEL_SEED, "grown block should remain intact after remainder reuse");
+    try test_assert_pattern(layout.guard, TEST_GUARD_SIZE, TEST_GUARD_SENTINEL_SEED, "guard block should remain intact after remainder reuse");
+
+    free(remainder_second);
+    free(tail_only);
     free(layout.guard);
     free(grown);
     heap_flush_current_thread_cache();

@@ -542,3 +542,16 @@
   - 验证：`../uya/bin/uya test tests/test_libc_heap_realloc_in_place.uya`（通过：1 tests, 1039 assertions）
   - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`（通过：1 tests）
   - 验证：`../uya/bin/uya test tests/test_libc_heap_coalescing_adjacent.uya`（通过：4 tests, 12339 assertions）
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.2: realloc 原地扩展优化
+- **验收标准**:
+  - [x] 新增确定性测试：原地扩展吞并 next chunk 后，后续 malloc/free 仍能正确使用扩展后剩余拆分块，证明 next 已从自由链表移除
+    - 验证命令：`../uya/bin/uya test tests/test_libc_heap_realloc_in_place.uya`
+    - 验证结果：通过，2 个测试全部通过，Assertions Passed: 3386
+    - 验证命令：`../uya/bin/uya test tests/test_libc_heap_coalescing_adjacent.uya`
+    - 验证结果：通过，4 个测试全部通过，Assertions Passed: 12339
+    - 验证命令：`../uya/bin/uya test tests/test_libc_heap_large_path.uya`
+    - 验证结果：通过，3 个测试全部通过，Assertions Passed: 41
+    - 验证命令：`git diff --check`
+    - 验证结果：通过，无 whitespace / conflict 标记问题
