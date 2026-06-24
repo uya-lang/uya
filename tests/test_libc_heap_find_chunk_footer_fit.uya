@@ -1,0 +1,35 @@
+use std.testing.expect;
+use std.testing.assert_true;
+use libc.malloc;
+use libc.free;
+use libc.heap_flush_current_thread_cache;
+use libc.heap_debug_last_find_steps;
+use libc.heap_debug_last_find_start_bin;
+
+fn alloc_checked(size: usize) !&void {
+    const ptr: &void = malloc(size);
+    try expect(ptr != null);
+    return ptr;
+}
+
+test "find_chunk_skips_free_chunk_that_only_matches_old_header_overhead" {
+    const left_guard: &void = try alloc_checked(32usize);
+    const too_small: &void = try alloc_checked(32usize);
+    const middle_guard: &void = try alloc_checked(32usize);
+    const fit: &void = try alloc_checked(48usize);
+    const right_guard: &void = try alloc_checked(32usize);
+
+    free(too_small);
+    free(fit);
+    heap_flush_current_thread_cache();
+
+    const reused: &void = try alloc_checked(48usize);
+    try assert_true(heap_debug_last_find_start_bin() == 0usize);
+    try assert_true(heap_debug_last_find_steps() == 2usize);
+    try assert_true(reused == fit);
+
+    free(reused);
+    free(left_guard);
+    free(middle_guard);
+    free(right_guard);
+}

@@ -410,3 +410,11 @@
     - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（总计 1，通过 1，失败 0）
     - `../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`：构建成功
     - `./tests/build/bench_malloc_phase2_current`：`malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`；`malloc_phase2_realloc iterations=4000 inplace_hits=4000 inplace_hit_rate_pct=100 copy_bytes=0`
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+- [x] **修改 find_chunk**：使用 footer 后，判断空闲块是否足够时必须比较 `chunk_total_for_payload(needed_payload)`，不能继续使用 `needed_payload + @size_of(ChunkHeader)`。否则 first-fit 可能选中一个容得下旧 header 开销、但容不下 footer 后总开销的块。
+  - 完成内容：核对 `lib/libc/heap.uya` 后确认 `find_chunk` 当前实现已经使用 `chunk_total_for_payload(needed_payload)` 作为空闲块匹配阈值；本轮补上缺失的确定性回归 `tests/test_libc_heap_find_chunk_footer_fit.uya`，覆盖“64B free chunk 只能满足旧 header 开销、不能满足 footer 开销”的场景，并通过 `heap_flush_current_thread_cache()` 强制命中 global bins 路径。
+  - 验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya` 通过（1 test，9 assertions）。
+  - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya` 通过（3 tests，75 assertions）。
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（总计 1 个测试，通过 1，失败 0）。

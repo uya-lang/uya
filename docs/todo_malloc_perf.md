@@ -168,22 +168,6 @@ struct ChunkFooter {
 
 **实现步骤**：
 
-- [ ] **修改 find_chunk**：使用 footer 后，判断空闲块是否足够时必须比较 `chunk_total_for_payload(needed_payload)`，不能继续使用 `needed_payload + @size_of(ChunkHeader)`。否则 first-fit 可能选中一个容得下旧 header 开销、但容不下 footer 后总开销的块。
-   ```uya
-   fn find_chunk(needed_payload: usize) &FreeChunk {
-       const needed_total: usize = chunk_total_for_payload(needed_payload);
-       var cur: &FreeChunk = free_list_head;
-       while !is_null(cur as &void) {
-           var sz: usize = get_size(&cur.header);
-           if sz >= needed_total {
-               return cur;
-           }
-           cur = cur.next;
-       }
-       return null;
-   }
-   ```
-
 - [ ] **修改 split_chunk**：`alloc_total = chunk_total_for_payload(needed_payload)`；只有 `rem >= chunk_total_for_payload(MIN_CHUNK_SIZE)` 才分割。分割后已分配 chunk 与剩余 free chunk 都必须维护各自 footer。
 
 - [ ] **重写 `_free_impl`**：释放时检查前后邻居并合并：
