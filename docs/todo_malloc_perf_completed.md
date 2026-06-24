@@ -615,3 +615,11 @@
    - `../uya/bin/uya test tests/test_libc_heap_large_path.uya`：通过（3 tests，41 assertions）
    - `../uya/bin/uya test tests/test_libc_heap_realloc_in_place.uya`：通过（2 tests，3386 assertions）
    - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（总计 1，失败 0）
+
+# libc malloc/free 性能优化 TODO
+## 阶段 3：分配速度优化（预计 3-5 天）
+### Task 3.1: 实现 size-segregated free lists（大小分箱）
+- [x] **修改 find_chunk**：`find_chunk(requested_payload)` 使用 `bin_index_for_request(requested_payload)` 起跳，bin 为空或当前 bin 无合适块时向更大 bin 逐级查找；比较容量时仍用 `chunk_total_for_payload(normalize_payload_size(requested_payload))` 验证真实 chunk total 足够，避免只按 payload class 命中但实际容不下 footer。
+  验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_cross_bin.uya` 通过（1 个测试，通过 1，失败 0）。
+  验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya` 通过（1 个测试，通过 1，失败 0）。
+  验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（1 个测试，通过 1，失败 0）。

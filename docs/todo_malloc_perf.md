@@ -224,8 +224,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 **实现要点**：
 
-- [ ] **修改 find_chunk**：`find_chunk(requested_payload)` 使用 `bin_index_for_request(requested_payload)` 起跳，bin 为空或当前 bin 无合适块时向更大 bin 逐级查找；比较容量时仍用 `chunk_total_for_payload(normalize_payload_size(requested_payload))` 验证真实 chunk total 足够，避免只按 payload class 命中但实际容不下 footer。
-
 - [ ] **修改 add_free/remove_free**：用 `bin_index_for_chunk(&chunk.header)` 维护 bin 链表，不允许直接把 `get_size(hdr)` 传给 bin 函数。
 
 - [ ] **修改 split_chunk**：分割前用 `normalize_payload_size(needed_payload)` 计算分配 payload，用 `chunk_total_for_payload` 计算真实 chunk total；剩余块写完 footer 后再用 `bin_index_for_chunk` 加回对应 bin。

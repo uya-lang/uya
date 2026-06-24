@@ -1,0 +1,25 @@
+use std.testing.expect;
+use std.testing.assert_true;
+use libc.malloc;
+use libc.free;
+use libc.heap_debug_last_find_steps;
+use libc.heap_debug_last_find_start_bin;
+
+fn alloc_checked(size: usize) !&void {
+    const ptr: &void = malloc(size);
+    try expect(ptr != null);
+    return ptr;
+}
+
+test "find_chunk_promotes_search_to_larger_bin_when_requested_bin_is_empty" {
+    const larger: &void = try alloc_checked(4080usize);
+
+    free(larger);
+
+    const reused: &void = try alloc_checked(3072usize);
+    try assert_true(heap_debug_last_find_start_bin() == 6usize);
+    try assert_true(heap_debug_last_find_steps() == 1usize);
+    try assert_true(reused == larger);
+
+    free(reused);
+}
