@@ -1,0 +1,35 @@
+// Bug H: 更深层的嵌套 while 中，innermost await 恢复后如果一路把多个父 block 跑到结尾，
+// continuation 必须能连续回到每一层父 while 的循环头，而不是错误落到 loop 后代码。
+
+use std.async;
+use std.testing.assert_eq_i32;
+
+@async_fn fn async_deep_nested_while_resume_bug(r: &MemAsyncReader, buf: &byte) Future<!i32> {
+    var total: i32 = 0;
+    while total < 2 {
+        var middle_done: i32 = 0;
+        while middle_done == 0 {
+            var got_one: i32 = 0;
+            while got_one == 0 {
+                const rd: usize = try @await r.read(buf, 1);
+                if rd == 0 {
+                    return total;
+                }
+                got_one = rd as i32;
+            }
+            total = total + got_one;
+            middle_done = 1;
+        }
+    }
+    return total;
+}
+
+test "bug_h_deep_nested_while_resume" {
+    var data: [byte: 2] = [65, 66];
+    var r: MemAsyncReader = mem_async_reader_new(&data[0] as &const byte, 2);
+    var buf: [byte: 1] = [];
+    const f: Future<!i32> = async_deep_nested_while_resume_bug(&r, &buf[0]);
+    const result: !i32 = block_on<i32>(f);
+    const total: i32 = result catch { -1; };
+    try assert_eq_i32(total, 2);
+}

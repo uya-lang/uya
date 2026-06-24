@@ -1,0 +1,51 @@
+// Bug I: 更深层的多级 while 嵌套中，deepest await 恢复后应能沿父级链正确退出/回跳，
+// 不能因为层数增加就落到 loop 后代码。
+
+use std.async;
+use std.testing.assert_eq_i32;
+
+@async_fn fn async_many_nested_while_resume_bug(r: &MemAsyncReader, buf: &byte) Future<!i32> {
+    var total: i32 = 0;
+    while total < 2 {
+        var d1: i32 = 0;
+        while d1 == 0 {
+            var d2: i32 = 0;
+            while d2 == 0 {
+                var d3: i32 = 0;
+                while d3 == 0 {
+                    var d4: i32 = 0;
+                    while d4 == 0 {
+                        var d5: i32 = 0;
+                        while d5 == 0 {
+                            var got_one: i32 = 0;
+                            while got_one == 0 {
+                                const rd: usize = try @await r.read(buf, 1);
+                                if rd == 0 {
+                                    return total;
+                                }
+                                got_one = rd as i32;
+                            }
+                            total = total + got_one;
+                            d5 = 1;
+                        }
+                        d4 = 1;
+                    }
+                    d3 = 1;
+                }
+                d2 = 1;
+            }
+            d1 = 1;
+        }
+    }
+    return total;
+}
+
+test "bug_i_many_nested_while_resume" {
+    var data: [byte: 2] = [65, 66];
+    var r: MemAsyncReader = mem_async_reader_new(&data[0] as &const byte, 2);
+    var buf: [byte: 1] = [];
+    const f: Future<!i32> = async_many_nested_while_resume_bug(&r, &buf[0]);
+    const result: !i32 = block_on<i32>(f);
+    const total: i32 = result catch { -1; };
+    try assert_eq_i32(total, 2);
+}

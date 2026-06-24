@@ -8,6 +8,8 @@
 
 use std.async;
 use std.async_event;
+use std.async_frame.AsyncFramePool;
+use std.async_frame.async_frame_pool_init_with_buffer;
 use libc.mem;
 use libc.heap;
 use libc.syscall;
@@ -31,6 +33,7 @@ const SIG_IGN: usize = 1;
 const BENCH_THREAD_COUNT: i32 = 28;
 const BENCH_MAX_THREADS: i32 = 64;
 const BENCH_CONTEXT_STACK_BYTES: usize = 512 * 1024;
+const BENCH_ASYNC_FRAME_POOL_BYTES: usize = 1024 * 1024;
 
 const g_hello_body: [byte: 6] = "hello";
 const g_json_body: [byte: 12] = "{\"ok\":true}";
@@ -663,6 +666,22 @@ fn bench_worker_thread(_arg: &void) &void {
     const ptr: &BenchContext = &g_worker_contexts[wid];
     const slot_cap: i32 = bench_thread_slot_cap(_arg);
     ptr.slot_cap = slot_cap;
+
+    // 绑定线程本地 async frame 池，避免多 worker 共享默认池带来的争用。
+    const frame_pool_mem: &void = malloc(@size_of(AsyncFramePool) as usize);
+    if frame_pool_mem == null {
+        return null as &void;
+    }
+    const frame_pool: &AsyncFramePool = frame_pool_mem as &AsyncFramePool;
+    const frame_pool_buf_mem: &void = malloc(BENCH_ASYNC_FRAME_POOL_BYTES);
+    if frame_pool_buf_mem == null {
+        return null as &void;
+    }
+    const frame_pool_buf: &byte = frame_pool_buf_mem as &byte;
+    async_frame_pool_init_with_buffer(frame_pool, frame_pool_buf, BENCH_ASYNC_FRAME_POOL_BYTES, 0, 65536);
+    const alloc: IAllocator = *(frame_pool as &AsyncFramePool);
+    set_async_frame_allocator(&alloc);
+
     _ = ptr.run();
     return null as &void;
 }

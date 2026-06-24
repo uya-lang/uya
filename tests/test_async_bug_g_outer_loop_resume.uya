@@ -1,0 +1,31 @@
+// Bug G: 外层 while 只在内层 await loop 中挂起时，body 结束后应回到外层 while 头，
+// 不能错误落到函数终态。
+
+use std.async;
+use std.testing.assert_eq_i32;
+
+@async_fn fn async_outer_loop_resume_bug(r: &MemAsyncReader, buf: &byte) Future<!i32> {
+    var total: i32 = 0;
+    while total < 2 {
+        var got_one: i32 = 0;
+        while got_one == 0 {
+            const rd: usize = try @await r.read(buf, 1);
+            if rd == 0 {
+                return total;
+            }
+            got_one = rd as i32;
+        }
+        total = total + got_one;
+    }
+    return total;
+}
+
+test "bug_g_outer_loop_resume_after_nested_await_loop" {
+    var data: [byte: 2] = [65, 66];
+    var r: MemAsyncReader = mem_async_reader_new(&data[0] as &const byte, 2);
+    var buf: [byte: 1] = [];
+    const f: Future<!i32> = async_outer_loop_resume_bug(&r, &buf[0]);
+    const result: !i32 = block_on<i32>(f);
+    const total: i32 = result catch { -1; };
+    try assert_eq_i32(total, 2);
+}

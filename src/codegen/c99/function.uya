@@ -4448,6 +4448,24 @@ fn emit_async_continue_in_parent(codegen: &C99CodeGenerator, child_block: &ASTNo
                 @usize_from_ptr(parent_stmt as &void));
             return 0;
         }
+        // 任意深度嵌套时，child block 跑到结尾后如果父级本身是 async while/for，
+        // continuation 必须先回到该父循环头，而不是错误继续发射 loop 后代码。
+        // 这里按“当前直接父语句”做判定，配合 emit_async_continue_in_parent 的递归上升，
+        // 可以覆盖任意有限深度的嵌套链，而不是只修某个固定层数。
+        if parent_stmt != null &&
+            parent_stmt.type == ASTNodeType.AST_WHILE_STMT &&
+            parent_stmt.while_stmt_body != null &&
+            c99_stmt_tree_has_await(parent_stmt.while_stmt_body) != 0 {
+            emit_async_while_loopback_or_exit(codegen, parent_stmt);
+            return 0;
+        }
+        if parent_stmt != null &&
+            parent_stmt.type == ASTNodeType.AST_FOR_STMT &&
+            parent_stmt.for_stmt_body != null &&
+            c99_stmt_tree_has_await(parent_stmt.for_stmt_body) != 0 {
+            emit_async_for_loopback_or_exit(codegen, parent_stmt);
+            return 0;
+        }
     }
     const r: i32 = emit_async_segment(codegen, parent_blk[0], stmt_idx[0] + 1, parent_blk[0].block_stmt_count);
     if r == ASYNC_SEGMENT_TERMINATED_RETURN {
