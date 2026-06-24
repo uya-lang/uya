@@ -29,9 +29,10 @@ fn _heap_lock_release() void {
 // ============================================================
 
 const MALLOC_ALIGN: usize = 16;
-const MIN_CHUNK_SIZE: usize = 64;
+const MIN_CHUNK_SIZE: usize = 32;
 const HEAP_PAGE_SIZE: usize = 4096;
 const CHUNK_MAGIC: u64 = 3735928559;  // 0xDEADBEEF
+const CHUNK_FLAG_FREE: usize = 1;
 
 struct ChunkHeader {
     magic: u64,
@@ -52,6 +53,7 @@ struct HeapRegion {
 
 var free_list_head: &FreeChunk = null;
 var heap_regions: &HeapRegion = null;
+var _last_region_hit: &HeapRegion = null;
 
 // 勿命名 align_up：与 std/mem/arena 的两参数 align_up 合并后会解析错误
 fn heap_align_up(size: usize) usize {
@@ -76,6 +78,16 @@ fn to_user_ptr(hdr: &ChunkHeader) &void {
 
 fn owns_ptr(ptr: &void) bool {
     const addr: usize = (ptr as usize);
+    if !is_null(_last_region_hit as &void) {
+        const base: usize = _last_region_hit.base as usize;
+        const size: usize = _last_region_hit.size;
+        const start: usize = base + @size_of(ChunkHeader);
+        const end: usize = base + size;
+        if addr >= start && addr < end {
+            return true;
+        }
+    }
+
     var region: &HeapRegion = heap_regions;
     while !is_null(region as &void) {
         const base: usize = region.base as usize;
@@ -83,6 +95,7 @@ fn owns_ptr(ptr: &void) bool {
         const start: usize = base + @size_of(ChunkHeader);
         const end: usize = base + size;
         if addr >= start && addr < end {
+            _last_region_hit = region;
             return true;
         }
         region = region.next;
@@ -91,17 +104,17 @@ fn owns_ptr(ptr: &void) bool {
 }
 
 fn is_free(hdr: &ChunkHeader) bool {
-    return ((hdr.size as i64) % (2 as i64)) != 0;
+    return (hdr.size & CHUNK_FLAG_FREE) != 0;
 }
 
 fn set_free(hdr: &ChunkHeader, free: bool) void {
-    var base: usize = ((hdr.size as i64) / (2 as i64)) as usize * 2;
-    if free { hdr.size = base + 1; }
+    var base: usize = hdr.size - (hdr.size & CHUNK_FLAG_FREE);
+    if free { hdr.size = base | CHUNK_FLAG_FREE; }
     else { hdr.size = base; }
 }
 
 fn get_size(hdr: &ChunkHeader) usize {
-    return ((hdr.size as i64) / (2 as i64)) as usize * 2;
+    return hdr.size - (hdr.size & CHUNK_FLAG_FREE);
 }
 
 fn remove_free(chunk: &FreeChunk) void {

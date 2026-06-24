@@ -219,7 +219,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="gpt-5.4",
+        default="gpt-5.5",
         help=(
             "Optional model passed to the selected runner. Codex defaults to "
             "CODEX_MODEL or `gpt-5.5`; Kimi defaults to KIMI_MODEL or its config. "
