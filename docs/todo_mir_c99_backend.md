@@ -117,18 +117,24 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `UYA_TEST_STDOUT_LINEBUF=1`，否则 `tests/run_programs_parallel.sh` 会自包装
       `stdbuf`，把真实 MIR-C99 失败面打成空输出 `编译失败(退出码:139)`；下列
       failure matrix 以关闭该包装后的结果为准。
-    - 本轮真实重计数（2026-06-24，本轮续跑复核）：`1024` 项中 `155` 通过、`869` 失败。
-    - 顶层失败项口径下，`859` 个编译失败收敛为 `596` 个
-      `错误: MIR-C99 extern lowering 失败`、`259` 个
-      `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`、`1` 个
-      `错误: MIR-C99 unit output 写出失败`、`3` 个 `PortableMIR verifier 失败`。
+    - 本轮真实重计数（2026-06-24，本轮最终复核）：`1024` 项中 `155` 通过、`869` 失败。
+    - 顶层失败项口径下，`859` 个编译失败中已有 `849` 个显式收敛为具体 `kind/reason`
+      capability diagnostic，仅剩 `7` 个
+      `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 与 `3` 个
+      `PortableMIR verifier 失败`；generic `错误: MIR-C99 extern lowering 失败`
+      已清零。
     - 其余 `10` 个为非编译失败：`2` 个链接失败、`6` 个单文件运行失败、`2` 个
-      `multifile/cross_deps` 聚合失败。
-    - 已出现的具体 capability diagnostic（共 `202` 个，本轮复核分布不变）：`147` 个
-      `AST_TEST_STMT / test_driver_not_lowered`、`15` 个
+      `multifile/cross_deps` 聚合失败；其中聚合子用例仍保留 `4` 个 generic lowering
+      和 `1` 个 `unit output 写出失败`，尚未计入顶层 `859` 个编译失败。
+    - 已出现的具体 capability diagnostic（共 `849` 个）：`589` 个
+      `AST_FN_DECL / extern_signature_requires_i32_scalars`、`142` 个
+      `AST_TEST_STMT / test_driver_not_lowered`、`48` 个
+      `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`、`15` 个
       `AST_ASM / inline_asm_requires_target_capability`、`9` 个
-      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`6` 个
-      `AST_MATCH_EXPR / match_expr_requires_expr_value_place`、`5` 个
+      `AST_MC_SOURCE / mc_source_requires_compile_time_macro_capability`、`7` 个
+      `AST_MATCH_EXPR / match_expr_requires_expr_value_place`、`7` 个
+      `AST_FN_DECL / extern_varargs_requires_c_variadic_capability`、`7` 个
+      `AST_CATCH_EXPR / catch_return_not_lowered`、`5` 个
       `AST_MC_CODE / mc_code_requires_compile_time_macro_capability`、`4` 个
       `AST_STRING_INTERP / string_interp_requires_expr_value_place`、`4` 个
       `AST_MC_TYPE / mc_type_requires_compile_time_macro_capability`、`2` 个
@@ -141,35 +147,45 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_FOR_STMT / for_driver_not_lowered`、`1` 个
       `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
       `AST_ASM_TARGET / asm_target_requires_target_capability`。
-    - 子任务拆分（2026-06-24，本轮）：
-      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-MATRIX`:
-        重跑主语言面 `--mir-c99` 并刷新 failure matrix，确认 generic compile failure 计数
-        随上述收敛继续下降。
+    - 进展（2026-06-24，本轮收口）：`tests/test_asm_const_output.uya` 已从
+      `AST_TEST_STMT / test_driver_not_lowered` 收敛到
+      `AST_ASM / inline_asm_requires_target_capability`。
+    - 进展（2026-06-24，本轮收口）：`tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya`
+      已从 generic `PortableMIR lowering 尚未覆盖当前程序` 收敛到
+      `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`
+      （`line=2`），focused gate=
+      `bash tests/verify_mir_c99_full_language_simd_select_first_bucket.sh`。
+    - 进展（2026-06-24，本轮收口）：`tests/test_https_google.uya` 已从 generic
+      `extern lowering 失败` 收敛到
+      `AST_FN_DECL / extern_signature_requires_i32_scalars`
+      （`lib/libc/errno.uya:145`），focused gate=
+      `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`。
+    - 进展（2026-06-24，本轮收口）：顶层 generic compile failure 已降到 `10` 个
+      （`7` 个 `PortableMIR lowering 尚未覆盖当前程序` + `3` 个
+      `PortableMIR verifier 失败`）；剩余 generic block 仅见于
+      `multifile/cross_deps` 聚合子用例。
+    - 后续子任务拆分（2026-06-24，本轮收口）：
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-GENERIC-LOWERING`:
+        将剩余 `7` 个顶层 generic `PortableMIR lowering 尚未覆盖当前程序`
+        收敛为具体 capability diagnostic，覆盖 `tests/test_cfg_target.uya`、
+        `tests/test_exec_vm_const_pool.uya`、`tests/test_exec_vm_defer.uya`、
+        `tests/test_exec_vm_drop_local.uya`、`tests/test_exec_vm_hir_scope.uya`、
+        `tests/test_exec_vm_local_load_store.uya`、
+        `tests/test_struct_array_field_typed_empty_init.uya`。
         - 最小验证：
-          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
-      - 进展（2026-06-24，本轮）：`tests/test_asm_const_output.uya` 已从
-        `AST_TEST_STMT / test_driver_not_lowered` 重开为
-        `AST_ASM / inline_asm_requires_target_capability`。
-      - 进展（2026-06-24，本轮续跑）：已按真实 CLI 统一重跑主语言面；`AST_TEST_STMT /
-        test_driver_not_lowered` 从 `182` 个降到 `147` 个，并显式暴露 `15` 个
-        `AST_ASM / inline_asm_requires_target_capability`。generic capability 总量仍为
-        `202` 个，同时新增 `AST_MATCH_EXPR`、`AST_STRING_INTERP`、
-        `AST_USIZE_FROM_PTR`、`AST_PTR_FROM_USIZE`、`AST_INT_LIMIT`、`AST_FOR_STMT`、
-        `AST_ASM_TARGET` 等具体 bucket。
-      - 进展（2026-06-24，本轮续跑）：按本轮 `1024 / 155 / 869` 的真实 CLI 重计数与
-        `tests/build_mir_c99` 产物复核，新的首个 generic
-        `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 非 capability 样例已锁定为
-        `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya`。
-      - 进展（2026-06-24，本轮续跑）：fixed `../uya/bin/uya` 现已把
-        `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya` 从 generic lowering 收敛到
-        `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`
-        （`line=2`），focused gate=
-        `bash tests/verify_mir_c99_full_language_simd_select_first_bucket.sh`。
-      - 进展（2026-06-24，本轮续跑）：`tests/test_https_google.uya` 已不再停在 generic
-        `错误: MIR-C99 extern lowering 失败`；fixed `../uya/bin/uya` 现收敛到
-        `AST_FN_DECL / extern_signature_requires_i32_scalars`
-        （`lib/libc/errno.uya:145`），focused gate=
-        `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`。
+          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_cfg_target.uya tests/test_exec_vm_const_pool.uya tests/test_exec_vm_defer.uya tests/test_exec_vm_drop_local.uya tests/test_exec_vm_hir_scope.uya tests/test_exec_vm_local_load_store.uya tests/test_struct_array_field_typed_empty_init.uya`
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-REMAINING-VERIFIER-FAILURES`:
+        收敛剩余 `3` 个 `PortableMIR verifier 失败`：
+        `tests/test_function_reachability_codegen.uya`、
+        `tests/test_function_reachability_codegen_microapp.uya`、
+        `tests/test_semantic_lookup_function_family.uya`。
+        - 最小验证：
+          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_function_reachability_codegen.uya tests/test_function_reachability_codegen_microapp.uya tests/test_semantic_lookup_function_family.uya`
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-AST-FN-DECL-EXTERN-SIGNATURE`:
+        针对当前主导的 `AST_FN_DECL / extern_signature_requires_i32_scalars`
+        （`589` 个）建立 focused 收敛路径，避免 generic extern lowering 回潮。
+        - 最小验证：
+          `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
     - 验收：
       - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror'
         LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` 主语言面通过。

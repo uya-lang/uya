@@ -1899,3 +1899,17 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
       - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya -o /tmp/uya-mir-c99-simd-select-direct.c`：退出码 `1`，日志进入 `[MIR-C99]` 路由，输出 `mir_c99_capability_diagnostic: kind=AST_TYPE_VECTOR reason=vector_type_requires_target_helper_capability file=tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya line=2`，不再输出 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
       - `bash tests/verify_mir_c99_full_language_simd_vector_mask_reject.sh`：通过，保持 SIMD vector/mask 的显式 reject 边界与 coverage 证据不回退。
     - 结果：主语言面新的首个 generic PortableMIR lowering bucket 已从 `tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya` 收敛到 `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`；下一轮可直接重跑主语言面 matrix，确认 generic compile failure 计数继续下降。
+
+### 4.15 Full Language Parity
+
+- 父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-MATRIX`:
+  重跑主语言面 `--mir-c99` 并刷新 failure matrix，确认 generic compile failure 计数
+  随上述收敛继续下降。
+  - 最小验证：
+    `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
+  - 验证（2026-06-24，本轮收口）：
+    `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass` -> `1024` 项中 `155` 通过、`869` 失败；顶层 `859` 个编译失败里 `849` 个已显式收敛为具体 `kind/reason` capability diagnostic，仅剩 `7` 个 `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 与 `3` 个 `PortableMIR verifier 失败`；generic `错误: MIR-C99 extern lowering 失败` 已清零；另有 `2` 个链接失败、`6` 个单文件运行失败、`2` 个 `multifile/cross_deps` 聚合失败。
+    `python3 ./.agents/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md` -> `ok: docs/todo_mir_c99_backend.md has 0 active tasks`
+    `git diff --check -- docs/todo_mir_c99_backend.md` -> 通过
+  - 结果摘要：`tests/test_simd_c99_select_emit_u32x2_and_u32x4.uya` 已从 generic lowering 收敛到 `AST_TYPE_VECTOR / vector_type_requires_target_helper_capability`；`tests/test_https_google.uya` 已从 generic `extern lowering 失败` 收敛到 `AST_FN_DECL / extern_signature_requires_i32_scalars`；顶层 generic compile failure 现仅剩 `10` 个。
