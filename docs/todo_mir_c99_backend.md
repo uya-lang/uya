@@ -142,6 +142,16 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
       `AST_EMBED / embed_requires_compile_time_embed_capability`、`1` 个
       `AST_ASM_TARGET / asm_target_requires_target_capability`。
     - 子任务拆分（2026-06-24，本轮）：
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-FIRST-GENERIC-LOWERING-BUCKET`:
+        在 capability fail-closed cleanup 后，重选并收敛首个仍停在 generic
+        `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` 的非 capability 样例。
+        - 最小验证：先重跑主语言面计数，锁定新的首个 generic lowering case，再补 focused
+          real-CLI gate。
+      - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-RECOUNT-MATRIX`:
+        重跑主语言面 `--mir-c99` 并刷新 failure matrix，确认 generic compile failure 计数
+        随上述收敛继续下降。
+        - 最小验证：
+          `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
       - 进展（2026-06-24，本轮）：`tests/test_asm_const_output.uya` 已从
         `AST_TEST_STMT / test_driver_not_lowered` 重开为
         `AST_ASM / inline_asm_requires_target_capability`。

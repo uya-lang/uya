@@ -45,6 +45,12 @@ if grep -Fq '错误: MIR-C99 extern lowering 失败' "$log_file"; then
     exit 1
 fi
 
+if grep -Fq '错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序' "$log_file"; then
+    cat "$log_file" >&2
+    echo "error: test_https_google still falls through to the generic PortableMIR lowering failure" >&2
+    exit 1
+fi
+
 grep -Eq 'mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_signature_requires_i32_scalars file=.*/lib/libc/errno\.uya line=145' "$log_file" || {
     cat "$log_file" >&2
     echo "error: missing AST_FN_DECL extern signature capability diagnostic" >&2

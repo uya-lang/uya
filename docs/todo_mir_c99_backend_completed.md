@@ -1851,3 +1851,32 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
         - `bash -n tests/verify_mir_c99_full_language_verifier_first_bucket.sh`：通过。
         - `bash tests/verify_mir_c99_full_language_verifier_first_bucket.sh`：通过，输出
           `OK: MIR-C99 first verifier bucket fails closed with a stable real-CLI verifier diagnostic`。
+
+## 2026-06-24
+# MIR-C99 Backend TODO
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级任务路径：
+- `[ ] MIR-C99-FULL-SUPPORT-CLI-SUITE`: 让真实 `--mir-c99` CLI 在主语言测试集上收敛。
+- `[ ] MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+      - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-CAPABILITY-FAIL-CLOSED-NO-GENERIC-LOWERING`:
+        让已输出具体 capability diagnostic 的 real-CLI reject bucket 直接 fail-closed，
+        不再尾随 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序`。
+        - 最小验证：
+          `bash tests/verify_mir_c99_full_language_extern_capability_reject.sh`
+          `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+        - 完成条件：`tests/assignment.uya` 与 `tests/test_https_google.uya` 在真实
+          `../uya/bin/uya build --mir-c99` 路径下都只保留 capability diagnostic，不再输出
+          generic `PortableMIR lowering 尚未覆盖当前程序`，且 reject 不留下非空输出文件。
+        - 实现摘要：`src/build_compiler_driver.uya` 在 extern append 失败与 safe body append
+          失败分支里，只有拿不到具体 capability diagnostic 时才回退 generic diagnostic。
+        - 验证结果（2026-06-24，本轮）：
+          `bash tests/verify_mir_c99_full_language_extern_capability_reject.sh`
+          -> 通过，输出 `OK: MIR-C99 assignment extern bucket now fails closed with explicit capability diagnostic`
+          `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+          -> 通过，输出 `OK: MIR-C99 real CLI extern signature bucket now fails closed with explicit capability diagnostics`
+          `bash tests/verify_mir_c99_extern_i32_signature_metadata.sh`
+          -> 通过，输出 `OK: MIR-C99 extern i32 signature metadata lowering verified`
+        - 结果摘要：`tests/assignment.uya` 与 `tests/test_https_google.uya` 在真实
+          `../uya/bin/uya build --mir-c99` 路径下都只保留 capability diagnostic，
+          不再输出 generic `PortableMIR lowering 尚未覆盖当前程序`，reject 也未留下非空输出文件。

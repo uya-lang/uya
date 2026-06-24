@@ -48,6 +48,11 @@ if grep -Fq '错误: MIR-C99 extern lowering 失败' "$ASSIGNMENT_LOG"; then
     fail "assignment log still contains the generic extern lowering failure"
 fi
 
+if grep -Fq '错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序' "$ASSIGNMENT_LOG"; then
+    cat "$ASSIGNMENT_LOG" >&2
+    fail "assignment log still falls through to the generic PortableMIR lowering failure"
+fi
+
 if [[ "$status" -eq 0 ]]; then
     if [[ ! -s "$ASSIGNMENT_OUT" ]]; then
         cat "$ASSIGNMENT_LOG" >&2

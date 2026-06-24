@@ -54582,10 +54582,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
     if native_build_hosted_mir_append_program_externs(&module, program,
         &mir_extern_function_count) != 0 {
         portable_mir_module_release(&module);
-        if native_build_print_mir_c99_extern_capability_diagnostic(program) != 0 {
-            fprintf(libc.stderr,
-                "错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序\n" as *byte);
-        } else {
+        if native_build_print_mir_c99_extern_capability_diagnostic(program) == 0 {
             fprintf(libc.stderr, "错误: MIR-C99 extern lowering 失败\n" as *byte);
         }
         return 1;
@@ -54595,9 +54592,10 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
         program, &mir_body_function_count) != 0 ||
        mir_body_function_count <= 0 {
         portable_mir_module_release(&module);
-        native_build_print_mir_c99_capability_diagnostic(program);
-        fprintf(libc.stderr,
-            "错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序\n" as *byte);
+        if native_build_print_mir_c99_capability_diagnostic(program) == 0 {
+            fprintf(libc.stderr,
+                "错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序\n" as *byte);
+        }
         return 1;
     }
     var verifier: MirVerifierResult = MirVerifierResult{
