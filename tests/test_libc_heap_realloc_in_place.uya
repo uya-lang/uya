@@ -1,0 +1,150 @@
+use std.testing.expect;
+use std.testing.assert;
+use libc.malloc;
+use libc.free;
+use libc.realloc;
+use libc.heap_flush_current_thread_cache;
+
+const TEST_MALLOC_ALIGN: usize = 16usize;
+const TEST_MIN_CHUNK_SIZE: usize = 32usize;
+const TEST_CHUNK_OVERHEAD: usize = 24usize;
+const TEST_BLOCK_A_SIZE: usize = 1000usize;
+const TEST_BLOCK_B_SIZE: usize = 1800usize;
+const TEST_GUARD_SIZE: usize = 32usize;
+const TEST_GROWN_SIZE: usize = 2300usize;
+const TEST_MAX_ATTEMPTS: usize = 8usize;
+const TEST_A_SENTINEL_SEED: usize = 37usize;
+const TEST_GUARD_SENTINEL_SEED: usize = 113usize;
+
+struct TestReallocLayout {
+    block_a: &void,
+    block_b: &void,
+    guard: &void,
+}
+
+fn test_alloc_checked(size: usize) !&void {
+    const ptr: &void = malloc(size);
+    try expect(ptr != null);
+    return ptr;
+}
+
+fn test_free_if_non_null(ptr: &void) void {
+    if ptr != null {
+        free(ptr);
+    }
+}
+
+fn test_heap_align_up(size: usize) usize {
+    if size == 0usize { return TEST_MALLOC_ALIGN; }
+    var q: usize = size / TEST_MALLOC_ALIGN;
+    var r: usize = size - q * TEST_MALLOC_ALIGN;
+    if r == 0usize { return size; }
+    return (q + 1usize) * TEST_MALLOC_ALIGN;
+}
+
+fn test_normalize_payload_size(size: usize) usize {
+    var aligned: usize = test_heap_align_up(size);
+    if aligned < TEST_MIN_CHUNK_SIZE { aligned = TEST_MIN_CHUNK_SIZE; }
+    return aligned;
+}
+
+fn test_chunk_total_for_request(size: usize) usize {
+    return test_heap_align_up(test_normalize_payload_size(size) + TEST_CHUNK_OVERHEAD);
+}
+
+fn test_sentinel_byte(seed: usize, index: usize) byte {
+    return (((seed + index * 17usize) % 251usize) as byte);
+}
+
+fn test_write_pattern(ptr: &void, size: usize, seed: usize) void {
+    const bytes: &byte = ptr as &byte;
+    var i: usize = 0usize;
+    while i < size {
+        bytes[i] = test_sentinel_byte(seed, i);
+        i = i + 1usize;
+    }
+}
+
+fn test_assert_pattern(ptr: &void, size: usize, seed: usize, label: &const byte) !void {
+    const bytes: &byte = ptr as &byte;
+    var i: usize = 0usize;
+    while i < size {
+        try assert(bytes[i] == test_sentinel_byte(seed, i), label);
+        i = i + 1usize;
+    }
+}
+
+fn test_matches_ab_guard_layout(block_a: &void, block_b: &void, guard: &void) bool {
+    const a_addr: usize = @usize_from_ptr(block_a);
+    const b_addr: usize = @usize_from_ptr(block_b);
+    const guard_addr: usize = @usize_from_ptr(guard);
+
+    if b_addr != a_addr + test_chunk_total_for_request(TEST_BLOCK_A_SIZE) { return false; }
+    if guard_addr != b_addr + test_chunk_total_for_request(TEST_BLOCK_B_SIZE) { return false; }
+    return true;
+}
+
+fn test_carve_contiguous_ab_guard_layout() !TestReallocLayout {
+    var blocks_a: [&void: TEST_MAX_ATTEMPTS] = [];
+    var blocks_b: [&void: TEST_MAX_ATTEMPTS] = [];
+    var guards: [&void: TEST_MAX_ATTEMPTS] = [];
+    var found: bool = false;
+    var found_index: usize = 0usize;
+
+    heap_flush_current_thread_cache();
+
+    var i: usize = 0usize;
+    while i < TEST_MAX_ATTEMPTS {
+        blocks_a[i] = try test_alloc_checked(TEST_BLOCK_A_SIZE);
+        blocks_b[i] = try test_alloc_checked(TEST_BLOCK_B_SIZE);
+        guards[i] = try test_alloc_checked(TEST_GUARD_SIZE);
+        if test_matches_ab_guard_layout(blocks_a[i], blocks_b[i], guards[i]) {
+            found = true;
+            found_index = i;
+            break;
+        }
+        i = i + 1usize;
+    }
+
+    try assert(found, "failed to carve contiguous A/B/guard layout");
+
+    const layout: TestReallocLayout = TestReallocLayout{
+        block_a: blocks_a[found_index],
+        block_b: blocks_b[found_index],
+        guard: guards[found_index],
+    };
+
+    i = 0usize;
+    while i < TEST_MAX_ATTEMPTS {
+        if i != found_index {
+            test_free_if_non_null(guards[i]);
+            test_free_if_non_null(blocks_b[i]);
+            test_free_if_non_null(blocks_a[i]);
+        }
+        i = i + 1usize;
+    }
+    heap_flush_current_thread_cache();
+
+    return layout;
+}
+
+test "heap_realloc_grows_in_place_preserves_a_and_keeps_guard_intact" {
+    try assert(test_chunk_total_for_request(TEST_BLOCK_A_SIZE) + test_chunk_total_for_request(TEST_BLOCK_B_SIZE) >= test_chunk_total_for_request(TEST_GROWN_SIZE),
+               "A+B merged chunk must satisfy the grown request");
+
+    const layout: TestReallocLayout = try test_carve_contiguous_ab_guard_layout();
+    test_write_pattern(layout.block_a, TEST_BLOCK_A_SIZE, TEST_A_SENTINEL_SEED);
+    test_write_pattern(layout.guard, TEST_GUARD_SIZE, TEST_GUARD_SENTINEL_SEED);
+
+    free(layout.block_b);
+
+    const grown: &void = realloc(layout.block_a, TEST_GROWN_SIZE);
+    try expect(grown != null);
+    try assert(@usize_from_ptr(grown) == @usize_from_ptr(layout.block_a), "realloc should grow block A in place");
+    try test_assert_pattern(grown, TEST_BLOCK_A_SIZE, TEST_A_SENTINEL_SEED, "block A sentinel data should survive realloc");
+    try test_assert_pattern(layout.guard, TEST_GUARD_SIZE, TEST_GUARD_SENTINEL_SEED, "guard data should remain unchanged");
+
+    free(layout.guard);
+    free(grown);
+    heap_flush_current_thread_cache();
+}

@@ -536,3 +536,9 @@
   - [x] `./bin/uya test tests/test_std_stdlib_malloc.uya` 全部通过
     - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
     - 验证结果：通过（总计 1，失败 0）
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.2: realloc 原地扩展优化
+- [x] 新增确定性测试：分配 A/B/guard，写入 A 的哨兵数据，释放 B 后 `realloc(A, bigger)` 必须返回 A 的原地址并保留原数据，同时 guard 内容不变
+  - 验证：`../uya/bin/uya test tests/test_libc_heap_realloc_in_place.uya`（通过：1 tests, 1039 assertions）
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`（通过：1 tests）
+  - 验证：`../uya/bin/uya test tests/test_libc_heap_coalescing_adjacent.uya`（通过：4 tests, 12339 assertions）
