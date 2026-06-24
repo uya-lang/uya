@@ -715,3 +715,12 @@
 - [x] 阶段完成后全量验证：`make check`
   验证命令：`make check`
   验证结果：退出码 `0`。自举编译、1065 个程序回归、证明优化、UPM、exec vm、microapp、SIMD/C99 专项验证通过；`benchmarks/http_bench_async_epoll.uya` 按脚本默认设置跳过（需 `UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1` 启用）。
+## 2026-06-25
+
+原始位置：`docs/todo_malloc_perf.md`
+阶段路径：`测试策略 > 新增基准测试`
+
+- [x] 碎片化压力测试：交替分配/释放不同大小，验证不出现假性 OOM
+  - 完成内容：复用现有 `tests/bench_malloc_phase2.uya` 的碎片 workload（`malloc(1000) -> malloc(2800) -> free -> free -> malloc(3600) -> free`），确认它已覆盖该测试策略项要求。
+  - 验证：`../uya/bin/uya build tests/bench_malloc_phase2.uya -o tests/build/bench_malloc_phase2_current`，随后执行 `./tests/build/bench_malloc_phase2_current`；输出 `malloc_phase2_frag rounds=64 budget8_rounds=64 unique_regions=1 peak_mmap_count=1 peak_mapped_bytes=8192 big_page_reuse_hits=64`，未出现假性 OOM。
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（1/1）。
