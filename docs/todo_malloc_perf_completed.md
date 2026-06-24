@@ -739,3 +739,15 @@
   - 结果：`malloc_throughput_single_thread size=64 iterations=10000 total_ops=20000 elapsed_ns=130319290 avg_pair_ns=13031 throughput_ops_per_sec=153469 checksum=2620907`
   - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
   - 结果：`总计: 1 个测试；通过: 1；失败: 0`
+
+## 测试策略
+
+### 新增基准测试
+
+原始位置：`docs/todo_malloc_perf.md:257`
+
+- [x] `realloc` 扩展基准：vector 扩容模式的耗时
+  - 完成内容：新增 `tests/bench_malloc_realloc_vector.uya`，按 `lib/std/collections/vec.uya` 的扩容规则（容量 `0 -> 8 -> 2x`）构造 2000 轮 push 到 4096 元素的 workload，统计 `realloc` 扩容次数、原地命中、搬移复制字节和总耗时。
+  - 验证：`../uya/bin/uya build tests/bench_malloc_realloc_vector.uya -o tests/build/bench_malloc_realloc_vector` 成功。
+  - 验证：`./tests/build/bench_malloc_realloc_vector` 输出 `malloc_realloc_vector rounds=2000 target_len=4096 realloc_growths=18000 inplace_growths=10000 moved_growths=8000 copied_bytes=61440000 elapsed_ns=616552459 avg_round_ns=308276 checksum=33554436096000`。
+  - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过。

@@ -254,7 +254,6 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 
 阶段 1-3 完成后需要新增：
 
-- [ ] `realloc` 扩展基准：vector 扩容模式的耗时
 
 ---
 

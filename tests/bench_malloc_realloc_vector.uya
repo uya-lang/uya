@@ -1,0 +1,169 @@
+// bench_malloc_realloc_vector.uya - Vec doubling 扩容模式的 realloc 基准
+// 对齐 lib/std/collections/vec.uya：
+// - 初始容量 0 -> 8
+// - 后续容量按 2 倍增长
+// 输出：
+//   1. 多轮 vector push 到固定长度的总耗时
+//   2. realloc 扩容次数、原地命中次数、搬移次数
+//   3. 因搬移估算的复制字节数
+
+use std.runtime.entry;
+use libc.malloc;
+use libc.free;
+use libc.realloc;
+use libc.sys_clock_gettime;
+use libc.CLOCK_MONOTONIC;
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+
+const VECTOR_BENCH_ROUNDS: i32 = 2000;
+const VECTOR_TARGET_LEN: usize = 4096usize;
+const VECTOR_INITIAL_CAP: usize = 8usize;
+
+fn bench_now_ns() u64 {
+    var ts: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    const now_result: !i32 = sys_clock_gettime(CLOCK_MONOTONIC, &ts);
+    _ = now_result catch {
+        return 0u64;
+    };
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return 0u64;
+    }
+    return (ts.tv_sec as u64) * (1000000000 as u64) + (ts.tv_nsec as u64);
+}
+
+fn bench_elapsed_ns(start_ns: u64, end_ns: u64) u64 {
+    if end_ns <= start_ns {
+        return 0u64;
+    }
+    return end_ns - start_ns;
+}
+
+fn vector_value(round: i32, index: usize) usize {
+    return ((round as usize) * VECTOR_TARGET_LEN) + index + 1usize;
+}
+
+fn grow_vector_buffer(data: &usize, cap: &usize, realloc_growths: &i32, inplace_growths: &i32, moved_growths: &i32, copied_bytes: &u64) !&usize {
+    const elem_size: usize = @size_of(usize) as usize;
+    var new_cap: usize = cap[0];
+    if new_cap == 0usize {
+        new_cap = VECTOR_INITIAL_CAP;
+    } else {
+        new_cap = new_cap * 2usize;
+    }
+
+    const new_bytes: usize = new_cap * elem_size;
+    if data == null {
+        const first_ptr: &void = malloc(new_bytes);
+        if first_ptr == null {
+            return error.AllocOutOfMemory;
+        }
+        cap[0] = new_cap;
+        return first_ptr as &usize;
+    }
+
+    const old_ptr: &usize = data;
+    const old_bytes: usize = cap[0] * elem_size;
+    const grown_ptr: &void = realloc(old_ptr as &void, new_bytes);
+    if grown_ptr == null {
+        return error.AllocOutOfMemory;
+    }
+
+    realloc_growths[0] = realloc_growths[0] + 1;
+    if grown_ptr == (old_ptr as &void) {
+        inplace_growths[0] = inplace_growths[0] + 1;
+    } else {
+        moved_growths[0] = moved_growths[0] + 1;
+        copied_bytes[0] = copied_bytes[0] + (old_bytes as u64);
+    }
+    cap[0] = new_cap;
+    return grown_ptr as &usize;
+}
+
+fn run_vector_growth_bench(elapsed_ns: &u64, realloc_growths: &i32, inplace_growths: &i32, moved_growths: &i32, copied_bytes: &u64, checksum: &u64) i32 {
+    elapsed_ns[0] = 0u64;
+    realloc_growths[0] = 0;
+    inplace_growths[0] = 0;
+    moved_growths[0] = 0;
+    copied_bytes[0] = 0u64;
+    checksum[0] = 0u64;
+
+    const start_ns: u64 = bench_now_ns();
+
+    var round: i32 = 0;
+    while round < VECTOR_BENCH_ROUNDS {
+        var data: &usize = null;
+        var len: usize = 0usize;
+        var cap: usize = 0usize;
+        var expected_sum: u64 = 0u64;
+
+        while len < VECTOR_TARGET_LEN {
+            if len == cap {
+                const grown: !&usize = grow_vector_buffer(data, &cap, realloc_growths, inplace_growths, moved_growths, copied_bytes);
+                data = grown catch {
+                    if data != null {
+                        free(data as &void);
+                    }
+                    return 1;
+                };
+            }
+            if data == null {
+                return 3;
+            }
+
+            const value: usize = vector_value(round, len);
+            data[len] = value;
+            expected_sum = expected_sum + (value as u64);
+            len = len + 1usize;
+        }
+        if data == null {
+            return 4;
+        }
+
+        var actual_sum: u64 = 0u64;
+        var i: usize = 0usize;
+        while i < len {
+            actual_sum = actual_sum + (data[i] as u64);
+            i = i + 1usize;
+        }
+        if actual_sum != expected_sum {
+            free(data as &void);
+            return 2;
+        }
+
+        checksum[0] = checksum[0] + actual_sum;
+        free(data as &void);
+        round = round + 1;
+    }
+
+    const end_ns: u64 = bench_now_ns();
+    elapsed_ns[0] = bench_elapsed_ns(start_ns, end_ns);
+    return 0;
+}
+
+export fn main() i32 {
+    var elapsed_ns: u64 = 0u64;
+    var realloc_growths: i32 = 0;
+    var inplace_growths: i32 = 0;
+    var moved_growths: i32 = 0;
+    var copied_bytes: u64 = 0u64;
+    var checksum: u64 = 0u64;
+
+    const rc: i32 = run_vector_growth_bench(&elapsed_ns, &realloc_growths, &inplace_growths, &moved_growths, &copied_bytes, &checksum);
+    if rc != 0 {
+        printf("bench_malloc_realloc_vector: rc=%d\n" as *byte, rc);
+        return 1;
+    }
+
+    printf("malloc_realloc_vector rounds=%d target_len=%zu realloc_growths=%d inplace_growths=%d moved_growths=%d copied_bytes=%lu elapsed_ns=%lu avg_round_ns=%lu checksum=%lu\n" as *byte,
+           VECTOR_BENCH_ROUNDS,
+           VECTOR_TARGET_LEN,
+           realloc_growths,
+           inplace_growths,
+           moved_growths,
+           copied_bytes,
+           elapsed_ns,
+           elapsed_ns / (VECTOR_BENCH_ROUNDS as u64),
+           checksum);
+    return 0;
+}
