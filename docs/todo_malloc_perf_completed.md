@@ -707,3 +707,11 @@
 - [x] malloc 程序回归：`./tests/run_programs_parallel.sh malloc_test.uya`
   验证命令：`mkdir -p tests/build/tests/tests_malloc_test && ln -sfn ../../../../ tests/build/tests/tests_malloc_test/uya && UYA_COMPILER=../uya/bin/uya ./tests/run_programs_parallel.sh malloc_test.uya`
   验证结果：通过（总计 1 个测试；通过 1；失败 0）
+
+## 测试策略
+
+### 回归测试（每次改动后必须运行）
+
+- [x] 阶段完成后全量验证：`make check`
+  验证命令：`make check`
+  验证结果：退出码 `0`。自举编译、1065 个程序回归、证明优化、UPM、exec vm、microapp、SIMD/C99 专项验证通过；`benchmarks/http_bench_async_epoll.uya` 按脚本默认设置跳过（需 `UYA_ENABLE_HTTP_BENCH_ASYNC_EPOLL_CHECK=1` 启用）。
