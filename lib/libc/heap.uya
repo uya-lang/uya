@@ -15,9 +15,12 @@ var _heap_lock: atomic i32 = 0;
 
 fn _heap_lock_acquire() void {
     var expected: i32 = 0;
+    var contended: bool = false;
     while __atomic_compare_exchange_n((&_heap_lock) as &i32, &expected, 1, 0, HEAP_ATOMIC_SEQ_CST, HEAP_ATOMIC_SEQ_CST) == 0 {
+        contended = true;
         expected = 0;
     }
+    heap_debug_note_lock_acquire(contended);
 }
 
 fn _heap_lock_release() void {
@@ -78,6 +81,29 @@ var _heap_debug_last_find_start_bin: usize = 0;
 var _heap_debug_last_split_remainder_bin: i32 = 0 - 1;
 var _heap_debug_large_mmap_count: usize = 0;
 var _heap_debug_large_munmap_count: usize = 0;
+var _heap_debug_lock_acquire_count: u64 = 0u64;
+var _heap_debug_lock_contention_count: u64 = 0u64;
+
+fn heap_debug_note_lock_acquire(contended: bool) void {
+    _heap_debug_lock_acquire_count = _heap_debug_lock_acquire_count + 1u64;
+    if contended {
+        _heap_debug_lock_contention_count = _heap_debug_lock_contention_count + 1u64;
+    }
+}
+
+fn heap_debug_note_tcache_alloc_hit(cache: &pthread_heap_cache_t) void {
+    if cache == null as &pthread_heap_cache_t {
+        return;
+    }
+    cache.alloc_hit_count = cache.alloc_hit_count + 1u64;
+}
+
+fn heap_debug_note_tcache_alloc_miss(cache: &pthread_heap_cache_t) void {
+    if cache == null as &pthread_heap_cache_t {
+        return;
+    }
+    cache.alloc_miss_count = cache.alloc_miss_count + 1u64;
+}
 
 // 勿命名 align_up：与 std/mem/arena 的两参数 align_up 合并后会解析错误
 fn heap_align_up(size: usize) usize {
@@ -260,6 +286,42 @@ export fn heap_debug_large_mmap_count() usize {
 /// 返回值：large mmap 直连路径累计成功执行的 munmap 次数。
 export fn heap_debug_large_munmap_count() usize {
     return _heap_debug_large_munmap_count;
+}
+
+/// 功能说明：返回 heap 全局锁累计成功获取的次数。
+/// 参数说明：无。
+/// 返回值说明：返回累计成功加锁次数，包含 malloc/free/realloc 与显式 tcache flush。
+export fn heap_debug_lock_acquire_count() u64 {
+    return _heap_debug_lock_acquire_count;
+}
+
+/// 功能说明：返回 heap 全局锁发生竞争的次数。
+/// 参数说明：无。
+/// 返回值说明：返回首次 CAS 未命中、需要自旋等待后才成功加锁的累计次数。
+export fn heap_debug_lock_contention_count() u64 {
+    return _heap_debug_lock_contention_count;
+}
+
+/// 功能说明：返回 tcache 小对象分配直接命中的次数。
+/// 参数说明：无。
+/// 返回值说明：返回 `malloc` 在当前线程 tcache 中直接复用 chunk 的累计次数。
+export fn heap_debug_tcache_alloc_hit_count() u64 {
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    if cache == null as &pthread_heap_cache_t {
+        return 0u64;
+    }
+    return cache.alloc_hit_count;
+}
+
+/// 功能说明：返回 tcache 小对象分配未命中的次数。
+/// 参数说明：无。
+/// 返回值说明：返回 `malloc` 进入 tcache 路径但未找到可复用 chunk、随后回退到全局 heap 的累计次数。
+export fn heap_debug_tcache_alloc_miss_count() u64 {
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    if cache == null as &pthread_heap_cache_t {
+        return 0u64;
+    }
+    return cache.alloc_miss_count;
 }
 
 fn request_uses_tcache(size: usize) bool {
@@ -850,9 +912,11 @@ export extern "libc" fn malloc(size: usize) &void {
         if cache != null as &pthread_heap_cache_t {
             const cached: &FreeChunk = tcache_take_chunk(cache, size);
             if !is_null(cached as &void) {
+                heap_debug_note_tcache_alloc_hit(cache);
                 return to_user_ptr(&cached.header);
             }
 
+            heap_debug_note_tcache_alloc_miss(cache);
             _heap_lock_acquire();
             const result_tcache: &void = tcache_refill_locked(cache, size);
             _heap_lock_release();

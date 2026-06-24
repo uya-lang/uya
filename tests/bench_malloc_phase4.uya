@@ -1,0 +1,265 @@
+// bench_malloc_phase4.uya - 阶段 4 per-thread cache 热路径吞吐基准
+// 输出：
+//   1. 1/2/4/8 线程下的小对象批量 alloc/free 吞吐
+//   2. 全局 heap 锁获取次数与竞争次数
+//   3. tcache 分配命中/未命中与命中率
+
+use std.runtime.entry;
+use libc.pthread;
+use libc.malloc;
+use libc.free;
+use libc.sys_clock_gettime;
+use libc.CLOCK_MONOTONIC;
+use libc.heap_debug_lock_acquire_count;
+use libc.heap_debug_lock_contention_count;
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+
+const BENCH_CASE_COUNT: usize = 4;
+const BENCH_THREAD_COUNTS: [i32: BENCH_CASE_COUNT] = [1, 2, 4, 8];
+const BENCH_MAX_THREADS: usize = 8;
+const BENCH_ROUNDS: i32 = 4000;
+const BENCH_CLASS_COUNT: usize = 7;
+const BENCH_OBJECTS_PER_CLASS: usize = 8;
+const BENCH_OBJECTS_PER_ROUND: usize = BENCH_CLASS_COUNT * BENCH_OBJECTS_PER_CLASS;
+const BENCH_SIZE_CLASSES: [usize: BENCH_CLASS_COUNT] = [
+    32usize, 64usize, 128usize, 256usize,
+    512usize, 1024usize, 2048usize,
+];
+
+var g_bench_start_flag: atomic i32 = 0;
+
+struct BenchWorkerState {
+    thread_index: usize,
+    status: i32,
+    alloc_count: u64,
+    free_count: u64,
+    checksum: u64,
+    tcache_hits: u64,
+    tcache_misses: u64,
+}
+
+struct BenchRunResult {
+    thread_count: i32,
+    total_ops: u64,
+    elapsed_ns: u64,
+    throughput_ops_per_sec: u64,
+    lock_acquires: u64,
+    lock_contentions: u64,
+    tcache_hits: u64,
+    tcache_misses: u64,
+    checksum: u64,
+}
+
+fn bench_now_ns() u64 {
+    var ts: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    const now_result: !i32 = sys_clock_gettime(CLOCK_MONOTONIC, &ts);
+    _ = now_result catch {
+        return 0u64;
+    };
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return 0u64;
+    }
+    return (ts.tv_sec as u64) * 1000000000u64 + (ts.tv_nsec as u64);
+}
+
+fn bench_elapsed_ns(start_ns: u64, end_ns: u64) u64 {
+    if end_ns <= start_ns {
+        return 0u64;
+    }
+    return end_ns - start_ns;
+}
+
+fn bench_total_ops(thread_count: i32) u64 {
+    return (thread_count as u64) * (BENCH_ROUNDS as u64) * (BENCH_OBJECTS_PER_ROUND as u64) * 2u64;
+}
+
+fn bench_ops_per_sec(total_ops: u64, elapsed_ns: u64) u64 {
+    if elapsed_ns == 0u64 {
+        return 0u64;
+    }
+    return (total_ops * 1000000000u64) / elapsed_ns;
+}
+
+fn bench_tcache_hit_rate_bp(hits: u64, misses: u64) u64 {
+    const total: u64 = hits + misses;
+    if total == 0u64 {
+        return 0u64;
+    }
+    return (hits * 10000u64) / total;
+}
+
+fn bench_worker(arg: &void) &void {
+    var state: &BenchWorkerState = arg as &BenchWorkerState;
+    var ptrs: [&void: BENCH_OBJECTS_PER_ROUND] = [];
+    var sizes: [usize: BENCH_OBJECTS_PER_ROUND] = [];
+    var alloc_count: u64 = 0u64;
+    var free_count: u64 = 0u64;
+    var checksum: u64 = 0u64;
+
+    while g_bench_start_flag == 0 {
+    }
+
+    var round: i32 = 0;
+    while round < BENCH_ROUNDS {
+        var slot: usize = 0usize;
+        var class_index: usize = 0usize;
+        while class_index < BENCH_CLASS_COUNT {
+            var repeat: usize = 0usize;
+            while repeat < BENCH_OBJECTS_PER_CLASS {
+                const size: usize = BENCH_SIZE_CLASSES[class_index];
+                const ptr: &void = malloc(size);
+                if ptr == null {
+                    state.status = 1;
+                    state.alloc_count = alloc_count;
+                    state.free_count = free_count;
+                    state.checksum = checksum;
+                    const fail_cache: &pthread_heap_cache_t = pthread_current_heap_cache();
+                    if fail_cache != null as &pthread_heap_cache_t {
+                        state.tcache_hits = fail_cache.alloc_hit_count;
+                        state.tcache_misses = fail_cache.alloc_miss_count;
+                    }
+                    return null;
+                }
+
+                var bytes: &byte = ptr as &byte;
+                bytes[0] = ((round as usize) + class_index + repeat + state.thread_index) as byte;
+                ptrs[slot] = ptr;
+                sizes[slot] = size;
+                alloc_count = alloc_count + 1u64;
+                slot = slot + 1usize;
+                repeat = repeat + 1usize;
+            }
+            class_index = class_index + 1usize;
+        }
+
+        slot = 0usize;
+        while slot < BENCH_OBJECTS_PER_ROUND {
+            var bytes: &byte = ptrs[slot] as &byte;
+            checksum = checksum + (bytes[0] as u64) + (sizes[slot] as u64);
+            free(ptrs[slot]);
+            ptrs[slot] = null;
+            sizes[slot] = 0usize;
+            free_count = free_count + 1u64;
+            slot = slot + 1usize;
+        }
+        round = round + 1;
+    }
+
+    state.status = 0;
+    state.alloc_count = alloc_count;
+    state.free_count = free_count;
+    state.checksum = checksum;
+    const cache: &pthread_heap_cache_t = pthread_current_heap_cache();
+    if cache != null as &pthread_heap_cache_t {
+        state.tcache_hits = cache.alloc_hit_count;
+        state.tcache_misses = cache.alloc_miss_count;
+    }
+    return null;
+}
+
+fn run_thread_case(thread_count: i32, result: &BenchRunResult) i32 {
+    if thread_count <= 0 || (thread_count as usize) > BENCH_MAX_THREADS {
+        return 10;
+    }
+
+    g_bench_start_flag = 0;
+
+    var threads: [pthread_t: BENCH_MAX_THREADS] = [];
+    var states: [BenchWorkerState: BENCH_MAX_THREADS] = [];
+    var created: usize = 0usize;
+    while created < (thread_count as usize) {
+        states[created] = BenchWorkerState{
+            thread_index: created,
+            status: 99,
+            alloc_count: 0u64,
+            free_count: 0u64,
+            checksum: 0u64,
+            tcache_hits: 0u64,
+            tcache_misses: 0u64,
+        };
+        if pthread_create(&threads[created], null as &const pthread_attr_t, &bench_worker as &void, (&states[created]) as &void) != 0 {
+            g_bench_start_flag = 1;
+            var join_created: usize = 0usize;
+            while join_created < created {
+                _ = pthread_join(&threads[join_created], null as & &void);
+                join_created = join_created + 1usize;
+            }
+            return 11;
+        }
+        created = created + 1usize;
+    }
+
+    const before_locks: u64 = heap_debug_lock_acquire_count();
+    const before_contentions: u64 = heap_debug_lock_contention_count();
+    const start_ns: u64 = bench_now_ns();
+    g_bench_start_flag = 1;
+
+    var checksum: u64 = 0u64;
+    var tcache_hits: u64 = 0u64;
+    var tcache_misses: u64 = 0u64;
+    var joined: usize = 0usize;
+    while joined < created {
+        if pthread_join(&threads[joined], null as & &void) != 0 {
+            return 12;
+        }
+        if states[joined].status != 0 {
+            return 100 + states[joined].status;
+        }
+        checksum = checksum + states[joined].checksum + states[joined].alloc_count + states[joined].free_count;
+        tcache_hits = tcache_hits + states[joined].tcache_hits;
+        tcache_misses = tcache_misses + states[joined].tcache_misses;
+        joined = joined + 1usize;
+    }
+
+    const end_ns: u64 = bench_now_ns();
+    result.thread_count = thread_count;
+    result.total_ops = bench_total_ops(thread_count);
+    result.elapsed_ns = bench_elapsed_ns(start_ns, end_ns);
+    result.throughput_ops_per_sec = bench_ops_per_sec(result.total_ops, result.elapsed_ns);
+    result.lock_acquires = heap_debug_lock_acquire_count() - before_locks;
+    result.lock_contentions = heap_debug_lock_contention_count() - before_contentions;
+    result.tcache_hits = tcache_hits;
+    result.tcache_misses = tcache_misses;
+    result.checksum = checksum;
+    return 0;
+}
+
+fn print_result(result: &BenchRunResult) void {
+    printf("malloc_phase4 threads=%d total_ops=%lu elapsed_ns=%lu throughput_ops_per_sec=%lu lock_acquires=%lu lock_contentions=%lu tcache_hits=%lu tcache_misses=%lu tcache_hit_rate_bp=%lu checksum=%lu\n" as *byte,
+           result.thread_count,
+           result.total_ops,
+           result.elapsed_ns,
+           result.throughput_ops_per_sec,
+           result.lock_acquires,
+           result.lock_contentions,
+           result.tcache_hits,
+           result.tcache_misses,
+           bench_tcache_hit_rate_bp(result.tcache_hits, result.tcache_misses),
+           result.checksum);
+}
+
+export fn main() i32 {
+    var i: usize = 0usize;
+    while i < BENCH_CASE_COUNT {
+        var result: BenchRunResult = BenchRunResult{
+            thread_count: 0,
+            total_ops: 0u64,
+            elapsed_ns: 0u64,
+            throughput_ops_per_sec: 0u64,
+            lock_acquires: 0u64,
+            lock_contentions: 0u64,
+            tcache_hits: 0u64,
+            tcache_misses: 0u64,
+            checksum: 0u64,
+        };
+        const rc: i32 = run_thread_case(BENCH_THREAD_COUNTS[i], &result);
+        if rc != 0 {
+            printf("bench_malloc_phase4: rc=%d threads=%d\n" as *byte, rc, BENCH_THREAD_COUNTS[i]);
+            return 1;
+        }
+        print_result(&result);
+        i = i + 1usize;
+    }
+    return 0;
+}

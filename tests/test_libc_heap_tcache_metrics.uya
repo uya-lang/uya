@@ -1,0 +1,50 @@
+use std.testing.expect;
+use std.testing.assert_true;
+use libc.malloc;
+use libc.free;
+use libc.heap_debug_lock_acquire_count;
+use libc.heap_debug_lock_contention_count;
+use libc.heap_debug_tcache_alloc_hit_count;
+use libc.heap_debug_tcache_alloc_miss_count;
+
+fn alloc_checked(size: usize) !&void {
+    const ptr: &void = malloc(size);
+    try expect(ptr != null);
+    return ptr;
+}
+
+test "heap_tcache_metrics_track_hits_misses_and_lock_contention" {
+    const guard_left: &void = try alloc_checked(32usize);
+    const target: &void = try alloc_checked(96usize);
+    const guard_right: &void = try alloc_checked(32usize);
+
+    const before_hits: u64 = heap_debug_tcache_alloc_hit_count();
+    const before_misses: u64 = heap_debug_tcache_alloc_miss_count();
+    const before_locks: u64 = heap_debug_lock_acquire_count();
+    const before_contention: u64 = heap_debug_lock_contention_count();
+
+    free(target);
+
+    const reused: &void = try alloc_checked(96usize);
+    try assert_true(heap_debug_tcache_alloc_hit_count() == before_hits + 1u64);
+    try assert_true(heap_debug_tcache_alloc_miss_count() == before_misses);
+    try assert_true(heap_debug_lock_acquire_count() == before_locks + 1u64);
+    try assert_true(heap_debug_lock_contention_count() == before_contention);
+    try assert_true(@usize_from_ptr(reused) == @usize_from_ptr(target));
+
+    const cold_guard: &void = try alloc_checked(32usize);
+    const cold_before_hits: u64 = heap_debug_tcache_alloc_hit_count();
+    const cold_before_misses: u64 = heap_debug_tcache_alloc_miss_count();
+    const cold_before_locks: u64 = heap_debug_lock_acquire_count();
+
+    const cold_alloc: &void = try alloc_checked(128usize);
+    try assert_true(heap_debug_tcache_alloc_hit_count() == cold_before_hits);
+    try assert_true(heap_debug_tcache_alloc_miss_count() == cold_before_misses + 1u64);
+    try assert_true(heap_debug_lock_acquire_count() == cold_before_locks + 1u64);
+
+    free(cold_alloc);
+    free(cold_guard);
+    free(reused);
+    free(guard_right);
+    free(guard_left);
+}
