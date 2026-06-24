@@ -24,11 +24,13 @@ test "heap_tcache_metrics_track_hits_misses_and_lock_contention" {
     const before_contention: u64 = heap_debug_lock_contention_count();
 
     free(target);
+    try assert_true(heap_debug_lock_acquire_count() == before_locks);
+    try assert_true(heap_debug_lock_contention_count() == before_contention);
 
     const reused: &void = try alloc_checked(96usize);
     try assert_true(heap_debug_tcache_alloc_hit_count() == before_hits + 1u64);
     try assert_true(heap_debug_tcache_alloc_miss_count() == before_misses);
-    try assert_true(heap_debug_lock_acquire_count() == before_locks + 1u64);
+    try assert_true(heap_debug_lock_acquire_count() == before_locks);
     try assert_true(heap_debug_lock_contention_count() == before_contention);
     try assert_true(@usize_from_ptr(reused) == @usize_from_ptr(target));
 

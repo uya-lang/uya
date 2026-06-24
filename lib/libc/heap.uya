@@ -75,7 +75,6 @@ struct LargeRegion {
 var bins: [&FreeChunk: NUM_BINS] = [];
 var heap_regions: &HeapRegion = null;
 var large_regions: &LargeRegion = null;
-var _last_region_hit: &HeapRegion = null;
 var _heap_debug_last_find_steps: usize = 0;
 var _heap_debug_last_find_start_bin: usize = 0;
 var _heap_debug_last_split_remainder_bin: i32 = 0 - 1;
@@ -132,31 +131,45 @@ fn to_user_ptr(hdr: &ChunkHeader) &void {
     return (((hdr as &byte) + @size_of(ChunkHeader)) as &void);
 }
 
-fn owns_ptr(ptr: &void) bool {
+fn heap_cache_region_hit(cache: &pthread_heap_cache_t, addr: usize) bool {
+    if cache == null as &pthread_heap_cache_t {
+        return false;
+    }
+    if cache.last_region_start == 0usize || cache.last_region_end <= cache.last_region_start {
+        return false;
+    }
+    return addr >= cache.last_region_start && addr < cache.last_region_end;
+}
+
+fn heap_cache_record_region(cache: &pthread_heap_cache_t, region: &HeapRegion) void {
+    if cache == null as &pthread_heap_cache_t || region == null as &HeapRegion {
+        return;
+    }
+    cache.last_region_start = (region.base as usize) + @size_of(ChunkHeader);
+    cache.last_region_end = (region.base as usize) + region.size;
+}
+
+fn owns_ptr_with_cache(ptr: &void, cache: &pthread_heap_cache_t) bool {
     const addr: usize = (ptr as usize);
-    if !is_null(_last_region_hit as &void) {
-        const base: usize = _last_region_hit.base as usize;
-        const size: usize = _last_region_hit.size;
-        const start: usize = base + @size_of(ChunkHeader);
-        const end: usize = base + size;
-        if addr >= start && addr < end {
-            return true;
-        }
+    if heap_cache_region_hit(cache, addr) {
+        return true;
     }
 
     var region: &HeapRegion = heap_regions;
     while !is_null(region as &void) {
-        const base: usize = region.base as usize;
-        const size: usize = region.size;
-        const start: usize = base + @size_of(ChunkHeader);
-        const end: usize = base + size;
+        const start: usize = (region.base as usize) + @size_of(ChunkHeader);
+        const end: usize = (region.base as usize) + region.size;
         if addr >= start && addr < end {
-            _last_region_hit = region;
+            heap_cache_record_region(cache, region);
             return true;
         }
         region = region.next;
     }
     return false;
+}
+
+fn owns_ptr(ptr: &void) bool {
+    return owns_ptr_with_cache(ptr, current_thread_heap_cache());
 }
 
 fn is_free(hdr: &ChunkHeader) bool {
@@ -197,6 +210,10 @@ fn chunk_total_for_payload(payload: usize) usize {
 
 fn chunk_payload_capacity(hdr: &ChunkHeader) usize {
     return get_size(hdr) - chunk_overhead();
+}
+
+fn chunk_uses_tcache(hdr: &ChunkHeader) bool {
+    return get_size(hdr) <= chunk_total_for_payload(TCACHE_MAX_SIZE);
 }
 
 fn bin_index_for_payload(payload_size: usize) usize {
@@ -290,7 +307,7 @@ export fn heap_debug_large_munmap_count() usize {
 
 /// 功能说明：返回 heap 全局锁累计成功获取的次数。
 /// 参数说明：无。
-/// 返回值说明：返回累计成功加锁次数，包含 malloc/free/realloc 与显式 tcache flush。
+/// 返回值说明：返回累计实际成功加锁次数；tcache 命中 malloc 与 tcache hot free 不计入。
 export fn heap_debug_lock_acquire_count() u64 {
     return _heap_debug_lock_acquire_count;
 }
@@ -557,7 +574,7 @@ fn try_tcache_free_locked(ptr: &void) bool {
     if is_free(hdr) || is_tcache(hdr) {
         return true;
     }
-    if chunk_payload_capacity(hdr) > TCACHE_MAX_SIZE {
+    if !chunk_uses_tcache(hdr) {
         return false;
     }
 
@@ -572,6 +589,40 @@ fn try_tcache_free_locked(ptr: &void) bool {
     }
     if tcache_count(cache, bin_index) >= TCACHE_BATCH {
         tcache_flush_bin_locked(cache, bin_index);
+    }
+    return tcache_push_chunk(cache, bin_index, hdr as &FreeChunk);
+}
+
+fn try_tcache_free_fast(ptr: &void) bool {
+    if is_null(ptr) {
+        return true;
+    }
+
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    if cache == null as &pthread_heap_cache_t {
+        return false;
+    }
+
+    const hdr: &ChunkHeader = to_header(ptr);
+    if hdr.magic != CHUNK_MAGIC {
+        return false;
+    }
+    if is_free(hdr) || is_tcache(hdr) {
+        return true;
+    }
+    if !chunk_uses_tcache(hdr) {
+        return false;
+    }
+    if !owns_ptr_with_cache(ptr, cache) {
+        return false;
+    }
+
+    const bin_index: usize = bin_index_for_chunk(hdr);
+    if bin_index >= NUM_TCACHE_BINS {
+        return false;
+    }
+    if tcache_count(cache, bin_index) >= TCACHE_BATCH {
+        return false;
     }
     return tcache_push_chunk(cache, bin_index, hdr as &FreeChunk);
 }
@@ -954,6 +1005,9 @@ fn _free_impl(ptr: &void) void {
 }
 
 export extern "libc" fn free(ptr: &void) void {
+    if try_tcache_free_fast(ptr) {
+        return;
+    }
     _heap_lock_acquire();
     if !try_tcache_free_locked(ptr) {
         _free_impl(ptr);

@@ -277,3 +277,24 @@
   - **后续说明**:
     - `单线程无退化和多线程吞吐目标验证完成` 继续在主 todo 的阶段 4 清单中跟踪。
     - `阶段 4 性能收益报告补充实测数据` 继续在主 todo 的阶段 4 清单中跟踪。
+## 2026-06-25 阶段 4：多线程扩展
+
+任务路径：`阶段 4：多线程扩展`
+
+- [x] 降低 `free`/tcache 热路径全局锁争用后重新验证单线程无退化和多线程吞吐目标
+  - 验证命令：`../uya/bin/uya test tests/test_libc_heap_tcache_metrics.uya`
+    - 结果：通过；验证 tcache `free` + 同线程复用路径不再增加 `heap_debug_lock_acquire_count()`
+  - 验证命令：`../uya/bin/uya test tests/test_libc_heap_tcache.uya`
+    - 结果：通过；新增 `malloc(2048)` 阈值边界 tcache 复用场景
+  - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+    - 结果：通过
+  - 验证命令：`../uya/bin/uya test tests/test_libc_heap_large_path.uya`
+    - 结果：通过；3/3 测试通过
+  - 验证命令：`../uya/bin/uya build tests/bench_malloc_phase4.uya -o tests/build/bench_malloc_phase4_current`
+    - 结果：构建成功
+  - 验证命令：`./tests/build/bench_malloc_phase4_current`
+    - 结果：`threads=1 throughput_ops_per_sec=896069 lock_acquires=58 lock_contentions=0 tcache_hits=223944 tcache_misses=56`
+    - 结果：`threads=2 throughput_ops_per_sec=1268075 lock_acquires=75740 lock_contentions=14 tcache_hits=377113 tcache_misses=70887`
+    - 结果：`threads=4 throughput_ops_per_sec=2891477 lock_acquires=232 lock_contentions=202 tcache_hits=895776 tcache_misses=224`
+    - 结果：`threads=8 throughput_ops_per_sec=4684753 lock_acquires=464 lock_contentions=432 tcache_hits=1791552 tcache_misses=448`
+    - 结论：4 线程吞吐为单线程 `3.23x`，满足“4 线程 > 单线程 2.5x”目标；单线程吞吐较本轮修复前基线 `850584 -> 896069`

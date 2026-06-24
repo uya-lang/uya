@@ -115,6 +115,43 @@ export fn main() i32 {
         free(large_guard_left);
     }
 
+    // 阈值边界：2048 请求应仍可进入 tcache，并被同线程直接复用。
+    {
+        const edge_guard_left: &void = malloc(32usize);
+        if edge_guard_left == null {
+            return 45;
+        }
+        const edge_target: &void = malloc(2048usize);
+        if edge_target == null {
+            return 46;
+        }
+        const edge_guard_right: &void = malloc(32usize);
+        if edge_guard_right == null {
+            return 47;
+        }
+
+        const before_edge_tcache_total: usize = heap_debug_tcache_total_count();
+        free(edge_target);
+        if heap_debug_tcache_total_count() != before_edge_tcache_total + 1usize {
+            return 48;
+        }
+
+        const edge_reused: &void = malloc(2048usize);
+        if edge_reused == null {
+            return 49;
+        }
+        if @usize_from_ptr(edge_reused) != @usize_from_ptr(edge_target) {
+            return 53;
+        }
+        if heap_debug_tcache_total_count() != before_edge_tcache_total {
+            return 54;
+        }
+
+        free(edge_reused);
+        free(edge_guard_right);
+        free(edge_guard_left);
+    }
+
     // 子线程退出前若未回刷 tcache，主线程无法复用该小块，会变成真实泄漏。
     {
         var th: pthread_t = pthread_t{};
