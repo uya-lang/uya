@@ -156,3 +156,10 @@
     - 验证命令：`../uya/bin/uya test tests/test_std_stdlib.uya`：通过。
     - 验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc_only.uya`：通过。
     - 验证命令：`git diff --check`：通过。
+
+### 2026-06-24
+阶段路径：阶段 2：碎片化根治
+  - [x] Task 2.2：`realloc` 原地扩展优化
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（显式编入 `../uya/lib/libc/heap.uya`，新增 `realloc` 原地扩展用例通过）
+    - 验证：`../uya/bin/uya test tests/test_std_stdlib.uya` 通过
+    - 验证：`../uya/bin/uya test tests/programs/test_heap.uya` 通过

@@ -6,6 +6,7 @@ use libc.malloc;
 use libc.calloc;
 use libc.free;
 use libc.memcmp;
+use libc.realloc;
 
 export fn main() i32 {
     // ============================================================
@@ -92,6 +93,50 @@ export fn main() i32 {
         var bm: &byte = merged as &byte;
         bm[0] = 51 as byte;
         free(merged);
+    }
+
+    // ============================================================
+    // 测试 5: realloc 在 next chunk 空闲时原地扩展
+    // ============================================================
+    {
+        const p3: &void = malloc(32);
+        const p4: &void = malloc(32);
+        if p3 == null {
+            return 10;
+        }
+        if p4 == null {
+            free(p3);
+            return 11;
+        }
+
+        var b3: &byte = p3 as &byte;
+        b3[0] = 68 as byte;
+        b3[31] = 69 as byte;
+
+        free(p4);
+
+        const grown: &void = realloc(p3, 80);
+        if grown == null {
+            free(p3);
+            return 12;
+        }
+        if grown != p3 {
+            free(grown);
+            return 13;
+        }
+
+        var bg: &byte = grown as &byte;
+        if bg[0] != 68 as byte || bg[31] != 69 as byte {
+            free(grown);
+            return 14;
+        }
+        bg[79] = 85 as byte;
+        if bg[79] != 85 as byte {
+            free(grown);
+            return 15;
+        }
+
+        free(grown);
     }
     
     return 0;  // 所有测试通过

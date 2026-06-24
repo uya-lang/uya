@@ -68,6 +68,12 @@ fn heap_align_up(size: usize) usize {
     return (q + 1) * MALLOC_ALIGN;
 }
 
+fn normalized_payload_size(size: usize) usize {
+    var aligned: usize = heap_align_up(size);
+    if aligned < MIN_CHUNK_SIZE { aligned = MIN_CHUNK_SIZE; }
+    return aligned;
+}
+
 fn is_null(ptr: &void) bool {
     return (((ptr as &byte) as usize) == 0);
 }
@@ -288,8 +294,7 @@ fn find_chunk(needed: usize) &FreeChunk {
     return null;
 }
 
-fn split_chunk(chunk: &FreeChunk, needed: usize) void {
-    var hdr: &ChunkHeader = &chunk.header;
+fn split_allocated_chunk(hdr: &ChunkHeader, needed: usize) void {
     var sz: usize = get_size(hdr);
     var alloc_size: usize = chunk_total_for_payload(needed);
     var rem: usize = sz - alloc_size;
@@ -310,11 +315,32 @@ fn split_chunk(chunk: &FreeChunk, needed: usize) void {
     }
 }
 
+fn try_expand_chunk_in_place(hdr: &ChunkHeader, needed: usize) bool {
+    const region: &HeapRegion = find_region_for_header(hdr);
+    if is_null(region as &void) { return false; }
+
+    const current_total: usize = get_size(hdr);
+    const needed_total: usize = chunk_total_for_payload(needed);
+    if current_total >= needed_total { return true; }
+
+    const next_hdr: &ChunkHeader = next_chunk_in_region(region, hdr);
+    if is_null(next_hdr as &void) { return false; }
+    if next_hdr.magic != CHUNK_MAGIC || !is_free(next_hdr) { return false; }
+
+    const merged_total: usize = current_total + get_size(next_hdr);
+    if merged_total < needed_total { return false; }
+
+    remove_free(next_hdr as &FreeChunk);
+    hdr.size = merged_total;
+    set_free_and_footer(hdr, false);
+    split_allocated_chunk(hdr, needed);
+    return true;
+}
+
 fn _malloc_impl(size: usize) &void {
     if size == 0 { return null; }
 
-    var aligned: usize = heap_align_up(size);
-    if aligned < MIN_CHUNK_SIZE { aligned = MIN_CHUNK_SIZE; }
+    const aligned: usize = normalized_payload_size(size);
 
     var chunk: &FreeChunk = find_chunk(aligned);
 
@@ -329,7 +355,7 @@ fn _malloc_impl(size: usize) &void {
 
     remove_free(chunk);
     set_free_and_footer(&chunk.header, false);
-    split_chunk(chunk, aligned);
+    split_allocated_chunk(&chunk.header, aligned);
 
     return to_user_ptr(&chunk.header);
 }
@@ -379,6 +405,11 @@ fn _realloc_impl(ptr: &void, size: usize) &void {
 
     var old_sz: usize = get_size(hdr) - chunk_overhead();
     if size <= old_sz { return ptr; }
+
+    const needed: usize = normalized_payload_size(size);
+    if try_expand_chunk_in_place(hdr, needed) {
+        return ptr;
+    }
 
     var new_ptr: &void = _malloc_impl(size);
     if is_null(new_ptr) { return null; }
