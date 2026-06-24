@@ -2015,3 +2015,20 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
     `tests/test_https_google.uya` 已不再命中
     `extern_signature_requires_i32_scalars`，real `--mir-c99` 现统一前移到
     `lib/libc/stdio.uya:882` 的 `extern_varargs_requires_c_variadic_capability`。
+
+## 4. 任务清单
+### 4.15 Full Language Parity
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+      - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-VARARGS-CAPABILITY`:
+        继续处理 imported extern 的 C variadic capability，让 real CLI 决定是直接支持
+        `printf`/`snprintf` 一类 variadic extern，还是把 fail-closed 边界收紧成更精确的
+        capability bucket，而不是把 async/syscall/https 样例卡在同一个泛型 reject。
+        - 最小验证：
+          `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+        - 验证（2026-06-24，本轮）：
+          `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+          结果：通过，输出 `OK: MIR-C99 real CLI now fails closed at the next explicit varargs capability bucket`
+          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_async_return_value.uya -o /tmp/uya-mir-c99-varargs-async.c`
+          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_syscall_time.uya -o /tmp/uya-mir-c99-varargs-syscall.c`
+          `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_https_google.uya -o /tmp/uya-mir-c99-varargs-https.c`
+          结果：三例均失败并稳定落在 `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_varargs_requires_c_variadic_capability file=.../lib/libc/stdio.uya line=882`
