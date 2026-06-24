@@ -168,8 +168,6 @@ struct ChunkFooter {
 
 **实现步骤**：
 
-- [ ] **修改 split_chunk**：`alloc_total = chunk_total_for_payload(needed_payload)`；只有 `rem >= chunk_total_for_payload(MIN_CHUNK_SIZE)` 才分割。分割后已分配 chunk 与剩余 free chunk 都必须维护各自 footer。
-
 - [ ] **重写 `_free_impl`**：释放时检查前后邻居并合并：
    ```uya
    fn _free_impl(ptr: &void) void {

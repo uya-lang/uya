@@ -418,3 +418,14 @@
   - 验证：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya` 通过（1 test，9 assertions）。
   - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya` 通过（3 tests，75 assertions）。
   - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（总计 1 个测试，通过 1，失败 0）。
+
+## 阶段 2：碎片化根治（预计 3-5 天）
+### Task 2.1: 实现 free 时相邻块合并 (coalescing)
+- [x] **修改 split_chunk**：`alloc_total = chunk_total_for_payload(needed_payload)`；只有 `rem >= chunk_total_for_payload(MIN_CHUNK_SIZE)` 才分割。分割后已分配 chunk 与剩余 free chunk 都必须维护各自 footer。
+  验证说明：核对 `lib/libc/heap.uya` 中现有 `split_allocated_chunk` 实现，已按 `chunk_total_for_payload(normalize_payload_size(...))` 计算分配总长，仅在 `rem >= chunk_total_for_payload(MIN_CHUNK_SIZE)` 时分割，并分别对已分配 chunk 与剩余 free chunk 写 footer。
+  验证命令：`../uya/bin/uya test tests/test_libc_heap_bins.uya`
+  验证结果：通过，3 tests / 75 assertions。
+  验证命令：`../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`
+  验证结果：通过，1 test / 9 assertions。
+  验证命令：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`
+  验证结果：通过，1 个测试文件通过，0 失败。
