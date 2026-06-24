@@ -64,6 +64,7 @@ export extern "libc" fn pthread_setspecific(key: pthread_key_t, value: &void) i3
 // 前向声明：使用 libc.stdlib 的 malloc/free（sys_* 由 use libc 导入）
 extern fn malloc(size: usize) &void;
 extern fn free(ptr: &void) void;
+extern fn heap_flush_current_thread_cache() void;
 
 // GCC/Clang 内建：原子 CAS / fetch-and-sub，用于 mutex（零库依赖）
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
@@ -142,6 +143,12 @@ export struct pthread_t {
     arg: &void,
 }
 
+/// 保存当前线程的 malloc 小对象缓存元数据。
+export struct pthread_heap_cache_t {
+    heads: [&void: 7],
+    counts: [usize: 7],
+}
+
 // 内部线程描述符（NPTL-lite）
 struct pthread_desc {
     tid: i64,
@@ -160,12 +167,31 @@ struct pthread_desc {
     cancel_type: atomic i32,
     cancel_pending: atomic i32,
     tsd_values: &&void,
+    heap_cache: pthread_heap_cache_t,
 }
 
 const PTHREAD_MAX_THREADS: usize = 1024;
 struct pthread_registry_entry { tid: i64, desc: &pthread_desc }
 var _pthread_registry: [pthread_registry_entry: PTHREAD_MAX_THREADS] = [];
-var _pthread_main_desc: pthread_desc = pthread_desc{ tid: 0, stack: null, stack_size: 0, detached: 0, exited: 0, resources_released: 0, started: 1, result: null, pub_handle: null, start_routine: null, arg: null, joinstate: PTHREAD_JOINSTATE_JOINABLE, cancel_state: PTHREAD_CANCEL_ENABLE, cancel_type: PTHREAD_CANCEL_DEFERRED, cancel_pending: 0, tsd_values: null };
+var _pthread_main_desc: pthread_desc = pthread_desc{
+    tid: 0,
+    stack: null,
+    stack_size: 0,
+    detached: 0,
+    exited: 0,
+    resources_released: 0,
+    started: 1,
+    result: null,
+    pub_handle: null,
+    start_routine: null,
+    arg: null,
+    joinstate: PTHREAD_JOINSTATE_JOINABLE,
+    cancel_state: PTHREAD_CANCEL_ENABLE,
+    cancel_type: PTHREAD_CANCEL_DEFERRED,
+    cancel_pending: 0,
+    tsd_values: null,
+    heap_cache: pthread_heap_cache_t{ heads: [], counts: [] },
+};
 var _pthread_main_handle: pthread_t = pthread_t{ tid: 0, stack: null, stack_size: 0, detached: 0, exited: 0, result: null, start_routine: null, arg: null };
 var _pthread_main_initialized: atomic i32 = 0;
 
@@ -218,6 +244,18 @@ fn _pthread_desc_self() &pthread_desc {
         desc = &_pthread_main_desc;
     }
     return desc;
+}
+
+/// 功能说明：返回当前线程绑定的 malloc thread cache 槽位。
+/// 参数说明：无。
+/// 返回值说明：成功时返回当前线程的缓存结构；若当前线程描述符不可用则返回 `null`。
+export fn pthread_current_heap_cache() &pthread_heap_cache_t {
+    _ = pthread_self();
+    const desc: &pthread_desc = _pthread_desc_self();
+    if desc == null {
+        return null as &pthread_heap_cache_t;
+    }
+    return &desc.heap_cache;
 }
 
 // 互斥量类型常量
@@ -341,6 +379,7 @@ fn _pthread_thread_exit(desc: &pthread_desc, retval: &void) void {
     if desc != null {
         desc.result = retval;
         _pthread_run_tsd_destructors(desc);
+        heap_flush_current_thread_cache();
         desc.exited = 1;
         while true {
             const state: i32 = desc.joinstate;
@@ -529,6 +568,7 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
     desc.cancel_type = PTHREAD_CANCEL_DEFERRED;
     desc.cancel_pending = 0;
     desc.tsd_values = null;
+    desc.heap_cache = pthread_heap_cache_t{ heads: [], counts: [] };
 
     // 多线程安全：同一时刻只有一个 pthread_create 能进入 clone 窗口并发布 early-child fallback。
     _ = pthread_mutex_lock(&_pthread_create_mutex);

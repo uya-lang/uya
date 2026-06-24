@@ -2,7 +2,7 @@
 
 **创建日期**: 2026-06-18
 **优先级**: P1（性能基础设施）
-**当前状态**: 阶段 1-3 已完成，阶段 4 待开始
+**当前状态**: 阶段 1-3 已完成；阶段 4 已完成 Task 4.1，待做单线程/多线程吞吐验证与性能报告
 **关联文档**: `docs/libc_malloc_design.md`
 **基线说明**: 阶段 1 对照基线固定为提交 `bee7df32`：`ChunkHeader` 为 16B、`FreeChunk` 为 32B、未引入 footer。当前实现已完成阶段 2，`ChunkHeader + ChunkFooter` 开销为 24B，阶段 3 起的性能对比以此为新基线。
 
@@ -13,7 +13,6 @@
 完成某项后把对应 `- [ ]` 改为 `- [x]`。阶段级 checkbox 只有在该阶段所有任务、测试和性能记录都完成后再勾选。
 
 - [ ] 阶段 4：多线程扩展
-  - [ ] Task 4.1：per-thread allocation cache
   - [ ] 单线程无退化和多线程吞吐目标验证完成
   - [ ] 阶段 4 性能收益报告补充实测数据
 - [ ] 收口验证
@@ -441,45 +440,7 @@ BIN 7:  [4096, ∞)    — 顶层普通堆 bin；直接 mmap/munmap 留给 Task 
 ## 阶段 4：多线程扩展（预计 5-10 天）
 
 **目标**：消除全局锁瓶颈，使多线程分配吞吐随核心数扩展。
-
----
-
-### Task 4.1: per-thread allocation cache（线程本地缓存）
-
-- **优先级**: P2（仅多线程场景受益）
-- **预计时间**: 5-10 天
-- **文件**: `lib/libc/heap.uya`
-- **当前问题**: 全局自旋锁使所有线程的 malloc/free 完全串行化。多核下总吞吐难以超过单线程吞吐。
-- **方案**: 参考 tcmalloc/jemalloc 的 per-thread cache 模式：
-
-- [ ] **Thread Cache**: 每个线程持有小对象的本地自由链表缓存（无锁访问）。
-- [ ] **Central Cache**: 全局共享的中间缓存，thread cache 从 central cache 批量获取/归还。
-- [ ] **Page Heap**: 直接与 mmap 交互的底层。
-
-简化实现：仅实现两层：
-- [ ] **Per-thread cache**: 线程本地的小块缓存（按 size class），使用 `threadlocal` 存储。malloc 命中缓存时无锁；未命中时加全局锁从 central 批量获取。
-- [ ] **Central (现有的 heap 逻辑)**: 全局锁保护，但只在批量转移时加锁，而不是每次分配都加锁。
-
-```uya
-// 线程本地缓存简化设计
-const TCACHE_MAX_SIZE: usize = 2048;   // 超过此大小走全局路径
-const TCACHE_BATCH: usize = 8;         // 批量获取/归还数量
-const NUM_TCACHE_BINS: usize = 7;      // 32, 64, 128, 256, 512, 1024, 2048
-
-struct TCacheBin {
-    head: &FreeChunk,
-    count: usize,
-}
-
-// 使用 threadlocal 存储（如果 Uya 支持）
-// 否则通过 pthread_getspecific 实现
-var tcache_bins: [TCacheBin: NUM_TCACHE_BINS] = [];  // per-thread
-```
-
-- **验收标准**:
-  - [ ] 单线程性能无退化
-  - [ ] 4 线程并发分配吞吐 > 单线程的 2.5x
-  - [ ] 所有现有测试通过
+当前进展：Task 4.1 已完成并归档到 `docs/todo_malloc_perf_completed.md`；本文件保留阶段 4 剩余的吞吐验证与性能报告任务。
 
 ---
 

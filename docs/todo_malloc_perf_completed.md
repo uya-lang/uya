@@ -257,3 +257,23 @@
     - 验证命令：`./tests/build/bench_malloc_phase3_current` 与 `./tests/build/bench_malloc_phase3_baseline` 各运行 30 次；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`；`../uya/bin/uya test tests/test_libc_heap_bins.uya`；`../uya/bin/uya test tests/test_libc_heap_large_path.uya`
     - 验证结果：`avg_ns mean 778.6 -> 1211.7`，`elapsed_ns mean 7790909 -> 12122754`；`test_std_stdlib_malloc` 通过（总计 1，失败 0）；`test_libc_heap_bins` 通过（3 tests，75 assertions）；`test_libc_heap_large_path` 通过（3 tests，41 assertions）
     - 文档同步：`docs/todo_malloc_perf.md` 已补充阶段 3 实测记录，顶层状态更新为“阶段 1-3 已完成，阶段 4 待开始”，最后更新日期改为 `2026-06-25`
+
+## 2026-06-25
+路径：阶段 4：多线程扩展
+
+### Task 4.1: per-thread allocation cache（线程本地缓存）
+
+- [x] Task 4.1：per-thread allocation cache
+  - **优先级**: P2（仅多线程场景受益）
+  - **文件**: `lib/libc/heap.uya`、`lib/libc/pthread.uya`
+  - **完成说明**: 在线程描述符上挂接 per-thread small-object cache；`malloc` 小块命中当前线程 cache 时无锁返回；`free` 小块优先进入当前线程 cache；线程退出时回刷当前线程 cache，避免缓存块随线程描述符释放而泄漏。
+  - **验证**:
+    - `../uya/bin/uya tests/test_libc_heap_tcache.uya && ./a.out`：通过（新增线程退出回刷场景；修复前失败 `EXIT:61`，修复后 `EXIT:0`）
+    - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（总计 1，失败 0）
+    - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：通过（3 tests，75 assertions）
+    - `../uya/bin/uya test tests/test_libc_heap_large_path.uya`：通过（3 tests，41 assertions）
+    - `../uya/bin/uya test tests/test_pthread_create_join.uya`：通过
+    - `../uya/bin/uya test tests/test_pthread_api_create_join.uya`：通过
+  - **后续说明**:
+    - `单线程无退化和多线程吞吐目标验证完成` 继续在主 todo 的阶段 4 清单中跟踪。
+    - `阶段 4 性能收益报告补充实测数据` 继续在主 todo 的阶段 4 清单中跟踪。

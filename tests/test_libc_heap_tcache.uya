@@ -1,0 +1,152 @@
+use std.runtime.entry;
+use libc.malloc;
+use libc.free;
+use libc.heap_debug_tcache_total_count;
+use libc.pthread;
+
+struct ThreadExitCacheState {
+    guard_left: &void,
+    target: &void,
+    guard_right: &void,
+    status: i32,
+}
+
+fn thread_exit_cache_worker(arg: &void) &void {
+    var state: &ThreadExitCacheState = arg as &ThreadExitCacheState;
+    state.guard_left = malloc(32usize);
+    if state.guard_left == null {
+        state.status = 1;
+        return null;
+    }
+
+    state.target = malloc(1024usize);
+    if state.target == null {
+        state.status = 2;
+        return null;
+    }
+
+    state.guard_right = malloc(32usize);
+    if state.guard_right == null {
+        state.status = 3;
+        return null;
+    }
+
+    const before_tcache_total: usize = heap_debug_tcache_total_count();
+    free(state.target);
+    if heap_debug_tcache_total_count() != before_tcache_total + 1usize {
+        state.status = 4;
+        return null;
+    }
+
+    state.status = 0;
+    return null;
+}
+
+export fn main() i32 {
+    // 小块：free 后应进入当前线程 tcache，并被同线程再次 malloc 复用。
+    {
+        const guard_left: &void = malloc(32usize);
+        if guard_left == null {
+            return 10;
+        }
+        const target: &void = malloc(96usize);
+        if target == null {
+            return 11;
+        }
+        const guard_right: &void = malloc(32usize);
+        if guard_right == null {
+            return 12;
+        }
+
+        const before_tcache_total: usize = heap_debug_tcache_total_count();
+        free(target);
+        const after_tcache_total: usize = heap_debug_tcache_total_count();
+        if after_tcache_total != before_tcache_total + 1usize {
+            return 13;
+        }
+
+        const from_main: &void = malloc(96usize);
+        if from_main == null {
+            return 20;
+        }
+        if @usize_from_ptr(from_main) != @usize_from_ptr(target) {
+            return 21;
+        }
+        if heap_debug_tcache_total_count() != before_tcache_total {
+            return 22;
+        }
+
+        free(from_main);
+        free(guard_right);
+        free(guard_left);
+    }
+
+    // 大块：超过 tcache 阈值后不应进入 tcache，但 central 复用语义保持不变。
+    {
+        const large_guard_left: &void = malloc(32usize);
+        if large_guard_left == null {
+            return 30;
+        }
+        const large_target: &void = malloc(3000usize);
+        if large_target == null {
+            return 31;
+        }
+        const large_guard_right: &void = malloc(32usize);
+        if large_guard_right == null {
+            return 32;
+        }
+
+        const before_large_tcache_total: usize = heap_debug_tcache_total_count();
+        free(large_target);
+        if heap_debug_tcache_total_count() != before_large_tcache_total {
+            return 33;
+        }
+
+        const large_reused: &void = malloc(3000usize);
+        if large_reused == null {
+            return 40;
+        }
+        if @usize_from_ptr(large_reused) != @usize_from_ptr(large_target) {
+            return 44;
+        }
+
+        free(large_reused);
+        free(large_guard_right);
+        free(large_guard_left);
+    }
+
+    // 子线程退出前若未回刷 tcache，主线程无法复用该小块，会变成真实泄漏。
+    {
+        var th: pthread_t = pthread_t{};
+        var state: ThreadExitCacheState = ThreadExitCacheState{
+            guard_left: null,
+            target: null,
+            guard_right: null,
+            status: 99,
+        };
+
+        if pthread_create(&th, null as &const pthread_attr_t, &thread_exit_cache_worker as &void, (&state) as &void) != 0 {
+            return 50;
+        }
+        if pthread_join(&th, null as & &void) != 0 {
+            return 51;
+        }
+        if state.status != 0 {
+            return 52;
+        }
+
+        const reused_after_exit: &void = malloc(1024usize);
+        if reused_after_exit == null {
+            return 60;
+        }
+        if @usize_from_ptr(reused_after_exit) != @usize_from_ptr(state.target) {
+            return 61;
+        }
+
+        free(reused_after_exit);
+        free(state.guard_right);
+        free(state.guard_left);
+    }
+
+    return 0;
+}
