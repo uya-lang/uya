@@ -14,10 +14,25 @@ const GUARD_TOTAL_SIZE: usize = 64usize;
 const BLOCK_A_TOTAL_SIZE: usize = 1568usize;
 const BLOCK_B_TOTAL_SIZE: usize = 1056usize;
 
+const TRIPLE_BLOCK_A_SIZE: usize = 768usize;
+const TRIPLE_BLOCK_B_SIZE: usize = 1024usize;
+const TRIPLE_BLOCK_C_SIZE: usize = 640usize;
+const TRIPLE_FILL_TAIL_SIZE: usize = 1472usize;
+const TRIPLE_MERGED_REQUEST_SIZE: usize = 2200usize;
+const TRIPLE_BLOCK_A_TOTAL_SIZE: usize = 800usize;
+const TRIPLE_BLOCK_B_TOTAL_SIZE: usize = 1056usize;
+const TRIPLE_BLOCK_C_TOTAL_SIZE: usize = 672usize;
+
 fn alloc_checked(size: usize) !&void {
     const ptr: &void = malloc(size);
     try expect(ptr != null);
     return ptr;
+}
+
+fn free_if_non_null(ptr: &void) void {
+    if ptr != null {
+        free(ptr);
+    }
 }
 
 fn free_and_flush(ptr: &void) void {
@@ -37,8 +52,66 @@ fn matches_guard_ab_fill_layout(guard_left: &void, block_a: &void, block_b: &voi
     return true;
 }
 
-test "heap_coalesces_adjacent_ab_chunks_before_reusing_for_bigger_request" {
-    // 这些尺寸会在当前 4 KiB region 布局下刚好吃满一页，避免 B 右侧留下可误判的尾部空闲块。
+fn matches_guard_abc_fill_layout(guard_left: &void, block_a: &void, block_b: &void, block_c: &void, fill_tail: &void) bool {
+    const guard_addr: usize = @usize_from_ptr(guard_left);
+    const a_addr: usize = @usize_from_ptr(block_a);
+    const b_addr: usize = @usize_from_ptr(block_b);
+    const c_addr: usize = @usize_from_ptr(block_c);
+    const fill_addr: usize = @usize_from_ptr(fill_tail);
+
+    if a_addr != guard_addr + GUARD_TOTAL_SIZE { return false; }
+    if b_addr != a_addr + TRIPLE_BLOCK_A_TOTAL_SIZE { return false; }
+    if c_addr != b_addr + TRIPLE_BLOCK_B_TOTAL_SIZE { return false; }
+    if fill_addr != c_addr + TRIPLE_BLOCK_C_TOTAL_SIZE { return false; }
+    return true;
+}
+
+fn verify_ab_roundtrip(block_a: &void, block_b: &void, merged: &void, free_left_first: bool) !void {
+    free_and_flush(merged);
+
+    const split_a: &void = try alloc_checked(BLOCK_A_SIZE);
+    try assert(@usize_from_ptr(split_a) == @usize_from_ptr(block_a), "split block A must reuse original A address");
+
+    const split_b: &void = try alloc_checked(BLOCK_B_SIZE);
+    try assert(@usize_from_ptr(split_b) == @usize_from_ptr(block_b), "split block B must reuse original B address");
+
+    if free_left_first {
+        free_and_flush(split_a);
+        free_and_flush(split_b);
+    } else {
+        free_and_flush(split_b);
+        free_and_flush(split_a);
+    }
+
+    const merged_again: &void = try alloc_checked(MERGED_REQUEST_SIZE);
+    try assert(@usize_from_ptr(merged_again) == @usize_from_ptr(block_a), "re-merged allocation must reuse original A address");
+    free_and_flush(merged_again);
+}
+
+fn verify_abc_roundtrip(block_a: &void, block_b: &void, block_c: &void, merged: &void) !void {
+    free_and_flush(merged);
+
+    const split_a: &void = try alloc_checked(TRIPLE_BLOCK_A_SIZE);
+    try assert(@usize_from_ptr(split_a) == @usize_from_ptr(block_a), "split triple block A must reuse original A address");
+
+    const split_b: &void = try alloc_checked(TRIPLE_BLOCK_B_SIZE);
+    try assert(@usize_from_ptr(split_b) == @usize_from_ptr(block_b), "split triple block B must reuse original B address");
+
+    const split_c: &void = try alloc_checked(TRIPLE_BLOCK_C_SIZE);
+    try assert(@usize_from_ptr(split_c) == @usize_from_ptr(block_c), "split triple block C must reuse original C address");
+
+    free_and_flush(split_a);
+    free_and_flush(split_c);
+    free_and_flush(split_b);
+
+    const merged_again: &void = try alloc_checked(TRIPLE_MERGED_REQUEST_SIZE);
+    try assert(@usize_from_ptr(merged_again) == @usize_from_ptr(block_a), "re-merged triple allocation must reuse original A address");
+    free_and_flush(merged_again);
+}
+
+test "heap_coalesces_forward_into_next_free_chunk_and_roundtrips_cleanly" {
+    heap_flush_current_thread_cache();
+
     var guards: [&void: MAX_ATTEMPTS] = [];
     var blocks_a: [&void: MAX_ATTEMPTS] = [];
     var blocks_b: [&void: MAX_ATTEMPTS] = [];
@@ -73,19 +146,137 @@ test "heap_coalesces_adjacent_ab_chunks_before_reusing_for_bigger_request" {
     free_and_flush(block_a);
 
     const merged: &void = try alloc_checked(MERGED_REQUEST_SIZE);
-    try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_a), "merged allocation must reuse block A address");
+    try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_a), "forward-merged allocation must reuse block A address");
 
-    free(merged);
-    free(fill_tail);
-    free(guard_left);
+    try verify_ab_roundtrip(block_a, block_b, merged, false);
+
+    free_and_flush(fill_tail);
+    free_and_flush(guard_left);
 
     var cleanup_i: usize = 0usize;
     while cleanup_i < MAX_ATTEMPTS {
         if cleanup_i != found_index {
-            if guards[cleanup_i] != null { free(guards[cleanup_i]); }
-            if blocks_a[cleanup_i] != null { free(blocks_a[cleanup_i]); }
-            if blocks_b[cleanup_i] != null { free(blocks_b[cleanup_i]); }
-            if fills[cleanup_i] != null { free(fills[cleanup_i]); }
+            free_if_non_null(guards[cleanup_i]);
+            free_if_non_null(blocks_a[cleanup_i]);
+            free_if_non_null(blocks_b[cleanup_i]);
+            free_if_non_null(fills[cleanup_i]);
+        }
+        cleanup_i = cleanup_i + 1usize;
+    }
+    heap_flush_current_thread_cache();
+}
+
+test "heap_coalesces_backward_into_previous_free_chunk_and_roundtrips_cleanly" {
+    heap_flush_current_thread_cache();
+
+    var guards: [&void: MAX_ATTEMPTS] = [];
+    var blocks_a: [&void: MAX_ATTEMPTS] = [];
+    var blocks_b: [&void: MAX_ATTEMPTS] = [];
+    var fills: [&void: MAX_ATTEMPTS] = [];
+    var found: bool = false;
+    var found_index: usize = 0usize;
+
+    var i: usize = 0usize;
+    while i < MAX_ATTEMPTS {
+        guards[i] = try alloc_checked(GUARD_LEFT_SIZE);
+        blocks_a[i] = try alloc_checked(BLOCK_A_SIZE);
+        blocks_b[i] = try alloc_checked(BLOCK_B_SIZE);
+        fills[i] = try alloc_checked(FILL_TAIL_SIZE);
+        if matches_guard_ab_fill_layout(guards[i], blocks_a[i], blocks_b[i], fills[i]) {
+            found = true;
+            found_index = i;
+            break;
+        }
+        i = i + 1usize;
+    }
+
+    try assert(found, "failed to carve an exact guard/A/B/fill page layout");
+
+    const guard_left: &void = guards[found_index];
+    const block_a: &void = blocks_a[found_index];
+    const block_b: &void = blocks_b[found_index];
+    const fill_tail: &void = fills[found_index];
+
+    free_and_flush(block_a);
+    free_and_flush(block_b);
+
+    const merged: &void = try alloc_checked(MERGED_REQUEST_SIZE);
+    try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_a), "backward-merged allocation must reuse block A address");
+
+    try verify_ab_roundtrip(block_a, block_b, merged, true);
+
+    free_and_flush(fill_tail);
+    free_and_flush(guard_left);
+
+    var cleanup_i: usize = 0usize;
+    while cleanup_i < MAX_ATTEMPTS {
+        if cleanup_i != found_index {
+            free_if_non_null(guards[cleanup_i]);
+            free_if_non_null(blocks_a[cleanup_i]);
+            free_if_non_null(blocks_b[cleanup_i]);
+            free_if_non_null(fills[cleanup_i]);
+        }
+        cleanup_i = cleanup_i + 1usize;
+    }
+    heap_flush_current_thread_cache();
+}
+
+test "heap_coalesces_middle_chunk_with_both_free_neighbors_and_roundtrips_cleanly" {
+    heap_flush_current_thread_cache();
+
+    var guards: [&void: MAX_ATTEMPTS] = [];
+    var blocks_a: [&void: MAX_ATTEMPTS] = [];
+    var blocks_b: [&void: MAX_ATTEMPTS] = [];
+    var blocks_c: [&void: MAX_ATTEMPTS] = [];
+    var fills: [&void: MAX_ATTEMPTS] = [];
+    var found: bool = false;
+    var found_index: usize = 0usize;
+
+    var i: usize = 0usize;
+    while i < MAX_ATTEMPTS {
+        guards[i] = try alloc_checked(GUARD_LEFT_SIZE);
+        blocks_a[i] = try alloc_checked(TRIPLE_BLOCK_A_SIZE);
+        blocks_b[i] = try alloc_checked(TRIPLE_BLOCK_B_SIZE);
+        blocks_c[i] = try alloc_checked(TRIPLE_BLOCK_C_SIZE);
+        fills[i] = try alloc_checked(TRIPLE_FILL_TAIL_SIZE);
+        if matches_guard_abc_fill_layout(guards[i], blocks_a[i], blocks_b[i], blocks_c[i], fills[i]) {
+            found = true;
+            found_index = i;
+            break;
+        }
+        i = i + 1usize;
+    }
+
+    try assert(found, "failed to carve an exact guard/A/B/C/fill page layout");
+    try assert(TRIPLE_MERGED_REQUEST_SIZE > TRIPLE_BLOCK_A_SIZE + TRIPLE_BLOCK_B_SIZE, "triple merged request must exceed A+B payload");
+    try assert(TRIPLE_MERGED_REQUEST_SIZE > TRIPLE_BLOCK_B_SIZE + TRIPLE_BLOCK_C_SIZE, "triple merged request must exceed B+C payload");
+
+    const guard_left: &void = guards[found_index];
+    const block_a: &void = blocks_a[found_index];
+    const block_b: &void = blocks_b[found_index];
+    const block_c: &void = blocks_c[found_index];
+    const fill_tail: &void = fills[found_index];
+
+    free_and_flush(block_a);
+    free_and_flush(block_c);
+    free_and_flush(block_b);
+
+    const merged: &void = try alloc_checked(TRIPLE_MERGED_REQUEST_SIZE);
+    try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_a), "triple-merged allocation must reuse block A address");
+
+    try verify_abc_roundtrip(block_a, block_b, block_c, merged);
+
+    free_and_flush(fill_tail);
+    free_and_flush(guard_left);
+
+    var cleanup_i: usize = 0usize;
+    while cleanup_i < MAX_ATTEMPTS {
+        if cleanup_i != found_index {
+            free_if_non_null(guards[cleanup_i]);
+            free_if_non_null(blocks_a[cleanup_i]);
+            free_if_non_null(blocks_b[cleanup_i]);
+            free_if_non_null(blocks_c[cleanup_i]);
+            free_if_non_null(fills[cleanup_i]);
         }
         cleanup_i = cleanup_i + 1usize;
     }

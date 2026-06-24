@@ -462,3 +462,17 @@
     - `../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`：1/1 通过
     - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：3/3 通过
     - `../uya/bin/uya test tests/test_libc_heap_tcache_metrics.uya`：1/1 通过
+
+### 2026-06-25
+上下文：
+- `# libc malloc/free 性能优化 TODO`
+- `## 阶段 2：碎片化根治（预计 3-5 天）`
+- `### Task 2.1: 实现 free 时相邻块合并 (coalescing)`
+- 父级任务：`[ ] **重写 _free_impl**：释放时检查前后邻居并合并：`
+- `验收标准`
+  - [x] 新增确定性测试：分别覆盖向后合并、向前合并、同时合并前后两个空闲邻居，合并后再次分配/释放不破坏自由链表
+    - 验证：
+      - `../uya/bin/uya test tests/test_libc_heap_coalescing_adjacent.uya`：通过（3 tests，46 assertions）
+      - `../uya/bin/uya test tests/test_libc_heap_find_chunk_footer_fit.uya`：通过（1 test，9 assertions）
+      - `../uya/bin/uya test tests/test_libc_heap_bins.uya`：通过（3 tests，75 assertions）
+      - `../uya/bin/uya test tests/test_std_stdlib_malloc.uya`：通过（exit 0）
