@@ -248,3 +248,12 @@
     - 验证：`../uya/bin/uya test tests/test_std_stdlib_malloc.uya` 通过（总计 1 个测试，通过 1，失败 0）。
     - 验证：`../uya/bin/uya test tests/test_libc_heap_bins.uya` 通过（3 个子测试全部通过，75 个断言通过）。
     - 验证：`../uya/bin/uya test tests/test_libc_heap_large_path.uya` 通过（3 个子测试全部通过，41 个断言通过）。
+
+
+任务路径：阶段 3：分配速度优化
+- [x] 阶段 3：分配速度优化
+  - [x] 阶段 3 性能收益报告补充实测数据
+    - 编译命令：`../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_current`；`git worktree add --detach ../uya_malloc_phase2_baseline 13b6d9ce` 后执行 `env UYA_ROOT=../uya_malloc_phase2_baseline/lib ../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_baseline`
+    - 验证命令：`./tests/build/bench_malloc_phase3_current` 与 `./tests/build/bench_malloc_phase3_baseline` 各运行 30 次；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`；`../uya/bin/uya test tests/test_libc_heap_bins.uya`；`../uya/bin/uya test tests/test_libc_heap_large_path.uya`
+    - 验证结果：`avg_ns mean 778.6 -> 1211.7`，`elapsed_ns mean 7790909 -> 12122754`；`test_std_stdlib_malloc` 通过（总计 1，失败 0）；`test_libc_heap_bins` 通过（3 tests，75 assertions）；`test_libc_heap_large_path` 通过（3 tests，41 assertions）
+    - 文档同步：`docs/todo_malloc_perf.md` 已补充阶段 3 实测记录，顶层状态更新为“阶段 1-3 已完成，阶段 4 待开始”，最后更新日期改为 `2026-06-25`

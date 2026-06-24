@@ -2,7 +2,7 @@
 
 **创建日期**: 2026-06-18
 **优先级**: P1（性能基础设施）
-**当前状态**: 阶段 1-2 已完成，阶段 3 进行中
+**当前状态**: 阶段 1-3 已完成，阶段 4 待开始
 **关联文档**: `docs/libc_malloc_design.md`
 **基线说明**: 阶段 1 对照基线固定为提交 `bee7df32`：`ChunkHeader` 为 16B、`FreeChunk` 为 32B、未引入 footer。当前实现已完成阶段 2，`ChunkHeader + ChunkFooter` 开销为 24B，阶段 3 起的性能对比以此为新基线。
 
@@ -12,8 +12,6 @@
 
 完成某项后把对应 `- [ ]` 改为 `- [x]`。阶段级 checkbox 只有在该阶段所有任务、测试和性能记录都完成后再勾选。
 
-- [ ] 阶段 3：分配速度优化
-  - [ ] 阶段 3 性能收益报告补充实测数据
 - [ ] 阶段 4：多线程扩展
   - [ ] Task 4.1：per-thread allocation cache
   - [ ] 单线程无退化和多线程吞吐目标验证完成
@@ -120,6 +118,20 @@
 优化后结果：`budget8_rounds=64`；`peak_mmap_count=1`；`peak_mapped_bytes=8192`；`big_page_reuse_hits=64`；`inplace_hit_rate_pct=100`；`copy_bytes=0`
 变化：8-region 预算下碎片压力可持续轮数 `7 -> 64`（+57，约 9.1x）；峰值 `mmap` 次数 `65 -> 1`（-98.5%）；峰值 mapped bytes `532480B -> 8192B`（-524288B，-98.5%）；`realloc` 原地命中率 `0% -> 100%`，复制字节 `4032000B -> 0B`
 结论：阶段 2 已把该 workload 从“几乎每轮新增 region”收敛到“单 region 循环复用”，并把相邻空闲块扩容场景的复制成本降到 0；后续阶段可以把关注点收敛到查找延迟和多线程锁竞争。
+
+### 阶段 3 实测记录（2026-06-25）
+
+日期：2026-06-25
+提交：基线 `13b6d9ce`（阶段 2 完成态）；当前 `df801ee9`
+平台：Linux 6.12.65-amd64-desktop-rolling #25.01.01.11 SMP PREEMPT_DYNAMIC Wed Jan 14 15:36:12 CST 2026 x86_64 GNU/Linux
+编译命令：`../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_current`；`git worktree add --detach ../uya_malloc_phase2_baseline 13b6d9ce` 后执行 `env UYA_ROOT=../uya_malloc_phase2_baseline/lib ../uya/bin/uya build tests/bench_malloc_phase3.uya -o tests/build/bench_malloc_phase3_baseline`
+测试命令：`./tests/build/bench_malloc_phase3_current` 与 `./tests/build/bench_malloc_phase3_baseline` 各运行 30 次；`../uya/bin/uya test tests/test_std_stdlib_malloc.uya`；`../uya/bin/uya test tests/test_libc_heap_bins.uya`；`../uya/bin/uya test tests/test_libc_heap_large_path.uya`
+样本规模：固定随机种子、256 活跃槽位、10000 次随机 alloc/free 操作；size class 为 `32/64/128/256/512/1024/2048/4096`；统计 30 次进程级重复运行的 `elapsed_ns` 与 `avg_ns`
+基线结果：`avg_ns mean/p50/p95/p99 = 778.6/781/820/823`；`elapsed_ns mean/p50/p95/p99 = 7790909/7818635/8208053/8233051`
+优化后结果：`avg_ns mean/p50/p95/p99 = 1211.7/1200/1281/1316`；`elapsed_ns mean/p50/p95/p99 = 12122754/12009376/12813573/13162317`
+变化：`avg_ns` mean `778.6 -> 1211.7`（+55.6%，等价吞吐约 `1284357 -> 825287 ops/sec`）；P50 `781 -> 1200`（+53.6%）；P95 `820 -> 1281`（+56.2%）；P99 `823 -> 1316`（+59.9%）；`elapsed_ns` mean `7.79ms -> 12.12ms`（+55.6%）
+当前实现诊断：`tests/test_libc_heap_bins.uya` 覆盖的跨 bin 复用场景中 `heap_debug_last_find_start_bin() == 6` 且 `heap_debug_last_find_steps() == 1`；split 后 remainder 会回到 bin 6。`tests/test_libc_heap_large_path.uya` 验证 1MiB malloc/free 与 large realloc 前后 8 个普通 bin 长度保持不变，large `mmap/munmap` 计数按预期变化。
+结论：阶段 3 已验证结构性目标，目标 bin 起跳查找和 large path 隔离都正确生效；但在包含 `4096` size class 的当前混合 workload 上，large 直连 `mmap/munmap` 成本超过了 bins 带来的查找收益，整体分配延迟较阶段 2 回退约 54%-60%。后续进入阶段 4 前，应把“小中对象 bins”与“临界大块阈值”拆成独立基准口径，避免把两类效应混成单一吞吐结论。
 
 
 ## 阶段 2：碎片化根治（预计 3-5 天）
@@ -525,5 +537,5 @@ var tcache_bins: [TCacheBin: NUM_TCACHE_BINS] = [];  // per-thread
 
 ---
 
-**最后更新**: 2026-06-24
+**最后更新**: 2026-06-25
 **维护者**: Uya 开发团队
