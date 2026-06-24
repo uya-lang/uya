@@ -1992,3 +1992,26 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN
     `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_ffi_cast.uya -o /tmp/uya-mir-c99-sample/out.c`：失败前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`。
     `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_ffi_no_struct.uya -o /tmp/uya-mir-c99-sample/out.c`：失败前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`。
     `UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/extern_ffi_no_struct.uya`：runner 入口同样前移到 `错误: MIR-C99 PortableMIR verifier 失败: code=16`，未回退到旧 extern-signature generic。
+
+### 4.15 Full Language Parity
+Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-SIGNATURE-AGGREGATE-ERROR-UNION`:
+  继续处理 imported extern 的 aggregate / error-union 返回 ABI，让 real CLI
+  不再把 `tests/test_async_return_value.uya`、`tests/test_syscall_time.uya`、
+  `tests/test_https_google.uya` 卡在 `lib/libc/pthread.uya:1018`
+  (`pthread_self() -> pthread_t`) 或 `lib/libc/syscall.uya` 的 `!i32/!i64`
+  return surface。
+  - 最小验证：
+    `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_async_return_value.uya -o /tmp/uya-mir-c99-async-return-value.c`
+  - 验证（2026-06-24）：
+    `make -B cmd-build UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya`
+    `bash tests/verify_mir_c99_full_language_extern_signature_aggregate_error_union.sh`
+    `bash tests/verify_mir_c99_full_language_extern_signature_common_types.sh`
+    `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`
+  - 结果（2026-06-24）：
+    已重建 current-source `bin/cmd/build` 并同步 sibling `../uya/bin/cmd/build`；
+    `tests/test_async_return_value.uya`、`tests/test_syscall_time.uya`、
+    `tests/test_https_google.uya` 已不再命中
+    `extern_signature_requires_i32_scalars`，real `--mir-c99` 现统一前移到
+    `lib/libc/stdio.uya:882` 的 `extern_varargs_requires_c_variadic_capability`。

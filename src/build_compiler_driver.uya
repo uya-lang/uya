@@ -973,21 +973,210 @@ fn native_build_extern_signature_named_type_supported(type_node: &ASTNode) i32 {
     }
     return 0;
 }
+var native_build_mir_c99_extern_signature_checker: &TypeChecker = null;
+
+fn native_build_extern_signature_align_up_i32(value: i32, align: i32) i32 {
+    if align <= 0 {
+        return -1;
+    }
+    const rem: i32 = value % align;
+    if rem == 0 {
+        return value;
+    }
+    return value + (align - rem);
+}
+
+fn native_build_extern_signature_checker_type_supported(typ: &Type) i32 {
+    const checker: &TypeChecker = native_build_mir_c99_extern_signature_checker;
+    if checker == null || typ == null {
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_VOID || typ.kind == TypeKind.TYPE_BOOL ||
+       typ.kind == TypeKind.TYPE_BYTE || typ.kind == TypeKind.TYPE_I8 ||
+       typ.kind == TypeKind.TYPE_U8 || typ.kind == TypeKind.TYPE_I16 ||
+       typ.kind == TypeKind.TYPE_U16 || typ.kind == TypeKind.TYPE_I32 ||
+       typ.kind == TypeKind.TYPE_U32 || typ.kind == TypeKind.TYPE_I64 ||
+       typ.kind == TypeKind.TYPE_U64 || typ.kind == TypeKind.TYPE_USIZE ||
+       typ.kind == TypeKind.TYPE_F32 || typ.kind == TypeKind.TYPE_F64 ||
+       typ.kind == TypeKind.TYPE_POINTER {
+        return 1;
+    }
+    if typ.kind == TypeKind.TYPE_ATOMIC {
+        if typ.atomic_inner_type == null {
+            return 0;
+        }
+        return native_build_extern_signature_checker_type_supported(
+            typ.atomic_inner_type);
+    }
+    if typ.kind == TypeKind.TYPE_ERROR_UNION {
+        if typ.error_union_payload_type == null {
+            return 0;
+        }
+        return native_build_extern_signature_checker_type_supported(
+            typ.error_union_payload_type);
+    }
+    if typ.kind != TypeKind.TYPE_STRUCT || typ.struct_name == null ||
+       typ.struct_type_arg_count != 0 || checker.program_node == null {
+        return 0;
+    }
+    const decl: &ASTNode = native_build_find_struct_decl_by_name(
+        checker.program_node, typ.struct_name);
+    if decl == null || decl.struct_decl_fields == null ||
+       decl.struct_decl_field_count <= 0 {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < decl.struct_decl_field_count {
+        const field: &ASTNode = decl.struct_decl_fields[i];
+        if field == null || field.type != ASTNodeType.AST_VAR_DECL ||
+           field.var_decl_type == null {
+            return 0;
+        }
+        const field_type: Type = type_from_ast(checker, field.var_decl_type);
+        if native_build_extern_signature_checker_type_supported(
+            &field_type) == 0 {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn native_build_extern_signature_checker_type_size_align(typ: &Type,
+    out_size_bytes: &i32, out_align_bytes: &i32) i32 {
+    const checker: &TypeChecker = native_build_mir_c99_extern_signature_checker;
+    if out_size_bytes != null {
+        *out_size_bytes = 0;
+    }
+    if out_align_bytes != null {
+        *out_align_bytes = 0;
+    }
+    if checker == null || typ == null || out_size_bytes == null ||
+       out_align_bytes == null {
+        return -1;
+    }
+    if typ.kind == TypeKind.TYPE_I8 || typ.kind == TypeKind.TYPE_U8 ||
+       typ.kind == TypeKind.TYPE_BOOL || typ.kind == TypeKind.TYPE_BYTE {
+        *out_size_bytes = 1;
+        *out_align_bytes = 1;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_I16 || typ.kind == TypeKind.TYPE_U16 {
+        *out_size_bytes = 2;
+        *out_align_bytes = 2;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_I32 || typ.kind == TypeKind.TYPE_U32 ||
+       typ.kind == TypeKind.TYPE_F32 {
+        *out_size_bytes = 4;
+        *out_align_bytes = 4;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_I64 || typ.kind == TypeKind.TYPE_U64 ||
+       typ.kind == TypeKind.TYPE_USIZE || typ.kind == TypeKind.TYPE_F64 ||
+       typ.kind == TypeKind.TYPE_POINTER {
+        *out_size_bytes = 8;
+        *out_align_bytes = 8;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_ATOMIC && typ.atomic_inner_type != null {
+        return native_build_extern_signature_checker_type_size_align(
+            typ.atomic_inner_type, out_size_bytes, out_align_bytes);
+    }
+    if typ.kind == TypeKind.TYPE_ERROR_UNION &&
+       typ.error_union_payload_type != null {
+        var payload_size_bytes: i32 = 0;
+        var payload_align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(
+            typ.error_union_payload_type, &payload_size_bytes,
+            &payload_align_bytes) != 0 {
+            return -1;
+        }
+        var max_align_bytes: i32 = payload_align_bytes;
+        if max_align_bytes < 4 {
+            max_align_bytes = 4;
+        }
+        const payload_offset_bytes: i32 =
+            native_build_extern_signature_align_up_i32(4, payload_align_bytes);
+        const total_size_bytes: i32 =
+            native_build_extern_signature_align_up_i32(
+                payload_offset_bytes + payload_size_bytes, max_align_bytes);
+        if payload_offset_bytes < 0 || total_size_bytes < 0 {
+            return -1;
+        }
+        *out_size_bytes = total_size_bytes;
+        *out_align_bytes = max_align_bytes;
+        return 0;
+    }
+    if typ.kind != TypeKind.TYPE_STRUCT || typ.struct_name == null ||
+       checker.program_node == null {
+        return -1;
+    }
+    const decl: &ASTNode = native_build_find_struct_decl_by_name(
+        checker.program_node, typ.struct_name);
+    if decl == null || decl.struct_decl_fields == null ||
+       decl.struct_decl_field_count <= 0 {
+        return -1;
+    }
+    var offset_bytes: i32 = 0;
+    var max_align_bytes: i32 = 1;
+    var i: i32 = 0;
+    while i < decl.struct_decl_field_count {
+        const field: &ASTNode = decl.struct_decl_fields[i];
+        if field == null || field.type != ASTNodeType.AST_VAR_DECL ||
+           field.var_decl_type == null {
+            return -1;
+        }
+        const field_type: Type = type_from_ast(checker, field.var_decl_type);
+        var field_size_bytes: i32 = 0;
+        var field_align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(
+            &field_type, &field_size_bytes, &field_align_bytes) != 0 {
+            return -1;
+        }
+        offset_bytes = native_build_extern_signature_align_up_i32(
+            offset_bytes, field_align_bytes);
+        if offset_bytes < 0 {
+            return -1;
+        }
+        offset_bytes = offset_bytes + field_size_bytes;
+        if field_align_bytes > max_align_bytes {
+            max_align_bytes = field_align_bytes;
+        }
+        i = i + 1;
+    }
+    *out_size_bytes = native_build_extern_signature_align_up_i32(
+        offset_bytes, max_align_bytes);
+    *out_align_bytes = max_align_bytes;
+    if *out_size_bytes < 0 {
+        return -1;
+    }
+    return 0;
+}
+
 fn native_build_extern_signature_type_supported(type_node: &ASTNode) i32 {
     if native_build_extern_signature_named_type_supported(type_node) != 0 {
         return 1;
     }
-    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_POINTER {
+    if type_node == null {
         return 0;
     }
-    if type_node.type_pointer_pointed_type == null {
-        return 0;
-    }
-    if native_build_extern_signature_type_supported(
-        type_node.type_pointer_pointed_type) != 0 {
+    if type_node.type == ASTNodeType.AST_TYPE_POINTER {
+        if type_node.type_pointer_pointed_type == null {
+            return 0;
+        }
+        if native_build_extern_signature_type_supported(
+            type_node.type_pointer_pointed_type) != 0 {
+            return 1;
+        }
         return 1;
     }
-    return 1;
+    if native_build_mir_c99_extern_signature_checker == null {
+        return 0;
+    }
+    const resolved_type: Type = type_from_ast(
+        native_build_mir_c99_extern_signature_checker, type_node);
+    return native_build_extern_signature_checker_type_supported(&resolved_type);
 }
 fn native_build_type_named_equals(type_node: &ASTNode, name: &byte) i32 {
     if type_node == null || name == null ||
@@ -30334,6 +30523,282 @@ fn native_build_hosted_mir_function_signature_type(type_id: i32,
         flags: MIR_CALL_CONV_C,
     };
 }
+fn native_build_hosted_mir_append_extern_signature_resolved_type(
+    module: &PortableMirModule, typ: &Type, out_type_id: &i32) i32 {
+    const checker: &TypeChecker = native_build_mir_c99_extern_signature_checker;
+    if out_type_id != null {
+        *out_type_id = MIR_TYPE_INVALID_ID;
+    }
+    if module == null || checker == null || typ == null || out_type_id == null {
+        return -1;
+    }
+    if typ.kind == TypeKind.TYPE_VOID {
+        return native_build_hosted_mir_ensure_signature_type(module, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_BOOL {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_BOOL, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_BYTE {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_BYTE, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_I8 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_I8, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_U8 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U8, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_I16 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_I16, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_U16 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U16, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_I32 {
+        return native_build_hosted_mir_ensure_i32_type(module, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_U32 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U32, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_I64 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_I64, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_U64 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U64, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_USIZE {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_USIZE, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_F32 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_F32, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_F64 {
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_F64, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_POINTER {
+        var pointee_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if typ.pointer_to != null &&
+           native_build_hosted_mir_append_extern_signature_resolved_type(module,
+                typ.pointer_to, &pointee_type_id) == 0 {
+        } else if native_build_hosted_mir_ensure_signature_type(module,
+                &pointee_type_id) != 0 {
+            return -1;
+        }
+        return native_build_hosted_mir_ensure_pointer_type(module,
+            pointee_type_id, out_type_id);
+    }
+    if typ.kind == TypeKind.TYPE_ATOMIC && typ.atomic_inner_type != null {
+        var inner_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if native_build_hosted_mir_append_extern_signature_resolved_type(module,
+            typ.atomic_inner_type, &inner_type_id) != 0 {
+            return -1;
+        }
+        var size_bytes: i32 = 0;
+        var align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(typ,
+            &size_bytes, &align_bytes) != 0 {
+            return -1;
+        }
+        var i: usize = 0usize;
+        while i < module.types.count {
+            const existing_atomic: &MirType =
+                semantic_vector_item_ptr(&module.types, i) as &MirType;
+            if existing_atomic != null &&
+               existing_atomic.kind == MIR_TYPE_KIND_ATOMIC &&
+               existing_atomic.element_type_id == inner_type_id &&
+               existing_atomic.size_bytes == size_bytes as usize &&
+               existing_atomic.align_bytes == align_bytes as usize {
+                *out_type_id = existing_atomic.type_id;
+                return 0;
+            }
+            i = i + 1usize;
+        }
+        const type_id: i32 = module.type_count as i32;
+        var atomic_type: MirType = MirType{
+            type_id: type_id,
+            kind: MIR_TYPE_KIND_ATOMIC,
+            source_type_id: -1,
+            size_bytes: size_bytes as usize,
+            align_bytes: align_bytes as usize,
+            layout_id: -1,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: 0usize,
+            atomic_align_bytes: align_bytes as usize,
+            element_type_id: inner_type_id,
+            pointee_type_id: MIR_TYPE_INVALID_ID,
+            field_start: 0,
+            field_count: 0,
+            lane_count: 0,
+            lane_stride_bytes: 0usize,
+            mask_representation: 0,
+            abi_class: 0,
+            address_space: MIR_ADDRESS_SPACE_GENERIC,
+            flags: 0,
+        };
+        if portable_mir_append_type(module, &atomic_type) != 0 {
+            return -1;
+        }
+        *out_type_id = type_id;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_ERROR_UNION &&
+       typ.error_union_payload_type != null {
+        var payload_type_id: i32 = MIR_TYPE_INVALID_ID;
+        if native_build_hosted_mir_append_extern_signature_resolved_type(module,
+            typ.error_union_payload_type, &payload_type_id) != 0 {
+            return -1;
+        }
+        var size_bytes: i32 = 0;
+        var align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(typ,
+            &size_bytes, &align_bytes) != 0 {
+            return -1;
+        }
+        var payload_size_bytes: i32 = 0;
+        var payload_align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(
+            typ.error_union_payload_type, &payload_size_bytes,
+            &payload_align_bytes) != 0 {
+            return -1;
+        }
+        const payload_offset_bytes: i32 =
+            native_build_extern_signature_align_up_i32(4, payload_align_bytes);
+        var i: usize = 0usize;
+        while i < module.types.count {
+            const existing_error_union: &MirType =
+                semantic_vector_item_ptr(&module.types, i) as &MirType;
+            if existing_error_union != null &&
+               existing_error_union.kind == MIR_TYPE_KIND_ERROR_UNION &&
+               existing_error_union.element_type_id == payload_type_id {
+                *out_type_id = existing_error_union.type_id;
+                return 0;
+            }
+            i = i + 1usize;
+        }
+        const type_id: i32 = module.type_count as i32;
+        var error_union_type: MirType = MirType{
+            type_id: type_id,
+            kind: MIR_TYPE_KIND_ERROR_UNION,
+            source_type_id: -1,
+            size_bytes: size_bytes as usize,
+            align_bytes: align_bytes as usize,
+            layout_id: -1,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: payload_offset_bytes as usize,
+            atomic_align_bytes: 0usize,
+            element_type_id: payload_type_id,
+            pointee_type_id: MIR_TYPE_INVALID_ID,
+            field_start: 0,
+            field_count: 0,
+            lane_count: 0,
+            lane_stride_bytes: 0usize,
+            mask_representation: 0,
+            abi_class: MIR_ABI_CLASS_ERROR_UNION,
+            address_space: MIR_ADDRESS_SPACE_GENERIC,
+            flags: 0,
+        };
+        if portable_mir_append_type(module, &error_union_type) != 0 {
+            return -1;
+        }
+        *out_type_id = type_id;
+        return 0;
+    }
+    if typ.kind == TypeKind.TYPE_STRUCT && typ.struct_name != null &&
+       typ.struct_type_arg_count == 0 && checker.program_node != null {
+        const decl: &ASTNode = native_build_find_struct_decl_by_name(
+            checker.program_node, typ.struct_name);
+        if decl == null || decl.struct_decl_fields == null ||
+           decl.struct_decl_field_count <= 0 {
+            return -1;
+        }
+        const type_id: i32 = module.type_count as i32;
+        const field_start: i32 = module.field_layout_count as i32;
+        var field_index: i32 = 0;
+        var offset_bytes: i32 = 0;
+        while field_index < decl.struct_decl_field_count {
+            const field: &ASTNode = decl.struct_decl_fields[field_index];
+            if field == null || field.type != ASTNodeType.AST_VAR_DECL ||
+               field.var_decl_type == null {
+                return -1;
+            }
+            const field_type: Type = type_from_ast(checker, field.var_decl_type);
+            var field_type_id: i32 = MIR_TYPE_INVALID_ID;
+            var field_size_bytes: i32 = 0;
+            var field_align_bytes: i32 = 0;
+            if native_build_hosted_mir_append_extern_signature_resolved_type(module,
+                &field_type, &field_type_id) != 0 ||
+               native_build_extern_signature_checker_type_size_align(&field_type,
+                &field_size_bytes, &field_align_bytes) != 0 {
+                return -1;
+            }
+            offset_bytes = native_build_extern_signature_align_up_i32(
+                offset_bytes, field_align_bytes);
+            if offset_bytes < 0 {
+                return -1;
+            }
+            var layout: MirFieldLayout = MirFieldLayout{
+                field_layout_id: module.field_layout_count as i32,
+                owner_type_id: type_id,
+                field_index: field_index,
+                field_type_id: field_type_id,
+                offset_bytes: offset_bytes as usize,
+                size_bytes: field_size_bytes as usize,
+                align_bytes: field_align_bytes as usize,
+                flags: 0,
+            };
+            if portable_mir_append_field_layout(module, &layout) != 0 {
+                return -1;
+            }
+            offset_bytes = offset_bytes + field_size_bytes;
+            field_index = field_index + 1;
+        }
+        var size_bytes: i32 = 0;
+        var align_bytes: i32 = 0;
+        if native_build_extern_signature_checker_type_size_align(typ,
+            &size_bytes, &align_bytes) != 0 {
+            return -1;
+        }
+        var struct_type: MirType = MirType{
+            type_id: type_id,
+            kind: MIR_TYPE_KIND_STRUCT,
+            source_type_id: -1,
+            size_bytes: size_bytes as usize,
+            align_bytes: align_bytes as usize,
+            layout_id: -1,
+            tag_offset_bytes: 0usize,
+            payload_offset_bytes: 0usize,
+            atomic_align_bytes: 0usize,
+            element_type_id: MIR_TYPE_INVALID_ID,
+            pointee_type_id: MIR_TYPE_INVALID_ID,
+            field_start: field_start,
+            field_count: decl.struct_decl_field_count,
+            lane_count: 0,
+            lane_stride_bytes: 0usize,
+            mask_representation: 0,
+            abi_class: MIR_ABI_CLASS_AGGREGATE,
+            address_space: MIR_ADDRESS_SPACE_GENERIC,
+            flags: 0,
+        };
+        if portable_mir_append_type(module, &struct_type) != 0 {
+            return -1;
+        }
+        *out_type_id = type_id;
+        return 0;
+    }
+    return -1;
+}
+
 fn native_build_hosted_mir_append_extern_signature_ast_type(
     module: &PortableMirModule, type_node: &ASTNode, out_type_id: &i32) i32 {
     if out_type_id != null {
@@ -30351,68 +30816,74 @@ fn native_build_hosted_mir_append_extern_signature_ast_type(
                 &pointee_type_id) != 0 {
             return -1;
         }
-        return native_build_hosted_mir_ensure_pointer_type(module, pointee_type_id,
-            out_type_id);
+        return native_build_hosted_mir_ensure_pointer_type(module,
+            pointee_type_id, out_type_id);
     }
     if native_build_type_named_equals(type_node, "void" as &byte) != 0 {
         return native_build_hosted_mir_ensure_signature_type(module, out_type_id);
     }
     if native_build_type_named_equals(type_node, "bool" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_BOOL,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_BOOL, out_type_id);
     }
     if native_build_type_named_equals(type_node, "byte" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_BYTE,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_BYTE, out_type_id);
     }
     if native_build_type_named_equals(type_node, "i8" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_I8,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_I8, out_type_id);
     }
     if native_build_type_named_equals(type_node, "u8" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U8,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U8, out_type_id);
     }
     if native_build_type_named_equals(type_node, "i16" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_I16,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_I16, out_type_id);
     }
     if native_build_type_named_equals(type_node, "u16" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U16,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U16, out_type_id);
     }
     if native_build_type_named_equals(type_node, "i32" as &byte) != 0 {
         return native_build_hosted_mir_ensure_i32_type(module, out_type_id);
     }
     if native_build_type_named_equals(type_node, "u32" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U32,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U32, out_type_id);
     }
     if native_build_type_named_equals(type_node, "i64" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_I64,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_I64, out_type_id);
     }
     if native_build_type_named_equals(type_node, "u64" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_U64,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_U64, out_type_id);
     }
     if native_build_type_named_equals(type_node, "isize" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_ISIZE,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_ISIZE, out_type_id);
     }
     if native_build_type_named_equals(type_node, "usize" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_USIZE,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_USIZE, out_type_id);
     }
     if native_build_type_named_equals(type_node, "f32" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_F32,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_F32, out_type_id);
     }
     if native_build_type_named_equals(type_node, "f64" as &byte) != 0 {
-        return native_build_hosted_mir_ensure_scalar_type(module, MIR_TYPE_KIND_F64,
-            out_type_id);
+        return native_build_hosted_mir_ensure_scalar_type(module,
+            MIR_TYPE_KIND_F64, out_type_id);
     }
-    return -1;
+    if native_build_mir_c99_extern_signature_checker == null {
+        return -1;
+    }
+    const resolved_type: Type = type_from_ast(
+        native_build_mir_c99_extern_signature_checker, type_node);
+    return native_build_hosted_mir_append_extern_signature_resolved_type(
+        module, &resolved_type, out_type_id);
 }
 fn native_build_hosted_mir_append_extern_signature_type(
     module: &PortableMirModule, decl: &ASTNode, out_signature_type_id: &i32) i32 {
@@ -44699,13 +45170,18 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     }
     var module: PortableMirModule = native_build_empty_portable_mir_module();
     portable_mir_module_init(&module, arena);
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     if native_build_hosted_mir_append_program_externs(&module, program,
         &result.mir_extern_function_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     if native_build_hosted_mir_append_program_safe_bodies(&module, checker, program,
         &result.mir_body_function_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44724,6 +45200,7 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     portable_mir_verifier_result_init(&verifier);
     if portable_mir_verify_module(&module, &verifier) != 0 {
         result.verifier_error = verifier.error_code;
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44731,6 +45208,7 @@ fn native_build_hosted_portable_mir_preflight(arena: &CompilerArena, checker: &T
     if portable_mir_backend_request_init(&request, &module, &verifier,
         MIR_TARGET_BACKEND_MACHINE) != 0 {
         result.verifier_error = verifier.error_code;
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44852,13 +45330,18 @@ fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeCh
     }
     var module: PortableMirModule = native_build_empty_portable_mir_module();
     portable_mir_module_init(&module, arena);
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     if native_build_hosted_mir_append_program_externs(&module, program,
         &result.mir_extern_function_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     if native_build_hosted_mir_append_program_safe_bodies(&module, checker, program,
         &result.mir_body_function_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44877,12 +45360,14 @@ fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeCh
     portable_mir_verifier_result_init(&verifier);
     if portable_mir_verify_module(&module, &verifier) != 0 {
         result.verifier_error = verifier.error_code;
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     var request: MirTargetBackendRequest = native_build_empty_mir_backend_request();
     if portable_mir_backend_request_init(&request, &module, &verifier, MIR_TARGET_BACKEND_C99) != 0 {
         result.verifier_error = verifier.error_code;
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44891,6 +45376,7 @@ fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeCh
     result.emitter_handoff_backend_kind = request.backend_kind;
     if portable_mir_backend_request_is_verified(&request) == 0 {
         result.verifier_error = verifier.error_code;
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44921,6 +45407,7 @@ fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeCh
         mir_c99_name_plan_release(&name_plan);
         mir_c99_type_plan_release(&type_plan);
         mir_c99_plan_release(&plan);
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44944,6 +45431,7 @@ fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeCh
         mir_c99_name_plan_release(&name_plan);
         mir_c99_type_plan_release(&type_plan);
         mir_c99_plan_release(&plan);
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -44967,6 +45455,7 @@ fn native_build_hosted_mir_c99_preflight(arena: &CompilerArena, checker: &TypeCh
     mir_c99_name_plan_release(&name_plan);
     mir_c99_type_plan_release(&type_plan);
     mir_c99_plan_release(&plan);
+    native_build_mir_c99_extern_signature_checker = saved_extern_checker;
     portable_mir_module_release(&module);
     return 0;
 }
@@ -45394,19 +45883,25 @@ fn native_build_hosted_verified_mir_local_array_index_return_value(arena: &Compi
     }
     var module: PortableMirModule = native_build_empty_portable_mir_module();
     portable_mir_module_init(&module, arena);
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     var extern_count: i32 = 0;
     if native_build_hosted_mir_append_program_externs(&module, program,
         &extern_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     var body_count: i32 = 0;
     if native_build_hosted_mir_append_program_safe_bodies(&module, checker,
         program, &body_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     if body_count <= 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 0;
     }
@@ -45423,6 +45918,7 @@ fn native_build_hosted_verified_mir_local_array_index_return_value(arena: &Compi
     };
     portable_mir_verifier_result_init(&verifier);
     if portable_mir_verify_module(&module, &verifier) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -45430,6 +45926,7 @@ fn native_build_hosted_verified_mir_local_array_index_return_value(arena: &Compi
     if portable_mir_backend_request_init(&request, &module, &verifier,
         MIR_TARGET_BACKEND_MACHINE) != 0 ||
        portable_mir_backend_request_is_verified(&request) == 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -45437,6 +45934,7 @@ fn native_build_hosted_verified_mir_local_array_index_return_value(arena: &Compi
         main_decl_index);
     const ok: i32 = native_build_hosted_mir_local_array_index_return_value(&module,
         function, out_value);
+    native_build_mir_c99_extern_signature_checker = saved_extern_checker;
     portable_mir_module_release(&module);
     return ok;
 }
@@ -45455,19 +45953,25 @@ fn native_build_hosted_verified_mir_main_exit_code(arena: &CompilerArena,
     }
     var module: PortableMirModule = native_build_empty_portable_mir_module();
     portable_mir_module_init(&module, arena);
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     var extern_count: i32 = 0;
     if native_build_hosted_mir_append_program_externs(&module, program,
         &extern_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     var body_count: i32 = 0;
     if native_build_hosted_mir_append_program_safe_bodies(&module, checker,
         program, &body_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     if body_count <= 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 0;
     }
@@ -45484,6 +45988,7 @@ fn native_build_hosted_verified_mir_main_exit_code(arena: &CompilerArena,
     };
     portable_mir_verifier_result_init(&verifier);
     if portable_mir_verify_module(&module, &verifier) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -45491,11 +45996,13 @@ fn native_build_hosted_verified_mir_main_exit_code(arena: &CompilerArena,
     if portable_mir_backend_request_init(&request, &module, &verifier,
         MIR_TARGET_BACKEND_MACHINE) != 0 ||
        portable_mir_backend_request_is_verified(&request) == 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     var plan: NativeHostedLinkPlan = native_hosted_link_plan_empty();
     if native_hosted_link_plan_init(&plan, &request) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -45503,6 +46010,7 @@ fn native_build_hosted_verified_mir_main_exit_code(arena: &CompilerArena,
         main_decl_index);
     const ok: i32 = native_build_hosted_mir_eval_function_exit_code(&module,
         main_function, 0, out_code);
+    native_build_mir_c99_extern_signature_checker = saved_extern_checker;
     portable_mir_module_release(&module);
     return ok;
 }
@@ -45527,19 +46035,25 @@ fn native_build_hosted_verified_mir_dynamic_catch_shape(arena: &CompilerArena,
     }
     var module: PortableMirModule = native_build_empty_portable_mir_module();
     portable_mir_module_init(&module, arena);
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     var extern_count: i32 = 0;
     if native_build_hosted_mir_append_program_externs(&module, program,
         &extern_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     var body_count: i32 = 0;
     if native_build_hosted_mir_append_program_safe_bodies(&module, checker,
         program, &body_count) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
     if body_count <= 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 0;
     }
@@ -45556,6 +46070,7 @@ fn native_build_hosted_verified_mir_dynamic_catch_shape(arena: &CompilerArena,
     };
     portable_mir_verifier_result_init(&verifier);
     if portable_mir_verify_module(&module, &verifier) != 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -45563,6 +46078,7 @@ fn native_build_hosted_verified_mir_dynamic_catch_shape(arena: &CompilerArena,
     if portable_mir_backend_request_init(&request, &module, &verifier,
         MIR_TARGET_BACKEND_MACHINE) != 0 ||
        portable_mir_backend_request_is_verified(&request) == 0 {
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return -1;
     }
@@ -45573,6 +46089,7 @@ fn native_build_hosted_verified_mir_dynamic_catch_shape(arena: &CompilerArena,
     if ok != 0 {
         *out_shape = shape;
     }
+    native_build_mir_c99_extern_signature_checker = saved_extern_checker;
     portable_mir_module_release(&module);
     return ok;
 }
@@ -55486,6 +56003,9 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
 
 fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode,
     checker: &TypeChecker) i32 {
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     var kind: &byte = null;
     var reason: &byte = null;
     var file: &byte = null;
@@ -55499,12 +56019,14 @@ fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode,
         if native_build_find_mir_c99_structured_i32_capability_diagnostic(
             program, checker, &kind, &reason, &file, &line) == 0 ||
            kind == null || reason == null {
+            native_build_mir_c99_extern_signature_checker = saved_extern_checker;
             return 0;
         }
     }
     fprintf(libc.stderr,
         "mir_c99_capability_diagnostic: kind=%s reason=%s file=%s line=%d\n" as *byte,
         kind, reason, file, line);
+    native_build_mir_c99_extern_signature_checker = saved_extern_checker;
     return 1;
 }
 
@@ -55528,6 +56050,9 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
     if arena == null || checker == null || program == null || output_path == null {
         return 1;
     }
+    const saved_extern_checker: &TypeChecker =
+        native_build_mir_c99_extern_signature_checker;
+    native_build_mir_c99_extern_signature_checker = checker;
     var module: PortableMirModule = native_build_empty_portable_mir_module();
     portable_mir_module_init(&module, arena);
     var mir_extern_function_count: i32 = 0;
@@ -55537,6 +56062,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
         if native_build_print_mir_c99_extern_capability_diagnostic(program) == 0 {
             fprintf(libc.stderr, "错误: MIR-C99 extern lowering 失败\n" as *byte);
         }
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         return 1;
     }
     var mir_body_function_count: i32 = 0;
@@ -55549,6 +56075,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
             fprintf(libc.stderr,
                 "错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序\n" as *byte);
         }
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         return 1;
     }
     var verifier: MirVerifierResult = MirVerifierResult{
@@ -55593,6 +56120,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
                     bad_operand.flags);
             }
         }
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 1;
     }
@@ -55601,6 +56129,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
         MIR_TARGET_BACKEND_C99) != 0 ||
        portable_mir_backend_request_is_verified(&request) == 0 {
         fprintf(libc.stderr, "错误: MIR-C99 backend request 未验证\n" as *byte);
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 1;
     }
@@ -55627,6 +56156,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
             driver_result.diagnostic_code);
         mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
             &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 1;
     }
@@ -55635,6 +56165,7 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
         fprintf(libc.stderr, "错误: MIR-C99 extern symbol 绑定失败\n" as *byte);
         mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
             &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 1;
     }
@@ -55647,11 +56178,13 @@ fn mir_c99_emit_program_to_c(arena: &CompilerArena, checker: &TypeChecker,
         unlink(output_path as *byte);
         mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
             &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
+        native_build_mir_c99_extern_signature_checker = saved_extern_checker;
         portable_mir_module_release(&module);
         return 1;
     }
     mir_c99_release_codegen_state(&build_manifest, &call_plan, &place_plan,
         &value_plan, &cfg_plan, &name_plan, &type_plan, &plan);
+    native_build_mir_c99_extern_signature_checker = saved_extern_checker;
     portable_mir_module_release(&module);
     return 0;
 }

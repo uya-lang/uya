@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Focused real-CLI gate for the current first generic MIR-C99 extern-lowering bucket.
+# Focused real-CLI gate for the current post-extern-signature capability bucket.
 
 set -euo pipefail
 
@@ -51,9 +51,9 @@ if grep -Fq '错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序' "$lo
     exit 1
 fi
 
-grep -Eq 'mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_signature_requires_i32_scalars file=.*/lib/libc/errno\.uya line=145' "$log_file" || {
+grep -Eq 'mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_varargs_requires_c_variadic_capability file=.*/lib/libc/stdio\.uya line=882' "$log_file" || {
     cat "$log_file" >&2
-    echo "error: missing AST_FN_DECL extern signature capability diagnostic" >&2
+    echo "error: missing AST_FN_DECL varargs capability diagnostic" >&2
     exit 1
 }
 
@@ -63,4 +63,4 @@ if [[ -e "$output_file" && -s "$output_file" ]]; then
     exit 1
 fi
 
-echo "OK: MIR-C99 real CLI extern signature bucket now fails closed with explicit capability diagnostics"
+echo "OK: MIR-C99 real CLI now fails closed at the next explicit varargs capability bucket"
