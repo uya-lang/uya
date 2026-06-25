@@ -161,10 +161,12 @@ fn bench_accept_future(listen_fd: i32) BenchAcceptFuture {
     }
 }
 
-// Conservative raw storage for the client async frame.
-// This benchmark wants stack-owned caller storage; using a fixed buffer keeps
-// it independent of compile-time folding for @size_of(@frame(...)).
-const HANDLE_BENCH_CLIENT_FRAME_BYTES: usize = 512;
+// Caller-owned raw storage for the client async frame.
+// The direct `--c99` benchmark build may inline child await frames into this
+// layout, so the old 512-byte buffer can overflow. Keep a generous fixed cap
+// here until `@size_of(@frame(...))` is emitted after async frame definitions
+// in the single-file C backend as well.
+const HANDLE_BENCH_CLIENT_FRAME_BYTES: usize = 2048;
 const HANDLE_BENCH_CLIENT_FRAME_WORDS: usize =
     (HANDLE_BENCH_CLIENT_FRAME_BYTES + @size_of(usize) - 1) / @size_of(usize);
 

@@ -995,6 +995,35 @@ fn async_fd_set_nonblocking(fd: i32) !i32 {
     return fd;
 }
 
+const ASYNC_FD_IO_STEP_DONE: i32 = 0;
+const ASYNC_FD_IO_STEP_WAIT: i32 = 1;
+
+fn async_fd_read_try_step(fd: i32, buf: &byte, count: usize, out_n: &isize) !i32 {
+    const result: !isize = sys_read(fd, buf as *byte, count);
+    const n: isize = result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+            return ASYNC_FD_IO_STEP_WAIT;
+        }
+        return err;
+    };
+    *out_n = n;
+    return ASYNC_FD_IO_STEP_DONE;
+}
+
+fn async_fd_write_try_step(fd: i32, data: &const byte, count: usize, out_n: &isize) !i32 {
+    const result: !isize = sys_write(fd, data as *const byte, count);
+    const n: isize = result catch |err| {
+        const err_id: u32 = @error_id(err);
+        if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
+            return ASYNC_FD_IO_STEP_WAIT;
+        }
+        return err;
+    };
+    *out_n = n;
+    return ASYNC_FD_IO_STEP_DONE;
+}
+
 const ASYNC_WRITEV_STEP_WRITTEN: i32 = 0;
 const ASYNC_WRITEV_STEP_RETRY: i32 = 1;
 const ASYNC_WRITEV_STEP_WAIT_WRITABLE: i32 = 2;
@@ -1294,6 +1323,7 @@ fn async_connect_try_step(fd: i32, addr: &void, addr_len: u32) !i32 {
 
 use libc.syscall;
 
+const ASYNC_WAIT_INTEREST_NONE: i32 = 0;
 const ASYNC_WAIT_INTEREST_READABLE: i32 = 1;
 const ASYNC_WAIT_INTEREST_WRITABLE: i32 = 2;
 
@@ -1328,6 +1358,7 @@ struct AsyncWaitFdFuture : Future<!usize> {
     fd: i32,
     interest: i32,
     deadline_ms: u64 = 0,
+    boxed: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
         if waker.is_cancelled() {
@@ -1336,6 +1367,9 @@ struct AsyncWaitFdFuture : Future<!usize> {
         _ = async_check_deadline(self.deadline_ms) catch {
             return Poll<!usize>.Ready(error.AsyncDeadlineExceeded);
         };
+        if self.interest == ASYNC_WAIT_INTEREST_NONE {
+            return async_poll_ready_ok_usize(0);
+        }
         const events: i16 = async_wait_interest_to_poll_events(self.interest);
         if events == 0 {
             return Poll<!usize>.Ready(error.FutureNotReady);
@@ -1357,7 +1391,9 @@ struct AsyncWaitFdFuture : Future<!usize> {
     }
 
     fn release(self: &Self) void {
-        async_box_free_current(self as &byte);
+        if self.boxed != 0 {
+            async_box_free_current(self as &byte);
+        }
     }
 }
 
@@ -1369,6 +1405,7 @@ export fn async_wait_readable(fd: i32, deadline_ms: u64) Future<!usize> {
         fd: fd,
         interest: ASYNC_WAIT_INTEREST_READABLE,
         deadline_ms: deadline_ms,
+        boxed: 1,
     };
 }
 
@@ -1380,6 +1417,7 @@ export fn async_wait_writable(fd: i32, deadline_ms: u64) Future<!usize> {
         fd: fd,
         interest: ASYNC_WAIT_INTEREST_WRITABLE,
         deadline_ms: deadline_ms,
+        boxed: 1,
     };
 }
 
@@ -1415,31 +1453,35 @@ export fn async_fd_new(fd: i32) AsyncFd {
     return AsyncFd{ fd: fd };
 }
 
-/// 返回带绝对 deadline 的异步 fd 读 helper；高层路径通过 `@await async_wait_readable()` 复用统一 readiness/cancel/deadline 语义。
+/// 返回带绝对 deadline 的异步 fd 读 helper；先尝试 syscall，只有 would-block 时才等待 readiness。
 /// 参数说明：`fd` 为目标文件描述符；`buf`/`count` 为读取目标；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
 /// 返回值说明：成功返回本次实际读取字节数；would-block 时等待下一次可读事件；超时返回 `error.AsyncDeadlineExceeded`。
 export @async_fn fn async_fd_read_deadline_future(fd: i32, buf: &byte, count: usize, deadline_ms: u64) Future<!usize> {
     var nonblocking_ready: i32 = 0;
+    const preflight_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+        fd: 0 - 1,
+        interest: ASYNC_WAIT_INTEREST_NONE,
+        deadline_ms: deadline_ms,
+    };
+    const preflight_fut: Future<!usize> = preflight_leaf;
+    _ = try @await preflight_fut;
     while true {
-        const wait_readable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
-            fd: fd,
-            interest: ASYNC_WAIT_INTEREST_READABLE,
-            deadline_ms: deadline_ms,
-        };
-        const wait_readable_fut: Future<!usize> = wait_readable_leaf;
-        _ = try @await wait_readable_fut;
         if nonblocking_ready == 0 {
             _ = try async_fd_set_nonblocking(fd);
             nonblocking_ready = 1;
         }
-        const result: !isize = sys_read(fd, buf as *byte, count);
-        const n: isize = result catch |err| {
-            const err_id: u32 = @error_id(err);
-            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                continue;
-            }
-            return err;
-        };
+        var n: isize = 0;
+        const step: i32 = try async_fd_read_try_step(fd, buf, count, &n);
+        if step == ASYNC_FD_IO_STEP_WAIT {
+            const wait_readable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+                fd: fd,
+                interest: ASYNC_WAIT_INTEREST_READABLE,
+                deadline_ms: deadline_ms,
+            };
+            const wait_readable_fut: Future<!usize> = wait_readable_leaf;
+            _ = try @await wait_readable_fut;
+            continue;
+        }
         return n as usize;
     }
 }
@@ -1449,31 +1491,35 @@ export @async_fn fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Futu
     return try @await async_fd_read_deadline_future(fd, buf, count, 0 as u64);
 }
 
-/// 返回带绝对 deadline 的异步 fd 写 helper；高层路径通过 `@await async_wait_writable()` 复用统一 readiness/cancel/deadline 语义。
+/// 返回带绝对 deadline 的异步 fd 写 helper；先尝试 syscall，只有 would-block 时才等待 readiness。
 /// 参数说明：`fd` 为目标文件描述符；`data`/`count` 为待写 buffer；`deadline_ms` 为绝对毫秒 deadline，传 `0` 表示不设超时。
 /// 返回值说明：成功返回本次实际写入字节数；would-block 时等待下一次可写事件；超时返回 `error.AsyncDeadlineExceeded`。
 export @async_fn fn async_fd_write_deadline_future(fd: i32, data: &const byte, count: usize, deadline_ms: u64) Future<!usize> {
     var nonblocking_ready: i32 = 0;
+    const preflight_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+        fd: 0 - 1,
+        interest: ASYNC_WAIT_INTEREST_NONE,
+        deadline_ms: deadline_ms,
+    };
+    const preflight_fut: Future<!usize> = preflight_leaf;
+    _ = try @await preflight_fut;
     while true {
-        const wait_writable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
-            fd: fd,
-            interest: ASYNC_WAIT_INTEREST_WRITABLE,
-            deadline_ms: deadline_ms,
-        };
-        const wait_writable_fut: Future<!usize> = wait_writable_leaf;
-        _ = try @await wait_writable_fut;
         if nonblocking_ready == 0 {
             _ = try async_fd_set_nonblocking(fd);
             nonblocking_ready = 1;
         }
-        const result: !isize = sys_write(fd, data as *const byte, count);
-        const n: isize = result catch |err| {
-            const err_id: u32 = @error_id(err);
-            if err_id == libc_EAGAIN as u32 || err_id == libc_EWOULDBLOCK as u32 {
-                continue;
-            }
-            return err;
-        };
+        var n: isize = 0;
+        const step: i32 = try async_fd_write_try_step(fd, data, count, &n);
+        if step == ASYNC_FD_IO_STEP_WAIT {
+            const wait_writable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+                fd: fd,
+                interest: ASYNC_WAIT_INTEREST_WRITABLE,
+                deadline_ms: deadline_ms,
+            };
+            const wait_writable_fut: Future<!usize> = wait_writable_leaf;
+            _ = try @await wait_writable_fut;
+            continue;
+        }
         return n as usize;
     }
 }
