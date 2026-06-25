@@ -760,10 +760,10 @@ export UYA_ROOT="$REPO_ROOT/lib/"
 if [ "$USE_AUTO_DEPS" = true ]; then
     # 自动依赖：仅传主文件。entry.uya 由 compile_files 在检测到 export fn main 时注入；
     # 若此处再传 entry.uya，processed_files[0] 可能先为 entry 路径，use main 会误扫 lib/.../entry/ 而非 src/，导致合并为空、链接缺 main。
-    COMPILER_CMD=("$COMPILER" "$INPUT_PATH" -o "$COMPILER_OUTPUT_FOR_UYA")
+    COMPILER_CMD=("$COMPILER" build "$INPUT_PATH" -o "$COMPILER_OUTPUT_FOR_UYA")
 else
     # 使用手动文件列表模式：传递所有文件
-    COMPILER_CMD=("$COMPILER" "${FULL_PATHS[@]}" -o "$COMPILER_OUTPUT_FOR_UYA")
+    COMPILER_CMD=("$COMPILER" build "${FULL_PATHS[@]}" -o "$COMPILER_OUTPUT_FOR_UYA")
 fi
 if [ "$USE_C99" = true ]; then
     COMPILER_CMD+=(--c99)
@@ -1102,15 +1102,15 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             if [ "$USE_AUTO_DEPS" = true ]; then
                 ENTRY_FILE="$REPO_ROOT/lib/std/runtime/entry/entry.uya"
                 if [ -n "$BOOTSTRAP_SPLIT_DIR_ARG" ]; then
-                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" UYA_SPLIT_C_DIR="$BOOTSTRAP_SPLIT_DIR_ARG" "$EXECUTABLE_FILE" "$INPUT_PATH" "$ENTRY_FILE" -o "$BOOTSTRAP_EXE" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
+                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" UYA_SPLIT_C_DIR="$BOOTSTRAP_SPLIT_DIR_ARG" "$EXECUTABLE_FILE" build "$INPUT_PATH" "$ENTRY_FILE" -o "$BOOTSTRAP_EXE" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
                 else
-                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" "$INPUT_PATH" "$ENTRY_FILE" -o "$BOOTSTRAP_C" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
+                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" build "$INPUT_PATH" "$ENTRY_FILE" -o "$BOOTSTRAP_C" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
                 fi
             else
                 if [ -n "$BOOTSTRAP_SPLIT_DIR_ARG" ]; then
-                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" UYA_SPLIT_C_DIR="$BOOTSTRAP_SPLIT_DIR_ARG" "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_EXE" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
+                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" UYA_SPLIT_C_DIR="$BOOTSTRAP_SPLIT_DIR_ARG" "$EXECUTABLE_FILE" build "${FULL_PATHS[@]}" -o "$BOOTSTRAP_EXE" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
                 else
-                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
+                    (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" build "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" "${BOOTSTRAP_UYA_FLAGS[@]}") >"$BOOTSTRAP_LOG" 2>&1
                 fi
             fi
             BOOTSTRAP_EXIT=$?

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 TMP_DIR="$(mktemp -d /tmp/uya_upm_module_manifest.XXXXXX)"
 TMP_HOME="$TMP_DIR/home"
 WORK_DIR="$TMP_DIR/app"
@@ -53,7 +53,7 @@ export fn foo_value() i32 {
 }
 EOF_DEP_SRC
 
-HOME="$TMP_HOME" "$COMPILER" build "$WORK_DIR" -o "$OUT_BIN" --no-split-c >"$LOG_FILE" 2>&1
+HOME="$TMP_HOME" "$UPM_BIN" build "$WORK_DIR" -o "$OUT_BIN" --no-split-c >"$LOG_FILE" 2>&1
 "$OUT_BIN" >"$RUN_LOG" 2>&1
 grep -q '7' "$RUN_LOG"
 grep -q '^version = 2$' "$WORK_DIR/uya.lock"

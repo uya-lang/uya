@@ -1047,7 +1047,11 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
                 fprintf(libc.stderr, "错误: split-C mirror 无法打开输出文件: %s\n" as *byte, &fullp[0] as *byte);
                 return -1;
             }
-            fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n\n" as *byte, fh as *void);
+            fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n" as *byte, fh as *void);
+            if codegen.freestanding == 0 && codegen.needs_string_h != 0 {
+                fputs("#include <string.h>\n" as *byte, fh as *void);
+            }
+            fputs("\n" as *byte, fh as *void);
             var is_libc_stdio_unit: i32 = 0;
             var tmp_stdio: [byte: 512] = [];
             if c99_mirror_normalize_one_path(src, &tmp_stdio[0] as &byte, 512) == 0 {
@@ -1105,7 +1109,11 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
         fprintf(libc.stderr, "错误: split-C mirror 无法打开 common 输出文件: %s\n" as *byte, &comp[0] as *byte);
         return -1;
     }
-    fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n\n" as *byte, ch as *void);
+    fputs("#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n" as *byte, ch as *void);
+    if codegen.freestanding == 0 && codegen.needs_string_h != 0 {
+        fputs("#include <string.h>\n" as *byte, ch as *void);
+    }
+    fputs("\n" as *byte, ch as *void);
     if codegen.freestanding == 0 {
         if codegen.has_stdio_conflicts == 0 {
             fputs("#include <stdio.h>\n" as *byte, ch as *void);

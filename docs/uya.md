@@ -6932,7 +6932,7 @@ mc hash_string(s) expr {
 ### 29.1 包管理（v1 draft / MVP in progress）
 - **canonical public UX**：`uya upm <subcommand>`
 - **仓库内真实入口**：`cmd/upm` / `bin/cmd/upm`
-- **repo-local 验证入口**：`bin/uya-upm-stage2`（在主编译器入口完全并入前，用于验证 `build` / `upm` 工作流）
+- **repo-local 验证入口**：`bin/cmd/upm`（用于验证 `upm` / package build 工作流）
 - **v1 目标**：
   - `uya.toml`
   - `uya.lock`

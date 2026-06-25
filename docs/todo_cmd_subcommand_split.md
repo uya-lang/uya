@@ -14,7 +14,7 @@
 - `src/cmd/*/main.uya` 尚未创建。
 - `Makefile` 尚未提供 `make cmds` 与 `cmd-*` 目标。
 - `src/main.uya` 尚未实现 `dispatch_external_cmd`。
-- `tests/test_cmd_dispatch.sh` 尚未创建。
+- `tests/test_cmd_upm_direct.sh` 尚未创建。
 
 ---
 
@@ -110,7 +110,7 @@ make check-hosted
 
 ### C1：先补调度测试
 
-- [ ] 新增 `tests/test_cmd_dispatch.sh`，脚本开头使用 `set -euo pipefail`。
+- [ ] 新增 `tests/test_cmd_upm_direct.sh`，脚本开头使用 `set -euo pipefail`。
 - [ ] 测试开始时确认 `bin/uya` 存在；若 `bin/cmd/*` 不存在，提示先运行 `make cmds`。
 - [ ] 覆盖 `uya build` 与直调 `cmd/build`：
 
@@ -188,7 +188,7 @@ bin/cmd/upm
 
 ```bash
 make cmds
-./tests/test_cmd_dispatch.sh
+./tests/test_cmd_upm_direct.sh
 make check
 ```
 
@@ -240,7 +240,7 @@ make backup-all
 ## 文档同步
 
 - [ ] 更新 `docs/UYA_BUILD_RUN.md`：说明 `uya build/check/run/test` 由 `cmd/build`、`cmd/check`、`cmd/run`、`cmd/test` 执行。
-- [ ] 更新 `docs/TESTING.md`：加入 `make cmds` 和 `tests/test_cmd_dispatch.sh`。
+- [ ] 更新 `docs/TESTING.md`：加入 `make cmds` 和 `tests/test_cmd_upm_direct.sh`。
 - [ ] 如 `upm` 帮助文字采用 `upm` 而不是 `uyapm`，在相关文档中说明二者关系或保留为后续 TODO。
 - [ ] 如果没有改变语言语法、BNF 或内建函数，不需要升级 `docs/uya.md` 规范版本。
 

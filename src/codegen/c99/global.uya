@@ -308,6 +308,9 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     if var_decl == null || var_decl.type != ASTNodeType.AST_VAR_DECL {
         return;
     }
+    if c99_should_skip_hosted_libc_global_var(codegen, var_decl) != 0 {
+        return;
+    }
     
     const orig_name: &byte = var_decl.var_decl_name;
     const filename: &byte = var_decl.filename;
@@ -657,6 +660,21 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
             li = li + 1;
         }
     }
+    if codegen != null && codegen.is_nostdlib == 0 && name != null {
+        if strcmp(name as *byte, "errno" as *byte) == 0 {
+            return get_safe_c_identifier(codegen, name);
+        }
+        if strcmp(name as *byte, "libc_errno" as *byte) == 0 {
+            return get_safe_c_identifier(codegen, "errno" as &byte);
+        }
+    }
+    if codegen != null && codegen.is_nostdlib == 0 && c99_name_is_hosted_stdio_stream(name) != 0 {
+        if codegen.current_function_decl == null ||
+            codegen.current_function_decl.filename == null ||
+            c99_filename_is_libc_file(codegen.current_function_decl.filename, "stdio.uya" as &byte) == 0 {
+            return get_safe_c_identifier(codegen, name);
+        }
+    }
     c99_ident_ref_cache_ensure(codegen);
     const slot: i32 = c99_ident_ref_cache_slot(codegen, name);
     if slot < 0 {
@@ -750,6 +768,9 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
 // export extern const name: type;    -> (不生成，链接到 C 库)
 fn gen_extern_var_decl(codegen: &C99CodeGenerator, node: &ASTNode) void {
     if node == null || node.type != ASTNodeType.AST_EXTERN_VAR_DECL {
+        return;
+    }
+    if c99_should_skip_hosted_libc_extern_global_var(codegen, node) != 0 {
         return;
     }
 
@@ -902,6 +923,10 @@ export fn c99_mirror_emit_extern_const_fwd(codegen: &C99CodeGenerator, program: 
     while di < program.program_decl_count {
         const decl: &ASTNode = program.program_decls[di];
         if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_name != null {
+            if c99_should_skip_hosted_libc_global_var(codegen, decl) != 0 {
+                di = di + 1;
+                continue;
+            }
             const cname: &byte = get_c_name_for_global_constant(codegen, decl.var_decl_name, decl.filename, decl.var_decl_is_export);
             if decl.var_decl_type != null {
                 const tc: &byte = c99_type_to_c(codegen, decl.var_decl_type);
@@ -922,6 +947,10 @@ export fn c99_mirror_emit_extern_const_fwd(codegen: &C99CodeGenerator, program: 
             }
         } else if decl != null && decl.type == ASTNodeType.AST_EXTERN_VAR_DECL && decl.extern_var_decl_name != null &&
             decl.extern_var_decl_var_type != null {
+            if c99_should_skip_hosted_libc_extern_global_var(codegen, decl) != 0 {
+                di = di + 1;
+                continue;
+            }
             const is_extern: i32 = decl.extern_var_decl_is_extern;
             const init_expr: &ASTNode = decl.extern_var_decl_init_expr;
             const is_export: i32 = decl.extern_var_decl_is_export;

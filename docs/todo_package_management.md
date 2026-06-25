@@ -20,7 +20,7 @@
   - `src/cmd/upm/main.uya`
   - `make cmds` / `bin/cmd/upm`
   - `dispatch_external_cmd(... upm ...)`
-  - `tests/test_cmd_dispatch.sh` 中的 `upm` 分支验证
+  - `tests/test_cmd_upm_direct.sh` 中的 `upm` 入口验证
 - 当前仓库里没有通用 TOML 解析器；如果坚持 `uya.toml`，要么先实现 manifest 子集解析器，要么把通用 TOML 库拆成独立前置任务。
 
 这意味着本计划的第一优先级不是“直接写字段”，而是先冻结以下关系：

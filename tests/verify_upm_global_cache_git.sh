@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 TMP_HOME="$(mktemp -d /tmp/uya_upm_cache_home.XXXXXX)"
 TMP_DIR="$(mktemp -d /tmp/uya_upm_global_cache.XXXXXX)"
 APP_TEMPLATE="$ROOT_DIR/tests/fixtures/upm/git_dep/app"
@@ -49,7 +49,7 @@ dst.write_text(src.read_text(encoding="utf-8").replace("__GIT_URL__", repo), enc
 src.unlink()
 PY
 
-HOME="$TMP_HOME" "$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >/dev/null 2>&1
+HOME="$TMP_HOME" "$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >/dev/null 2>&1
 "$OUT_BIN" >"$RUN_LOG" 2>&1
 grep -q "git-v1" "$RUN_LOG"
 grep -q '^version = 2$' "$LOCK_FILE"

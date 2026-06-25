@@ -3989,762 +3989,762 @@ static const char str3336[] = " }; ";
 static const char str3337[] = "; _uya_asbang; })";
 static const char str3338[] = "uint8_t **";
 static const char str3339[] = "**";
-static const char str3340[] = "(const uint8_t **)NULL";
-static const char str3341[] = "%s)";
-static const char str3342[] = "struct uya_slice_int32_t";
-static const char str3343[] = ").ptr + ";
-static const char str3344[] = "->ptr + ";
-static const char str3345[] = "uya_slice_uint8_t";
-static const char str3346[] = "(uint8_t *)(";
-static const char str3347[] = ") + ";
-static const char str3348[] = ", .len = ";
-static const char str3349[] = "({";
-static const char str3350[] = "char __uya_interp_%d[%d];\n";
-static const char str3351[] = "int __uya_interp_res = uya_write(1, (char *)__uya_interp_%d, uya_strlen((char *)__uya_interp_%d));\n";
-static const char str3352[] = "uya_write(1, \"\\n\", 1);\n";
-static const char str3353[] = "__uya_interp_res; })";
-static const char str3354[] = "printf(\"%%s\\n\", __uya_interp_%d); })";
-static const char str3355[] = "printf(\"%%s\", __uya_interp_%d); })";
-static const char str3356[] = "%lld";
-static const char str3357[] = "%llu";
-static const char str3358[] = "uya_write(1, ";
-static const char str3359[] = ", uya_strlen(";
-static const char str3360[] = "; uya_write(1, \"\\n\", 1)";
-static const char str3361[] = "printf(\"%s\\n\", ";
-static const char str3362[] = "printf(\"%s\", ";
-static const char str3363[] = "(%s){ ._tag = 1, .u = (%s){ .Ready = _uya_try_tmp } }";
-static const char str3364[] = "(%s){ ._tag = 1, .u = (%s){ .Ready = (%s){ .error_id = _uya_try_tmp.error_id } } }";
-static const char str3365[] = "_uya_try_tmp";
-static const char str3366[] = "(%s){ .error_id = _uya_try_tmp.error_id }";
-static const char str3367[] = "; if (_uya_try_tmp.error_id != 0) {\n";
-static const char str3368[] = "err_";
-static const char str3369[] = "%s->_uya_frame_error = _uya_try_tmp.error_id;\n";
-static const char str3370[] = "return (%s){ ._tag = 1, .u = (%s){ .Ready = {0} } };\n";
-static const char str3371[] = ";\n";
-static const char str3372[] = "({ %s _uya_try_tmp = ";
-static const char str3373[] = "_uya_try_tmp.value[%d]";
-static const char str3374[] = " }; })";
-static const char str3375[] = "_uya_try_tmp.value; })";
-static const char str3376[] = "; _uya_try_tmp.value; })";
-static const char str3377[] = "(%s){ .ptr = (";
-static const char str3378[] = "%s[%d]){";
-static const char str3379[] = "void *)0";
-static const char str3380[] = ", .len = %d }";
-static const char str3381[] = "_Atomic";
-static const char str3382[] = "strncmp";
-static const char str3383[] = "strlen";
-static const char str3384[] = "strcpy";
-static const char str3385[] = "strncpy";
-static const char str3386[] = "strcat";
-static const char str3387[] = "strncat";
-static const char str3388[] = "strchr";
-static const char str3389[] = "strrchr";
-static const char str3390[] = "strstr";
-static const char str3391[] = "strdup";
-static const char str3392[] = "strndup";
-static const char str3393[] = "__asm__ volatile (\"";
-static const char str3394[] = "\\\"";
-static const char str3395[] = "\\n";
-static const char str3396[] = "\\t";
-static const char str3397[] = "\\\\";
-static const char str3398[] = "\\n\\t";
-static const char str3399[] = "\"\n";
-static const char str3400[] = "    : ";
-static const char str3401[] = "\"=r\"(";
-static const char str3402[] = "\"r\"(";
-static const char str3403[] = "\"memory\"";
-static const char str3404[] = "    );\n";
-static const char str3405[] = "fork";
-static const char str3406[] = "waitpid";
-static const char str3407[] = "/lib/libc/pthread.uya";
-static const char str3408[] = "lib/libc/pthread.uya";
-static const char str3409[] = "atol";
-static const char str3410[] = "strtod";
-static const char str3411[] = "strtol";
-static const char str3412[] = "labs";
-static const char str3413[] = "div";
-static const char str3414[] = "ldiv";
-static const char str3415[] = "lldiv";
-static const char str3416[] = "strtoll";
-static const char str3417[] = "strtoull";
-static const char str3418[] = "strtoul";
-static const char str3419[] = "qsort";
-static const char str3420[] = "bsearch";
-static const char str3421[] = "char";
-static const char str3422[] = "const %s *";
-static const char str3423[] = "%s *";
-static const char str3424[] = "libc/syscall";
-static const char str3425[] = "syscall/linux";
-static const char str3426[] = "libc_";
-static const char str3427[] = "std_";
-static const char str3428[] = "tls_";
-static const char str3429[] = "\\src\\";
-static const char str3430[] = "src\\";
-static const char str3431[] = " ";
-static const char str3432[] = "uya_priv_%u_%s";
-static const char str3433[] = "uya_main";
-static const char str3434[] = "CLOCKS_PER_SEC";
-static const char str3435[] = "copy_type";
-static const char str3436[] = "struct Type *";
-static const char str3437[] = "const struct Type *";
-static const char str3438[] = "(*)";
-static const char str3439[] = "%s (*%s)%s";
-static const char str3440[] = "%s %s%s";
-static const char str3441[] = "const struct Type * %s";
-static const char str3442[] = "extern %s main(";
-static const char str3443[] = "char **%s";
-static const char str3444[] = "%s uya_main(void);\n";
-static const char str3445[] = "uya_thread_call_i32";
-static const char str3446[] = "uya_thread_call_u32";
-static const char str3447[] = "uya_thread_call_usize";
-static const char str3448[] = "_pthread_call_start";
-static const char str3449[] = "static __attribute__((used,noinline)) %s %s(";
-static const char str3450[] = "static __attribute__((used)) %s %s(";
-static const char str3451[] = "%s %s(";
-static const char str3452[] = "extern %s %s(";
-static const char str3453[] = "%s *%s";
-static const char str3454[] = "%s %s_param%s";
-static const char str3455[] = "%s %s_param";
-static const char str3456[] = "%s %s(void)";
-static const char str3457[] = "__attribute__((naked)) ";
-static const char str3458[] = "static __attribute__((used,noinline)) ";
-static const char str3459[] = "static __attribute__((used)) ";
-static const char str3460[] = "__attribute__((used)) ";
-static const char str3461[] = "uint8_t **%s";
-static const char str3462[] = "    uya_run_tests();\n";
-static const char str3463[] = ") {\n";
-static const char str3464[] = "// 数组参数按值传递：创建局部副本\n";
-static const char str3465[] = "    %s %s%s;\n";
-static const char str3466[] = "%s %s;\n";
-static const char str3467[] = "    __uya_memcpy(%s, %s_param, sizeof(%s));\n";
-static const char str3468[] = "(void)%s_param;\n";
-static const char str3469[] = "(void)%s;\n";
-static const char str3470[] = "return (%s){ .error_id = 0 };\n";
-static const char str3471[] = "return (%s){0};\n";
-static const char str3472[] = "return 0;\n";
-static const char str3473[] = "@async_fn C99 await 元数据扩容失败，内部状态无效";
-static const char str3474[] = "@async_fn C99 await 元数据扩容失败，容量计算溢出";
-static const char str3475[] = "async-await-codegen";
-static const char str3476[] = "@async_fn C99 await 元数据扩容失败，编译器资源不足；请减少 @await 数量或提高可用内存";
-static const char str3477[] = "@async_fn C99 await 元数据扩容失败，无法分配 await 元数据表";
-static const char str3478[] = "        s->_uya_inline_await_%d._uya_frame_active = 1; s->_uya_inline_await_%d.state = 0; __builtin_memset((void *)&s->_uya_inline_await_%d.await_fut, 0, sizeof(s->_uya_inline_await_%d.await_fut)); ";
-static const char str3479[] = "s->_uya_inline_await_%d.%s = ";
-static const char str3480[] = "        ({ %s _uya_await_tmp = ";
-static const char str3481[] = "; if (_uya_await_tmp.error_id != 0) abort(); s->_uya_await_storage = *(struct %s *)_uya_await_tmp.value.data; s->await_fut.vtable = (void*)_uya_await_tmp.value.vtable; s->await_fut.data = (void*)&s->_uya_await_storage; });\n";
-static const char str3482[] = "; if (_uya_await_tmp.error_id != 0) abort(); s->await_fut.vtable = (void*)_uya_await_tmp.value.vtable; s->await_fut.data = _uya_await_tmp.value.data; });\n";
-static const char str3483[] = "        abort(); /* await_fut: missing C type for Future operand */\n";
-static const char str3484[] = "        { ";
-static const char str3485[] = "%s _uya_await_slot_tmp = ";
-static const char str3486[] = "; s->await_fut.vtable = (void*)_uya_await_slot_tmp.vtable; s->await_fut.data = _uya_await_slot_tmp.data; }\n";
-static const char str3487[] = "        __builtin_memset((void *)&%s->_uya_loc_%s, 0, sizeof(%s->_uya_loc_%s));\n";
-static const char str3488[] = "        __uya_memcpy((void *)%s->_uya_loc_%s, (const void *)(const ";
-static const char str3489[] = "[]){";
-static const char str3490[] = "}, ((size_t)(%d)) * sizeof(%s->_uya_loc_%s[0]));\n";
-static const char str3491[] = "}, sizeof(%s->_uya_loc_%s));\n";
-static const char str3492[] = "        %s->_uya_loc_%s = (struct uya_interface_%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&(";
-static const char str3493[] = ") };\n";
-static const char str3494[] = "        %s->_uya_loc_%s = ";
-static const char str3495[] = "__uya_fe_%d_%d";
-static const char str3496[] = "__uya_fi_%d_%d";
-static const char str3497[] = "__uya_ar_%d_%d_len";
-static const char str3498[] = "__uya_ar_%d_%d_i";
-static const char str3499[] = "_uya_s";
-static const char str3500[] = "_uya_e";
-static const char str3501[] = "_uya_i";
-static const char str3502[] = "        s->state = %d;\n";
-static const char str3503[] = "        return (%s){ ._tag = 0 };\n";
-static const char str3504[] = "        goto _uya_async_if_exit_%zu;\n";
-static const char str3505[] = "        goto _uya_async_while_head_%zu;\n";
-static const char str3506[] = "_uya_async_while_head_%zu:\n";
-static const char str3507[] = "        if (";
-static const char str3508[] = "        }\n";
-static const char str3509[] = "_uya_async_while_exit_%zu:\n";
-static const char str3510[] = "        ";
-static const char str3511[] = "%s->_uya_loc_%s = &";
-static const char str3512[] = "];\n";
-static const char str3513[] = "__uya_memcpy((void *)&%s->_uya_loc_%s, ";
-static const char str3514[] = "], sizeof(";
-static const char str3515[] = "%s->_uya_loc_%s));\n";
-static const char str3516[] = "%s->_uya_loc_%s = ";
-static const char str3517[] = "        %s->_uya_loc_%s++;\n";
-static const char str3518[] = "%s->_uya_loc_%s < %s->_uya_loc_%s";
-static const char str3519[] = "        } else {\n";
-static const char str3520[] = "        {\n";
-static const char str3521[] = "        %s _uya_iter_next_result = %s(&%s->_uya_loc_%s);\n";
-static const char str3522[] = "        if (_uya_iter_next_result.error_id == 0) {\n";
-static const char str3523[] = "        %s->_uya_loc_%s = %s(&%s->_uya_loc_%s);\n";
-static const char str3524[] = "%s->_uya_loc_%s";
-static const char str3525[] = "        %s->_uya_loc_%s = %s->_uya_loc_%s;\n";
-static const char str3526[] = "%s->_uya_loc_%s = sizeof(";
-static const char str3527[] = ") / sizeof(";
-static const char str3528[] = "[0]);\n";
-static const char str3529[] = "        %s->_uya_loc_%s = 0;\n";
-static const char str3530[] = "_uya_async_if_exit_%zu:\n";
-static const char str3531[] = "        %s->_uya_loc_%s = %s;\n";
-static const char str3532[] = "        %s = %s;\n";
-static const char str3533[] = "        %s %s;\n";
-static const char str3534[] = "        %s _uya_async_catch_tmp_%zu = ";
-static const char str3535[] = "        if (_uya_async_catch_tmp_%zu.error_id != 0) {\n";
-static const char str3536[] = "        const uint32_t %s = _uya_async_catch_tmp_%zu.error_id;\n";
-static const char str3537[] = "_uya_async_catch_tmp_%zu.value";
-static const char str3538[] = "        %s ok = (%s){ .error_id = 0, .value = ";
-static const char str3539[] = "({ struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s)); if (_uya_box != (void*)0) { *_uya_box = ";
-static const char str3540[] = "; } (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)_uya_box }; })";
-static const char str3541[] = "({ struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s)); if (_uya_box != (void*)0) { *_uya_box = (struct %s){ .state = (%s){ ._tag = 1, .u = (%s){ .Ready = ";
-static const char str3542[] = " } } }; } (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)_uya_box }; })";
-static const char str3543[] = "(%s){ .vtable = (void*)0, .data = (void*)0 }";
-static const char str3544[] = " };\n";
-static const char str3545[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = ok.value } };\n";
-static const char str3546[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = (*(struct %s *)ok.value.data).state.u.Ready } };\n";
-static const char str3547[] = "        %s ok = (%s){ .error_id = 0 };\n";
-static const char str3548[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = ok } };\n";
-static const char str3549[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = ";
-static const char str3550[] = " } };\n";
-static const char str3551[] = "struct uya_tagged_%s";
-static const char str3552[] = "union %s";
-static const char str3553[] = "struct uya_tagged_Poll_i32";
-static const char str3554[] = "union Poll_i32";
-static const char str3555[] = "@async_fn lowering await 点表缺失，无法继续生成状态机";
-static const char str3556[] = "@async_fn C99 await 元数据扩容失败，无法分配局部 await 表";
-static const char str3557[] = "__uya_expr_tmp_%d";
-static const char str3558[] = "async-param-codegen";
-static const char str3559[] = "@async_fn C99 参数元数据扩容失败，编译器资源不足；请减少参数数量或提高可用内存";
-static const char str3560[] = "@async_fn C99 参数元数据扩容失败，无法分配参数捕获表";
-static const char str3561[] = "struct uya_interface_%s";
-static const char str3562[] = "uya_async_%s";
-static const char str3563[] = "%s_poll";
-static const char str3564[] = "uya_vtable_%s_%s";
-static const char str3565[] = "uya_%s_release";
-static const char str3566[] = "_uya_alloc_%s";
-static const char str3567[] = "_uya_free_%s";
-static const char str3568[] = "uya_vtable_%s";
-static const char str3569[] = "struct uya_vtable_%s { %s (*poll)(void *self, struct Waker *); };\n";
-static const char str3570[] = " { int32_t state; int32_t _uya_frame_active; uint32_t _uya_frame_error; ";
-static const char str3571[] = "struct %s _uya_await_storage; ";
-static const char str3572[] = "struct { void *vtable; void *data; } await_fut;";
-static const char str3573[] = "%s await_fut;";
-static const char str3574[] = "struct %s _uya_inline_await_%d; ";
-static const char str3575[] = "_uya_bind_";
-static const char str3576[] = "_uya_loc_";
-static const char str3577[] = " } __attribute__((aligned(%d)));\n";
-static const char str3578[] = "%s_frame_stop";
-static const char str3579[] = "static %s %s(void *self, struct Waker *waker);\n";
-static const char str3580[] = "static void %s(struct %s *s);\n";
-static const char str3581[] = "s";
-static const char str3582[] = "async-param-names";
-static const char str3583[] = "@async_fn C99 参数名捕获表扩容失败，编译器资源不足；请减少参数数量或提高可用内存";
-static const char str3584[] = "@async_fn C99 参数名捕获表扩容失败，无法分配参数名表";
-static const char str3585[] = "static %s %s(void *self, struct Waker *waker) {\n";
-static const char str3586[] = "    struct %s *s = (struct %s *)self;\n";
-static const char str3587[] = "    if (s == (void*)0) { return (%s){ ._tag = 0 }; }\n";
-static const char str3588[] = "    if (s->_uya_frame_active == 0) { abort(); }\n";
-static const char str3589[] = "    if (s->state == 0) {\n";
-static const char str3590[] = "    }\n";
-static const char str3591[] = "    if (s->state == %d) {\n";
-static const char str3592[] = "        %s p = %s(&s->_uya_inline_await_%d, waker);\n";
-static const char str3593[] = "        %s p = ((struct uya_vtable_%s *)s->await_fut.vtable)->poll(s->await_fut.data, waker);\n";
-static const char str3594[] = "        if (p._tag == 0) { return (%s){ ._tag = 0 }; }\n";
-static const char str3595[] = "        %s r = p.u.Ready;\n";
-static const char str3596[] = "        if (r.error_id != 0) {\n";
-static const char str3597[] = "        if (s->await_fut.data != (void*)0 && s->await_fut.data != (void*)&s->_uya_await_storage) { if (s->await_fut.vtable != (void*)0) { void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1]; if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data); } }\n";
-static const char str3598[] = "        if (s->await_fut.data != (void*)0) { if (s->await_fut.vtable != (void*)0) { void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1]; if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data); } }\n";
-static const char str3599[] = "        s->await_fut.data = (void*)0; s->await_fut.vtable = (void*)0;\n";
-static const char str3600[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = (%s){ .error_id = r.error_id, .value = (%s){0} } } };\n";
-static const char str3601[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = r } };\n";
-static const char str3602[] = "        s->_uya_bind_%s = r;\n";
-static const char str3603[] = "        s->_uya_bind_%s = r.value;\n";
-static const char str3604[] = "        %s _uya_async_cont_ok = (%s){ .error_id = 0, .value = r.value };\n";
-static const char str3605[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_cont_ok } };\n";
-static const char str3606[] = "        %s _uya_async_cont_ret = (%s){ .error_id = 0, .value = ";
-static const char str3607[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_cont_ret } };\n";
-static const char str3608[] = "        s->_uya_bind_%s = p.u.Ready;\n";
-static const char str3609[] = "({ struct %s _uya_f = ";
-static const char str3610[] = "; (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&_uya_f }; }) };\n";
-static const char str3611[] = "        abort();\n";
-static const char str3612[] = "        s->state = 0;\n";
-static const char str3613[] = "    {\n";
-static const char str3614[] = "    abort();\n";
-static const char str3615[] = "    return (%s){ ._tag = 0 };\n";
-static const char str3616[] = "%s_frame_start";
-static const char str3617[] = "%s_frame_init";
-static const char str3618[] = "%s_frame_drop_fields";
-static const char str3619[] = "static void %s(struct %s *s) {\n";
-static const char str3620[] = "    if (s == (void*)0) return;\n";
-static const char str3621[] = "    if (s->_uya_frame_active == 0) return;\n";
-static const char str3622[] = "    if (s->await_fut.data != (void*)0 && s->await_fut.vtable != (void*)0) {\n";
-static const char str3623[] = "        void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1];\n";
-static const char str3624[] = "        if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data);\n";
-static const char str3625[] = "        s->await_fut.data = (void*)0;\n        s->await_fut.vtable = (void*)0;\n    }\n";
-static const char str3626[] = "    %s(&s->_uya_inline_await_%d);\n";
-static const char str3627[] = "    s->state = 0;\n";
-static const char str3628[] = "    s->_uya_frame_active = 0;\n";
-static const char str3629[] = "static void %s(struct %s *s";
-static const char str3630[] = "    if (s->_uya_frame_active != 0) %s(s);\n";
-static const char str3631[] = "    s->state = 0; s->_uya_frame_active = 1; s->_uya_frame_error = 0; __builtin_memset((void *)&s->await_fut, 0, sizeof(s->await_fut)); ";
-static const char str3632[] = "s->%s = %s; ";
-static const char str3633[] = "\n}\n";
-static const char str3634[] = "    %s(s";
-static const char str3635[] = ");\n}\n";
-static const char str3636[] = "    %s(s);\n}\n";
-static const char str3637[] = "static _Atomic(void*) %s_pool_head = (void*)0;\n";
-static const char str3638[] = "static _Atomic(int32_t) %s_pool_count = 0;\n";
-static const char str3639[] = "static const int32_t %s_pool_cap = 4096;\n";
-static const char str3640[] = "static struct %s *%s(void) {\n";
-static const char str3641[] = "    const size_t _uya_frame_header_size = __builtin_offsetof(struct { uintptr_t _uya_alloc_owner; struct %s _uya_payload; }, _uya_payload);\n";
-static const char str3642[] = "    struct uya_interface_IAllocator *a = std_get_async_frame_allocator();\n";
-static const char str3643[] = "    if (a != (void*)0) { struct err_union_uint8_tptr r = ((struct uya_vtable_IAllocator *)a->vtable)->alloc(a->data, _uya_frame_header_size + sizeof(struct %s)); if (r.error_id == 0) { uintptr_t *_uya_hdr = (uintptr_t *)r.value; *_uya_hdr = (uintptr_t)a; __builtin_memset((void *)((uint8_t *)r.value + _uya_frame_header_size), 0, sizeof(struct %s)); return (struct %s *)((uint8_t *)r.value + _uya_frame_header_size); } return (struct %s *)0; }\n";
-static const char str3644[] = "    void *head = __atomic_load_n((void **)&%s_pool_head, __ATOMIC_ACQUIRE);\n";
-static const char str3645[] = "    while (head != (void*)0) {\n";
-static const char str3646[] = "        void *next = *(void**)head;\n";
-static const char str3647[] = "        if (__atomic_compare_exchange_n((void **)&%s_pool_head, &head, next, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {\n";
-static const char str3648[] = "            __atomic_sub_fetch((int32_t *)&%s_pool_count, 1, __ATOMIC_RELAXED);\n";
-static const char str3649[] = "            *(uintptr_t *)head = 0;\n";
-static const char str3650[] = "            __builtin_memset((void *)((uint8_t *)head + _uya_frame_header_size), 0, sizeof(struct %s));\n";
-static const char str3651[] = "            return (struct %s *)((uint8_t *)head + _uya_frame_header_size);\n";
-static const char str3652[] = "        }\n    }\n";
-static const char str3653[] = "    uint8_t *_uya_raw = (uint8_t *)malloc(_uya_frame_header_size + sizeof(struct %s));\n";
-static const char str3654[] = "    if (_uya_raw == (void*)0) return (void*)0;\n";
-static const char str3655[] = "    *(uintptr_t *)_uya_raw = 0;\n";
-static const char str3656[] = "    __builtin_memset((void *)(_uya_raw + _uya_frame_header_size), 0, sizeof(struct %s));\n";
-static const char str3657[] = "    return (struct %s *)(_uya_raw + _uya_frame_header_size);\n}\n";
-static const char str3658[] = "static void %s(struct %s *p) {\n";
-static const char str3659[] = "    if (p == (void*)0) return;\n";
-static const char str3660[] = "    uint8_t *_uya_raw = ((uint8_t *)p) - _uya_frame_header_size;\n";
-static const char str3661[] = "    uintptr_t _uya_alloc_owner = *(uintptr_t *)_uya_raw;\n";
-static const char str3662[] = "    if (_uya_alloc_owner != 0) { struct uya_interface_IAllocator *a = (struct uya_interface_IAllocator *)(void *)_uya_alloc_owner; ((struct uya_vtable_IAllocator *)a->vtable)->dealloc(a->data, _uya_raw); return; }\n";
-static const char str3663[] = "    int32_t cnt = __atomic_load_n((int32_t *)&%s_pool_count, __ATOMIC_RELAXED);\n";
-static const char str3664[] = "    if (cnt >= %s_pool_cap) { free(_uya_raw); return; }\n";
-static const char str3665[] = "    void *head = __atomic_load_n((void **)&%s_pool_head, __ATOMIC_RELAXED);\n";
-static const char str3666[] = "    do {\n";
-static const char str3667[] = "        *(void**)_uya_raw = head;\n";
-static const char str3668[] = "        if (__atomic_compare_exchange_n((void **)&%s_pool_head, &head, _uya_raw, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {\n";
-static const char str3669[] = "            __atomic_add_fetch((int32_t *)&%s_pool_count, 1, __ATOMIC_RELAXED);\n";
-static const char str3670[] = "            return;\n        }\n    } while (1);\n}\n";
-static const char str3671[] = "static void %s(void *self) {\n";
-static const char str3672[] = "    %s((struct %s *)self);\n";
-static const char str3673[] = "        s->await_fut.data = (void*)0;\n    }\n";
-static const char str3674[] = "    %s((struct %s*)self);\n}\n";
-static const char str3675[] = "uya_interface_%s";
-static const char str3676[] = "struct uya_interface_%s { void *vtable; void *data; };\n";
-static const char str3677[] = "struct uya_vtable_%s {\n  %s (*poll)(void *self, struct Waker *);\n  void (*release)(void *self);\n};\n";
-static const char str3678[] = "static const struct uya_vtable_%s %s = { (%s (*)(void *self, struct Waker *))&%s, (void (*)(void *self))&%s };\n";
-static const char str3679[] = "    struct %s *s = %s();\n";
-static const char str3680[] = "AsyncFramePoolFull";
-static const char str3681[] = "    if (s == (void*)0) { return (%s){ .error_id = %dU, .value = (%s){0} }; }\n";
-static const char str3682[] = "    if (s == (void*)0) { abort(); }\n";
-static const char str3683[] = "    s->state = 0; __builtin_memset((void *)&s->await_fut, 0, sizeof(s->await_fut));\n";
-static const char str3684[] = "    s->%s = %s;\n";
-static const char str3685[] = "    if (s->_uya_frame_error != 0) {\n";
-static const char str3686[] = "        return (%s){ .error_id = s->_uya_frame_error, .value = (%s){0} };\n";
-static const char str3687[] = "    return (%s){ .error_id = 0, .value = (%s){ .vtable = (void*)&%s, .data = (void*)s } };\n";
-static const char str3688[] = "    return (%s){ .vtable = (void*)&%s, .data = (void*)s };\n";
-static const char str3689[] = "/* drop field */ %s(%s.%s);\n";
-static const char str3690[] = "switch (%s._tag) {\n";
-static const char str3691[] = "case %d:\n";
-static const char str3692[] = "/* drop active union variant */ %s(%s.u.%s);\n";
-static const char str3693[] = "break;\n";
-static const char str3694[] = "default:\n";
-static const char str3695[] = "%s_mono";
-static const char str3696[] = "thread_async_compute_i32";
-static const char str3697[] = "thread_async_compute_u32";
-static const char str3698[] = "thread_async_compute_usize";
-static const char str3699[] = "thread_async_compute_i64";
-static const char str3700[] = "thread_async_compute_u64";
-static const char str3701[] = "thread_async_compute_i16";
-static const char str3702[] = "thread_async_compute_u16";
-static const char str3703[] = "thread_async_compute_i8";
-static const char str3704[] = "thread_async_compute_u8";
-static const char str3705[] = "thread_async_compute_bool";
-static const char str3706[] = "thread_async_compute_f32";
-static const char str3707[] = "thread_async_compute_f64";
-static const char str3708[] = "(%s ? 1 : 0)";
-static const char str3709[] = "thread_f32_arg_bits(%s)";
-static const char str3710[] = "thread_f64_arg_bits(%s)";
-static const char str3711[] = "(size_t)%s";
-static const char str3712[] = "    return %s(pool, compute_fn, arg);\n";
-static const char str3713[] = "to_json";
-static const char str3714[] = "websocket_conn_write_json";
-static const char str3715[] = "from_json";
-static const char str3716[] = "(void)";
-static const char str3717[] = "(const uint8_t *)";
-static const char str3718[] = "{ .ptr = ";
-static const char str3719[] = "const %s %s%s";
-static const char str3720[] = "const %s %s";
-static const char str3721[] = "%s->%s";
-static const char str3722[] = "__uya_local_s";
-static const char str3723[] = "/lib/syscall/";
-static const char str3724[] = "\\lib\\syscall\\";
-static const char str3725[] = "extern %s %s;\n";
-static const char str3726[] = "extern const %s %s;\n";
-static const char str3727[] = "extern %s %s%s;\n";
-static const char str3728[] = "extern const %s %s%s;\n";
-static const char str3729[] = "%s/uya_mirror_globals.h";
-static const char str3730[] = "#ifndef UYA_MIRROR_GLOBALS_H\n#define UYA_MIRROR_GLOBALS_H\n\n";
-static const char str3731[] = "/* 镜像分 TU：全局 extern（须在 uya_split_protos.h 之后包含，以便类型已可见） */\n";
-static const char str3732[] = "RAND_MAX";
-static const char str3733[] = "\n#endif /* UYA_MIRROR_GLOBALS_H */\n";
-static const char str3734[] = "UYA_PROFILE_CODEGEN";
-static const char str3735[] = "// microapp bridge dispatch shim（portable runtime bridge ABI v1）\n";
-static const char str3736[] = "enum { UYA_MICROAPP_BRIDGE_ABI_MAGIC = 0x55414249U, UYA_MICROAPP_BRIDGE_ABI_VERSION = 1U };\n";
-static const char str3737[] = "enum { UYA_MICROAPP_SYS_PRINT = 1U, UYA_MICROAPP_SYS_ALLOC = 2U, UYA_MICROAPP_SYS_IO = 3U, UYA_MICROAPP_SYS_YIELD = 4U, UYA_MICROAPP_SYS_TIME = 5U };\n";
-static const char str3738[] = "struct UyaMicroappBridgeAbiV1 { uint32_t magic; uint32_t version; uintptr_t dispatch2; };\n";
-static const char str3739[] = "static __attribute__((used)) volatile struct UyaMicroappBridgeAbiV1 uya_microapp_bridge_abi_v1 = { UYA_MICROAPP_BRIDGE_ABI_MAGIC, UYA_MICROAPP_BRIDGE_ABI_VERSION, 0 };\n";
-static const char str3740[] = "static inline long uya_microapp_bridge_dispatch2(long nr, long a1, long a2) {\n";
-static const char str3741[] = "    if (uya_microapp_bridge_abi_v1.magic != UYA_MICROAPP_BRIDGE_ABI_MAGIC || uya_microapp_bridge_abi_v1.version != UYA_MICROAPP_BRIDGE_ABI_VERSION) { return -1; }\n";
-static const char str3742[] = "    if (uya_microapp_bridge_abi_v1.dispatch2 == 0) { return -1; }\n";
-static const char str3743[] = "    typedef long (*uya_bridge_dispatch2_fn)(long, long, long);\n";
-static const char str3744[] = "    return ((uya_bridge_dispatch2_fn)(uintptr_t)uya_microapp_bridge_abi_v1.dispatch2)(nr, a1, a2);\n";
-static const char str3745[] = "static inline long uya_microapp_bridge_dispatch1(long nr, long a1) { return uya_microapp_bridge_dispatch2(nr, a1, 0); }\n";
-static const char str3746[] = "static inline long uya_microapp_bridge_dispatch0(long nr) { return uya_microapp_bridge_dispatch2(nr, 0, 0); }\n\n";
-static const char str3747[] = "// microapp MMU translation hook（native adapter：按当前进程内存映射做权限校验）\n";
-static const char str3748[] = "extern char *getenv(const char *name);\n";
-static const char str3749[] = "extern int open(const char *pathname, int flags, ...);\n";
-static const char str3750[] = "extern int64_t read(int32_t fd, char *buf, size_t count);\n";
-static const char str3751[] = "extern int32_t close(int32_t fd);\n";
-static const char str3752[] = "struct FILE;\n";
-static const char str3753[] = "extern struct FILE *fopen(const char *filename, const char *mode);\n";
-static const char str3754[] = "extern int32_t fclose(struct FILE *stream);\n";
-static const char str3755[] = "extern char *fgets(char *buf, int32_t n, struct FILE *stream);\n";
-static const char str3756[] = "extern int32_t sscanf(const char *str, const char *format, ...);\n";
-static const char str3757[] = "extern int32_t fputs(const char *s, struct FILE *stream);\n";
-static const char str3758[] = "extern int32_t fputc(int32_t c, struct FILE *stream);\n";
-static const char str3759[] = "extern int32_t fprintf(struct FILE *stream, const char *format, ...);\n";
-static const char str3760[] = "extern struct FILE *stderr;\n";
-static const char str3761[] = "enum { UYA_MMU_ACCESS_R = 1U, UYA_MMU_ACCESS_W = 2U, UYA_MMU_ACCESS_X = 4U };\n";
-static const char str3762[] = "struct UyaMmuRegion { uintptr_t start; uintptr_t end; unsigned int perms; };\n";
-static const char str3763[] = "enum { UYA_MMU_REGION_MAX = 512U };\n";
-static const char str3764[] = "static int _uya_mmu_internal_depth = 0;\n";
-static const char str3765[] = "static int _uya_mmu_debug_enabled = -1;\n";
-static const char str3766[] = "static int _uya_mmu_maps_ready = 0;\n";
-static const char str3767[] = "static size_t _uya_mmu_region_count = 0;\n";
-static const char str3768[] = "static struct UyaMmuRegion _uya_mmu_regions[UYA_MMU_REGION_MAX];\n";
-static const char str3769[] = "static inline void _uya_mmu_internal_begin(void) { _uya_mmu_internal_depth = _uya_mmu_internal_depth + 1; }\n";
-static const char str3770[] = "static inline void _uya_mmu_internal_end(void) { if (_uya_mmu_internal_depth > 0) { _uya_mmu_internal_depth = _uya_mmu_internal_depth - 1; } }\n";
-static const char str3771[] = "static inline unsigned int _uya_mmu_parse_perms(const char *perms) {\n";
-static const char str3772[] = "    unsigned int out = 0U;\n";
-static const char str3773[] = "    if (perms != NULL) {\n";
-static const char str3774[] = "        if (perms[0] == 'r') { out |= UYA_MMU_ACCESS_R; }\n";
-static const char str3775[] = "        if (perms[1] == 'w') { out |= UYA_MMU_ACCESS_W; }\n";
-static const char str3776[] = "        if (perms[2] == 'x') { out |= UYA_MMU_ACCESS_X; }\n";
-static const char str3777[] = "    return out;\n";
-static const char str3778[] = "static inline unsigned int _uya_mmu_hex_digit(int32_t ch) {\n";
-static const char str3779[] = "    if (ch >= '0' && ch <= '9') { return (unsigned int)(ch - '0'); }\n";
-static const char str3780[] = "    if (ch >= 'a' && ch <= 'f') { return 10U + (unsigned int)(ch - 'a'); }\n";
-static const char str3781[] = "    if (ch >= 'A' && ch <= 'F') { return 10U + (unsigned int)(ch - 'A'); }\n";
-static const char str3782[] = "    return 255U;\n";
-static const char str3783[] = "static inline void _uya_mmu_ingest_map_line(const char *line) {\n";
-static const char str3784[] = "    const char *cursor = line;\n";
-static const char str3785[] = "    unsigned long long start = 0ULL;\n";
-static const char str3786[] = "    unsigned long long end = 0ULL;\n";
-static const char str3787[] = "    char perms[5] = {0};\n";
-static const char str3788[] = "    int have_start = 0;\n";
-static const char str3789[] = "    int have_end = 0;\n";
-static const char str3790[] = "    while (cursor[0] == ' ' || cursor[0] == '\\t') { cursor = cursor + 1; }\n";
-static const char str3791[] = "    while (cursor[0] != 0 && cursor[0] != '-') {\n";
-static const char str3792[] = "        const unsigned int nibble = _uya_mmu_hex_digit((int32_t)cursor[0]);\n";
-static const char str3793[] = "        if (nibble > 15U) { have_start = 0; break; }\n";
-static const char str3794[] = "        start = (start << 4U) | (unsigned long long)nibble;\n";
-static const char str3795[] = "        have_start = 1;\n";
-static const char str3796[] = "        cursor = cursor + 1;\n";
-static const char str3797[] = "    if (have_start == 0 || cursor[0] != '-') { return; }\n";
-static const char str3798[] = "    cursor = cursor + 1;\n";
-static const char str3799[] = "    while (cursor[0] != 0 && cursor[0] != ' ' && cursor[0] != '\\t') {\n";
-static const char str3800[] = "        if (nibble > 15U) { have_end = 0; break; }\n";
-static const char str3801[] = "        end = (end << 4U) | (unsigned long long)nibble;\n";
-static const char str3802[] = "        have_end = 1;\n";
-static const char str3803[] = "    perms[0] = cursor[0]; perms[1] = cursor[1]; perms[2] = cursor[2]; perms[3] = cursor[3]; perms[4] = 0;\n";
-static const char str3804[] = "    if (have_start != 0 && have_end != 0 && perms[0] != 0 && perms[1] != 0 && perms[2] != 0) {\n";
-static const char str3805[] = "        if (_uya_mmu_region_count < UYA_MMU_REGION_MAX) {\n";
-static const char str3806[] = "            _uya_mmu_regions[_uya_mmu_region_count].start = (uintptr_t)start;\n";
-static const char str3807[] = "            _uya_mmu_regions[_uya_mmu_region_count].end = (uintptr_t)end;\n";
-static const char str3808[] = "            _uya_mmu_regions[_uya_mmu_region_count].perms = _uya_mmu_parse_perms(perms);\n";
-static const char str3809[] = "            _uya_mmu_region_count = _uya_mmu_region_count + 1U;\n";
-static const char str3810[] = "static inline int _uya_mmu_debug_once(void) {\n";
-static const char str3811[] = "    if (_uya_mmu_debug_enabled >= 0) { return _uya_mmu_debug_enabled; }\n";
-static const char str3812[] = "    _uya_mmu_internal_begin();\n";
-static const char str3813[] = "    const char *flag = getenv(\"MICROAPP_DEBUG_MMU\");\n";
-static const char str3814[] = "    _uya_mmu_internal_end();\n";
-static const char str3815[] = "    if (flag != NULL && flag[0] != 0 && flag[0] != '0') { _uya_mmu_debug_enabled = 1; } else { _uya_mmu_debug_enabled = 0; }\n";
-static const char str3816[] = "    return _uya_mmu_debug_enabled;\n";
-static const char str3817[] = "static inline void _uya_mmu_refresh_maps(void) {\n";
-static const char str3818[] = "    if (_uya_mmu_maps_ready != 0) { return; }\n";
-static const char str3819[] = "    _uya_mmu_maps_ready = 1;\n";
-static const char str3820[] = "    int fd = open(\"/proc/self/maps\", 0);\n";
-static const char str3821[] = "    if (fd < 0) { _uya_mmu_internal_end(); return; }\n";
-static const char str3822[] = "    char line[512];\n";
-static const char str3823[] = "    char chunk[1024];\n";
-static const char str3824[] = "    size_t line_len = 0U;\n";
-static const char str3825[] = "    while (1) {\n";
-static const char str3826[] = "        const int64_t bytes_read = read(fd, chunk, sizeof(chunk));\n";
-static const char str3827[] = "        if (bytes_read <= 0) { break; }\n";
-static const char str3828[] = "        size_t chunk_pos = 0U;\n";
-static const char str3829[] = "        while (chunk_pos < (size_t)bytes_read) {\n";
-static const char str3830[] = "            const char ch = chunk[chunk_pos];\n";
-static const char str3831[] = "            if (ch == '\\n') {\n";
-static const char str3832[] = "                line[line_len] = 0;\n";
-static const char str3833[] = "                _uya_mmu_ingest_map_line(line);\n";
-static const char str3834[] = "                line_len = 0U;\n";
-static const char str3835[] = "            } else if (line_len + 1U < sizeof(line)) {\n";
-static const char str3836[] = "                line[line_len] = ch;\n";
-static const char str3837[] = "                line_len = line_len + 1U;\n";
-static const char str3838[] = "            }\n";
-static const char str3839[] = "            chunk_pos = chunk_pos + 1U;\n";
-static const char str3840[] = "    if (line_len > 0U) {\n";
-static const char str3841[] = "        line[line_len] = 0;\n";
-static const char str3842[] = "        _uya_mmu_ingest_map_line(line);\n";
-static const char str3843[] = "    (void)close(fd);\n";
-static const char str3844[] = "static inline const struct UyaMmuRegion *_uya_mmu_find_region(uintptr_t addr) {\n";
-static const char str3845[] = "    size_t i = 0;\n";
-static const char str3846[] = "    while (i < _uya_mmu_region_count) {\n";
-static const char str3847[] = "        if (addr >= _uya_mmu_regions[i].start && addr < _uya_mmu_regions[i].end) { return &_uya_mmu_regions[i]; }\n";
-static const char str3848[] = "        i = i + 1U;\n";
-static const char str3849[] = "    return (const struct UyaMmuRegion *)0;\n";
-static const char str3850[] = "static inline void _uya_mmu_write_u64_hex(unsigned long long value) {\n";
-static const char str3851[] = "    char digits[16];\n";
-static const char str3852[] = "    size_t pos = 0;\n";
-static const char str3853[] = "    if (value == 0ULL) { fputc((int32_t)'0', stderr); return; }\n";
-static const char str3854[] = "    while (value != 0ULL && pos < 16U) {\n";
-static const char str3855[] = "        const unsigned int nibble = (unsigned int)(value & 15ULL);\n";
-static const char str3856[] = "        digits[pos] = (nibble < 10U) ? (char)('0' + nibble) : (char)('a' + (nibble - 10U));\n";
-static const char str3857[] = "        pos = pos + 1U;\n";
-static const char str3858[] = "        value = value >> 4U;\n";
-static const char str3859[] = "    while (pos > 0U) {\n";
-static const char str3860[] = "        pos = pos - 1U;\n";
-static const char str3861[] = "        fputc((int32_t)digits[pos], stderr);\n";
-static const char str3862[] = "static inline void *_uya_mmu_fault(const char *kind, uintptr_t addr, size_t size, unsigned int access) {\n";
-static const char str3863[] = "    if (_uya_mmu_debug_once() != 0) {\n";
-static const char str3864[] = "        _uya_mmu_internal_begin();\n";
-static const char str3865[] = "        fputs(\"[mmu] fault kind=\", stderr);\n";
-static const char str3866[] = "        fputs(kind, stderr);\n";
-static const char str3867[] = "        fputs(\" addr=0x\", stderr);\n";
-static const char str3868[] = "        _uya_mmu_write_u64_hex((unsigned long long)addr);\n";
-static const char str3869[] = "        fputs(\" size=\", stderr);\n";
-static const char str3870[] = "        fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
-static const char str3871[] = "        fputs(\" access=0x\", stderr);\n";
-static const char str3872[] = "        fprintf(stderr, \"%x\", access);\n";
-static const char str3873[] = "        fputc(10, stderr);\n";
-static const char str3874[] = "        _uya_mmu_internal_end();\n";
-static const char str3875[] = "    return (void *)0;\n";
-static const char str3876[] = "static inline void *uya_mmu_translate(void *addr, size_t size, unsigned int access) {\n";
-static const char str3877[] = "    if (addr == NULL) { return (void *)0; }\n";
-static const char str3878[] = "    if (size == 0) { return addr; }\n";
-static const char str3879[] = "    if (_uya_mmu_internal_depth > 0) { return addr; }\n";
-static const char str3880[] = "    if (_uya_mmu_maps_ready == 0) { _uya_mmu_refresh_maps(); }\n";
-static const char str3881[] = "    if (_uya_mmu_region_count == 0) {\n";
-static const char str3882[] = "        if (_uya_mmu_debug_once() != 0) {\n";
-static const char str3883[] = "            _uya_mmu_internal_begin();\n";
-static const char str3884[] = "            fputs(\"[mmu] translate addr=0x\", stderr);\n";
-static const char str3885[] = "            _uya_mmu_write_u64_hex((unsigned long long)(uintptr_t)addr);\n";
-static const char str3886[] = "            fputs(\" size=\", stderr);\n";
-static const char str3887[] = "            fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
-static const char str3888[] = "            fputs(\" access=0x\", stderr);\n";
-static const char str3889[] = "            fprintf(stderr, \"%x\", access);\n";
-static const char str3890[] = "            fputs(\" (maps unavailable, fallback direct)\", stderr);\n";
-static const char str3891[] = "            fputc(10, stderr);\n";
-static const char str3892[] = "            _uya_mmu_internal_end();\n";
-static const char str3893[] = "        return addr;\n";
-static const char str3894[] = "    const uintptr_t start = (uintptr_t)addr;\n";
-static const char str3895[] = "    const uintptr_t end = start + (uintptr_t)size - 1U;\n";
-static const char str3896[] = "    if (end < start) { return _uya_mmu_fault(\"overflow\", start, size, access); }\n";
-static const char str3897[] = "    uintptr_t cursor = start;\n";
-static const char str3898[] = "    while (cursor <= end) {\n";
-static const char str3899[] = "        const struct UyaMmuRegion *region = _uya_mmu_find_region(cursor);\n";
-static const char str3900[] = "        if (region == NULL) { return _uya_mmu_fault(\"unmapped\", cursor, size, access); }\n";
-static const char str3901[] = "        if (((access & UYA_MMU_ACCESS_R) != 0U) && ((region->perms & UYA_MMU_ACCESS_R) == 0U)) { return _uya_mmu_fault(\"read\", cursor, size, access); }\n";
-static const char str3902[] = "        if (((access & UYA_MMU_ACCESS_W) != 0U) && ((region->perms & UYA_MMU_ACCESS_W) == 0U)) { return _uya_mmu_fault(\"write\", cursor, size, access); }\n";
-static const char str3903[] = "        if (((access & UYA_MMU_ACCESS_X) != 0U) && ((region->perms & UYA_MMU_ACCESS_X) == 0U)) { return _uya_mmu_fault(\"exec\", cursor, size, access); }\n";
-static const char str3904[] = "        if (region->end <= cursor) { return _uya_mmu_fault(\"stalled\", cursor, size, access); }\n";
-static const char str3905[] = "        if (region->end > end) { break; }\n";
-static const char str3906[] = "        cursor = region->end;\n";
-static const char str3907[] = "        fputs(\"[mmu] translate addr=0x\", stderr);\n";
-static const char str3908[] = "        _uya_mmu_write_u64_hex((unsigned long long)start);\n";
-static const char str3909[] = "    return addr;\n";
-static const char str3910[] = "static uint8_t *uya_error_name_from_id(uint32_t uya_error_id) {\n";
-static const char str3911[] = "    switch (uya_error_id) {\n";
-static const char str3912[] = "        case %uU: return (uint8_t *)\"%s\";\n";
-static const char str3913[] = "        default: return (uint8_t *)\"UnknownError\";\n";
-static const char str3914[] = "free";
-static const char str3915[] = "realloc";
-static const char str3916[] = "abs";
-static const char str3917[] = "exit";
-static const char str3918[] = "future_ready_ok";
-static const char str3919[] = "std_future_ready_ok";
-static const char str3920[] = "task_ready_ok";
-static const char str3921[] = "std_task_ready_ok";
-static const char str3922[] = "uya_test_%u";
-static const char str3923[] = "static struct err_union_void %s(void) {\n";
-static const char str3924[] = "    return (struct err_union_void){ .error_id = 0 };\n";
-static const char str3925[] = "static void uya_run_tests(void) {\n";
-static const char str3926[] = "    printf(\"  TEST: %s ... \");\n";
-static const char str3927[] = "      struct err_union_void _test_result = ";
-static const char str3928[] = "%s();\n";
-static const char str3929[] = "      if (_test_result.error_id != 0) { printf(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n";
-static const char str3930[] = "      else { _test_case_passed = _test_case_passed + 1; printf(\"OK\\n\"); } }\n";
-static const char str3931[] = "compiler_bootstrap";
-static const char str3932[] = "uya-hosted.c";
-static const char str3933[] = "// C99 代码由 Uya Mini 编译器生成\n";
-static const char str3934[] = "// 使用 -std=c99 编译\n";
-static const char str3935[] = "//\n";
-static const char str3936[] = "// 堆栈大小提示：此程序需要至少 %d KB 的堆栈空间\n";
-static const char str3937[] = "// 编译时请使用：ulimit -s %d\n";
-static const char str3938[] = "// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n";
-static const char str3939[] = "// 基本整数类型\n";
-static const char str3940[] = "typedef short int16_t;\n";
-static const char str3941[] = "typedef int int32_t;\n";
-static const char str3942[] = "typedef long long int64_t;\n";
-static const char str3943[] = "// size_t 和 ptrdiff_t\n";
-static const char str3944[] = "typedef long ptrdiff_t;\n";
-static const char str3945[] = "typedef long intptr_t;\n";
-static const char str3946[] = "typedef unsigned long uintptr_t;\n";
-static const char str3947[] = "// bool 类型\n";
-static const char str3948[] = "typedef uint8_t bool;\n";
-static const char str3949[] = "#define true ((bool)1)\n";
-static const char str3950[] = "#define false ((bool)0)\n";
-static const char str3951[] = "// NULL 定义\n";
-static const char str3952[] = "// offsetof 宏（C99 兼容）\n";
-static const char str3953[] = "#define offsetof(type, member) ((size_t) &((type *)0)->member)\n";
-static const char str3954[] = "// C99 兼容的 alignof 实现\n";
-static const char str3955[] = "#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n";
-static const char str3956[] = "// va_list 支持（可变参数函数）\n";
-static const char str3957[] = "typedef __builtin_va_list va_list;\n";
-static const char str3958[] = "#define va_start(v, l) __builtin_va_start(v, l)\n";
-static const char str3959[] = "#define va_end(v) __builtin_va_end(v)\n";
-static const char str3960[] = "#define va_arg(v, l) __builtin_va_arg(v, l)\n";
-static const char str3961[] = "#define va_copy(d, s) __builtin_va_copy(d, s)\n";
-static const char str3962[] = "#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n";
-static const char str3963[] = "// @asm_target 平台检测\n";
-static const char str3964[] = "  #if defined(__linux__)\n";
-static const char str3965[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
-static const char str3966[] = "  #elif defined(__APPLE__)\n";
-static const char str3967[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 1\n";
-static const char str3968[] = "  #elif defined(_WIN32)\n";
-static const char str3969[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 2\n";
-static const char str3970[] = "  #else\n";
-static const char str3971[] = "  #endif\n";
-static const char str3972[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 3\n";
-static const char str3973[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 4\n";
-static const char str3974[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 5\n";
-static const char str3975[] = "#elif defined(__riscv) && __riscv_xlen == 64\n";
-static const char str3976[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 6\n";
-static const char str3977[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
-static const char str3978[] = "#define UYA_TARGET_PLATFORM UYA_ASM_TARGET_X86_64_LINUX\n";
-static const char str3979[] = "#if defined(__linux__)\n";
-static const char str3980[] = "  #define UYA_TARGET_OS_LINUX 1\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str3981[] = "#elif defined(__APPLE__)\n";
-static const char str3982[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 1\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str3983[] = "#elif defined(_WIN32)\n";
-static const char str3984[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 1\n";
-static const char str3985[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str3986[] = "  #define UYA_TARGET_ARCH_X86_64 1\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
-static const char str3987[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 1\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
-static const char str3988[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 1\n";
-static const char str3989[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
-static const char str3990[] = "#include <stddef.h>\n";
-static const char str3991[] = "// 标准类型定义（不依赖标准库头文件）\n";
-static const char str3992[] = "typedef signed long ssize_t;\n";
-static const char str3993[] = "typedef signed long intptr_t;\n";
-static const char str3994[] = "typedef signed long ptrdiff_t;\n";
-static const char str3995[] = "#ifndef NULL\n#define NULL ((void *)0)\n#endif\n";
-static const char str3996[] = "#ifndef offsetof\n#define offsetof(type, member) ((size_t)&((type *)0)->member)\n#endif\n";
-static const char str3997[] = "#ifndef true\n#define true 1\n#endif\n";
-static const char str3998[] = "#ifndef false\n#define false 0\n#endif\n";
-static const char str3999[] = "typedef _Bool bool;\n";
-static const char str4000[] = "struct uya_tagged_Poll_err_i32;\n";
-static const char str4001[] = "typedef struct uya_tagged_Poll_err_i32 uya_tagged_Poll_T;\n";
-static const char str4002[] = "#include <stdio.h>\n";
-static const char str4003[] = "#include <math.h>\n";
-static const char str4004[] = "#ifdef isnan\n#undef isnan\n#endif\n";
-static const char str4005[] = "#ifdef isinf\n#undef isinf\n#endif\n";
-static const char str4006[] = "#ifdef isfinite\n#undef isfinite\n#endif\n";
-static const char str4007[] = "#ifdef signbit\n#undef signbit\n#endif\n";
-static const char str4008[] = "#ifdef INFINITY\n#undef INFINITY\n#endif\n";
-static const char str4009[] = "#ifdef NAN\n#undef NAN\n#endif\n";
-static const char str4010[] = "#ifdef HUGE_VAL\n#undef HUGE_VAL\n#endif\n";
-static const char str4011[] = "#ifdef HUGE_VALF\n#undef HUGE_VALF\n#endif\n";
-static const char str4012[] = "#ifdef HUGE_VALL\n#undef HUGE_VALL\n#endif\n";
-static const char str4013[] = "memcpy";
-static const char str4014[] = "memset";
-static const char str4015[] = "memmove";
-static const char str4016[] = "memcmp";
-static const char str4017[] = "memchr";
-static const char str4018[] = "#include <string.h>\n";
-static const char str4019[] = "#include <stdlib.h>\n";
-static const char str4020[] = "#ifdef RLIMIT_STACK\n#undef RLIMIT_STACK\n#endif\n";
-static const char str4021[] = "#ifdef S_IRWXU\n#undef S_IRWXU\n#endif\n";
-static const char str4022[] = "#ifdef S_IRUSR\n#undef S_IRUSR\n#endif\n";
-static const char str4023[] = "#ifdef S_IWUSR\n#undef S_IWUSR\n#endif\n";
-static const char str4024[] = "#ifdef S_IXUSR\n#undef S_IXUSR\n#endif\n";
-static const char str4025[] = "#ifdef S_IRWXG\n#undef S_IRWXG\n#endif\n";
-static const char str4026[] = "#ifdef S_IRGRP\n#undef S_IRGRP\n#endif\n";
-static const char str4027[] = "#ifdef S_IWGRP\n#undef S_IWGRP\n#endif\n";
-static const char str4028[] = "#ifdef S_IXGRP\n#undef S_IXGRP\n#endif\n";
-static const char str4029[] = "#ifdef S_IRWXO\n#undef S_IRWXO\n#endif\n";
-static const char str4030[] = "#ifdef S_IROTH\n#undef S_IROTH\n#endif\n";
-static const char str4031[] = "#ifdef S_IWOTH\n#undef S_IWOTH\n#endif\n";
-static const char str4032[] = "#ifdef S_IXOTH\n#undef S_IXOTH\n#endif\n";
-static const char str4033[] = "clock";
-static const char str4034[] = "read";
-static const char str4035[] = "write";
-static const char str4036[] = "opendir";
-static const char str4037[] = "closedir";
-static const char str4038[] = "extern void *malloc(size_t);\n";
-static const char str4039[] = "extern void free(void *);\n";
-static const char str4040[] = "extern void *realloc(void *, size_t);\n";
-static const char str4041[] = "extern void *calloc(size_t, size_t);\n";
-static const char str4042[] = "extern int64_t clock(void);\n";
-static const char str4043[] = "extern ssize_t read(int, void *, size_t);\n";
-static const char str4044[] = "extern ssize_t write(int, const void *, size_t);\n";
-static const char str4045[] = "extern void *opendir(const char *);\n";
-static const char str4046[] = "extern void *readdir(void *);\n";
-static const char str4047[] = "extern int closedir(void *);\n";
-static const char str4048[] = "extern void _exit(int);\n";
-static const char str4049[] = "static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n";
-static const char str4050[] = "    char *d = (char *)dest; const char *s = (const char *)src;\n";
-static const char str4051[] = "    for (size_t i = 0; i < n; i++) d[i] = s[i];\n";
-static const char str4052[] = "static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {\n";
-static const char str4053[] = "    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n";
-static const char str4054[] = "    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n";
-static const char str4055[] = "// syscall write - 写入文件描述符\n";
-static const char str4056[] = "static long uya_write(int fd, const char *buf, unsigned long len) {\n";
-static const char str4057[] = "    __asm__ volatile (\"syscall\" : \"=a\"(ret) : \"a\"(1), \"D\"(fd), \"S\"(buf), \"d\"(len) : \"rcx\", \"r11\", \"memory\");\n";
-static const char str4058[] = "// strlen - 计算字符串长度\n";
-static const char str4059[] = "static unsigned long uya_strlen(const char *s) {\n";
-static const char str4060[] = "    unsigned long len = 0;\n";
-static const char str4061[] = "// 打印 i32（--nostdlib 下避免依赖 printf 的 %d）\n";
-static const char str4062[] = "static void uya_print_i32(int32_t value) {\n";
-static const char str4063[] = "    char out[16];\n";
-static const char str4064[] = "    int32_t temp = value;\n";
-static const char str4065[] = "    if (temp == 0) { (void)uya_write(1, \"0\", 1); return; }\n";
-static const char str4066[] = "    if (temp < 0) { (void)uya_write(1, \"-\", 1); temp = -temp; }\n";
-static const char str4067[] = "    while (temp > 0) { digits[len++] = (char)('0' + (temp % 10)); temp /= 10; }\n";
-static const char str4068[] = "    for (unsigned long i = 0; i < len; i++) out[i] = digits[len - 1 - i];\n";
-static const char str4069[] = "    (void)uya_write(1, out, len);\n";
-static const char str4070[] = "// brk syscall - 最小堆实现\n";
-static const char str4071[] = "static unsigned long uya_brk(unsigned long addr) {\n";
-static const char str4072[] = "    unsigned long ret;\n";
-static const char str4073[] = "    __asm__ volatile (\"syscall\" : \"=a\"(ret) : \"a\"(12), \"D\"(addr) : \"rcx\", \"r11\", \"memory\");\n";
-static const char str4074[] = "static unsigned char *uya_heap_cur = (unsigned char *)0;\n";
-static const char str4075[] = "static unsigned char *uya_heap_end = (unsigned char *)0;\n\n";
-static const char str4076[] = "void *malloc(size_t size) {\n";
-static const char str4077[] = "    if (size == 0) size = 1;\n";
-static const char str4078[] = "    size = (size + 15UL) & ~15UL;\n";
-static const char str4079[] = "    if (uya_heap_cur == (unsigned char *)0) {\n";
-static const char str4080[] = "        unsigned long cur = uya_brk(0);\n";
-static const char str4081[] = "        if (cur == 0) return (void *)0;\n";
-static const char str4082[] = "        uya_heap_cur = (unsigned char *)cur;\n";
-static const char str4083[] = "        uya_heap_end = (unsigned char *)cur;\n";
-static const char str4084[] = "    unsigned long need = (unsigned long)uya_heap_cur + size;\n";
-static const char str4085[] = "    if ((unsigned char *)need > uya_heap_end) {\n";
-static const char str4086[] = "        unsigned long target = need;\n";
-static const char str4087[] = "        unsigned long got = uya_brk(target);\n";
-static const char str4088[] = "        if (got < target) return (void *)0;\n";
-static const char str4089[] = "        uya_heap_end = (unsigned char *)got;\n";
-static const char str4090[] = "    void *p = (void *)uya_heap_cur;\n";
-static const char str4091[] = "    uya_heap_cur += size;\n";
-static const char str4092[] = "    return p;\n";
-static const char str4093[] = "void free(void *ptr) { (void)ptr; }\n\n";
-static const char str4094[] = "void *realloc(void *ptr, size_t new_size) {\n";
-static const char str4095[] = "    if (ptr == (void *)0) return malloc(new_size);\n";
+static const char str3340[] = "%s)";
+static const char str3341[] = "struct uya_slice_int32_t";
+static const char str3342[] = ").ptr + ";
+static const char str3343[] = "->ptr + ";
+static const char str3344[] = "uya_slice_uint8_t";
+static const char str3345[] = "(uint8_t *)(";
+static const char str3346[] = ") + ";
+static const char str3347[] = ", .len = ";
+static const char str3348[] = "({";
+static const char str3349[] = "char __uya_interp_%d[%d];\n";
+static const char str3350[] = "int __uya_interp_res = uya_write(1, (char *)__uya_interp_%d, uya_strlen((char *)__uya_interp_%d));\n";
+static const char str3351[] = "uya_write(1, \"\\n\", 1);\n";
+static const char str3352[] = "__uya_interp_res; })";
+static const char str3353[] = "printf(\"%%s\\n\", __uya_interp_%d); })";
+static const char str3354[] = "printf(\"%%s\", __uya_interp_%d); })";
+static const char str3355[] = "%lld";
+static const char str3356[] = "%llu";
+static const char str3357[] = "uya_write(1, ";
+static const char str3358[] = ", uya_strlen(";
+static const char str3359[] = "; uya_write(1, \"\\n\", 1)";
+static const char str3360[] = "printf(\"%s\\n\", ";
+static const char str3361[] = "printf(\"%s\", ";
+static const char str3362[] = "(%s){ ._tag = 1, .u = (%s){ .Ready = _uya_try_tmp } }";
+static const char str3363[] = "(%s){ ._tag = 1, .u = (%s){ .Ready = (%s){ .error_id = _uya_try_tmp.error_id } } }";
+static const char str3364[] = "_uya_try_tmp";
+static const char str3365[] = "(%s){ .error_id = _uya_try_tmp.error_id }";
+static const char str3366[] = "; if (_uya_try_tmp.error_id != 0) {\n";
+static const char str3367[] = "err_";
+static const char str3368[] = "%s->_uya_frame_error = _uya_try_tmp.error_id;\n";
+static const char str3369[] = "return (%s){ ._tag = 1, .u = (%s){ .Ready = {0} } };\n";
+static const char str3370[] = ";\n";
+static const char str3371[] = "({ %s _uya_try_tmp = ";
+static const char str3372[] = "_uya_try_tmp.value[%d]";
+static const char str3373[] = " }; })";
+static const char str3374[] = "_uya_try_tmp.value; })";
+static const char str3375[] = "; _uya_try_tmp.value; })";
+static const char str3376[] = "(%s){ .ptr = (";
+static const char str3377[] = "%s[%d]){";
+static const char str3378[] = "void *)0";
+static const char str3379[] = ", .len = %d }";
+static const char str3380[] = "_Atomic";
+static const char str3381[] = "strncmp";
+static const char str3382[] = "strcasecmp";
+static const char str3383[] = "strncasecmp";
+static const char str3384[] = "strlen";
+static const char str3385[] = "strcpy";
+static const char str3386[] = "strncpy";
+static const char str3387[] = "strcat";
+static const char str3388[] = "strncat";
+static const char str3389[] = "strchr";
+static const char str3390[] = "strrchr";
+static const char str3391[] = "strstr";
+static const char str3392[] = "strcspn";
+static const char str3393[] = "strspn";
+static const char str3394[] = "strpbrk";
+static const char str3395[] = "strtok";
+static const char str3396[] = "strerror";
+static const char str3397[] = "strdup";
+static const char str3398[] = "strndup";
+static const char str3399[] = "__asm__ volatile (\"";
+static const char str3400[] = "\\\"";
+static const char str3401[] = "\\n";
+static const char str3402[] = "\\t";
+static const char str3403[] = "\\\\";
+static const char str3404[] = "\\n\\t";
+static const char str3405[] = "\"\n";
+static const char str3406[] = "    :";
+static const char str3407[] = " ";
+static const char str3408[] = "\"=r\"(";
+static const char str3409[] = "\"r\"(";
+static const char str3410[] = " \"memory\"";
+static const char str3411[] = "    );\n";
+static const char str3412[] = "free";
+static const char str3413[] = "realloc";
+static const char str3414[] = "read";
+static const char str3415[] = "write";
+static const char str3416[] = "close";
+static const char str3417[] = "lseek";
+static const char str3418[] = "getpid";
+static const char str3419[] = "getppid";
+static const char str3420[] = "fork";
+static const char str3421[] = "execve";
+static const char str3422[] = "_exit";
+static const char str3423[] = "waitpid";
+static const char str3424[] = "access";
+static const char str3425[] = "unlink";
+static const char str3426[] = "chdir";
+static const char str3427[] = "getcwd";
+static const char str3428[] = "dup";
+static const char str3429[] = "dup2";
+static const char str3430[] = "sleep";
+static const char str3431[] = "stat";
+static const char str3432[] = "readlink";
+static const char str3433[] = "opendir";
+static const char str3434[] = "closedir";
+static const char str3435[] = "getenv";
+static const char str3436[] = "putenv";
+static const char str3437[] = "setenv";
+static const char str3438[] = "unsetenv";
+static const char str3439[] = "clearenv";
+static const char str3440[] = "putchar";
+static const char str3441[] = "fputs";
+static const char str3442[] = "fputc";
+static const char str3443[] = "fflush";
+static const char str3444[] = "fopen";
+static const char str3445[] = "fclose";
+static const char str3446[] = "fread";
+static const char str3447[] = "fwrite";
+static const char str3448[] = "fgetc";
+static const char str3449[] = "fgets";
+static const char str3450[] = "fscanf";
+static const char str3451[] = "sscanf";
+static const char str3452[] = "perror";
+static const char str3453[] = "remove";
+static const char str3454[] = "rename";
+static const char str3455[] = "tmpfile";
+static const char str3456[] = "tmpnam";
+static const char str3457[] = "memcpy";
+static const char str3458[] = "memset";
+static const char str3459[] = "memmove";
+static const char str3460[] = "memcmp";
+static const char str3461[] = "memchr";
+static const char str3462[] = "exit";
+static const char str3463[] = "abort";
+static const char str3464[] = "atol";
+static const char str3465[] = "atof";
+static const char str3466[] = "strtod";
+static const char str3467[] = "strtol";
+static const char str3468[] = "labs";
+static const char str3469[] = "srand";
+static const char str3470[] = "rand";
+static const char str3471[] = "div";
+static const char str3472[] = "ldiv";
+static const char str3473[] = "lldiv";
+static const char str3474[] = "strtoll";
+static const char str3475[] = "strtoull";
+static const char str3476[] = "qsort";
+static const char str3477[] = "bsearch";
+static const char str3478[] = "strtoul";
+static const char str3479[] = "_malloc_impl";
+static const char str3480[] = "_free_impl";
+static const char str3481[] = "_realloc_impl";
+static const char str3482[] = "morecore";
+static const char str3483[] = "env_lookup_value";
+static const char str3484[] = "_vfprintf_impl";
+static const char str3485[] = "_fmt_";
+static const char str3486[] = "/lib/libc/pthread.uya";
+static const char str3487[] = "lib/libc/pthread.uya";
+static const char str3488[] = "heap.uya";
+static const char str3489[] = "stdlib.uya";
+static const char str3490[] = "stdio.uya";
+static const char str3491[] = "errno";
+static const char str3492[] = "errno.uya";
+static const char str3493[] = "rand_seed";
+static const char str3494[] = "rand_max_val";
+static const char str3495[] = "opendir_storage";
+static const char str3496[] = "readdir_result";
+static const char str3497[] = "char";
+static const char str3498[] = "const %s *";
+static const char str3499[] = "%s *";
+static const char str3500[] = "libc/syscall";
+static const char str3501[] = "syscall/linux";
+static const char str3502[] = "libc_";
+static const char str3503[] = "std_";
+static const char str3504[] = "tls_";
+static const char str3505[] = "\\src\\";
+static const char str3506[] = "src\\";
+static const char str3507[] = "uya_priv_%u_%s";
+static const char str3508[] = "uya_main";
+static const char str3509[] = "CLOCKS_PER_SEC";
+static const char str3510[] = "copy_type";
+static const char str3511[] = "struct Type *";
+static const char str3512[] = "const struct Type *";
+static const char str3513[] = "(*)";
+static const char str3514[] = "%s (*%s)%s";
+static const char str3515[] = "%s %s%s";
+static const char str3516[] = "const struct Type * %s";
+static const char str3517[] = "extern %s main(";
+static const char str3518[] = "char **%s";
+static const char str3519[] = "%s uya_main(void);\n";
+static const char str3520[] = "uya_thread_call_i32";
+static const char str3521[] = "uya_thread_call_u32";
+static const char str3522[] = "uya_thread_call_usize";
+static const char str3523[] = "_pthread_call_start";
+static const char str3524[] = "static __attribute__((used,noinline)) %s %s(";
+static const char str3525[] = "static __attribute__((used)) %s %s(";
+static const char str3526[] = "%s %s(";
+static const char str3527[] = "extern %s %s(";
+static const char str3528[] = "%s *%s";
+static const char str3529[] = "%s %s_param%s";
+static const char str3530[] = "%s %s_param";
+static const char str3531[] = "%s %s(void)";
+static const char str3532[] = "__attribute__((naked)) ";
+static const char str3533[] = "static __attribute__((used,noinline)) ";
+static const char str3534[] = "static __attribute__((used)) ";
+static const char str3535[] = "__attribute__((used)) ";
+static const char str3536[] = "uint8_t **%s";
+static const char str3537[] = "    uya_run_tests();\n";
+static const char str3538[] = ") {\n";
+static const char str3539[] = "// 数组参数按值传递：创建局部副本\n";
+static const char str3540[] = "    %s %s%s;\n";
+static const char str3541[] = "%s %s;\n";
+static const char str3542[] = "    __uya_memcpy(%s, %s_param, sizeof(%s));\n";
+static const char str3543[] = "(void)%s_param;\n";
+static const char str3544[] = "(void)%s;\n";
+static const char str3545[] = "return (%s){ .error_id = 0 };\n";
+static const char str3546[] = "return (%s){0};\n";
+static const char str3547[] = "return 0;\n";
+static const char str3548[] = "@async_fn C99 await 元数据扩容失败，内部状态无效";
+static const char str3549[] = "@async_fn C99 await 元数据扩容失败，容量计算溢出";
+static const char str3550[] = "async-await-codegen";
+static const char str3551[] = "@async_fn C99 await 元数据扩容失败，编译器资源不足；请减少 @await 数量或提高可用内存";
+static const char str3552[] = "@async_fn C99 await 元数据扩容失败，无法分配 await 元数据表";
+static const char str3553[] = "        s->_uya_inline_await_%d._uya_frame_active = 1; s->_uya_inline_await_%d.state = 0; __builtin_memset((void *)&s->_uya_inline_await_%d.await_fut, 0, sizeof(s->_uya_inline_await_%d.await_fut)); ";
+static const char str3554[] = "s->_uya_inline_await_%d.%s = ";
+static const char str3555[] = "        ({ %s _uya_await_tmp = ";
+static const char str3556[] = "; if (_uya_await_tmp.error_id != 0) abort(); s->_uya_await_storage = *(struct %s *)_uya_await_tmp.value.data; s->await_fut.vtable = (void*)_uya_await_tmp.value.vtable; s->await_fut.data = (void*)&s->_uya_await_storage; });\n";
+static const char str3557[] = "; if (_uya_await_tmp.error_id != 0) abort(); s->await_fut.vtable = (void*)_uya_await_tmp.value.vtable; s->await_fut.data = _uya_await_tmp.value.data; });\n";
+static const char str3558[] = "        abort(); /* await_fut: missing C type for Future operand */\n";
+static const char str3559[] = "        { ";
+static const char str3560[] = "%s _uya_await_slot_tmp = ";
+static const char str3561[] = "; s->await_fut.vtable = (void*)_uya_await_slot_tmp.vtable; s->await_fut.data = _uya_await_slot_tmp.data; }\n";
+static const char str3562[] = "        __builtin_memset((void *)&%s->_uya_loc_%s, 0, sizeof(%s->_uya_loc_%s));\n";
+static const char str3563[] = "        __uya_memcpy((void *)%s->_uya_loc_%s, (const void *)(const ";
+static const char str3564[] = "[]){";
+static const char str3565[] = "}, ((size_t)(%d)) * sizeof(%s->_uya_loc_%s[0]));\n";
+static const char str3566[] = "}, sizeof(%s->_uya_loc_%s));\n";
+static const char str3567[] = "        %s->_uya_loc_%s = (struct uya_interface_%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&(";
+static const char str3568[] = ") };\n";
+static const char str3569[] = "        %s->_uya_loc_%s = ";
+static const char str3570[] = "__uya_fe_%d_%d";
+static const char str3571[] = "__uya_fi_%d_%d";
+static const char str3572[] = "__uya_ar_%d_%d_len";
+static const char str3573[] = "__uya_ar_%d_%d_i";
+static const char str3574[] = "_uya_s";
+static const char str3575[] = "_uya_e";
+static const char str3576[] = "_uya_i";
+static const char str3577[] = "        s->state = %d;\n";
+static const char str3578[] = "        return (%s){ ._tag = 0 };\n";
+static const char str3579[] = "        goto _uya_async_if_exit_%zu;\n";
+static const char str3580[] = "        goto _uya_async_while_head_%zu;\n";
+static const char str3581[] = "_uya_async_while_head_%zu:\n";
+static const char str3582[] = "        if (";
+static const char str3583[] = "        }\n";
+static const char str3584[] = "_uya_async_while_exit_%zu:\n";
+static const char str3585[] = "        ";
+static const char str3586[] = "%s->_uya_loc_%s = &";
+static const char str3587[] = "];\n";
+static const char str3588[] = "__uya_memcpy((void *)&%s->_uya_loc_%s, ";
+static const char str3589[] = "], sizeof(";
+static const char str3590[] = "%s->_uya_loc_%s));\n";
+static const char str3591[] = "%s->_uya_loc_%s = ";
+static const char str3592[] = "        %s->_uya_loc_%s++;\n";
+static const char str3593[] = "%s->_uya_loc_%s < %s->_uya_loc_%s";
+static const char str3594[] = "        } else {\n";
+static const char str3595[] = "        {\n";
+static const char str3596[] = "        %s _uya_iter_next_result = %s(&%s->_uya_loc_%s);\n";
+static const char str3597[] = "        if (_uya_iter_next_result.error_id == 0) {\n";
+static const char str3598[] = "        %s->_uya_loc_%s = %s(&%s->_uya_loc_%s);\n";
+static const char str3599[] = "%s->_uya_loc_%s";
+static const char str3600[] = "        %s->_uya_loc_%s = %s->_uya_loc_%s;\n";
+static const char str3601[] = "%s->_uya_loc_%s = sizeof(";
+static const char str3602[] = ") / sizeof(";
+static const char str3603[] = "[0]);\n";
+static const char str3604[] = "        %s->_uya_loc_%s = 0;\n";
+static const char str3605[] = "_uya_async_if_exit_%zu:\n";
+static const char str3606[] = "        %s->_uya_loc_%s = %s;\n";
+static const char str3607[] = "        %s = %s;\n";
+static const char str3608[] = "        %s %s;\n";
+static const char str3609[] = "        %s _uya_async_catch_tmp_%zu = ";
+static const char str3610[] = "        if (_uya_async_catch_tmp_%zu.error_id != 0) {\n";
+static const char str3611[] = "        const uint32_t %s = _uya_async_catch_tmp_%zu.error_id;\n";
+static const char str3612[] = "_uya_async_catch_tmp_%zu.value";
+static const char str3613[] = "        %s ok = (%s){ .error_id = 0, .value = ";
+static const char str3614[] = "({ struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s)); if (_uya_box != (void*)0) { *_uya_box = ";
+static const char str3615[] = "; } (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)_uya_box }; })";
+static const char str3616[] = "({ struct %s *_uya_box = (struct %s *)std_async_box_alloc_current(sizeof(struct %s)); if (_uya_box != (void*)0) { *_uya_box = (struct %s){ .state = (%s){ ._tag = 1, .u = (%s){ .Ready = ";
+static const char str3617[] = " } } }; } (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)_uya_box }; })";
+static const char str3618[] = "(%s){ .vtable = (void*)0, .data = (void*)0 }";
+static const char str3619[] = " };\n";
+static const char str3620[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = ok.value } };\n";
+static const char str3621[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = (*(struct %s *)ok.value.data).state.u.Ready } };\n";
+static const char str3622[] = "        %s ok = (%s){ .error_id = 0 };\n";
+static const char str3623[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = ok } };\n";
+static const char str3624[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = ";
+static const char str3625[] = " } };\n";
+static const char str3626[] = "struct uya_tagged_%s";
+static const char str3627[] = "union %s";
+static const char str3628[] = "struct uya_tagged_Poll_i32";
+static const char str3629[] = "union Poll_i32";
+static const char str3630[] = "@async_fn lowering await 点表缺失，无法继续生成状态机";
+static const char str3631[] = "@async_fn C99 await 元数据扩容失败，无法分配局部 await 表";
+static const char str3632[] = "__uya_expr_tmp_%d";
+static const char str3633[] = "async-param-codegen";
+static const char str3634[] = "@async_fn C99 参数元数据扩容失败，编译器资源不足；请减少参数数量或提高可用内存";
+static const char str3635[] = "@async_fn C99 参数元数据扩容失败，无法分配参数捕获表";
+static const char str3636[] = "struct uya_interface_%s";
+static const char str3637[] = "uya_async_%s";
+static const char str3638[] = "%s_poll";
+static const char str3639[] = "uya_vtable_%s_%s";
+static const char str3640[] = "uya_%s_release";
+static const char str3641[] = "_uya_alloc_%s";
+static const char str3642[] = "_uya_free_%s";
+static const char str3643[] = "uya_vtable_%s";
+static const char str3644[] = "struct uya_vtable_%s { %s (*poll)(void *self, struct Waker *); };\n";
+static const char str3645[] = " { int32_t state; int32_t _uya_frame_active; uint32_t _uya_frame_error; ";
+static const char str3646[] = "struct %s _uya_await_storage; ";
+static const char str3647[] = "struct { void *vtable; void *data; } await_fut;";
+static const char str3648[] = "%s await_fut;";
+static const char str3649[] = "struct %s _uya_inline_await_%d; ";
+static const char str3650[] = "_uya_bind_";
+static const char str3651[] = "_uya_loc_";
+static const char str3652[] = " } __attribute__((aligned(%d)));\n";
+static const char str3653[] = "%s_frame_stop";
+static const char str3654[] = "static %s %s(void *self, struct Waker *waker);\n";
+static const char str3655[] = "static void %s(struct %s *s);\n";
+static const char str3656[] = "s";
+static const char str3657[] = "async-param-names";
+static const char str3658[] = "@async_fn C99 参数名捕获表扩容失败，编译器资源不足；请减少参数数量或提高可用内存";
+static const char str3659[] = "@async_fn C99 参数名捕获表扩容失败，无法分配参数名表";
+static const char str3660[] = "static %s %s(void *self, struct Waker *waker) {\n";
+static const char str3661[] = "    struct %s *s = (struct %s *)self;\n";
+static const char str3662[] = "    if (s == (void*)0) { return (%s){ ._tag = 0 }; }\n";
+static const char str3663[] = "    if (s->_uya_frame_active == 0) { abort(); }\n";
+static const char str3664[] = "    if (s->state == 0) {\n";
+static const char str3665[] = "    }\n";
+static const char str3666[] = "    if (s->state == %d) {\n";
+static const char str3667[] = "        %s p = %s(&s->_uya_inline_await_%d, waker);\n";
+static const char str3668[] = "        %s p = ((struct uya_vtable_%s *)s->await_fut.vtable)->poll(s->await_fut.data, waker);\n";
+static const char str3669[] = "        if (p._tag == 0) { return (%s){ ._tag = 0 }; }\n";
+static const char str3670[] = "        %s r = p.u.Ready;\n";
+static const char str3671[] = "        if (r.error_id != 0) {\n";
+static const char str3672[] = "        if (s->await_fut.data != (void*)0 && s->await_fut.data != (void*)&s->_uya_await_storage) { if (s->await_fut.vtable != (void*)0) { void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1]; if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data); } }\n";
+static const char str3673[] = "        if (s->await_fut.data != (void*)0) { if (s->await_fut.vtable != (void*)0) { void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1]; if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data); } }\n";
+static const char str3674[] = "        s->await_fut.data = (void*)0; s->await_fut.vtable = (void*)0;\n";
+static const char str3675[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = (%s){ .error_id = r.error_id, .value = (%s){0} } } };\n";
+static const char str3676[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = r } };\n";
+static const char str3677[] = "        s->_uya_bind_%s = r;\n";
+static const char str3678[] = "        s->_uya_bind_%s = r.value;\n";
+static const char str3679[] = "        %s _uya_async_cont_ok = (%s){ .error_id = 0, .value = r.value };\n";
+static const char str3680[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_cont_ok } };\n";
+static const char str3681[] = "        %s _uya_async_cont_ret = (%s){ .error_id = 0, .value = ";
+static const char str3682[] = "        return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_cont_ret } };\n";
+static const char str3683[] = "        s->_uya_bind_%s = p.u.Ready;\n";
+static const char str3684[] = "({ struct %s _uya_f = ";
+static const char str3685[] = "; (%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&_uya_f }; }) };\n";
+static const char str3686[] = "        abort();\n";
+static const char str3687[] = "        s->state = 0;\n";
+static const char str3688[] = "    {\n";
+static const char str3689[] = "    abort();\n";
+static const char str3690[] = "    return (%s){ ._tag = 0 };\n";
+static const char str3691[] = "%s_frame_start";
+static const char str3692[] = "%s_frame_init";
+static const char str3693[] = "%s_frame_drop_fields";
+static const char str3694[] = "static void %s(struct %s *s) {\n";
+static const char str3695[] = "    if (s == (void*)0) return;\n";
+static const char str3696[] = "    if (s->_uya_frame_active == 0) return;\n";
+static const char str3697[] = "    if (s->await_fut.data != (void*)0 && s->await_fut.vtable != (void*)0) {\n";
+static const char str3698[] = "        void (*_uya_rel)(void*) = (void (*)(void*))((void**)s->await_fut.vtable)[1];\n";
+static const char str3699[] = "        if (_uya_rel != (void*)0) _uya_rel(s->await_fut.data);\n";
+static const char str3700[] = "        s->await_fut.data = (void*)0;\n        s->await_fut.vtable = (void*)0;\n    }\n";
+static const char str3701[] = "    %s(&s->_uya_inline_await_%d);\n";
+static const char str3702[] = "    s->state = 0;\n";
+static const char str3703[] = "    s->_uya_frame_active = 0;\n";
+static const char str3704[] = "static void %s(struct %s *s";
+static const char str3705[] = "    if (s->_uya_frame_active != 0) %s(s);\n";
+static const char str3706[] = "    s->state = 0; s->_uya_frame_active = 1; s->_uya_frame_error = 0; __builtin_memset((void *)&s->await_fut, 0, sizeof(s->await_fut)); ";
+static const char str3707[] = "s->%s = %s; ";
+static const char str3708[] = "\n}\n";
+static const char str3709[] = "    %s(s";
+static const char str3710[] = ");\n}\n";
+static const char str3711[] = "    %s(s);\n}\n";
+static const char str3712[] = "static _Atomic(void*) %s_pool_head = (void*)0;\n";
+static const char str3713[] = "static _Atomic(int32_t) %s_pool_count = 0;\n";
+static const char str3714[] = "static const int32_t %s_pool_cap = 4096;\n";
+static const char str3715[] = "static struct %s *%s(void) {\n";
+static const char str3716[] = "    const size_t _uya_frame_header_size = __builtin_offsetof(struct { uintptr_t _uya_alloc_owner; struct %s _uya_payload; }, _uya_payload);\n";
+static const char str3717[] = "    struct uya_interface_IAllocator *a = std_get_async_frame_allocator();\n";
+static const char str3718[] = "    if (a != (void*)0) { struct err_union_uint8_tptr r = ((struct uya_vtable_IAllocator *)a->vtable)->alloc(a->data, _uya_frame_header_size + sizeof(struct %s)); if (r.error_id == 0) { uintptr_t *_uya_hdr = (uintptr_t *)r.value; *_uya_hdr = (uintptr_t)a; __builtin_memset((void *)((uint8_t *)r.value + _uya_frame_header_size), 0, sizeof(struct %s)); return (struct %s *)((uint8_t *)r.value + _uya_frame_header_size); } return (struct %s *)0; }\n";
+static const char str3719[] = "    void *head = __atomic_load_n((void **)&%s_pool_head, __ATOMIC_ACQUIRE);\n";
+static const char str3720[] = "    while (head != (void*)0) {\n";
+static const char str3721[] = "        void *next = *(void**)head;\n";
+static const char str3722[] = "        if (__atomic_compare_exchange_n((void **)&%s_pool_head, &head, next, 1, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {\n";
+static const char str3723[] = "            __atomic_sub_fetch((int32_t *)&%s_pool_count, 1, __ATOMIC_RELAXED);\n";
+static const char str3724[] = "            *(uintptr_t *)head = 0;\n";
+static const char str3725[] = "            __builtin_memset((void *)((uint8_t *)head + _uya_frame_header_size), 0, sizeof(struct %s));\n";
+static const char str3726[] = "            return (struct %s *)((uint8_t *)head + _uya_frame_header_size);\n";
+static const char str3727[] = "        }\n    }\n";
+static const char str3728[] = "    uint8_t *_uya_raw = (uint8_t *)malloc(_uya_frame_header_size + sizeof(struct %s));\n";
+static const char str3729[] = "    if (_uya_raw == (void*)0) return (void*)0;\n";
+static const char str3730[] = "    *(uintptr_t *)_uya_raw = 0;\n";
+static const char str3731[] = "    __builtin_memset((void *)(_uya_raw + _uya_frame_header_size), 0, sizeof(struct %s));\n";
+static const char str3732[] = "    return (struct %s *)(_uya_raw + _uya_frame_header_size);\n}\n";
+static const char str3733[] = "static void %s(struct %s *p) {\n";
+static const char str3734[] = "    if (p == (void*)0) return;\n";
+static const char str3735[] = "    uint8_t *_uya_raw = ((uint8_t *)p) - _uya_frame_header_size;\n";
+static const char str3736[] = "    uintptr_t _uya_alloc_owner = *(uintptr_t *)_uya_raw;\n";
+static const char str3737[] = "    if (_uya_alloc_owner != 0) { struct uya_interface_IAllocator *a = (struct uya_interface_IAllocator *)(void *)_uya_alloc_owner; ((struct uya_vtable_IAllocator *)a->vtable)->dealloc(a->data, _uya_raw); return; }\n";
+static const char str3738[] = "    int32_t cnt = __atomic_load_n((int32_t *)&%s_pool_count, __ATOMIC_RELAXED);\n";
+static const char str3739[] = "    if (cnt >= %s_pool_cap) { free(_uya_raw); return; }\n";
+static const char str3740[] = "    void *head = __atomic_load_n((void **)&%s_pool_head, __ATOMIC_RELAXED);\n";
+static const char str3741[] = "    do {\n";
+static const char str3742[] = "        *(void**)_uya_raw = head;\n";
+static const char str3743[] = "        if (__atomic_compare_exchange_n((void **)&%s_pool_head, &head, _uya_raw, 1, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {\n";
+static const char str3744[] = "            __atomic_add_fetch((int32_t *)&%s_pool_count, 1, __ATOMIC_RELAXED);\n";
+static const char str3745[] = "            return;\n        }\n    } while (1);\n}\n";
+static const char str3746[] = "static void %s(void *self) {\n";
+static const char str3747[] = "    %s((struct %s *)self);\n";
+static const char str3748[] = "        s->await_fut.data = (void*)0;\n    }\n";
+static const char str3749[] = "    %s((struct %s*)self);\n}\n";
+static const char str3750[] = "uya_interface_%s";
+static const char str3751[] = "struct uya_interface_%s { void *vtable; void *data; };\n";
+static const char str3752[] = "struct uya_vtable_%s {\n  %s (*poll)(void *self, struct Waker *);\n  void (*release)(void *self);\n};\n";
+static const char str3753[] = "static const struct uya_vtable_%s %s = { (%s (*)(void *self, struct Waker *))&%s, (void (*)(void *self))&%s };\n";
+static const char str3754[] = "    struct %s *s = %s();\n";
+static const char str3755[] = "AsyncFramePoolFull";
+static const char str3756[] = "    if (s == (void*)0) { return (%s){ .error_id = %dU, .value = (%s){0} }; }\n";
+static const char str3757[] = "    if (s == (void*)0) { abort(); }\n";
+static const char str3758[] = "    s->state = 0; __builtin_memset((void *)&s->await_fut, 0, sizeof(s->await_fut));\n";
+static const char str3759[] = "    s->%s = %s;\n";
+static const char str3760[] = "    if (s->_uya_frame_error != 0) {\n";
+static const char str3761[] = "        return (%s){ .error_id = s->_uya_frame_error, .value = (%s){0} };\n";
+static const char str3762[] = "    return (%s){ .error_id = 0, .value = (%s){ .vtable = (void*)&%s, .data = (void*)s } };\n";
+static const char str3763[] = "    return (%s){ .vtable = (void*)&%s, .data = (void*)s };\n";
+static const char str3764[] = "/* drop field */ %s(%s.%s);\n";
+static const char str3765[] = "switch (%s._tag) {\n";
+static const char str3766[] = "case %d:\n";
+static const char str3767[] = "/* drop active union variant */ %s(%s.u.%s);\n";
+static const char str3768[] = "break;\n";
+static const char str3769[] = "default:\n";
+static const char str3770[] = "%s_mono";
+static const char str3771[] = "thread_async_compute_i32";
+static const char str3772[] = "thread_async_compute_u32";
+static const char str3773[] = "thread_async_compute_usize";
+static const char str3774[] = "thread_async_compute_i64";
+static const char str3775[] = "thread_async_compute_u64";
+static const char str3776[] = "thread_async_compute_i16";
+static const char str3777[] = "thread_async_compute_u16";
+static const char str3778[] = "thread_async_compute_i8";
+static const char str3779[] = "thread_async_compute_u8";
+static const char str3780[] = "thread_async_compute_bool";
+static const char str3781[] = "thread_async_compute_f32";
+static const char str3782[] = "thread_async_compute_f64";
+static const char str3783[] = "(%s ? 1 : 0)";
+static const char str3784[] = "thread_f32_arg_bits(%s)";
+static const char str3785[] = "thread_f64_arg_bits(%s)";
+static const char str3786[] = "(size_t)%s";
+static const char str3787[] = "    return %s(pool, compute_fn, arg);\n";
+static const char str3788[] = "to_json";
+static const char str3789[] = "websocket_conn_write_json";
+static const char str3790[] = "from_json";
+static const char str3791[] = "(void)";
+static const char str3792[] = "(const uint8_t *)";
+static const char str3793[] = "{ .ptr = ";
+static const char str3794[] = "const %s %s%s";
+static const char str3795[] = "const %s %s";
+static const char str3796[] = "%s->%s";
+static const char str3797[] = "__uya_local_s";
+static const char str3798[] = "libc_errno";
+static const char str3799[] = "/lib/syscall/";
+static const char str3800[] = "\\lib\\syscall\\";
+static const char str3801[] = "extern %s %s;\n";
+static const char str3802[] = "extern const %s %s;\n";
+static const char str3803[] = "extern %s %s%s;\n";
+static const char str3804[] = "extern const %s %s%s;\n";
+static const char str3805[] = "%s/uya_mirror_globals.h";
+static const char str3806[] = "#ifndef UYA_MIRROR_GLOBALS_H\n#define UYA_MIRROR_GLOBALS_H\n\n";
+static const char str3807[] = "/* 镜像分 TU：全局 extern（须在 uya_split_protos.h 之后包含，以便类型已可见） */\n";
+static const char str3808[] = "RAND_MAX";
+static const char str3809[] = "\n#endif /* UYA_MIRROR_GLOBALS_H */\n";
+static const char str3810[] = "UYA_PROFILE_CODEGEN";
+static const char str3811[] = "// microapp bridge dispatch shim（portable runtime bridge ABI v1）\n";
+static const char str3812[] = "enum { UYA_MICROAPP_BRIDGE_ABI_MAGIC = 0x55414249U, UYA_MICROAPP_BRIDGE_ABI_VERSION = 1U };\n";
+static const char str3813[] = "enum { UYA_MICROAPP_SYS_PRINT = 1U, UYA_MICROAPP_SYS_ALLOC = 2U, UYA_MICROAPP_SYS_IO = 3U, UYA_MICROAPP_SYS_YIELD = 4U, UYA_MICROAPP_SYS_TIME = 5U };\n";
+static const char str3814[] = "struct UyaMicroappBridgeAbiV1 { uint32_t magic; uint32_t version; uintptr_t dispatch2; };\n";
+static const char str3815[] = "static __attribute__((used)) volatile struct UyaMicroappBridgeAbiV1 uya_microapp_bridge_abi_v1 = { UYA_MICROAPP_BRIDGE_ABI_MAGIC, UYA_MICROAPP_BRIDGE_ABI_VERSION, 0 };\n";
+static const char str3816[] = "static inline long uya_microapp_bridge_dispatch2(long nr, long a1, long a2) {\n";
+static const char str3817[] = "    if (uya_microapp_bridge_abi_v1.magic != UYA_MICROAPP_BRIDGE_ABI_MAGIC || uya_microapp_bridge_abi_v1.version != UYA_MICROAPP_BRIDGE_ABI_VERSION) { return -1; }\n";
+static const char str3818[] = "    if (uya_microapp_bridge_abi_v1.dispatch2 == 0) { return -1; }\n";
+static const char str3819[] = "    typedef long (*uya_bridge_dispatch2_fn)(long, long, long);\n";
+static const char str3820[] = "    return ((uya_bridge_dispatch2_fn)(uintptr_t)uya_microapp_bridge_abi_v1.dispatch2)(nr, a1, a2);\n";
+static const char str3821[] = "static inline long uya_microapp_bridge_dispatch1(long nr, long a1) { return uya_microapp_bridge_dispatch2(nr, a1, 0); }\n";
+static const char str3822[] = "static inline long uya_microapp_bridge_dispatch0(long nr) { return uya_microapp_bridge_dispatch2(nr, 0, 0); }\n\n";
+static const char str3823[] = "// microapp MMU translation hook（native adapter：按当前进程内存映射做权限校验）\n";
+static const char str3824[] = "extern char *getenv(const char *name);\n";
+static const char str3825[] = "extern int open(const char *pathname, int flags, ...);\n";
+static const char str3826[] = "extern int64_t read(int32_t fd, char *buf, size_t count);\n";
+static const char str3827[] = "extern int32_t close(int32_t fd);\n";
+static const char str3828[] = "struct FILE;\n";
+static const char str3829[] = "extern struct FILE *fopen(const char *filename, const char *mode);\n";
+static const char str3830[] = "extern int32_t fclose(struct FILE *stream);\n";
+static const char str3831[] = "extern char *fgets(char *buf, int32_t n, struct FILE *stream);\n";
+static const char str3832[] = "extern int32_t sscanf(const char *str, const char *format, ...);\n";
+static const char str3833[] = "extern int32_t fputs(const char *s, struct FILE *stream);\n";
+static const char str3834[] = "extern int32_t fputc(int32_t c, struct FILE *stream);\n";
+static const char str3835[] = "extern int32_t fprintf(struct FILE *stream, const char *format, ...);\n";
+static const char str3836[] = "extern struct FILE *stderr;\n";
+static const char str3837[] = "enum { UYA_MMU_ACCESS_R = 1U, UYA_MMU_ACCESS_W = 2U, UYA_MMU_ACCESS_X = 4U };\n";
+static const char str3838[] = "struct UyaMmuRegion { uintptr_t start; uintptr_t end; unsigned int perms; };\n";
+static const char str3839[] = "enum { UYA_MMU_REGION_MAX = 512U };\n";
+static const char str3840[] = "static int _uya_mmu_internal_depth = 0;\n";
+static const char str3841[] = "static int _uya_mmu_debug_enabled = -1;\n";
+static const char str3842[] = "static int _uya_mmu_maps_ready = 0;\n";
+static const char str3843[] = "static size_t _uya_mmu_region_count = 0;\n";
+static const char str3844[] = "static struct UyaMmuRegion _uya_mmu_regions[UYA_MMU_REGION_MAX];\n";
+static const char str3845[] = "static inline void _uya_mmu_internal_begin(void) { _uya_mmu_internal_depth = _uya_mmu_internal_depth + 1; }\n";
+static const char str3846[] = "static inline void _uya_mmu_internal_end(void) { if (_uya_mmu_internal_depth > 0) { _uya_mmu_internal_depth = _uya_mmu_internal_depth - 1; } }\n";
+static const char str3847[] = "static inline unsigned int _uya_mmu_parse_perms(const char *perms) {\n";
+static const char str3848[] = "    unsigned int out = 0U;\n";
+static const char str3849[] = "    if (perms != NULL) {\n";
+static const char str3850[] = "        if (perms[0] == 'r') { out |= UYA_MMU_ACCESS_R; }\n";
+static const char str3851[] = "        if (perms[1] == 'w') { out |= UYA_MMU_ACCESS_W; }\n";
+static const char str3852[] = "        if (perms[2] == 'x') { out |= UYA_MMU_ACCESS_X; }\n";
+static const char str3853[] = "    return out;\n";
+static const char str3854[] = "static inline unsigned int _uya_mmu_hex_digit(int32_t ch) {\n";
+static const char str3855[] = "    if (ch >= '0' && ch <= '9') { return (unsigned int)(ch - '0'); }\n";
+static const char str3856[] = "    if (ch >= 'a' && ch <= 'f') { return 10U + (unsigned int)(ch - 'a'); }\n";
+static const char str3857[] = "    if (ch >= 'A' && ch <= 'F') { return 10U + (unsigned int)(ch - 'A'); }\n";
+static const char str3858[] = "    return 255U;\n";
+static const char str3859[] = "static inline void _uya_mmu_ingest_map_line(const char *line) {\n";
+static const char str3860[] = "    const char *cursor = line;\n";
+static const char str3861[] = "    unsigned long long start = 0ULL;\n";
+static const char str3862[] = "    unsigned long long end = 0ULL;\n";
+static const char str3863[] = "    char perms[5] = {0};\n";
+static const char str3864[] = "    int have_start = 0;\n";
+static const char str3865[] = "    int have_end = 0;\n";
+static const char str3866[] = "    while (cursor[0] == ' ' || cursor[0] == '\\t') { cursor = cursor + 1; }\n";
+static const char str3867[] = "    while (cursor[0] != 0 && cursor[0] != '-') {\n";
+static const char str3868[] = "        const unsigned int nibble = _uya_mmu_hex_digit((int32_t)cursor[0]);\n";
+static const char str3869[] = "        if (nibble > 15U) { have_start = 0; break; }\n";
+static const char str3870[] = "        start = (start << 4U) | (unsigned long long)nibble;\n";
+static const char str3871[] = "        have_start = 1;\n";
+static const char str3872[] = "        cursor = cursor + 1;\n";
+static const char str3873[] = "    if (have_start == 0 || cursor[0] != '-') { return; }\n";
+static const char str3874[] = "    cursor = cursor + 1;\n";
+static const char str3875[] = "    while (cursor[0] != 0 && cursor[0] != ' ' && cursor[0] != '\\t') {\n";
+static const char str3876[] = "        if (nibble > 15U) { have_end = 0; break; }\n";
+static const char str3877[] = "        end = (end << 4U) | (unsigned long long)nibble;\n";
+static const char str3878[] = "        have_end = 1;\n";
+static const char str3879[] = "    perms[0] = cursor[0]; perms[1] = cursor[1]; perms[2] = cursor[2]; perms[3] = cursor[3]; perms[4] = 0;\n";
+static const char str3880[] = "    if (have_start != 0 && have_end != 0 && perms[0] != 0 && perms[1] != 0 && perms[2] != 0) {\n";
+static const char str3881[] = "        if (_uya_mmu_region_count < UYA_MMU_REGION_MAX) {\n";
+static const char str3882[] = "            _uya_mmu_regions[_uya_mmu_region_count].start = (uintptr_t)start;\n";
+static const char str3883[] = "            _uya_mmu_regions[_uya_mmu_region_count].end = (uintptr_t)end;\n";
+static const char str3884[] = "            _uya_mmu_regions[_uya_mmu_region_count].perms = _uya_mmu_parse_perms(perms);\n";
+static const char str3885[] = "            _uya_mmu_region_count = _uya_mmu_region_count + 1U;\n";
+static const char str3886[] = "static inline int _uya_mmu_debug_once(void) {\n";
+static const char str3887[] = "    if (_uya_mmu_debug_enabled >= 0) { return _uya_mmu_debug_enabled; }\n";
+static const char str3888[] = "    _uya_mmu_internal_begin();\n";
+static const char str3889[] = "    const char *flag = getenv(\"MICROAPP_DEBUG_MMU\");\n";
+static const char str3890[] = "    _uya_mmu_internal_end();\n";
+static const char str3891[] = "    if (flag != NULL && flag[0] != 0 && flag[0] != '0') { _uya_mmu_debug_enabled = 1; } else { _uya_mmu_debug_enabled = 0; }\n";
+static const char str3892[] = "    return _uya_mmu_debug_enabled;\n";
+static const char str3893[] = "static inline void _uya_mmu_refresh_maps(void) {\n";
+static const char str3894[] = "    if (_uya_mmu_maps_ready != 0) { return; }\n";
+static const char str3895[] = "    _uya_mmu_maps_ready = 1;\n";
+static const char str3896[] = "    int fd = open(\"/proc/self/maps\", 0);\n";
+static const char str3897[] = "    if (fd < 0) { _uya_mmu_internal_end(); return; }\n";
+static const char str3898[] = "    char line[512];\n";
+static const char str3899[] = "    char chunk[1024];\n";
+static const char str3900[] = "    size_t line_len = 0U;\n";
+static const char str3901[] = "    while (1) {\n";
+static const char str3902[] = "        const int64_t bytes_read = read(fd, chunk, sizeof(chunk));\n";
+static const char str3903[] = "        if (bytes_read <= 0) { break; }\n";
+static const char str3904[] = "        size_t chunk_pos = 0U;\n";
+static const char str3905[] = "        while (chunk_pos < (size_t)bytes_read) {\n";
+static const char str3906[] = "            const char ch = chunk[chunk_pos];\n";
+static const char str3907[] = "            if (ch == '\\n') {\n";
+static const char str3908[] = "                line[line_len] = 0;\n";
+static const char str3909[] = "                _uya_mmu_ingest_map_line(line);\n";
+static const char str3910[] = "                line_len = 0U;\n";
+static const char str3911[] = "            } else if (line_len + 1U < sizeof(line)) {\n";
+static const char str3912[] = "                line[line_len] = ch;\n";
+static const char str3913[] = "                line_len = line_len + 1U;\n";
+static const char str3914[] = "            }\n";
+static const char str3915[] = "            chunk_pos = chunk_pos + 1U;\n";
+static const char str3916[] = "    if (line_len > 0U) {\n";
+static const char str3917[] = "        line[line_len] = 0;\n";
+static const char str3918[] = "        _uya_mmu_ingest_map_line(line);\n";
+static const char str3919[] = "    (void)close(fd);\n";
+static const char str3920[] = "static inline const struct UyaMmuRegion *_uya_mmu_find_region(uintptr_t addr) {\n";
+static const char str3921[] = "    size_t i = 0;\n";
+static const char str3922[] = "    while (i < _uya_mmu_region_count) {\n";
+static const char str3923[] = "        if (addr >= _uya_mmu_regions[i].start && addr < _uya_mmu_regions[i].end) { return &_uya_mmu_regions[i]; }\n";
+static const char str3924[] = "        i = i + 1U;\n";
+static const char str3925[] = "    return (const struct UyaMmuRegion *)0;\n";
+static const char str3926[] = "static inline void _uya_mmu_write_u64_hex(unsigned long long value) {\n";
+static const char str3927[] = "    char digits[16];\n";
+static const char str3928[] = "    size_t pos = 0;\n";
+static const char str3929[] = "    if (value == 0ULL) { fputc((int32_t)'0', stderr); return; }\n";
+static const char str3930[] = "    while (value != 0ULL && pos < 16U) {\n";
+static const char str3931[] = "        const unsigned int nibble = (unsigned int)(value & 15ULL);\n";
+static const char str3932[] = "        digits[pos] = (nibble < 10U) ? (char)('0' + nibble) : (char)('a' + (nibble - 10U));\n";
+static const char str3933[] = "        pos = pos + 1U;\n";
+static const char str3934[] = "        value = value >> 4U;\n";
+static const char str3935[] = "    while (pos > 0U) {\n";
+static const char str3936[] = "        pos = pos - 1U;\n";
+static const char str3937[] = "        fputc((int32_t)digits[pos], stderr);\n";
+static const char str3938[] = "static inline void *_uya_mmu_fault(const char *kind, uintptr_t addr, size_t size, unsigned int access) {\n";
+static const char str3939[] = "    if (_uya_mmu_debug_once() != 0) {\n";
+static const char str3940[] = "        _uya_mmu_internal_begin();\n";
+static const char str3941[] = "        fputs(\"[mmu] fault kind=\", stderr);\n";
+static const char str3942[] = "        fputs(kind, stderr);\n";
+static const char str3943[] = "        fputs(\" addr=0x\", stderr);\n";
+static const char str3944[] = "        _uya_mmu_write_u64_hex((unsigned long long)addr);\n";
+static const char str3945[] = "        fputs(\" size=\", stderr);\n";
+static const char str3946[] = "        fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
+static const char str3947[] = "        fputs(\" access=0x\", stderr);\n";
+static const char str3948[] = "        fprintf(stderr, \"%x\", access);\n";
+static const char str3949[] = "        fputc(10, stderr);\n";
+static const char str3950[] = "        _uya_mmu_internal_end();\n";
+static const char str3951[] = "    return (void *)0;\n";
+static const char str3952[] = "static inline void *uya_mmu_translate(void *addr, size_t size, unsigned int access) {\n";
+static const char str3953[] = "    if (addr == NULL) { return (void *)0; }\n";
+static const char str3954[] = "    if (size == 0) { return addr; }\n";
+static const char str3955[] = "    if (_uya_mmu_internal_depth > 0) { return addr; }\n";
+static const char str3956[] = "    if (_uya_mmu_maps_ready == 0) { _uya_mmu_refresh_maps(); }\n";
+static const char str3957[] = "    if (_uya_mmu_region_count == 0) {\n";
+static const char str3958[] = "        if (_uya_mmu_debug_once() != 0) {\n";
+static const char str3959[] = "            _uya_mmu_internal_begin();\n";
+static const char str3960[] = "            fputs(\"[mmu] translate addr=0x\", stderr);\n";
+static const char str3961[] = "            _uya_mmu_write_u64_hex((unsigned long long)(uintptr_t)addr);\n";
+static const char str3962[] = "            fputs(\" size=\", stderr);\n";
+static const char str3963[] = "            fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
+static const char str3964[] = "            fputs(\" access=0x\", stderr);\n";
+static const char str3965[] = "            fprintf(stderr, \"%x\", access);\n";
+static const char str3966[] = "            fputs(\" (maps unavailable, fallback direct)\", stderr);\n";
+static const char str3967[] = "            fputc(10, stderr);\n";
+static const char str3968[] = "            _uya_mmu_internal_end();\n";
+static const char str3969[] = "        return addr;\n";
+static const char str3970[] = "    const uintptr_t start = (uintptr_t)addr;\n";
+static const char str3971[] = "    const uintptr_t end = start + (uintptr_t)size - 1U;\n";
+static const char str3972[] = "    if (end < start) { return _uya_mmu_fault(\"overflow\", start, size, access); }\n";
+static const char str3973[] = "    uintptr_t cursor = start;\n";
+static const char str3974[] = "    while (cursor <= end) {\n";
+static const char str3975[] = "        const struct UyaMmuRegion *region = _uya_mmu_find_region(cursor);\n";
+static const char str3976[] = "        if (region == NULL) { return _uya_mmu_fault(\"unmapped\", cursor, size, access); }\n";
+static const char str3977[] = "        if (((access & UYA_MMU_ACCESS_R) != 0U) && ((region->perms & UYA_MMU_ACCESS_R) == 0U)) { return _uya_mmu_fault(\"read\", cursor, size, access); }\n";
+static const char str3978[] = "        if (((access & UYA_MMU_ACCESS_W) != 0U) && ((region->perms & UYA_MMU_ACCESS_W) == 0U)) { return _uya_mmu_fault(\"write\", cursor, size, access); }\n";
+static const char str3979[] = "        if (((access & UYA_MMU_ACCESS_X) != 0U) && ((region->perms & UYA_MMU_ACCESS_X) == 0U)) { return _uya_mmu_fault(\"exec\", cursor, size, access); }\n";
+static const char str3980[] = "        if (region->end <= cursor) { return _uya_mmu_fault(\"stalled\", cursor, size, access); }\n";
+static const char str3981[] = "        if (region->end > end) { break; }\n";
+static const char str3982[] = "        cursor = region->end;\n";
+static const char str3983[] = "        fputs(\"[mmu] translate addr=0x\", stderr);\n";
+static const char str3984[] = "        _uya_mmu_write_u64_hex((unsigned long long)start);\n";
+static const char str3985[] = "    return addr;\n";
+static const char str3986[] = "static uint8_t *uya_error_name_from_id(uint32_t uya_error_id) {\n";
+static const char str3987[] = "    switch (uya_error_id) {\n";
+static const char str3988[] = "        case %uU: return (uint8_t *)\"%s\";\n";
+static const char str3989[] = "        default: return (uint8_t *)\"UnknownError\";\n";
+static const char str3990[] = "abs";
+static const char str3991[] = "/std/async_frame.uya";
+static const char str3992[] = "future_ready_ok";
+static const char str3993[] = "std_future_ready_ok";
+static const char str3994[] = "task_ready_ok";
+static const char str3995[] = "std_task_ready_ok";
+static const char str3996[] = "uya_test_%u";
+static const char str3997[] = "static struct err_union_void %s(void) {\n";
+static const char str3998[] = "    return (struct err_union_void){ .error_id = 0 };\n";
+static const char str3999[] = "static void uya_run_tests(void) {\n";
+static const char str4000[] = "    printf(\"  TEST: %s ... \");\n";
+static const char str4001[] = "      struct err_union_void _test_result = ";
+static const char str4002[] = "%s();\n";
+static const char str4003[] = "      if (_test_result.error_id != 0) { printf(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n";
+static const char str4004[] = "      else { _test_case_passed = _test_case_passed + 1; printf(\"OK\\n\"); } }\n";
+static const char str4005[] = "compiler_bootstrap";
+static const char str4006[] = "// C99 代码由 Uya Mini 编译器生成\n";
+static const char str4007[] = "// 使用 -std=c99 编译\n";
+static const char str4008[] = "//\n";
+static const char str4009[] = "// 堆栈大小提示：此程序需要至少 %d KB 的堆栈空间\n";
+static const char str4010[] = "// 编译时请使用：ulimit -s %d\n";
+static const char str4011[] = "// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n";
+static const char str4012[] = "// 基本整数类型\n";
+static const char str4013[] = "typedef short int16_t;\n";
+static const char str4014[] = "typedef int int32_t;\n";
+static const char str4015[] = "typedef long long int64_t;\n";
+static const char str4016[] = "// size_t 和 ptrdiff_t\n";
+static const char str4017[] = "typedef long ptrdiff_t;\n";
+static const char str4018[] = "typedef long intptr_t;\n";
+static const char str4019[] = "typedef unsigned long uintptr_t;\n";
+static const char str4020[] = "// bool 类型\n";
+static const char str4021[] = "typedef uint8_t bool;\n";
+static const char str4022[] = "#define true ((bool)1)\n";
+static const char str4023[] = "#define false ((bool)0)\n";
+static const char str4024[] = "// NULL 定义\n";
+static const char str4025[] = "// offsetof 宏（C99 兼容）\n";
+static const char str4026[] = "#define offsetof(type, member) ((size_t) &((type *)0)->member)\n";
+static const char str4027[] = "// C99 兼容的 alignof 实现\n";
+static const char str4028[] = "#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n";
+static const char str4029[] = "// va_list 支持（可变参数函数）\n";
+static const char str4030[] = "typedef __builtin_va_list va_list;\n";
+static const char str4031[] = "#define va_start(v, l) __builtin_va_start(v, l)\n";
+static const char str4032[] = "#define va_end(v) __builtin_va_end(v)\n";
+static const char str4033[] = "#define va_arg(v, l) __builtin_va_arg(v, l)\n";
+static const char str4034[] = "#define va_copy(d, s) __builtin_va_copy(d, s)\n";
+static const char str4035[] = "#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n";
+static const char str4036[] = "// @asm_target 平台检测\n";
+static const char str4037[] = "  #if defined(__linux__)\n";
+static const char str4038[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
+static const char str4039[] = "  #elif defined(__APPLE__)\n";
+static const char str4040[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 1\n";
+static const char str4041[] = "  #elif defined(_WIN32)\n";
+static const char str4042[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 2\n";
+static const char str4043[] = "  #else\n";
+static const char str4044[] = "  #endif\n";
+static const char str4045[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 3\n";
+static const char str4046[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 4\n";
+static const char str4047[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 5\n";
+static const char str4048[] = "#elif defined(__riscv) && __riscv_xlen == 64\n";
+static const char str4049[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 6\n";
+static const char str4050[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
+static const char str4051[] = "#define UYA_TARGET_PLATFORM UYA_ASM_TARGET_X86_64_LINUX\n";
+static const char str4052[] = "#if defined(__linux__)\n";
+static const char str4053[] = "  #define UYA_TARGET_OS_LINUX 1\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4054[] = "#elif defined(__APPLE__)\n";
+static const char str4055[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 1\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4056[] = "#elif defined(_WIN32)\n";
+static const char str4057[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 1\n";
+static const char str4058[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4059[] = "  #define UYA_TARGET_ARCH_X86_64 1\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str4060[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 1\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str4061[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 1\n";
+static const char str4062[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str4063[] = "#include <stddef.h>\n";
+static const char str4064[] = "// 标准类型定义（不依赖标准库头文件）\n";
+static const char str4065[] = "typedef signed long ssize_t;\n";
+static const char str4066[] = "typedef signed long intptr_t;\n";
+static const char str4067[] = "typedef signed long ptrdiff_t;\n";
+static const char str4068[] = "#ifndef NULL\n#define NULL ((void *)0)\n#endif\n";
+static const char str4069[] = "#ifndef offsetof\n#define offsetof(type, member) ((size_t)&((type *)0)->member)\n#endif\n";
+static const char str4070[] = "#ifndef true\n#define true 1\n#endif\n";
+static const char str4071[] = "#ifndef false\n#define false 0\n#endif\n";
+static const char str4072[] = "typedef _Bool bool;\n";
+static const char str4073[] = "struct uya_tagged_Poll_err_i32;\n";
+static const char str4074[] = "typedef struct uya_tagged_Poll_err_i32 uya_tagged_Poll_T;\n";
+static const char str4075[] = "#include <stdio.h>\n";
+static const char str4076[] = "extern struct FILE *stdin;\n";
+static const char str4077[] = "extern struct FILE *stdout;\n";
+static const char str4078[] = "extern int printf(const char *, ...);\n";
+static const char str4079[] = "extern int fprintf(struct FILE *, const char *, ...);\n";
+static const char str4080[] = "extern int vprintf(const char *, va_list);\n";
+static const char str4081[] = "extern int vfprintf(struct FILE *, const char *, va_list);\n";
+static const char str4082[] = "extern int sprintf(char *, const char *, ...);\n";
+static const char str4083[] = "extern int snprintf(char *, size_t, const char *, ...);\n";
+static const char str4084[] = "extern int vsprintf(char *, const char *, va_list);\n";
+static const char str4085[] = "extern int vsnprintf(char *, size_t, const char *, va_list);\n";
+static const char str4086[] = "extern int puts(const char *);\n";
+static const char str4087[] = "extern int putchar(int);\n";
+static const char str4088[] = "extern int fputs(const char *, struct FILE *);\n";
+static const char str4089[] = "extern int fputc(int, struct FILE *);\n";
+static const char str4090[] = "extern int fflush(struct FILE *);\n";
+static const char str4091[] = "extern struct FILE *fopen(const char *, const char *);\n";
+static const char str4092[] = "extern int fclose(struct FILE *);\n";
+static const char str4093[] = "extern size_t fread(void *, size_t, size_t, struct FILE *);\n";
+static const char str4094[] = "extern size_t fwrite(const void *, size_t, size_t, struct FILE *);\n";
+static const char str4095[] = "extern int fgetc(struct FILE *);\n";
 
 struct TypeInfo;
 struct err_union_size_t;
@@ -9717,6 +9717,7 @@ static __attribute__((used)) int32_t c99_string_literal_passes_as_const_byte_sli
 static __attribute__((used)) void c99_emit_string_literal_uint8_ptr_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr);
 static __attribute__((used)) void c99_emit_binary_operator(struct C99CodeGenerator * codegen, enum main_TokenType op);
 static __attribute__((used)) struct ASTNode * c99_unwrap_error_value_expr(struct ASTNode * expr);
+static __attribute__((used)) int32_t c99_expr_is_null_literal(struct ASTNode * expr);
 static __attribute__((used)) int32_t c99_emit_error_value_for_err_union_param(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl, int32_t param_index, struct ASTNode * arg);
 static __attribute__((used)) void c99_emit_call_arg_expr(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl, int32_t param_index, struct ASTNode * arg);
 static __attribute__((used)) void c99_emit_char_pointer_cast_for_type(struct C99CodeGenerator * codegen, uint8_t * type_c);
@@ -9816,11 +9817,24 @@ static __attribute__((used)) void gen_unary_expr(struct C99CodeGenerator * codeg
 static __attribute__((used)) int32_t is_string_function(uint8_t * name);
 static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codegen, struct ASTNode * expr);
 static __attribute__((used)) int32_t c99_filename_is_in_lib_family(uint8_t * filename, uint8_t * family);
+static __attribute__((used)) int32_t c99_filename_is_libc_file(uint8_t * filename, uint8_t * file_name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_alloc_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_io_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_stdio_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_memory_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_string_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_stdlib_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_stdio_stream(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_libc_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_name_is_hosted_libc_private_runtime_helper(uint8_t * name);
 static __attribute__((used)) int32_t c99_decl_matches_current_lib_family(struct C99CodeGenerator * codegen, struct ASTNode * decl);
 static __attribute__((used)) int32_t c99_function_lookup_family(struct C99CodeGenerator * codegen);
 static __attribute__((used)) struct ASTNode * find_function_decl_c99_uncached(struct C99CodeGenerator * codegen, uint8_t * func_name);
 struct ASTNode * find_function_decl_c99(struct C99CodeGenerator * codegen, uint8_t * func_name);
 static __attribute__((used)) int32_t should_use_raw_libc_symbol_name(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl);
+static __attribute__((used)) int32_t c99_should_skip_hosted_libc_function_body(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl);
+static __attribute__((used)) int32_t c99_should_skip_hosted_libc_global_var(struct C99CodeGenerator * codegen, struct ASTNode * var_decl);
+static __attribute__((used)) int32_t c99_should_skip_hosted_libc_extern_global_var(struct C99CodeGenerator * codegen, struct ASTNode * var_decl);
 static __attribute__((used)) int32_t is_extern_libc_function(struct C99CodeGenerator * codegen, uint8_t * func_name);
 static __attribute__((used)) uint8_t * get_extern_libc_pointer_chain_c_type(struct C99CodeGenerator * codegen, struct ASTNode * type_node);
 static __attribute__((used)) uint8_t * get_extern_libc_c_type_override(struct C99CodeGenerator * codegen, struct ASTNode * type_node);
@@ -26791,32 +26805,32 @@ __attribute__((used)) int32_t pthread_getaffinity_np(struct pthread_t * thread, 
 
 __attribute__((naked)) int32_t libc_setjmp(struct jmp_buf * env) {
 __asm__ volatile ("movq %%rbx, 0(%%rdi)\n\tmovq %%rbp, 8(%%rdi)\n\tmovq %%r12, 16(%%rdi)\n\tmovq %%r13, 24(%%rdi)\n\tmovq %%r14, 32(%%rdi)\n\tmovq %%r15, 40(%%rdi)\n\tleaq 8(%%rsp), %%rax\n\tmovq %%rax, 48(%%rdi)\n\tmovq (%%rsp), %%rax\n\tmovq %%rax, 56(%%rdi)\n\txorl %%eax, %%eax\n\tret\n\t"
-    : 
-    : 
+    :
+    :
     : "memory", "rax"
     );
 }
 
 __attribute__((naked)) void libc_longjmp(struct jmp_buf * env, int32_t val) {
 __asm__ volatile ("testl %%esi, %%esi\n\tmovl $1, %%eax\n\tcmovzl %%eax, %%esi\n\tmovl %%esi, %%eax\n\tmovq 0(%%rdi), %%rbx\n\tmovq 8(%%rdi), %%rbp\n\tmovq 16(%%rdi), %%r12\n\tmovq 24(%%rdi), %%r13\n\tmovq 32(%%rdi), %%r14\n\tmovq 40(%%rdi), %%r15\n\tmovq 48(%%rdi), %%rsp\n\tjmpq *56(%%rdi)\n\t"
-    : 
-    : 
+    :
+    :
     : "memory"
     );
 }
 
 __attribute__((naked)) int32_t libc_sigsetjmp(struct sigjmp_buf * env, int32_t savemask) {
 __asm__ volatile ("movq %%rbx, 0(%%rdi)\n\tmovq %%rbp, 8(%%rdi)\n\tmovq %%r12, 16(%%rdi)\n\tmovq %%r13, 24(%%rdi)\n\tmovq %%r14, 32(%%rdi)\n\tmovq %%r15, 40(%%rdi)\n\tleaq 8(%%rsp), %%rax\n\tmovq %%rax, 48(%%rdi)\n\tmovq (%%rsp), %%rax\n\tmovq %%rax, 56(%%rdi)\n\tmovl %%esi, 64(%%rdi)\n\txorl %%eax, %%eax\n\tret\n\t"
-    : 
-    : 
+    :
+    :
     : "memory", "rax"
     );
 }
 
 __attribute__((naked)) void libc_siglongjmp(struct sigjmp_buf * env, int32_t val) {
 __asm__ volatile ("testl %%esi, %%esi\n\tmovl $1, %%eax\n\tcmovzl %%eax, %%esi\n\tmovl %%esi, %%eax\n\tmovq 0(%%rdi), %%rbx\n\tmovq 8(%%rdi), %%rbp\n\tmovq 16(%%rdi), %%r12\n\tmovq 24(%%rdi), %%r13\n\tmovq 32(%%rdi), %%r14\n\tmovq 40(%%rdi), %%r15\n\tmovq 48(%%rdi), %%rsp\n\tjmpq *56(%%rdi)\n\t"
-    : 
-    : 
+    :
+    :
     : "memory"
     );
 }
@@ -30816,7 +30830,7 @@ __attribute__((used)) struct lldiv_t lldiv(int64_t numer, int64_t denom) {
 __attribute__((used)) int64_t atoll(const char * nptr) {
     (void)nptr;
         {
-        int64_t _uya_ret = strtoll((const char *)nptr, (const char * *)NULL, 10);
+        int64_t _uya_ret = strtoll((const char *)nptr, NULL, 10);
         return _uya_ret;
         }
 }
@@ -46224,7 +46238,7 @@ static __attribute__((used)) int64_t parse_integer_literal_with_suffix(uint8_t *
             return _uya_ret;
                 }
     }
-    const int64_t result = strtoll((const char *)(uint8_t *)(&temp[0]), (const char * *)(const uint8_t **)NULL, base);
+    const int64_t result = strtoll((const char *)(uint8_t *)(&temp[0]), NULL, base);
         {
         int64_t _uya_ret = result;
         return _uya_ret;
@@ -46289,7 +46303,7 @@ static __attribute__((used)) double parse_float_literal_with_suffix(uint8_t * st
     }
     temp[j] = 0;
         {
-        double _uya_ret = (double)strtod((const char *)(uint8_t *)(&temp[0]), (const char * *)(const uint8_t **)NULL);
+        double _uya_ret = (double)strtod((const char *)(uint8_t *)(&temp[0]), NULL);
         return _uya_ret;
         }
 }
@@ -116465,6 +116479,32 @@ static __attribute__((used)) struct ASTNode * c99_unwrap_error_value_expr(struct
         }
 }
 
+static __attribute__((used)) int32_t c99_expr_is_null_literal(struct ASTNode * expr) {
+    (void)expr;
+    if (expr == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if ((((expr->type == main_ASTNodeType_AST_IDENTIFIER) && (expr->identifier_name != NULL)) && (std_string_strcmp((uint8_t *)expr->identifier_name, (uint8_t *)(uint8_t *)str651) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (((expr->type == main_ASTNodeType_AST_CAST_EXPR) && (expr->cast_expr_expr != NULL))) {
+                {
+            int32_t _uya_ret = c99_expr_is_null_literal(expr->cast_expr_expr);
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t c99_emit_error_value_for_err_union_param(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl, int32_t param_index, struct ASTNode * arg) {
     (void)codegen;
     (void)fn_decl;
@@ -117882,7 +117922,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
                 (void)(c99_emit_comma_space(codegen)                );
             }
             uint8_t * const libc_param_c = get_extern_libc_param_c_type(codegen, fn_decl, ai);
-            if (libc_param_c != NULL) {
+            if (((libc_param_c != NULL) && (c99_expr_is_null_literal(expr->call_expr_args[ai]) == 0))) {
                 (void)(c99_emit_char_pointer_cast_for_type(codegen, libc_param_c)                );
             } else {
                 if (((expr->call_expr_args[ai] != NULL) && (expr->call_expr_args[ai]->type == main_ASTNodeType_AST_STRING))) {
@@ -118411,7 +118451,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
                 }
                 if (codegen->interp_arg_temp_names[i] != NULL) {
                     uint8_t * const libc_param_c = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                    if (libc_param_c != NULL) {
+                    if (((libc_param_c != NULL) && (c99_expr_is_null_literal(expr->call_expr_args[i]) == 0))) {
                         (void)(c99_emit_char_pointer_cast_for_type(codegen, libc_param_c)                        );
                     } else {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2731, (void *)codegen->emit_stream)                        );
@@ -118419,7 +118459,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
                     (void)(std_io_fputs((uint8_t *)codegen->interp_arg_temp_names[i], (void *)codegen->emit_stream)                    );
                 } else {
                     uint8_t * const libc_param_c = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                    if (libc_param_c != NULL) {
+                    if (((libc_param_c != NULL) && (c99_expr_is_null_literal(expr->call_expr_args[i]) == 0))) {
                         (void)(c99_emit_char_pointer_cast_for_type(codegen, libc_param_c)                        );
                     } else {
                         if (((expr->call_expr_args[i] != NULL) && (expr->call_expr_args[i]->type == main_ASTNodeType_AST_STRING))) {
@@ -118471,7 +118511,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
             while (i < arg_count) {
                 if (codegen->interp_arg_temp_names[i] != NULL) {
                     uint8_t * const libc_param_c = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                    if (libc_param_c != NULL) {
+                    if (((libc_param_c != NULL) && (c99_expr_is_null_literal(expr->call_expr_args[i]) == 0))) {
                         (void)(c99_emit_char_pointer_cast_for_type(codegen, libc_param_c)                        );
                     } else {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2731, (void *)codegen->emit_stream)                        );
@@ -118510,7 +118550,7 @@ static __attribute__((used)) void gen_call_expr(struct C99CodeGenerator * codege
                         }
                     } else {
                         uint8_t * const libc_param_c_plain = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                        if (libc_param_c_plain != NULL) {
+                        if (((libc_param_c_plain != NULL) && (c99_expr_is_null_literal(expr->call_expr_args[i]) == 0))) {
                             (void)(c99_emit_char_pointer_cast_for_type(codegen, libc_param_c_plain)                            );
                         } else {
                             int32_t is_string_arg = 0;
@@ -125510,12 +125550,12 @@ static __attribute__((used)) void gen_cast_expr(struct C99CodeGenerator * codege
             }
         }
         if (is_null_to_byte_ptr_ptr != 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3340, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str2687, (void *)codegen->emit_stream)            );
         } else {
             if (c99_emit_string_to_slice_cast(codegen, src_expr, target_type, type_c) != 0) {
             } else {
                 (void)(std_io_fputc(40, (void *)codegen->emit_stream)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3341, (uint8_t *)type_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3340, (uint8_t *)type_c)                );
                 (void)(gen_expr(codegen, src_expr)                );
             }
         }
@@ -125574,7 +125614,7 @@ static __attribute__((used)) void gen_slice_expr(struct C99CodeGenerator * codeg
     struct ASTNode * const start_expr = expr->slice_expr_start_expr;
     struct ASTNode * const len_expr = expr->slice_expr_len_expr;
     uint8_t * const slice_type_c = get_slice_struct_type_c(codegen, expr);
-    uint8_t * slice_type_str = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+    uint8_t * slice_type_str = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
     if (slice_type_c != NULL) {
         slice_type_str = slice_type_c;
     }
@@ -125582,31 +125622,31 @@ static __attribute__((used)) void gen_slice_expr(struct C99CodeGenerator * codeg
     if (base->type == main_ASTNodeType_AST_SLICE_EXPR) {
         (void)(std_io_fputc(40, (void *)codegen->emit_stream)        );
         (void)(gen_expr(codegen, base)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3343, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3342, (void *)codegen->emit_stream)        );
     } else {
         if (base->type == main_ASTNodeType_AST_IDENTIFIER) {
             uint8_t * const type_c = get_identifier_type_c(codegen, base->identifier_name);
             if (((type_c != NULL) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str2623) != NULL))) {
                 if (std_string_strchr((uint8_t *)type_c, 42) != NULL) {
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3344, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3343, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(std_io_fputc(40, (void *)codegen->emit_stream)                    );
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3343, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3342, (void *)codegen->emit_stream)                    );
                 }
             } else {
                 int32_t need_uint8_cast = 0;
-                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str3345) != NULL))) {
+                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str3344) != NULL))) {
                     need_uint8_cast = 1;
                 }
                 if (((((need_uint8_cast == 0) && (type_c != NULL)) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str1005) != NULL)) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str598) != NULL))) {
                     need_uint8_cast = 1;
                 }
                 if (need_uint8_cast != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3346, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3345, (void *)codegen->emit_stream)                    );
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3347, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3346, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(gen_expr(codegen, base)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str599, (void *)codegen->emit_stream)                    );
@@ -125618,14 +125658,14 @@ static __attribute__((used)) void gen_slice_expr(struct C99CodeGenerator * codeg
             if (((base_type_c != NULL) && (std_string_strstr((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str2623) != NULL))) {
                 if (std_string_strchr((uint8_t *)base_type_c, 42) != NULL) {
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3344, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3343, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(std_io_fputc(40, (void *)codegen->emit_stream)                    );
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3343, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3342, (void *)codegen->emit_stream)                    );
                 }
             } else {
-                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str3345) != NULL))) {
+                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str3344) != NULL))) {
                     need_uint8_cast = 1;
                 }
                 if (need_uint8_cast == 0) {
@@ -125634,9 +125674,9 @@ static __attribute__((used)) void gen_slice_expr(struct C99CodeGenerator * codeg
                     }
                 }
                 if (need_uint8_cast != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3346, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3345, (void *)codegen->emit_stream)                    );
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3347, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3346, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(gen_expr(codegen, base)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str599, (void *)codegen->emit_stream)                    );
@@ -125645,7 +125685,7 @@ static __attribute__((used)) void gen_slice_expr(struct C99CodeGenerator * codeg
         }
     }
     (void)(gen_expr(codegen, start_expr)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3348, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3347, (void *)codegen->emit_stream)    );
     (void)(gen_expr(codegen, len_expr)    );
     (void)(std_io_fputc(125, (void *)codegen->emit_stream)    );
 }
@@ -125664,22 +125704,22 @@ static __attribute__((used)) void gen_print_expr(struct C99CodeGenerator * codeg
             if (interp_size <= 0) {
                 interp_size = 256;
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3349, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3350, temp_name_idx, interp_size)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3348, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3349, temp_name_idx, interp_size)            );
             uint8_t name_buf[32] = {0};
             (void)(snprintf((char *)(uint8_t *)(&name_buf[0]), 32, (const char *)str2740, temp_name_idx)            );
             (void)(c99_emit_string_interp_fill(codegen, inner, (uint8_t *)(&name_buf[0]))            );
             if (codegen->is_nostdlib != 0) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3351, temp_name_idx, temp_name_idx)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3350, temp_name_idx, temp_name_idx)                );
                 if (expr->type == main_ASTNodeType_AST_PRINTLN) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3352, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3351, (void *)codegen->emit_stream)                    );
                 }
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3353, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3352, (void *)codegen->emit_stream)                );
             } else {
                 if (expr->type == main_ASTNodeType_AST_PRINTLN) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3354, temp_name_idx)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3353, temp_name_idx)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3355, temp_name_idx)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3354, temp_name_idx)                    );
                 }
             }
             return;
@@ -125703,10 +125743,10 @@ static __attribute__((used)) void gen_print_expr(struct C99CodeGenerator * codeg
                                 if (((target->type == main_ASTNodeType_AST_TYPE_NAMED) && (target->type_named_name != NULL))) {
                                     uint8_t * const name = target->type_named_name;
                                     if (((((str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1127) != 0) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1128) != 0)) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str999) != 0)) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1129) != 0))) {
-                                        fmt = (uint8_t *)str3356;
+                                        fmt = (uint8_t *)str3355;
                                     } else {
                                         if ((((((str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1130) != 0) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1131) != 0)) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1132) != 0)) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1133) != 0)) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1000) != 0))) {
-                                            fmt = (uint8_t *)str3357;
+                                            fmt = (uint8_t *)str3356;
                                         } else {
                                             if (((str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1003) != 0) || (str_equals((uint8_t *)name, (uint8_t *)(uint8_t *)str1004) != 0))) {
                                                 fmt = (uint8_t *)str1434;
@@ -125741,11 +125781,11 @@ static __attribute__((used)) void gen_print_expr(struct C99CodeGenerator * codeg
                                     }
                                 }
                                 if (fmt == NULL) {
-                                    fmt = (uint8_t *)str3356;
+                                    fmt = (uint8_t *)str3355;
                                 }
                             } else {
                                 if (inner->type == main_ASTNodeType_AST_BINARY_EXPR) {
-                                    fmt = (uint8_t *)str3356;
+                                    fmt = (uint8_t *)str3355;
                                 }
                             }
                         }
@@ -125754,28 +125794,28 @@ static __attribute__((used)) void gen_print_expr(struct C99CodeGenerator * codeg
             }
         }
         if (fmt == NULL) {
-            fmt = (uint8_t *)str3356;
+            fmt = (uint8_t *)str3355;
         }
         if (((codegen->is_nostdlib != 0) && ((inner->type == main_ASTNodeType_AST_STRING) || (inner->type == main_ASTNodeType_AST_STRING_INTERP)))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3358, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3357, (void *)codegen->emit_stream)            );
             if (need_cast != 0) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str2629, (void *)codegen->emit_stream)                );
             }
             (void)(gen_expr(codegen, expr->print_expr)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3359, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3358, (void *)codegen->emit_stream)            );
             if (need_cast != 0) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str2629, (void *)codegen->emit_stream)                );
             }
             (void)(gen_expr(codegen, expr->print_expr)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str2571, (void *)codegen->emit_stream)            );
             if (expr->type == main_ASTNodeType_AST_PRINTLN) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3360, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3359, (void *)codegen->emit_stream)                );
             }
         } else {
             if (expr->type == main_ASTNodeType_AST_PRINTLN) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3361, (uint8_t *)fmt)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3360, (uint8_t *)fmt)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3362, (uint8_t *)fmt)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3361, (uint8_t *)fmt)                );
             }
             if (need_cast != 0) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str2629, (void *)codegen->emit_stream)                );
@@ -125792,15 +125832,15 @@ static __attribute__((used)) void c99_try_emit_error_return_value(struct C99Code
     (void)kind;
     if ((((codegen->async_state_var != NULL) && (codegen->async_poll_ret_c != NULL)) && (codegen->async_poll_union_c != NULL))) {
         if (kind != 0) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3363, (uint8_t *)codegen->async_poll_ret_c, (uint8_t *)codegen->async_poll_union_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3362, (uint8_t *)codegen->async_poll_ret_c, (uint8_t *)codegen->async_poll_union_c)            );
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3364, (uint8_t *)codegen->async_poll_ret_c, (uint8_t *)codegen->async_poll_union_c, (uint8_t *)ret_union_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3363, (uint8_t *)codegen->async_poll_ret_c, (uint8_t *)codegen->async_poll_union_c, (uint8_t *)ret_union_c)            );
         }
     } else {
         if (kind != 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3365, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3364, (void *)codegen->emit_stream)            );
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3366, (uint8_t *)ret_union_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3365, (uint8_t *)ret_union_c)            );
         }
     }
 }
@@ -125809,19 +125849,19 @@ static __attribute__((used)) void c99_try_emit_error_return_stmt(struct C99CodeG
     (void)codegen;
     (void)ret_union_c;
     (void)kind;
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3367, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3366, (void *)codegen->emit_stream)    );
     codegen->indent_level = (codegen->indent_level + 1);
     (void)(emit_all_active_scope_cleanup(codegen, 1)    );
-    if ((((((codegen->async_state_var != NULL) && (codegen->async_poll_ret_c != NULL)) && (codegen->async_poll_union_c != NULL)) && (kind == 0)) && (std_string_strstr((uint8_t *)codegen->async_poll_ret_c, (uint8_t *)(uint8_t *)str3368) == NULL))) {
+    if ((((((codegen->async_state_var != NULL) && (codegen->async_poll_ret_c != NULL)) && (codegen->async_poll_union_c != NULL)) && (kind == 0)) && (std_string_strstr((uint8_t *)codegen->async_poll_ret_c, (uint8_t *)(uint8_t *)str3367) == NULL))) {
         (void)(c99_emit_indent(codegen)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3369, (uint8_t *)codegen->async_state_var)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3368, (uint8_t *)codegen->async_state_var)        );
         (void)(c99_emit_indent(codegen)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3370, (uint8_t *)codegen->async_poll_ret_c, (uint8_t *)codegen->async_poll_union_c)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3369, (uint8_t *)codegen->async_poll_ret_c, (uint8_t *)codegen->async_poll_union_c)        );
     } else {
         (void)(c99_emit_indent(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2197, (void *)codegen->emit_stream)        );
         (void)(c99_try_emit_error_return_value(codegen, (uint8_t *)ret_union_c, kind)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)        );
     }
     codegen->indent_level = (codegen->indent_level - 1);
     (void)(c99_emit_indent(codegen)    );
@@ -126022,7 +126062,7 @@ static __attribute__((used)) void gen_try_expr(struct C99CodeGenerator * codegen
                 }
             }
             uint8_t * const ret_union_c = c99_type_to_c(codegen, try_ret_type);
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3372, (uint8_t *)union_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3371, (uint8_t *)union_c)            );
             uint8_t * const saved_expected_block = codegen->expected_block_union_type;
             codegen->expected_block_union_type = union_c;
             (void)(gen_expr(codegen, operand)            );
@@ -126043,15 +126083,15 @@ static __attribute__((used)) void gen_try_expr(struct C99CodeGenerator * codegen
                             if (ti > 0) {
                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str572, (void *)codegen->emit_stream)                                );
                             }
-                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3373, ti)                            );
+                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3372, ti)                            );
                             ti = (ti + 1);
                         }
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3374, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3373, (void *)codegen->emit_stream)                        );
                     } else {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3375, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3374, (void *)codegen->emit_stream)                        );
                     }
                 } else {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3375, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3374, (void *)codegen->emit_stream)                    );
                 }
             }
         } else {
@@ -126076,7 +126116,7 @@ static __attribute__((used)) void gen_try_expr(struct C99CodeGenerator * codegen
         operand_union_emit_c = codegen->expected_block_union_type;
         operand_is_void = 0;
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3372, (uint8_t *)operand_union_emit_c)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3371, (uint8_t *)operand_union_emit_c)    );
     uint8_t * const saved_expected_block = codegen->expected_block_union_type;
     codegen->expected_block_union_type = operand_union_emit_c;
     (void)(gen_expr(codegen, operand)    );
@@ -126086,7 +126126,7 @@ static __attribute__((used)) void gen_try_expr(struct C99CodeGenerator * codegen
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2580, (void *)codegen->emit_stream)        );
     } else {
         (void)(c99_try_emit_error_return_stmt(codegen, ret_union_c2, 0)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3376, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3375, (void *)codegen->emit_stream)        );
     }
 }
 
@@ -126095,7 +126135,7 @@ static __attribute__((used)) void gen_slice_from_array_literal(struct C99CodeGen
     (void)unary_expr;
     struct ASTNode * const array_expr = unary_expr->unary_expr_operand;
     uint8_t * const slice_type_c = get_c_type_of_expr(codegen, unary_expr);
-    uint8_t * slice_type_str = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+    uint8_t * slice_type_str = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
     if (slice_type_c != NULL) {
         slice_type_str = slice_type_c;
     }
@@ -126108,14 +126148,14 @@ static __attribute__((used)) void gen_slice_from_array_literal(struct C99CodeGen
             actual_len = 0;
         }
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3377, (uint8_t *)slice_type_str)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3376, (uint8_t *)slice_type_str)    );
     if (actual_len > 0) {
         uint8_t * const elem_type_c = get_c_type_of_expr(codegen, array_expr->array_literal_elements[0]);
         uint8_t * elem_type_str = (uint8_t *)(uint8_t *)(uint8_t *)str2677;
         if (elem_type_c != NULL) {
             elem_type_str = elem_type_c;
         }
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3378, (uint8_t *)elem_type_str, actual_len)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3377, (uint8_t *)elem_type_str, actual_len)        );
         if (((repeat_count_expr != NULL) && (element_count >= 1))) {
             int32_t i = 0;
             while (i < actual_len) {
@@ -126137,9 +126177,9 @@ static __attribute__((used)) void gen_slice_from_array_literal(struct C99CodeGen
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str697, (void *)codegen->emit_stream)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3379, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3378, (void *)codegen->emit_stream)        );
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3380, actual_len)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3379, actual_len)    );
 }
 
 static __attribute__((used)) void gen_unary_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr) {
@@ -126170,7 +126210,7 @@ static __attribute__((used)) void gen_unary_expr(struct C99CodeGenerator * codeg
         if (name != NULL) {
             uint8_t * const ref_name = get_c_name_for_identifier_ref(codegen, name);
             uint8_t * const type_c = get_identifier_type_c(codegen, name);
-            if (((type_c != NULL) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3381) != NULL))) {
+            if (((type_c != NULL) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3380) != NULL))) {
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str1638, (uint8_t *)ref_name)                );
                 return;
             }
@@ -126243,6 +126283,12 @@ static __attribute__((used)) int32_t is_string_function(uint8_t * name) {
             return _uya_ret;
                 }
     }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3381) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
     if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3382) == 0) {
                 {
             int32_t _uya_ret = 1;
@@ -126309,6 +126355,42 @@ static __attribute__((used)) int32_t is_string_function(uint8_t * name) {
             return _uya_ret;
                 }
     }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3393) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3394) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3395) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3396) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3397) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3398) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
         {
         int32_t _uya_ret = 0;
         return _uya_ret;
@@ -126318,7 +126400,7 @@ static __attribute__((used)) int32_t is_string_function(uint8_t * name) {
 static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codegen, struct ASTNode * expr) {
     (void)codegen;
     (void)expr;
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3393, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3399, (void *)codegen->emit_stream)    );
     int32_t instr_idx = 0;
     while (instr_idx < expr->asm_instruction_count) {
         uint8_t * const instr = (uint8_t *)expr->asm_instructions[instr_idx];
@@ -126327,16 +126409,16 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
             while (instr[i] != 0) {
                 const uint8_t c = (uint8_t)instr[i];
                 if (c == 34) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3394, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3400, (void *)codegen->emit_stream)                    );
                 } else {
                     if (c == 10) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3395, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3401, (void *)codegen->emit_stream)                        );
                     } else {
                         if (c == 9) {
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3396, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3402, (void *)codegen->emit_stream)                            );
                         } else {
                             if (c == 92) {
-                                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3397, (void *)codegen->emit_stream)                                );
+                                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3403, (void *)codegen->emit_stream)                                );
                             } else {
                                 (void)(std_io_fputc((int32_t)c, (void *)codegen->emit_stream)                                );
                             }
@@ -126346,11 +126428,11 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
                 i = (i + 1);
             }
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3398, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
         instr_idx = (instr_idx + 1);
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3399, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3400, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3405, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3406, (void *)codegen->emit_stream)    );
     instr_idx = 0;
     int32_t output_offset = 0;
     int32_t has_prev_output = 0;
@@ -126360,8 +126442,10 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
         while (out_idx < output_count) {
             if (has_prev_output != 0) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str572, (void *)codegen->emit_stream)                );
+            } else {
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3401, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3408, (void *)codegen->emit_stream)            );
             (void)(gen_expr(codegen, expr->asm_outputs[(output_offset + out_idx)])            );
             (void)(std_io_fputc(41, (void *)codegen->emit_stream)            );
             has_prev_output = 1;
@@ -126371,7 +126455,7 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
         instr_idx = (instr_idx + 1);
     }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str370, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3400, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3406, (void *)codegen->emit_stream)    );
     instr_idx = 0;
     int32_t input_offset = 0;
     int32_t has_prev_input = 0;
@@ -126381,8 +126465,10 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
         while (in_idx < input_count) {
             if (has_prev_input != 0) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str572, (void *)codegen->emit_stream)                );
+            } else {
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3402, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3409, (void *)codegen->emit_stream)            );
             (void)(gen_expr(codegen, expr->asm_inputs[(input_offset + in_idx)])            );
             (void)(std_io_fputc(41, (void *)codegen->emit_stream)            );
             has_prev_input = 1;
@@ -126392,16 +126478,18 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
         instr_idx = (instr_idx + 1);
     }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str370, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3400, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3406, (void *)codegen->emit_stream)    );
     int32_t has_prev = 0;
     if (expr->asm_clobbers_memory != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3403, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3410, (void *)codegen->emit_stream)        );
         has_prev = 1;
     }
     int32_t clobber_idx = 0;
     while (clobber_idx < expr->asm_clobber_count) {
         if (has_prev != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str572, (void *)codegen->emit_stream)            );
+        } else {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)            );
         }
         (void)(std_io_fputc(34, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)expr->asm_clobbers[clobber_idx], (void *)codegen->emit_stream)        );
@@ -126410,7 +126498,7 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
         clobber_idx = (clobber_idx + 1);
     }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str370, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)    );
 }
 
 
@@ -126448,6 +126536,213 @@ static __attribute__((used)) int32_t c99_filename_is_in_lib_family(uint8_t * fil
         }
                 {
             int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_filename_is_libc_file(uint8_t * filename, uint8_t * file_name) {
+    (void)filename;
+    (void)file_name;
+    if (((filename == NULL) || (file_name == NULL))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (c99_filename_is_in_lib_family((uint8_t *)filename, (uint8_t *)(uint8_t *)str1031) == 0) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strstr((uint8_t *)filename, (uint8_t *)file_name) != NULL) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_alloc_symbol(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str1376) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3412) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str1377) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3413) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_io_symbol(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if ((((((((((((((((((((((((((((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3414) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3415) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3416) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3417) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3420) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3421) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3422) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3423) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str1704) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3424) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3425) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2237) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2238) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3426) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3427) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3428) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3429) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3430) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3431) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3432) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3433) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2756) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3434) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3435) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3436) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3437) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3438) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3439) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3396) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_stdio_symbol(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (((((((((((((((((((((((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2241) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2240) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2591) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2593) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2242) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2243) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2592) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2594) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2231) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3440) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3441) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3442) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3443) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3444) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3445) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3446) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3447) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3448) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3449) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3450) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3451) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3452) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3453) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3454) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3455) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3456) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_memory_symbol(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if ((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3457) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3458) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3459) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3460) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3461) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_string_symbol(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if ((((((((((((((((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3384) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2235) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3381) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3382) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3383) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3397) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3398) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3385) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3386) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3387) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3388) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3389) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3390) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3391) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3392) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3393) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3394) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3395) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3396) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_stdlib_symbol(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (((((((((((((((((((((((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3462) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3463) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2232) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3464) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3465) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3466) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3467) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3468) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2236) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3469) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3470) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3471) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3472) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3473) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2233) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3474) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3475) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3476) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3477) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3478) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str1704) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3435) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3436) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3437) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3438) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3439) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_stdio_stream(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if ((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2281) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2282) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2283) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_raw_libc_symbol(uint8_t * name) {
+    (void)name;
+    if (((((((c99_name_is_hosted_raw_alloc_symbol((uint8_t *)name) != 0) || (c99_name_is_hosted_raw_io_symbol((uint8_t *)name) != 0)) || (c99_name_is_hosted_raw_stdio_symbol((uint8_t *)name) != 0)) || (c99_name_is_hosted_raw_memory_symbol((uint8_t *)name) != 0)) || (c99_name_is_hosted_raw_string_symbol((uint8_t *)name) != 0)) || (c99_name_is_hosted_raw_stdlib_symbol((uint8_t *)name) != 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_name_is_hosted_libc_private_runtime_helper(uint8_t * name) {
+    (void)name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3479) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3480) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3481) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3482) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3483) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3484) == 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strncmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3485, 5) == 0) {
+                {
+            int32_t _uya_ret = 1;
             return _uya_ret;
                 }
     }
@@ -126725,8 +127020,14 @@ static __attribute__((used)) int32_t should_use_raw_libc_symbol_name(struct C99C
                 }
     }
     uint8_t * const name = fn_decl->fn_decl_name;
+    if (((c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0) && (c99_name_is_hosted_raw_libc_symbol(name) != 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
     if (name != NULL) {
-        if (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3405) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3406) == 0))) {
+        if (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3420) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3423) == 0))) {
                         {
                 int32_t _uya_ret = 0;
                 return _uya_ret;
@@ -126740,7 +127041,7 @@ static __attribute__((used)) int32_t should_use_raw_libc_symbol_name(struct C99C
                 }
     }
     if (fn_decl->filename != NULL) {
-        if (((std_string_strstr((uint8_t *)fn_decl->filename, (uint8_t *)(uint8_t *)str3407) != NULL) || (std_string_strstr((uint8_t *)fn_decl->filename, (uint8_t *)(uint8_t *)str3408) != NULL))) {
+        if (((std_string_strstr((uint8_t *)fn_decl->filename, (uint8_t *)(uint8_t *)str3486) != NULL) || (std_string_strstr((uint8_t *)fn_decl->filename, (uint8_t *)(uint8_t *)str3487) != NULL))) {
                         {
                 int32_t _uya_ret = 0;
                 return _uya_ret;
@@ -126748,7 +127049,7 @@ static __attribute__((used)) int32_t should_use_raw_libc_symbol_name(struct C99C
         }
     }
     if (name != NULL) {
-        if (((((((((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3409) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3410) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3411) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3412) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3413) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3414) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3415) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3416) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3417) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3420) == 0))) {
+        if (((((((((((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3464) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3466) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3467) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3468) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3471) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3472) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3473) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3474) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3475) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3478) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3476) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3477) == 0))) {
                         {
                 int32_t _uya_ret = 0;
                 return _uya_ret;
@@ -126757,6 +127058,123 @@ static __attribute__((used)) int32_t should_use_raw_libc_symbol_name(struct C99C
     }
         {
         int32_t _uya_ret = 1;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_should_skip_hosted_libc_function_body(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl) {
+    (void)codegen;
+    (void)fn_decl;
+    if (((((((codegen == NULL) || (codegen->is_nostdlib != 0)) || (fn_decl == NULL)) || (fn_decl->type != main_ASTNodeType_AST_FN_DECL)) || (fn_decl->fn_decl_body == NULL)) || (fn_decl->filename == NULL))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (c99_filename_is_in_lib_family(fn_decl->filename, (uint8_t *)(uint8_t *)str1031) == 0) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    uint8_t * const name = fn_decl->fn_decl_name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (c99_filename_is_libc_file(fn_decl->filename, (uint8_t *)(uint8_t *)str3488) != 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (((fn_decl->fn_decl_extern_lib_name != NULL) && (c99_name_is_hosted_raw_libc_symbol(name) != 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (c99_name_is_hosted_libc_private_runtime_helper(name) != 0) {
+        if (((c99_filename_is_libc_file(fn_decl->filename, (uint8_t *)(uint8_t *)str3488) != 0) || (c99_filename_is_libc_file(fn_decl->filename, (uint8_t *)(uint8_t *)str3489) != 0))) {
+                        {
+                int32_t _uya_ret = 1;
+                return _uya_ret;
+                        }
+        }
+        if (((c99_filename_is_libc_file(fn_decl->filename, (uint8_t *)(uint8_t *)str3490) != 0) && (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3484) == 0))) {
+                        {
+                int32_t _uya_ret = 1;
+                return _uya_ret;
+                        }
+        }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_should_skip_hosted_libc_global_var(struct C99CodeGenerator * codegen, struct ASTNode * var_decl) {
+    (void)codegen;
+    (void)var_decl;
+    if (((((((codegen == NULL) || (codegen->is_nostdlib != 0)) || (var_decl == NULL)) || (var_decl->type != main_ASTNodeType_AST_VAR_DECL)) || (var_decl->var_decl_is_const != 0)) || (var_decl->filename == NULL))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    uint8_t * const name = var_decl->var_decl_name;
+    if (name == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3491) == 0) && (c99_filename_is_libc_file(var_decl->filename, (uint8_t *)(uint8_t *)str3492) != 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (c99_filename_is_libc_file(var_decl->filename, (uint8_t *)(uint8_t *)str3488) != 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (c99_filename_is_libc_file(var_decl->filename, (uint8_t *)(uint8_t *)str3489) != 0) {
+        if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3493) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3494) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3495) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3496) == 0))) {
+                        {
+                int32_t _uya_ret = 1;
+                return _uya_ret;
+                        }
+        }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t c99_should_skip_hosted_libc_extern_global_var(struct C99CodeGenerator * codegen, struct ASTNode * var_decl) {
+    (void)codegen;
+    (void)var_decl;
+    if (((((((codegen == NULL) || (codegen->is_nostdlib != 0)) || (var_decl == NULL)) || (var_decl->type != main_ASTNodeType_AST_EXTERN_VAR_DECL)) || (var_decl->extern_var_decl_is_const != 0)) || (var_decl->filename == NULL))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if ((((var_decl->extern_var_decl_name != NULL) && (std_string_strcmp((uint8_t *)var_decl->extern_var_decl_name, (uint8_t *)(uint8_t *)str3491) == 0)) && (c99_filename_is_libc_file(var_decl->filename, (uint8_t *)(uint8_t *)str3492) != 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
         return _uya_ret;
         }
 }
@@ -126794,7 +127212,7 @@ static __attribute__((used)) uint8_t * get_extern_libc_pointer_chain_c_type(stru
     }
     if ((((type_node->type == main_ASTNodeType_AST_TYPE_NAMED) && (type_node->type_named_name != NULL)) && (std_string_strcmp((uint8_t *)type_node->type_named_name, (uint8_t *)(uint8_t *)str1002) == 0))) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3421;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3497;
             return _uya_ret;
                 }
     }
@@ -126820,9 +127238,9 @@ static __attribute__((used)) uint8_t * get_extern_libc_pointer_chain_c_type(stru
                 }
     }
     if (type_node->type_pointer_is_const != 0) {
-        (void)(snprintf((char *)(uint8_t *)result, len, (const char *)str3422, (uint8_t *)pointee_c)        );
+        (void)(snprintf((char *)(uint8_t *)result, len, (const char *)str3498, (uint8_t *)pointee_c)        );
     } else {
-        (void)(snprintf((char *)(uint8_t *)result, len, (const char *)str3423, (uint8_t *)pointee_c)        );
+        (void)(snprintf((char *)(uint8_t *)result, len, (const char *)str3499, (uint8_t *)pointee_c)        );
     }
         {
         uint8_t * _uya_ret = result;
@@ -126892,7 +127310,7 @@ static __attribute__((used)) int32_t should_skip_libc_syscall_stub(struct C99Cod
             return _uya_ret;
                 }
     }
-    if (std_string_strstr((uint8_t *)fn_decl->filename, (uint8_t *)(uint8_t *)str3424) == NULL) {
+    if (std_string_strstr((uint8_t *)fn_decl->filename, (uint8_t *)(uint8_t *)str3500) == NULL) {
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -126902,7 +127320,7 @@ static __attribute__((used)) int32_t should_skip_libc_syscall_stub(struct C99Cod
     const int32_t dc = codegen->program_node->program_decl_count;
     while (di < dc) {
         struct ASTNode * const d = codegen->program_node->program_decls[di];
-        if ((((((((((d != NULL) && (d != fn_decl)) && (d->type == main_ASTNodeType_AST_FN_DECL)) && (d->fn_decl_name != NULL)) && (std_string_strcmp((uint8_t *)d->fn_decl_name, (uint8_t *)fn_decl->fn_decl_name) == 0)) && (d->fn_decl_body != NULL)) && (d->fn_decl_extern_lib_name == NULL)) && (d->filename != NULL)) && (std_string_strstr((uint8_t *)d->filename, (uint8_t *)(uint8_t *)str3425) != NULL))) {
+        if ((((((((((d != NULL) && (d != fn_decl)) && (d->type == main_ASTNodeType_AST_FN_DECL)) && (d->fn_decl_name != NULL)) && (std_string_strcmp((uint8_t *)d->fn_decl_name, (uint8_t *)fn_decl->fn_decl_name) == 0)) && (d->fn_decl_body != NULL)) && (d->fn_decl_extern_lib_name == NULL)) && (d->filename != NULL)) && (std_string_strstr((uint8_t *)d->filename, (uint8_t *)(uint8_t *)str3501) != NULL))) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -126927,7 +127345,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
     }
     if (((std_string_strstr((uint8_t *)filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)filename, (uint8_t *)(uint8_t *)str1207) != NULL))) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3426;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3502;
             return _uya_ret;
                 }
     }
@@ -126963,7 +127381,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
             const size_t total_len = ((4 + slash_pos) + 2);
             uint8_t * const prefix = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
             if (prefix != NULL) {
-                (void)(std_string_strcpy((uint8_t *)prefix, (uint8_t *)(uint8_t *)str3427)                );
+                (void)(std_string_strcpy((uint8_t *)prefix, (uint8_t *)(uint8_t *)str3503)                );
                 (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)prefix + 4), (const char *)(void *)rel, slash_pos)                );
                 prefix[(4 + slash_pos)] = (uint8_t)95;
                 prefix[((4 + slash_pos) + 1)] = (uint8_t)0;
@@ -126981,7 +127399,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
             }
         }
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3427;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3503;
             return _uya_ret;
                 }
     }
@@ -127005,7 +127423,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
         const size_t total_tls_len = ((4 + base_tls_len) + 2);
         uint8_t * const prefix_tls = (uint8_t *)compiler_arena_alloc(codegen->arena, total_tls_len);
         if (prefix_tls != NULL) {
-            (void)(std_string_strcpy((uint8_t *)prefix_tls, (uint8_t *)(uint8_t *)str3428)            );
+            (void)(std_string_strcpy((uint8_t *)prefix_tls, (uint8_t *)(uint8_t *)str3504)            );
             (void)((uint8_t *)memcpy((char *)(void *)((uint8_t *)prefix_tls + 4), (const char *)(void *)rel_tls, base_tls_len)            );
             const int32_t tls_idx1 = (4 + (int32_t)base_tls_len);
             const int32_t tls_idx2 = (tls_idx1 + 1);
@@ -127033,7 +127451,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
         src_path = std_string_strstr((uint8_t *)filename, (uint8_t *)(uint8_t *)str1301);
     }
     if (src_path == NULL) {
-        src_path = std_string_strstr((uint8_t *)filename, (uint8_t *)(uint8_t *)str3429);
+        src_path = std_string_strstr((uint8_t *)filename, (uint8_t *)(uint8_t *)str3505);
     }
     if (src_path != NULL) {
         uint8_t * rel = (uint8_t *)src_path;
@@ -127043,7 +127461,7 @@ static __attribute__((used)) uint8_t * get_module_prefix_from_filename(struct C9
         if (std_string_strncmp((uint8_t *)rel, (uint8_t *)(uint8_t *)str1301, 4) == 0) {
             rel = (&rel[4]);
         } else {
-            if (std_string_strncmp((uint8_t *)rel, (uint8_t *)(uint8_t *)str3430, 4) == 0) {
+            if (std_string_strncmp((uint8_t *)rel, (uint8_t *)(uint8_t *)str3506, 4) == 0) {
                 rel = (&rel[4]);
             }
         }
@@ -127124,7 +127542,7 @@ uint8_t * get_export_function_c_name(struct C99CodeGenerator * codegen, uint8_t 
     (void)filename;
     if (name == NULL) {
                 {
-            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3431);
+            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3407);
             return _uya_ret;
                 }
     }
@@ -127159,7 +127577,7 @@ static __attribute__((used)) uint8_t * get_private_function_c_name(struct C99Cod
     (void)filename;
     if (name == NULL) {
                 {
-            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3431);
+            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3407);
             return _uya_ret;
                 }
     }
@@ -127179,7 +127597,7 @@ static __attribute__((used)) uint8_t * get_private_function_c_name(struct C99Cod
             return _uya_ret;
                 }
     }
-    (void)(snprintf((char *)(uint8_t *)result, buf_len, (const char *)str3432, file_hash, (uint8_t *)safe_name)    );
+    (void)(snprintf((char *)(uint8_t *)result, buf_len, (const char *)str3507, file_hash, (uint8_t *)safe_name)    );
         {
         uint8_t * _uya_ret = get_safe_c_identifier(codegen, result);
         return _uya_ret;
@@ -127459,7 +127877,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_function_decl(struct C99Co
     (void)fn_decl;
     if ((((fn_decl == NULL) || (fn_decl->type != main_ASTNodeType_AST_FN_DECL)) || (fn_decl->fn_decl_name == NULL))) {
                 {
-            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3431);
+            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3407);
             return _uya_ret;
                 }
     }
@@ -127483,7 +127901,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_function_decl(struct C99Co
                         }
         }
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3433;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3508;
             return _uya_ret;
                 }
     }
@@ -127511,7 +127929,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_global_function(struct C99
     (void)for_definition;
     if (name == NULL) {
                 {
-            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3431);
+            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3407);
             return _uya_ret;
                 }
     }
@@ -127543,13 +127961,24 @@ static __attribute__((used)) uint8_t * get_c_name_for_global_constant(struct C99
     (void)is_export;
     if (name == NULL) {
                 {
-            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3431);
+            uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)(uint8_t *)str3407);
             return _uya_ret;
                 }
     }
+    if ((((codegen != NULL) && (codegen->is_nostdlib == 0)) && (filename != NULL))) {
+        if (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3491) == 0) && (c99_filename_is_libc_file((uint8_t *)filename, (uint8_t *)(uint8_t *)str3492) != 0))) {
+                        {
+                uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3491;
+                return _uya_ret;
+                        }
+        }
+    }
     if (((filename != NULL) && (is_export != 0))) {
-        const int32_t is_std_stream = (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2283) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2281) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2282) == 0));
-        const int32_t is_clocks_per_sec = (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3434) == 0);
+        int32_t is_std_stream = c99_name_is_hosted_stdio_stream((uint8_t *)name);
+        if ((((codegen != NULL) && (codegen->is_nostdlib == 0)) && (c99_filename_is_libc_file((uint8_t *)filename, (uint8_t *)(uint8_t *)str3490) != 0))) {
+            is_std_stream = 0;
+        }
+        const int32_t is_clocks_per_sec = (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3509) == 0);
         if (((is_std_stream == 0) && (is_clocks_per_sec == 0))) {
             uint8_t * const prefix = get_module_prefix_from_filename(codegen, (uint8_t *)filename);
             if (((prefix != NULL) && (prefix[0] != 0))) {
@@ -127585,17 +128014,17 @@ static __attribute__((used)) void format_param_type(struct C99CodeGenerator * co
     int32_t is_copy_type_param = 0;
     if (((codegen != NULL) && (codegen->current_function_decl != NULL))) {
         uint8_t * const fn_name = codegen->current_function_decl->fn_decl_name;
-        if (((fn_name != NULL) && (std_string_strcmp((uint8_t *)fn_name, (uint8_t *)(uint8_t *)str3435) == 0))) {
-            if (std_string_strcmp((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3436) == 0) {
+        if (((fn_name != NULL) && (std_string_strcmp((uint8_t *)fn_name, (uint8_t *)(uint8_t *)str3510) == 0))) {
+            if (std_string_strcmp((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3511) == 0) {
                 is_copy_type_param = 1;
             } else {
-                if (std_string_strcmp((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3437) == 0) {
+                if (std_string_strcmp((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3512) == 0) {
                     is_copy_type_param = 1;
                 }
             }
         }
     }
-    uint8_t * const paren_star = std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3438);
+    uint8_t * const paren_star = std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3513);
     if (paren_star != NULL) {
         const int32_t before_paren = std_runtime_ptr_diff(paren_star, (uint8_t *)type_c);
         uint8_t * const after_paren = (paren_star + 3);
@@ -127608,7 +128037,7 @@ static __attribute__((used)) void format_param_type(struct C99CodeGenerator * co
         if (((i >= 0) && (i < TEMP_BUF_SIZE))) {
             temp_buf[i] = 0;
         }
-        (void)(fprintf(output, (const char *)str3439, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, after_paren)        );
+        (void)(fprintf(output, (const char *)str3514, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, after_paren)        );
     } else {
         uint8_t * const bracket = std_string_strchr((uint8_t *)type_c, 91);
         if (bracket != NULL) {
@@ -127622,10 +128051,10 @@ static __attribute__((used)) void format_param_type(struct C99CodeGenerator * co
             if (((i >= 0) && (i < TEMP_BUF_SIZE))) {
                 temp_buf[i] = 0;
             }
-            (void)(fprintf(output, (const char *)str3440, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)            );
+            (void)(fprintf(output, (const char *)str3515, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)            );
         } else {
             if (is_copy_type_param != 0) {
-                (void)(fprintf(output, (const char *)str3441, (uint8_t *)param_name)                );
+                (void)(fprintf(output, (const char *)str3516, (uint8_t *)param_name)                );
             } else {
                 (void)(fprintf(output, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)param_name)                );
             }
@@ -127731,6 +128160,9 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
     if (((fn_decl == NULL) || (fn_decl->type != main_ASTNodeType_AST_FN_DECL))) {
         return;
     }
+    if (c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0) {
+        return;
+    }
     if (should_skip_libc_syscall_stub(codegen, fn_decl) != 0) {
         return;
     }
@@ -127760,13 +128192,13 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
     if (is_c_main != 0) {
         int32_t j = 0;
         (void)(c99_preregister_slices_top_level_fn(codegen, fn_decl)        );
-        (void)(fprintf(codegen->emit_stream, (const char *)str3442, (uint8_t *)return_c)        );
+        (void)(fprintf(codegen->emit_stream, (const char *)str3517, (uint8_t *)return_c)        );
         while (j < param_count) {
             struct ASTNode * const param = fn_decl->fn_decl_params[j];
             if (((param != NULL) && (param->type == main_ASTNodeType_AST_VAR_DECL))) {
                 uint8_t * const param_name = get_safe_c_identifier(codegen, param->var_decl_name);
                 if (j == 1) {
-                    (void)(fprintf(codegen->emit_stream, (const char *)str3443, (uint8_t *)param_name)                    );
+                    (void)(fprintf(codegen->emit_stream, (const char *)str3518, (uint8_t *)param_name)                    );
                 } else {
                     struct ASTNode * const param_type = param->var_decl_type;
                     uint8_t * const param_type_c = c99_type_to_c(codegen, param_type);
@@ -127783,7 +128215,7 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
         return;
     }
     if (((is_entry_main != 0) && (fn_decl->fn_decl_is_export == 0))) {
-        (void)(fprintf(codegen->emit_stream, (const char *)str3444, (uint8_t *)return_c)        );
+        (void)(fprintf(codegen->emit_stream, (const char *)str3519, (uint8_t *)return_c)        );
         return;
     }
     if (((((is_extern != 0) && (fn_decl->fn_decl_name != NULL)) && (codegen->program_node != NULL)) && (codegen->program_node->type == main_ASTNodeType_AST_PROGRAM))) {
@@ -127798,7 +128230,7 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
         }
     }
     if (((is_extern != 0) && (fn_decl->fn_decl_name != NULL))) {
-        if ((((std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3445) == 0) || (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3446) == 0)) || (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3447) == 0))) {
+        if ((((std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3520) == 0) || (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3521) == 0)) || (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3522) == 0))) {
             codegen->current_function_decl = saved_current_function_decl;
             return;
         }
@@ -127815,24 +128247,24 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
     }
     const int32_t should_emit_static = c99_should_emit_static_top_level_function(codegen, fn_decl);
     int32_t force_noinline = 0;
-    if (((fn_decl->fn_decl_name != NULL) && (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3448) == 0))) {
+    if (((fn_decl->fn_decl_name != NULL) && (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3523) == 0))) {
         force_noinline = 1;
     }
     if (is_extern == 0) {
         if (should_emit_static != 0) {
             if (force_noinline != 0) {
-                (void)(fprintf(codegen->emit_stream, (const char *)str3449, (uint8_t *)return_c, (uint8_t *)func_name)                );
+                (void)(fprintf(codegen->emit_stream, (const char *)str3524, (uint8_t *)return_c, (uint8_t *)func_name)                );
             } else {
-                (void)(fprintf(codegen->emit_stream, (const char *)str3450, (uint8_t *)return_c, (uint8_t *)func_name)                );
+                (void)(fprintf(codegen->emit_stream, (const char *)str3525, (uint8_t *)return_c, (uint8_t *)func_name)                );
             }
         } else {
-            (void)(fprintf(codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)func_name)            );
+            (void)(fprintf(codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)func_name)            );
         }
     } else {
-        (void)(fprintf(codegen->emit_stream, (const char *)str3452, (uint8_t *)return_c, (uint8_t *)func_name)        );
+        (void)(fprintf(codegen->emit_stream, (const char *)str3527, (uint8_t *)return_c, (uint8_t *)func_name)        );
     }
     int32_t is_copy_type = 0;
-    if (((fn_decl->fn_decl_name != NULL) && (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3435) == 0))) {
+    if (((fn_decl->fn_decl_name != NULL) && (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3510) == 0))) {
         is_copy_type = 1;
     }
     int32_t is_stdlib = 0;
@@ -127847,17 +128279,17 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
             struct ASTNode * const param_type = param->var_decl_type;
             uint8_t * param_type_c = c99_type_to_c(codegen, param_type);
             if (((is_copy_type != 0) && (i == 0))) {
-                param_type_c = (uint8_t *)(uint8_t *)(uint8_t *)str3437;
+                param_type_c = (uint8_t *)(uint8_t *)(uint8_t *)str3512;
             }
             if (((is_extern != 0) && (param_type->type == main_ASTNodeType_AST_TYPE_NAMED))) {
                 const int32_t struct_size = calculate_struct_size(codegen, param_type);
                 if (struct_size > 16) {
                     if (((is_copy_type != 0) && (i == 0))) {
-                        param_type_c = (uint8_t *)(uint8_t *)(uint8_t *)str3437;
+                        param_type_c = (uint8_t *)(uint8_t *)(uint8_t *)str3512;
                     } else {
                         param_type_c = c99_type_to_c(codegen, param_type);
                     }
-                    (void)(fprintf(codegen->emit_stream, (const char *)str3453, (uint8_t *)param_type_c, (uint8_t *)param_name)                    );
+                    (void)(fprintf(codegen->emit_stream, (const char *)str3528, (uint8_t *)param_type_c, (uint8_t *)param_name)                    );
                     if (i < (param_count - 1)) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str572, codegen->emit_stream)                        );
                     }
@@ -127882,16 +128314,16 @@ static __attribute__((used)) void gen_function_prototype(struct C99CodeGenerator
                     if (((j >= 0) && (j < TEMP_BUF_SIZE))) {
                         temp_buf[j] = 0;
                     }
-                    (void)(fprintf(codegen->emit_stream, (const char *)str3454, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)                    );
+                    (void)(fprintf(codegen->emit_stream, (const char *)str3529, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)                    );
                 } else {
-                    (void)(fprintf(codegen->emit_stream, (const char *)str3455, (uint8_t *)param_type_c, (uint8_t *)param_name)                    );
+                    (void)(fprintf(codegen->emit_stream, (const char *)str3530, (uint8_t *)param_type_c, (uint8_t *)param_name)                    );
                 }
             } else {
                 if (param_type->type == main_ASTNodeType_AST_TYPE_SLICE) {
                     (void)(format_param_type(codegen, (uint8_t *)param_type_c, param_name, codegen->emit_stream)                    );
                 } else {
                     if (((is_copy_type != 0) && (i == 0))) {
-                        (void)(fprintf(codegen->emit_stream, (const char *)str3441, (uint8_t *)param_name)                        );
+                        (void)(fprintf(codegen->emit_stream, (const char *)str3516, (uint8_t *)param_name)                        );
                     } else {
                         (void)(format_param_type(codegen, (uint8_t *)param_type_c, param_name, codegen->emit_stream)                        );
                     }
@@ -127932,6 +128364,9 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
     if (should_skip_libc_syscall_stub(codegen, fn_decl) != 0) {
         return;
     }
+    if (c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0) {
+        return;
+    }
     if (fn_decl->fn_decl_is_async != 0) {
         int32_t use_stage_b = 0;
         struct ASTNode * effective_return_type = return_type;
@@ -127966,29 +128401,29 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
     const int32_t is_static = c99_should_emit_static_top_level_function(codegen, fn_decl);
     const int32_t is_c_main = c99_fn_decl_is_c_main(fn_decl);
     if (is_entry_main != 0) {
-        uint8_t * main_def_name = (uint8_t *)(uint8_t *)str3433;
+        uint8_t * main_def_name = (uint8_t *)(uint8_t *)str3508;
         if (fn_decl->fn_decl_is_export != 0) {
             main_def_name = (uint8_t *)(uint8_t *)str1788;
         }
-        (void)(fprintf(codegen->emit_stream, (const char *)str3456, (uint8_t *)return_c, (uint8_t *)main_def_name)        );
+        (void)(fprintf(codegen->emit_stream, (const char *)str3531, (uint8_t *)return_c, (uint8_t *)main_def_name)        );
     } else {
         if (fn_decl->fn_decl_is_naked != 0) {
-            (void)(fprintf(codegen->emit_stream, (const char *)str3457)            );
+            (void)(fprintf(codegen->emit_stream, (const char *)str3532)            );
         }
         if (is_static != 0) {
-            if (((orig_name != NULL) && (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3448) == 0))) {
-                (void)(fprintf(codegen->emit_stream, (const char *)str3458)                );
+            if (((orig_name != NULL) && (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3523) == 0))) {
+                (void)(fprintf(codegen->emit_stream, (const char *)str3533)                );
             } else {
-                (void)(fprintf(codegen->emit_stream, (const char *)str3459)                );
+                (void)(fprintf(codegen->emit_stream, (const char *)str3534)                );
             }
         } else {
             if (fn_decl->fn_decl_extern_lib_name != NULL) {
-                (void)(fprintf(codegen->emit_stream, (const char *)str3460)                );
+                (void)(fprintf(codegen->emit_stream, (const char *)str3535)                );
             }
         }
-        (void)(fprintf(codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)func_name)        );
+        (void)(fprintf(codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)func_name)        );
         int32_t is_copy_type = 0;
-        if (((fn_decl->fn_decl_name != NULL) && (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3435) == 0))) {
+        if (((fn_decl->fn_decl_name != NULL) && (std_string_strcmp((uint8_t *)fn_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3510) == 0))) {
             is_copy_type = 1;
         }
         i = 0;
@@ -127999,7 +128434,7 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
                 struct ASTNode * const param_type = param->var_decl_type;
                 uint8_t * param_type_c = c99_type_to_c(codegen, param_type);
                 if (((is_copy_type != 0) && (i == 0))) {
-                    param_type_c = (uint8_t *)(uint8_t *)(uint8_t *)str3437;
+                    param_type_c = (uint8_t *)(uint8_t *)(uint8_t *)str3512;
                 }
                 uint8_t * const libc_param_c = get_extern_libc_param_c_type(codegen, fn_decl, i);
                 if (libc_param_c != NULL) {
@@ -128018,9 +128453,9 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
                         if (((j >= 0) && (j < TEMP_BUF_SIZE))) {
                             temp_buf[j] = 0;
                         }
-                        (void)(fprintf(codegen->emit_stream, (const char *)str3454, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)                        );
+                        (void)(fprintf(codegen->emit_stream, (const char *)str3529, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)                        );
                     } else {
-                        (void)(fprintf(codegen->emit_stream, (const char *)str3455, (uint8_t *)param_type_c, (uint8_t *)param_name)                        );
+                        (void)(fprintf(codegen->emit_stream, (const char *)str3530, (uint8_t *)param_type_c, (uint8_t *)param_name)                        );
                     }
                 } else {
                     if (param_type->type == main_ASTNodeType_AST_TYPE_SLICE) {
@@ -128028,13 +128463,13 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
                     } else {
                         if (((is_c_main != 0) && (i == 1))) {
                             if (codegen->is_nostdlib != 0) {
-                                (void)(fprintf(codegen->emit_stream, (const char *)str3461, (uint8_t *)param_name)                                );
+                                (void)(fprintf(codegen->emit_stream, (const char *)str3536, (uint8_t *)param_name)                                );
                             } else {
-                                (void)(fprintf(codegen->emit_stream, (const char *)str3443, (uint8_t *)param_name)                                );
+                                (void)(fprintf(codegen->emit_stream, (const char *)str3518, (uint8_t *)param_name)                                );
                             }
                         } else {
                             if (((is_copy_type != 0) && (i == 0))) {
-                                (void)(fprintf(codegen->emit_stream, (const char *)str3441, (uint8_t *)param_name)                                );
+                                (void)(fprintf(codegen->emit_stream, (const char *)str3516, (uint8_t *)param_name)                                );
                             } else {
                                 (void)(format_param_type(codegen, (uint8_t *)param_type_c, param_name, codegen->emit_stream)                                );
                             }
@@ -128057,10 +128492,10 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
     if (((is_entry_main != 0) || (is_c_main != 0))) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2200, codegen->emit_stream)        );
         if (((codegen->test_count > 0) && (is_entry_main != 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3462, codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3537, codegen->emit_stream)            );
         }
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, codegen->emit_stream)        );
     }
     codegen->indent_level = (codegen->indent_level + 1);
     codegen->current_function_return_type = return_type;
@@ -128080,7 +128515,7 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
                 uint8_t * const array_type_c = c99_type_to_c(codegen, param_type);
                 uint8_t * const bracket = std_string_strchr((uint8_t *)array_type_c, 91);
                 (void)(c99_emit_indent(codegen)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3464, codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3539, codegen->emit_stream)                );
                 if (bracket != NULL) {
                     const int32_t str_len = std_runtime_ptr_diff(bracket, (uint8_t *)array_type_c);
                     uint8_t temp_buf[256] = {0};
@@ -128092,14 +128527,14 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
                     if (((j >= 0) && (j < TEMP_BUF_SIZE))) {
                         temp_buf[j] = 0;
                     }
-                    (void)(fprintf(codegen->emit_stream, (const char *)str3465, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)                    );
+                    (void)(fprintf(codegen->emit_stream, (const char *)str3540, (uint8_t *)(&temp_buf[0]), (uint8_t *)param_name, bracket)                    );
                 } else {
                     (void)(c99_emit_indent(codegen)                    );
-                    (void)(fprintf(codegen->emit_stream, (const char *)str3466, (uint8_t *)array_type_c, (uint8_t *)param_name)                    );
+                    (void)(fprintf(codegen->emit_stream, (const char *)str3541, (uint8_t *)array_type_c, (uint8_t *)param_name)                    );
                 }
                 (void)(c99_emit_indent(codegen)                );
                 codegen->needs_string_h = 1;
-                (void)(fprintf(codegen->emit_stream, (const char *)str3467, (uint8_t *)param_name, (uint8_t *)param_name, (uint8_t *)param_name)                );
+                (void)(fprintf(codegen->emit_stream, (const char *)str3542, (uint8_t *)param_name, (uint8_t *)param_name, (uint8_t *)param_name)                );
                 if (((param_name != NULL) && (codegen->local_variable_count < C99_MAX_LOCAL_VARS))) {
                     (void)(c99_push_local_variable(codegen, param->var_decl_name, array_type_c, param->var_decl_type, codegen->current_depth)                    );
                 }
@@ -128121,9 +128556,9 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
                 if (pname != NULL) {
                     (void)(c99_emit_indent(codegen)                    );
                     if (((param->var_decl_type != NULL) && (param->var_decl_type->type == main_ASTNodeType_AST_TYPE_ARRAY))) {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3468, (uint8_t *)pname)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3543, (uint8_t *)pname)                        );
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3469, (uint8_t *)pname)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3544, (uint8_t *)pname)                        );
                     }
                 }
             }
@@ -128162,7 +128597,7 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
         if (is_void_payload != 0) {
             codegen->indent_level = (codegen->indent_level + 1);
             (void)(c99_emit_indent(codegen)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3470, (uint8_t *)return_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3545, (uint8_t *)return_c)            );
             codegen->indent_level = (codegen->indent_level - 1);
         }
     }
@@ -128186,9 +128621,9 @@ static __attribute__((used)) void gen_function(struct C99CodeGenerator * codegen
             codegen->indent_level = (codegen->indent_level + 1);
             (void)(c99_emit_indent(codegen)            );
             if (((return_c != NULL) && (std_string_strncmp((uint8_t *)return_c, (uint8_t *)(uint8_t *)str580, 7) == 0))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3471, (uint8_t *)return_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3546, (uint8_t *)return_c)                );
             } else {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3472, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3547, (void *)codegen->emit_stream)                );
             }
             codegen->indent_level = (codegen->indent_level - 1);
         }
@@ -128782,7 +129217,7 @@ static __attribute__((used)) int32_t c99_ensure_async_await_capacity(struct C99C
     (void)codegen;
     (void)needed;
     if ((((codegen == NULL) || (codegen->arena == NULL)) || (needed <= 0))) {
-        (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3473, needed, 0)        );
+        (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3548, needed, 0)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -128801,7 +129236,7 @@ static __attribute__((used)) int32_t c99_ensure_async_await_capacity(struct C99C
     while (new_cap < needed) {
         new_cap = (new_cap * 2);
         if (new_cap <= 0) {
-            (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3474, needed, 0)            );
+            (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3549, needed, 0)            );
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -128817,7 +129252,7 @@ static __attribute__((used)) int32_t c99_ensure_async_await_capacity(struct C99C
         line = codegen->current_function_decl->line;
         column = codegen->current_function_decl->column;
     }
-    (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3475, (uint8_t *)(uint8_t *)str3476, (uint8_t *)filename, line, column, needed, request_bytes)    );
+    (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3550, (uint8_t *)(uint8_t *)str3551, (uint8_t *)filename, line, column, needed, request_bytes)    );
     struct ASTNode * * const new_operands = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)new_cap));
     uint8_t * * const new_names = (uint8_t * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(uint8_t *) * (size_t)new_cap));
     struct ASTNode * * const new_types = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)new_cap));
@@ -128833,7 +129268,7 @@ static __attribute__((used)) int32_t c99_ensure_async_await_capacity(struct C99C
     uint8_t * * const new_bind_names = (uint8_t * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(uint8_t *) * (size_t)new_cap));
     (void)(compiler_arena_clear_failure_context()    );
     if ((((((((((((((new_operands == NULL) || (new_names == NULL)) || (new_types == NULL)) || (new_blocks == NULL)) || (new_stmt_indices == NULL)) || (new_source_stmts == NULL)) || (new_split_try_exprs == NULL)) || (new_split_await_exprs == NULL)) || (new_state_ids == NULL)) || (new_cleanup_region_ids == NULL)) || (new_enclosing_while == NULL)) || (new_enclosing_for == NULL)) || (new_bind_names == NULL))) {
-        (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3477, needed, request_bytes)        );
+        (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3552, needed, request_bytes)        );
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -128895,7 +129330,7 @@ static __attribute__((used)) void c99_emit_async_arm_await_index(struct C99CodeG
     }
     uint8_t * inline_struct_name = NULL;
     if (((c99_async_await_operand_is_inlineable(codegen, await_operands[j], (&inline_struct_name)) != 0) && (inline_struct_name != NULL))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3478, j, j, j, j)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3553, j, j, j, j)        );
         struct ASTNode * const operand = await_operands[j];
         if ((((operand != NULL) && (operand->type == main_ASTNodeType_AST_CALL_EXPR)) && (operand->call_expr_args != NULL))) {
             struct ASTNode * const callee = operand->call_expr_callee;
@@ -128910,7 +129345,7 @@ static __attribute__((used)) void c99_emit_async_arm_await_index(struct C99CodeG
                     if (((((param != NULL) && (param->type == main_ASTNodeType_AST_VAR_DECL)) && (param->var_decl_name != NULL)) && (arg != NULL))) {
                         uint8_t * const psafe = get_safe_c_identifier(codegen, param->var_decl_name);
                         if (psafe != NULL) {
-                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3479, j, psafe)                            );
+                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3554, j, psafe)                            );
                             (void)(gen_expr(codegen, arg)                            );
                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str2697, (void *)codegen->emit_stream)                            );
                         }
@@ -128929,12 +129364,12 @@ static __attribute__((used)) void c99_emit_async_arm_await_index(struct C99CodeG
     if ((((next_await_is_err_future != 0) && (full_return_type != NULL)) && (full_return_type->type == main_ASTNodeType_AST_TYPE_ERROR_UNION))) {
         uint8_t * const operand_union_c2 = c99_type_to_c(codegen, full_return_type);
         if (operand_union_c2 != NULL) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3480, (uint8_t *)operand_union_c2)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3555, (uint8_t *)operand_union_c2)            );
             (void)(gen_expr(codegen, await_operands[j])            );
             if (((concrete_future_safe != NULL) && (state_slot_iface_c != NULL))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3481, (uint8_t *)concrete_future_safe)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3556, (uint8_t *)concrete_future_safe)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3482)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3557)                );
             }
         } else {
             (void)(c99_emit_await_fut_assign_from_expr(codegen, await_operands[j], fn_decl)            );
@@ -129845,14 +130280,14 @@ static __attribute__((used)) void c99_emit_await_fut_assign_from_expr(struct C99
         if (((fallback_tc != NULL) && (std_string_strcmp((uint8_t *)fallback_tc, (uint8_t *)(uint8_t *)str1005) != 0))) {
             tc = fallback_tc;
         } else {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3483, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3558, (void *)codegen->emit_stream)            );
             return;
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3484, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3485, (uint8_t *)tc)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3559, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3560, (uint8_t *)tc)    );
     (void)(gen_expr(codegen, operand)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3486, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3561, (void *)codegen->emit_stream)    );
 }
 
 static __attribute__((used)) struct ASTNode * c99_async_future_inner_ast_from_return_type(struct C99CodeGenerator * codegen, struct ASTNode * ret_type, struct ASTNode * fn_decl) {
@@ -130551,7 +130986,7 @@ static __attribute__((used)) uint8_t * c99_async_for_fe_hoist_name(struct C99Cod
                 }
     }
     uint8_t buf[64] = {0};
-    (void)(snprintf((char *)(uint8_t *)(&buf[0]), 64, (const char *)str3495, for_n->line, for_n->column)    );
+    (void)(snprintf((char *)(uint8_t *)(&buf[0]), 64, (const char *)str3570, for_n->line, for_n->column)    );
         {
         uint8_t * _uya_ret = c99_arena_strdup(codegen->arena, (uint8_t *)(&buf[0]));
         return _uya_ret;
@@ -130568,7 +131003,7 @@ static __attribute__((used)) uint8_t * c99_async_for_iter_hoist_name(struct C99C
                 }
     }
     uint8_t buf[64] = {0};
-    (void)(snprintf((char *)(uint8_t *)(&buf[0]), 64, (const char *)str3496, for_n->line, for_n->column)    );
+    (void)(snprintf((char *)(uint8_t *)(&buf[0]), 64, (const char *)str3571, for_n->line, for_n->column)    );
         {
         uint8_t * _uya_ret = c99_arena_strdup(codegen->arena, (uint8_t *)(&buf[0]));
         return _uya_ret;
@@ -130587,8 +131022,8 @@ static __attribute__((used)) void c99_async_for_ar_hoist_names(struct C99CodeGen
     }
     uint8_t buf1[64] = {0};
     uint8_t buf2[64] = {0};
-    (void)(snprintf((char *)(uint8_t *)(&buf1[0]), 64, (const char *)str3497, for_n->line, for_n->column)    );
-    (void)(snprintf((char *)(uint8_t *)(&buf2[0]), 64, (const char *)str3498, for_n->line, for_n->column)    );
+    (void)(snprintf((char *)(uint8_t *)(&buf1[0]), 64, (const char *)str3572, for_n->line, for_n->column)    );
+    (void)(snprintf((char *)(uint8_t *)(&buf2[0]), 64, (const char *)str3573, for_n->line, for_n->column)    );
     out_len[0] = c99_arena_strdup(codegen->arena, (uint8_t *)(&buf1[0]));
     out_i[0] = c99_arena_strdup(codegen->arena, (uint8_t *)(&buf2[0]));
 }
@@ -130978,9 +131413,9 @@ static __attribute__((used)) void c99_async_hoist_one_for_with_await(struct C99C
                 uint8_t * const fe = c99_async_for_fe_hoist_name(codegen, for_n);
                 (void)(c99_async_try_append_hoist_local(codegen, fe, ta, 0)                );
             } else {
-                (void)(c99_async_try_append_hoist_local(codegen, (uint8_t *)(uint8_t *)str3499, ta, 0)                );
-                (void)(c99_async_try_append_hoist_local(codegen, (uint8_t *)(uint8_t *)str3500, ta, 0)                );
-                (void)(c99_async_try_append_hoist_local(codegen, (uint8_t *)(uint8_t *)str3501, ta, 0)                );
+                (void)(c99_async_try_append_hoist_local(codegen, (uint8_t *)(uint8_t *)str3574, ta, 0)                );
+                (void)(c99_async_try_append_hoist_local(codegen, (uint8_t *)(uint8_t *)str3575, ta, 0)                );
+                (void)(c99_async_try_append_hoist_local(codegen, (uint8_t *)(uint8_t *)str3576, ta, 0)                );
             }
         } else {
             if (for_n->for_stmt_var_name != NULL) {
@@ -131530,7 +131965,7 @@ static __attribute__((used)) void c99_emit_async_set_terminal_state(struct C99Co
     if (codegen == NULL) {
         return;
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3502, c99_async_terminal_state(codegen))    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3577, c99_async_terminal_state(codegen))    );
 }
 
 static __attribute__((used)) void c99_async_rebind_await_location(struct C99CodeGenerator * codegen, int32_t idx, struct ASTNode * block, int32_t si) {
@@ -131594,7 +132029,7 @@ static __attribute__((used)) void c99_emit_async_arm_and_fallthrough(struct C99C
     if (resume_state <= 0) {
         return;
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3502, resume_state)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3577, resume_state)    );
     (void)(c99_emit_async_arm_await_index(codegen, await_index, codegen->async_collect_count, codegen->async_collect_operands, codegen->async_collect_types, codegen->async_fn_decl, codegen->async_await_operand_is_err_future, codegen->async_full_return_type, codegen->async_concrete_future_safe, codegen->async_state_slot_iface_c)    );
 }
 
@@ -132113,7 +132548,7 @@ static __attribute__((used)) int32_t emit_async_continue_in_parent(struct C99Cod
     if (((((parent_blk[0] != NULL) && (parent_blk[0]->block_stmts != NULL)) && (stmt_idx[0] >= 0)) && (stmt_idx[0] < parent_blk[0]->block_stmt_count))) {
         struct ASTNode * const parent_stmt = parent_blk[0]->block_stmts[stmt_idx[0]];
         if ((((parent_stmt != NULL) && (parent_stmt->type == main_ASTNodeType_AST_IF_STMT)) && (c99_stmt_tree_has_await(parent_stmt) != 0))) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3504, (uintptr_t)((void *)parent_stmt))            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3579, (uintptr_t)((void *)parent_stmt))            );
                         {
                 int32_t _uya_ret = 0;
                 return _uya_ret;
@@ -132340,7 +132775,7 @@ static __attribute__((used)) void emit_async_while_loopback_or_exit(struct C99Co
         return;
     }
     const size_t label_id = c99_async_while_label_id(ew);
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3505, label_id)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3580, label_id)    );
 }
 
 static __attribute__((used)) void emit_async_while_with_await(struct C99CodeGenerator * codegen, struct ASTNode * while_stmt, int32_t while_si, struct ASTNode * parent_block, int32_t parent_to_si) {
@@ -132362,19 +132797,19 @@ static __attribute__((used)) void emit_async_while_with_await(struct C99CodeGene
     if ((((wcond != NULL) && (wcond->type == main_ASTNodeType_AST_BOOL)) && (wcond->bool_literal_value != 0))) {
         is_while_true = 1;
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3506, label_id)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3581, label_id)    );
     if (is_while_true != 0) {
         (void)(c99_async_emit_scoped_segment_with_control(codegen, wbody, 0, wbody->block_stmt_count, while_stmt, NULL));
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)        );
         (void)(gen_expr(codegen, wcond)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)        );
         (void)(c99_async_emit_scoped_segment_with_control(codegen, wbody, 0, wbody->block_stmt_count, while_stmt, NULL));
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)        );
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3509, label_id)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3584, label_id)    );
     const int32_t r = emit_async_continue_after_range(codegen, parent_block, (while_si + 1), parent_to_si);
     if (r != 0) {
         (void)(c99_emit_async_set_terminal_state(codegen)        );
@@ -132395,12 +132830,12 @@ static __attribute__((used)) void c99_emit_async_for_array_iter_bind_indexed(str
         return;
     }
     if (for_stmt->for_stmt_is_ref != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3510, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3511, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3585, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3586, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
         (void)(gen_expr(codegen, array)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str698, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)idx_c_safe, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3512, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3587, (void *)codegen->emit_stream)        );
         return;
     }
     uint8_t * const bracket2 = std_string_strchr((uint8_t *)elem_type_c, 91);
@@ -132415,20 +132850,20 @@ static __attribute__((used)) void c99_emit_async_for_array_iter_bind_indexed(str
         if (((j2 >= 0) && (j2 < TEMP_BUF_SIZE))) {
             tb2[j2] = 0;
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3510, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3513, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3585, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3588, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
         (void)(gen_expr(codegen, array)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str698, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)idx_c_safe, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3514, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3515, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3589, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3590, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3510, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3516, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3585, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3591, (uint8_t *)codegen->async_state_var, (uint8_t *)var_name2)        );
         (void)(gen_expr(codegen, array)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str698, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)idx_c_safe, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3512, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3587, (void *)codegen->emit_stream)        );
     }
 }
 
@@ -132450,40 +132885,40 @@ static __attribute__((used)) void emit_async_for_loopback_or_exit(struct C99Code
                 uint8_t * const fe_raw = c99_async_for_fe_hoist_name(codegen, fs);
                 uint8_t * const fe_s = get_safe_c_identifier(codegen, fe_raw);
                 if ((((vn != NULL) && (fe_s != NULL)) && (codegen->async_state_var != NULL))) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3517, (uint8_t *)codegen->async_state_var, (uint8_t *)vn)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)codegen->async_state_var, (uint8_t *)vn, (uint8_t *)codegen->async_state_var, (uint8_t *)fe_s)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3592, (uint8_t *)codegen->async_state_var, (uint8_t *)vn)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)codegen->async_state_var, (uint8_t *)vn, (uint8_t *)codegen->async_state_var, (uint8_t *)fe_s)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)                    );
                     (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, fs));
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)                    );
                     const int32_t r2 = emit_async_after_stmt(codegen, fs);
                     if (r2 != 0) {
                         (void)(c99_emit_async_set_terminal_state(codegen)                        );
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
                 }
             } else {
-                uint8_t * const is3 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3501);
-                uint8_t * const es3 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3500);
+                uint8_t * const is3 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3576);
+                uint8_t * const es3 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3575);
                 if ((((is3 != NULL) && (es3 != NULL)) && (codegen->async_state_var != NULL))) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3517, (uint8_t *)codegen->async_state_var, (uint8_t *)is3)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)codegen->async_state_var, (uint8_t *)is3, (uint8_t *)codegen->async_state_var, (uint8_t *)es3)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3592, (uint8_t *)codegen->async_state_var, (uint8_t *)is3)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)codegen->async_state_var, (uint8_t *)is3, (uint8_t *)codegen->async_state_var, (uint8_t *)es3)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)                    );
                     (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, fs));
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)                    );
                     const int32_t r3 = emit_async_after_stmt(codegen, fs);
                     if (r3 != 0) {
                         (void)(c99_emit_async_set_terminal_state(codegen)                        );
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
                 }
             }
         } else {
             (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, fs));
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)            );
         }
         return;
     }
@@ -132496,19 +132931,19 @@ static __attribute__((used)) void emit_async_for_loopback_or_exit(struct C99Code
         uint8_t * const value_cname = c99_async_for_iterator_method_c_name(codegen, fs, (uint8_t *)(uint8_t *)str1358);
         uint8_t * const loop_var_safe = get_safe_c_identifier(codegen, fs->for_stmt_var_name);
         if (((((((iter_safe != NULL) && (next_cname != NULL)) && (next_type_c != NULL)) && (value_cname != NULL)) && (loop_var_safe != NULL)) && (codegen->async_state_var != NULL))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3520, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3521, (uint8_t *)next_type_c, (uint8_t *)next_cname, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3522, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3523, (uint8_t *)codegen->async_state_var, (uint8_t *)loop_var_safe, (uint8_t *)value_cname, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3595, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3596, (uint8_t *)next_type_c, (uint8_t *)next_cname, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3597, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3598, (uint8_t *)codegen->async_state_var, (uint8_t *)loop_var_safe, (uint8_t *)value_cname, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe)            );
             (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, fs));
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)            );
             const int32_t r_iter = emit_async_after_stmt(codegen, fs);
             if (r_iter != 0) {
                 (void)(c99_emit_async_set_terminal_state(codegen)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)            );
             return;
         }
     }
@@ -132519,21 +132954,21 @@ static __attribute__((used)) void emit_async_for_loopback_or_exit(struct C99Code
     uint8_t * const ii_s = get_safe_c_identifier(codegen, i_nm[0]);
     uint8_t * const elem_ca = c99_async_for_array_elem_type_c(codegen, fs);
     if (((((ln_s != NULL) && (ii_s != NULL)) && (elem_ca != NULL)) && (codegen->async_state_var != NULL))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3517, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s, (uint8_t *)codegen->async_state_var, (uint8_t *)ln_s)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3592, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s, (uint8_t *)codegen->async_state_var, (uint8_t *)ln_s)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)        );
         uint8_t idx_expr[128] = {0};
-        (void)(snprintf((char *)(uint8_t *)(&idx_expr[0]), 128, (const char *)str3524, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s)        );
+        (void)(snprintf((char *)(uint8_t *)(&idx_expr[0]), 128, (const char *)str3599, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s)        );
         (void)(c99_emit_async_for_array_iter_bind_indexed(codegen, fs, elem_ca, (uint8_t *)(&idx_expr[0]))        );
         (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, fs));
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)        );
         const int32_t r4 = emit_async_after_stmt(codegen, fs);
         if (r4 != 0) {
             (void)(c99_emit_async_set_terminal_state(codegen)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)        );
     }
 }
 
@@ -132562,58 +132997,58 @@ static __attribute__((used)) void emit_async_for_with_await(struct C99CodeGenera
                 uint8_t * const fe_r = c99_async_for_fe_hoist_name(codegen, for_stmt);
                 uint8_t * const fe_s2 = get_safe_c_identifier(codegen, fe_r);
                 if ((((vn2 != NULL) && (fe_s2 != NULL)) && (codegen->async_state_var != NULL))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3520, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)vn2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3595, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)vn2)                    );
                     (void)(gen_expr(codegen, start_e)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)fe_s2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)fe_s2)                    );
                     (void)(gen_expr(codegen, end_e)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)codegen->async_state_var, (uint8_t *)vn2, (uint8_t *)codegen->async_state_var, (uint8_t *)fe_s2)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)codegen->async_state_var, (uint8_t *)vn2, (uint8_t *)codegen->async_state_var, (uint8_t *)fe_s2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)                    );
                     (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, for_stmt));
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)                    );
                     const int32_t r5 = emit_async_continue_after_range(codegen, parent_block, (for_si + 1), parent_to_si);
                     if (r5 != 0) {
                         (void)(c99_emit_async_set_terminal_state(codegen)                        );
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
                 }
             } else {
-                uint8_t * const ss2 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3499);
-                uint8_t * const ee2 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3500);
-                uint8_t * const ii2 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3501);
+                uint8_t * const ss2 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3574);
+                uint8_t * const ee2 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3575);
+                uint8_t * const ii2 = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3576);
                 if (((((ss2 != NULL) && (ee2 != NULL)) && (ii2 != NULL)) && (codegen->async_state_var != NULL))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3520, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)ss2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3595, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)ss2)                    );
                     (void)(gen_expr(codegen, start_e)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)ee2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)ee2)                    );
                     (void)(gen_expr(codegen, end_e)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3525, (uint8_t *)codegen->async_state_var, (uint8_t *)ii2, (uint8_t *)codegen->async_state_var, (uint8_t *)ss2)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)codegen->async_state_var, (uint8_t *)ii2, (uint8_t *)codegen->async_state_var, (uint8_t *)ee2)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3600, (uint8_t *)codegen->async_state_var, (uint8_t *)ii2, (uint8_t *)codegen->async_state_var, (uint8_t *)ss2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)codegen->async_state_var, (uint8_t *)ii2, (uint8_t *)codegen->async_state_var, (uint8_t *)ee2)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)                    );
                     (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, for_stmt));
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)                    );
                     const int32_t r6 = emit_async_continue_after_range(codegen, parent_block, (for_si + 1), parent_to_si);
                     if (r6 != 0) {
                         (void)(c99_emit_async_set_terminal_state(codegen)                        );
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
                 }
             }
         } else {
             if (for_stmt->for_stmt_var_name != NULL) {
                 uint8_t * const vn3 = get_safe_c_identifier(codegen, for_stmt->for_stmt_var_name);
                 if (((vn3 != NULL) && (codegen->async_state_var != NULL))) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)vn3)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)vn3)                    );
                     (void)(gen_expr(codegen, start_e)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                    );
                     (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, for_stmt));
                 }
             }
@@ -132629,21 +133064,21 @@ static __attribute__((used)) void emit_async_for_with_await(struct C99CodeGenera
         uint8_t * const value_cname2 = c99_async_for_iterator_method_c_name(codegen, for_stmt, (uint8_t *)(uint8_t *)str1358);
         uint8_t * const loop_var_safe2 = get_safe_c_identifier(codegen, for_stmt->for_stmt_var_name);
         if (((((((iter_safe2 != NULL) && (next_cname2 != NULL)) && (next_type_c2 != NULL)) && (value_cname2 != NULL)) && (loop_var_safe2 != NULL)) && (codegen->async_state_var != NULL))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3520, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe2)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3595, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe2)            );
             (void)(gen_expr(codegen, for_stmt->for_stmt_array)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3521, (uint8_t *)next_type_c2, (uint8_t *)next_cname2, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe2)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3522, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3523, (uint8_t *)codegen->async_state_var, (uint8_t *)loop_var_safe2, (uint8_t *)value_cname2, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe2)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3596, (uint8_t *)next_type_c2, (uint8_t *)next_cname2, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe2)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3597, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3598, (uint8_t *)codegen->async_state_var, (uint8_t *)loop_var_safe2, (uint8_t *)value_cname2, (uint8_t *)codegen->async_state_var, (uint8_t *)iter_safe2)            );
             (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, for_stmt));
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)            );
             const int32_t r_iter2 = emit_async_continue_after_range(codegen, parent_block, (for_si + 1), parent_to_si);
             if (r_iter2 != 0) {
                 (void)(c99_emit_async_set_terminal_state(codegen)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)            );
             return;
         }
     }
@@ -132661,28 +133096,28 @@ static __attribute__((used)) void emit_async_for_with_await(struct C99CodeGenera
     uint8_t * const ln_s2 = get_safe_c_identifier(codegen, len_nm2[0]);
     uint8_t * const ii_s2 = get_safe_c_identifier(codegen, i_nm2[0]);
     if ((((ln_s2 != NULL) && (ii_s2 != NULL)) && (codegen->async_state_var != NULL))) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3520, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3510, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)codegen->async_state_var, (uint8_t *)ln_s2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3595, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3585, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3601, (uint8_t *)codegen->async_state_var, (uint8_t *)ln_s2)        );
         (void)(gen_expr(codegen, for_stmt->for_stmt_array)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3527, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3602, (void *)codegen->emit_stream)        );
         (void)(gen_expr(codegen, for_stmt->for_stmt_array)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3528, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3529, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s2)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s2, (uint8_t *)codegen->async_state_var, (uint8_t *)ln_s2)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3603, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3604, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s2, (uint8_t *)codegen->async_state_var, (uint8_t *)ln_s2)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)        );
         uint8_t idx_expr2[128] = {0};
-        (void)(snprintf((char *)(uint8_t *)(&idx_expr2[0]), 128, (const char *)str3524, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s2)        );
+        (void)(snprintf((char *)(uint8_t *)(&idx_expr2[0]), 128, (const char *)str3599, (uint8_t *)codegen->async_state_var, (uint8_t *)ii_s2)        );
         (void)(c99_emit_async_for_array_iter_bind_indexed(codegen, for_stmt, elem_cb, (uint8_t *)(&idx_expr2[0]))        );
         (void)(c99_async_emit_scoped_segment_with_control(codegen, fbody, 0, fbody->block_stmt_count, NULL, for_stmt));
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)        );
         const int32_t r8 = emit_async_continue_after_range(codegen, parent_block, (for_si + 1), parent_to_si);
         if (r8 != 0) {
             (void)(c99_emit_async_set_terminal_state(codegen)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)        );
     }
 }
 
@@ -132707,32 +133142,32 @@ static __attribute__((used)) void emit_async_if_with_await(struct C99CodeGenerat
     if (else_br != NULL) {
         else_has_await = c99_stmt_tree_has_await(else_br);
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3507, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3582, (void *)codegen->emit_stream)    );
     (void)(gen_expr(codegen, cond)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     if (then_has_await != 0) {
         if (((then_br != NULL) && (then_br->type == main_ASTNodeType_AST_BLOCK))) {
             const int32_t then_async_r = c99_async_emit_scoped_segment(codegen, then_br, 0, then_br->block_stmt_count);
             if (then_async_r != 0) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3504, label_id)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3579, label_id)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)                );
             }
         }
     } else {
         if (((then_br != NULL) && (then_br->type == main_ASTNodeType_AST_BLOCK))) {
             (void)(c99_async_emit_scoped_sync_block(codegen, then_br)            );
         }
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3504, label_id)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3579, label_id)        );
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)    );
     if (else_has_await != 0) {
         if (((else_br != NULL) && (else_br->type == main_ASTNodeType_AST_BLOCK))) {
             const int32_t else_async_r = c99_async_emit_scoped_segment(codegen, else_br, 0, else_br->block_stmt_count);
             if (else_async_r != 0) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3504, label_id)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3579, label_id)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)                );
             }
         } else {
             if (((else_br != NULL) && (else_br->type == main_ASTNodeType_AST_IF_STMT))) {
@@ -132747,10 +133182,10 @@ static __attribute__((used)) void emit_async_if_with_await(struct C99CodeGenerat
                 (void)(gen_stmt(codegen, else_br)                );
             }
         }
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3504, label_id)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3579, label_id)        );
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3530, label_id)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3605, label_id)    );
     const int32_t r_after_if = emit_async_continue_after_range(codegen, parent_block, (if_si + 1), parent_to_si);
     if (r_after_if != 0) {
         (void)(c99_emit_async_set_terminal_state(codegen)        );
@@ -132819,7 +133254,7 @@ static __attribute__((used)) int32_t c99_emit_async_local_init_single(struct C99
             }
             if (ie == NULL) {
                 if (((ltype != NULL) && (ltype->type == main_ASTNodeType_AST_TYPE_FRAME))) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3487, (uint8_t *)codegen->async_state_var, (uint8_t *)ls, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3562, (uint8_t *)codegen->async_state_var, (uint8_t *)ls, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                    );
                 }
                                 {
                     int32_t _uya_ret = 1;
@@ -132838,20 +133273,20 @@ static __attribute__((used)) int32_t c99_emit_async_local_init_single(struct C99
                     }
                     const int32_t arr_n = eval_const_expr(codegen, ltype->type_array_size_expr);
                     if ((((arr_n > 0) && (lit_len >= 0)) && (lit_len < arr_n))) {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3487, (uint8_t *)codegen->async_state_var, (uint8_t *)ls, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3562, (uint8_t *)codegen->async_state_var, (uint8_t *)ls, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
                         if (lit_len > 0) {
-                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3488, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                            );
+                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3563, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                            );
                             (void)(std_io_fputs((uint8_t *)elem_c, (void *)codegen->emit_stream)                            );
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3489, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3564, (void *)codegen->emit_stream)                            );
                             (void)(gen_array_literal_contents(codegen, ie)                            );
-                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3490, lit_len, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                            );
+                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3565, lit_len, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                            );
                         }
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3488, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3563, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
                         (void)(std_io_fputs((uint8_t *)elem_c, (void *)codegen->emit_stream)                        );
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3489, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3564, (void *)codegen->emit_stream)                        );
                         (void)(gen_array_literal_contents(codegen, ie)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3491, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3566, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
                     }
                                         {
                         int32_t _uya_ret = 1;
@@ -132875,9 +133310,9 @@ static __attribute__((used)) int32_t c99_emit_async_local_init_single(struct C99
                         }
                         uint8_t * const safe_iface = get_safe_c_identifier(codegen, (uint8_t *)iface_mono);
                         uint8_t * const safe_struct = get_safe_c_identifier(codegen, (uint8_t *)struct_mono);
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3492, (uint8_t *)codegen->async_state_var, (uint8_t *)ls, (uint8_t *)safe_iface, (uint8_t *)safe_iface, (uint8_t *)safe_struct)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3567, (uint8_t *)codegen->async_state_var, (uint8_t *)ls, (uint8_t *)safe_iface, (uint8_t *)safe_iface, (uint8_t *)safe_struct)                        );
                         (void)(gen_expr(codegen, ie)                        );
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3493, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3568, (void *)codegen->emit_stream)                        );
                         did_box_local = 1;
                     }
                 }
@@ -132888,12 +133323,12 @@ static __attribute__((used)) int32_t c99_emit_async_local_init_single(struct C99
                     return _uya_ret;
                                 }
             }
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3494, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)            );
             if (c99_async_hoisted_local_init_needs_byte_ptr_cast(ltype, ie) != 0) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str2731, (void *)codegen->emit_stream)                );
             }
             (void)(gen_expr(codegen, ie)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)            );
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -132950,13 +133385,13 @@ static __attribute__((used)) int32_t c99_async_emit_var_decl_target_assign(struc
                 }
     }
     if (((codegen->async_state_var != NULL) && (c99_async_var_decl_is_hoisted(codegen, stmt->var_decl_name) != 0))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3531, (uint8_t *)codegen->async_state_var, (uint8_t *)safe_name, (uint8_t *)value_expr_c)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3606, (uint8_t *)codegen->async_state_var, (uint8_t *)safe_name, (uint8_t *)value_expr_c)        );
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
                 }
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3532, (uint8_t *)safe_name, (uint8_t *)value_expr_c)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3607, (uint8_t *)safe_name, (uint8_t *)value_expr_c)    );
         {
         int32_t _uya_ret = 1;
         return _uya_ret;
@@ -132986,7 +133421,7 @@ static __attribute__((used)) int32_t c99_async_emit_var_decl_target_decl(struct 
             return _uya_ret;
                 }
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3533, (uint8_t *)type_c, (uint8_t *)safe_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3608, (uint8_t *)type_c, (uint8_t *)safe_name)    );
     if (codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
         (void)(c99_push_local_variable(codegen, stmt->var_decl_name, type_c, stmt->var_decl_type, codegen->current_depth)        );
     }
@@ -133043,16 +133478,16 @@ static __attribute__((used)) int32_t c99_async_emit_var_decl_catch_with_await(st
                 }
     }
     const size_t label_id = (uintptr_t)((void *)stmt);
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3534, (uint8_t *)operand_union_c, label_id)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3609, (uint8_t *)operand_union_c, label_id)    );
     (void)(gen_expr(codegen, init->catch_expr_operand)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3535, label_id)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3610, label_id)    );
     codegen->indent_level = (codegen->indent_level + 1);
     const int32_t saved_local_count = codegen->local_variable_count;
     if (init->catch_expr_err_name != NULL) {
         uint8_t * const err_safe = get_safe_c_identifier(codegen, init->catch_expr_err_name);
         if (err_safe != NULL) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3536, (uint8_t *)err_safe, label_id)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3611, (uint8_t *)err_safe, label_id)            );
             if (codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
                 (void)(c99_push_local_variable(codegen, init->catch_expr_err_name, (uint8_t *)(uint8_t *)str3293, NULL, codegen->current_depth)                );
                 (void)(c99_mark_local_variable_error_value(codegen, init->catch_expr_err_name)                );
@@ -133062,11 +133497,11 @@ static __attribute__((used)) int32_t c99_async_emit_var_decl_catch_with_await(st
     (void)(c99_emit_async_arm_and_fallthrough(codegen, await_index)    );
     codegen->local_variable_count = saved_local_count;
     codegen->indent_level = (codegen->indent_level - 1);
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3519, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3594, (void *)codegen->emit_stream)    );
     codegen->indent_level = (codegen->indent_level + 1);
     uint8_t * const value_ref = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
     if (value_ref != NULL) {
-        (void)(snprintf((char *)(uint8_t *)value_ref, 128, (const char *)str3537, label_id)        );
+        (void)(snprintf((char *)(uint8_t *)value_ref, 128, (const char *)str3612, label_id)        );
         (void)(c99_async_emit_var_decl_target_assign(codegen, stmt, value_ref));
     }
     const int32_t cont_r = emit_async_continue_after_range(codegen, block, (si + 1), to_si);
@@ -133074,7 +133509,7 @@ static __attribute__((used)) int32_t c99_async_emit_var_decl_catch_with_await(st
         (void)(c99_emit_async_set_terminal_state(codegen)        );
     }
     codegen->indent_level = (codegen->indent_level - 1);
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)    );
         {
         int32_t _uya_ret = 1;
         return _uya_ret;
@@ -133343,60 +133778,60 @@ static __attribute__((used)) void emit_async_no_await_ready_return(struct C99Cod
             }
             uint8_t * const no_await_ret_c = c99_type_to_c(codegen, full_return_type);
             if (((no_await_ret_c != NULL) && (concrete_future_safe != NULL))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3538, (uint8_t *)no_await_ret_c, (uint8_t *)no_await_ret_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3613, (uint8_t *)no_await_ret_c, (uint8_t *)no_await_ret_c)                );
                 codegen->current_function_return_type = effective_return_type;
                 if (ret_expr != NULL) {
                     if (no_await_is_future_literal != 0) {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3539, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3614, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
                         (void)(gen_expr(codegen, ret_expr)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3540, (uint8_t *)iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3615, (uint8_t *)iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3541, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)inner_poll_ret_c, (uint8_t *)inner_poll_union_c)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3616, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe, (uint8_t *)inner_poll_ret_c, (uint8_t *)inner_poll_union_c)                        );
                         (void)(gen_expr(codegen, ret_expr)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3542, (uint8_t *)iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3617, (uint8_t *)iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
                     }
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3543, (uint8_t *)iface_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3618, (uint8_t *)iface_c)                    );
                 }
                 codegen->current_function_return_type = NULL;
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                );
                 (void)(emit_all_active_scope_cleanup(codegen, 0)                );
                 if (no_await_is_future_literal != 0) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3545, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3620, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3546, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c, (uint8_t *)concrete_future_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3621, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c, (uint8_t *)concrete_future_safe)                    );
                 }
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)poll_ret_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)poll_ret_c)                );
             }
             return;
         }
     }
     if (inner_is_err_union != 0) {
         if ((((((inner != NULL) && (inner->type_error_union_payload_type != NULL)) && (inner->type_error_union_payload_type->type == main_ASTNodeType_AST_TYPE_NAMED)) && (inner->type_error_union_payload_type->type_named_name != NULL)) && (std_string_strcmp((uint8_t *)inner->type_error_union_payload_type->type_named_name, (uint8_t *)(uint8_t *)str1005) == 0))) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3547, (uint8_t *)inner_err_c, (uint8_t *)inner_err_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3622, (uint8_t *)inner_err_c, (uint8_t *)inner_err_c)            );
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3538, (uint8_t *)inner_err_c, (uint8_t *)inner_err_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3613, (uint8_t *)inner_err_c, (uint8_t *)inner_err_c)            );
             if (ret_expr != NULL) {
                 (void)(gen_expr(codegen, ret_expr)                );
             } else {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str279, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)            );
         }
         (void)(emit_all_active_scope_cleanup(codegen, 0)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3548, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3623, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)        );
         return;
     }
     codegen->current_function_return_type = effective_return_type;
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3549, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3624, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)    );
     if (ret_expr != NULL) {
         (void)(gen_expr(codegen, ret_expr)        );
     } else {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str279, (void *)codegen->emit_stream)        );
     }
     codegen->current_function_return_type = NULL;
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3550, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3625, (void *)codegen->emit_stream)    );
 }
 
 static __attribute__((used)) uint8_t * c99_type_to_c_async_method_opt(struct C99CodeGenerator * codegen, struct ASTNode * type_node) {
@@ -133508,21 +133943,21 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             uint8_t * const inner_poll_safe = get_safe_c_identifier(codegen, inner_poll_mono);
             uint8_t * const ipr = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
             if (ipr != NULL) {
-                (void)(snprintf((char *)(uint8_t *)ipr, 128, (const char *)str3551, (uint8_t *)inner_poll_safe)                );
+                (void)(snprintf((char *)(uint8_t *)ipr, 128, (const char *)str3626, (uint8_t *)inner_poll_safe)                );
                 inner_poll_ret_c = ipr;
             }
             uint8_t * const ipu = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
             if (ipu != NULL) {
-                (void)(snprintf((char *)(uint8_t *)ipu, 128, (const char *)str3552, (uint8_t *)inner_poll_safe)                );
+                (void)(snprintf((char *)(uint8_t *)ipu, 128, (const char *)str3627, (uint8_t *)inner_poll_safe)                );
                 inner_poll_union_c = ipu;
             }
         }
     }
     if (inner_poll_ret_c == NULL) {
-        inner_poll_ret_c = (uint8_t *)(uint8_t *)str3553;
+        inner_poll_ret_c = (uint8_t *)(uint8_t *)str3628;
     }
     if (inner_poll_union_c == NULL) {
-        inner_poll_union_c = (uint8_t *)(uint8_t *)str3554;
+        inner_poll_union_c = (uint8_t *)(uint8_t *)str3629;
     }
     struct ASTNode * const body = fn_decl->fn_decl_body;
     struct ASTNode * * await_operands = NULL;
@@ -133586,7 +134021,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         async_prefix_stmt_count = async_plan.prefix_stmt_count;
         if (async_plan.await_count > 0) {
             if (async_plan.await_points == NULL) {
-                (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3555, async_plan.await_count, 0)                );
+                (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3630, async_plan.await_count, 0)                );
                 (void)(exit(1)                );
             }
             if (c99_ensure_async_await_capacity(codegen, async_plan.await_count) != 0) {
@@ -133625,7 +134060,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 line2 = codegen->current_function_decl->line;
                 column2 = codegen->current_function_decl->column;
             }
-            (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3475, (uint8_t *)(uint8_t *)str3476, (uint8_t *)filename2, line2, column2, await_count, request_bytes2)            );
+            (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3550, (uint8_t *)(uint8_t *)str3551, (uint8_t *)filename2, line2, column2, await_count, request_bytes2)            );
             await_operands = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)await_count));
             await_bind_names = (uint8_t * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(uint8_t *) * (size_t)await_count));
             await_bind_types = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)await_count));
@@ -133640,7 +134075,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             await_enclosing_for = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)await_count));
             (void)(compiler_arena_clear_failure_context()            );
             if (((((((((((((await_operands == NULL) || (await_bind_names == NULL)) || (await_bind_types == NULL)) || (await_blocks == NULL)) || (await_stmt_indices == NULL)) || (await_source_stmts == NULL)) || (await_split_try_exprs == NULL)) || (await_split_await_exprs == NULL)) || (await_state_ids == NULL)) || (await_cleanup_region_ids == NULL)) || (await_enclosing_while == NULL)) || (await_enclosing_for == NULL))) {
-                (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3556, await_count, request_bytes2)                );
+                (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3631, await_count, request_bytes2)                );
                 (void)(exit(1)                );
             }
         }
@@ -133650,7 +134085,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             uint8_t * bind_name_ci = codegen->async_collect_names[ci];
             if ((((bind_name_ci == NULL) && (async_plan.await_points != NULL)) && (async_plan.await_points[ci].is_return_await == 0))) {
                 uint8_t name_buf[64] = {0};
-                (void)(snprintf((char *)(uint8_t *)(&name_buf[0]), 64, (const char *)str3557, ci)                );
+                (void)(snprintf((char *)(uint8_t *)(&name_buf[0]), 64, (const char *)str3632, ci)                );
                 bind_name_ci = c99_arena_strdup(codegen->arena, (uint8_t *)(&name_buf[0]));
             }
             struct ASTNode * bind_type_ci = codegen->async_collect_types[ci];
@@ -133696,12 +134131,12 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             param_line = codegen->current_function_decl->line;
             param_column = codegen->current_function_decl->column;
         }
-        (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3558, (uint8_t *)(uint8_t *)str3559, (uint8_t *)param_filename, param_line, param_column, param_count, param_request_bytes)        );
+        (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3633, (uint8_t *)(uint8_t *)str3634, (uint8_t *)param_filename, param_line, param_column, param_count, param_request_bytes)        );
         async_param_type_nodes = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(struct ASTNode *) * (size_t)param_count));
         async_param_type_cs = (uint8_t * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(uint8_t *) * (size_t)param_count));
         (void)(compiler_arena_clear_failure_context()        );
         if (((async_param_type_nodes == NULL) || (async_param_type_cs == NULL))) {
-            (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3560, param_count, param_request_bytes)            );
+            (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3635, param_count, param_request_bytes)            );
             (void)(exit(1)            );
         }
         int32_t pre_pi = 0;
@@ -133795,12 +134230,12 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 safe_poll = get_safe_c_identifier(codegen, poll_full_mono);
                 uint8_t * const pbuf_full = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
                 if (pbuf_full != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)pbuf_full, 256, (const char *)str3551, (uint8_t *)safe_poll)                    );
+                    (void)(snprintf((char *)(uint8_t *)pbuf_full, 256, (const char *)str3626, (uint8_t *)safe_poll)                    );
                     poll_ret_c = pbuf_full;
                 }
                 uint8_t * const ubuf_full = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
                 if (ubuf_full != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)ubuf_full, 256, (const char *)str3552, (uint8_t *)safe_poll)                    );
+                    (void)(snprintf((char *)(uint8_t *)ubuf_full, 256, (const char *)str3627, (uint8_t *)safe_poll)                    );
                     poll_union_c = ubuf_full;
                 }
             }
@@ -133820,12 +134255,12 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
     if (poll_ret_c == NULL) {
         uint8_t * const pbuf = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
         if (pbuf != NULL) {
-            (void)(snprintf((char *)(uint8_t *)pbuf, 256, (const char *)str3551, (uint8_t *)safe_poll)            );
+            (void)(snprintf((char *)(uint8_t *)pbuf, 256, (const char *)str3626, (uint8_t *)safe_poll)            );
             poll_ret_c = pbuf;
         }
         uint8_t * const ubuf2 = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
         if (ubuf2 != NULL) {
-            (void)(snprintf((char *)(uint8_t *)ubuf2, 256, (const char *)str3552, (uint8_t *)safe_poll)            );
+            (void)(snprintf((char *)(uint8_t *)ubuf2, 256, (const char *)str3627, (uint8_t *)safe_poll)            );
             poll_union_c = ubuf2;
         }
     }
@@ -133867,18 +134302,18 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                     uint8_t * const cpr = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
                     uint8_t * const cpu = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
                     if (cpr != NULL) {
-                        (void)(snprintf((char *)(uint8_t *)cpr, 128, (const char *)str3551, (uint8_t *)cps)                        );
+                        (void)(snprintf((char *)(uint8_t *)cpr, 128, (const char *)str3626, (uint8_t *)cps)                        );
                         child_poll_ret_c = cpr;
                     }
                     if (cpu != NULL) {
-                        (void)(snprintf((char *)(uint8_t *)cpu, 128, (const char *)str3552, (uint8_t *)cps)                        );
+                        (void)(snprintf((char *)(uint8_t *)cpu, 128, (const char *)str3627, (uint8_t *)cps)                        );
                         child_poll_union_c = cpu;
                     }
                     child_vtable_safe = cfs;
                     child_inner_is_err_union = 0;
                     uint8_t * const slot_buf = (uint8_t *)compiler_arena_alloc(codegen->arena, 64);
                     if (((slot_buf != NULL) && (concrete_future_safe != NULL))) {
-                        (void)(snprintf((char *)(uint8_t *)slot_buf, 64, (const char *)str3561, (uint8_t *)concrete_future_safe)                        );
+                        (void)(snprintf((char *)(uint8_t *)slot_buf, 64, (const char *)str3636, (uint8_t *)concrete_future_safe)                        );
                         state_slot_iface_c = slot_buf;
                     }
                 }
@@ -133909,7 +134344,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             if (slot_safe != NULL) {
                 uint8_t * const slot_buf2 = (uint8_t *)compiler_arena_alloc(codegen->arena, 64);
                 if (slot_buf2 != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)slot_buf2, 64, (const char *)str3561, (uint8_t *)slot_safe)                    );
+                    (void)(snprintf((char *)(uint8_t *)slot_buf2, 64, (const char *)str3636, (uint8_t *)slot_safe)                    );
                     state_slot_iface_c = slot_buf2;
                 }
             }
@@ -133943,12 +134378,12 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         codegen->current_function_decl = saved_current_function_decl_stage_b;
         return;
     }
-    (void)(snprintf((char *)(uint8_t *)async_struct, 128, (const char *)str3562, (uint8_t *)func_c_name)    );
-    (void)(snprintf((char *)(uint8_t *)poll_name, 256, (const char *)str3563, (uint8_t *)func_c_name)    );
-    (void)(snprintf((char *)(uint8_t *)vtable_name, 256, (const char *)str3564, (uint8_t *)vtable_future_safe, (uint8_t *)async_struct)    );
-    (void)(snprintf((char *)(uint8_t *)release_name, 256, (const char *)str3565, (uint8_t *)async_struct)    );
-    (void)(snprintf((char *)(uint8_t *)alloc_name, 256, (const char *)str3566, (uint8_t *)async_struct)    );
-    (void)(snprintf((char *)(uint8_t *)free_name, 256, (const char *)str3567, (uint8_t *)async_struct)    );
+    (void)(snprintf((char *)(uint8_t *)async_struct, 128, (const char *)str3637, (uint8_t *)func_c_name)    );
+    (void)(snprintf((char *)(uint8_t *)poll_name, 256, (const char *)str3638, (uint8_t *)func_c_name)    );
+    (void)(snprintf((char *)(uint8_t *)vtable_name, 256, (const char *)str3639, (uint8_t *)vtable_future_safe, (uint8_t *)async_struct)    );
+    (void)(snprintf((char *)(uint8_t *)release_name, 256, (const char *)str3640, (uint8_t *)async_struct)    );
+    (void)(snprintf((char *)(uint8_t *)alloc_name, 256, (const char *)str3641, (uint8_t *)async_struct)    );
+    (void)(snprintf((char *)(uint8_t *)free_name, 256, (const char *)str3642, (uint8_t *)async_struct)    );
     codegen->needs_stdlib_h = 1;
     if (is_struct_in_table(codegen, async_struct) == 0) {
         (void)(add_struct_definition(codegen, async_struct)        );
@@ -134014,15 +134449,15 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                     uint8_t * const pms_v = get_safe_c_identifier(codegen, pm_v);
                     uint8_t * const pr_v = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
                     if (((pr_v != NULL) && (pms_v != NULL))) {
-                        (void)(snprintf((char *)(uint8_t *)pr_v, 256, (const char *)str3551, (uint8_t *)pms_v)                        );
+                        (void)(snprintf((char *)(uint8_t *)pr_v, 256, (const char *)str3626, (uint8_t *)pms_v)                        );
                         uint8_t * const fm_v = get_mono_struct_name(codegen, (uint8_t *)(uint8_t *)str1050, ta_v, 1);
                         uint8_t * const fms_v = get_safe_c_identifier(codegen, fm_v);
                         if (fms_v != NULL) {
                             uint8_t * const vtable_vbuf = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
                             if (vtable_vbuf != NULL) {
-                                (void)(snprintf((char *)(uint8_t *)vtable_vbuf, 128, (const char *)str3568, (uint8_t *)fms_v)                                );
+                                (void)(snprintf((char *)(uint8_t *)vtable_vbuf, 128, (const char *)str3643, (uint8_t *)fms_v)                                );
                                 if (is_struct_defined(codegen, vtable_vbuf) == 0) {
-                                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)fms_v, (uint8_t *)pr_v)                                    );
+                                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3644, (uint8_t *)fms_v, (uint8_t *)pr_v)                                    );
                                     (void)(mark_struct_defined(codegen, vtable_vbuf)                                    );
                                 }
                             }
@@ -134035,9 +134470,9 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         if (((child_poll_ret_c != NULL) && (child_vtable_safe != NULL))) {
             uint8_t * const vtable_fallback = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
             if (vtable_fallback != NULL) {
-                (void)(snprintf((char *)(uint8_t *)vtable_fallback, 128, (const char *)str3568, (uint8_t *)child_vtable_safe)                );
+                (void)(snprintf((char *)(uint8_t *)vtable_fallback, 128, (const char *)str3643, (uint8_t *)child_vtable_safe)                );
                 if (is_struct_defined(codegen, vtable_fallback) == 0) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3569, (uint8_t *)child_vtable_safe, (uint8_t *)child_poll_ret_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3644, (uint8_t *)child_vtable_safe, (uint8_t *)child_poll_ret_c)                    );
                     (void)(mark_struct_defined(codegen, vtable_fallback)                    );
                 }
             }
@@ -134067,20 +134502,20 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         (void)(emit_line_directive(codegen, fn_decl->line, fn_decl->filename)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str580, (void *)codegen->emit_stream)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str6, (uint8_t *)async_struct)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3570, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3645, (void *)codegen->emit_stream)        );
         if ((((await_count > 0) && (concrete_future_safe != NULL)) && (await_operand_is_err_future != 0))) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3571, (uint8_t *)concrete_future_safe)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3646, (uint8_t *)concrete_future_safe)            );
         }
         if (await_count > 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3572, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3647, (void *)codegen->emit_stream)            );
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3573, (uint8_t *)state_slot_iface_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3648, (uint8_t *)state_slot_iface_c)            );
         }
         int32_t inline_i = 0;
         while (inline_i < await_count) {
             uint8_t * inline_struct_name = NULL;
             if (((c99_async_await_operand_is_inlineable(codegen, await_operands[inline_i], (&inline_struct_name)) != 0) && (inline_struct_name != NULL))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3574, (uint8_t *)inline_struct_name, inline_i)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3649, (uint8_t *)inline_struct_name, inline_i)                );
             }
             inline_i = (inline_i + 1);
         }
@@ -134099,7 +134534,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                     }
                 }
                 if (bind_seen == 0) {
-                    (void)(c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], (uint8_t *)(uint8_t *)str3575, bind_safe_name)                    );
+                    (void)(c99_emit_struct_field_decl_fragment(codegen, await_bind_types[bind_i], (uint8_t *)(uint8_t *)str3650, bind_safe_name)                    );
                 }
             }
             bind_i = (bind_i + 1);
@@ -134119,7 +134554,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                     }
                 }
                 if (loc_seen == 0) {
-                    (void)(c99_emit_struct_field_decl_fragment(codegen, codegen->async_local_types[loc_i], (uint8_t *)(uint8_t *)str3576, lname_safe)                    );
+                    (void)(c99_emit_struct_field_decl_fragment(codegen, codegen->async_local_types[loc_i], (uint8_t *)(uint8_t *)str3651, lname_safe)                    );
                 }
             }
             loc_i = (loc_i + 1);
@@ -134142,18 +134577,18 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             pi = (pi + 1);
         }
         if (fn_decl->fn_decl_align > 0) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3577, fn_decl->fn_decl_align)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3652, fn_decl->fn_decl_align)            );
         } else {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)            );
         }
         (void)(mark_struct_defined(codegen, async_struct)        );
     }
     if (only_struct != 0) {
         uint8_t * const frame_stop_forward_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
         if (frame_stop_forward_name != NULL) {
-            (void)(snprintf((char *)(uint8_t *)frame_stop_forward_name, 256, (const char *)str3578, (uint8_t *)func_c_name)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3579, (uint8_t *)poll_ret_c, (uint8_t *)poll_name)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3580, (uint8_t *)frame_stop_forward_name, (uint8_t *)async_struct)            );
+            (void)(snprintf((char *)(uint8_t *)frame_stop_forward_name, 256, (const char *)str3653, (uint8_t *)func_c_name)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3654, (uint8_t *)poll_ret_c, (uint8_t *)poll_name)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3655, (uint8_t *)frame_stop_forward_name, (uint8_t *)async_struct)            );
         }
         /* defer */         codegen->defer_stack_depth = saved_defer_stack_depth_stage_b;
         codegen->current_drop_scope = saved_current_drop_scope_stage_b;
@@ -134339,7 +134774,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             existing->escape_class = escape_class;
         }
     }
-    uint8_t * const async_s = (uint8_t *)(uint8_t *)str3581;
+    uint8_t * const async_s = (uint8_t *)(uint8_t *)str3656;
     codegen->async_state_var = async_s;
     codegen->async_poll_try_propagate_type = inner;
     codegen->async_poll_ret_c = poll_ret_c;
@@ -134366,11 +134801,11 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             param_name_line = codegen->current_function_decl->line;
             param_name_column = codegen->current_function_decl->column;
         }
-        (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3582, (uint8_t *)(uint8_t *)str3583, (uint8_t *)param_name_filename, param_name_line, param_name_column, param_count, param_name_request_bytes)        );
+        (void)(compiler_arena_set_failure_context((uint8_t *)(uint8_t *)str3657, (uint8_t *)(uint8_t *)str3658, (uint8_t *)param_name_filename, param_name_line, param_name_column, param_count, param_name_request_bytes)        );
         codegen->async_param_names = (uint8_t * *)compiler_arena_alloc(codegen->arena, ((int32_t)sizeof(uint8_t *) * (size_t)param_count));
         (void)(compiler_arena_clear_failure_context()        );
         if (codegen->async_param_names == NULL) {
-            (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3584, param_count, param_name_request_bytes)            );
+            (void)(c99_report_async_codegen_resource_failure(codegen, (uint8_t *)(uint8_t *)str3659, param_count, param_name_request_bytes)            );
             (void)(exit(1)            );
         }
         codegen->async_param_capacity = param_count;
@@ -134403,22 +134838,22 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
     }
     codegen->async_param_count = param_count;
     if (poll_ret_c == NULL) {
-        poll_ret_c = (uint8_t *)(uint8_t *)str3553;
+        poll_ret_c = (uint8_t *)(uint8_t *)str3628;
     }
     if (poll_union_c == NULL) {
-        poll_union_c = (uint8_t *)(uint8_t *)str3554;
+        poll_union_c = (uint8_t *)(uint8_t *)str3629;
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3585, (uint8_t *)poll_ret_c, (uint8_t *)poll_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3586, (uint8_t *)async_struct, (uint8_t *)async_struct)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3587, (uint8_t *)poll_ret_c)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3588, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3660, (uint8_t *)poll_ret_c, (uint8_t *)poll_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3661, (uint8_t *)async_struct, (uint8_t *)async_struct)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3662, (uint8_t *)poll_ret_c)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3663, (void *)codegen->emit_stream)    );
     codegen->async_fn_decl = fn_decl;
     codegen->async_fn_body = body;
     codegen->async_await_operand_is_err_future = await_operand_is_err_future;
     codegen->async_full_return_type = full_return_type;
     codegen->async_concrete_future_safe = concrete_future_safe;
     codegen->async_state_slot_iface_c = state_slot_iface_c;
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3589, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3664, (void *)codegen->emit_stream)    );
     const int32_t saved_root_depth = codegen->defer_stack_depth;
     const int32_t saved_root_drop_scope = codegen->current_drop_scope;
     if (codegen->async_cleanup_root_region >= 0) {
@@ -134442,14 +134877,14 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         codegen->async_emit_poll_return = 1;
         const int32_t no_await_reached_end = emit_async_segment(codegen, body, 0, body->block_stmt_count);
         if (no_await_reached_end == ASYNC_SEGMENT_REACHED_END) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3502, terminal_state)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3577, terminal_state)            );
             (void)(emit_async_no_await_ready_return(codegen, fn_decl, full_return_type, effective_return_type, ret_expr, inner, inner_is_err_union, inner_err_c, iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)inner_poll_ret_c, (uint8_t *)inner_poll_union_c, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)            );
         }
         codegen->async_emit_poll_return = 0;
     }
     codegen->defer_stack_depth = saved_root_depth;
     codegen->current_drop_scope = saved_root_drop_scope;
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     int32_t emit_await_count = await_count;
     int32_t state_k = 1;
     while (state_k <= emit_await_count) {
@@ -134482,11 +134917,11 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                     uint8_t * const pr_seg = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
                     uint8_t * const pu_seg = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
                     if (pr_seg != NULL) {
-                        (void)(snprintf((char *)(uint8_t *)pr_seg, 256, (const char *)str3551, (uint8_t *)pms_seg)                        );
+                        (void)(snprintf((char *)(uint8_t *)pr_seg, 256, (const char *)str3626, (uint8_t *)pms_seg)                        );
                         seg_poll_ret_c = pr_seg;
                     }
                     if (pu_seg != NULL) {
-                        (void)(snprintf((char *)(uint8_t *)pu_seg, 256, (const char *)str3552, (uint8_t *)pms_seg)                        );
+                        (void)(snprintf((char *)(uint8_t *)pu_seg, 256, (const char *)str3627, (uint8_t *)pms_seg)                        );
                         seg_poll_union_c = pu_seg;
                     }
                 }
@@ -134506,7 +134941,7 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 seg_ready_payload_c = seg_rpc;
             }
         }
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3591, state_id)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3666, state_id)        );
         const int32_t saved_state_depth = codegen->defer_stack_depth;
         const int32_t saved_state_drop_scope = codegen->current_drop_scope;
         const int32_t state_cleanup_region = c99_async_collected_cleanup_region_at(codegen, state_idx);
@@ -134525,17 +134960,17 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             if (poll_fn_name != NULL) {
                 const size_t prefix_len_poll = std_string_strlen((uint8_t *)(uint8_t *)str1012);
                 uint8_t * const child_poll_key = (&inline_struct_name_poll[prefix_len_poll]);
-                (void)(snprintf((char *)(uint8_t *)poll_fn_name, 256, (const char *)str3563, (uint8_t *)child_poll_key)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3592, (uint8_t *)poll_line_ret, (uint8_t *)poll_fn_name, state_idx)                );
+                (void)(snprintf((char *)(uint8_t *)poll_fn_name, 256, (const char *)str3638, (uint8_t *)child_poll_key)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3667, (uint8_t *)poll_line_ret, (uint8_t *)poll_fn_name, state_idx)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)poll_line_ret, (uint8_t *)poll_line_vt)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3668, (uint8_t *)poll_line_ret, (uint8_t *)poll_line_vt)                );
             }
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3593, (uint8_t *)poll_line_ret, (uint8_t *)poll_line_vt)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3668, (uint8_t *)poll_line_ret, (uint8_t *)poll_line_vt)            );
         }
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3594, (uint8_t *)poll_ret_c)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3669, (uint8_t *)poll_ret_c)        );
         if (seg_inner_is_err != 0) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3595, (uint8_t *)seg_ready_payload_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3670, (uint8_t *)seg_ready_payload_c)            );
             uint8_t * const cur_bind_name = c99_async_bind_name_at(await_bind_names, await_count, state_idx);
             struct ASTNode * const cur_bind_type = c99_async_bind_type_at(await_bind_types, await_count, state_idx);
             int32_t bind_full_err_union = 0;
@@ -134548,49 +134983,49 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             }
             if (bind_full_err_union == 0) {
                 if (seg_err_use_bridge != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3596, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3671, (void *)codegen->emit_stream)                    );
                     if (((concrete_future_safe != NULL) && (await_operand_is_err_future != 0))) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3597, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3672, (void *)codegen->emit_stream)                        );
                     } else {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3598, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3673, (void *)codegen->emit_stream)                        );
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3599, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3674, (void *)codegen->emit_stream)                    );
                     (void)(emit_all_active_scope_cleanup(codegen, 1)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3600, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c, (uint8_t *)ready_payload_c, (uint8_t *)outer_err_payload_value_c)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3675, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c, (uint8_t *)ready_payload_c, (uint8_t *)outer_err_payload_value_c)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
                 } else {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3596, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3671, (void *)codegen->emit_stream)                    );
                     if (((concrete_future_safe != NULL) && (await_operand_is_err_future != 0))) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3597, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3672, (void *)codegen->emit_stream)                        );
                     } else {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3598, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3673, (void *)codegen->emit_stream)                        );
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3599, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3674, (void *)codegen->emit_stream)                    );
                     (void)(emit_all_active_scope_cleanup(codegen, 1)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3601, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)                    );
                 }
             }
             if (((cur_bind_name != NULL) && (cur_bind_type != NULL))) {
                 uint8_t * const bind_safe = get_safe_c_identifier(codegen, cur_bind_name);
                 if (cur_bind_type->type == main_ASTNodeType_AST_TYPE_ERROR_UNION) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3602, (uint8_t *)bind_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3677, (uint8_t *)bind_safe)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3603, (uint8_t *)bind_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3678, (uint8_t *)bind_safe)                    );
                 }
             }
             if (((concrete_future_safe != NULL) && (await_operand_is_err_future != 0))) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3597, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3672, (void *)codegen->emit_stream)                );
             } else {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3598, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3673, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3599, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3674, (void *)codegen->emit_stream)            );
             if (((cur_bind_name == NULL) && (c99_async_collected_is_direct_return_try_await(codegen, state_idx) != 0))) {
                 (void)(emit_all_active_scope_cleanup(codegen, 0)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3601, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                );
                 codegen->defer_stack_depth = saved_state_depth;
                 codegen->current_drop_scope = saved_state_drop_scope;
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)                );
                 state_k = (state_k + 1);
                 continue;
             }
@@ -134598,15 +135033,15 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 const int32_t direct_return_await = c99_async_collected_is_direct_return_await(codegen, state_idx);
                 if (direct_return_await != 0) {
                     (void)(emit_all_active_scope_cleanup(codegen, 0)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3601, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3604, (uint8_t *)ready_payload_c, (uint8_t *)ready_payload_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3679, (uint8_t *)ready_payload_c, (uint8_t *)ready_payload_c)                    );
                     (void)(emit_all_active_scope_cleanup(codegen, 0)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3605, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3680, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
                 }
                 codegen->defer_stack_depth = saved_state_depth;
                 codegen->current_drop_scope = saved_state_drop_scope;
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)                );
                 state_k = (state_k + 1);
                 continue;
             }
@@ -134616,11 +135051,11 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             const int32_t skip_ret_expr_emit = c99_async_collected_is_split_return_stmt(codegen, state_idx);
             if ((((cont_r != 0) && (ret_expr != NULL)) && (skip_ret_expr_emit == 0))) {
                 codegen->current_function_return_type = effective_return_type;
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3606, (uint8_t *)ready_payload_c, (uint8_t *)ready_payload_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3681, (uint8_t *)ready_payload_c, (uint8_t *)ready_payload_c)                );
                 (void)(gen_expr(codegen, ret_expr)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                );
                 (void)(emit_all_active_scope_cleanup(codegen, 0)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3607, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3682, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                );
                 codegen->current_function_return_type = NULL;
             }
             codegen->defer_stack_depth = saved_cont_depth;
@@ -134629,14 +135064,14 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             uint8_t * const cur_bind_name2 = c99_async_bind_name_at(await_bind_names, await_count, state_idx);
             if (cur_bind_name2 != NULL) {
                 uint8_t * const bind_safe2 = get_safe_c_identifier(codegen, cur_bind_name2);
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3608, (uint8_t *)bind_safe2)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3683, (uint8_t *)bind_safe2)                );
             }
             if (((concrete_future_safe != NULL) && (await_operand_is_err_future != 0))) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3597, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3672, (void *)codegen->emit_stream)                );
             } else {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3598, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3673, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3599, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3674, (void *)codegen->emit_stream)            );
             const int32_t saved_cont_depth2 = codegen->defer_stack_depth;
             const int32_t saved_cont_drop_scope2 = codegen->current_drop_scope;
             const int32_t cont_r2 = emit_async_continuation(codegen, state_idx);
@@ -134650,16 +135085,16 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 if (is_future_literal_ret != 0) {
                     uint8_t * const last_ret_c = c99_type_to_c_async_method_opt(codegen, full_return_type);
                     if (last_ret_c != NULL) {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3538, (uint8_t *)last_ret_c, (uint8_t *)last_ret_c)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3609, (uint8_t *)concrete_future_safe)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3613, (uint8_t *)last_ret_c, (uint8_t *)last_ret_c)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3684, (uint8_t *)concrete_future_safe)                        );
                         (void)(gen_expr(codegen, ret_expr)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3610, (uint8_t *)iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3545, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3685, (uint8_t *)iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)concrete_future_safe)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3620, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                        );
                     }
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3549, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3624, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)                    );
                     (void)(gen_expr(codegen, ret_expr)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3550, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3625, (void *)codegen->emit_stream)                    );
                 }
                 codegen->current_function_return_type = NULL;
             }
@@ -134668,12 +135103,12 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         }
         codegen->defer_stack_depth = saved_state_depth;
         codegen->current_drop_scope = saved_state_drop_scope;
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)        );
         state_k = (state_k + 1);
     }
     struct ASTNode * const terminal_return_stmt = ret_stmt;
     if (((await_count > 0) && ((terminal_return_stmt == NULL) || (ret_expr != NULL)))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3591, terminal_state)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3666, terminal_state)        );
         const int32_t saved_terminal_depth = codegen->defer_stack_depth;
         const int32_t saved_terminal_drop_scope = codegen->current_drop_scope;
         if (codegen->async_cleanup_root_region >= 0) {
@@ -134684,8 +135119,8 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             struct ASTNode * const terminal_expr = terminal_return_stmt->return_stmt_expr;
             const int32_t terminal_contains_await = lower_async_async_lower_stmt_contains_await(terminal_return_stmt);
             if (terminal_contains_await != 0) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3611, (void *)codegen->emit_stream)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)poll_ret_c)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3686, (void *)codegen->emit_stream)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)poll_ret_c)                );
             } else {
                 if (((terminal_expr != NULL) && (terminal_expr->type == main_ASTNodeType_AST_ERROR_VALUE))) {
                     (void)(gen_stmt(codegen, terminal_return_stmt)                    );
@@ -134709,17 +135144,17 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 }
             }
             if (last_stmt_is_loop != 0) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3612)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3687)                );
             }
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)poll_ret_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)poll_ret_c)            );
         }
         codegen->async_emit_poll_return = 0;
         codegen->defer_stack_depth = saved_terminal_depth;
         codegen->current_drop_scope = saved_terminal_drop_scope;
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)        );
     }
     if (await_count == 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3613, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3688, (void *)codegen->emit_stream)        );
         const int32_t saved_no_await_depth = codegen->defer_stack_depth;
         const int32_t saved_no_await_drop_scope = codegen->current_drop_scope;
         if (codegen->async_cleanup_root_region >= 0) {
@@ -134728,10 +135163,10 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         (void)(emit_async_no_await_ready_return(codegen, fn_decl, full_return_type, effective_return_type, ret_expr, inner, inner_is_err_union, inner_err_c, iface_c, (uint8_t *)concrete_future_safe, (uint8_t *)inner_poll_ret_c, (uint8_t *)inner_poll_union_c, (uint8_t *)poll_ret_c, (uint8_t *)poll_union_c)        );
         codegen->defer_stack_depth = saved_no_await_depth;
         codegen->current_drop_scope = saved_no_await_drop_scope;
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)        );
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3614)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3615, (uint8_t *)poll_ret_c)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3689)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3690, (uint8_t *)poll_ret_c)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     codegen->async_state_var = NULL;
     codegen->async_poll_try_propagate_type = NULL;
@@ -134773,28 +135208,28 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
     }
     uint8_t * const frame_init_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
     if (frame_init_name != NULL) {
-        (void)(snprintf((char *)(uint8_t *)frame_init_name, 256, (const char *)str3616, (uint8_t *)func_c_name)        );
+        (void)(snprintf((char *)(uint8_t *)frame_init_name, 256, (const char *)str3691, (uint8_t *)func_c_name)        );
     }
     uint8_t * const frame_drop_fields_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
     if (frame_drop_fields_name != NULL) {
-        (void)(snprintf((char *)(uint8_t *)frame_drop_fields_name, 256, (const char *)str3578, (uint8_t *)func_c_name)        );
+        (void)(snprintf((char *)(uint8_t *)frame_drop_fields_name, 256, (const char *)str3653, (uint8_t *)func_c_name)        );
     }
     uint8_t * const old_frame_init_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
     if (old_frame_init_name != NULL) {
-        (void)(snprintf((char *)(uint8_t *)old_frame_init_name, 256, (const char *)str3617, (uint8_t *)func_c_name)        );
+        (void)(snprintf((char *)(uint8_t *)old_frame_init_name, 256, (const char *)str3692, (uint8_t *)func_c_name)        );
     }
     uint8_t * const old_frame_drop_fields_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 256);
     if (old_frame_drop_fields_name != NULL) {
-        (void)(snprintf((char *)(uint8_t *)old_frame_drop_fields_name, 256, (const char *)str3618, (uint8_t *)func_c_name)        );
+        (void)(snprintf((char *)(uint8_t *)old_frame_drop_fields_name, 256, (const char *)str3693, (uint8_t *)func_c_name)        );
     }
     if (frame_drop_fields_name != NULL) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3619, (uint8_t *)frame_drop_fields_name, (uint8_t *)async_struct)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3620, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3621, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3622, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3623, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3624, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3625, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3694, (uint8_t *)frame_drop_fields_name, (uint8_t *)async_struct)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3695, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3696, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3697, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3698, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3699, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)        );
         int32_t rel_i = 0;
         while (rel_i < await_count) {
             uint8_t * rel_inline_struct = NULL;
@@ -134803,18 +135238,18 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
                 if (child_rel_fields != NULL) {
                     const size_t child_prefix_len = std_string_strlen((uint8_t *)(uint8_t *)str1012);
                     uint8_t * const child_key = (&rel_inline_struct[child_prefix_len]);
-                    (void)(snprintf((char *)(uint8_t *)child_rel_fields, 256, (const char *)str3578, (uint8_t *)child_key)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3626, (uint8_t *)child_rel_fields, rel_i)                    );
+                    (void)(snprintf((char *)(uint8_t *)child_rel_fields, 256, (const char *)str3653, (uint8_t *)child_key)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3701, (uint8_t *)child_rel_fields, rel_i)                    );
                 }
             }
             rel_i = (rel_i + 1);
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3627, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3628, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3702, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3703, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)        );
     }
     if (frame_init_name != NULL) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3629, (uint8_t *)frame_init_name, (uint8_t *)async_struct)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3704, (uint8_t *)frame_init_name, (uint8_t *)async_struct)        );
         pi = 0;
         while (pi < param_count) {
             struct ASTNode * const param = params[pi];
@@ -134835,27 +135270,27 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             }
             pi = (pi + 1);
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3620, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3695, (void *)codegen->emit_stream)        );
         if (frame_drop_fields_name != NULL) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3630, (uint8_t *)frame_drop_fields_name)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3705, (uint8_t *)frame_drop_fields_name)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3631, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3706, (void *)codegen->emit_stream)        );
         pi = 0;
         while (pi < param_count) {
             struct ASTNode * const param = params[pi];
             if ((((param != NULL) && (param->type == main_ASTNodeType_AST_VAR_DECL)) && (param->var_decl_name != NULL))) {
                 uint8_t * const pname = get_safe_c_identifier(codegen, param->var_decl_name);
                 if (pname != NULL) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3632, (uint8_t *)pname, (uint8_t *)pname)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3707, (uint8_t *)pname, (uint8_t *)pname)                    );
                 }
             }
             pi = (pi + 1);
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3633, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3708, (void *)codegen->emit_stream)        );
     }
     if (((old_frame_init_name != NULL) && (frame_init_name != NULL))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3629, (uint8_t *)old_frame_init_name, (uint8_t *)async_struct)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3704, (uint8_t *)old_frame_init_name, (uint8_t *)async_struct)        );
         pi = 0;
         while (pi < param_count) {
             struct ASTNode * const param_old = params[pi];
@@ -134876,8 +135311,8 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             }
             pi = (pi + 1);
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3634, (uint8_t *)frame_init_name)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3709, (uint8_t *)frame_init_name)        );
         pi = 0;
         while (pi < param_count) {
             struct ASTNode * const param_old2 = params[pi];
@@ -134889,76 +135324,76 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
             }
             pi = (pi + 1);
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3635, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3710, (void *)codegen->emit_stream)        );
     }
     if (((old_frame_drop_fields_name != NULL) && (frame_drop_fields_name != NULL))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3619, (uint8_t *)old_frame_drop_fields_name, (uint8_t *)async_struct)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3636, (uint8_t *)frame_drop_fields_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3694, (uint8_t *)old_frame_drop_fields_name, (uint8_t *)async_struct)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3711, (uint8_t *)frame_drop_fields_name)        );
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3637, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3638, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3639, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3640, (uint8_t *)async_struct, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3641, (uint8_t *)async_struct)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3642, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3643, (uint8_t *)async_struct, (uint8_t *)async_struct, (uint8_t *)async_struct, (uint8_t *)async_struct)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3644, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3645)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3646)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3647, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3648, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3649)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3650, (uint8_t *)async_struct)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3651, (uint8_t *)async_struct)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3652, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3653, (uint8_t *)async_struct)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3654, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3655, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3656, (uint8_t *)async_struct)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3657, (uint8_t *)async_struct)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3658, (uint8_t *)free_name, (uint8_t *)async_struct)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3659, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3641, (uint8_t *)async_struct)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3660, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3661, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3662, (void *)codegen->emit_stream)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3663, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3664, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3665, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3666)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3667)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3668, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3669, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3670, (uint8_t *)alloc_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3671, (uint8_t *)release_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3712, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3713, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3714, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3715, (uint8_t *)async_struct, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3716, (uint8_t *)async_struct)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3717, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3718, (uint8_t *)async_struct, (uint8_t *)async_struct, (uint8_t *)async_struct, (uint8_t *)async_struct)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3719, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3721)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3722, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3723, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3724)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3725, (uint8_t *)async_struct)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3726, (uint8_t *)async_struct)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3727, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3728, (uint8_t *)async_struct)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3729, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3730, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3731, (uint8_t *)async_struct)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3732, (uint8_t *)async_struct)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3733, (uint8_t *)free_name, (uint8_t *)async_struct)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3734, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3716, (uint8_t *)async_struct)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3735, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3736, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3737, (void *)codegen->emit_stream)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3738, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3739, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3740, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3741)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3742)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3743, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3744, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3745, (uint8_t *)alloc_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3746, (uint8_t *)release_name)    );
     if (frame_drop_fields_name != NULL) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3672, (uint8_t *)frame_drop_fields_name, (uint8_t *)async_struct)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3747, (uint8_t *)frame_drop_fields_name, (uint8_t *)async_struct)        );
     } else {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3586, (uint8_t *)async_struct, (uint8_t *)async_struct)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3620, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3622, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3623, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3624, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3673, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3661, (uint8_t *)async_struct, (uint8_t *)async_struct)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3695, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3697, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3698, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3699, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3748, (void *)codegen->emit_stream)        );
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3674, (uint8_t *)free_name, (uint8_t *)async_struct)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3749, (uint8_t *)free_name, (uint8_t *)async_struct)    );
     if ((((return_future_err_union != 0) && (vtable_future_safe != NULL)) && (poll_ret_c != NULL))) {
         uint8_t * const vtable_struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
         if (vtable_struct_name != NULL) {
-            (void)(snprintf((char *)(uint8_t *)vtable_struct_name, 128, (const char *)str3568, (uint8_t *)vtable_future_safe)            );
+            (void)(snprintf((char *)(uint8_t *)vtable_struct_name, 128, (const char *)str3643, (uint8_t *)vtable_future_safe)            );
             if (is_struct_defined(codegen, vtable_struct_name) == 0) {
                 uint8_t * const iface_struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, 128);
                 if (iface_struct_name != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)iface_struct_name, 128, (const char *)str3675, (uint8_t *)vtable_future_safe)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)vtable_future_safe)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3677, (uint8_t *)vtable_future_safe, (uint8_t *)poll_ret_c)                    );
+                    (void)(snprintf((char *)(uint8_t *)iface_struct_name, 128, (const char *)str3750, (uint8_t *)vtable_future_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3751, (uint8_t *)vtable_future_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3752, (uint8_t *)vtable_future_safe, (uint8_t *)poll_ret_c)                    );
                     (void)(mark_struct_defined(codegen, iface_struct_name)                    );
                     (void)(mark_struct_defined(codegen, vtable_struct_name)                    );
                 }
             }
         }
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3678, (uint8_t *)vtable_future_safe, (uint8_t *)vtable_name, (uint8_t *)poll_ret_c, (uint8_t *)poll_name, (uint8_t *)release_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3753, (uint8_t *)vtable_future_safe, (uint8_t *)vtable_name, (uint8_t *)poll_ret_c, (uint8_t *)poll_name, (uint8_t *)release_name)    );
     uint8_t * wrapper_ret_c = iface_c;
     int32_t need_wrap = 0;
     if (((full_return_type != NULL) && (full_return_type->type == main_ASTNodeType_AST_TYPE_ERROR_UNION))) {
@@ -134968,12 +135403,12 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         }
     }
     if (((fn_decl->fn_decl_is_export != 0) || (codegen->split_enabled != 0))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)wrapper_ret_c, (uint8_t *)func_c_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)wrapper_ret_c, (uint8_t *)func_c_name)        );
     } else {
         if (codegen->split_enabled == 0) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3450, (uint8_t *)wrapper_ret_c, (uint8_t *)func_c_name)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3525, (uint8_t *)wrapper_ret_c, (uint8_t *)func_c_name)            );
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)wrapper_ret_c, (uint8_t *)func_c_name)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)wrapper_ret_c, (uint8_t *)func_c_name)            );
         }
     }
     pi = 0;
@@ -135000,22 +135435,22 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         }
         pi = (pi + 1);
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     if ((((await_count == 0) && (return_future_err_union != 0)) && (body != NULL))) {
         (void)(emit_async_err_future_wrapper_prelude(codegen, fn_decl, body, full_return_type)        );
     }
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3679, (uint8_t *)async_struct, (uint8_t *)alloc_name)    );
-    int32_t pool_full_id = c99_get_or_add_error_id(codegen, (uint8_t *)(uint8_t *)str3680);
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3754, (uint8_t *)async_struct, (uint8_t *)alloc_name)    );
+    int32_t pool_full_id = c99_get_or_add_error_id(codegen, (uint8_t *)(uint8_t *)str3755);
     if (pool_full_id == 0) {
         pool_full_id = 1;
     }
     if (need_wrap != 0) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3681, (uint8_t *)wrapper_ret_c, pool_full_id, (uint8_t *)iface_c)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3756, (uint8_t *)wrapper_ret_c, pool_full_id, (uint8_t *)iface_c)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3682, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3757, (void *)codegen->emit_stream)        );
     }
     if (frame_init_name != NULL) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3634, (uint8_t *)frame_init_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3709, (uint8_t *)frame_init_name)        );
         pi = 0;
         while (pi < param_count) {
             struct ASTNode * const param = params[pi];
@@ -135029,28 +135464,28 @@ static __attribute__((used)) void gen_async_function_stage_b(struct C99CodeGener
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str559, (void *)codegen->emit_stream)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3683, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3758, (void *)codegen->emit_stream)        );
         pi = 0;
         while (pi < param_count) {
             struct ASTNode * const param = params[pi];
             if ((((param != NULL) && (param->type == main_ASTNodeType_AST_VAR_DECL)) && (param->var_decl_name != NULL))) {
                 uint8_t * const pname = get_safe_c_identifier(codegen, param->var_decl_name);
                 if (pname != NULL) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3684, (uint8_t *)pname, (uint8_t *)pname)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3759, (uint8_t *)pname, (uint8_t *)pname)                    );
                 }
             }
             pi = (pi + 1);
         }
     }
     if (need_wrap != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3685, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3686, (uint8_t *)wrapper_ret_c, (uint8_t *)iface_c)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3687, (uint8_t *)wrapper_ret_c, (uint8_t *)iface_c, (uint8_t *)vtable_name)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3760, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3761, (uint8_t *)wrapper_ret_c, (uint8_t *)iface_c)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3762, (uint8_t *)wrapper_ret_c, (uint8_t *)iface_c, (uint8_t *)vtable_name)        );
     } else {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3688, (uint8_t *)iface_c, (uint8_t *)vtable_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3763, (uint8_t *)iface_c, (uint8_t *)vtable_name)        );
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3633, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3708, (void *)codegen->emit_stream)    );
     /* defer */     codegen->defer_stack_depth = saved_defer_stack_depth_stage_b;
     codegen->current_drop_scope = saved_current_drop_scope_stage_b;
     codegen->current_function_decl = saved_current_function_decl_stage_b;
@@ -135142,9 +135577,9 @@ static __attribute__((used)) void gen_method_prototype(struct C99CodeGenerator *
         pi_fwd_m = (pi_fwd_m + 1);
     }
     if (((fn_decl->fn_decl_is_async != 0) && (codegen->split_enabled == 0))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3450, (uint8_t *)return_c, (uint8_t *)c_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3525, (uint8_t *)return_c, (uint8_t *)c_name)        );
     } else {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)c_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)c_name)        );
     }
     int32_t i = 0;
     while (i < param_count) {
@@ -135212,7 +135647,7 @@ static __attribute__((used)) void gen_method_function(struct C99CodeGenerator * 
     const int32_t param_count = fn_decl->fn_decl_param_count;
     (void)(emit_line_directive(codegen, fn_decl->line, fn_decl->filename)    );
     (void)(c99_preregister_slices_method(codegen, fn_decl, (uint8_t *)struct_name)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)c_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)c_name)    );
     int32_t i = 0;
     while (i < param_count) {
         struct ASTNode * const param = params[i];
@@ -135228,7 +135663,7 @@ static __attribute__((used)) void gen_method_function(struct C99CodeGenerator * 
         }
         i = (i + 1);
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     codegen->indent_level = (codegen->indent_level + 1);
     codegen->current_function_return_type = fn_decl->fn_decl_return_type;
     struct ASTNode * const saved_current_function_decl = codegen->current_function_decl;
@@ -135276,7 +135711,7 @@ static __attribute__((used)) void gen_method_function(struct C99CodeGenerator * 
                 uint8_t * const field_safe = get_safe_c_identifier(codegen, field->var_decl_name);
                 if (((drop_c != NULL) && (field_safe != NULL))) {
                     (void)(c99_emit_indent(codegen)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3689, (uint8_t *)drop_c, (uint8_t *)self_safe, (uint8_t *)field_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3764, (uint8_t *)drop_c, (uint8_t *)self_safe, (uint8_t *)field_safe)                    );
                 }
                 fi = (fi - 1);
             }
@@ -135303,26 +135738,26 @@ static __attribute__((used)) void gen_method_function(struct C99CodeGenerator * 
                 }
                 if (has_variant_drop == 0) {
                     (void)(c99_emit_indent(codegen)                    );
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3690, (uint8_t *)self_safe)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3765, (uint8_t *)self_safe)                    );
                     codegen->indent_level = (codegen->indent_level + 1);
                     has_variant_drop = 1;
                 }
                 (void)(c99_emit_indent(codegen)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3691, vi)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3766, vi)                );
                 codegen->indent_level = (codegen->indent_level + 1);
                 (void)(c99_emit_indent(codegen)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3692, (uint8_t *)drop_c, (uint8_t *)self_safe, (uint8_t *)variant_safe)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3767, (uint8_t *)drop_c, (uint8_t *)self_safe, (uint8_t *)variant_safe)                );
                 (void)(c99_emit_indent(codegen)                );
-                (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3693)                );
+                (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3768)                );
                 codegen->indent_level = (codegen->indent_level - 1);
                 vi = (vi + 1);
             }
             if (has_variant_drop != 0) {
                 (void)(c99_emit_indent(codegen)                );
-                (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3694)                );
+                (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3769)                );
                 codegen->indent_level = (codegen->indent_level + 1);
                 (void)(c99_emit_indent(codegen)                );
-                (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3693)                );
+                (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3768)                );
                 codegen->indent_level = (codegen->indent_level - 1);
                 codegen->indent_level = (codegen->indent_level - 1);
                 (void)(c99_emit_indent(codegen)                );
@@ -135362,7 +135797,7 @@ static __attribute__((used)) void gen_method_function(struct C99CodeGenerator * 
         if (is_void_payload != 0) {
             codegen->indent_level = (codegen->indent_level + 1);
             (void)(c99_emit_indent(codegen)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3470, (uint8_t *)return_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3545, (uint8_t *)return_c)            );
             codegen->indent_level = (codegen->indent_level - 1);
         }
     }
@@ -135518,7 +135953,7 @@ static __attribute__((used)) uint8_t * get_mono_function_name(struct C99CodeGene
                     const size_t mono_name2_len = (name_len + 5);
                     uint8_t * const mono_name2 = (uint8_t *)compiler_arena_alloc(codegen->arena, mono_name2_len);
                     if (mono_name2 != NULL) {
-                        (void)(snprintf((char *)(uint8_t *)mono_name2, mono_name2_len, (const char *)str3695, (uint8_t *)mono_name)                        );
+                        (void)(snprintf((char *)(uint8_t *)mono_name2, mono_name2_len, (const char *)str3770, (uint8_t *)mono_name)                        );
                                                 {
                             uint8_t * _uya_ret = mono_name2;
                             return _uya_ret;
@@ -135546,73 +135981,73 @@ static __attribute__((used)) uint8_t * c99_async_compute_entry_name(uint8_t * ty
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str999) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3696;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3771;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1132) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3697;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3772;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1000) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3698;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3773;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1129) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3699;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3774;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1133) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3700;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3775;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1128) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3701;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3776;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1131) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3702;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3777;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1127) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3703;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3778;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1130) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3704;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3779;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1001) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3705;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3780;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1003) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3706;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3781;
             return _uya_ret;
                 }
     }
     if (std_string_strcmp((uint8_t *)type_name, (uint8_t *)(uint8_t *)str1004) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3707;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3782;
             return _uya_ret;
                 }
     }
@@ -135945,9 +136380,9 @@ static __attribute__((used)) void gen_mono_function_prototype(struct C99CodeGene
     }
     uint8_t * const return_c = c99_mono_type_to_c(codegen, return_type);
     if ((((fn_decl->fn_decl_is_async != 0) && (fn_decl->fn_decl_is_export == 0)) && (codegen->split_enabled == 0))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3450, (uint8_t *)return_c, (uint8_t *)mono_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3525, (uint8_t *)return_c, (uint8_t *)mono_name)        );
     } else {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)mono_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)mono_name)        );
     }
     int32_t i = 0;
     while (i < param_count) {
@@ -136010,12 +136445,12 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
             (void)(emit_line_directive(codegen, fn_decl->line, fn_decl->filename)            );
             uint8_t * const return_c2 = c99_mono_type_to_c(codegen, return_type);
             if (fn_decl->fn_decl_is_export != 0) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c2, (uint8_t *)mono_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c2, (uint8_t *)mono_name)                );
             } else {
                 if (codegen->split_enabled == 0) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3450, (uint8_t *)return_c2, (uint8_t *)mono_name)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3525, (uint8_t *)return_c2, (uint8_t *)mono_name)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c2, (uint8_t *)mono_name)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c2, (uint8_t *)mono_name)                    );
                 }
             }
             int32_t ai = 0;
@@ -136039,8 +136474,8 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
                 }
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str619, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3712, (uint8_t *)lowering.entry_c)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3787, (uint8_t *)lowering.entry_c)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)            );
             codegen->current_type_params = saved_type_params2;
             codegen->current_type_param_count = saved_type_param_count2;
@@ -136050,13 +136485,13 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
         }
     }
     struct ASTNode * body_to_gen = body;
-    if ((((((((codegen->checker != NULL) && (orig_name != NULL)) && (((std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3713) == 0) || (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3714) == 0)) || (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str2710) == 0))) && (fn_decl->fn_decl_type_params != NULL)) && (fn_decl->fn_decl_type_param_count > 0)) && (type_args != NULL)) && (type_arg_count > 0))) {
+    if ((((((((codegen->checker != NULL) && (orig_name != NULL)) && (((std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3788) == 0) || (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3789) == 0)) || (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str2710) == 0))) && (fn_decl->fn_decl_type_params != NULL)) && (fn_decl->fn_decl_type_param_count > 0)) && (type_args != NULL)) && (type_arg_count > 0))) {
         struct ASTNode * const expanded = checker_macro_expand_prepare_mono_body_expand_macros(codegen->checker, body, fn_decl->fn_decl_type_params, fn_decl->fn_decl_type_param_count, type_args, type_arg_count);
         if (expanded != NULL) {
             body_to_gen = expanded;
         }
     }
-    if (((((((((codegen->checker != NULL) && (orig_name != NULL)) && (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3715) == 0)) && (type_args != NULL)) && (type_arg_count >= 1)) && (type_args[0] != NULL)) && (type_args[0]->type == main_ASTNodeType_AST_TYPE_NAMED)) && (type_args[0]->type_named_name != NULL))) {
+    if (((((((((codegen->checker != NULL) && (orig_name != NULL)) && (std_string_strcmp((uint8_t *)orig_name, (uint8_t *)(uint8_t *)str3790) == 0)) && (type_args != NULL)) && (type_arg_count >= 1)) && (type_args[0] != NULL)) && (type_args[0]->type == main_ASTNodeType_AST_TYPE_NAMED)) && (type_args[0]->type_named_name != NULL))) {
         uint8_t * filename = NULL;
         if (fn_decl->filename != NULL) {
             filename = fn_decl->filename;
@@ -136103,7 +136538,7 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
     (void)(emit_line_directive(codegen, fn_decl->line, fn_decl->filename)    );
     (void)(c99_preregister_slices_mono_fn(codegen, fn_decl)    );
     uint8_t * const return_c = c99_mono_type_to_c(codegen, return_type);
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)mono_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)mono_name)    );
     int32_t i = 0;
     while (i < param_count) {
         struct ASTNode * const param = params[i];
@@ -136126,7 +136561,7 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str619, (void *)codegen->emit_stream)        );
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     struct ASTNode * const saved_return_type = codegen->current_function_return_type;
     struct ASTNode * const saved_current_function_decl = codegen->current_function_decl;
     const int32_t saved_local_count = codegen->local_variable_count;
@@ -136153,7 +136588,7 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
             uint8_t * const pname = get_safe_c_identifier(codegen, param->var_decl_name);
             if (pname != NULL) {
                 (void)(c99_emit_indent(codegen)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3716, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3791, (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)pname, (void *)codegen->emit_stream)                );
                 (void)(c99_emit_semi_newline(codegen)                );
             }
@@ -136199,9 +136634,9 @@ static __attribute__((used)) void gen_mono_function(struct C99CodeGenerator * co
             codegen->indent_level = (codegen->indent_level + 1);
             (void)(c99_emit_indent(codegen)            );
             if (((return_c != NULL) && (std_string_strncmp((uint8_t *)return_c, (uint8_t *)(uint8_t *)str580, 7) == 0))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3471, (uint8_t *)return_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3546, (uint8_t *)return_c)                );
             } else {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3472, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3547, (void *)codegen->emit_stream)                );
             }
             codegen->indent_level = (codegen->indent_level - 1);
         }
@@ -136251,9 +136686,9 @@ static __attribute__((used)) void gen_mono_method_prototype(struct C99CodeGenera
         pi_fwd_mm = (pi_fwd_mm + 1);
     }
     if (((fn_decl->fn_decl_is_async != 0) && (codegen->split_enabled == 0))) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3450, (uint8_t *)return_c, (uint8_t *)mono_method_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3525, (uint8_t *)return_c, (uint8_t *)mono_method_name)        );
     } else {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)mono_method_name)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)mono_method_name)        );
     }
     int32_t i = 0;
     while (i < param_count) {
@@ -136331,7 +136766,7 @@ static __attribute__((used)) void gen_mono_method_function(struct C99CodeGenerat
     (void)(emit_line_directive(codegen, fn_decl->line, fn_decl->filename)    );
     (void)(c99_preregister_slices_method(codegen, fn_decl, (uint8_t *)struct_name)    );
     uint8_t * const return_c = c99_type_to_c_with_self(codegen, return_type, (uint8_t *)struct_name);
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3451, (uint8_t *)return_c, (uint8_t *)mono_method_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3526, (uint8_t *)return_c, (uint8_t *)mono_method_name)    );
     int32_t i = 0;
     while (i < param_count) {
         struct ASTNode * const param = params[i];
@@ -136347,7 +136782,7 @@ static __attribute__((used)) void gen_mono_method_function(struct C99CodeGenerat
         }
         i = (i + 1);
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     struct ASTNode * const saved_return_type = codegen->current_function_return_type;
     struct ASTNode * const saved_current_function_decl = codegen->current_function_decl;
     const int32_t saved_local_count = codegen->local_variable_count;
@@ -136375,7 +136810,7 @@ static __attribute__((used)) void gen_mono_method_function(struct C99CodeGenerat
             uint8_t * const pname = get_safe_c_identifier(codegen, param->var_decl_name);
             if (pname != NULL) {
                 (void)(c99_emit_indent(codegen)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3716, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3791, (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)pname, (void *)codegen->emit_stream)                );
                 (void)(c99_emit_semi_newline(codegen)                );
             }
@@ -136421,9 +136856,9 @@ static __attribute__((used)) void gen_mono_method_function(struct C99CodeGenerat
             codegen->indent_level = (codegen->indent_level + 1);
             (void)(c99_emit_indent(codegen)            );
             if (((return_c != NULL) && (std_string_strncmp((uint8_t *)return_c, (uint8_t *)(uint8_t *)str580, 7) == 0))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3471, (uint8_t *)return_c)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3546, (uint8_t *)return_c)                );
             } else {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3472, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3547, (void *)codegen->emit_stream)                );
             }
             codegen->indent_level = (codegen->indent_level - 1);
         }
@@ -136721,7 +137156,7 @@ static __attribute__((used)) void gen_global_init_expr(struct C99CodeGenerator *
         } else {
             if (expr->type == main_ASTNodeType_AST_STRING) {
                 if (global_init_ctx_is_const_ptr_to_byte(init_ctx_type) != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3717, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3792, (void *)codegen->emit_stream)                    );
                 }
                 if (expr->string_literal_value != NULL) {
                     (void)(std_io_fputc(34, (void *)codegen->emit_stream)                    );
@@ -136744,7 +137179,7 @@ static __attribute__((used)) void gen_global_init_expr(struct C99CodeGenerator *
                     if (expr->type == main_ASTNodeType_AST_EMBED) {
                         (void)(c99_register_embed_slice_types(codegen, 0)                        );
                         uint8_t * const embed_name = add_embed_constant(codegen, expr->embed_resolved_path, expr->embed_data, expr->embed_size);
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3718, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3793, (void *)codegen->emit_stream)                        );
                         if (embed_name != NULL) {
                             (void)(fprintf((void *)codegen->emit_stream, (const char *)str2641, (uint8_t *)embed_name)                            );
                         } else {
@@ -136755,7 +137190,7 @@ static __attribute__((used)) void gen_global_init_expr(struct C99CodeGenerator *
                         if (expr->type == main_ASTNodeType_AST_EMBED_DIR) {
                             (void)(c99_register_embed_slice_types(codegen, 1)                            );
                             uint8_t * const table_name = add_embed_dir_table(codegen, expr);
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3718, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3793, (void *)codegen->emit_stream)                            );
                             if (table_name != NULL) {
                                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str2645, (uint8_t *)table_name)                                );
                             } else {
@@ -136778,6 +137213,9 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
     if (((var_decl == NULL) || (var_decl->type != main_ASTNodeType_AST_VAR_DECL))) {
         return;
     }
+    if (c99_should_skip_hosted_libc_global_var(codegen, var_decl) != 0) {
+        return;
+    }
     uint8_t * const orig_name = var_decl->var_decl_name;
     uint8_t * const filename = var_decl->filename;
     const int32_t is_export = var_decl->var_decl_is_export;
@@ -136788,7 +137226,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
     if (((var_name == NULL) || (var_type == NULL))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3460, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3535, (void *)codegen->emit_stream)    );
     uint8_t * type_c = NULL;
     if (var_type->type == main_ASTNodeType_AST_TYPE_ARRAY) {
         uint8_t * const full_type_c = c99_type_to_c(codegen, var_type);
@@ -136802,12 +137240,12 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
                 uint8_t * const dimensions = ((uint8_t *)full_type_c + base_len);
                 if (is_const != 0) {
                     if (c99_c_type_str_leading_const(base_type) != 0) {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3440, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3515, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3719, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3794, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     }
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3440, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3515, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                    );
                 }
                 type_c = base_type;
             } else {
@@ -136816,7 +137254,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
                     if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                         (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720, (uint8_t *)type_c, (uint8_t *)var_name)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3795, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                     }
                 } else {
                     (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                    );
@@ -136828,7 +137266,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
                 if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                     (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720, (uint8_t *)type_c, (uint8_t *)var_name)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3795, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 }
             } else {
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                );
@@ -136840,7 +137278,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
             if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3795, (uint8_t *)type_c, (uint8_t *)var_name)                );
             }
         } else {
             (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)            );
@@ -137139,7 +137577,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
                 const int32_t n_len = std_string_strlen((uint8_t *)name);
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(((s_len + 2) + n_len) + 1));
                 if (buf != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)buf, (((s_len + 2) + n_len) + 1), (const char *)str3721, (uint8_t *)codegen->async_state_var, (uint8_t *)name)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf, (((s_len + 2) + n_len) + 1), (const char *)str3796, (uint8_t *)codegen->async_state_var, (uint8_t *)name)                    );
                                         {
                         uint8_t * _uya_ret = buf;
                         return _uya_ret;
@@ -137157,13 +137595,13 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
                 uint8_t * const loc_safe = get_safe_c_identifier(codegen, codegen->async_local_names[li]);
                 if (loc_safe != NULL) {
                     const int32_t s_len = std_string_strlen((uint8_t *)codegen->async_state_var);
-                    uint8_t * const pfx = (uint8_t *)(uint8_t *)str3576;
+                    uint8_t * const pfx = (uint8_t *)(uint8_t *)str3651;
                     const int32_t plen = std_string_strlen((uint8_t *)pfx);
                     const int32_t nl = std_string_strlen((uint8_t *)loc_safe);
                     const int32_t buf_len = ((((s_len + 2) + plen) + nl) + 1);
                     uint8_t * const buf2 = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)buf_len);
                     if (buf2 != NULL) {
-                        (void)(snprintf((char *)(uint8_t *)buf2, buf_len, (const char *)str3524, (uint8_t *)codegen->async_state_var, (uint8_t *)loc_safe)                        );
+                        (void)(snprintf((char *)(uint8_t *)buf2, buf_len, (const char *)str3599, (uint8_t *)codegen->async_state_var, (uint8_t *)loc_safe)                        );
                                                 {
                             uint8_t * _uya_ret = buf2;
                             return _uya_ret;
@@ -137202,7 +137640,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
             while (((li < codegen->local_variable_count) && (li < C99_MAX_LOCAL_VARS))) {
                 if (((codegen->local_variables[li].name != NULL) && ((std_string_strcmp((uint8_t *)codegen->local_variables[li].name, (uint8_t *)name) == 0) || (std_string_strcmp((uint8_t *)codegen->local_variables[li].name, (uint8_t *)safe_name) == 0)))) {
                                         {
-                        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3722;
+                        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3797;
                         return _uya_ret;
                                         }
                 }
@@ -137220,6 +137658,28 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
                                 }
             }
             li = (li + 1);
+        }
+    }
+    if ((((codegen != NULL) && (codegen->is_nostdlib == 0)) && (name != NULL))) {
+        if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3491) == 0) {
+                        {
+                uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)name);
+                return _uya_ret;
+                        }
+        }
+        if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3798) == 0) {
+                        {
+                uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3491);
+                return _uya_ret;
+                        }
+        }
+    }
+    if ((((codegen != NULL) && (codegen->is_nostdlib == 0)) && (c99_name_is_hosted_stdio_stream((uint8_t *)name) != 0))) {
+        if ((((codegen->current_function_decl == NULL) || (codegen->current_function_decl->filename == NULL)) || (c99_filename_is_libc_file(codegen->current_function_decl->filename, (uint8_t *)(uint8_t *)str3490) == 0))) {
+                        {
+                uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)name);
+                return _uya_ret;
+                        }
         }
     }
     (void)(c99_ident_ref_cache_ensure(codegen)    );
@@ -137262,7 +137722,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
             if (((((pdecl != NULL) && (pdecl->type == main_ASTNodeType_AST_EXTERN_VAR_DECL)) && (pdecl->extern_var_decl_name != NULL)) && (std_string_strcmp((uint8_t *)pdecl->extern_var_decl_name, (uint8_t *)name) == 0))) {
                 int32_t use_prefixed_name = 0;
                 if (((pdecl->extern_var_decl_is_export != 0) && (pdecl->filename != NULL))) {
-                    if (((((std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str2276) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3723) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3724) != NULL))) {
+                    if (((((std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str2276) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3799) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3800) != NULL))) {
                         use_prefixed_name = 1;
                     }
                 }
@@ -137302,6 +137762,9 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
     if (((node == NULL) || (node->type != main_ASTNodeType_AST_EXTERN_VAR_DECL))) {
         return;
     }
+    if (c99_should_skip_hosted_libc_extern_global_var(codegen, node) != 0) {
+        return;
+    }
     uint8_t * const name = node->extern_var_decl_name;
     struct ASTNode * const var_type = node->extern_var_decl_var_type;
     struct ASTNode * const init_expr = node->extern_var_decl_init_expr;
@@ -137311,7 +137774,7 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
     uint8_t * const extern_lib_name = node->extern_var_decl_extern_lib_name;
     int32_t use_prefixed_name = 0;
     if (((is_export != 0) && (node->filename != NULL))) {
-        if (((((std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str2276) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3723) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3724) != NULL))) {
+        if (((((std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str2276) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3799) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3800) != NULL))) {
             use_prefixed_name = 1;
         }
     }
@@ -137339,19 +137802,19 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
     if (((is_extern != 0) && (init_expr == NULL))) {
         if (is_const != 0) {
             if (c99_c_type_str_leading_const(type_c) != 0) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3725, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3801, (uint8_t *)type_c, (uint8_t *)var_name)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3726, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3802, (uint8_t *)type_c, (uint8_t *)var_name)                );
             }
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3725, (uint8_t *)type_c, (uint8_t *)var_name)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3801, (uint8_t *)type_c, (uint8_t *)var_name)            );
         }
     } else {
         if (is_const != 0) {
             if (c99_c_type_str_leading_const(type_c) != 0) {
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                );
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3795, (uint8_t *)type_c, (uint8_t *)var_name)                );
             }
         } else {
             (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)            );
@@ -137389,24 +137852,24 @@ static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99C
             base_type[base_len] = 0;
             if (is_const != 0) {
                 if (c99_c_type_str_leading_const(base_type) != 0) {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3727, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3803, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3728, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3804, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
                 }
             } else {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3727, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3803, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                );
             }
             return;
         }
     }
     if (is_const != 0) {
         if (c99_c_type_str_leading_const((uint8_t *)tc) != 0) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3725, (uint8_t *)tc, (uint8_t *)cname)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3801, (uint8_t *)tc, (uint8_t *)cname)            );
         } else {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3726, (uint8_t *)tc, (uint8_t *)cname)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3802, (uint8_t *)tc, (uint8_t *)cname)            );
         }
     } else {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3725, (uint8_t *)tc, (uint8_t *)cname)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3801, (uint8_t *)tc, (uint8_t *)cname)        );
     }
 }
 
@@ -137420,7 +137883,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
         return;
     }
     uint8_t gpath[1024] = {0};
-    const int32_t gl = snprintf((char *)(uint8_t *)(&gpath[0]), 1024, (const char *)str3729, (uint8_t *)codegen->split_dir);
+    const int32_t gl = snprintf((char *)(uint8_t *)(&gpath[0]), 1024, (const char *)str3805, (uint8_t *)codegen->split_dir);
     if (((gl <= 0) || (gl >= 1024))) {
         return;
     }
@@ -137428,14 +137891,18 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
     if (gh == NULL) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3730, (void *)gh)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3731, (void *)gh)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3806, (void *)gh)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3807, (void *)gh)    );
     void * const saved = codegen->emit_stream;
     codegen->emit_stream = (void *)gh;
     int32_t di = 0;
     while (di < program->program_decl_count) {
         struct ASTNode * const decl = program->program_decls[di];
         if ((((decl != NULL) && (decl->type == main_ASTNodeType_AST_VAR_DECL)) && (decl->var_decl_name != NULL))) {
+            if (c99_should_skip_hosted_libc_global_var(codegen, decl) != 0) {
+                di = (di + 1);
+                continue;
+            }
             uint8_t * const cname = get_c_name_for_global_constant(codegen, decl->var_decl_name, decl->filename, decl->var_decl_is_export);
             if (decl->var_decl_type != NULL) {
                 uint8_t * const tc = c99_type_to_c(codegen, decl->var_decl_type);
@@ -137443,7 +137910,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
                     di = (di + 1);
                     continue;
                 }
-                if (((cname != NULL) && (std_string_strstr((uint8_t *)cname, (uint8_t *)(uint8_t *)str3434) != NULL))) {
+                if (((cname != NULL) && (std_string_strstr((uint8_t *)cname, (uint8_t *)(uint8_t *)str3509) != NULL))) {
                     di = (di + 1);
                     continue;
                 }
@@ -137451,6 +137918,10 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
             }
         } else {
             if (((((decl != NULL) && (decl->type == main_ASTNodeType_AST_EXTERN_VAR_DECL)) && (decl->extern_var_decl_name != NULL)) && (decl->extern_var_decl_var_type != NULL))) {
+                if (c99_should_skip_hosted_libc_extern_global_var(codegen, decl) != 0) {
+                    di = (di + 1);
+                    continue;
+                }
                 const int32_t is_extern = decl->extern_var_decl_is_extern;
                 struct ASTNode * const init_expr = decl->extern_var_decl_init_expr;
                 const int32_t is_export = decl->extern_var_decl_is_export;
@@ -137469,7 +137940,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
                 }
                 uint8_t * cname = get_safe_c_identifier(codegen, decl->extern_var_decl_name);
                 if (((decl->extern_var_decl_is_export != 0) && (decl->filename != NULL))) {
-                    if (((((std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str2276) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3723) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3724) != NULL))) {
+                    if (((((std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str1295) != NULL) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str2276) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3799) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3800) != NULL))) {
                         cname = get_c_name_for_global_constant(codegen, decl->extern_var_decl_name, decl->filename, decl->extern_var_decl_is_export);
                     }
                 }
@@ -137478,11 +137949,11 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
                     di = (di + 1);
                     continue;
                 }
-                if (((cname != NULL) && (std_string_strcmp((uint8_t *)cname, (uint8_t *)(uint8_t *)str3732) == 0))) {
+                if (((cname != NULL) && (std_string_strcmp((uint8_t *)cname, (uint8_t *)(uint8_t *)str3808) == 0))) {
                     di = (di + 1);
                     continue;
                 }
-                if (((cname != NULL) && (std_string_strstr((uint8_t *)cname, (uint8_t *)(uint8_t *)str3434) != NULL))) {
+                if (((cname != NULL) && (std_string_strstr((uint8_t *)cname, (uint8_t *)(uint8_t *)str3509) != NULL))) {
                     di = (di + 1);
                     continue;
                 }
@@ -137492,7 +137963,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
         di = (di + 1);
     }
     (void)(c99_emit_newline(codegen)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3733, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3809, (void *)codegen->emit_stream)    );
     (void)(std_io_fflush((void *)codegen->emit_stream));
     (void)(std_io_fclose((void *)codegen->emit_stream));
     codegen->emit_stream = saved;
@@ -137503,7 +137974,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
 
 
 static __attribute__((used)) int32_t c99_want_profile_codegen() {
-    uint8_t * const p = (uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str3734);
+    uint8_t * const p = (uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str3810);
     if (p == NULL) {
                 {
             int32_t _uya_ret = 0;
@@ -137527,19 +137998,19 @@ static __attribute__((used)) void emit_microapp_syscall_helpers(struct C99CodeGe
     if (((codegen == NULL) || (codegen->emit_stream == NULL))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3735, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3736, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3737, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3738, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3739, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3740, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3741, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3742, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3743, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3744, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3811, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3812, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3813, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3814, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3815, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3816, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3817, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3818, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3819, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3820, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3745, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3746, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3821, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3822, (void *)codegen->emit_stream)    );
 }
 
 static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenerator * codegen) {
@@ -137547,146 +138018,50 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     if ((((codegen == NULL) || (codegen->emit_stream == NULL)) || (codegen->container_mode == 0))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3747, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3748, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3749, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3750, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3751, (void *)codegen->emit_stream)    );
-    if (codegen->has_stdio_conflicts != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3752, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3753, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3754, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3755, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3756, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3757, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3758, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3759, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3760, (void *)codegen->emit_stream)        );
-    }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3761, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3762, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3763, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3764, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3765, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3766, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3767, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3768, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3769, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3770, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3771, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3772, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3773, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3774, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3775, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3776, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3777, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3778, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3779, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3780, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3781, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3782, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3783, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3784, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3785, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3786, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3787, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3788, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3789, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3790, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3791, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3792, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3793, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3794, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3795, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3796, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3797, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3798, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3799, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3792, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3800, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3801, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3802, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3796, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3790, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3803, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3804, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3805, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3806, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3807, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3808, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3809, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3810, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3811, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3812, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3813, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3814, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3815, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3816, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3817, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3818, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3819, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3812, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3820, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3821, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3822, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3823, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3824, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3825, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3826, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3827, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3828, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3829, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3830, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3831, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3832, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3833, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3834, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3835, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3836, (void *)codegen->emit_stream)    );
+    if (codegen->has_stdio_conflicts != 0) {
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3828, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3829, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3830, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3831, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3832, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3833, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3834, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3835, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3836, (void *)codegen->emit_stream)        );
+    }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3837, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3838, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3839, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3840, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3841, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3842, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3843, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3814, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3844, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3845, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3846, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3847, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3848, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3849, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3850, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3851, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3852, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3853, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3854, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3855, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3856, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3857, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3858, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3859, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3860, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3861, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3862, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3863, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3864, (void *)codegen->emit_stream)    );
@@ -137698,14 +138073,17 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3870, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3871, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3872, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3873, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3874, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3875, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3868, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3876, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3877, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3878, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3872, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3866, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3879, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3880, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3881, (void *)codegen->emit_stream)    );
@@ -137713,6 +138091,9 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3883, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3884, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3885, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3886, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3887, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3888, (void *)codegen->emit_stream)    );
@@ -137720,11 +138101,11 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3890, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3891, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3892, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3508, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3893, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3894, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3895, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3888, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3896, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3897, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3898, (void *)codegen->emit_stream)    );
@@ -137736,19 +138117,109 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3904, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3905, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3906, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3863, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3864, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3907, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3908, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3869, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3870, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3871, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3872, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3873, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3874, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3909, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3910, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3911, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3912, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3913, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3914, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3915, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3916, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3917, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3918, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3919, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3890, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3920, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3921, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3922, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3923, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3924, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3925, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3926, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3927, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3928, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3929, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3930, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3931, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3932, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3933, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3934, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3935, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3936, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3937, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3938, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3939, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3940, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3941, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3942, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3943, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3944, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3945, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3946, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3947, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3948, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3949, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3950, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3951, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3952, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3953, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3954, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3955, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3956, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3957, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3958, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3959, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3960, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3961, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3962, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3963, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3964, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3965, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3966, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3967, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3968, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3583, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3969, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3970, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3971, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3972, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3973, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3974, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3975, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3976, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3977, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3978, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3979, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3980, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3981, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3982, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3939, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3940, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3983, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3984, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3945, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3946, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3947, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3948, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3949, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3950, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3985, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)    );
 }
 
@@ -137757,20 +138228,20 @@ static __attribute__((used)) void emit_error_name_helper(struct C99CodeGenerator
     if (((codegen == NULL) || (codegen->emit_stream == NULL))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3910, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3911, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3986, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3987, (void *)codegen->emit_stream)    );
     if (codegen->checker != NULL) {
         int32_t i = 0;
         const int32_t count = codegen->checker->error_name_count;
         while (i < count) {
             if ((((i >= 0) && (i < (sizeof(codegen->checker->error_names) / sizeof((codegen->checker->error_names)[0])))) && (codegen->checker->error_names[i] != NULL))) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3912, codegen->checker->error_hashes[i], (uint8_t *)codegen->checker->error_names[i])                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3988, codegen->checker->error_hashes[i], (uint8_t *)codegen->checker->error_names[i])                );
             }
             i = (i + 1);
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3913, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3989, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)    );
 }
 
@@ -137788,22 +138259,22 @@ static __attribute__((used)) void collect_stdlib_functions_from_node(struct C99C
                 if (((codegen->program_node != NULL) && (codegen->program_node->type == main_ASTNodeType_AST_PROGRAM))) {
                     struct ASTNode * const decl = find_function_decl_c99(codegen, callee_name);
                     if ((((decl != NULL) && (decl->type == main_ASTNodeType_AST_FN_DECL)) && (decl->fn_decl_extern_lib_name != NULL))) {
-                        if (is_string_function(callee_name) != 0) {
+                        if ((((is_string_function(callee_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if (((((((((((std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str1376) == 0) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3914) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str1377) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3915) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3916) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3412) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3420) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3917) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3990) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             } else {
-                                if (((((((((std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2241) == 0) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2240) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2242) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2243) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2591) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2593) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2592) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str2594) == 0))) {
+                                if (c99_name_is_hosted_raw_stdio_symbol(callee_name) != 0) {
                                     codegen->needs_stdio_h = 1;
                                 }
                             }
                         }
                     } else {
-                        if (is_string_function(callee_name) != 0) {
+                        if ((((is_string_function(callee_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if (((((((((((std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str1376) == 0) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3914) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str1377) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3915) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3916) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3412) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3420) == 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3917) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str3990) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             }
                         }
@@ -137815,22 +138286,22 @@ static __attribute__((used)) void collect_stdlib_functions_from_node(struct C99C
                 if (((codegen->program_node != NULL) && (codegen->program_node->type == main_ASTNodeType_AST_PROGRAM))) {
                     struct ASTNode * const decl = find_function_decl_c99(codegen, callee->member_access_field_name);
                     if ((((decl != NULL) && (decl->type == main_ASTNodeType_AST_FN_DECL)) && (decl->fn_decl_extern_lib_name != NULL))) {
-                        if (is_string_function(callee->member_access_field_name) != 0) {
+                        if ((((is_string_function(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee->member_access_field_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee->member_access_field_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if (((((((((((std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str1376) == 0) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3914) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str1377) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3915) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3916) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3412) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3420) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3917) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee->member_access_field_name) != 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3990) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             } else {
-                                if (((((((((std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2241) == 0) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2240) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2242) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2243) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2591) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2593) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2592) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str2594) == 0))) {
+                                if (c99_name_is_hosted_raw_stdio_symbol(callee->member_access_field_name) != 0) {
                                     codegen->needs_stdio_h = 1;
                                 }
                             }
                         }
                     } else {
-                        if (is_string_function(callee->member_access_field_name) != 0) {
+                        if ((((is_string_function(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee->member_access_field_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee->member_access_field_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if (((((((((((std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str1376) == 0) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3914) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str1377) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3915) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3916) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3412) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3420) == 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3917) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee->member_access_field_name) != 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str3990) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             }
                         }
@@ -137987,9 +138458,14 @@ static __attribute__((used)) void precollect_codegen_decl(struct C99CodeGenerato
             if (is_stdio_conflict_name(decl->fn_decl_name) != 0) {
                 codegen->has_stdio_conflicts = 1;
             }
-            (void)(collect_stdlib_functions_from_node(codegen, decl->fn_decl_body)            );
-            if (decl->fn_decl_is_async != 0) {
-                codegen->needs_stdlib_h = 1;
+            if (((decl->filename != NULL) && (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3991) != NULL))) {
+                codegen->needs_string_h = 1;
+            }
+            if (c99_should_skip_hosted_libc_function_body(codegen, decl) == 0) {
+                (void)(collect_stdlib_functions_from_node(codegen, decl->fn_decl_body)                );
+                if (decl->fn_decl_is_async != 0) {
+                    codegen->needs_stdlib_h = 1;
+                }
             }
         }
         if (decl->type == main_ASTNodeType_AST_STRUCT_DECL) {
@@ -138706,7 +139182,7 @@ static __attribute__((used)) int32_t c99_mono_name_is_future_ready_helper(uint8_
             return _uya_ret;
                 }
     }
-    if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3918) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3919) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3920) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3921) == 0))) {
+    if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3992) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3993) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3994) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3995) == 0))) {
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
@@ -139544,7 +140020,7 @@ static __attribute__((used)) uint8_t * get_test_function_name(struct C99CodeGene
             return _uya_ret;
                 }
     }
-    (void)(snprintf((char *)(uint8_t *)buf, 64, (const char *)str3922, hash)    );
+    (void)(snprintf((char *)(uint8_t *)buf, 64, (const char *)str3996, hash)    );
         {
         uint8_t * _uya_ret = get_safe_c_identifier(codegen, buf);
         return _uya_ret;
@@ -139596,9 +140072,9 @@ static __attribute__((used)) void gen_test_function(struct C99CodeGenerator * co
         }
     }
     (void)(emit_line_directive(codegen, test_stmt->line, test_stmt->filename)    );
-    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3923, (uint8_t *)func_name)    );
+    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3997, (uint8_t *)func_name)    );
     (void)(gen_stmt(codegen, body)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3924, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3998, (void *)codegen->emit_stream)    );
     codegen->current_function_return_type = saved_return_type;
     codegen->current_function_decl = saved_function_decl;
     codegen->local_variable_count = saved_local_variable_count;
@@ -139618,7 +140094,7 @@ static __attribute__((used)) void gen_test_runner(struct C99CodeGenerator * code
     if (((tests == NULL) || (test_count <= 0))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3925, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3999, (void *)codegen->emit_stream)    );
     int32_t i = 0;
     while (i < test_count) {
         struct ASTNode * const test_node = tests[i];
@@ -139626,12 +140102,12 @@ static __attribute__((used)) void gen_test_runner(struct C99CodeGenerator * code
             uint8_t * const func_name = get_test_function_name(codegen, test_node->test_stmt_description);
             uint8_t * const description = test_node->test_stmt_description;
             if (func_name != NULL) {
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3926, (uint8_t *)description)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3613, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3927, (void *)codegen->emit_stream)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3928, (uint8_t *)func_name)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3929, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3930, (void *)codegen->emit_stream)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str4000, (uint8_t *)description)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3688, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4001, (void *)codegen->emit_stream)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str4002, (uint8_t *)func_name)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4003, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4004, (void *)codegen->emit_stream)                );
             }
         }
         i = (i + 1);
@@ -139703,22 +140179,19 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             if ((((((((i + 5) < C99_OUTPUT_FILENAME_BUF_SIZE) && (output_file[i] == (uint8_t)117)) && (output_file[(i + 1)] == (uint8_t)121)) && (output_file[(i + 2)] == (uint8_t)97)) && (output_file[(i + 3)] == (uint8_t)46)) && (output_file[(i + 4)] == (uint8_t)99))) {
                 is_bootstrap = 1;
             }
-            if ((((i + 16) < C99_OUTPUT_FILENAME_BUF_SIZE) && (std_string_strncmp((uint8_t *)(&output_file[i]), (uint8_t *)(uint8_t *)str3931, 17) == 0))) {
-                is_bootstrap = 1;
-            }
-            if ((((i + 11) < C99_OUTPUT_FILENAME_BUF_SIZE) && (std_string_strncmp((uint8_t *)(&output_file[i]), (uint8_t *)(uint8_t *)str3932, 12) == 0))) {
+            if ((((i + 16) < C99_OUTPUT_FILENAME_BUF_SIZE) && (std_string_strncmp((uint8_t *)(&output_file[i]), (uint8_t *)(uint8_t *)str4005, 17) == 0))) {
                 is_bootstrap = 1;
             }
             i = (i + 1);
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3933, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3934, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3935, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4006, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4007, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4008, (void *)codegen->emit_stream)    );
     if (codegen->stack_size > 0) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3936, codegen->stack_size)        );
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3937, codegen->stack_size)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3935, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str4009, codegen->stack_size)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str4010, codegen->stack_size)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4008, (void *)codegen->emit_stream)        );
     }
     const int32_t decl_count = ast->program_decl_count;
     if (prof_codegen != 0) {
@@ -139748,98 +140221,98 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         }
     }
     if (is_std_lib != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3938, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4011, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3939, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4012, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str360, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str361, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3940, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4013, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str363, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3941, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4014, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str365, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3942, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4015, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str367, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3943, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4016, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3944, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3945, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3946, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4017, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4018, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4019, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3947, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3948, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3949, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3950, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4020, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4021, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4022, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4023, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3951, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4024, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str372, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3952, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3953, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4025, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4026, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3954, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3955, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3956, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3957, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3958, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3959, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3960, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3961, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4029, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4030, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4031, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4032, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4033, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4034, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3962, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4035, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3963, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4036, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str392, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3964, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3965, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3966, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3967, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3968, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3969, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3970, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3965, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3971, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4037, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4038, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4039, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4040, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4041, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4042, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4038, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str403, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3964, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3972, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3966, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3973, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3968, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3974, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3970, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3972, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3971, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3975, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3976, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4037, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4039, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4046, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4041, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4048, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4049, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3977, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4050, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3978, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3979, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3980, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3981, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3982, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3983, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3984, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4051, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4052, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4053, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4054, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4055, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4056, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4057, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3985, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4058, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str392, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3986, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4059, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str403, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3987, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3975, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3988, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4060, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4048, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4061, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3989, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4062, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         if (codegen->freestanding == 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3990, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4063, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3991, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str361, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str363, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str365, (void *)codegen->emit_stream)        );
@@ -139851,40 +140324,74 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         if (codegen->freestanding != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3992, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3946, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3993, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4065, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4019, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
         if (codegen->freestanding != 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3994, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3995, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3996, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3997, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3998, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3999, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4000, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4001, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3957, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3958, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3959, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3960, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3961, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4068, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4069, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4070, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4071, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4072, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4074, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4030, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4031, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4032, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4033, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4034, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         if (codegen->freestanding == 0) {
             if (((codegen->has_stdio_conflicts == 0) && (is_bootstrap == 0))) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4002, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)                );
+            } else {
+                if (is_bootstrap == 0) {
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3828, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4077, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3836, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4078, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4079, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4080, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4081, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4082, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4083, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4084, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4085, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4086, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4087, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4088, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4089, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4090, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4091, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4092, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4093, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4094, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4095, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *fgets(char *, int, struct FILE *);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int fscanf(struct FILE *, const char *, ...);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int sscanf(const char *, const char *, ...);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void perror(const char *);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int remove(const char *);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int rename(const char *, const char *);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE *tmpfile(void);\n", (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *tmpnam(char *);\n", (void *)codegen->emit_stream)                    );
+                }
             }
             if (is_bootstrap == 0) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4003, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4004, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4005, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4006, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4007, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4008, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4009, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4010, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4011, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4012, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <errno.h>\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <math.h>\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef isnan\n#undef isnan\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef isinf\n#undef isinf\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef isfinite\n#undef isfinite\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef signbit\n#undef signbit\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef INFINITY\n#undef INFINITY\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef NAN\n#undef NAN\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef HUGE_VAL\n#undef HUGE_VAL\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef HUGE_VALF\n#undef HUGE_VALF\n#endif\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef HUGE_VALL\n#undef HUGE_VALL\n#endif\n", (void *)codegen->emit_stream)                );
             }
         }
         int32_t has_mem_functions = 0;
@@ -139892,13 +140399,13 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         int32_t mi = 0;
         while (mi < decl_count) {
             struct ASTNode * const md = ast->program_decls[mi];
-            if ((((md != NULL) && (md->type == main_ASTNodeType_AST_FN_DECL)) && (md->fn_decl_body != NULL))) {
+            if (((((md != NULL) && (md->type == main_ASTNodeType_AST_FN_DECL)) && (md->fn_decl_body != NULL)) && (c99_should_skip_hosted_libc_function_body(codegen, md) == 0))) {
                 uint8_t * const mn = md->fn_decl_name;
                 if (mn != NULL) {
-                    if ((((((std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str4013) == 0) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str4014) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str4015) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str4016) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str4017) == 0))) {
+                    if ((((((std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3457) == 0) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3458) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3459) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3460) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3461) == 0))) {
                         has_mem_functions = 1;
                     } else {
-                        if ((((((((((std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3383) == 0) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str2235) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3382) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3384) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3385) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3386) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3388) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3389) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3390) == 0))) {
+                        if ((((((((((std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3384) == 0) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str2235) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3381) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3385) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3386) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3387) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3389) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3390) == 0)) || (std_string_strcmp((uint8_t *)mn, (uint8_t *)(uint8_t *)str3391) == 0))) {
                             has_string_functions = 1;
                         }
                     }
@@ -139906,17 +140413,17 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             }
             mi = (mi + 1);
         }
-        if ((((((codegen->freestanding == 0) && (codegen->needs_string_h != 0)) && (has_string_functions == 0)) && (has_mem_functions == 0)) && (is_bootstrap == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4018, (void *)codegen->emit_stream)            );
+        if ((((codegen->freestanding == 0) && (codegen->needs_string_h != 0)) && (is_bootstrap == 0))) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <string.h>\n", (void *)codegen->emit_stream)            );
         }
         int32_t has_stdlib_conflicts = 0;
         int32_t si = 0;
         while (si < decl_count) {
             struct ASTNode * const sd = ast->program_decls[si];
-            if ((((sd != NULL) && (sd->type == main_ASTNodeType_AST_FN_DECL)) && (sd->fn_decl_body != NULL))) {
+            if (((((sd != NULL) && (sd->type == main_ASTNodeType_AST_FN_DECL)) && (sd->fn_decl_body != NULL)) && (c99_should_skip_hosted_libc_function_body(codegen, sd) == 0))) {
                 uint8_t * const sn = sd->fn_decl_name;
                 if (sn != NULL) {
-                    if (((((std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3412) == 0) || (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3418) == 0)) || (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3419) == 0)) || (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3420) == 0))) {
+                    if (((((std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3468) == 0) || (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3478) == 0)) || (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3476) == 0)) || (std_string_strcmp((uint8_t *)sn, (uint8_t *)(uint8_t *)str3477) == 0))) {
                         has_stdlib_conflicts = 1;
                     }
                 }
@@ -139924,25 +140431,25 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             si = (si + 1);
         }
         if (((((codegen->freestanding == 0) && (codegen->needs_stdlib_h != 0)) && (has_stdlib_conflicts == 0)) && (is_bootstrap == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4019, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdlib.h>\n", (void *)codegen->emit_stream)            );
         }
         if (((((codegen->freestanding == 0) && (codegen->needs_stdio_h != 0)) && (codegen->has_stdio_conflicts == 0)) && (is_bootstrap == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4002, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)            );
         }
         if (is_bootstrap == 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4020, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4021, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4022, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4023, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4024, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4025, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4026, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4029, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4030, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4031, (void *)codegen->emit_stream)            );
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4032, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef RLIMIT_STACK\n#undef RLIMIT_STACK\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRWXU\n#undef S_IRWXU\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRUSR\n#undef S_IRUSR\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWUSR\n#undef S_IWUSR\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXUSR\n#undef S_IXUSR\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRWXG\n#undef S_IRWXG\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRGRP\n#undef S_IRGRP\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWGRP\n#undef S_IWGRP\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXGRP\n#undef S_IXGRP\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRWXO\n#undef S_IRWXO\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IROTH\n#undef S_IROTH\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWOTH\n#undef S_IWOTH\n#endif\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXOTH\n#undef S_IXOTH\n#endif\n", (void *)codegen->emit_stream)            );
         }
         int32_t has_own_opendir = 0;
         int32_t has_own_readdir = 0;
@@ -139954,6 +140461,25 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         int32_t has_decl_clock = 0;
         int32_t has_decl_read = 0;
         int32_t has_decl_write = 0;
+        int32_t has_decl_close = 0;
+        int32_t has_decl_lseek = 0;
+        int32_t has_decl_getpid = 0;
+        int32_t has_decl_getppid = 0;
+        int32_t has_decl_fork = 0;
+        int32_t has_decl_execve = 0;
+        int32_t has_decl_waitpid = 0;
+        int32_t has_decl_system = 0;
+        int32_t has_decl_access = 0;
+        int32_t has_decl_unlink = 0;
+        int32_t has_decl_mkdir = 0;
+        int32_t has_decl_rmdir = 0;
+        int32_t has_decl_chdir = 0;
+        int32_t has_decl_getcwd = 0;
+        int32_t has_decl_dup = 0;
+        int32_t has_decl_dup2 = 0;
+        int32_t has_decl_sleep = 0;
+        int32_t has_decl_stat = 0;
+        int32_t has_decl_readlink = 0;
         int32_t has_impl_malloc = 0;
         int32_t has_impl_free = 0;
         int32_t has_impl_realloc = 0;
@@ -139967,56 +140493,133 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             if (((d != NULL) && (d->type == main_ASTNodeType_AST_FN_DECL))) {
                 uint8_t * const n = d->fn_decl_name;
                 if (n != NULL) {
+                    const int32_t body_counts_as_impl = ((d->fn_decl_body != NULL) && (c99_should_skip_hosted_libc_function_body(codegen, d) == 0));
                     if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str1376) == 0) {
                         has_decl_malloc = 1;
-                        if (d->fn_decl_body != NULL) {
+                        if (body_counts_as_impl != 0) {
                             has_impl_malloc = 1;
                         }
                     } else {
-                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3914) == 0) {
+                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3412) == 0) {
                             has_decl_free = 1;
-                            if (d->fn_decl_body != NULL) {
+                            if (body_counts_as_impl != 0) {
                                 has_impl_free = 1;
                             }
                         } else {
-                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3915) == 0) {
+                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3413) == 0) {
                                 has_decl_realloc = 1;
-                                if (d->fn_decl_body != NULL) {
+                                if (body_counts_as_impl != 0) {
                                     has_impl_realloc = 1;
                                 }
                             } else {
                                 if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str1377) == 0) {
                                     has_decl_calloc = 1;
-                                    if (d->fn_decl_body != NULL) {
+                                    if (body_counts_as_impl != 0) {
                                         has_impl_calloc = 1;
                                     }
                                 } else {
-                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str4033) == 0) {
+                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)"clock") == 0) {
                                         has_decl_clock = 1;
-                                        if (d->fn_decl_body != NULL) {
+                                        if (body_counts_as_impl != 0) {
                                             has_impl_clock = 1;
                                         }
                                     } else {
-                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str4034) == 0) {
+                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3414) == 0) {
                                             has_decl_read = 1;
-                                            if (d->fn_decl_body != NULL) {
+                                            if (body_counts_as_impl != 0) {
                                                 has_impl_read = 1;
                                             }
                                         } else {
-                                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str4035) == 0) {
+                                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3415) == 0) {
                                                 has_decl_write = 1;
-                                                if (d->fn_decl_body != NULL) {
+                                                if (body_counts_as_impl != 0) {
                                                     has_impl_write = 1;
                                                 }
                                             } else {
-                                                if (((d->fn_decl_body != NULL) && (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str4036) == 0))) {
-                                                    has_own_opendir = 1;
+                                                if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3416) == 0) {
+                                                    has_decl_close = 1;
                                                 } else {
-                                                    if (((d->fn_decl_body != NULL) && (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str2756) == 0))) {
-                                                        has_own_readdir = 1;
+                                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3417) == 0) {
+                                                        has_decl_lseek = 1;
                                                     } else {
-                                                        if (((d->fn_decl_body != NULL) && (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str4037) == 0))) {
-                                                            has_own_closedir = 1;
+                                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3418) == 0) {
+                                                            has_decl_getpid = 1;
+                                                        } else {
+                                                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3419) == 0) {
+                                                                has_decl_getppid = 1;
+                                                            } else {
+                                                                if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3420) == 0) {
+                                                                    has_decl_fork = 1;
+                                                                } else {
+                                                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3421) == 0) {
+                                                                        has_decl_execve = 1;
+                                                                    } else {
+                                                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3423) == 0) {
+                                                                            has_decl_waitpid = 1;
+                                                                        } else {
+                                                                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str1704) == 0) {
+                                                                                has_decl_system = 1;
+                                                                            } else {
+                                                                                if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3424) == 0) {
+                                                                                    has_decl_access = 1;
+                                                                                } else {
+                                                                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3425) == 0) {
+                                                                                        has_decl_unlink = 1;
+                                                                                    } else {
+                                                                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str2237) == 0) {
+                                                                                            has_decl_mkdir = 1;
+                                                                                        } else {
+                                                                                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str2238) == 0) {
+                                                                                                has_decl_rmdir = 1;
+                                                                                            } else {
+                                                                                                if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3426) == 0) {
+                                                                                                    has_decl_chdir = 1;
+                                                                                                } else {
+                                                                                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3427) == 0) {
+                                                                                                        has_decl_getcwd = 1;
+                                                                                                    } else {
+                                                                                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3428) == 0) {
+                                                                                                            has_decl_dup = 1;
+                                                                                                        } else {
+                                                                                                            if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3429) == 0) {
+                                                                                                                has_decl_dup2 = 1;
+                                                                                                            } else {
+                                                                                                                if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3430) == 0) {
+                                                                                                                    has_decl_sleep = 1;
+                                                                                                                } else {
+                                                                                                                    if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3431) == 0) {
+                                                                                                                        has_decl_stat = 1;
+                                                                                                                    } else {
+                                                                                                                        if (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3432) == 0) {
+                                                                                                                            has_decl_readlink = 1;
+                                                                                                                        } else {
+                                                                                                                            if (((body_counts_as_impl != 0) && (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3433) == 0))) {
+                                                                                                                                has_own_opendir = 1;
+                                                                                                                            } else {
+                                                                                                                                if (((body_counts_as_impl != 0) && (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str2756) == 0))) {
+                                                                                                                                    has_own_readdir = 1;
+                                                                                                                                } else {
+                                                                                                                                    if (((body_counts_as_impl != 0) && (std_string_strcmp((uint8_t *)n, (uint8_t *)(uint8_t *)str3434) == 0))) {
+                                                                                                                                        has_own_closedir = 1;
+                                                                                                                                    }
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -140034,65 +140637,125 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         if (codegen->freestanding == 0) {
             if (is_bootstrap == 0) {
                 if (((has_decl_malloc != 0) && (has_impl_malloc == 0))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4038, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *malloc(size_t);\n", (void *)codegen->emit_stream)                    );
                 }
                 if (((has_decl_free != 0) && (has_impl_free == 0))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4039, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void free(void *);\n", (void *)codegen->emit_stream)                    );
                 }
                 if (((has_decl_realloc != 0) && (has_impl_realloc == 0))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4040, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *realloc(void *, size_t);\n", (void *)codegen->emit_stream)                    );
                 }
                 if (((has_decl_calloc != 0) && (has_impl_calloc == 0))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4041, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *calloc(size_t, size_t);\n", (void *)codegen->emit_stream)                    );
                 }
                 if (((has_decl_clock != 0) && (has_impl_clock == 0))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4042, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int64_t clock(void);\n", (void *)codegen->emit_stream)                    );
                 }
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_flush_current_thread_cache(void) { }\n", (void *)codegen->emit_stream)                );
             }
             if (((target_os_is_macos != 0) && (is_bootstrap != 0))) {
                 if (has_impl_read == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern ssize_t read(int, void *, size_t);\n", (void *)codegen->emit_stream)                    );
                 }
                 if (has_impl_write == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern ssize_t write(int, const void *, size_t);\n", (void *)codegen->emit_stream)                    );
                 }
             } else {
                 if (((has_decl_read != 0) && ((has_impl_read == 0) || (target_os_is_macos != 0)))) {
                     if (((is_bootstrap == 0) || (target_os_is_macos != 0))) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern ssize_t read(int, void *, size_t);\n", (void *)codegen->emit_stream)                        );
                     }
                 }
                 if (((has_decl_write != 0) && ((has_impl_write == 0) || (target_os_is_macos != 0)))) {
                     if (((is_bootstrap == 0) || (target_os_is_macos != 0))) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern ssize_t write(int, const void *, size_t);\n", (void *)codegen->emit_stream)                        );
+                    }
+                }
+                if (is_bootstrap == 0) {
+                    if (has_decl_close != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int close(int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_lseek != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int64_t lseek(int, int64_t, int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_getpid != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int getpid(void);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_getppid != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int getppid(void);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_fork != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int fork(void);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_execve != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int execve(const char *, char **, char **);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_waitpid != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int waitpid(int, int *, int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_system != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int system(const char *);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_access != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int access(const char *, int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_unlink != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int unlink(const char *);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_mkdir != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int mkdir(const char *, int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_rmdir != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int rmdir(const char *);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_chdir != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int chdir(const char *);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_getcwd != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *getcwd(char *, size_t);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_dup != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int dup(int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_dup2 != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int dup2(int, int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_sleep != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern unsigned int sleep(unsigned int);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_stat != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct Stat;\nextern int stat(const char *, struct Stat *);\n", (void *)codegen->emit_stream)                        );
+                    }
+                    if (has_decl_readlink != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int readlink(const char *, char *, size_t);\n", (void *)codegen->emit_stream)                        );
                     }
                 }
             }
         }
         if ((((has_own_opendir == 0) && (is_bootstrap == 0)) && (codegen->freestanding == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *opendir(const char *);\n", (void *)codegen->emit_stream)            );
         }
         if ((((has_own_readdir == 0) && (is_bootstrap == 0)) && (codegen->freestanding == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4046, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *readdir(void *);\n", (void *)codegen->emit_stream)            );
         }
         if ((((has_own_closedir == 0) && (is_bootstrap == 0)) && (codegen->freestanding == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int closedir(void *);\n", (void *)codegen->emit_stream)            );
         }
         if (((is_bootstrap == 0) && (codegen->freestanding == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4048, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void _exit(int);\n", (void *)codegen->emit_stream)            );
         }
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3954, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3955, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4049, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4050, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4051, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    char *d = (char *)dest; const char *s = (const char *)src;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    for (size_t i = 0; i < n; i++) d[i] = s[i];\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str491, (void *)codegen->emit_stream)        );
         (void)(c99_emit_close_brace_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4052, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4053, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4054, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)        );
         if (((codegen->container_mode != 0) && (codegen->microapp_softvm_mode != 0))) {
             (void)(emit_microapp_mmu_helpers(codegen)            );
@@ -140103,29 +140766,29 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         if (((codegen->split_mirror != 0) && (codegen->split_common_out != NULL))) {
             codegen->emit_stream = codegen->split_common_out;
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4055, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4056, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"// syscall write - 写入文件描述符\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static long uya_write(int fd, const char *buf, unsigned long len) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str377, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4057, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    __asm__ volatile (\"syscall\" : \"=a\"(ret) : \"a\"(1), \"D\"(fd), \"S\"(buf), \"d\"(len) : \"rcx\", \"r11\", \"memory\");\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str379, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4058, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4059, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4060, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"// strlen - 计算字符串长度\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static unsigned long uya_strlen(const char *s) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned long len = 0;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str475, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str481, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4061, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4062, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3851, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4063, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4060, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4065, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4068, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4069, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"// 打印 i32（--nostdlib 下避免依赖 printf 的 %d）\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void uya_print_i32(int32_t value) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3927, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    char out[16];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned long len = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t temp = value;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (temp == 0) { (void)uya_write(1, \"0\", 1); return; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (temp < 0) { (void)uya_write(1, \"-\", 1); temp = -temp; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    while (temp > 0) { digits[len++] = (char)('0' + (temp % 10)); temp /= 10; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    for (unsigned long i = 0; i < len; i++) out[i] = digits[len - 1 - i];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)uya_write(1, out, len);\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)        );
         int32_t has_printf_impl = 0;
         int32_t has_malloc_impl = 0;
@@ -140142,10 +140805,10 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                     if (std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str1376) == 0) {
                         has_malloc_impl = 1;
                     } else {
-                        if (std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3914) == 0) {
+                        if (std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3412) == 0) {
                             has_free_impl = 1;
                         } else {
-                            if (std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3915) == 0) {
+                            if (std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str3413) == 0) {
                                 has_realloc_impl = 1;
                             } else {
                                 if (((std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str2593) == 0) || (std_string_strcmp((uint8_t *)ns_decl->fn_decl_name, (uint8_t *)(uint8_t *)str1377) == 0))) {
@@ -140160,43 +140823,43 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         }
         if (has_full_libc_runtime == 0) {
             if ((((has_malloc_impl == 0) || (has_free_impl == 0)) || (has_realloc_impl == 0))) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4070, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4071, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4072, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"// brk syscall - 最小堆实现\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"static unsigned long uya_brk(unsigned long addr) {\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned long ret;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    __asm__ volatile (\"syscall\" : \"=a\"(ret) : \"a\"(12), \"D\"(addr) : \"rcx\", \"r11\", \"memory\");\n", (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str379, (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4074, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"static unsigned char *uya_heap_cur = (unsigned char *)0;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"static unsigned char *uya_heap_end = (unsigned char *)0;\n\n", (void *)codegen->emit_stream)                );
             }
             if (has_malloc_impl == 0) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4077, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4078, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4079, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4080, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4081, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4082, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4083, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4084, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4085, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4086, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4087, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4088, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4089, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4090, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4091, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4092, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"void *malloc(size_t size) {\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (size == 0) size = 1;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    size = (size + 15UL) & ~15UL;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_heap_cur == (unsigned char *)0) {\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        unsigned long cur = uya_brk(0);\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (cur == 0) return (void *)0;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        uya_heap_cur = (unsigned char *)cur;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        uya_heap_end = (unsigned char *)cur;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned long need = (unsigned long)uya_heap_cur + size;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if ((unsigned char *)need > uya_heap_end) {\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        unsigned long target = need;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        unsigned long got = uya_brk(target);\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (got < target) return (void *)0;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"        uya_heap_end = (unsigned char *)got;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    void *p = (void *)uya_heap_cur;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_heap_cur += size;\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return p;\n", (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)                );
             }
             if (has_free_impl == 0) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4093, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"void free(void *ptr) { (void)ptr; }\n\n", (void *)codegen->emit_stream)                );
             }
             if (has_realloc_impl == 0) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4094, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4095, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"void *realloc(void *ptr, size_t new_size) {\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ptr == (void *)0) return malloc(new_size);\n", (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (new_size == 0) { free(ptr); return (void *)0; }\n", (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"    void *np = malloc(new_size);\n", (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (np == (void *)0) return (void *)0;\n", (void *)codegen->emit_stream)                );
@@ -140230,7 +140893,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        \"syscall\\n\\t\"\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        \"hlt\\n\\t\"\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : : : \"memory\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str423, (void *)codegen->emit_stream)        );
         codegen->emit_stream = saved_nostdlib_emit;
     }
@@ -140268,18 +140931,18 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IFMT\n#undef S_IFMT\n#endif\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IFDIR\n#undef S_IFDIR\n#endif\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IFREG\n#undef S_IFREG\n#endif\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4021, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4022, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4023, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4024, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4025, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4026, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4029, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4030, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4031, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4032, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRWXU\n#undef S_IRWXU\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRUSR\n#undef S_IRUSR\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWUSR\n#undef S_IWUSR\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXUSR\n#undef S_IXUSR\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRWXG\n#undef S_IRWXG\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRGRP\n#undef S_IRGRP\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWGRP\n#undef S_IWGRP\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXGRP\n#undef S_IXGRP\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IRWXO\n#undef S_IRWXO\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IROTH\n#undef S_IROTH\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IWOTH\n#undef S_IWOTH\n#endif\n", (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IXOTH\n#undef S_IXOTH\n#endif\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void *dlsym(void *, const char *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef int (*uya_macos_stat_fn)(const char *, struct uya_macos_native_stat_call *);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef intptr_t (*uya_macos_readlink_fn)(const char *, char *, size_t);\n", (void *)codegen->emit_stream)    );
@@ -140483,12 +141146,12 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        int cur = fcntl(fd, 3, 0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (cur == -1) return uya_macos_errno_value();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (fcntl(fd, 4, cur | 0x00000004) == -1) return uya_macos_errno_value();\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if ((flags & 0x01000000) != 0) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        int curfd = fcntl(fd, 1, 0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (curfd == -1) return uya_macos_errno_value();\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (fcntl(fd, 2, curfd | 1) == -1) return uya_macos_errno_value();\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str478, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_macos_pipe2(int32_t *pipefd, int32_t flags) {\n", (void *)codegen->emit_stream)    );
@@ -140523,7 +141186,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (nanosleep(&native_req, &native_rem) != 0) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        uya_rem->tv_sec = native_rem.tv_sec; uya_rem->tv_nsec = native_rem.tv_nsec;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        return uya_macos_err_i32(uya_macos_errno_value());\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_rem->tv_sec = 0; uya_rem->tv_nsec = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_macos_ok_i32(0);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
@@ -140645,12 +141308,12 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    while (clear_idx < 275u) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        dst[clear_idx] = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        clear_idx++;\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dst[18] = src[20];\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    while (name_len < 255u && src[21 + name_len] != 0) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        dst[19 + name_len] = src[21 + name_len];\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"        name_len++;\n", (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dst[19 + name_len] = 0;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return 1;\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str380, (void *)codegen->emit_stream)    );
@@ -141349,7 +142012,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"=r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall1(long nr, long a1) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    register long r0 __asm__(\"r0\") = a1;\n", (void *)codegen->emit_stream)        );
@@ -141358,7 +142021,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"+r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall2(long nr, long a1, long a2) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    register long r0 __asm__(\"r0\") = a1;\n", (void *)codegen->emit_stream)        );
@@ -141368,7 +142031,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"+r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr), \"r\"(r1)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall3(long nr, long a1, long a2, long a3) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    register long r0 __asm__(\"r0\") = a1;\n", (void *)codegen->emit_stream)        );
@@ -141379,7 +142042,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"+r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr), \"r\"(r1), \"r\"(r2)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall4(long nr, long a1, long a2, long a3, long a4) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    register long r0 __asm__(\"r0\") = a1;\n", (void *)codegen->emit_stream)        );
@@ -141391,7 +142054,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"+r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr), \"r\"(r1), \"r\"(r2), \"r\"(r3)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall5(long nr, long a1, long a2, long a3, long a4, long a5) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    register long r0 __asm__(\"r0\") = a1;\n", (void *)codegen->emit_stream)        );
@@ -141404,7 +142067,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"+r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr), \"r\"(r1), \"r\"(r2), \"r\"(r3), \"r\"(r4)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    register long r0 __asm__(\"r0\") = a1;\n", (void *)codegen->emit_stream)        );
@@ -141418,7 +142081,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"+r\"(r0), [sc_tmp]\"=&r\"((int){0})\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : [sc_nr]\"r\"(nr), \"r\"(r1), \"r\"(r2), \"r\"(r3), \"r\"(r4), \"r\"(r5)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"        : \"memory\", \"cc\"\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3404, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return r0;\n}\n\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"#error \"@syscall C99 backend: supported targets are Linux/Darwin x86-64, Linux/Darwin AArch64, and Linux ARM32 EABI. Other OS/arch need a backend.\"\n", (void *)codegen->emit_stream)        );
@@ -141595,10 +142258,10 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         mi = (mi + 1);
     }
     if (codegen->checker != NULL) {
-        struct ASTNode * const from_json_decl = find_function_decl_c99(codegen, (uint8_t *)(uint8_t *)str3715);
+        struct ASTNode * const from_json_decl = find_function_decl_c99(codegen, (uint8_t *)(uint8_t *)str3790);
         int32_t j = 0;
         while (j < codegen->mono_instance_count) {
-            if ((((((codegen->mono_instances[j].generic_name != NULL) && (codegen->mono_instances[j].is_function != 0)) && (std_string_strcmp((uint8_t *)codegen->mono_instances[j].generic_name, (uint8_t *)(uint8_t *)str3715) == 0)) && (codegen->mono_instances[j].type_args != NULL)) && (codegen->mono_instances[j].type_arg_count >= 1))) {
+            if ((((((codegen->mono_instances[j].generic_name != NULL) && (codegen->mono_instances[j].is_function != 0)) && (std_string_strcmp((uint8_t *)codegen->mono_instances[j].generic_name, (uint8_t *)(uint8_t *)str3790) == 0)) && (codegen->mono_instances[j].type_args != NULL)) && (codegen->mono_instances[j].type_arg_count >= 1))) {
                 struct ASTNode * const ta0 = codegen->mono_instances[j].type_args[0];
                 if ((((ta0 != NULL) && (ta0->type == main_ASTNodeType_AST_TYPE_NAMED)) && (ta0->type_named_name != NULL))) {
                     struct ASTNode * const body_to_walk = checker_macro_expand_build_from_json_reflect_body(codegen->checker, ta0, 0, 0, NULL);
@@ -141652,7 +142315,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                     j = 0;
                     while (((j < codegen->mono_instance_count) && (j < (sizeof(codegen->mono_instances) / sizeof((codegen->mono_instances)[0]))))) {
                         if (((((codegen->mono_instances[j].generic_name != NULL) && (c99_mono_fn_name_matches_decl(codegen, codegen->mono_instances[j].generic_name, decl) != 0)) && (codegen->mono_instances[j].is_function != 0)) && (has_unresolved_mono_type_args(decl, codegen->mono_instances[j].type_args, codegen->mono_instances[j].type_arg_count) == 0))) {
-                            if (std_string_strcmp((uint8_t *)decl->fn_decl_name, (uint8_t *)(uint8_t *)str3715) != 0) {
+                            if (std_string_strcmp((uint8_t *)decl->fn_decl_name, (uint8_t *)(uint8_t *)str3790) != 0) {
                                 struct ASTNode * const expanded = checker_macro_expand_prepare_mono_body_expand_macros(codegen->checker, decl->fn_decl_body, decl->fn_decl_type_params, decl->fn_decl_type_param_count, codegen->mono_instances[j].type_args, codegen->mono_instances[j].type_arg_count);
                                 if (expanded != NULL) {
                                     (void)(collect_err_union_from_function_body(codegen, decl, expanded, codegen->mono_instances[j].type_args, codegen->mono_instances[j].type_arg_count)                                    );
@@ -142176,12 +142839,12 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                 (void)(emit_line_directive(codegen, decl->line, decl->filename)                );
                 uint8_t * return_c = convert_array_return_type(codegen, decl->fn_decl_return_type);
                 return_c = normalize_poll_return_type(codegen, (uint8_t *)return_c);
-                uint8_t * main_c_name = (uint8_t *)(uint8_t *)str3433;
+                uint8_t * main_c_name = (uint8_t *)(uint8_t *)str3508;
                 if (is_app_main != 0) {
                     main_c_name = (uint8_t *)(uint8_t *)str1788;
                 } else {
                     if (is_c_main == 0) {
-                        main_c_name = (uint8_t *)(uint8_t *)str3433;
+                        main_c_name = (uint8_t *)(uint8_t *)str3508;
                     }
                 }
                 if (is_c_main != 0) {
@@ -142193,7 +142856,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                         if (((p != NULL) && (p->type == main_ASTNodeType_AST_VAR_DECL))) {
                             uint8_t * const pname = get_safe_c_identifier(codegen, p->var_decl_name);
                             if (pj == 1) {
-                                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3443, (uint8_t *)pname)                                );
+                                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3518, (uint8_t *)pname)                                );
                             } else {
                                 struct ASTNode * const ptype = p->var_decl_type;
                                 uint8_t * const ptype_c = c99_type_to_c(codegen, ptype);
@@ -142205,14 +142868,14 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                         }
                         pj = (pj + 1);
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s %s(void) {\n", (uint8_t *)return_c, (uint8_t *)main_c_name)                    );
                 }
                 struct ASTNode * const saved_return_type = codegen->current_function_return_type;
                 codegen->current_function_return_type = decl->fn_decl_return_type;
                 if ((((test_count > 0) && (is_app_main == 0)) && (is_c_main == 0))) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3462, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3537, (void *)codegen->emit_stream)                    );
                 }
                 struct ASTNode * const body = decl->fn_decl_body;
                 if (body != NULL) {
@@ -142236,7 +142899,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(codegen_c99_utils_c99_mirror_emit_common(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t main_main(void) {\n", (void *)codegen->emit_stream)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)"    printf(\"\\n=== Running %d tests ===\\n\");\n", test_count)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3462, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3537, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    printf(\"\\n=== Results ===\\n\");\n", (void *)codegen->emit_stream)        );
         if (codegen->is_nostdlib != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"    printf(\"  Tests Passed:       \");\n", (void *)codegen->emit_stream)            );
@@ -143612,7 +144275,7 @@ static __attribute__((used)) void gen_stmt(struct C99CodeGenerator * codegen, st
                                                                             interp_size = 256;
                                                                         }
                                                                         (void)(c99_emit_indent(codegen)                                                                        );
-                                                                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3350, temp_name_idx, interp_size)                                                                        );
+                                                                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3349, temp_name_idx, interp_size)                                                                        );
                                                                         uint8_t name_buf[32] = {0};
                                                                         (void)(snprintf((char *)(uint8_t *)(&name_buf[0]), 32, (const char *)str2740, temp_name_idx)                                                                        );
                                                                         (void)(c99_emit_string_interp_fill(codegen, inner, (uint8_t *)(&name_buf[0]))                                                                        );
@@ -143637,7 +144300,7 @@ static __attribute__((used)) void gen_stmt(struct C99CodeGenerator * codegen, st
                                                                             (void)(c99_emit_indent(codegen)                                                                            );
                                                                             (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s _uya_stmt_tmp = ", (uint8_t *)stmt_union_c)                                                                            );
                                                                             (void)(gen_expr(codegen, stmt)                                                                            );
-                                                                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                                                                            );
+                                                                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                                                                            );
                                                                             (void)(c99_emit_indent(codegen)                                                                            );
                                                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)"if (_uya_stmt_tmp.error_id != 0) {\n", (void *)codegen->emit_stream)                                                                            );
                                                                             codegen->indent_level = (codegen->indent_level + 1);
@@ -143742,7 +144405,7 @@ static __attribute__((used)) void gen_if_stmt(struct C99CodeGenerator * codegen,
         (void)(c99_emit_indent(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"if (", (void *)codegen->emit_stream)        );
         (void)(c99_emit_condition_expr(codegen, condition)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)        );
         codegen->indent_level = (codegen->indent_level + 1);
         if (then_is_dead == 0) {
             (void)(gen_stmt(codegen, then_branch)            );
@@ -143755,7 +144418,7 @@ static __attribute__((used)) void gen_if_stmt(struct C99CodeGenerator * codegen,
     (void)(c99_emit_indent(codegen)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"if (", (void *)codegen->emit_stream)    );
     (void)(c99_emit_condition_expr(codegen, condition)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     codegen->indent_level = (codegen->indent_level + 1);
     if (then_is_dead == 0) {
         (void)(gen_stmt(codegen, then_branch)        );
@@ -143780,7 +144443,7 @@ static __attribute__((used)) void gen_while_stmt(struct C99CodeGenerator * codeg
     (void)(c99_emit_indent(codegen)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"while (", (void *)codegen->emit_stream)    );
     (void)(c99_emit_condition_expr(codegen, condition)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3463, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3538, (void *)codegen->emit_stream)    );
     codegen->indent_level = (codegen->indent_level + 1);
     struct ASTNode * const saved_async_control_while = codegen->async_control_while;
     struct ASTNode * const saved_async_control_for = codegen->async_control_for;
@@ -143807,11 +144470,11 @@ static __attribute__((used)) void gen_break_stmt(struct C99CodeGenerator * codeg
             if (fr != 0) {
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)"        %s->state = %d;\n", (uint8_t *)codegen->async_state_var, c99_async_terminal_state(codegen))                );
             }
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)            );
             return;
         }
     }
-    (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3693)    );
+    (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str3768)    );
 }
 
 static __attribute__((used)) void gen_continue_stmt(struct C99CodeGenerator * codegen) {
@@ -143820,12 +144483,12 @@ static __attribute__((used)) void gen_continue_stmt(struct C99CodeGenerator * co
     (void)(emit_defer_cleanup(codegen, 0)    );
     if ((((codegen != NULL) && (codegen->async_state_var != NULL)) && (codegen->async_poll_ret_c != NULL))) {
         if (codegen->async_control_while != NULL) {
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3505, c99_async_while_label_id(codegen->async_control_while))            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3580, c99_async_while_label_id(codegen->async_control_while))            );
             return;
         }
         if (codegen->async_control_for != NULL) {
             (void)(emit_async_for_loopback_or_exit(codegen, codegen->async_control_for)            );
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3503, (uint8_t *)codegen->async_poll_ret_c)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3578, (uint8_t *)codegen->async_poll_ret_c)            );
             return;
         }
     }
@@ -143928,9 +144591,9 @@ static __attribute__((used)) void gen_for_array(struct C99CodeGenerator * codege
     (void)(c99_emit_indent(codegen)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"size_t _len = sizeof(", (void *)codegen->emit_stream)    );
     (void)(gen_expr(codegen, array)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3527, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3602, (void *)codegen->emit_stream)    );
     (void)(gen_expr(codegen, array)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3528, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3603, (void *)codegen->emit_stream)    );
     (void)(c99_emit_indent(codegen)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"for (size_t _i = 0; _i < _len; _i++) {\n", (void *)codegen->emit_stream)    );
     codegen->indent_level = (codegen->indent_level + 1);
@@ -144324,7 +144987,7 @@ static __attribute__((used)) void gen_return_stmt(struct C99CodeGenerator * code
                 } else {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str279, (void *)codegen->emit_stream)                    );
                 }
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                );
             }
             (void)(emit_all_active_scope_cleanup(codegen, 0)            );
             (void)(c99_emit_indent(codegen)            );
@@ -144341,7 +145004,7 @@ static __attribute__((used)) void gen_return_stmt(struct C99CodeGenerator * code
             } else {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str279, (void *)codegen->emit_stream)                );
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3550, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3625, (void *)codegen->emit_stream)            );
         }
         return;
     }
@@ -144533,7 +145196,7 @@ static __attribute__((used)) void gen_return_array(struct C99CodeGenerator * cod
         } else {
             (void)(gen_expr(codegen, expr)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)        );
     } else {
         (void)(c99_emit_indent(codegen)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s _uya_ret = ", (uint8_t *)ret_c)        );
@@ -144619,7 +145282,7 @@ static __attribute__((used)) void gen_return_normal(struct C99CodeGenerator * co
                     (void)(gen_expr(codegen, expr)                    );
                     (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str559)                    );
                     (void)(c99_emit_indent(codegen)                    );
-                    (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str4038)                    );
+                    (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)"extern void *malloc(size_t);\n")                    );
                     (void)(c99_emit_indent(codegen)                    );
                     (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s *_uya_slice_heap = (%s *)malloc(sizeof(%s) * _uya_ret.len);\n", (uint8_t *)elem_c, (uint8_t *)elem_c, (uint8_t *)elem_c)                    );
                     (void)(c99_emit_indent(codegen)                    );
@@ -144685,7 +145348,7 @@ static __attribute__((used)) int32_t gen_return_error_union_error_value(struct C
     (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s _uya_ret = (%s){ .error_id = ", (uint8_t *)ret_c, (uint8_t *)ret_c)    );
     (void)(gen_expr(codegen, expr)    );
     if (payload_void != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)        );
     } else {
         uint8_t * const payload_c = c99_mono_type_to_c(codegen, payload_node);
         (void)(std_io_fputs((uint8_t *)(uint8_t *)", .value = ", (void *)codegen->emit_stream)        );
@@ -144694,7 +145357,7 @@ static __attribute__((used)) int32_t gen_return_error_union_error_value(struct C
         } else {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str279, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)        );
     }
         {
         int32_t _uya_ret = 1;
@@ -144836,9 +145499,9 @@ static __attribute__((used)) void gen_return_error_union(struct C99CodeGenerator
                         uint8_t * const elem_c = c99_type_to_c(codegen, payload_node->type_slice_element_type);
                         (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s _uya_ret = (%s){ .error_id = 0, .value = *(", (uint8_t *)ret_c, (uint8_t *)ret_c)                        );
                         (void)(gen_expr(codegen, expr)                        );
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3493, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3568, (void *)codegen->emit_stream)                        );
                         (void)(c99_emit_indent(codegen)                        );
-                        (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)str4038)                        );
+                        (void)(c99_emit(codegen, (uint8_t *)(uint8_t *)"extern void *malloc(size_t);\n")                        );
                         (void)(c99_emit_indent(codegen)                        );
                         (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s *_uya_slice_heap = (%s *)malloc(sizeof(%s) * _uya_ret.value.len);\n", (uint8_t *)elem_c, (uint8_t *)elem_c, (uint8_t *)elem_c)                        );
                         (void)(c99_emit_indent(codegen)                        );
@@ -144847,11 +145510,11 @@ static __attribute__((used)) void gen_return_error_union(struct C99CodeGenerator
                         if (need_deref != 0) {
                             (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s _uya_ret = (%s){ .error_id = 0, .value = *(", (uint8_t *)ret_c, (uint8_t *)ret_c)                            );
                             (void)(gen_expr(codegen, expr)                            );
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3493, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3568, (void *)codegen->emit_stream)                            );
                         } else {
                             (void)(fprintf((void *)codegen->emit_stream, (const char *)"%s _uya_ret = (%s){ .error_id = 0, .value = ", (uint8_t *)ret_c, (uint8_t *)ret_c)                            );
                             (void)(gen_expr(codegen, expr)                            );
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                            );
                         }
                     }
                 }
@@ -145306,13 +145969,13 @@ static __attribute__((used)) void gen_assign_non_array(struct C99CodeGenerator *
     uint8_t * dest_type_c = NULL;
     if (dest->type == main_ASTNodeType_AST_IDENTIFIER) {
         dest_type_c = get_identifier_type_c(codegen, dest->identifier_name);
-        if (((dest_type_c != NULL) && (std_string_strstr((uint8_t *)dest_type_c, (uint8_t *)(uint8_t *)str3381) != NULL))) {
+        if (((dest_type_c != NULL) && (std_string_strstr((uint8_t *)dest_type_c, (uint8_t *)(uint8_t *)str3380) != NULL))) {
             is_atomic = 1;
         }
     } else {
         if (dest->type == main_ASTNodeType_AST_MEMBER_ACCESS) {
             dest_type_c = get_c_type_of_expr(codegen, dest);
-            if (((dest_type_c != NULL) && (std_string_strstr((uint8_t *)dest_type_c, (uint8_t *)(uint8_t *)str3381) != NULL))) {
+            if (((dest_type_c != NULL) && (std_string_strstr((uint8_t *)dest_type_c, (uint8_t *)(uint8_t *)str3380) != NULL))) {
                 is_atomic = 1;
             }
         }
@@ -145462,11 +146125,11 @@ static __attribute__((used)) void gen_atomic_compound(struct C99CodeGenerator * 
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)"/ ", (void *)codegen->emit_stream)                        );
                     } else {
                         (void)(std_io_fputc(37, (void *)codegen->emit_stream)                        );
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3431, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)                        );
                     }
                 }
                 (void)(gen_expr(codegen, right)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                );
                 (void)(c99_emit_indent(codegen)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"if (__atomic_compare_exchange_n(", (void *)codegen->emit_stream)                );
                 (void)(emit_atomic_pointer_arg(codegen, dest, (uint8_t *)safe_name));
@@ -145650,7 +146313,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
     }
     uint8_t * var_name = get_safe_c_identifier(codegen, stmt->var_decl_name);
     if (((((codegen != NULL) && (codegen->async_state_var != NULL)) && (var_name != NULL)) && (std_string_strcmp((uint8_t *)var_name, (uint8_t *)codegen->async_state_var) == 0))) {
-        var_name = (uint8_t *)(uint8_t *)str3722;
+        var_name = (uint8_t *)(uint8_t *)str3797;
     }
     struct ASTNode * const var_type = stmt->var_decl_type;
     struct ASTNode * const init_expr = stmt->var_decl_init;
@@ -145701,18 +146364,18 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                             } else {
                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str279, (void *)codegen->emit_stream)                                );
                             }
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                            );
                             pi_params = (pi_params + 1);
                         }
                         handled = 1;
                     } else {
                         (void)(c99_emit_indent(codegen)                        );
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3516, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3591, (uint8_t *)codegen->async_state_var, (uint8_t *)ls)                        );
                         if (c99_async_hoisted_local_init_needs_byte_ptr_cast(var_type, init_expr) != 0) {
                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str2731, (void *)codegen->emit_stream)                            );
                         }
                         (void)(gen_expr(codegen, init_expr)                        );
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                        );
                         handled = 1;
                     }
                 }
@@ -145794,7 +146457,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                             codegen->expected_block_union_type = union_c;
                             (void)(gen_expr(codegen, try_operand)                            );
                             codegen->expected_block_union_type = saved_block_union;
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)                            );
                             uint8_t * ret_union_c = (uint8_t *)(uint8_t *)(uint8_t *)str1005;
                             if (((codegen->current_function_return_type != NULL) && (codegen->current_function_return_type->type == main_ASTNodeType_AST_TYPE_ERROR_UNION))) {
                                 ret_union_c = c99_type_to_c(codegen, codegen->current_function_return_type);
@@ -145828,12 +146491,12 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                 (void)(c99_emit_indent(codegen)                );
                 if (((is_const != 0) && (is_string_interp_init == 0))) {
                     if (c99_c_type_str_leading_const((uint8_t *)base_type) != 0) {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3440, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3515, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3719, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3794, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     }
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3440, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3515, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                    );
                 }
                 type_c = NULL;
                 if (init_expr != NULL) {
@@ -145888,7 +146551,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                 if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                     (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 } else {
-                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720, (uint8_t *)type_c, (uint8_t *)var_name)                    );
+                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3795, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 }
             } else {
                 (void)(c99_emit_indent(codegen)                );
@@ -145952,7 +146615,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                         (void)(fprintf((void *)codegen->emit_stream, (const char *)str1724, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                         stored_type_c_for_pointer = c99_arena_strdup(codegen->arena, (uint8_t *)type_c);
                     } else {
-                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3720, (uint8_t *)type_c, (uint8_t *)var_name)                        );
+                        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3795, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                         const int32_t str_len4 = (std_string_strlen((uint8_t *)type_c) + 7);
                         stored_type_c_for_pointer = (uint8_t *)compiler_arena_alloc(codegen->arena, str_len4);
                         if (stored_type_c_for_pointer != NULL) {
@@ -146038,7 +146701,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                             }
                             i = (i + 1);
                         }
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                        );
                     } else {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str564, (void *)codegen->emit_stream)                        );
                         (void)(gen_expr(codegen, init_expr)                        );
@@ -147544,7 +148207,7 @@ static __attribute__((used)) uint8_t * variant_c_type_from_tagged_suffix(struct 
                 }
     }
     uint8_t * const type_suffix = (uint8_t *)(&suffix[(pre_len + 1)]);
-    if (std_string_strncmp((uint8_t *)type_suffix, (uint8_t *)(uint8_t *)str3368, 4) == 0) {
+    if (std_string_strncmp((uint8_t *)type_suffix, (uint8_t *)(uint8_t *)str3367, 4) == 0) {
         uint8_t * const inner = (uint8_t *)(&type_suffix[4]);
         if (std_string_strcmp((uint8_t *)inner, (uint8_t *)(uint8_t *)str999) == 0) {
                         {
@@ -147654,7 +148317,7 @@ static __attribute__((used)) uint8_t * poll_ready_plain_c_from_poll_mono_union_n
                 }
     }
     uint8_t * const suf = (uint8_t *)(&union_name[5]);
-    if (std_string_strncmp((uint8_t *)suf, (uint8_t *)(uint8_t *)str3368, 4) == 0) {
+    if (std_string_strncmp((uint8_t *)suf, (uint8_t *)(uint8_t *)str3367, 4) == 0) {
                 {
             uint8_t * _uya_ret = NULL;
             return _uya_ret;
@@ -147740,7 +148403,7 @@ static __attribute__((used)) uint8_t * poll_ready_plain_c_from_poll_mono_union_n
     }
     if (std_string_strcmp((uint8_t *)suf, (uint8_t *)(uint8_t *)str1005) == 0) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3421;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3497;
             return _uya_ret;
                 }
     }
@@ -147831,11 +148494,11 @@ static __attribute__((used)) int32_t gen_union_definition(struct C99CodeGenerato
             uint8_t * const vname = get_safe_c_identifier(codegen, v->var_decl_name);
             uint8_t * vtype = c99_type_to_c(codegen, v->var_decl_type);
             if (((((vtype != NULL) && (v->var_decl_type->type == main_ASTNodeType_AST_TYPE_NAMED)) && (v->var_decl_type->type_named_name != NULL)) && (std_string_strcmp((uint8_t *)v->var_decl_type->type_named_name, (uint8_t *)(uint8_t *)str1005) == 0))) {
-                vtype = (uint8_t *)(uint8_t *)str3421;
+                vtype = (uint8_t *)(uint8_t *)str3497;
             }
             if (((vname != NULL) && (vtype != NULL))) {
                 (void)(c99_emit_indent(codegen)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3466, (uint8_t *)vtype, (uint8_t *)vname)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3541, (uint8_t *)vtype, (uint8_t *)vname)                );
             }
         }
         i = (i + 1);
@@ -147977,11 +148640,11 @@ static __attribute__((used)) int32_t gen_mono_union_definition(struct C99CodeGen
                 vtype = c99_type_to_c(codegen, v->var_decl_type);
             }
             if (((((vtype != NULL) && (v->var_decl_type->type == main_ASTNodeType_AST_TYPE_NAMED)) && (v->var_decl_type->type_named_name != NULL)) && (std_string_strcmp((uint8_t *)v->var_decl_type->type_named_name, (uint8_t *)(uint8_t *)str1005) == 0))) {
-                vtype = (uint8_t *)(uint8_t *)str3421;
+                vtype = (uint8_t *)(uint8_t *)str3497;
             }
             if (((vname != NULL) && (vtype != NULL))) {
                 (void)(c99_emit_indent(codegen)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3466, (uint8_t *)vtype, (uint8_t *)vname)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3541, (uint8_t *)vtype, (uint8_t *)vname)                );
             }
         }
         i = (i + 1);
@@ -149373,7 +150036,7 @@ static __attribute__((used)) void emit_interface_structs_and_vtables(struct C99C
             continue;
         }
         uint8_t * const safe_iface = get_safe_c_identifier(codegen, iface_name);
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)safe_iface)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str3751, (uint8_t *)safe_iface)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)"struct uya_vtable_%s {\n", (uint8_t *)safe_iface)        );
         codegen->indent_level = (codegen->indent_level + 1);
         struct ASTNode * all_sigs[128] = {0};
@@ -149440,7 +150103,7 @@ static __attribute__((used)) void emit_interface_structs_and_vtables(struct C99C
             codegen->struct_type_param_count = iface_decl->interface_decl_type_param_count;
             codegen->struct_type_args = inst->type_args;
             codegen->struct_type_arg_count = inst->type_arg_count;
-            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)safe_mono_iface)            );
+            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3751, (uint8_t *)safe_mono_iface)            );
             (void)(fprintf((void *)codegen->emit_stream, (const char *)"struct uya_vtable_%s {\n", (uint8_t *)safe_mono_iface)            );
             codegen->indent_level = (codegen->indent_level + 1);
             struct ASTNode * all_sigs[128] = {0};
@@ -149478,8 +150141,8 @@ static __attribute__((used)) void emit_interface_structs_and_vtables(struct C99C
             uint8_t * const iface_struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)iface_struct_len);
             uint8_t * const vtable_struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)iface_struct_len);
             if (((iface_struct_name != NULL) && (vtable_struct_name != NULL))) {
-                (void)(snprintf((char *)(uint8_t *)iface_struct_name, iface_struct_len, (const char *)str3675, (uint8_t *)safe_mono_iface)                );
-                (void)(snprintf((char *)(uint8_t *)vtable_struct_name, iface_struct_len, (const char *)str3568, (uint8_t *)safe_mono_iface)                );
+                (void)(snprintf((char *)(uint8_t *)iface_struct_name, iface_struct_len, (const char *)str3750, (uint8_t *)safe_mono_iface)                );
+                (void)(snprintf((char *)(uint8_t *)vtable_struct_name, iface_struct_len, (const char *)str3643, (uint8_t *)safe_mono_iface)                );
                 (void)(mark_struct_defined(codegen, iface_struct_name)                );
                 (void)(mark_struct_defined(codegen, vtable_struct_name)                );
             }
@@ -149612,10 +150275,10 @@ static __attribute__((used)) void emit_vtable_constants(struct C99CodeGenerator 
                             uint8_t * const iface_struct_name2 = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)iface_struct_len2);
                             uint8_t * const vtable_struct_name2 = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)iface_struct_len2);
                             if (((iface_struct_name2 != NULL) && (vtable_struct_name2 != NULL))) {
-                                (void)(snprintf((char *)(uint8_t *)iface_struct_name2, iface_struct_len2, (const char *)str3675, (uint8_t *)safe_mono_iface)                                );
-                                (void)(snprintf((char *)(uint8_t *)vtable_struct_name2, iface_struct_len2, (const char *)str3568, (uint8_t *)safe_mono_iface)                                );
+                                (void)(snprintf((char *)(uint8_t *)iface_struct_name2, iface_struct_len2, (const char *)str3750, (uint8_t *)safe_mono_iface)                                );
+                                (void)(snprintf((char *)(uint8_t *)vtable_struct_name2, iface_struct_len2, (const char *)str3643, (uint8_t *)safe_mono_iface)                                );
                                 if (is_struct_defined(codegen, iface_struct_name2) == 0) {
-                                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)safe_mono_iface)                                    );
+                                    (void)(fprintf((void *)codegen->emit_stream, (const char *)str3751, (uint8_t *)safe_mono_iface)                                    );
                                     (void)(fprintf((void *)codegen->emit_stream, (const char *)"struct uya_vtable_%s {\n", (uint8_t *)safe_mono_iface)                                    );
                                     codegen->indent_level = (codegen->indent_level + 1);
                                     struct ASTNode * sigsA[128] = {0};
@@ -149681,7 +150344,7 @@ static __attribute__((used)) void emit_vtable_constants(struct C99CodeGenerator 
                                 }
                                 kA = (kA + 1);
                             }
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                            );
                             codegen->struct_type_params = saved_sp;
                             codegen->struct_type_param_count = saved_spc;
                             codegen->struct_type_args = saved_sa;
@@ -149739,10 +150402,10 @@ static __attribute__((used)) void emit_vtable_constants(struct C99CodeGenerator 
                     uint8_t * const iface_struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)iface_struct_len);
                     uint8_t * const vtable_struct_name = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)iface_struct_len);
                     if (((iface_struct_name != NULL) && (vtable_struct_name != NULL))) {
-                        (void)(snprintf((char *)(uint8_t *)iface_struct_name, iface_struct_len, (const char *)str3675, (uint8_t *)safe_mono_iface)                        );
-                        (void)(snprintf((char *)(uint8_t *)vtable_struct_name, iface_struct_len, (const char *)str3568, (uint8_t *)safe_mono_iface)                        );
+                        (void)(snprintf((char *)(uint8_t *)iface_struct_name, iface_struct_len, (const char *)str3750, (uint8_t *)safe_mono_iface)                        );
+                        (void)(snprintf((char *)(uint8_t *)vtable_struct_name, iface_struct_len, (const char *)str3643, (uint8_t *)safe_mono_iface)                        );
                         if (is_struct_defined(codegen, iface_struct_name) == 0) {
-                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3676, (uint8_t *)safe_mono_iface)                            );
+                            (void)(fprintf((void *)codegen->emit_stream, (const char *)str3751, (uint8_t *)safe_mono_iface)                            );
                             (void)(fprintf((void *)codegen->emit_stream, (const char *)"struct uya_vtable_%s {\n", (uint8_t *)safe_mono_iface)                            );
                             codegen->indent_level = (codegen->indent_level + 1);
                             struct ASTNode * sigs0[128] = {0};
@@ -149808,7 +150471,7 @@ static __attribute__((used)) void emit_vtable_constants(struct C99CodeGenerator 
                         }
                         k = (k + 1);
                     }
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                    );
                     codegen->struct_type_params = saved_sp;
                     codegen->struct_type_param_count = saved_spc;
                     codegen->struct_type_args = saved_sa;
@@ -149851,7 +150514,7 @@ static __attribute__((used)) void emit_vtable_constants(struct C99CodeGenerator 
                     }
                     k = (k + 1);
                 }
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)                );
             }
             j = (j + 1);
         }
@@ -149970,7 +150633,7 @@ static __attribute__((used)) int32_t gen_struct_definition(struct C99CodeGenerat
             } else {
                 uint8_t * const field_type_c = c99_type_to_c(codegen, field_type);
                 (void)(c99_emit_indent(codegen)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3466, (uint8_t *)field_type_c, (uint8_t *)field_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3541, (uint8_t *)field_type_c, (uint8_t *)field_name)                );
             }
             i = (i + 1);
         }
@@ -150208,7 +150871,7 @@ static __attribute__((used)) int32_t append_type_arg_suffix(struct C99CodeGenera
             result_len = append_type_arg_suffix(codegen, pointed, (uint8_t *)suffix, result_len, max_len);
         } else {
             if (type_arg->type == main_ASTNodeType_AST_TYPE_ERROR_UNION) {
-                uint8_t * const err_prefix = (uint8_t *)str3368;
+                uint8_t * const err_prefix = (uint8_t *)str3367;
                 int32_t k = 0;
                 while (((err_prefix[k] != 0) && (result_len < (max_len - 1)))) {
                     suffix[result_len] = err_prefix[k];
@@ -150918,7 +151581,7 @@ static __attribute__((used)) int32_t gen_mono_struct_definition(struct C99CodeGe
                                 const int32_t mono_iface_len = ((int32_t)std_string_strlen((uint8_t *)mono_iface_name) + 24);
                                 uint8_t * const mono_iface_buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)mono_iface_len);
                                 if (mono_iface_buf != NULL) {
-                                    (void)(snprintf((char *)(uint8_t *)mono_iface_buf, mono_iface_len, (const char *)str3561, (uint8_t *)mono_iface_name)                                    );
+                                    (void)(snprintf((char *)(uint8_t *)mono_iface_buf, mono_iface_len, (const char *)str3636, (uint8_t *)mono_iface_name)                                    );
                                     field_type_c = mono_iface_buf;
                                 }
                             }
@@ -150931,7 +151594,7 @@ static __attribute__((used)) int32_t gen_mono_struct_definition(struct C99CodeGe
                                     const int32_t mono_union_len = ((int32_t)std_string_strlen((uint8_t *)mono_union_name) + 24);
                                     uint8_t * const mono_union_buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)mono_union_len);
                                     if (mono_union_buf != NULL) {
-                                        (void)(snprintf((char *)(uint8_t *)mono_union_buf, mono_union_len, (const char *)str3551, (uint8_t *)mono_union_name)                                        );
+                                        (void)(snprintf((char *)(uint8_t *)mono_union_buf, mono_union_len, (const char *)str3626, (uint8_t *)mono_union_name)                                        );
                                         field_type_c = mono_union_buf;
                                     }
                                 }
@@ -150954,7 +151617,7 @@ static __attribute__((used)) int32_t gen_mono_struct_definition(struct C99CodeGe
                     field_type_c = c99_type_to_c(codegen, emit_field_type);
                 }
                 (void)(c99_emit_indent(codegen)                );
-                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3466, (uint8_t *)field_type_c, (uint8_t *)field_name)                );
+                (void)(fprintf((void *)codegen->emit_stream, (const char *)str3541, (uint8_t *)field_type_c, (uint8_t *)field_name)                );
             }
             fi = (fi + 1);
         }
@@ -151376,7 +152039,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_with_self_opt(struct C99Cod
             uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, len);
             if (buf != NULL) {
                 if (is_union != 0) {
-                    (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str3551, (uint8_t *)safe)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str3626, (uint8_t *)safe)                    );
                 } else {
                     (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str2685, (uint8_t *)safe)                    );
                 }
@@ -151772,9 +152435,9 @@ static __attribute__((used)) void c99_emit_struct_field_decl_fragment(struct C99
     if (base_c == NULL) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3431, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)base_c, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3431, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)    );
     if (name_prefix != NULL) {
         (void)(std_io_fputs((uint8_t *)name_prefix, (void *)codegen->emit_stream)        );
     }
@@ -151912,7 +152575,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                 const int32_t len = (std_string_strlen((uint8_t *)inner_c) + 4);
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, len);
                 if (buf != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str3423, (uint8_t *)inner_c)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str3499, (uint8_t *)inner_c)                    );
                                         {
                         uint8_t * _uya_ret = buf;
                         return _uya_ret;
@@ -151937,7 +152600,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                 const int32_t mn_len_i = ((int32_t)std_string_strlen((uint8_t *)mono_name_i) + 24);
                 uint8_t * const buf_i = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)mn_len_i);
                 if (buf_i != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)buf_i, mn_len_i, (const char *)str3561, (uint8_t *)mono_name_i)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf_i, mn_len_i, (const char *)str3636, (uint8_t *)mono_name_i)                    );
                                         {
                         uint8_t * _uya_ret = buf_i;
                         return _uya_ret;
@@ -151954,7 +152617,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                 const int32_t mn_len = ((int32_t)std_string_strlen((uint8_t *)mono_name) + 24);
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)mn_len);
                 if (buf != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)buf, mn_len, (const char *)str3551, (uint8_t *)mono_name)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf, mn_len, (const char *)str3626, (uint8_t *)mono_name)                    );
                                         {
                         uint8_t * _uya_ret = buf;
                         return _uya_ret;
@@ -152161,7 +152824,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                                                                                                                     const int32_t len = (std_string_strlen((uint8_t *)safe_name) + 24);
                                                                                                                     uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, len);
                                                                                                                     if (buf != NULL) {
-                                                                                                                        (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str3561, (uint8_t *)safe_name)                                                                                                                        );
+                                                                                                                        (void)(snprintf((char *)(uint8_t *)buf, len, (const char *)str3636, (uint8_t *)safe_name)                                                                                                                        );
                                                                                                                                                                                                                                                 {
                                                                                                                             uint8_t * _uya_ret = buf;
                                                                                                                             return _uya_ret;
@@ -152178,7 +152841,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                                                                                                                         const int32_t len_ext = (std_string_strlen((uint8_t *)safe_name) + 10);
                                                                                                                         uint8_t * const buf_ext = (uint8_t *)compiler_arena_alloc(codegen->arena, len_ext);
                                                                                                                         if (buf_ext != NULL) {
-                                                                                                                            (void)(snprintf((char *)(uint8_t *)buf_ext, len_ext, (const char *)str3552, (uint8_t *)safe_name)                                                                                                                            );
+                                                                                                                            (void)(snprintf((char *)(uint8_t *)buf_ext, len_ext, (const char *)str3627, (uint8_t *)safe_name)                                                                                                                            );
                                                                                                                                                                                                                                                         {
                                                                                                                                 uint8_t * _uya_ret = buf_ext;
                                                                                                                                 return _uya_ret;
@@ -152188,7 +152851,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                                                                                                                         const int32_t len_u = (std_string_strlen((uint8_t *)safe_name) + 22);
                                                                                                                         uint8_t * const buf_u = (uint8_t *)compiler_arena_alloc(codegen->arena, len_u);
                                                                                                                         if (buf_u != NULL) {
-                                                                                                                            (void)(snprintf((char *)(uint8_t *)buf_u, len_u, (const char *)str3551, (uint8_t *)safe_name)                                                                                                                            );
+                                                                                                                            (void)(snprintf((char *)(uint8_t *)buf_u, len_u, (const char *)str3626, (uint8_t *)safe_name)                                                                                                                            );
                                                                                                                                                                                                                                                         {
                                                                                                                                 uint8_t * _uya_ret = buf_u;
                                                                                                                                 return _uya_ret;
@@ -152387,9 +153050,9 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                 uint8_t * const arr_ptr = (uint8_t *)compiler_arena_alloc(codegen->arena, total_len);
                 if (arr_ptr == NULL) {
                     if (is_const != 0) {
-                        (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3422, (uint8_t *)pointee_type)                        );
+                        (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3498, (uint8_t *)pointee_type)                        );
                     } else {
-                        (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3423, (uint8_t *)pointee_type)                        );
+                        (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3499, (uint8_t *)pointee_type)                        );
                     }
                                         {
                         uint8_t * _uya_ret = result;
@@ -152407,9 +153070,9 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                     }
                 } else {
                     if (is_const != 0) {
-                        (void)(snprintf((char *)(uint8_t *)arr_ptr, total_len, (const char *)str3422, (uint8_t *)pointee_type)                        );
+                        (void)(snprintf((char *)(uint8_t *)arr_ptr, total_len, (const char *)str3498, (uint8_t *)pointee_type)                        );
                     } else {
-                        (void)(snprintf((char *)(uint8_t *)arr_ptr, total_len, (const char *)str3423, (uint8_t *)pointee_type)                        );
+                        (void)(snprintf((char *)(uint8_t *)arr_ptr, total_len, (const char *)str3499, (uint8_t *)pointee_type)                        );
                     }
                 }
                                 {
@@ -152418,7 +153081,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                                 }
             }
             if (is_const != 0) {
-                (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3422, (uint8_t *)pointee_type)                );
+                (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3498, (uint8_t *)pointee_type)                );
                 uint8_t * const copied = c99_arena_strdup(codegen->arena, result);
                 if (copied != NULL) {
                                         {
@@ -152427,7 +153090,7 @@ static __attribute__((used)) uint8_t * c99_type_to_c_uncached(struct C99CodeGene
                                         }
                 }
             } else {
-                (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3423, (uint8_t *)pointee_type)                );
+                (void)(snprintf((char *)(uint8_t *)result, str_len, (const char *)str3499, (uint8_t *)pointee_type)                );
                 uint8_t * const copied = c99_arena_strdup(codegen->arena, result);
                 if (copied != NULL) {
                                         {
@@ -153134,12 +153797,12 @@ static __attribute__((used)) void emit_pending_err_union_struct_at(struct C99Cod
                                 }
                             }
                             if (is_known_type == 0) {
-                                if (((((((((((((((std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str2684, 3) == 0) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"uint", 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3064, 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3067, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3421, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1005, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1001, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"_Bool", 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str641, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str639, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3238, 8) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3284, 9) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3237, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3285, 7) == 0))) {
+                                if (((((((((((((((std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str2684, 3) == 0) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"uint", 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3064, 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3067, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3497, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1005, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1001, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"_Bool", 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str641, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str639, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3238, 8) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3284, 9) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3237, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3285, 7) == 0))) {
                                     is_known_type = 1;
                                 }
                             }
                         } else {
-                            if (((((((((((((((std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str2684, 3) == 0) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"uint", 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3064, 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3067, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3421, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1005, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1001, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"_Bool", 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str641, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str639, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3238, 8) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3284, 9) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3237, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3285, 7) == 0))) {
+                            if (((((((((((((((std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str2684, 3) == 0) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"uint", 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3064, 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3067, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3497, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1005, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str1001, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)"_Bool", 5) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str641, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str639, 4) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3238, 8) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3284, 9) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3237, 6) == 0)) || (std_string_strncmp((uint8_t *)payload_c, (uint8_t *)(uint8_t *)str3285, 7) == 0))) {
                                 is_known_type = 1;
                             }
                         }
@@ -153165,7 +153828,7 @@ static __attribute__((used)) void emit_pending_err_union_struct_at(struct C99Cod
             (void)(fprintf((void *)codegen->emit_stream, (const char *)" %s value;", (uint8_t *)value_field_c)            );
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3544, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)    );
     (void)(mark_struct_defined(codegen, name)    );
     codegen->err_union_body_emitted[idx] = 1;
 }
@@ -158295,7 +158958,7 @@ static __attribute__((used)) uint8_t * c99_slice_struct_type_from_elem_c(struct 
     (void)elem_c;
     if (((codegen == NULL) || (elem_c == NULL))) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
             return _uya_ret;
                 }
     }
@@ -158313,7 +158976,7 @@ static __attribute__((used)) uint8_t * c99_slice_struct_type_from_elem_c(struct 
     if (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str1005) == 0) {
         elem_simple = (uint8_t *)(uint8_t *)(uint8_t *)str2597;
     }
-    if (((((std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str2597) == 0) || (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str2624) == 0)) || (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str3421) == 0)) || (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str1002) == 0))) {
+    if (((((std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str2597) == 0) || (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str2624) == 0)) || (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str3497) == 0)) || (std_string_strcmp((uint8_t *)elem_simple, (uint8_t *)(uint8_t *)str1002) == 0))) {
                 {
             uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)"struct uya_slice_uint8_t";
             return _uya_ret;
@@ -158324,7 +158987,7 @@ static __attribute__((used)) uint8_t * c99_slice_struct_type_from_elem_c(struct 
     uint8_t * const safe = get_safe_c_identifier(codegen, (&name_buf[0]));
     if (safe == NULL) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
             return _uya_ret;
                 }
     }
@@ -158332,7 +158995,7 @@ static __attribute__((used)) uint8_t * c99_slice_struct_type_from_elem_c(struct 
     uint8_t * const result = (uint8_t *)compiler_arena_alloc(codegen->arena, len);
     if (result == NULL) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
             return _uya_ret;
                 }
     }
@@ -158378,7 +159041,7 @@ static __attribute__((used)) uint8_t * c99_slice_element_type_c_from_struct_c(st
         }
         i = (i + 1);
     }
-    if (((std_string_strncmp(slice_name_pos, (uint8_t *)(uint8_t *)str3345, (size_t)17) == 0) || (std_string_strncmp(slice_name_pos, (uint8_t *)(uint8_t *)"uya_slice_byte", (size_t)14) == 0))) {
+    if (((std_string_strncmp(slice_name_pos, (uint8_t *)(uint8_t *)str3344, (size_t)17) == 0) || (std_string_strncmp(slice_name_pos, (uint8_t *)(uint8_t *)"uya_slice_byte", (size_t)14) == 0))) {
                 {
             uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str2597;
             return _uya_ret;
@@ -158407,7 +159070,7 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
     (void)slice_expr;
     if ((((codegen == NULL) || (slice_expr == NULL)) || (slice_expr->type != main_ASTNodeType_AST_SLICE_EXPR))) {
                 {
-            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+            uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
             return _uya_ret;
                 }
     }
@@ -158436,7 +159099,7 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
                 }
                 if (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str2600) != NULL) {
                                         {
-                        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+                        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
                         return _uya_ret;
                                         }
                 }
@@ -158448,7 +159111,7 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
         }
         uint8_t * elem_c = get_array_element_type(codegen, base);
         if ((((elem_c == NULL) && (type_c != NULL)) && (std_string_strchr((uint8_t *)type_c, 42) != NULL))) {
-            if ((((std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str2597) != NULL) || (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str2624) != NULL)) || (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3421) != NULL))) {
+            if ((((std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str2597) != NULL) || (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str2624) != NULL)) || (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str3497) != NULL))) {
                                 {
                     uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)"struct uya_slice_uint8_t";
                     return _uya_ret;
@@ -158457,7 +159120,7 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
         }
         if (elem_c == NULL) {
                         {
-                uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+                uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
                 return _uya_ret;
                         }
         }
@@ -158532,7 +159195,7 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
                 }
     }
         {
-        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3342;
+        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)str3341;
         return _uya_ret;
         }
 }
@@ -158915,7 +159578,7 @@ static __attribute__((used)) uint8_t * get_c_type_of_expr(struct C99CodeGenerato
                                                 const int32_t ptr_type_len = (std_string_strlen((uint8_t *)elem_type_c) + 4);
                                                 uint8_t * const ptr_type = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)ptr_type_len);
                                                 if (ptr_type != NULL) {
-                                                    (void)(snprintf((char *)(uint8_t *)ptr_type, ptr_type_len, (const char *)str3423, (uint8_t *)elem_type_c)                                                    );
+                                                    (void)(snprintf((char *)(uint8_t *)ptr_type, ptr_type_len, (const char *)str3499, (uint8_t *)elem_type_c)                                                    );
                                                                                                         {
                                                         uint8_t * _uya_ret = ptr_type;
                                                         return _uya_ret;
@@ -161506,7 +162169,11 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
                     return _uya_ret;
                                 }
             }
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n\n", (void *)fh)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n", (void *)fh)            );
+            if (((codegen->freestanding == 0) && (codegen->needs_string_h != 0))) {
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <string.h>\n", (void *)fh)                );
+            }
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str370, (void *)fh)            );
             int32_t is_libc_stdio_unit = 0;
             uint8_t tmp_stdio[512] = {0};
             if (c99_mirror_normalize_one_path(src, (uint8_t *)(&tmp_stdio[0]), 512) == 0) {
@@ -161516,7 +162183,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             }
             if (codegen->freestanding == 0) {
                 if (codegen->has_stdio_conflicts == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4002, (void *)fh)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)fh)                    );
                 }
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)fh)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)fh)                );
@@ -161566,10 +162233,14 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             return _uya_ret;
                 }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n\n", (void *)ch)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include \"uya_split_protos.h\"\n#include \"uya_mirror_globals.h\"\n#include \"uya_vtable_externs.h\"\n#include \"uya_strings_extern.h\"\n", (void *)ch)    );
+    if (((codegen->freestanding == 0) && (codegen->needs_string_h != 0))) {
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <string.h>\n", (void *)ch)        );
+    }
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str370, (void *)ch)    );
     if (codegen->freestanding == 0) {
         if (codegen->has_stdio_conflicts == 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4002, (void *)ch)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)ch)            );
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)ch)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)ch)        );
@@ -162099,7 +162770,7 @@ static __attribute__((used)) void emit_line_directive(struct C99CodeGenerator * 
             (void)(std_io_fputc((int32_t)p[0], (void *)codegen->emit_stream)            );
             p = (p + 1);
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3399, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3405, (void *)codegen->emit_stream)        );
     } else {
         (void)(fprintf((void *)codegen->emit_stream, (const char *)"#line %d\n", line)        );
     }
@@ -162145,7 +162816,7 @@ static __attribute__((used)) void c99_emit_newline(struct C99CodeGenerator * cod
 
 static __attribute__((used)) void c99_emit_semi_newline(struct C99CodeGenerator * codegen) {
     (void)codegen;
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3371, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3370, (void *)codegen->emit_stream)    );
 }
 
 static __attribute__((used)) void c99_emit_comma_space(struct C99CodeGenerator * codegen) {
@@ -162197,7 +162868,7 @@ static __attribute__((used)) int32_t is_c_keyword(uint8_t * name) {
             return _uya_ret;
                 }
     }
-    const uint8_t * keywords[38] = {(uint8_t *)(uint8_t *)"auto", (uint8_t *)(uint8_t *)str649, (uint8_t *)(uint8_t *)"case", (uint8_t *)(uint8_t *)str3421, (uint8_t *)(uint8_t *)str644, (uint8_t *)(uint8_t *)str650, (uint8_t *)(uint8_t *)"default", (uint8_t *)(uint8_t *)"do", (uint8_t *)(uint8_t *)str3067, (uint8_t *)(uint8_t *)str637, (uint8_t *)(uint8_t *)str639, (uint8_t *)(uint8_t *)str109, (uint8_t *)(uint8_t *)str3064, (uint8_t *)(uint8_t *)str648, (uint8_t *)(uint8_t *)"goto", (uint8_t *)(uint8_t *)str646, (uint8_t *)(uint8_t *)str2684, (uint8_t *)(uint8_t *)"long", (uint8_t *)(uint8_t *)"register", (uint8_t *)(uint8_t *)str585, (uint8_t *)(uint8_t *)"short", (uint8_t *)(uint8_t *)"signed", (uint8_t *)(uint8_t *)"sizeof", (uint8_t *)(uint8_t *)"static", (uint8_t *)(uint8_t *)str641, (uint8_t *)(uint8_t *)"switch", (uint8_t *)(uint8_t *)"typedef", (uint8_t *)(uint8_t *)str642, (uint8_t *)(uint8_t *)str2595, (uint8_t *)(uint8_t *)str1005, (uint8_t *)(uint8_t *)"volatile", (uint8_t *)(uint8_t *)str647, (uint8_t *)(uint8_t *)str1001, (uint8_t *)(uint8_t *)"_Bool", (uint8_t *)(uint8_t *)"_Complex", (uint8_t *)(uint8_t *)"_Imaginary", (uint8_t *)(uint8_t *)"inline", (uint8_t *)(uint8_t *)"restrict"};
+    const uint8_t * keywords[38] = {(uint8_t *)(uint8_t *)"auto", (uint8_t *)(uint8_t *)str649, (uint8_t *)(uint8_t *)"case", (uint8_t *)(uint8_t *)str3497, (uint8_t *)(uint8_t *)str644, (uint8_t *)(uint8_t *)str650, (uint8_t *)(uint8_t *)"default", (uint8_t *)(uint8_t *)"do", (uint8_t *)(uint8_t *)str3067, (uint8_t *)(uint8_t *)str637, (uint8_t *)(uint8_t *)str639, (uint8_t *)(uint8_t *)str109, (uint8_t *)(uint8_t *)str3064, (uint8_t *)(uint8_t *)str648, (uint8_t *)(uint8_t *)"goto", (uint8_t *)(uint8_t *)str646, (uint8_t *)(uint8_t *)str2684, (uint8_t *)(uint8_t *)"long", (uint8_t *)(uint8_t *)"register", (uint8_t *)(uint8_t *)str585, (uint8_t *)(uint8_t *)"short", (uint8_t *)(uint8_t *)"signed", (uint8_t *)(uint8_t *)"sizeof", (uint8_t *)(uint8_t *)"static", (uint8_t *)(uint8_t *)str641, (uint8_t *)(uint8_t *)"switch", (uint8_t *)(uint8_t *)"typedef", (uint8_t *)(uint8_t *)str642, (uint8_t *)(uint8_t *)str2595, (uint8_t *)(uint8_t *)str1005, (uint8_t *)(uint8_t *)"volatile", (uint8_t *)(uint8_t *)str647, (uint8_t *)(uint8_t *)str1001, (uint8_t *)(uint8_t *)"_Bool", (uint8_t *)(uint8_t *)"_Complex", (uint8_t *)(uint8_t *)"_Imaginary", (uint8_t *)(uint8_t *)"inline", (uint8_t *)(uint8_t *)"restrict"};
     int32_t i = 0;
     while (i < 38) {
         if (std_string_strcmp((uint8_t *)name, (uint8_t *)keywords[i]) == 0) {
@@ -162254,7 +162925,7 @@ static __attribute__((used)) uint8_t * sanitize_type_name_for_c(struct C99CodeGe
     while (((name[i] != 0) && (j < 500))) {
         const uint8_t c = name[i];
         if (c == 33) {
-            uint8_t * const err = (uint8_t *)(uint8_t *)str3368;
+            uint8_t * const err = (uint8_t *)(uint8_t *)str3367;
             int32_t k = 0;
             while (((err[k] != 0) && (j < 500))) {
                 out[j] = err[k];
@@ -162522,7 +163193,7 @@ static __attribute__((used)) void c99_register_embed_slice_types(struct C99CodeG
     if (codegen == NULL) {
         return;
     }
-    (void)(c99_register_embed_builtin_slice_struct(codegen, (uint8_t *)(uint8_t *)str3345, (uint8_t *)(uint8_t *)str1002)    );
+    (void)(c99_register_embed_builtin_slice_struct(codegen, (uint8_t *)(uint8_t *)str3344, (uint8_t *)(uint8_t *)str1002)    );
     if (need_dir_entry != 0) {
         (void)(c99_register_embed_builtin_slice_struct(codegen, (uint8_t *)(uint8_t *)"uya_slice_EmbedDirEntry", (uint8_t *)(uint8_t *)str1171)        );
     }
@@ -162674,19 +163345,19 @@ static __attribute__((used)) void escape_string_for_c(void * output, uint8_t * s
     uint8_t * p = str;
     while (p[0] != 0) {
         if (p[0] == 10) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3395, (void *)output)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3401, (void *)output)            );
         } else {
             if (p[0] == 9) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3396, (void *)output)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str3402, (void *)output)                );
             } else {
                 if (p[0] == 13) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"\\r", (void *)output)                    );
                 } else {
                     if (p[0] == 92) {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3397, (void *)output)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3403, (void *)output)                        );
                     } else {
                         if (p[0] == 34) {
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3394, (void *)output)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3400, (void *)output)                            );
                         } else {
                             (void)(std_io_fputc((int32_t)p[0], (void *)output)                            );
                         }
@@ -162805,7 +163476,7 @@ static __attribute__((used)) void emit_embed_constants_range(struct C99CodeGener
                     if ((bi % 12) == 0) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)"\n    ", (void *)codegen->emit_stream)                        );
                     } else {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3431, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3407, (void *)codegen->emit_stream)                        );
                     }
                     (void)(fprintf((void *)codegen->emit_stream, (const char *)"0x%02x", ((int32_t)item.data[bi] & 255))                    );
                     if (bi < (item.size - 1)) {
@@ -162928,7 +163599,7 @@ static __attribute__((used)) void emit_embed_dir_tables_range(struct C99CodeGene
                     if (ei < (item.entry_count - 1)) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    },\n", (void *)codegen->emit_stream)                        );
                     } else {
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3590, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3665, (void *)codegen->emit_stream)                        );
                     }
                     ei = (ei + 1);
                 }
@@ -171880,7 +172551,7 @@ int32_t cmd_upm_upm_lib_main_upm_cli_main(int32_t start_index) {
             return _uya_ret;
                 }
     }
-    if (std_string_strcmp((uint8_t *)cmd, (uint8_t *)(uint8_t *)"remove") == 0) {
+    if (std_string_strcmp((uint8_t *)cmd, (uint8_t *)(uint8_t *)str3453) == 0) {
                 {
             int32_t _uya_ret = upm_remove_dependency((start_index + 1));
             return _uya_ret;

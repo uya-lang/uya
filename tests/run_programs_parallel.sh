@@ -24,6 +24,16 @@ fi
 
 set -e
 
+# stdbuf 通过 LD_PRELOAD 注入 libstdbuf；保留当前脚本进程的行缓冲效果，
+# 但不要把注入库继承给编译器或测试二进制，避免干扰信号/栈切换类用例。
+if [ "${UYA_TEST_STDOUT_LINEBUF:-}" = "1" ]; then
+    case "${LD_PRELOAD:-}" in
+        *libstdbuf*)
+            unset LD_PRELOAD _STDBUF_I _STDBUF_O _STDBUF_E
+            ;;
+    esac
+fi
+
 # 自举编译器递归较深，需增大栈限制避免段错误
 ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 
@@ -43,6 +53,9 @@ USE_UYA=false
 _DEFAULT_PARALLEL_JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
 PARALLEL_JOBS=${PARALLEL_JOBS:-$_DEFAULT_PARALLEL_JOBS}
 TEST_PROFILE="${TEST_PROFILE:-default}"
+RUNTIME_MODE="${RUNTIME_MODE:-hosted}"
+LINK_MODE="${LINK_MODE:-default}"
+UYA_TEST_NOSTDLIB_MODE="${UYA_TEST_NOSTDLIB_MODE:-auto}"
 TOOLCHAIN="${TOOLCHAIN:-system}"
 ZIG="${ZIG:-/home/winger/zig/zig}"
 CC="${CC:-cc}"
@@ -71,6 +84,25 @@ normalize_arch() {
         riscv64) echo "riscv64" ;;
         *) echo "$1" ;;
     esac
+}
+
+test_should_use_nostdlib() {
+    local name="$1"
+    case "$UYA_TEST_NOSTDLIB_MODE" in
+        all|true|yes|1)
+            return 0
+            ;;
+        off|false|no|0|hosted)
+            return 1
+            ;;
+    esac
+
+    case "$name" in
+        test_libc_heap_*|bench_malloc_phase4|test_std_stdlib_malloc|test_std_stdlib_malloc_only|test_mem|test_string|test_pthread_cond|test_syscall_process)
+            return 0
+            ;;
+    esac
+    return 1
 }
 
 HOST_OS="${HOST_OS:-$(normalize_os "$(uname -s)")}"
@@ -338,12 +370,19 @@ link_generated_test_output() {
     local sidecar_file="${output_file}imports.sh"
     local extra_c_file=""
     local bridge_c_file=""
+    local obj_file="${output_dir}/${base_name}.o"
+    local nostdlib_crtn=""
+    local use_nostdlib=false
     local link_succeeded=false
     local -a link_cmd=("${CC_CMD[@]}" "${CFLAGS_ARR[@]}")
     local -a cimport_objects=()
     local -a cimport_ldflags=()
 
-    if [ "$TARGET_OS" = "linux" ]; then
+    if test_should_use_nostdlib "$base_name"; then
+        use_nostdlib=true
+    fi
+
+    if [ "$TARGET_OS" = "linux" ] && [ "$use_nostdlib" != true ]; then
         link_cmd+=(-no-pie)
     fi
 
@@ -357,7 +396,35 @@ link_generated_test_output() {
         extra_c_file="$SCRIPT_DIR/tflm_cmsis_host_stub.c"
     fi
 
-    link_cmd+=(-o "$exe_file" "$output_file")
+    rm -f "$link_log_file"
+    if [ "$use_nostdlib" = true ]; then
+        if [ "$TARGET_OS" != "linux" ] || [ "$TARGET_ARCH" != "x86_64" ]; then
+            {
+                echo "当前 --nostdlib 测试链接仅支持 Linux x86_64"
+                echo "TARGET_OS=$TARGET_OS TARGET_ARCH=$TARGET_ARCH"
+            } > "$link_log_file"
+            return 1
+        fi
+        if ! "${CC_CMD[@]}" "${CFLAGS_ARR[@]}" -fno-stack-protector -c "$output_file" -o "$obj_file" 2> "$link_log_file"; then
+            return 1
+        fi
+        local crti=""
+        local crtn=""
+        crti="$("${CC_CMD[@]}" -print-file-name=crti.o 2>/dev/null)"
+        crtn="$("${CC_CMD[@]}" -print-file-name=crtn.o 2>/dev/null)"
+        if [ -z "$crti" ] || [ "$crti" = "crti.o" ] || [ ! -f "$crti" ] || [ -z "$crtn" ] || [ "$crtn" = "crtn.o" ] || [ ! -f "$crtn" ]; then
+            {
+                echo "当前工具链无法提供 Linux nostdlib 测试所需的 crti.o/crtn.o"
+                echo "CC_DRIVER=$CC_DRIVER"
+                echo "CC_TARGET_FLAGS=$CC_TARGET_FLAGS"
+            } > "$link_log_file"
+            return 1
+        fi
+        nostdlib_crtn="$crtn"
+        link_cmd=("${CC_CMD[@]}" "${CFLAGS_ARR[@]}" -fno-stack-protector -ffunction-sections -fdata-sections -no-pie -nostdlib -static -Wl,--gc-sections -o "$exe_file" "$crti" "$obj_file")
+    else
+        link_cmd+=(-o "$exe_file" "$output_file")
+    fi
     # 兼容老测试：普通 fn main 会生成 uya_main，而 entry 入口仍调用 main_main。
     # 当生成的 C 缺少 main_main 定义时，补一个最小 bridge。
     if grep -q "int32_t uya_main(void)" "$output_file" 2>/dev/null && \
@@ -407,10 +474,13 @@ link_generated_test_output() {
     if [ ${#cimport_objects[@]} -gt 0 ]; then
         link_cmd+=("${cimport_objects[@]}")
     fi
+    if [ -n "$nostdlib_crtn" ]; then
+        link_cmd+=("$nostdlib_crtn")
+    fi
     if [ "$base_name" = "test_tls_ecdsa" ]; then
         link_cmd+=(-lcrypto)
     fi
-    if [ "$TARGET_OS" != "windows" ]; then
+    if [ "$TARGET_OS" != "windows" ] && [ "$use_nostdlib" != true ]; then
         link_cmd+=(-lm)
     fi
     link_cmd+=("${LDFLAGS_ARR[@]}")
@@ -418,7 +488,6 @@ link_generated_test_output() {
         link_cmd+=("${cimport_ldflags[@]}")
     fi
 
-    rm -f "$link_log_file"
     local link_timeout="${UYA_LINK_TIMEOUT:-300}"
     local link_exit=0
     run_command_with_timeout "$link_timeout" "${link_cmd[@]}" > /dev/null 2> "$link_log_file" || link_exit=$?
@@ -508,6 +577,7 @@ run_compiled_test_args() {
     local exit_code=0
     local compiler_output=""
     local -a compiler_args=()
+    local use_nostdlib=false
 
     local -a extra_args=()
     if [[ "$base_name" =~ ^error_microapp_mode_ ]]; then
@@ -515,6 +585,10 @@ run_compiled_test_args() {
     fi
 
     mkdir -p "$compiler_work_dir"
+
+    if test_should_use_nostdlib "$base_name"; then
+        use_nostdlib=true
+    fi
 
     local arg=""
     for arg in "$@"; do
@@ -530,7 +604,11 @@ run_compiled_test_args() {
     done
 
     local compile_timeout="${UYA_COMPILE_TIMEOUT:-300}"
-    compiler_output=$(cd "$compiler_work_dir" && run_command_with_timeout "$compile_timeout" "$COMPILER" --c99 "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
+    local -a backend_args=(--c99 "$safety_proof_arg")
+    if [ "$use_nostdlib" = true ]; then
+        backend_args+=(--nostdlib)
+    fi
+    compiler_output=$(cd "$compiler_work_dir" && run_command_with_timeout "$compile_timeout" "$COMPILER" "${backend_args[@]}" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
     compiler_exit=$?
     if [ $compiler_exit -ne 0 ]; then
         if [ "$expect_fail" = true ]; then
@@ -578,6 +656,11 @@ run_compiled_test_args() {
             # 外网 TLS/HTTPS 用例偶发受 DNS/TCP/TLS 握手抖动影响，给它们单独更宽的超时窗口，
             # 避免 release 验收被瞬时网络波动误判为编译器回归。
             test_timeout="${UYA_TEST_TIMEOUT_NETWORK:-120}"
+            ;;
+        test_async_thread_pool_dynamic_growth)
+            # 该用例显式施压 worker / queue / slot，并已被串行化；完整 release gate 下
+            # 主机负载较高时偶发超过默认 60s，给它单独的压力测试窗口。
+            test_timeout="${UYA_TEST_TIMEOUT_THREAD_POOL:-180}"
             ;;
     esac
     local run_exit=0
@@ -734,8 +817,8 @@ process_ready_single_results() {
 }
 
 # 导出函数和变量供子进程使用
-export -f generate_test_id link_generated_test_output run_command_with_timeout run_test_binary_with_timeout run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch
-export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE REPO_ROOT
+export -f generate_test_id link_generated_test_output run_command_with_timeout run_test_binary_with_timeout run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch test_should_use_nostdlib
+export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE RUNTIME_MODE LINK_MODE UYA_TEST_NOSTDLIB_MODE REPO_ROOT
 
 SKIP_TESTS=()
 if [ -n "${SKIP_TESTS_EXTRA:-}" ]; then
@@ -743,10 +826,9 @@ if [ -n "${SKIP_TESTS_EXTRA:-}" ]; then
     SKIP_TESTS+=("${SKIP_TESTS_EXTRA_ARR[@]}")
 fi
 if [ -z "$TARGET_PATH" ]; then
-    # exec-only 边界回归：decl-only varargs extern 在 --vm 下应保持 unsupported。
-    # 它不属于默认的 hosted C99 全量程序矩阵，改由 verify_exec_vm_extern_bridge.sh /
-    # verify_exec_backend_progress.sh 定向覆盖。
-    SKIP_TESTS+=(test_exec_vm_extern_decl_varargs_unsupported)
+    # exec-only 边界回归不属于默认 C99 程序矩阵，改由 verify_exec_vm_extern_bridge.sh /
+    # verify_exec_backend_progress.sh 在正确后端下定向覆盖。
+    SKIP_TESTS+=(test_exec_vm_extern_decl_varargs_unsupported test_exec_vm_extern_mkdir_bridge)
 fi
 SKIP_TEST_PATTERNS=()
 if [ -n "${SKIP_TEST_PATTERNS_EXTRA:-}" ]; then

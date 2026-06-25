@@ -9,7 +9,7 @@ if [ "${UYA_UPM_SUITE_PREBUILT:-0}" != "1" ] && [ ! -x "$ROOT_DIR/bin/cmd/upm" ]
 fi
 
 SCRIPTS=(
-    "$ROOT_DIR/tests/test_cmd_dispatch.sh"
+    "$ROOT_DIR/tests/test_cmd_upm_direct.sh"
     "$ROOT_DIR/tests/verify_upm_legacy_mode.sh"
     "$ROOT_DIR/tests/verify_package_mode_legacy_fallback.sh"
     "$ROOT_DIR/tests/verify_upm_manifest_flat.sh"

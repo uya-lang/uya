@@ -505,7 +505,6 @@ v1 的 canonical public UX 是：
 
 - `cmd/upm`
 - `bin/cmd/upm`
-- `bin/uya-upm-stage2`（repo-local stage2 launcher，用于在主编译器入口完全并入前验证 `build` / `upm` 工作流）
 
 `uyapm` 作为独立别名不是 v1 必需项；若将来提供，必须明确说明它只是 `uya upm` 的别名。
 
@@ -659,7 +658,7 @@ v1 至少要能稳定报出以下错误：
   - graph-only resolve 不再落盘 `.uya/deps` / staging root
   - 原生 `uya build/check/run/test` package mode 使用 source root 与 dependency alias source-root 映射，不再完全依赖 staging 目录结构
   - `cmd/upm`
-  - repo-local `bin/uya-upm-stage2` 调度与 package build 验证入口
+  - repo-local `bin/cmd/upm` package build 验证入口
   - `upm add`
   - `upm remove`
 - 尚未实现：

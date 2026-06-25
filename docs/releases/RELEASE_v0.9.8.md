@@ -28,7 +28,7 @@
 - 提供 `upm init` / `install` / `update` / `build`；
 - `uya build/check/run/test` 已能在 package mode 下按依赖图工作。
 
-同时新增 repo-local `bin/uya-upm-stage2` 与 `cmd/upm` 验证入口，并补齐离线 git fixture、alias 冲突、缺失 manifest / lockfile、source-dir 布局等回归测试。
+同时新增 repo-local `cmd/upm` 验证入口，并补齐离线 git fixture、alias 冲突、缺失 manifest / lockfile、source-dir 布局等回归测试。
 
 ### 2. `uya check` 与字节码 exec / VM 第一阶段
 

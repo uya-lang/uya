@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 TMP_DIR="$(mktemp -d /tmp/uya_upm_add_remove_e2e.XXXXXX)"
 APP_DIR="$TMP_DIR/app"
 DEP_DIR="$TMP_DIR/gui_uya"
@@ -48,13 +48,13 @@ export fn message() &byte {
 EOF_DEP
 
 "$ROOT_DIR/bin/cmd/upm" add gui_uya --path "$DEP_DIR" --manifest-path "$APP_DIR/uya.toml" >"$HELP_LOG" 2>&1
-"$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >/dev/null 2>&1
+"$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >/dev/null 2>&1
 "$OUT_BIN" >"$RUN_LOG" 2>&1
 grep -q 'dep-ok' "$RUN_LOG"
 
 "$ROOT_DIR/bin/cmd/upm" remove gui_uya --dep --manifest-path "$APP_DIR/uya.toml" >"$HELP_LOG" 2>&1
 set +e
-"$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$RUN_LOG" 2>&1
+"$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$RUN_LOG" 2>&1
 STATUS=$?
 set -e
 

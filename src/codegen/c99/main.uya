@@ -298,43 +298,26 @@ fn collect_stdlib_functions_from_node(codegen: &C99CodeGenerator, node: &ASTNode
                     const decl: &ASTNode = find_function_decl_c99(codegen, callee_name);
                     if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_extern_lib_name != null {
                         // 有 extern "libc" 声明：预收集阶段也按函数名补头文件需求，避免仅靠后续 gen_call_expr 过晚设置
-                        if is_string_function(callee_name) != 0 {
+                        if is_string_function(callee_name) != 0 ||
+                            c99_name_is_hosted_raw_string_symbol(callee_name) != 0 ||
+                            c99_name_is_hosted_raw_memory_symbol(callee_name) != 0 {
                             codegen.needs_string_h = 1;
-                        } else if strcmp(callee_name as *byte, "malloc" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "free" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "calloc" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "realloc" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "abs" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "labs" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "strtoul" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "qsort" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "bsearch" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "exit" as *byte) == 0 {
+                        } else if c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0 ||
+                            c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0 ||
+                            strcmp(callee_name as *byte, "abs" as *byte) == 0 {
                             codegen.needs_stdlib_h = 1;
-                        } else if strcmp(callee_name as *byte, "printf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "fprintf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "sprintf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "snprintf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "vprintf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "vfprintf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "vsprintf" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "vsnprintf" as *byte) == 0 {
+                        } else if c99_name_is_hosted_raw_stdio_symbol(callee_name) != 0 {
                             codegen.needs_stdio_h = 1;
                         }
                     } else {
                         // 无声明或非 extern "libc"：fallback 到名字检测
-                        if is_string_function(callee_name) != 0 {
+                        if is_string_function(callee_name) != 0 ||
+                            c99_name_is_hosted_raw_string_symbol(callee_name) != 0 ||
+                            c99_name_is_hosted_raw_memory_symbol(callee_name) != 0 {
                             codegen.needs_string_h = 1;
-                        } else if strcmp(callee_name as *byte, "malloc" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "free" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "calloc" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "realloc" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "abs" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "labs" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "strtoul" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "qsort" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "bsearch" as *byte) == 0 ||
-                            strcmp(callee_name as *byte, "exit" as *byte) == 0 {
+                        } else if c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0 ||
+                            c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0 ||
+                            strcmp(callee_name as *byte, "abs" as *byte) == 0 {
                             codegen.needs_stdlib_h = 1;
                         }
                     }
@@ -347,43 +330,26 @@ fn collect_stdlib_functions_from_node(codegen: &C99CodeGenerator, node: &ASTNode
             if codegen.program_node != null && codegen.program_node.type == ASTNodeType.AST_PROGRAM {
                 const decl: &ASTNode = find_function_decl_c99(codegen, callee.member_access_field_name);
                 if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_extern_lib_name != null {
-                    if is_string_function(callee.member_access_field_name) != 0 {
+                    if is_string_function(callee.member_access_field_name) != 0 ||
+                        c99_name_is_hosted_raw_string_symbol(callee.member_access_field_name) != 0 ||
+                        c99_name_is_hosted_raw_memory_symbol(callee.member_access_field_name) != 0 {
                         codegen.needs_string_h = 1;
-                    } else if strcmp(callee.member_access_field_name as *byte, "malloc" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "free" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "calloc" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "realloc" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "abs" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "labs" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "strtoul" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "qsort" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "bsearch" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "exit" as *byte) == 0 {
+                    } else if c99_name_is_hosted_raw_alloc_symbol(callee.member_access_field_name) != 0 ||
+                        c99_name_is_hosted_raw_stdlib_symbol(callee.member_access_field_name) != 0 ||
+                        strcmp(callee.member_access_field_name as *byte, "abs" as *byte) == 0 {
                         codegen.needs_stdlib_h = 1;
-                    } else if strcmp(callee.member_access_field_name as *byte, "printf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "fprintf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "sprintf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "snprintf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "vprintf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "vfprintf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "vsprintf" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "vsnprintf" as *byte) == 0 {
+                    } else if c99_name_is_hosted_raw_stdio_symbol(callee.member_access_field_name) != 0 {
                         codegen.needs_stdio_h = 1;
                     }
                 } else {
                     // 无声明或非 extern "libc" 的模块调用：fallback 到名字检测
-                    if is_string_function(callee.member_access_field_name) != 0 {
+                    if is_string_function(callee.member_access_field_name) != 0 ||
+                        c99_name_is_hosted_raw_string_symbol(callee.member_access_field_name) != 0 ||
+                        c99_name_is_hosted_raw_memory_symbol(callee.member_access_field_name) != 0 {
                         codegen.needs_string_h = 1;
-                    } else if strcmp(callee.member_access_field_name as *byte, "malloc" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "free" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "calloc" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "realloc" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "abs" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "labs" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "strtoul" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "qsort" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "bsearch" as *byte) == 0 ||
-                        strcmp(callee.member_access_field_name as *byte, "exit" as *byte) == 0 {
+                    } else if c99_name_is_hosted_raw_alloc_symbol(callee.member_access_field_name) != 0 ||
+                        c99_name_is_hosted_raw_stdlib_symbol(callee.member_access_field_name) != 0 ||
+                        strcmp(callee.member_access_field_name as *byte, "abs" as *byte) == 0 {
                         codegen.needs_stdlib_h = 1;
                     }
                 }
@@ -482,9 +448,15 @@ fn precollect_codegen_decl(codegen: &C99CodeGenerator, decl: &ASTNode, collect_h
             if is_stdio_conflict_name(decl.fn_decl_name) != 0 {
                 codegen.has_stdio_conflicts = 1;
             }
-            collect_stdlib_functions_from_node(codegen, decl.fn_decl_body);
-            if decl.fn_decl_is_async != 0 {
-                codegen.needs_stdlib_h = 1;
+            if decl.filename != null && strstr(decl.filename as *byte, "/std/async_frame.uya" as *byte) != null {
+                // async_frame.uya 的池初始化直接调用 memset；这里必须先把 string.h 需求抬到头文件阶段。
+                codegen.needs_string_h = 1;
+            }
+            if c99_should_skip_hosted_libc_function_body(codegen, decl) == 0 {
+                collect_stdlib_functions_from_node(codegen, decl.fn_decl_body);
+                if decl.fn_decl_is_async != 0 {
+                    codegen.needs_stdlib_h = 1;
+                }
             }
         }
         if decl.type == ASTNodeType.AST_STRUCT_DECL {
@@ -1276,18 +1248,8 @@ fn collect_string_functions_from_node(codegen: &C99CodeGenerator, node: &ASTNode
         const callee: &ASTNode = node.call_expr_callee;
         if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
             const callee_name: &byte = callee.identifier_name;
-            if callee_name != null && (strcmp(callee_name as *byte, "strcmp" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strncmp" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strlen" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strcpy" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strncpy" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strcat" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strncat" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strchr" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strrchr" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strstr" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strdup" as *byte) == 0 ||
-                strcmp(callee_name as *byte, "strndup" as *byte) == 0) {
+            if callee_name != null && (is_string_function(callee_name) != 0 ||
+                c99_name_is_hosted_raw_memory_symbol(callee_name) != 0) {
                 codegen.needs_string_h = 1;
             }
         }
@@ -2140,9 +2102,6 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             if i + 16 < C99_OUTPUT_FILENAME_BUF_SIZE && strncmp(&output_file[i] as *byte, "compiler_bootstrap" as *byte, 17) == 0 {
                 is_bootstrap = 1;  // compiler_bootstrap
             }
-            if i + 11 < C99_OUTPUT_FILENAME_BUF_SIZE && strncmp(&output_file[i] as *byte, "uya-hosted.c" as *byte, 12) == 0 {
-                is_bootstrap = 1;  // hosted 自举输出
-            }
             i = i + 1;
         }
     }
@@ -2333,8 +2292,40 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         if codegen.freestanding == 0 {
             if codegen.has_stdio_conflicts == 0 && is_bootstrap == 0 {
                 fputs("#include <stdio.h>\n" as *byte, codegen.emit_stream as *void);  // for standard I/O functions (printf, puts, etc.)
+            } else if is_bootstrap == 0 {
+                fputs("struct FILE;\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern struct FILE *stdin;\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern struct FILE *stdout;\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern struct FILE *stderr;\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int printf(const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fprintf(struct FILE *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int vprintf(const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int vfprintf(struct FILE *, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int sprintf(char *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int snprintf(char *, size_t, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int vsprintf(char *, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int vsnprintf(char *, size_t, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int puts(const char *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int putchar(int);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fputs(const char *, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fputc(int, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fflush(struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern struct FILE *fopen(const char *, const char *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fclose(struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern size_t fread(void *, size_t, size_t, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern size_t fwrite(const void *, size_t, size_t, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fgetc(struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern char *fgets(char *, int, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int fscanf(struct FILE *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int sscanf(const char *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern void perror(const char *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int remove(const char *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int rename(const char *, const char *);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern struct FILE *tmpfile(void);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern char *tmpnam(char *);\n" as *byte, codegen.emit_stream as *void);
             }
             if is_bootstrap == 0 {
+                fputs("#include <errno.h>\n" as *byte, codegen.emit_stream as *void);
                 fputs("#include <math.h>\n" as *byte, codegen.emit_stream as *void);
                 // Zig cc 会把 math.h 里的同名宏映射成 builtin；显式撤销，避免与后续原型冲突
                 fputs("#ifdef isnan\n#undef isnan\n#endif\n" as *byte, codegen.emit_stream as *void);
@@ -2351,13 +2342,15 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             // 不在此包含 <sys/resource.h>：其中会引入与生成代码中 struct timeval 等类型的冲突；大栈依赖 uya test 的 sh ulimit、宿主 ulimit，或入口 set_process_stack_limit_bytes
         }
         // 不包含 stdlib.h，避免间接引入 stdio.h 导致 fprintf 与 built-in 冲突；exit/malloc 等由 libc 通过 syscall 实现
-        // 仅当 needs_string_h 且未定义 string/mem 函数时才包含 <string.h>
+        // hosted 单文件/seed 输出里，<string.h> 需要跟随 needs_string_h 直接发射；
+        // 本仓库同时定义的 memcpy/memset/memmove/memcmp/memchr 与系统原型签名兼容。
         var has_mem_functions: i32 = 0;
         var has_string_functions: i32 = 0;
         var mi: i32 = 0;
         while mi < decl_count {
             const md: &ASTNode = ast.program_decls[mi];
-            if md != null && md.type == ASTNodeType.AST_FN_DECL && md.fn_decl_body != null {
+            if md != null && md.type == ASTNodeType.AST_FN_DECL && md.fn_decl_body != null &&
+                c99_should_skip_hosted_libc_function_body(codegen, md) == 0 {
                 const mn: &byte = md.fn_decl_name;
                 if mn != null {
                     if strcmp(mn as *byte, "memcpy" as *byte) == 0 || strcmp(mn as *byte, "memset" as *byte) == 0 ||
@@ -2372,7 +2365,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             }
             mi = mi + 1;
         }
-        if codegen.freestanding == 0 && codegen.needs_string_h != 0 && has_string_functions == 0 && has_mem_functions == 0 && is_bootstrap == 0 {
+        if codegen.freestanding == 0 && codegen.needs_string_h != 0 && is_bootstrap == 0 {
             fputs("#include <string.h>\n" as *byte, codegen.emit_stream as *void);
         }
         // 检测是否定义了与 stdlib.h 冲突的函数（labs, strtoul, qsort, bsearch 等）
@@ -2380,7 +2373,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         var si: i32 = 0;
         while si < decl_count {
             const sd: &ASTNode = ast.program_decls[si];
-            if sd != null && sd.type == ASTNodeType.AST_FN_DECL && sd.fn_decl_body != null {
+            if sd != null && sd.type == ASTNodeType.AST_FN_DECL && sd.fn_decl_body != null &&
+                c99_should_skip_hosted_libc_function_body(codegen, sd) == 0 {
                 const sn: &byte = sd.fn_decl_name;
                 if sn != null {
                     if strcmp(sn as *byte, "labs" as *byte) == 0 ||
@@ -2428,6 +2422,25 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         var has_decl_clock: i32 = 0;
         var has_decl_read: i32 = 0;
         var has_decl_write: i32 = 0;
+        var has_decl_close: i32 = 0;
+        var has_decl_lseek: i32 = 0;
+        var has_decl_getpid: i32 = 0;
+        var has_decl_getppid: i32 = 0;
+        var has_decl_fork: i32 = 0;
+        var has_decl_execve: i32 = 0;
+        var has_decl_waitpid: i32 = 0;
+        var has_decl_system: i32 = 0;
+        var has_decl_access: i32 = 0;
+        var has_decl_unlink: i32 = 0;
+        var has_decl_mkdir: i32 = 0;
+        var has_decl_rmdir: i32 = 0;
+        var has_decl_chdir: i32 = 0;
+        var has_decl_getcwd: i32 = 0;
+        var has_decl_dup: i32 = 0;
+        var has_decl_dup2: i32 = 0;
+        var has_decl_sleep: i32 = 0;
+        var has_decl_stat: i32 = 0;
+        var has_decl_readlink: i32 = 0;
         var has_impl_malloc: i32 = 0;
         var has_impl_free: i32 = 0;
         var has_impl_realloc: i32 = 0;
@@ -2441,32 +2454,72 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             if d != null && d.type == ASTNodeType.AST_FN_DECL {
                 const n: &byte = d.fn_decl_name;
                 if n != null {
+                    const body_counts_as_impl: i32 = (d.fn_decl_body != null &&
+                        c99_should_skip_hosted_libc_function_body(codegen, d) == 0);
                     if strcmp(n as *byte, "malloc" as *byte) == 0 {
                         has_decl_malloc = 1;
-                        if d.fn_decl_body != null { has_impl_malloc = 1; }
+                        if body_counts_as_impl != 0 { has_impl_malloc = 1; }
                     } else if strcmp(n as *byte, "free" as *byte) == 0 {
                         has_decl_free = 1;
-                        if d.fn_decl_body != null { has_impl_free = 1; }
+                        if body_counts_as_impl != 0 { has_impl_free = 1; }
                     } else if strcmp(n as *byte, "realloc" as *byte) == 0 {
                         has_decl_realloc = 1;
-                        if d.fn_decl_body != null { has_impl_realloc = 1; }
+                        if body_counts_as_impl != 0 { has_impl_realloc = 1; }
                     } else if strcmp(n as *byte, "calloc" as *byte) == 0 {
                         has_decl_calloc = 1;
-                        if d.fn_decl_body != null { has_impl_calloc = 1; }
+                        if body_counts_as_impl != 0 { has_impl_calloc = 1; }
                     } else if strcmp(n as *byte, "clock" as *byte) == 0 {
                         has_decl_clock = 1;
-                        if d.fn_decl_body != null { has_impl_clock = 1; }
+                        if body_counts_as_impl != 0 { has_impl_clock = 1; }
                     } else if strcmp(n as *byte, "read" as *byte) == 0 {
                         has_decl_read = 1;
-                        if d.fn_decl_body != null { has_impl_read = 1; }
+                        if body_counts_as_impl != 0 { has_impl_read = 1; }
                     } else if strcmp(n as *byte, "write" as *byte) == 0 {
                         has_decl_write = 1;
-                        if d.fn_decl_body != null { has_impl_write = 1; }
-                    } else if d.fn_decl_body != null && strcmp(n as *byte, "opendir" as *byte) == 0 {
+                        if body_counts_as_impl != 0 { has_impl_write = 1; }
+                    } else if strcmp(n as *byte, "close" as *byte) == 0 {
+                        has_decl_close = 1;
+                    } else if strcmp(n as *byte, "lseek" as *byte) == 0 {
+                        has_decl_lseek = 1;
+                    } else if strcmp(n as *byte, "getpid" as *byte) == 0 {
+                        has_decl_getpid = 1;
+                    } else if strcmp(n as *byte, "getppid" as *byte) == 0 {
+                        has_decl_getppid = 1;
+                    } else if strcmp(n as *byte, "fork" as *byte) == 0 {
+                        has_decl_fork = 1;
+                    } else if strcmp(n as *byte, "execve" as *byte) == 0 {
+                        has_decl_execve = 1;
+                    } else if strcmp(n as *byte, "waitpid" as *byte) == 0 {
+                        has_decl_waitpid = 1;
+                    } else if strcmp(n as *byte, "system" as *byte) == 0 {
+                        has_decl_system = 1;
+                    } else if strcmp(n as *byte, "access" as *byte) == 0 {
+                        has_decl_access = 1;
+                    } else if strcmp(n as *byte, "unlink" as *byte) == 0 {
+                        has_decl_unlink = 1;
+                    } else if strcmp(n as *byte, "mkdir" as *byte) == 0 {
+                        has_decl_mkdir = 1;
+                    } else if strcmp(n as *byte, "rmdir" as *byte) == 0 {
+                        has_decl_rmdir = 1;
+                    } else if strcmp(n as *byte, "chdir" as *byte) == 0 {
+                        has_decl_chdir = 1;
+                    } else if strcmp(n as *byte, "getcwd" as *byte) == 0 {
+                        has_decl_getcwd = 1;
+                    } else if strcmp(n as *byte, "dup" as *byte) == 0 {
+                        has_decl_dup = 1;
+                    } else if strcmp(n as *byte, "dup2" as *byte) == 0 {
+                        has_decl_dup2 = 1;
+                    } else if strcmp(n as *byte, "sleep" as *byte) == 0 {
+                        has_decl_sleep = 1;
+                    } else if strcmp(n as *byte, "stat" as *byte) == 0 {
+                        has_decl_stat = 1;
+                    } else if strcmp(n as *byte, "readlink" as *byte) == 0 {
+                        has_decl_readlink = 1;
+                    } else if body_counts_as_impl != 0 && strcmp(n as *byte, "opendir" as *byte) == 0 {
                         has_own_opendir = 1;
-                    } else if d.fn_decl_body != null && strcmp(n as *byte, "readdir" as *byte) == 0 {
+                    } else if body_counts_as_impl != 0 && strcmp(n as *byte, "readdir" as *byte) == 0 {
                         has_own_readdir = 1;
-                    } else if d.fn_decl_body != null && strcmp(n as *byte, "closedir" as *byte) == 0 {
+                    } else if body_counts_as_impl != 0 && strcmp(n as *byte, "closedir" as *byte) == 0 {
                         has_own_closedir = 1;
                     }
                 }
@@ -2490,6 +2543,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 if has_decl_clock != 0 && has_impl_clock == 0 {
                     fputs("extern int64_t clock(void);\n" as *byte, codegen.emit_stream as *void);
                 }
+                fputs("static inline void libc_heap_flush_current_thread_cache(void) { }\n" as *byte, codegen.emit_stream as *void);
             }
             // macOS hosted 自举单文件（src/build/uya-hosted.c / compiler_bootstrap.c）中，
             // read/write 可能只在调用点可见，AST 预扫未必能稳定拾取声明；
@@ -2511,6 +2565,65 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 if has_decl_write != 0 && (has_impl_write == 0 || target_os_is_macos != 0) {
                     if is_bootstrap == 0 || target_os_is_macos != 0 {
                         fputs("extern ssize_t write(int, const void *, size_t);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                }
+                if is_bootstrap == 0 {
+                    if has_decl_close != 0 {
+                        fputs("extern int close(int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_lseek != 0 {
+                        fputs("extern int64_t lseek(int, int64_t, int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_getpid != 0 {
+                        fputs("extern int getpid(void);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_getppid != 0 {
+                        fputs("extern int getppid(void);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_fork != 0 {
+                        fputs("extern int fork(void);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_execve != 0 {
+                        fputs("extern int execve(const char *, char **, char **);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_waitpid != 0 {
+                        fputs("extern int waitpid(int, int *, int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_system != 0 {
+                        fputs("extern int system(const char *);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_access != 0 {
+                        fputs("extern int access(const char *, int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_unlink != 0 {
+                        fputs("extern int unlink(const char *);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_mkdir != 0 {
+                        fputs("extern int mkdir(const char *, int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_rmdir != 0 {
+                        fputs("extern int rmdir(const char *);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_chdir != 0 {
+                        fputs("extern int chdir(const char *);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_getcwd != 0 {
+                        fputs("extern char *getcwd(char *, size_t);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_dup != 0 {
+                        fputs("extern int dup(int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_dup2 != 0 {
+                        fputs("extern int dup2(int, int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_sleep != 0 {
+                        fputs("extern unsigned int sleep(unsigned int);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_stat != 0 {
+                        fputs("struct Stat;\nextern int stat(const char *, struct Stat *);\n" as *byte, codegen.emit_stream as *void);
+                    }
+                    if has_decl_readlink != 0 {
+                        fputs("extern int readlink(const char *, char *, size_t);\n" as *byte, codegen.emit_stream as *void);
                     }
                 }
             }

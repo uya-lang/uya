@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 TMP_DIR="$(mktemp -d /tmp/uya_upm_registry_backend.XXXXXX)"
 TMP_HOME="$TMP_DIR/home"
 WORK_DIR="$TMP_DIR/app"
@@ -54,7 +54,7 @@ export fn foo_value() i32 {
 }
 EOF_DEP_SRC
 
-HOME="$TMP_HOME" UYA_UPM_REGISTRY_DIR="$REGISTRY_ROOT" "$COMPILER" build "$WORK_DIR" -o "$OUT_BIN" --no-split-c >"$BUILD_LOG" 2>&1
+HOME="$TMP_HOME" UYA_UPM_REGISTRY_DIR="$REGISTRY_ROOT" "$UPM_BIN" build "$WORK_DIR" -o "$OUT_BIN" --no-split-c >"$BUILD_LOG" 2>&1
 "$OUT_BIN" >"$RUN_LOG" 2>&1
 grep -q '13' "$RUN_LOG"
 grep -q 'module = "uya.local/foo"' "$WORK_DIR/uya.lock"

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
 TMP_DIR="$(mktemp -d /tmp/uya_upm_git_dep.XXXXXX)"
 TMP_HOME="$TMP_DIR/home"
@@ -36,14 +36,14 @@ init_git_repo_fixture() {
 }
 
 run_build() {
-    if ! HOME="$TMP_HOME" "$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$BUILD_LOG" 2>&1; then
+    if ! HOME="$TMP_HOME" "$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$BUILD_LOG" 2>&1; then
         cat "$BUILD_LOG"
         exit 1
     fi
 }
 
 run_update() {
-    if ! HOME="$TMP_HOME" "$ROOT_DIR/bin/uya-upm-stage2" upm update "$APP_DIR" >"$BUILD_LOG" 2>&1; then
+    if ! HOME="$TMP_HOME" "$ROOT_DIR/bin/cmd/upm" update "$APP_DIR" >"$BUILD_LOG" 2>&1; then
         cat "$BUILD_LOG"
         exit 1
     fi

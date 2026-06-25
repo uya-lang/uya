@@ -3,8 +3,8 @@ use std.runtime.entry;
 // 测试：内存分配函数
 
 use libc.malloc;
-use libc.calloc;
 use libc.free;
+use libc.calloc;
 use libc.memcmp;
 use libc.realloc;
 
@@ -50,12 +50,12 @@ export fn main() i32 {
     }
     
     // ============================================================
-    // 测试 3: malloc(0) 应返回 null
+    // 测试 3: C 标准允许 malloc(0) 返回 null 或可释放的非空指针
     // ============================================================
     {
         const ptr_zero: &void = malloc(0);
         if ptr_zero != null {
-            return 5;
+            free(ptr_zero);
         }
     }
 

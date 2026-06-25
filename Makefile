@@ -4,7 +4,7 @@
 # 若出现「没有规则可制作目标 install」：说明当前 Makefile 过旧，请用本仓库最新 Makefile
 # 替换，或从上游同步后再执行：make install PREFIX=$HOME/.local
 
-.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats tests tests-hosted tests-uya tests-emcc tests-portable examples-check microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm uya-upm-stage2 upm-check fmt check-fmt
+.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats tests tests-hosted tests-uya tests-emcc tests-portable examples-check microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm upm-check fmt check-fmt
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
 HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')
@@ -34,6 +34,7 @@ UYA_TEST_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || e
 UYA_CMD_NAMES := upm
 UYA_CMD_BINS := $(patsubst %,bin/cmd/%,$(UYA_CMD_NAMES))
 UYA_CMD_BOOTSTRAP_COMPILER ?= ./bin/uya
+UYA_CMD_STATIC_BUILD_FLAGS := --nostdlib --no-split-c --project-root src/
 
 # 安装路径（install 目标）
 # 用法: make install
@@ -179,18 +180,18 @@ from-c:
 		NOSTDLIB_SEED="backup/uya-$(HOST_OS)-$(HOST_ARCH).c"; \
 		SEED_PATH=""; \
 		SEED_DESC=""; \
-		if [ -f "$$HOSTED_SEED" ]; then \
-			SEED_PATH="$$HOSTED_SEED"; \
-			SEED_DESC="host/arch hosted 备份 $$HOSTED_SEED"; \
-		elif [ -f backup/uya-hosted.c ]; then \
-			SEED_PATH="backup/uya-hosted.c"; \
-			SEED_DESC="hosted 备份 backup/uya-hosted.c"; \
-		elif [ -f "$$NOSTDLIB_SEED" ]; then \
+		if [ -f "$$NOSTDLIB_SEED" ]; then \
 			SEED_PATH="$$NOSTDLIB_SEED"; \
 			SEED_DESC="host/arch nostdlib 备份 $$NOSTDLIB_SEED"; \
 		elif [ -f backup/uya.c ]; then \
 			SEED_PATH="backup/uya.c"; \
 			SEED_DESC="备份 backup/uya.c"; \
+		elif [ -f "$$HOSTED_SEED" ]; then \
+			SEED_PATH="$$HOSTED_SEED"; \
+			SEED_DESC="host/arch hosted 备份 $$HOSTED_SEED"; \
+		elif [ -f backup/uya-hosted.c ]; then \
+			SEED_PATH="backup/uya-hosted.c"; \
+			SEED_DESC="hosted 备份 backup/uya-hosted.c"; \
 		fi; \
 		if [ ! -f bin/uya.c ]; then \
 			if [ -z "$$SEED_PATH" ]; then \
@@ -579,31 +580,47 @@ clean:
 	@rm -rf lib/build
 	@echo "✓ 清理完成"
 
-cmds: $(UYA_CMD_BINS) bin/uya-upm-stage2
+cmds: $(UYA_CMD_BINS)
+	@if [ -d bin/cmd ]; then \
+		for cmd_bin in bin/cmd/*; do \
+			if [ ! -e "$$cmd_bin" ]; then continue; fi; \
+			base=$$(basename "$$cmd_bin"); \
+			keep=0; \
+			for name in $(UYA_CMD_NAMES); do \
+				if [ "$$base" = "$$name" ]; then keep=1; fi; \
+			done; \
+			if [ "$$keep" = "0" ]; then \
+				echo "移除过期 cmd 产物: $$cmd_bin"; \
+				rm -f "$$cmd_bin"; \
+			fi; \
+		done; \
+	fi
 
-cmd-upm: bin/cmd/upm bin/uya-upm-stage2
+cmd-upm: bin/cmd/upm
 
-uya-upm-stage2: bin/uya-upm-stage2
-
-bin/uya-upm-stage2: scripts/uya-upm-stage2.sh
-	@mkdir -p bin
-	@cp scripts/uya-upm-stage2.sh $@
-	@chmod +x $@
-
-bin/cmd/upm: src/cmd/upm/main.uya uya
+bin/cmd/upm: src/cmd/upm/main.uya Makefile
 	@mkdir -p bin/cmd
 	@echo "构建 cmd/upm ..."
-	@$(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o $@ --no-split-c --project-root src/
+	@if [ ! -x "$(UYA_CMD_BOOTSTRAP_COMPILER)" ]; then \
+		echo "缺少 $(UYA_CMD_BOOTSTRAP_COMPILER)，先构建 bin/uya ..."; \
+		$(MAKE) uya; \
+	fi
+	@$(UYA_CMD_BOOTSTRAP_COMPILER) build $(UYA_CMD_STATIC_BUILD_FLAGS) $< -o $@
 
-bin/cmd/%: src/cmd/%/main.uya uya
+bin/cmd/%: src/cmd/%/main.uya Makefile
 	@mkdir -p bin/cmd
 	@echo "构建 cmd/$* ..."
-	@$(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o $@ --no-split-c --project-root src/
+	@if [ ! -x "$(UYA_CMD_BOOTSTRAP_COMPILER)" ]; then \
+		echo "缺少 $(UYA_CMD_BOOTSTRAP_COMPILER)，先构建 bin/uya ..."; \
+		$(MAKE) uya; \
+	fi
+	@$(UYA_CMD_BOOTSTRAP_COMPILER) build $(UYA_CMD_STATIC_BUILD_FLAGS) $< -o $@
 
 upm-check: uya cmd-upm
 	@echo "=========================================="
 	@echo "运行 UPM 验证套件"
 	@echo "=========================================="
+	@bash ./tests/verify_cmd_bins_nostdlib_static.sh
 	@bash ./tests/verify_upm_suite.sh
 	@echo ""
 	@echo "✓ UPM 验证套件通过"
@@ -621,6 +638,7 @@ check: uya
 		RUNTIME_MODE=nostdlib LINK_MODE=static \
 		./tests/run_programs_parallel.sh --uya --c99 --hide-pass > /tmp/make_check_output.txt 2>&1; \
 	TEST_EXIT=$$?; \
+	if [ -f /tmp/uya_test_summary.txt ]; then cp /tmp/uya_test_summary.txt /tmp/uya_main_test_summary.txt; fi; \
 	rm -f /tmp/uya_test_summary.txt; \
 	echo ""; \
 	echo "验证证明优化..."; \
@@ -734,7 +752,7 @@ check: uya
 		echo ""; \
 		echo "验证 UPM 套件..."; \
 		if $(MAKE) upm-check > /tmp/verify_out.txt 2>&1; then \
-			grep -E "verify_upm_.*: ok$$|test_cmd_dispatch: ok$$|verify_upm_suite: ok$$|✓" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+			grep -E "verify_upm_.*: ok$$|test_cmd_upm_direct: ok$$|verify_upm_suite: ok$$|✓" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
 			VERIFY_EXIT=0; \
 		else \
 			cat /tmp/verify_out.txt; \
@@ -752,6 +770,7 @@ check: uya
 		./tests/verify_exec_vm_globals.sh \
 		./tests/verify_exec_vm_error_builtin.sh \
 		./tests/verify_exec_vm_builtin_bridge.sh \
+		./tests/verify_exec_vm_extern_bridge.sh \
 		./tests/verify_exec_vm_defer.sh \
 		./tests/verify_exec_vm_aggregates.sh \
 		./tests/verify_exec_vm_compiler_regressions.sh; do \
@@ -900,9 +919,9 @@ check: uya
 		rm -f /tmp/make_check_output.txt /tmp/verify_out.txt; \
 		exit 1; \
 	fi; \
-	if [ -f /tmp/uya_test_summary.txt ]; then \
-		cat /tmp/uya_test_summary.txt; \
-		rm -f /tmp/uya_test_summary.txt; \
+	if [ -f /tmp/uya_main_test_summary.txt ]; then \
+		cat /tmp/uya_main_test_summary.txt; \
+		rm -f /tmp/uya_main_test_summary.txt; \
 	else \
 		grep -E "总计|通过|失败" /tmp/make_check_output.txt | tail -5; \
 	fi; \
@@ -995,6 +1014,14 @@ check-hosted: b-hosted
 		exit 1; \
 	fi
 	@echo ""
+	@echo "验证 hosted libc 使用系统符号..."
+	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_c99_hosted_libc_uses_system_symbols.sh; \
+	VERIFY_EXIT=$$?; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ hosted libc 系统符号验证失败"; \
+		exit 1; \
+	fi
+	@echo ""
 	@echo "验证 @syscall C99（Linux AArch64 / ARM32 交叉）..."
 	@UYA_COMPILER="$(PWD)/bin/uya-hosted" ZIG="$(ZIG)" ./tests/verify_syscall_c99_cross.sh; \
 	VERIFY_EXIT=$$?; \
@@ -1011,7 +1038,7 @@ check-hosted: b-hosted
 		exit 1; \
 	fi
 	@echo ""
-	@echo "✓ hosted 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + @syscall C99 + SIMD NEON）"
+	@echo "✓ hosted 验证通过（自举 + 测试 + 证明优化 + 默认顶层函数发射 + SIMD select C + hosted libc 系统符号 + @syscall C99 + SIMD NEON）"
 
 # 备份（依赖 check 通过）：多文件 C 产物目录 -> backup/uyacache（与 make uya 一致）
 backup: check
@@ -1186,7 +1213,7 @@ ifeq ($(HOST_OS),linux)
 	@$(MAKE) --no-print-directory uya
 	@$(MAKE) --no-print-directory b UYA_SKIP_UYA=1
 	@$(MAKE) --no-print-directory check UYA_SKIP_UYA=1
-	@$(MAKE) --no-print-directory backup-all-seed
+	@UYA_BACKUP_MACOS_AUX="$${UYA_BACKUP_MACOS_AUX:-0}" $(MAKE) --no-print-directory backup-all-seed
 else
 	@$(MAKE) --no-print-directory check-hosted
 	@$(MAKE) --no-print-directory backup-hosted-seed-native

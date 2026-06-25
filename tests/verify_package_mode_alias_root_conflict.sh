@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 FIXTURE="$ROOT_DIR/tests/fixtures/upm/conflict_alias"
 TMP_DIR="$(mktemp -d /tmp/uya_package_mode_alias_conflict.XXXXXX)"
 WORK_DIR="$TMP_DIR/conflict_alias"
@@ -23,7 +23,7 @@ fi
 cp -R "$FIXTURE" "$WORK_DIR"
 
 set +e
-"$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$BUILD_LOG" 2>&1
+"$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$BUILD_LOG" 2>&1
 STATUS=$?
 set -e
 

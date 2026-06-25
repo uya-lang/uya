@@ -203,12 +203,12 @@ export fn main() i32 {
     }
     
     // ============================================================
-    // 测试 7: malloc(0) 应返回 null
+    // 测试 7: C 标准允许 malloc(0) 返回 null 或可释放的非空指针
     // ============================================================
     {
         const ptr_zero: &void = malloc(0);
         if ptr_zero != null {
-            return 16;
+            free(ptr_zero);
         }
     }
     
@@ -222,4 +222,3 @@ export fn main() i32 {
     
     return 0;  // 所有测试通过
 }
-

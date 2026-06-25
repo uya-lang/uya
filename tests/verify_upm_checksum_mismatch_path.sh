@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CMD_BOOTSTRAP="${UYA_CMD_BOOTSTRAP_COMPILER:-$ROOT_DIR/bin/uya}"
-COMPILER="${UYA_COMPILER:-$ROOT_DIR/bin/uya-upm-stage2}"
+UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 FIXTURE="$ROOT_DIR/tests/fixtures/upm/path_dep"
 TMP_HOME="$(mktemp -d /tmp/uya_upm_path_checksum_home.XXXXXX)"
 TMP_DIR="$(mktemp -d /tmp/uya_upm_path_checksum.XXXXXX)"
@@ -24,7 +24,7 @@ fi
 
 cp -R "$FIXTURE" "$WORK_DIR"
 
-HOME="$TMP_HOME" "$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >/dev/null 2>&1
+HOME="$TMP_HOME" "$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >/dev/null 2>&1
 python3 - "$LOCK_FILE" <<'PY'
 from pathlib import Path
 import sys
@@ -44,7 +44,7 @@ path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
 
 set +e
-HOME="$TMP_HOME" "$COMPILER" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$LOG_FILE" 2>&1
+HOME="$TMP_HOME" "$UPM_BIN" build "$APP_DIR" -o "$OUT_BIN" --no-split-c >"$LOG_FILE" 2>&1
 STATUS=$?
 set -e
 

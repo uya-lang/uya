@@ -42,6 +42,226 @@ fn c99_filename_is_in_lib_family(filename: &byte, family: &byte) i32 {
     return 0;
 }
 
+fn c99_filename_is_libc_file(filename: &byte, file_name: &byte) i32 {
+    if filename == null || file_name == null {
+        return 0;
+    }
+    if c99_filename_is_in_lib_family(filename, "libc" as &byte) == 0 {
+        return 0;
+    }
+    if strstr(filename as *byte, file_name as *byte) != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_alloc_symbol(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "malloc" as *byte) == 0 ||
+        strcmp(name as *byte, "free" as *byte) == 0 ||
+        strcmp(name as *byte, "calloc" as *byte) == 0 ||
+        strcmp(name as *byte, "realloc" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_io_symbol(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "read" as *byte) == 0 ||
+        strcmp(name as *byte, "write" as *byte) == 0 ||
+        strcmp(name as *byte, "close" as *byte) == 0 ||
+        strcmp(name as *byte, "lseek" as *byte) == 0 ||
+        strcmp(name as *byte, "getpid" as *byte) == 0 ||
+        strcmp(name as *byte, "getppid" as *byte) == 0 ||
+        strcmp(name as *byte, "fork" as *byte) == 0 ||
+        strcmp(name as *byte, "execve" as *byte) == 0 ||
+        strcmp(name as *byte, "_exit" as *byte) == 0 ||
+        strcmp(name as *byte, "waitpid" as *byte) == 0 ||
+        strcmp(name as *byte, "system" as *byte) == 0 ||
+        strcmp(name as *byte, "access" as *byte) == 0 ||
+        strcmp(name as *byte, "unlink" as *byte) == 0 ||
+        strcmp(name as *byte, "mkdir" as *byte) == 0 ||
+        strcmp(name as *byte, "rmdir" as *byte) == 0 ||
+        strcmp(name as *byte, "chdir" as *byte) == 0 ||
+        strcmp(name as *byte, "getcwd" as *byte) == 0 ||
+        strcmp(name as *byte, "dup" as *byte) == 0 ||
+        strcmp(name as *byte, "dup2" as *byte) == 0 ||
+        strcmp(name as *byte, "sleep" as *byte) == 0 ||
+        strcmp(name as *byte, "stat" as *byte) == 0 ||
+        strcmp(name as *byte, "readlink" as *byte) == 0 ||
+        strcmp(name as *byte, "opendir" as *byte) == 0 ||
+        strcmp(name as *byte, "readdir" as *byte) == 0 ||
+        strcmp(name as *byte, "closedir" as *byte) == 0 ||
+        strcmp(name as *byte, "getenv" as *byte) == 0 ||
+        strcmp(name as *byte, "putenv" as *byte) == 0 ||
+        strcmp(name as *byte, "setenv" as *byte) == 0 ||
+        strcmp(name as *byte, "unsetenv" as *byte) == 0 ||
+        strcmp(name as *byte, "clearenv" as *byte) == 0 ||
+        strcmp(name as *byte, "strerror" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_stdio_symbol(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "printf" as *byte) == 0 ||
+        strcmp(name as *byte, "fprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vfprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "sprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "snprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vsprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vsnprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "puts" as *byte) == 0 ||
+        strcmp(name as *byte, "putchar" as *byte) == 0 ||
+        strcmp(name as *byte, "fputs" as *byte) == 0 ||
+        strcmp(name as *byte, "fputc" as *byte) == 0 ||
+        strcmp(name as *byte, "fflush" as *byte) == 0 ||
+        strcmp(name as *byte, "fopen" as *byte) == 0 ||
+        strcmp(name as *byte, "fclose" as *byte) == 0 ||
+        strcmp(name as *byte, "fread" as *byte) == 0 ||
+        strcmp(name as *byte, "fwrite" as *byte) == 0 ||
+        strcmp(name as *byte, "fgetc" as *byte) == 0 ||
+        strcmp(name as *byte, "fgets" as *byte) == 0 ||
+        strcmp(name as *byte, "fscanf" as *byte) == 0 ||
+        strcmp(name as *byte, "sscanf" as *byte) == 0 ||
+        strcmp(name as *byte, "perror" as *byte) == 0 ||
+        strcmp(name as *byte, "remove" as *byte) == 0 ||
+        strcmp(name as *byte, "rename" as *byte) == 0 ||
+        strcmp(name as *byte, "tmpfile" as *byte) == 0 ||
+        strcmp(name as *byte, "tmpnam" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_memory_symbol(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "memcpy" as *byte) == 0 ||
+        strcmp(name as *byte, "memset" as *byte) == 0 ||
+        strcmp(name as *byte, "memmove" as *byte) == 0 ||
+        strcmp(name as *byte, "memcmp" as *byte) == 0 ||
+        strcmp(name as *byte, "memchr" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_string_symbol(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "strlen" as *byte) == 0 ||
+        strcmp(name as *byte, "strcmp" as *byte) == 0 ||
+        strcmp(name as *byte, "strncmp" as *byte) == 0 ||
+        strcmp(name as *byte, "strcasecmp" as *byte) == 0 ||
+        strcmp(name as *byte, "strncasecmp" as *byte) == 0 ||
+        strcmp(name as *byte, "strdup" as *byte) == 0 ||
+        strcmp(name as *byte, "strndup" as *byte) == 0 ||
+        strcmp(name as *byte, "strcpy" as *byte) == 0 ||
+        strcmp(name as *byte, "strncpy" as *byte) == 0 ||
+        strcmp(name as *byte, "strcat" as *byte) == 0 ||
+        strcmp(name as *byte, "strncat" as *byte) == 0 ||
+        strcmp(name as *byte, "strchr" as *byte) == 0 ||
+        strcmp(name as *byte, "strrchr" as *byte) == 0 ||
+        strcmp(name as *byte, "strstr" as *byte) == 0 ||
+        strcmp(name as *byte, "strcspn" as *byte) == 0 ||
+        strcmp(name as *byte, "strspn" as *byte) == 0 ||
+        strcmp(name as *byte, "strpbrk" as *byte) == 0 ||
+        strcmp(name as *byte, "strtok" as *byte) == 0 ||
+        strcmp(name as *byte, "strerror" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_stdlib_symbol(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "exit" as *byte) == 0 ||
+        strcmp(name as *byte, "abort" as *byte) == 0 ||
+        strcmp(name as *byte, "atoi" as *byte) == 0 ||
+        strcmp(name as *byte, "atol" as *byte) == 0 ||
+        strcmp(name as *byte, "atof" as *byte) == 0 ||
+        strcmp(name as *byte, "strtod" as *byte) == 0 ||
+        strcmp(name as *byte, "strtol" as *byte) == 0 ||
+        strcmp(name as *byte, "labs" as *byte) == 0 ||
+        strcmp(name as *byte, "llabs" as *byte) == 0 ||
+        strcmp(name as *byte, "srand" as *byte) == 0 ||
+        strcmp(name as *byte, "rand" as *byte) == 0 ||
+        strcmp(name as *byte, "div" as *byte) == 0 ||
+        strcmp(name as *byte, "ldiv" as *byte) == 0 ||
+        strcmp(name as *byte, "lldiv" as *byte) == 0 ||
+        strcmp(name as *byte, "atoll" as *byte) == 0 ||
+        strcmp(name as *byte, "strtoll" as *byte) == 0 ||
+        strcmp(name as *byte, "strtoull" as *byte) == 0 ||
+        strcmp(name as *byte, "qsort" as *byte) == 0 ||
+        strcmp(name as *byte, "bsearch" as *byte) == 0 ||
+        strcmp(name as *byte, "strtoul" as *byte) == 0 ||
+        strcmp(name as *byte, "system" as *byte) == 0 ||
+        strcmp(name as *byte, "getenv" as *byte) == 0 ||
+        strcmp(name as *byte, "putenv" as *byte) == 0 ||
+        strcmp(name as *byte, "setenv" as *byte) == 0 ||
+        strcmp(name as *byte, "unsetenv" as *byte) == 0 ||
+        strcmp(name as *byte, "clearenv" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_stdio_stream(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "stdin" as *byte) == 0 ||
+        strcmp(name as *byte, "stdout" as *byte) == 0 ||
+        strcmp(name as *byte, "stderr" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_raw_libc_symbol(name: &byte) i32 {
+    if c99_name_is_hosted_raw_alloc_symbol(name) != 0 ||
+        c99_name_is_hosted_raw_io_symbol(name) != 0 ||
+        c99_name_is_hosted_raw_stdio_symbol(name) != 0 ||
+        c99_name_is_hosted_raw_memory_symbol(name) != 0 ||
+        c99_name_is_hosted_raw_string_symbol(name) != 0 ||
+        c99_name_is_hosted_raw_stdlib_symbol(name) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_name_is_hosted_libc_private_runtime_helper(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "_malloc_impl" as *byte) == 0 ||
+        strcmp(name as *byte, "_free_impl" as *byte) == 0 ||
+        strcmp(name as *byte, "_realloc_impl" as *byte) == 0 ||
+        strcmp(name as *byte, "morecore" as *byte) == 0 ||
+        strcmp(name as *byte, "env_lookup_value" as *byte) == 0 ||
+        strcmp(name as *byte, "_vfprintf_impl" as *byte) == 0 {
+        return 1;
+    }
+    if strncmp(name as *byte, "_fmt_" as *byte, 5) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn c99_decl_matches_current_lib_family(codegen: &C99CodeGenerator, decl: &ASTNode) i32 {
     if codegen == null || decl == null || decl.filename == null ||
         codegen.current_function_decl == null || codegen.current_function_decl.filename == null {
@@ -231,6 +451,13 @@ fn should_use_raw_libc_symbol_name(codegen: &C99CodeGenerator, fn_decl: &ASTNode
     }
     const name: &byte = fn_decl.fn_decl_name;
 
+    // hosted 模式下，只有真实系统 libc ABI 的带体 extern 才在跳过实现后走裸符号；
+    // heap.uya 的调试/线程缓存辅助函数不是系统 ABI，不能映射成裸名。
+    if c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0 &&
+        c99_name_is_hosted_raw_libc_symbol(name) != 0 {
+        return 1;
+    }
+
     // Darwin 下 fork/waitpid 需要走宿主 libc 包装；生成裸符号会覆盖宿主入口，导致包装递归或
     // 退回原始 syscall 返回约定。
     if name != null {
@@ -272,6 +499,82 @@ fn should_use_raw_libc_symbol_name(codegen: &C99CodeGenerator, fn_decl: &ASTNode
         }
     }
     return 1;
+}
+
+fn c99_should_skip_hosted_libc_function_body(codegen: &C99CodeGenerator, fn_decl: &ASTNode) i32 {
+    if codegen == null || codegen.is_nostdlib != 0 ||
+        fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
+        fn_decl.fn_decl_body == null || fn_decl.filename == null {
+        return 0;
+    }
+    if c99_filename_is_in_lib_family(fn_decl.filename, "libc" as &byte) == 0 {
+        return 0;
+    }
+    const name: &byte = fn_decl.fn_decl_name;
+    if name == null {
+        return 0;
+    }
+    // hosted 模式使用系统 malloc/free/realloc/calloc；heap.uya 是 --nostdlib 专用堆实现。
+    if c99_filename_is_libc_file(fn_decl.filename, "heap.uya" as &byte) != 0 {
+        return 1;
+    }
+    // 只有真实系统 libc/POSIX ABI 裸名才在 hosted 模式交给系统库；sys_* 等 Uya 包装必须保留。
+    if fn_decl.fn_decl_extern_lib_name != null && c99_name_is_hosted_raw_libc_symbol(name) != 0 {
+        return 1;
+    }
+    if c99_name_is_hosted_libc_private_runtime_helper(name) != 0 {
+        if c99_filename_is_libc_file(fn_decl.filename, "heap.uya" as &byte) != 0 ||
+            c99_filename_is_libc_file(fn_decl.filename, "stdlib.uya" as &byte) != 0 {
+            return 1;
+        }
+        if c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) != 0 &&
+            strcmp(name as *byte, "_vfprintf_impl" as *byte) == 0 {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn c99_should_skip_hosted_libc_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) i32 {
+    if codegen == null || codegen.is_nostdlib != 0 ||
+        var_decl == null || var_decl.type != ASTNodeType.AST_VAR_DECL ||
+        var_decl.var_decl_is_const != 0 || var_decl.filename == null {
+        return 0;
+    }
+    const name: &byte = var_decl.var_decl_name;
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "errno" as *byte) == 0 &&
+        c99_filename_is_libc_file(var_decl.filename, "errno.uya" as &byte) != 0 {
+        return 1;
+    }
+    if c99_filename_is_libc_file(var_decl.filename, "heap.uya" as &byte) != 0 {
+        return 1;
+    }
+    if c99_filename_is_libc_file(var_decl.filename, "stdlib.uya" as &byte) != 0 {
+        if strcmp(name as *byte, "rand_seed" as *byte) == 0 ||
+            strcmp(name as *byte, "rand_max_val" as *byte) == 0 ||
+            strcmp(name as *byte, "opendir_storage" as *byte) == 0 ||
+            strcmp(name as *byte, "readdir_result" as *byte) == 0 {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn c99_should_skip_hosted_libc_extern_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) i32 {
+    if codegen == null || codegen.is_nostdlib != 0 ||
+        var_decl == null || var_decl.type != ASTNodeType.AST_EXTERN_VAR_DECL ||
+        var_decl.extern_var_decl_is_const != 0 || var_decl.filename == null {
+        return 0;
+    }
+    if var_decl.extern_var_decl_name != null &&
+        strcmp(var_decl.extern_var_decl_name as *byte, "errno" as *byte) == 0 &&
+        c99_filename_is_libc_file(var_decl.filename, "errno.uya" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
 }
 
 // 检查函数是否按 extern "libc" 原始名调用（用于模块限定调用名生成）
@@ -823,12 +1126,21 @@ fn get_c_name_for_global_constant(codegen: &C99CodeGenerator, name: &byte, filen
     if name == null {
         return get_safe_c_identifier(codegen, (" " as *byte) as &byte);
     }
-    // 仅对 lib/libc/ 和 lib/syscall/ 下的 export 变量添加模块前缀
-    // 但排除 stderr/stdin/stdout，因为它们需要链接到系统 libc
+    if codegen != null && codegen.is_nostdlib == 0 && filename != null {
+        if strcmp(name as *byte, "errno" as *byte) == 0 &&
+            c99_filename_is_libc_file(filename, "errno.uya" as &byte) != 0 {
+            return ("errno" as *byte) as &byte;
+        }
+    }
+    // 仅对 lib/libc/ 和 lib/syscall/ 下的 export 变量添加模块前缀。
+    // --nostdlib 下 stdin/stdout/stderr 保持裸名以提供 libc ABI；
+    // hosted 下 Uya helper 使用私有前缀名，用户侧裸名由 identifier ref 映射到系统 libc。
     if filename != null && is_export != 0 {
-        const is_std_stream: i32 = (strcmp(name as *byte, "stderr" as *byte) == 0) ||
-                                   (strcmp(name as *byte, "stdin" as *byte) == 0) ||
-                                   (strcmp(name as *byte, "stdout" as *byte) == 0);
+        var is_std_stream: i32 = c99_name_is_hosted_stdio_stream(name);
+        if codegen != null && codegen.is_nostdlib == 0 &&
+            c99_filename_is_libc_file(filename, "stdio.uya" as &byte) != 0 {
+            is_std_stream = 0;
+        }
         const is_clocks_per_sec: i32 = (strcmp(name as *byte, "CLOCKS_PER_SEC" as *byte) == 0);
         if is_std_stream == 0 && is_clocks_per_sec == 0 {
             const prefix: &byte = get_module_prefix_from_filename(codegen, filename);
@@ -983,6 +1295,9 @@ fn c99_should_emit_static_top_level_function(codegen: &C99CodeGenerator, fn_decl
 
 fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0 {
         return;
     }
     if should_skip_libc_syscall_stub(codegen, fn_decl) != 0 {
@@ -1247,6 +1562,10 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // lib/libc/syscall.uya 的 export extern "libc" sys_* 与 lib/syscall/linux.uya 的 export sys_* C 符号均为 sys_*，
     // 合并编译时只应保留 linux 实现，否则 C 报重复定义。
     if should_skip_libc_syscall_stub(codegen, fn_decl) != 0 {
+        return;
+    }
+
+    if c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0 {
         return;
     }
 

@@ -34,7 +34,7 @@
 - `src/main.uya` 尚未实现 `dispatch_external_cmd`，公开子命令还没有通过 `execve` 转发到 `bin/cmd/xxx`。
 - `Makefile` 尚未提供 `cmds`/`cmd-build`/`cmd-run`/`cmd-test`/`cmd-fmt`/`cmd-upm` 目标。
 - `src/cmd/build`/`check`/`run`/`test`/`fmt`/`upm` 入口源码尚未创建。
-- `tests/test_cmd_dispatch.sh` 尚未落地。
+- `tests/test_cmd_upm_direct.sh` 尚未落地。
 
 这导致 `src/main.uya` 的源码行数、编译产物体积和职责边界都没有实质改善。
 
@@ -263,7 +263,7 @@ bin/cmd/build build main.uya -o app   # 兼容但不推荐
 6. 新建 `src/cmd/upm/main.uya`：提供最小 `--help`/`--version` 骨架。
 7. Makefile 中新增 `cmds` 和 `bin/cmd/%` 规则，过渡期用 `bin/uya` 隐式入口构建。
 8. `src/main.uya` 新增 `dispatch_external_cmd`，公开子命令转发到 `bin/cmd/xxx`。
-9. 运行 `make cmds`、`./tests/test_cmd_dispatch.sh`、`make check` 验证。
+9. 运行 `make cmds`、`./tests/test_cmd_upm_direct.sh`、`make check` 验证。
 
 **预期效果**：`bin/cmd/build` 成为真实编译器；`src/main.uya` 仍为 ~2500 行（含隐式入口）。
 
@@ -349,11 +349,11 @@ make microapp-check                        # microapp 路线
 
 ### 8.2 Phase C 调度测试
 
-新增 `tests/test_cmd_dispatch.sh`，并覆盖：
+新增 `tests/test_cmd_upm_direct.sh`，并覆盖：
 
 ```bash
 make cmds
-./tests/test_cmd_dispatch.sh
+./tests/test_cmd_upm_direct.sh
 bin/cmd/build tests/test_errno.uya -o /tmp/uya_cmd_build --no-split-c
 bin/cmd/test tests/test_errno.uya
 bin/cmd/fmt tests/test_errno.uya

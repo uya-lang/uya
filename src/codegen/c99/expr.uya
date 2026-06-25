@@ -1468,6 +1468,20 @@ fn c99_unwrap_error_value_expr(expr: &ASTNode) &ASTNode {
     return null;
 }
 
+fn c99_expr_is_null_literal(expr: &ASTNode) i32 {
+    if expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null &&
+        strcmp(expr.identifier_name as *byte, "null" as *byte) == 0 {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+        return c99_expr_is_null_literal(expr.cast_expr_expr);
+    }
+    return 0;
+}
+
 fn c99_emit_error_value_for_err_union_param(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_index: i32, arg: &ASTNode) i32 {
     if codegen == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
         arg == null ||
@@ -2622,7 +2636,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     c99_emit_comma_space(codegen);
                 }
                 const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, ai);
-                if libc_param_c != null {
+                if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[ai]) == 0 {
                     c99_emit_char_pointer_cast_for_type(codegen, libc_param_c);
                 } else if expr.call_expr_args[ai] != null && expr.call_expr_args[ai].type == ASTNodeType.AST_STRING {
                     if c99_string_literal_passes_as_const_byte_slice_value(fn_decl, ai, expr.call_expr_args[ai]) == 0 {
@@ -3153,7 +3167,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
                 if codegen.interp_arg_temp_names[i] != null {
                     const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                    if libc_param_c != null {
+                    if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
                         c99_emit_char_pointer_cast_for_type(codegen, libc_param_c);
                     } else {
                         fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
@@ -3161,7 +3175,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.emit_stream as *void);
                 } else {
                     const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                    if libc_param_c != null {
+                    if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
                         c99_emit_char_pointer_cast_for_type(codegen, libc_param_c);
                     } else if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                         if c99_string_literal_passes_as_const_byte_slice_value(fn_decl, i, expr.call_expr_args[i]) == 0 {
@@ -3213,7 +3227,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             while i < arg_count {
             if codegen.interp_arg_temp_names[i] != null {
                 const libc_param_c: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
-                if libc_param_c != null {
+                if libc_param_c != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
                     c99_emit_char_pointer_cast_for_type(codegen, libc_param_c);
                 } else {
                     fputs("(uint8_t *)" as *byte, codegen.emit_stream as *void);
@@ -3251,7 +3265,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
             } else {
             const libc_param_c_plain: &byte = get_extern_libc_param_c_type(codegen, fn_decl, i);
-            if libc_param_c_plain != null {
+            if libc_param_c_plain != null && c99_expr_is_null_literal(expr.call_expr_args[i]) == 0 {
                 c99_emit_char_pointer_cast_for_type(codegen, libc_param_c_plain);
             } else {
             // 检查参数是否是字符串常量或 *byte 类型，如果是则添加类型转换以消除 const 警告
@@ -9118,7 +9132,8 @@ fn gen_cast_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
             }
         } else {
-            // 特殊处理：null as * *byte -> (const uint8_t **)NULL（用于 strtol/strtod，匹配 libc 签名）
+            // 特殊处理：null as * *byte 在 hosted / nostdlib 两条 ABI 下都应保持为裸 NULL，
+            // 避免把系统 libc 的 char ** 端点参数和 Uya 内部实现的指针类型强行绑死。
             var is_null_to_byte_ptr_ptr: i32 = 0;
             if src_expr != null && src_expr.type == ASTNodeType.AST_IDENTIFIER && src_expr.identifier_name != null && strcmp(src_expr.identifier_name as *byte, "null" as *byte) == 0 {
                 // 检查目标类型是否是 * *byte（优先检查 AST 结构，然后检查类型字符串）
@@ -9151,7 +9166,7 @@ fn gen_cast_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
             }
             if is_null_to_byte_ptr_ptr != 0 {
-                fputs("(const uint8_t **)NULL" as *byte, codegen.emit_stream as *void);
+                fputs("NULL" as *byte, codegen.emit_stream as *void);
             } else if c99_emit_string_to_slice_cast(codegen, src_expr, target_type, type_c) != 0 {
                 // 已生成字符串字面量到 byte slice 的聚合转换。
             } else {
@@ -9945,6 +9960,8 @@ fn is_string_function(name: &byte) i32 {
     if name == null { return 0; }
     if strcmp(name as *byte, "strcmp" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strncmp" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strcasecmp" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strncasecmp" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strlen" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strcpy" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strncpy" as *byte) == 0 { return 1; }
@@ -9953,6 +9970,11 @@ fn is_string_function(name: &byte) i32 {
     if strcmp(name as *byte, "strchr" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strrchr" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strstr" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strcspn" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strspn" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strpbrk" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strtok" as *byte) == 0 { return 1; }
+    if strcmp(name as *byte, "strerror" as *byte) == 0 { return 1; }
     if strcmp(name as *byte, "strdup" as &byte) == 0 { return 1; }
     if strcmp(name as *byte, "strndup" as &byte) == 0 { return 1; }
     return 0;
@@ -9996,7 +10018,7 @@ fn gen_asm_block(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     fputs("\"\n" as *byte, codegen.emit_stream as *void);
 
     // 输出部分：收集所有指令的输出
-    fputs("    : " as *byte, codegen.emit_stream as *void);
+    fputs("    :" as *byte, codegen.emit_stream as *void);
     instr_idx = 0;
     var output_offset: i32 = 0;
     var has_prev_output: i32 = 0;
@@ -10006,6 +10028,8 @@ fn gen_asm_block(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         while out_idx < output_count {
             if has_prev_output != 0 {
                 fputs(", " as *byte, codegen.emit_stream as *void);
+            } else {
+                fputs(" " as *byte, codegen.emit_stream as *void);
             }
             fputs("\"=r\"(" as *byte, codegen.emit_stream as *void);
             gen_expr(codegen, expr.asm_outputs[output_offset + out_idx]);
@@ -10019,7 +10043,7 @@ fn gen_asm_block(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     fputs("\n" as *byte, codegen.emit_stream as *void);
 
     // 输入部分：收集所有指令的输入
-    fputs("    : " as *byte, codegen.emit_stream as *void);
+    fputs("    :" as *byte, codegen.emit_stream as *void);
     instr_idx = 0;
     var input_offset: i32 = 0;
     var has_prev_input: i32 = 0;
@@ -10029,6 +10053,8 @@ fn gen_asm_block(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         while in_idx < input_count {
             if has_prev_input != 0 {
                 fputs(", " as *byte, codegen.emit_stream as *void);
+            } else {
+                fputs(" " as *byte, codegen.emit_stream as *void);
             }
             fputs("\"r\"(" as *byte, codegen.emit_stream as *void);
             gen_expr(codegen, expr.asm_inputs[input_offset + in_idx]);
@@ -10042,16 +10068,18 @@ fn gen_asm_block(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     fputs("\n" as *byte, codegen.emit_stream as *void);
 
     // Clobbers 部分
-    fputs("    : " as *byte, codegen.emit_stream as *void);
+    fputs("    :" as *byte, codegen.emit_stream as *void);
     var has_prev: i32 = 0;
     if expr.asm_clobbers_memory != 0 {
-        fputs("\"memory\"" as *byte, codegen.emit_stream as *void);
+        fputs(" \"memory\"" as *byte, codegen.emit_stream as *void);
         has_prev = 1;
     }
     var clobber_idx: i32 = 0;
     while clobber_idx < expr.asm_clobber_count {
         if has_prev != 0 {
             fputs(", " as *byte, codegen.emit_stream as *void);
+        } else {
+            fputs(" " as *byte, codegen.emit_stream as *void);
         }
         fputc(34, codegen.emit_stream as *void);  // "
         fputs(expr.asm_clobbers[clobber_idx] as *byte, codegen.emit_stream as *void);

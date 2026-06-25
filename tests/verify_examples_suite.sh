@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 UYA_BIN="${UYA_BIN:-$ROOT_DIR/bin/uya}"
-UYA_UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/uya-upm-stage2}"
+UYA_UPM_BIN="${UYA_UPM_BIN:-$ROOT_DIR/bin/cmd/upm}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 CURL_BIN="${CURL_BIN:-curl}"
 KEEP_TMP="${EXAMPLES_CHECK_KEEP_TMP:-0}"
