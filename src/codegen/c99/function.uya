@@ -5145,6 +5145,146 @@ fn c99_emit_async_local_init_single(codegen: &C99CodeGenerator, stmt: &ASTNode) 
     return 0;
 }
 
+fn c99_async_var_decl_is_hoisted(codegen: &C99CodeGenerator, name: &byte) i32 {
+    if codegen == null || name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < codegen.async_local_count && i < @len(codegen.async_local_names) {
+        if codegen.async_local_names[i] != null &&
+            strcmp(codegen.async_local_names[i] as *byte, name as *byte) == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn c99_async_emit_var_decl_target_assign(
+    codegen: &C99CodeGenerator,
+    stmt: &ASTNode,
+    value_expr_c: &byte
+) i32 {
+    if codegen == null || stmt == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+        stmt.var_decl_name == null || value_expr_c == null {
+        return 0;
+    }
+    const safe_name: &byte = get_safe_c_identifier(codegen, stmt.var_decl_name);
+    if safe_name == null {
+        return 0;
+    }
+    if codegen.async_state_var != null &&
+        c99_async_var_decl_is_hoisted(codegen, stmt.var_decl_name) != 0 {
+        fprintf(codegen.emit_stream as *void, "        %s->_uya_loc_%s = %s;\n" as *byte,
+            codegen.async_state_var as *byte, safe_name as *byte, value_expr_c as *byte);
+        return 1;
+    }
+    fprintf(codegen.emit_stream as *void, "        %s = %s;\n" as *byte,
+        safe_name as *byte, value_expr_c as *byte);
+    return 1;
+}
+
+fn c99_async_emit_var_decl_target_decl(codegen: &C99CodeGenerator, stmt: &ASTNode) i32 {
+    if codegen == null || stmt == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+        stmt.var_decl_name == null || stmt.var_decl_type == null {
+        return 0;
+    }
+    if codegen.async_state_var != null &&
+        c99_async_var_decl_is_hoisted(codegen, stmt.var_decl_name) != 0 {
+        return 1;
+    }
+    const type_c: &byte = c99_type_to_c(codegen, stmt.var_decl_type);
+    const safe_name: &byte = get_safe_c_identifier(codegen, stmt.var_decl_name);
+    if type_c == null || safe_name == null {
+        return 0;
+    }
+    fprintf(codegen.emit_stream as *void, "        %s %s;\n" as *byte,
+        type_c as *byte, safe_name as *byte);
+    if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+        c99_push_local_variable(codegen, stmt.var_decl_name, type_c, stmt.var_decl_type, codegen.current_depth);
+    }
+    return 1;
+}
+
+fn c99_async_emit_var_decl_catch_with_await(
+    codegen: &C99CodeGenerator,
+    stmt: &ASTNode,
+    block: &ASTNode,
+    si: i32,
+    to_si: i32,
+    await_index: i32
+) i32 {
+    if codegen == null || stmt == null || block == null ||
+        stmt.type != ASTNodeType.AST_VAR_DECL || stmt.var_decl_init == null {
+        return 0;
+    }
+    const init: &ASTNode = stmt.var_decl_init;
+    if init.type != ASTNodeType.AST_CATCH_EXPR ||
+        init.catch_expr_operand == null ||
+        init.catch_expr_catch_block == null {
+        return 0;
+    }
+    const catch_block: &ASTNode = init.catch_expr_catch_block;
+    if catch_block.type != ASTNodeType.AST_BLOCK ||
+        c99_stmt_tree_has_await(catch_block) == 0 {
+        return 0;
+    }
+    if c99_stmt_tree_has_await(init.catch_expr_operand) != 0 {
+        return 0;
+    }
+
+    const operand_union_c: &byte = get_c_type_of_expr(codegen, init.catch_expr_operand);
+    if operand_union_c == null ||
+        strstr(operand_union_c as *byte, "err_union_" as *byte) == null {
+        return 0;
+    }
+    if c99_async_emit_var_decl_target_decl(codegen, stmt) == 0 {
+        return 0;
+    }
+
+    const label_id: usize = @usize_from_ptr(stmt as &void);
+    fprintf(codegen.emit_stream as *void,
+        "        %s _uya_async_catch_tmp_%zu = " as *byte,
+        operand_union_c as *byte, label_id);
+    gen_expr(codegen, init.catch_expr_operand);
+    fputs(";\n" as *byte, codegen.emit_stream as *void);
+
+    fprintf(codegen.emit_stream as *void,
+        "        if (_uya_async_catch_tmp_%zu.error_id != 0) {\n" as *byte,
+        label_id);
+    codegen.indent_level = codegen.indent_level + 1;
+    const saved_local_count: i32 = codegen.local_variable_count;
+    if init.catch_expr_err_name != null {
+        const err_safe: &byte = get_safe_c_identifier(codegen, init.catch_expr_err_name);
+        if err_safe != null {
+            fprintf(codegen.emit_stream as *void,
+                "        const uint32_t %s = _uya_async_catch_tmp_%zu.error_id;\n" as *byte,
+                err_safe as *byte, label_id);
+            if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                c99_push_local_variable(codegen, init.catch_expr_err_name, "const uint32_t" as *byte, null, codegen.current_depth);
+                c99_mark_local_variable_error_value(codegen, init.catch_expr_err_name);
+            }
+        }
+    }
+    c99_emit_async_arm_and_fallthrough(codegen, await_index);
+    codegen.local_variable_count = saved_local_count;
+    codegen.indent_level = codegen.indent_level - 1;
+    fputs("        } else {\n" as *byte, codegen.emit_stream as *void);
+    codegen.indent_level = codegen.indent_level + 1;
+    const value_ref: &byte = compiler_arena_alloc(codegen.arena, 128) as &byte;
+    if value_ref != null {
+        snprintf(value_ref as *byte, 128, "_uya_async_catch_tmp_%zu.value" as *byte, label_id);
+        _ = c99_async_emit_var_decl_target_assign(codegen, stmt, value_ref);
+    }
+    const cont_r: i32 = emit_async_continue_after_range(codegen, block, si + 1, to_si);
+    if cont_r == ASYNC_SEGMENT_REACHED_END {
+        c99_emit_async_set_terminal_state(codegen);
+    }
+    codegen.indent_level = codegen.indent_level - 1;
+    fputs("        }\n" as *byte, codegen.emit_stream as *void);
+    return 1;
+}
+
 /// 递归段发射：遍历 block.stmts[from_si..to_si)，对普通语句调 gen_stmt，遇 await 分裂则状态转移。
 /// 返回:
 /// 0 = 已发射 await 状态转移
@@ -5204,6 +5344,9 @@ fn emit_async_segment(codegen: &C99CodeGenerator, block: &ASTNode, from_si: i32,
             stmt.type != ASTNodeType.AST_WHILE_STMT && stmt.type != ASTNodeType.AST_FOR_STMT {
             const ai2: i32 = c99_async_find_await_for_stmt(codegen, block, si, stmt);
             if ai2 >= 0 {
+                if c99_async_emit_var_decl_catch_with_await(codegen, stmt, block, si, to_si, ai2) != 0 {
+                    return ASYNC_SEGMENT_EMITTED_TRANSFER;
+                }
                 c99_emit_async_arm_and_fallthrough(codegen, ai2);
                 return 0;
             }

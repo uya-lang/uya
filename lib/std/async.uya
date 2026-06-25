@@ -1359,6 +1359,8 @@ struct AsyncWaitFdFuture : Future<!usize> {
     interest: i32,
     deadline_ms: u64 = 0,
     boxed: i32 = 0,
+    skip_ready_probe: i32 = 0,
+    armed: i32 = 0,
 
     fn poll(self: &Self, waker: &Waker) Poll<!usize> {
         if waker.is_cancelled() {
@@ -1373,6 +1375,13 @@ struct AsyncWaitFdFuture : Future<!usize> {
         const events: i16 = async_wait_interest_to_poll_events(self.interest);
         if events == 0 {
             return Poll<!usize>.Ready(error.FutureNotReady);
+        }
+        if self.skip_ready_probe != 0 {
+            if self.armed != 0 {
+                return async_poll_ready_ok_usize(0);
+            }
+            self.armed = 1;
+            return async_wait_pending_usize(waker, self.fd, self.interest);
         }
         var pollfd: PollFd = PollFd{
             fd: self.fd,
@@ -1486,6 +1495,28 @@ export @async_fn fn async_fd_read_deadline_future(fd: i32, buf: &byte, count: us
     }
 }
 
+/// 返回已处于非阻塞模式 fd 的异步读 helper；调用方必须先保证 `fd` 设置了 `O_NONBLOCK`。
+/// 参数说明：`fd` 为目标文件描述符；`buf`/`count` 为读取目标。
+/// 返回值说明：成功返回本次实际读取字节数；`EAGAIN`/`EWOULDBLOCK` 时等待下一次可读事件。
+export @async_fn fn async_fd_read_nonblocking_future(fd: i32, buf: &byte, count: usize) Future<!usize> {
+    while true {
+        var n: isize = 0;
+        const step: i32 = try async_fd_read_try_step(fd, buf, count, &n);
+        if step == ASYNC_FD_IO_STEP_WAIT {
+            const wait_readable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+                fd: fd,
+                interest: ASYNC_WAIT_INTEREST_READABLE,
+                deadline_ms: 0 as u64,
+                skip_ready_probe: 1,
+            };
+            const wait_readable_fut: Future<!usize> = wait_readable_leaf;
+            _ = try @await wait_readable_fut;
+            continue;
+        }
+        return n as usize;
+    }
+}
+
 /// 返回具体 fd 读 helper，供 `@await` 路径使用（接口返回，由 compiler box）。
 export @async_fn fn async_fd_read_future(fd: i32, buf: &byte, count: usize) Future<!usize> {
     return try @await async_fd_read_deadline_future(fd, buf, count, 0 as u64);
@@ -1515,6 +1546,28 @@ export @async_fn fn async_fd_write_deadline_future(fd: i32, data: &const byte, c
                 fd: fd,
                 interest: ASYNC_WAIT_INTEREST_WRITABLE,
                 deadline_ms: deadline_ms,
+            };
+            const wait_writable_fut: Future<!usize> = wait_writable_leaf;
+            _ = try @await wait_writable_fut;
+            continue;
+        }
+        return n as usize;
+    }
+}
+
+/// 返回已处于非阻塞模式 fd 的异步写 helper；调用方必须先保证 `fd` 设置了 `O_NONBLOCK`。
+/// 参数说明：`fd` 为目标文件描述符；`data`/`count` 为待写 buffer。
+/// 返回值说明：成功返回本次实际写入字节数；`EAGAIN`/`EWOULDBLOCK` 时等待下一次可写事件。
+export @async_fn fn async_fd_write_nonblocking_future(fd: i32, data: &const byte, count: usize) Future<!usize> {
+    while true {
+        var n: isize = 0;
+        const step: i32 = try async_fd_write_try_step(fd, data, count, &n);
+        if step == ASYNC_FD_IO_STEP_WAIT {
+            const wait_writable_leaf: AsyncWaitFdFuture = AsyncWaitFdFuture{
+                fd: fd,
+                interest: ASYNC_WAIT_INTEREST_WRITABLE,
+                deadline_ms: 0 as u64,
+                skip_ready_probe: 1,
             };
             const wait_writable_fut: Future<!usize> = wait_writable_leaf;
             _ = try @await wait_writable_fut;

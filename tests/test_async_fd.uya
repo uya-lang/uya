@@ -603,6 +603,90 @@ fn test_async_fd_read_with_event_loop_wakes() !void {
     _ = test_sys_close(write_fd);
 }
 
+fn test_async_fd_read_nonblocking_pending_then_ready() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], TEST_O_NONBLOCK) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+
+    var buf: [byte: 8] = [];
+    const f: Future<!usize> = async_fd_read_nonblocking_future(read_fd, &buf[0], 4);
+    const wk: Waker = Waker{};
+
+    var first_poll: Poll<!usize> = f.poll(&wk);
+    var transition_count: i32 = 0;
+    while transition_count < 4 && !wk.has_io_interest() {
+        first_poll = f.poll(&wk);
+        transition_count = transition_count + 1;
+    }
+    var saw_pending: i32 = 0;
+    match first_poll {
+        .Ready(_) => { saw_pending = 0; },
+        .Pending(_) => { saw_pending = 1; },
+    };
+    try assert_eq_i32(saw_pending, 1);
+    try assert_eq_i32(wk.has_io_interest() as i32, 1);
+    try assert_eq_i32(wk.io_fd(), read_fd);
+    try assert_eq_i32(wk.io_interest_code(), 1);
+
+    var src: [byte: 4] = [ 11, 22, 33, 44 ];
+    const written: isize = test_sys_write(write_fd, &src[0] as &const byte, 4) catch {
+        return error.PipeWriteFailed;
+    };
+    try assert_eq_i32(written as i32, 4);
+
+    const second_poll: Poll<!usize> = f.poll(&wk);
+    var read_count: usize = 0;
+    match second_poll {
+        .Ready(value) => { read_count = value catch { return error.AsyncFdFailed; }; },
+        .Pending(_) => { return error.UnexpectedPending; },
+    };
+    try assert_eq_i32(read_count as i32, 4);
+    try assert_eq_i32(buf[0] as i32, 11);
+    try assert_eq_i32(buf[1] as i32, 22);
+    try assert_eq_i32(buf[2] as i32, 33);
+    try assert_eq_i32(buf[3] as i32, 44);
+
+    _ = test_sys_close(read_fd);
+    _ = test_sys_close(write_fd);
+}
+
+fn test_async_fd_write_nonblocking_returns_ready() !void {
+    var fds: [i32: 2] = [];
+    _ = test_sys_pipe2(&fds[0], TEST_O_NONBLOCK) catch {
+        return error.PipeCreateFailed;
+    };
+    const read_fd: i32 = fds[0];
+    const write_fd: i32 = fds[1];
+
+    var src: [byte: 4] = [ 51, 52, 53, 54 ];
+    const f: Future<!usize> = async_fd_write_nonblocking_future(write_fd, &src[0] as &const byte, 4);
+    const wk: Waker = Waker{};
+    const p: Poll<!usize> = poll_usize_allow_transition_pending(f, &wk);
+    var written_count: usize = 0;
+    match p {
+        .Ready(value) => { written_count = value catch { return error.AsyncFdFailed; }; },
+        .Pending(_) => { return error.UnexpectedPending; },
+    };
+    try assert_eq_i32(written_count as i32, 4);
+
+    var out: [byte: 8] = [];
+    const read_result: !isize = sys_read(read_fd, &out[0] as *byte, 4);
+    const read_count: isize = read_result catch {
+        return error.PipeReadFailed;
+    };
+    try assert_eq_i32(read_count as i32, 4);
+    try assert_eq_i32(out[0] as i32, 51);
+    try assert_eq_i32(out[1] as i32, 52);
+    try assert_eq_i32(out[2] as i32, 53);
+    try assert_eq_i32(out[3] as i32, 54);
+
+    _ = test_sys_close(read_fd);
+    _ = test_sys_close(write_fd);
+}
+
 fn test_async_fd_read_deadline_expires_after_pending() !void {
     var fds: [i32: 2] = [];
     _ = test_sys_pipe2(&fds[0], TEST_O_NONBLOCK) catch {
@@ -925,6 +1009,11 @@ test "async_fd_read_returns_pending_on_eagain_then_ready" {
 
 test "async_fd_read_with_event_loop_wakes_to_ready" {
     try test_async_fd_read_with_event_loop_wakes();
+}
+
+test "async_fd_nonblocking_helpers_use_existing_nonblocking_fd" {
+    try test_async_fd_read_nonblocking_pending_then_ready();
+    try test_async_fd_write_nonblocking_returns_ready();
 }
 
 test "async_fd_read_deadline_expires_after_pending" {

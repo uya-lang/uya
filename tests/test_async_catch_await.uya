@@ -39,6 +39,27 @@ fn maybe_fail_sync(fail: i32) !i32 {
     return 42;
 }
 
+@async_fn
+fn success_catch_await_not_polled() Future<!i32> {
+    const raw: !i32 = ok<i32>(7);
+    const v: i32 = raw catch |err| {
+        _ = err;
+        const fallback: i32 = try @await maybe_fail(100, 0);
+        fallback;
+    };
+    return v + 1;
+}
+
+@async_fn
+fn direct_call_success_catch_await_not_polled() Future<!i32> {
+    const v: i32 = maybe_fail_sync(0) catch |err| {
+        _ = err;
+        const fallback: i32 = try @await maybe_fail(200, 0);
+        fallback;
+    };
+    return v + 1;
+}
+
 // try @await 成功路径：直接取正常值
 @async_fn
 fn catch_success_path(fail: i32) Future<!i32> {
@@ -160,6 +181,30 @@ test "async_catch_success_path" {
     const r: !i32 = block_on<i32>(f);
     const v: i32 = r catch { -1; };
     try assert_eq_i32(v, 43);
+}
+
+test "async_catch_success_path_does_not_poll_catch_await" {
+    const f: Future<!i32> = success_catch_await_not_polled();
+    const wk: Waker = Waker{};
+    const p: Poll<!i32> = f.poll(&wk);
+    var got: i32 = -1;
+    match p {
+        .Ready(value) => { got = value catch { -2; }; },
+        .Pending(_) => { got = -3; },
+    };
+    try assert_eq_i32(got, 8);
+}
+
+test "async_catch_direct_call_success_path_does_not_poll_catch_await" {
+    const f: Future<!i32> = direct_call_success_catch_await_not_polled();
+    const wk: Waker = Waker{};
+    const p: Poll<!i32> = f.poll(&wk);
+    var got: i32 = -1;
+    match p {
+        .Ready(value) => { got = value catch { -2; }; },
+        .Pending(_) => { got = -3; },
+    };
+    try assert_eq_i32(got, 43);
 }
 
 test "async_sync_catch_in_async_success" {
