@@ -11,9 +11,9 @@
 # 可指定的 bench 名称（不指定则运行全部）:
 #   uya, uya-fork, uya-async-epoll, uya-async-await,
 #   uya-async-await-simple, uya-async-await-stack,
-#   c, c-async-epoll, go, tokio
+#   c, c-async-epoll, nginx, go, tokio
 #
-# 依赖: wrk, cc, bin/uya；go / cargo 作为可选对照项
+# 依赖: wrk, cc, bin/uya；go / cargo / nginx 作为可选对照项
 
 set -e
 
@@ -37,6 +37,10 @@ UYA_ASYNC_AWAIT_SIMPLE_ENTRY="http_bench_async_epoll_await_simple.uya"
 UYA_ASYNC_AWAIT_STACK_ENTRY="http_bench_async_epoll_await_stack.uya"
 C_SRC="${SCRIPT_DIR}/http_bench.c"
 C_ASYNC_EPOLL_SRC="${SCRIPT_DIR}/http_bench_async_epoll.c"
+NGINX_BENCH_DIR="/tmp/http_bench_nginx"
+NGINX_CONF_FILE="${NGINX_BENCH_DIR}/nginx.conf"
+NGINX_PID_FILE="${NGINX_BENCH_DIR}/nginx.pid"
+NGINX_EXEC=""
 export UYA_ROOT="${UYA_ROOT:-${SCRIPT_DIR}/../lib/}"
 
 # 编译输出
@@ -88,6 +92,90 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_err() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+nginx_bench_pid_matches() {
+    local pid="$1"
+    local args=""
+
+    case "$pid" in
+        ""|*[!0-9]*) return 1 ;;
+    esac
+
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    case "$args" in
+        *"$NGINX_BENCH_DIR"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+cleanup_nginx_bench_processes() {
+    local nginx_bin="$NGINX_EXEC"
+    local pid=""
+    local child_pids=""
+    local child_pid=""
+    local i=0
+
+    if [ -z "$nginx_bin" ]; then
+        nginx_bin="$(command -v nginx 2>/dev/null || true)"
+    fi
+
+    if [ ! -f "$NGINX_PID_FILE" ]; then
+        return
+    fi
+
+    pid="$(cat "$NGINX_PID_FILE" 2>/dev/null || true)"
+    if ! nginx_bench_pid_matches "$pid"; then
+        rm -f "$NGINX_PID_FILE" 2>/dev/null || true
+        return
+    fi
+
+    if [ -n "$pid" ]; then
+        child_pids="$(pgrep -P "$pid" 2>/dev/null || true)"
+    fi
+
+    if [ -n "$nginx_bin" ]; then
+        "$nginx_bin" -p "$NGINX_BENCH_DIR" -c nginx.conf -s quit >/dev/null 2>&1 || \
+            "$nginx_bin" -p "$NGINX_BENCH_DIR" -c nginx.conf -s stop >/dev/null 2>&1 || true
+    fi
+
+    while [ "$i" -lt 20 ]; do
+        local any_alive=0
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            any_alive=1
+        fi
+        for child_pid in $child_pids; do
+            if kill -0 "$child_pid" 2>/dev/null; then
+                any_alive=1
+            fi
+        done
+        if [ "$any_alive" -eq 0 ]; then
+            break
+        fi
+        sleep 0.1
+        i=$((i + 1))
+    done
+
+    for child_pid in $child_pids; do
+        if kill -0 "$child_pid" 2>/dev/null; then
+            kill "$child_pid" 2>/dev/null || true
+        fi
+    done
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+    fi
+
+    sleep 0.2
+    for child_pid in $child_pids; do
+        if kill -0 "$child_pid" 2>/dev/null; then
+            kill -9 "$child_pid" 2>/dev/null || true
+        fi
+    done
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+
+    rm -f "$NGINX_PID_FILE" 2>/dev/null || true
+}
+
 cleanup_http_bench_processes() {
     pkill -9 -f "http_bench_uya" 2>/dev/null || true
     pkill -9 -f "http_bench_fork" 2>/dev/null || true
@@ -99,6 +187,7 @@ cleanup_http_bench_processes() {
     pkill -9 -f "http_bench_c_async_epoll" 2>/dev/null || true
     pkill -9 -f "http_bench_c" 2>/dev/null || true
     pkill -9 -f "http_bench_tokio" 2>/dev/null || true
+    cleanup_nginx_bench_processes
 }
 
 result_field() {
@@ -141,6 +230,7 @@ table_remark_for() {
         http_bench.go) echo "go" ;;
         http_bench.c) echo "c" ;;
         http_bench_async_epoll.c) echo "c-ep" ;;
+        nginx) echo "nginx" ;;
         http_bench_tokio) echo "tokio" ;;
         *) echo "" ;;
     esac
@@ -255,6 +345,53 @@ parse_wrk() {
     p99=$(wrk_latency_to_us "$p99_token")
 
     echo "$req|$count|$dur|$p50|$p95|$p99|$rps"
+}
+
+# 准备 nginx 对照服务：仅服务根路径 "/"，与其它实现保持同样的响应体大小。
+prepare_nginx_bench() {
+    if ! command -v nginx &> /dev/null; then
+        log_warn "未找到 nginx，跳过 nginx 版本编译与压测"
+        return 1
+    fi
+    NGINX_EXEC="$(command -v nginx)"
+
+    cleanup_nginx_bench_processes
+    rm -rf "$NGINX_BENCH_DIR"
+    mkdir -p "$NGINX_BENCH_DIR"
+
+    cat > "$NGINX_CONF_FILE" << EOF
+worker_processes  1;
+error_log stderr warn;
+pid ${NGINX_PID_FILE};
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    access_log off;
+    keepalive_timeout 65;
+    default_type text/plain;
+
+    server {
+        listen 127.0.0.1:8876;
+        server_name 127.0.0.1;
+
+        location = / {
+            return 200 "hello";
+        }
+    }
+}
+EOF
+
+    if ! "$NGINX_EXEC" -p "$NGINX_BENCH_DIR" -c nginx.conf -t >/tmp/http_bench_nginx_config.log 2>&1; then
+        log_err "nginx 配置校验失败，日志:"
+        cat /tmp/http_bench_nginx_config.log >&2
+        return 1
+    fi
+
+    log_info "nginx 版本配置完成: $NGINX_CONF_FILE"
+    return 0
 }
 
 # 编译 Uya fork 版本
@@ -431,6 +568,7 @@ run_benchmark() {
             sed -n '1,80p' "$server_log" >&2
             echo "-----------------------" >&2
         fi
+        wait "$pid" 2>/dev/null || true
         return 1
     fi
 
@@ -447,6 +585,7 @@ run_benchmark() {
 
     # 清理服务器（Uya fork 会 fork 子进程，需要用 pkill）
     cleanup_http_bench_processes
+    wait "$pid" 2>/dev/null || true
     sleep 2
 
     # 输出结果摘要
@@ -506,6 +645,7 @@ run_keepalive_probe() {
             sed -n '1,80p' "$server_log" >&2
             echo "-----------------------" >&2
         fi
+        wait "$pid" 2>/dev/null || true
         return 1
     fi
 
@@ -524,6 +664,7 @@ run_keepalive_probe() {
     if [ -z "$rps" ]; then rps=0; fi
 
     cleanup_http_bench_processes
+    wait "$pid" 2>/dev/null || true
     sleep 2
 
     echo "$name Keep-Alive 结果: keep_alive=${ka}, failed=${failed}, rps=${rps}" >&2
@@ -573,6 +714,7 @@ run_ab_probe() {
             sed -n '1,80p' "$server_log" >&2
             echo "-----------------------" >&2
         fi
+        wait "$pid" 2>/dev/null || true
         return 1
     fi
 
@@ -591,6 +733,7 @@ run_ab_probe() {
     if [ -z "$rps" ]; then rps=0; fi
 
     cleanup_http_bench_processes
+    wait "$pid" 2>/dev/null || true
     sleep 2
 
     echo "$name AB 结果: req=${req}, failed=${failed}, rps=${rps}" >&2
@@ -626,6 +769,7 @@ save_baseline() {
     local c_root_rps="$8"
     local c_async_epoll_root_rps="$9"
     local tokio_root_rps="${10}"
+    local nginx_root_rps="${11}"
     local timestamp
     timestamp=$(date -Iseconds)
 
@@ -659,7 +803,8 @@ save_baseline() {
       "go_qps": ${go_root_rps:-0},
       "c_qps": ${c_root_rps:-0},
       "c_async_epoll_qps": ${c_async_epoll_root_rps:-0},
-      "tokio_qps": ${tokio_root_rps:-0}
+      "tokio_qps": ${tokio_root_rps:-0},
+      "nginx_qps": ${nginx_root_rps:-0}
     }
   }
 }
@@ -669,6 +814,10 @@ EOF
 
 # 主函数
 main() {
+    trap cleanup_http_bench_processes EXIT
+    trap 'cleanup_http_bench_processes; exit 130' INT
+    trap 'cleanup_http_bench_processes; exit 143' TERM
+
     log_info "HTTP 基准测试开始"
     echo ""
 
@@ -716,6 +865,10 @@ main() {
     if bench_enabled "uya-async-await-stack"; then build_uya_async_await_stack; fi
     if bench_enabled "c"; then build_c; fi
     if bench_enabled "c-async-epoll"; then build_c_async_epoll; fi
+    local have_nginx=0
+    if bench_enabled "nginx"; then
+        if prepare_nginx_bench; then have_nginx=1; fi
+    fi
 
     local have_go=0
     if bench_enabled "go"; then
@@ -741,12 +894,13 @@ main() {
     local go_result="http_bench.go|0|0|0|0|0|0|0"
     local c_result="http_bench.c|0|0|0|0|0|0|0"
     local c_async_epoll_result="http_bench_async_epoll.c|0|0|0|0|0|0|0"
+    local nginx_result="nginx|0|0|0|0|0|0|0"
     local tokio_result="http_bench_tokio|0|0|0|0|0|0|0"
     local tokio_rps=0
 
     # 预热
     local any_enabled=0
-    for b in uya uya-fork uya-async-epoll uya-async-await uya-async-await-simple uya-async-await-stack go c c-async-epoll tokio; do
+    for b in uya uya-fork uya-async-epoll uya-async-await uya-async-await-simple uya-async-await-stack go c c-async-epoll nginx tokio; do
         if bench_enabled "$b"; then any_enabled=1; break; fi
     done
     if [ "$any_enabled" -eq 1 ]; then
@@ -791,6 +945,10 @@ main() {
         c_async_epoll_result=$(run_benchmark_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
         sleep 1
     fi
+    if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then
+        nginx_result=$(run_benchmark_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;")
+        sleep 1
+    fi
     if bench_enabled "tokio" && [ "$have_tokio" -eq 1 ]; then
         tokio_result=$(run_benchmark_safe "http_bench_tokio" "$TOKIO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
         tokio_rps=$(echo "$tokio_result" | awk -F'|' '{print $8}')
@@ -807,6 +965,7 @@ main() {
     local go_rps=$(result_field "$go_result" 8)
     local c_rps=$(result_field "$c_result" 8)
     local c_async_epoll_rps=$(result_field "$c_async_epoll_result" 8)
+    local nginx_rps=$(result_field "$nginx_result" 8)
     local tokio_rps_val=$(result_field "$tokio_result" 8)
     if [ -z "$uya_rps" ]; then uya_rps=0; fi
     if [ -z "$uya_fork_rps" ]; then uya_fork_rps=0; fi
@@ -817,6 +976,7 @@ main() {
     if [ -z "$go_rps" ]; then go_rps=0; fi
     if [ -z "$c_rps" ]; then c_rps=0; fi
     if [ -z "$c_async_epoll_rps" ]; then c_async_epoll_rps=0; fi
+    if [ -z "$nginx_rps" ]; then nginx_rps=0; fi
     if [ -z "$tokio_rps_val" ]; then tokio_rps_val=0; fi
 
     # AB / Keep-Alive 测试
@@ -829,6 +989,7 @@ main() {
     local go_ab_result="http_bench.go|0|0|0"
     local c_ab_result="http_bench.c|0|0|0"
     local c_async_epoll_ab_result="http_bench_async_epoll.c|0|0|0"
+    local nginx_ab_result="nginx|0|0|0"
     local tokio_ab_result="http_bench_tokio|0|0|0"
 
     local uya_ka_result="http_bench.uya|0|0|0"
@@ -840,6 +1001,7 @@ main() {
     local go_ka_result="http_bench.go|0|0|0"
     local c_ka_result="http_bench.c|0|0|0"
     local c_async_epoll_ka_result="http_bench_async_epoll.c|0|0|0"
+    local nginx_ka_result="nginx|0|0|0"
     local tokio_ka_result="http_bench_tokio|0|0|0"
 
     if [ "$do_ab" -eq 1 ] || [ "$do_abk" -eq 1 ]; then
@@ -855,6 +1017,7 @@ main() {
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ab_result=$(run_ab_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c"; then c_ab_result=$(run_ab_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ab_result=$(run_ab_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi
             if bench_enabled "tokio" && [ "$have_tokio" -eq 1 ]; then tokio_ab_result=$(run_ab_probe_safe "http_bench_tokio" "$TOKIO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
         fi
         if [ "$do_abk" -eq 1 ]; then
@@ -868,6 +1031,7 @@ main() {
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ka_result=$(run_keepalive_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c"; then c_ka_result=$(run_keepalive_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ka_result=$(run_keepalive_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi
             if bench_enabled "tokio" && [ "$have_tokio" -eq 1 ]; then tokio_ka_result=$(run_keepalive_probe_safe "http_bench_tokio" "$TOKIO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
         fi
     fi
@@ -882,6 +1046,7 @@ main() {
     local go_ab_req=0 go_ab_failed=0 go_ab_rps=0
     local c_ab_req=0 c_ab_failed=0 c_ab_rps=0
     local c_async_epoll_ab_req=0 c_async_epoll_ab_failed=0 c_async_epoll_ab_rps=0
+    local nginx_ab_req=0 nginx_ab_failed=0 nginx_ab_rps=0
     local tokio_ab_req=0 tokio_ab_failed=0 tokio_ab_rps=0
 
     if [ "$do_ab" -eq 1 ]; then
@@ -894,6 +1059,7 @@ main() {
         go_ab_req=$(result_field "$go_ab_result" 2); go_ab_failed=$(result_field "$go_ab_result" 3); go_ab_rps=$(result_field "$go_ab_result" 4)
         c_ab_req=$(result_field "$c_ab_result" 2); c_ab_failed=$(result_field "$c_ab_result" 3); c_ab_rps=$(result_field "$c_ab_result" 4)
         c_async_epoll_ab_req=$(result_field "$c_async_epoll_ab_result" 2); c_async_epoll_ab_failed=$(result_field "$c_async_epoll_ab_result" 3); c_async_epoll_ab_rps=$(result_field "$c_async_epoll_ab_result" 4)
+        nginx_ab_req=$(result_field "$nginx_ab_result" 2); nginx_ab_failed=$(result_field "$nginx_ab_result" 3); nginx_ab_rps=$(result_field "$nginx_ab_result" 4)
         tokio_ab_req=$(result_field "$tokio_ab_result" 2); tokio_ab_failed=$(result_field "$tokio_ab_result" 3); tokio_ab_rps=$(result_field "$tokio_ab_result" 4)
     fi
 
@@ -906,6 +1072,7 @@ main() {
     local go_ka_req=0 go_ka_failed=0 go_ka_rps=0
     local c_ka_req=0 c_ka_failed=0 c_ka_rps=0
     local c_async_epoll_ka_req=0 c_async_epoll_ka_failed=0 c_async_epoll_ka_rps=0
+    local nginx_ka_req=0 nginx_ka_failed=0 nginx_ka_rps=0
     local tokio_ka_req=0 tokio_ka_failed=0 tokio_ka_rps=0
 
     if [ "$do_abk" -eq 1 ]; then
@@ -918,6 +1085,7 @@ main() {
         go_ka_req=$(result_field "$go_ka_result" 2); go_ka_failed=$(result_field "$go_ka_result" 3); go_ka_rps=$(result_field "$go_ka_result" 4)
         c_ka_req=$(result_field "$c_ka_result" 2); c_ka_failed=$(result_field "$c_ka_result" 3); c_ka_rps=$(result_field "$c_ka_result" 4)
         c_async_epoll_ka_req=$(result_field "$c_async_epoll_ka_result" 2); c_async_epoll_ka_failed=$(result_field "$c_async_epoll_ka_result" 3); c_async_epoll_ka_rps=$(result_field "$c_async_epoll_ka_result" 4)
+        nginx_ka_req=$(result_field "$nginx_ka_result" 2); nginx_ka_failed=$(result_field "$nginx_ka_result" 3); nginx_ka_rps=$(result_field "$nginx_ka_result" 4)
         tokio_ka_req=$(result_field "$tokio_ka_result" 2); tokio_ka_failed=$(result_field "$tokio_ka_result" 3); tokio_ka_rps=$(result_field "$tokio_ka_result" 4)
     fi
 
@@ -931,6 +1099,7 @@ main() {
     if [ -z "$go_ab_req" ]; then go_ab_req=0; fi
     if [ -z "$c_ab_req" ]; then c_ab_req=0; fi
     if [ -z "$c_async_epoll_ab_req" ]; then c_async_epoll_ab_req=0; fi
+    if [ -z "$nginx_ab_req" ]; then nginx_ab_req=0; fi
     if [ -z "$tokio_ab_req" ]; then tokio_ab_req=0; fi
     if [ -z "$uya_ka_req" ]; then uya_ka_req=0; fi
     if [ -z "$uya_fork_ka_req" ]; then uya_fork_ka_req=0; fi
@@ -941,6 +1110,7 @@ main() {
     if [ -z "$go_ka_req" ]; then go_ka_req=0; fi
     if [ -z "$c_ka_req" ]; then c_ka_req=0; fi
     if [ -z "$c_async_epoll_ka_req" ]; then c_async_epoll_ka_req=0; fi
+    if [ -z "$nginx_ka_req" ]; then nginx_ka_req=0; fi
     if [ -z "$tokio_ka_req" ]; then tokio_ka_req=0; fi
 
     TABLE_NAME_WIDTH="$(
@@ -954,6 +1124,7 @@ main() {
             "http_bench.go" \
             "http_bench.c" \
             "http_bench_async_epoll.c" \
+            "nginx" \
             "http_bench_tokio"
     )"
     TABLE_REMARK_WIDTH="$(
@@ -967,6 +1138,7 @@ main() {
             "http_bench.go" \
             "http_bench.c" \
             "http_bench_async_epoll.c" \
+            "nginx" \
             "http_bench_tokio"
     )"
 
@@ -1074,6 +1246,7 @@ main() {
     if bench_enabled "go"; then append_summary_row "http_bench.go" "$go_rps" "$go_ab_req" "$go_ab_failed" "$go_ab_rps" "$go_ka_req" "$go_ka_failed" "$go_ka_rps"; fi
     if bench_enabled "c"; then append_summary_row "http_bench.c" "$c_rps" "$c_ab_req" "$c_ab_failed" "$c_ab_rps" "$c_ka_req" "$c_ka_failed" "$c_ka_rps"; fi
     if bench_enabled "c-async-epoll"; then append_summary_row "http_bench_async_epoll.c" "$c_async_epoll_rps" "$c_async_epoll_ab_req" "$c_async_epoll_ab_failed" "$c_async_epoll_ab_rps" "$c_async_epoll_ka_req" "$c_async_epoll_ka_failed" "$c_async_epoll_ka_rps"; fi
+    if bench_enabled "nginx"; then append_summary_row "nginx" "$nginx_rps" "$nginx_ab_req" "$nginx_ab_failed" "$nginx_ab_rps" "$nginx_ka_req" "$nginx_ka_failed" "$nginx_ka_rps"; fi
     if bench_enabled "tokio"; then append_summary_row "http_bench_tokio" "$tokio_rps_val" "$tokio_ab_req" "$tokio_ab_failed" "$tokio_ab_rps" "$tokio_ka_req" "$tokio_ka_failed" "$tokio_ka_rps"; fi
     print_sorted_rows
     print_sep
@@ -1081,11 +1254,12 @@ main() {
 
     # 保存基线（如果指定）
     if [ "$do_baseline" -eq 1 ]; then
-        save_baseline "$uya_rps" "$uya_fork_rps" "$uya_epoll_rps" "$uya_async_await_rps" "$uya_async_await_simple_rps" "$uya_async_await_stack_rps" "$go_rps" "$c_rps" "$c_async_epoll_rps" "${tokio_rps_val:-0}"
+        save_baseline "$uya_rps" "$uya_fork_rps" "$uya_epoll_rps" "$uya_async_await_rps" "$uya_async_await_simple_rps" "$uya_async_await_stack_rps" "$go_rps" "$c_rps" "$c_async_epoll_rps" "${tokio_rps_val:-0}" "$nginx_rps"
     fi
 
     # 清理
     rm -f "$GO_EXEC" "$C_EXEC" "$C_ASYNC_EPOLL_EXEC" "$UYA_HTTP_EXEC" "$UYA_FORK_EXEC" "$UYA_ASYNC_EPOLL_EXEC" "$UYA_ASYNC_AWAIT_EXEC" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$TOKIO_EXEC"
+    rm -rf "$NGINX_BENCH_DIR"
 
     log_info "基准测试完成"
 }

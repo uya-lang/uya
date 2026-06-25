@@ -179,7 +179,7 @@
 
 ### 8.2 环境与脚本
 
-- [x] `benchmarks/run_bench.sh`：运行 wrk 并解析输出，对比 Uya-async/Go/C（及可选 Tokio）QPS；`--baseline` 保存到 `baseline.json`（含 `tokio_qps` 字段）
+- [x] `benchmarks/run_bench.sh`：运行 wrk 并解析输出，对比 Uya-async/Go/C/nginx（及可选 Tokio）QPS；`--baseline` 保存到 `baseline.json`（含 `tokio_qps` / `nginx_qps` 字段）
 - [x] `benchmarks/baseline.json`：基线数据（含测试机配置：Intel i7-14700/31GB/Deepin 25）
 - [x] 运行 `./run_bench.sh --baseline` 获取实际基线数据
 - [x] 文档记录：CPU、内存、OS、编译器；wrk 使用 keep-alive
