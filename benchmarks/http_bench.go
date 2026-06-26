@@ -10,6 +10,7 @@
 //   GET /payload100k   → 102400 字节 'a'
 //
 // 默认 127.0.0.1:8876；`--once`：accept 一次连接，处理首个请求后退出。
+// `--threads N`：指定 accept worker 与 GOMAXPROCS。
 //
 // 运行：
 //   cd benchmarks && go run .
@@ -26,6 +27,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 )
 
 const benchPort = "8876"
@@ -37,15 +39,15 @@ var (
 	payload10k  = bytes.Repeat([]byte{'a'}, 10240)
 	payload100k = bytes.Repeat([]byte{'a'}, 102400)
 
-	rootPath      = []byte("/")
-	plaintextPath = []byte("/plaintext")
-	jsonPath      = []byte("/json")
-	itemPrefix    = []byte("/item/")
-	payload1kPath = []byte("/payload1k")
-	payload10kPath = []byte("/payload10k")
+	rootPath        = []byte("/")
+	plaintextPath   = []byte("/plaintext")
+	jsonPath        = []byte("/json")
+	itemPrefix      = []byte("/item/")
+	payload1kPath   = []byte("/payload1k")
+	payload10kPath  = []byte("/payload10k")
 	payload100kPath = []byte("/payload100k")
-	getMethod     = []byte("GET")
-	http11Version = []byte("HTTP/1.1")
+	getMethod       = []byte("GET")
+	http11Version   = []byte("HTTP/1.1")
 )
 
 func statusText(code int) string {
@@ -307,7 +309,7 @@ func acceptLoop(tcpLn *net.TCPListener) {
 	}
 }
 
-func runServer() error {
+func runServer(workerCount int) error {
 	addr := "127.0.0.1:" + benchPort
 	ln, err := net.Listen("tcp4", addr)
 	if err != nil {
@@ -319,7 +321,6 @@ func runServer() error {
 		return fmt.Errorf("unexpected listener type")
 	}
 
-	workerCount := runtime.NumCPU()
 	if workerCount < 1 {
 		workerCount = 1
 	}
@@ -331,16 +332,37 @@ func runServer() error {
 	select {}
 }
 
-func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
+func parseArgs(args []string) (bool, int) {
 	once := false
-	for _, a := range os.Args[1:] {
-		if a == "--once" {
+	threads := runtime.NumCPU()
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--once":
 			once = true
-			break
+		case a == "--threads" && i+1 < len(args):
+			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+				threads = n
+			}
+			i++
+		case strings.HasPrefix(a, "--threads="):
+			value := strings.TrimPrefix(a, "--threads=")
+			if n, err := strconv.Atoi(value); err == nil && n > 0 {
+				threads = n
+			}
 		}
 	}
+
+	if threads < 1 {
+		threads = 1
+	}
+	return once, threads
+}
+
+func main() {
+	once, threads := parseArgs(os.Args[1:])
+	runtime.GOMAXPROCS(threads)
 
 	if once {
 		if err := runOnce(); err != nil {
@@ -350,7 +372,7 @@ func main() {
 		return
 	}
 
-	if err := runServer(); err != nil {
+	if err := runServer(threads); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

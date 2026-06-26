@@ -653,11 +653,10 @@ export struct Engine {
         if ctx == null || ctx.request == null {
             return uyagin_ready_i32(error.InvalidRequest);
         }
-        var inner: Future<!i32> = uyagin_ready_i32(error.InvalidRequest);
         const limit_err_id: u32 = uyagin_request_limit_error_id(self, ctx.request);
         if limit_err_id != 0u32 {
             ctx.abort();
-            inner = uyagin_error_response(self, ctx, limit_err_id);
+            const inner: Future<!i32> = uyagin_error_response(self, ctx, limit_err_id);
             return uyagin_observe_request_future(self, ctx, inner);
         }
         var idx: i32 = uyagin_router_find_route_request(&self.router, &self.route_meta[0] as &UyaginRouteMeta, ctx.request.method, ctx.request);
@@ -671,35 +670,36 @@ export struct Engine {
         }
         if idx >= 0 {
             if !(idx >= 0 && idx < self.route_count && idx < UYAGIN_MAX_ROUTES) {
-                inner = uyagin_ready_i32(error.RouteIndexInvalid);
+                const inner: Future<!i32> = uyagin_ready_i32(error.RouteIndexInvalid);
                 return uyagin_observe_request_future(self, ctx, inner);
             }
             const route: &GinRoute = uyagin_route_ptr(self, idx);
             const meta: &UyaginRouteMeta = uyagin_route_meta_ptr(self, idx);
             if route == null || meta == null {
-                inner = uyagin_ready_i32(error.RouteIndexInvalid);
+                const inner: Future<!i32> = uyagin_ready_i32(error.RouteIndexInvalid);
                 return uyagin_observe_request_future(self, ctx, inner);
             }
             uyagin_route_meta_bind_params_request(meta, ctx.request) catch {
-                inner = uyagin_ready_i32(error.InvalidRequest);
+                const inner: Future<!i32> = uyagin_ready_i32(error.InvalidRequest);
                 return uyagin_observe_request_future(self, ctx, inner);
             };
             if self.recovery_enabled {
-                inner = uyagin_run_chain_recover(self, ctx, route);
+                const inner: Future<!i32> = uyagin_run_chain_recover(self, ctx, route);
+                return uyagin_observe_request_future(self, ctx, inner);
             } else {
-                inner = uyagin_run_chain(self, ctx, route);
+                const inner: Future<!i32> = uyagin_run_chain(self, ctx, route);
+                return uyagin_observe_request_future(self, ctx, inner);
             }
-            return uyagin_observe_request_future(self, ctx, inner);
         }
         if ctx.request.method == Method.OPTIONS {
-            inner = uyagin_auto_options(self, ctx);
+            const inner: Future<!i32> = uyagin_auto_options(self, ctx);
             return uyagin_observe_request_future(self, ctx, inner);
         }
         if idx == -2 {
-            inner = uyagin_method_not_allowed(self, ctx);
+            const inner: Future<!i32> = uyagin_method_not_allowed(self, ctx);
             return uyagin_observe_request_future(self, ctx, inner);
         }
-        inner = ctx.string(Status.NotFound, "not found");
+        const inner: Future<!i32> = ctx.string(Status.NotFound, "not found");
         return uyagin_observe_request_future(self, ctx, inner);
     }
 

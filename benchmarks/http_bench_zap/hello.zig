@@ -16,16 +16,19 @@ fn clamp_threads(value: usize) i16 {
     return @as(i16, @intCast(value));
 }
 
-fn parse_threads() i16 {
+fn parse_threads(init: std.process.Init) i16 {
     const cpu_count = std.Thread.getCpuCount() catch 1;
     var threads: i16 = clamp_threads(cpu_count);
-    var args = std.process.argsWithAllocator(std.heap.page_allocator) catch return threads;
+    const args = init.minimal.args.toSlice(init.arena.allocator()) catch return threads;
 
-    _ = args.next();
-    while (args.next()) |arg| {
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
         if (std.mem.eql(u8, arg, "--threads")) {
-            if (args.next()) |value| {
+            if (i + 1 < args.len) {
+                const value = args[i + 1];
                 threads = clamp_threads(std.fmt.parseInt(usize, value, 10) catch 0);
+                i += 1;
             }
             continue;
         }
@@ -43,8 +46,8 @@ fn on_request(r: zap.Request) !void {
     r.sendBody("hello") catch return;
 }
 
-pub fn main() !void {
-    const threads = parse_threads();
+pub fn main(init: std.process.Init) !void {
+    const threads = parse_threads(init);
     var listener = zap.HttpListener.init(.{
         .port = BENCH_PORT,
         .on_request = on_request,

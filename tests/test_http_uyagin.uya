@@ -1,10 +1,14 @@
 // test_http_uyagin.uya — Gin 风格纯 @async_fn HTTP 框架核心测试
 
 use std.async;
+use std.async_frame.AsyncFramePool;
+use std.async_frame.async_frame_pool_init;
+use std.async_frame.async_frame_pool_stats;
 use std.async_event;
 use std.async_scheduler;
 use std.http.types;
 use std.http.uyagin;
+use std.mem.allocator.IAllocator;
 use libc.pthread;
 use libc.syscall;
 use std.testing.assert_eq_i32;
@@ -172,6 +176,63 @@ test "uyagin_get_ping" {
     if !slice_has(resp, "pong") {
         try assert_eq_i32(0, 1);
     }
+}
+
+test "uyagin_handle_releases_all_async_frames" {
+    var pool: AsyncFramePool = AsyncFramePool{};
+    async_frame_pool_init(&pool, 0, 65536usize);
+    var alloc: IAllocator = pool;
+    const old_alloc: &IAllocator = get_async_frame_allocator();
+    set_async_frame_allocator(&alloc);
+    defer { set_async_frame_allocator(old_alloc); }
+
+    var engine: Engine = uyagin_new();
+    var h: PingHandler = PingHandler{};
+    const handler: AsyncHandler = h;
+    try engine.GET("/ping", handler);
+
+    var before_alloc: i32 = 0;
+    var before_free: i32 = 0;
+    var full_count: i32 = 0;
+    var heap_fallback: i32 = 0;
+    async_frame_pool_stats(&pool, &before_alloc, &before_free, &full_count, &heap_fallback);
+
+    var empty_raw: [byte: 1] = [];
+    var req: Request = Request{
+        method: Method.GET,
+        http11: true,
+        path: [],
+        path_len: 0,
+        path_params: [],
+        path_param_count: 0,
+        query: [],
+        query_count: 0,
+        headers: [],
+        header_count: 0,
+        body: empty_raw[0: 0],
+    };
+    fill_request_path(&req, "/ping");
+
+    var fds: [i32: 2] = [0: 2];
+    _ = try sys_pipe2(&fds[0], 0);
+    var ctx: GinContext = uyagin_context_new(fds[1], &req, false, null);
+    const fut: Future<!i32> = engine.handle(&ctx);
+    const result: !i32 = block_on<i32>(fut);
+    fut.release();
+    _ = try result;
+    _ = sys_close(fds[1]) catch {};
+
+    var rb: [byte: 256] = [];
+    const n: isize = try sys_read(fds[0], &rb[0] as *byte, 256);
+    _ = sys_close(fds[0]) catch {};
+    if n <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+
+    var after_alloc: i32 = 0;
+    var after_free: i32 = 0;
+    async_frame_pool_stats(&pool, &after_alloc, &after_free, &full_count, &heap_fallback);
+    try assert_eq_i32(after_alloc - before_alloc, after_free - before_free);
 }
 
 test "uyagin_path_param" {

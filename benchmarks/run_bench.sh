@@ -7,6 +7,8 @@
 #   --baseline     保存结果到 baseline.json（用于回归对比）
 #   --ab           运行 ab 测试
 #   -k             运行 ab -k (Keep-Alive) 测试
+#   --single-thread 单线程模式（默认）
+#   --multi-thread  使用多线程默认值
 #
 # 可指定的 bench 名称（不指定则运行全部）:
 #   uya, uya-fork, uya-async-epoll, uya-async-await,
@@ -44,9 +46,9 @@ GO_GNET_EXEC="/tmp/http_bench_go_gnet"
 UYA_GIN_SRC="${SCRIPT_DIR}/uyagin_http_bench.uya"
 UYA_GIN_ENTRY="uyagin_http_bench.uya"
 UYA_GIN_EXEC="/tmp/http_bench_uyagin"
-UYA_GIN_MODE="${UYA_GIN_MODE:-nostdlib}"
-UYA_GIN_CFLAGS="${UYA_GIN_CFLAGS:--std=c99 -O3 -fno-builtin -pthread -I${REPO_ROOT}}"
-UYA_GIN_NOSTDLIB_CFLAGS="${UYA_GIN_NOSTDLIB_CFLAGS:--std=c99 -O3 -fno-builtin -fno-stack-protector -I${REPO_ROOT}}"
+UYA_NOSTDLIB_CFLAGS="${UYA_NOSTDLIB_CFLAGS:--std=c99 -O3 -fno-builtin -fno-stack-protector -I${REPO_ROOT}}"
+UYA_GIN_NOSTDLIB_CFLAGS="${UYA_GIN_NOSTDLIB_CFLAGS:-$UYA_NOSTDLIB_CFLAGS}"
+UYA_ASYNC_NOSTDLIB_CFLAGS="${UYA_ASYNC_NOSTDLIB_CFLAGS:-$UYA_NOSTDLIB_CFLAGS}"
 NGINX_BENCH_DIR="/tmp/http_bench_nginx"
 NGINX_CONF_FILE="${NGINX_BENCH_DIR}/nginx.conf"
 NGINX_PID_FILE="${NGINX_BENCH_DIR}/nginx.pid"
@@ -71,8 +73,7 @@ ZAP_SRC="${SCRIPT_DIR}/http_bench_zap/hello.zig"
 ZIG_BIN="${ZIG_BIN:-/home/winger/zig/zig}"
 TOKIO_DIR="${SCRIPT_DIR}/http_bench_tokio"
 TOKIO_EXEC="/tmp/http_bench_tokio"
-# async epoll 系列在 hosted 模式下沿用已验证可启动的宿主编译旗标
-ASYNC_BENCH_CFLAGS="-std=c99 -O3 -g -fno-builtin -fno-inline-small-functions -I${REPO_ROOT}"
+# Uya HTTP benchmark 统一走 nostdlib + -O3，避免 hosted libc 路径影响对比。
 
 # 表格列宽（第一列由 main 按 benchmark 名称自动计算）
 TABLE_NAME_WIDTH=0
@@ -88,36 +89,25 @@ TABLE_KA_REQ_WIDTH=14
 TABLE_KA_FAILED_WIDTH=12
 TABLE_KA_RPS_WIDTH=12
 
-# wrk / server 参数（默认对齐机器 CPU/2，可用环境变量覆盖）
+# wrk / server 参数。单线程模式默认开启；设 SINGLE_THREAD=0 或传
+# --multi-thread 可恢复多线程默认值。WRK_THREADS / SERVER_THREADS /
+# UYA_ASYNC_SERVER_THREADS 显式环境变量仍优先。
 CPU_COUNT="$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 1)"
 DEFAULT_BENCH_THREADS=$((CPU_COUNT / 2))
 if [ "$DEFAULT_BENCH_THREADS" -lt 1 ]; then
     DEFAULT_BENCH_THREADS=1
 fi
-WRK_THREADS="${WRK_THREADS:-$DEFAULT_BENCH_THREADS}"
+SINGLE_THREAD="${SINGLE_THREAD:-1}"
+SINGLE_THREAD_JSON=true
+WRK_THREADS="${WRK_THREADS:-}"
 WRK_CONNECTIONS="${WRK_CONNECTIONS:-64}"
 WRK_DURATION="${WRK_DURATION:-10s}"
-SERVER_THREADS="${SERVER_THREADS:-$DEFAULT_BENCH_THREADS}"
-ASYNC_BENCH_MODE="${UYA_ASYNC_BENCH_MODE:-auto}"
-if [ "$ASYNC_BENCH_MODE" = "auto" ]; then
-    case "$(uname -s 2>/dev/null || echo unknown):$(uname -m 2>/dev/null || echo unknown)" in
-        Linux:x86_64|Linux:amd64)
-            ASYNC_BENCH_MODE="nostdlib"
-            ;;
-        *)
-            ASYNC_BENCH_MODE="hosted"
-            ;;
-    esac
-fi
-
-# Linux nostdlib async 基准使用一线程一 reactor。默认跑满在线 CPU，可显著降低
-# 高 QPS 下的 p99 尾延迟；hosted 路线仍沿用 CPU/2，避免过度放大宿主 pthread 路径噪声。
-if [ "$ASYNC_BENCH_MODE" = "nostdlib" ]; then
-    DEFAULT_UYA_ASYNC_SERVER_THREADS="$CPU_COUNT"
-else
-    DEFAULT_UYA_ASYNC_SERVER_THREADS="$DEFAULT_BENCH_THREADS"
-fi
-UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-$DEFAULT_UYA_ASYNC_SERVER_THREADS}"
+SERVER_THREADS="${SERVER_THREADS:-}"
+GO_GNET_MULTICORE="${GO_GNET_MULTICORE:-}"
+# 多线程模式下，Linux nostdlib async 基准使用一线程一 reactor 并跑满在线 CPU，
+# 可显著降低高 QPS 下的 p99 尾延迟。
+DEFAULT_UYA_ASYNC_SERVER_THREADS="$CPU_COUNT"
+UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-}"
 AB_KEEPALIVE_REQUESTS="${AB_KEEPALIVE_REQUESTS:-20000}"
 AB_KEEPALIVE_CONCURRENCY="${AB_KEEPALIVE_CONCURRENCY:-100}"
 
@@ -130,6 +120,44 @@ NC='\033[0m'
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_err() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+bool_enabled() {
+    local name="$1"
+    local value="$2"
+
+    case "$value" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        0|false|FALSE|no|NO|off|OFF) return 1 ;;
+        *)
+            log_err "$name 只接受 1/0/true/false/on/off/yes/no，当前值: $value"
+            exit 1
+            ;;
+    esac
+}
+
+apply_thread_mode_defaults() {
+    if bool_enabled "SINGLE_THREAD" "$SINGLE_THREAD"; then
+        SINGLE_THREAD=1
+        SINGLE_THREAD_JSON=true
+        WRK_THREADS="${WRK_THREADS:-1}"
+        SERVER_THREADS="${SERVER_THREADS:-1}"
+        UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-1}"
+        GO_GNET_MULTICORE="${GO_GNET_MULTICORE:-false}"
+    else
+        SINGLE_THREAD=0
+        SINGLE_THREAD_JSON=false
+        WRK_THREADS="${WRK_THREADS:-$DEFAULT_BENCH_THREADS}"
+        SERVER_THREADS="${SERVER_THREADS:-$DEFAULT_BENCH_THREADS}"
+        UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-$DEFAULT_UYA_ASYNC_SERVER_THREADS}"
+        GO_GNET_MULTICORE="${GO_GNET_MULTICORE:-true}"
+    fi
+
+    if bool_enabled "GO_GNET_MULTICORE" "$GO_GNET_MULTICORE"; then
+        GO_GNET_MULTICORE=true
+    else
+        GO_GNET_MULTICORE=false
+    fi
+}
 
 nginx_bench_pid_matches() {
     local pid="$1"
@@ -445,67 +473,7 @@ EOF
 
 # 编译 Uya fork 版本
 build_uya_fork() {
-    log_info "编译 Uya fork HTTP 服务器..."
-    if [ ! -f "$UYA_BIN" ]; then
-        log_err "找不到 Uya 编译器: $UYA_BIN"
-        exit 1
-    fi
-    if [ ! -f "$UYA_FORK_SRC" ]; then
-        log_err "找不到 Uya fork 源文件: $UYA_FORK_SRC"
-        exit 1
-    fi
-    if ! "$UYA_BIN" build "$UYA_FORK_ENTRY" -o /tmp/http_bench_fork.c --c99 >/tmp/uya_fork_build.log 2>&1; then
-        log_err "Uya fork 编译失败，日志:"
-        cat /tmp/uya_fork_build.log >&2
-        exit 1
-    fi
-    if ! cc -std=c99 -no-pie -O2 -fno-builtin -o "$UYA_FORK_EXEC" /tmp/http_bench_fork.c -lm >/tmp/uya_fork_cc.log 2>&1; then
-        log_err "Uya fork C 编译失败，日志:"
-        cat /tmp/uya_fork_cc.log >&2
-        exit 1
-    fi
-    log_info "Uya fork 版本编译完成: $UYA_FORK_EXEC"
-}
-
-# 编译 Uya C99 直出版本
-build_uya_c99_variant() {
-    local label="$1"
-    local src="$2"
-    local entry="$3"
-    local exec="$4"
-    local cfile="$5"
-    local cflags_override="${6:-}"
-    local stem
-    stem="$(basename "$cfile" .c)"
-    local -a cflags_argv=()
-
-    log_info "编译 ${label} HTTP 服务器..."
-    if [ ! -f "$UYA_BIN" ]; then
-        log_err "找不到 Uya 编译器: $UYA_BIN"
-        exit 1
-    fi
-    if [ ! -f "$src" ]; then
-        log_err "找不到 ${label} 源文件: $src"
-        exit 1
-    fi
-    if [ -n "$cflags_override" ]; then
-        read -r -a cflags_argv <<< "$cflags_override"
-    else
-        cflags_argv=(-std=c99 -O2 -fno-builtin)
-    fi
-    # 这里使用 --c99 直出路径，和 verify_http_bench_async_epoll_runtime.sh 保持一致，避免 build 子命令路径差异
-    if ! "$UYA_BIN" --c99 "$entry" -o "$cfile" >/tmp/"${stem}"_build.log 2>&1; then
-        log_err "${label} 编译失败，日志:"
-        cat "/tmp/${stem}_build.log" >&2
-        exit 1
-    fi
-    # async 系列使用单独的已验证旗标，避免与 fork / 基础版共用较弱的默认组合。
-    if ! cc "${cflags_argv[@]}" -no-pie -o "$exec" "$cfile" -lm >/tmp/"${stem}"_cc.log 2>&1; then
-        log_err "${label} C 编译失败，日志:"
-        cat "/tmp/${stem}_cc.log" >&2
-        exit 1
-    fi
-    log_info "${label} 版本编译完成: $exec"
+    build_uya_nostdlib_c99_variant "Uya fork" "$UYA_FORK_SRC" "$UYA_FORK_ENTRY" "$UYA_FORK_EXEC" /tmp/http_bench_fork.c
 }
 
 build_uya_nostdlib_c99_variant() {
@@ -531,9 +499,9 @@ build_uya_nostdlib_c99_variant() {
     if [ -n "$cflags_override" ]; then
         read -r -a cflags_argv <<< "$cflags_override"
     else
-        cflags_argv=(-std=c99 -O3 -fno-builtin -fno-stack-protector)
+        read -r -a cflags_argv <<< "$UYA_NOSTDLIB_CFLAGS"
     fi
-    if ! "$UYA_BIN" --c99 --nostdlib "$entry" -o "$cfile" >/tmp/"${stem}"_build.log 2>&1; then
+    if ! "$UYA_BIN" --c99 --nostdlib -O3 "$entry" -o "$cfile" >/tmp/"${stem}"_build.log 2>&1; then
         log_err "${label} nostdlib 编译失败，日志:"
         cat "/tmp/${stem}_build.log" >&2
         exit 1
@@ -557,46 +525,37 @@ build_uya_async_variant() {
     local split_dir=""
     stem="$(basename "$cfile" .c)"
 
-    if [ "$ASYNC_BENCH_MODE" = "nostdlib" ]; then
-        log_info "编译 ${label} HTTP 服务器（nostdlib）..."
-        if [ ! -f "$UYA_BIN" ]; then
-            log_err "找不到 Uya 编译器: $UYA_BIN"
-            exit 1
-        fi
-        if [ ! -f "$src" ]; then
-            log_err "找不到 ${label} 源文件: $src"
-            exit 1
-        fi
-        # 多文件 C mirror Makefile 会把标准库镜像产物写到 split_dir 的上一级 ../lib；
-        # 这里把 split 根整体放到 /tmp，避免在 benchmarks/ 下生成 lib/libc、lib/std 中间物。
-        split_root="/tmp/uya-bench-${stem}"
-        split_dir="${split_root}/cache"
-        rm -rf "$split_root"
-        mkdir -p "$split_dir"
-        if ! "$UYA_BIN" --c99 --nostdlib -O2 "$entry" --split-c-dir "$split_dir" -o "$exec" >/tmp/"${stem}"_build.log 2>&1; then
-            log_err "${label} nostdlib 编译失败，日志:"
-            cat "/tmp/${stem}_build.log" >&2
-            exit 1
-        fi
-        log_info "${label} nostdlib 版本编译完成: $exec"
-        return 0
+    log_info "编译 ${label} HTTP 服务器（nostdlib）..."
+    if [ ! -f "$UYA_BIN" ]; then
+        log_err "找不到 Uya 编译器: $UYA_BIN"
+        exit 1
     fi
-
-    build_uya_c99_variant "$label" "$src" "$entry" "$exec" "$cfile" "$ASYNC_BENCH_CFLAGS"
+    if [ ! -f "$src" ]; then
+        log_err "找不到 ${label} 源文件: $src"
+        exit 1
+    fi
+    # 多文件 C mirror Makefile 会把标准库镜像产物写到 split_dir 的上一级 ../lib；
+    # 这里把 split 根整体放到 /tmp，避免在 benchmarks/ 下生成 lib/libc、lib/std 中间物。
+    split_root="/tmp/uya-bench-${stem}"
+    split_dir="${split_root}/cache"
+    rm -rf "$split_root"
+    mkdir -p "$split_dir"
+    if ! env CFLAGS="$UYA_ASYNC_NOSTDLIB_CFLAGS" "$UYA_BIN" --c99 --nostdlib -O3 "$entry" --split-c-dir "$split_dir" -o "$exec" >/tmp/"${stem}"_build.log 2>&1; then
+        log_err "${label} nostdlib 编译失败，日志:"
+        cat "/tmp/${stem}_build.log" >&2
+        exit 1
+    fi
+    log_info "${label} nostdlib 版本编译完成: $exec"
 }
 
 # 编译 Uya HTTP 基础版本
 build_uya_http() {
-    build_uya_c99_variant "Uya HTTP" "$UYA_HTTP_SRC" "$UYA_HTTP_ENTRY" "$UYA_HTTP_EXEC" /tmp/http_bench_uya.c
+    build_uya_nostdlib_c99_variant "Uya HTTP" "$UYA_HTTP_SRC" "$UYA_HTTP_ENTRY" "$UYA_HTTP_EXEC" /tmp/http_bench_uya.c
 }
 
 # 编译 UyaGin 版本
 build_uyagin() {
-    if [ "$UYA_GIN_MODE" = "nostdlib" ]; then
-        build_uya_nostdlib_c99_variant "UyaGin" "$UYA_GIN_SRC" "$UYA_GIN_ENTRY" "$UYA_GIN_EXEC" /tmp/http_bench_uyagin.c "$UYA_GIN_NOSTDLIB_CFLAGS"
-    else
-        build_uya_c99_variant "UyaGin" "$UYA_GIN_SRC" "$UYA_GIN_ENTRY" "$UYA_GIN_EXEC" /tmp/http_bench_uyagin.c "$UYA_GIN_CFLAGS"
-    fi
+    build_uya_nostdlib_c99_variant "UyaGin" "$UYA_GIN_SRC" "$UYA_GIN_ENTRY" "$UYA_GIN_EXEC" /tmp/http_bench_uyagin.c "$UYA_GIN_NOSTDLIB_CFLAGS"
 }
 
 # 编译 Uya async epoll 版本
@@ -763,6 +722,31 @@ build_c_async_epoll() {
     log_info "C async epoll 版本编译完成: $C_ASYNC_EPOLL_EXEC"
 }
 
+patch_zap_for_zig_compat() {
+    local build_file="${ZAP_REPO_DIR}/build.zig"
+    local zap_file="${ZAP_REPO_DIR}/src/zap.zig"
+
+    if [ -f "$build_file" ] && grep -q 'std\.process\.getEnvVarOwned(b\.allocator, "ZAP_USE_OPENSSL")' "$build_file"; then
+        sed -i \
+            -e 's/std\.process\.getEnvVarOwned(b\.allocator, "ZAP_USE_OPENSSL")/b.graph.environ_map.get("ZAP_USE_OPENSSL")/' \
+            -e '/defer b\.allocator\.free(val);/d' \
+            -e 's/        } else |_| {}/        }/' \
+            "$build_file"
+    fi
+
+    if [ -f "$build_file" ] && grep -q 'self\.b\.addModule(test_name, \.' "$build_file"; then
+        sed -i 's/const tests_module = self\.b\.addModule(test_name, \./const tests_module = self.b.createModule(./' "$build_file"
+    fi
+
+    if [ -f "$zap_file" ] && grep -q 'std\.Thread\.sleep' "$zap_file"; then
+        sed -i '/std\.Thread\.sleep/d' "$zap_file"
+    fi
+
+    if [ -f "$zap_file" ] && grep -q 'std\.fmt\.bufPrintZ' "$zap_file"; then
+        sed -i 's/std\.fmt\.bufPrintZ(\(&[^,]*\), \([^)]*\))/std.fmt.bufPrintSentinel(\1, \2, 0)/' "$zap_file"
+    fi
+}
+
 # 编译 Zap 版本
 build_zap() {
     log_info "编译 Zap HTTP 服务器..."
@@ -804,6 +788,7 @@ build_zap() {
         exit 1
     fi
 
+    patch_zap_for_zig_compat
     cp "$ZAP_SRC" "$ZAP_REPO_DIR/examples/hello/hello.zig"
 
     if ! (cd "$ZAP_REPO_DIR" && "$ZIG_BIN" build hello -Doptimize=ReleaseFast >/tmp/http_bench_zap_build.log 2>&1); then
@@ -1078,10 +1063,13 @@ save_baseline() {
     "go": "1.24.2"
   },
   "wrk_params": {
+    "single_thread": ${SINGLE_THREAD_JSON},
     "threads": ${WRK_THREADS},
     "connections": ${WRK_CONNECTIONS},
     "duration": "${WRK_DURATION}",
-    "server_threads": ${SERVER_THREADS}
+    "server_threads": ${SERVER_THREADS},
+    "uya_async_server_threads": ${UYA_ASYNC_SERVER_THREADS},
+    "go_gnet_multicore": ${GO_GNET_MULTICORE}
   },
   "results": {
     "root": {
@@ -1129,9 +1117,18 @@ main() {
             --baseline) do_baseline=1 ;;
             --ab) do_ab=1 ;;
             -k) do_abk=1 ;;
+            --single-thread) SINGLE_THREAD=1 ;;
+            --multi-thread|--no-single-thread) SINGLE_THREAD=0 ;;
             *) BENCH_LIST="$BENCH_LIST $arg" ;;
         esac
     done
+
+    apply_thread_mode_defaults
+    if [ "$SINGLE_THREAD" -eq 1 ]; then
+        log_info "线程模式: 单线程（wrk=${WRK_THREADS}, server=${SERVER_THREADS}, uya-async=${UYA_ASYNC_SERVER_THREADS}, go-gnet multicore=${GO_GNET_MULTICORE}）"
+    else
+        log_info "线程模式: 多线程（wrk=${WRK_THREADS}, server=${SERVER_THREADS}, uya-async=${UYA_ASYNC_SERVER_THREADS}, go-gnet multicore=${GO_GNET_MULTICORE}）"
+    fi
 
     if [ "$do_ab" -eq 1 ] || [ "$do_abk" -eq 1 ]; then
         check_dep ab
@@ -1216,11 +1213,7 @@ main() {
     done
     if [ "$any_enabled" -eq 1 ]; then
         if bench_enabled "uya-async-epoll" || bench_enabled "uya-async-await" || bench_enabled "uya-async-await-simple" || bench_enabled "uya-async-await-stack"; then
-            if [ "$ASYNC_BENCH_MODE" = "nostdlib" ]; then
-                log_info "Uya async benchmarks 默认使用 nostdlib + --threads ${UYA_ASYNC_SERVER_THREADS}"
-            else
-                log_warn "Uya async hosted benchmarks 默认使用 --threads ${UYA_ASYNC_SERVER_THREADS}；多线程 raw-clone pthread 路径当前不稳定，需显式设 UYA_ASYNC_SERVER_THREADS 覆盖"
-            fi
+            log_info "Uya async benchmarks 使用 nostdlib + -O3 CFLAGS + --threads ${UYA_ASYNC_SERVER_THREADS}"
         fi
         log_info "预热..."
         echo "" | wrk -t1 -c1 -d2s "$URL" >/dev/null 2>&1 || true
@@ -1252,11 +1245,11 @@ main() {
         sleep 1
     fi
     if bench_enabled "go" && [ "$have_go" -eq 1 ]; then
-        go_result=$(run_benchmark_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL")
+        go_result=$(run_benchmark_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then
-        go_gnet_result=$(run_benchmark_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore=true)
+        go_gnet_result=$(run_benchmark_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore="$GO_GNET_MULTICORE")
         sleep 1
     fi
     if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then
@@ -1264,11 +1257,11 @@ main() {
         sleep 1
     fi
     if bench_enabled "c"; then
-        c_result=$(run_benchmark_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL")
+        c_result=$(run_benchmark_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL" -t "$SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "c-async-epoll"; then
-        c_async_epoll_result=$(run_benchmark_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
+        c_async_epoll_result=$(run_benchmark_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" -t "$SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "zap" && [ "$have_zap" -eq 1 ]; then
@@ -1356,11 +1349,11 @@ main() {
             if bench_enabled "uya-async-await"; then uya_async_await_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
-            if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ab_result=$(run_ab_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ab_result=$(run_ab_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore=true); fi
+            if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ab_result=$(run_ab_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ab_result=$(run_ab_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore="$GO_GNET_MULTICORE"); fi
             if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ab_result=$(run_ab_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL" --port "$PORT" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "c"; then c_ab_result=$(run_ab_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "c-async-epoll"; then c_async_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "c"; then c_ab_result=$(run_ab_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL" -t "$SERVER_THREADS"); fi
+            if bench_enabled "c-async-epoll"; then c_async_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" -t "$SERVER_THREADS"); fi
             if bench_enabled "zap" && [ "$have_zap" -eq 1 ]; then zap_ab_result=$(run_ab_probe_safe "zap" "$ZAP_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
             if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ab_result=$(run_ab_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi
             if bench_enabled "tokio" && [ "$have_tokio" -eq 1 ]; then tokio_ab_result=$(run_ab_probe_safe "http_bench_tokio" "$TOKIO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
@@ -1373,11 +1366,11 @@ main() {
             if bench_enabled "uya-async-await"; then uya_async_await_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
-            if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ka_result=$(run_keepalive_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ka_result=$(run_keepalive_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore=true); fi
+            if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ka_result=$(run_keepalive_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ka_result=$(run_keepalive_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore="$GO_GNET_MULTICORE"); fi
             if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ka_result=$(run_keepalive_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL" --port "$PORT" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "c"; then c_ka_result=$(run_keepalive_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "c-async-epoll"; then c_async_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "c"; then c_ka_result=$(run_keepalive_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL" -t "$SERVER_THREADS"); fi
+            if bench_enabled "c-async-epoll"; then c_async_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" -t "$SERVER_THREADS"); fi
             if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ka_result=$(run_keepalive_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi
             if bench_enabled "tokio" && [ "$have_tokio" -eq 1 ]; then tokio_ka_result=$(run_keepalive_probe_safe "http_bench_tokio" "$TOKIO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
         fi
