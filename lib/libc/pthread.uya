@@ -696,7 +696,7 @@ fn _pthread_thread_exit(desc: &pthread_desc, retval: &void) void {
     if desc != null {
         desc.result = retval;
         _pthread_run_tsd_destructors(desc);
-        heap_flush_thread_cache(&desc.heap_cache);
+        heap_detach_thread_cache_for_exit(&desc.heap_cache);
         desc.exited = 1;
         while true {
             const state: i32 = desc.joinstate;

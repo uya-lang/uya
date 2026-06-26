@@ -25,6 +25,25 @@ fn c99_want_profile_codegen() i32 {
     return 1;
 }
 
+fn c99_output_basename_equals(output_file: &byte, expected: &byte) i32 {
+    if output_file == null || expected == null {
+        return 0;
+    }
+    var basename: &byte = strrchr(output_file as *byte, 47) as &byte;
+    if basename == null {
+        basename = strrchr(output_file as *byte, 92) as &byte;
+    }
+    if basename != null {
+        basename = (basename as i64 + 1) as &byte;
+    } else {
+        basename = output_file;
+    }
+    if strcmp(basename as *byte, expected as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn emit_microapp_syscall_helpers(codegen: &C99CodeGenerator) void {
     if codegen == null || codegen.emit_stream == null {
         return;
@@ -2073,13 +2092,17 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // 通过检查输出文件名是否包含 "libuya" 来判断
     var is_std_lib: i32 = 0;
     var target_os_is_macos: i32 = 0;
-    // 检测自举编译（输出为 uya.c 或 compiler_bootstrap.c）：强制与 C 编译器一致，不添加 stdio/string/opendir
+    // 检测自举编译（basename 精确为 uya.c 或 compiler_bootstrap.c）：强制与 C 编译器一致，不添加 stdio/string/opendir
     var is_bootstrap: i32 = 0;
     const target_os_env: &byte = getenv("TARGET_OS" as &byte);
     if target_os_env != null && strcmp(target_os_env as *byte, "macos" as *byte) == 0 {
         target_os_is_macos = 1;
     }
     if output_file != null {
+        if c99_output_basename_equals(output_file, "uya.c" as &byte) != 0 ||
+            c99_output_basename_equals(output_file, "compiler_bootstrap.c" as &byte) != 0 {
+            is_bootstrap = 1;
+        }
         // 简单检查：查找文件名中是否包含 "libuya"（检查前 C99_OUTPUT_FILENAME_BUF_SIZE 个字符）
         var i: i32 = 0;
         while i < C99_OUTPUT_FILENAME_BUF_SIZE && output_file[i] != 0 as byte {
@@ -2093,14 +2116,6 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                output_file[i + 5] == 97 as byte {     // 'a'
                 is_std_lib = 1;
                 break;
-            }
-            // 检测 "uya.c" 或 "compiler_bootstrap"
-            if i + 5 < C99_OUTPUT_FILENAME_BUF_SIZE && output_file[i] == 117 as byte && output_file[i+1] == 121 as byte &&
-               output_file[i+2] == 97 as byte && output_file[i+3] == 46 as byte && output_file[i+4] == 99 as byte {
-                is_bootstrap = 1;  // uya.c
-            }
-            if i + 16 < C99_OUTPUT_FILENAME_BUF_SIZE && strncmp(&output_file[i] as *byte, "compiler_bootstrap" as *byte, 17) == 0 {
-                is_bootstrap = 1;  // compiler_bootstrap
             }
             i = i + 1;
         }
@@ -2543,6 +2558,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 if has_decl_clock != 0 && has_impl_clock == 0 {
                     fputs("extern int64_t clock(void);\n" as *byte, codegen.emit_stream as *void);
                 }
+                fputs("static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n" as *byte, codegen.emit_stream as *void);
+                fputs("static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }\n" as *byte, codegen.emit_stream as *void);
                 fputs("static inline void libc_heap_flush_current_thread_cache(void) { }\n" as *byte, codegen.emit_stream as *void);
             }
             // macOS hosted 自举单文件（src/build/uya-hosted.c / compiler_bootstrap.c）中，
@@ -3699,6 +3716,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("int32_t uya_thread_call_bool(void *fn, int32_t arg);\n" as *byte, codegen.split_protos_out as *void);
         fputs("uint32_t uya_thread_call_f32(void *fn, uint32_t arg_bits);\n" as *byte, codegen.split_protos_out as *void);
         fputs("uint64_t uya_thread_call_f64(void *fn, uint64_t arg_bits);\n" as *byte, codegen.split_protos_out as *void);
+        if codegen.is_nostdlib == 0 {
+            // hosted 模式跳过 heap.uya 实现体；split-C 头里补 no-op stub，避免 pthread TU 首次调用触发隐式声明。
+            fputs("static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n" as *byte, codegen.split_protos_out as *void);
+            fputs("static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }\n" as *byte, codegen.split_protos_out as *void);
+            fputs("static inline void libc_heap_flush_current_thread_cache(void) { }\n" as *byte, codegen.split_protos_out as *void);
+        }
     }
     fputs("// std.thread：宿主工具链间接调用（跨 -O0/-O2 稳定；见 lib/std/thread.uya）\n" as *byte, codegen.emit_stream as *void);
     fputs("int32_t uya_call0_i32(void *fn) {\n" as *byte, codegen.emit_stream as *void);

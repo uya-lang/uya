@@ -79,6 +79,9 @@ WRK_THREADS="${WRK_THREADS:-$DEFAULT_BENCH_THREADS}"
 WRK_CONNECTIONS="${WRK_CONNECTIONS:-64}"
 WRK_DURATION="${WRK_DURATION:-10s}"
 SERVER_THREADS="${SERVER_THREADS:-$DEFAULT_BENCH_THREADS}"
+# hosted 模式下，Uya async benchmark 的 raw-clone pthread 路径在 threads>=2 时会 abort；
+# 单线程路径稳定，因此默认单独钳到 1。若要实验多线程，可显式覆盖此环境变量。
+UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-1}"
 AB_KEEPALIVE_REQUESTS="${AB_KEEPALIVE_REQUESTS:-20000}"
 AB_KEEPALIVE_CONCURRENCY="${AB_KEEPALIVE_CONCURRENCY:-100}"
 
@@ -904,6 +907,9 @@ main() {
         if bench_enabled "$b"; then any_enabled=1; break; fi
     done
     if [ "$any_enabled" -eq 1 ]; then
+        if bench_enabled "uya-async-epoll" || bench_enabled "uya-async-await" || bench_enabled "uya-async-await-simple" || bench_enabled "uya-async-await-stack"; then
+            log_warn "Uya async hosted benchmarks 默认使用 --threads ${UYA_ASYNC_SERVER_THREADS}；多线程 raw-clone pthread 路径当前不稳定，需显式设 UYA_ASYNC_SERVER_THREADS 覆盖"
+        fi
         log_info "预热..."
         echo "" | wrk -t1 -c1 -d2s "$URL" >/dev/null 2>&1 || true
     fi
@@ -918,19 +924,19 @@ main() {
         sleep 1
     fi
     if bench_enabled "uya-async-epoll"; then
-        uya_epoll_result=$(run_benchmark_safe "http_bench_async_epoll.uya" "$UYA_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
+        uya_epoll_result=$(run_benchmark_safe "http_bench_async_epoll.uya" "$UYA_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "uya-async-await"; then
-        uya_async_await_result=$(run_benchmark_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
+        uya_async_await_result=$(run_benchmark_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "uya-async-await-simple"; then
-        uya_async_await_simple_result=$(run_benchmark_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
+        uya_async_await_simple_result=$(run_benchmark_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "uya-async-await-stack"; then
-        uya_async_await_stack_result=$(run_benchmark_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
+        uya_async_await_stack_result=$(run_benchmark_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "go" && [ "$have_go" -eq 1 ]; then
@@ -1010,10 +1016,10 @@ main() {
             log_info "AB 对比（ab -n${AB_KEEPALIVE_REQUESTS} -c${AB_KEEPALIVE_CONCURRENCY}）"
             if bench_enabled "uya"; then uya_ab_result=$(run_ab_probe_safe "http_bench.uya" "$UYA_HTTP_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "uya-fork"; then uya_fork_ab_result=$(run_ab_probe_safe "http_bench_fork.uya" "$UYA_FORK_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "uya-async-epoll"; then uya_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.uya" "$UYA_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "uya-async-await"; then uya_async_await_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "uya-async-epoll"; then uya_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.uya" "$UYA_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
+            if bench_enabled "uya-async-await"; then uya_async_await_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
+            if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
+            if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ab_result=$(run_ab_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c"; then c_ab_result=$(run_ab_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
@@ -1024,10 +1030,10 @@ main() {
             log_info "Keep-Alive 对比（ab -k -n${AB_KEEPALIVE_REQUESTS} -c${AB_KEEPALIVE_CONCURRENCY}）"
             if bench_enabled "uya"; then uya_ka_result=$(run_keepalive_probe_safe "http_bench.uya" "$UYA_HTTP_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "uya-fork"; then uya_fork_ka_result=$(run_keepalive_probe_safe "http_bench_fork.uya" "$UYA_FORK_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "uya-async-epoll"; then uya_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.uya" "$UYA_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "uya-async-await"; then uya_async_await_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
-            if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "uya-async-epoll"; then uya_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.uya" "$UYA_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
+            if bench_enabled "uya-async-await"; then uya_async_await_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await.uya" "$UYA_ASYNC_AWAIT_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
+            if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
+            if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ka_result=$(run_keepalive_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c"; then c_ka_result=$(run_keepalive_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi

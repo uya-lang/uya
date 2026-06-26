@@ -205,6 +205,8 @@ extern void *malloc(size_t);
 extern void free(void *);
 extern void *realloc(void *, size_t);
 extern void *calloc(size_t, size_t);
+static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }
+static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }
 static inline void libc_heap_flush_current_thread_cache(void) { }
 extern ssize_t read(int, void *, size_t);
 extern ssize_t write(int, const void *, size_t);
@@ -4742,97 +4744,97 @@ static const char str4001[] = "      struct err_union_void _test_result = ";
 static const char str4002[] = "%s();\n";
 static const char str4003[] = "      if (_test_result.error_id != 0) { printf(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n";
 static const char str4004[] = "      else { _test_case_passed = _test_case_passed + 1; printf(\"OK\\n\"); } }\n";
-static const char str4005[] = "compiler_bootstrap";
-static const char str4006[] = "// C99 代码由 Uya Mini 编译器生成\n";
-static const char str4007[] = "// 使用 -std=c99 编译\n";
-static const char str4008[] = "//\n";
-static const char str4009[] = "// 堆栈大小提示：此程序需要至少 %d KB 的堆栈空间\n";
-static const char str4010[] = "// 编译时请使用：ulimit -s %d\n";
-static const char str4011[] = "// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n";
-static const char str4012[] = "// 基本整数类型\n";
-static const char str4013[] = "typedef short int16_t;\n";
-static const char str4014[] = "typedef int int32_t;\n";
-static const char str4015[] = "typedef long long int64_t;\n";
-static const char str4016[] = "// size_t 和 ptrdiff_t\n";
-static const char str4017[] = "typedef long ptrdiff_t;\n";
-static const char str4018[] = "typedef long intptr_t;\n";
-static const char str4019[] = "typedef unsigned long uintptr_t;\n";
-static const char str4020[] = "// bool 类型\n";
-static const char str4021[] = "typedef uint8_t bool;\n";
-static const char str4022[] = "#define true ((bool)1)\n";
-static const char str4023[] = "#define false ((bool)0)\n";
-static const char str4024[] = "// NULL 定义\n";
-static const char str4025[] = "// offsetof 宏（C99 兼容）\n";
-static const char str4026[] = "#define offsetof(type, member) ((size_t) &((type *)0)->member)\n";
-static const char str4027[] = "// C99 兼容的 alignof 实现\n";
-static const char str4028[] = "#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n";
-static const char str4029[] = "// va_list 支持（可变参数函数）\n";
-static const char str4030[] = "typedef __builtin_va_list va_list;\n";
-static const char str4031[] = "#define va_start(v, l) __builtin_va_start(v, l)\n";
-static const char str4032[] = "#define va_end(v) __builtin_va_end(v)\n";
-static const char str4033[] = "#define va_arg(v, l) __builtin_va_arg(v, l)\n";
-static const char str4034[] = "#define va_copy(d, s) __builtin_va_copy(d, s)\n";
-static const char str4035[] = "#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n";
-static const char str4036[] = "// @asm_target 平台检测\n";
-static const char str4037[] = "  #if defined(__linux__)\n";
-static const char str4038[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
-static const char str4039[] = "  #elif defined(__APPLE__)\n";
-static const char str4040[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 1\n";
-static const char str4041[] = "  #elif defined(_WIN32)\n";
-static const char str4042[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 2\n";
-static const char str4043[] = "  #else\n";
-static const char str4044[] = "  #endif\n";
-static const char str4045[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 3\n";
-static const char str4046[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 4\n";
-static const char str4047[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 5\n";
-static const char str4048[] = "#elif defined(__riscv) && __riscv_xlen == 64\n";
-static const char str4049[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 6\n";
-static const char str4050[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
-static const char str4051[] = "#define UYA_TARGET_PLATFORM UYA_ASM_TARGET_X86_64_LINUX\n";
-static const char str4052[] = "#if defined(__linux__)\n";
-static const char str4053[] = "  #define UYA_TARGET_OS_LINUX 1\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str4054[] = "#elif defined(__APPLE__)\n";
-static const char str4055[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 1\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str4056[] = "#elif defined(_WIN32)\n";
-static const char str4057[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 1\n";
-static const char str4058[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str4059[] = "  #define UYA_TARGET_ARCH_X86_64 1\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
-static const char str4060[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 1\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
-static const char str4061[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 1\n";
-static const char str4062[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
-static const char str4063[] = "#include <stddef.h>\n";
-static const char str4064[] = "// 标准类型定义（不依赖标准库头文件）\n";
-static const char str4065[] = "typedef signed long ssize_t;\n";
-static const char str4066[] = "typedef signed long intptr_t;\n";
-static const char str4067[] = "typedef signed long ptrdiff_t;\n";
-static const char str4068[] = "#ifndef NULL\n#define NULL ((void *)0)\n#endif\n";
-static const char str4069[] = "#ifndef offsetof\n#define offsetof(type, member) ((size_t)&((type *)0)->member)\n#endif\n";
-static const char str4070[] = "#ifndef true\n#define true 1\n#endif\n";
-static const char str4071[] = "#ifndef false\n#define false 0\n#endif\n";
-static const char str4072[] = "typedef _Bool bool;\n";
-static const char str4073[] = "struct uya_tagged_Poll_err_i32;\n";
-static const char str4074[] = "typedef struct uya_tagged_Poll_err_i32 uya_tagged_Poll_T;\n";
-static const char str4075[] = "#include <stdio.h>\n";
-static const char str4076[] = "extern struct FILE *stdin;\n";
-static const char str4077[] = "extern struct FILE *stdout;\n";
-static const char str4078[] = "extern int printf(const char *, ...);\n";
-static const char str4079[] = "extern int fprintf(struct FILE *, const char *, ...);\n";
-static const char str4080[] = "extern int vprintf(const char *, va_list);\n";
-static const char str4081[] = "extern int vfprintf(struct FILE *, const char *, va_list);\n";
-static const char str4082[] = "extern int sprintf(char *, const char *, ...);\n";
-static const char str4083[] = "extern int snprintf(char *, size_t, const char *, ...);\n";
-static const char str4084[] = "extern int vsprintf(char *, const char *, va_list);\n";
-static const char str4085[] = "extern int vsnprintf(char *, size_t, const char *, va_list);\n";
-static const char str4086[] = "extern int puts(const char *);\n";
-static const char str4087[] = "extern int putchar(int);\n";
-static const char str4088[] = "extern int fputs(const char *, struct FILE *);\n";
-static const char str4089[] = "extern int fputc(int, struct FILE *);\n";
-static const char str4090[] = "extern int fflush(struct FILE *);\n";
-static const char str4091[] = "extern struct FILE *fopen(const char *, const char *);\n";
-static const char str4092[] = "extern int fclose(struct FILE *);\n";
-static const char str4093[] = "extern size_t fread(void *, size_t, size_t, struct FILE *);\n";
-static const char str4094[] = "extern size_t fwrite(const void *, size_t, size_t, struct FILE *);\n";
-static const char str4095[] = "extern int fgetc(struct FILE *);\n";
+static const char str4005[] = "uya.c";
+static const char str4006[] = "compiler_bootstrap.c";
+static const char str4007[] = "// C99 代码由 Uya Mini 编译器生成\n";
+static const char str4008[] = "// 使用 -std=c99 编译\n";
+static const char str4009[] = "//\n";
+static const char str4010[] = "// 堆栈大小提示：此程序需要至少 %d KB 的堆栈空间\n";
+static const char str4011[] = "// 编译时请使用：ulimit -s %d\n";
+static const char str4012[] = "// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n";
+static const char str4013[] = "// 基本整数类型\n";
+static const char str4014[] = "typedef short int16_t;\n";
+static const char str4015[] = "typedef int int32_t;\n";
+static const char str4016[] = "typedef long long int64_t;\n";
+static const char str4017[] = "// size_t 和 ptrdiff_t\n";
+static const char str4018[] = "typedef long ptrdiff_t;\n";
+static const char str4019[] = "typedef long intptr_t;\n";
+static const char str4020[] = "typedef unsigned long uintptr_t;\n";
+static const char str4021[] = "// bool 类型\n";
+static const char str4022[] = "typedef uint8_t bool;\n";
+static const char str4023[] = "#define true ((bool)1)\n";
+static const char str4024[] = "#define false ((bool)0)\n";
+static const char str4025[] = "// NULL 定义\n";
+static const char str4026[] = "// offsetof 宏（C99 兼容）\n";
+static const char str4027[] = "#define offsetof(type, member) ((size_t) &((type *)0)->member)\n";
+static const char str4028[] = "// C99 兼容的 alignof 实现\n";
+static const char str4029[] = "#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n";
+static const char str4030[] = "// va_list 支持（可变参数函数）\n";
+static const char str4031[] = "typedef __builtin_va_list va_list;\n";
+static const char str4032[] = "#define va_start(v, l) __builtin_va_start(v, l)\n";
+static const char str4033[] = "#define va_end(v) __builtin_va_end(v)\n";
+static const char str4034[] = "#define va_arg(v, l) __builtin_va_arg(v, l)\n";
+static const char str4035[] = "#define va_copy(d, s) __builtin_va_copy(d, s)\n";
+static const char str4036[] = "#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n";
+static const char str4037[] = "// @asm_target 平台检测\n";
+static const char str4038[] = "  #if defined(__linux__)\n";
+static const char str4039[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
+static const char str4040[] = "  #elif defined(__APPLE__)\n";
+static const char str4041[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 1\n";
+static const char str4042[] = "  #elif defined(_WIN32)\n";
+static const char str4043[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 2\n";
+static const char str4044[] = "  #else\n";
+static const char str4045[] = "  #endif\n";
+static const char str4046[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 3\n";
+static const char str4047[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 4\n";
+static const char str4048[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 5\n";
+static const char str4049[] = "#elif defined(__riscv) && __riscv_xlen == 64\n";
+static const char str4050[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 6\n";
+static const char str4051[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
+static const char str4052[] = "#define UYA_TARGET_PLATFORM UYA_ASM_TARGET_X86_64_LINUX\n";
+static const char str4053[] = "#if defined(__linux__)\n";
+static const char str4054[] = "  #define UYA_TARGET_OS_LINUX 1\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4055[] = "#elif defined(__APPLE__)\n";
+static const char str4056[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 1\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4057[] = "#elif defined(_WIN32)\n";
+static const char str4058[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 1\n";
+static const char str4059[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4060[] = "  #define UYA_TARGET_ARCH_X86_64 1\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str4061[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 1\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str4062[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 1\n";
+static const char str4063[] = "  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str4064[] = "#include <stddef.h>\n";
+static const char str4065[] = "// 标准类型定义（不依赖标准库头文件）\n";
+static const char str4066[] = "typedef signed long ssize_t;\n";
+static const char str4067[] = "typedef signed long intptr_t;\n";
+static const char str4068[] = "typedef signed long ptrdiff_t;\n";
+static const char str4069[] = "#ifndef NULL\n#define NULL ((void *)0)\n#endif\n";
+static const char str4070[] = "#ifndef offsetof\n#define offsetof(type, member) ((size_t)&((type *)0)->member)\n#endif\n";
+static const char str4071[] = "#ifndef true\n#define true 1\n#endif\n";
+static const char str4072[] = "#ifndef false\n#define false 0\n#endif\n";
+static const char str4073[] = "typedef _Bool bool;\n";
+static const char str4074[] = "struct uya_tagged_Poll_err_i32;\n";
+static const char str4075[] = "typedef struct uya_tagged_Poll_err_i32 uya_tagged_Poll_T;\n";
+static const char str4076[] = "#include <stdio.h>\n";
+static const char str4077[] = "extern struct FILE *stdin;\n";
+static const char str4078[] = "extern struct FILE *stdout;\n";
+static const char str4079[] = "extern int printf(const char *, ...);\n";
+static const char str4080[] = "extern int fprintf(struct FILE *, const char *, ...);\n";
+static const char str4081[] = "extern int vprintf(const char *, va_list);\n";
+static const char str4082[] = "extern int vfprintf(struct FILE *, const char *, va_list);\n";
+static const char str4083[] = "extern int sprintf(char *, const char *, ...);\n";
+static const char str4084[] = "extern int snprintf(char *, size_t, const char *, ...);\n";
+static const char str4085[] = "extern int vsprintf(char *, const char *, va_list);\n";
+static const char str4086[] = "extern int vsnprintf(char *, size_t, const char *, va_list);\n";
+static const char str4087[] = "extern int puts(const char *);\n";
+static const char str4088[] = "extern int putchar(int);\n";
+static const char str4089[] = "extern int fputs(const char *, struct FILE *);\n";
+static const char str4090[] = "extern int fputc(int, struct FILE *);\n";
+static const char str4091[] = "extern int fflush(struct FILE *);\n";
+static const char str4092[] = "extern struct FILE *fopen(const char *, const char *);\n";
+static const char str4093[] = "extern int fclose(struct FILE *);\n";
+static const char str4094[] = "extern size_t fread(void *, size_t, size_t, struct FILE *);\n";
+static const char str4095[] = "extern size_t fwrite(const void *, size_t, size_t, struct FILE *);\n";
 
 struct TypeInfo;
 struct err_union_size_t;
@@ -4869,6 +4871,7 @@ struct pthread_t;
 struct pthread_heap_cache_t;
 struct pthread_desc;
 struct pthread_registry_entry;
+struct pthread_stack_hint_entry;
 struct pthread_mutexattr_t;
 struct pthread_mutex_t;
 struct pthread_cond_t;
@@ -6112,11 +6115,22 @@ struct pthread_heap_cache_t {
     size_t counts[7];
     size_t last_region_start;
     size_t last_region_end;
+    size_t last_find_start_bin;
+    size_t last_find_steps;
+    int32_t last_split_remainder_bin;
     uint64_t alloc_hit_count;
     uint64_t alloc_miss_count;
+    uint64_t debug_lookup_hint_count;
+    uint64_t debug_lookup_stack_count;
+    uint64_t debug_lookup_tid_count;
+    uint64_t debug_free_fast_count;
+    uint64_t debug_free_locked_count;
+    uint64_t debug_free_global_count;
 };
 
 struct pthread_desc {
+    struct pthread_desc * self;
+    struct pthread_heap_cache_t * fast_heap_cache;
     int64_t tid;
     void * stack;
     size_t stack_size;
@@ -6133,12 +6147,21 @@ struct pthread_desc {
     _Atomic(int32_t) cancel_type;
     _Atomic(int32_t) cancel_pending;
     void * * tsd_values;
+    void * alloc_base;
+    size_t alloc_size;
     struct pthread_heap_cache_t heap_cache;
 };
 
 struct pthread_registry_entry {
     int64_t tid;
     struct pthread_desc * desc;
+};
+
+struct pthread_stack_hint_entry {
+    _Atomic(size_t) page_key;
+    _Atomic(size_t) stack_start;
+    _Atomic(size_t) stack_end;
+    _Atomic(size_t) desc;
 };
 
 struct pthread_mutexattr_t {
@@ -8166,9 +8189,25 @@ int64_t math_lcm(int64_t a, int64_t b);
 uint64_t math_factorial(uint64_t n);
 uint64_t binomial(uint64_t n, uint64_t k);
 static __attribute__((used,noinline)) void * _pthread_call_start(void * start_fn, void * start_arg);
+static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_hint(struct pthread_desc * desc);
+static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_stack(struct pthread_desc * desc);
+static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_tid(struct pthread_desc * desc);
+void libc_pthread_debug_set_heap_cache_lookup_metrics_enabled(int32_t enabled);
+static __attribute__((used)) void _pthread_init_main_thread_if_needed();
+static __attribute__((used)) void _pthread_set_fast_desc(struct pthread_desc * desc);
+static __attribute__((used)) struct pthread_desc * _pthread_fast_desc();
+static __attribute__((used)) struct pthread_heap_cache_t * _pthread_fast_heap_cache();
 static __attribute__((used)) void _pthread_registry_insert(int64_t tid, struct pthread_desc * desc);
 static __attribute__((used)) struct pthread_desc * _pthread_registry_find(int64_t tid);
+static __attribute__((used)) size_t pthread_live_thread_count_hint();
 static __attribute__((used)) void _pthread_registry_remove(int64_t tid);
+static __attribute__((used)) size_t _pthread_stack_marker_addr();
+static __attribute__((used)) size_t _pthread_stack_hint_key(size_t stack_addr);
+static __attribute__((used)) size_t _pthread_stack_hint_index(size_t page_key);
+static __attribute__((used)) struct pthread_desc * _pthread_stack_hint_lookup(size_t stack_addr);
+static __attribute__((used)) void _pthread_stack_hint_remember(size_t stack_addr, struct pthread_desc * desc);
+static __attribute__((used)) void _pthread_stack_hint_forget(struct pthread_desc * desc);
+static __attribute__((used)) struct pthread_desc * _pthread_registry_find_by_stack_addr(size_t stack_addr);
 static __attribute__((used)) struct pthread_desc * _pthread_desc_self();
 struct pthread_heap_cache_t * libc_pthread_current_heap_cache();
 static __attribute__((used)) int32_t _pthread_clock_gettime(int32_t clock_id, struct timespec * tp);
@@ -9916,6 +9955,7 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
 static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99CodeGenerator * codegen, uint8_t * tc, uint8_t * cname, int32_t is_const);
 void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator * codegen, struct ASTNode * program);
 static __attribute__((used)) int32_t c99_want_profile_codegen();
+static __attribute__((used)) int32_t c99_output_basename_equals(uint8_t * output_file, uint8_t * expected);
 static __attribute__((used)) void emit_microapp_syscall_helpers(struct C99CodeGenerator * codegen);
 static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenerator * codegen);
 static __attribute__((used)) void emit_error_name_helper(struct C99CodeGenerator * codegen);
@@ -10360,7 +10400,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10397,7 +10437,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -10768,6 +10808,18 @@ const double libc_HUGE_VALL = 1.79769313486231530e+308;
 __attribute__((used)) const int32_t PTHREAD_ATOMIC_SEQ_CST = 5;
 
 __attribute__((used)) const size_t PTHREAD_STACK_SIZE = /* optimized */ 8388608;
+
+__attribute__((used)) const size_t PTHREAD_DESC_MAP_SIZE = 4096ULL;
+
+__attribute__((used)) const int32_t PTHREAD_STACK_HINT_SHIFT = 18;
+
+__attribute__((used)) const size_t PTHREAD_STACK_HINT_CAP = 256ULL;
+
+__attribute__((used)) const size_t PTHREAD_STACK_HINT_MASK = /* optimized */ 255;
+
+__attribute__((used)) const int64_t PTHREAD_SYS_ARCH_PRCTL_X86_64 = 158;
+
+__attribute__((used)) const int64_t PTHREAD_ARCH_SET_GS_X86_64 = 4097;
 
 __attribute__((used)) const int64_t CLONE_FLAGS = 1380096;
 
@@ -11566,6 +11618,9 @@ __attribute__((used)) size_t g_compiler_arena_failure_request_bytes = 0;
 
 
 
+
+
+
 __attribute__((used)) int32_t _remquo_quo = 0;
 
 __attribute__((used)) struct pthread_desc * _pthread_child_desc = NULL;
@@ -11576,11 +11631,21 @@ __attribute__((used)) void * _pthread_start_arg_tmp = NULL;
 
 __attribute__((used)) struct pthread_registry_entry _pthread_registry[1024] = {0};
 
-__attribute__((used)) struct pthread_desc _pthread_main_desc = {.tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .resources_released = 0, .started = 1, .result = NULL, .pub_handle = NULL, .start_routine = NULL, .arg = NULL, .joinstate = 0, .cancel_state = 0, .cancel_type = 0, .cancel_pending = 0, .tsd_values = NULL, .heap_cache = {.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL}};
+__attribute__((used)) struct pthread_stack_hint_entry _pthread_stack_hints[256] = {0};
+
+__attribute__((used)) size_t _pthread_registry_high_water = 0ULL;
+
+__attribute__((used)) struct pthread_desc _pthread_main_desc = {.self = NULL, .fast_heap_cache = NULL, .tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .resources_released = 0, .started = 1, .result = NULL, .pub_handle = NULL, .start_routine = NULL, .arg = NULL, .joinstate = 0, .cancel_state = 0, .cancel_type = 0, .cancel_pending = 0, .tsd_values = NULL, .alloc_base = NULL, .alloc_size = 0ULL, .heap_cache = {.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .last_find_start_bin = 0ULL, .last_find_steps = 0ULL, .last_split_remainder_bin = (0 - 1), .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL, .debug_lookup_hint_count = 0ULL, .debug_lookup_stack_count = 0ULL, .debug_lookup_tid_count = 0ULL, .debug_free_fast_count = 0ULL, .debug_free_locked_count = 0ULL, .debug_free_global_count = 0ULL}};
 
 __attribute__((used)) struct pthread_t _pthread_main_handle = {.tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .result = NULL, .start_routine = NULL, .arg = NULL};
 
 __attribute__((used)) _Atomic(int32_t) _pthread_main_initialized = 0;
+
+__attribute__((used)) _Atomic(int32_t) _pthread_has_created_thread = 0;
+
+__attribute__((used)) int32_t _pthread_fast_heap_cache_ready = 0;
+
+__attribute__((used)) _Atomic(int32_t) _pthread_debug_heap_cache_lookup_metrics_enabled = 0;
 
 __attribute__((used)) struct pthread_mutex_t _pthread_create_mutex = {.state = 0, .owner = 0, .type = 0};
 
@@ -20562,6 +20627,25 @@ __attribute__((used)) int32_t toascii(int32_t c) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 __attribute__((used)) double fabs(double x) {
     (void)x;
     if (x < 0.00000000000000000) {
@@ -22418,6 +22502,7 @@ __attribute__((used)) uint64_t binomial(uint64_t n, uint64_t k) {
 
 
 
+
 static __attribute__((used,noinline)) void * _pthread_call_start(void * start_fn, void * start_arg) {
     (void)start_fn;
     (void)start_arg;
@@ -22433,6 +22518,102 @@ __asm__ volatile ("movq %%rsp, %%r10\n\tandq $-16, %%rsp\n\tsubq $16, %%rsp\n\tm
         }
 }
 
+static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_hint(struct pthread_desc * desc) {
+    (void)desc;
+    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+        return;
+    }
+    desc->heap_cache.debug_lookup_hint_count = (desc->heap_cache.debug_lookup_hint_count + 1ULL);
+}
+
+static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_stack(struct pthread_desc * desc) {
+    (void)desc;
+    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+        return;
+    }
+    desc->heap_cache.debug_lookup_stack_count = (desc->heap_cache.debug_lookup_stack_count + 1ULL);
+}
+
+static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_tid(struct pthread_desc * desc) {
+    (void)desc;
+    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+        return;
+    }
+    desc->heap_cache.debug_lookup_tid_count = (desc->heap_cache.debug_lookup_tid_count + 1ULL);
+}
+
+void libc_pthread_debug_set_heap_cache_lookup_metrics_enabled(int32_t enabled) {
+    (void)enabled;
+    _pthread_debug_heap_cache_lookup_metrics_enabled = enabled;
+}
+
+static __attribute__((used)) void _pthread_init_main_thread_if_needed() {
+    if (_pthread_main_initialized != 0) {
+        return;
+    }
+    const int64_t tid = ({ struct err_union_int32_t _uya_catch_tmp = libc_sys_gettid(); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+        return;
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    _pthread_main_desc.self = (&_pthread_main_desc);
+    _pthread_main_desc.fast_heap_cache = (&_pthread_main_desc.heap_cache);
+    _pthread_main_desc.tid = tid;
+    _pthread_main_desc.pub_handle = (&_pthread_main_handle);
+    _pthread_main_handle.tid = tid;
+    (void)(_pthread_set_fast_desc((&_pthread_main_desc))    );
+    _pthread_fast_heap_cache_ready = 1;
+    _pthread_main_initialized = 1;
+}
+
+static __attribute__((used)) void _pthread_set_fast_desc(struct pthread_desc * desc) {
+    (void)desc;
+    if (desc == NULL) {
+        return;
+    }
+    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall2(PTHREAD_SYS_ARCH_PRCTL_X86_64, PTHREAD_ARCH_SET_GS_X86_64, (int64_t)desc); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    (void)(({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; }));
+}
+
+static __attribute__((used)) struct pthread_desc * _pthread_fast_desc() {
+    size_t desc_ptr = 0ULL;
+__asm__ volatile ("movq %%gs:0, %0\n\t"
+    : "=r"(desc_ptr)
+    :
+    :
+    );
+    if (desc_ptr == 0ULL) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct pthread_desc * _uya_ret = (struct pthread_desc *)desc_ptr;
+        return _uya_ret;
+        }
+        return (struct pthread_desc *){0};
+}
+
+static __attribute__((used)) struct pthread_heap_cache_t * _pthread_fast_heap_cache() {
+    size_t cache_ptr = 0ULL;
+__asm__ volatile ("movq %%gs:8, %0\n\t"
+    : "=r"(cache_ptr)
+    :
+    :
+    );
+    if (cache_ptr == 0ULL) {
+                {
+            struct pthread_heap_cache_t * _uya_ret = (struct pthread_heap_cache_t *)NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct pthread_heap_cache_t * _uya_ret = (struct pthread_heap_cache_t *)cache_ptr;
+        return _uya_ret;
+        }
+        return (struct pthread_heap_cache_t *){0};
+}
+
 static __attribute__((used)) void _pthread_registry_insert(int64_t tid, struct pthread_desc * desc) {
     (void)tid;
     (void)desc;
@@ -22445,6 +22626,9 @@ static __attribute__((used)) void _pthread_registry_insert(int64_t tid, struct p
             _pthread_registry[i].desc = desc;
             int64_t expected = 0;
             if (__atomic_compare_exchange_n((int64_t *)(&_pthread_registry[i].tid), (&expected), tid, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) != 0) {
+                if ((i + 1ULL) > _pthread_registry_high_water) {
+                    _pthread_registry_high_water = (i + 1ULL);
+                }
                 return;
             }
             _pthread_registry[i].desc = (struct pthread_desc *)NULL;
@@ -22462,7 +22646,7 @@ static __attribute__((used)) struct pthread_desc * _pthread_registry_find(int64_
                 }
     }
     size_t i = 0;
-    while (i < PTHREAD_MAX_THREADS) {
+    while (i < _pthread_registry_high_water) {
         if (_pthread_registry[i].tid == tid) {
                         {
                 struct pthread_desc * _uya_ret = _pthread_registry[i].desc;
@@ -22477,13 +22661,34 @@ static __attribute__((used)) struct pthread_desc * _pthread_registry_find(int64_
         }
 }
 
+static __attribute__((used)) size_t pthread_live_thread_count_hint() {
+    if (_pthread_has_created_thread == 0) {
+                {
+            size_t _uya_ret = 1ULL;
+            return _uya_ret;
+                }
+    }
+    size_t count = 1ULL;
+    size_t i = 0ULL;
+    while (i < _pthread_registry_high_water) {
+        if (_pthread_registry[i].tid != 0) {
+            count = (count + 1ULL);
+        }
+        i = (i + 1ULL);
+    }
+        {
+        size_t _uya_ret = count;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) void _pthread_registry_remove(int64_t tid) {
     (void)tid;
     if (tid == 0) {
         return;
     }
     size_t i = 0;
-    while (i < PTHREAD_MAX_THREADS) {
+    while (i < _pthread_registry_high_water) {
         if (_pthread_registry[i].tid == tid) {
             _pthread_registry[i].tid = 0;
             _pthread_registry[i].desc = (struct pthread_desc *)NULL;
@@ -22493,7 +22698,186 @@ static __attribute__((used)) void _pthread_registry_remove(int64_t tid) {
     }
 }
 
+static __attribute__((used)) size_t _pthread_stack_marker_addr() {
+    uint8_t marker = 0;
+        {
+        size_t _uya_ret = (size_t)(&marker);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t _pthread_stack_hint_key(size_t stack_addr) {
+    (void)stack_addr;
+    if (stack_addr == 0ULL) {
+                {
+            size_t _uya_ret = 0ULL;
+            return _uya_ret;
+                }
+    }
+        {
+        size_t _uya_ret = ((stack_addr >> PTHREAD_STACK_HINT_SHIFT) + 1ULL);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) size_t _pthread_stack_hint_index(size_t page_key) {
+    (void)page_key;
+        {
+        size_t _uya_ret = (page_key & PTHREAD_STACK_HINT_MASK);
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) struct pthread_desc * _pthread_stack_hint_lookup(size_t stack_addr) {
+    (void)stack_addr;
+    const size_t page_key = _pthread_stack_hint_key(stack_addr);
+    if (page_key == 0ULL) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+    struct pthread_stack_hint_entry * const slot = (&_pthread_stack_hints[_pthread_stack_hint_index(page_key)]);
+    if (__atomic_load_n((size_t *)&(slot->page_key), __ATOMIC_SEQ_CST) != page_key) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+    const size_t stack_start = __atomic_load_n((size_t *)&(slot->stack_start), __ATOMIC_SEQ_CST);
+    const size_t stack_end = __atomic_load_n((size_t *)&(slot->stack_end), __ATOMIC_SEQ_CST);
+    if (((stack_start == 0ULL) || (stack_end <= stack_start))) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+    if (((stack_addr < stack_start) || (stack_addr >= stack_end))) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+    const size_t desc_ptr = __atomic_load_n((size_t *)&(slot->desc), __ATOMIC_SEQ_CST);
+    if (desc_ptr == 0ULL) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+        {
+        struct pthread_desc * _uya_ret = (struct pthread_desc *)desc_ptr;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void _pthread_stack_hint_remember(size_t stack_addr, struct pthread_desc * desc) {
+    (void)stack_addr;
+    (void)desc;
+    if (((((stack_addr == 0ULL) || (desc == NULL)) || (desc->stack == NULL)) || (desc->stack_size == 0ULL))) {
+        return;
+    }
+    const size_t stack_start = (size_t)desc->stack;
+    const size_t stack_end = (stack_start + desc->stack_size);
+    if ((((stack_end <= stack_start) || (stack_addr < stack_start)) || (stack_addr >= stack_end))) {
+        return;
+    }
+    const size_t page_key = _pthread_stack_hint_key(stack_addr);
+    if (page_key == 0ULL) {
+        return;
+    }
+    struct pthread_stack_hint_entry * const slot = (&_pthread_stack_hints[_pthread_stack_hint_index(page_key)]);
+    __atomic_store_n((size_t *)&(slot->stack_start), stack_start, __ATOMIC_SEQ_CST);
+    __atomic_store_n((size_t *)&(slot->stack_end), stack_end, __ATOMIC_SEQ_CST);
+    __atomic_store_n((size_t *)&(slot->desc), (size_t)desc, __ATOMIC_SEQ_CST);
+    __atomic_store_n((size_t *)&(slot->page_key), page_key, __ATOMIC_SEQ_CST);
+}
+
+static __attribute__((used)) void _pthread_stack_hint_forget(struct pthread_desc * desc) {
+    (void)desc;
+    if (desc == NULL) {
+        return;
+    }
+    const size_t target = (size_t)desc;
+    if (target == 0ULL) {
+        return;
+    }
+    size_t i = 0ULL;
+    while (i < PTHREAD_STACK_HINT_CAP) {
+        if (_pthread_stack_hints[i].desc == target) {
+            _pthread_stack_hints[i].page_key = 0ULL;
+            _pthread_stack_hints[i].desc = 0ULL;
+            _pthread_stack_hints[i].stack_start = 0ULL;
+            _pthread_stack_hints[i].stack_end = 0ULL;
+        }
+        i = (i + 1ULL);
+    }
+}
+
+static __attribute__((used)) struct pthread_desc * _pthread_registry_find_by_stack_addr(size_t stack_addr) {
+    (void)stack_addr;
+    if (stack_addr == 0ULL) {
+                {
+            struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+            return _uya_ret;
+                }
+    }
+    size_t i = 0ULL;
+    while (i < _pthread_registry_high_water) {
+        if (_pthread_registry[i].tid != 0) {
+            struct pthread_desc * const desc = _pthread_registry[i].desc;
+            if ((((desc != NULL) && (desc->stack != NULL)) && (desc->stack_size != 0ULL))) {
+                const size_t stack_start = (size_t)desc->stack;
+                const size_t stack_end = (stack_start + desc->stack_size);
+                if (((stack_addr >= stack_start) && (stack_addr < stack_end))) {
+                                        {
+                        struct pthread_desc * _uya_ret = desc;
+                        return _uya_ret;
+                                        }
+                }
+            }
+        }
+        i = (i + 1ULL);
+    }
+        {
+        struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) struct pthread_desc * _pthread_desc_self() {
+    if (_pthread_has_created_thread == 0) {
+        (void)(_pthread_init_main_thread_if_needed()        );
+                {
+            struct pthread_desc * _uya_ret = (&_pthread_main_desc);
+            return _uya_ret;
+                }
+    }
+    struct pthread_desc * const fast_desc = _pthread_fast_desc();
+    if (((fast_desc != NULL) && (fast_desc->self == fast_desc))) {
+                {
+            struct pthread_desc * _uya_ret = fast_desc;
+            return _uya_ret;
+                }
+    }
+    const size_t stack_addr = _pthread_stack_marker_addr();
+    struct pthread_desc * const hint_desc = _pthread_stack_hint_lookup(stack_addr);
+    if (hint_desc != NULL) {
+        (void)(_pthread_debug_note_heap_cache_lookup_hint(hint_desc)        );
+                {
+            struct pthread_desc * _uya_ret = hint_desc;
+            return _uya_ret;
+                }
+    }
+    struct pthread_desc * const stack_desc = _pthread_registry_find_by_stack_addr(stack_addr);
+    if (stack_desc != NULL) {
+        (void)(_pthread_stack_hint_remember(stack_addr, stack_desc)        );
+        (void)(_pthread_debug_note_heap_cache_lookup_stack(stack_desc)        );
+                {
+            struct pthread_desc * _uya_ret = stack_desc;
+            return _uya_ret;
+                }
+    }
     const int64_t tid = ({ struct err_union_int32_t _uya_catch_tmp = libc_sys_gettid(); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             struct pthread_desc * _uya_ret = (struct pthread_desc *)NULL;
@@ -22504,6 +22888,8 @@ static __attribute__((used)) struct pthread_desc * _pthread_desc_self() {
     if (((desc == NULL) && (_pthread_main_desc.tid == tid))) {
         desc = (&_pthread_main_desc);
     }
+    (void)(_pthread_stack_hint_remember(stack_addr, desc)    );
+    (void)(_pthread_debug_note_heap_cache_lookup_tid(desc)    );
         {
         struct pthread_desc * _uya_ret = desc;
         return _uya_ret;
@@ -22511,7 +22897,22 @@ static __attribute__((used)) struct pthread_desc * _pthread_desc_self() {
 }
 
 struct pthread_heap_cache_t * libc_pthread_current_heap_cache() {
-    (void)(libc_pthread_self());
+    if (_pthread_fast_heap_cache_ready != 0) {
+        struct pthread_heap_cache_t * const fast_cache = _pthread_fast_heap_cache();
+        if (fast_cache != (struct pthread_heap_cache_t *)NULL) {
+                        {
+                struct pthread_heap_cache_t * _uya_ret = fast_cache;
+                return _uya_ret;
+                        }
+        }
+    }
+    if (_pthread_has_created_thread == 0) {
+        (void)(_pthread_init_main_thread_if_needed()        );
+                {
+            struct pthread_heap_cache_t * _uya_ret = (&_pthread_main_desc.heap_cache);
+            return _uya_ret;
+                }
+    }
     struct pthread_desc * const desc = _pthread_desc_self();
     if (desc == NULL) {
                 {
@@ -22578,7 +22979,7 @@ static __attribute__((used)) void _pthread_thread_exit(struct pthread_desc * des
     if (desc != NULL) {
         desc->result = retval;
         (void)(_pthread_run_tsd_destructors(desc)        );
-        (void)(libc_heap_flush_current_thread_cache()        );
+        (void)(libc_heap_detach_thread_cache_for_exit((&desc->heap_cache))        );
         __atomic_store_n((int32_t *)&(desc->exited), 1, __ATOMIC_SEQ_CST);
         while (true) {
             const int32_t state = __atomic_load_n((int32_t *)&(desc->joinstate), __ATOMIC_SEQ_CST);
@@ -22605,6 +23006,7 @@ __attribute__((used)) void libc__pthread_child_bootstrap(struct pthread_desc * d
         (void)(sys_exit(0)        );
         return;
     }
+    (void)(_pthread_set_fast_desc(desc)    );
     while (__atomic_load_n((int32_t *)&(desc->started), __ATOMIC_SEQ_CST) == 0) {
         (void)(libc_pthread_yield());
     }
@@ -22620,6 +23022,7 @@ static __attribute__((used)) void _pthread_release_resources_once(struct pthread
     if (__atomic_compare_exchange_n((int32_t *)(&desc->resources_released), (&expected), 1, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) == 0) {
         return;
     }
+    (void)(_pthread_stack_hint_forget(desc)    );
     void * const stack_mem = desc->stack;
     struct pthread_t * const pub_handle = desc->pub_handle;
     const int64_t tid = desc->tid;
@@ -22635,6 +23038,11 @@ static __attribute__((used)) void _pthread_release_resources_once(struct pthread
     }
     if (stack_mem != NULL) {
         (void)(free(stack_mem)        );
+    }
+    if (((desc->alloc_base != NULL) && (desc->alloc_size > 0ULL))) {
+        (void)(({ struct err_union_int32_t _uya_catch_tmp = sys_munmap((void *)desc->alloc_base, desc->alloc_size); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+        } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; }));
+        return;
     }
     (void)(free((void *)desc)    );
 }
@@ -22776,7 +23184,14 @@ __attribute__((used)) int32_t libc_pthread_create(struct pthread_t * thread, con
             return _uya_ret;
                 }
     }
-    struct pthread_desc * const desc = (struct pthread_desc *)malloc((int32_t)sizeof(struct pthread_desc));
+    struct err_union_voidptr desc_mem = sys_mmap((void *)NULL, PTHREAD_DESC_MAP_SIZE, (libc_PROT_READ | libc_PROT_WRITE), (libc_MAP_PRIVATE | libc_MAP_ANONYMOUS), (0 - 1), 0);
+    struct pthread_desc * const desc = (struct pthread_desc *)({ struct err_union_voidptr _uya_catch_tmp = desc_mem; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+        (void)(free(stack_mem)        );
+                {
+            int32_t _uya_ret = 12;
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
     if (desc == NULL) {
         (void)(free(stack_mem)        );
                 {
@@ -22787,6 +23202,8 @@ __attribute__((used)) int32_t libc_pthread_create(struct pthread_t * thread, con
     uint8_t * base = (uint8_t *)stack_mem;
     void * top = (void *)(base + stack_size);
     desc->tid = 0;
+    desc->self = desc;
+    desc->fast_heap_cache = (&desc->heap_cache);
     desc->stack = stack_mem;
     desc->stack_size = stack_size;
     __atomic_store_n((int32_t *)&(desc->detached), detached, __ATOMIC_SEQ_CST);
@@ -22806,7 +23223,10 @@ __attribute__((used)) int32_t libc_pthread_create(struct pthread_t * thread, con
     __atomic_store_n((int32_t *)&(desc->cancel_type), libc_PTHREAD_CANCEL_DEFERRED, __ATOMIC_SEQ_CST);
     __atomic_store_n((int32_t *)&(desc->cancel_pending), 0, __ATOMIC_SEQ_CST);
     desc->tsd_values = NULL;
-    desc->heap_cache = (struct pthread_heap_cache_t){.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL};
+    desc->alloc_base = (void *)desc;
+    desc->alloc_size = PTHREAD_DESC_MAP_SIZE;
+    desc->heap_cache = (struct pthread_heap_cache_t){.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .last_find_start_bin = 0ULL, .last_find_steps = 0ULL, .last_split_remainder_bin = (0 - 1), .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL, .debug_lookup_hint_count = 0ULL, .debug_lookup_stack_count = 0ULL, .debug_lookup_tid_count = 0ULL, .debug_free_fast_count = 0ULL, .debug_free_locked_count = 0ULL, .debug_free_global_count = 0ULL};
+    (void)(_pthread_init_main_thread_if_needed()    );
     (void)(libc_pthread_mutex_lock((&_pthread_create_mutex)));
     _pthread_child_desc = desc;
     int64_t tid = 0;
@@ -22826,7 +23246,8 @@ __asm__ volatile ("mov $56, %%rax\n\tmov $0x150f00, %%rdi\n\tmov %1, %%rsi\n\tmo
     if (tid < 0) {
         (void)(libc_pthread_mutex_unlock((&_pthread_create_mutex)));
         (void)(free(stack_mem)        );
-        (void)(free((void *)desc)        );
+        (void)(({ struct err_union_int32_t _uya_catch_tmp = sys_munmap((void *)desc->alloc_base, desc->alloc_size); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+        } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; }));
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
@@ -22844,6 +23265,7 @@ __asm__ volatile ("mov $56, %%rax\n\tmov $0x150f00, %%rdi\n\tmov %1, %%rsi\n\tmo
     thread->arg = arg;
     (void)(_pthread_registry_insert(tid, desc)    );
     __atomic_store_n((int32_t *)&(desc->started), 1, __ATOMIC_SEQ_CST);
+    _pthread_has_created_thread = 1;
     (void)(libc_pthread_mutex_unlock((&_pthread_create_mutex)));
         {
         int32_t _uya_ret = 0;
@@ -23365,6 +23787,15 @@ static __attribute__((used)) struct pthread_t _synthetic_pthread_self(int64_t ti
 }
 
 __attribute__((used)) struct pthread_t libc_pthread_self() {
+    if (_pthread_has_created_thread == 0) {
+        (void)(_pthread_init_main_thread_if_needed()        );
+        if (_pthread_main_desc.pub_handle != NULL) {
+                        {
+                struct pthread_t _uya_ret = _pthread_main_handle;
+                return _uya_ret;
+                        }
+        }
+    }
     const int64_t tid = ({ struct err_union_int32_t _uya_catch_tmp = libc_sys_gettid(); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             struct pthread_t _uya_ret = _synthetic_pthread_self((-1));
@@ -132276,6 +132707,36 @@ static __attribute__((used)) int32_t c99_want_profile_codegen() {
         }
 }
 
+static __attribute__((used)) int32_t c99_output_basename_equals(uint8_t * output_file, uint8_t * expected) {
+    (void)output_file;
+    (void)expected;
+    if (((output_file == NULL) || (expected == NULL))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    uint8_t * basename = (uint8_t *)std_string_strrchr((uint8_t *)output_file, 47);
+    if (basename == NULL) {
+        basename = (uint8_t *)std_string_strrchr((uint8_t *)output_file, 92);
+    }
+    if (basename != NULL) {
+        basename = (uint8_t *)((int64_t)basename + 1);
+    } else {
+        basename = output_file;
+    }
+    if (std_string_strcmp((uint8_t *)basename, (uint8_t *)expected) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) void emit_microapp_syscall_helpers(struct C99CodeGenerator * codegen) {
     (void)codegen;
     if (((codegen == NULL) || (codegen->emit_stream == NULL))) {
@@ -134453,28 +134914,25 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         target_os_is_macos = 1;
     }
     if (output_file != NULL) {
+        if (((c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4005) != 0) || (c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4006) != 0))) {
+            is_bootstrap = 1;
+        }
         int32_t i = 0;
         while (((i < C99_OUTPUT_FILENAME_BUF_SIZE) && (output_file[i] != (uint8_t)0))) {
             if (((((((((i + 5) < C99_OUTPUT_FILENAME_BUF_SIZE) && (output_file[i] == (uint8_t)108)) && (output_file[(i + 1)] == (uint8_t)105)) && (output_file[(i + 2)] == (uint8_t)98)) && (output_file[(i + 3)] == (uint8_t)117)) && (output_file[(i + 4)] == (uint8_t)121)) && (output_file[(i + 5)] == (uint8_t)97))) {
                 is_std_lib = 1;
                 break;
             }
-            if ((((((((i + 5) < C99_OUTPUT_FILENAME_BUF_SIZE) && (output_file[i] == (uint8_t)117)) && (output_file[(i + 1)] == (uint8_t)121)) && (output_file[(i + 2)] == (uint8_t)97)) && (output_file[(i + 3)] == (uint8_t)46)) && (output_file[(i + 4)] == (uint8_t)99))) {
-                is_bootstrap = 1;
-            }
-            if ((((i + 16) < C99_OUTPUT_FILENAME_BUF_SIZE) && (std_string_strncmp((uint8_t *)(&output_file[i]), (uint8_t *)(uint8_t *)str4005, 17) == 0))) {
-                is_bootstrap = 1;
-            }
             i = (i + 1);
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4006, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4007, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4008, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4009, (void *)codegen->emit_stream)    );
     if (codegen->stack_size > 0) {
-        (void)(fprintf((void *)codegen->emit_stream, (const char *)str4009, codegen->stack_size)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str4010, codegen->stack_size)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4008, (void *)codegen->emit_stream)        );
+        (void)(fprintf((void *)codegen->emit_stream, (const char *)str4011, codegen->stack_size)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4009, (void *)codegen->emit_stream)        );
     }
     const int32_t decl_count = ast->program_decl_count;
     if (prof_codegen != 0) {
@@ -134504,98 +134962,98 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         }
     }
     if (is_std_lib != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4011, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4012, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4013, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str360, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str361, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4013, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str363, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4014, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str365, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str363, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4015, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str365, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4016, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str367, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4016, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4017, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4018, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4019, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4020, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4021, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4022, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4023, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4024, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str372, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4025, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str372, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4026, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4029, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4030, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4031, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4032, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4033, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4034, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
-    } else {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4035, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
+    } else {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4036, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str392, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4037, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str392, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4038, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4039, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4040, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4041, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4042, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4038, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str403, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4037, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4039, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4046, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4041, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str403, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4038, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4046, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4040, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4042, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4048, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4046, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4049, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4050, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4051, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4052, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4053, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4054, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4055, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4056, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4057, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4058, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4059, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str392, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4059, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str403, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4060, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4048, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str403, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4061, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4049, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4062, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str411, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4063, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str413, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         if (codegen->freestanding == 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4063, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4065, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str361, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str363, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str365, (void *)codegen->emit_stream)        );
@@ -134607,35 +135065,34 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         if (codegen->freestanding != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4065, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4019, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4020, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)        );
         if (codegen->freestanding != 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4068, (void *)codegen->emit_stream)            );
         }
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4068, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4069, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4070, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4071, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4072, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4074, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4030, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4031, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4032, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4033, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4034, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4035, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         if (codegen->freestanding == 0) {
             if (((codegen->has_stdio_conflicts == 0) && (is_bootstrap == 0))) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)                );
             } else {
                 if (is_bootstrap == 0) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3828, (void *)codegen->emit_stream)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4077, (void *)codegen->emit_stream)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3836, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4078, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3836, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4079, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4080, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4081, (void *)codegen->emit_stream)                    );
@@ -134653,6 +135110,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4093, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4094, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4095, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int fgetc(struct FILE *);\n", (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern char *fgets(char *, int, struct FILE *);\n", (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int fscanf(struct FILE *, const char *, ...);\n", (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int sscanf(const char *, const char *, ...);\n", (void *)codegen->emit_stream)                    );
@@ -134717,7 +135175,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdlib.h>\n", (void *)codegen->emit_stream)            );
         }
         if (((((codegen->freestanding == 0) && (codegen->needs_stdio_h != 0)) && (codegen->has_stdio_conflicts == 0)) && (is_bootstrap == 0))) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)            );
         }
         if (is_bootstrap == 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef RLIMIT_STACK\n#undef RLIMIT_STACK\n#endif\n", (void *)codegen->emit_stream)            );
@@ -134934,6 +135392,8 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                 if (((has_decl_clock != 0) && (has_impl_clock == 0))) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int64_t clock(void);\n", (void *)codegen->emit_stream)                    );
                 }
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n", (void *)codegen->emit_stream)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }\n", (void *)codegen->emit_stream)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_flush_current_thread_cache(void) { }\n", (void *)codegen->emit_stream)                );
             }
             if (((target_os_is_macos != 0) && (is_bootstrap != 0))) {
@@ -135028,8 +135488,8 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void _exit(int);\n", (void *)codegen->emit_stream)            );
         }
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4028, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4029, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    char *d = (char *)dest; const char *s = (const char *)src;\n", (void *)codegen->emit_stream)        );
@@ -135981,6 +136441,11 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_thread_call_bool(void *fn, int32_t arg);\n", (void *)codegen->split_protos_out)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint32_t uya_thread_call_f32(void *fn, uint32_t arg_bits);\n", (void *)codegen->split_protos_out)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint64_t uya_thread_call_f64(void *fn, uint64_t arg_bits);\n", (void *)codegen->split_protos_out)        );
+        if (codegen->is_nostdlib == 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n", (void *)codegen->split_protos_out)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }\n", (void *)codegen->split_protos_out)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void libc_heap_flush_current_thread_cache(void) { }\n", (void *)codegen->split_protos_out)            );
+        }
     }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"// std.thread：宿主工具链间接调用（跨 -O0/-O2 稳定；见 lib/std/thread.uya）\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_call0_i32(void *fn) {\n", (void *)codegen->emit_stream)    );
@@ -156466,7 +156931,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
             }
             if (codegen->freestanding == 0) {
                 if (codegen->has_stdio_conflicts == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)fh)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)fh)                    );
                 }
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)fh)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)fh)                );
@@ -156523,7 +156988,7 @@ int32_t codegen_c99_utils_c99_split_mirror_prepare(struct C99CodeGenerator * cod
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str370, (void *)ch)    );
     if (codegen->freestanding == 0) {
         if (codegen->has_stdio_conflicts == 0) {
-            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)ch)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)ch)            );
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t std_runtime_get_argc(void);\n", (void *)ch)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"uint8_t *std_runtime_get_argv(int32_t index);\n", (void *)ch)        );
@@ -162762,7 +163227,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -164009,7 +164474,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -164253,7 +164718,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_391543956_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

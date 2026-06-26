@@ -1142,7 +1142,7 @@ fn find_chunk_aligned(needed_payload: usize) &FreeChunk {
             heap_debug_note_last_find_step(cache);
             var sz: usize = get_size(&cur.header);
             if sz >= needed_total {
-                if start_bin < NUM_TCACHE_BINS && bin_index > start_bin && sz - needed_total < min_split_total {
+                if start_bin < NUM_TCACHE_BINS && bin_index > start_bin && sz > needed_total && sz - needed_total < min_split_total {
                     cur = cur.next;
                     continue;
                 }

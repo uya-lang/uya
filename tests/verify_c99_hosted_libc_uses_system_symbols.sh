@@ -57,6 +57,8 @@ custom_memset="$TMP/custom_memset_fixture.uya"
 hosted_memset="$TMP/hosted_memset.c"
 custom_strtod="$TMP/custom_strtod_fixture.uya"
 hosted_strtod="$TMP/hosted_strtod.c"
+custom_output_name="$TMP/custom_output_name_fixture.uya"
+hosted_output_name_contains_uya="$TMP/http_bench_uya.c"
 hosted_async_split_dir="$TMP/hosted_async_split"
 hosted_async_split_out="$TMP/hosted_async_split.out"
 
@@ -98,6 +100,24 @@ export fn main() i32 {
 }
 UYA
 
+cat >"$custom_output_name" <<'UYA'
+use libc.errno;
+use libc.free;
+use libc.malloc;
+use libc.memset;
+
+export fn main() i32 {
+    const buf: &byte = malloc(8usize) as &byte;
+    if buf == null {
+        return errno;
+    }
+    _ = memset(buf, 0, 8usize);
+    free(buf as &void);
+    errno = 0;
+    return 0;
+}
+UYA
+
 "$COMPILER" build "$ROOT/tests/test_std_stdlib_malloc_only.uya" --c99 --no-split-c -o "$hosted_malloc" >/dev/null
 "$COMPILER" build "$ROOT/tests/test_libc_printf_import.uya" --c99 --no-split-c -o "$hosted_printf" >/dev/null
 "$COMPILER" build "$ROOT/tests/test_std_syscall.uya" --c99 --no-split-c -o "$hosted_syscall" >/dev/null
@@ -106,6 +126,7 @@ UYA
 "$COMPILER" build "$ROOT/tests/test_unistd.uya" --c99 --no-split-c -o "$hosted_unistd" >/dev/null
 "$COMPILER" build "$custom_memset" --c99 --no-split-c -o "$hosted_memset" >/dev/null
 "$COMPILER" build "$custom_strtod" --c99 --no-split-c -o "$hosted_strtod" >/dev/null
+"$COMPILER" build "$custom_output_name" --c99 --no-split-c -o "$hosted_output_name_contains_uya" >/dev/null
 "$COMPILER" build --nostdlib "$ROOT/tests/test_std_stdlib_malloc_only.uya" --c99 --no-split-c -o "$nostdlib_malloc" >/dev/null
 "$COMPILER" build "$custom_callback" --c99 --no-split-c -o "$custom_hosted" >/dev/null
 "$COMPILER" build --nostdlib "$custom_callback" --c99 --no-split-c -o "$custom_nostdlib" >/dev/null
@@ -130,6 +151,9 @@ grep -Fq "#include <string.h>" "$hosted_memset"
 assert_no_c_function_definition "$hosted_strtod" strtod "strtod fixture"
 assert_no_c_function_definition "$hosted_strtod" strtoll "strtod fixture"
 grep -Fq "#include <stdlib.h>" "$hosted_strtod"
+grep -Fq "#include <errno.h>" "$hosted_output_name_contains_uya"
+grep -Fq "#include <string.h>" "$hosted_output_name_contains_uya"
+grep -Fq "#include <stdlib.h>" "$hosted_output_name_contains_uya"
 
 for stream in stdin stdout stderr; do
     assert_no_raw_stream_definition "$hosted_printf" "$stream" "printf fixture"
@@ -168,6 +192,7 @@ cc -std=c99 -Werror "$hosted_stdio_helpers" -o "$TMP/hosted_stdio_helpers"
 cc -std=c99 -Werror "$hosted_unistd" -o "$TMP/hosted_unistd"
 cc -std=c99 -Werror "$hosted_memset" -o "$TMP/hosted_memset"
 cc -std=c99 -Werror "$hosted_strtod" -o "$TMP/hosted_strtod"
+cc -std=c99 -Werror "$hosted_output_name_contains_uya" -o "$TMP/hosted_output_name_contains_uya"
 cc -std=c99 -Werror "$custom_hosted" -o "$TMP/custom_hosted"
 
 "$TMP/hosted_malloc"
@@ -179,6 +204,7 @@ grep -Fxq "hello" "$TMP/hosted_printf.out"
 "$TMP/hosted_unistd" >"$TMP/hosted_unistd.out"
 "$TMP/hosted_memset" >/dev/null
 "$TMP/hosted_strtod" >/dev/null
+"$TMP/hosted_output_name_contains_uya" >/dev/null
 "$hosted_async_split_out" >/dev/null
 
 echo "verify_c99_hosted_libc_uses_system_symbols: ok"

@@ -98,7 +98,7 @@ test_should_use_nostdlib() {
     esac
 
     case "$name" in
-        test_libc_heap_*|bench_malloc_phase4|test_std_stdlib_malloc|test_std_stdlib_malloc_only|test_mem|test_string|test_pthread_cond|test_syscall_process)
+        test_libc_heap_*|bench_malloc_phase4|bench_malloc_phase4_detail|test_std_stdlib_malloc|test_std_stdlib_malloc_only|test_mem|test_string|test_pthread_cond|test_pthread_heap_*|test_syscall_process)
             return 0
             ;;
     esac
@@ -884,6 +884,9 @@ SERIAL_TESTS=(
     # 在整套高并发矩阵里与其他重型用例并行时，偶发卡在 metrics/drain 阶段并放大内存占用。
     # 单独运行与单线程脚本路径稳定通过，故移到串行桶以保留语义、隔离宿主资源竞争。
     test_async_thread_pool_dynamic_growth
+    # test_std_async_event_fd_reuse 使用 epoll/pipe/fd 碰撞压力覆盖 deregister 与 fd 复用；
+    # 单独运行稳定，通过串行桶避免整套高并发矩阵下的宿主 fd/调度噪声触发误判。
+    test_std_async_event_fd_reuse
 )
 if [ -n "${SERIAL_TESTS_EXTRA:-}" ]; then
     read -r -a SERIAL_TESTS_EXTRA_ARR <<< "$SERIAL_TESTS_EXTRA"
