@@ -21,8 +21,14 @@ use libc.sched_getaffinity;
 use libc.sys_exit;
 use libc.sys_getpid;
 use libc.sys_gettid;
+use libc.sys_mmap;
+use libc.sys_munmap;
 use libc.SYS_sched_yield;
 use libc.sys_set_tid_address;
+use libc.PROT_READ;
+use libc.PROT_WRITE;
+use libc.MAP_PRIVATE;
+use libc.MAP_ANONYMOUS;
 
 std.cfg(std.target_os == .tos_unknown, {
 export struct pthread_once_t {
@@ -65,6 +71,7 @@ export extern "libc" fn pthread_setspecific(key: pthread_key_t, value: &void) i3
 extern fn malloc(size: usize) &void;
 extern fn free(ptr: &void) void;
 extern fn heap_flush_current_thread_cache() void;
+extern fn heap_flush_thread_cache(cache: &pthread_heap_cache_t) void;
 
 // GCC/Clang 内建：原子 CAS / fetch-and-sub，用于 mutex（零库依赖）
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
@@ -73,6 +80,12 @@ extern "libc" fn __sync_fetch_and_sub(ptr: &i32, val: i32) i32;
 // pthread 使用的栈大小（8 MiB）
 const PTHREAD_ATOMIC_SEQ_CST: i32 = 5;
 const PTHREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
+const PTHREAD_DESC_MAP_SIZE: usize = 4096usize;
+const PTHREAD_STACK_HINT_SHIFT: i32 = 18;
+const PTHREAD_STACK_HINT_CAP: usize = 256usize;
+const PTHREAD_STACK_HINT_MASK: usize = PTHREAD_STACK_HINT_CAP - 1usize;
+const PTHREAD_SYS_ARCH_PRCTL_X86_64: i64 = 158;
+const PTHREAD_ARCH_SET_GS_X86_64: i64 = 0x1001;
 
 // clone 标志：NPTL-lite 线程组模型
 // 参考：man 2 clone
@@ -149,12 +162,23 @@ export struct pthread_heap_cache_t {
     counts: [usize: 7],
     last_region_start: usize,
     last_region_end: usize,
+    last_find_start_bin: usize,
+    last_find_steps: usize,
+    last_split_remainder_bin: i32,
     alloc_hit_count: u64,
     alloc_miss_count: u64,
+    debug_lookup_hint_count: u64,
+    debug_lookup_stack_count: u64,
+    debug_lookup_tid_count: u64,
+    debug_free_fast_count: u64,
+    debug_free_locked_count: u64,
+    debug_free_global_count: u64,
 }
 
 // 内部线程描述符（NPTL-lite）
 struct pthread_desc {
+    self: &pthread_desc,
+    fast_heap_cache: &pthread_heap_cache_t,
     tid: i64,
     stack: &void,
     stack_size: usize,
@@ -171,13 +195,25 @@ struct pthread_desc {
     cancel_type: atomic i32,
     cancel_pending: atomic i32,
     tsd_values: &&void,
+    alloc_base: &void,
+    alloc_size: usize,
     heap_cache: pthread_heap_cache_t,
 }
 
 const PTHREAD_MAX_THREADS: usize = 1024;
 struct pthread_registry_entry { tid: i64, desc: &pthread_desc }
+struct pthread_stack_hint_entry {
+    page_key: atomic usize,
+    stack_start: atomic usize,
+    stack_end: atomic usize,
+    desc: atomic usize,
+}
 var _pthread_registry: [pthread_registry_entry: PTHREAD_MAX_THREADS] = [];
+var _pthread_stack_hints: [pthread_stack_hint_entry: PTHREAD_STACK_HINT_CAP] = [];
+var _pthread_registry_high_water: usize = 0usize;
 var _pthread_main_desc: pthread_desc = pthread_desc{
+    self: null,
+    fast_heap_cache: null,
     tid: 0,
     stack: null,
     stack_size: 0,
@@ -194,17 +230,128 @@ var _pthread_main_desc: pthread_desc = pthread_desc{
     cancel_type: PTHREAD_CANCEL_DEFERRED,
     cancel_pending: 0,
     tsd_values: null,
+    alloc_base: null,
+    alloc_size: 0usize,
     heap_cache: pthread_heap_cache_t{
         heads: [],
         counts: [],
         last_region_start: 0usize,
         last_region_end: 0usize,
+        last_find_start_bin: 0usize,
+        last_find_steps: 0usize,
+        last_split_remainder_bin: 0 - 1,
         alloc_hit_count: 0u64,
         alloc_miss_count: 0u64,
+        debug_lookup_hint_count: 0u64,
+        debug_lookup_stack_count: 0u64,
+        debug_lookup_tid_count: 0u64,
+        debug_free_fast_count: 0u64,
+        debug_free_locked_count: 0u64,
+        debug_free_global_count: 0u64,
     },
 };
 var _pthread_main_handle: pthread_t = pthread_t{ tid: 0, stack: null, stack_size: 0, detached: 0, exited: 0, result: null, start_routine: null, arg: null };
 var _pthread_main_initialized: atomic i32 = 0;
+var _pthread_has_created_thread: atomic i32 = 0;
+var _pthread_fast_heap_cache_ready: i32 = 0;
+var _pthread_debug_heap_cache_lookup_metrics_enabled: atomic i32 = 0;
+
+fn _pthread_debug_note_heap_cache_lookup_hint(desc: &pthread_desc) void {
+    if _pthread_debug_heap_cache_lookup_metrics_enabled == 0 || desc == null {
+        return;
+    }
+    desc.heap_cache.debug_lookup_hint_count = desc.heap_cache.debug_lookup_hint_count + 1u64;
+}
+
+fn _pthread_debug_note_heap_cache_lookup_stack(desc: &pthread_desc) void {
+    if _pthread_debug_heap_cache_lookup_metrics_enabled == 0 || desc == null {
+        return;
+    }
+    desc.heap_cache.debug_lookup_stack_count = desc.heap_cache.debug_lookup_stack_count + 1u64;
+}
+
+fn _pthread_debug_note_heap_cache_lookup_tid(desc: &pthread_desc) void {
+    if _pthread_debug_heap_cache_lookup_metrics_enabled == 0 || desc == null {
+        return;
+    }
+    desc.heap_cache.debug_lookup_tid_count = desc.heap_cache.debug_lookup_tid_count + 1u64;
+}
+
+/// 功能说明：启用或关闭当前进程的 heap cache lookup 诊断计数。
+/// 参数说明：`enabled` 非 0 表示启用，0 表示关闭。
+/// 返回值说明：无返回值。
+export fn pthread_debug_set_heap_cache_lookup_metrics_enabled(enabled: i32) void {
+    _pthread_debug_heap_cache_lookup_metrics_enabled = enabled;
+}
+
+fn _pthread_init_main_thread_if_needed() void {
+    if _pthread_main_initialized != 0 {
+        return;
+    }
+    const tid: i64 = sys_gettid() catch { return; };
+    _pthread_main_desc.self = &_pthread_main_desc;
+    _pthread_main_desc.fast_heap_cache = &_pthread_main_desc.heap_cache;
+    _pthread_main_desc.tid = tid;
+    _pthread_main_desc.pub_handle = &_pthread_main_handle;
+    _pthread_main_handle.tid = tid;
+    _pthread_set_fast_desc(&_pthread_main_desc);
+    _pthread_fast_heap_cache_ready = 1;
+    _pthread_main_initialized = 1;
+}
+
+fn _pthread_set_fast_desc(desc: &pthread_desc) void {
+    if desc == null {
+        return;
+    }
+    std.cfg(std.target_os == .tos_linux, {
+        std.cfg(std.target_arch == .ta_x86_64, {
+            const result: !i64 = @syscall(PTHREAD_SYS_ARCH_PRCTL_X86_64, PTHREAD_ARCH_SET_GS_X86_64, desc as i64);
+            _ = result catch {};
+        }, {
+        })
+    }, {
+    })
+}
+
+fn _pthread_fast_desc() &pthread_desc {
+    std.cfg(std.target_os == .tos_linux, {
+        std.cfg(std.target_arch == .ta_x86_64, {
+            var desc_ptr: usize = 0usize;
+            @asm {
+                "movq %%gs:0, %0"
+                (-> desc_ptr);
+            } clobbers = [];
+            if desc_ptr == 0usize {
+                return null as &pthread_desc;
+            }
+            return desc_ptr as &pthread_desc;
+        }, {
+            return null as &pthread_desc;
+        })
+    }, {
+        return null as &pthread_desc;
+    })
+}
+
+fn _pthread_fast_heap_cache() &pthread_heap_cache_t {
+    std.cfg(std.target_os == .tos_linux, {
+        std.cfg(std.target_arch == .ta_x86_64, {
+            var cache_ptr: usize = 0usize;
+            @asm {
+                "movq %%gs:8, %0"
+                (-> cache_ptr);
+            } clobbers = [];
+            if cache_ptr == 0usize {
+                return null as &pthread_heap_cache_t;
+            }
+            return cache_ptr as &pthread_heap_cache_t;
+        }, {
+            return null as &pthread_heap_cache_t;
+        })
+    }, {
+        return null as &pthread_heap_cache_t;
+    })
+}
 
 fn _pthread_registry_insert(tid: i64, desc: &pthread_desc) void {
     if tid == 0 { return; }
@@ -215,6 +362,9 @@ fn _pthread_registry_insert(tid: i64, desc: &pthread_desc) void {
             _pthread_registry[i].desc = desc;
             var expected: i64 = 0;
             if __atomic_compare_exchange_n((&_pthread_registry[i].tid) as &i64, &expected, tid, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) != 0 {
+                if i + 1usize > _pthread_registry_high_water {
+                    _pthread_registry_high_water = i + 1usize;
+                }
                 return;
             }
             _pthread_registry[i].desc = null as &pthread_desc;
@@ -226,7 +376,7 @@ fn _pthread_registry_insert(tid: i64, desc: &pthread_desc) void {
 fn _pthread_registry_find(tid: i64) &pthread_desc {
     if tid == 0 { return null as &pthread_desc; }
     var i: usize = 0;
-    while i < PTHREAD_MAX_THREADS {
+    while i < _pthread_registry_high_water {
         if _pthread_registry[i].tid == tid {
             return _pthread_registry[i].desc;
         }
@@ -235,10 +385,26 @@ fn _pthread_registry_find(tid: i64) &pthread_desc {
     return null as &pthread_desc;
 }
 
+fn pthread_live_thread_count_hint() usize {
+    if _pthread_has_created_thread == 0 {
+        return 1usize;
+    }
+
+    var count: usize = 1usize;
+    var i: usize = 0usize;
+    while i < _pthread_registry_high_water {
+        if _pthread_registry[i].tid != 0 {
+            count = count + 1usize;
+        }
+        i = i + 1usize;
+    }
+    return count;
+}
+
 fn _pthread_registry_remove(tid: i64) void {
     if tid == 0 { return; }
     var i: usize = 0;
-    while i < PTHREAD_MAX_THREADS {
+    while i < _pthread_registry_high_water {
         if _pthread_registry[i].tid == tid {
             _pthread_registry[i].tid = 0;
             _pthread_registry[i].desc = null as &pthread_desc;
@@ -248,12 +414,143 @@ fn _pthread_registry_remove(tid: i64) void {
     }
 }
 
+fn _pthread_stack_marker_addr() usize {
+    var marker: byte = 0;
+    return (&marker) as usize;
+}
+
+fn _pthread_stack_hint_key(stack_addr: usize) usize {
+    if stack_addr == 0usize {
+        return 0usize;
+    }
+    return (stack_addr >> PTHREAD_STACK_HINT_SHIFT) + 1usize;
+}
+
+fn _pthread_stack_hint_index(page_key: usize) usize {
+    return page_key & PTHREAD_STACK_HINT_MASK;
+}
+
+fn _pthread_stack_hint_lookup(stack_addr: usize) &pthread_desc {
+    const page_key: usize = _pthread_stack_hint_key(stack_addr);
+    if page_key == 0usize {
+        return null as &pthread_desc;
+    }
+
+    const slot: &pthread_stack_hint_entry = &_pthread_stack_hints[_pthread_stack_hint_index(page_key)];
+    if slot.page_key != page_key {
+        return null as &pthread_desc;
+    }
+
+    const stack_start: usize = slot.stack_start;
+    const stack_end: usize = slot.stack_end;
+    if stack_start == 0usize || stack_end <= stack_start {
+        return null as &pthread_desc;
+    }
+    if stack_addr < stack_start || stack_addr >= stack_end {
+        return null as &pthread_desc;
+    }
+
+    const desc_ptr: usize = slot.desc;
+    if desc_ptr == 0usize {
+        return null as &pthread_desc;
+    }
+    return desc_ptr as &pthread_desc;
+}
+
+fn _pthread_stack_hint_remember(stack_addr: usize, desc: &pthread_desc) void {
+    if stack_addr == 0usize || desc == null || desc.stack == null || desc.stack_size == 0usize {
+        return;
+    }
+
+    const stack_start: usize = desc.stack as usize;
+    const stack_end: usize = stack_start + desc.stack_size;
+    if stack_end <= stack_start || stack_addr < stack_start || stack_addr >= stack_end {
+        return;
+    }
+
+    const page_key: usize = _pthread_stack_hint_key(stack_addr);
+    if page_key == 0usize {
+        return;
+    }
+
+    const slot: &pthread_stack_hint_entry = &_pthread_stack_hints[_pthread_stack_hint_index(page_key)];
+    slot.stack_start = stack_start;
+    slot.stack_end = stack_end;
+    slot.desc = desc as usize;
+    slot.page_key = page_key;
+}
+
+fn _pthread_stack_hint_forget(desc: &pthread_desc) void {
+    if desc == null {
+        return;
+    }
+
+    const target: usize = desc as usize;
+    if target == 0usize {
+        return;
+    }
+
+    var i: usize = 0usize;
+    while i < PTHREAD_STACK_HINT_CAP {
+        if _pthread_stack_hints[i].desc == target {
+            _pthread_stack_hints[i].page_key = 0usize;
+            _pthread_stack_hints[i].desc = 0usize;
+            _pthread_stack_hints[i].stack_start = 0usize;
+            _pthread_stack_hints[i].stack_end = 0usize;
+        }
+        i = i + 1usize;
+    }
+}
+
+fn _pthread_registry_find_by_stack_addr(stack_addr: usize) &pthread_desc {
+    if stack_addr == 0usize {
+        return null as &pthread_desc;
+    }
+    var i: usize = 0usize;
+    while i < _pthread_registry_high_water {
+        if _pthread_registry[i].tid != 0 {
+            const desc: &pthread_desc = _pthread_registry[i].desc;
+            if desc != null && desc.stack != null && desc.stack_size != 0usize {
+                const stack_start: usize = desc.stack as usize;
+                const stack_end: usize = stack_start + desc.stack_size;
+                if stack_addr >= stack_start && stack_addr < stack_end {
+                    return desc;
+                }
+            }
+        }
+        i = i + 1usize;
+    }
+    return null as &pthread_desc;
+}
+
 fn _pthread_desc_self() &pthread_desc {
+    if _pthread_has_created_thread == 0 {
+        _pthread_init_main_thread_if_needed();
+        return &_pthread_main_desc;
+    }
+    const fast_desc: &pthread_desc = _pthread_fast_desc();
+    if fast_desc != null && fast_desc.self == fast_desc {
+        return fast_desc;
+    }
+    const stack_addr: usize = _pthread_stack_marker_addr();
+    const hint_desc: &pthread_desc = _pthread_stack_hint_lookup(stack_addr);
+    if hint_desc != null {
+        _pthread_debug_note_heap_cache_lookup_hint(hint_desc);
+        return hint_desc;
+    }
+    const stack_desc: &pthread_desc = _pthread_registry_find_by_stack_addr(stack_addr);
+    if stack_desc != null {
+        _pthread_stack_hint_remember(stack_addr, stack_desc);
+        _pthread_debug_note_heap_cache_lookup_stack(stack_desc);
+        return stack_desc;
+    }
     const tid: i64 = sys_gettid() catch { return null as &pthread_desc; };
     var desc: &pthread_desc = _pthread_registry_find(tid);
     if desc == null && _pthread_main_desc.tid == tid {
         desc = &_pthread_main_desc;
     }
+    _pthread_stack_hint_remember(stack_addr, desc);
+    _pthread_debug_note_heap_cache_lookup_tid(desc);
     return desc;
 }
 
@@ -261,7 +558,16 @@ fn _pthread_desc_self() &pthread_desc {
 /// 参数说明：无。
 /// 返回值说明：成功时返回当前线程的缓存结构；若当前线程描述符不可用则返回 `null`。
 export fn pthread_current_heap_cache() &pthread_heap_cache_t {
-    _ = pthread_self();
+    if _pthread_fast_heap_cache_ready != 0 {
+        const fast_cache: &pthread_heap_cache_t = _pthread_fast_heap_cache();
+        if fast_cache != null as &pthread_heap_cache_t {
+            return fast_cache;
+        }
+    }
+    if _pthread_has_created_thread == 0 {
+        _pthread_init_main_thread_if_needed();
+        return &_pthread_main_desc.heap_cache;
+    }
     const desc: &pthread_desc = _pthread_desc_self();
     if desc == null {
         return null as &pthread_heap_cache_t;
@@ -390,7 +696,7 @@ fn _pthread_thread_exit(desc: &pthread_desc, retval: &void) void {
     if desc != null {
         desc.result = retval;
         _pthread_run_tsd_destructors(desc);
-        heap_flush_current_thread_cache();
+        heap_flush_thread_cache(&desc.heap_cache);
         desc.exited = 1;
         while true {
             const state: i32 = desc.joinstate;
@@ -417,6 +723,7 @@ export extern "libc" fn _pthread_child_bootstrap(desc: &pthread_desc) void {
         sys_exit(0);
         return;
     }
+    _pthread_set_fast_desc(desc);
     while desc.started == 0 {
         _ = pthread_yield();
     }
@@ -431,6 +738,7 @@ fn _pthread_release_resources_once(desc: &pthread_desc) void {
     if __atomic_compare_exchange_n((&desc.resources_released) as &i32, &expected, 1, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) == 0 {
         return;
     }
+    _pthread_stack_hint_forget(desc);
     const stack_mem: &void = desc.stack;
     const pub_handle: &pthread_t = desc.pub_handle;
     const tid: i64 = desc.tid;
@@ -446,6 +754,10 @@ fn _pthread_release_resources_once(desc: &pthread_desc) void {
     }
     if stack_mem != null {
         free(stack_mem);
+    }
+    if desc.alloc_base != null && desc.alloc_size > 0usize {
+        _ = sys_munmap(desc.alloc_base as *void, desc.alloc_size) catch {};
+        return;
     }
     free(desc as &void);
 }
@@ -550,7 +862,13 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
 
     // 先分配内部描述符，再进入 clone 窗口。
     // 这样父线程在子线程存活期间就不需要再碰 malloc/free，避免和共享 VM 下的 libc 状态打架。
-    const desc: &pthread_desc = malloc(@size_of(pthread_desc)) as &pthread_desc;
+    const desc_mem: !*void = sys_mmap(null as *void, PTHREAD_DESC_MAP_SIZE,
+                                      PROT_READ | PROT_WRITE,
+                                      MAP_PRIVATE | MAP_ANONYMOUS, 0 - 1, 0);
+    const desc: &pthread_desc = (desc_mem catch {
+        free(stack_mem);
+        return 12;
+    }) as &pthread_desc;
     if desc == null {
         free(stack_mem);
         return 12; // ENOMEM
@@ -560,6 +878,8 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
     var top: &void = (base + stack_size) as &void;
 
     desc.tid = 0;
+    desc.self = desc;
+    desc.fast_heap_cache = &desc.heap_cache;
     desc.stack = stack_mem;
     desc.stack_size = stack_size;
     desc.detached = detached;
@@ -579,14 +899,27 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
     desc.cancel_type = PTHREAD_CANCEL_DEFERRED;
     desc.cancel_pending = 0;
     desc.tsd_values = null;
+    desc.alloc_base = desc as &void;
+    desc.alloc_size = PTHREAD_DESC_MAP_SIZE;
     desc.heap_cache = pthread_heap_cache_t{
         heads: [],
         counts: [],
         last_region_start: 0usize,
         last_region_end: 0usize,
+        last_find_start_bin: 0usize,
+        last_find_steps: 0usize,
+        last_split_remainder_bin: 0 - 1,
         alloc_hit_count: 0u64,
         alloc_miss_count: 0u64,
+        debug_lookup_hint_count: 0u64,
+        debug_lookup_stack_count: 0u64,
+        debug_lookup_tid_count: 0u64,
+        debug_free_fast_count: 0u64,
+        debug_free_locked_count: 0u64,
+        debug_free_global_count: 0u64,
     };
+
+    _pthread_init_main_thread_if_needed();
 
     // 多线程安全：同一时刻只有一个 pthread_create 能进入 clone 窗口并发布 early-child fallback。
     _ = pthread_mutex_lock(&_pthread_create_mutex);
@@ -656,7 +989,7 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
     if tid < 0 {
         _ = pthread_mutex_unlock(&_pthread_create_mutex);
         free(stack_mem);
-        free(desc as &void);
+        _ = sys_munmap(desc.alloc_base as *void, desc.alloc_size) catch {};
         return 1;
     }
 
@@ -675,6 +1008,7 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
 
     _pthread_registry_insert(tid, desc);
     desc.started = 1;
+    _pthread_has_created_thread = 1;
     _ = pthread_mutex_unlock(&_pthread_create_mutex);
     return 0;
 }
@@ -1075,6 +1409,12 @@ fn _synthetic_pthread_self(tid: i64) pthread_t {
 
 // pthread_self - 获取当前线程 ID（NPTL-lite：从 registry 返回稳定 pub_handle）
 export extern "libc" fn pthread_self() pthread_t {
+    if _pthread_has_created_thread == 0 {
+        _pthread_init_main_thread_if_needed();
+        if _pthread_main_desc.pub_handle != null {
+            return _pthread_main_handle;
+        }
+    }
     const tid: i64 = sys_gettid() catch { return _synthetic_pthread_self(-1); };
     const desc: &pthread_desc = _pthread_registry_find(tid);
     if desc != null && desc.pub_handle != null {

@@ -1,0 +1,303 @@
+use std.runtime.entry;
+use libc.pthread;
+use libc.malloc;
+use libc.free;
+use libc.sys_clock_gettime;
+use libc.CLOCK_MONOTONIC;
+use libc.heap_debug_lock_acquire_count;
+use libc.heap_debug_lock_contention_count;
+use libc.heap_debug_set_tcache_metrics_enabled;
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+
+const BENCH_CASE_COUNT: usize = 4usize;
+const BENCH_THREAD_COUNTS: [i32: BENCH_CASE_COUNT] = [1, 2, 4, 8];
+const BENCH_MAX_THREADS: usize = 8usize;
+const BENCH_ROUNDS: i32 = 4000;
+const BENCH_CLASS_COUNT: usize = 7usize;
+const BENCH_OBJECTS_PER_CLASS: usize = 8usize;
+const BENCH_OBJECTS_PER_ROUND: usize = BENCH_CLASS_COUNT * BENCH_OBJECTS_PER_CLASS;
+const BENCH_SIZE_CLASSES: [usize: BENCH_CLASS_COUNT] = [
+    32usize, 64usize, 128usize, 256usize,
+    512usize, 1024usize, 2048usize,
+];
+
+var g_detail_start_flag: atomic i32 = 0;
+
+struct DetailWorkerState {
+    thread_index: usize,
+    status: i32,
+    alloc_count: u64,
+    free_count: u64,
+    checksum: u64,
+    cache_addr_first: usize,
+    cache_addr_last: usize,
+    tcache_hits: u64,
+    tcache_misses: u64,
+    lookup_hint_count: u64,
+    lookup_stack_count: u64,
+    lookup_tid_count: u64,
+    free_fast_count: u64,
+    free_locked_count: u64,
+    free_global_count: u64,
+    miss_by_class: [u64: BENCH_CLASS_COUNT],
+    start_ns: u64,
+    finish_ns: u64,
+}
+
+fn bench_now_ns() u64 {
+    var ts: TimeSpec = TimeSpec{ tv_sec: 0, tv_nsec: 0 };
+    const now_result: !i32 = sys_clock_gettime(CLOCK_MONOTONIC, &ts);
+    _ = now_result catch {
+        return 0u64;
+    };
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return 0u64;
+    }
+    return (ts.tv_sec as u64) * 1000000000u64 + (ts.tv_nsec as u64);
+}
+
+fn bench_elapsed_ns(start_ns: u64, end_ns: u64) u64 {
+    if end_ns <= start_ns {
+        return 0u64;
+    }
+    return end_ns - start_ns;
+}
+
+fn detail_worker(arg: &void) &void {
+    var state: &DetailWorkerState = arg as &DetailWorkerState;
+    var ptrs: [&void: BENCH_OBJECTS_PER_ROUND] = [];
+    var sizes: [usize: BENCH_OBJECTS_PER_ROUND] = [];
+
+    while g_detail_start_flag == 0 {
+    }
+
+    state.start_ns = bench_now_ns();
+
+    var round: i32 = 0;
+    while round < BENCH_ROUNDS {
+        const cache_begin: &pthread_heap_cache_t = pthread_current_heap_cache();
+        if cache_begin == null as &pthread_heap_cache_t {
+            state.status = 1;
+            return null;
+        }
+        if round == 0 {
+            state.cache_addr_first = cache_begin as usize;
+        }
+        state.cache_addr_last = cache_begin as usize;
+
+        var slot: usize = 0usize;
+        var class_index: usize = 0usize;
+        while class_index < BENCH_CLASS_COUNT {
+            const class_miss_before: u64 = cache_begin.alloc_miss_count;
+            var repeat: usize = 0usize;
+            while repeat < BENCH_OBJECTS_PER_CLASS {
+                const size: usize = BENCH_SIZE_CLASSES[class_index];
+                const ptr: &void = malloc(size);
+                if ptr == null {
+                    state.status = 2;
+                    state.tcache_hits = cache_begin.alloc_hit_count;
+                    state.tcache_misses = cache_begin.alloc_miss_count;
+                    state.lookup_hint_count = cache_begin.debug_lookup_hint_count;
+                    state.lookup_stack_count = cache_begin.debug_lookup_stack_count;
+                    state.lookup_tid_count = cache_begin.debug_lookup_tid_count;
+                    state.free_fast_count = cache_begin.debug_free_fast_count;
+                    state.free_locked_count = cache_begin.debug_free_locked_count;
+                    state.free_global_count = cache_begin.debug_free_global_count;
+                    state.finish_ns = bench_now_ns();
+                    return null;
+                }
+                var bytes: &byte = ptr as &byte;
+                bytes[0] = ((round as usize) + class_index + repeat + state.thread_index) as byte;
+                ptrs[slot] = ptr;
+                sizes[slot] = size;
+                state.alloc_count = state.alloc_count + 1u64;
+                slot = slot + 1usize;
+                repeat = repeat + 1usize;
+            }
+            const cache_after_class: &pthread_heap_cache_t = pthread_current_heap_cache();
+            if cache_after_class != null as &pthread_heap_cache_t {
+                state.miss_by_class[class_index] = state.miss_by_class[class_index] + (cache_after_class.alloc_miss_count - class_miss_before);
+            }
+            class_index = class_index + 1usize;
+        }
+
+        slot = 0usize;
+        while slot < BENCH_OBJECTS_PER_ROUND {
+            var bytes: &byte = ptrs[slot] as &byte;
+            state.checksum = state.checksum + (bytes[0] as u64) + (sizes[slot] as u64);
+            free(ptrs[slot]);
+            state.free_count = state.free_count + 1u64;
+            slot = slot + 1usize;
+        }
+        round = round + 1;
+    }
+
+    const cache_end: &pthread_heap_cache_t = pthread_current_heap_cache();
+    if cache_end == null as &pthread_heap_cache_t {
+        state.status = 3;
+        state.finish_ns = bench_now_ns();
+        return null;
+    }
+    state.cache_addr_last = cache_end as usize;
+    state.tcache_hits = cache_end.alloc_hit_count;
+    state.tcache_misses = cache_end.alloc_miss_count;
+    state.lookup_hint_count = cache_end.debug_lookup_hint_count;
+    state.lookup_stack_count = cache_end.debug_lookup_stack_count;
+    state.lookup_tid_count = cache_end.debug_lookup_tid_count;
+    state.free_fast_count = cache_end.debug_free_fast_count;
+    state.free_locked_count = cache_end.debug_free_locked_count;
+    state.free_global_count = cache_end.debug_free_global_count;
+    state.finish_ns = bench_now_ns();
+    state.status = 0;
+    return null;
+}
+
+fn run_case(thread_count: i32) i32 {
+    if thread_count <= 0 || (thread_count as usize) > BENCH_MAX_THREADS {
+        return 40;
+    }
+
+    g_detail_start_flag = 0;
+    var threads: [pthread_t: BENCH_MAX_THREADS] = [];
+    var states: [DetailWorkerState: BENCH_MAX_THREADS] = [];
+
+    var created: usize = 0usize;
+    while created < (thread_count as usize) {
+        states[created] = DetailWorkerState{
+            thread_index: created,
+            status: 99,
+            alloc_count: 0u64,
+            free_count: 0u64,
+            checksum: 0u64,
+            cache_addr_first: 0usize,
+            cache_addr_last: 0usize,
+            tcache_hits: 0u64,
+            tcache_misses: 0u64,
+            lookup_hint_count: 0u64,
+            lookup_stack_count: 0u64,
+            lookup_tid_count: 0u64,
+            free_fast_count: 0u64,
+            free_locked_count: 0u64,
+            free_global_count: 0u64,
+            miss_by_class: [],
+            start_ns: 0u64,
+            finish_ns: 0u64,
+        };
+        if pthread_create(&threads[created], null as &const pthread_attr_t, &detail_worker as &void, (&states[created]) as &void) != 0 {
+            return 10;
+        }
+        created = created + 1usize;
+    }
+
+    const before_locks: u64 = heap_debug_lock_acquire_count();
+    const before_contentions: u64 = heap_debug_lock_contention_count();
+    const start_ns: u64 = bench_now_ns();
+    g_detail_start_flag = 1;
+
+    var joined: usize = 0usize;
+    while joined < created {
+        if pthread_join(&threads[joined], null as & &void) != 0 {
+            return 20 + (joined as i32);
+        }
+        joined = joined + 1usize;
+    }
+
+    const end_ns: u64 = bench_now_ns();
+    var earliest_start_ns: u64 = 0u64;
+    var latest_finish_ns: u64 = 0u64;
+    var min_worker_elapsed_ns: u64 = 0u64;
+    var max_worker_elapsed_ns: u64 = 0u64;
+    var total_hits: u64 = 0u64;
+    var total_misses: u64 = 0u64;
+
+    var i: usize = 0usize;
+    while i < created {
+        const worker_elapsed_ns: u64 = bench_elapsed_ns(states[i].start_ns, states[i].finish_ns);
+        if earliest_start_ns == 0u64 || (states[i].start_ns != 0u64 && states[i].start_ns < earliest_start_ns) {
+            earliest_start_ns = states[i].start_ns;
+        }
+        if states[i].finish_ns > latest_finish_ns {
+            latest_finish_ns = states[i].finish_ns;
+        }
+        if min_worker_elapsed_ns == 0u64 || (worker_elapsed_ns != 0u64 && worker_elapsed_ns < min_worker_elapsed_ns) {
+            min_worker_elapsed_ns = worker_elapsed_ns;
+        }
+        if worker_elapsed_ns > max_worker_elapsed_ns {
+            max_worker_elapsed_ns = worker_elapsed_ns;
+        }
+        total_hits = total_hits + states[i].tcache_hits;
+        total_misses = total_misses + states[i].tcache_misses;
+        i = i + 1usize;
+    }
+
+    var worker_window_ns: u64 = 0u64;
+    if earliest_start_ns != 0u64 && latest_finish_ns >= earliest_start_ns {
+        worker_window_ns = latest_finish_ns - earliest_start_ns;
+    }
+
+    printf("malloc_phase4_detail threads=%d elapsed_ns=%lu worker_window_ns=%lu join_overhang_ns=%lu total_ops=%lu lock_acquires=%lu lock_contentions=%lu tcache_hits=%lu tcache_misses=%lu\n" as *byte,
+           thread_count,
+           bench_elapsed_ns(start_ns, end_ns),
+           worker_window_ns,
+           bench_elapsed_ns(start_ns, end_ns) - worker_window_ns,
+           (thread_count as u64) * (BENCH_ROUNDS as u64) * (BENCH_OBJECTS_PER_ROUND as u64) * 2u64,
+           heap_debug_lock_acquire_count() - before_locks,
+           heap_debug_lock_contention_count() - before_contentions,
+           total_hits,
+           total_misses);
+
+    printf("malloc_phase4_detail_span threads=%d min_worker_elapsed_ns=%lu max_worker_elapsed_ns=%lu\n" as *byte,
+           thread_count,
+           min_worker_elapsed_ns,
+           max_worker_elapsed_ns);
+
+    i = 0usize;
+    while i < created {
+        printf("malloc_phase4_detail_thread threads=%d idx=%zu status=%d start_ns=%lu finish_ns=%lu cache_addr_first=%zu cache_addr_last=%zu allocs=%lu frees=%lu hits=%lu misses=%lu lookup_hint=%lu lookup_stack=%lu lookup_tid=%lu free_fast=%lu free_locked=%lu free_global=%lu checksum=%lu\n" as *byte,
+               thread_count,
+               i,
+               states[i].status,
+               states[i].start_ns,
+               states[i].finish_ns,
+               states[i].cache_addr_first,
+               states[i].cache_addr_last,
+               states[i].alloc_count,
+               states[i].free_count,
+               states[i].tcache_hits,
+               states[i].tcache_misses,
+               states[i].lookup_hint_count,
+               states[i].lookup_stack_count,
+               states[i].lookup_tid_count,
+               states[i].free_fast_count,
+               states[i].free_locked_count,
+               states[i].free_global_count,
+               states[i].checksum);
+        printf("malloc_phase4_detail_thread_classes threads=%d idx=%zu miss32=%lu miss64=%lu miss128=%lu miss256=%lu miss512=%lu miss1024=%lu miss2048=%lu\n" as *byte,
+               thread_count,
+               i,
+               states[i].miss_by_class[0usize],
+               states[i].miss_by_class[1usize],
+               states[i].miss_by_class[2usize],
+               states[i].miss_by_class[3usize],
+               states[i].miss_by_class[4usize],
+               states[i].miss_by_class[5usize],
+               states[i].miss_by_class[6usize]);
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+export fn main() i32 {
+    heap_debug_set_tcache_metrics_enabled(1);
+    pthread_debug_set_heap_cache_lookup_metrics_enabled(1);
+    var i: usize = 0usize;
+    while i < BENCH_CASE_COUNT {
+        const rc: i32 = run_case(BENCH_THREAD_COUNTS[i]);
+        if rc != 0 {
+            return rc;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}

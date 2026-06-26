@@ -23,6 +23,12 @@ const TRIPLE_MERGED_REQUEST_SIZE: usize = 2200usize;
 const TRIPLE_BLOCK_A_TOTAL_SIZE: usize = 800usize;
 const TRIPLE_BLOCK_B_TOTAL_SIZE: usize = 1056usize;
 const TRIPLE_BLOCK_C_TOTAL_SIZE: usize = 672usize;
+const TCACHE_PREV_SMALL_SIZE: usize = 1024usize;
+const TCACHE_PREV_LARGE_SIZE: usize = 2496usize;
+const TCACHE_PREV_FILL_TAIL_SIZE: usize = 416usize;
+const TCACHE_PREV_MERGED_REQUEST_SIZE: usize = 3200usize;
+const TCACHE_PREV_SMALL_TOTAL_SIZE: usize = 1056usize;
+const TCACHE_PREV_LARGE_TOTAL_SIZE: usize = 2528usize;
 
 fn alloc_checked(size: usize) !&void {
     const ptr: &void = malloc(size);
@@ -64,6 +70,18 @@ fn matches_guard_abc_fill_layout(guard_left: &void, block_a: &void, block_b: &vo
     if b_addr != a_addr + TRIPLE_BLOCK_A_TOTAL_SIZE { return false; }
     if c_addr != b_addr + TRIPLE_BLOCK_B_TOTAL_SIZE { return false; }
     if fill_addr != c_addr + TRIPLE_BLOCK_C_TOTAL_SIZE { return false; }
+    return true;
+}
+
+fn matches_guard_tcache_prev_layout(guard_left: &void, block_small: &void, block_large: &void, fill_tail: &void) bool {
+    const guard_addr: usize = @usize_from_ptr(guard_left);
+    const small_addr: usize = @usize_from_ptr(block_small);
+    const large_addr: usize = @usize_from_ptr(block_large);
+    const fill_addr: usize = @usize_from_ptr(fill_tail);
+
+    if small_addr != guard_addr + GUARD_TOTAL_SIZE { return false; }
+    if large_addr != small_addr + TCACHE_PREV_SMALL_TOTAL_SIZE { return false; }
+    if fill_addr != large_addr + TCACHE_PREV_LARGE_TOTAL_SIZE { return false; }
     return true;
 }
 
@@ -360,6 +378,60 @@ test "heap_coalescing_stays_stable_under_long_fragmentation_pressure" {
             free_if_non_null(guards[cleanup_i]);
             free_if_non_null(blocks_a[cleanup_i]);
             free_if_non_null(blocks_b[cleanup_i]);
+            free_if_non_null(fills[cleanup_i]);
+        }
+        cleanup_i = cleanup_i + 1usize;
+    }
+    heap_flush_current_thread_cache();
+}
+
+test "heap_coalesces_large_free_with_previous_cached_tcache_neighbor" {
+    heap_flush_current_thread_cache();
+
+    var guards: [&void: MAX_ATTEMPTS] = [];
+    var blocks_small: [&void: MAX_ATTEMPTS] = [];
+    var blocks_large: [&void: MAX_ATTEMPTS] = [];
+    var fills: [&void: MAX_ATTEMPTS] = [];
+    var found: bool = false;
+    var found_index: usize = 0usize;
+
+    var i: usize = 0usize;
+    while i < MAX_ATTEMPTS {
+        guards[i] = try alloc_checked(GUARD_LEFT_SIZE);
+        blocks_small[i] = try alloc_checked(TCACHE_PREV_SMALL_SIZE);
+        blocks_large[i] = try alloc_checked(TCACHE_PREV_LARGE_SIZE);
+        fills[i] = try alloc_checked(TCACHE_PREV_FILL_TAIL_SIZE);
+        if matches_guard_tcache_prev_layout(guards[i], blocks_small[i], blocks_large[i], fills[i]) {
+            found = true;
+            found_index = i;
+            break;
+        }
+        i = i + 1usize;
+    }
+
+    try assert(found, "failed to carve an exact guard/small/large/fill page layout");
+
+    const guard_left: &void = guards[found_index];
+    const block_small: &void = blocks_small[found_index];
+    const block_large: &void = blocks_large[found_index];
+    const fill_tail: &void = fills[found_index];
+
+    free(block_small);
+    free(block_large);
+
+    const merged: &void = try alloc_checked(TCACHE_PREV_MERGED_REQUEST_SIZE);
+    try assert(@usize_from_ptr(merged) == @usize_from_ptr(block_small), "large free must merge backward with previous cached tcache chunk");
+
+    free_and_flush(merged);
+    free_and_flush(fill_tail);
+    free_and_flush(guard_left);
+
+    var cleanup_i: usize = 0usize;
+    while cleanup_i < MAX_ATTEMPTS {
+        if cleanup_i != found_index {
+            free_if_non_null(guards[cleanup_i]);
+            free_if_non_null(blocks_small[cleanup_i]);
+            free_if_non_null(blocks_large[cleanup_i]);
             free_if_non_null(fills[cleanup_i]);
         }
         cleanup_i = cleanup_i + 1usize;

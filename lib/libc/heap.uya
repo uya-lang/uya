@@ -73,6 +73,8 @@ struct LargeRegion {
 }
 
 var bins: [&FreeChunk: NUM_BINS] = [];
+var orphan_tcache_heads: [&FreeChunk: NUM_TCACHE_BINS] = [];
+var orphan_tcache_counts: [usize: NUM_TCACHE_BINS] = [];
 var heap_regions: &HeapRegion = null;
 var large_regions: &LargeRegion = null;
 var _heap_debug_last_find_steps: usize = 0;
@@ -82,6 +84,33 @@ var _heap_debug_large_mmap_count: usize = 0;
 var _heap_debug_large_munmap_count: usize = 0;
 var _heap_debug_lock_acquire_count: u64 = 0u64;
 var _heap_debug_lock_contention_count: u64 = 0u64;
+var _heap_debug_tcache_metrics_enabled: i32 = 0;
+
+fn heap_debug_set_last_find(cache: &pthread_heap_cache_t, start_bin: usize, steps: usize) void {
+    if cache != null as &pthread_heap_cache_t {
+        cache.last_find_start_bin = start_bin;
+        cache.last_find_steps = steps;
+        return;
+    }
+    _heap_debug_last_find_start_bin = start_bin;
+    _heap_debug_last_find_steps = steps;
+}
+
+fn heap_debug_note_last_find_step(cache: &pthread_heap_cache_t) void {
+    if cache != null as &pthread_heap_cache_t {
+        cache.last_find_steps = cache.last_find_steps + 1usize;
+        return;
+    }
+    _heap_debug_last_find_steps = _heap_debug_last_find_steps + 1usize;
+}
+
+fn heap_debug_set_last_split_remainder_bin(cache: &pthread_heap_cache_t, bin_index: i32) void {
+    if cache != null as &pthread_heap_cache_t {
+        cache.last_split_remainder_bin = bin_index;
+        return;
+    }
+    _heap_debug_last_split_remainder_bin = bin_index;
+}
 
 fn heap_debug_note_lock_acquire(contended: bool) void {
     _heap_debug_lock_acquire_count = _heap_debug_lock_acquire_count + 1u64;
@@ -91,14 +120,14 @@ fn heap_debug_note_lock_acquire(contended: bool) void {
 }
 
 fn heap_debug_note_tcache_alloc_hit(cache: &pthread_heap_cache_t) void {
-    if cache == null as &pthread_heap_cache_t {
+    if cache == null as &pthread_heap_cache_t || _heap_debug_tcache_metrics_enabled == 0 {
         return;
     }
     cache.alloc_hit_count = cache.alloc_hit_count + 1u64;
 }
 
 fn heap_debug_note_tcache_alloc_miss(cache: &pthread_heap_cache_t) void {
-    if cache == null as &pthread_heap_cache_t {
+    if cache == null as &pthread_heap_cache_t || _heap_debug_tcache_metrics_enabled == 0 {
         return;
     }
     cache.alloc_miss_count = cache.alloc_miss_count + 1u64;
@@ -107,10 +136,7 @@ fn heap_debug_note_tcache_alloc_miss(cache: &pthread_heap_cache_t) void {
 // 勿命名 align_up：与 std/mem/arena 的两参数 align_up 合并后会解析错误
 fn heap_align_up(size: usize) usize {
     if size == 0 { return MALLOC_ALIGN; }
-    var q: usize = size / MALLOC_ALIGN;
-    var r: usize = size - q * MALLOC_ALIGN;
-    if r == 0 { return size; }
-    return (q + 1) * MALLOC_ALIGN;
+    return (size + (MALLOC_ALIGN - 1usize)) & (0usize - MALLOC_ALIGN);
 }
 
 fn normalize_payload_size(size: usize) usize {
@@ -208,23 +234,34 @@ fn chunk_total_for_payload(payload: usize) usize {
     return heap_align_up(payload + chunk_overhead());
 }
 
+fn chunk_payload_for_total(total_size: usize) usize {
+    if total_size <= chunk_overhead() {
+        return MIN_CHUNK_SIZE;
+    }
+    return total_size - chunk_overhead();
+}
+
 fn chunk_payload_capacity(hdr: &ChunkHeader) usize {
     return get_size(hdr) - chunk_overhead();
 }
 
 fn chunk_uses_tcache(hdr: &ChunkHeader) bool {
-    return get_size(hdr) <= chunk_total_for_payload(TCACHE_MAX_SIZE);
+    return get_size(hdr) <= 2080usize;
 }
 
 fn bin_index_for_payload(payload_size: usize) usize {
     const size: usize = normalize_payload_size(payload_size);
-    if size < 64 { return 0; }
-    if size < 128 { return 1; }
-    if size < 256 { return 2; }
-    if size < 512 { return 3; }
-    if size < 1024 { return 4; }
-    if size < 2048 { return 5; }
-    if size < 4096 { return 6; }
+    return bin_index_for_aligned_payload(size);
+}
+
+fn bin_index_for_aligned_payload(payload_size: usize) usize {
+    if payload_size < 64 { return 0; }
+    if payload_size < 128 { return 1; }
+    if payload_size < 256 { return 2; }
+    if payload_size < 512 { return 3; }
+    if payload_size < 1024 { return 4; }
+    if payload_size < 2048 { return 5; }
+    if payload_size < 4096 { return 6; }
     return 7;
 }
 
@@ -233,21 +270,45 @@ fn bin_index_for_request(requested_payload: usize) usize {
 }
 
 fn bin_index_for_chunk(hdr: &ChunkHeader) usize {
-    return bin_index_for_payload(chunk_payload_capacity(hdr));
+    const total_size: usize = get_size(hdr);
+    return bin_index_for_total_size(total_size);
+}
+
+fn bin_index_for_total_size(total_size: usize) usize {
+    if total_size <= 64usize { return 0; }
+    if total_size <= 128usize { return 1; }
+    if total_size <= 256usize { return 2; }
+    if total_size <= 512usize { return 3; }
+    if total_size <= 1024usize { return 4; }
+    if total_size <= 2048usize { return 5; }
+    if total_size <= 4096usize { return 6; }
+    return 7;
 }
 
 /// 返回值：上一次 `find_chunk` 从哪个 bin 起跳。
 export fn heap_debug_last_find_start_bin() usize {
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    if cache != null as &pthread_heap_cache_t {
+        return cache.last_find_start_bin;
+    }
     return _heap_debug_last_find_start_bin;
 }
 
 /// 返回值：上一次 `find_chunk` 实际检查的 free chunk 数量。
 export fn heap_debug_last_find_steps() usize {
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    if cache != null as &pthread_heap_cache_t {
+        return cache.last_find_steps;
+    }
     return _heap_debug_last_find_steps;
 }
 
 /// 返回值：上一次 split 产生的剩余 chunk 所在 bin；若未 split 则返回 -1。
 export fn heap_debug_last_split_remainder_bin() i32 {
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    if cache != null as &pthread_heap_cache_t {
+        return cache.last_split_remainder_bin;
+    }
     return _heap_debug_last_split_remainder_bin;
 }
 
@@ -341,8 +402,15 @@ export fn heap_debug_tcache_alloc_miss_count() u64 {
     return cache.alloc_miss_count;
 }
 
+/// 功能说明：启用或关闭当前进程的 tcache 命中/未命中调试计数。
+/// 参数说明：`enabled` 非 0 表示启用，0 表示关闭。
+/// 返回值说明：无返回值。
+export fn heap_debug_set_tcache_metrics_enabled(enabled: i32) void {
+    _heap_debug_tcache_metrics_enabled = enabled;
+}
+
 fn request_uses_tcache(size: usize) bool {
-    return normalize_payload_size(size) <= TCACHE_MAX_SIZE;
+    return size <= TCACHE_MAX_SIZE;
 }
 
 fn current_thread_heap_cache() &pthread_heap_cache_t {
@@ -401,13 +469,64 @@ fn tcache_push_chunk(cache: &pthread_heap_cache_t, bin_index: usize, chunk: &Fre
     }
 
     set_tcache(&chunk.header, true);
-    write_footer(&chunk.header);
-    chunk.prev = null;
     chunk.next = tcache_head(cache, bin_index);
-    set_prev_link(chunk.next, chunk);
     tcache_set_head(cache, bin_index, chunk);
     tcache_set_count(cache, bin_index, tcache_count(cache, bin_index) + 1usize);
     return true;
+}
+
+fn orphan_tcache_count(bin_index: usize) usize {
+    if bin_index >= NUM_TCACHE_BINS {
+        return 0usize;
+    }
+    return orphan_tcache_counts[bin_index];
+}
+
+fn orphan_tcache_set_count(bin_index: usize, count: usize) void {
+    if bin_index >= NUM_TCACHE_BINS {
+        return;
+    }
+    orphan_tcache_counts[bin_index] = count;
+}
+
+fn orphan_tcache_head(bin_index: usize) &FreeChunk {
+    if bin_index >= NUM_TCACHE_BINS {
+        return null as &FreeChunk;
+    }
+    return orphan_tcache_heads[bin_index];
+}
+
+fn orphan_tcache_set_head(bin_index: usize, head: &FreeChunk) void {
+    if bin_index >= NUM_TCACHE_BINS {
+        return;
+    }
+    orphan_tcache_heads[bin_index] = head;
+}
+
+fn orphan_tcache_take_chunk_locked(needed_payload: usize) &FreeChunk {
+    const bin_index: usize = bin_index_for_aligned_payload(needed_payload);
+    if bin_index >= NUM_TCACHE_BINS {
+        return null as &FreeChunk;
+    }
+
+    var prev: &FreeChunk = null;
+    var cur: &FreeChunk = orphan_tcache_head(bin_index);
+    while !is_null(cur as &void) {
+        if chunk_payload_capacity(&cur.header) >= needed_payload {
+            if !is_null(prev as &void) {
+                prev.next = cur.next;
+            } else {
+                orphan_tcache_set_head(bin_index, cur.next);
+            }
+            orphan_tcache_set_count(bin_index, orphan_tcache_count(bin_index) - 1usize);
+            set_tcache(&cur.header, false);
+            return cur;
+        }
+        prev = cur;
+        cur = cur.next;
+    }
+
+    return null as &FreeChunk;
 }
 
 fn tcache_take_chunk(cache: &pthread_heap_cache_t, needed: usize) &FreeChunk {
@@ -416,34 +535,28 @@ fn tcache_take_chunk(cache: &pthread_heap_cache_t, needed: usize) &FreeChunk {
     }
 
     const needed_payload: usize = normalize_payload_size(needed);
-    var bin_index: usize = bin_index_for_request(needed_payload);
-    _heap_debug_last_find_start_bin = bin_index;
-    _heap_debug_last_find_steps = 0usize;
-    while bin_index < NUM_TCACHE_BINS {
-        var prev: &FreeChunk = null;
-        var cur: &FreeChunk = tcache_head(cache, bin_index);
-        while !is_null(cur as &void) {
-            _heap_debug_last_find_steps = _heap_debug_last_find_steps + 1usize;
-            if chunk_payload_capacity(&cur.header) >= needed_payload {
-                if !is_null(prev as &void) {
-                    prev.next = cur.next;
-                } else {
-                    tcache_set_head(cache, bin_index, cur.next);
-                }
-                if !is_null(cur.next as &void) {
-                    cur.next.prev = prev;
-                }
-                cur.prev = null;
-                cur.next = null;
-                tcache_set_count(cache, bin_index, tcache_count(cache, bin_index) - 1usize);
-                set_tcache(&cur.header, false);
-                write_footer(&cur.header);
-                return cur;
+    const bin_index: usize = bin_index_for_aligned_payload(needed_payload);
+    if bin_index >= NUM_TCACHE_BINS {
+        return null as &FreeChunk;
+    }
+    heap_debug_set_last_find(cache, bin_index, 0usize);
+
+    var prev: &FreeChunk = null;
+    var cur: &FreeChunk = tcache_head(cache, bin_index);
+    while !is_null(cur as &void) {
+        heap_debug_note_last_find_step(cache);
+        if chunk_payload_capacity(&cur.header) >= needed_payload {
+            if !is_null(prev as &void) {
+                prev.next = cur.next;
+            } else {
+                tcache_set_head(cache, bin_index, cur.next);
             }
-            prev = cur;
-            cur = cur.next;
+            tcache_set_count(cache, bin_index, tcache_count(cache, bin_index) - 1usize);
+            set_tcache(&cur.header, false);
+            return cur;
         }
-        bin_index = bin_index + 1usize;
+        prev = cur;
+        cur = cur.next;
     }
 
     return null as &FreeChunk;
@@ -465,12 +578,36 @@ fn tcache_remove_exact_chunk(cache: &pthread_heap_cache_t, target: &ChunkHeader)
                 } else {
                     tcache_set_head(cache, bin_index, cur.next);
                 }
-                if !is_null(cur.next as &void) {
-                    cur.next.prev = prev;
-                }
-                cur.prev = null;
-                cur.next = null;
                 tcache_set_count(cache, bin_index, tcache_count(cache, bin_index) - 1usize);
+                set_tcache(&cur.header, false);
+                return true;
+            }
+            prev = cur;
+            cur = cur.next;
+        }
+        bin_index = bin_index + 1usize;
+    }
+
+    return false;
+}
+
+fn orphan_tcache_remove_exact_chunk_locked(target: &ChunkHeader) bool {
+    if target == null as &ChunkHeader {
+        return false;
+    }
+
+    var bin_index: usize = 0usize;
+    while bin_index < NUM_TCACHE_BINS {
+        var prev: &FreeChunk = null;
+        var cur: &FreeChunk = orphan_tcache_head(bin_index);
+        while !is_null(cur as &void) {
+            if @usize_from_ptr(cur as &void) == @usize_from_ptr(target as &void) {
+                if !is_null(prev as &void) {
+                    prev.next = cur.next;
+                } else {
+                    orphan_tcache_set_head(bin_index, cur.next);
+                }
+                orphan_tcache_set_count(bin_index, orphan_tcache_count(bin_index) - 1usize);
                 set_tcache(&cur.header, false);
                 return true;
             }
@@ -490,7 +627,7 @@ fn to_footer(hdr: &ChunkHeader) &ChunkFooter {
 
 fn write_footer(hdr: &ChunkHeader) void {
     var footer: &ChunkFooter = to_footer(hdr);
-    footer.size = hdr.size;
+    footer.size = raw_chunk_size(hdr.size);
 }
 
 fn set_free_and_footer(hdr: &ChunkHeader, free: bool) void {
@@ -533,11 +670,70 @@ fn tcache_flush_all_locked(cache: &pthread_heap_cache_t) void {
     }
 }
 
+fn orphan_tcache_transfer_bin_locked(cache: &pthread_heap_cache_t, bin_index: usize) void {
+    if cache == null as &pthread_heap_cache_t || bin_index >= NUM_TCACHE_BINS {
+        return;
+    }
+    const count: usize = tcache_count(cache, bin_index);
+    if count == 0usize {
+        return;
+    }
+
+    var head: &FreeChunk = tcache_head(cache, bin_index);
+    tcache_set_head(cache, bin_index, null as &FreeChunk);
+    tcache_set_count(cache, bin_index, 0usize);
+
+    var tail: &FreeChunk = head;
+    while !is_null(tail.next as &void) {
+        tail = tail.next;
+    }
+    tail.next = orphan_tcache_head(bin_index);
+    orphan_tcache_set_head(bin_index, head);
+    orphan_tcache_set_count(bin_index, orphan_tcache_count(bin_index) + count);
+}
+
+fn orphan_tcache_transfer_all_locked(cache: &pthread_heap_cache_t) void {
+    if cache == null as &pthread_heap_cache_t {
+        return;
+    }
+    var bin_index: usize = 0usize;
+    while bin_index < NUM_TCACHE_BINS {
+        orphan_tcache_transfer_bin_locked(cache, bin_index);
+        bin_index = bin_index + 1usize;
+    }
+}
+
+fn orphan_tcache_flush_bin_locked(bin_index: usize) void {
+    if bin_index >= NUM_TCACHE_BINS {
+        return;
+    }
+
+    var cur: &FreeChunk = orphan_tcache_head(bin_index);
+    orphan_tcache_set_head(bin_index, null as &FreeChunk);
+    orphan_tcache_set_count(bin_index, 0usize);
+
+    while !is_null(cur as &void) {
+        const next: &FreeChunk = cur.next;
+        cur.next = null;
+        _free_impl(to_user_ptr(&cur.header));
+        cur = next;
+    }
+}
+
+fn orphan_tcache_flush_all_locked() void {
+    var bin_index: usize = 0usize;
+    while bin_index < NUM_TCACHE_BINS {
+        if orphan_tcache_count(bin_index) > 0usize {
+            orphan_tcache_flush_bin_locked(bin_index);
+        }
+        bin_index = bin_index + 1usize;
+    }
+}
+
 /// 功能说明：将当前线程 tcache 中的所有 chunk 回刷到全局 heap。
 /// 参数说明：无。
 /// 返回值说明：无返回值。
-export fn heap_flush_current_thread_cache() void {
-    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+export fn heap_flush_thread_cache(cache: &pthread_heap_cache_t) void {
     if cache == null as &pthread_heap_cache_t {
         return;
     }
@@ -547,12 +743,75 @@ export fn heap_flush_current_thread_cache() void {
     _heap_lock_release();
 }
 
+/// 功能说明：将当前线程 tcache 中的所有 chunk 回刷到全局 heap。
+/// 参数说明：无。
+/// 返回值说明：无返回值。
+export fn heap_flush_current_thread_cache() void {
+    heap_flush_thread_cache(current_thread_heap_cache());
+}
+
+/// 功能说明：在线程退出时将指定 tcache 迁移到 orphan 队列，供后续线程按需复用。
+/// 参数说明：`cache` 为待迁移的线程本地 heap cache。
+/// 返回值说明：无返回值。
+export fn heap_detach_thread_cache_for_exit(cache: &pthread_heap_cache_t) void {
+    if cache == null as &pthread_heap_cache_t {
+        return;
+    }
+
+    _heap_lock_acquire();
+    orphan_tcache_transfer_all_locked(cache);
+    _heap_lock_release();
+}
+
+fn heap_detach_current_thread_cache_for_exit() void {
+    heap_detach_thread_cache_for_exit(current_thread_heap_cache());
+}
+
 fn tcache_refill_locked(cache: &pthread_heap_cache_t, size: usize) &void {
     if cache == null as &pthread_heap_cache_t {
         return _malloc_impl(size);
     }
+    const needed_payload: usize = normalize_payload_size(size);
+    const bin_index: usize = bin_index_for_aligned_payload(needed_payload);
+    if bin_index >= NUM_TCACHE_BINS {
+        return _malloc_impl(size);
+    }
 
-    return _malloc_impl(size);
+    var refill_target: usize = 1usize;
+    if pthread_live_thread_count_hint() >= 2usize {
+        refill_target = TCACHE_BATCH;
+    }
+    if refill_target <= 1usize {
+        return _malloc_impl(size);
+    }
+
+    const single_total: usize = chunk_total_for_payload(needed_payload);
+    const span_total: usize = single_total * refill_target;
+    const span_chunk: &FreeChunk = take_allocated_chunk_total_locked(span_total);
+    if span_chunk == null as &FreeChunk {
+        return _malloc_impl(size);
+    }
+
+    var offset: usize = 0usize;
+    var idx: usize = 0usize;
+    while idx < refill_target {
+        const sub_hdr: &ChunkHeader = (((span_chunk as &byte) + offset) as &ChunkHeader);
+        sub_hdr.magic = CHUNK_MAGIC;
+        sub_hdr.size = single_total;
+        write_footer(sub_hdr);
+
+        const sub_chunk: &FreeChunk = sub_hdr as &FreeChunk;
+        sub_chunk.prev = null;
+        sub_chunk.next = null;
+
+        if idx > 0usize {
+            _ = tcache_push_chunk(cache, bin_index, sub_chunk);
+        }
+        offset = offset + single_total;
+        idx = idx + 1usize;
+    }
+
+    return to_user_ptr(&span_chunk.header);
 }
 
 fn try_tcache_free_locked(ptr: &void) bool {
@@ -590,7 +849,11 @@ fn try_tcache_free_locked(ptr: &void) bool {
     if tcache_count(cache, bin_index) >= TCACHE_BATCH {
         tcache_flush_bin_locked(cache, bin_index);
     }
-    return tcache_push_chunk(cache, bin_index, hdr as &FreeChunk);
+    const pushed: bool = tcache_push_chunk(cache, bin_index, hdr as &FreeChunk);
+    if pushed && _heap_debug_tcache_metrics_enabled != 0 {
+        cache.debug_free_locked_count = cache.debug_free_locked_count + 1u64;
+    }
+    return pushed;
 }
 
 fn try_tcache_free_fast(ptr: &void) bool {
@@ -604,27 +867,28 @@ fn try_tcache_free_fast(ptr: &void) bool {
     }
 
     const hdr: &ChunkHeader = to_header(ptr);
-    if hdr.magic != CHUNK_MAGIC {
-        return false;
-    }
-    if is_free(hdr) || is_tcache(hdr) {
-        return true;
-    }
-    if !chunk_uses_tcache(hdr) {
-        return false;
-    }
-    if !owns_ptr_with_cache(ptr, cache) {
+    const total_size: usize = raw_chunk_size(hdr.size);
+    if total_size > 2080usize {
         return false;
     }
 
-    const bin_index: usize = bin_index_for_chunk(hdr);
+    const bin_index: usize = bin_index_for_total_size(total_size);
     if bin_index >= NUM_TCACHE_BINS {
         return false;
     }
-    if tcache_count(cache, bin_index) >= TCACHE_BATCH {
+    const count: usize = cache.counts[bin_index];
+    if count >= TCACHE_BATCH {
         return false;
     }
-    return tcache_push_chunk(cache, bin_index, hdr as &FreeChunk);
+    var chunk: &FreeChunk = hdr as &FreeChunk;
+    chunk.header.size = total_size | CHUNK_FLAG_TCACHE;
+    chunk.next = cache.heads[bin_index] as &FreeChunk;
+    cache.heads[bin_index] = chunk as &void;
+    cache.counts[bin_index] = count + 1usize;
+    if _heap_debug_tcache_metrics_enabled != 0 {
+        cache.debug_free_fast_count = cache.debug_free_fast_count + 1u64;
+    }
+    return true;
 }
 
 fn remove_free(chunk: &FreeChunk) void {
@@ -769,6 +1033,12 @@ fn merge_free_neighbors(region: &HeapRegion, chunk: &FreeChunk) &FreeChunk {
             set_free_and_footer(merged_hdr, true);
             continue;
         }
+        if !is_null(next_hdr as &void) && next_hdr.magic == CHUNK_MAGIC && is_tcache(next_hdr) && orphan_tcache_remove_exact_chunk_locked(next_hdr) {
+            merged_hdr.magic = CHUNK_MAGIC;
+            merged_hdr.size = get_size(merged_hdr) + get_size(next_hdr);
+            set_free_and_footer(merged_hdr, true);
+            continue;
+        }
 
         var prev_hdr: &ChunkHeader = prev_chunk_in_region(region, merged_hdr);
         if !is_null(prev_hdr as &void) && prev_hdr.magic == CHUNK_MAGIC && is_free(prev_hdr) {
@@ -781,6 +1051,14 @@ fn merge_free_neighbors(region: &HeapRegion, chunk: &FreeChunk) &FreeChunk {
             continue;
         }
         if !is_null(prev_hdr as &void) && prev_hdr.magic == CHUNK_MAGIC && is_tcache(prev_hdr) && tcache_remove_exact_chunk(cache, prev_hdr) {
+            prev_hdr.magic = CHUNK_MAGIC;
+            prev_hdr.size = get_size(prev_hdr) + get_size(merged_hdr);
+            set_free_and_footer(prev_hdr, true);
+            merged = prev_hdr as &FreeChunk;
+            merged_hdr = prev_hdr;
+            continue;
+        }
+        if !is_null(prev_hdr as &void) && prev_hdr.magic == CHUNK_MAGIC && is_tcache(prev_hdr) && orphan_tcache_remove_exact_chunk_locked(prev_hdr) {
             prev_hdr.magic = CHUNK_MAGIC;
             prev_hdr.size = get_size(prev_hdr) + get_size(merged_hdr);
             set_free_and_footer(prev_hdr, true);
@@ -850,20 +1128,24 @@ fn _malloc_large(requested: usize, aligned: usize) &void {
     return to_user_ptr(hdr);
 }
 
-fn find_chunk(needed: usize) &FreeChunk {
-    const needed_payload: usize = normalize_payload_size(needed);
+fn find_chunk_aligned(needed_payload: usize) &FreeChunk {
     const needed_total: usize = chunk_total_for_payload(needed_payload);
-    const start_bin: usize = bin_index_for_request(needed_payload);
-    _heap_debug_last_find_start_bin = start_bin;
-    _heap_debug_last_find_steps = 0;
+    const start_bin: usize = bin_index_for_aligned_payload(needed_payload);
+    const min_split_total: usize = chunk_total_for_payload(MIN_CHUNK_SIZE);
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    heap_debug_set_last_find(cache, start_bin, 0usize);
 
     var bin_index: usize = start_bin;
     while bin_index < NUM_BINS {
         var cur: &FreeChunk = bins[bin_index];
         while !is_null(cur as &void) {
-            _heap_debug_last_find_steps = _heap_debug_last_find_steps + 1;
+            heap_debug_note_last_find_step(cache);
             var sz: usize = get_size(&cur.header);
             if sz >= needed_total {
+                if start_bin < NUM_TCACHE_BINS && bin_index > start_bin && sz - needed_total < min_split_total {
+                    cur = cur.next;
+                    continue;
+                }
                 return cur;
             }
             cur = cur.next;
@@ -873,11 +1155,36 @@ fn find_chunk(needed: usize) &FreeChunk {
     return null;
 }
 
-fn split_allocated_chunk(hdr: &ChunkHeader, needed: usize) void {
-    _heap_debug_last_split_remainder_bin = 0 - 1;
+fn find_chunk_total_split_safe(needed_total: usize) &FreeChunk {
+    const start_bin: usize = bin_index_for_total_size(needed_total);
+    const min_split_total: usize = chunk_total_for_payload(MIN_CHUNK_SIZE);
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    heap_debug_set_last_find(cache, start_bin, 0usize);
+
+    var bin_index: usize = start_bin;
+    while bin_index < NUM_BINS {
+        var cur: &FreeChunk = bins[bin_index];
+        while !is_null(cur as &void) {
+            heap_debug_note_last_find_step(cache);
+            const sz: usize = get_size(&cur.header);
+            if sz == needed_total {
+                return cur;
+            }
+            if sz > needed_total && sz - needed_total >= min_split_total {
+                return cur;
+            }
+            cur = cur.next;
+        }
+        bin_index = bin_index + 1usize;
+    }
+    return null;
+}
+
+fn split_allocated_chunk_aligned(hdr: &ChunkHeader, needed_payload: usize) void {
+    const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+    heap_debug_set_last_split_remainder_bin(cache, 0 - 1);
     var sz: usize = get_size(hdr);
-    var alloc_payload: usize = normalize_payload_size(needed);
-    var alloc_size: usize = chunk_total_for_payload(alloc_payload);
+    var alloc_size: usize = chunk_total_for_payload(needed_payload);
     var rem: usize = sz - alloc_size;
 
     if rem >= chunk_total_for_payload(MIN_CHUNK_SIZE) {
@@ -893,8 +1200,30 @@ fn split_allocated_chunk(hdr: &ChunkHeader, needed: usize) void {
         new_chunk.prev = null;
         new_chunk.next = null;
         add_free(new_chunk);
-        _heap_debug_last_split_remainder_bin = bin_index_for_chunk(new_hdr) as i32;
+        heap_debug_set_last_split_remainder_bin(cache, bin_index_for_chunk(new_hdr) as i32);
     }
+}
+
+fn take_allocated_chunk_total_locked(needed_total: usize) &FreeChunk {
+    var chunk: &FreeChunk = find_chunk_total_split_safe(needed_total);
+
+    if is_null(chunk as &void) {
+        const hdr: &ChunkHeader = morecore(chunk_payload_for_total(needed_total));
+        if is_null(hdr as &void) {
+            return null as &FreeChunk;
+        }
+        add_free(hdr as &FreeChunk);
+        chunk = find_chunk_total_split_safe(needed_total);
+    }
+
+    if is_null(chunk as &void) {
+        return null as &FreeChunk;
+    }
+
+    remove_free(chunk);
+    set_free(&chunk.header, false);
+    split_allocated_chunk_aligned(&chunk.header, chunk_payload_for_total(needed_total));
+    return chunk;
 }
 
 fn try_expand_chunk_in_place(hdr: &ChunkHeader, needed: usize) bool {
@@ -916,39 +1245,39 @@ fn try_expand_chunk_in_place(hdr: &ChunkHeader, needed: usize) bool {
     if is_free(next_hdr) {
         remove_free(next_hdr as &FreeChunk);
     } else {
-        if !is_tcache(next_hdr) || !tcache_remove_exact_chunk(cache, next_hdr) {
+        if !is_tcache(next_hdr) || (!tcache_remove_exact_chunk(cache, next_hdr) && !orphan_tcache_remove_exact_chunk_locked(next_hdr)) {
             return false;
         }
     }
     hdr.size = merged_total;
     set_free_and_footer(hdr, false);
-    split_allocated_chunk(hdr, needed);
+    split_allocated_chunk_aligned(hdr, needed);
     return true;
 }
 
 fn _malloc_impl(size: usize) &void {
     if size == 0 { return null; }
 
-    _heap_debug_last_split_remainder_bin = 0 - 1;
+    heap_debug_set_last_split_remainder_bin(current_thread_heap_cache(), 0 - 1);
     const aligned: usize = normalize_payload_size(size);
     if aligned >= HEAP_PAGE_SIZE {
         return _malloc_large(size, aligned);
     }
 
-    var chunk: &FreeChunk = find_chunk(aligned);
+    var chunk: &FreeChunk = find_chunk_aligned(aligned);
 
     if is_null(chunk as &void) {
         var hdr: &ChunkHeader = morecore(aligned);
         if is_null(hdr as &void) { return null; }
         add_free(hdr as &FreeChunk);
-        chunk = find_chunk(aligned);
+        chunk = find_chunk_aligned(aligned);
     }
 
     if is_null(chunk as &void) { return null; }
 
     remove_free(chunk);
-    set_free_and_footer(&chunk.header, false);
-    split_allocated_chunk(&chunk.header, aligned);
+    set_free(&chunk.header, false);
+    split_allocated_chunk_aligned(&chunk.header, aligned);
 
     return to_user_ptr(&chunk.header);
 }
@@ -961,6 +1290,21 @@ export extern "libc" fn malloc(size: usize) &void {
     if request_uses_tcache(size) {
         const cache: &pthread_heap_cache_t = current_thread_heap_cache();
         if cache != null as &pthread_heap_cache_t {
+            const needed_payload: usize = normalize_payload_size(size);
+            const bin_index: usize = bin_index_for_aligned_payload(needed_payload);
+            if bin_index < NUM_TCACHE_BINS {
+                var head: &FreeChunk = cache.heads[bin_index] as &FreeChunk;
+                if !is_null(head as &void) && get_size(&head.header) >= chunk_total_for_payload(needed_payload) {
+                    const next: &FreeChunk = head.next;
+                    heap_debug_set_last_find(cache, bin_index, 1usize);
+                    cache.heads[bin_index] = next as &void;
+                    cache.counts[bin_index] = cache.counts[bin_index] - 1usize;
+                    set_tcache(&head.header, false);
+                    heap_debug_note_tcache_alloc_hit(cache);
+                    return to_user_ptr(&head.header);
+                }
+            }
+
             const cached: &FreeChunk = tcache_take_chunk(cache, size);
             if !is_null(cached as &void) {
                 heap_debug_note_tcache_alloc_hit(cache);
@@ -969,6 +1313,12 @@ export extern "libc" fn malloc(size: usize) &void {
 
             heap_debug_note_tcache_alloc_miss(cache);
             _heap_lock_acquire();
+            const orphaned: &FreeChunk = orphan_tcache_take_chunk_locked(needed_payload);
+            if !is_null(orphaned as &void) {
+                _heap_lock_release();
+                heap_debug_note_tcache_alloc_hit(cache);
+                return to_user_ptr(&orphaned.header);
+            }
             const result_tcache: &void = tcache_refill_locked(cache, size);
             _heap_lock_release();
             return result_tcache;
@@ -977,6 +1327,7 @@ export extern "libc" fn malloc(size: usize) &void {
 
     _heap_lock_acquire();
     tcache_flush_all_locked(current_thread_heap_cache());
+    orphan_tcache_flush_all_locked();
     const result: &void = _malloc_impl(size);
     _heap_lock_release();
     return result;
@@ -1010,6 +1361,10 @@ export extern "libc" fn free(ptr: &void) void {
     }
     _heap_lock_acquire();
     if !try_tcache_free_locked(ptr) {
+        const cache: &pthread_heap_cache_t = current_thread_heap_cache();
+        if _heap_debug_tcache_metrics_enabled != 0 && cache != null as &pthread_heap_cache_t {
+            cache.debug_free_global_count = cache.debug_free_global_count + 1u64;
+        }
         _free_impl(ptr);
     }
     _heap_lock_release();
@@ -1060,6 +1415,7 @@ export extern "libc" fn realloc(ptr: &void, size: usize) &void {
     _heap_lock_acquire();
     if !request_uses_tcache(size) {
         tcache_flush_all_locked(current_thread_heap_cache());
+        orphan_tcache_flush_all_locked();
     }
     const result: &void = _realloc_impl(ptr, size);
     _heap_lock_release();
