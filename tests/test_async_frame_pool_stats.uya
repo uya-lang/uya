@@ -17,6 +17,7 @@ use std.mem.allocator.IAllocator;
 use std.testing.expect;
 use std.testing.run_test;
 use std.async;
+use libc.pthread;
 
 @async_fn
 fn dummy_async() Future<!i32> {
@@ -26,6 +27,45 @@ fn dummy_async() Future<!i32> {
 @async_fn
 fn default_pool_dummy_async(v: i32) Future<!i32> {
     return v;
+}
+
+struct FailingAsyncFrameAlloc : IAllocator {
+    fn alloc(self: &Self, size: usize) !&byte {
+        _ = self;
+        _ = size;
+        return error.AllocOutOfMemory;
+    }
+
+    fn dealloc(self: &Self, ptr: &byte) void {
+        _ = self;
+        _ = ptr;
+    }
+
+    fn realloc(self: &Self, ptr: &byte, new_size: usize) !&byte {
+        _ = self;
+        _ = ptr;
+        _ = new_size;
+        return error.AllocOutOfMemory;
+    }
+}
+
+var g_parent_async_alloc_ptr: atomic usize = 0usize;
+var g_worker_used_parent_async_alloc: atomic i32 = 0;
+var g_worker_async_box_alloc_ok: atomic i32 = 0;
+
+fn async_frame_allocator_worker(arg: &void) &void {
+    _ = arg;
+    const current: &IAllocator = get_async_frame_allocator();
+    if current != null && @usize_from_ptr(current as &void) == g_parent_async_alloc_ptr {
+        g_worker_used_parent_async_alloc = 1;
+    }
+
+    const boxed: &byte = async_box_alloc_current(16usize);
+    if boxed != null {
+        g_worker_async_box_alloc_ok = 1;
+        async_box_free_current(boxed);
+    }
+    return null;
 }
 
 fn test_pool_stats() !void {
@@ -62,6 +102,25 @@ fn test_pool_stats() !void {
     try expect(heap_fallback == 0);
     // 释放次数应该等于分配次数（立即释放路径）
     try expect(total_free == total_alloc);
+}
+
+fn test_thread_does_not_inherit_parent_stack_allocator() !void {
+    var failing: FailingAsyncFrameAlloc = FailingAsyncFrameAlloc{};
+    var alloc: IAllocator = failing;
+    const old_alloc: &IAllocator = get_async_frame_allocator();
+    set_async_frame_allocator(&alloc);
+    defer { set_async_frame_allocator(old_alloc); }
+
+    g_parent_async_alloc_ptr = @usize_from_ptr(&alloc as &void);
+    g_worker_used_parent_async_alloc = 0;
+    g_worker_async_box_alloc_ok = 0;
+
+    var th: pthread_t = pthread_t{};
+    try expect(pthread_create(&th, null as &const pthread_attr_t, &async_frame_allocator_worker as &void, null) == 0);
+    try expect(pthread_join(&th, null as & &void) == 0);
+
+    try expect(g_worker_used_parent_async_alloc == 0);
+    try expect(g_worker_async_box_alloc_ok == 1);
 }
 
 fn ptr_in_range(base: &byte, size: usize, ptr: &byte) bool {
@@ -423,4 +482,8 @@ test "async_frame_pool_debug_heap_fallback_frame_stays_distinct_from_pool_heap_f
 
 test "async_frame_pool_default_async_path_uses_default_pool_and_reuses_frame" {
     run_test("async_frame_pool_default_async_path_uses_default_pool_and_reuses_frame", test_default_async_path_uses_default_pool_and_reuses_frame);
+}
+
+test "async_frame_pool_thread_does_not_inherit_parent_stack_allocator" {
+    run_test("async_frame_pool_thread_does_not_inherit_parent_stack_allocator", test_thread_does_not_inherit_parent_stack_allocator);
 }

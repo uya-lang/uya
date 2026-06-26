@@ -24,6 +24,7 @@ use std.time.deadline_expired;
 /// 线程本地 async frame 分配器（通过 pthread TSD 绑定）
 var _uya_async_frame_allocator_once: pthread_once_t = pthread_once_t{ state: 0 };
 var _uya_async_frame_allocator_key: pthread_key_t = pthread_key_t{ seq: 0, destructor: null };
+// 仅供 tos_unknown 的 pthread TSD stub 使用；真实多线程目标不能通过全局变量传播线程本地 allocator。
 var _uya_async_frame_allocator_fallback: &IAllocator = null;
 var _uya_async_frame_default_allocator: IAllocator = MallocAllocator{};
 var _uya_async_frame_default_allocator_initialized: i32 = 0;
@@ -50,9 +51,13 @@ fn _uya_get_default_async_frame_allocator() &IAllocator {
     return &_uya_async_frame_default_allocator;
 }
 
-/// 设置当前线程的 async frame 分配器
+/// 设置当前线程的 async frame 分配器。
+/// 参数说明：alloc 为当前线程要使用的 frame allocator；传 null 表示恢复默认 allocator。
+/// 返回值说明：无。
 export fn set_async_frame_allocator(alloc: &IAllocator) void {
-    _uya_async_frame_allocator_fallback = alloc;
+    std.cfg(std.target_os == .tos_unknown, {
+        _uya_async_frame_allocator_fallback = alloc;
+    }, { })
     pthread_once(&_uya_async_frame_allocator_once, &_uya_init_async_frame_allocator_key as &void);
     if _uya_async_frame_allocator_key.seq <= 0 {
         return;
@@ -60,22 +65,28 @@ export fn set_async_frame_allocator(alloc: &IAllocator) void {
     _ = pthread_setspecific(_uya_async_frame_allocator_key, alloc as &void);
 }
 
-/// 获取当前线程的 async frame 分配器；未显式设置时回退到默认 AsyncFramePool。
+/// 获取当前线程的 async frame 分配器。
+/// 参数说明：无。
+/// 返回值说明：若当前线程显式设置过 allocator 则返回它；否则返回默认 AsyncFramePool allocator。
 export fn get_async_frame_allocator() &IAllocator {
     pthread_once(&_uya_async_frame_allocator_once, &_uya_init_async_frame_allocator_key as &void);
     if _uya_async_frame_allocator_key.seq <= 0 {
-        if _uya_async_frame_allocator_fallback != null {
-            return _uya_async_frame_allocator_fallback;
-        }
+        std.cfg(std.target_os == .tos_unknown, {
+            if _uya_async_frame_allocator_fallback != null {
+                return _uya_async_frame_allocator_fallback;
+            }
+        }, { })
         return _uya_get_default_async_frame_allocator();
     }
     const tsd_alloc: &IAllocator = pthread_getspecific(_uya_async_frame_allocator_key) as &IAllocator;
     if tsd_alloc != null {
         return tsd_alloc;
     }
-    if _uya_async_frame_allocator_fallback != null {
-        return _uya_async_frame_allocator_fallback;
-    }
+    std.cfg(std.target_os == .tos_unknown, {
+        if _uya_async_frame_allocator_fallback != null {
+            return _uya_async_frame_allocator_fallback;
+        }
+    }, { })
     return _uya_get_default_async_frame_allocator();
 }
 

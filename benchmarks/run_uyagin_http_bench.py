@@ -8,6 +8,7 @@ import math
 import os
 import re
 import shutil
+import shlex
 import signal
 import socket
 import statistics
@@ -329,20 +330,31 @@ def build_uya(args: argparse.Namespace, out_dir: Path) -> dict[str, Any]:
     if not Path(compiler).exists():
         raise RuntimeError(f"Uya compiler not found: {compiler}")
     cc = os.environ.get("CC", "cc")
-    cflags = os.environ.get("UYA_BENCH_CFLAGS", f"-std=c99 -O3 -fno-builtin -pthread -I{REPO_ROOT}")
+    build_mode = os.environ.get("UYA_BENCH_MODE", "nostdlib").strip() or "nostdlib"
+    if build_mode == "nostdlib":
+        cflags = os.environ.get(
+            "UYA_BENCH_NOSTDLIB_CFLAGS",
+            f"-std=c99 -O3 -fno-builtin -fno-stack-protector -I{REPO_ROOT}",
+        )
+    else:
+        cflags = os.environ.get("UYA_BENCH_CFLAGS", f"-std=c99 -O3 -fno-builtin -pthread -I{REPO_ROOT}")
     cfile = out_dir / "uyagin_http_bench.c"
     exe = out_dir / "uyagin_http_bench"
     if not args.skip_build:
-        run_checked(
-            [compiler, "--c99", str(DEFAULT_UYA_SOURCE), "-o", str(cfile)],
-            cwd=REPO_ROOT,
-            stdout_path=out_dir / "build_uya.log",
-        )
-        cc_cmd = [cc, *cflags.split(), "-no-pie", str(cfile), "-o", str(exe), "-lm"]
+        compiler_cmd = [compiler, "--c99", str(DEFAULT_UYA_SOURCE), "-o", str(cfile)]
+        if build_mode == "nostdlib":
+            compiler_cmd.insert(2, "--nostdlib")
+        run_checked(compiler_cmd, cwd=REPO_ROOT, stdout_path=out_dir / "build_uya.log")
+
+        if build_mode == "nostdlib":
+            cc_cmd = [cc, *shlex.split(cflags), "-no-pie", "-nostdlib", "-static", str(cfile), "-o", str(exe), "-lgcc"]
+        else:
+            cc_cmd = [cc, *shlex.split(cflags), "-no-pie", str(cfile), "-o", str(exe), "-lm"]
         run_checked(cc_cmd, cwd=REPO_ROOT, stdout_path=out_dir / "build_uya_cc.log")
     return {
         "compiler": compiler,
         "cc": cc,
+        "build_mode": build_mode,
         "cflags": cflags,
         "exe": str(exe),
         "port": args.uya_port,

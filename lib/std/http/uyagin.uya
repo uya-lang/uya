@@ -2007,8 +2007,12 @@ fn uyagin_engine_run(engine: &Engine, srv: &HttpServer, loop: EventLoop, schedul
                         }
                         if !assigned {
                             _ = sys_close(fd) catch {};
+                            accept_future.release();
+                            accept_future = uyagin_accept_future(srv.listen_fd);
                             break;
                         }
+                        accept_future.release();
+                        accept_future = uyagin_accept_future(srv.listen_fd);
                         accepted_in_round = accepted_in_round + 1;
                         made_progress = 1;
                     },

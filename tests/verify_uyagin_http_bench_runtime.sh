@@ -15,7 +15,10 @@ OUT_BIN="$BUILD_DIR/verify_uyagin_http_bench_runtime"
 PORT=18896
 HOST="127.0.0.1"
 BASE_URL="http://$HOST:$PORT"
+BUILD_MODE="${UYA_BENCH_MODE:-nostdlib}"
 CFLAGS_USE="${UYA_BENCH_CFLAGS:--std=c99 -O3 -fno-builtin -pthread -I$REPO_ROOT}"
+NOSTDLIB_CFLAGS_USE="${UYA_BENCH_NOSTDLIB_CFLAGS:--std=c99 -O3 -fno-builtin -fno-stack-protector -I$REPO_ROOT}"
+VERIFY_THREADS="${UYA_VERIFY_THREADS:-4}"
 
 if [ ! -f "$COMPILER" ]; then
     echo "✗ 未找到编译器: $COMPILER"
@@ -23,8 +26,13 @@ if [ ! -f "$COMPILER" ]; then
 fi
 
 echo "验证：构建 uyagin_http_bench 运行时二进制 ..."
-"$COMPILER" --c99 "$SRC" -o "$OUT_C" >/dev/null
-$CC_CMD $CFLAGS_USE -no-pie "$OUT_C" -o "$OUT_BIN" -lm
+if [ "$BUILD_MODE" = "nostdlib" ]; then
+    "$COMPILER" --c99 --nostdlib "$SRC" -o "$OUT_C" >/dev/null
+    $CC_CMD $NOSTDLIB_CFLAGS_USE -no-pie -nostdlib -static "$OUT_C" -o "$OUT_BIN" -lgcc
+else
+    "$COMPILER" --c99 "$SRC" -o "$OUT_C" >/dev/null
+    $CC_CMD $CFLAGS_USE -no-pie "$OUT_C" -o "$OUT_BIN" -lm
+fi
 
 server_pid=""
 cleanup() {
@@ -35,8 +43,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "验证：启动服务并检查 benchmark 路由 ..."
-"$OUT_BIN" --port "$PORT" --threads 1 >"$BUILD_DIR/uyagin_http_bench_runtime.log" 2>&1 &
+echo "验证：启动服务并检查 benchmark 路由（threads=$VERIFY_THREADS）..."
+"$OUT_BIN" --port "$PORT" --threads "$VERIFY_THREADS" >"$BUILD_DIR/uyagin_http_bench_runtime.log" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 100); do
@@ -62,7 +70,7 @@ curl -sS --max-time 3 -H 'Authorization: Bearer bench' -D "$mw_headers" "$BASE_U
 curl -sS --max-time 3 -D "$blob_headers" "$BASE_URL/blob64k" -o "$blob_body"
 curl -sS --max-time 3 "$BASE_URL/__uyagin/metrics" -o "$metrics_body"
 
-if ! grep -q '^hello world!$' "$plain_body"; then
+if ! grep -q '^hello$' "$plain_body"; then
     echo "✗ /plaintext body 不匹配"
     exit 1
 fi
@@ -74,12 +82,12 @@ req = b"GET /plaintext HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n
 s = socket.create_connection(addr, timeout=2)
 s.sendall(req)
 first = s.recv(4096)
-if b"hello world!" not in first:
+if b"hello" not in first:
     raise SystemExit(1)
 s.sendall(req)
 second = s.recv(4096)
 s.close()
-if b"hello world!" not in second:
+if b"hello" not in second:
     raise SystemExit(2)
 PY
 then

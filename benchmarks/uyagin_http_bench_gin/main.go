@@ -18,7 +18,7 @@ const (
 )
 
 var (
-	plaintextBody    = []byte("hello world!")
+	plaintextBody    = []byte("hello")
 	jsonSmallBody    = []byte(`{"ok":true,"msg":"uyagin-bench","lang":"uya","ver":1,"pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}`)
 	middlewareBody   = []byte("authorized")
 	unauthorizedBody = []byte("unauthorized")

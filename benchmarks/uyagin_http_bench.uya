@@ -18,6 +18,15 @@ const BENCH_JSON_SMALL_RAW: [byte: 101] = "{\"ok\":true,\"msg\":\"uyagin-bench\"
 const BENCH_LARGE_BODY_LEN: usize = 65536usize;
 
 var g_large_body: [byte: BENCH_LARGE_BODY_LEN] = [];
+var g_metrics_handler: MetricsHandler = MetricsHandler{ engine: null };
+const g_plaintext_handler_iface: AsyncHandler = PlaintextHandler{};
+const g_json_small_handler_iface: AsyncHandler = JsonSmallHandler{};
+const g_path_param_handler_iface: AsyncHandler = PathParamHandler{};
+const g_large_body_handler_iface: AsyncHandler = LargeBodyHandler{};
+const g_middleware_handler_iface: AsyncHandler = MiddlewareHandler{};
+var g_metrics_handler_iface: AsyncHandler = MetricsHandler{ engine: null };
+const g_disabled_logger_handler: AsyncHandler = DisabledLoggerMiddleware{};
+const g_auth_stub_handler: AsyncHandler = AuthStubMiddleware{};
 
 struct PlaintextHandler : AsyncHandler {}
 
@@ -25,7 +34,7 @@ PlaintextHandler {
     @async_fn
     fn handle(self: &Self, ctx: &GinContext) Future<!i32> {
         _ = self;
-        return try @await ctx.string(Status.OK, "hello world!");
+        return try @await ctx.string(Status.OK, "hello");
     }
 }
 
@@ -71,15 +80,6 @@ AuthStubMiddleware {
         return 0;
     }
 }
-
-var g_disabled_logger_middleware: DisabledLoggerMiddleware = DisabledLoggerMiddleware{};
-var g_auth_stub_middleware: AuthStubMiddleware = AuthStubMiddleware{};
-var g_plaintext_handler: PlaintextHandler = PlaintextHandler{};
-var g_json_small_handler: JsonSmallHandler = JsonSmallHandler{};
-var g_path_param_handler: PathParamHandler = PathParamHandler{};
-var g_large_body_handler: LargeBodyHandler = LargeBodyHandler{};
-var g_middleware_handler: MiddlewareHandler = MiddlewareHandler{};
-var g_metrics_handler: MetricsHandler = MetricsHandler{ engine: null };
 
 struct MiddlewareHandler : AsyncHandler {}
 
@@ -236,24 +236,17 @@ fn bench_register_routes(engine: &Engine) !void {
         return error.InvalidRequest;
     }
     g_metrics_handler.engine = engine;
-    const plaintext_handler: AsyncHandler = g_plaintext_handler;
-    const json_small_handler: AsyncHandler = g_json_small_handler;
-    const path_param_handler: AsyncHandler = g_path_param_handler;
-    const large_body_handler: AsyncHandler = g_large_body_handler;
-    const metrics_handler: AsyncHandler = g_metrics_handler;
-    try engine.GET("/plaintext", plaintext_handler);
-    try engine.GET("/json", json_small_handler);
-    try engine.GET("/users/:id", path_param_handler);
-    try engine.GET("/blob64k", large_body_handler);
-    try engine.GET("/__uyagin/metrics", metrics_handler);
+    g_metrics_handler_iface.data = &g_metrics_handler;
+    try GET_T(engine, "/plaintext", g_plaintext_handler_iface);
+    try GET_T(engine, "/json", g_json_small_handler_iface);
+    try GET_T(engine, "/users/:id", g_path_param_handler_iface);
+    try GET_T(engine, "/blob64k", g_large_body_handler_iface);
+    try GET_T(engine, "/__uyagin/metrics", g_metrics_handler_iface);
 
-    const disabled_logger_handler: AsyncHandler = g_disabled_logger_middleware;
-    const auth_stub_handler: AsyncHandler = g_auth_stub_middleware;
-    const middleware_route_handler: AsyncHandler = g_middleware_handler;
     var middleware_group: RouterGroup = try engine.Group("/middleware");
-    try middleware_group.Use(disabled_logger_handler);
-    try middleware_group.Use(auth_stub_handler);
-    try middleware_group.GET("/ping", middleware_route_handler);
+    try middleware_group.Use(g_disabled_logger_handler);
+    try middleware_group.Use(g_auth_stub_handler);
+    try middleware_group.GET("/ping", g_middleware_handler_iface);
 }
 
 export fn main() i32 {

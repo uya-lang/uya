@@ -11,9 +11,9 @@
 # 可指定的 bench 名称（不指定则运行全部）:
 #   uya, uya-fork, uya-async-epoll, uya-async-await,
 #   uya-async-await-simple, uya-async-await-stack,
-#   c, c-async-epoll, nginx, go, tokio
+#   c, c-async-epoll, go-gnet, uyagin, zap, nginx, go, tokio
 #
-# 依赖: wrk, cc, bin/uya；go / cargo / nginx 作为可选对照项
+# 依赖: wrk, cc, bin/uya；go / cargo / zig / git / nginx 作为可选对照项
 
 set -e
 
@@ -37,6 +37,16 @@ UYA_ASYNC_AWAIT_SIMPLE_ENTRY="http_bench_async_epoll_await_simple.uya"
 UYA_ASYNC_AWAIT_STACK_ENTRY="http_bench_async_epoll_await_stack.uya"
 C_SRC="${SCRIPT_DIR}/http_bench.c"
 C_ASYNC_EPOLL_SRC="${SCRIPT_DIR}/http_bench_async_epoll.c"
+GO_GNET_REPO_URL="https://github.com/gnet-io/gnet-benchmarks.git"
+GO_GNET_REPO_TAG="v2"
+GO_GNET_REPO_DIR="/tmp/http_bench_go_gnet_repo"
+GO_GNET_EXEC="/tmp/http_bench_go_gnet"
+UYA_GIN_SRC="${SCRIPT_DIR}/uyagin_http_bench.uya"
+UYA_GIN_ENTRY="uyagin_http_bench.uya"
+UYA_GIN_EXEC="/tmp/http_bench_uyagin"
+UYA_GIN_MODE="${UYA_GIN_MODE:-nostdlib}"
+UYA_GIN_CFLAGS="${UYA_GIN_CFLAGS:--std=c99 -O3 -fno-builtin -pthread -I${REPO_ROOT}}"
+UYA_GIN_NOSTDLIB_CFLAGS="${UYA_GIN_NOSTDLIB_CFLAGS:--std=c99 -O3 -fno-builtin -fno-stack-protector -I${REPO_ROOT}}"
 NGINX_BENCH_DIR="/tmp/http_bench_nginx"
 NGINX_CONF_FILE="${NGINX_BENCH_DIR}/nginx.conf"
 NGINX_PID_FILE="${NGINX_BENCH_DIR}/nginx.pid"
@@ -53,6 +63,12 @@ UYA_ASYNC_AWAIT_SIMPLE_EXEC="/tmp/http_bench_async_epoll_await_simple"
 UYA_ASYNC_AWAIT_STACK_EXEC="/tmp/http_bench_async_epoll_await_stack"
 C_EXEC="/tmp/http_bench_c"
 C_ASYNC_EPOLL_EXEC="/tmp/http_bench_c_async_epoll"
+ZAP_REPO_URL="https://github.com/zigzap/zap.git"
+ZAP_REPO_TAG="v0.11.0"
+ZAP_REPO_DIR="/tmp/http_bench_zap_repo"
+ZAP_EXEC="/tmp/http_bench_zap"
+ZAP_SRC="${SCRIPT_DIR}/http_bench_zap/hello.zig"
+ZIG_BIN="${ZIG_BIN:-/home/winger/zig/zig}"
 TOKIO_DIR="${SCRIPT_DIR}/http_bench_tokio"
 TOKIO_EXEC="/tmp/http_bench_tokio"
 # async epoll 系列在 hosted 模式下沿用已验证可启动的宿主编译旗标
@@ -62,6 +78,9 @@ ASYNC_BENCH_CFLAGS="-std=c99 -O3 -g -fno-builtin -fno-inline-small-functions -I$
 TABLE_NAME_WIDTH=0
 TABLE_REMARK_WIDTH=0
 TABLE_QPS_WIDTH=12
+TABLE_P50_WIDTH=12
+TABLE_P95_WIDTH=12
+TABLE_P99_WIDTH=12
 TABLE_AB_REQ_WIDTH=14
 TABLE_AB_FAILED_WIDTH=12
 TABLE_AB_RPS_WIDTH=12
@@ -199,8 +218,11 @@ cleanup_http_bench_processes() {
     pkill -9 -f "http_bench_async_epoll_await" 2>/dev/null || true
     pkill -9 -f "http_bench_async_epoll" 2>/dev/null || true
     pkill -9 -f "http_bench_go" 2>/dev/null || true
+    pkill -9 -f "http_bench_go_gnet" 2>/dev/null || true
+    pkill -9 -f "http_bench_uyagin" 2>/dev/null || true
     pkill -9 -f "http_bench_c_async_epoll" 2>/dev/null || true
     pkill -9 -f "http_bench_c" 2>/dev/null || true
+    pkill -9 -f "http_bench_zap" 2>/dev/null || true
     pkill -9 -f "http_bench_tokio" 2>/dev/null || true
     cleanup_nginx_bench_processes
 }
@@ -243,8 +265,11 @@ table_remark_for() {
         http_bench_async_epoll_await_simple.uya) echo "simp" ;;
         http_bench_async_epoll_await_stack.uya) echo "stack" ;;
         http_bench.go) echo "go" ;;
+        go-gnet) echo "gnet" ;;
+        uyagin) echo "uyagin" ;;
         http_bench.c) echo "c" ;;
         http_bench_async_epoll.c) echo "c-ep" ;;
+        zap) echo "zap" ;;
         nginx) echo "nginx" ;;
         http_bench_tokio) echo "tokio" ;;
         *) echo "" ;;
@@ -474,6 +499,44 @@ build_uya_c99_variant() {
     log_info "${label} 版本编译完成: $exec"
 }
 
+build_uya_nostdlib_c99_variant() {
+    local label="$1"
+    local src="$2"
+    local entry="$3"
+    local exec="$4"
+    local cfile="$5"
+    local cflags_override="${6:-}"
+    local stem
+    stem="$(basename "$cfile" .c)"
+    local -a cflags_argv=()
+
+    log_info "编译 ${label} HTTP 服务器（nostdlib）..."
+    if [ ! -f "$UYA_BIN" ]; then
+        log_err "找不到 Uya 编译器: $UYA_BIN"
+        exit 1
+    fi
+    if [ ! -f "$src" ]; then
+        log_err "找不到 ${label} 源文件: $src"
+        exit 1
+    fi
+    if [ -n "$cflags_override" ]; then
+        read -r -a cflags_argv <<< "$cflags_override"
+    else
+        cflags_argv=(-std=c99 -O3 -fno-builtin -fno-stack-protector)
+    fi
+    if ! "$UYA_BIN" --c99 --nostdlib "$entry" -o "$cfile" >/tmp/"${stem}"_build.log 2>&1; then
+        log_err "${label} nostdlib 编译失败，日志:"
+        cat "/tmp/${stem}_build.log" >&2
+        exit 1
+    fi
+    if ! cc "${cflags_argv[@]}" -no-pie -nostdlib -static -o "$exec" "$cfile" -lgcc >/tmp/"${stem}"_cc.log 2>&1; then
+        log_err "${label} nostdlib C 编译失败，日志:"
+        cat "/tmp/${stem}_cc.log" >&2
+        exit 1
+    fi
+    log_info "${label} nostdlib 版本编译完成: $exec"
+}
+
 build_uya_async_variant() {
     local label="$1"
     local src="$2"
@@ -518,6 +581,15 @@ build_uya_http() {
     build_uya_c99_variant "Uya HTTP" "$UYA_HTTP_SRC" "$UYA_HTTP_ENTRY" "$UYA_HTTP_EXEC" /tmp/http_bench_uya.c
 }
 
+# 编译 UyaGin 版本
+build_uyagin() {
+    if [ "$UYA_GIN_MODE" = "nostdlib" ]; then
+        build_uya_nostdlib_c99_variant "UyaGin" "$UYA_GIN_SRC" "$UYA_GIN_ENTRY" "$UYA_GIN_EXEC" /tmp/http_bench_uyagin.c "$UYA_GIN_NOSTDLIB_CFLAGS"
+    else
+        build_uya_c99_variant "UyaGin" "$UYA_GIN_SRC" "$UYA_GIN_ENTRY" "$UYA_GIN_EXEC" /tmp/http_bench_uyagin.c "$UYA_GIN_CFLAGS"
+    fi
+}
+
 # 编译 Uya async epoll 版本
 build_uya_async_epoll() {
     build_uya_async_variant "Uya async epoll" "$UYA_ASYNC_EPOLL_SRC" "$UYA_ASYNC_EPOLL_ENTRY" "$UYA_ASYNC_EPOLL_EXEC" /tmp/http_bench_async_epoll.c
@@ -551,6 +623,96 @@ build_go() {
     fi
     go build -o "$GO_EXEC" "$GO_SRC"
     log_info "Go 版本编译完成: $GO_EXEC"
+}
+
+# 编译 go-gnet 版本
+build_go_gnet() {
+    log_info "编译 go-gnet HTTP 服务器..."
+    if ! command -v git &> /dev/null; then
+        log_warn "未找到 git，跳过 go-gnet 版本编译与压测"
+        return 1
+    fi
+    if ! command -v go &> /dev/null; then
+        log_warn "未找到 go，跳过 go-gnet 版本编译与压测"
+        return 1
+    fi
+
+    if [ ! -d "$GO_GNET_REPO_DIR/.git" ]; then
+        rm -rf "$GO_GNET_REPO_DIR"
+        if ! git clone --depth 1 --branch "$GO_GNET_REPO_TAG" "$GO_GNET_REPO_URL" "$GO_GNET_REPO_DIR" >/tmp/http_bench_go_gnet_clone.log 2>&1; then
+            log_warn "go-gnet 仓库克隆失败，跳过 go-gnet 版本编译与压测"
+            cat /tmp/http_bench_go_gnet_clone.log >&2
+            return 1
+        fi
+    fi
+
+    local current_tag=""
+    current_tag="$(git -C "$GO_GNET_REPO_DIR" describe --tags --exact-match 2>/dev/null || true)"
+    if [ "$current_tag" != "$GO_GNET_REPO_TAG" ]; then
+        rm -rf "$GO_GNET_REPO_DIR"
+        if ! git clone --depth 1 --branch "$GO_GNET_REPO_TAG" "$GO_GNET_REPO_URL" "$GO_GNET_REPO_DIR" >/tmp/http_bench_go_gnet_clone.log 2>&1; then
+            log_warn "go-gnet 仓库克隆失败，跳过 go-gnet 版本编译与压测"
+            cat /tmp/http_bench_go_gnet_clone.log >&2
+            return 1
+        fi
+    fi
+
+    if [ ! -f "$GO_GNET_REPO_DIR/http-gnet-server/main.go" ]; then
+        log_err "go-gnet 仓库中找不到 http-gnet-server/main.go"
+        exit 1
+    fi
+
+    local goproxy_override="${GO_GNET_BENCH_GOPROXY:-}"
+    local attempts=()
+    if [ -n "$goproxy_override" ]; then
+        attempts+=("override:${goproxy_override}" "$goproxy_override")
+    else
+        attempts+=("goproxy.cn" "https://goproxy.cn,direct" "default" "" "direct" "direct")
+    fi
+
+    local build_log="/tmp/http_bench_go_gnet_build.log"
+    local failure_logs=()
+    local used_goproxy="default"
+    local idx=0
+    while [ "$idx" -lt "${#attempts[@]}" ]; do
+        local label="${attempts[$idx]}"
+        local goproxy_value="${attempts[$((idx + 1))]}"
+        local env_args=()
+        local attempt_log=""
+        idx=$((idx + 2))
+
+        if [ -n "$goproxy_value" ]; then
+            env_args=("GOPROXY=$goproxy_value")
+        fi
+        attempt_log="$build_log"
+        if [ -n "$goproxy_override" ] || [ "${#attempts[@]}" -gt 2 ]; then
+            attempt_log="/tmp/http_bench_go_gnet_attempt${idx}.log"
+        fi
+
+        if (cd "$GO_GNET_REPO_DIR" && env "${env_args[@]}" go build -gcflags="-l=4" -ldflags="-s -w" -o "$GO_GNET_EXEC" ./http-gnet-server >/dev/null 2>"$attempt_log"); then
+            used_goproxy="${goproxy_value:-default}"
+            if [ "$attempt_log" != "$build_log" ]; then
+                {
+                    printf '# go-gnet build attempt: %s\n' "$label"
+                    printf '# GOPROXY=%s\n\n' "$used_goproxy"
+                    cat "$attempt_log"
+                } >"$build_log"
+            fi
+            log_info "go-gnet 版本编译完成: $GO_GNET_EXEC"
+            return 0
+        fi
+
+        failure_logs+=("## attempt: ${label}" "$(cat "$attempt_log" 2>/dev/null || true)" "")
+    done
+
+    {
+        for line in "${failure_logs[@]}"; do
+            printf '%s\n' "$line"
+        done
+    } >"$build_log"
+    log_err "go-gnet 编译失败，日志:"
+    cat "$build_log" >&2
+    exit 1
 }
 
 # 编译 Rust Tokio 版本（与 http_bench.go 路由一致）
@@ -590,6 +752,69 @@ build_c_async_epoll() {
     fi
     cc -O3 -Wall -Wextra -pthread -o "$C_ASYNC_EPOLL_EXEC" "$C_ASYNC_EPOLL_SRC"
     log_info "C async epoll 版本编译完成: $C_ASYNC_EPOLL_EXEC"
+}
+
+# 编译 Zap 版本
+build_zap() {
+    log_info "编译 Zap HTTP 服务器..."
+    if ! command -v git &> /dev/null; then
+        log_warn "未找到 git，跳过 Zap 版本编译与压测"
+        return 1
+    fi
+    if [ ! -x "$ZIG_BIN" ]; then
+        log_warn "未找到可执行的 Zig: $ZIG_BIN，跳过 Zap 版本编译与压测"
+        return 1
+    fi
+    if [ ! -f "$ZAP_SRC" ]; then
+        log_err "找不到 Zap 源文件: $ZAP_SRC"
+        exit 1
+    fi
+
+    if [ ! -d "$ZAP_REPO_DIR/.git" ]; then
+        rm -rf "$ZAP_REPO_DIR"
+        if ! git clone --depth 1 --branch "$ZAP_REPO_TAG" "$ZAP_REPO_URL" "$ZAP_REPO_DIR" >/tmp/http_bench_zap_clone.log 2>&1; then
+            log_warn "Zap 仓库克隆失败，跳过 Zig 版本编译与压测"
+            cat /tmp/http_bench_zap_clone.log >&2
+            return 1
+        fi
+    fi
+
+    local current_tag=""
+    current_tag="$(git -C "$ZAP_REPO_DIR" describe --tags --exact-match 2>/dev/null || true)"
+    if [ "$current_tag" != "$ZAP_REPO_TAG" ]; then
+        rm -rf "$ZAP_REPO_DIR"
+        if ! git clone --depth 1 --branch "$ZAP_REPO_TAG" "$ZAP_REPO_URL" "$ZAP_REPO_DIR" >/tmp/http_bench_zap_clone.log 2>&1; then
+            log_warn "Zap 仓库克隆失败，跳过 Zig 版本编译与压测"
+            cat /tmp/http_bench_zap_clone.log >&2
+            return 1
+        fi
+    fi
+
+    if [ ! -f "$ZAP_REPO_DIR/examples/hello/hello.zig" ]; then
+        log_err "Zap 仓库中找不到 examples/hello/hello.zig"
+        exit 1
+    fi
+
+    cp "$ZAP_SRC" "$ZAP_REPO_DIR/examples/hello/hello.zig"
+
+    if ! (cd "$ZAP_REPO_DIR" && "$ZIG_BIN" build hello -Doptimize=ReleaseFast >/tmp/http_bench_zap_build.log 2>&1); then
+        log_err "Zap 编译失败，日志:"
+        cat /tmp/http_bench_zap_build.log >&2
+        exit 1
+    fi
+
+    if [ ! -f "$ZAP_REPO_DIR/zig-out/bin/hello" ]; then
+        log_err "Zap 编译成功但未找到输出文件: $ZAP_REPO_DIR/zig-out/bin/hello"
+        exit 1
+    fi
+
+    cat > "$ZAP_EXEC" <<EOF
+#!/bin/sh
+cd "$ZAP_REPO_DIR" || exit 1
+exec "$ZAP_REPO_DIR/zig-out/bin/hello" "\$@"
+EOF
+    chmod +x "$ZAP_EXEC"
+    log_info "Zap 版本编译完成: $ZAP_EXEC"
 }
 
 # 运行服务器并执行基准测试
@@ -820,10 +1045,13 @@ save_baseline() {
     local uya_async_await_simple_root_rps="$5"
     local uya_async_await_stack_root_rps="$6"
     local go_root_rps="$7"
-    local c_root_rps="$8"
-    local c_async_epoll_root_rps="$9"
-    local tokio_root_rps="${10}"
-    local nginx_root_rps="${11}"
+    local go_gnet_root_rps="$8"
+    local uyagin_root_rps="$9"
+    local c_root_rps="${10}"
+    local c_async_epoll_root_rps="${11}"
+    local zap_root_rps="${12}"
+    local nginx_root_rps="${13}"
+    local tokio_root_rps="${14}"
     local timestamp
     timestamp=$(date -Iseconds)
 
@@ -855,10 +1083,13 @@ save_baseline() {
       "uya_async_epoll_await_simple_qps": ${uya_async_await_simple_root_rps:-0},
       "uya_async_epoll_await_stack_qps": ${uya_async_await_stack_root_rps:-0},
       "go_qps": ${go_root_rps:-0},
+      "go_gnet_qps": ${go_gnet_root_rps:-0},
+      "uyagin_qps": ${uyagin_root_rps:-0},
       "c_qps": ${c_root_rps:-0},
       "c_async_epoll_qps": ${c_async_epoll_root_rps:-0},
-      "tokio_qps": ${tokio_root_rps:-0},
-      "nginx_qps": ${nginx_root_rps:-0}
+      "zap_qps": ${zap_root_rps:-0},
+      "nginx_qps": ${nginx_root_rps:-0},
+      "tokio_qps": ${tokio_root_rps:-0}
     }
   }
 }
@@ -919,6 +1150,10 @@ main() {
     if bench_enabled "uya-async-await-stack"; then build_uya_async_await_stack; fi
     if bench_enabled "c"; then build_c; fi
     if bench_enabled "c-async-epoll"; then build_c_async_epoll; fi
+    local have_zap=0
+    if bench_enabled "zap"; then
+        if build_zap; then have_zap=1; fi
+    fi
     local have_nginx=0
     if bench_enabled "nginx"; then
         if prepare_nginx_bench; then have_nginx=1; fi
@@ -929,6 +1164,16 @@ main() {
         if build_go; then have_go=1; fi
     fi
 
+    local have_go_gnet=0
+    if bench_enabled "go-gnet"; then
+        if build_go_gnet; then have_go_gnet=1; fi
+    fi
+
+    local have_uyagin=0
+    if bench_enabled "uyagin"; then
+        if build_uyagin; then have_uyagin=1; fi
+    fi
+
     local have_tokio=0
     if bench_enabled "tokio"; then
         if build_tokio; then have_tokio=1; fi
@@ -937,6 +1182,7 @@ main() {
     # 测试端口
     local PORT=8876
     local URL="http://127.0.0.1:$PORT/"
+    local URL_PLAINTEXT="http://127.0.0.1:$PORT/plaintext"
 
     # 初始化结果
     local uya_http_result="http_bench.uya|0|0|0|0|0|0|0"
@@ -946,15 +1192,18 @@ main() {
     local uya_async_await_simple_result="http_bench_async_epoll_await_simple.uya|0|0|0|0|0|0|0"
     local uya_async_await_stack_result="http_bench_async_epoll_await_stack.uya|0|0|0|0|0|0|0"
     local go_result="http_bench.go|0|0|0|0|0|0|0"
+    local go_gnet_result="go-gnet|0|0|0|0|0|0|0"
+    local uyagin_result="uyagin|0|0|0|0|0|0|0"
     local c_result="http_bench.c|0|0|0|0|0|0|0"
     local c_async_epoll_result="http_bench_async_epoll.c|0|0|0|0|0|0|0"
+    local zap_result="zap|0|0|0|0|0|0|0"
     local nginx_result="nginx|0|0|0|0|0|0|0"
     local tokio_result="http_bench_tokio|0|0|0|0|0|0|0"
     local tokio_rps=0
 
     # 预热
     local any_enabled=0
-    for b in uya uya-fork uya-async-epoll uya-async-await uya-async-await-simple uya-async-await-stack go c c-async-epoll nginx tokio; do
+    for b in uya uya-fork uya-async-epoll uya-async-await uya-async-await-simple uya-async-await-stack go go-gnet uyagin c c-async-epoll zap nginx tokio; do
         if bench_enabled "$b"; then any_enabled=1; break; fi
     done
     if [ "$any_enabled" -eq 1 ]; then
@@ -998,12 +1247,24 @@ main() {
         go_result=$(run_benchmark_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL")
         sleep 1
     fi
+    if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then
+        go_gnet_result=$(run_benchmark_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --multicore=true)
+        sleep 1
+    fi
+    if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then
+        uyagin_result=$(run_benchmark_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --threads "$SERVER_THREADS")
+        sleep 1
+    fi
     if bench_enabled "c"; then
         c_result=$(run_benchmark_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL")
         sleep 1
     fi
     if bench_enabled "c-async-epoll"; then
         c_async_epoll_result=$(run_benchmark_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
+        sleep 1
+    fi
+    if bench_enabled "zap" && [ "$have_zap" -eq 1 ]; then
+        zap_result=$(run_benchmark_safe "zap" "$ZAP_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then
@@ -1024,8 +1285,11 @@ main() {
     local uya_async_await_simple_rps=$(result_field "$uya_async_await_simple_result" 8)
     local uya_async_await_stack_rps=$(result_field "$uya_async_await_stack_result" 8)
     local go_rps=$(result_field "$go_result" 8)
+    local go_gnet_rps=$(result_field "$go_gnet_result" 8)
+    local uyagin_rps=$(result_field "$uyagin_result" 8)
     local c_rps=$(result_field "$c_result" 8)
     local c_async_epoll_rps=$(result_field "$c_async_epoll_result" 8)
+    local zap_rps=$(result_field "$zap_result" 8)
     local nginx_rps=$(result_field "$nginx_result" 8)
     local tokio_rps_val=$(result_field "$tokio_result" 8)
     if [ -z "$uya_rps" ]; then uya_rps=0; fi
@@ -1035,8 +1299,11 @@ main() {
     if [ -z "$uya_async_await_simple_rps" ]; then uya_async_await_simple_rps=0; fi
     if [ -z "$uya_async_await_stack_rps" ]; then uya_async_await_stack_rps=0; fi
     if [ -z "$go_rps" ]; then go_rps=0; fi
+    if [ -z "$go_gnet_rps" ]; then go_gnet_rps=0; fi
+    if [ -z "$uyagin_rps" ]; then uyagin_rps=0; fi
     if [ -z "$c_rps" ]; then c_rps=0; fi
     if [ -z "$c_async_epoll_rps" ]; then c_async_epoll_rps=0; fi
+    if [ -z "$zap_rps" ]; then zap_rps=0; fi
     if [ -z "$nginx_rps" ]; then nginx_rps=0; fi
     if [ -z "$tokio_rps_val" ]; then tokio_rps_val=0; fi
 
@@ -1048,8 +1315,11 @@ main() {
     local uya_async_await_simple_ab_result="http_bench_async_epoll_await_simple.uya|0|0|0"
     local uya_async_await_stack_ab_result="http_bench_async_epoll_await_stack.uya|0|0|0"
     local go_ab_result="http_bench.go|0|0|0"
+    local go_gnet_ab_result="go-gnet|0|0|0"
+    local uyagin_ab_result="uyagin|0|0|0"
     local c_ab_result="http_bench.c|0|0|0"
     local c_async_epoll_ab_result="http_bench_async_epoll.c|0|0|0"
+    local zap_ab_result="zap|0|0|0"
     local nginx_ab_result="nginx|0|0|0"
     local tokio_ab_result="http_bench_tokio|0|0|0"
 
@@ -1060,8 +1330,11 @@ main() {
     local uya_async_await_simple_ka_result="http_bench_async_epoll_await_simple.uya|0|0|0"
     local uya_async_await_stack_ka_result="http_bench_async_epoll_await_stack.uya|0|0|0"
     local go_ka_result="http_bench.go|0|0|0"
+    local go_gnet_ka_result="go-gnet|0|0|0"
+    local uyagin_ka_result="uyagin|0|0|0"
     local c_ka_result="http_bench.c|0|0|0"
     local c_async_epoll_ka_result="http_bench_async_epoll.c|0|0|0"
+    local zap_ka_result="zap|0|0|0"
     local nginx_ka_result="nginx|0|0|0"
     local tokio_ka_result="http_bench_tokio|0|0|0"
 
@@ -1076,8 +1349,11 @@ main() {
             if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ab_result=$(run_ab_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
+            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ab_result=$(run_ab_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --multicore=true); fi
+            if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ab_result=$(run_ab_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --threads "$SERVER_THREADS"); fi
             if bench_enabled "c"; then c_ab_result=$(run_ab_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "zap" && [ "$have_zap" -eq 1 ]; then zap_ab_result=$(run_ab_probe_safe "zap" "$ZAP_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
             if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ab_result=$(run_ab_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi
             if bench_enabled "tokio" && [ "$have_tokio" -eq 1 ]; then tokio_ab_result=$(run_ab_probe_safe "http_bench_tokio" "$TOKIO_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
         fi
@@ -1090,6 +1366,8 @@ main() {
             if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ka_result=$(run_keepalive_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
+            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ka_result=$(run_keepalive_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --multicore=true); fi
+            if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ka_result=$(run_keepalive_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --threads "$SERVER_THREADS"); fi
             if bench_enabled "c"; then c_ka_result=$(run_keepalive_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
             if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ka_result=$(run_keepalive_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi
@@ -1105,8 +1383,11 @@ main() {
     local uya_async_await_simple_ab_req=0 uya_async_await_simple_ab_failed=0 uya_async_await_simple_ab_rps=0
     local uya_async_await_stack_ab_req=0 uya_async_await_stack_ab_failed=0 uya_async_await_stack_ab_rps=0
     local go_ab_req=0 go_ab_failed=0 go_ab_rps=0
+    local go_gnet_ab_req=0 go_gnet_ab_failed=0 go_gnet_ab_rps=0
+    local uyagin_ab_req=0 uyagin_ab_failed=0 uyagin_ab_rps=0
     local c_ab_req=0 c_ab_failed=0 c_ab_rps=0
     local c_async_epoll_ab_req=0 c_async_epoll_ab_failed=0 c_async_epoll_ab_rps=0
+    local zap_ab_req=0 zap_ab_failed=0 zap_ab_rps=0
     local nginx_ab_req=0 nginx_ab_failed=0 nginx_ab_rps=0
     local tokio_ab_req=0 tokio_ab_failed=0 tokio_ab_rps=0
 
@@ -1118,8 +1399,11 @@ main() {
         uya_async_await_simple_ab_req=$(result_field "$uya_async_await_simple_ab_result" 2); uya_async_await_simple_ab_failed=$(result_field "$uya_async_await_simple_ab_result" 3); uya_async_await_simple_ab_rps=$(result_field "$uya_async_await_simple_ab_result" 4)
         uya_async_await_stack_ab_req=$(result_field "$uya_async_await_stack_ab_result" 2); uya_async_await_stack_ab_failed=$(result_field "$uya_async_await_stack_ab_result" 3); uya_async_await_stack_ab_rps=$(result_field "$uya_async_await_stack_ab_result" 4)
         go_ab_req=$(result_field "$go_ab_result" 2); go_ab_failed=$(result_field "$go_ab_result" 3); go_ab_rps=$(result_field "$go_ab_result" 4)
+        go_gnet_ab_req=$(result_field "$go_gnet_ab_result" 2); go_gnet_ab_failed=$(result_field "$go_gnet_ab_result" 3); go_gnet_ab_rps=$(result_field "$go_gnet_ab_result" 4)
+        uyagin_ab_req=$(result_field "$uyagin_ab_result" 2); uyagin_ab_failed=$(result_field "$uyagin_ab_result" 3); uyagin_ab_rps=$(result_field "$uyagin_ab_result" 4)
         c_ab_req=$(result_field "$c_ab_result" 2); c_ab_failed=$(result_field "$c_ab_result" 3); c_ab_rps=$(result_field "$c_ab_result" 4)
         c_async_epoll_ab_req=$(result_field "$c_async_epoll_ab_result" 2); c_async_epoll_ab_failed=$(result_field "$c_async_epoll_ab_result" 3); c_async_epoll_ab_rps=$(result_field "$c_async_epoll_ab_result" 4)
+        zap_ab_req=$(result_field "$zap_ab_result" 2); zap_ab_failed=$(result_field "$zap_ab_result" 3); zap_ab_rps=$(result_field "$zap_ab_result" 4)
         nginx_ab_req=$(result_field "$nginx_ab_result" 2); nginx_ab_failed=$(result_field "$nginx_ab_result" 3); nginx_ab_rps=$(result_field "$nginx_ab_result" 4)
         tokio_ab_req=$(result_field "$tokio_ab_result" 2); tokio_ab_failed=$(result_field "$tokio_ab_result" 3); tokio_ab_rps=$(result_field "$tokio_ab_result" 4)
     fi
@@ -1131,8 +1415,11 @@ main() {
     local uya_async_await_simple_ka_req=0 uya_async_await_simple_ka_failed=0 uya_async_await_simple_ka_rps=0
     local uya_async_await_stack_ka_req=0 uya_async_await_stack_ka_failed=0 uya_async_await_stack_ka_rps=0
     local go_ka_req=0 go_ka_failed=0 go_ka_rps=0
+    local go_gnet_ka_req=0 go_gnet_ka_failed=0 go_gnet_ka_rps=0
+    local uyagin_ka_req=0 uyagin_ka_failed=0 uyagin_ka_rps=0
     local c_ka_req=0 c_ka_failed=0 c_ka_rps=0
     local c_async_epoll_ka_req=0 c_async_epoll_ka_failed=0 c_async_epoll_ka_rps=0
+    local zap_ka_req=0 zap_ka_failed=0 zap_ka_rps=0
     local nginx_ka_req=0 nginx_ka_failed=0 nginx_ka_rps=0
     local tokio_ka_req=0 tokio_ka_failed=0 tokio_ka_rps=0
 
@@ -1144,8 +1431,11 @@ main() {
         uya_async_await_simple_ka_req=$(result_field "$uya_async_await_simple_ka_result" 2); uya_async_await_simple_ka_failed=$(result_field "$uya_async_await_simple_ka_result" 3); uya_async_await_simple_ka_rps=$(result_field "$uya_async_await_simple_ka_result" 4)
         uya_async_await_stack_ka_req=$(result_field "$uya_async_await_stack_ka_result" 2); uya_async_await_stack_ka_failed=$(result_field "$uya_async_await_stack_ka_result" 3); uya_async_await_stack_ka_rps=$(result_field "$uya_async_await_stack_ka_result" 4)
         go_ka_req=$(result_field "$go_ka_result" 2); go_ka_failed=$(result_field "$go_ka_result" 3); go_ka_rps=$(result_field "$go_ka_result" 4)
+        go_gnet_ka_req=$(result_field "$go_gnet_ka_result" 2); go_gnet_ka_failed=$(result_field "$go_gnet_ka_result" 3); go_gnet_ka_rps=$(result_field "$go_gnet_ka_result" 4)
+        uyagin_ka_req=$(result_field "$uyagin_ka_result" 2); uyagin_ka_failed=$(result_field "$uyagin_ka_result" 3); uyagin_ka_rps=$(result_field "$uyagin_ka_result" 4)
         c_ka_req=$(result_field "$c_ka_result" 2); c_ka_failed=$(result_field "$c_ka_result" 3); c_ka_rps=$(result_field "$c_ka_result" 4)
         c_async_epoll_ka_req=$(result_field "$c_async_epoll_ka_result" 2); c_async_epoll_ka_failed=$(result_field "$c_async_epoll_ka_result" 3); c_async_epoll_ka_rps=$(result_field "$c_async_epoll_ka_result" 4)
+        zap_ka_req=$(result_field "$zap_ka_result" 2); zap_ka_failed=$(result_field "$zap_ka_result" 3); zap_ka_rps=$(result_field "$zap_ka_result" 4)
         nginx_ka_req=$(result_field "$nginx_ka_result" 2); nginx_ka_failed=$(result_field "$nginx_ka_result" 3); nginx_ka_rps=$(result_field "$nginx_ka_result" 4)
         tokio_ka_req=$(result_field "$tokio_ka_result" 2); tokio_ka_failed=$(result_field "$tokio_ka_result" 3); tokio_ka_rps=$(result_field "$tokio_ka_result" 4)
     fi
@@ -1158,8 +1448,11 @@ main() {
     if [ -z "$uya_async_await_simple_ab_req" ]; then uya_async_await_simple_ab_req=0; fi
     if [ -z "$uya_async_await_stack_ab_req" ]; then uya_async_await_stack_ab_req=0; fi
     if [ -z "$go_ab_req" ]; then go_ab_req=0; fi
+    if [ -z "$go_gnet_ab_req" ]; then go_gnet_ab_req=0; fi
+    if [ -z "$uyagin_ab_req" ]; then uyagin_ab_req=0; fi
     if [ -z "$c_ab_req" ]; then c_ab_req=0; fi
     if [ -z "$c_async_epoll_ab_req" ]; then c_async_epoll_ab_req=0; fi
+    if [ -z "$zap_ab_req" ]; then zap_ab_req=0; fi
     if [ -z "$nginx_ab_req" ]; then nginx_ab_req=0; fi
     if [ -z "$tokio_ab_req" ]; then tokio_ab_req=0; fi
     if [ -z "$uya_ka_req" ]; then uya_ka_req=0; fi
@@ -1169,8 +1462,11 @@ main() {
     if [ -z "$uya_async_await_simple_ka_req" ]; then uya_async_await_simple_ka_req=0; fi
     if [ -z "$uya_async_await_stack_ka_req" ]; then uya_async_await_stack_ka_req=0; fi
     if [ -z "$go_ka_req" ]; then go_ka_req=0; fi
+    if [ -z "$go_gnet_ka_req" ]; then go_gnet_ka_req=0; fi
+    if [ -z "$uyagin_ka_req" ]; then uyagin_ka_req=0; fi
     if [ -z "$c_ka_req" ]; then c_ka_req=0; fi
     if [ -z "$c_async_epoll_ka_req" ]; then c_async_epoll_ka_req=0; fi
+    if [ -z "$zap_ka_req" ]; then zap_ka_req=0; fi
     if [ -z "$nginx_ka_req" ]; then nginx_ka_req=0; fi
     if [ -z "$tokio_ka_req" ]; then tokio_ka_req=0; fi
 
@@ -1183,8 +1479,11 @@ main() {
             "http_bench_async_epoll_await_simple.uya" \
             "http_bench_async_epoll_await_stack.uya" \
             "http_bench.go" \
+            "go-gnet" \
+            "uyagin" \
             "http_bench.c" \
             "http_bench_async_epoll.c" \
+            "zap" \
             "nginx" \
             "http_bench_tokio"
     )"
@@ -1197,8 +1496,11 @@ main() {
             "http_bench_async_epoll_await_simple.uya" \
             "http_bench_async_epoll_await_stack.uya" \
             "http_bench.go" \
+            "go-gnet" \
+            "uyagin" \
             "http_bench.c" \
             "http_bench_async_epoll.c" \
+            "zap" \
             "nginx" \
             "http_bench_tokio"
     )"
@@ -1207,6 +1509,9 @@ main() {
         local name_dashes
         local remark_dashes
         local qps_dashes
+        local p50_dashes
+        local p95_dashes
+        local p99_dashes
         local ab_req_dashes
         local ab_failed_dashes
         local ab_rps_dashes
@@ -1217,6 +1522,9 @@ main() {
         name_dashes="$(table_dashes "$TABLE_NAME_WIDTH")"
         remark_dashes="$(table_dashes "$TABLE_REMARK_WIDTH")"
         qps_dashes="$(table_dashes "$TABLE_QPS_WIDTH")"
+        p50_dashes="$(table_dashes "$TABLE_P50_WIDTH")"
+        p95_dashes="$(table_dashes "$TABLE_P95_WIDTH")"
+        p99_dashes="$(table_dashes "$TABLE_P99_WIDTH")"
         ab_req_dashes="$(table_dashes "$TABLE_AB_REQ_WIDTH")"
         ab_failed_dashes="$(table_dashes "$TABLE_AB_FAILED_WIDTH")"
         ab_rps_dashes="$(table_dashes "$TABLE_AB_RPS_WIDTH")"
@@ -1225,48 +1533,51 @@ main() {
         ka_rps_dashes="$(table_dashes "$TABLE_KA_RPS_WIDTH")"
 
         if [ "$do_ab" -eq 0 ] && [ "$do_abk" -eq 0 ]; then
-            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|"
+            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${p50_dashes}|${p95_dashes}|${p99_dashes}|"
         elif [ "$do_ab" -eq 1 ] && [ "$do_abk" -eq 0 ]; then
-            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${ab_req_dashes}|${ab_failed_dashes}|${ab_rps_dashes}|"
+            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${p50_dashes}|${p95_dashes}|${p99_dashes}|${ab_req_dashes}|${ab_failed_dashes}|${ab_rps_dashes}|"
         elif [ "$do_ab" -eq 0 ] && [ "$do_abk" -eq 1 ]; then
-            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${ka_req_dashes}|${ka_failed_dashes}|${ka_rps_dashes}|"
+            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${p50_dashes}|${p95_dashes}|${p99_dashes}|${ka_req_dashes}|${ka_failed_dashes}|${ka_rps_dashes}|"
         else
-            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${ab_req_dashes}|${ab_failed_dashes}|${ab_rps_dashes}|${ka_req_dashes}|${ka_failed_dashes}|${ka_rps_dashes}|"
+            echo "|${name_dashes}|${remark_dashes}|${qps_dashes}|${p50_dashes}|${p95_dashes}|${p99_dashes}|${ab_req_dashes}|${ab_failed_dashes}|${ab_rps_dashes}|${ka_req_dashes}|${ka_failed_dashes}|${ka_rps_dashes}|"
         fi
     }
 
     print_row() {
         local name="$1"
         local qps="$2"
-        local ab_req="$3"
-        local ab_failed="$4"
-        local ab_rps="$5"
-        local ka_req="$6"
-        local ka_failed="$7"
-        local ka_rps="$8"
+        local p50="$3"
+        local p95="$4"
+        local p99="$5"
+        local ab_req="$6"
+        local ab_failed="$7"
+        local ab_rps="$8"
+        local ka_req="$9"
+        local ka_failed="${10}"
+        local ka_rps="${11}"
         local remark
 
         remark="$(table_remark_for "$name")"
         if [ "$do_ab" -eq 0 ] && [ "$do_abk" -eq 0 ]; then
-            printf "| %-*s | %-*s | %-12s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$qps"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$TABLE_QPS_WIDTH" "$qps" "$TABLE_P50_WIDTH" "$p50" "$TABLE_P95_WIDTH" "$p95" "$TABLE_P99_WIDTH" "$p99"
         elif [ "$do_ab" -eq 1 ] && [ "$do_abk" -eq 0 ]; then
-            printf "| %-*s | %-*s | %-12s | %-14s | %-12s | %-12s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$qps" "$ab_req" "$ab_failed" "$ab_rps"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$TABLE_QPS_WIDTH" "$qps" "$TABLE_P50_WIDTH" "$p50" "$TABLE_P95_WIDTH" "$p95" "$TABLE_P99_WIDTH" "$p99" "$TABLE_AB_REQ_WIDTH" "$ab_req" "$TABLE_AB_FAILED_WIDTH" "$ab_failed" "$TABLE_AB_RPS_WIDTH" "$ab_rps"
         elif [ "$do_ab" -eq 0 ] && [ "$do_abk" -eq 1 ]; then
-            printf "| %-*s | %-*s | %-12s | %-14s | %-12s | %-12s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$qps" "$ka_req" "$ka_failed" "$ka_rps"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$TABLE_QPS_WIDTH" "$qps" "$TABLE_P50_WIDTH" "$p50" "$TABLE_P95_WIDTH" "$p95" "$TABLE_P99_WIDTH" "$p99" "$TABLE_KA_REQ_WIDTH" "$ka_req" "$TABLE_KA_FAILED_WIDTH" "$ka_failed" "$TABLE_KA_RPS_WIDTH" "$ka_rps"
         else
-            printf "| %-*s | %-*s | %-12s | %-14s | %-12s | %-12s | %-14s | %-12s | %-12s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$qps" "$ab_req" "$ab_failed" "$ab_rps" "$ka_req" "$ka_failed" "$ka_rps"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "$name" "$TABLE_REMARK_WIDTH" "$remark" "$TABLE_QPS_WIDTH" "$qps" "$TABLE_P50_WIDTH" "$p50" "$TABLE_P95_WIDTH" "$p95" "$TABLE_P99_WIDTH" "$p99" "$TABLE_AB_REQ_WIDTH" "$ab_req" "$TABLE_AB_FAILED_WIDTH" "$ab_failed" "$TABLE_AB_RPS_WIDTH" "$ab_rps" "$TABLE_KA_REQ_WIDTH" "$ka_req" "$TABLE_KA_FAILED_WIDTH" "$ka_failed" "$TABLE_KA_RPS_WIDTH" "$ka_rps"
         fi
     }
 
     print_header() {
         if [ "$do_ab" -eq 0 ] && [ "$do_abk" -eq 0 ]; then
-            printf "| %-*s | %-*s | %-12s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "QPS(wrk)"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "$TABLE_QPS_WIDTH" "QPS(wrk)" "$TABLE_P50_WIDTH" "P50(us)" "$TABLE_P95_WIDTH" "P95(us)" "$TABLE_P99_WIDTH" "P99(us)"
         elif [ "$do_ab" -eq 1 ] && [ "$do_abk" -eq 0 ]; then
-            printf "| %-*s | %-*s | %-12s | %-14s | %-12s | %-12s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "QPS(wrk)" "AB-Req(ab)" "AB-Failed" "AB-RPS"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "$TABLE_QPS_WIDTH" "QPS(wrk)" "$TABLE_P50_WIDTH" "P50(us)" "$TABLE_P95_WIDTH" "P95(us)" "$TABLE_P99_WIDTH" "P99(us)" "$TABLE_AB_REQ_WIDTH" "AB-Req(ab)" "$TABLE_AB_FAILED_WIDTH" "AB-Failed" "$TABLE_AB_RPS_WIDTH" "AB-RPS"
         elif [ "$do_ab" -eq 0 ] && [ "$do_abk" -eq 1 ]; then
-            printf "| %-*s | %-*s | %-12s | %-14s | %-12s | %-12s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "QPS(wrk)" "KA-Req(ab -k)" "KA-Failed" "KA-RPS"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "$TABLE_QPS_WIDTH" "QPS(wrk)" "$TABLE_P50_WIDTH" "P50(us)" "$TABLE_P95_WIDTH" "P95(us)" "$TABLE_P99_WIDTH" "P99(us)" "$TABLE_KA_REQ_WIDTH" "KA-Req(ab -k)" "$TABLE_KA_FAILED_WIDTH" "KA-Failed" "$TABLE_KA_RPS_WIDTH" "KA-RPS"
         else
-            printf "| %-*s | %-*s | %-12s | %-14s | %-12s | %-12s | %-14s | %-12s | %-12s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "QPS(wrk)" "AB-Req(ab)" "AB-Failed" "AB-RPS" "KA-Req(ab -k)" "KA-Failed" "KA-RPS"
+            printf "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n" "$TABLE_NAME_WIDTH" "Benchmark" "$TABLE_REMARK_WIDTH" "备注" "$TABLE_QPS_WIDTH" "QPS(wrk)" "$TABLE_P50_WIDTH" "P50(us)" "$TABLE_P95_WIDTH" "P95(us)" "$TABLE_P99_WIDTH" "P99(us)" "$TABLE_AB_REQ_WIDTH" "AB-Req(ab)" "$TABLE_AB_FAILED_WIDTH" "AB-Failed" "$TABLE_AB_RPS_WIDTH" "AB-RPS" "$TABLE_KA_REQ_WIDTH" "KA-Req(ab -k)" "$TABLE_KA_FAILED_WIDTH" "KA-Failed" "$TABLE_KA_RPS_WIDTH" "KA-RPS"
         fi
     }
 
@@ -1275,51 +1586,85 @@ main() {
     append_summary_row() {
         local name="$1"
         local qps="$2"
-        local ab_req="$3"
-        local ab_failed="$4"
-        local ab_rps="$5"
-        local ka_req="$6"
-        local ka_failed="$7"
-        local ka_rps="$8"
+        local p50="$3"
+        local p95="$4"
+        local p99="$5"
+        local ab_req="$6"
+        local ab_failed="$7"
+        local ab_rps="$8"
+        local ka_req="$9"
+        local ka_failed="${10}"
+        local ka_rps="${11}"
 
-        summary_rows+="${name}|${qps}|${ab_req}|${ab_failed}|${ab_rps}|${ka_req}|${ka_failed}|${ka_rps}"$'\n'
+        summary_rows+="${name}|${qps}|${p50}|${p95}|${p99}|${ab_req}|${ab_failed}|${ab_rps}|${ka_req}|${ka_failed}|${ka_rps}"$'\n'
     }
 
-    print_sorted_rows() {
-        while IFS='|' read -r name qps ab_req ab_failed ab_rps ka_req ka_failed ka_rps; do
+    sorted_summary_rows() {
+        local sort_metric="$1"
+        case "$sort_metric" in
+            qps)
+                printf '%s' "$summary_rows" | sort -t '|' -k2,2nr -k1,1
+                ;;
+            p50)
+                printf '%s' "$summary_rows" | sort -t '|' -k3,3n -k1,1
+                ;;
+            p95)
+                printf '%s' "$summary_rows" | sort -t '|' -k4,4n -k1,1
+                ;;
+            p99)
+                printf '%s' "$summary_rows" | sort -t '|' -k5,5n -k1,1
+                ;;
+            *)
+                printf '%s' "$summary_rows"
+                ;;
+        esac
+    }
+
+    print_result_table() {
+        local title="$1"
+        local sort_metric="$2"
+
+        log_info "$title"
+        echo "=========================================="
+        print_header
+        print_sep
+        while IFS='|' read -r name qps p50 p95 p99 ab_req ab_failed ab_rps ka_req ka_failed ka_rps; do
             if [ -z "$name" ]; then
                 continue
             fi
-            print_row "$name" "$qps" "$ab_req" "$ab_failed" "$ab_rps" "$ka_req" "$ka_failed" "$ka_rps"
-        done < <(printf '%s' "$summary_rows" | sort -t '|' -k2,2gr -k1,1)
+            print_row "$name" "$qps" "$p50" "$p95" "$p99" "$ab_req" "$ab_failed" "$ab_rps" "$ka_req" "$ka_failed" "$ka_rps"
+        done < <(sorted_summary_rows "$sort_metric")
+        print_sep
+        echo "=========================================="
     }
 
-    log_info "统一对比结果"
-    echo "=========================================="
-    print_header
-    print_sep
-    if bench_enabled "uya"; then append_summary_row "http_bench.uya" "$uya_rps" "$uya_ab_req" "$uya_ab_failed" "$uya_ab_rps" "$uya_ka_req" "$uya_ka_failed" "$uya_ka_rps"; fi
-    if bench_enabled "uya-fork"; then append_summary_row "http_bench_fork.uya" "$uya_fork_rps" "$uya_fork_ab_req" "$uya_fork_ab_failed" "$uya_fork_ab_rps" "$uya_fork_ka_req" "$uya_fork_ka_failed" "$uya_fork_ka_rps"; fi
-    if bench_enabled "uya-async-epoll"; then append_summary_row "http_bench_async_epoll.uya" "$uya_epoll_rps" "$uya_epoll_ab_req" "$uya_epoll_ab_failed" "$uya_epoll_ab_rps" "$uya_epoll_ka_req" "$uya_epoll_ka_failed" "$uya_epoll_ka_rps"; fi
-    if bench_enabled "uya-async-await"; then append_summary_row "http_bench_async_epoll_await.uya" "$uya_async_await_rps" "$uya_async_await_ab_req" "$uya_async_await_ab_failed" "$uya_async_await_ab_rps" "$uya_async_await_ka_req" "$uya_async_await_ka_failed" "$uya_async_await_ka_rps"; fi
-    if bench_enabled "uya-async-await-simple"; then append_summary_row "http_bench_async_epoll_await_simple.uya" "$uya_async_await_simple_rps" "$uya_async_await_simple_ab_req" "$uya_async_await_simple_ab_failed" "$uya_async_await_simple_ab_rps" "$uya_async_await_simple_ka_req" "$uya_async_await_simple_ka_failed" "$uya_async_await_simple_ka_rps"; fi
-    if bench_enabled "uya-async-await-stack"; then append_summary_row "http_bench_async_epoll_await_stack.uya" "$uya_async_await_stack_rps" "$uya_async_await_stack_ab_req" "$uya_async_await_stack_ab_failed" "$uya_async_await_stack_ab_rps" "$uya_async_await_stack_ka_req" "$uya_async_await_stack_ka_failed" "$uya_async_await_stack_ka_rps"; fi
-    if bench_enabled "go"; then append_summary_row "http_bench.go" "$go_rps" "$go_ab_req" "$go_ab_failed" "$go_ab_rps" "$go_ka_req" "$go_ka_failed" "$go_ka_rps"; fi
-    if bench_enabled "c"; then append_summary_row "http_bench.c" "$c_rps" "$c_ab_req" "$c_ab_failed" "$c_ab_rps" "$c_ka_req" "$c_ka_failed" "$c_ka_rps"; fi
-    if bench_enabled "c-async-epoll"; then append_summary_row "http_bench_async_epoll.c" "$c_async_epoll_rps" "$c_async_epoll_ab_req" "$c_async_epoll_ab_failed" "$c_async_epoll_ab_rps" "$c_async_epoll_ka_req" "$c_async_epoll_ka_failed" "$c_async_epoll_ka_rps"; fi
-    if bench_enabled "nginx"; then append_summary_row "nginx" "$nginx_rps" "$nginx_ab_req" "$nginx_ab_failed" "$nginx_ab_rps" "$nginx_ka_req" "$nginx_ka_failed" "$nginx_ka_rps"; fi
-    if bench_enabled "tokio"; then append_summary_row "http_bench_tokio" "$tokio_rps_val" "$tokio_ab_req" "$tokio_ab_failed" "$tokio_ab_rps" "$tokio_ka_req" "$tokio_ka_failed" "$tokio_ka_rps"; fi
-    print_sorted_rows
-    print_sep
-    echo "=========================================="
+    if bench_enabled "uya"; then append_summary_row "http_bench.uya" "$uya_rps" "$(result_field "$uya_http_result" 5)" "$(result_field "$uya_http_result" 6)" "$(result_field "$uya_http_result" 7)" "$uya_ab_req" "$uya_ab_failed" "$uya_ab_rps" "$uya_ka_req" "$uya_ka_failed" "$uya_ka_rps"; fi
+    if bench_enabled "uya-fork"; then append_summary_row "http_bench_fork.uya" "$uya_fork_rps" "$(result_field "$uya_fork_result" 5)" "$(result_field "$uya_fork_result" 6)" "$(result_field "$uya_fork_result" 7)" "$uya_fork_ab_req" "$uya_fork_ab_failed" "$uya_fork_ab_rps" "$uya_fork_ka_req" "$uya_fork_ka_failed" "$uya_fork_ka_rps"; fi
+    if bench_enabled "uya-async-epoll"; then append_summary_row "http_bench_async_epoll.uya" "$uya_epoll_rps" "$(result_field "$uya_epoll_result" 5)" "$(result_field "$uya_epoll_result" 6)" "$(result_field "$uya_epoll_result" 7)" "$uya_epoll_ab_req" "$uya_epoll_ab_failed" "$uya_epoll_ab_rps" "$uya_epoll_ka_req" "$uya_epoll_ka_failed" "$uya_epoll_ka_rps"; fi
+    if bench_enabled "uya-async-await"; then append_summary_row "http_bench_async_epoll_await.uya" "$uya_async_await_rps" "$(result_field "$uya_async_await_result" 5)" "$(result_field "$uya_async_await_result" 6)" "$(result_field "$uya_async_await_result" 7)" "$uya_async_await_ab_req" "$uya_async_await_ab_failed" "$uya_async_await_ab_rps" "$uya_async_await_ka_req" "$uya_async_await_ka_failed" "$uya_async_await_ka_rps"; fi
+    if bench_enabled "uya-async-await-simple"; then append_summary_row "http_bench_async_epoll_await_simple.uya" "$uya_async_await_simple_rps" "$(result_field "$uya_async_await_simple_result" 5)" "$(result_field "$uya_async_await_simple_result" 6)" "$(result_field "$uya_async_await_simple_result" 7)" "$uya_async_await_simple_ab_req" "$uya_async_await_simple_ab_failed" "$uya_async_await_simple_ab_rps" "$uya_async_await_simple_ka_req" "$uya_async_await_simple_ka_failed" "$uya_async_await_simple_ka_rps"; fi
+    if bench_enabled "uya-async-await-stack"; then append_summary_row "http_bench_async_epoll_await_stack.uya" "$uya_async_await_stack_rps" "$(result_field "$uya_async_await_stack_result" 5)" "$(result_field "$uya_async_await_stack_result" 6)" "$(result_field "$uya_async_await_stack_result" 7)" "$uya_async_await_stack_ab_req" "$uya_async_await_stack_ab_failed" "$uya_async_await_stack_ab_rps" "$uya_async_await_stack_ka_req" "$uya_async_await_stack_ka_failed" "$uya_async_await_stack_ka_rps"; fi
+    if bench_enabled "go"; then append_summary_row "http_bench.go" "$go_rps" "$(result_field "$go_result" 5)" "$(result_field "$go_result" 6)" "$(result_field "$go_result" 7)" "$go_ab_req" "$go_ab_failed" "$go_ab_rps" "$go_ka_req" "$go_ka_failed" "$go_ka_rps"; fi
+    if bench_enabled "go-gnet"; then append_summary_row "go-gnet" "$go_gnet_rps" "$(result_field "$go_gnet_result" 5)" "$(result_field "$go_gnet_result" 6)" "$(result_field "$go_gnet_result" 7)" "$go_gnet_ab_req" "$go_gnet_ab_failed" "$go_gnet_ab_rps" "$go_gnet_ka_req" "$go_gnet_ka_failed" "$go_gnet_ka_rps"; fi
+    if bench_enabled "uyagin"; then append_summary_row "uyagin" "$uyagin_rps" "$(result_field "$uyagin_result" 5)" "$(result_field "$uyagin_result" 6)" "$(result_field "$uyagin_result" 7)" "$uyagin_ab_req" "$uyagin_ab_failed" "$uyagin_ab_rps" "$uyagin_ka_req" "$uyagin_ka_failed" "$uyagin_ka_rps"; fi
+    if bench_enabled "c"; then append_summary_row "http_bench.c" "$c_rps" "$(result_field "$c_result" 5)" "$(result_field "$c_result" 6)" "$(result_field "$c_result" 7)" "$c_ab_req" "$c_ab_failed" "$c_ab_rps" "$c_ka_req" "$c_ka_failed" "$c_ka_rps"; fi
+    if bench_enabled "c-async-epoll"; then append_summary_row "http_bench_async_epoll.c" "$c_async_epoll_rps" "$(result_field "$c_async_epoll_result" 5)" "$(result_field "$c_async_epoll_result" 6)" "$(result_field "$c_async_epoll_result" 7)" "$c_async_epoll_ab_req" "$c_async_epoll_ab_failed" "$c_async_epoll_ab_rps" "$c_async_epoll_ka_req" "$c_async_epoll_ka_failed" "$c_async_epoll_ka_rps"; fi
+    if bench_enabled "zap"; then append_summary_row "zap" "$zap_rps" "$(result_field "$zap_result" 5)" "$(result_field "$zap_result" 6)" "$(result_field "$zap_result" 7)" "$zap_ab_req" "$zap_ab_failed" "$zap_ab_rps" "$zap_ka_req" "$zap_ka_failed" "$zap_ka_rps"; fi
+    if bench_enabled "nginx"; then append_summary_row "nginx" "$nginx_rps" "$(result_field "$nginx_result" 5)" "$(result_field "$nginx_result" 6)" "$(result_field "$nginx_result" 7)" "$nginx_ab_req" "$nginx_ab_failed" "$nginx_ab_rps" "$nginx_ka_req" "$nginx_ka_failed" "$nginx_ka_rps"; fi
+    if bench_enabled "tokio"; then append_summary_row "http_bench_tokio" "$tokio_rps_val" "$(result_field "$tokio_result" 5)" "$(result_field "$tokio_result" 6)" "$(result_field "$tokio_result" 7)" "$tokio_ab_req" "$tokio_ab_failed" "$tokio_ab_rps" "$tokio_ka_req" "$tokio_ka_failed" "$tokio_ka_rps"; fi
+
+    print_result_table "统一对比结果（按 QPS 排序）" qps
+    print_result_table "统一对比结果（按 P50 排序，越低越好）" p50
+    print_result_table "统一对比结果（按 P95 排序，越低越好）" p95
+    print_result_table "统一对比结果（按 P99 排序，越低越好）" p99
 
     # 保存基线（如果指定）
     if [ "$do_baseline" -eq 1 ]; then
-        save_baseline "$uya_rps" "$uya_fork_rps" "$uya_epoll_rps" "$uya_async_await_rps" "$uya_async_await_simple_rps" "$uya_async_await_stack_rps" "$go_rps" "$c_rps" "$c_async_epoll_rps" "${tokio_rps_val:-0}" "$nginx_rps"
+        save_baseline "$uya_rps" "$uya_fork_rps" "$uya_epoll_rps" "$uya_async_await_rps" "$uya_async_await_simple_rps" "$uya_async_await_stack_rps" "$go_rps" "$go_gnet_rps" "$uyagin_rps" "$c_rps" "$c_async_epoll_rps" "$zap_rps" "$nginx_rps" "${tokio_rps_val:-0}"
     fi
 
     # 清理
-    rm -f "$GO_EXEC" "$C_EXEC" "$C_ASYNC_EPOLL_EXEC" "$UYA_HTTP_EXEC" "$UYA_FORK_EXEC" "$UYA_ASYNC_EPOLL_EXEC" "$UYA_ASYNC_AWAIT_EXEC" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$TOKIO_EXEC"
+    rm -f "$GO_EXEC" "$GO_GNET_EXEC" "$UYA_GIN_EXEC" "$C_EXEC" "$C_ASYNC_EPOLL_EXEC" "$UYA_HTTP_EXEC" "$UYA_FORK_EXEC" "$UYA_ASYNC_EPOLL_EXEC" "$UYA_ASYNC_AWAIT_EXEC" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$ZAP_EXEC" "$TOKIO_EXEC"
     rm -rf "$NGINX_BENCH_DIR"
 
     log_info "基准测试完成"
