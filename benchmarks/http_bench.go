@@ -2,6 +2,7 @@
 //
 // 路由与体大小（与 Uya 版一致）：
 //   GET /              → "hello"（5 字节）
+//   GET /plaintext     → "hello"（5 字节，主 benchmark 入口）
 //   GET /json          → {"ok":true}（11 字节）
 //   GET /item/:id      → 体为路径参数 id（单段）
 //   GET /payload1k     → 1024 字节 'a'
@@ -13,7 +14,7 @@
 // 运行：
 //   cd benchmarks && go run .
 // 压测（与 Uya 相同 URL）：
-//   wrk -t4 -c64 -d10s http://127.0.0.1:8876/
+//   wrk -t4 -c64 -d10s http://127.0.0.1:8876/plaintext
 
 package main
 
@@ -37,6 +38,7 @@ var (
 	payload100k = bytes.Repeat([]byte{'a'}, 102400)
 
 	rootPath      = []byte("/")
+	plaintextPath = []byte("/plaintext")
 	jsonPath      = []byte("/json")
 	itemPrefix    = []byte("/item/")
 	payload1kPath = []byte("/payload1k")
@@ -200,6 +202,8 @@ func dispatch(method, path []byte) (int, []byte) {
 	switch {
 	case bytes.Equal(path, rootPath):
 		return 200, helloBody
+	case bytes.Equal(path, plaintextPath):
+		return 200, helloBody
 	case bytes.Equal(path, jsonPath):
 		return 200, jsonBody
 	case bytes.HasPrefix(path, itemPrefix):
@@ -323,7 +327,7 @@ func runServer() error {
 		go acceptLoop(tcpLn)
 	}
 
-	fmt.Fprintf(os.Stderr, "listening on http://%s/\n", addr)
+	fmt.Fprintf(os.Stderr, "benchmark target http://%s/plaintext\n", addr)
 	select {}
 }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 运行时验证 benchmarks/http_bench_async_epoll.uya：启动服务并校验 / 与 /json 响应
+# 运行时验证 benchmarks/http_bench_async_epoll.uya：启动服务并校验 /plaintext 与 /json 响应
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +16,9 @@ OUT_BIN="$BUILD_DIR/verify_http_bench_async_epoll_runtime"
 PORT=8876
 HOST="127.0.0.1"
 BASE_URL="http://$HOST:$PORT"
+PLAINTEXT_URL="$BASE_URL/plaintext"
+JSON_URL="$BASE_URL/json"
+VERIFY_THREADS="${UYA_VERIFY_THREADS:-1}"
 
 if [ ! -x "$COMPILER" ]; then
     echo "✗ 未找到编译器: $COMPILER（请先 make uya）"
@@ -47,7 +50,7 @@ run_http_probe_burst() {
     local pid=""
 
     while [ "$i" -lt "$rounds" ]; do
-        curl -fsS --http1.1 -H 'Connection: close' --max-time 2 "$base_url/" >/dev/null &
+        curl -fsS --http1.1 -H 'Connection: close' --max-time 2 "$base_url/plaintext" >/dev/null &
         pids+=("$!")
         curl -fsS --http1.1 -H 'Connection: close' --max-time 2 "$base_url/json" >/dev/null &
         pids+=("$!")
@@ -59,12 +62,12 @@ run_http_probe_burst() {
     done
 }
 
-echo "验证：启动服务并检查 HTTP 响应 ..."
-"$OUT_BIN" >"$BUILD_DIR/http_bench_async_epoll_runtime.log" 2>&1 &
+echo "验证：启动服务并检查 HTTP 响应（threads=$VERIFY_THREADS）..."
+"$OUT_BIN" --threads "$VERIFY_THREADS" >"$BUILD_DIR/http_bench_async_epoll_runtime.log" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 100); do
-    if curl -sS --max-time 1 "$BASE_URL/" >/dev/null 2>&1; then
+    if curl -sS --max-time 1 "$PLAINTEXT_URL" >/dev/null 2>&1; then
         break
     fi
     sleep 0.05
@@ -75,17 +78,17 @@ root_body="$BUILD_DIR/http_root_body.txt"
 json_headers="$BUILD_DIR/http_json_headers.txt"
 json_body="$BUILD_DIR/http_json_body.txt"
 
-if ! curl -sS --max-time 3 -D "$root_headers" "$BASE_URL/" -o "$root_body"; then
-    echo "✗ 请求 / 失败（可能出现 Empty reply）"
+if ! curl -sS --max-time 3 -D "$root_headers" "$PLAINTEXT_URL" -o "$root_body"; then
+    echo "✗ 请求 /plaintext 失败（可能出现 Empty reply）"
     exit 1
 fi
-if ! curl -sS --max-time 3 -D "$json_headers" "$BASE_URL/json" -o "$json_body"; then
+if ! curl -sS --max-time 3 -D "$json_headers" "$JSON_URL" -o "$json_body"; then
     echo "✗ 请求 /json 失败（可能出现 Empty reply）"
     exit 1
 fi
 
 if ! grep -q "HTTP/1.1 200 OK" "$root_headers"; then
-    echo "✗ / 未返回 HTTP/1.1 200 OK"
+    echo "✗ /plaintext 未返回 HTTP/1.1 200 OK"
     exit 1
 fi
 if ! grep -q "HTTP/1.1 200 OK" "$json_headers"; then
@@ -93,11 +96,29 @@ if ! grep -q "HTTP/1.1 200 OK" "$json_headers"; then
     exit 1
 fi
 if ! grep -q "^hello$" "$root_body"; then
-    echo "✗ / body 非 hello"
+    echo "✗ /plaintext body 非 hello"
+    exit 1
+fi
+root_len="$(wc -c <"$root_body" | tr -d ' ')"
+if [ "$root_len" != "5" ]; then
+    echo "✗ /plaintext body 长度不是 5B，而是 ${root_len}B"
+    exit 1
+fi
+if ! tr -d '\r' < "$root_headers" | grep -q '^Content-Length: 5$'; then
+    echo "✗ /plaintext Content-Length 不是 5"
     exit 1
 fi
 if ! grep -q "^\{\"ok\":true\}$" "$json_body"; then
     echo "✗ /json body 非 {\"ok\":true}"
+    exit 1
+fi
+json_len="$(wc -c <"$json_body" | tr -d ' ')"
+if [ "$json_len" != "11" ]; then
+    echo "✗ /json body 长度不是 11B，而是 ${json_len}B"
+    exit 1
+fi
+if ! tr -d '\r' < "$json_headers" | grep -q '^Content-Length: 11$'; then
+    echo "✗ /json Content-Length 不是 11"
     exit 1
 fi
 

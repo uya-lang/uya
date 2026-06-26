@@ -3,7 +3,7 @@
 // 与 http_bench_fork.uya（多进程阻塞 accept）不同：本文件为多 reactor（线程数 = CPU 核心数）、
 // 固定槽位复用，每个连接用手写 Future 状态机 + 非阻塞读写。
 //
-// 路由（首版）：GET / → plaintext "hello"；GET /json → {"ok":true}；Keep-Alive / Connection: close 与简易 bench 行为一致。
+// 路由：GET / 与 /plaintext → plaintext "hello"；GET /json → {"ok":true}；Keep-Alive / Connection: close 与简易 bench 行为一致。
 //
 // 默认 127.0.0.1:8876。`--once`：阻塞 listen、accept 一次后仅驱动单连接（便于冒烟）。
 //
@@ -27,7 +27,7 @@ const BENCH_PORT: u16 = 8876;
 /// 主线程栈保持较大，避免启动阶段深调用链溢出；worker 栈单独缩小，先验证 28 线程可否稳定创建。
 const BENCH_MAIN_STACK_BYTES: u64 = 65536 as u64 * 1024;
 const BENCH_WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
-const BACKLOG: i32 = 1024;
+const BACKLOG: i32 = 8192;
 const SLOT_READ_CAP: usize = 2048;
 const MAX_PATH_LEN: usize = 256;
 const SIGPIPE: i32 = 13;
@@ -35,9 +35,11 @@ const SIG_IGN: usize = 1;
 const BENCH_THREAD_COUNT: i32 = 28;
 const BENCH_MAX_THREADS: i32 = 64;
 const BENCH_CONTEXT_STACK_BYTES: usize = 512 * 1024;
+const BENCH_HELLO_BODY_LEN: usize = 5;
+const BENCH_JSON_BODY_LEN: usize = 11;
 
-const g_hello_body: [byte: 6] = "hello";
-const g_json_body: [byte: 12] = "{\"ok\":true}";
+const g_hello_body: [byte: BENCH_HELLO_BODY_LEN] = [104, 101, 108, 108, 111];
+const g_json_body: [byte: BENCH_JSON_BODY_LEN] = [123, 34, 111, 107, 34, 58, 116, 114, 117, 101, 125];
 
 struct BenchClientFuture : Future<!usize> {
     ctx: &BenchContext = null as &BenchContext,
@@ -207,6 +209,20 @@ fn handle_bench_client(ctx: &BenchContext, cfd: i32, slot: usize) BenchClientFut
     };
 }
 
+fn bench_set_nonblocking_fd(fd: i32) bool {
+    const flags_result: !i32 = sys_fcntl(fd, F_GETFL, 0);
+    const flags: i32 = flags_result catch {
+        return false;
+    };
+    if (flags & O_NONBLOCK) == 0 {
+        const set_result: !i32 = sys_fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        _ = set_result catch {
+            return false;
+        };
+    }
+    return true;
+}
+
 struct BenchSlot {
     /// 直接内嵌 concrete future，避免每连接盒装分配和全局 heap 锁竞争。
     future: BenchClientFuture = BenchClientFuture{},
@@ -341,12 +357,12 @@ struct BenchContext {
         } else {
             slot_ref.cli_wants_close = 0;
         }
-        var body_len: usize = 5;
+        var body_len: usize = BENCH_HELLO_BODY_LEN;
         var body_kind: i32 = 0;
         if path_is_json(self.bench_slot_buf_base(slot), ps, pl) {
-            body_len = 11;
+            body_len = BENCH_JSON_BODY_LEN;
             body_kind = 1;
-        } else if !path_is_slash(self.bench_slot_buf_base(slot), ps, pl) {
+        } else if !path_is_slash(self.bench_slot_buf_base(slot), ps, pl) && !path_is_plaintext(self.bench_slot_buf_base(slot), ps, pl) {
             return false;
         }
         var hl_out: usize = 0;
@@ -459,6 +475,10 @@ struct BenchContext {
             };
             var nd: i32 = 1;
             _ = sys_setsockopt(cfd, 6, 1, &nd as &void, 4);
+            if !bench_set_nonblocking_fd(cfd) {
+                self.close_client_fd_quiet(cfd);
+                continue;
+            }
             const si: i32 = self.find_free_slot();
             if si < 0 {
                 self.close_client_fd_quiet(cfd);
@@ -494,6 +514,7 @@ struct BenchContext {
             slot.cli_http11 = 0;
             slot.http10_session_keep_alive = 0;
             slot.future = handle_bench_client(self, cfd, si as usize);
+            slot.future.io_nonblocking_ready = 1;
             if self.active_count < self.slot_cap {
                 self.active_slots[self.active_count as usize] = si;
                 self.active_count = self.active_count + 1;
@@ -628,6 +649,11 @@ struct BenchContext {
             _ = sys_close(lfd) catch {};
             return 1;
         };
+        if !bench_set_nonblocking_fd(cfd) {
+            self.close_client_fd_quiet(cfd);
+            _ = sys_close(lfd) catch {};
+            return 1;
+        }
         _ = sys_close(lfd) catch {};
         const ep_r: !LinuxEpoll = linux_epoll_create(0);
         if ep_r.error_id != 0 {
@@ -656,6 +682,7 @@ struct BenchContext {
         self.slots[0].cli_http11 = 0;
         self.slots[0].http10_session_keep_alive = 0;
         self.slots[0].future = handle_bench_client(self, cfd, 0);
+        self.slots[0].future.io_nonblocking_ready = 1;
         self.active_slots[0] = 0;
         self.active_count = 1;
         self.bench_poll_slots(0 - 1);
@@ -938,6 +965,17 @@ fn path_is_slash(buf: &byte, path_start: usize, path_len: usize) bool {
     return path_len == 1 && buf[path_start] == '/' as byte;
 }
 
+fn path_is_plaintext(buf: &byte, path_start: usize, path_len: usize) bool {
+    if path_len != 10 {
+        return false;
+    }
+    const p: &byte = @ptr_from_usize(@usize_from_ptr(buf as &void) + path_start) as &byte;
+    return p[0] == '/' as byte && p[1] == 'p' as byte && p[2] == 'l' as byte &&
+        p[3] == 'a' as byte && p[4] == 'i' as byte && p[5] == 'n' as byte &&
+        p[6] == 't' as byte && p[7] == 'e' as byte && p[8] == 'x' as byte &&
+        p[9] == 't' as byte;
+}
+
 fn path_is_json(buf: &byte, path_start: usize, path_len: usize) bool {
     if path_len != 5 {
         return false;
@@ -1027,7 +1065,7 @@ export fn main() i32 {
     _ = signal(SIGPIPE, SIG_IGN as &void);
 
     var n_threads: i32 = argv_thread_count();
-    g_bench_slot_cap = n_threads;
+    g_bench_slot_cap = BENCH_MAX_THREADS;
     var threads: [pthread_t: BENCH_MAX_THREADS as usize] = [];
     var thread_ids: [i32: BENCH_MAX_THREADS as usize] = [];
     var i: i32 = 1;

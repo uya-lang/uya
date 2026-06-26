@@ -10,6 +10,7 @@ BUILD_DIR="$SCRIPT_DIR/build"
 mkdir -p "$BUILD_DIR"
 
 SRC="$REPO_ROOT/benchmarks/http_bench.uya"
+RUN_BENCH="$REPO_ROOT/benchmarks/run_bench.sh"
 OUT_C="$BUILD_DIR/verify_http_bench.c"
 OUT_O="$BUILD_DIR/verify_http_bench.o"
 
@@ -17,6 +18,22 @@ if [ ! -f "$COMPILER" ]; then
     echo "✗ 未找到编译器: $COMPILER（请先 make uya）"
     exit 1
 fi
+
+echo "验证：benchmarks/run_bench.sh benchmark URL 合约 ..."
+url_count="$(grep -F 'local URL="http://127.0.0.1:$PORT/plaintext"' "$RUN_BENCH" | wc -l | tr -d ' ')"
+if [ "$url_count" != "1" ]; then
+    echo "✗ run_bench.sh 必须只定义一个统一 URL: http://127.0.0.1:\$PORT/plaintext"
+    exit 1
+fi
+if grep -Fq 'local URL="http://127.0.0.1:$PORT/"' "$RUN_BENCH"; then
+    echo "✗ run_bench.sh 不应使用根路径作为 benchmark URL"
+    exit 1
+fi
+if grep -q 'URL_PLAINTEXT' "$RUN_BENCH"; then
+    echo "✗ run_bench.sh 不应再使用 URL_PLAINTEXT 分支 URL"
+    exit 1
+fi
+echo "✓ http_bench benchmark URL 合约通过"
 
 echo "验证：编译 benchmarks/http_bench.uya → C99 ..."
 if ! "$COMPILER" --c99 --safety-proof "$SRC" -o "$OUT_C" >/dev/null 2>&1; then

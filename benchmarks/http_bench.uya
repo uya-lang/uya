@@ -2,6 +2,7 @@
 //
 // 路由：
 //   GET /              → plaintext "hello"
+//   GET /plaintext     → plaintext "hello"（主 benchmark 入口）
 //   GET /json          → {"ok":true}
 //   GET /item/:id      → body 为路径参数 id 字节
 //   GET /payload1k     → 1024 字节 'a'
@@ -16,7 +17,7 @@
 //   bin/uya --c99 benchmarks/http_bench.uya -o /tmp/http_bench.c && cc -std=c99 -no-pie -O2 -o /tmp/http_bench /tmp/http_bench.c -lm
 // 若用 `bin/uya run`：默认链接 CFLAGS 为 -O0，RPS 可能只有几百～一千量级；请显式打开优化，例如：
 //   CFLAGS='-std=c99 -O2 -g -fno-builtin -fno-inline-small-functions' ./bin/uya run benchmarks/http_bench.uya
-// 压测示例：/tmp/http_bench & sleep 0.1 && wrk -t4 -c256 -d10s http://127.0.0.1:8876/
+// 压测示例：/tmp/http_bench & sleep 0.1 && wrk -t4 -c256 -d10s http://127.0.0.1:8876/plaintext
 // 吞吐：单线程 epoll + Uya 生成 C，单核常见在几千～一万级 RPS（视 CPU）；`-c` 增大到超过单核处理能力时提升有限，属正常。
 //
 use std.http.types;
@@ -34,6 +35,8 @@ const BENCH_PORT: u16 = 8876;
 const BENCH_ONESHOT_CAP: usize = 2048;
 const BENCH_HDR_CAP: usize = 512;
 const BENCH_ITEM_CAP: usize = 256;
+const BENCH_HELLO_BODY_LEN: usize = 5;
+const BENCH_JSON_BODY_LEN: usize = 11;
 
 const WPH_IDLE: i32 = 0;
 const WPH_ONESHOT: i32 = 1;
@@ -55,8 +58,8 @@ var g_bench_epoll_srv: EpollServer = EpollServer{
 var g_payload1k: [byte: 1024] = [];
 var g_payload10k: [byte: 10240] = [];
 var g_payload100k: [byte: 102400] = [];
-var g_bench_hello_body: [byte: 5] = [];
-var g_bench_json_body: [byte: 11] = [];
+var g_bench_hello_body: [byte: BENCH_HELLO_BODY_LEN] = [];
+var g_bench_json_body: [byte: BENCH_JSON_BODY_LEN] = [];
 
 var g_wphase: [i32: EPOLL_SERVER_MAX_SLOTS] = [];
 var g_woff: [usize: EPOLL_SERVER_MAX_SLOTS] = [];
@@ -136,40 +139,40 @@ fn bench_init_prebuilt_oneshot() void {
     const hb: &byte = &g_bench_hdr_scratch[0] as &byte;
     const stg: &byte = bench_oneshot_base(0);
 
-    const hl_rka: usize = bench_build_hdr(hb, Status.OK, 5, false, false) catch {
+    const hl_rka: usize = bench_build_hdr(hb, Status.OK, BENCH_HELLO_BODY_LEN, false, false) catch {
         return;
     };
     _ = memcpy(stg as *byte, hb as *const byte, hl_rka);
     const prka_body: *byte = @ptr_from_usize(@usize_from_ptr(stg as &void) + hl_rka) as *byte;
-    _ = memcpy(prka_body, &g_bench_hello_body[0] as *const byte, 5);
-    g_prebuilt_root_ka_len = hl_rka + 5;
+    _ = memcpy(prka_body, &g_bench_hello_body[0] as *const byte, BENCH_HELLO_BODY_LEN);
+    g_prebuilt_root_ka_len = hl_rka + BENCH_HELLO_BODY_LEN;
     _ = memcpy(&g_prebuilt_root_ka[0] as *byte, stg as *const byte, g_prebuilt_root_ka_len);
 
-    const hl_rc: usize = bench_build_hdr(hb, Status.OK, 5, true, false) catch {
+    const hl_rc: usize = bench_build_hdr(hb, Status.OK, BENCH_HELLO_BODY_LEN, true, false) catch {
         return;
     };
     _ = memcpy(stg as *byte, hb as *const byte, hl_rc);
     const prc_body: *byte = @ptr_from_usize(@usize_from_ptr(stg as &void) + hl_rc) as *byte;
-    _ = memcpy(prc_body, &g_bench_hello_body[0] as *const byte, 5);
-    g_prebuilt_root_close_len = hl_rc + 5;
+    _ = memcpy(prc_body, &g_bench_hello_body[0] as *const byte, BENCH_HELLO_BODY_LEN);
+    g_prebuilt_root_close_len = hl_rc + BENCH_HELLO_BODY_LEN;
     _ = memcpy(&g_prebuilt_root_close[0] as *byte, stg as *const byte, g_prebuilt_root_close_len);
 
-    const hl_jka: usize = bench_build_hdr(hb, Status.OK, 11, false, false) catch {
+    const hl_jka: usize = bench_build_hdr(hb, Status.OK, BENCH_JSON_BODY_LEN, false, false) catch {
         return;
     };
     _ = memcpy(stg as *byte, hb as *const byte, hl_jka);
     const pjka_body: *byte = @ptr_from_usize(@usize_from_ptr(stg as &void) + hl_jka) as *byte;
-    _ = memcpy(pjka_body, &g_bench_json_body[0] as *const byte, 11);
-    g_prebuilt_json_ka_len = hl_jka + 11;
+    _ = memcpy(pjka_body, &g_bench_json_body[0] as *const byte, BENCH_JSON_BODY_LEN);
+    g_prebuilt_json_ka_len = hl_jka + BENCH_JSON_BODY_LEN;
     _ = memcpy(&g_prebuilt_json_ka[0] as *byte, stg as *const byte, g_prebuilt_json_ka_len);
 
-    const hl_jc: usize = bench_build_hdr(hb, Status.OK, 11, true, false) catch {
+    const hl_jc: usize = bench_build_hdr(hb, Status.OK, BENCH_JSON_BODY_LEN, true, false) catch {
         return;
     };
     _ = memcpy(stg as *byte, hb as *const byte, hl_jc);
     const pjc_body: *byte = @ptr_from_usize(@usize_from_ptr(stg as &void) + hl_jc) as *byte;
-    _ = memcpy(pjc_body, &g_bench_json_body[0] as *const byte, 11);
-    g_prebuilt_json_close_len = hl_jc + 11;
+    _ = memcpy(pjc_body, &g_bench_json_body[0] as *const byte, BENCH_JSON_BODY_LEN);
+    g_prebuilt_json_close_len = hl_jc + BENCH_JSON_BODY_LEN;
     _ = memcpy(&g_prebuilt_json_close[0] as *byte, stg as *const byte, g_prebuilt_json_close_len);
 }
 
@@ -177,8 +180,8 @@ fn bench_init_payload_slabs() void {
     fill_a(&g_payload1k[0] as &byte, 1024);
     fill_a(&g_payload10k[0] as &byte, 10240);
     fill_a(&g_payload100k[0] as &byte, 102400);
-    bench_copy_slice_to_fixed(&g_bench_hello_body[0] as &byte, 5, &"hello"[0: 5]);
-    bench_copy_slice_to_fixed(&g_bench_json_body[0] as &byte, 11, &"{\"ok\":true}"[0: 11]);
+    bench_copy_slice_to_fixed(&g_bench_hello_body[0] as &byte, BENCH_HELLO_BODY_LEN, &"hello"[0: BENCH_HELLO_BODY_LEN]);
+    bench_copy_slice_to_fixed(&g_bench_json_body[0] as &byte, BENCH_JSON_BODY_LEN, &"{\"ok\":true}"[0: BENCH_JSON_BODY_LEN]);
     bench_init_prebuilt_oneshot();
 }
 
@@ -226,7 +229,7 @@ fn bench_try_fast_get_slash_json(
     }
 
     const dst: &byte = bench_oneshot_base(slot);
-    if bench_req_path_eq(&pr.request, &"/"[0: 1]) {
+    if bench_req_path_eq(&pr.request, &"/"[0: 1]) || bench_req_path_eq(&pr.request, &"/plaintext"[0: 10]) {
         if close_after {
             _ = memcpy(dst as *byte, &g_prebuilt_root_close[0] as *const byte, g_prebuilt_root_close_len);
             bench_wtotal_set(slot, g_prebuilt_root_close_len);
@@ -268,6 +271,7 @@ fn register_routes(rt: &Router) !void {
     _ = try router_add(rt, Method.GET, &"/payload1k"[0: 10]);
     _ = try router_add(rt, Method.GET, &"/payload10k"[0: 11]);
     _ = try router_add(rt, Method.GET, &"/payload100k"[0: 12]);
+    _ = try router_add(rt, Method.GET, &"/plaintext"[0: 10]);
 }
 
 fn bench_copy_slice_hdr(hdr: &byte, start: usize, s: &[byte]) usize {
@@ -627,10 +631,10 @@ fn bench_prepare_dispatch(slot: usize, sfd: i32, srv: &EpollServer, pr: &ParseRe
             blen = empty_len;
             bench_wbody_base_set(slot, &z[0] as &byte);
         } else if idx == 0 {
-            blen = 5;
+            blen = BENCH_HELLO_BODY_LEN;
             bench_wbody_base_set(slot, &g_bench_hello_body[0] as &byte);
         } else if idx == 1 {
-            blen = 11;
+            blen = BENCH_JSON_BODY_LEN;
             bench_wbody_base_set(slot, &g_bench_json_body[0] as &byte);
         } else if idx == 2 {
             _ = router_apply_path_params_request(&pr.request, &"/item/:id"[0: 9]) catch {
@@ -666,6 +670,9 @@ fn bench_prepare_dispatch(slot: usize, sfd: i32, srv: &EpollServer, pr: &ParseRe
         } else if idx == 5 {
             blen = 102400;
             bench_wbody_base_set(slot, &g_payload100k[0] as &byte);
+        } else if idx == 6 {
+            blen = BENCH_HELLO_BODY_LEN;
+            bench_wbody_base_set(slot, &g_bench_hello_body[0] as &byte);
         } else {
             st = Status.NotFound;
             blen = empty_len;
@@ -1130,11 +1137,11 @@ fn dispatch_blocking(sfd: i32, rt: &Router, pr: &ParseResult, persist: bool) voi
         return;
     }
     if idx == 0 {
-        _ = http_send_response_for_request_persist(sfd, Status.OK, &"hello"[0: 5], &pr.request, persist) catch {};
+        _ = http_send_response_for_request_persist(sfd, Status.OK, &"hello"[0: BENCH_HELLO_BODY_LEN], &pr.request, persist) catch {};
         return;
     }
     if idx == 1 {
-        _ = http_send_response_for_request_persist(sfd, Status.OK, &"{\"ok\":true}"[0: 11], &pr.request, persist) catch {};
+        _ = http_send_response_for_request_persist(sfd, Status.OK, &"{\"ok\":true}"[0: BENCH_JSON_BODY_LEN], &pr.request, persist) catch {};
         return;
     }
     if idx == 2 {
@@ -1162,6 +1169,10 @@ fn dispatch_blocking(sfd: i32, rt: &Router, pr: &ParseResult, persist: bool) voi
         const sb100: &byte = &g_payload100k[0] as &byte;
         const b3: &[byte] = sb100[0: 102400];
         _ = http_send_response_for_request_persist(sfd, Status.OK, b3, &pr.request, persist) catch {};
+        return;
+    }
+    if idx == 6 {
+        _ = http_send_response_for_request_persist(sfd, Status.OK, &"hello"[0: BENCH_HELLO_BODY_LEN], &pr.request, persist) catch {};
         return;
     }
     _ = http_send_response_for_request_persist(sfd, Status.NotFound, empty, &pr.request, persist) catch {};

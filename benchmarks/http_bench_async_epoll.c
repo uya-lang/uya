@@ -6,8 +6,9 @@
 // - 固定槽位池，避免 per-connection malloc
 //
 // 路由：
-//   GET /      → "hello"（5 字节）
-//   GET /json  → {"ok":true}（11 字节）
+//   GET /          → "hello"（5 字节）
+//   GET /plaintext → "hello"（5 字节，主 benchmark 入口）
+//   GET /json      → {"ok":true}（11 字节）
 //
 // 编译：cc -O3 -Wall -Wextra -pthread -o http_bench_async_epoll http_bench_async_epoll.c
 // 运行：./http_bench_async_epoll
@@ -298,6 +299,11 @@ static int path_is_slash(const char* buf, size_t path_start, size_t path_len) {
     return path_len == 1 && buf[path_start] == '/';
 }
 
+static int path_is_plaintext(const char* buf, size_t path_start, size_t path_len) {
+    if (path_len != 10) return 0;
+    return memcmp(buf + path_start, "/plaintext", 10) == 0;
+}
+
 static int path_is_json(const char* buf, size_t path_start, size_t path_len) {
     if (path_len != 5) return 0;
     const char* p = buf + path_start;
@@ -322,7 +328,7 @@ static int prepare_response(conn_t* conn, size_t he) {
     if (path_is_json(conn->read_buf, ps, pl)) {
         body_len = 11;
         body = "{\"ok\":true}";
-    } else if (!path_is_slash(conn->read_buf, ps, pl)) {
+    } else if (!path_is_slash(conn->read_buf, ps, pl) && !path_is_plaintext(conn->read_buf, ps, pl)) {
         return 0;
     }
 
@@ -601,7 +607,7 @@ static void run_server(void) {
         }
     }
 
-    fprintf(stderr, "listening on http://127.0.0.1:%d/ (threads=%d)\n", PORT, g_threads);
+    fprintf(stderr, "benchmark target http://127.0.0.1:%d/plaintext (threads=%d)\n", PORT, g_threads);
 
     pthread_attr_t attr;
     pthread_attr_init(&attr);

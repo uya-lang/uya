@@ -78,6 +78,7 @@ fn text_response(status: StatusCode, body: &[u8]) -> Response<Full<Bytes>> {
 fn handle_get(path: &str) -> Response<Full<Bytes>> {
     match path {
         "/" => text_response(StatusCode::OK, b"hello"),
+        "/plaintext" => text_response(StatusCode::OK, b"hello"),
         "/json" => text_response(StatusCode::OK, br#"{"ok":true}"#),
         "/payload1k" => text_response(StatusCode::OK, payload_1k()),
         "/payload10k" => text_response(StatusCode::OK, payload_10k()),
@@ -126,7 +127,7 @@ async fn run_server(once: bool) -> Result<(), Box<dyn std::error::Error + Send +
         return Ok(());
     }
 
-    eprintln!("listening on http://{}/", addr);
+    eprintln!("benchmark target http://{}/plaintext", addr);
 
     loop {
         let (stream, _) = listener.accept().await?;

@@ -110,9 +110,14 @@ if [ "$ASYNC_BENCH_MODE" = "auto" ]; then
     esac
 fi
 
-# async 基准默认固定用 CPU/2 线程，保证不同实现的排名可直接对比；
-# 需要特殊实验时仍可显式覆盖 UYA_ASYNC_SERVER_THREADS。
-UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-$DEFAULT_BENCH_THREADS}"
+# Linux nostdlib async 基准使用一线程一 reactor。默认跑满在线 CPU，可显著降低
+# 高 QPS 下的 p99 尾延迟；hosted 路线仍沿用 CPU/2，避免过度放大宿主 pthread 路径噪声。
+if [ "$ASYNC_BENCH_MODE" = "nostdlib" ]; then
+    DEFAULT_UYA_ASYNC_SERVER_THREADS="$CPU_COUNT"
+else
+    DEFAULT_UYA_ASYNC_SERVER_THREADS="$DEFAULT_BENCH_THREADS"
+fi
+UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-$DEFAULT_UYA_ASYNC_SERVER_THREADS}"
 AB_KEEPALIVE_REQUESTS="${AB_KEEPALIVE_REQUESTS:-20000}"
 AB_KEEPALIVE_CONCURRENCY="${AB_KEEPALIVE_CONCURRENCY:-100}"
 
@@ -418,6 +423,10 @@ http {
         server_name 127.0.0.1;
 
         location = / {
+            return 200 "hello";
+        }
+
+        location = /plaintext {
             return 200 "hello";
         }
     }
@@ -1181,8 +1190,7 @@ main() {
 
     # 测试端口
     local PORT=8876
-    local URL="http://127.0.0.1:$PORT/"
-    local URL_PLAINTEXT="http://127.0.0.1:$PORT/plaintext"
+    local URL="http://127.0.0.1:$PORT/plaintext"
 
     # 初始化结果
     local uya_http_result="http_bench.uya|0|0|0|0|0|0|0"
@@ -1248,11 +1256,11 @@ main() {
         sleep 1
     fi
     if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then
-        go_gnet_result=$(run_benchmark_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --multicore=true)
+        go_gnet_result=$(run_benchmark_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore=true)
         sleep 1
     fi
     if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then
-        uyagin_result=$(run_benchmark_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --threads "$SERVER_THREADS")
+        uyagin_result=$(run_benchmark_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL" --port "$PORT" --threads "$SERVER_THREADS")
         sleep 1
     fi
     if bench_enabled "c"; then
@@ -1349,8 +1357,8 @@ main() {
             if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ab_result=$(run_ab_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ab_result=$(run_ab_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ab_result=$(run_ab_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --multicore=true); fi
-            if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ab_result=$(run_ab_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ab_result=$(run_ab_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore=true); fi
+            if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ab_result=$(run_ab_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL" --port "$PORT" --threads "$SERVER_THREADS"); fi
             if bench_enabled "c"; then c_ab_result=$(run_ab_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ab_result=$(run_ab_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
             if bench_enabled "zap" && [ "$have_zap" -eq 1 ]; then zap_ab_result=$(run_ab_probe_safe "zap" "$ZAP_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
@@ -1366,8 +1374,8 @@ main() {
             if bench_enabled "uya-async-await-simple"; then uya_async_await_simple_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_simple.uya" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "uya-async-await-stack"; then uya_async_await_stack_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll_await_stack.uya" "$UYA_ASYNC_AWAIT_STACK_EXEC" "$PORT" "$URL" --threads "$UYA_ASYNC_SERVER_THREADS"); fi
             if bench_enabled "go" && [ "$have_go" -eq 1 ]; then go_ka_result=$(run_keepalive_probe_safe "http_bench.go" "$GO_EXEC" "$PORT" "$URL"); fi
-            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ka_result=$(run_keepalive_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --multicore=true); fi
-            if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ka_result=$(run_keepalive_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL_PLAINTEXT" --port "$PORT" --threads "$SERVER_THREADS"); fi
+            if bench_enabled "go-gnet" && [ "$have_go_gnet" -eq 1 ]; then go_gnet_ka_result=$(run_keepalive_probe_safe "go-gnet" "$GO_GNET_EXEC" "$PORT" "$URL" --port "$PORT" --multicore=true); fi
+            if bench_enabled "uyagin" && [ "$have_uyagin" -eq 1 ]; then uyagin_ka_result=$(run_keepalive_probe_safe "uyagin" "$UYA_GIN_EXEC" "$PORT" "$URL" --port "$PORT" --threads "$SERVER_THREADS"); fi
             if bench_enabled "c"; then c_ka_result=$(run_keepalive_probe_safe "http_bench.c" "$C_EXEC" "$PORT" "$URL"); fi
             if bench_enabled "c-async-epoll"; then c_async_epoll_ka_result=$(run_keepalive_probe_safe "http_bench_async_epoll.c" "$C_ASYNC_EPOLL_EXEC" "$PORT" "$URL" --threads "$SERVER_THREADS"); fi
             if bench_enabled "nginx" && [ "$have_nginx" -eq 1 ]; then nginx_ka_result=$(run_keepalive_probe_safe "nginx" "$NGINX_EXEC" "$PORT" "$URL" -p "$NGINX_BENCH_DIR" -c nginx.conf -g "daemon off;"); fi

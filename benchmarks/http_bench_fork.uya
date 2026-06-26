@@ -123,9 +123,11 @@ fn stream_available(s: &BufferStream) usize {
 const SIGPIPE: i32 = 13;
 const SIGCHLD: i32 = 17;
 const SIG_IGN: usize = 1;
+const BENCH_HELLO_BODY_LEN: usize = 5;
+const BENCH_JSON_BODY_LEN: usize = 11;
 
-var g_hello_body: [byte: 6] = [];
-var g_json_body: [byte: 12] = [];
+var g_hello_body: [byte: BENCH_HELLO_BODY_LEN] = [];
+var g_json_body: [byte: BENCH_JSON_BODY_LEN] = [];
 var g_http200: [byte: 18] = [];
 var g_http200ka: [byte: 18] = [];
 var g_content_len: [byte: 17] = [];
@@ -432,14 +434,21 @@ fn handle_client(cfd: i32) void {
 
         // 7. 确定响应内容
         var body_ptr: &byte = &g_hello_body[0] as &byte;
-        var body_len: usize = 5;
+        var body_len: usize = BENCH_HELLO_BODY_LEN;
 
         if plen == 1 && data[4] == '/' as byte {
-            body_ptr = &g_hello_body[0] as &byte; body_len = 5;
+            body_ptr = &g_hello_body[0] as &byte; body_len = BENCH_HELLO_BODY_LEN;
+        } else if plen == 10 && data[4] == '/' as byte &&
+                  data[5] == 'p' as byte && data[6] == 'l' as byte &&
+                  data[7] == 'a' as byte && data[8] == 'i' as byte &&
+                  data[9] == 'n' as byte && data[10] == 't' as byte &&
+                  data[11] == 'e' as byte && data[12] == 'x' as byte &&
+                  data[13] == 't' as byte {
+            body_ptr = &g_hello_body[0] as &byte; body_len = BENCH_HELLO_BODY_LEN;
         } else if plen == 5 && data[4] == '/' as byte &&
                   data[5] == 'j' as byte && data[6] == 's' as byte &&
                   data[7] == 'o' as byte && data[8] == 'n' as byte {
-            body_ptr = &g_json_body[0] as &byte; body_len = 11;
+            body_ptr = &g_json_body[0] as &byte; body_len = BENCH_JSON_BODY_LEN;
         } else if plen > 6 && data[4] == '/' as byte &&
                   data[5] == 'i' as byte && data[6] == 't' as byte &&
                   data[7] == 'e' as byte && data[8] == 'm' as byte &&

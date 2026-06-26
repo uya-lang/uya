@@ -2,6 +2,7 @@
 //
 // 路由与体大小（与 Go/Uya 版一致）：
 //   GET /              → "hello"（5 字节）
+//   GET /plaintext     → "hello"（5 字节，主 benchmark 入口）
 //   GET /json          → {"ok":true}（11 字节）
 //   GET /item/:id      → 体为路径参数 id（单段）
 //   GET /payload1k     → 1024 字节 'a'
@@ -16,7 +17,7 @@
 //   ./http_bench_c
 //   ./http_bench_c -t 8  # 指定 8 线程
 // 压测：
-//   wrk -t4 -c64 -d10s http://127.0.0.1:8876/
+//   wrk -t4 -c64 -d10s http://127.0.0.1:8876/plaintext
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,6 +106,7 @@ static int parse_path(const char* path) {
     if (strcmp(path, "/payload1k") == 0) return 3;
     if (strcmp(path, "/payload10k") == 0) return 4;
     if (strcmp(path, "/payload100k") == 0) return 5;
+    if (strcmp(path, "/plaintext") == 0) return 6;
     return -1;
 }
 
@@ -140,6 +142,9 @@ static void handle_request(int fd, const char* method, const char* path) {
             break;
         case 5:
             make_response(fd, 200, payload_100k, 102400);
+            break;
+        case 6:
+            make_response(fd, 200, "hello", 5);
             break;
         default:
             make_error_response(fd, 404);
@@ -286,7 +291,7 @@ static void run_server(void) {
         g_workers[i].shutdown = 0;
     }
 
-    fprintf(stderr, "listening on http://127.0.0.1:%d/ (threads=%d)\n", PORT, g_threads);
+    fprintf(stderr, "benchmark target http://127.0.0.1:%d/plaintext (threads=%d)\n", PORT, g_threads);
 
     // 启动 worker 线程
     for (int i = 0; i < g_threads; i++) {

@@ -55,23 +55,35 @@ for _ in $(seq 1 100); do
 done
 
 plain_body="$BUILD_DIR/uyagin_bench_plain.txt"
+plain_headers="$BUILD_DIR/uyagin_bench_plain_headers.txt"
 json_body="$BUILD_DIR/uyagin_bench_json.txt"
+json_headers="$BUILD_DIR/uyagin_bench_json_headers.txt"
 param_body="$BUILD_DIR/uyagin_bench_param.txt"
+param_headers="$BUILD_DIR/uyagin_bench_param_headers.txt"
 mw_body="$BUILD_DIR/uyagin_bench_mw.txt"
 mw_headers="$BUILD_DIR/uyagin_bench_mw_headers.txt"
 blob_headers="$BUILD_DIR/uyagin_bench_blob_headers.txt"
 blob_body="$BUILD_DIR/uyagin_bench_blob.bin"
 metrics_body="$BUILD_DIR/uyagin_bench_metrics.json"
 
-curl -sS --max-time 3 "$BASE_URL/plaintext" -o "$plain_body"
-curl -sS --max-time 3 "$BASE_URL/json" -o "$json_body"
-curl -sS --max-time 3 "$BASE_URL/users/42" -o "$param_body"
+curl -sS --max-time 3 -D "$plain_headers" "$BASE_URL/plaintext" -o "$plain_body"
+curl -sS --max-time 3 -D "$json_headers" "$BASE_URL/json" -o "$json_body"
+curl -sS --max-time 3 -D "$param_headers" "$BASE_URL/users/42" -o "$param_body"
 curl -sS --max-time 3 -H 'Authorization: Bearer bench' -D "$mw_headers" "$BASE_URL/middleware/ping" -o "$mw_body"
 curl -sS --max-time 3 -D "$blob_headers" "$BASE_URL/blob64k" -o "$blob_body"
 curl -sS --max-time 3 "$BASE_URL/__uyagin/metrics" -o "$metrics_body"
 
 if ! grep -q '^hello$' "$plain_body"; then
     echo "✗ /plaintext body 不匹配"
+    exit 1
+fi
+plain_len="$(wc -c <"$plain_body" | tr -d ' ')"
+if [ "$plain_len" != "5" ]; then
+    echo "✗ /plaintext body 长度不是 5B，而是 $plain_len"
+    exit 1
+fi
+if ! tr -d '\r' < "$plain_headers" | grep -q '^Content-Length: 5$'; then
+    echo "✗ /plaintext Content-Length 不匹配"
     exit 1
 fi
 
@@ -100,9 +112,22 @@ if [ "$json_len" != "100" ]; then
     echo "✗ /json body 长度不是 100B，而是 $json_len"
     exit 1
 fi
+if ! tr -d '\r' < "$json_headers" | grep -q '^Content-Length: 100$'; then
+    echo "✗ /json Content-Length 不匹配"
+    exit 1
+fi
 
 if ! grep -q '^42$' "$param_body"; then
     echo "✗ /users/42 body 不匹配"
+    exit 1
+fi
+param_len="$(wc -c <"$param_body" | tr -d ' ')"
+if [ "$param_len" != "2" ]; then
+    echo "✗ /users/42 body 长度不是 2B，而是 $param_len"
+    exit 1
+fi
+if ! tr -d '\r' < "$param_headers" | grep -q '^Content-Length: 2$'; then
+    echo "✗ /users/42 Content-Length 不匹配"
     exit 1
 fi
 
@@ -112,6 +137,15 @@ if ! grep -q 'HTTP/1.1 200 OK' "$mw_headers"; then
 fi
 if ! grep -q '^authorized$' "$mw_body"; then
     echo "✗ /middleware/ping 授权请求 body 不匹配"
+    exit 1
+fi
+mw_len="$(wc -c <"$mw_body" | tr -d ' ')"
+if [ "$mw_len" != "10" ]; then
+    echo "✗ /middleware/ping body 长度不是 10B，而是 $mw_len"
+    exit 1
+fi
+if ! tr -d '\r' < "$mw_headers" | grep -q '^Content-Length: 10$'; then
+    echo "✗ /middleware/ping Content-Length 不匹配"
     exit 1
 fi
 

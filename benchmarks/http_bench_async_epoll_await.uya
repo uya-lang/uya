@@ -34,9 +34,11 @@ const BENCH_THREAD_COUNT: i32 = 28;
 const BENCH_MAX_THREADS: i32 = 64;
 const BENCH_CONTEXT_STACK_BYTES: usize = 512 * 1024;
 const BENCH_ASYNC_FRAME_POOL_BYTES: usize = 1024 * 1024;
+const BENCH_HELLO_BODY_LEN: usize = 5;
+const BENCH_JSON_BODY_LEN: usize = 11;
 
-const g_hello_body: [byte: 6] = "hello";
-const g_json_body: [byte: 12] = "{\"ok\":true}";
+const g_hello_body: [byte: BENCH_HELLO_BODY_LEN] = [104, 101, 108, 108, 111];
+const g_json_body: [byte: BENCH_JSON_BODY_LEN] = [123, 34, 111, 107, 34, 58, 116, 114, 117, 101, 125];
 
 const BENCH_ASYNC_ERR_EAGAIN: u32 = 11;
 const BENCH_ASYNC_ERR_EWOULDBLOCK: u32 = 11;
@@ -246,12 +248,12 @@ struct BenchContext {
         } else {
             slot_ref.cli_wants_close = 0;
         }
-        var body_len: usize = 5;
+        var body_len: usize = BENCH_HELLO_BODY_LEN;
         var body_kind: i32 = 0;
         if path_is_json(self.bench_slot_buf_base(slot), ps, pl) {
-            body_len = 11;
+            body_len = BENCH_JSON_BODY_LEN;
             body_kind = 1;
-        } else if !path_is_slash(self.bench_slot_buf_base(slot), ps, pl) {
+        } else if !path_is_slash(self.bench_slot_buf_base(slot), ps, pl) && !path_is_plaintext(self.bench_slot_buf_base(slot), ps, pl) {
             return false;
         }
         var hl_out: usize = 0;
@@ -935,6 +937,17 @@ fn path_is_slash(buf: &byte, path_start: usize, path_len: usize) bool {
     return path_len == 1 && buf[path_start] == '/' as byte;
 }
 
+fn path_is_plaintext(buf: &byte, path_start: usize, path_len: usize) bool {
+    if path_len != 10 {
+        return false;
+    }
+    const p: &byte = @ptr_from_usize(@usize_from_ptr(buf as &void) + path_start) as &byte;
+    return p[0] == '/' as byte && p[1] == 'p' as byte && p[2] == 'l' as byte &&
+        p[3] == 'a' as byte && p[4] == 'i' as byte && p[5] == 'n' as byte &&
+        p[6] == 't' as byte && p[7] == 'e' as byte && p[8] == 'x' as byte &&
+        p[9] == 't' as byte;
+}
+
 fn path_is_json(buf: &byte, path_start: usize, path_len: usize) bool {
     if path_len != 5 {
         return false;
@@ -1023,7 +1036,7 @@ export fn main() i32 {
     _ = signal(SIGPIPE, SIG_IGN as &void);
 
     var n_threads: i32 = argv_thread_count();
-    g_bench_slot_cap = n_threads;
+    g_bench_slot_cap = BENCH_MAX_THREADS;
     var threads: [pthread_t: BENCH_MAX_THREADS as usize] = [];
     var thread_ids: [i32: BENCH_MAX_THREADS as usize] = [];
     var i: i32 = 1;
