@@ -55,7 +55,7 @@ C_EXEC="/tmp/http_bench_c"
 C_ASYNC_EPOLL_EXEC="/tmp/http_bench_c_async_epoll"
 TOKIO_DIR="${SCRIPT_DIR}/http_bench_tokio"
 TOKIO_EXEC="/tmp/http_bench_tokio"
-# async epoll 系列默认沿用已验证可启动的宿主编译旗标
+# async epoll 系列在 hosted 模式下沿用已验证可启动的宿主编译旗标
 ASYNC_BENCH_CFLAGS="-std=c99 -O3 -g -fno-builtin -fno-inline-small-functions -I${REPO_ROOT}"
 
 # 表格列宽（第一列由 main 按 benchmark 名称自动计算）
@@ -79,9 +79,21 @@ WRK_THREADS="${WRK_THREADS:-$DEFAULT_BENCH_THREADS}"
 WRK_CONNECTIONS="${WRK_CONNECTIONS:-64}"
 WRK_DURATION="${WRK_DURATION:-10s}"
 SERVER_THREADS="${SERVER_THREADS:-$DEFAULT_BENCH_THREADS}"
-# hosted 模式下，Uya async benchmark 的 raw-clone pthread 路径在 threads>=2 时会 abort；
-# 单线程路径稳定，因此默认单独钳到 1。若要实验多线程，可显式覆盖此环境变量。
-UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-1}"
+ASYNC_BENCH_MODE="${UYA_ASYNC_BENCH_MODE:-auto}"
+if [ "$ASYNC_BENCH_MODE" = "auto" ]; then
+    case "$(uname -s 2>/dev/null || echo unknown):$(uname -m 2>/dev/null || echo unknown)" in
+        Linux:x86_64|Linux:amd64)
+            ASYNC_BENCH_MODE="nostdlib"
+            ;;
+        *)
+            ASYNC_BENCH_MODE="hosted"
+            ;;
+    esac
+fi
+
+# async 基准默认固定用 CPU/2 线程，保证不同实现的排名可直接对比；
+# 需要特殊实验时仍可显式覆盖 UYA_ASYNC_SERVER_THREADS。
+UYA_ASYNC_SERVER_THREADS="${UYA_ASYNC_SERVER_THREADS:-$DEFAULT_BENCH_THREADS}"
 AB_KEEPALIVE_REQUESTS="${AB_KEEPALIVE_REQUESTS:-20000}"
 AB_KEEPALIVE_CONCURRENCY="${AB_KEEPALIVE_CONCURRENCY:-100}"
 
@@ -462,6 +474,45 @@ build_uya_c99_variant() {
     log_info "${label} 版本编译完成: $exec"
 }
 
+build_uya_async_variant() {
+    local label="$1"
+    local src="$2"
+    local entry="$3"
+    local exec="$4"
+    local cfile="$5"
+    local stem
+    local split_root=""
+    local split_dir=""
+    stem="$(basename "$cfile" .c)"
+
+    if [ "$ASYNC_BENCH_MODE" = "nostdlib" ]; then
+        log_info "编译 ${label} HTTP 服务器（nostdlib）..."
+        if [ ! -f "$UYA_BIN" ]; then
+            log_err "找不到 Uya 编译器: $UYA_BIN"
+            exit 1
+        fi
+        if [ ! -f "$src" ]; then
+            log_err "找不到 ${label} 源文件: $src"
+            exit 1
+        fi
+        # 多文件 C mirror Makefile 会把标准库镜像产物写到 split_dir 的上一级 ../lib；
+        # 这里把 split 根整体放到 /tmp，避免在 benchmarks/ 下生成 lib/libc、lib/std 中间物。
+        split_root="/tmp/uya-bench-${stem}"
+        split_dir="${split_root}/cache"
+        rm -rf "$split_root"
+        mkdir -p "$split_dir"
+        if ! "$UYA_BIN" --c99 --nostdlib -O2 "$entry" --split-c-dir "$split_dir" -o "$exec" >/tmp/"${stem}"_build.log 2>&1; then
+            log_err "${label} nostdlib 编译失败，日志:"
+            cat "/tmp/${stem}_build.log" >&2
+            exit 1
+        fi
+        log_info "${label} nostdlib 版本编译完成: $exec"
+        return 0
+    fi
+
+    build_uya_c99_variant "$label" "$src" "$entry" "$exec" "$cfile" "$ASYNC_BENCH_CFLAGS"
+}
+
 # 编译 Uya HTTP 基础版本
 build_uya_http() {
     build_uya_c99_variant "Uya HTTP" "$UYA_HTTP_SRC" "$UYA_HTTP_ENTRY" "$UYA_HTTP_EXEC" /tmp/http_bench_uya.c
@@ -469,22 +520,22 @@ build_uya_http() {
 
 # 编译 Uya async epoll 版本
 build_uya_async_epoll() {
-    build_uya_c99_variant "Uya async epoll" "$UYA_ASYNC_EPOLL_SRC" "$UYA_ASYNC_EPOLL_ENTRY" "$UYA_ASYNC_EPOLL_EXEC" /tmp/http_bench_async_epoll.c "$ASYNC_BENCH_CFLAGS"
+    build_uya_async_variant "Uya async epoll" "$UYA_ASYNC_EPOLL_SRC" "$UYA_ASYNC_EPOLL_ENTRY" "$UYA_ASYNC_EPOLL_EXEC" /tmp/http_bench_async_epoll.c
 }
 
 # 编译 Uya async await 版本
 build_uya_async_await() {
-    build_uya_c99_variant "Uya async await" "$UYA_ASYNC_AWAIT_SRC" "$UYA_ASYNC_AWAIT_ENTRY" "$UYA_ASYNC_AWAIT_EXEC" /tmp/http_bench_async_epoll_await.c "$ASYNC_BENCH_CFLAGS"
+    build_uya_async_variant "Uya async await" "$UYA_ASYNC_AWAIT_SRC" "$UYA_ASYNC_AWAIT_ENTRY" "$UYA_ASYNC_AWAIT_EXEC" /tmp/http_bench_async_epoll_await.c
 }
 
 # 编译 Uya async await simple 版本
 build_uya_async_await_simple() {
-    build_uya_c99_variant "Uya async await simple" "$UYA_ASYNC_AWAIT_SIMPLE_SRC" "$UYA_ASYNC_AWAIT_SIMPLE_ENTRY" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" /tmp/http_bench_async_epoll_await_simple.c "$ASYNC_BENCH_CFLAGS"
+    build_uya_async_variant "Uya async await simple" "$UYA_ASYNC_AWAIT_SIMPLE_SRC" "$UYA_ASYNC_AWAIT_SIMPLE_ENTRY" "$UYA_ASYNC_AWAIT_SIMPLE_EXEC" /tmp/http_bench_async_epoll_await_simple.c
 }
 
 # 编译 Uya async await stack 版本
 build_uya_async_await_stack() {
-    build_uya_c99_variant "Uya async await stack" "$UYA_ASYNC_AWAIT_STACK_SRC" "$UYA_ASYNC_AWAIT_STACK_ENTRY" "$UYA_ASYNC_AWAIT_STACK_EXEC" /tmp/http_bench_async_epoll_await_stack.c "$ASYNC_BENCH_CFLAGS"
+    build_uya_async_variant "Uya async await stack" "$UYA_ASYNC_AWAIT_STACK_SRC" "$UYA_ASYNC_AWAIT_STACK_ENTRY" "$UYA_ASYNC_AWAIT_STACK_EXEC" /tmp/http_bench_async_epoll_await_stack.c
 }
 
 # 编译 Go 版本
@@ -908,7 +959,11 @@ main() {
     done
     if [ "$any_enabled" -eq 1 ]; then
         if bench_enabled "uya-async-epoll" || bench_enabled "uya-async-await" || bench_enabled "uya-async-await-simple" || bench_enabled "uya-async-await-stack"; then
-            log_warn "Uya async hosted benchmarks 默认使用 --threads ${UYA_ASYNC_SERVER_THREADS}；多线程 raw-clone pthread 路径当前不稳定，需显式设 UYA_ASYNC_SERVER_THREADS 覆盖"
+            if [ "$ASYNC_BENCH_MODE" = "nostdlib" ]; then
+                log_info "Uya async benchmarks 默认使用 nostdlib + --threads ${UYA_ASYNC_SERVER_THREADS}"
+            else
+                log_warn "Uya async hosted benchmarks 默认使用 --threads ${UYA_ASYNC_SERVER_THREADS}；多线程 raw-clone pthread 路径当前不稳定，需显式设 UYA_ASYNC_SERVER_THREADS 覆盖"
+            fi
         fi
         log_info "预热..."
         echo "" | wrk -t1 -c1 -d2s "$URL" >/dev/null 2>&1 || true

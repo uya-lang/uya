@@ -52,3 +52,4 @@ src/.uyacache-native-refresh/
 .mcp.json
 .deepcode/settings.json
 .deepcode/notify-loop-signal.sh
+benchmarks/lib/
