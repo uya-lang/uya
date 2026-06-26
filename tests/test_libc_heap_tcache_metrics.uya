@@ -6,6 +6,7 @@ use libc.heap_debug_lock_acquire_count;
 use libc.heap_debug_lock_contention_count;
 use libc.heap_debug_tcache_alloc_hit_count;
 use libc.heap_debug_tcache_alloc_miss_count;
+use libc.heap_debug_set_tcache_metrics_enabled;
 
 fn alloc_checked(size: usize) !&void {
     const ptr: &void = malloc(size);
@@ -14,6 +15,8 @@ fn alloc_checked(size: usize) !&void {
 }
 
 test "heap_tcache_metrics_track_hits_misses_and_lock_contention" {
+    heap_debug_set_tcache_metrics_enabled(1);
+
     const guard_left: &void = try alloc_checked(32usize);
     const target: &void = try alloc_checked(96usize);
     const guard_right: &void = try alloc_checked(32usize);

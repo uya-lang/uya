@@ -1,0 +1,118 @@
+use std.runtime.entry;
+use libc.pthread;
+use libc.malloc;
+use libc.free;
+
+const CASE_COUNT: usize = 4usize;
+const THREAD_COUNTS: [i32: CASE_COUNT] = [1, 2, 4, 8];
+const MAX_THREADS: usize = 8usize;
+const CHECK_ROUNDS: usize = 128usize;
+
+var g_cache_identity_start: atomic i32 = 0;
+
+struct CacheIdentityState {
+    thread_index: usize,
+    status: i32,
+    first_cache_addr: usize,
+    last_cache_addr: usize,
+}
+
+fn cache_identity_worker(arg: &void) &void {
+    var state: &CacheIdentityState = arg as &CacheIdentityState;
+    while g_cache_identity_start == 0 {
+    }
+
+    var round: usize = 0usize;
+    while round < CHECK_ROUNDS {
+        const cache: &pthread_heap_cache_t = pthread_current_heap_cache();
+        if cache == null as &pthread_heap_cache_t {
+            state.status = 1;
+            return null;
+        }
+        const cache_addr: usize = cache as usize;
+        if round == 0usize {
+            state.first_cache_addr = cache_addr;
+        } else if cache_addr != state.first_cache_addr {
+            state.status = 2;
+            state.last_cache_addr = cache_addr;
+            return null;
+        }
+
+        const ptr: &void = malloc(64usize);
+        if ptr == null {
+            state.status = 3;
+            state.last_cache_addr = cache_addr;
+            return null;
+        }
+        free(ptr);
+        state.last_cache_addr = cache_addr;
+        round = round + 1usize;
+    }
+
+    state.status = 0;
+    return null;
+}
+
+fn run_case(thread_count: i32) i32 {
+    if thread_count <= 0 || (thread_count as usize) > MAX_THREADS {
+        return 10;
+    }
+
+    g_cache_identity_start = 0;
+
+    var threads: [pthread_t: MAX_THREADS] = [];
+    var states: [CacheIdentityState: MAX_THREADS] = [];
+    var created: usize = 0usize;
+    while created < (thread_count as usize) {
+        states[created] = CacheIdentityState{
+            thread_index: created,
+            status: 99,
+            first_cache_addr: 0usize,
+            last_cache_addr: 0usize,
+        };
+        if pthread_create(&threads[created], null as &const pthread_attr_t, &cache_identity_worker as &void, (&states[created]) as &void) != 0 {
+            g_cache_identity_start = 1;
+            return 11;
+        }
+        created = created + 1usize;
+    }
+
+    g_cache_identity_start = 1;
+
+    var joined: usize = 0usize;
+    while joined < created {
+        if pthread_join(&threads[joined], null as & &void) != 0 {
+            return 20 + (joined as i32);
+        }
+        if states[joined].status != 0 {
+            return 40 + states[joined].status;
+        }
+        joined = joined + 1usize;
+    }
+
+    var i: usize = 0usize;
+    while i < created {
+        var j: usize = i + 1usize;
+        while j < created {
+            if states[i].first_cache_addr == states[j].first_cache_addr {
+                return 80 + (i as i32) + (j as i32);
+            }
+            j = j + 1usize;
+        }
+        i = i + 1usize;
+    }
+
+    return 0;
+}
+
+export fn main() i32 {
+    var i: usize = 0usize;
+    while i < CASE_COUNT {
+        const rc: i32 = run_case(THREAD_COUNTS[i]);
+        if rc != 0 {
+            return 100 + rc;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
