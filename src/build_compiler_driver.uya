@@ -30676,11 +30676,8 @@ fn native_build_hosted_mir_append_extern_signature_resolved_type(
     }
     if typ.kind == TypeKind.TYPE_POINTER {
         var pointee_type_id: i32 = MIR_TYPE_INVALID_ID;
-        if typ.pointer_to != null &&
-           native_build_hosted_mir_append_extern_signature_resolved_type(module,
-                typ.pointer_to, &pointee_type_id) == 0 {
-        } else if native_build_hosted_mir_ensure_signature_type(module,
-                &pointee_type_id) != 0 {
+        if native_build_hosted_mir_ensure_signature_type(module,
+            &pointee_type_id) != 0 {
             return -1;
         }
         return native_build_hosted_mir_ensure_pointer_type(module,
@@ -31044,11 +31041,8 @@ fn native_build_hosted_mir_append_extern_signature_ast_type(
     }
     if type_node.type == ASTNodeType.AST_TYPE_POINTER {
         var pointee_type_id: i32 = MIR_TYPE_INVALID_ID;
-        if type_node.type_pointer_pointed_type != null &&
-           native_build_hosted_mir_append_extern_signature_ast_type(module,
-                type_node.type_pointer_pointed_type, &pointee_type_id) == 0 {
-        } else if native_build_hosted_mir_ensure_signature_type(module,
-                &pointee_type_id) != 0 {
+        if native_build_hosted_mir_ensure_signature_type(module,
+            &pointee_type_id) != 0 {
             return -1;
         }
         return native_build_hosted_mir_ensure_pointer_type(module,

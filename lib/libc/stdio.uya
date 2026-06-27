@@ -411,11 +411,17 @@ export extern "libc" fn print_i64(value: i64) usize {
 // 全局 FILE 存储（用于 fopen/fclose，split mirror 自举时会并发打开大量输出文件）
 var fopen_fd_storage: [FILE: 128] = [];
 std.cfg(std.target_os == .tos_macos, {
+    const _FOPEN_R_FLAGS: i64 = 0x00000000;
+    const _FOPEN_RDWR_FLAGS: i64 = 0x00000002;
+    const _FOPEN_CREATE_MODE: i64 = 0x000001C0;
     const _FOPEN_W_FLAGS: i64 = 0x00000001 | 0x00000200 | 0x00000400;
     const _FOPEN_A_FLAGS: i64 = 0x00000001 | 0x00000200 | 0x00000008;
     const _FOPEN_W_PLUS_FLAGS: i64 = 0x00000002 | 0x00000200 | 0x00000400;
     const _FOPEN_A_PLUS_FLAGS: i64 = 0x00000002 | 0x00000200 | 0x00000008;
 }, {
+    const _FOPEN_R_FLAGS: i64 = 0x00000000;
+    const _FOPEN_RDWR_FLAGS: i64 = 0x00000002;
+    const _FOPEN_CREATE_MODE: i64 = 0x000001C0;
     const _FOPEN_W_FLAGS: i64 = 0x00000001 | 0x00000040 | 0x00000200;
     const _FOPEN_A_FLAGS: i64 = 0x00000001 | 0x00000040 | 0x00000400;
     const _FOPEN_W_PLUS_FLAGS: i64 = 0x00000002 | 0x00000040 | 0x00000200;
@@ -438,23 +444,23 @@ export extern "libc" fn fopen(filename: &const byte, mode: &const byte) &FILE {
     while i < mode_len {
         const c: byte = mode[i];
         if c == 114 {  // 'r'
-            flags = O_RDONLY;
+            flags = _FOPEN_R_FLAGS;
         } else if c == 119 {  // 'w'
             flags = _FOPEN_W_FLAGS;
-            create_mode = S_IRWXU;
+            create_mode = _FOPEN_CREATE_MODE;
         } else if c == 97 {  // 'a'
             flags = _FOPEN_A_FLAGS;
-            create_mode = S_IRWXU;
+            create_mode = _FOPEN_CREATE_MODE;
         } else if c == 43 {  // '+'
             // 读写模式
-            if flags == O_RDONLY {
-                flags = O_RDWR;
+            if flags == _FOPEN_R_FLAGS {
+                flags = _FOPEN_RDWR_FLAGS;
             } else if flags == _FOPEN_W_FLAGS {
                 flags = _FOPEN_W_PLUS_FLAGS;
             } else if flags == _FOPEN_A_FLAGS {
                 flags = _FOPEN_A_PLUS_FLAGS;
             } else {
-                flags = O_RDWR;
+                flags = _FOPEN_RDWR_FLAGS;
             }
         } else if c == 98 {  // 'b' (binary mode, ignored on Linux)
             // 忽略
