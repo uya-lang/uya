@@ -2299,3 +2299,19 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
     - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`：通过。
     - `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`：通过。
     - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`：通过。
+
+### 2026-06-27 - Full Language Parity / Statement CFG
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`: 补齐 CoreStmt/AST statement 到 MIR 的通用 CFG lowering。
+
+- [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-AST-ENTRY`: 接通 AST 层
+  `for` / `match` / `test` driver 入口到通用 statement CFG lowering。
+  - 完成说明（2026-06-27）：固定 `../uya/bin/uya` 已恢复到真实 MIR-C99 路由；
+    `tests/verify_mir_c99_ast_driver_shard_cli_harness.sh` 现在固定
+    `UYA_ROOT="$REPO_ROOT/lib/"`，确保 fixed compiler 使用当前仓库标准库。range-for
+    case 真实输出 MIR-C99 unit writer、经 host C99 compiler 编译运行并与 C99 oracle
+    对齐；match/test driver 当前保持 fail-closed，并分别输出
+    `match_expr_requires_expr_value_place` 与 `test_driver_not_lowered`。
+  - 验证：
+    - `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh`：通过，输出
+      `OK: MIR-C99 AST driver shard real CLI harness covered range-for parity and explicit match/test diagnostics`。
