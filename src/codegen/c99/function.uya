@@ -232,6 +232,17 @@ fn c99_name_is_hosted_stdio_stream(name: &byte) i32 {
     return 0;
 }
 
+fn c99_name_is_hosted_uya_stdio_formatter(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "fprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vfprintf" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn c99_name_is_hosted_raw_libc_symbol(name: &byte) i32 {
     if c99_name_is_hosted_raw_alloc_symbol(name) != 0 ||
         c99_name_is_hosted_raw_io_symbol(name) != 0 ||
@@ -451,6 +462,15 @@ fn should_use_raw_libc_symbol_name(codegen: &C99CodeGenerator, fn_decl: &ASTNode
     }
     const name: &byte = fn_decl.fn_decl_name;
 
+    // hosted 下 C 后端输出文件使用 Uya FILE（std.io/libc.FILE 同布局）。
+    // fprintf/vfprintf 若映射到系统 libc，会把 Uya FILE* 误传给 glibc FILE*。
+    if codegen != null && codegen.is_nostdlib == 0 &&
+        fn_decl.filename != null &&
+        c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) != 0 &&
+        c99_name_is_hosted_uya_stdio_formatter(name) != 0 {
+        return 0;
+    }
+
     // hosted 模式下，只有真实系统 libc ABI 的带体 extern 才在跳过实现后走裸符号；
     // heap.uya 的调试/线程缓存辅助函数不是系统 ABI，不能映射成裸名。
     if c99_should_skip_hosted_libc_function_body(codegen, fn_decl) != 0 &&
@@ -517,6 +537,12 @@ fn c99_should_skip_hosted_libc_function_body(codegen: &C99CodeGenerator, fn_decl
     // hosted 模式使用系统 malloc/free/realloc/calloc；heap.uya 是 --nostdlib 专用堆实现。
     if c99_filename_is_libc_file(fn_decl.filename, "heap.uya" as &byte) != 0 {
         return 1;
+    }
+    if c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) != 0 {
+        if c99_name_is_hosted_uya_stdio_formatter(name) != 0 ||
+            strcmp(name as *byte, "_vfprintf_impl" as *byte) == 0 {
+            return 0;
+        }
     }
     // 只有真实系统 libc/POSIX ABI 裸名才在 hosted 模式交给系统库；sys_* 等 Uya 包装必须保留。
     if fn_decl.fn_decl_extern_lib_name != null && c99_name_is_hosted_raw_libc_symbol(name) != 0 {

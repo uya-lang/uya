@@ -1089,14 +1089,14 @@ backup-hosted-seed-native:
 # 若检测到 zig，则默认交叉刷新 macOS hosted seeds 作为辅助参考；本地提速可设 UYA_BACKUP_MACOS_AUX=0 跳过该可选步骤
 backup-hosted-seed:
 	@echo "单文件 C 编译（UYA_SINGLE_FILE_C=1）以更新 backup/uya-hosted.c 与 host/arch 专用备份 …"
-	@bash -c 'set -e; REPO_ROOT="$$(pwd)"; UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya-hosted"; if [ ! -x "$$UYA_COMPILER_PATH" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya"; fi; ulimit -s 32768 && cd src && UYA_SINGLE_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_MULTI_FILE_C= UYA_SPLIT_C_MIRROR= UYA_COMPILER="$$UYA_COMPILER_PATH" CC="$(CC)" CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_TRIPLE="$(TARGET_TRIPLE)" TOOLCHAIN="$(TOOLCHAIN)" ZIG="$(ZIG)" RUNTIME_MODE=hosted LINK_MODE="$(LINK_MODE)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ./compile.sh --c99 -e --name uya-hosted --safety-proof'
+	@bash -c 'set -e; REPO_ROOT="$$(pwd)"; UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya"; if [ ! -x "$$UYA_COMPILER_PATH" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya-hosted"; fi; ulimit -s 32768 && cd src && UYA_SINGLE_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_MULTI_FILE_C= UYA_SPLIT_C_MIRROR= UYA_COMPILER="$$UYA_COMPILER_PATH" CC="$(CC)" CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_TRIPLE="$(TARGET_TRIPLE)" TOOLCHAIN="$(TOOLCHAIN)" ZIG="$(ZIG)" RUNTIME_MODE=hosted LINK_MODE="$(LINK_MODE)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" ./compile.sh --c99 -e --name uya-hosted --safety-proof'
 	@mkdir -p backup
 	@cp src/build/uya-hosted.c backup/uya-hosted.c
 	@cp src/build/uya-hosted.c backup/uya-hosted-$(HOST_OS)-$(HOST_ARCH).c
 	@bash -c 'set -e; \
 		REPO_ROOT="$$(pwd)"; \
-		UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya-hosted"; \
-		if [ ! -x "$$UYA_COMPILER_PATH" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya"; fi; \
+			UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya"; \
+			if [ ! -x "$$UYA_COMPILER_PATH" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya-hosted"; fi; \
 		UPDATED_UNIFIED=0; \
 		case "$${UYA_BACKUP_MACOS_AUX:-auto}" in \
 			0|false|FALSE|no|NO|off|OFF) REFRESH_MACOS_AUX=0 ;; \

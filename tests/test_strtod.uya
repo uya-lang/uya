@@ -6,6 +6,11 @@ use libc.strtod;
 use libc.fabs;
 use libc.isinf;
 
+fn test_f64_bits(value: f64) u64 {
+    var temp: f64 = value;
+    return *((&temp as *const f64) as *const u64);
+}
+
 // ============================================================
 // strtod 测试
 // ============================================================
@@ -57,4 +62,9 @@ test "strtod_very_small_exponent" {
     // 10^-400 应该产生 0
     const result: f64 = strtod("1.0e-400", null);
     try expect(result == 0.0);
+}
+
+test "strtod_dbl_max_bits" {
+    const result: f64 = strtod("1.7976931348623157e308", null);
+    try expect(test_f64_bits(result) == 0x7fefffffffffffffu64);
 }

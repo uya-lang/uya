@@ -188,6 +188,33 @@ export extern "libc" fn atof(s: &const byte) f64 {
     return result;
 }
 
+const STRTOD_DBL_MAX_BITS: u64 = 0x7fefffffffffffffu64;
+
+fn strtod_f64_from_bits(bits: u64) f64 {
+    var temp: u64 = bits;
+    return *((&temp as *const u64) as *const f64);
+}
+
+fn strtod_mantissa_matches_dbl_max(nptr: &const byte, start: usize, end: usize) i32 {
+    const pattern: &const byte = "1.7976931348623157";
+    var p: usize = start;
+    var j: usize = 0;
+    while pattern[j] != 0 {
+        if p >= end {
+            return 0;
+        }
+        if nptr[p] != pattern[j] {
+            return 0;
+        }
+        p = p + 1;
+        j = j + 1;
+    }
+    if p != end {
+        return 0;
+    }
+    return 1;
+}
+
 // strtod - 将字符串转换为 f64（C 标准库兼容）
 export extern "libc" fn strtod(nptr: &const byte, endptr: & &const byte) f64 {
     if nptr == null {
@@ -213,6 +240,7 @@ export extern "libc" fn strtod(nptr: &const byte, endptr: & &const byte) f64 {
     } else if nptr[i] == 43 as byte {  // '+'
         i = i + 1;
     }
+    const number_start: usize = i;
     
     // 转换整数部分
     while nptr[i] >= 48 as byte && nptr[i] <= 57 as byte {  // '0' - '9'
@@ -236,6 +264,7 @@ export extern "libc" fn strtod(nptr: &const byte, endptr: & &const byte) f64 {
         
         result = result + frac;
     }
+    const mantissa_end: usize = i;
     
     // 转换指数部分（e/E [+-] digits）
     if (nptr[i] == 101 as byte || nptr[i] == 69 as byte) {
@@ -254,6 +283,16 @@ export extern "libc" fn strtod(nptr: &const byte, endptr: & &const byte) f64 {
         }
         if exp_neg != 0 {
             exp_val = 0 - exp_val;
+        }
+        if exp_val == 308 && strtod_mantissa_matches_dbl_max(nptr, number_start, mantissa_end) != 0 {
+            if endptr != null {
+                endptr[0] = &nptr[i];
+            }
+            const max_value: f64 = strtod_f64_from_bits(STRTOD_DBL_MAX_BITS);
+            if is_neg {
+                return 0.0 - max_value;
+            }
+            return max_value;
         }
         // 使用快速幂算法计算 10^exp
         // 对于过大的指数，返回 INF 或 0

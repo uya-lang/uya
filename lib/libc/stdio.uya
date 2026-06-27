@@ -563,11 +563,15 @@ export extern "libc" fn fgetc(stream: &FILE) i32 {
 
 // _fmt_f64_to_buf - 将 f64 格式化为字符串追加到 buf，返回新的 buf_pos
 // 支持：普通数值、NaN、Infinity、科学计数法（大数/小数）
+// g_format: 非0 时按 %g/%G 的有效数字精度解释 precision
 // force_scientific: 非0 时强制科学计数法；scientific_uppercase: 非0 时指数用 'E'；uppercase_inf_nan: 非0 时输出 INF/NAN（C99 %F/%G）
-fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precision: i32, force_scientific: i32, scientific_uppercase: i32, uppercase_inf_nan: i32) usize {
+fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precision: i32, g_format: i32, force_scientific: i32, scientific_uppercase: i32, uppercase_inf_nan: i32) usize {
     var pos: usize = buf_pos;
     if pos >= buf_max { return pos; }
     var x: f64 = val;
+    var prec: i32 = precision;
+    if prec < 0 { prec = 6; }
+    if g_format != 0 && prec == 0 { prec = 1; }
     // 检查 NaN（C99 %F/%G 用 NAN）
     if x != x {
         if uppercase_inf_nan != 0 {
@@ -608,11 +612,15 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
     if x == 0.0 {
         buf[pos] = 48;
         pos = pos + 1;
-        if precision > 0 && pos < buf_max {
+        var zero_prec: i32 = prec;
+        if g_format != 0 && zero_prec > 0 {
+            zero_prec = zero_prec - 1;
+        }
+        if zero_prec > 0 && pos < buf_max {
             buf[pos] = 46;
             pos = pos + 1;
             var i: i32 = 0;
-            while i < precision && pos < buf_max {
+            while i < zero_prec && pos < buf_max {
                 buf[pos] = 48;
                 pos = pos + 1;
                 i = i + 1;
@@ -624,22 +632,40 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
     // 计算指数：科学计数法需要将数值归一化到 [1, 10)
     var exp: i32 = 0;
     var normalized: f64 = x;
-    while normalized >= 10.0 {
-        normalized = normalized / 10.0;
-        exp = exp + 1;
+    if normalized >= 1.0e308 {
+        normalized = normalized / 1.0e308;
+        exp = 308;
+    } else {
+        while normalized >= 10.0 {
+            normalized = normalized / 10.0;
+            exp = exp + 1;
+        }
     }
     while normalized < 1.0 && normalized > 0.0 {
         normalized = normalized * 10.0;
         exp = exp - 1;
     }
+    while normalized >= 10.0 {
+        normalized = normalized / 10.0;
+        exp = exp + 1;
+    }
 
     // 判断是否需要科学计数法：|exp| >= 6 或数值超出 i64 范围，或 %e/%E 强制
-    const use_scientific: bool = exp > 15 || exp < -4 || force_scientific != 0;
+    var use_scientific: bool = false;
+    if force_scientific != 0 {
+        use_scientific = true;
+    } else if g_format != 0 {
+        use_scientific = exp >= prec || exp < -4;
+    } else if exp > 15 || exp < -4 {
+        use_scientific = true;
+    }
 
     if use_scientific {
         // 科学计数法输出：m.nnnnnne±xx
-        var prec: i32 = precision;
-        if prec < 0 { prec = 6; }
+        var frac_prec: i32 = prec;
+        if g_format != 0 && frac_prec > 0 {
+            frac_prec = frac_prec - 1;
+        }
 
         // 输出整数部分
         const int_digit: i32 = normalized as i32;
@@ -647,12 +673,12 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
         pos = pos + 1;
 
         // 输出小数部分
-        if prec > 0 && pos < buf_max {
+        if frac_prec > 0 && pos < buf_max {
             buf[pos] = 46;
             pos = pos + 1;
             var frac: f64 = normalized - (int_digit as f64);
             var k: i32 = 0;
-            while k < prec && pos < buf_max {
+            while k < frac_prec && pos < buf_max {
                 frac = frac * 10.0;
                 const d: i32 = frac as i32;
                 buf[pos] = (48 + d) as byte;
@@ -721,13 +747,16 @@ fn _fmt_f64_to_buf(buf: &byte, buf_pos: usize, buf_max: usize, val: f64, precisi
             pos = pos + 1;
             i = i + 1;
         }
-        var prec: i32 = precision;
-        if prec < 0 { prec = 6; }
-        if prec > 0 && pos < buf_max {
+        var frac_prec: i32 = prec;
+        if g_format != 0 {
+            frac_prec = prec - (exp + 1);
+            if frac_prec < 0 { frac_prec = 0; }
+        }
+        if frac_prec > 0 && pos < buf_max {
             buf[pos] = 46;
             pos = pos + 1;
             i = 0;
-            while i < prec && pos < buf_max {
+            while i < frac_prec && pos < buf_max {
                 frac = frac * 10.0;
                 const d: i32 = frac as i32;
                 buf[pos] = (48 + d) as byte;
@@ -1583,7 +1612,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 0, 0);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %G - 浮点数（自动格式，指数大写 INF/NAN）（C99）
                 } else if spec == 71 {
@@ -1591,7 +1620,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 1);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 1, 1);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %e - 科学计数法小写
                 } else if spec == 101 {
@@ -1599,7 +1628,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 0, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 0, 0);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %E - 科学计数法大写
                 } else if spec == 69 {
@@ -1607,7 +1636,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 1, 1, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 1, 1, 0);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %f - 固定小数位浮点数
                 } else if spec == 102 {
@@ -1615,7 +1644,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0, 0);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %F - 固定小数位，INF/NAN 大写（C99）
                 } else if spec == 70 {
@@ -1623,7 +1652,7 @@ fn _vfprintf_impl(stream: &FILE, format: &const byte, ap: va_list, use_buf: i32,
                     var temp_buf: [byte: 256] = [];
                     var prec: i32 = precision;
                     if prec < 0 { prec = 6; }
-                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 1);
+                    const end_pos: usize = _fmt_f64_to_buf(&temp_buf[0], 0, 255, fval, prec, 0, 0, 0, 1);
                     _fmt_apply_padding(&ctx, &temp_buf[0], end_pos, width, flags & _FMT_MINUS, flags & _FMT_ZERO);
                 // %a - 十六进制浮点小写（C99）
                 } else if spec == 97 {

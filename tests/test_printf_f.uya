@@ -10,6 +10,8 @@ const EXPECTED_123: &const byte = "123.000000";
 const EXPECTED_NEG: &const byte = "-45.500000";
 const EXPECTED_SMALL: &const byte = "0.125000";
 const EXPECTED_ZERO: &const byte = "0.000000";
+const FMT_MAX_G: &const byte = "%#.17g";
+const EXPECTED_DBL_MAX_G: &const byte = "1.7976931348623157e+308";
 
 // ============================================================
 // %f 格式说明符测试
@@ -41,4 +43,11 @@ test "snprintf_f_zero" {
     const ret: i32 = snprintf(&buf[0], 64, FMT_F, 0.0);
     try assert_eq_i32(ret, 8);
     try assert_eq_i32(strcmp(&buf[0], EXPECTED_ZERO), 0);
+}
+
+test "snprintf_g_dbl_max" {
+    var buf: [byte: 64] = [];
+    const max: f64 = 1.7976931348623157e308;
+    _ = snprintf(&buf[0], 64, FMT_MAX_G, max);
+    try assert_eq_i32(strcmp(&buf[0], EXPECTED_DBL_MAX_G), 0);
 }
