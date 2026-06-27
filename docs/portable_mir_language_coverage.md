@@ -73,7 +73,7 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 ### 2.2 MIR-C99 full-language CoreBody/function 缺口清单
 
-真实 `src/main.uya --mir-c99` 基线：`extern_varargs_requires_c_variadic_capability`，由
+真实 `src/main.uya --mir-c99` 基线：`usize_from_ptr_requires_target_capability`，由
 baseline gate：`bash tests/verify_mir_c99_full_language_baseline_truth.sh` 固定；该 gate
 同时确认 HelloWorld 进入 `[MIR-C99]` unit writer、`tests/extern_function.uya` fail-closed 到
 `syscall_requires_target_capability`，并把 hosted native、fixture generator 和 legacy C99
@@ -120,7 +120,7 @@ shape。
 | `AST_STRUCT_DECL` | done | partial | MIR-C99 full-language struct parity shard 覆盖 struct literal、field access 和 method-style aggregate call；generic struct parity shard 覆盖 `Box<T>` 的 i32/f64 concrete instances；generic method parity shard 覆盖 `Box<T>` concrete method instances；interface dispatch parity shard 覆盖 `Counter : IAdd` concrete implementation；generic interface parity shard 覆盖 `IntScorer : Scorer<i32>` 与 `FloatScorer : Scorer<f64>` concrete implementations；interface composition/field/global init parity shard 覆盖带 interface 字段的 struct 和全局 aggregate initializer。 |
 | `AST_UNION_DECL` | done | partial | MIR-C99 full-language union parity shard 覆盖 tagged union layout、构造和 payload match 解包。 |
 | `AST_METHOD_BLOCK` | partial | partial | MIR-C99 full-language struct parity shard 覆盖 method-style aggregate call；generic method parity shard 覆盖 owner 泛型实参和方法泛型实参的 concrete method calls；interface dispatch parity shard 覆盖基础 vtable method lowering；generic interface parity shard 覆盖泛型 interface concrete vtable method lowering；interface composition/field/global init parity shard 覆盖组合接口的 read/write/flush vtable method lowering。 |
-| `AST_FN_DECL` | done | partial | 主路径；`export fn` / `fn` 已走 CoreBody。`bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh` 现要求真实 `--mir-c99` 对当前未覆盖的 extern 签名 fail-closed，输出 `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_signature_requires_i32_scalars`；更广 extern ABI 支持仍待后续 shard。 |
+| `AST_FN_DECL` | done | partial | 主路径；`export fn` / `fn` 已走 CoreBody。`bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh` 现要求真实 `--mir-c99` 不再让未 materialize 的 extern signature / varargs 声明抢占全程序 frontier；更广 extern ABI 支持仍待后续 shard。 |
 | `AST_MACRO_DECL` | partial | missing | `mc` 宏 lowered 到 CoreBody 仅 `MC_EVAL` 走通用路径；`MC_AST`/`MC_CODE`/`MC_TYPE` 仍走 pre-MIR helper。 |
 | `AST_TYPE_ALIAS` | done | missing | `type SmokeVec = @vector(i32, 4);` 在 full_language smoke 中通过。 |
 | `AST_VAR_DECL` | done | partial | MIR-C99 interface composition/field/global init parity shard 覆盖全局 `const` aggregate initializer 内的 interface value 初始化；atomic local var 当前由 atomic compound-add reject shard 明确 capability reject。 |

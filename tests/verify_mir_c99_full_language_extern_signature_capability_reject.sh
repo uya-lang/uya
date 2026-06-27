@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Focused real-CLI gate for the current post-extern-signature capability bucket.
+# Focused real-CLI gate for the post-extern-signature/varargs capability bucket.
 
 set -euo pipefail
 
@@ -51,9 +51,15 @@ if grep -Fq '错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序' "$lo
     exit 1
 fi
 
-grep -Eq 'mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_varargs_requires_c_variadic_capability file=.*/lib/libc/stdio\.uya line=882' "$log_file" || {
+if grep -Eq 'extern_signature_requires_i32_scalars|extern_varargs_requires_c_variadic_capability' "$log_file"; then
     cat "$log_file" >&2
-    echo "error: missing AST_FN_DECL varargs capability diagnostic" >&2
+    echo "error: test_https_google still stops at the old extern signature/varargs bucket" >&2
+    exit 1
+fi
+
+grep -Eq 'mir_c99_capability_diagnostic: kind=AST_CATCH_EXPR reason=catch_return_not_lowered file=(.*/)?tests/test_https_google\.uya line=13' "$log_file" || {
+    cat "$log_file" >&2
+    echo "error: missing AST_CATCH_EXPR catch-return capability diagnostic" >&2
     exit 1
 }
 
@@ -63,4 +69,4 @@ if [[ -e "$output_file" && -s "$output_file" ]]; then
     exit 1
 fi
 
-echo "OK: MIR-C99 real CLI now fails closed at the next explicit varargs capability bucket"
+echo "OK: MIR-C99 real CLI moved past extern signature/varargs to the catch-return capability bucket"

@@ -2421,3 +2421,30 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
   - 验证：
     - `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`：通过，输出
       `OK: MIR-C99 real CLI cases now move past the std.runtime.entry runtime-bridge boundary`。
+
+### 2026-06-28 - Full Language Parity / Main Language Varargs Bucket
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VARARGS-CAPABILITY-BASELINE`：
+  固化并前移 `extern_varargs_requires_c_variadic_capability` 顶层 bucket，避免未 materialize 的
+  libc variadic extern 声明再次抢占真实 MIR-C99 frontier。
+  - 完成说明（2026-06-28）：`native_build_hosted_mir_append_program_externs` 现在跳过当前
+    MIR-C99 无法写出的 extern signature；通用 capability 诊断也不再把这些未进入 MIR 的
+    extern body 当成全程序硬 blocker。真实 `@va_*` 节点仍保留
+    `*_requires_c_variadic_capability` fail-closed 诊断。
+  - 当前前沿：
+    - `src/main.uya --mir-c99` 已从
+      `AST_FN_DECL / extern_varargs_requires_c_variadic_capability` 前移到
+      `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`。
+    - `tests/test_https_google.uya --mir-c99` 已从 extern signature/varargs bucket 前移到
+      `AST_CATCH_EXPR / catch_return_not_lowered`。
+  - 验证：
+    - `./bin/uya check src/build_compiler_driver.uya --project-root src/`：通过。
+    - `make cmd-build-current`：通过，并同步 `bin/uya` / `bin/cmd/build` 到 fixed
+      `../uya/bin/` 验证入口。
+    - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过。
+    - `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`：通过。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：
+      退出码 `1`，输出
+      `mir_c99_capability_diagnostic: kind=AST_USIZE_FROM_PTR reason=usize_from_ptr_requires_target_capability`。

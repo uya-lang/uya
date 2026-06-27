@@ -31412,6 +31412,11 @@ fn native_build_hosted_mir_append_program_externs(module: &PortableMirModule,
                 i = i + 1;
                 continue;
             }
+            if native_build_find_mir_c99_extern_signature_reason(decl,
+                null) != 0 {
+                i = i + 1;
+                continue;
+            }
             if native_build_hosted_mir_append_extern_function(module, i, decl) != 0 {
                 return -1;
             }
@@ -56049,22 +56054,9 @@ fn native_build_find_mir_c99_capability_diagnostic(node: &ASTNode,
             out_line) != 0 {
             return 1;
         }
-        var extern_reason: &byte = null;
         if native_build_find_mir_c99_extern_signature_reason(node,
-            &extern_reason) != 0 {
-            if out_kind != null {
-                *out_kind = "AST_FN_DECL" as &byte;
-            }
-            if out_reason != null {
-                *out_reason = extern_reason;
-            }
-            if out_file != null {
-                *out_file = node.filename;
-            }
-            if out_line != null {
-                *out_line = node.line;
-            }
-            return 1;
+            null) != 0 {
+            return 0;
         }
         return native_build_find_mir_c99_capability_diagnostic(
             node.fn_decl_body, out_kind, out_reason, out_file, out_line);

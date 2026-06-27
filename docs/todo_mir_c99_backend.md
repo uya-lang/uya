@@ -108,10 +108,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     `MIR-C99-FULL-SUPPORT-CLI-SUITE-SRC-MAIN-DISTINCT-OUTPUTS`。
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
     失败项只剩具体 capability diagnostic，并逐项归零。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VARARGS-CAPABILITY-BASELINE`：
-      固化 `extern_varargs_requires_c_variadic_capability` 顶层 bucket 的真实基线，避免再次回退到
-      generic extern lowering / verifier 失败。
-      - 最小验证：`UYA_TEST_STDOUT_LINEBUF=1 UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass`
     - 当前基线（2026-06-24，本轮）：`tests/run_programs_parallel.sh` 已修复相对
       `UYA_COMPILER` 路径解析；`UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8
       CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS=''
@@ -222,6 +218,12 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
           `错误: MIR-C99 PortableMIR verifier 失败: code=16`，`tests/test_slice_param_c99_emit.uya`
           已前移到
           `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_slice_param_c99_emit.uya line=19`。
+      - 进展（2026-06-28，本轮）：`MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VARARGS-CAPABILITY-BASELINE`
+        已完成并归档；未 materialize 的 libc variadic extern 声明不再抢占全程序 MIR-C99
+        frontier。当前 `src/main.uya --mir-c99` 前移到
+        `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`，
+        `tests/test_https_google.uya --mir-c99` 前移到
+        `AST_CATCH_EXPR / catch_return_not_lowered`。
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
     generator 前提 gate 与真实 CLI 结论一致。
     - 验收：
