@@ -2315,3 +2315,21 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
   - 验证：
     - `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh`：通过，输出
       `OK: MIR-C99 AST driver shard real CLI harness covered range-for parity and explicit match/test diagnostics`。
+
+### 2026-06-27 - Full Language Parity / Statement CFG
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`
+
+- [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CORE-STRUCTURED`: 补齐
+  `LOCAL_DECL`、`ASSIGN`、`EXPR`、`RETURN`、`IF`、`WHILE` 与 block 的通用
+  CoreStmt 到 PortableMIR/MIR-C99 lowering。
+  - 完成说明（2026-06-27）：固定 `../uya/bin/uya` 已恢复到真实 MIR-C99 路由；
+    statement/CFG baseline shard 覆盖 local、assign、if、while、loop backedge 和
+    return，并由真实 `--mir-c99` 生成、host C99 compiler 编译运行通过。AST
+    range-for 入口也接入同一路线；match/test driver 当前保持明确 capability
+    diagnostic，而不是 legacy fallback。
+  - 验证：
+    - `bash tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh`：通过。
+    - `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh`：通过。
+    - `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`：通过。
+    - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`：通过。

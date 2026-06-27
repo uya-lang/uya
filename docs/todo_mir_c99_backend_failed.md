@@ -90,15 +90,6 @@
 
 父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`
 
-  - [f] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-CORE-STRUCTURED`: 补齐
-    `LOCAL_DECL`、`ASSIGN`、`EXPR`、`RETURN`、`IF`、`WHILE` 与 block 的通用
-    CoreStmt 到 PortableMIR/MIR-C99 lowering。
-    - 最小验证：return/local/assign/expr/branch/loop focused shard 走真实 `--mir-c99`
-      生成、编译、运行。
-    - 完成条件：覆盖矩阵相关 statement kind 至少为 MIR-C99 `partial`，且无 legacy fallback 证据。
-    - 归档说明：主 todo 当前仅保留遗留 `[f]` 状态与任务描述，未附失败原因、阻塞命令、
-      关键错误或后续重开条件；本轮按归档清理规则原样迁移，待后续执行轮补充真实失败证据。
-
 ### 2026-06-23 - Full Language Parity / Statement CFG
 
 父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`
