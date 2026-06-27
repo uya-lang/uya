@@ -1,0 +1,46 @@
+// fixed ../uya/bin/uya 生成 current-source compiler_driver C99 时，会把跨模块常量引用写成带模块前缀的全局名。
+// 这里只接入普通 compiler driver 已经依赖的模块，避免把 *_build 模块带入同一 C 单元造成重复定义。
+
+use typed.program;
+use checker.function_scope;
+use codegen.c99.plan;
+
+export const C99_COMPAT_COMPILER_CONST_ALIAS_READY: i32 = 1;
+
+export const typed_program_TYPED_PROGRAM_INVALID_ID: i32 = TYPED_PROGRAM_INVALID_ID;
+export const typed_program_TYPED_CALL_TARGET_UNKNOWN: i32 = TYPED_CALL_TARGET_UNKNOWN;
+export const typed_program_TYPED_CALL_TARGET_FUNCTION: i32 = TYPED_CALL_TARGET_FUNCTION;
+export const typed_program_TYPED_CALL_TARGET_EXTERN: i32 = TYPED_CALL_TARGET_EXTERN;
+export const typed_program_TYPED_PROOF_UNKNOWN: i32 = TYPED_PROOF_UNKNOWN;
+export const typed_program_TYPED_PROOF_OK: i32 = TYPED_PROOF_OK;
+export const typed_program_TYPED_PROOF_ERROR: i32 = TYPED_PROOF_ERROR;
+export const typed_program_TYPED_PROGRAM_LIFECYCLE_ACTIVE: i32 = TYPED_PROGRAM_LIFECYCLE_ACTIVE;
+export const typed_program_TYPED_PROGRAM_LIFECYCLE_RELEASED: i32 = TYPED_PROGRAM_LIFECYCLE_RELEASED;
+
+export const checker_function_scope_FUNCTION_SCOPE_BINDING_PARAM: i32 = FUNCTION_SCOPE_BINDING_PARAM;
+export const checker_function_scope_FUNCTION_SCOPE_BINDING_LOCAL: i32 = FUNCTION_SCOPE_BINDING_LOCAL;
+export const checker_function_scope_FUNCTION_SCOPE_BINDING_CAPTURE: i32 = FUNCTION_SCOPE_BINDING_CAPTURE;
+export const checker_function_scope_FUNCTION_SCOPE_BINDING_ASYNC: i32 = FUNCTION_SCOPE_BINDING_ASYNC;
+
+export const codegen_c99_plan_C99_PLAN_LIFECYCLE_UNINITIALIZED: i32 = C99_PLAN_LIFECYCLE_UNINITIALIZED;
+export const codegen_c99_plan_C99_PLAN_LIFECYCLE_ACTIVE: i32 = C99_PLAN_LIFECYCLE_ACTIVE;
+export const codegen_c99_plan_C99_PLAN_LIFECYCLE_RELEASED: i32 = C99_PLAN_LIFECYCLE_RELEASED;
+export const codegen_c99_plan_C99_SPLIT_UNIT_KIND_GENERIC: i32 = C99_SPLIT_UNIT_KIND_GENERIC;
+export const codegen_c99_plan_C99_SPLIT_UNIT_KIND_PART1: i32 = C99_SPLIT_UNIT_KIND_PART1;
+export const codegen_c99_plan_C99_SPLIT_UNIT_KIND_PART2: i32 = C99_SPLIT_UNIT_KIND_PART2;
+export const codegen_c99_plan_C99_SPLIT_UNIT_KIND_COMMON: i32 = C99_SPLIT_UNIT_KIND_COMMON;
+export const codegen_c99_plan_C99_SPLIT_UNIT_KIND_MIRROR_SOURCE: i32 = C99_SPLIT_UNIT_KIND_MIRROR_SOURCE;
+export const codegen_c99_plan_C99_PROTOTYPE_KIND_FUNCTION: i32 = C99_PROTOTYPE_KIND_FUNCTION;
+export const codegen_c99_plan_C99_PROTOTYPE_KIND_MONO_FUNCTION: i32 = C99_PROTOTYPE_KIND_MONO_FUNCTION;
+export const codegen_c99_plan_C99_PROTOTYPE_KIND_METHOD: i32 = C99_PROTOTYPE_KIND_METHOD;
+export const codegen_c99_plan_C99_PROTOTYPE_KIND_MONO_METHOD: i32 = C99_PROTOTYPE_KIND_MONO_METHOD;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_REGISTER_STRUCT: i32 = C99_TYPEDEF_KIND_REGISTER_STRUCT;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_REGISTER_MONO_STRUCT: i32 = C99_TYPEDEF_KIND_REGISTER_MONO_STRUCT;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_REGISTER_ENUM: i32 = C99_TYPEDEF_KIND_REGISTER_ENUM;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_ENUM: i32 = C99_TYPEDEF_KIND_ENUM;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_ALIAS: i32 = C99_TYPEDEF_KIND_ALIAS;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_UNION: i32 = C99_TYPEDEF_KIND_UNION;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_MONO_UNION: i32 = C99_TYPEDEF_KIND_MONO_UNION;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_BUILTIN_TYPEINFO: i32 = C99_TYPEDEF_KIND_BUILTIN_TYPEINFO;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_STRUCT: i32 = C99_TYPEDEF_KIND_STRUCT;
+export const codegen_c99_plan_C99_TYPEDEF_KIND_MONO_STRUCT: i32 = C99_TYPEDEF_KIND_MONO_STRUCT;

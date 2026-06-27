@@ -15,6 +15,7 @@ use parser;
 use semantic;
 use typed;
 use checker;  // 包含 checker 目录下所有文件（包括 optimizer.uya）
+use c99_compat.compiler_const_aliases;
 use driver;
 use microapp;
 use exec;
@@ -38,6 +39,7 @@ use fmt;
 extern "libc" fn getpid() i32;
 extern "libc" fn kill(pid: i32, signum: i32) i32;
 extern "libc" fn rename(oldpath: &const byte, newpath: &const byte) i32;
+const COMPILER_DRIVER_C99_COMPAT_ALIAS_READY: i32 = C99_COMPAT_COMPILER_CONST_ALIAS_READY;
 
 // ===== 计时函数 =====
 // 暂时禁用精确计时，使用简单计数器

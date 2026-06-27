@@ -1594,16 +1594,21 @@ Context:
 父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE`
 
   - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-BUILD-ENTRY-RECOVERY`: 恢复 fixed/current-source
-    `cmd/build` 的真实 build CLI 入口，消除 host C compile 裸 `O_RDONLY` / `SYS_*`
-    blocker。
-    - 验收：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 通过。
-    - 实现：放开 `src/codegen/c99/global.uya` 的 program-level 全局常量回查条件，
-      让 full-C99 路径在 `global_variables` 尚未登记时仍能回落到合并 program 解析，
-      不再把导出常量退化成裸 `O_RDONLY` / `SYS_*` / `EPOLL_*`。
-    - 验证：`cp bin/cmd/build ../uya/bin/cmd/build` 先恢复 fixed `../uya/bin/uya`
-      所委托的 real build CLI，然后运行
-      `bash tests/verify_mandated_build_compiler_driver_entry.sh`
-      结果：`OK: mandated compiler can bootstrap a current-source build CLI entry and build cmd/build`
+    `cmd/build` 的真实 build CLI 入口，消除 current-source bootstrap/helper 的 host C
+    compile blocker。
+    - 实现（2026-06-27）：新增 `src/c99_compat/compiler_const_aliases.uya`，让普通
+      `compiler_driver` 路径只接入 `typed.program`、`checker.function_scope` 和
+      `codegen.c99.plan` 的模块前缀常量别名，避免把 `*_build` 模块混入同一 C 单元导致
+      重复定义；同时补齐 `src/c99_compat/const_aliases.uya` 中 build-driver 路径可能需要的
+      `checker_function_scope_*` 与 `codegen_c99_plan_*` 兼容别名。
+    - 修复结果：`src/cmd/build_bootstrap/main.uya` 和 `src/cmd/build/main.uya` 已能通过固定
+      `../uya/bin/uya` 两段式构建成 current-source build CLI，旧的
+      `typed_program_*`、`checker_function_scope_*`、`codegen_c99_plan_*` 未声明错误不再出现。
+    - 验证：
+      - `bash tests/verify_mandated_build_compiler_driver_entry.sh`：通过，输出
+        `OK: mandated compiler can bootstrap a current-source build CLI entry and build cmd/build`。
+      - `bash tests/verify_cmd_build_entry.sh`：通过，输出
+        `✓ cmd/build 入口可编译，并可直接执行 build CLI`。
 
 ## 2026-06-24
 ### 4.15 Full Language Parity
@@ -1623,7 +1628,10 @@ Context:
     - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过，继续确认
       HelloWorld 进入 `[MIR-C99]` unit writer 且拒绝 legacy C99 banner。
   - 补充观察：
-    - `bash tests/verify_mandated_build_compiler_driver_entry.sh` 当前失败于 `src/cmd/build_bootstrap/main.uya` host C compile 裸名 `std_runtime_saved_envp` / `TYPED_PROGRAM_INVALID_ID` / `FUNCTION_SCOPE_BINDING_*`；未阻塞本叶子验收，后续如需恢复 fixed compiler 直接重建 `build_bootstrap`，需单独收口。
+    - 2026-06-27：`bash tests/verify_mandated_build_compiler_driver_entry.sh` 已通过；此前
+      `src/cmd/build_bootstrap/main.uya` host C compile 裸名
+      `std_runtime_saved_envp` / `TYPED_PROGRAM_INVALID_ID` / `FUNCTION_SCOPE_BINDING_*`
+      已由 build-entry recovery 收口。
 
 ## 4.15 Full Language Parity
 
