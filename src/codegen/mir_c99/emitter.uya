@@ -3,6 +3,7 @@
 use codegen.mir_c99.cfg;
 use codegen.mir_c99.plan;
 use codegen.mir_c99.unit_output;
+use lower.mir;
 
 export const MIR_C99_EMITTER_STATUS_ERROR: i32 = -1;
 export const MIR_C99_EMITTER_STATUS_UNINITIALIZED: i32 = 0;
@@ -180,6 +181,7 @@ export fn mir_c99_emitter_record_unit_outputs(emitter: &MirC99Emitter) i32 {
             plan: null,
             unit: null,
             cfg_plan: null,
+            entry_function_id: MIR_FUNCTION_INVALID_ID,
             stats: MirC99UnitOutputStats{
                 include_count: 0usize,
                 typedef_count: 0usize,

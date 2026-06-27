@@ -2380,9 +2380,30 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
   - 完成说明（2026-06-27）：remaining generic lowering gate 覆盖当前首批 fixed
     real-CLI fail-closed case，要求全部包含 `[MIR-C99]` 且拒绝 generic
     `PortableMIR lowering 尚未覆盖当前程序`。`src/main.uya` 当前也已前移为
-    `extern_varargs_requires_c_variadic_capability`，仍属于后续主语言面 capability
-    收敛，不再是 generic PortableMIR bucket。
+      `extern_varargs_requires_c_variadic_capability`，仍属于后续主语言面 capability
+      收敛，不再是 generic PortableMIR bucket。
   - 验证：
     - `bash tests/verify_mir_c99_full_language_remaining_generic_lowering_capability_reject.sh`：通过。
     - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：退出码 `1`，输出
       `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_varargs_requires_c_variadic_capability`。
+
+### 2026-06-27 - Full Language Parity / Test Harness And No Main
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE`
+
+- [x] `MIR-C99-FULL-SUPPORT-TEST-HARNESS-AND-NO-MAIN`: 修复 test 文件、无 main
+  文件和 helper-only 文件的 MIR-C99 入口策略，消除 no-main false positive。
+  - 完成说明（2026-06-27）：current-source MIR-C99 writer 不再追加
+    `int main(void) { return uya_mir_fn_N(); }` fake wrapper；真实入口函数直接输出为
+    C `main`。单文件无 main 在 MIR-C99 后端下不再被通用 CLI 早期拦截，而是进入真实
+    `[MIR-C99]` 路径并 fail-closed 到 `PROGRAM_ENTRY / no_main_entrypoint`。
+  - 实现：
+    - `MirC99UnitOutputWriter` 增加 `entry_function_id`，入口函数头输出为
+      `int main(void)`，非入口函数保持 `static ... uya_mir_fn_N(void)`。
+    - `mir_c99_write_unit_output_file` 只接受真实 `main` decl 对应的 MIR function，不再从
+      no-main program 中挑第一个 non-extern 函数生成 wrapper。
+    - `compile_files` 对 `BACKEND_MIR_C99` 放行无 main 单文件，让后端打印稳定
+      capability diagnostic。
+  - 验证：
+    - `bash tests/verify_mir_c99_test_harness_and_no_main_real_cli.sh`：通过，输出
+      `OK: MIR-C99 real current-source CLI rejects test/no-main false positives without fake main fallback`。

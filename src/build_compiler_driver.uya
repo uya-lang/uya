@@ -2025,6 +2025,7 @@ fn native_build_empty_mir_c99_unit_output_writer() MirC99UnitOutputWriter {
         plan: null,
         unit: null,
         cfg_plan: null,
+        entry_function_id: MIR_FUNCTION_INVALID_ID,
         stats: native_build_empty_mir_c99_unit_output_stats(),
         diagnostic_code: 0,
     };
@@ -55171,39 +55172,7 @@ fn mir_c99_find_c_main_entry_function(module: &PortableMirModule,
         }
         i = i + 1usize;
     }
-    if mir_c99_program_has_main_decl(program) != 0 {
-        return MIR_FUNCTION_INVALID_ID;
-    }
-    i = 0usize;
-    while i < module.functions.count {
-        const function: &MirFunction =
-            semantic_vector_item_ptr(&module.functions, i) as &MirFunction;
-        if function != null &&
-           (function.flags & MIR_FUNCTION_FLAG_EXTERN) == 0 &&
-           function.block_count > 0 {
-            return function.function_id;
-        }
-        i = i + 1usize;
-    }
     return MIR_FUNCTION_INVALID_ID;
-}
-
-fn mir_c99_write_main_wrapper(output: &FILE,
-    module: &PortableMirModule, program: &ASTNode) i32 {
-    if output == null || module == null || program == null {
-        return 1;
-    }
-    const entry_function_id: i32 = mir_c99_find_c_main_entry_function(module,
-        program);
-    if entry_function_id == MIR_FUNCTION_INVALID_ID {
-        return 1;
-    }
-    if fprintf(output as *void,
-        "\nint main(void) { return uya_mir_fn_%d(); }\n" as *byte,
-        entry_function_id) < 0 {
-        return 1;
-    }
-    return 0;
 }
 
 fn mir_c99_unit_has_nonextern_function_output(module: &PortableMirModule,
@@ -55249,6 +55218,11 @@ fn mir_c99_write_unit_output_file(output_path: &byte,
        plan.units.count == 0usize {
         return 1;
     }
+    const entry_function_id: i32 = mir_c99_find_c_main_entry_function(module,
+        program);
+    if entry_function_id == MIR_FUNCTION_INVALID_ID {
+        return 1;
+    }
     const output: &FILE = fopen(output_path as *byte, "w" as *byte);
     if output == null {
         fprintf(libc.stderr, "错误: 无法写入 MIR-C99 输出文件 '%s'\n" as *byte,
@@ -55274,17 +55248,17 @@ fn mir_c99_write_unit_output_file(output_path: &byte,
         var writer: MirC99UnitOutputWriter =
             native_build_empty_mir_c99_unit_output_writer();
         if mir_c99_unit_output_writer_begin(&writer, module, plan, unit) != 0 ||
-           mir_c99_unit_output_writer_bind_cfg(&writer, cfg_plan) != 0 ||
-           mir_c99_unit_output_write_all_sections(&writer, output) < 0 ||
+           mir_c99_unit_output_writer_bind_cfg(&writer, cfg_plan) != 0 {
+            fclose(output);
+            return 1;
+        }
+        writer.entry_function_id = entry_function_id;
+        if mir_c99_unit_output_write_all_sections(&writer, output) < 0 ||
            mir_c99_unit_output_writer_finish(&writer) < 0 {
             fclose(output);
             return 1;
         }
         i = i + 1usize;
-    }
-    if mir_c99_write_main_wrapper(output, module, program) != 0 {
-        fclose(output);
-        return 1;
     }
     if fclose(output) != 0 {
         return 1;
@@ -56281,8 +56255,23 @@ fn native_build_print_mir_c99_capability_diagnostic(program: &ASTNode,
         if native_build_find_mir_c99_structured_i32_capability_diagnostic(
             program, checker, &kind, &reason, &file, &line) == 0 ||
            kind == null || reason == null {
-            native_build_mir_c99_extern_signature_checker = saved_extern_checker;
-            return 0;
+            if mir_c99_program_has_main_decl(program) == 0 {
+                kind = "PROGRAM_ENTRY" as &byte;
+                reason = "no_main_entrypoint" as &byte;
+                file = "(unknown)" as &byte;
+                line = 0;
+                if program != null && program.program_decls != null &&
+                   program.program_decl_count > 0 &&
+                   program.program_decls[0] != null {
+                    if program.program_decls[0].filename != null {
+                        file = program.program_decls[0].filename;
+                    }
+                    line = program.program_decls[0].line;
+                }
+            } else {
+                native_build_mir_c99_extern_signature_checker = saved_extern_checker;
+                return 0;
+            }
         }
     }
     fprintf(libc.stderr,
@@ -56635,7 +56624,8 @@ fn compile_files(
                     }
                 }
             } else {
-                if stop_after_checker == 0 && input_file_count == 1 {
+                if stop_after_checker == 0 && input_file_count == 1 &&
+                   backend != BackendType.BACKEND_MIR_C99 {
                     fprintf(libc.stderr, "错误: 文件 '%s' 不包含 main 函数\n" as *byte, input_path);
                     return 1;
                 }

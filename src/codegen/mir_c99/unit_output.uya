@@ -44,6 +44,7 @@ export struct MirC99UnitOutputWriter {
     plan: &MirC99Plan,
     unit: &MirC99Unit,
     cfg_plan: &MirC99CfgPlan,
+    entry_function_id: MirFunctionId,
     stats: MirC99UnitOutputStats,
     diagnostic_code: i32,
 }
@@ -518,6 +519,10 @@ fn mir_c99_unit_output_write_function_decl_head(writer: &MirC99UnitOutputWriter,
         mir_c99_unit_output_function_return_type(writer, function);
     if return_type == null {
         return -1;
+    }
+    if writer != null && function != null &&
+       function.function_id == writer.entry_function_id {
+        return mir_c99_unit_output_write(stream, "int main(void)" as &byte);
     }
     if mir_c99_unit_output_write(stream, "static " as &byte) != 0 ||
        mir_c99_unit_output_write_c_type(stream, return_type) != 0 ||
@@ -1026,6 +1031,7 @@ export fn mir_c99_unit_output_writer_begin(writer: &MirC99UnitOutputWriter,
     writer.plan = plan;
     writer.unit = unit;
     writer.cfg_plan = null;
+    writer.entry_function_id = MIR_FUNCTION_INVALID_ID;
     writer.stats = mir_c99_unit_output_empty_stats();
     writer.diagnostic_code = 0;
     if mir_c99_unit_output_refresh_stats(writer) != 0 {
