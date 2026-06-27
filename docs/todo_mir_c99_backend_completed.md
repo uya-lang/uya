@@ -2407,3 +2407,17 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
   - 验证：
     - `bash tests/verify_mir_c99_test_harness_and_no_main_real_cli.sh`：通过，输出
       `OK: MIR-C99 real current-source CLI rejects test/no-main false positives without fake main fallback`。
+
+### 2026-06-27 - Full Language Parity / Main Language Runtime Bridge
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-RUNTIME-BRIDGE`：
+  收敛 `entry_extern_main_requires_runtime_bridge` 的真实 CLI 前沿。
+  - 完成说明（2026-06-27）：focused real-CLI gate 已确认当前 fixed
+    `../uya/bin/uya build --mir-c99` 对 runtime entry 相关用例不再停在
+    `entry_extern_main_requires_runtime_bridge`，并在成功或后续 capability frontier 上提供稳定
+    `[MIR-C99]` 证据。
+  - 验证：
+    - `bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`：通过，输出
+      `OK: MIR-C99 real CLI cases now move past the std.runtime.entry runtime-bridge boundary`。

@@ -108,10 +108,6 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     `MIR-C99-FULL-SUPPORT-CLI-SUITE-SRC-MAIN-DISTINCT-OUTPUTS`。
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
     失败项只剩具体 capability diagnostic，并逐项归零。
-    - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-RUNTIME-BRIDGE`：
-      收敛 `entry_extern_main_requires_runtime_bridge` 的真实 CLI 前沿，至少让
-      `tests/test_ffi_cast.uya` 与 `tests/extern_ffi_no_struct.uya` 前移到后续稳定 bucket。
-      - 最小验证：`bash tests/verify_mir_c99_full_language_entry_extern_body_boundary.sh`
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VARARGS-CAPABILITY-BASELINE`：
       固化 `extern_varargs_requires_c_variadic_capability` 顶层 bucket 的真实基线，避免再次回退到
       generic extern lowering / verifier 失败。
