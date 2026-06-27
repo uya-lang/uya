@@ -774,7 +774,7 @@ static const char str31[] = "../";
 static const char str32[] = "UYA_ROOT";
 static const char str33[] = "uya";
 static const char str34[] = "Uya 编译器 - 零GC系统编程语言\n";
-static const char str35[] = "版本：v0.10.0\n";
+static const char str35[] = "版本：v0.10.1\n";
 static const char str36[] = "\n用法:\n";
 static const char str37[] = "  %s build <文件> [-o <输出>] [选项]  编译为可执行文件或中间产物\n";
 static const char str38[] = "  %s check <文件> [选项]              仅做词法/语法/类型检查，不执行代码生成\n";
@@ -1028,7 +1028,7 @@ static const char str285[] = "错误: @c_import sidecar 生成失败\n";
 static const char str286[] = "生成耗时: %ld ms\n";
 static const char str287[] = "\n代码生成完成: %s\n";
 static const char str288[] = "upm";
-static const char str289[] = "v0.10.0\n";
+static const char str289[] = "v0.10.1\n";
 static const char str290[] = "UYA_SPLIT_C_DIR";
 static const char str291[] = "错误: 无法获取 --outlibc 参数\n";
 static const char str292[] = "错误: inspect-image 只接受一个输入文件\n";
@@ -10409,7 +10409,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10446,7 +10446,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -164114,7 +164114,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -165361,7 +165361,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -165605,7 +165605,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_391543956_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

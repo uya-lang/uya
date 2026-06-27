@@ -1066,7 +1066,7 @@ fn print_usage(program_name: &byte) void {
     var name: &byte = program_name;
     if name == null { name = "uya" as *byte; }
     fprintf(libc.stderr, "Uya 编译器 - 零GC系统编程语言\n" as *byte);
-    fprintf(libc.stderr, "版本：v0.10.0\n" as *byte);
+    fprintf(libc.stderr, "版本：v0.10.1\n" as *byte);
     fprintf(libc.stderr, "\n用法:\n" as *byte);
     fprintf(libc.stderr, "  %s build <文件> [-o <输出>] [选项]  编译为可执行文件或中间产物\n" as *byte, name as *byte);
     fprintf(libc.stderr, "  %s check <文件> [选项]              仅做词法/语法/类型检查，不执行代码生成\n" as *byte, name as *byte);
@@ -2919,7 +2919,7 @@ export fn main() i32 {
     g_exec_dump_bytecode_enabled = dump_bytecode;
     g_exec_trace_vm_enabled = trace_vm;
     if command == CommandType.COMMAND_VERSION {
-        fprintf(libc.stdout, "v0.10.0\n" as *byte);
+        fprintf(libc.stdout, "v0.10.1\n" as *byte);
         return 0;
     }
     // parse_args 中 stack_size=0 表示未传 --stack-size。编译器进程须尽快抬高主线程栈（与默认 65536 KB 一致），否则大依赖编译易栈溢出（段错误）。

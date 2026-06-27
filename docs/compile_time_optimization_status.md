@@ -1,7 +1,7 @@
 # 编译期优化功能实现报告
 
-**版本**：v0.10.0（发行线；下文优化条目仍以 v0.7.3–v0.7.4 为主）
-**更新日期**：2026-06-04
+**版本**：v0.10.1（发行线；下文优化条目仍以 v0.7.3–v0.7.4 为主）
+**更新日期**：2026-06-28
 
 ## 最新进展（v0.7.3 - v0.7.4）
 
@@ -167,7 +167,7 @@
 
 ### 测试结果
 
-✅ **`make check` 已通过**（v0.10.0；2026-06-04；含 microapp / `@embed` / `@c_import` / exec vm / fmt / if expression 等回归）：
+✅ **`make release UYA_TEST_JOBS=8` 已通过**（v0.10.1；2026-06-28；含 microapp / `@embed` / `@c_import` / exec vm / fmt / if expression / async runtime / UPM 等回归）：
 - ✅ 9 个 @asm 正向测试
 - ✅ 17 个 @asm 反向测试
 - ✅ 编译期优化测试
