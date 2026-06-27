@@ -220,10 +220,15 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
           `mir_c99_capability_diagnostic: kind=AST_TEST_STMT reason=test_driver_not_lowered file=tests/test_slice_param_c99_emit.uya line=19`。
       - 进展（2026-06-28，本轮）：`MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-VARARGS-CAPABILITY-BASELINE`
         已完成并归档；未 materialize 的 libc variadic extern 声明不再抢占全程序 MIR-C99
-        frontier。当前 `src/main.uya --mir-c99` 前移到
+        frontier。该轮 `src/main.uya --mir-c99` 前移到
         `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability`，
         `tests/test_https_google.uya --mir-c99` 前移到
         `AST_CATCH_EXPR / catch_return_not_lowered`。
+      - 当前前沿（2026-06-28，本轮）：`src/main.uya --mir-c99` 已前移到
+        `AST_CALL_EXPR / call_expr_requires_call_lowering`（`src/main.uya:218`）；
+        direct `@usize_from_ptr` 仍由
+        `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh`
+        保持 fail-closed。
   - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-HYGIENE-GATES`: 保持 TODO/oracle 证据约束和
     generator 前提 gate 与真实 CLI 结论一致。
     - 验收：

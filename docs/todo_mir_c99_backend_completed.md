@@ -2448,3 +2448,36 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
     - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：
       退出码 `1`，输出
       `mir_c99_capability_diagnostic: kind=AST_USIZE_FROM_PTR reason=usize_from_ptr_requires_target_capability`。
+
+### 2026-06-28 - Full Language Parity / Main Language Launcher Ptr-Diff Frontier
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-LAUNCHER-PTR-DIFF-FRONTIER`：
+  移除 `src/main.uya` launcher 路径处理对 `std.runtime.ptr_diff` / `@usize_from_ptr` 的依赖，
+  让真实 `src/main.uya --mir-c99` 前移到下一个 capability frontier。
+  - 完成说明（2026-06-28）：`src/main.uya` 的 launcher 目录解析改为入口文件本地的
+    byte-index slash 扫描，不再调用 `strrchr + ptr_diff`；MIR-C99 capability 诊断增加
+    root-file 过滤，避免 imported-but-unused runtime/libc helper body 或顶层 const 抢占真实
+    入口文件 frontier。direct `@usize_from_ptr` / `@ptr_from_usize` 仍由 direct-builtin gate
+    保持 fail-closed。
+  - 当前前沿：
+    - `src/main.uya --mir-c99` 已从
+      `AST_USIZE_FROM_PTR / usize_from_ptr_requires_target_capability` 前移到
+      `AST_CALL_EXPR / call_expr_requires_call_lowering`（`src/main.uya:218`）。
+    - `tests/test_https_google.uya --mir-c99` 继续保持
+      `AST_CATCH_EXPR / catch_return_not_lowered`，未回退到 extern signature/varargs 或 call
+      lowering bucket。
+  - 验证：
+    - `./bin/uya check src/main.uya --project-root src/`：通过。
+    - `./bin/uya check src/build_compiler_driver.uya --project-root src/`：通过。
+    - `make cmd-build-current`：通过，并同步 `bin/uya` / `bin/cmd/build` 到 fixed
+      `../uya/bin/` 验证入口。
+    - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过，输出
+      `baseline_mir_c99_src_main=fail_closed:call_expr_requires_call_lowering`。
+    - `bash tests/verify_mir_c99_full_language_extern_signature_capability_reject.sh`：通过。
+    - `bash tests/verify_mir_c99_full_language_function_inventory.sh`：通过。
+    - `bash tests/verify_mir_c99_full_language_direct_builtin_capability_reject.sh`：通过。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：
+      退出码 `1`，输出
+      `mir_c99_capability_diagnostic: kind=AST_CALL_EXPR reason=call_expr_requires_call_lowering file=src/main.uya line=218`。

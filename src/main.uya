@@ -3,7 +3,6 @@
 
 use std.runtime.get_argc;
 use std.runtime.get_argv;
-use std.runtime.ptr_diff;
 use std.runtime.saved_envp;
 use libc.FILE;
 use libc.stderr;
@@ -13,7 +12,6 @@ use libc.malloc;
 use libc.free;
 use libc.memcpy;
 use libc.strcmp;
-use libc.strrchr;
 use libc.access;
 use libc.execve;
 use libc.readlink;
@@ -49,14 +47,28 @@ fn launcher_is_external_cmd(name: &byte) i32 {
     return 0;
 }
 
+fn launcher_last_slash_dir_len(path: &byte, limit: usize) i32 {
+    if path == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    var last: i32 = -1;
+    while i < limit && path[i] != 0 as byte {
+        if path[i] == 47 as byte {
+            last = i as i32;
+        }
+        i = i + 1usize;
+    }
+    return last;
+}
+
 fn launcher_get_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     if argv0 == null || buffer == null || buffer_size == 0usize {
         return 1;
     }
-    const argv_slash: *byte = strrchr(argv0 as *byte, 47);
-    if argv_slash != null {
-        const dir_len_tmp: !usize = ptr_diff(argv_slash, argv0) as! usize;
-        const dir_len: usize = dir_len_tmp.value;
+    const argv_dir_len_i32: i32 = launcher_last_slash_dir_len(argv0, buffer_size);
+    if argv_dir_len_i32 >= 0 {
+        const dir_len: usize = argv_dir_len_i32 as usize;
         if dir_len + 1usize < buffer_size {
             memcpy(buffer as *byte, argv0 as *const byte, dir_len);
             buffer[dir_len] = 47 as byte;
@@ -69,10 +81,9 @@ fn launcher_get_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     const len: i32 = readlink("/proc/self/exe" as *byte, &resolved_path[0], PATH_MAX - 1usize);
     if len != -1 {
         resolved_path[len as usize] = 0 as byte;
-        const last_slash: *byte = strrchr(&resolved_path[0], 47);
-        if last_slash != null {
-            const dir_len2_tmp: !usize = ptr_diff(last_slash, &resolved_path[0] as *byte) as! usize;
-            const dir_len2: usize = dir_len2_tmp.value;
+        const resolved_dir_len_i32: i32 = launcher_last_slash_dir_len(&resolved_path[0], len as usize);
+        if resolved_dir_len_i32 >= 0 {
+            const dir_len2: usize = resolved_dir_len_i32 as usize;
             if dir_len2 + 1usize < buffer_size {
                 memcpy(buffer as *byte, &resolved_path[0] as *const byte, dir_len2);
                 buffer[dir_len2] = 47 as byte;

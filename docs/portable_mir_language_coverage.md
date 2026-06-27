@@ -73,10 +73,10 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 
 ### 2.2 MIR-C99 full-language CoreBody/function 缺口清单
 
-真实 `src/main.uya --mir-c99` 基线：`usize_from_ptr_requires_target_capability`，由
+真实 `src/main.uya --mir-c99` 基线：`call_expr_requires_call_lowering`，由
 baseline gate：`bash tests/verify_mir_c99_full_language_baseline_truth.sh` 固定；该 gate
 同时确认 HelloWorld 进入 `[MIR-C99]` unit writer、`tests/extern_function.uya` fail-closed 到
-`syscall_requires_target_capability`，并把 hosted native、fixture generator 和 legacy C99
+`call_expr_requires_call_lowering`，并把 hosted native、fixture generator 和 legacy C99
 oracle 明确分类为非 MIR-C99 完成面。
 
 audit gate：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 当前固定

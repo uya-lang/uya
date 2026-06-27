@@ -38,7 +38,7 @@ bash "$REPO_ROOT/tests/verify_mir_c99_self_build_convergence_audit.sh" >/dev/nul
 
 require_pattern "$COVERAGE_DOC" '^### 2\.2 MIR-C99 full-language CoreBody/function 缺口清单$' \
     "coverage doc has the full-language CoreBody/function inventory section"
-require_pattern "$COVERAGE_DOC" '真实 `src/main\.uya --mir-c99` 基线：`usize_from_ptr_requires_target_capability`' \
+require_pattern "$COVERAGE_DOC" '真实 `src/main\.uya --mir-c99` 基线：`call_expr_requires_call_lowering`' \
     "inventory records the current src/main.uya real CLI capability frontier"
 require_pattern "$COVERAGE_DOC" 'baseline gate：`bash tests/verify_mir_c99_full_language_baseline_truth\.sh`' \
     "inventory points at the baseline truth gate"
