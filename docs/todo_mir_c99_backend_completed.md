@@ -2249,3 +2249,26 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
       `OK: MIR-C99 full-language function inventory is grounded in real CLI and audit gates`。
     - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过。
     - `bash tests/verify_mir_c99_self_build_convergence_audit.sh`：通过。
+
+### 2026-06-27 - Full Language Parity / Generic CoreBody Lowering
+
+父级路径：`MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-LOWERING`
+
+- [x] `MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-CLI-ENTRY`: 将真实 `--mir-c99`
+  CLI 入口改为消费 frozen `LoweredProgram/CoreBody -> PortableMIR` 的通用 module
+  lowering 结果，保留 unsupported capability fail-closed。
+  - 完成说明（2026-06-27）：固定 `../uya/bin/uya` 已恢复到真实 MIR-C99 路由；
+    HelloWorld 继续输出 MIR-C99 unit writer；`src/main.uya --mir-c99` 现在进入
+    `[MIR-C99]` 后 fail-closed 到
+    `extern_varargs_requires_c_variadic_capability`，不再报
+    `PortableMIR lowering 尚未覆盖当前程序`，也没有通过固定函数名、固定 body shape
+    或 one-off materializer 伪装成功。
+  - 验证：
+    - `test -x ../uya/bin/uya && ../uya/bin/uya --version`：通过。
+    - `bash tests/verify_mir_c99_cli_helloworld.sh`：通过，输出
+      `OK: uya build --mir-c99 examples/HelloWorld.uya emits and runs MIR-C99 C`。
+    - `../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：退出码 `1`，
+      日志包含 `[MIR-C99]` 和
+      `extern_varargs_requires_c_variadic_capability`。
+    - `bash tests/verify_mir_c99_generic_corebody_no_new_one_off_materializers.sh`：通过，
+      输出 `OK: MIR-C99 generic CoreBody migration has no new one-off materializer helpers`。
