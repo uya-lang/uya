@@ -71,6 +71,40 @@ pre-MIR helper 或 helper-specific path 后报"成功"。
 | MIR-C99 self-build | partial | 当前真实 compiler candidate C 由 `mir_c99_unit_output` 提供，默认 generator 产物经 host C compiler 编译后可通过 `cmd/build --help` smoke。convergence audit 现固定输出 `status=real_compiler_candidate`、host binary candidate role `compiler_binary`、`pending_core_bodies=3511`，并把 blocked categories（call ABI、runtime helper、emitter/output、link/absence）作为主收敛面。4.16 stage gate 固定只认三类收敛指标：候选状态从 summary executable 切换到 real compiler candidate、`blocked_category_count`/`blocked_category_*` 减少、以及 host C compiler 编译出的候选通过 `cmd/build --help` 或等价 compiler smoke。frontier samples（`native_hosted_handoff_frontier`、`native_build_type_named_equals`、`native_hosted_executable_writer_preflight`）和 helper 名、frontier 样本名、statement count、`completed_body_detail` 和 `next_coverage` 只保留为诊断上下文，其中 `frontier_sample_1=native_hosted_handoff_frontier` 仅作为 diagnostic-only handoff 样本；helper 名、frontier 样本名、statement count、`completed_body_detail` 和 `next_coverage` 只保留为诊断上下文，不再定义完成。 |
 | CoreBody structured CFG lowering | done | `bash tests/verify_portable_mir_core_body_lowering.sh` 覆盖 `CoreBody -> PortableMIR` 的 return literal/local/add/print shard，以及 `corebody_structured_if_while_block_lowering`：`IF` if/else 生成 `COND_BR`、then/else join successor，nested block 可递归 lowering，`WHILE` 生成 condition `COND_BR`、body block 和 loop backedge；`CoreBody break and continue lower to current loop targets` 覆盖 `break` 到 loop exit、`continue` 到 loop condition，最终 `portable_mir_verify_module` clean。历史 native-hosted frontier `generic_corebody_guard_call_tail_return_lowering` 仍记录 if guard / 短路 OR、field load、array index、 const local、resolved helper call 和 tail call return 形状，不能作为 MIR-C99 full parity 证据。 |
 
+### 2.2 MIR-C99 full-language CoreBody/function 缺口清单
+
+真实 `src/main.uya --mir-c99` 基线：`extern_varargs_requires_c_variadic_capability`，由
+baseline gate：`bash tests/verify_mir_c99_full_language_baseline_truth.sh` 固定；该 gate
+同时确认 HelloWorld 进入 `[MIR-C99]` unit writer、`tests/extern_function.uya` fail-closed 到
+`syscall_requires_target_capability`，并把 hosted native、fixture generator 和 legacy C99
+oracle 明确分类为非 MIR-C99 完成面。
+
+audit gate：`bash tests/verify_mir_c99_self_build_convergence_audit.sh` 当前固定
+`blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1`；
+CFG / place-memory / aggregate-layout / cleanup-error 当前不在 self-build blocked summary 中，
+但仍必须通过各自 full-language parity gate 约束，不能重新退回 helper frontier 或固定 body
+shape。
+
+- CFG：`bash tests/verify_mir_c99_cfg_parity.sh` +
+  `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`。
+- place/memory：`bash tests/verify_mir_c99_place_memory_parity.sh` +
+  `bash tests/verify_mir_c99_full_language_pointer_parity.sh`。
+- aggregate/layout：`bash tests/verify_mir_c99_layout_parity.sh` +
+  `bash tests/verify_mir_c99_full_language_struct_parity.sh` +
+  `bash tests/verify_mir_c99_global_import_parity.sh`。
+- cleanup/error：`bash tests/verify_mir_c99_lexical_drop_parity.sh` +
+  `bash tests/verify_mir_c99_dynamic_catch_parity.sh` +
+  `bash tests/verify_mir_c99_full_language_errdefer_parity.sh`。
+- call ABI：`bash tests/verify_mir_c99_call_parity.sh` +
+  `bash tests/verify_mir_c99_full_language_float_call_abi_parity.sh`。
+- runtime helper：`bash tests/verify_mir_c99_memory_string_runtime_parity.sh` +
+  `bash tests/verify_mir_c99_helloworld_runtime_parity.sh` +
+  `bash tests/verify_mir_c99_file_io_runtime_parity.sh`。
+- emitter/output：`bash tests/verify_mir_c99_emitter_unit_output.sh` +
+  `bash tests/verify_mir_c99_split_build_parity.sh`。
+- link/absence：`bash tests/verify_mir_c99_global_import_parity.sh` +
+  `bash tests/verify_mir_c99_independent_boundary.sh`。
+
 ---
 
 ## 3. ASTNode 覆盖

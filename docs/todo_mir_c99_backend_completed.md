@@ -2223,3 +2223,29 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
       `baseline_mir_c99_extern_function=fail_closed:syscall_requires_target_capability` 和
       `OK: full-language MIR-C99 baseline truth gate distinguishes --mir-c99, hosted native, fixture generator, and legacy C99`。
     - `bash tests/verify_mir_c99_cli_helloworld.sh`：通过。
+
+### 2026-06-27 - Full Language Parity / Generic CoreBody Lowering
+
+父级路径：`MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-LOWERING`
+
+- [x] `MIR-C99-FULL-SUPPORT-GENERIC-COREBODY-FUNCTION-INVENTORY`: 从真实
+  `../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c` 失败日志和现有
+  convergence audit 中生成按通用能力分类的 CoreBody/function 缺口清单，不再绑定具体
+  helper frontier。
+  - 完成说明（2026-06-27）：固定 `../uya/bin/uya` 已恢复，真实
+    `src/main.uya --mir-c99` 现在稳定进入 `[MIR-C99]`，并 fail-closed 到
+    `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_varargs_requires_c_variadic_capability`。
+    `docs/portable_mir_language_coverage.md` 新增 `MIR-C99 full-language CoreBody/function 缺口清单`，
+    按 CFG、place/memory、aggregate/layout、cleanup/error、call ABI、runtime helper、
+    emitter/output、link/absence 分类，并指向对应 parity/reject gate。
+  - 当前 audit：`blocked_category_summary=call_abi=1,runtime_helper=1,emitter_output=1,link_absence=1`；
+    CFG、place/memory、aggregate/layout 和 cleanup/error 当前不在 self-build blocked summary
+    中，但清单仍要求对应 full-language gate 持续约束。
+  - 验证：
+    - `../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：退出码 `1`，
+      日志包含 `[MIR-C99]` 与
+      `extern_varargs_requires_c_variadic_capability`。
+    - `bash tests/verify_mir_c99_full_language_function_inventory.sh`：通过，输出
+      `OK: MIR-C99 full-language function inventory is grounded in real CLI and audit gates`。
+    - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过。
+    - `bash tests/verify_mir_c99_self_build_convergence_audit.sh`：通过。
