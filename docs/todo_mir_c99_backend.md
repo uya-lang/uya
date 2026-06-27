@@ -106,26 +106,8 @@ CoreBody -> PortableMIR -> MirC99Plan -> MirC99Emitter -> host C99 compiler
     UYA_CMD_BOOTSTRAP_COMPILER=../uya/bin/uya` 目前都无法成功重建 current-source
     `cmd/build` 并同步回 sibling `../uya/bin/cmd/build`，详见失败归档中的
     `MIR-C99-FULL-SUPPORT-CLI-SUITE-SRC-MAIN-DISTINCT-OUTPUTS`。
-  - [f] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+  - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
     失败项只剩具体 capability diagnostic，并逐项归零。
-    - [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-EXTERN-SIGNATURE-METADATA-GATE`：
-      修正 extern-signature focused gate，使其验证当前源码里的真实 metadata lowering，
-      并锁定 `tests/test_ffi_cast.uya`、`tests/extern_ffi_no_struct.uya` 不再回退到
-      `extern_signature_requires_i32_scalars`。
-      - 最小验证：`bash tests/verify_mir_c99_extern_i32_signature_metadata.sh`
-      - 完成条件：focused gate 先失败后通过，并把真实前移结果写回本任务备注。
-      - 验证（2026-06-24，本轮）：
-        - 失败基线：`bash tests/verify_mir_c99_extern_i32_signature_metadata.sh` ->
-          `error: MIR-C99 extern i32 signature metadata missing evidence: extern i32 signature helper exists`
-        - 收口验证：`bash tests/verify_mir_c99_extern_i32_signature_metadata.sh` ->
-          `OK: MIR-C99 extern signature metadata lowering now reaches the verifier frontier`
-      - 真实前移（2026-06-24，本轮）：
-        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_ffi_cast.uya -o <tmp>` ->
-          `错误: MIR-C99 PortableMIR verifier 失败: code=16 ... type=4`
-        - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/extern_ffi_no_struct.uya -o <tmp>` ->
-          `错误: MIR-C99 PortableMIR verifier 失败: code=16 ... type=3`
-        - 两个用例日志均包含 `[MIR-C99]`，且不再出现
-          `extern_signature_requires_i32_scalars` / `错误: MIR-C99 extern lowering 失败`。
     - [ ] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-ENTRY-RUNTIME-BRIDGE`：
       收敛 `entry_extern_main_requires_runtime_bridge` 的真实 CLI 前沿，至少让
       `tests/test_ffi_cast.uya` 与 `tests/extern_ffi_no_struct.uya` 前移到后续稳定 bucket。

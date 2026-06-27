@@ -936,3 +936,11 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE`
   - 归档验证（2026-06-24）：
     - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_mir_c99_backend.md`
     - `git diff --check`
+### 4.15 Full Language Parity
+
+父级路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE`
+
+  - [f] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`: 让主语言面 `--mir-c99` 回归收敛，
+    失败项只剩具体 capability diagnostic，并逐项归零。
+    - 归档清理（2026-06-27）：该父级仍包含待执行子任务，主 todo 已恢复为 `[ ]`
+      分组继续承载后续 leaf；本条保留原 `[f]` 历史状态。
