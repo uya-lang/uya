@@ -602,9 +602,15 @@ fn main_get_target_arch_name() &byte {
 fn sync_test_network_skip_marker() void {
     const allow: *byte = getenv("ALLOW_SKIP_NETWORK" as *byte);
     if allow != null && allow[0] == '1' as byte && allow[1] == 0 {
-        system("/bin/sh -c ': > /tmp/uya_allow_skip_network'" as *byte);
+        const marker_result: i32 = system("/bin/sh -c ': > /tmp/uya_allow_skip_network'" as *byte);
+        if marker_result != 0 {
+            return;
+        }
     } else {
-        system("/bin/sh -c 'rm -f /tmp/uya_allow_skip_network'" as *byte);
+        const marker_result: i32 = system("/bin/sh -c 'rm -f /tmp/uya_allow_skip_network'" as *byte);
+        if marker_result != 0 {
+            return;
+        }
     }
 }
 
@@ -1109,4 +1115,3 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
     }
     return 0;
 }
-

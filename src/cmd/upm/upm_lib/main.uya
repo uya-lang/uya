@@ -493,7 +493,10 @@ fn upm_append_dependency_to_manifest(manifest_path: &byte, dep: &UPMDependency, 
     var rm_cmd: [byte: UPM_PATH_MAX * 2] = [];
     const rm_written: i32 = snprintf(&rm_cmd[0] as *byte, UPM_PATH_MAX * 2usize, "rm -f \"%s\"" as *byte, &out_path[0] as *byte);
     if rm_written > 0 && rm_written < UPM_PATH_MAX * 2 {
-        _ = system(&rm_cmd[0] as *byte);
+        const rm_result: i32 = system(&rm_cmd[0] as *byte);
+        if rm_result != 0 {
+            return 0;
+        }
     }
     return 0;
 }
@@ -636,7 +639,10 @@ fn upm_remove_dependency_from_manifest(manifest_path: &byte, alias: &byte, targe
         var rm_tmp_cmd: [byte: UPM_PATH_MAX * 2] = [];
         const rm_tmp_written: i32 = snprintf(&rm_tmp_cmd[0] as *byte, UPM_PATH_MAX * 2usize, "rm -f \"%s\"" as *byte, &out_path[0] as *byte);
         if rm_tmp_written > 0 && rm_tmp_written < UPM_PATH_MAX * 2 {
-            _ = system(&rm_tmp_cmd[0] as *byte);
+            const rm_tmp_result: i32 = system(&rm_tmp_cmd[0] as *byte);
+            if rm_tmp_result != 0 {
+                return 1;
+            }
         }
         return 1;
     }
@@ -659,7 +665,10 @@ fn upm_remove_dependency_from_manifest(manifest_path: &byte, alias: &byte, targe
     var rm_cmd: [byte: UPM_PATH_MAX * 2] = [];
     const rm_written: i32 = snprintf(&rm_cmd[0] as *byte, UPM_PATH_MAX * 2usize, "rm -f \"%s\"" as *byte, &out_path[0] as *byte);
     if rm_written > 0 && rm_written < UPM_PATH_MAX * 2 {
-        _ = system(&rm_cmd[0] as *byte);
+        const rm_result: i32 = system(&rm_cmd[0] as *byte);
+        if rm_result != 0 {
+            return 0;
+        }
     }
     return 0;
 }
@@ -1153,4 +1162,3 @@ export fn upm_cli_main(start_index: i32) i32 {
     fprintf(libc.stderr, "提示: 运行 `upm --help` 查看可用命令\n" as *byte);
     return 1;
 }
-

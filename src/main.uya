@@ -3434,7 +3434,10 @@ export fn main() i32 {
         const run_result: i32 = system(&run_cmd[0] as *byte);
         const child_exit: i32 = exit_code_from_system_status(run_result);
         if command == CommandType.COMMAND_TEST {
-            system("/bin/sh -c 'rm -f /tmp/uya_allow_skip_network'" as *byte);
+            const cleanup_result: i32 = system("/bin/sh -c 'rm -f /tmp/uya_allow_skip_network'" as *byte);
+            if cleanup_result != 0 {
+                fprintf(libc.stderr, "警告: 测试网络跳过标记清理失败，返回码：%d\n" as *byte, exit_code_from_system_status(cleanup_result));
+            }
         }
         if command == CommandType.COMMAND_TEST {
             var passed: i32 = 0;

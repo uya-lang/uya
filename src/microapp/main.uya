@@ -2675,7 +2675,10 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
 
     const data_len: i32 = snprintf(&cmd[0] as *byte, 8192, "%s -O binary --only-section=.data %s %s" as *byte, objcopy_env as *byte, &exe_path[0] as *byte, data_bin_path as *byte);
     if data_len > 0 && data_len < 8192 {
-        system(&cmd[0] as *byte);
+        const data_result: i32 = system(&cmd[0] as *byte);
+        if data_result != 0 {
+            return 0;
+        }
     }
     return 0;
 }
