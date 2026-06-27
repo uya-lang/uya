@@ -17,6 +17,7 @@ if [[ ! -x "$COMPILER" ]]; then
     echo "error: fixed MIR-C99 shard compiler is missing or not executable: $COMPILER" >&2
     exit 69
 fi
+export UYA_ROOT="$REPO_ROOT/lib/"
 
 tmp_dir="$(mktemp -d /tmp/uya-mir-c99-stmt-cfg-cli.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT

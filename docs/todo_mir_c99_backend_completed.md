@@ -2272,3 +2272,30 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
       `extern_varargs_requires_c_variadic_capability`。
     - `bash tests/verify_mir_c99_generic_corebody_no_new_one_off_materializers.sh`：通过，
       输出 `OK: MIR-C99 generic CoreBody migration has no new one-off materializer helpers`。
+
+### 2026-06-27 - Full Language Parity / Statement CFG
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-STATEMENT-CFG`
+
+- [x] `MIR-C99-FULL-SUPPORT-STATEMENT-CFG-BASELINE`: 在固定编译器路径
+  `../uya/bin/uya` 下建立真实 `--mir-c99` statement/CFG shard 基线，覆盖
+  local decl、assign、if、while、loop backedge 和 return，不允许走 legacy fallback。
+  - 失败基线（2026-06-27）：原最小验证先失败于
+    `tests/test_mir_c99_statement_cfg.uya` 不存在；现有
+    `tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh` 还会在未显式设置
+    `UYA_ROOT` 时用固定编译器取到旧库，导致 C99 oracle C 编译失败于
+    `std_runtime_saved_argc` / `std_runtime_saved_argv` / `std_runtime_saved_envp`
+    未声明。
+  - 完成说明（2026-06-27）：新增
+    `tests/test_mir_c99_statement_cfg.uya` 作为真实 CLI statement/CFG baseline shard；
+    `tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh` 现在固定
+    `UYA_ROOT="$REPO_ROOT/lib/"`，确保 fixed compiler 使用当前仓库标准库。该 shard
+    覆盖 local、assign、if、while、loop backedge 和 return，并由 host C99 compiler
+    编译运行通过。
+  - 验证：
+    - `test -x ../uya/bin/uya && ../uya/bin/uya --version`：通过。
+    - `bash tests/verify_mir_c99_statement_cfg_shard_cli_harness.sh`：通过，输出
+      `OK: MIR-C99 statement/CFG shard real CLI harness used ... matched C99 oracle`。
+    - `UYA_COMPILER=../uya/bin/uya PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`：通过。
+    - `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`：通过。
+    - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`：通过。

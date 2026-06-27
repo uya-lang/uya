@@ -1,0 +1,14 @@
+/// 功能说明：statement/CFG MIR-C99 回归入口，覆盖 local、assign、if、while、loop backedge 和 return。
+/// 参数说明：无。
+/// 返回值说明：所有 statement/CFG 分支按预期运行时返回 0，否则返回非零错误码。
+export fn main() i32 {
+    var i: i32 = 0;
+    while i < 3 {
+        if i < 2 {
+            i = i + 1;
+        } else {
+            return 0;
+        }
+    }
+    return 1;
+}
