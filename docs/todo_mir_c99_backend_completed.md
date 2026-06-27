@@ -2337,3 +2337,44 @@ Parent: `MIR-C99-FULL-SUPPORT-CLI-SUITE` > `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-
     - `bash tests/verify_mir_c99_ast_driver_shard_cli_harness.sh`：通过。
     - `PARALLEL_JOBS=8 CFLAGS='-std=c99 -O2 -fno-builtin -Werror' LDFLAGS='' ./tests/run_programs_parallel.sh --uya --mir-c99 --hide-pass tests/test_mir_c99_statement_cfg.uya`：通过。
     - `bash tests/verify_mir_c99_full_language_return_local_branch_loop_parity.sh`：通过。
+
+### 2026-06-27 - Full Language Parity / Main Language Buckets
+
+父级任务路径：`MIR-C99-FULL-SUPPORT-CLI-SUITE` -> `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE`
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET`:
+  让首个 generic `PortableMIR lowering 尚未覆盖当前程序` 用例收敛为具体
+  capability diagnostic 或真实支持，不再停在通用报错。
+  - 完成说明（2026-06-27）：固定 `../uya/bin/uya` 对
+    `tests/test_asm_const_output.uya` 已进入 `[MIR-C99]`，并稳定输出
+    `AST_ASM / inline_asm_requires_target_capability`；该 case 不再落到 generic
+    `PortableMIR lowering 尚未覆盖当前程序`。
+  - 验证：
+    - `bash tests/verify_mir_c99_test_stmt_nested_capability_diag.sh`：通过。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_asm_const_output.uya -o <tmp>/test_asm_const_output.c`：退出码 `1`，输出
+      `mir_c99_capability_diagnostic: kind=AST_ASM reason=inline_asm_requires_target_capability`。
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-UNIT-OUTPUT-FIRST-BUCKET`:
+  让首个 `MIR-C99 unit output 写出失败` real CLI 用例收敛为具体 capability
+  diagnostic 或真实支持，不再停在通用写出失败。
+  - 完成说明（2026-06-27）：真实 fixed-CLI 首个 unit-output bucket
+    `tests/test_exec_vm_try_unsupported.uya` 已 fail-closed 到
+    `AST_CATCH_EXPR / catch_return_not_lowered`，并明确拒绝
+    `MIR-C99 unit output 写出失败` 等通用错误。
+  - 验证：
+    - `bash tests/verify_mir_c99_full_language_unit_output_first_bucket.sh`：通过。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 tests/test_exec_vm_try_unsupported.uya -o <tmp>/test_exec_vm_try_unsupported.c`：退出码 `1`，输出
+      `mir_c99_capability_diagnostic: kind=AST_CATCH_EXPR reason=catch_return_not_lowered`。
+
+- [x] `MIR-C99-FULL-SUPPORT-CLI-SUITE-MAIN-LANGUAGE-PORTABLEMIR-FIRST-BUCKET-NEXT`:
+  让首个 generic `错误: MIR-C99 PortableMIR lowering 尚未覆盖当前程序` real CLI
+  用例收敛为具体 capability diagnostic 或真实支持。
+  - 完成说明（2026-06-27）：remaining generic lowering gate 覆盖当前首批 fixed
+    real-CLI fail-closed case，要求全部包含 `[MIR-C99]` 且拒绝 generic
+    `PortableMIR lowering 尚未覆盖当前程序`。`src/main.uya` 当前也已前移为
+    `extern_varargs_requires_c_variadic_capability`，仍属于后续主语言面 capability
+    收敛，不再是 generic PortableMIR bucket。
+  - 验证：
+    - `bash tests/verify_mir_c99_full_language_remaining_generic_lowering_capability_reject.sh`：通过。
+    - `UYA_ROOT="$PWD/lib/" ../uya/bin/uya build --mir-c99 src/main.uya -o <tmp>/main.c`：退出码 `1`，输出
+      `mir_c99_capability_diagnostic: kind=AST_FN_DECL reason=extern_varargs_requires_c_variadic_capability`。
