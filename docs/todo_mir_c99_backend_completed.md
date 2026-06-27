@@ -1618,6 +1618,10 @@ Context:
     - 同步覆盖 `bin/cmd/build` 与 `../uya/bin/cmd/build`，恢复 fixed/current-source HelloWorld `--mir-c99` 入口。
   - 验收：
     - `bash tests/verify_mir_c99_cli_helloworld.sh` -> `OK: uya build --mir-c99 examples/HelloWorld.uya emits and runs MIR-C99 C`
+  - 复核（2026-06-27）：
+    - `bash tests/verify_mir_c99_cli_helloworld.sh`：通过。
+    - `bash tests/verify_mir_c99_full_language_baseline_truth.sh`：通过，继续确认
+      HelloWorld 进入 `[MIR-C99]` unit writer 且拒绝 legacy C99 banner。
   - 补充观察：
     - `bash tests/verify_mandated_build_compiler_driver_entry.sh` 当前失败于 `src/cmd/build_bootstrap/main.uya` host C compile 裸名 `std_runtime_saved_envp` / `TYPED_PROGRAM_INVALID_ID` / `FUNCTION_SCOPE_BINDING_*`；未阻塞本叶子验收，后续如需恢复 fixed compiler 直接重建 `build_bootstrap`，需单独收口。
 
