@@ -120,7 +120,7 @@ export fn main() i32 {
 
 - access log 默认可关闭；开启后按 `sample_every` 采样，使用固定栈缓冲格式化 `method/path/status/latency`，debug 模式额外带 `wrote/persist`。
 - 错误 trace 统一走 `uyagin_error_response`，在 `500` 或 debug 模式下输出错误名、请求方法/路径，以及 `@src_path` / `@src_line` builtin 生成的位置。
-- `UyaginMetrics` 同时覆盖 request/status/latency/connection 与 arena/frame allocator 指标；其中连接计数在 `engine_run` accept/cleanup 路径维护。
+- `UyaginMetrics` 同时覆盖 request/status/latency/connection 与 arena/frame allocator 指标；其中连接计数在 `engine_run` accept/cleanup 路径维护。`EngineRunOptions.latency_sample_every` 可对 latency bucket 采样，设为 `0` 时关闭延迟桶采样以避免每请求时间 syscall；`metrics_detail_sample_every` 可对 status/latency/arena/frame alloc-free 细项采样，设为 `0` 时只保留 request/heap fallback/connection 等核心计数。
 - `UyaginConfig` 统一承载 allocator、limits、run options 与 access log；`EngineRunOptions` 负责 backlog、max connections、buffer cap、request arena cap、timeouts、mode 等生产运行项。
 
 ## 性能设计

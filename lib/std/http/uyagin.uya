@@ -65,6 +65,8 @@ export struct EngineRunOptions {
     buffer_cap: usize,
     request_arena_cap: usize,
     mode: UyaginMode,
+    latency_sample_every: u32,
+    metrics_detail_sample_every: u32,
 }
 
 export struct EngineRunController {
@@ -231,6 +233,8 @@ export struct GinContext {
     out_header_count: i32,
     suppress_body: bool,
     response_body: UyaginResponseBody,
+    response_head_buf: &byte,
+    response_head_cap: usize,
 
     fn req(self: &Self) &Request {
         return self.request;
@@ -299,24 +303,20 @@ export struct GinContext {
         self.aborted = true;
     }
 
-    @async_fn
     fn data(self: &Self, status: Status, content_type: &[const byte], body: &[const byte]) Future<!i32> {
-        return try @await uyagin_write_context_response_async(self, status, content_type, body);
+        return uyagin_write_context_response_async(self, status, content_type, body);
     }
 
-    @async_fn
     fn string(self: &Self, status: Status, body: &[const byte]) Future<!i32> {
-        return try @await self.data(status, "text/plain", body);
+        return self.data(status, "text/plain", body);
     }
 
-    @async_fn
     fn json_raw(self: &Self, status: Status, body: &[const byte]) Future<!i32> {
-        return try @await self.data(status, "application/json", body);
+        return self.data(status, "application/json", body);
     }
 
-    @async_fn
     fn bytes(self: &Self, status: Status, content_type: &[const byte], body: &[const byte]) Future<!i32> {
-        return try @await self.data(status, content_type, body);
+        return self.data(status, content_type, body);
     }
 
     @async_fn
@@ -379,9 +379,8 @@ export struct GinContext {
         return uyagin_write_context_response_async(self, status, uyagin_text_plain(), uyagin_empty_body());
     }
 
-    @async_fn
     fn no_content(self: &Self, status: Status) Future<!i32> {
-        return try @await self.data(status, "text/plain", uyagin_empty_body());
+        return self.data(status, "text/plain", uyagin_empty_body());
     }
 }
 
@@ -392,12 +391,17 @@ struct UyaginConnState {
     ctx: GinContext,
     request_arena_storage: [byte: UYAGIN_REQUEST_ARENA_CAP] = [],
     request_arena: RequestArena = RequestArena{},
+    response_head: [byte: UYAGIN_HEADER_CAP] = [],
     filled: usize = 0,
     served: i32 = 0,
     http10_session_keep_alive: bool = false,
 
     fn io_buf_base(self: &Self) &byte {
         return &self.io_buf[0] as &byte;
+    }
+
+    fn response_head_base(self: &Self) &byte {
+        return &self.response_head[0] as &byte;
     }
 
     fn prepare(self: &Self, request_arena_cap: usize) void {
@@ -501,22 +505,90 @@ export fn uyagin_error_response(engine: &Engine, ctx: &GinContext, err_id: u32) 
 
 @async_fn fn uyagin_observe_request_future(engine: &Engine, ctx: &GinContext, inner: Future<!i32>) Future<!i32> {
     var started_us: u64 = 0u64;
-    const started_us_result: !u64 = uyagin_now_us();
-    started_us = started_us_result catch { 1u64; };
+    const latency_recorded: bool = uyagin_should_sample_latency(engine);
+    const needs_time: bool = latency_recorded || uyagin_will_emit_access_log(engine);
+    if needs_time {
+        const started_us_result: !u64 = uyagin_now_us();
+        started_us = started_us_result catch { 1u64; };
+    }
     const result: !i32 = @await inner;
     var ended_us: u64 = started_us;
-    const ended_us_result: !u64 = uyagin_now_us();
-    ended_us = ended_us_result catch { started_us; };
+    if needs_time {
+        const ended_us_result: !u64 = uyagin_now_us();
+        ended_us = ended_us_result catch { started_us; };
+    }
     var latency_us: u64 = 0u64;
     if ended_us >= started_us {
         latency_us = ended_us - started_us;
     }
-    uyagin_record_request_observation(engine, ctx, result.error_id, latency_us);
+    uyagin_record_request_observation(engine, ctx, result.error_id, latency_us, latency_recorded);
     if result.error_id != 0u32 {
         const restored: i32 = try uyagin_error_from_error_id_i32(result.error_id);
         return restored;
     }
     return result.value;
+}
+
+@async_fn fn uyagin_observe_leaf_route_future(engine: &Engine, ctx: &GinContext, route: &GinRoute) Future<!i32> {
+    var started_us: u64 = 0u64;
+    const latency_recorded: bool = uyagin_should_sample_latency(engine);
+    const needs_time: bool = latency_recorded || uyagin_will_emit_access_log(engine);
+    if needs_time {
+        const started_us_result: !u64 = uyagin_now_us();
+        started_us = started_us_result catch { 1u64; };
+    }
+
+    var final_result: i32 = 0;
+    var err_id: u32 = 0u32;
+    const handler_future: Future<!i32> = route.handler.handle(ctx);
+    const handler_result: !i32 = @await handler_future;
+    if handler_result.error_id != 0u32 {
+        err_id = handler_result.error_id;
+    } else {
+        const encoded_err: u32 = uyagin_encoded_handler_error_id(handler_result.value);
+        if encoded_err != 0u32 {
+            err_id = encoded_err;
+        } else {
+            final_result = handler_result.value;
+        }
+    }
+
+    if err_id != 0u32 && engine != null && engine.recovery_enabled {
+        const error_future: Future<!i32> = uyagin_error_response(engine, ctx, err_id);
+        const error_result: !i32 = @await error_future;
+        if error_result.error_id != 0u32 {
+            err_id = error_result.error_id;
+        } else {
+            err_id = 0u32;
+            final_result = error_result.value;
+        }
+    }
+
+    if err_id == 0u32 && ctx != null && !ctx.wrote {
+        const empty_future: Future<!i32> = uyagin_write_context_response_async(ctx, ctx.response_status, uyagin_text_plain(), uyagin_empty_body());
+        const empty_result: !i32 = @await empty_future;
+        if empty_result.error_id != 0u32 {
+            err_id = empty_result.error_id;
+        } else {
+            final_result = empty_result.value;
+        }
+    }
+
+    var ended_us: u64 = started_us;
+    if needs_time {
+        const ended_us_result: !u64 = uyagin_now_us();
+        ended_us = ended_us_result catch { started_us; };
+    }
+    var latency_us: u64 = 0u64;
+    if ended_us >= started_us {
+        latency_us = ended_us - started_us;
+    }
+    uyagin_record_request_observation(engine, ctx, err_id, latency_us, latency_recorded);
+    if err_id != 0u32 {
+        const restored: i32 = try uyagin_error_from_error_id_i32(err_id);
+        return restored;
+    }
+    return final_result;
 }
 
 /// 路由分组：共享前缀，并可挂接组内 middleware。
@@ -679,10 +751,17 @@ export struct Engine {
                 const inner: Future<!i32> = uyagin_ready_i32(error.RouteIndexInvalid);
                 return uyagin_observe_request_future(self, ctx, inner);
             }
-            uyagin_route_meta_bind_params_request(meta, ctx.request) catch {
-                const inner: Future<!i32> = uyagin_ready_i32(error.InvalidRequest);
-                return uyagin_observe_request_future(self, ctx, inner);
-            };
+            if meta.param_count == 0 {
+                ctx.request.path_param_count = 0;
+            } else {
+                uyagin_route_meta_bind_params_request(meta, ctx.request) catch {
+                    const inner: Future<!i32> = uyagin_ready_i32(error.InvalidRequest);
+                    return uyagin_observe_request_future(self, ctx, inner);
+                };
+            }
+            if self.middleware_count == 0 && route.middleware_count == 0 {
+                return uyagin_observe_leaf_route_future(self, ctx, route);
+            }
             if self.recovery_enabled {
                 const inner: Future<!i32> = uyagin_run_chain_recover(self, ctx, route);
                 return uyagin_observe_request_future(self, ctx, inner);
@@ -948,6 +1027,9 @@ export fn uyagin_validate_request_limits(engine: &Engine, req: &Request) !void {
     if req.body.len > engine.limits.max_body_bytes {
         return error.PayloadTooLarge;
     }
+    if req.body.len == 0 {
+        return;
+    }
     if uyagin_request_is_urlencoded_form(req) {
         if uyagin_count_form_fields(req.body) > engine.limits.max_form_fields {
             return error.PayloadTooLarge;
@@ -972,21 +1054,33 @@ export fn uyagin_collect_metrics(engine: &Engine, scheduler: &Scheduler, request
     if engine == null || scheduler == null || request_arena == null {
         return;
     }
-    engine.metrics.arena_used_bytes += request_arena.used() as u64;
-    engine.metrics.arena_reset_count += 1u64;
-    const runtime_metrics: SchedulerMetrics = scheduler_metrics(scheduler);
-    if runtime_metrics.frame_alloc_count >= scheduler._metrics_frame_alloc_seen {
-        engine.metrics.frame_alloc_count += runtime_metrics.frame_alloc_count - scheduler._metrics_frame_alloc_seen;
+    const detail_recorded: bool = uyagin_should_sample_metrics_detail_current(engine);
+    if detail_recorded {
+        engine.metrics.arena_used_bytes += request_arena.used() as u64;
+        engine.metrics.arena_reset_count += 1u64;
     }
-    if runtime_metrics.frame_free_count >= scheduler._metrics_frame_free_seen {
-        engine.metrics.frame_free_count += runtime_metrics.frame_free_count - scheduler._metrics_frame_free_seen;
+    const pool: &AsyncFramePool = scheduler._frame_pool;
+    if pool == null {
+        return;
     }
-    if runtime_metrics.frame_heap_fallback_count >= scheduler._metrics_heap_fallback_seen {
-        engine.metrics.heap_fallback_count += runtime_metrics.frame_heap_fallback_count - scheduler._metrics_heap_fallback_seen;
+    const heap_fallback_count: u64 = pool.debug_heap_fallback_count as u64;
+    if heap_fallback_count >= scheduler._metrics_heap_fallback_seen {
+        engine.metrics.heap_fallback_count += heap_fallback_count - scheduler._metrics_heap_fallback_seen;
     }
-    scheduler._metrics_frame_alloc_seen = runtime_metrics.frame_alloc_count;
-    scheduler._metrics_frame_free_seen = runtime_metrics.frame_free_count;
-    scheduler._metrics_heap_fallback_seen = runtime_metrics.frame_heap_fallback_count;
+    scheduler._metrics_heap_fallback_seen = heap_fallback_count;
+    if !detail_recorded {
+        return;
+    }
+    const frame_alloc_count: u64 = pool.total_alloc_count as u64;
+    const frame_free_count: u64 = pool.total_free_count as u64;
+    if frame_alloc_count >= scheduler._metrics_frame_alloc_seen {
+        engine.metrics.frame_alloc_count += frame_alloc_count - scheduler._metrics_frame_alloc_seen;
+    }
+    if frame_free_count >= scheduler._metrics_frame_free_seen {
+        engine.metrics.frame_free_count += frame_free_count - scheduler._metrics_frame_free_seen;
+    }
+    scheduler._metrics_frame_alloc_seen = frame_alloc_count;
+    scheduler._metrics_frame_free_seen = frame_free_count;
 }
 
 fn uyagin_log_fd(engine: &Engine) i32 {
@@ -1155,7 +1249,53 @@ fn uyagin_should_emit_access_log(engine: &Engine) bool {
     return (seq % (engine.access_log.sample_every as u64)) == 0u64;
 }
 
-fn uyagin_record_request_observation(engine: &Engine, ctx: &GinContext, err_id: u32, latency_us: u64) void {
+fn uyagin_will_emit_access_log(engine: &Engine) bool {
+    if engine == null || !engine.access_log.enabled {
+        return false;
+    }
+    if engine.access_log.sample_every <= 1u32 {
+        return true;
+    }
+    const seq: u64 = engine.metrics.request_count + 1u64;
+    return (seq % (engine.access_log.sample_every as u64)) == 0u64;
+}
+
+fn uyagin_should_sample_latency(engine: &Engine) bool {
+    if engine == null || engine.run_options.metrics_detail_sample_every == 0u32 || engine.run_options.latency_sample_every == 0u32 {
+        return false;
+    }
+    if engine.run_options.latency_sample_every <= 1u32 {
+        return true;
+    }
+    const seq: u64 = engine.metrics.request_count + 1u64;
+    return (seq % (engine.run_options.latency_sample_every as u64)) == 0u64;
+}
+
+fn uyagin_should_sample_metrics_detail_for_seq(engine: &Engine, seq: u64) bool {
+    if engine == null || engine.run_options.metrics_detail_sample_every == 0u32 {
+        return false;
+    }
+    if engine.run_options.metrics_detail_sample_every <= 1u32 {
+        return true;
+    }
+    return (seq % (engine.run_options.metrics_detail_sample_every as u64)) == 0u64;
+}
+
+fn uyagin_should_sample_metrics_detail(engine: &Engine) bool {
+    if engine == null {
+        return false;
+    }
+    return uyagin_should_sample_metrics_detail_for_seq(engine, engine.metrics.request_count + 1u64);
+}
+
+fn uyagin_should_sample_metrics_detail_current(engine: &Engine) bool {
+    if engine == null {
+        return false;
+    }
+    return uyagin_should_sample_metrics_detail_for_seq(engine, engine.metrics.request_count);
+}
+
+fn uyagin_record_request_observation(engine: &Engine, ctx: &GinContext, err_id: u32, latency_us: u64, latency_recorded: bool) void {
     if engine == null {
         return;
     }
@@ -1166,9 +1306,14 @@ fn uyagin_record_request_observation(engine: &Engine, ctx: &GinContext, err_id: 
     if err_id != 0u32 && (ctx == null || (!ctx.wrote && status == Status.OK)) {
         status = uyagin_status_for_error_id(err_id);
     }
+    const detail_recorded: bool = uyagin_should_sample_metrics_detail(engine);
     engine.metrics.request_count += 1u64;
-    uyagin_record_status_metric(&engine.metrics, status);
-    uyagin_record_latency_metric(&engine.metrics, latency_us);
+    if detail_recorded {
+        uyagin_record_status_metric(&engine.metrics, status);
+    }
+    if latency_recorded {
+        uyagin_record_latency_metric(&engine.metrics, latency_us);
+    }
     if uyagin_should_emit_access_log(engine) {
         uyagin_emit_access_log(engine, ctx, status, latency_us);
     }
@@ -1549,6 +1694,8 @@ export fn uyagin_run_options_default() EngineRunOptions {
         buffer_cap: UYAGIN_IO_CAP,
         request_arena_cap: UYAGIN_REQUEST_ARENA_CAP,
         mode: UyaginMode.Release,
+        latency_sample_every: 1u32,
+        metrics_detail_sample_every: 1u32,
     };
 }
 
@@ -1674,6 +1821,16 @@ fn uyagin_deadline_expired(now_ms: u64, started_ms: u64, timeout_ms: u32) bool {
         return false;
     }
     return now_ms >= started_ms + (timeout_ms as u64);
+}
+
+fn uyagin_run_options_needs_clock(options: &EngineRunOptions, controller: &EngineRunController) bool {
+    if controller != null {
+        return true;
+    }
+    if options == null {
+        return false;
+    }
+    return options.read_timeout_ms != 0u32 || options.write_timeout_ms != 0u32 || options.idle_timeout_ms != 0u32;
 }
 
 fn uyagin_conn_slot_ptr(base: &UyaginConnTaskSlot, idx: i32, cap: i32) &UyaginConnTaskSlot {
@@ -1858,6 +2015,8 @@ fn uyagin_engine_run_shards(engine: &Engine, listener: &GinListener, opts: &Engi
         ctxs[i as usize].options.buffer_cap = options.buffer_cap;
         ctxs[i as usize].options.request_arena_cap = options.request_arena_cap;
         ctxs[i as usize].options.mode = options.mode;
+        ctxs[i as usize].options.latency_sample_every = options.latency_sample_every;
+        ctxs[i as usize].options.metrics_detail_sample_every = options.metrics_detail_sample_every;
         ctxs[i as usize].served = 0;
         ctxs[i as usize].failed = 0;
         const cret: i32 = pthread_create(&threads[i as usize], &thread_attr as &const pthread_attr_t, &uyagin_shard_thread_main as &void, (&ctxs[i as usize]) as &void);
@@ -1958,9 +2117,13 @@ fn uyagin_engine_run(engine: &Engine, srv: &HttpServer, loop: EventLoop, schedul
     var active_count: i32 = 0;
     var accepting: bool = true;
     var shutdown_deadline_ms: u64 = 0u64;
+    const needs_clock: bool = uyagin_run_options_needs_clock(&options, controller);
 
     while true {
-        const now_ms: u64 = try uyagin_now_ms();
+        var now_ms: u64 = 0u64;
+        if needs_clock {
+            now_ms = try uyagin_now_ms();
+        }
         var made_progress: i32 = 0;
         var registered: i32 = 0;
         var need_retry: i32 = 0;
@@ -2046,10 +2209,11 @@ fn uyagin_engine_run(engine: &Engine, srv: &HttpServer, loop: EventLoop, schedul
                 continue;
             }
 
-            if uyagin_deadline_expired(now_ms, slot.last_progress_ms, options.idle_timeout_ms) ||
-               (slot.wait_interest == 1 && uyagin_deadline_expired(now_ms, slot.last_progress_ms, options.read_timeout_ms)) ||
-               (slot.wait_interest == 2 && uyagin_deadline_expired(now_ms, slot.last_progress_ms, options.write_timeout_ms)) ||
-               (shutdown_deadline_ms != 0u64 && now_ms >= shutdown_deadline_ms) {
+            if needs_clock &&
+               (uyagin_deadline_expired(now_ms, slot.last_progress_ms, options.idle_timeout_ms) ||
+                (slot.wait_interest == 1 && uyagin_deadline_expired(now_ms, slot.last_progress_ms, options.read_timeout_ms)) ||
+                (slot.wait_interest == 2 && uyagin_deadline_expired(now_ms, slot.last_progress_ms, options.write_timeout_ms)) ||
+                (shutdown_deadline_ms != 0u64 && now_ms >= shutdown_deadline_ms)) {
                 _ = sys_shutdown(slot.fd, SHUT_WR) catch {};
                 _ = sys_close(slot.fd) catch {};
                 uyagin_cleanup_slot(loop, slot);
@@ -2077,7 +2241,9 @@ fn uyagin_engine_run(engine: &Engine, srv: &HttpServer, loop: EventLoop, schedul
                 },
                 .Pending(_) => {
                     if slot.waker.is_woken() {
-                        slot.last_progress_ms = now_ms;
+                        if needs_clock {
+                            slot.last_progress_ms = now_ms;
+                        }
                         made_progress = 1;
                     } else {
                         slot.wait_interest = slot.waker.io_interest_code();
@@ -2161,6 +2327,8 @@ export fn uyagin_context_new_with_request_arena(fd: i32, req: &Request, persist:
         out_header_count: 0,
         suppress_body: false,
         response_body: uyagin_response_body_static(uyagin_text_plain(), uyagin_empty_body()),
+        response_head_buf: null,
+        response_head_cap: 0usize,
     };
 }
 
@@ -2182,6 +2350,39 @@ fn uyagin_response_body_len(body: UyaginResponseBody) usize {
 
 @async_fn fn uyagin_writev_all_future(fd: i32, head: &const byte, head_len: usize, body: &const byte, body_len: usize) Future<!usize> {
     return try @await async_writev(fd, head, head_len, body, body_len);
+}
+
+@async_fn fn uyagin_write_all_nonblocking_future(fd: i32, data: &const byte, count: usize) Future<!usize> {
+    var total: usize = 0;
+    while total < count {
+        const ptr: *const byte = @ptr_from_usize(@usize_from_ptr(data as &void) + total) as *const byte;
+        const result: !isize = sys_write(fd, ptr, count - total);
+        var step: i32 = 0;
+        const n: isize = result catch |err| {
+            const err_id: u32 = @error_id(err);
+            if err_id == EINTR as u32 {
+                step = 1;
+                0 as isize;
+            } else if err_id == EAGAIN as u32 || err_id == EWOULDBLOCK as u32 {
+                step = 2;
+                0 as isize;
+            } else {
+                return err;
+            }
+        };
+        if step == 1 {
+            continue;
+        }
+        if step == 2 {
+            _ = try @await async_wait_writable(fd, 0 as u64);
+            continue;
+        }
+        if n <= 0 {
+            return error.WriteZero;
+        }
+        total = total + (n as usize);
+    }
+    return total;
 }
 
 @async_fn fn uyagin_sendfile_future(fd: i32, file_fd: i32, total_len: usize) Future<!usize> {
@@ -2263,12 +2464,56 @@ fn uyagin_raise_encoded_handler_result(value: i32) !void {
     return error.HandlerMissing;
 }
 
-export @async_fn fn uyagin_write_context_response_async(ctx: &GinContext, status: Status, content_type: &[const byte], body: &[const byte]) Future<!i32> {
+export fn uyagin_write_context_response_async(ctx: &GinContext, status: Status, content_type: &[const byte], body: &[const byte]) Future<!i32> {
+    if ctx != null && ctx.response_head_buf != null && ctx.response_head_cap > 0 {
+        return uyagin_write_context_response_with_head_async(ctx, status, content_type, body, ctx.response_head_buf, ctx.response_head_cap);
+    }
+    return uyagin_write_context_response_local_head_async(ctx, status, content_type, body);
+}
+
+@async_fn fn uyagin_write_context_response_local_head_async(ctx: &GinContext, status: Status, content_type: &[const byte], body: &[const byte]) Future<!i32> {
+    var hdr: [byte: UYAGIN_HEADER_CAP] = [];
+    return try @await uyagin_write_context_response_with_head_async(ctx, status, content_type, body, &hdr[0] as &byte, UYAGIN_HEADER_CAP);
+}
+
+@async_fn fn uyagin_write_context_response_with_head_async(ctx: &GinContext, status: Status, content_type: &[const byte], body: &[const byte], hdr: &byte, hdr_cap: usize) Future<!i32> {
     if ctx == null || ctx.fd < 0 || ctx.request == null {
         return error.InvalidRequest;
     }
+    if hdr == null || hdr_cap == 0 {
+        return error.HeaderBufferTooSmall;
+    }
     ctx.response_status = status;
-    _ = try @await uyagin_send_context_response_bytes_future(ctx, status, content_type, body);
+    if ctx.suppress_body {
+        _ = try @await uyagin_send_context_response_head_only_async(ctx, status, content_type, body.len);
+        ctx.wrote = true;
+        return 0;
+    }
+    var pos: usize = 0;
+    if ctx.out_header_count == 0 && ctx.persist && ctx.request.http11 {
+        pos = uyagin_build_response_head_http11_persist_no_headers(hdr, hdr_cap, status, content_type, body.len);
+    } else {
+        pos = uyagin_build_response_head(hdr, hdr_cap, status, content_type, body.len, ctx.request, ctx.persist, &ctx.out_headers[0] as &Header, ctx.out_header_count);
+    }
+    if pos > hdr_cap {
+        return error.HeaderBufferTooSmall;
+    }
+    var total: usize = pos + body.len;
+    const room: usize = hdr_cap - pos;
+    if body.len <= room {
+        var i: usize = 0;
+        while i < body.len {
+            hdr[pos + i] = body.ptr[i];
+            i = i + 1;
+        }
+        _ = try @await uyagin_write_all_nonblocking_future(ctx.fd, hdr as &const byte, total);
+    } else {
+        if body.len > 0 {
+            _ = try @await uyagin_writev_all_future(ctx.fd, hdr as &const byte, pos, body.ptr as &const byte, body.len);
+        } else {
+            _ = try @await uyagin_write_all_nonblocking_future(ctx.fd, hdr as &const byte, pos);
+        }
+    }
     ctx.wrote = true;
     return 0;
 }
@@ -2637,6 +2882,17 @@ fn uyagin_build_response_head(out: &byte, cap: usize, status: Status, content_ty
     return pos;
 }
 
+fn uyagin_build_response_head_http11_persist_no_headers(out: &byte, cap: usize, status: Status, content_type: &[const byte], body_len: usize) usize {
+    var pos: usize = 0;
+    pos = uyagin_append_status_fast(out, cap, pos, status);
+    pos = uyagin_append_slice_fast(out, cap, pos, "Content-Length: ");
+    pos = uyagin_append_usize_dec_fast(out, cap, pos, body_len);
+    pos = uyagin_append_slice_fast(out, cap, pos, "\r\nContent-Type: ");
+    pos = uyagin_append_slice_fast(out, cap, pos, content_type);
+    pos = uyagin_append_slice_fast(out, cap, pos, "\r\n\r\n");
+    return pos;
+}
+
 fn uyagin_append_hex_usize_fast(out: &byte, cap: usize, pos: usize, n: usize) usize {
     var p: usize = pos;
     if n == 0 {
@@ -2716,7 +2972,12 @@ export @async_fn fn uyagin_send_context_response_head_only_async(ctx: &GinContex
         return error.InvalidRequest;
     }
     var hdr: [byte: UYAGIN_HEADER_CAP] = [];
-    var pos: usize = uyagin_build_response_head(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, content_type, body_len, ctx.request, ctx.persist, &ctx.out_headers[0] as &Header, ctx.out_header_count);
+    var pos: usize = 0;
+    if ctx.out_header_count == 0 && ctx.persist && ctx.request.http11 {
+        pos = uyagin_build_response_head_http11_persist_no_headers(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, content_type, body_len);
+    } else {
+        pos = uyagin_build_response_head(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, content_type, body_len, ctx.request, ctx.persist, &ctx.out_headers[0] as &Header, ctx.out_header_count);
+    }
     if pos > UYAGIN_HEADER_CAP {
         return error.HeaderBufferTooSmall;
     }
@@ -2773,7 +3034,12 @@ export @async_fn fn uyagin_send_context_response_raw_bytes_body_async(ctx: &GinC
         return error.InvalidRequest;
     }
     var hdr: [byte: UYAGIN_HEADER_CAP] = [];
-    var pos: usize = uyagin_build_response_head(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, content_type, body_len, ctx.request, ctx.persist, &ctx.out_headers[0] as &Header, ctx.out_header_count);
+    var pos: usize = 0;
+    if ctx.out_header_count == 0 && ctx.persist && ctx.request.http11 {
+        pos = uyagin_build_response_head_http11_persist_no_headers(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, content_type, body_len);
+    } else {
+        pos = uyagin_build_response_head(&hdr[0] as &byte, UYAGIN_HEADER_CAP, status, content_type, body_len, ctx.request, ctx.persist, &ctx.out_headers[0] as &Header, ctx.out_header_count);
+    }
     if pos > UYAGIN_HEADER_CAP {
         return error.HeaderBufferTooSmall;
     }
@@ -3027,6 +3293,8 @@ export @async_fn fn uyagin_accept_async(srv: &HttpServer) Future<!i32> {
                 req_alloc = engine.allocator;
             }
             conn_state.ctx = uyagin_context_new_with_request_arena(fd, &conn_state.parse_result.request, persist, req_alloc, &conn_state.request_arena);
+            conn_state.ctx.response_head_buf = conn_state.response_head_base();
+            conn_state.ctx.response_head_cap = UYAGIN_HEADER_CAP;
             const handle_future: Future<!i32> = engine.handle(&conn_state.ctx);
             const handled: i32 = try @await handle_future;
             _ = handled;

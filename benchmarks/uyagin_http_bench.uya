@@ -262,6 +262,8 @@ export fn main() i32 {
     cfg.run_options.reuse_port = threads > 1;
     cfg.run_options.max_connections = UYAGIN_RUN_CONN_SLOT_CAP;
     cfg.run_options.accept_batch = 16;
+    cfg.run_options.latency_sample_every = 0u32;
+    cfg.run_options.metrics_detail_sample_every = 0u32;
     cfg.access_log.enabled = false;
 
     var engine: Engine = uyagin_new_with_config(cfg);

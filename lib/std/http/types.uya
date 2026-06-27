@@ -467,6 +467,62 @@ export fn request_get_header(req: &Request, name: &[byte]) !&[byte] {
     return error.InvalidRequest;
 }
 
+fn request_get_connection_header(req: &Request) !&[byte] {
+    if req == null {
+        return error.InvalidRequest;
+    }
+    const header_cap: i32 = @len(req.headers) as i32;
+    if req.header_count < 0 || req.header_count > header_cap {
+        return error.InvalidRequest;
+    }
+    const lit: &[byte] = &"Connection"[0: 10];
+    var hi: i32 = 0;
+    while hi < req.header_count && hi < header_cap {
+        const h: &ReqHeader = &req.headers[hi];
+        if h.name_kind == HEADER_KIND_CONNECTION {
+            return h.value;
+        }
+        hi = hi + 1;
+    }
+    hi = 0;
+    while hi < req.header_count && hi < header_cap {
+        const h: &ReqHeader = &req.headers[hi];
+        if request_header_name_eq_ci_lit(h, lit, HEADER_KIND_CONNECTION) {
+            return h.value;
+        }
+        hi = hi + 1;
+    }
+    return error.InvalidRequest;
+}
+
+fn request_get_transfer_encoding_header(req: &Request) !&[byte] {
+    if req == null {
+        return error.InvalidRequest;
+    }
+    const header_cap: i32 = @len(req.headers) as i32;
+    if req.header_count < 0 || req.header_count > header_cap {
+        return error.InvalidRequest;
+    }
+    const lit: &[byte] = &"Transfer-Encoding"[0: 17];
+    var hi: i32 = 0;
+    while hi < req.header_count && hi < header_cap {
+        const h: &ReqHeader = &req.headers[hi];
+        if h.name_kind == HEADER_KIND_TRANSFER_ENCODING {
+            return h.value;
+        }
+        hi = hi + 1;
+    }
+    hi = 0;
+    while hi < req.header_count && hi < header_cap {
+        const h: &ReqHeader = &req.headers[hi];
+        if request_header_name_eq_ci_lit(h, lit, HEADER_KIND_TRANSFER_ENCODING) {
+            return h.value;
+        }
+        hi = hi + 1;
+    }
+    return error.InvalidRequest;
+}
+
 /// `Connection` 头按逗号分列后，是否存在与 `tok` 大小写不敏感的令牌（忽略两侧 OWS）。
 fn header_value_has_connection_token_ci(value: &[byte], tok: &[byte]) bool {
     var i: usize = 0;
@@ -512,7 +568,7 @@ fn header_value_has_token_ci(value: &[byte], tok: &[byte]) bool {
 }
 
 export fn request_has_chunked_transfer_encoding(req: &Request) bool {
-    const val: &[byte] = request_get_header(req, &"Transfer-Encoding"[0: 17]) catch {
+    const val: &[byte] = request_get_transfer_encoding_header(req) catch {
         return false;
     };
     return header_value_has_token_ci(val, &"chunked"[0: 7]);
@@ -524,7 +580,15 @@ export fn request_has_content_length(req: &Request) bool {
     var hi: i32 = 0;
     while hi < req.header_count && hi < header_cap {
         const h: &ReqHeader = &req.headers[hi];
-        if h.name_kind == HEADER_KIND_CONTENT_LENGTH || request_header_name_eq_ci_lit(h, lit, HEADER_KIND_CONTENT_LENGTH) {
+        if h.name_kind == HEADER_KIND_CONTENT_LENGTH {
+            return true;
+        }
+        hi = hi + 1;
+    }
+    hi = 0;
+    while hi < req.header_count && hi < header_cap {
+        const h: &ReqHeader = &req.headers[hi];
+        if request_header_name_eq_ci_lit(h, lit, HEADER_KIND_CONTENT_LENGTH) {
             return true;
         }
         hi = hi + 1;
@@ -535,7 +599,7 @@ export fn request_has_content_length(req: &Request) bool {
 /// 本响应后是否应保持连接（与是否应在响应中加 `Connection: close` 相反）。
 /// 规则：`Connection: close` → 否；无 `Connection` 时 1.1 默认为是、1.0 默认为否；1.0 须显式 `keep-alive` 才是。
 export fn request_wants_persistent_connection(req: &Request) bool {
-    const val: &[byte] = request_get_header(req, &"Connection"[0: 10]) catch {
+    const val: &[byte] = request_get_connection_header(req) catch {
         return req.http11;
     };
     if header_value_has_connection_token_ci(val, &"close"[0: 5]) {
@@ -550,17 +614,20 @@ export fn request_wants_persistent_connection(req: &Request) bool {
 /// 在 **同一 TCP 连接** 上已跑过至少一轮 HTTP/1.0 Keep-Alive 时，部分客户端（如 **ab -k**）后续请求可能 **不再带 Connection**；严格 `request_wants_persistent_connection` 会把「无头」判为不保持，服务端提前 `close` 而客户端仍等响应 → 并发 -k 时卡死。
 /// `http10_session_keep_alive`：本连接上是否已以 HTTP/1.0 且「应保持」成功应答过（由调用方在每轮末尾维护）。
 export fn request_wants_persistent_with_session(req: &Request, http10_session_keep_alive: bool) bool {
+    if req.http11 {
+        const val: &[byte] = request_get_connection_header(req) catch {
+            return true;
+        };
+        return !header_value_has_connection_token_ci(val, &"close"[0: 5]);
+    }
     const strict: bool = request_wants_persistent_connection(req);
     if strict {
         return true;
     }
-    if req.http11 {
-        return false;
-    }
     if !http10_session_keep_alive {
         return false;
     }
-    const val: &[byte] = request_get_header(req, &"Connection"[0: 10]) catch {
+    const val: &[byte] = request_get_connection_header(req) catch {
         return true;
     };
     if header_value_has_connection_token_ci(val, &"close"[0: 5]) {
