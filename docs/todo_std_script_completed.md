@@ -66,3 +66,22 @@
     - `python3 - <<'PY' ...` 统计 `docs/std_script_shell_inventory.md` 中的 `tests/` 路径 => `132`
     - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` => `ok: docs/todo_std_script.md has 0 active tasks`
     - `git diff --check` => `OK`
+
+## Phase 0：盘点与基线
+
+- [x] 盘点仓库内现有 shell 脚本，按复杂度分三类：
+  - [x] C 类：强平台/强工具链耦合，后期迁移
+    - 判定标准：脚本直接按宿主/目标 `OS`、`arch` 分支，或强依赖交叉编译器、对象工具、benchmark 基础设施与外部运行环境。
+    - 当前归类：
+      - 核心构建/调度：`src/compile.sh`、`tests/run_programs_parallel.sh`、`tests/run_cross_platform_tests.sh`
+      - 交叉编译/平台探测：`tests/verify_syscall_c99_cross.sh`、`tests/verify_simd_c99_neon.sh`、`tests/verify_emcc_unknown_runtime.sh`
+      - microapp 多平台矩阵：`tests/verify_microapp_profile_example_matrix.sh`、`tests/verify_microapp_aarch64_hosted_runtime.sh`、`tests/verify_microapp_macos_arm64_hosted_runtime.sh`、`tests/verify_microapp_aarch64_object_extract.sh`、`tests/verify_microapp_macos_object_extract.sh`、`tests/verify_microapp_macos_profile_guard.sh`
+      - benchmark / stress 基础设施：`benchmarks/run_bench.sh`、`benchmarks/run_uyagin_route_bench.sh`、`tests/verify_http_bench_async_epoll_runtime.sh`、`tests/verify_uyagin_http_bench_runtime.sh`、`tests/stress_http_async_epoll.sh`、`tests/stress_epoll_server.sh`、`tests/stress_pthread.sh`、`tests/run_capability_runtime_benchmark.sh`、`tests/run_malloc_throughput_benchmark.sh`、`tests/run_malloc_phase4_compare.sh`
+    - 归因摘记：
+      - `src/compile.sh`、`tests/run_cross_platform_tests.sh`、`tests/run_programs_parallel.sh` 都显式处理 `uname` / `TARGET_OS` / `TARGET_ARCH`，并在 `cc` / `zig cc` / `make` / `ulimit` 等工具链分支间切换。
+      - `tests/verify_syscall_c99_cross.sh`、`tests/verify_simd_c99_neon.sh`、`tests/verify_emcc_unknown_runtime.sh` 分别依赖 `zig cc`、`emcc`、`node` 等交叉或非通用工具链，迁移时需要先补足 `std.process` 与平台抽象。
+      - microapp 与 benchmark 这两组脚本依赖特定 host 架构、`objcopy` / `clang` / `llvm-mc` / `wrk` / `nginx` / `curl` / `go` 等外部环境，不适合作为第一批 `std.script` 迁移对象。
+    - 验证：
+      - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` -> `ok: docs/todo_std_script.md has 1 active task`
+      - `python3` 路径存在性校验脚本 -> `ok: 22 script paths exist`
+      - `git diff --check` -> `ok`
