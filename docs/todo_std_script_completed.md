@@ -181,3 +181,13 @@
   - 迁移所需最小能力：`std.process` 的 argv 执行与 stdout/stderr 捕获，`std.script` 的包含/不包含断言，以及临时文件创建清理帮助函数。
   - 验证：`rg -n -A3 -B1 "verify_exec_vm_compiler_regressions\\.sh" docs/todo_std_script.md`（确认记录条目已写入）
   - 验证：`git diff --check -- docs/todo_std_script.md`（通过）
+
+## Phase 0：盘点与基线
+
+父级任务路径：记录第一批推荐迁移对象
+
+- [x] `tests/verify_split_build_output.sh`
+  - 推荐理由：脚本仅 24 行，主体是一次编译调用加一次 `test -x` 断言，没有循环、管道、并行或复杂参数展开，适合作为第一批 `.sh -> .ush` 迁移样本。
+  - 迁移所需能力：仓库根目录解析、环境变量读取与 fallback、临时文件创建/删除、child process stdout/stderr 重定向、文件可执行位检查。
+  - 预期迁移阶段：待 `std.env` / `std.path` / `std.fs` / `std.process` MVP 齐备后优先替换，保留当前成功输出 `split build output materialized ok` 作为行为 oracle。
+  - 验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh` -> `split build output materialized ok`
