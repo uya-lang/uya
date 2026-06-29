@@ -200,3 +200,14 @@
     - 验证命令：`UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh`；结果：输出 `embedded project-root stdlib resolution ok`。
     - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`；结果：`ok: docs/todo_std_script.md has 0 active tasks`。
     - 验证命令：`git diff --check -- docs/todo_std_script.md docs/std_script_design.md docs/todo_std_script_completed.md`；结果：通过。
+## 2026-06-29 Phase 0：盘点与基线
+
+父级任务路径：`将复杂脚本标记为后续阶段处理：`
+
+- [x] `tests/run_programs_parallel.sh`
+  - 结论：保持为后续阶段脚本；实际迁移落点保留在 `docs/todo_std_script.md` 的 Phase 7.1 `迁移 tests/run_programs_parallel.sh`。
+  - 归因：脚本同时承担并行调度、`TARGET_OS` / `TARGET_ARCH` 归一化、`TOOLCHAIN` / `CC_DRIVER` 切换，以及 `RUNTIME_MODE` / `LINK_MODE` / `UYA_TEST_NOSTDLIB_MODE` 分支，不属于第一批 `std.script` 基础能力即可覆盖的简单脚本。
+  - 验证：
+    - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` -> `ok: docs/todo_std_script.md has 1 active task`
+    - `rg -n "PARALLEL_JOBS|TARGET_OS|TARGET_ARCH|TOOLCHAIN|CC_DRIVER|UYA_TEST_NOSTDLIB_MODE|RUNTIME_MODE|LINK_MODE" tests/run_programs_parallel.sh` -> 命中并行调度、目标平台、工具链与运行模式分支
+    - `rg -n "tests/run_programs_parallel\\.sh" docs/std_script_shell_inventory.md docs/std_script_design.md docs/todo_std_script.md` -> 盘点文档已排除第一批迁移，设计与主 todo 均保留后续阶段迁移落点
