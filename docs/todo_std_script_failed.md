@@ -2,7 +2,7 @@
 
 ## 2026-06-29
 
-### Phase 2：`std.path` / `std.env` / `std.fs` MVP`
+### Phase 2：`std.path` / `std.env` / `std.fs` MVP
 
 #### 2.1 `std.path`
 
