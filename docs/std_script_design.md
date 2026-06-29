@@ -538,6 +538,14 @@ shebang 完整 UX 仍需要两部分支持：
 
 建议在生成 C 的 hosted backend 中统一桥接，而不是在上层脚本库写大量平台 `cfg` 分支。
 
+其中 `process spawn/wait` 这一项需要尽早收敛接口边界：
+
+- 当前 `lib/osal/osal.uya` 的 `os_spawn` 仍建立在 `sys_fork() + sys_execve()` 上，`os_waitpid` 也直接透传 `sys_waitpid()`；这说明现有 POSIX 进程模型不能直接拿来做 Windows hosted 公共实现。
+- Windows 最小 bridge 应围绕“创建子进程 + 等待并取回退出码”设计，而不是暴露 `fork/execve/waitpid`：
+  - `spawn`：对外继续保持 UTF-8 `path/argv/env/cwd/stdio` 的结构化输入；bridge 内部负责命令行/环境块宽字符转换，并调用 `CreateProcessW`。
+  - `wait`：持有子进程句柄，使用 `WaitForSingleObject` 等待完成，再用 `GetExitCodeProcess` 取退出码，并在回收路径关闭句柄。
+- `cwd`、`env`、`pipe/stdio redirection` 虽然在 TODO 中拆成独立子项，但 `spawn` bridge 的 ABI 从一开始就应预留这些可选输入，避免后续为 Windows 再做一次公开 API 改版。
+
 ## 3. PATH 搜索必须平台敏感
 
 `which` / `Command` 路径查找要考虑：

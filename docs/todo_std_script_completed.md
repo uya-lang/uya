@@ -298,3 +298,18 @@
   - 结果：第一批脚本迁移可继续依赖 child-local `EnvBlockBuilder`；Darwin 当前最需要单独收口的是 child process launch 这条显式 bridge 或 macOS 真机 smoke 证明。
   - 验证命令：`rg -n "Darwin hosted 的脚本运行时仍有少量 bridge 差集|sys_execve|setenv|symlink helper" docs/std_script_design.md lib/libc/syscall.uya lib/libc/stdlib.uya`
   - 验证结果：命中 `docs/std_script_design.md:108-112`、`lib/libc/syscall.uya:1621`、`lib/libc/stdlib.uya:1040-1056`。
+### Phase 1：运行时基础缺口
+
+1.3 hosted backend 缺口
+
+- [x] process spawn/wait
+  - 结论：
+    - 当前 `lib/osal/osal.uya` 的 `os_spawn` 仍建立在 `sys_fork() + sys_execve()` 上，`os_waitpid` 直接透传 `sys_waitpid()`，属于 POSIX-only 模型，不能直接作为 Windows hosted 的公共实现。
+    - `lib/libc/syscall.uya` 的 unknown-host 分支里，`sys_waitpid`、`sys_fork`、`sys_execve` 目前都直接 `return -1`，说明 Windows 不能先复用现有 unknown-host syscall stub，再在上层勉强包装。
+    - Windows hosted 的最小 `spawn/wait` bridge 应收敛为：`spawn` 继续接受 UTF-8 `path/argv/env/cwd/stdio` 结构化输入，bridge 内部转宽字符并调用 `CreateProcessW`；`wait` 持有子进程句柄，调用 `WaitForSingleObject`、`GetExitCodeProcess` 并在回收路径关闭句柄。
+    - `cwd`、`env`、`pipe/stdio redirection` 虽拆成后续独立叶子，但 `spawn` bridge 的 ABI 从第一版起就应预留这些可选输入，避免后续为 Windows 再做一次公开 API 改版。
+  - 文档落点：`docs/std_script_design.md`
+  - 验证：
+    - `sed -n '527,552p' docs/std_script_design.md`：命中 `CreateProcessW`、`WaitForSingleObject`、`GetExitCodeProcess`，确认设计文档已明确 Windows `spawn/wait` bridge 边界。
+    - `rg -n "export fn os_waitpid|export fn os_spawn|sys_fork\\(|sys_execve\\(|sys_waitpid\\(" lib/osal/osal.uya lib/libc/syscall.uya`：命中 `lib/osal/osal.uya` 的 `os_spawn/os_waitpid`，确认当前实现仍绑定 `fork/execve/waitpid`。
+    - `sed -n '1018,1155p' lib/libc/syscall.uya`：unknown-host 分支里 `sys_waitpid/sys_fork/sys_execve` 全部直接失败，确认 Windows 不能复用现有 stub。
