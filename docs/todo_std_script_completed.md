@@ -261,3 +261,12 @@
 验证：
 `../uya/bin/uya test tests/test_std_env.uya`
 结果：通过；6 tests passed，0 failed，59 assertions passed。
+
+## Phase 1：运行时基础缺口
+### 1.2 管道与重定向基础
+- [x] 在 `osal` 或脚本运行时内部抽象 `pipe`/`pipe2`，避免上层直接碰 raw syscall。
+  - 结果：`lib/osal/osal.uya` 新增 `os_pipe` / `os_pipe2` 两个包装；`tests/test_osal.uya` 新增黑盒回归覆盖 `pipe` 与 `pipe2` 的创建和读写；`docs/std_script_design.md` 同步把当前 `osal` 能力说明更新为包含 `pipe/pipe2`。
+  - 验证：`../uya/bin/uya test tests/test_osal.uya`（通过，19 tests passed）
+  - 验证：`../uya/bin/uya test tests/test_syscall_dir.uya`（通过，7 tests passed）
+  - 验证：`../uya/bin/uya test tests/test_unistd.uya`（通过，libc.unistd tests PASS）
+  - 验证：`git diff --check`（通过）

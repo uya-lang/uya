@@ -78,7 +78,7 @@
   - `os_waitpid`
   - `os_chdir`
   - `os_getcwd`
-  - 文件、目录、stat、dup/dup2 等基础能力
+  - 文件、目录、stat、dup/dup2、pipe/pipe2 等基础能力
 - `lib/libc/unistd.uya` 已提供：
   - `fork`
   - `execve`

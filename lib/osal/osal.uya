@@ -8,6 +8,7 @@ use syscall.sys_write;
 use syscall.sys_lseek;
 use syscall.sys_dup;
 use syscall.sys_dup2;
+use syscall.sys_pipe2;
 use syscall.sys_fcntl;
 use syscall.sys_ioctl;
 use syscall.sys_mmap;
@@ -335,6 +336,20 @@ export fn os_dup(fd: i32) !i32 {
 
 export fn os_dup2(oldfd: i32, newfd: i32) !i32 {
     return try sys_dup2(oldfd, newfd);
+}
+
+/// 创建无额外标志的匿名管道。
+/// 参数：pipefd 指向 2 个 i32 的数组首元素，返回 [read_fd, write_fd]。
+/// 返回值：成功时返回 0，失败时返回系统错误。
+export fn os_pipe(pipefd: &i32) !i32 {
+    return try os_pipe2(pipefd, 0);
+}
+
+/// 创建带 flags 的匿名管道。
+/// 参数：pipefd 指向 2 个 i32 的数组首元素；flags 为 O_NONBLOCK、O_CLOEXEC 等标志组合。
+/// 返回值：成功时返回 0，失败时返回系统错误。
+export fn os_pipe2(pipefd: &i32, flags: i32) !i32 {
+    return try sys_pipe2(pipefd, flags);
 }
 
 export fn os_fcntl(fd: i32, cmd: i32, arg: i32) !i32 {

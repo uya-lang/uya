@@ -10,6 +10,8 @@ use osal.os_access;
 use osal.os_unlink;
 use osal.os_dup;
 use osal.os_dup2;
+use osal.os_pipe;
+use osal.os_pipe2;
 use osal.os_getuid;
 use osal.os_getgid;
 use osal.os_geteuid;
@@ -26,6 +28,7 @@ use osal.os_seek;
 use osal.TimeVal;
 use osal.RLimit;
 use std.testing.expect;
+use std.testing.assert_eq_i32;
 
 const TEST_FILE: *const byte = "/tmp/uya_osal_test_file.txt" as *const byte;
 
@@ -79,6 +82,54 @@ test "os_dup2" {
     const new_fd: i32 = try os_dup2(stdin_fd, 10);
     try expect(new_fd == 10);
     _ = try os_dup2(saved_stdin, 0);
+}
+
+test "os_pipe" {
+    var pipe_fds: [i32: 2] = [];
+    _ = try os_pipe(&pipe_fds[0]);
+    try expect(pipe_fds[0] >= 0);
+    try expect(pipe_fds[1] >= 0);
+
+    var read_file: File = File { fd: pipe_fds[0], owns_fd: true };
+    var write_file: File = File { fd: pipe_fds[1], owns_fd: true };
+    const msg: *const byte = "pipe" as *const byte;
+    const written: usize = try os_write(&write_file, msg, 4);
+    try assert_eq_i32(written as i32, 4);
+
+    var buf: [byte: 4] = [];
+    const read_n: usize = try os_read(&read_file, &buf[0], 4);
+    try assert_eq_i32(read_n as i32, 4);
+    try assert_eq_i32(buf[0] as i32, 112);
+    try assert_eq_i32(buf[1] as i32, 105);
+    try assert_eq_i32(buf[2] as i32, 112);
+    try assert_eq_i32(buf[3] as i32, 101);
+
+    try os_close(&read_file);
+    try os_close(&write_file);
+}
+
+test "os_pipe2" {
+    var pipe_fds: [i32: 2] = [];
+    _ = try os_pipe2(&pipe_fds[0], 0);
+    try expect(pipe_fds[0] >= 0);
+    try expect(pipe_fds[1] >= 0);
+
+    var read_file: File = File { fd: pipe_fds[0], owns_fd: true };
+    var write_file: File = File { fd: pipe_fds[1], owns_fd: true };
+    const msg: *const byte = "fd2!" as *const byte;
+    const written: usize = try os_write(&write_file, msg, 4);
+    try assert_eq_i32(written as i32, 4);
+
+    var buf: [byte: 4] = [];
+    const read_n: usize = try os_read(&read_file, &buf[0], 4);
+    try assert_eq_i32(read_n as i32, 4);
+    try assert_eq_i32(buf[0] as i32, 102);
+    try assert_eq_i32(buf[1] as i32, 100);
+    try assert_eq_i32(buf[2] as i32, 50);
+    try assert_eq_i32(buf[3] as i32, 33);
+
+    try os_close(&read_file);
+    try os_close(&write_file);
 }
 
 test "os_getuid" {
@@ -159,7 +210,6 @@ test "os_seek" {
 test "os_sleep" {
     try os_sleep(0, 100000000);
 }
-
 
 
 
