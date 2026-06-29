@@ -90,3 +90,30 @@ test "std.path basename returns current directory marker for empty path" {
     try assert_eq_i32(basename("", &buf[0], 64), 0);
     try assert_eq_i32(strcmp(&buf[0], "."), 0);
 }
+
+test "std.path stem strips only the last extension from basename" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(stem("scripts/build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "build"), 0);
+
+    try assert_eq_i32(stem("archive.tar.gz", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "archive.tar"), 0);
+
+    try assert_eq_i32(stem("build", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "build"), 0);
+}
+
+test "std.path stem preserves dotfiles and roots" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(stem("/tmp/.env", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ".env"), 0);
+
+    try assert_eq_i32(stem("/", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/"), 0);
+
+    try assert_eq_i32(stem("C:\\repo\\uya.exe", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "uya"), 0);
+
+    try assert_eq_i32(stem("C:\\", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "C:\\"), 0);
+}

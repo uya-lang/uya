@@ -60,7 +60,6 @@
 ### 2.1 `std.path`
 
 - [ ] 提供：
-  - [ ] `stem`
   - [ ] `extension`
   - [ ] `is_abs`
   - [ ] `normalize`

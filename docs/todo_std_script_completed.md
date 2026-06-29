@@ -446,3 +446,17 @@
     - 结果：首次失败，新增 3 个 `basename` 用例失败并出现宿主 C `basename` 隐式声明警告；实现后通过，`std.path` 12 个用例全部通过。
   - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
     - 结果：通过。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+- 父级任务：`提供：`
+- [x] `stem`
+  - 预期失败验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：失败，链接阶段报 `undefined reference to 'stem'`。
+  - 实现：在 `lib/std/path.uya` 新增 `stem(path, out, out_cap)`，复用 basename/root 逻辑，只剥离最后一个有效扩展名，并保留 dotfile 与根路径行为。
+  - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：通过，`std.path` 14 个用例全部通过，包含新增 `stem` 回归。
+  - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
+    - 结果：通过。
