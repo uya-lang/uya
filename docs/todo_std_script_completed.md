@@ -85,3 +85,21 @@
       - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` -> `ok: docs/todo_std_script.md has 1 active task`
       - `python3` 路径存在性校验脚本 -> `ok: 22 script paths exist`
       - `git diff --check` -> `ok`
+
+## 2026-06-29 Phase 0：盘点与基线
+
+父级任务路径：`为第一批候选脚本记录 oracle：`
+
+- [x] 退出码
+  - 记录结果：四个第一批候选脚本当前成功路径均退出 `0`；脚本整体保持 `set -euo pipefail` 的 fail-fast 语义。
+  - oracle：
+    - `tests/verify_check_cli.sh`：成功退出 `0`
+    - `tests/verify_exec_vm_compiler_regressions.sh`：成功退出 `0`
+    - `tests/verify_split_build_output.sh`：成功退出 `0`
+    - `tests/verify_project_root_embedded_uya_resolution.sh`：成功退出 `0`
+  - 验证命令：
+    - `bash tests/verify_check_cli.sh` -> exit `0`
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_exec_vm_compiler_regressions.sh` -> exit `0`
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh` -> exit `0`
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh` -> exit `0`
+  - 验证时间：`2026-06-29 17:10:08 +0800`
