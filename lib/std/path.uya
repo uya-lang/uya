@@ -178,6 +178,14 @@ fn path_stem_end(path: &const byte, start: usize, end: usize) usize {
 /// 返回值：常量值始终为 `true`。
 export const PATH_MODULE_PRESENT: bool = true;
 
+/// 判断路径是否为绝对路径。
+///
+/// 参数说明：`path` 为输入路径，可以是 Unix 根路径或 Windows 盘符路径。
+/// 返回值：若 `path` 为绝对路径则返回 `true`；否则返回 `false`。
+export fn is_abs(path: &const byte) bool {
+    return path_is_absolute(path);
+}
+
 /// 返回路径的最后一个组件。
 ///
 /// 参数说明：`path` 为输入路径；`out` 为输出缓冲区；`out_cap` 为缓冲区总容量（包含末尾 `\\0`）。

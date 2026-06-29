@@ -60,7 +60,6 @@
 ### 2.1 `std.path`
 
 - [ ] 提供：
-  - [ ] `is_abs`
   - [ ] `normalize`
   - [ ] `path_list_separator`
   - [ ] `executable_suffix`

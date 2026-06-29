@@ -474,3 +474,20 @@
     - 结果：通过，`std.path` 16 个用例全部通过，包含新增 `extension` 回归。
   - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md docs/todo_std_script_completed.md`
     - 结果：通过。
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+- 父级任务：`提供：`
+- [x] `is_abs`
+  - 预期失败验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：失败，链接阶段报 `undefined reference to 'is_abs'`，并伴随宿主 C `implicit declaration of function 'is_abs'` 警告。
+  - 实现：在 `lib/std/path.uya` 新增导出 `is_abs(path)`，复用现有内部 `path_is_absolute`，统一识别 Unix 根路径与 Windows 盘符绝对路径。
+  - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：通过，`std.path` 17 个用例全部通过，包含新增 `is_abs` 回归。
+  - 验证：`../uya/bin/uya test tests/test_module_use_simple.uya`
+    - 结果：通过。
+  - 验证：`make clean`
+    - 结果：通过。
+  - 验证：`make UYA_BACKUP_MACOS_AUX=0 backup-all`
+    - 结果：通过，完成自举、1073 项测试、UPM/exec vm/microapp/SIMD/@syscall/http_bench 验证以及 seed/uyacache 备份。

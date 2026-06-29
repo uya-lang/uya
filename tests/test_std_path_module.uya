@@ -7,6 +7,13 @@ test "std.path module can import" {
     try assert_eq_bool(PATH_MODULE_PRESENT, true);
 }
 
+test "std.path is_abs detects unix windows and relative paths" {
+    try assert_eq_bool(is_abs("/tmp/run.sh"), true);
+    try assert_eq_bool(is_abs("C:\\repo\\uya.exe"), true);
+    try assert_eq_bool(is_abs("scripts/build.uya"), false);
+    try assert_eq_bool(is_abs(""), false);
+}
+
 test "std.path join joins relative child" {
     var buf: [byte: 64] = [];
     try assert_eq_i32(join("scripts", "build.uya", &buf[0], 64), 0);
