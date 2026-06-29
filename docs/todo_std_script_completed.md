@@ -211,3 +211,14 @@
     - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` -> `ok: docs/todo_std_script.md has 1 active task`
     - `rg -n "PARALLEL_JOBS|TARGET_OS|TARGET_ARCH|TOOLCHAIN|CC_DRIVER|UYA_TEST_NOSTDLIB_MODE|RUNTIME_MODE|LINK_MODE" tests/run_programs_parallel.sh` -> 命中并行调度、目标平台、工具链与运行模式分支
     - `rg -n "tests/run_programs_parallel\\.sh" docs/std_script_shell_inventory.md docs/std_script_design.md docs/todo_std_script.md` -> 盘点文档已排除第一批迁移，设计与主 todo 均保留后续阶段迁移落点
+
+## Phase 0：盘点与基线
+
+- [x] 将复杂脚本标记为后续阶段处理：
+  - [x] `tests/run_cross_platform_tests.sh`
+    - 验证命令：`rg -n "tests/run_cross_platform_tests\\.sh" docs/std_script_shell_inventory.md docs/std_script_design.md docs/todo_std_script.md`
+    - 验证结果：`docs/std_script_shell_inventory.md` 将其列为“不纳入本轮 B 类”的脚本之一；`docs/std_script_design.md` 将其列为 “C 类：后期迁移” 候选；主 todo 已将后续细化留给 `Phase 7 / 7.2 高复杂度脚本评估`。
+    - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
+    - 验证命令：`git diff --check`
+    - 验证结果：`check_todo.py` 返回 `ok: docs/todo_std_script.md has 0 active tasks`。
+    - 验证结果：`git diff --check` 无输出。

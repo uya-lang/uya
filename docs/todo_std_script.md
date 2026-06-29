@@ -47,7 +47,6 @@
 ## Phase 0：盘点与基线
 
 - [ ] 将复杂脚本标记为后续阶段处理：
-  - [ ] `tests/run_cross_platform_tests.sh`
   - [ ] `src/compile.sh`
 
 ---
