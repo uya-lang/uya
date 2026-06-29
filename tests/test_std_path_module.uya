@@ -1,6 +1,32 @@
 use std.path;
 use std.testing.assert_eq_bool;
+use std.testing.assert_eq_i32;
+use std.string.strcmp;
 
 test "std.path module can import" {
     try assert_eq_bool(PATH_MODULE_PRESENT, true);
+}
+
+test "std.path join joins relative child" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(join("scripts", "build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "scripts/build.uya"), 0);
+}
+
+test "std.path join avoids duplicate separator" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(join("/tmp/", "run.sh", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/tmp/run.sh"), 0);
+}
+
+test "std.path join returns absolute child unchanged" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(join("/repo", "/tmp/out", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/tmp/out"), 0);
+}
+
+test "std.path join preserves windows separator family" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(join("C:\\repo", "bin", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "C:\\repo\\bin"), 0);
 }

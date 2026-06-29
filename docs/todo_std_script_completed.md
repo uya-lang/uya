@@ -408,3 +408,16 @@
     - `../uya/bin/uya test tests/test_module_use_simple.uya`：通过。
     - `make clean`：通过。
     - `make backup-all`：通过；期间 zig 交叉链接 macOS hosted 可执行文件提示 `timeval` / `sigaction` / `signal` 重定义，但 Makefile 继续保留 C 种子并返回成功。
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+父级任务路径：提供：
+
+  - [x] `join`
+    - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：通过，`std.path` 5 个用例全部通过。
+    - 验证：`../uya/bin/uya test tests/test_std_string.uya`
+    - 结果：通过。
+    - 验证：`git diff --check`
+    - 结果：通过，无 diff 格式问题。

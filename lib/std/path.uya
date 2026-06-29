@@ -1,4 +1,125 @@
 // std.path - 可移植路径工具模块
-// 当前轮次仅先完成模块落位；具体 API 由后续 todo 子任务补齐。
 
+use std.string.strlen;
+
+fn path_is_separator(ch: byte) bool {
+    return ch == 47 as byte || ch == 92 as byte;
+}
+
+fn path_is_drive_letter(ch: byte) bool {
+    if ch >= 65 as byte && ch <= 90 as byte {
+        return true;
+    }
+    if ch >= 97 as byte && ch <= 122 as byte {
+        return true;
+    }
+    return false;
+}
+
+fn path_is_absolute(path: &const byte) bool {
+    if path == null || path[0] == 0 as byte {
+        return false;
+    }
+    if path_is_separator(path[0]) {
+        return true;
+    }
+    if path_is_drive_letter(path[0]) && path[1] == 58 as byte &&
+        (path[2] == 0 as byte || path_is_separator(path[2])) {
+        return true;
+    }
+    return false;
+}
+
+fn path_choose_join_separator(base: &const byte, base_len: usize) byte {
+    if base_len >= 2usize && path_is_drive_letter(base[0]) && base[1] == 58 as byte {
+        return 92 as byte;
+    }
+    var i: usize = base_len;
+    while i > 0usize {
+        const ch: byte = base[i - 1usize];
+        if path_is_separator(ch) {
+            return ch;
+        }
+        i = i - 1usize;
+    }
+    return 47 as byte;
+}
+
+fn path_copy_cstring(src: &const byte, out: &byte, out_cap: usize) i32 {
+    if src == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const len: usize = strlen(src);
+    if len + 1usize > out_cap {
+        return 1;
+    }
+    var i: usize = 0;
+    while i < len {
+        out[i] = src[i];
+        i = i + 1usize;
+    }
+    out[len] = 0 as byte;
+    return 0;
+}
+
+/// 标记 `std.path` 模块已可导入。
+///
+/// 参数说明：无。
+/// 返回值：常量值始终为 `true`。
 export const PATH_MODULE_PRESENT: bool = true;
+
+/// 拼接两个路径片段并写入输出缓冲区。
+///
+/// 参数说明：`base` 为前缀路径；`child` 为要追加的路径片段，若其本身是绝对路径则直接原样返回；
+/// `out` 为输出缓冲区；`out_cap` 为缓冲区总容量（包含末尾 `\\0`）。
+/// 返回值：成功返回 `0` 并写入以 `\\0` 结尾的结果；失败返回 `1`。
+export fn join(base: &const byte, child: &const byte, out: &byte, out_cap: usize) i32 {
+    if base == null || child == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    if path_is_absolute(child) {
+        return path_copy_cstring(child, out, out_cap);
+    }
+
+    const base_len: usize = strlen(base);
+    if base_len == 0usize {
+        return path_copy_cstring(child, out, out_cap);
+    }
+
+    const child_len: usize = strlen(child);
+    if child_len == 0usize {
+        return path_copy_cstring(base, out, out_cap);
+    }
+
+    var need_separator: bool = true;
+    if path_is_separator(base[base_len - 1usize]) {
+        need_separator = false;
+    }
+
+    var total_len: usize = base_len + child_len + 1usize;
+    if need_separator {
+        total_len = total_len + 1usize;
+    }
+    if total_len > out_cap {
+        return 1;
+    }
+
+    var out_pos: usize = 0;
+    while out_pos < base_len {
+        out[out_pos] = base[out_pos];
+        out_pos = out_pos + 1usize;
+    }
+    if need_separator {
+        out[out_pos] = path_choose_join_separator(base, base_len);
+        out_pos = out_pos + 1usize;
+    }
+
+    var child_pos: usize = 0;
+    while child_pos < child_len {
+        out[out_pos] = child[child_pos];
+        out_pos = out_pos + 1usize;
+        child_pos = child_pos + 1usize;
+    }
+    out[out_pos] = 0 as byte;
+    return 0;
+}
