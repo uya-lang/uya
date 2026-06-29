@@ -460,3 +460,17 @@
     - 结果：通过，`std.path` 14 个用例全部通过，包含新增 `stem` 回归。
   - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
     - 结果：通过。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+- 父级任务：`提供：`
+- [x] `extension`
+  - 预期失败验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：失败，链接阶段报 `undefined reference to 'extension'`，并伴随宿主 C `implicit declaration of function 'extension'` 警告。
+  - 实现：在 `lib/std/path.uya` 新增 `extension(path, out, out_cap)`，复用现有 `stem` / root 逻辑，返回最后一个扩展名（含前导 `.`），并让 dotfile、根路径与无扩展名路径返回空串。
+  - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：通过，`std.path` 16 个用例全部通过，包含新增 `extension` 回归。
+  - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md docs/todo_std_script_completed.md`
+    - 结果：通过。

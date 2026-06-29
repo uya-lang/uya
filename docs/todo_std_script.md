@@ -60,7 +60,6 @@
 ### 2.1 `std.path`
 
 - [ ] 提供：
-  - [ ] `extension`
   - [ ] `is_abs`
   - [ ] `normalize`
   - [ ] `path_list_separator`

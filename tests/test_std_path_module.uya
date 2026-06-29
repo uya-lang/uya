@@ -117,3 +117,33 @@ test "std.path stem preserves dotfiles and roots" {
     try assert_eq_i32(stem("C:\\", &buf[0], 64), 0);
     try assert_eq_i32(strcmp(&buf[0], "C:\\"), 0);
 }
+
+test "std.path extension returns the last suffix with dot" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(extension("scripts/build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ".uya"), 0);
+
+    try assert_eq_i32(extension("archive.tar.gz", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ".gz"), 0);
+
+    try assert_eq_i32(extension("build.", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "."), 0);
+
+    try assert_eq_i32(extension("C:\\repo\\uya.exe", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ".exe"), 0);
+}
+
+test "std.path extension ignores dotfiles roots and extensionless names" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(extension("/tmp/.env", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ""), 0);
+
+    try assert_eq_i32(extension("build", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ""), 0);
+
+    try assert_eq_i32(extension("/", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ""), 0);
+
+    try assert_eq_i32(extension("C:\\", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], ""), 0);
+}

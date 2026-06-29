@@ -233,6 +233,34 @@ export fn stem(path: &const byte, out: &byte, out_cap: usize) i32 {
     return path_copy_range(path, start, stem_end, out, out_cap);
 }
 
+/// 返回路径最后一个组件的最后扩展名。
+///
+/// 参数说明：`path` 为输入路径；`out` 为输出缓冲区；`out_cap` 为缓冲区总容量（包含末尾 `\\0`）。
+/// 返回值：成功返回 `0` 并写入以 `\\0` 结尾的扩展名（包含前导 `.`，若不存在则写入空串）；失败返回 `1`。
+export fn extension(path: &const byte, out: &byte, out_cap: usize) i32 {
+    if path == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+
+    const len: usize = strlen(path);
+    if len == 0usize {
+        return path_copy_cstring("" as &const byte, out, out_cap);
+    }
+
+    const root_len: usize = path_root_prefix_len(path);
+    const end: usize = path_trim_trailing_separators(path, len, root_len);
+    if end == root_len {
+        return path_copy_cstring("" as &const byte, out, out_cap);
+    }
+
+    const start: usize = path_component_start(path, end, root_len);
+    const stem_end: usize = path_stem_end(path, start, end);
+    if stem_end == end {
+        return path_copy_cstring("" as &const byte, out, out_cap);
+    }
+    return path_copy_range(path, stem_end, end, out, out_cap);
+}
+
 /// 返回路径的父目录部分。
 ///
 /// 参数说明：`path` 为输入路径；`out` 为输出缓冲区；`out_cap` 为缓冲区总容量（包含末尾 `\\0`）。
