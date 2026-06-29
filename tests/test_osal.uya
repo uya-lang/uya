@@ -320,6 +320,48 @@ test "os_redirect_stderr_with_execve" {
     try expect(bytes_equal(&out[0], stderr_text, want_len));
 }
 
+test "os_parent_captures_child_stdout_via_pipe" {
+    const stdout_cmd: &const byte = "printf 'parent capture ok'" as &const byte;
+    const stdout_text: &const byte = "parent capture ok" as &const byte;
+
+    var pipe_fds: [i32: 2] = [];
+    _ = try os_pipe(&pipe_fds[0]);
+
+    var read_file: File = File { fd: pipe_fds[0], owns_fd: true };
+    defer {
+        _ = os_close(&read_file) catch {};
+    }
+    var write_file: File = File { fd: pipe_fds[1], owns_fd: true };
+    defer {
+        _ = os_close(&write_file) catch {};
+    }
+
+    var argv: [&const byte: 4] = [
+        "/bin/sh" as &const byte,
+        "-c" as &const byte,
+        stdout_cmd,
+        null,
+    ];
+    var envp: [&const byte: 1] = [null];
+    const pid: i32 = try spawn_execve_with_redirect(
+        "/bin/sh" as &const byte,
+        &argv[0] as &(&const byte),
+        &envp[0] as &(&const byte),
+        -1,
+        write_file.fd,
+        -1,
+    );
+    try os_close(&write_file);
+
+    var out: [byte: 64] = [];
+    const out_len: usize = try read_all_file(&read_file, &out[0], 64);
+    try wait_child_exit_ok(pid);
+
+    const want_len: usize = strlen(stdout_text);
+    try assert_eq_i32(out_len as i32, want_len as i32);
+    try expect(bytes_equal(&out[0], stdout_text, want_len));
+}
+
 test "os_getuid" {
     const uid: u32 = try os_getuid();
     try expect(uid >= 0);
@@ -398,4 +440,3 @@ test "os_seek" {
 test "os_sleep" {
     try os_sleep(0, 100000000);
 }
-

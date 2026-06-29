@@ -281,3 +281,9 @@
   - 补充：`../uya/bin/uya test tests/test_syscall_process.uya` 仍因既有 `WNOHANG` 宏名冲突导致宿主 `cc` 编译失败，与本轮改动无关。
   - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`（通过，`ok: docs/todo_std_script.md has 0 active tasks`）
   - 验证：`git diff --check -- docs/todo_std_script.md docs/todo_std_script_completed.md tests/test_osal.uya`（通过）
+
+## Phase 1：运行时基础缺口
+### 1.2 管道与重定向基础
+- [x] 补父进程捕获子进程输出的最小回归。
+  - 验证：`../uya/bin/uya test tests/test_osal.uya`（通过；新增 `os_parent_captures_child_stdout_via_pipe`，22 tests passed）
+  - 验证：`../uya/bin/uya test tests/test_unistd.uya`（通过）
