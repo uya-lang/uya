@@ -14,6 +14,24 @@ test "std.path is_abs detects unix windows and relative paths" {
     try assert_eq_bool(is_abs(""), false);
 }
 
+test "std.path normalize collapses current parent and duplicate separators" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(normalize("scripts/./tool/../build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "scripts/build.uya"), 0);
+
+    try assert_eq_i32(normalize("../scripts/../build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "../build.uya"), 0);
+}
+
+test "std.path normalize preserves roots and windows separator family" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(normalize("/tmp//uya/../run.sh", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/tmp/run.sh"), 0);
+
+    try assert_eq_i32(normalize("C:\\repo\\.\\bin\\..\\uya.exe", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "C:\\repo\\uya.exe"), 0);
+}
+
 test "std.path join joins relative child" {
     var buf: [byte: 64] = [];
     try assert_eq_i32(join("scripts", "build.uya", &buf[0], 64), 0);
