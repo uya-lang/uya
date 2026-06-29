@@ -50,7 +50,6 @@
 
 ### 1.3 hosted backend 缺口
 
-- [ ] 盘点 Darwin hosted 下脚本运行时仍缺的 bridge。
 - [ ] 明确 Windows hosted 所需最小 bridge 列表：
   - [ ] process spawn/wait
   - [ ] cwd

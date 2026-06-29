@@ -105,10 +105,16 @@
 4. **shebang launcher 约定未完成**
    - lexer 已支持忽略文件开头 `#!...`；完整脚本 UX 仍缺 `uya script` 或 wrapper 约定。
 
-5. **Windows hosted backend 未完成**
+5. **Darwin hosted 的脚本运行时仍有少量 bridge 差集**
+   - 已有下层能力：`chdir/getcwd`、`stat/fstat/lstat`、`readlink`、`dup2`、`pipe2`、`fork/waitpid`、`opendir/readdir/closedir`、`poll`、`clock_gettime/nanosleep` 已经有 Darwin 分支或 `uya_macos_*` 宿主 bridge，`std.process/std.fs` 可以直接复用这些原语。
+   - 仍缺第一条真正的 process-launch bridge：`os_spawn` / `os_execve` 最终仍落到 `sys_execve()`，而 `sys_execve` 目前没有 `std.target_os == .tos_macos` 的 `uya_macos_*` 宿主桥，只保留原始 `@syscall(SYS_execve, ...)` 路径；如果要把“spawn child + argv/envp + cwd/stdio 重定向”作为 Darwin hosted 的公开承诺，这一层需要补显式 bridge，或至少有 macOS 真机 smoke 证明原始路径可靠。
+   - 仍缺当前进程 env mutation bridge：`setenv` / `unsetenv` / `clearenv` 仍是占位实现。第一批脚本迁移可继续只依赖 child-local `EnvBlockBuilder`，但一旦脚本运行时要公开“修改当前进程环境”，Darwin hosted 需要补真实宿主 bridge 或运行时 canonical env view。
+   - 若保持 A 类候选 `verify_project_root_embedded_uya_resolution.sh` 的“目录 symlink helper”目标，底层还缺 `symlink` / `os_symlink` / `sys_symlink` 这一条能力；当前仓库只有 `readlink`，还不能无 shell 地创建目录符号链接。
+
+6. **Windows hosted backend 未完成**
    - 枚举、toolchain、target 宏已经具备，但脚本运行时需要的进程/环境/文件系统 Win32 bridge 还没有形成公共抽象。
 
-6. **`--exec`/`--vm` 仍在扩覆盖**
+7. **`--exec`/`--vm` 仍在扩覆盖**
    - 脚本运行时未来可利用 exec backend 降低启动成本，但不能把它作为当前设计前提。
 
 ---

@@ -287,3 +287,14 @@
 - [x] 补父进程捕获子进程输出的最小回归。
   - 验证：`../uya/bin/uya test tests/test_osal.uya`（通过；新增 `os_parent_captures_child_stdout_via_pipe`，22 tests passed）
   - 验证：`../uya/bin/uya test tests/test_unistd.uya`（通过）
+
+## Phase 1：运行时基础缺口
+
+### 1.3 hosted backend 缺口
+
+- [x] 盘点 Darwin hosted 下脚本运行时仍缺的 bridge。
+  - 结果：`docs/std_script_design.md` 已补 Darwin 差集说明；现有下层已覆盖 `chdir/getcwd`、`stat/fstat/lstat`、`readlink`、`dup2`、`pipe2`、`fork/waitpid`、`opendir/readdir/closedir`、`poll`、`clock_gettime/nanosleep`。
+  - 结果：当前仍缺的 Darwin 脚本运行时 bridge/底层能力主要有 3 类：`sys_execve` 没有 `uya_macos_*` host bridge；`setenv` / `unsetenv` / `clearenv` 仍是占位；若要兑现 A 类脚本候选里的目录 symlink helper，还缺 `symlink` / `os_symlink` / `sys_symlink` 原语。
+  - 结果：第一批脚本迁移可继续依赖 child-local `EnvBlockBuilder`；Darwin 当前最需要单独收口的是 child process launch 这条显式 bridge 或 macOS 真机 smoke 证明。
+  - 验证命令：`rg -n "Darwin hosted 的脚本运行时仍有少量 bridge 差集|sys_execve|setenv|symlink helper" docs/std_script_design.md lib/libc/syscall.uya lib/libc/stdlib.uya`
+  - 验证结果：命中 `docs/std_script_design.md:108-112`、`lib/libc/syscall.uya:1621`、`lib/libc/stdlib.uya:1040-1056`。
