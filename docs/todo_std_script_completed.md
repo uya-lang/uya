@@ -357,3 +357,17 @@
   - 结果：通过。
   - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
   - 结果：`ok: docs/todo_std_script.md has 0 active tasks`
+### 1.3 hosted backend 缺口
+
+父级任务路径：明确 Windows hosted 所需最小 bridge 列表
+
+- [x] dir traversal
+  - 结论：Windows hosted 的 `dir traversal` 最小 bridge 应继续暴露 UTF-8 `path` + 统一 `libc.Dirent` 抽象，内部转 UTF-16 并以 `FindFirstFileW` / `FindNextFileW` / `FindClose` 维护目录句柄；`readdir` 只需稳定填充 `d_type` / `d_name`，其余字段可保零值，并允许 `DT_UNKNOWN` fallback。
+  - 验证命令：`sed -n '563,568p' docs/std_script_design.md`
+  - 结果：设计文档已明确 Windows `dir traversal` 的 UTF-16 bridge、统一 `Dirent` 抽象、首项缓存与 `DT_UNKNOWN` fallback 约束。
+  - 验证命令：`rg -n "uya_macos_host_readdir_fill|sys_open \\+ sys_getdents64 \\+ sys_close|dirent_may_be_regular_file|FindFirstFileW|FindNextFileW|FindClose" docs/std_script_design.md lib/libc/stdlib.uya src/main.uya`
+  - 结果：命中现有 macOS hosted `readdir_fill`、Linux `sys_getdents64` 路径，以及 `src/main.uya` 的 `dirent_may_be_regular_file(...)` fallback，证明 Windows 仍缺目录遍历 bridge 且新增边界与现有抽象一致。
+  - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
+  - 结果：`ok: docs/todo_std_script.md has 0 active tasks`
+  - 验证命令：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md docs/todo_std_script_completed.md`
+  - 结果：通过。

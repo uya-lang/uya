@@ -560,6 +560,12 @@ shebang 完整 UX 仍需要两部分支持：
   - `stat` 最小 bridge 需要接受 UTF-8 路径、在内部完成 UTF-16 转换，并返回脚本运行时真正需要的基础元数据：是否存在、是否目录、文件大小、时间戳与错误码。实现上可走 `GetFileAttributesExW` / `GetFileInformationByHandleEx`，或 `_wstat64` 一类宽字符 CRT 入口，但对外都要继续映射到统一的 `os_stat` / `std.fs` 语义。
   - `remove` 不能依赖当前 POSIX-only 的 `sys_unlink` / `sys_rmdir` 路径；最小 bridge 至少要能区分“文件删除”和“目录删除”，并保持与公共 API 一致的错误语义。实现上可以复用 `stat` 结果后分发到 `DeleteFileW` / `RemoveDirectoryW`，也可以直接调用宽字符 CRT 等价入口，但必须共用同一套 UTF-8 → UTF-16 路径转换。
   - `rename` 需要与现有 `sys_rename` 语义对齐，而不是退化成“目标已存在就失败”的弱语义；因此 Windows hosted 最小 bridge 应优先落到 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 或等价实现，并继续复用同一套 UTF-8 路径转换与错误映射。
+- `dir traversal` 这一项也应作为独立最小 bridge 收口：
+  - 当前 `lib/libc/stdlib.uya` 的 `opendir/readdir/closedir` 只有两条实现路径：macOS hosted 走 `uya_macos_host_opendir/readdir_fill/closedir`，其余 target 走 `sys_open + sys_getdents64 + sys_close`；Windows hosted 既没有 POSIX `DIR*`，也没有现成 bridge，因此目录遍历不能直接复用当前 hosted 逻辑。
+  - 对外接口仍应保持 UTF-8 `path` + 统一 `libc.Dirent` 抽象；Windows bridge 内部负责 UTF-8 → UTF-16 转换，并以 `FindFirstFileW` / `FindNextFileW` / `FindClose`（或等价宽字符 CRT）维护不透明目录句柄。诸如追加 `\\*` 搜索模式之类的 Windows 细节只能停留在 bridge 内部，不能泄漏到未来 `std.fs` / `std.path` API。
+  - `readdir` 最小 bridge 只需要填充当前真实消费者依赖的 `d_type` 与 `d_name`，其余 `libc.Dirent` 字段可保持零值；这与当前 macOS hosted `uya_macos_host_readdir_fill(...)` 先清零再只写类型与名称的收敛方式保持一致，也避免把 Windows 原生目录项布局暴露给上层。
+  - `d_type` 至少要稳定区分 `DT_DIR` / `DT_REG`，其余难以准确映射的情况可以退到 `DT_UNKNOWN`；当前编译器与模块扫描已经存在 `dirent_may_be_regular_file(...)` 的 `DT_UNKNOWN` fallback，因此不必把 Windows reparse point 细节变成 Phase 1 阻塞项。
+  - 目录 bridge 还需要自己缓存 `FindFirstFileW` 返回的首个目录项，并在 `closedir` 与错误路径统一释放句柄；否则“首条目录项已被消费”这一 Win32 API 细节会泄漏进 `readdir` 语义，破坏现有 `opendir -> readdir* -> closedir` 调用模型。
 
 ## 3. PATH 搜索必须平台敏感
 
