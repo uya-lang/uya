@@ -238,13 +238,6 @@
 
 ### 5.2 shebang
 
-- [x] lexer 支持忽略首行 shebang。
-- [x] 增加回归：
-  - [x] 标准脚本后缀 `.ush` 可通过 `uya run` 运行
-  - [x] 带 shebang 的 `.uya` 仍可被兼容解析，但不作为标准脚本后缀
-  - [x] 仅文件开头允许 shebang
-- [x] 明确 POSIX 当前建议写法：
-  - [x] `#!/usr/bin/env -S uya run`
 - [ ] `uya script` 落地后同步最终建议写法：
   - [ ] `#!/usr/bin/env -S uya script`
   - [ ] 或提供 `uya-script` wrapper 后再定最终形式
