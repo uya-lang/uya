@@ -371,3 +371,17 @@
   - 结果：`ok: docs/todo_std_script.md has 0 active tasks`
   - 验证命令：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md docs/todo_std_script_completed.md`
   - 结果：通过。
+
+## Phase 1：运行时基础缺口
+
+### 1.3 hosted backend 缺口
+
+任务路径：明确 Windows hosted 所需最小 bridge 列表
+
+- [x] 明确 Windows hosted 所需最小 bridge 列表：
+  - [x] pipe/stdio redirection
+    - 产出：`docs/std_script_design.md` 已补齐 Windows hosted `pipe/stdio` 最小 bridge 语义，明确对齐 `tests/test_osal.uya` 中 `stdin -> child`、`stderr -> file`、`parent capture stdout` 三条现有 POSIX 行为基线。
+    - 验证命令：`git diff --check -- docs/todo_std_script.md docs/todo_std_script_completed.md docs/std_script_design.md`
+    - 验证结果：通过。
+    - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
+    - 验证结果：`ok: docs/todo_std_script.md has 0 active tasks`。

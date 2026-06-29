@@ -50,9 +50,6 @@
 
 ### 1.3 hosted backend 缺口
 
-- [ ] 明确 Windows hosted 所需最小 bridge 列表：
-  - [ ] pipe/stdio redirection
-
 ### 1.4 shebang 预研
 
 - [ ] 明确 shebang 不阻塞第一批脚本迁移。

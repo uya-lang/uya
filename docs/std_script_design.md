@@ -1,7 +1,7 @@
 # Uya 脚本标准库与运行时设计文档
 
 **状态**：design draft  
-**更新日期**：2026-05-21  
+**更新日期**：2026-06-29
 **配套 TODO**：[`todo_std_script.md`](todo_std_script.md)
 
 ---
@@ -555,6 +555,12 @@ shebang 完整 UX 仍需要两部分支持：
   - Windows 最小可交付应在进程启动阶段从宽字符宿主环境（`GetEnvironmentStringsW` 或等价入口）构造 UTF-8 canonical env view，并让 `std.env.get/has/iter`、`inherit_current()` 与后续 child spawn 共用这份视图。
   - child-only overlay 继续复用现有 `EnvBlockBuilder` 语义：上层保持 UTF-8 `KEY=VALUE` 列表，Windows spawn bridge 在最后一步把最终 env block 转成 UTF-16 双 `\0` 结尾缓冲区，并通过 `CreateProcessW(..., lpEnvironment=...)` 传入；不允许通过先修改父进程全局环境、spawn 后再回滚的方式模拟。
   - 当前进程 env mutation 不是 Windows Phase 1 的前置条件；若后续公开 `env_set_current(...)` / `env_remove_current(...)` 一类能力，必须同时更新 canonical env view，并落到真实宿主 API，而不能复用当前 `setenv` / `unsetenv` / `clearenv` stub 的 silent success。
+- `pipe / stdio redirection` 这一项也应作为同一批最小 bridge 收口：
+  - 行为基线先与当前 POSIX 回归对齐：`tests/test_osal.uya` 已经覆盖 `stdin -> child` 文件重定向、`stderr -> file` 重定向，以及“父进程通过 pipe 捕获 child stdout”三类最小语义；Windows hosted 至少要能稳定复现这三条路径，才能支撑后续 `Command.stdin/stdout/stderr`、`output()` 与脚本日志捕获。
+  - 公共 ABI 不应暴露 Win32 句柄细节，也不应要求上层模拟 `dup2(fd, 0/1/2)`；最小接口仍保持 `Command` 上的结构化 stdio 配置，例如 `inherit` / `null` / `file` / `pipe endpoint`，由 spawn bridge 在内部翻译成 `CreateProcessW` 所需的 child stdio 句柄。
+  - `pipe` 最小 bridge 需要返回一对可区分“parent 端 / child 端”职责的匿名管道端点，并在创建后立刻收敛继承语义：父进程自己持有并继续读写的端点默认不可继承，只把 child 真正需要的端点暴露给 `spawn`。这样 `output()`、`take_stdout()`、`take_stderr()` 与后续 pipeline helper 才能共用同一套底层原语，而不是分别拼装临时方案。
+  - `stdin/stdout/stderr` 重定向必须允许三路分别配置，不能把“capture stdout/stderr”偷换成单一 merged pipe；只有公开 API 显式请求合并时，bridge 才能复用同一个 child 端点。否则 `status/output/check` 与仓库脚本常见的“stdout 做数据、stderr 做日志”模式无法保持一致。
+  - 句柄生命周期要由 bridge 自己封装：`spawn` 成功后父进程立即关闭 child-only 端点，失败路径也统一回收，避免泄漏；child 等待完成后只保留 `Child` 仍需读取的 pipe 端点或进程句柄。这样 Windows hosted 行为才与当前 POSIX `fork + dup2 + close` 模型在资源语义上对齐。
 - `stat/remove/rename` 这一组也应作为同一批最小 bridge 收口：
   - 当前 `lib/libc/stdio.uya` 的 `remove()` 语义建立在 `sys_stat()` + `sys_rmdir()` / `sys_unlink()` 分发之上，`rename()` 直接透传 `sys_rename()`；而 `lib/libc/syscall.uya` 目前只对 macOS 提供了 hosted 分支，Windows hosted 还没有对应 bridge，因此这三项不能拆成彼此独立的“后补优化”。
   - `stat` 最小 bridge 需要接受 UTF-8 路径、在内部完成 UTF-16 转换，并返回脚本运行时真正需要的基础元数据：是否存在、是否目录、文件大小、时间戳与错误码。实现上可走 `GetFileAttributesExW` / `GetFileInformationByHandleEx`，或 `_wstat64` 一类宽字符 CRT 入口，但对外都要继续映射到统一的 `os_stat` / `std.fs` 语义。
