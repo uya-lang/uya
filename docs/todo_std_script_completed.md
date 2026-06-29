@@ -52,3 +52,17 @@
       - `git ls-files tests/verify_check_cli.sh tests/verify_exec_vm_compiler_regressions.sh tests/verify_split_build_output.sh tests/verify_project_root_embedded_uya_resolution.sh`：4 个候选脚本均为仓库已跟踪文件。
       - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`：`ok: docs/todo_std_script.md has 1 active task`。
       - `git diff --check -- docs/todo_std_script.md`：通过。
+
+## Phase 0：盘点与基线
+
+路径：盘点仓库内现有 shell 脚本，按复杂度分三类
+
+- [x] B 类：中等复杂度，含较多文件系统/文本处理
+  - 盘点文档：`docs/std_script_shell_inventory.md`
+  - 归类口径：以临时目录/文件生成和 `grep`/`diff`/`find`/`sed`/`sort`/`test -f/-s/-x` 等文本或文件系统断言为主；不承担平台矩阵、benchmark/stress 或完整构建编排。
+  - 结果：`rg --files -g '*.sh'` 共发现 183 个脚本，本轮先归入 B 类 132 个，覆盖 `exec_vm`、`async`、`embed/c_import/split`、CLI/package-mode、UPM、microapp、C99/codegen 七组。
+  - 验证：
+    - `rg --files -g '*.sh' | wc -l` => `183`
+    - `python3 - <<'PY' ...` 统计 `docs/std_script_shell_inventory.md` 中的 `tests/` 路径 => `132`
+    - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` => `ok: docs/todo_std_script.md has 0 active tasks`
+    - `git diff --check` => `OK`
