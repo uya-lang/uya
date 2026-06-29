@@ -103,3 +103,27 @@
     - `UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh` -> exit `0`
     - `UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh` -> exit `0`
   - 验证时间：`2026-06-29 17:10:08 +0800`
+
+## Phase 0：盘点与基线
+
+父级路径：`为第一批候选脚本记录 oracle`
+
+- [x] 关键 stdout/stderr
+  - 记录结果（2026-06-29，成功路径）：
+    - `tests/verify_check_cli.sh`：stdout 仅 `check cli ok`；stderr 为空。
+    - `tests/verify_exec_vm_compiler_regressions.sh`：stdout 为逐项 `验证...` / `... ✓` 进度序列，末行 `✓ exec vm compiler regression checks passed`；stderr 为空。
+    - `tests/verify_split_build_output.sh`：stdout 仅 `split build output materialized ok`；stderr 为空。
+    - `tests/verify_project_root_embedded_uya_resolution.sh`：stdout 仅 `embedded project-root stdlib resolution ok`；stderr 为空。
+  - 验证说明：按本轮硬约束，使用脚本等价执行方式将编译器路径固定为 `../uya/bin/uya`，避免 `bin/uya-hosted` fallback。
+  - 验证命令：
+    - `sed 's|"$ROOT_DIR/bin/uya"|../uya/bin/uya|g' tests/verify_check_cli.sh | bash`
+    - `sed -e 's|^SCRIPT_DIR=.*|SCRIPT_DIR="$(pwd)/tests"|' -e 's|^REPO_ROOT=.*|REPO_ROOT="$(pwd)"|' -e 's|^COMPILER=.*|COMPILER="../uya/bin/uya"|' tests/verify_exec_vm_compiler_regressions.sh | bash`
+    - `sed -e 's|^REPO_ROOT=.*|REPO_ROOT="$(pwd)"|' -e '/if \[ -n "${UYA_COMPILER:-}" \]; then/,/^fi$/c\COMPILER="../uya/bin/uya"' tests/verify_split_build_output.sh | bash`
+    - `sed -e 's|^REPO_ROOT=.*|REPO_ROOT="$(pwd)"|' -e '/if \[ -n "${UYA_COMPILER:-}" \]; then/,/^fi$/c\COMPILER="../uya/bin/uya"' tests/verify_project_root_embedded_uya_resolution.sh | bash`
+  - 验证结果：
+    - 上述四条命令均退出 0。
+    - `tests/verify_check_cli.sh` stdout：`check cli ok`
+    - `tests/verify_exec_vm_compiler_regressions.sh` stdout 末行：`✓ exec vm compiler regression checks passed`
+    - `tests/verify_split_build_output.sh` stdout：`split build output materialized ok`
+    - `tests/verify_project_root_embedded_uya_resolution.sh` stdout：`embedded project-root stdlib resolution ok`
+    - 四条命令 stderr 均为空。
