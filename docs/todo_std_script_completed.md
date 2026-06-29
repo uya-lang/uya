@@ -222,3 +222,14 @@
     - 验证命令：`git diff --check`
     - 验证结果：`check_todo.py` 返回 `ok: docs/todo_std_script.md has 0 active tasks`。
     - 验证结果：`git diff --check` 无输出。
+
+## Phase 0：盘点与基线
+
+- [x] 将复杂脚本标记为后续阶段处理：
+  - [x] `src/compile.sh`
+    - 复杂度依据：当前脚本 `1269` 行，已承载平台/架构归一化、toolchain 选择、split-C 链接、缓存清理、自举对比和 CLI 分发，不属于首批 `std.script` 简单迁移对象。
+    - 后续阶段：待 `std.process` / `std.script` facade / Windows hosted backend 收口后，再评估是否拆分迁移。
+    - 验证：`wc -l src/compile.sh` => `1269 src/compile.sh`
+    - 验证：`grep -nE '^(normalize_os|normalize_arch|run_uya_split_make_link|cleanup_uya_split_cache_dir|uya_bootstrap_cmp_exe_normalized)\\(\\)|^while \\[\\[ \\$# -gt 0 \\]\\]|^if \\[ \"\\$BOOTSTRAP_COMPARE\" = true \\]; then|^if \\[ \"\\$USE_NOSTDLIB\" = true \\] && \\[ \"\\$GENERATE_EXEC\" != true \\]; then' src/compile.sh` => 命中 `normalize_os`/`normalize_arch`/`run_uya_split_make_link`/`cleanup_uya_split_cache_dir`/`uya_bootstrap_cmp_exe_normalized`/CLI 参数循环/自举对比与 `--nostdlib` 约束分支。
+    - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` => `ok: docs/todo_std_script.md has 0 active tasks`
+    - 验证：`git diff --check -- docs/todo_std_script.md docs/todo_std_script_completed.md` => 无输出
