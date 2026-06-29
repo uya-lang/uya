@@ -30,3 +30,9 @@
   - [x] `#!/usr/bin/env -S uya run`
 - 验证：
   - `UYA_COMPILER=../uya/bin/uya bash tests/verify_run_shebang_ush.sh`：通过，输出 `verify_run_shebang_ush: ok`
+
+## Phase 0：盘点与基线
+
+- [x] 查看工作树，确认没有未预期改动：`git status --short`。
+  - 验证命令：`git status --short`
+  - 验证结果：在回写 todo 状态前执行，输出为空，工作树干净，没有未预期改动。
