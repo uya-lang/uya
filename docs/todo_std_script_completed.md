@@ -143,3 +143,19 @@
     - `UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh`：输出 `split build output materialized ok`。
     - `UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh`：输出 `embedded project-root stdlib resolution ok`。
     - `UYA_COMPILER=../uya/bin/uya bash tests/verify_exec_vm_compiler_regressions.sh`：末行输出 `✓ exec vm compiler regression checks passed`。
+
+## Phase 0：盘点与基线
+
+- [x] 为第一批候选脚本记录 oracle：
+  - `stdout/stderr` oracle（2026-06-29，成功路径）：
+    - `tests/verify_check_cli.sh`：stdout 仅 `check cli ok`；stderr 为空。
+    - `tests/verify_exec_vm_compiler_regressions.sh`：stdout 为逐项 `验证...` / `... ✓` 进度序列，末行 `✓ exec vm compiler regression checks passed`；stderr 为空。
+    - `tests/verify_split_build_output.sh`：stdout 仅 `split build output materialized ok`；stderr 为空。
+    - `tests/verify_project_root_embedded_uya_resolution.sh`：stdout 仅 `embedded project-root stdlib resolution ok`；stderr 为空。
+  - [x] 关键临时目录副作用
+    - `tests/verify_check_cli.sh`：创建 `/tmp/verify_check_cli_{ok,bad,help}.XXXXXX.log` 临时文件；`trap cleanup EXIT` 清理，`find /tmp -maxdepth 1 -type f -name 'verify_check_cli_*.log' | wc -l` 运行前后均为 `0`。
+    - `tests/verify_exec_vm_compiler_regressions.sh`：仅通过 `mktemp` 创建 stdout/stderr 捕获文件；在专用 `TMPDIR=$(mktemp -d /tmp/std-script-exec-regression.XXXXXX)` 下运行后，临时目录残留项为 `0`。
+    - `tests/verify_split_build_output.sh`：创建 `/tmp/uya-split-build-out.XXXXXX` 与 `/tmp/uya-split-build-out.XXXXXX.log`；`trap cleanup EXIT` 清理，`find /tmp -maxdepth 1 \( -type f -o -type l \) -name 'uya-split-build-out.*' | wc -l` 运行前后均为 `0`。
+    - `tests/verify_project_root_embedded_uya_resolution.sh`：创建 `/tmp/uya-embedded-root.XXXXXX/`，内部含 `uya/lib -> <repo>/lib` 符号链接、`root_async_import.uya` 与 `out.c`；`trap cleanup EXIT` 会删除该目录，`find /tmp -maxdepth 1 -type d -name 'uya-embedded-root.*' | wc -l` 运行前后均为 `0`，但 `/tmp/verify_project_root_embedded_uya_resolution.log` 会保留并被覆盖更新。
+    - 验证命令：`bash tests/verify_check_cli.sh`、`TMPDIR=$(mktemp -d /tmp/std-script-exec-regression.XXXXXX) UYA_COMPILER=../uya/bin/uya bash tests/verify_exec_vm_compiler_regressions.sh`、`UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh`、`UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh`
+    - 验证结果：4 个脚本均成功；前三类临时路径运行后无残留，`verify_project_root_embedded_uya_resolution.sh` 额外保留并覆盖 `/tmp/verify_project_root_embedded_uya_resolution.log`。

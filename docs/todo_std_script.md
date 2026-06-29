@@ -46,13 +46,6 @@
 
 ## Phase 0：盘点与基线
 
-- [ ] 为第一批候选脚本记录 oracle：
-  - `stdout/stderr` oracle（2026-06-29，成功路径）：
-    - `tests/verify_check_cli.sh`：stdout 仅 `check cli ok`；stderr 为空。
-    - `tests/verify_exec_vm_compiler_regressions.sh`：stdout 为逐项 `验证...` / `... ✓` 进度序列，末行 `✓ exec vm compiler regression checks passed`；stderr 为空。
-    - `tests/verify_split_build_output.sh`：stdout 仅 `split build output materialized ok`；stderr 为空。
-    - `tests/verify_project_root_embedded_uya_resolution.sh`：stdout 仅 `embedded project-root stdlib resolution ok`；stderr 为空。
-  - [ ] 关键临时目录副作用
 - [ ] 记录第一批推荐迁移对象：
   - [ ] `tests/verify_check_cli.sh`
   - [ ] `tests/verify_exec_vm_compiler_regressions.sh`
