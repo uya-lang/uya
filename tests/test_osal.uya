@@ -12,6 +12,10 @@ use osal.os_dup;
 use osal.os_dup2;
 use osal.os_pipe;
 use osal.os_pipe2;
+use osal.os_fork;
+use osal.os_waitpid;
+use osal.os_execve;
+use osal.os_exit;
 use osal.os_getuid;
 use osal.os_getgid;
 use osal.os_geteuid;
@@ -29,8 +33,104 @@ use osal.TimeVal;
 use osal.RLimit;
 use std.testing.expect;
 use std.testing.assert_eq_i32;
+use libc.strlen;
 
 const TEST_FILE: *const byte = "/tmp/uya_osal_test_file.txt" as *const byte;
+const TEST_STDIN_FILE: &const byte = "/tmp/uya_osal_test_stdin.txt" as &const byte;
+const TEST_STDOUT_FILE: &const byte = "/tmp/uya_osal_test_stdout.txt" as &const byte;
+const TEST_STDERR_FILE: &const byte = "/tmp/uya_osal_test_stderr.txt" as &const byte;
+const O_WRITE_CREATE_TRUNC: i64 = 577;
+
+fn bytes_equal(actual: &byte, expected: &const byte, len: usize) bool {
+    var i: usize = 0;
+    while i < len {
+        if actual[i] != expected[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn write_all_file(file: &File, buf: &const byte, len: usize) !void {
+    var total: usize = 0;
+    while total < len {
+        const written: usize = try os_write(file, &buf[total], len - total);
+        try expect(written > 0);
+        total = total + written;
+    }
+}
+
+fn read_all_file(file: &File, buf: &byte, cap: usize) !usize {
+    var total: usize = 0;
+    while total < cap {
+        const read_n: usize = try os_read(file, &buf[total], cap - total);
+        if read_n == 0 {
+            break;
+        }
+        total = total + read_n;
+    }
+    return total;
+}
+
+fn write_text_file(path: &const byte, text: &const byte) !void {
+    _ = os_unlink(path) catch {};
+    var file: File = File { fd: 0, owns_fd: false };
+    file.fd = try os_open(path, O_WRITE_CREATE_TRUNC, 0o644);
+    file.owns_fd = true;
+    defer {
+        _ = os_close(&file) catch {};
+    }
+    try write_all_file(&file, text, strlen(text));
+}
+
+fn read_text_file(path: &const byte, buf: &byte, cap: usize) !usize {
+    var file: File = File { fd: 0, owns_fd: false };
+    file.fd = try os_open(path, 0, 0);
+    file.owns_fd = true;
+    defer {
+        _ = os_close(&file) catch {};
+    }
+    return try read_all_file(&file, buf, cap);
+}
+
+fn wait_child_exit_ok(pid: i32) !void {
+    var status: i32 = 0;
+    _ = try os_waitpid(pid, &status, 0);
+    try assert_eq_i32((status & 0xff) as i32, 0);
+    try assert_eq_i32(((status >> 8) & 0xff) as i32, 0);
+}
+
+fn spawn_execve_with_redirect(path: &const byte, argv: &(&const byte), envp: &(&const byte), stdin_fd: i32, stdout_fd: i32, stderr_fd: i32) !i32 {
+    const pid: i64 = try os_fork();
+    if pid == 0 {
+        if stdin_fd >= 0 {
+            _ = os_dup2(stdin_fd, 0) catch {
+                os_exit(101);
+                return 0;
+            };
+        }
+        if stdout_fd >= 0 {
+            _ = os_dup2(stdout_fd, 1) catch {
+                os_exit(102);
+                return 0;
+            };
+        }
+        if stderr_fd >= 0 {
+            _ = os_dup2(stderr_fd, 2) catch {
+                os_exit(103);
+                return 0;
+            };
+        }
+        os_execve(path, argv, envp) catch {
+            os_exit(104);
+            return 0;
+        };
+        os_exit(105);
+        return 0;
+    }
+    return pid as i32;
+}
 
 // ============================================================
 // 测试用例
@@ -132,6 +232,94 @@ test "os_pipe2" {
     try os_close(&write_file);
 }
 
+test "os_redirect_stdin_stdout_with_execve" {
+    const input_text: &const byte = "stdin redirect ok" as &const byte;
+    defer {
+        _ = os_unlink(TEST_STDIN_FILE) catch {};
+        _ = os_unlink(TEST_STDOUT_FILE) catch {};
+    }
+
+    try write_text_file(TEST_STDIN_FILE, input_text);
+
+    var stdin_file: File = File { fd: 0, owns_fd: false };
+    stdin_file.fd = try os_open(TEST_STDIN_FILE, 0, 0);
+    stdin_file.owns_fd = true;
+    defer {
+        _ = os_close(&stdin_file) catch {};
+    }
+
+    _ = os_unlink(TEST_STDOUT_FILE) catch {};
+    var stdout_file: File = File { fd: 0, owns_fd: false };
+    stdout_file.fd = try os_open(TEST_STDOUT_FILE, O_WRITE_CREATE_TRUNC, 0o644);
+    stdout_file.owns_fd = true;
+    defer {
+        _ = os_close(&stdout_file) catch {};
+    }
+
+    var argv: [&const byte: 2] = [
+        "/bin/cat" as &const byte,
+        null,
+    ];
+    var envp: [&const byte: 1] = [null];
+    const pid: i32 = try spawn_execve_with_redirect(
+        "/bin/cat" as &const byte,
+        &argv[0] as &(&const byte),
+        &envp[0] as &(&const byte),
+        stdin_file.fd,
+        stdout_file.fd,
+        -1,
+    );
+    try os_close(&stdin_file);
+    try os_close(&stdout_file);
+    try wait_child_exit_ok(pid);
+
+    var out: [byte: 64] = [];
+    const out_len: usize = try read_text_file(TEST_STDOUT_FILE, &out[0], 64);
+    const want_len: usize = strlen(input_text);
+    try assert_eq_i32(out_len as i32, want_len as i32);
+    try expect(bytes_equal(&out[0], input_text, want_len));
+}
+
+test "os_redirect_stderr_with_execve" {
+    const stderr_cmd: &const byte = "printf 'stderr redirect ok' >&2" as &const byte;
+    const stderr_text: &const byte = "stderr redirect ok" as &const byte;
+    defer {
+        _ = os_unlink(TEST_STDERR_FILE) catch {};
+    }
+
+    _ = os_unlink(TEST_STDERR_FILE) catch {};
+    var stderr_file: File = File { fd: 0, owns_fd: false };
+    stderr_file.fd = try os_open(TEST_STDERR_FILE, O_WRITE_CREATE_TRUNC, 0o644);
+    stderr_file.owns_fd = true;
+    defer {
+        _ = os_close(&stderr_file) catch {};
+    }
+
+    var argv: [&const byte: 4] = [
+        "/bin/sh" as &const byte,
+        "-c" as &const byte,
+        stderr_cmd,
+        null,
+    ];
+    var envp: [&const byte: 1] = [null];
+    const pid: i32 = try spawn_execve_with_redirect(
+        "/bin/sh" as &const byte,
+        &argv[0] as &(&const byte),
+        &envp[0] as &(&const byte),
+        -1,
+        -1,
+        stderr_file.fd,
+    );
+    try os_close(&stderr_file);
+    try wait_child_exit_ok(pid);
+
+    var out: [byte: 64] = [];
+    const out_len: usize = try read_text_file(TEST_STDERR_FILE, &out[0], 64);
+    const want_len: usize = strlen(stderr_text);
+    try assert_eq_i32(out_len as i32, want_len as i32);
+    try expect(bytes_equal(&out[0], stderr_text, want_len));
+}
+
 test "os_getuid" {
     const uid: u32 = try os_getuid();
     try expect(uid >= 0);
@@ -210,6 +398,4 @@ test "os_seek" {
 test "os_sleep" {
     try os_sleep(0, 100000000);
 }
-
-
 
