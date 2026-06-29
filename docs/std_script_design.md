@@ -292,6 +292,21 @@ Uya script / tests/*.uya / tools/*.uya
   - `env_set_current(...)`
   - `command.env_set(...)`
 
+### 2.3 child-local env overlay 语义约束
+
+- `Command` / `spawn` 默认从当前进程环境读取一个只读快照作为 base env。
+- overlay/remove 只作用在“本次 child exec 要传入的 env block”：
+  - `with(KEY, VALUE)` / `command.env_set(KEY, VALUE)`：为该 child 新增或覆盖变量。
+  - `without(KEY)` / `command.env_remove(KEY)`：从该 child 的最终 env block 中删除变量。
+- 同一个 key 的多次操作按调用顺序生效：
+  - 后一次 `with` 覆盖前一次 `with`。
+  - `without` 可以删除继承来的 key，也可以删除本轮更早的 `with`。
+  - `without` 之后再次 `with`，表示重新加入该 key。
+- 最终传给 `execve` / 平台等价 API 的 env block 中，同一个 key 最多出现一次。
+- 这些修改不会回写当前进程的 `saved_envp`，也不会影响后续无关 `Command`；脚本内 `std.env.get(...)` 读取到的仍是当前进程原始环境。
+- MVP 不允许通过“先全局 `setenv` / `unsetenv`，spawn 完再回滚”来模拟该能力；必须直接构造 child 专属 env block。
+- 当前进程全局 env mutation 属于后续独立能力，不与 child-local overlay 复用同一套 API 名称或隐式副作用。
+
 ---
 
 ## 3. `std.fs`

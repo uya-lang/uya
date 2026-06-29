@@ -233,3 +233,13 @@
     - 验证：`grep -nE '^(normalize_os|normalize_arch|run_uya_split_make_link|cleanup_uya_split_cache_dir|uya_bootstrap_cmp_exe_normalized)\\(\\)|^while \\[\\[ \\$# -gt 0 \\]\\]|^if \\[ \"\\$BOOTSTRAP_COMPARE\" = true \\]; then|^if \\[ \"\\$USE_NOSTDLIB\" = true \\] && \\[ \"\\$GENERATE_EXEC\" != true \\]; then' src/compile.sh` => 命中 `normalize_os`/`normalize_arch`/`run_uya_split_make_link`/`cleanup_uya_split_cache_dir`/`uya_bootstrap_cmp_exe_normalized`/CLI 参数循环/自举对比与 `--nostdlib` 约束分支。
     - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md` => `ok: docs/todo_std_script.md has 0 active tasks`
     - 验证：`git diff --check -- docs/todo_std_script.md docs/todo_std_script_completed.md` => 无输出
+## Phase 1：运行时基础缺口
+
+### 1.1 环境变量
+
+- 明确脚本运行时优先语义：
+  - [x] child-local env overlay
+    - 结果：在 `docs/std_script_design.md` 明确 child env 以当前进程只读快照为 base，overlay/remove 仅作用于 child `execve` env block，按调用顺序决议，同 key 最多出现一次，不回写 `saved_envp`，且禁止通过全局 `setenv` / `unsetenv` + 回滚来模拟。
+    - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`（`ok: docs/todo_std_script.md has 1 active task`）
+    - 验证：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md`（无输出）
+    - 验证：`rg -n "child-local env overlay|只读快照|saved_envp|execve|env_set_current|command\\.env_set" docs/std_script_design.md`（命中新增语义条目）
