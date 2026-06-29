@@ -555,6 +555,11 @@ shebang 完整 UX 仍需要两部分支持：
   - Windows 最小可交付应在进程启动阶段从宽字符宿主环境（`GetEnvironmentStringsW` 或等价入口）构造 UTF-8 canonical env view，并让 `std.env.get/has/iter`、`inherit_current()` 与后续 child spawn 共用这份视图。
   - child-only overlay 继续复用现有 `EnvBlockBuilder` 语义：上层保持 UTF-8 `KEY=VALUE` 列表，Windows spawn bridge 在最后一步把最终 env block 转成 UTF-16 双 `\0` 结尾缓冲区，并通过 `CreateProcessW(..., lpEnvironment=...)` 传入；不允许通过先修改父进程全局环境、spawn 后再回滚的方式模拟。
   - 当前进程 env mutation 不是 Windows Phase 1 的前置条件；若后续公开 `env_set_current(...)` / `env_remove_current(...)` 一类能力，必须同时更新 canonical env view，并落到真实宿主 API，而不能复用当前 `setenv` / `unsetenv` / `clearenv` stub 的 silent success。
+- `stat/remove/rename` 这一组也应作为同一批最小 bridge 收口：
+  - 当前 `lib/libc/stdio.uya` 的 `remove()` 语义建立在 `sys_stat()` + `sys_rmdir()` / `sys_unlink()` 分发之上，`rename()` 直接透传 `sys_rename()`；而 `lib/libc/syscall.uya` 目前只对 macOS 提供了 hosted 分支，Windows hosted 还没有对应 bridge，因此这三项不能拆成彼此独立的“后补优化”。
+  - `stat` 最小 bridge 需要接受 UTF-8 路径、在内部完成 UTF-16 转换，并返回脚本运行时真正需要的基础元数据：是否存在、是否目录、文件大小、时间戳与错误码。实现上可走 `GetFileAttributesExW` / `GetFileInformationByHandleEx`，或 `_wstat64` 一类宽字符 CRT 入口，但对外都要继续映射到统一的 `os_stat` / `std.fs` 语义。
+  - `remove` 不能依赖当前 POSIX-only 的 `sys_unlink` / `sys_rmdir` 路径；最小 bridge 至少要能区分“文件删除”和“目录删除”，并保持与公共 API 一致的错误语义。实现上可以复用 `stat` 结果后分发到 `DeleteFileW` / `RemoveDirectoryW`，也可以直接调用宽字符 CRT 等价入口，但必须共用同一套 UTF-8 → UTF-16 路径转换。
+  - `rename` 需要与现有 `sys_rename` 语义对齐，而不是退化成“目标已存在就失败”的弱语义；因此 Windows hosted 最小 bridge 应优先落到 `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 或等价实现，并继续复用同一套 UTF-8 路径转换与错误映射。
 
 ## 3. PATH 搜索必须平台敏感
 

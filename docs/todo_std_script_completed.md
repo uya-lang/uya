@@ -340,3 +340,20 @@
   - 结果：命中文档与实现边界，确认结论与 `saved_envp`、`EnvBlockBuilder`、`CreateProcessW(..., lpEnvironment=...)` 和当前 env mutation stub 一致。
   - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
   - 结果：ok: docs/todo_std_script.md has 0 active tasks
+
+### 1.3 hosted backend 缺口
+
+父级任务路径：明确 Windows hosted 所需最小 bridge 列表
+
+- [x] stat/remove/rename
+  - 结论：Windows hosted 的 `stat/remove/rename` 最小 bridge 已收敛为一组共用 UTF-8 → UTF-16 路径转换的文件桥：`stat` 负责存在性/目录/大小/时间等基础元数据，`remove` 负责文件/目录删除分发，`rename` 负责保持 replace 语义的重命名。
+  - 验证命令：`sed -n '555,562p' docs/std_script_design.md`
+  - 结果：设计文档已明确 `GetFileAttributesExW` / `GetFileInformationByHandleEx`、`DeleteFileW` / `RemoveDirectoryW`、`MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` 与统一 UTF-8 → UTF-16 路径转换约束。
+  - 验证命令：`sed -n '1386,1595p' lib/libc/syscall.uya`
+  - 结果：`sys_stat` / `sys_rename` 当前只有 macOS hosted 分支，其余仍走 syscall 路径，证明 Windows hosted 还缺对应 bridge。
+  - 验证命令：`sed -n '2011,2057p' lib/libc/stdio.uya`
+  - 结果：`remove()` 依赖 `sys_stat` + `sys_rmdir` / `sys_unlink` 分发，`rename()` 直接透传 `sys_rename()`，证明三项应成组补齐。
+  - 验证命令：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md`
+  - 结果：通过。
+  - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
+  - 结果：`ok: docs/todo_std_script.md has 0 active tasks`
