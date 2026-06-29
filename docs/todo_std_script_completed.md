@@ -127,3 +127,19 @@
     - `tests/verify_split_build_output.sh` stdout：`split build output materialized ok`
     - `tests/verify_project_root_embedded_uya_resolution.sh` stdout：`embedded project-root stdlib resolution ok`
     - 四条命令 stderr 均为空。
+
+## Phase 0：盘点与基线
+
+父级任务路径：`为第一批候选脚本记录 oracle：`
+
+- [x] 关键产物文件
+  - `tests/verify_check_cli.sh`：关键产物仅为 3 个临时日志文件 `OK_LOG`、`BAD_LOG`、`HELP_LOG`（分别承载成功 `check`、失败 `check`、`--help` 输出）；脚本退出时删除，无持久 `-o` 输出文件。
+  - `tests/verify_exec_vm_compiler_regressions.sh`：关键产物仅为复用的临时捕获文件 `TMP_STDOUT`、`TMP_STDERR`；用于逐项断言 stdout/stderr，无显式 `-o` 输出文件，脚本退出时删除。
+  - `tests/verify_split_build_output.sh`：关键产物为 `OUT_BIN="$(mktemp /tmp/uya-split-build-out.XXXXXX)"`，成功条件是 `test -x "$OUT_BIN"`；辅助日志为 `BUILD_LOG="$(mktemp /tmp/uya-split-build-out.XXXXXX.log)"`；两者退出时删除。
+  - `tests/verify_project_root_embedded_uya_resolution.sh`：关键产物为 `OUT_C="$TMP_DIR/out.c"`，成功条件是 `test -s "$OUT_C"`；另有持久编译日志 `/tmp/verify_project_root_embedded_uya_resolution.log` 记录本次 `--c99` 构建输出。
+  - 验证：
+    - `rg -n 'OK_LOG|BAD_LOG|HELP_LOG|TMP_STDOUT|TMP_STDERR|OUT_BIN|BUILD_LOG|OUT_C|verify_project_root_embedded_uya_resolution\.log|test -x \$OUT_BIN|test -s \$OUT_C' tests/verify_check_cli.sh tests/verify_exec_vm_compiler_regressions.sh tests/verify_split_build_output.sh tests/verify_project_root_embedded_uya_resolution.sh`：确认关键文件变量、固定日志路径和成功断言与记录一致。
+    - `bash tests/verify_check_cli.sh`：输出 `check cli ok`。
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh`：输出 `split build output materialized ok`。
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh`：输出 `embedded project-root stdlib resolution ok`。
+    - `UYA_COMPILER=../uya/bin/uya bash tests/verify_exec_vm_compiler_regressions.sh`：末行输出 `✓ exec vm compiler regression checks passed`。
