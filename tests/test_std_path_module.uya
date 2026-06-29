@@ -60,3 +60,33 @@ test "std.path dirname preserves windows drive root" {
     try assert_eq_i32(dirname("C:\\repo\\", &buf[0], 64), 0);
     try assert_eq_i32(strcmp(&buf[0], "C:\\"), 0);
 }
+
+test "std.path basename returns last path component" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(basename("scripts/build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "build.uya"), 0);
+
+    try assert_eq_i32(basename("build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "build.uya"), 0);
+}
+
+test "std.path basename trims trailing separators and preserves roots" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(basename("/tmp/", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "tmp"), 0);
+
+    try assert_eq_i32(basename("/", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/"), 0);
+
+    try assert_eq_i32(basename("C:\\repo\\", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "repo"), 0);
+
+    try assert_eq_i32(basename("C:\\", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "C:\\"), 0);
+}
+
+test "std.path basename returns current directory marker for empty path" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(basename("", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "."), 0);
+}

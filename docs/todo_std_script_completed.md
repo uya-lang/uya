@@ -433,3 +433,16 @@
     - 结果：通过，`std.path` 9 个用例全部通过，包含新增 `dirname` 回归。
   - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
     - 结果：通过，无 diff 格式问题。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+父级路径：`提供：`
+
+- [x] `basename`
+  - 实现：在 `lib/std/path.uya` 新增导出 `basename(path, out, out_cap)`，统一处理空串、尾部分隔符裁剪、Unix 根和 Windows 盘符根。
+  - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：首次失败，新增 3 个 `basename` 用例失败并出现宿主 C `basename` 隐式声明警告；实现后通过，`std.path` 12 个用例全部通过。
+  - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
+    - 结果：通过。

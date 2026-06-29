@@ -78,6 +78,24 @@ fn path_copy_prefix(src: &const byte, prefix_len: usize, out: &byte, out_cap: us
     return 0;
 }
 
+fn path_copy_range(src: &const byte, start: usize, end: usize, out: &byte, out_cap: usize) i32 {
+    if src == null || out == null || end < start {
+        return 1;
+    }
+    const len: usize = end - start;
+    if len + 1usize > out_cap {
+        return 1;
+    }
+
+    var i: usize = 0;
+    while i < len {
+        out[i] = src[start + i];
+        i = i + 1usize;
+    }
+    out[len] = 0 as byte;
+    return 0;
+}
+
 fn path_root_prefix_len(path: &const byte) usize {
     if path == null || path[0] == 0 as byte {
         return 0usize;
@@ -123,6 +141,39 @@ fn path_trim_duplicate_separators(path: &const byte, end: usize, root_len: usize
 /// 参数说明：无。
 /// 返回值：常量值始终为 `true`。
 export const PATH_MODULE_PRESENT: bool = true;
+
+/// 返回路径的最后一个组件。
+///
+/// 参数说明：`path` 为输入路径；`out` 为输出缓冲区；`out_cap` 为缓冲区总容量（包含末尾 `\\0`）。
+/// 返回值：成功返回 `0` 并写入以 `\\0` 结尾的 basename；失败返回 `1`。
+export fn basename(path: &const byte, out: &byte, out_cap: usize) i32 {
+    if path == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+
+    const len: usize = strlen(path);
+    if len == 0usize {
+        return path_copy_cstring("." as &const byte, out, out_cap);
+    }
+
+    const root_len: usize = path_root_prefix_len(path);
+    const end: usize = path_trim_trailing_separators(path, len, root_len);
+    if end == root_len {
+        if root_len == 0usize {
+            return path_copy_cstring("." as &const byte, out, out_cap);
+        }
+        return path_copy_prefix(path, root_len, out, out_cap);
+    }
+
+    var start: usize = end;
+    while start > root_len {
+        if path_is_separator(path[start - 1usize]) {
+            break;
+        }
+        start = start - 1usize;
+    }
+    return path_copy_range(path, start, end, out, out_cap);
+}
 
 /// 返回路径的父目录部分。
 ///
