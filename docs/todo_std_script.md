@@ -60,7 +60,6 @@
 ### 2.1 `std.path`
 
 - [ ] 提供：
-  - [ ] `dirname`
   - [ ] `basename`
   - [ ] `stem`
   - [ ] `extension`

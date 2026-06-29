@@ -421,3 +421,15 @@
     - 结果：通过。
     - 验证：`git diff --check`
     - 结果：通过，无 diff 格式问题。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+父级路径：`提供`
+- [x] `dirname`
+  - 实现：在 `lib/std/path.uya` 新增 `dirname(path, out, out_cap)`，覆盖相对路径、Unix 根目录、Windows 盘符目录与尾部分隔符裁剪。
+  - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+    - 结果：通过，`std.path` 9 个用例全部通过，包含新增 `dirname` 回归。
+  - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
+    - 结果：通过，无 diff 格式问题。

@@ -62,11 +62,108 @@ fn path_copy_cstring(src: &const byte, out: &byte, out_cap: usize) i32 {
     return 0;
 }
 
+fn path_copy_prefix(src: &const byte, prefix_len: usize, out: &byte, out_cap: usize) i32 {
+    if src == null || out == null {
+        return 1;
+    }
+    if prefix_len + 1usize > out_cap {
+        return 1;
+    }
+    var i: usize = 0;
+    while i < prefix_len {
+        out[i] = src[i];
+        i = i + 1usize;
+    }
+    out[prefix_len] = 0 as byte;
+    return 0;
+}
+
+fn path_root_prefix_len(path: &const byte) usize {
+    if path == null || path[0] == 0 as byte {
+        return 0usize;
+    }
+    if path_is_separator(path[0]) {
+        return 1usize;
+    }
+    if path_is_drive_letter(path[0]) && path[1] == 58 as byte {
+        if path[2] == 0 as byte {
+            return 2usize;
+        }
+        if path_is_separator(path[2]) {
+            return 3usize;
+        }
+    }
+    return 0usize;
+}
+
+fn path_trim_trailing_separators(path: &const byte, end: usize, root_len: usize) usize {
+    var trimmed: usize = end;
+    while trimmed > root_len {
+        if !path_is_separator(path[trimmed - 1usize]) {
+            break;
+        }
+        trimmed = trimmed - 1usize;
+    }
+    return trimmed;
+}
+
+fn path_trim_duplicate_separators(path: &const byte, end: usize, root_len: usize) usize {
+    var trimmed: usize = end;
+    while trimmed > root_len {
+        if !path_is_separator(path[trimmed - 1usize]) {
+            break;
+        }
+        trimmed = trimmed - 1usize;
+    }
+    return trimmed;
+}
+
 /// 标记 `std.path` 模块已可导入。
 ///
 /// 参数说明：无。
 /// 返回值：常量值始终为 `true`。
 export const PATH_MODULE_PRESENT: bool = true;
+
+/// 返回路径的父目录部分。
+///
+/// 参数说明：`path` 为输入路径；`out` 为输出缓冲区；`out_cap` 为缓冲区总容量（包含末尾 `\\0`）。
+/// 返回值：成功返回 `0` 并写入以 `\\0` 结尾的目录名；失败返回 `1`。
+export fn dirname(path: &const byte, out: &byte, out_cap: usize) i32 {
+    if path == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+
+    const len: usize = strlen(path);
+    if len == 0usize {
+        return path_copy_cstring("." as &const byte, out, out_cap);
+    }
+
+    const root_len: usize = path_root_prefix_len(path);
+    const end: usize = path_trim_trailing_separators(path, len, root_len);
+    if end == root_len {
+        if root_len == 0usize {
+            return path_copy_cstring("." as &const byte, out, out_cap);
+        }
+        return path_copy_prefix(path, root_len, out, out_cap);
+    }
+
+    var sep_idx: usize = end;
+    while sep_idx > root_len {
+        sep_idx = sep_idx - 1usize;
+        if path_is_separator(path[sep_idx]) {
+            const prefix_len: usize = path_trim_duplicate_separators(path, sep_idx, root_len);
+            if prefix_len == 0usize {
+                return path_copy_cstring("." as &const byte, out, out_cap);
+            }
+            return path_copy_prefix(path, prefix_len, out, out_cap);
+        }
+    }
+
+    if root_len != 0usize {
+        return path_copy_prefix(path, root_len, out, out_cap);
+    }
+    return path_copy_cstring("." as &const byte, out, out_cap);
+}
 
 /// 拼接两个路径片段并写入输出缓冲区。
 ///

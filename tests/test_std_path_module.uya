@@ -30,3 +30,33 @@ test "std.path join preserves windows separator family" {
     try assert_eq_i32(join("C:\\repo", "bin", &buf[0], 64), 0);
     try assert_eq_i32(strcmp(&buf[0], "C:\\repo\\bin"), 0);
 }
+
+test "std.path dirname returns parent for relative path" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(dirname("scripts/build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "scripts"), 0);
+}
+
+test "std.path dirname returns current directory when no separator exists" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(dirname("build.uya", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "."), 0);
+}
+
+test "std.path dirname keeps unix root" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(dirname("/tmp/run.sh", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/tmp"), 0);
+
+    try assert_eq_i32(dirname("/tmp/", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "/"), 0);
+}
+
+test "std.path dirname preserves windows drive root" {
+    var buf: [byte: 64] = [];
+    try assert_eq_i32(dirname("C:\\repo\\uya.exe", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "C:\\repo"), 0);
+
+    try assert_eq_i32(dirname("C:\\repo\\", &buf[0], 64), 0);
+    try assert_eq_i32(strcmp(&buf[0], "C:\\"), 0);
+}
