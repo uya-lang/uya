@@ -8,6 +8,10 @@ std.cfg(std.target_os == .tos_windows, const EXPECT_PATH_LIST_SEPARATOR: byte = 
 std.cfg(std.target_os == .tos_linux, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
 std.cfg(std.target_os == .tos_macos, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
 std.cfg(std.target_os == .tos_unknown, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+std.cfg(std.target_os == .tos_windows, const EXPECT_EXECUTABLE_SUFFIX: &const byte = ".exe";)
+std.cfg(std.target_os == .tos_linux, const EXPECT_EXECUTABLE_SUFFIX: &const byte = "";)
+std.cfg(std.target_os == .tos_macos, const EXPECT_EXECUTABLE_SUFFIX: &const byte = "";)
+std.cfg(std.target_os == .tos_unknown, const EXPECT_EXECUTABLE_SUFFIX: &const byte = "";)
 
 test "std.path module can import" {
     try assert_eq_bool(PATH_MODULE_PRESENT, true);
@@ -15,6 +19,10 @@ test "std.path module can import" {
 
 test "std.path path_list_separator follows target os" {
     try assert_eq_i32(path_list_separator() as i32, EXPECT_PATH_LIST_SEPARATOR as i32);
+}
+
+test "std.path executable_suffix follows target os" {
+    try assert_eq_i32(strcmp(executable_suffix(), EXPECT_EXECUTABLE_SUFFIX), 0);
 }
 
 test "std.path is_abs detects unix windows and relative paths" {

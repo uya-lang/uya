@@ -3,6 +3,11 @@
 use std;
 use std.string.strlen;
 
+std.cfg(std.target_os == .tos_windows, const PATH_EXECUTABLE_SUFFIX: &const byte = ".exe";)
+std.cfg(std.target_os == .tos_linux, const PATH_EXECUTABLE_SUFFIX: &const byte = "";)
+std.cfg(std.target_os == .tos_macos, const PATH_EXECUTABLE_SUFFIX: &const byte = "";)
+std.cfg(std.target_os == .tos_unknown, const PATH_EXECUTABLE_SUFFIX: &const byte = "";)
+
 fn path_is_separator(ch: byte) bool {
     return ch == 47 as byte || ch == 92 as byte;
 }
@@ -225,6 +230,14 @@ export const PATH_MODULE_PRESENT: bool = true;
 export fn path_list_separator() byte {
     std.cfg(std.target_os == .tos_windows, return 59 as byte;)
     return 58 as byte;
+}
+
+/// 返回当前目标平台的可执行文件后缀。
+///
+/// 参数说明：无。
+/// 返回值：Windows 目标返回 `.exe`；其他目标返回空串。
+export fn executable_suffix() &const byte {
+    return PATH_EXECUTABLE_SUFFIX;
 }
 
 /// 判断路径是否为绝对路径。

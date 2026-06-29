@@ -522,3 +522,17 @@
       结果：通过，20 个 `std.path` 相关测试全部通过。
     - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
       结果：通过，无 diff 格式错误。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+- [x] 提供：
+  - [x] `executable_suffix`
+    - 预期失败验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+      - 结果：首次失败，链接阶段报 `undefined reference to executable_suffix`。
+    - 实现：在 `lib/std/path.uya` 新增导出 `executable_suffix()`，用目标平台常量返回 Windows `.exe` / 其他空串；在 `tests/test_std_path_module.uya` 补平台条件测试。
+    - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+      - 结果：通过，21 个 `std.path` 用例全部通过，79 个断言通过。
+    - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md docs/todo_std_script_completed.md`
+      - 结果：通过，无 diff 格式错误。
