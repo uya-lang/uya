@@ -385,3 +385,13 @@
     - 验证结果：通过。
     - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
     - 验证结果：`ok: docs/todo_std_script.md has 0 active tasks`。
+
+## Phase 1：运行时基础缺口
+
+### 1.4 shebang 预研
+
+- [x] 明确 shebang 不阻塞第一批脚本迁移。
+  - 结论：第一批 `.sh -> .ush` 迁移统一走 `../uya/bin/uya run path/to/script.ush -- ...`；shebang 与未来 `uya script` 只作为后续脚本入口 UX 增强，不是 Phase 1 / Phase 4 的前置条件。
+  - 依据：`docs/std_script_design.md` 已将普通 `export fn main() !i32` + `uya run` 定义为 Phase 1 入口，并将 `uya script` / shebang 放在后续阶段；`docs/uya.md` 记录 `#!` 仅作为文件开头首行注释规则，当前 `uya run` 已可直接运行带 shebang 的 `.ush` / `.uya`。
+  - 验证：`../uya/bin/uya run <tmp>/hello.ush`，输出 `plain ush ok`。
+  - 验证：`UYA_COMPILER=../uya/bin/uya bash ./tests/verify_run_shebang_ush.sh`，输出 `verify_run_shebang_ush: ok`。
