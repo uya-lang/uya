@@ -16,21 +16,17 @@ printf 'NamedFailure\nOtherFailure\n' >"$TMP_EXPECTED"
 
 echo "验证 exec vm error builtin..."
 "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_error_builtin.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
 tail -n 2 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
 echo "  run --vm error builtin ✓"
 
 echo "验证 exec error builtin 无意外 fallback..."
-"$COMPILER" run --exec "$SCRIPT_DIR/test_exec_vm_error_builtin.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
+"$COMPILER" run --exec --verbose "$SCRIPT_DIR/test_exec_vm_error_builtin.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
     echo "✗ unexpected fallback for error builtin exec path"
     cat "$TMP_STDERR"
     exit 1
 fi
 tail -n 2 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
-echo "  run --exec error builtin ✓"
+echo "  run --exec --verbose error builtin ✓"
 
 echo "✓ exec vm error builtin checks passed"

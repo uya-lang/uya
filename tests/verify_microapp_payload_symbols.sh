@@ -125,7 +125,7 @@ verify_default_linux_profile_contract() {
         OBJCOPY=false \
         "$ROOT_DIR/bin/uya" build --app microapp \
         "$ROOT_DIR/examples/microapp/microcontainer_hello_source.uya" \
-        -o "$uapp" >"$build_log" 2>&1
+        -o "$uapp" --verbose >"$build_log" 2>&1
 
     grep -q "信息：microapp active profile=linux_x86_64_hardvm" "$build_log" \
         || dump_log_and_fail "默认 profile 未解析为 linux_x86_64_hardvm" "$build_log"
@@ -154,7 +154,7 @@ verify_case() {
 
     "$ROOT_DIR/bin/uya" build --app microapp \
         --microapp-profile linux_x86_64_hardvm \
-        "$ROOT_DIR/$source_rel" -o "$uapp" >"$build_log" 2>&1
+        "$ROOT_DIR/$source_rel" -o "$uapp" --verbose >"$build_log" 2>&1
 
     grep -q "信息：microapp active profile=linux_x86_64_hardvm" "$build_log" \
         || dump_log_and_fail "$name 未使用 linux_x86_64_hardvm profile" "$build_log"

@@ -16,16 +16,12 @@ printf 'test_exec_vm_builtin_bridge.uya\nNamedFailure\n' >"$TMP_EXPECTED"
 
 echo "验证 exec vm builtin bridge..."
 "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_builtin_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
 tail -n 2 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
 grep -q 'test_exec_vm_builtin_bridge.uya' "$TMP_STDOUT"
 echo "  run --vm builtin bridge ✓"
 
 echo "验证 exec builtin bridge 无意外 fallback..."
-"$COMPILER" run --exec "$SCRIPT_DIR/test_exec_vm_builtin_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
+"$COMPILER" run --exec --verbose "$SCRIPT_DIR/test_exec_vm_builtin_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
     echo "✗ unexpected fallback for builtin bridge exec path"
     cat "$TMP_STDERR"
@@ -33,7 +29,7 @@ if grep -q '回退 C99' "$TMP_STDERR"; then
 fi
 tail -n 2 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
 grep -q 'test_exec_vm_builtin_bridge.uya' "$TMP_STDOUT"
-echo "  run --exec builtin bridge ✓"
+echo "  run --exec --verbose builtin bridge ✓"
 
 echo "验证可折叠 builtin 未落成运行时 opcode..."
 "$COMPILER" run --vm --dump-bytecode "$SCRIPT_DIR/test_exec_vm_builtin_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"

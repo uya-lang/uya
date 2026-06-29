@@ -35,8 +35,6 @@ verify_src_main_vm_usage_path() {
         cat "$TMP_STDERR"
         exit 1
     fi
-    grep -q '后端类型: EXEC' "$TMP_STDERR"
-    grep -q 'exec backend 构建完成' "$TMP_STDERR"
     grep -q 'exec vm 运行耗时' "$TMP_STDERR"
     grep -q '程序运行返回码：1' "$TMP_STDERR"
     if grep -q 'exec backend 失败' "$TMP_STDERR" ||

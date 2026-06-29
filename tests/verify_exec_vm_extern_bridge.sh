@@ -13,39 +13,31 @@ trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR"' EXIT
 
 echo "验证 extern/libc bridge 正向路径..."
 "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
 grep -q 'test_exec_vm_extern_bridge.uya' "$TMP_STDOUT"
 echo "  run --vm extern bridge ✓"
 
-echo "验证 run --exec extern bridge 不发生 fallback..."
-"$COMPILER" run --exec "$SCRIPT_DIR/test_exec_vm_extern_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
+echo "验证 run --exec --verbose extern bridge 不发生 fallback..."
+"$COMPILER" run --exec --verbose "$SCRIPT_DIR/test_exec_vm_extern_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
-    echo "✗ extern bridge run --exec unexpectedly fell back to C99"
+    echo "✗ extern bridge run --exec --verbose unexpectedly fell back to C99"
     cat "$TMP_STDERR"
     exit 1
 fi
 grep -q 'test_exec_vm_extern_bridge.uya' "$TMP_STDOUT"
-echo "  run --exec extern bridge ✓"
+echo "  run --exec --verbose extern bridge ✓"
 
 echo "验证 direct extern mkdir/rmdir bridge 正向路径..."
 "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_mkdir_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
 echo "  run --vm extern mkdir/rmdir bridge ✓"
 
-echo "验证 run --exec direct extern mkdir/rmdir bridge 不发生 fallback..."
-"$COMPILER" run --exec "$SCRIPT_DIR/test_exec_vm_extern_mkdir_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
+echo "验证 run --exec --verbose direct extern mkdir/rmdir bridge 不发生 fallback..."
+"$COMPILER" run --exec --verbose "$SCRIPT_DIR/test_exec_vm_extern_mkdir_bridge.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
-    echo "✗ extern mkdir/rmdir bridge run --exec unexpectedly fell back to C99"
+    echo "✗ extern mkdir/rmdir bridge run --exec --verbose unexpectedly fell back to C99"
     cat "$TMP_STDERR"
     exit 1
 fi
-echo "  run --exec extern mkdir/rmdir bridge ✓"
+echo "  run --exec --verbose extern mkdir/rmdir bridge ✓"
 
 echo "验证仅有 extern 声明的 varargs 继续稳定拒绝..."
 if "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_extern_decl_varargs_unsupported.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"; then

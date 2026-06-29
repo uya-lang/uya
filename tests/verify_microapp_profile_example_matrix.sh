@@ -41,7 +41,7 @@ verify_profile_compile_to_c() {
 
     if ! "$ROOT_DIR/bin/uya" build --app microapp \
         --microapp-profile "$profile" \
-        "$SOURCE" -o "$out_c" >"$log" 2>&1; then
+        "$SOURCE" -o "$out_c" --verbose >"$log" 2>&1; then
         dump_and_fail "profile matrix 编译失败: $profile" "$log"
     fi
     if [ ! -s "$out_c" ]; then
@@ -65,7 +65,7 @@ verify_profile_uapp_contract() {
 
     if ! TARGET_GCC="$gcc_bin" "$ROOT_DIR/bin/uya" build --app microapp \
         --microapp-profile "$profile" \
-        "$SOURCE" -o "$uapp" >"$log" 2>&1; then
+        "$SOURCE" -o "$uapp" --verbose >"$log" 2>&1; then
         dump_and_fail "profile matrix ${profile} .uapp 构建失败" "$log"
     fi
 
@@ -138,7 +138,7 @@ EOF
 
     if ! MICROAPP_TARGET_GCC="$fake_gcc" "$ROOT_DIR/bin/uya" build --app microapp \
         --microapp-profile "$profile" \
-        "$SOURCE" -o "$uapp" >"$log" 2>&1; then
+        "$SOURCE" -o "$uapp" --verbose >"$log" 2>&1; then
         dump_and_fail "profile matrix ${profile} .uapp 构建失败" "$log"
     fi
 
@@ -165,7 +165,7 @@ if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
     if ! TARGET_GCC=x86_64-linux-gnu-gcc \
         "$ROOT_DIR/bin/uya" build --app microapp \
         --microapp-profile linux_x86_64_hardvm \
-        "$SOURCE" -o "$X86_UAPP" >"$TMP_DIR/linux_x86_64_hardvm.uapp.log" 2>&1; then
+        "$SOURCE" -o "$X86_UAPP" --verbose >"$TMP_DIR/linux_x86_64_hardvm.uapp.log" 2>&1; then
         dump_and_fail "profile matrix x86_64 .uapp 构建失败" "$TMP_DIR/linux_x86_64_hardvm.uapp.log"
     fi
 

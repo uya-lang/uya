@@ -247,7 +247,7 @@ export fn main() i32 {
     }
     
     // 检查是否是版本请求
-    if strcmp(first_arg, "-v" as *byte) == 0 || 
+    if strcmp(first_arg, "-v" as *byte) == 0 ||
        strcmp(first_arg, "--version" as *byte) == 0 ||
        strcmp(first_arg, "version" as *byte) == 0 {
         fprintf(libc.stderr, "Uya v0.9.2\n" as *byte);
@@ -438,7 +438,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "\n用法:\n" as *byte);
     fprintf(libc.stderr, "  %s <文件或目录> [选项]\n" as *byte, program_name as *byte);
     fprintf(libc.stderr, "\n选项:\n" as *byte);
-    fprintf(libc.stderr, "  -v, --verbose  详细输出\n" as *byte);
+    fprintf(libc.stderr, "  --verbose      详细输出\n" as *byte);
     fprintf(libc.stderr, "  --filter <模式> 过滤测试\n" as *byte);
 }
 

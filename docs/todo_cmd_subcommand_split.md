@@ -136,7 +136,7 @@ make check-hosted
   - [ ] 若 `argv[1] == "fmt"`，跳过该参数或调用兼容入口。
 - [ ] 创建 `src/cmd/upm/main.uya`：
   - [ ] `--help` / `-h` 打印用法并退出 0。
-  - [ ] `--version` / `-v` 打印版本并退出 0。
+  - [ ] `--version` / `-v` 打印版本并退出 0；`--verbose` 保留为编译详细日志开关。
   - [ ] 未实现命令打印提示并退出 2。
 - [ ] 每个公开入口前写 `///` 注释，符合仓库 Uya 代码风格。
 
@@ -180,7 +180,7 @@ bin/cmd/upm
   - [ ] `execve` 失败时根据 errno 打印 `cmd_path`、原因和 `make cmds` 提示。
 - [ ] 在 `export fn main()` 开头做分流：
   - [ ] `argv[1]` 是外置命令：立即 `dispatch_external_cmd(argv[1], 1)`，不再进入 `parse_args()`。
-  - [ ] `argv[1]` 是 `--version` / `-v`：保持当前版本输出。
+  - [ ] `argv[1]` 是 `--version` / `-v`：保持当前版本输出；`--verbose` 不作为版本别名。
   - [ ] `pack-image` / `inspect-image` / `verify-image` 继续走过渡期内部路径。
   - [ ] 非命令参数继续走隐式编译入口。
 - [ ] 不要使用 `system()` 拼接公开子命令调用。

@@ -14,7 +14,7 @@ env -u MICROAPP_TARGET_PROFILE -u MICROAPP_TARGET_ARCH \
     TARGET_OS=macos TARGET_ARCH=arm64 \
     "$ROOT_DIR/bin/uya" build --app microapp \
     examples/microapp/microcontainer_hello_source.uya \
-    -o "$OUT_C" >"$BUILD_LOG" 2>&1
+    -o "$OUT_C" --verbose >"$BUILD_LOG" 2>&1
 
 grep -q '信息：microapp active profile=macos_arm64_hardvm, bridge=call_gate, target_os=macos, 目标架构=aarch64' "$BUILD_LOG"
 test -s "$OUT_C"

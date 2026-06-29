@@ -12,10 +12,6 @@ OUT_C="$SCRIPT_DIR/build/function_reachability_verify.c"
 CALLBACK_OUT_C="$SCRIPT_DIR/build/function_reachability_address_taken.c"
 MICROAPP_OUT_C="$SCRIPT_DIR/build/function_reachability_microapp.c"
 
-extract_generated_microapp_c_path() {
-    printf '%s\n' "$1" | sed -n 's/^输出文件: \(.*uya_output[^ ]*\.c\)$/\1/p' | head -n 1
-}
-
 mkdir -p "$SCRIPT_DIR/build"
 
 echo "验证顶层函数可达性：编译 test_function_reachability_codegen.uya ..."
@@ -78,25 +74,21 @@ echo "  import main 运行通过 ✓"
 
 echo ""
 echo "验证 microapp 顶层函数可达性：编译 test_function_reachability_codegen_microapp.uya ..."
+rm -f "$MICROAPP_OUT_C"
 set +e
-COMPILE_OUT=$("$COMPILER" build --app microapp "$SCRIPT_DIR/test_function_reachability_codegen_microapp.uya" -o "$SCRIPT_DIR/build/function_reachability_microapp.uapp" 2>&1)
+COMPILE_OUT=$("$COMPILER" build --app microapp "$SCRIPT_DIR/test_function_reachability_codegen_microapp.uya" -o "$MICROAPP_OUT_C" 2>&1)
 STATUS=$?
 set -e
-MICROAPP_TMP_C="$(extract_generated_microapp_c_path "$COMPILE_OUT")"
-if [ -z "$MICROAPP_TMP_C" ]; then
-    echo "✗ microapp 编译输出中未找到临时 C 路径"
-    echo "$COMPILE_OUT"
-    exit 1
-fi
-if [ ! -f "$MICROAPP_TMP_C" ]; then
+if [ ! -f "$MICROAPP_OUT_C" ]; then
     echo "✗ microapp 未生成 C 输出"
     echo "$COMPILE_OUT"
     exit 1
 fi
 if [ $STATUS -ne 0 ]; then
-    echo "  microapp 后端链接失败，但 C 输出已生成，继续做可达性检查"
+    echo "✗ microapp C 生成命令返回非零"
+    echo "$COMPILE_OUT"
+    exit 1
 fi
-cp "$MICROAPP_TMP_C" "$MICROAPP_OUT_C"
 
 if grep -q 'dead_internal(' "$MICROAPP_OUT_C"; then
     echo "✗ microapp 的 dead_internal 仍出现在 C 文件"

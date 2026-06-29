@@ -74,7 +74,7 @@ run_case() {
     MICROAPP_TARGET_GCC="$fake_gcc" \
         "$ROOT_DIR/bin/uya" build --app microapp \
         --microapp-profile macos_arm64_hardvm \
-        "$SOURCE" -o "$uapp" >"$build_log" 2>&1 \
+        "$SOURCE" -o "$uapp" --verbose >"$build_log" 2>&1 \
         || dump_log_and_fail "macos object extract 构建失败: $name" "$build_log"
 
     grep -q "信息：microapp 目标 gcc Mach-O 对象产物：" "$build_log" \

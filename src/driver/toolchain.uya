@@ -856,7 +856,9 @@ fn link_split_with_make(split_dir: &byte, output_exe: &byte, is_nostdlib: i32) i
         fprintf(libc.stderr, "错误：构建 make 链接命令失败\n" as *byte);
         return 1;
     }
-    fprintf(libc.stderr, "信息：多文件 C 链接：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：多文件 C 链接：%s\n" as *byte, &cmd[0] as *byte);
+    }
     const result: i32 = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误：make 链接失败，返回码：%d\n" as *byte, result);
@@ -904,7 +906,9 @@ fn compile_c_source_to_object(
         return 1;
     }
 
-    fprintf(libc.stderr, "信息：编译对象文件：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：编译对象文件：%s\n" as *byte, &cmd[0] as *byte);
+    }
     const result: i32 = system(&cmd[0] as *byte);
     if result != 0 {
         var label: &byte = failure_label;
@@ -940,7 +944,9 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
         const wcf: i32 = snprintf(&cflags_buf[0] as *byte, 2048, "%s -fno-inline-small-functions" as *byte, cflags as *byte);
         if wcf > 0 && wcf < 2048 {
             cflags = &cflags_buf[0];
-            fprintf(libc.stderr, "信息：CFLAGS 含 -O2/-O3/-Os，已自动追加 -fno-inline-small-functions（规避宿主 GCC 对部分生成代码的错误小函数内联）\n" as *byte);
+            if g_verbose_output != 0 {
+                fprintf(libc.stderr, "信息：CFLAGS 含 -O2/-O3/-Os，已自动追加 -fno-inline-small-functions（规避宿主 GCC 对部分生成代码的错误小函数内联）\n" as *byte);
+            }
         }
     }
     // -nostdlib 无 libc：禁用栈保护，避免未定义的 __stack_chk_fail
@@ -1070,7 +1076,9 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
             ld_i = ld_i + 1;
         }
 
-        fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &link_cmd[0] as *byte);
+        if g_verbose_output != 0 {
+            fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &link_cmd[0] as *byte);
+        }
         const link_result: i32 = system(&link_cmd[0] as *byte);
         unlink(&generated_obj[0] as *byte);
         var cleanup_j: i32 = 0;
@@ -1107,7 +1115,9 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
         return 1;
     }
 
-    fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：调用宿主工具链链接：%s\n" as *byte, &cmd[0] as *byte);
+    }
     const result: i32 = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误：宿主工具链链接失败，返回码：%d\n" as *byte, result);

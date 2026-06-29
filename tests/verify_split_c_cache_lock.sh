@@ -51,7 +51,7 @@ echo "验证：两个 uya 进程并发写同一个 split-C cache（含路径别�
 
 set +e
 PATH="$WRAP_DIR:$PATH" UYA_REAL_MAKE="$REAL_MAKE" \
-    "$COMPILER" build "$SRC" --split-c-dir "$CACHE_DIR" -o "$OUT1" --c99 >"$LOG1" 2>&1 &
+    "$COMPILER" build "$SRC" --split-c-dir "$CACHE_DIR" -o "$OUT1" --c99 --verbose >"$LOG1" 2>&1 &
 P1=$!
 set -e
 

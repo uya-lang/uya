@@ -2599,12 +2599,14 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
         fprintf(libc.stderr, "错误: 无法生成 microapp 目标 gcc 编译命令\n" as *byte);
         return 1;
     }
-    fprintf(libc.stderr, "信息：microapp profile=%s, bridge=%s, 目标架构=%s, 默认三元组=%s\n" as *byte,
-        profile.name as *byte,
-        microapp_bridge_kind_name(profile.bridge_kind_raw) as *byte,
-        microapp_target_arch_name(target_arch_raw) as *byte,
-        target_triple as *byte);
-    fprintf(libc.stderr, "信息：microapp 目标 gcc 编译：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：microapp profile=%s, bridge=%s, 目标架构=%s, 默认三元组=%s\n" as *byte,
+            profile.name as *byte,
+            microapp_bridge_kind_name(profile.bridge_kind_raw) as *byte,
+            microapp_target_arch_name(target_arch_raw) as *byte,
+            target_triple as *byte);
+        fprintf(libc.stderr, "信息：microapp 目标 gcc 编译：%s\n" as *byte, &cmd[0] as *byte);
+    }
     var result: i32 = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误: microapp 目标 gcc 编译失败，返回码：%d\n" as *byte, result);
@@ -2616,16 +2618,22 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
             fprintf(libc.stderr, "错误: microapp macos arm64 目标 gcc 未产出可识别的 Mach-O 对象文件\n" as *byte);
             return 1;
         }
-        fprintf(libc.stderr, "信息：microapp 目标 gcc Mach-O 对象产物：%s\n" as *byte, &obj_path[0] as *byte);
+        if g_verbose_output != 0 {
+            fprintf(libc.stderr, "信息：microapp 目标 gcc Mach-O 对象产物：%s\n" as *byte, &obj_path[0] as *byte);
+        }
         return 0;
     }
 
     if microapp_target_uses_object_elf_extraction(target_arch_raw) != 0 {
         if target_arch_raw == MICROAPP_TARGET_ARCH_AARCH64_RAW &&
            microapp_probe_object_elf64_extract(&obj_path[0] as &byte, target_arch_raw) == 0 {
-            fprintf(libc.stderr, "信息：microapp aarch64 对象提取预检失败，回退到内部 ELF 提取\n" as *byte);
+            if g_verbose_output != 0 {
+                fprintf(libc.stderr, "信息：microapp aarch64 对象提取预检失败，回退到内部 ELF 提取\n" as *byte);
+            }
         } else {
-            fprintf(libc.stderr, "信息：microapp 目标 gcc 对象产物：%s\n" as *byte, &obj_path[0] as *byte);
+            if g_verbose_output != 0 {
+                fprintf(libc.stderr, "信息：microapp 目标 gcc 对象产物：%s\n" as *byte, &obj_path[0] as *byte);
+            }
             return 0;
         }
     }
@@ -2636,7 +2644,9 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
         fprintf(libc.stderr, "错误: 无法生成 microapp 目标 gcc 链接命令\n" as *byte);
         return 1;
     }
-    fprintf(libc.stderr, "信息：microapp 目标 gcc 链接：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：microapp 目标 gcc 链接：%s\n" as *byte, &cmd[0] as *byte);
+    }
     result = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误: microapp 目标 gcc 链接失败，返回码：%d\n" as *byte, result);
@@ -2644,7 +2654,9 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
     }
 
     if microapp_target_uses_internal_elf_extraction(target_arch_raw) != 0 {
-        fprintf(libc.stderr, "信息：microapp 内部 ELF 提取：%s\n" as *byte, &exe_path[0] as *byte);
+        if g_verbose_output != 0 {
+            fprintf(libc.stderr, "信息：microapp 内部 ELF 提取：%s\n" as *byte, &exe_path[0] as *byte);
+        }
         return 0;
     }
 
@@ -2654,7 +2666,9 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
         fprintf(libc.stderr, "错误: 无法生成 microapp 代码段导出命令\n" as *byte);
         return 1;
     }
-    fprintf(libc.stderr, "信息：microapp 目标 gcc 导出 .text：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：microapp 目标 gcc 导出 .text：%s\n" as *byte, &cmd[0] as *byte);
+    }
     result = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误: microapp 目标 gcc .text 导出失败，返回码：%d\n" as *byte, result);
@@ -2666,7 +2680,9 @@ fn build_microapp_text_from_c(c_file: &byte, text_bin_path: &byte, rodata_bin_pa
         fprintf(libc.stderr, "错误: 无法生成 microapp 只读段导出命令\n" as *byte);
         return 1;
     }
-    fprintf(libc.stderr, "信息：microapp 目标 gcc 导出 .rodata：%s\n" as *byte, &cmd[0] as *byte);
+    if g_verbose_output != 0 {
+        fprintf(libc.stderr, "信息：microapp 目标 gcc 导出 .rodata：%s\n" as *byte, &cmd[0] as *byte);
+    }
     result = system(&cmd[0] as *byte);
     if result != 0 {
         fprintf(libc.stderr, "错误: microapp 目标 gcc .rodata 导出失败，返回码：%d\n" as *byte, result);
@@ -2697,7 +2713,7 @@ fn write_microapp_payload_obj(
     const bridge_kind_raw: u32 = profile.bridge_kind_raw;
     const stack_size_hint: u32 = microapp_profile_default_stack_hint(&profile);
     const required_caps: u32 = microapp_infer_required_caps_from_source(source_path);
-    if required_caps != 0u32 {
+    if required_caps != 0u32 && g_verbose_output != 0 {
         fprintf(libc.stderr, "信息：microapp inferred required_caps=%u\n" as *byte, required_caps);
     }
     var entry_va: u32 = 0u32;
@@ -2757,18 +2773,24 @@ fn write_microapp_payload_obj(
             return 1;
         }
         object_extracted = 1;
-        fprintf(libc.stderr, "信息：microapp Mach-O 对象提取 code=%u rodata=%u data=%u bss=%u entry_va=0x%x reloc_count=%u\n" as *byte,
-            code_len, rodata_len, data_len, bss_len, entry_va, reloc_count);
+        if g_verbose_output != 0 {
+            fprintf(libc.stderr, "信息：microapp Mach-O 对象提取 code=%u rodata=%u data=%u bss=%u entry_va=0x%x reloc_count=%u\n" as *byte,
+                code_len, rodata_len, data_len, bss_len, entry_va, reloc_count);
+        }
     } else if microapp_target_uses_object_elf_extraction(target_arch_raw) != 0 {
         if microapp_extract_object_elf64(&obj_path[0] as &byte, target_arch_raw, &code_len, &rodata_len, &data_len, &code_va, &rodata_va, &data_va, &bss_va, &bss_len, &entry_va, &base_raw, &text_raw, &rodata_raw, &data_raw, &bss_raw, &reloc_count, &reloc_len) == 0 {
             object_extracted = 1;
-            fprintf(libc.stderr, "信息：microapp 对象提取 code=%u rodata=%u data=%u bss=%u entry_va=0x%x reloc_count=%u\n" as *byte,
-                code_len, rodata_len, data_len, bss_len, entry_va, reloc_count);
+            if g_verbose_output != 0 {
+                fprintf(libc.stderr, "信息：microapp 对象提取 code=%u rodata=%u data=%u bss=%u entry_va=0x%x reloc_count=%u\n" as *byte,
+                    code_len, rodata_len, data_len, bss_len, entry_va, reloc_count);
+            }
         } else if target_arch_raw != MICROAPP_TARGET_ARCH_AARCH64_RAW {
             fprintf(libc.stderr, "错误: 无法从 microapp 对象文件提取段与 relocation 信息\n" as *byte);
             return 1;
         } else {
-            fprintf(libc.stderr, "信息：microapp aarch64 对象提取失败，回退到内部 ELF 提取\n" as *byte);
+            if g_verbose_output != 0 {
+                fprintf(libc.stderr, "信息：microapp aarch64 对象提取失败，回退到内部 ELF 提取\n" as *byte);
+            }
         }
     }
     if object_extracted == 0 && microapp_target_uses_internal_elf_extraction(target_arch_raw) != 0 {

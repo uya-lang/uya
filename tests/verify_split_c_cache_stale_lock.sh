@@ -42,7 +42,7 @@ run_case_with_dead_owner_pid() {
     done
     printf '%s\n' "$fake_pid" >"$pid_file"
     echo "验证：遇到 owner pid 已死亡的 split-C stale lock 时，uya 应自动回收并继续编译 ..."
-    if ! "$COMPILER" build "$SRC" --split-c-dir "$cache_dir" -o "$out" --c99 >"$log" 2>&1; then
+    if ! "$COMPILER" build "$SRC" --split-c-dir "$cache_dir" -o "$out" --c99 --verbose >"$log" 2>&1; then
         echo "✗ stale lock(owner pid) 回收后编译仍失败"
         cat "$log"
         exit 1
@@ -72,7 +72,7 @@ run_case_with_empty_lock_dir() {
     local log="$TMP_DIR/build-empty-lock.log"
     mkdir -p "$lock_dir"
     echo "验证：遇到旧版残留的空 split-C 锁目录时，uya 应自动回收并继续编译 ..."
-    if ! "$COMPILER" build "$SRC" --split-c-dir "$cache_dir" -o "$out" --c99 >"$log" 2>&1; then
+    if ! "$COMPILER" build "$SRC" --split-c-dir "$cache_dir" -o "$out" --c99 --verbose >"$log" 2>&1; then
         echo "✗ 空 stale lock 回收后编译仍失败"
         cat "$log"
         exit 1

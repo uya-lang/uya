@@ -15,7 +15,7 @@ export OBJDUMP=false
 export NM=false
 export OBJCOPY=false
 
-"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$UAPP" >/tmp/verify_microapp_build_uapp.log 2>&1
+"$ROOT_DIR/bin/uya" build --app microapp examples/microapp/microcontainer_hello_source.uya -o "$UAPP" --verbose >/tmp/verify_microapp_build_uapp.log 2>&1
 
 grep -q "信息：microapp 目标 gcc 对象产物：" /tmp/verify_microapp_build_uapp.log
 ! grep -q "信息：microapp 目标 gcc 链接：" /tmp/verify_microapp_build_uapp.log

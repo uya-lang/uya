@@ -20,15 +20,11 @@ EOF
 
 echo "验证 exec vm stdio varargs 直接执行 Uya 函数体..."
 "$COMPILER" run --vm "$SCRIPT_DIR/test_exec_vm_stdio_varargs.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
 tail -n 3 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
 echo "  run --vm stdio varargs body ✓"
 
 echo "验证 stdio varargs bytecode 不走 HOSTCALL bridge..."
 "$COMPILER" run --vm --dump-bytecode "$SCRIPT_DIR/test_exec_vm_stdio_varargs.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
 if grep -q 'BC_HOSTCALL' "$TMP_STDERR"; then
     echo "✗ stdio varargs unexpectedly used HOSTCALL bridge"
     cat "$TMP_STDERR"
@@ -37,16 +33,14 @@ fi
 tail -n 3 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
 echo "  stdio varargs body-first bytecode ✓"
 
-echo "验证 run --exec stdio varargs 不发生 fallback..."
-"$COMPILER" run --exec "$SCRIPT_DIR/test_exec_vm_stdio_varargs.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
-grep -q 'exec backend 构建完成' "$TMP_STDERR"
+echo "验证 run --exec --verbose stdio varargs 不发生 fallback..."
+"$COMPILER" run --exec --verbose "$SCRIPT_DIR/test_exec_vm_stdio_varargs.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
 if grep -q '回退 C99' "$TMP_STDERR"; then
     echo "✗ stdio varargs unexpectedly fell back to C99"
     cat "$TMP_STDERR"
     exit 1
 fi
 tail -n 3 "$TMP_STDOUT" | diff -u "$TMP_EXPECTED" -
-echo "  run --exec stdio varargs body ✓"
+echo "  run --exec --verbose stdio varargs body ✓"
 
 echo "✓ exec vm stdio varargs checks passed"

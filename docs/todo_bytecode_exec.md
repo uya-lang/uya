@@ -293,14 +293,14 @@ lexer -> parser -> checker -> optimizer -> codegen/c99 -> gcc/clang -> run
   - `tests/verify_exec_vm_compiler_stage_smoke.sh` 当前已升级为直接校验 `src/main.uya --vm` usage 路径：
     - 基于当前源码重编 staged compiler
     - 分别运行 `run --vm src/main.uya` 与 `run --vm src/main.uya --no-safety-proof`
-    - 要求输出 `后端类型: EXEC`、`exec backend 构建完成`、`exec vm 运行耗时`、`程序运行返回码：1`
+    - 要求输出 exec VM 运行耗时与 `程序运行返回码：1`
     - 要求命令进程状态为 `1`，与现有 C99 hosted 无参数 usage 路径一致
 - 2026-05-18 已加强回归脚本，避免“只看退出码”的假绿：
   - `verify_exec_vm_smoke.sh`
   - `verify_exec_vm_aggregates.sh`
   - `verify_exec_backend_progress.sh`
   - `verify_exec_vm_globals.sh`
-  - 现在都会显式校验 `后端类型: EXEC`、`exec backend 构建完成` 或 fallback 原因
+  - 当前不再依赖通用编译阶段日志；改为校验 bytecode dump、程序输出、测试统计或 fallback 原因
 - 2026-05-18 已直接验证：
   - `./bin/uya run --vm src/main.uya`
   - 当前并非卡在 CLI 接线、VM 启动、也不再卡在最早的 `fprintf/2` varargs ABI，而是在 lowering 阶段继续向前推进后，命中“模块别名.导出全局访问”这类标识符覆盖缺口

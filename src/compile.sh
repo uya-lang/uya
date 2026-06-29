@@ -805,19 +805,10 @@ if [ "$VERBOSE" = true ] || [ "$DEBUG" = true ]; then
     env UYA_ROOT="$UYA_ROOT" "${COMPILER_CMD[@]}" 2>&1 | tee "$TEMP_OUTPUT"
     COMPILER_EXIT=${PIPESTATUS[0]}
 else
-    # 普通模式：只显示关键信息，过滤调试输出
+    # 普通模式：编译器成功路径保持静默，只摘取错误和警告
     env UYA_ROOT="$UYA_ROOT" "${COMPILER_CMD[@]}" > "$TEMP_OUTPUT" 2>&1
     COMPILER_EXIT=$?
     
-    # 提取关键信息：阶段标题、进度、错误、警告
-    # 显示编译阶段信息（=== 开头的行、解析/合并/类型检查/代码生成完成等进度）
-    awk '
-        /^===|  解析完成|AST 合并完成|类型检查通过|代码生成完成/ {
-            print;
-            count++;
-            if (count >= 50) exit;
-        }
-    ' "$TEMP_OUTPUT"
     # 显示错误和警告（但不显示调试信息）
     awk '
         /错误:|警告:/ && $0 !~ /调试:/ {

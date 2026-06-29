@@ -59,7 +59,7 @@ TIMER_RUN_LOG="$TMP_DIR/sys-io-timer.run.log"
 if ! "$ROOT_DIR/bin/uya" build --app microapp \
     --microapp-profile linux_x86_64_hardvm \
     "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_sys_io_timer.uya" \
-    -o "$TIMER_UAPP" >"$TIMER_BUILD_LOG" 2>&1; then
+    -o "$TIMER_UAPP" --verbose >"$TIMER_BUILD_LOG" 2>&1; then
     dump_log_and_fail "timer SYS_IO fixture 构建失败" "$TIMER_BUILD_LOG"
 fi
 
@@ -84,7 +84,7 @@ DENIED_RUN_LOG="$TMP_DIR/sys-io-denied.run.log"
 if ! "$ROOT_DIR/bin/uya" build --app microapp \
     --microapp-profile linux_x86_64_hardvm \
     "$ROOT_DIR/tests/fixtures/microapp/test_std_microapp_sys_io_denied.uya" \
-    -o "$DENIED_UAPP" >"$DENIED_BUILD_LOG" 2>&1; then
+    -o "$DENIED_UAPP" --verbose >"$DENIED_BUILD_LOG" 2>&1; then
     dump_log_and_fail "denied SYS_IO fixture 构建失败" "$DENIED_BUILD_LOG"
 fi
 

@@ -13,7 +13,6 @@ trap 'rm -f "$TMP_STDOUT" "$TMP_STDERR"' EXIT
 
 echo "验证 exec HIR 显式 scope enter/exit..."
 "$COMPILER" run --vm --dump-exec-hir "$SCRIPT_DIR/test_exec_vm_hir_scope.uya" >"$TMP_STDOUT" 2>"$TMP_STDERR"
-grep -q '后端类型: EXEC' "$TMP_STDERR"
 grep -q '=== exec hir ===' "$TMP_STDERR"
 grep -q 'scope enter #' "$TMP_STDERR"
 grep -q 'scope exit #' "$TMP_STDERR"

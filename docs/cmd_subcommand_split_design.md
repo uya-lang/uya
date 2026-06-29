@@ -98,7 +98,7 @@ bin/
 
 1. `argc < 2`：打印主帮助。
 2. `argv[1]` 是 `build/check/run/test/fmt/upm`：调用 `dispatch_external_cmd(...)`，不解析业务选项。
-3. `argv[1]` 是 `--version`/`-v`：直接处理。
+3. `argv[1]` 是 `--version`/`-v`：直接处理；`--verbose` 保留为编译详细日志开关。
 4. `argv[1]` 是 `pack-image`/`inspect-image`/`verify-image`：可继续由 `src/main.uya` 直接处理（因为 microapp 逻辑仍通过 `use microapp` 可用），或后续再外置。
 5. **过渡期保留**：隐式编译入口 `uya <file.uya> ...` 调用 `compiler_driver` 模块中的函数，用于自举和 `src/compile.sh` 兼容。
 6. **过渡期后**：隐式入口移除，`src/main.uya` 只剩纯调度器。

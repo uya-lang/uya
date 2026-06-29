@@ -28,7 +28,7 @@ dump_log_and_fail() {
 }
 
 "$ROOT_DIR/bin/uya" build --app microapp --microapp-profile macos_arm64_hardvm \
-    "$SOURCE" -o "$OUT_C" >"$C_LOG" 2>&1
+    "$SOURCE" -o "$OUT_C" --verbose >"$C_LOG" 2>&1
 grep -q '信息：microapp active profile=macos_arm64_hardvm' "$C_LOG" || dump_log_and_fail "macos profile 输出 .c 未命中 profile" "$C_LOG"
 
 set +e
