@@ -1,0 +1,4 @@
+// std.path - 可移植路径工具模块
+// 当前轮次仅先完成模块落位；具体 API 由后续 todo 子任务补齐。
+
+export const PATH_MODULE_PRESENT: bool = true;

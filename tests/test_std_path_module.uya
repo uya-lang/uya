@@ -1,0 +1,6 @@
+use std.path;
+use std.testing.assert_eq_bool;
+
+test "std.path module can import" {
+    try assert_eq_bool(PATH_MODULE_PRESENT, true);
+}

@@ -59,7 +59,6 @@
 
 ### 2.1 `std.path`
 
-- [ ] 新建 `lib/std/path.uya` 或等价模块。
 - [ ] 提供：
   - [ ] `join`
   - [ ] `dirname`

@@ -395,3 +395,16 @@
   - 依据：`docs/std_script_design.md` 已将普通 `export fn main() !i32` + `uya run` 定义为 Phase 1 入口，并将 `uya script` / shebang 放在后续阶段；`docs/uya.md` 记录 `#!` 仅作为文件开头首行注释规则，当前 `uya run` 已可直接运行带 shebang 的 `.ush` / `.uya`。
   - 验证：`../uya/bin/uya run <tmp>/hello.ush`，输出 `plain ush ok`。
   - 验证：`UYA_COMPILER=../uya/bin/uya bash ./tests/verify_run_shebang_ush.sh`，输出 `verify_run_shebang_ush: ok`。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+- [x] 新建 `lib/std/path.uya` 或等价模块。
+  - TDD：
+    - `../uya/bin/uya test tests/test_std_path_module.uya`：初始失败，报错 `模块中未找到导出项`。
+  - 验证：
+    - `../uya/bin/uya test tests/test_std_path_module.uya`：通过。
+    - `../uya/bin/uya test tests/test_module_use_simple.uya`：通过。
+    - `make clean`：通过。
+    - `make backup-all`：通过；期间 zig 交叉链接 macOS hosted 可执行文件提示 `timeval` / `sigaction` / `signal` 重定义，但 Makefile 继续保留 C 种子并返回成功。
