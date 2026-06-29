@@ -307,6 +307,25 @@ Uya script / tests/*.uya / tools/*.uya
 - MVP 不允许通过“先全局 `setenv` / `unsetenv`，spawn 完再回滚”来模拟该能力；必须直接构造 child 专属 env block。
 - 当前进程全局 env mutation 属于后续独立能力，不与 child-local overlay 复用同一套 API 名称或隐式副作用。
 
+### 2.4 当前进程全局 env mutation 语义约束
+
+- 这不是 Phase 1 MVP 的前置条件：
+  - 脚本替换主路径仍优先依赖 child-local overlay，而不是先补进程级 `setenv()`。
+- 若后续公开该能力，API 名称必须显式表达“修改当前进程”：
+  - 例如 `env_set_current(...)` / `env_remove_current(...)` / `env_clear_current()`。
+  - `with(...)` / `without(...)` / `command.env_set(...)` 继续只保留 child-only 语义。
+- 成功后的可见性必须一致：
+  - 同一进程后续 `std.env.get(...)` / `has(...)` / `iter(...)` 读取到更新后的状态。
+  - 后续 `inherit_current()` 或 `Command` base-env 快照以更新后的当前进程环境为准。
+  - 已经生成好的 env builder、child env block、以及已经启动的 child，不会被回溯修改。
+- 失败语义必须显式暴露：
+  - 不支持的 hosted backend、内存分配失败、非法 key/value 等情况必须返回错误。
+  - 脚本层 API 不能复用当前 libc stub “返回成功但不生效”的行为；silent no-op 不可接受。
+- 实现边界必须清楚：
+  - `saved_envp` 只代表进程启动时捕获的初始视图，不应继续被当作可变真值源。
+  - 一旦支持 current mutation，运行时必须维护可变的 canonical env view，确保 `getenv`、`inherit_current()` 和 child spawn 读取同一份状态。
+  - 该能力是进程级共享状态，不提供 task-local / coroutine-local 环境变量语义。
+
 ---
 
 ## 3. `std.fs`

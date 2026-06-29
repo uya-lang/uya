@@ -48,8 +48,6 @@
 
 ### 1.1 环境变量
 
-- [ ] 明确脚本运行时优先语义：
-  - [ ] 当前进程全局 env mutation
 - [ ] 补齐真实环境变量写接口，或至少补齐供 child process 使用的 env block builder。
 - [ ] 为 env 读取/覆盖/删除补单元测试。
 

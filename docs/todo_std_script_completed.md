@@ -243,3 +243,10 @@
     - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`（`ok: docs/todo_std_script.md has 1 active task`）
     - 验证：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md`（无输出）
     - 验证：`rg -n "child-local env overlay|只读快照|saved_envp|execve|env_set_current|command\\.env_set" docs/std_script_design.md`（命中新增语义条目）
+
+- [x] 明确脚本运行时优先语义：
+  - [x] 当前进程全局 env mutation
+    - 结果：在 `docs/std_script_design.md` 新增“2.4 当前进程全局 env mutation 语义约束”，明确该能力不是 Phase 1 MVP 前置条件，必须使用显式 current-mutation API，与 child-local overlay 保持独立语义；成功后会影响后续 `std.env.get/has/iter` 与 `inherit_current()/Command` 的 base-env 快照，但不会回溯修改已生成 env block 或已启动 child；同时脚本层不允许继续沿用当前 libc stub 的 silent no-op 行为。
+    - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`（`ok: docs/todo_std_script.md has 0 active tasks`）
+    - 验证：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md docs/todo_std_script_completed.md`（无输出）
+    - 验证：`rg -n "### 2\\.4 当前进程全局 env mutation 语义约束|env_set_current|silent no-op|canonical env view|child-only 语义" docs/std_script_design.md`（命中新增语义条目）
