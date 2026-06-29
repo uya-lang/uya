@@ -327,3 +327,16 @@
   - 验证：
     - `sed -n '539,558p' docs/std_script_design.md`：命中新增 `cwd` 语义边界、UTF-16 收敛与 `lpCurrentDirectory` 约束。
     - `rg -n "_chdir|_getcwd|_wchdir|_wgetcwd|Command\\.cwd|lpCurrentDirectory|UTF-8 byte string" docs/std_script_design.md src/codegen/c99/main.uya`：命中设计文档新增条目与 `src/codegen/c99/main.uya` 的 `_chdir` / `_getcwd` alias 证据。
+
+## Phase 1：运行时基础缺口
+
+### 1.3 hosted backend 缺口
+
+父级任务路径：明确 Windows hosted 所需最小 bridge 列表
+
+- [x] env
+  - 结论：Windows hosted 的 `env` 最小 bridge 已收敛为两层：启动阶段从宽字符宿主环境构造 UTF-8 canonical env view，child-only overlay 继续复用 `EnvBlockBuilder`，并在 `CreateProcessW(..., lpEnvironment=...)` 处转换为 UTF-16 env block；当前进程 env mutation 不是 Phase 1 前置，也不能复用现有 `setenv` / `unsetenv` / `clearenv` stub。
+  - 验证命令：`rg -n "saved_envp|GetEnvironmentStringsW|CreateProcessW|lpEnvironment|silent success|EnvBlockBuilder" docs/std_script_design.md lib/std/env.uya lib/std/runtime/entry/entry.uya lib/libc/stdlib.uya`
+  - 结果：命中文档与实现边界，确认结论与 `saved_envp`、`EnvBlockBuilder`、`CreateProcessW(..., lpEnvironment=...)` 和当前 env mutation stub 一致。
+  - 验证命令：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`
+  - 结果：ok: docs/todo_std_script.md has 0 active tasks

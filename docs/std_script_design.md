@@ -550,6 +550,11 @@ shebang 完整 UX 仍需要两部分支持：
   - 当前仓库的 hosted C99 codegen 已经声明 `_chdir` / `_getcwd` alias，这说明 Windows hosted 确实存在最小 `cwd` bridge 入口；但公共 API 既然承诺保持 UTF-8 byte string，这个入口最终不能停留在窄字符 CRT 语义上。
   - 最终 Windows bridge 应把 UTF-8 `path` 转成 UTF-16 后再调用 `_wchdir` / `_wgetcwd` 或等价 Win32 宿主接口，并把结果重新转回 UTF-8；否则带非 ASCII 路径的脚本行为会依赖本地代码页，破坏跨平台一致性。
   - `Command.cwd` 必须直接落到 child process 创建参数（例如 `CreateProcessW` 的 `lpCurrentDirectory`），不能通过修改父进程 cwd 来模拟；否则并发脚本、日志路径和后续相对路径解析都会出现竞态。
+- `env` 这一项也应尽早固定为“两层 bridge”：
+  - 当前 `std.env.get(...)` / `has(...)` 与 `inherit_current()` 都建立在 `saved_envp` 上，而 `saved_envp` 现在来自进程启动时捕获的窄字符 `envp`；这可作为 bring-up 路径，但不能当作 Windows 脚本运行时的最终跨平台承诺，因为它会受本地代码页影响。
+  - Windows 最小可交付应在进程启动阶段从宽字符宿主环境（`GetEnvironmentStringsW` 或等价入口）构造 UTF-8 canonical env view，并让 `std.env.get/has/iter`、`inherit_current()` 与后续 child spawn 共用这份视图。
+  - child-only overlay 继续复用现有 `EnvBlockBuilder` 语义：上层保持 UTF-8 `KEY=VALUE` 列表，Windows spawn bridge 在最后一步把最终 env block 转成 UTF-16 双 `\0` 结尾缓冲区，并通过 `CreateProcessW(..., lpEnvironment=...)` 传入；不允许通过先修改父进程全局环境、spawn 后再回滚的方式模拟。
+  - 当前进程 env mutation 不是 Windows Phase 1 的前置条件；若后续公开 `env_set_current(...)` / `env_remove_current(...)` 一类能力，必须同时更新 canonical env view，并落到真实宿主 API，而不能复用当前 `setenv` / `unsetenv` / `clearenv` stub 的 silent success。
 
 ## 3. PATH 搜索必须平台敏感
 

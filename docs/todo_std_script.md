@@ -51,7 +51,6 @@
 ### 1.3 hosted backend 缺口
 
 - [ ] 明确 Windows hosted 所需最小 bridge 列表：
-  - [ ] env
   - [ ] stat/remove/rename
   - [ ] dir traversal
   - [ ] pipe/stdio redirection
