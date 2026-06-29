@@ -1,5 +1,6 @@
 // std.path - 可移植路径工具模块
 
+use std;
 use std.string.strlen;
 
 fn path_is_separator(ch: byte) bool {
@@ -216,6 +217,15 @@ fn path_detect_normalize_separator(path: &const byte) byte {
 /// 参数说明：无。
 /// 返回值：常量值始终为 `true`。
 export const PATH_MODULE_PRESENT: bool = true;
+
+/// 返回 PATH 风格环境变量的路径列表分隔符。
+///
+/// 参数说明：无。
+/// 返回值：Windows 目标返回 `';'`；其他目标返回 `':'`。
+export fn path_list_separator() byte {
+    std.cfg(std.target_os == .tos_windows, return 59 as byte;)
+    return 58 as byte;
+}
 
 /// 判断路径是否为绝对路径。
 ///

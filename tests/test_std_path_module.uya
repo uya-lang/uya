@@ -1,10 +1,20 @@
+use std;
 use std.path;
 use std.testing.assert_eq_bool;
 use std.testing.assert_eq_i32;
 use std.string.strcmp;
 
+std.cfg(std.target_os == .tos_windows, const EXPECT_PATH_LIST_SEPARATOR: byte = 59 as byte;)
+std.cfg(std.target_os == .tos_linux, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+std.cfg(std.target_os == .tos_macos, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+std.cfg(std.target_os == .tos_unknown, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+
 test "std.path module can import" {
     try assert_eq_bool(PATH_MODULE_PRESENT, true);
+}
+
+test "std.path path_list_separator follows target os" {
+    try assert_eq_i32(path_list_separator() as i32, EXPECT_PATH_LIST_SEPARATOR as i32);
 }
 
 test "std.path is_abs detects unix windows and relative paths" {

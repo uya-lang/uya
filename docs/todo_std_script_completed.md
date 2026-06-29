@@ -510,3 +510,15 @@
     - 结果：通过。
   - 验证：`make backup-all`
     - 结果：首次执行在 `check` 阶段出现瞬时 `test_std_thread` 退出码 `134`；随后单独运行 `../uya/bin/uya test tests/test_std_thread.uya` 通过，第二次 `make backup-all` 通过，完成自举、1073 项测试、UPM/exec vm/microapp/SIMD/@syscall/http_bench 验证并刷新 `backup/uya*.c` 种子。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+提供：
+  - [x] `path_list_separator`
+    - 实现：在 `lib/std/path.uya` 新增导出 `path_list_separator()`，用 `std.cfg(std.target_os == .tos_windows)` 返回 `';'`，其他目标返回 `':'`。
+    - 验证：`../uya/bin/uya test tests/test_std_path_module.uya`
+      结果：通过，20 个 `std.path` 相关测试全部通过。
+    - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md`
+      结果：通过，无 diff 格式错误。

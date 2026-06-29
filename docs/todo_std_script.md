@@ -60,7 +60,6 @@
 ### 2.1 `std.path`
 
 - [ ] 提供：
-  - [ ] `path_list_separator`
   - [ ] `executable_suffix`
 - [ ] 补 Linux / macOS / Windows 语义测试（至少先写平台条件测试）。
 
