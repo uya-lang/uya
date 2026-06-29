@@ -170,3 +170,14 @@
     - 验证命令：`../uya/bin/uya --help`；结果：帮助文本包含 `check <文件>`。
     - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`；结果：`ok: docs/todo_std_script.md has 1 active task`。
     - 验证命令：`git diff --check -- docs/todo_std_script.md docs/std_script_design.md`；结果：通过。
+
+## Phase 0：盘点与基线
+
+路径：记录第一批推荐迁移对象
+
+- [x] `tests/verify_exec_vm_compiler_regressions.sh`
+  - 理由：脚本主体是线性编排的编译器调用、stdout/stderr 文本断言和少量 fallback 守卫，没有循环、目录遍历或复杂 shell 展开，适合作为第一批 `.sh -> .ush` 迁移样板。
+  - 行为 oracle：保持 `--vm` / `--exec` 下的 EXEC 后端命中、关键 stderr 诊断匹配，以及“不回退 C99 / 不打印陈旧误诊断”的失败语义。
+  - 迁移所需最小能力：`std.process` 的 argv 执行与 stdout/stderr 捕获，`std.script` 的包含/不包含断言，以及临时文件创建清理帮助函数。
+  - 验证：`rg -n -A3 -B1 "verify_exec_vm_compiler_regressions\\.sh" docs/todo_std_script.md`（确认记录条目已写入）
+  - 验证：`git diff --check -- docs/todo_std_script.md`（通过）
