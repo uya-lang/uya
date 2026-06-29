@@ -68,6 +68,10 @@
 ### 已有基础
 
 - `std.runtime` 已缓存 `argc` / `argv` / `envp`
+- `lib/std/env.uya` 已提供 child-only env block builder：
+  - `get` / `has` 读取当前保存的环境变量视图
+  - `EnvBlockBuilder` 可从当前或指定 `envp` 继承，并按顺序应用 `with` / `without`
+  - `build()` 生成以 null 结尾、可传给 `execve` / `os_execve` 的 child 专属 envp
 - `lib/osal/osal.uya` 已提供：
   - `os_spawn`
   - `os_exec`
@@ -91,8 +95,9 @@
 1. **缺少高层模块边界**
    - 现在更接近 syscall/libc/osal 能力集合，还没有 `std.process`、`std.fs`、`std.env`、`std.path`、`std.script` 这类脚本作者直接可用的高层 API。
 
-2. **环境变量写接口未完成**
-   - `setenv` / `unsetenv` / `clearenv` 仍是占位实现，不适合作为脚本运行时公开语义。
+2. **当前进程全局环境变量写接口未完成**
+   - child-only env block builder 已可用于子进程环境覆盖/删除。
+   - `setenv` / `unsetenv` / `clearenv` 仍是占位实现，不适合作为脚本运行时公开“修改当前进程环境”的语义。
 
 3. **默认 `run` 路径仍有字符串拼接**
    - 当前 `uya run/test` 仍有一部分逻辑靠命令字符串 + `system()` 驱动，不适合作为未来标准库 API 的方向。

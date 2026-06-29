@@ -46,11 +46,6 @@
 
 ## Phase 1：运行时基础缺口
 
-### 1.1 环境变量
-
-- [ ] 补齐真实环境变量写接口，或至少补齐供 child process 使用的 env block builder。
-- [ ] 为 env 读取/覆盖/删除补单元测试。
-
 ### 1.2 管道与重定向基础
 
 - [ ] 在 `osal` 或脚本运行时内部抽象 `pipe`/`pipe2`，避免上层直接碰 raw syscall。

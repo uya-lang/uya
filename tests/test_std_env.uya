@@ -1,0 +1,154 @@
+// test_std_env.uya - std.env child-only env block builder
+
+use std.testing;
+
+use std.env.EnvBlockBuilder;
+use std.env.env_block_builder_new;
+use std.env.get;
+use std.env.has;
+use std.runtime.saved_envp;
+use std.mem.allocator.IAllocator;
+use std.mem.allocator.MallocAllocator;
+use std.mem.allocator.get_allocator;
+
+struct EnvTestAllocator : IAllocator {
+    inner: &MallocAllocator,
+
+    fn alloc(self: &Self, size: usize) !&byte {
+        return self.inner.alloc(size);
+    },
+
+    fn dealloc(self: &Self, ptr: &byte) void {
+        self.inner.dealloc(ptr);
+    },
+
+    fn realloc(self: &Self, ptr: &byte, new_size: usize) !&byte {
+        return self.inner.realloc(ptr, new_size);
+    },
+}
+
+fn test_cstr_eq(actual: &const byte, expected: &const byte) !void {
+    var i: usize = 0;
+    while expected[i] != 0 {
+        try assert_eq_i32(actual[i] as i32, expected[i] as i32);
+        i = i + 1;
+    }
+    try assert_eq_i32(actual[i] as i32, 0);
+}
+
+test "env_block_builder_overlay_order_and_null_sentinel" {
+    var w: EnvTestAllocator = EnvTestAllocator{ inner: get_allocator() };
+    var builder: EnvBlockBuilder = env_block_builder_new(w);
+
+    try builder.with("A" as &const byte, "1" as &const byte);
+    try builder.with("B" as &const byte, "2" as &const byte);
+    try builder.with("A" as &const byte, "3" as &const byte);
+
+    try builder.build();
+    const envp: &(&const byte) = builder.envp();
+    try assert_eq_i32(builder.len() as i32, 2);
+    try test_cstr_eq(envp[0], "A=3" as &const byte);
+    try test_cstr_eq(envp[1], "B=2" as &const byte);
+    try assert_eq_bool(envp[2] == null, true);
+}
+
+test "env_block_builder_remove_and_readd" {
+    var w: EnvTestAllocator = EnvTestAllocator{ inner: get_allocator() };
+    var builder: EnvBlockBuilder = env_block_builder_new(w);
+
+    try builder.with("A" as &const byte, "1" as &const byte);
+    try builder.with("B" as &const byte, "2" as &const byte);
+    try builder.without("A" as &const byte);
+    try builder.with("A" as &const byte, "4" as &const byte);
+    try builder.without("B" as &const byte);
+
+    try builder.build();
+    const envp: &(&const byte) = builder.envp();
+    try assert_eq_i32(builder.len() as i32, 1);
+    try test_cstr_eq(envp[0], "A=4" as &const byte);
+    try assert_eq_bool(envp[1] == null, true);
+}
+
+test "env_block_builder_inherit_skips_removed_and_overridden" {
+    var w: EnvTestAllocator = EnvTestAllocator{ inner: get_allocator() };
+    var builder: EnvBlockBuilder = env_block_builder_new(w);
+    var base: [&const byte: 4] = [
+        "A=old" as &const byte,
+        "B=base" as &const byte,
+        "C=" as &const byte,
+        null,
+    ];
+
+    builder.inherit_from(&base[0] as &(&const byte));
+    try builder.without("B" as &const byte);
+    try builder.with("A" as &const byte, "new" as &const byte);
+    try builder.with("D" as &const byte, "" as &const byte);
+
+    try builder.build();
+    const envp: &(&const byte) = builder.envp();
+    try assert_eq_i32(builder.len() as i32, 3);
+    try test_cstr_eq(envp[0], "A=new" as &const byte);
+    try test_cstr_eq(envp[1], "C=" as &const byte);
+    try test_cstr_eq(envp[2], "D=" as &const byte);
+    try assert_eq_bool(envp[3] == null, true);
+}
+
+test "env_block_builder_collapses_duplicate_base_keys" {
+    var w: EnvTestAllocator = EnvTestAllocator{ inner: get_allocator() };
+    var builder: EnvBlockBuilder = env_block_builder_new(w);
+    var base: [&const byte: 4] = [
+        "A=first" as &const byte,
+        "A=second" as &const byte,
+        "B=base" as &const byte,
+        null,
+    ];
+
+    builder.inherit_from(&base[0] as &(&const byte));
+    try builder.build();
+    const envp: &(&const byte) = builder.envp();
+    try assert_eq_i32(builder.len() as i32, 2);
+    try test_cstr_eq(envp[0], "A=first" as &const byte);
+    try test_cstr_eq(envp[1], "B=base" as &const byte);
+    try assert_eq_bool(envp[2] == null, true);
+}
+
+test "env_get_has_and_invalid_names" {
+    const old_envp: & &byte = saved_envp;
+    var fake_envp: [&byte: 3] = [
+        "UYA_STD_ENV_READ=ok" as &byte,
+        "UYA_STD_ENV_EMPTY=" as &byte,
+        null,
+    ];
+    saved_envp = &fake_envp[0];
+    defer {
+        saved_envp = old_envp;
+    }
+
+    const value: &const byte = get("UYA_STD_ENV_READ" as &const byte);
+    try assert_eq_bool(value != null, true);
+    try test_cstr_eq(value, "ok" as &const byte);
+    const empty: &const byte = get("UYA_STD_ENV_EMPTY" as &const byte);
+    try assert_eq_bool(empty != null, true);
+    try assert_eq_i32(empty[0] as i32, 0);
+    try assert_eq_bool(has("UYA_STD_ENV_READ" as &const byte), true);
+    try assert_eq_bool(has("UYA_STD_ENV_MISSING" as &const byte), false);
+    try assert_eq_bool(get("" as &const byte) == null, true);
+    try assert_eq_bool(get("BAD=KEY" as &const byte) == null, true);
+}
+
+test "env_block_builder_rejects_invalid_key" {
+    var w: EnvTestAllocator = EnvTestAllocator{ inner: get_allocator() };
+    var builder: EnvBlockBuilder = env_block_builder_new(w);
+    var got_err: bool = false;
+
+    _ = builder.with("BAD=KEY" as &const byte, "x" as &const byte) catch {
+        got_err = true;
+    };
+    try assert_eq_bool(got_err, true);
+
+    got_err = false;
+    _ = builder.without("" as &const byte) catch {
+        got_err = true;
+    };
+    try assert_eq_bool(got_err, true);
+}

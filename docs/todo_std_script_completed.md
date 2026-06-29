@@ -250,3 +250,14 @@
     - 验证：`python3 /home/winger/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`（`ok: docs/todo_std_script.md has 0 active tasks`）
     - 验证：`git diff --check -- docs/std_script_design.md docs/todo_std_script.md docs/todo_std_script_completed.md`（无输出）
     - 验证：`rg -n "### 2\\.4 当前进程全局 env mutation 语义约束|env_set_current|silent no-op|canonical env view|child-only 语义" docs/std_script_design.md`（命中新增语义条目）
+
+## Phase 1：运行时基础缺口
+
+### 1.1 环境变量
+
+- [x] 补齐真实环境变量写接口，或至少补齐供 child process 使用的 env block builder。
+- [x] 为 env 读取/覆盖/删除补单元测试。
+
+验证：
+`../uya/bin/uya test tests/test_std_env.uya`
+结果：通过；6 tests passed，0 failed，59 assertions passed。
