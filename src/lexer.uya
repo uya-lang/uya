@@ -190,7 +190,13 @@ fn advance_char(lexer: &Lexer) byte {
 fn skip_whitespace_and_comments(lexer: &Lexer) void {
     while lexer.position < lexer.buffer_size {
         const c: byte = peek_char(lexer, 0);
-        if c == 32 || c == 9 || c == 13 || c == 10 {
+        if lexer.position == 0usize && lexer.line == 1 && lexer.column == 1 &&
+            c == 35 && peek_char(lexer, 1) == 33 {
+            // POSIX shebang：仅文件开头的 "#!" 到行尾按注释处理。
+            while lexer.position < lexer.buffer_size && peek_char(lexer, 0) != 10 {
+                advance_char(lexer);
+            }
+        } else if c == 32 || c == 9 || c == 13 || c == 10 {
             // 空白字符
             advance_char(lexer);
         } else if c == 47 && peek_char(lexer, 1) == 47 {

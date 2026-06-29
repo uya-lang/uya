@@ -10409,7 +10409,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10446,7 +10446,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -13489,6 +13489,12 @@ static __attribute__((used)) void detect_main_skip_ws_and_comments(uint8_t * buf
     }
     while (pos[0] < file_size) {
         const uint8_t ch = buf[pos[0]];
+        if (((((pos[0] == 0ULL) && (ch == 35)) && ((pos[0] + 1) < file_size)) && (buf[(pos[0] + 1)] == 33))) {
+            while (((pos[0] < file_size) && (buf[pos[0]] != 10))) {
+                pos[0] = (pos[0] + 1);
+            }
+            continue;
+        }
         if (detect_main_is_space(ch) != 0) {
             pos[0] = (pos[0] + 1);
             continue;
@@ -18018,43 +18024,49 @@ static __attribute__((used)) void skip_whitespace_and_comments(struct Lexer * le
     (void)lexer;
     while (lexer->position < lexer->buffer_size) {
         const uint8_t c = peek_char(lexer, 0);
-        if (((((c == 32) || (c == 9)) || (c == 13)) || (c == 10))) {
-            (void)(advance_char(lexer)            );
+        if ((((((lexer->position == 0ULL) && (lexer->line == 1)) && (lexer->column == 1)) && (c == 35)) && (peek_char(lexer, 1) == 33))) {
+            while (((lexer->position < lexer->buffer_size) && (peek_char(lexer, 0) != 10))) {
+                (void)(advance_char(lexer)                );
+            }
         } else {
-            if (((c == 47) && (peek_char(lexer, 1) == 47))) {
-                while (((lexer->position < lexer->buffer_size) && (peek_char(lexer, 0) != 10))) {
-                    (void)(advance_char(lexer)                    );
-                }
+            if (((((c == 32) || (c == 9)) || (c == 13)) || (c == 10))) {
+                (void)(advance_char(lexer)                );
             } else {
-                if (((c == 47) && (peek_char(lexer, 1) == 42))) {
-                    const int32_t start_line = lexer->line;
-                    const int32_t start_column = lexer->column;
-                    (void)(advance_char(lexer)                    );
-                    (void)(advance_char(lexer)                    );
-                    int32_t depth = 1;
-                    while (((depth > 0) && (lexer->position < lexer->buffer_size))) {
-                        const uint8_t ch = peek_char(lexer, 0);
-                        const uint8_t next = peek_char(lexer, 1);
-                        if (((ch == 47) && (next == 42))) {
-                            depth = (depth + 1);
-                            (void)(advance_char(lexer)                            );
-                            (void)(advance_char(lexer)                            );
-                        } else {
-                            if (((ch == 42) && (next == 47))) {
-                                depth = (depth - 1);
+                if (((c == 47) && (peek_char(lexer, 1) == 47))) {
+                    while (((lexer->position < lexer->buffer_size) && (peek_char(lexer, 0) != 10))) {
+                        (void)(advance_char(lexer)                        );
+                    }
+                } else {
+                    if (((c == 47) && (peek_char(lexer, 1) == 42))) {
+                        const int32_t start_line = lexer->line;
+                        const int32_t start_column = lexer->column;
+                        (void)(advance_char(lexer)                        );
+                        (void)(advance_char(lexer)                        );
+                        int32_t depth = 1;
+                        while (((depth > 0) && (lexer->position < lexer->buffer_size))) {
+                            const uint8_t ch = peek_char(lexer, 0);
+                            const uint8_t next = peek_char(lexer, 1);
+                            if (((ch == 47) && (next == 42))) {
+                                depth = (depth + 1);
                                 (void)(advance_char(lexer)                                );
                                 (void)(advance_char(lexer)                                );
                             } else {
-                                (void)(advance_char(lexer)                                );
+                                if (((ch == 42) && (next == 47))) {
+                                    depth = (depth - 1);
+                                    (void)(advance_char(lexer)                                    );
+                                    (void)(advance_char(lexer)                                    );
+                                } else {
+                                    (void)(advance_char(lexer)                                    );
+                                }
                             }
                         }
+                        if (depth > 0) {
+                            (void)(libc_fprintf(stderr, (const char *)str639, start_line, start_column)                            );
+                            lexer->has_error = 1;
+                        }
+                    } else {
+                        return;
                     }
-                    if (depth > 0) {
-                        (void)(libc_fprintf(stderr, (const char *)str639, start_line, start_column)                        );
-                        lexer->has_error = 1;
-                    }
-                } else {
-                    return;
                 }
             }
         }
@@ -164114,7 +164126,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_3437378704_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -165361,7 +165373,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_391543956_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -165605,7 +165617,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_391543956_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

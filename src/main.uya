@@ -1186,6 +1186,12 @@ fn detect_main_skip_ws_and_comments(buf: &byte, file_size: usize, pos: &usize) v
     }
     while pos[0] < file_size {
         const ch: byte = buf[pos[0]];
+        if pos[0] == 0usize && ch == 35 && pos[0] + 1 < file_size && buf[pos[0] + 1] == 33 {
+            while pos[0] < file_size && buf[pos[0]] != 10 {
+                pos[0] = pos[0] + 1;
+            }
+            continue;
+        }
         if detect_main_is_space(ch) != 0 {
             pos[0] = pos[0] + 1;
             continue;

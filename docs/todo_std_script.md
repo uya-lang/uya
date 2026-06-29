@@ -1,7 +1,7 @@
 # 标准脚本运行时 TODO
 
-**状态**：executable TODO, planning  
-**更新日期**：2026-05-21  
+**状态**：executable TODO, planning
+**更新日期**：2026-06-29
 **配套设计**：[`std_script_design.md`](std_script_design.md)
 
 ---
@@ -20,6 +20,12 @@
 - 先补结构化标准库，再补 `uya script` UX
 - 先 hosted Linux / macOS，再补 Windows hosted backend
 - 先替仓库脚本，再谈通用 shell 能力
+
+### 脚本文件后缀约定
+
+- Uya 脚本统一使用 `.ush` 后缀。
+- `.uya` 保留为普通 Uya 源文件后缀；即使带 shebang 的 `.uya` 仍可被当前 lexer 兼容解析，也不作为标准脚本后缀。
+- 从 `.sh` 迁移脚本时，新文件命名应从 `xxx.sh` 对应到 `xxx.ush`，初期与旧 `.sh` 并存。
 
 ---
 
@@ -91,8 +97,8 @@
 
 ### 1.4 shebang 预研
 
-- [ ] 确认 lexer 对首行 `#!` 的现状。
-- [ ] 设计“仅文件开头位置允许 shebang”的最小语义。
+- [x] 确认 lexer 对首行 `#!` 的现状。
+- [x] 设计“仅文件开头位置允许 shebang”的最小语义。
 - [ ] 明确 shebang 不阻塞第一批脚本迁移。
 
 ---
@@ -197,15 +203,15 @@
 
 ### 4.2 第一批迁移
 
-- [ ] 为每个 `.sh` 迁移目标创建同目录 `.uya` 版本，初期并存。
+- [ ] 为每个 `.sh` 迁移目标创建同目录 `.ush` 版本，初期并存。
 - [ ] 第一批脚本建议：
-  - [ ] `tests/verify_check_cli.uya`
-  - [ ] `tests/verify_exec_vm_compiler_regressions.uya`
-  - [ ] `tests/verify_split_build_output.uya`
-  - [ ] `tests/verify_project_root_embedded_uya_resolution.uya`
+  - [ ] `tests/verify_check_cli.ush`
+  - [ ] `tests/verify_exec_vm_compiler_regressions.ush`
+  - [ ] `tests/verify_split_build_output.ush`
+  - [ ] `tests/verify_project_root_embedded_uya_resolution.ush`
 - [ ] 迁移时遵循：
   - [ ] 旧 `.sh` 作为行为 oracle
-  - [ ] `.uya` 与 `.sh` 的退出码一致
+  - [ ] `.ush` 与 `.sh` 的退出码一致
   - [ ] 关键日志与断言点一致
   - [ ] 关键产物文件一致
 
@@ -213,7 +219,7 @@
 
 - [ ] 为迁移脚本增加双跑入口：
   - [ ] 先跑旧 `.sh`
-  - [ ] 再跑新 `.uya`
+  - [ ] 再跑新 `.ush`
   - [ ] 比对退出码与关键输出
 - [ ] 至少在一段过渡周期内保留双跑。
 
@@ -223,7 +229,7 @@
 
 ### 5.1 `uya script`
 
-- [ ] 为 CLI 增加 `uya script file.uya -- ...` 子命令或等价入口。
+- [ ] 为 CLI 增加 `uya script file.ush -- ...` 子命令或等价入口。
 - [ ] 明确 `script` 与 `run` 的关系：
   - [ ] `run` 偏编译器现有语义
   - [ ] `script` 偏自动化任务与脚本 UX
@@ -234,11 +240,14 @@
 
 ### 5.2 shebang
 
-- [ ] lexer 支持忽略首行 shebang。
-- [ ] 增加回归：
-  - [ ] 有 shebang 的 `.uya` 文件仍能正常 parse
-  - [ ] 仅文件开头允许 shebang
-- [ ] 明确 POSIX 建议写法：
+- [x] lexer 支持忽略首行 shebang。
+- [x] 增加回归：
+  - [x] 标准脚本后缀 `.ush` 可通过 `uya run` 运行
+  - [x] 带 shebang 的 `.uya` 仍可被兼容解析，但不作为标准脚本后缀
+  - [x] 仅文件开头允许 shebang
+- [x] 明确 POSIX 当前建议写法：
+  - [x] `#!/usr/bin/env -S uya run`
+- [ ] `uya script` 落地后同步最终建议写法：
   - [ ] `#!/usr/bin/env -S uya script`
   - [ ] 或提供 `uya-script` wrapper 后再定最终形式
 - [ ] 明确 Windows 不依赖 shebang，而依赖 `uya script` 或文件关联。
@@ -299,7 +308,7 @@
 
 ### 7.4 CI 切换
 
-- [ ] 当 `.uya` 脚本在主要 hosted 平台稳定后，逐步把 CI 默认入口从 `.sh` 切换为 `.uya`。
+- [ ] 当 `.ush` 脚本在主要 hosted 平台稳定后，逐步把 CI 默认入口从 `.sh` 切换为 `.ush`。
 - [ ] 旧 `.sh` 保留一段兼容期后再删除。
 
 ---

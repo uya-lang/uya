@@ -97,8 +97,8 @@
 3. **默认 `run` 路径仍有字符串拼接**
    - 当前 `uya run/test` 仍有一部分逻辑靠命令字符串 + `system()` 驱动，不适合作为未来标准库 API 的方向。
 
-4. **缺少 shebang 支持**
-   - 当前 lexer 只识别 `//` 与 `/* */` 注释；是否忽略首行 `#!...` 尚未定义。
+4. **shebang launcher 约定未完成**
+   - lexer 已支持忽略文件开头 `#!...`；完整脚本 UX 仍缺 `uya script` 或 wrapper 约定。
 
 5. **Windows hosted backend 未完成**
    - 枚举、toolchain、target 宏已经具备，但脚本运行时需要的进程/环境/文件系统 Win32 bridge 还没有形成公共抽象。
@@ -417,6 +417,7 @@ export fn main() !i32
 
 ```text
 ./bin/uya run path/to/script.uya -- ...
+./bin/uya run path/to/script.ush -- ...
 ```
 
 优点：
@@ -442,14 +443,17 @@ export fn main() !i32
 
 ## Phase 3：shebang
 
-shebang 需要两部分支持：
+当前已支持 lexer / parser 容忍文件开头 `#!...`，因此 `uya run path/to/script.ush` 可运行带 shebang 的 Uya 源文件。
 
-1. **lexer / parser 容忍首行 `#!...`**
+shebang 完整 UX 仍需要两部分支持：
+
+1. **lexer / parser 容忍首行 `#!...`**（已落地）
 2. **launcher 约定**
 
 需要注意：
 
 - POSIX shebang 与 Windows 无直接对称关系
+- 在 `uya script` 落地前，POSIX 直接执行建议写作 `#!/usr/bin/env -S uya run`
 - Windows 仍主要通过 `uya script file.uya` 或文件关联运行
 
 因此 shebang 是 UX 增强，不是跨平台脚本 MVP 的核心前提。

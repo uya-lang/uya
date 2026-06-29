@@ -745,26 +745,39 @@ check: uya
 		cat /tmp/verify_out.txt; \
 		VERIFY_EXIT=1; \
 	fi; \
-		if [ $$VERIFY_EXIT -ne 0 ]; then \
-			echo "✗ check 子命令验证失败"; \
-			exit 1; \
-		fi; \
-		echo ""; \
-		echo "验证 UPM 套件..."; \
-		if $(MAKE) upm-check > /tmp/verify_out.txt 2>&1; then \
-			grep -E "verify_upm_.*: ok$$|test_cmd_upm_direct: ok$$|verify_upm_suite: ok$$|✓" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
-			VERIFY_EXIT=0; \
-		else \
-			cat /tmp/verify_out.txt; \
-			VERIFY_EXIT=1; \
-		fi; \
-		if [ $$VERIFY_EXIT -ne 0 ]; then \
-			echo "✗ UPM 套件验证失败"; \
-			exit 1; \
-		fi; \
-		echo ""; \
-		echo "验证 exec vm 专项回归..."; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ check 子命令验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "验证 run .ush shebang..."; \
+	if bash ./tests/verify_run_shebang_ush.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "ok$$|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
 		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ run .ush shebang 验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "验证 UPM 套件..."; \
+	if $(MAKE) upm-check > /tmp/verify_out.txt 2>&1; then \
+		grep -E "verify_upm_.*: ok$$|test_cmd_upm_direct: ok$$|verify_upm_suite: ok$$|✓" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ UPM 套件验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "验证 exec vm 专项回归..."; \
+	VERIFY_EXIT=0; \
 	for script in \
 		./tests/verify_exec_vm_smoke.sh \
 		./tests/verify_exec_vm_globals.sh \
