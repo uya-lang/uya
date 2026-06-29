@@ -46,8 +46,6 @@
 
 ## Phase 0：盘点与基线
 
-- [ ] 记录第一批推荐迁移对象：
-  - [ ] `tests/verify_project_root_embedded_uya_resolution.sh`
 - [ ] 将复杂脚本标记为后续阶段处理：
   - [ ] `tests/run_programs_parallel.sh`
   - [ ] `tests/run_cross_platform_tests.sh`

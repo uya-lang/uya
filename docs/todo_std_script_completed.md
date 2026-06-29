@@ -191,3 +191,12 @@
   - 迁移所需能力：仓库根目录解析、环境变量读取与 fallback、临时文件创建/删除、child process stdout/stderr 重定向、文件可执行位检查。
   - 预期迁移阶段：待 `std.env` / `std.path` / `std.fs` / `std.process` MVP 齐备后优先替换，保留当前成功输出 `split build output materialized ok` 作为行为 oracle。
   - 验证：`UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh` -> `split build output materialized ok`
+
+## Phase 0：盘点与基线
+
+- [x] 记录第一批推荐迁移对象：
+  - [x] `tests/verify_project_root_embedded_uya_resolution.sh`
+    - 记录位置：`docs/std_script_design.md` 的 “A 类：优先迁移” 已补充推荐理由、行为 oracle 与最小能力需求。
+    - 验证命令：`UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh`；结果：输出 `embedded project-root stdlib resolution ok`。
+    - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`；结果：`ok: docs/todo_std_script.md has 0 active tasks`。
+    - 验证命令：`git diff --check -- docs/todo_std_script.md docs/std_script_design.md docs/todo_std_script_completed.md`；结果：通过。

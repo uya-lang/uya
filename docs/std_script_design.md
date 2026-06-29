@@ -557,6 +557,9 @@ shebang 完整 UX 仍需要两部分支持：
 - `tests/verify_exec_vm_compiler_regressions.sh`
 - `tests/verify_split_build_output.sh`
 - `tests/verify_project_root_embedded_uya_resolution.sh`
+  - 理由：脚本主体是一次带 `UYA_ROOT` child env overlay 的编译器调用，加上临时目录创建、目录 symlink、内联测试源码写入和 `test -s` 文件断言，没有循环、管道或复杂 shell 展开，适合作为第一批 `.sh -> .ush` 迁移样板。
+  - 行为 oracle：在临时 `uya/lib -> <repo>/lib` 布局下编译 `use std.async` 的最小程序时，`UYA_ROOT="$TMP_DIR/uya/lib/"` 必须让编译成功生成非空 `out.c`，并继续输出 `embedded project-root stdlib resolution ok`。
+  - 迁移所需最小能力：`std.script.project_root` 定位仓库根，`std.env` 的 child-only env overlay，`std.fs` 的 `create_temp_dir` / `mkdir_all` / 目录 symlink helper / `write_text` / `remove_dir_all` / 文件大小断言，以及 `std.process` 的命令执行和 stderr 重定向到固定日志文件。
 
 ### B 类：第二批迁移
 
