@@ -545,6 +545,11 @@ shebang 完整 UX 仍需要两部分支持：
   - `spawn`：对外继续保持 UTF-8 `path/argv/env/cwd/stdio` 的结构化输入；bridge 内部负责命令行/环境块宽字符转换，并调用 `CreateProcessW`。
   - `wait`：持有子进程句柄，使用 `WaitForSingleObject` 等待完成，再用 `GetExitCodeProcess` 取退出码，并在回收路径关闭句柄。
 - `cwd`、`env`、`pipe/stdio redirection` 虽然在 TODO 中拆成独立子项，但 `spawn` bridge 的 ABI 从一开始就应预留这些可选输入，避免后续为 Windows 再做一次公开 API 改版。
+- `cwd` 这一项本身也需要尽早固定语义边界：
+  - 分成两类能力：当前进程 `os_getcwd` / `os_chdir`，以及 child-only 的 `Command.cwd` override；两者都属于脚本运行时最小集合，但不能混成一个“先 `chdir` 再回滚”的实现。
+  - 当前仓库的 hosted C99 codegen 已经声明 `_chdir` / `_getcwd` alias，这说明 Windows hosted 确实存在最小 `cwd` bridge 入口；但公共 API 既然承诺保持 UTF-8 byte string，这个入口最终不能停留在窄字符 CRT 语义上。
+  - 最终 Windows bridge 应把 UTF-8 `path` 转成 UTF-16 后再调用 `_wchdir` / `_wgetcwd` 或等价 Win32 宿主接口，并把结果重新转回 UTF-8；否则带非 ASCII 路径的脚本行为会依赖本地代码页，破坏跨平台一致性。
+  - `Command.cwd` 必须直接落到 child process 创建参数（例如 `CreateProcessW` 的 `lpCurrentDirectory`），不能通过修改父进程 cwd 来模拟；否则并发脚本、日志路径和后续相对路径解析都会出现竞态。
 
 ## 3. PATH 搜索必须平台敏感
 

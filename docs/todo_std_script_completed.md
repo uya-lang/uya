@@ -313,3 +313,17 @@
     - `sed -n '527,552p' docs/std_script_design.md`：命中 `CreateProcessW`、`WaitForSingleObject`、`GetExitCodeProcess`，确认设计文档已明确 Windows `spawn/wait` bridge 边界。
     - `rg -n "export fn os_waitpid|export fn os_spawn|sys_fork\\(|sys_execve\\(|sys_waitpid\\(" lib/osal/osal.uya lib/libc/syscall.uya`：命中 `lib/osal/osal.uya` 的 `os_spawn/os_waitpid`，确认当前实现仍绑定 `fork/execve/waitpid`。
     - `sed -n '1018,1155p' lib/libc/syscall.uya`：unknown-host 分支里 `sys_waitpid/sys_fork/sys_execve` 全部直接失败，确认 Windows 不能复用现有 stub。
+
+### 1.3 hosted backend 缺口
+
+明确 Windows hosted 所需最小 bridge 列表：
+
+- [x] cwd
+  - 结论：
+    - `cwd` 需要拆成当前进程 `os_getcwd` / `os_chdir` 与 child-only `Command.cwd` override 两类能力，不能用“先 `chdir` 再回滚”的方式混做。
+    - 当前仓库的 hosted C99 codegen 已声明 `_chdir` / `_getcwd` alias，说明 Windows hosted 确实存在最小 `cwd` bridge 入口；但公共 API 既然承诺 UTF-8 byte string，最终实现不能停留在窄字符 CRT 语义上。
+    - 最终 Windows bridge 应统一走 UTF-8 ↔ UTF-16 转换，并把 child `cwd` 直接落到 `CreateProcessW` 的 `lpCurrentDirectory`，避免父进程 cwd 被临时污染。
+  - 文档落点：`docs/std_script_design.md`
+  - 验证：
+    - `sed -n '539,558p' docs/std_script_design.md`：命中新增 `cwd` 语义边界、UTF-16 收敛与 `lpCurrentDirectory` 约束。
+    - `rg -n "_chdir|_getcwd|_wchdir|_wgetcwd|Command\\.cwd|lpCurrentDirectory|UTF-8 byte string" docs/std_script_design.md src/codegen/c99/main.uya`：命中设计文档新增条目与 `src/codegen/c99/main.uya` 的 `_chdir` / `_getcwd` alias 证据。
