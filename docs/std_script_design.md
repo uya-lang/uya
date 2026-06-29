@@ -551,6 +551,9 @@ shebang 完整 UX 仍需要两部分支持：
 候选：
 
 - `tests/verify_check_cli.sh`
+  - 理由：脚本仅包含三次编译器调用、成功/失败退出码断言和少量帮助文本匹配，没有循环、目录遍历或复杂 shell 展开，适合作为第一批 `.sh -> .ush` 迁移样板。
+  - 行为 oracle：验证 `uya check` 对成功输入只走 checker、不进入代码生成；对语法错误返回失败；`--help` 继续暴露 `check <文件>` 入口。
+  - 迁移所需最小能力：`std.process` 的退出码与 stdout/stderr 捕获，`std.script` 的包含匹配断言，以及临时日志文件创建/清理帮助函数。
 - `tests/verify_exec_vm_compiler_regressions.sh`
 - `tests/verify_split_build_output.sh`
 - `tests/verify_project_root_embedded_uya_resolution.sh`

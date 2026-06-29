@@ -159,3 +159,14 @@
     - `tests/verify_project_root_embedded_uya_resolution.sh`：创建 `/tmp/uya-embedded-root.XXXXXX/`，内部含 `uya/lib -> <repo>/lib` 符号链接、`root_async_import.uya` 与 `out.c`；`trap cleanup EXIT` 会删除该目录，`find /tmp -maxdepth 1 -type d -name 'uya-embedded-root.*' | wc -l` 运行前后均为 `0`，但 `/tmp/verify_project_root_embedded_uya_resolution.log` 会保留并被覆盖更新。
     - 验证命令：`bash tests/verify_check_cli.sh`、`TMPDIR=$(mktemp -d /tmp/std-script-exec-regression.XXXXXX) UYA_COMPILER=../uya/bin/uya bash tests/verify_exec_vm_compiler_regressions.sh`、`UYA_COMPILER=../uya/bin/uya bash tests/verify_split_build_output.sh`、`UYA_COMPILER=../uya/bin/uya bash tests/verify_project_root_embedded_uya_resolution.sh`
     - 验证结果：4 个脚本均成功；前三类临时路径运行后无残留，`verify_project_root_embedded_uya_resolution.sh` 额外保留并覆盖 `/tmp/verify_project_root_embedded_uya_resolution.log`。
+
+## Phase 0：盘点与基线
+
+- 任务路径：记录第一批推荐迁移对象
+  - [x] `tests/verify_check_cli.sh`
+    - 记录位置：`docs/std_script_design.md` 的 “A 类：优先迁移” 已补充迁移理由、行为 oracle 与最小能力需求。
+    - 验证命令：`../uya/bin/uya check tests/check_cli_no_main.uya`；结果：输出包含 `类型检查通过` 与 `检查完成：checker 通过（未执行代码生成）`，且未进入代码生成。
+    - 验证命令：`../uya/bin/uya check tests/error_check_missing_brace.uya`；结果：命令失败并输出 `语法分析失败`。
+    - 验证命令：`../uya/bin/uya --help`；结果：帮助文本包含 `check <文件>`。
+    - 验证命令：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_std_script.md`；结果：`ok: docs/todo_std_script.md has 1 active task`。
+    - 验证命令：`git diff --check -- docs/todo_std_script.md docs/std_script_design.md`；结果：通过。
