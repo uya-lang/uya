@@ -865,6 +865,19 @@ check: uya
 		exit 1; \
 	fi; \
 	echo ""; \
+	echo "验证 std.path Linux/macOS/Windows 平台条件..."; \
+	if ./tests/verify_std_path_platform_targets.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "✓|✗|验证 std\\.path" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ std.path 跨目标平台条件验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
 	echo "验证 @syscall C99（Linux AArch64 / ARM32 交叉）..."; \
 	if ZIG="$(ZIG)" ./tests/verify_syscall_c99_cross.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
@@ -1024,6 +1037,14 @@ check-hosted: b-hosted
 	VERIFY_EXIT=$$?; \
 	if [ $$VERIFY_EXIT -ne 0 ]; then \
 		echo "✗ macOS hosted 单文件 seed extern 声明验证失败"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "验证 std.path Linux/macOS/Windows 平台条件..."
+	@./tests/verify_std_path_platform_targets.sh; \
+	VERIFY_EXIT=$$?; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ std.path 跨目标平台条件验证失败"; \
 		exit 1; \
 	fi
 	@echo ""

@@ -536,3 +536,13 @@
       - 结果：通过，21 个 `std.path` 用例全部通过，79 个断言通过。
     - 验证：`git diff --check -- lib/std/path.uya tests/test_std_path_module.uya docs/todo_std_script.md docs/todo_std_script_completed.md`
       - 结果：通过，无 diff 格式错误。
+
+## Phase 2：`std.path` / `std.env` / `std.fs` MVP
+
+### 2.1 `std.path`
+
+- [x] 补 Linux / macOS / Windows 语义测试（至少先写平台条件测试）。
+  - 修复：先用 `make from-c` 从 `backup/uya.c` 冷启动生成缺失的 `../uya/bin/uya`，解除失败归档中的本地编译器阻塞。
+  - 覆盖：`tests/verify_std_path_platform_targets.sh` 依次用 `TARGET_OS=linux`、`TARGET_OS=macos`、`TARGET_OS=windows` 生成并运行 `tests/test_std_path_platform_cfg.uya`，验证 `path_list_separator()` 与 `executable_suffix()` 的目标平台条件语义。
+  - 验证：`bash tests/verify_std_path_platform_targets.sh`
+    - 结果：通过，Linux / macOS / Windows 三个目标的 `std.path` 平台条件验证全部通过。
