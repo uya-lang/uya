@@ -53,3 +53,4 @@ src/.uyacache-native-refresh/
 .deepcode/settings.json
 .deepcode/notify-loop-signal.sh
 benchmarks/lib/
+uya/

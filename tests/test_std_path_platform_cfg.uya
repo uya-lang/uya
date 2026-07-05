@@ -1,0 +1,22 @@
+use std;
+use std.path;
+use std.testing.assert_eq_i32;
+use std.string.strcmp;
+
+std.cfg(std.target_os == .tos_linux, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+std.cfg(std.target_os == .tos_macos, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+std.cfg(std.target_os == .tos_windows, const EXPECT_PATH_LIST_SEPARATOR: byte = 59 as byte;)
+std.cfg(std.target_os == .tos_unknown, const EXPECT_PATH_LIST_SEPARATOR: byte = 58 as byte;)
+
+std.cfg(std.target_os == .tos_linux, const EXPECT_EXECUTABLE_SUFFIX: &const byte = "";)
+std.cfg(std.target_os == .tos_macos, const EXPECT_EXECUTABLE_SUFFIX: &const byte = "";)
+std.cfg(std.target_os == .tos_windows, const EXPECT_EXECUTABLE_SUFFIX: &const byte = ".exe";)
+std.cfg(std.target_os == .tos_unknown, const EXPECT_EXECUTABLE_SUFFIX: &const byte = "";)
+
+test "std.path platform cfg path_list_separator matches target os" {
+    try assert_eq_i32(path_list_separator() as i32, EXPECT_PATH_LIST_SEPARATOR as i32);
+}
+
+test "std.path platform cfg executable_suffix matches target os" {
+    try assert_eq_i32(strcmp(executable_suffix(), EXPECT_EXECUTABLE_SUFFIX), 0);
+}
