@@ -6512,7 +6512,7 @@ struct SymbolTable {
 };
 
 struct FunctionTable {
-    struct FunctionSignature * slots[4096];
+    struct FunctionSignature * slots[8192];
     int32_t count;
 };
 
@@ -6627,9 +6627,9 @@ struct TypeChecker {
     struct ASTNode * fn_call_edge_from[16384];
     struct ASTNode * fn_call_edge_to[16384];
     int32_t fn_call_edge_count;
-    struct ASTNode * fn_root_decls[4096];
+    struct ASTNode * fn_root_decls[8192];
     int32_t fn_root_count;
-    struct ASTNode * reachable_fn_decls[4096];
+    struct ASTNode * reachable_fn_decls[8192];
     int32_t reachable_fn_decl_count;
     int32_t reachability_visit_count;
     struct ASTNode * reachability_visit_cache[262144];
@@ -10521,7 +10521,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10558,7 +10558,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -11378,9 +11378,9 @@ __attribute__((used)) const int32_t MAX_ASYNC_CALL_EDGES = 512;
 
 __attribute__((used)) const int32_t MAX_FN_CALL_EDGES = 16384;
 
-__attribute__((used)) const int32_t MAX_FN_ROOTS = 4096;
+__attribute__((used)) const int32_t MAX_FN_ROOTS = 8192;
 
-__attribute__((used)) const int32_t MAX_REACHABLE_FN_DECLS = 4096;
+__attribute__((used)) const int32_t MAX_REACHABLE_FN_DECLS = 8192;
 
 __attribute__((used)) const int32_t MAX_REACHABILITY_VISIT_SLOTS = 262144;
 
@@ -11388,7 +11388,7 @@ __attribute__((used)) const size_t MAX_REACHABILITY_VISIT_MASK = 262143;
 
 __attribute__((used)) const int32_t SYMBOL_TABLE_SIZE = 32768;
 
-__attribute__((used)) const int32_t FUNCTION_TABLE_SIZE = 4096;
+__attribute__((used)) const int32_t FUNCTION_TABLE_SIZE = 8192;
 
 __attribute__((used)) const int32_t MODULE_TABLE_SIZE = 256;
 
@@ -80405,7 +80405,7 @@ static __attribute__((used)) void checker_compute_function_reachability(struct T
         return;
     }
     checker->reachable_fn_decl_count = 0;
-    struct ASTNode * queue[4096] = {0};
+    struct ASTNode * queue[8192] = {0};
     int32_t head = 0;
     int32_t tail = 0;
     int32_t i = 0;
@@ -104091,7 +104091,7 @@ static __attribute__((used)) int32_t exec_lower_collect_exec_reachable_fn_decls(
             return _uya_ret;
                 }
     }
-    struct ASTNode * queue[4096] = {0};
+    struct ASTNode * queue[8192] = {0};
     int32_t head = 0;
     int32_t tail = 0;
     out_decls[0] = entry_decl;
@@ -104138,7 +104138,7 @@ static __attribute__((used)) int32_t exec_lower_collect_global_slots_from_reacha
             return _uya_ret;
                 }
     }
-    struct ASTNode * fn_decls[4096] = {0};
+    struct ASTNode * fn_decls[8192] = {0};
     int32_t fn_decl_count = 0;
     if (exec_lower_collect_exec_reachable_fn_decls(checker, (struct ASTNode * *)(&fn_decls[0]), (&fn_decl_count)) != 0) {
                 {
@@ -107236,7 +107236,7 @@ struct HIRModule * exec_lower_exec_lower_module(struct CompilerArena * arena, st
             return _uya_ret;
                 }
     }
-    struct ASTNode * exec_reachable[4096] = {0};
+    struct ASTNode * exec_reachable[8192] = {0};
     int32_t exec_reachable_count = 0;
     exec_reachable[0] = main_decl;
     exec_reachable_count = 1;
@@ -107257,7 +107257,7 @@ struct HIRModule * exec_lower_exec_lower_module(struct CompilerArena * arena, st
     }
     int32_t count = 0;
     struct HIRFunction * entry_fn = NULL;
-    struct ASTNode * queue[4096] = {0};
+    struct ASTNode * queue[8192] = {0};
     int32_t head = 0;
     int32_t tail = 0;
     int32_t seed_idx = 0;
@@ -169696,7 +169696,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -170943,7 +170943,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -171187,7 +171187,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;
