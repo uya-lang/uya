@@ -97,7 +97,9 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
                 
                 if linear_expr.is_valid != 0 {
                     // 使用符号执行验证边界
-                    if verify_linear_expr_bounds(checker, &linear_expr, array_size, node.array_access_index) == 0 {
+                    const index_type_for_bounds: Type = checker_infer_type(checker, index_expr);
+                    const is_unsigned_index: i32 = is_unsigned_type(index_type_for_bounds.kind);
+                    if verify_linear_expr_bounds_ex(checker, &linear_expr, array_size, node.array_access_index, is_unsigned_index) == 0 {
                         // 无法证明安全，报告编译错误
                         if linear_expr.var_name != null {
                             checker_report_error_ex(checker, node.array_access_index, 
@@ -202,7 +204,9 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
                         const linear_expr: LinearExpr = extract_linear_expr(checker, index_expr);
                         var proved: i32 = 0;
                         if linear_expr.is_valid != 0 {
-                            if verify_linear_expr_bounds(checker, &linear_expr, known_len, index_expr) != 0 {
+                            const index_type_for_ptr_bounds: Type = checker_infer_type(checker, index_expr);
+                            const is_unsigned_ptr_index: i32 = is_unsigned_type(index_type_for_ptr_bounds.kind);
+                            if verify_linear_expr_bounds_ex(checker, &linear_expr, known_len, index_expr, is_unsigned_ptr_index) != 0 {
                                 proved = 1;
                             }
                         }

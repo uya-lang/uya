@@ -112,7 +112,7 @@ const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
 const ARENA_BUFFER_SIZE: i32 = 64 * 1024 * 1024;  // 64MB 初始
 
 // 最大输入文件数
-const MAX_INPUT_FILES: i32 = 128;
+const MAX_INPUT_FILES: i32 = 512;
 
 // --split-c-dir / UYA_SPLIT_C_DIR：多文件 C 输出目录；非空时链接阶段走 make -j
 // C99 且非「显式 -o xxx.c」时默认目录 .uyacache（与显式 --split-c-dir 省略路径一致）；UYA_SPLIT_C=0 或 --no-split-c 可关闭

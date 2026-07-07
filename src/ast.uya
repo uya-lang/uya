@@ -749,7 +749,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     return node;
 }
 
-const MAX_MERGE_PROGRAMS: i32 = 128;
+const MAX_MERGE_PROGRAMS: i32 = 512;
 
 // 合并多个 ASTNodeType.AST_PROGRAM 节点为一个程序节点
 // 参数：programs - 程序节点数组（元素类型为 &ASTNode），count - 数量，arena - Arena

@@ -61,6 +61,12 @@ fn c99_expr_is_hosted_stdio_stream_arg(arg: &ASTNode) i32 {
         return c99_name_is_hosted_stdio_stream(arg.identifier_name);
     }
     if arg.type == ASTNodeType.AST_MEMBER_ACCESS &&
+        arg.member_access_is_module_access != 0 &&
+        arg.member_access_module_name != null &&
+        strcmp(arg.member_access_module_name as *byte, "libc" as *byte) == 0 {
+        return c99_name_is_hosted_stdio_stream(arg.member_access_field_name);
+    }
+    if arg.type == ASTNodeType.AST_MEMBER_ACCESS &&
         arg.member_access_object != null &&
         arg.member_access_object.type == ASTNodeType.AST_IDENTIFIER &&
         strcmp(arg.member_access_object.identifier_name as *byte, "libc" as *byte) == 0 {
@@ -1547,6 +1553,61 @@ fn c99_emit_error_value_for_err_union_param(codegen: &C99CodeGenerator, fn_decl:
     return 1;
 }
 
+fn c99_call_arg_expr_is_lvalue_for_auto_address(arg: &ASTNode) i32 {
+    if arg == null {
+        return 0;
+    }
+    if arg.type == ASTNodeType.AST_IDENTIFIER || arg.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return 1;
+    }
+    if arg.type == ASTNodeType.AST_ARRAY_ACCESS && arg.array_access_array != null &&
+        arg.array_access_array.type != ASTNodeType.AST_ARRAY_LITERAL {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_expr_inferred_as_pointer_value(codegen: &C99CodeGenerator, arg: &ASTNode) i32 {
+    if codegen == null || codegen.checker == null || arg == null {
+        return 0;
+    }
+    const inferred: Type = checker_infer_type(codegen.checker, arg);
+    if inferred.kind == TypeKind.TYPE_POINTER {
+        return 1;
+    }
+    if inferred.kind == TypeKind.TYPE_ARRAY {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_call_arg_expr_is_pointer_value(codegen: &C99CodeGenerator, arg: &ASTNode) i32 {
+    if arg == null {
+        return 0;
+    }
+    if c99_expr_is_hosted_stdio_stream_arg(arg) != 0 {
+        return 1;
+    }
+    if arg.type == ASTNodeType.AST_UNARY_EXPR &&
+        (arg.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+        return 1;
+    }
+    const arg_type_c: &byte = get_c_type_of_expr(codegen, arg);
+    if arg_type_c != null && strchr(arg_type_c as *byte, 42) != null {
+        return 1;
+    }
+    if arg_type_c != null && strchr(arg_type_c as *byte, 91) != null {
+        return 1;
+    }
+    if c99_expr_inferred_as_pointer_value(codegen, arg) != 0 {
+        return 1;
+    }
+    if arg.type == ASTNodeType.AST_BINARY_EXPR {
+        return 1;
+    }
+    return 0;
+}
+
 // 调用实参：对按值 slice ABI，将 &expr（expr 为切片值）生成为 expr。
 fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_index: i32, arg: &ASTNode) void {
     if arg != null && arg.type == ASTNodeType.AST_UNARY_EXPR &&
@@ -1599,6 +1660,21 @@ fn c99_emit_call_arg_expr(codegen: &C99CodeGenerator, fn_decl: &ASTNode, param_i
         const param: &ASTNode = fn_decl.fn_decl_params[param_index];
         if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_type != null {
             codegen.expected_type = param.var_decl_type;
+            if param.var_decl_type.type == ASTNodeType.AST_TYPE_POINTER &&
+                c99_expr_is_null_literal(arg) == 0 {
+                if c99_call_arg_expr_is_pointer_value(codegen, arg) != 0 {
+                    gen_expr(codegen, arg);
+                    codegen.expected_type = saved_expected_type;
+                    return;
+                }
+                if c99_call_arg_expr_is_lvalue_for_auto_address(arg) != 0 {
+                    c99_emit_method_receiver_arg(codegen, param, arg);
+                } else {
+                    gen_expr(codegen, arg);
+                }
+                codegen.expected_type = saved_expected_type;
+                return;
+            }
         }
     }
     gen_expr(codegen, arg);

@@ -4043,7 +4043,9 @@ fn infer_array_access(checker: &TypeChecker, expr: &ASTNode) Type {
             const linear_expr: LinearExpr = extract_linear_expr(checker, index_expr);
             
             if linear_expr.is_valid != 0 {
-                if verify_linear_expr_bounds(checker, &linear_expr, array_size, index_expr) == 0 {
+                const index_type: Type = checker_infer_type(checker, index_expr);
+                const is_unsigned_index: i32 = is_unsigned_type(index_type.kind);
+                if verify_linear_expr_bounds_ex(checker, &linear_expr, array_size, index_expr, is_unsigned_index) == 0 {
                     if linear_expr.var_name != null {
                         checker_report_error_ex(checker, index_expr, 
                             "数组索引安全证明失败" as *byte,
@@ -4207,7 +4209,10 @@ fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     const block: &ASTNode = expr.catch_expr_catch_block;
     if block != null && block.type == ASTNodeType.AST_BLOCK && block.block_stmt_count > 0 {
         const last: &ASTNode = block.block_stmts[block.block_stmt_count - 1];
-        if last != null && last.type != ASTNodeType.AST_RETURN_STMT {
+        if last != null &&
+            last.type != ASTNodeType.AST_RETURN_STMT &&
+            last.type != ASTNodeType.AST_BREAK_STMT &&
+            last.type != ASTNodeType.AST_CONTINUE_STMT {
             if type_equals(catch_block_type, payload) == 0 {
                 checker_report_error(checker, last, "catch 块最后表达式类型必须与成功值类型一致" as *byte);
             }

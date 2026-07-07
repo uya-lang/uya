@@ -7,6 +7,7 @@
 use libc.heap;
 use libc.syscall;
 use libc.errno;
+use libc.memcpy;
 use std.async;
 use std.mem.allocator.AllocOutOfMemory;
 
@@ -1222,11 +1223,7 @@ fn dns_query_tcp_with_timeout(ctx: &DnsClient, host: &[byte], qtype: u16, out: &
     var framed: [byte: DNS_TCP_QUERY_FRAME_SCRATCH] = [0:DNS_TCP_QUERY_FRAME_SCRATCH];
     framed[0] = (((qlen >> 8) & (255 as usize)) as byte);
     framed[1] = ((qlen & (255 as usize)) as byte);
-    var i: usize = 0;
-    while i < qlen && i < @len(packet) && 2 + i < @len(framed) {
-        framed[2 + i] = packet[i];
-        i = i + 1;
-    }
+    _ = memcpy(&framed[2], &packet[0] as *const byte, qlen);
     const sent: isize = sys_send(fd, &framed[0], qlen + 2, 0) catch |err| {
         const eid: i32 = (@error_id(err) as! i32).value;
         _ = sys_close(fd) catch {};
@@ -1894,11 +1891,7 @@ export fn dns_client_query_aaaa_udp_future(ctx: &DnsClient, host: &const byte, h
     const raw_qlen: usize = try dns_client_build_query(ctx, host[0: host_len], mode as u16, &raw_query[0], DNS_QUERY_PACKET_SCRATCH);
     query_packet[0] = (((raw_qlen >> 8) & (255 as usize)) as byte);
     query_packet[1] = ((raw_qlen & (255 as usize)) as byte);
-    var i: usize = 0;
-    while i < raw_qlen && i < @len(raw_query) && 2 + i < @len(query_packet) {
-        query_packet[2 + i] = raw_query[i];
-        i = i + 1;
-    }
+    _ = memcpy(&query_packet[2], &raw_query[0] as *const byte, raw_qlen);
     const query_len: usize = raw_qlen + 2;
     dns_fill_sockaddr_ipv4(ns.addr[0], ns.addr[1], ns.addr[2], ns.addr[3], ns.port, &sockaddr[0]);
     const deadline_ms: u64 = try dns_deadline_after_ms(ctx.timeout_ms);
