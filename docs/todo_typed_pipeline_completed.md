@@ -107,3 +107,8 @@
     - 聚焦测试：`./bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过（3/3 测试全部 OK）。
     - 程序回归：`./tests/run_programs_parallel.sh tests/test_typed_pipeline_type_identity.uya` 通过。
     - 全量回归：`make tests-uya` 在 300 秒超时窗口内未完成；聚焦测试与自举验证已通过。
+
+## 阶段 2：Type Checker 规则
+
+- [x] checker 按 canonical 声明身份识别 `Pipeline`，不得仅比较未限定类型名字符串。
+  - 归档说明：本任务已在主 TODO 中标记完成，本轮为归档清理移动至此；原始实现已完成 canonical 声明身份识别。
