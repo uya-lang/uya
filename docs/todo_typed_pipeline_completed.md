@@ -312,3 +312,22 @@ make uya
   - [x] 右侧不是调用表达式
 
 验证记录：该叶子任务已在之前轮次完成实现与验证，本轮为归档清理，仅将其从主 todo 移入完成归档。主 todo 中同父级下仍有其他待完成子任务，父级保持 `[ ]` 继续推进。
+
+## 类型化管道 TODO / 阶段 2：Type Checker 规则
+
+- [ ] 添加诊断：
+  - [x] 首个参数不是 `Pipeline`
+    - 实现要点：
+      - 在 `src/checker/check_expr_extra.uya` 的 `checker_check_pipeline_expr` 中，左侧 `Pipeline` / `!Pipeline` 检查之后，调用 `checker_get_pipeline_callee_first_param_type` 获取右侧 callee 的首个参数类型。
+      - 若首个参数类型不是 canonical `std.process.Pipeline`，则在右侧调用节点上报错“管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型”。
+      - 模块限定调用、无 receiver 静态/自由函数调用、带显式类型命名空间 receiver 的静态方法调用均通过该检查，只要其首参为 `Pipeline`。
+    - 新增测试：`tests/error_typed_pipeline_checker_right.uya`（负向测试，左侧为 `Pipeline`、右侧 callee 首参为 `i32`）。
+    - 验证命令与结果：
+      - `../uya/bin/uya check tests/error_typed_pipeline_checker_right.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型”。
+      - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` 通过，2 个测试全部 OK。
+      - 相关诊断回归：
+        - `../uya/bin/uya check tests/error_typed_pipeline_checker_left.uya` 仍返回 exit 1，包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+        - `../uya/bin/uya check tests/error_typed_pipeline_instance_method_receiver.uya` 仍返回 exit 1，包含“管道运算符 '|>' 右侧不能是带隐式 self receiver 的实例方法调用”。
+        - `../uya/bin/uya check tests/error_typed_pipeline_sink_after_chain.uya` 仍返回 exit 1，包含“不能在 sink 之后继续链式管道 '|>'……”。
+        - `../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过（6/6）。
+        - `../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过（3/3）。
