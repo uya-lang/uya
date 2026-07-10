@@ -917,3 +917,19 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 检查命令：`grep -n "API 误用返回\|Stage 启动链路失败\|文件重定向、pipe\|Executor 自身收到" docs/typed_pipeline_design.md`
   - 输出命中 4 条规则说明，对应 `error.InvalidPipeline`、`PipelineResult`、普通 Uya error、`error.Interrupted`。
 
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 决定 `cmd` 使用 Uya 裸变参 `...` 加 `@params` 校验，还是使用基于 slice 的 `cmd_argv` API。
+  - 决策：process-only MVP 使用基于 slice 的 `cmd_argv` / `cmd_path_argv` 基础 API；裸变参 `cmd` / `cmd_path` 在编译器支持 typed varargs materialization 后仅作为 facade。
+  - 依据：
+    - `docs/typed_pipeline_design.md` L20-L21 明确 MVP 示例使用 slice 形式，避免依赖尚未完成的 typed varargs 反射能力。
+    - L42-L50 说明 `cmd(...)` 只有在编译器补齐 typed varargs materialization 后才能作为 slice API 的人体工学 facade。
+    - L236-L238 说明 Uya 裸尾随 `...` 当前不能当作可枚举、可类型检查、可保存生命周期的 argv 列表；第一版必须先实现 `cmd_argv` / `cmd_path_argv`。
+  - 验证命令与结果：
+    - `grep -n "cmd_argv\|cmd_path_argv" docs/typed_pipeline_design.md | head -n 10` 命中 L200-L205、L236-L240、L244 等，确认 slice API 已作为基础 API 锁定，裸变参 `cmd` / `cmd_path` 仅标注为后续 facade。
+    - `sed -n '20,50p' docs/typed_pipeline_design.md` 确认 MVP 示例使用 `cmd_argv` / `cmd_path_argv` slice 形式。
+    - `sed -n '236,238p' docs/typed_pipeline_design.md` 确认裸变参 `...` 不能直接读取 `@params`，第一版必须先实现 slice 形式 API。
+    - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md docs/todo_typed_pipeline_completed.md` 通过，无空白错误。
