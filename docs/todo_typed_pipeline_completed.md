@@ -467,3 +467,9 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     命令：`grep -n "byte_count" docs/typed_pipeline_design.md && grep -n "不保存指向" docs/typed_pipeline_design.md && grep -n "跨参数借用" docs/typed_pipeline_design.md`
     结果：均命中上述行号与文本，规格已锁定并归档。
 
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] 后续按值 facade 使用独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult` 或不透明 handle，不复用仅含长度的摘要类型
+    验证：在 `docs/typed_pipeline_design.md` 的“结果模型”段增加“阶段 0 已锁定”说明，明确 `status()` / `capture()` / `capture_limit()` 必须返回独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult`（或等价不透明 handle），不得复用 `PipelineResult` / `PipelineCaptureResult` 摘要类型，并补充所有权转移 / drop / clone 规则。

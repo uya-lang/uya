@@ -13,8 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [ ] 后续按值 facade 使用独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult` 或不透明 handle，不复用仅含长度的摘要类型
 - [ ] 锁定 checked/observing sink 分层：
   - [ ] `check()`：pipefail，非零返回 `error.ProcessFailed`
   - [ ] `check()`：启动失败返回 `error.PipelineSpawnFailed`
