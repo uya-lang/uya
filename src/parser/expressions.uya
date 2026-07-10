@@ -841,7 +841,7 @@ fn parser_parse_or_expr(parser: &Parser) &ASTNode {
 
 // 解析 pipeline 表达式（左结合）
 // pipeline_expr = or_expr { '|>' postfix_expr }
-// 右侧当前限制为最外层是 call 的 postfix expression
+// 右侧解析为 postfix expression；最外层是否为调用表达式由 type checker 负责语义检查。
 fn parser_parse_pipeline_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
@@ -859,16 +859,10 @@ fn parser_parse_pipeline_expr(parser: &Parser) &ASTNode {
         const column: i32 = parser.current_token.column;
         parser_consume(parser);  // 消费 '|>'
         
-        // 解析右侧 postfix expression
-        const right: &ASTNode = parser_parse_primary_expr(parser);
+        // 解析右侧 postfix expression（支持普通调用、模块限定调用、显式 receiver 方法调用等）
+        const right: &ASTNode = parser_parse_postfix_expr_tail(parser, parser_parse_primary_expr(parser));
         if right == null {
-            parser_report_syntax_error(parser, "管道右侧不完整或不是有效的函数调用" as *byte);
-            return null;
-        }
-        
-        // 限制右侧最外层必须是函数调用
-        if right.type != ASTNodeType.AST_CALL_EXPR {
-            parser_report_syntax_error(parser, "管道右侧必须是函数调用" as *byte);
+            parser_report_syntax_error(parser, "管道右侧不完整或不是有效的 postfix 表达式" as *byte);
             return null;
         }
         

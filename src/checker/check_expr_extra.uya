@@ -797,7 +797,14 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
 
-    // parser 已将右侧限制为最外层是调用表达式的 postfix expression。
+    // parser 已将右侧解析为 postfix expression；type checker 负责语义检查。
+    // 右侧最外层必须是调用表达式，否则无法插入 synthetic lhs。
+    if right.type != ASTNodeType.AST_CALL_EXPR {
+        checker_report_error(checker, right,
+            "管道运算符 '|>' 右侧必须是调用表达式" as *byte);
+        return result;
+    }
+
     // MVP 拒绝带隐式 self receiver 的实例方法调用（如 value.method(...)），
     // 因为 synthetic lhs 与实例方法的 self receiver 冲突。
     if checker_pipeline_callee_is_implicit_self_instance_method_call(checker, right) != 0 {

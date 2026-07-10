@@ -1,0 +1,9 @@
+// test_typed_pipeline_parser_negative.uya
+// parser 负向测试：验证非法 pipeline 表达式会被 parser 拒绝
+
+fn pipeline() i32 { return 0; }
+fn main() i32 {
+    // 右侧缺失表达式
+    _ = pipeline() |> ;
+    return 0;
+}

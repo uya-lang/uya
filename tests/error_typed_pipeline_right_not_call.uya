@@ -1,0 +1,10 @@
+// error_typed_pipeline_right_not_call.uya
+// checker 负向测试：验证 |> 右侧不是调用表达式时报错。
+
+use std.process;
+
+fn main() i32 {
+    const y: i32 = 0;
+    _ = pipeline() |> y;
+    return 0;
+}

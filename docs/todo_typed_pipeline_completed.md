@@ -284,3 +284,20 @@ make uya
   - 验证命令与结果：
     - `../uya/bin/uya test tests/error_typed_pipeline_checker_left.uya` 通过，输出包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
     - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_checker_left.uya` 通过，显示“预期编译失败”。
+
+## 阶段 2：Type Checker 规则
+
+- [ ] 添加诊断：
+  - [x] 右侧不是调用表达式
+    - 交付物：
+      - `src/parser/expressions.uya`：`parser_parse_pipeline_expr` 现在将 `|>` 右侧解析为 `postfix_expr`，不再在 parser 层强制要求最外层是调用表达式。
+      - `src/checker/check_expr_extra.uya`：`checker_check_pipeline_expr` 在左侧类型校验后新增诊断：若 `right.type != AST_CALL_EXPR`，报告「管道运算符 '|>' 右侧必须是调用表达式」。
+      - 新增 `tests/error_typed_pipeline_right_not_call.uya` 负向测试。
+      - 将 `tests/test_typed_pipeline_parser_negative.uya` 与 `tests/test_typed_pipeline_parser_negative_eof.uya` 重命名为 `error_` 前缀，使 `run_programs_parallel.sh` 正确识别为预期编译失败。
+    - 验证命令与结果：
+      - `make uya`：自举编译器构建成功。
+      - `make b`：自举对比一致，字节相同。
+      - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_right_not_call.uya`：✓ 预期编译失败。
+      - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_checker_left.uya tests/error_typed_pipeline_checker_right.uya tests/error_typed_pipeline_instance_method_receiver.uya tests/error_typed_pipeline_sink_after_chain.uya tests/error_typed_pipeline_try_forward_type_mismatch.uya`：均 ✓ 预期编译失败。
+      - `./tests/run_programs_parallel.sh tests/test_typed_pipeline_parser_positive.uya tests/test_typed_pipeline_checker_positive.uya tests/test_typed_pipeline_imported_transformer_positive.uya tests/test_typed_pipeline_module_qualified_positive.uya tests/test_typed_pipeline_type_identity.uya`：均 ✓ 测试通过。
+      - 直接编译 `tests/error_typed_pipeline_right_not_call.uya` 输出：`管道运算符 '|>' 右侧必须是调用表达式`。
