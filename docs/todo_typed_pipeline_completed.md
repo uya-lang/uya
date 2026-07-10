@@ -1064,3 +1064,13 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
 
 - [x] 锁定 controlling terminal 只有在 executor 当前就是前台 process group 时才转交/恢复 PGID；后台 executor 不得抢占终端，终止信号仍需转发。
   验证（2026-07-10）：已在 `docs/typed_pipeline_design.md` L676 添加 `> **阶段 0 已锁定**：` 标记，明确只有 `tcgetpgrp(tty_fd) == getpgrp()` 时才允许 `tcsetpgrp` 转交前台 PGID；后台 executor 不得抢占终端，所有转交路径必须恢复保存的前台 PGID，从未转交不得恢复；并发 sink 按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，终止信号仍必须转发。同文档 L818 内部计划草图对应项也已标记为阶段 0 已锁定。复核 `git diff -- docs/typed_pipeline_design.md` 确认只新增锁定标记与必要措辞调整，无实现代码改动。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 controlling terminal 只有在 executor 当前就是前台 process group 时才转交/恢复 PGID；后台 executor 不得抢占终端，终止信号仍需转发。
+  - 验证：规格已写入 `docs/typed_pipeline_design.md`。
+  - 相关位置：
+    - L676: > **阶段 0 已锁定**：controlling terminal 的前台 PGID 只有在 executor 自身当前就是前台 process group 时才允许转交给 pipeline group，并且只在确实发生过转交时才恢复。
+    - L818: > **阶段 0 已锁定**：只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
+  - 验证命令：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md`
+  - 验证结果：命中 L676、L818，规格文本存在且与 TODO 条目一致。
