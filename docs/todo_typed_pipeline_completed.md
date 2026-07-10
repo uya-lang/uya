@@ -448,3 +448,11 @@ make uya
     - module-qualified callee 测试：`../uya/bin/uya test tests/test_typed_pipeline_module_qualified_positive.uya` 通过。
     - typed pipeline 全量回归：所有 `tests/test_typed_pipeline_*.uya` 正向测试通过；负向测试按预期报错。
     - 回归抽样：`../uya/bin/uya test tests/test_std_path_module.uya`、`tests/test_std_env.uya`、`tests/test_std_stdlib.uya`、`tests/test_async_fd.uya`、`tests/test_mem_allocator.uya` 均通过。
+
+## 阶段 3：Lowering
+
+- [x] 将 `lhs |> f(args...)` 降低为普通调用和临时变量。
+  - 归档说明：本条目此前已完成并实现；本轮为归档清理，将其从主 todo 移除。
+  - 实现位置：`src/codegen/c99/expr.uya` 中 `gen_pipeline_expr` / `gen_pipeline_synthetic_call`。
+  - 验证命令：`../uya/bin/uya test tests/test_typed_pipeline_lowering.uya`
+  - 验证结果：3/3 测试通过（`pipeline_lowering_single_transformer`、`pipeline_lowering_multi_transformer`、`pipeline_lowering_variable_lhs`）。
