@@ -412,7 +412,9 @@ inter-stage / launch / startup-report pipe 创建失败   => 普通 Uya error
 - `check()` 使用固定的 all-stage/pipefail 策略：任一 process stage 非零退出或 signal 终止都会返回 `error.ProcessFailed`。MVP 不提供按 pipeline 配置或关闭 pipefail 的入口。
 - `check()` 若出现 `spawn_failed` / `not_started` 失败链路，优先返回 `error.PipelineSpawnFailed`；若 Uya stage 返回错误，则返回 `error.PipelineStageFailed`；否则任一 process stage 非零退出或 signal 终止时返回 `error.ProcessFailed`。
 - `check_into(statuses, result)` 与 `check()` 相同，但无论成功、`error.ProcessFailed`、`error.PipelineSpawnFailed` 或 `error.PipelineStageFailed`，都必须先把全部 stage 状态写入 `statuses[0:result.stage_count]`；result 只记录长度，不保存指向该缓冲区的借用。
-- `status_into(statuses, result)` 是观察型 sink：写入完整 `PipelineResult`，但不把非零退出、signal 终止、stage 启动失败或 Uya stage 错误视为 sink 自身的 Uya error。
+
+> **阶段 0 已锁定**：`status_into(statuses, result)` 是观察型 sink：完整 `PipelineResult` 写入调用方缓冲区，process stage 的非零退出、signal 终止、`spawn_failed` / `not_started` 启动链路失败以及 Uya stage 错误均不映射为 sink 自身的 Uya error。
+
 - `capture_into(statuses, stdout_buf, stderr_buf, result)` / `capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)` 是观察型 sink：写入 `PipelineCaptureResult`，其中必须包含 `PipelineResult`，非零退出、signal 终止、stage 启动失败或 Uya stage 错误不映射为 sink 自身的 Uya error。
 
 Uya 的 `error` 值本身不携带业务 payload，因此设计不能依赖“error payload”保存 `PipelineResult`。需要失败详情时，调用方必须使用 `check_into`、`status_into`、`capture_into` 或 `capture_limit_into`。

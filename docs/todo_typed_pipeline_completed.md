@@ -499,3 +499,14 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - 验证：已审阅 `typed_pipeline_design.md` L405-L415 与 L397-L403，为 `check_into` 添加明确的“阶段 0 已锁定”标注；规格已覆盖 all-stage/pipefail、错误返回顺序与返回前必须写入完整 `PipelineResult` 的要求。
 
 ---
+
+---
+
+## 阶段 0：规格锁定
+
+父路径：阶段 0：规格锁定 > 锁定 checked/observing sink 分层
+
+- [x] `status_into(statuses, result)`：观察型，非零、signal、启动失败和 Uya stage 错误不作为 sink 自身的 Uya error
+  验证：
+  - `grep -n '阶段 0 已锁定.*status_into' docs/typed_pipeline_design.md` 命中 L416。
+  - `git diff --check` 无空白错误。
