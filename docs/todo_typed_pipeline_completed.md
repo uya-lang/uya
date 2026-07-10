@@ -717,3 +717,16 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 读取 `docs/typed_pipeline_design.md` L257-270，确认已添加"阶段 0 已锁定"引用块，明确 `cwd`、`env`、`unset_env` 是 stage-local transformer，作用于最近追加的 process stage；若当前计划尚无 process stage，或最近 stage 是 Uya stage，必须返回 `error.InvalidPipeline`。
   - 验证命令：`sed -n '257,270p' docs/typed_pipeline_design.md` 与 `grep -n "stage-local transformer" docs/typed_pipeline_design.md`
   - 验证结果：设计文档已锁定该规格，本轮仅修改规格文档，未创建生产模块或测试。
+
+---
+
+# 类型化管道 TODO
+## 阶段 0：规格锁定
+
+- [x] 锁定所有 stage 使用同一个 sink-time canonical base-env 快照；overlay 按调用顺序决议，PATH 查找与 spawn 使用同一最终 env block。
+  - 验证：文档审查 `docs/typed_pipeline_design.md` L252-L256 的阶段 0 已锁定段落。
+  - 确认内容：
+    - 所有 process stage 在 sink 开始执行时共享同一个 canonical base-env 快照，来源为 `std.env` 的当前进程环境视图；
+    - 每个 stage 在该快照上按 transformer 调用顺序应用自己的 `env` / `unset_env`，后一次覆盖前一次，最终 child env 中同一 key 最多出现一次；
+    - PATH 解析与最终 spawn 必须使用同一份已完成 overlay 的不可变 env block，避免查找时环境与 exec 时环境不一致。
+  - 无运行命令，纯规格锁定确认。

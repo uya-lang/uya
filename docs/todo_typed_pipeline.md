@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定所有 stage 使用同一个 sink-time canonical base-env 快照；overlay 按调用顺序决议，PATH 查找与 spawn 使用同一最终 env block。
+- [x] 锁定所有 stage 使用同一个 sink-time canonical base-env 快照；overlay 按调用顺序决议，PATH 查找与 spawn 使用同一最终 env block。
 - [ ] 锁定 POSIX env key 按 byte 区分、Windows env key 按 ordinal case-insensitive 合并且最终 UTF-16 block 使用同一比较规则排序；大小写变体不能重复传给 child。
 - [ ] 锁定 `env` / `unset_env` 复用 `std.env` 的 key/value 校验并在 transformer 阶段复制数据。
 - [ ] 锁定相对 `cmd_path` 按该 stage 最终 cwd 解释，而不是按 transformer 调用时的父进程 cwd 解释。
