@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定相对 `cmd_path` 按该 stage 最终 cwd 解释，而不是按 transformer 调用时的父进程 cwd 解释。
 - [ ] 锁定 Windows drive-relative path（例如 `C:foo`）对 `cmd_path`、`cwd` 和 file redirection 均为 `InvalidPipeline`；只接受明确 absolute 或普通 relative 形式。
 - [ ] 锁定 sink 开始时捕获宿主 cwd 快照；相对 stage cwd 与 stdin/stdout/stderr file path 都按该快照解释，file path 不跟随 stage-local cwd。
 - [ ] 锁定同一 stage 多次 `cwd()` 时最后一次覆盖前一次，不做相对前值的链式拼接。

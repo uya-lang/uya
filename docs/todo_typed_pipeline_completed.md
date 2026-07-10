@@ -755,3 +755,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 
 - [x] 锁定 `env` / `unset_env` 复用 `std.env` 的 key/value 校验并在 transformer 阶段复制数据。
   - 验证：读取 `lib/std/env.uya` 的 `env_key_valid`、`with`、`without` 校验规则，确认 `typed_pipeline_design.md` 已对应锁定 `error.EnvInvalidName` / `error.EnvInvalidValue` 返回路径、stage-local 作用域以及 transformer 阶段复制 key/value 到计划私有存储。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定相对 `cmd_path` 按该 stage 最终 cwd 解释，而不是按 transformer 调用时的父进程 cwd 解释。
+  验证：在 `docs/typed_pipeline_design.md` L242 添加 `> **阶段 0 已锁定**：` 标记；复核 L240-L243 明确相对路径按 stage 最终 cwd 解释、绝对路径按原样执行、实现不得在 transformer 调用时绑定父进程 cwd、且无 `cmd_path` 相对路径按 transformer 调用时 cwd 解释的描述。`docs/typed_pipeline_design.md` L728 不变量列表同步保持该语义。

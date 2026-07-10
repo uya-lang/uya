@@ -239,7 +239,7 @@ Uya 可变参数写作裸尾随 `...`，不是命名的 `args: ...`。当前 C99
 
 `cmd_argv` / `cmd` 是 PATH-searching API：它只接受平台定义的 bare command name，存储该名称，并在执行时按该 stage 的最终 child env 进行 PATH 查找；它不做 shell 展开、glob、alias 或函数查找。POSIX bare name 不得包含 `/`；Windows bare name 不得包含 `/`、`\`、drive/namespace 前缀或 `:`。若调用方要传绝对路径、相对路径或已经解析出的可执行文件，必须使用 `cmd_path_argv` / `cmd_path`。
 
-`cmd_path_argv` / `cmd_path` 是 exact-path API：路径中不做 PATH 查找。绝对路径按原样执行；相对路径按该 stage 的最终 cwd 解释，若没有显式 `cwd()` 则按调用 pipeline sink 时的宿主进程 cwd 解释。实现不得在 transformer 调用时把相对 `cmd_path` 绑定到当前父进程 cwd，因为后续 `cwd()` transformer 仍可改变该 stage 的执行目录。Windows 的 drive-relative 形式（例如 `C:tool.exe`）依赖进程级 per-drive cwd，无法由本设计的单一 cwd 快照稳定解释，因此 `cmd_path`、`cwd` 和 file-redirection path 都必须在外部副作用前以 `error.InvalidPipeline` 拒绝这种形式；`C:\tool.exe`、UNC/namespace absolute path 和不带 drive prefix 的普通相对路径仍按各自规则处理。
+> **阶段 0 已锁定**：`cmd_path_argv` / `cmd_path` 是 exact-path API：路径中不做 PATH 查找。绝对路径按原样执行；相对路径按该 stage 的最终 cwd 解释，若没有显式 `cwd()` 则按调用 pipeline sink 时的宿主进程 cwd 解释。实现不得在 transformer 调用时把相对 `cmd_path` 绑定到当前父进程 cwd，因为后续 `cwd()` transformer 仍可改变该 stage 的执行目录。Windows 的 drive-relative 形式（例如 `C:tool.exe`）依赖进程级 per-drive cwd，无法由本设计的单一 cwd 快照稳定解释，因此 `cmd_path`、`cwd` 和 file-redirection path 都必须在外部副作用前以 `error.InvalidPipeline` 拒绝这种形式；`C:\tool.exe`、UNC/namespace absolute path 和不带 drive prefix 的普通相对路径仍按各自规则处理。
 
 `cmd_argv` / `cmd_path_argv` 的 `args` 不包含 child `argv[0]`。执行器构造最终 argv 时必须显式前置一个 `argv0`：`cmd_argv` 使用 `program` 本身，`cmd_path_argv` 使用调用方传入的 `path` 本身。若后续需要伪装或自定义 `argv[0]`，应添加单独的 `cmd_argv0` / `cmd_path_argv0` API，不能改变现有 `args` 语义。
 
