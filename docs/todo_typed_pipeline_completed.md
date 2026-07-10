@@ -379,3 +379,16 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - `sed -n '316,330p' docs/typed_pipeline_design.md` 确认 `struct PipelineResult { stage_count: usize }`，无指向调用方缓冲区的 slice/pointer 字段。
 - `sed -n '333p' docs/typed_pipeline_design.md` 已追加“阶段 0 已锁定”说明，明确 `PipelineResult` 只保存 `stage_count` 摘要，不保存指向调用方 `statuses` 缓冲区的 slice、指针或其他借用。
 - `grep -n "PipelineResult" docs/typed_pipeline_design.md` 确认 L316-L318 定义、L341-L344 段落进一步解释 caller-provided buffer 方案与无借用语义。
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `stage_count(&Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，无效 capability 返回 `InvalidPipeline`
+
+验证（2026-07-10）：
+- `sed -n '197p' docs/typed_pipeline_design.md` 确认公开 API 已声明 `fn stage_count(input: &Pipeline) !usize;`
+- `sed -n '230p' docs/typed_pipeline_design.md` 确认已追加“阶段 0 已锁定”标记，明确 `stage_count(input: &Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，空计划返回 0，无效 / 过期 / 伪造 capability 返回 `error.InvalidPipeline`
+- `sed -n '232p' docs/typed_pipeline_design.md` 确认详细语义：查询不得缓存 execution-time 状态，不得改变后续 sink 结果，必须保留 `!usize` 错误通道，不能用 0 混淆“合法空计划”和“无效 capability”
+- 本轮未修改生产代码，仅完成规格锁定与文档标记。

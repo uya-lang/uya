@@ -227,6 +227,8 @@ fn capture(input: Pipeline) !OwnedPipelineCaptureResult;
 fn capture_limit(input: Pipeline, max_bytes: usize) !OwnedPipelineCaptureResult;
 ```
 
+> **阶段 0 已锁定**：`stage_count(input: &Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询；空计划返回 0，无效 / 过期 / 伪造 capability 返回 `error.InvalidPipeline`。
+
 `stage_count(input)` 是不消费、不执行计划的只读查询，返回当前计划中的完整可执行 stage 数量；空计划返回 0。使用 caller-provided `statuses` 的调用方必须在所有 transformer 完成后、sink 消费计划前通过 `try stage_count(&pipeline)` 查询该值并据此分配缓冲区。查询不得缓存 execution-time 状态，也不得改变后续 sink 结果。若内部 capability 已失效、过期或被伪造，查询返回 `error.InvalidPipeline`；因此它必须保留 `!usize` 错误通道，不能用 0 混淆“合法空计划”和“无效 capability”。这样即使 pipeline 由通用 helper 动态追加 stage，调用方也不需要猜测容量；容量不足仍属于调用方错误，但不再是无法预知且无法重试的协议。
 
 Uya 可变参数写作裸尾随 `...`，不是命名的 `args: ...`。当前 C99 codegen 中 `@params` 只稳定 materialize 固定形参；`...` 主要用于 C varargs 转发，不能当作可枚举、可类型检查、可保存生命周期的 Uya argv 列表。因此 process-only MVP 不应要求 `cmd(input, program, ...)` 直接读取 `@params`。

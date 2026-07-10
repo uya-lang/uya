@@ -14,7 +14,7 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [ ] `stage_count(&Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，无效 capability 返回 `InvalidPipeline`
+  - [x] `stage_count(&Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，无效 capability 返回 `InvalidPipeline`
   - [ ] `CaptureStreamResult.captured`
   - [ ] `CaptureStreamResult.byte_count`
   - [ ] `CaptureStreamResult.complete`，只有观察到 EOF 才为 true，normal cutoff 必须显式为 false
