@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [ ] 若开放裸变参 `cmd(input, program, ...)`，明确 `@params` 包含固定参数，必须跳过 `input` / `program` 后校验剩余 argv。
 - [ ] MVP 优先考虑 `cmd_argv` / `cmd_path_argv` 基础 API，裸变参只作为 facade。
 - [ ] 锁定公开 `Pipeline` 必须依赖真正 opaque / non-copyable 类型能力；导出普通 struct/raw pointer handle 不得作为稳定 API。
 - [ ] 若内部 bring-up 使用 capability handle，必须使用 generation 校验与私有注册表，并拒绝伪造、过期和重复消费；公开 API 仍等待 opaque 类型。

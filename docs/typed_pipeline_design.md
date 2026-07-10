@@ -235,7 +235,9 @@ fn capture_limit(input: Pipeline, max_bytes: usize) !OwnedPipelineCaptureResult;
 
 Uya 可变参数写作裸尾随 `...`，不是命名的 `args: ...`。当前 C99 codegen 中 `@params` 只稳定 materialize 固定形参；`...` 主要用于 C varargs 转发，不能当作可枚举、可类型检查、可保存生命周期的 Uya argv 列表。因此 process-only MVP 不应要求 `cmd(input, program, ...)` 直接读取 `@params`。
 
-第一版必须先实现 `cmd_argv` / `cmd_path_argv` 这类 slice 形式的基础 API。裸变参 `cmd` / `cmd_path` 只有在编译器补齐 typed varargs materialization 后才能开放为公共 facade；届时实现必须显式跳过 `input` 和 `program` 后再校验剩余 argv 项均为 `&const byte`，不能把整个 `@params` 当作 argv 列表。
+第一版必须先实现 `cmd_argv` / `cmd_path_argv` 这类 slice 形式的基础 API。裸变参 `cmd` / `cmd_path` 只有在编译器补齐 typed varargs materialization 后才能开放为公共 facade。
+
+> **阶段 0 已锁定**：若开放裸变参 `cmd(input, program, ...)` / `cmd_path(input, path, ...)`，`@params` 数组包含全部固定形参，即索引 0 为 `input`、索引 1 为 `program` / `path`；实现 materialization 时必须显式跳过这两个固定位置，从索引 2 开始枚举剩余实参，并逐项校验类型为 `&const byte`。不能把整个 `@params` 当作 argv 列表，也不能假设 `@params[0]` 或 `@params[1]` 是可变参的一部分。process-only MVP 不要求该能力，实现应优先暴露 `cmd_argv` / `cmd_path_argv`；`cmd` / `cmd_path` 仅作为后续 typed varargs 完备后的 facade。
 
 > **阶段 0 已锁定**：`cmd_argv` / `cmd` 是 PATH-searching API：它只接受平台定义的 bare command name，存储该名称，并在执行时按该 stage 的最终 child env 进行 PATH 查找；它不做 shell 展开、glob、alias 或函数查找。POSIX bare name 不得包含 `/`；Windows bare name 不得包含 `/`、`\`、drive/namespace 前缀或 `:`。若调用方要传绝对路径、相对路径或已经解析出的可执行文件，必须使用 `cmd_path_argv` / `cmd_path`。
 

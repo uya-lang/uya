@@ -933,3 +933,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `sed -n '20,50p' docs/typed_pipeline_design.md` 确认 MVP 示例使用 `cmd_argv` / `cmd_path_argv` slice 形式。
     - `sed -n '236,238p' docs/typed_pipeline_design.md` 确认裸变参 `...` 不能直接读取 `@params`，第一版必须先实现 slice 形式 API。
     - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md docs/todo_typed_pipeline_completed.md` 通过，无空白错误。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 若开放裸变参 `cmd(input, program, ...)`，明确 `@params` 包含固定参数，必须跳过 `input` / `program` 后校验剩余 argv。
+  验证（2026-07-10）：在 `docs/typed_pipeline_design.md` L240 新增“阶段 0 已锁定”规格块，明确 `@params` 包含 `input`（索引 0）和 `program` / `path`（索引 1）两个固定参数；materialization 时必须从索引 2 开始枚举剩余实参并逐项校验类型为 `&const byte`，不得把整个 `@params` 当作 argv 列表，也不能假设 `@params[0]` / `@params[1]` 是可变参的一部分。复核文档 L236-L240 语义一致；当前阶段无 `.uya` 实现，规格层面已锁定。
