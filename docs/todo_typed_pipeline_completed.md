@@ -1001,3 +1001,15 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   验证（2026-07-10）：
   - `sed -n '122,135p' docs/typed_pipeline_design.md` 确认 `_` 延期决定与 `pipeline()` 显式构造已写入设计文档。
   - `grep -n 'parser MVP 保持空 pipeline 构造显式；暂不特殊处理' docs/todo_typed_pipeline.md` 确认 parser MVP 仍保持“暂不特殊处理 `_`”。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 明确 process-only MVP 不包含自定义 Uya stage；Uya stage 需等待 owned-data 与满足取消/终止门槛的 execution domain 方案。
+  验证（2026-07-10）：
+  - `sed -n '18,29p' docs/typed_pipeline_design.md` 确认已追加“阶段 0 已锁定”块，明确 process-only MVP 只包含外部进程 stage，不实现/暴露/测试自定义 Uya 流 stage，并列出 `PipelineStage` / `StreamReader` / `StreamWriter` / `stage<T>()` 等名称锁定为未来扩展但不属于 MVP。
+  - `sed -n '20,24p' docs/typed_pipeline_design.md` 确认 Uya stage 开放的两个前置条件：owned-data 规则确定；execution domain 满足强制取消/终止门槛（内存安全强制 task 终止或隔离 worker process）。
+  - `sed -n '238p' docs/std_script_design.md` 确认 `std.process` 语义要求已同步加入同义说明。
+  - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md docs/std_script_design.md` 通过，无空白/格式错误。
+  - 本轮未创建生产模块、API 骨架或代码测试，仅完成规格锁定与文档同步。

@@ -17,6 +17,13 @@
 - sink 函数消费 `Pipeline`、执行它，并返回非 `Pipeline` 结果。
 - 未来自定义 Uya 流处理通过接口表示，而不是通过 shell 片段表示。
 
+> **阶段 0 已锁定**：process-only MVP 的精确范围只包含外部进程 stage；MVP 不实现、不暴露、不测试自定义 Uya 流 stage。`PipelineStage` 接口、`StreamReader` / `StreamWriter` 和 `stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline` 等 API 被锁定为未来扩展名称，但不属于 process-only MVP 的公开 API。自定义 Uya stage 只有在以下两个前置条件都满足后才能进入公共 API：
+>
+> 1. **owned-data 规则确定**：`stage: T` 按值保存于延迟执行计划中，必须明确 `T` 内部切片、指针、接口字段的拥有/深拷贝规则，或拒绝含借用字段的类型；不能遗留悬垂引用或隐式浅拷贝。
+> 2. **execution domain 满足强制取消/终止门槛**：必须提供内存安全的强制 task 终止，或把 Uya stage 放入可由宿主强制终止的隔离 worker process；单纯设置 cancellation flag 后 join 的协作式取消不足以继承 process-only pipeline 的有限取消承诺。
+>
+> 在以上条件满足前，任何 fork-backed Uya stage 只能作为明确标记的实验/测试模式，不能作为默认生产实现。
+
 MVP 示例使用 slice 形式的 `cmd_argv` / `cmd_path_argv`，避免依赖尚未完成的 typed varargs 反射能力：
 
 ```uya
