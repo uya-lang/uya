@@ -14,7 +14,7 @@
 ## 阶段 0：规格锁定
 
 - [ ] 确定最终名称：
-  - [ ] `capture_into` / `capture_limit_into`
+  - [x] `capture_into` / `capture_limit_into`
   - [ ] `status_into`
 - [ ] 决定 `filter` 是公共别名，还是仅作为文档术语。
 - [ ] 决定精确错误名：

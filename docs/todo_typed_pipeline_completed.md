@@ -78,3 +78,12 @@
   - [x] `stdout_file`：锁定为最终公共名 `fn stdout_file(input: Pipeline, path: &const byte) !Pipeline;`；验证命令 `grep -n "stdout_file" docs/typed_pipeline_design.md` 命中 9 处，包括 API 列表 L213、示例 L30/L48/L501、语义说明 L266/L268、冲突策略 L423/L424/L426。
 
 ---
+
+## 阶段 0：规格锁定
+
+- [ ] 确定最终名称：
+  - [x] `capture_into` / `capture_limit_into`
+    验证（2026-07-10）：
+    - `sed -n '193,222p' docs/typed_pipeline_design.md` 确认 API 列表标题写明“名称已锁定为最终公共名”，并声明 `fn capture_into(input: Pipeline, statuses: &[PipelineStageStatus], stdout_buf: &[byte], stderr_buf: &[byte], result: &PipelineCaptureResult) !void;` 和 `fn capture_limit_into(input: Pipeline, max_bytes: usize, statuses: &[PipelineStageStatus], stdout_buf: &[byte], stderr_buf: &[byte], result: &PipelineCaptureResult) !void;`
+    - `grep -cE 'capture_into|capture_limit_into' docs/typed_pipeline_design.md` 返回 15 处引用
+    - `grep -nE '\b(capture_output|output_of|read_into|collect_into|get_output|exec_capture|run_capture|spawn_capture|capture_stdout|capture_stderr|capture_all)\b' docs/typed_pipeline_design.md docs/std_script_design.md docs/todo_typed_pipeline.md` 未发现竞争候选名
