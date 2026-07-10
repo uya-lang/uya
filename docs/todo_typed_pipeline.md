@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 runtime broker 用订阅/引用计数协调并发 sink；进程定向信号通知全部活跃 sink，最后一个订阅者只能在仍拥有 disposition 时恢复原 handler，等待 terminal lease 前必须先完成订阅。
+- [x] 锁定 runtime broker 用订阅/引用计数协调并发 sink；进程定向信号通知全部活跃 sink，最后一个订阅者只能在仍拥有 disposition 时恢复原 handler，等待 terminal lease 前必须先完成订阅。
 - [ ] 锁定 fork child 在 READY 前移除 sink 临时 signal mask/disposition 与 broker fd；launch token 写入必须以 per-thread mask 处理 `SIGPIPE`，不能永久改变进程级 disposition。
 - [ ] 锁定同步 sink 观察 stopped direct child；当前无 job-control 模式将 stop 收敛为终端恢复、整组强制取消、reap 和 `error.Interrupted`。
 - [ ] 锁定按 terminal identity 串行化的 interruptible foreground lease；所有返回路径都先恢复终端再释放 lease，避免并发 sink 的 `tcsetpgrp` 竞态。

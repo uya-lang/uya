@@ -1094,3 +1094,14 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
 
 - [x] 锁定信号/console cancellation 由 runtime broker 唤醒正常 executor 路径，去重转发、有限取消、清理后返回 `error.Interrupted`；异步 handler/callback 不执行复杂清理。
   验证（2026-07-10）：在 `docs/typed_pipeline_design.md` L497-L507 与 L834 追加“阶段 0 已锁定”标记；复核 `error.Interrupted` 返回路径、broker 唤醒正常 poll/wait 路径、去重转发与 bounded grace period 后强制终止、异步 handler 不执行复杂清理均已写入设计。当前阶段未产生 `.uya` 实现，规格层面已锁定。`git diff --check` 无错误。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 runtime broker 用订阅/引用计数协调并发 sink；进程定向信号通知全部活跃 sink，最后一个订阅者只能在仍拥有 disposition 时恢复原 handler，等待 terminal lease 前必须先完成订阅。
+  验证（2026-07-10）：
+  - `sed -n '497,501p' docs/typed_pipeline_design.md` 确认 broker 集中拥有 handler、通过引用计数/订阅表管理并发 sink、保存并恢复 disposition、进程定向信号通知全部活跃 sink、最后一个订阅者仅在自己仍拥有 disposition 时恢复 handler 的规格已写入并标记为"阶段 0 已锁定"
+  - `sed -n '648,649p' docs/typed_pipeline_design.md` 确认 sink 执行顺序：先 subscribe broker，再 acquire terminal lease
+  - `sed -n '833p' docs/typed_pipeline_design.md` 确认"等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state"已标记为"阶段 0 已锁定"
+  - `git diff --check` 通过，无空白错误

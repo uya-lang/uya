@@ -498,7 +498,7 @@ Uya 的 `error` 值本身不携带业务 payload，因此设计不能依赖“er
 
 同步 sink 执行期间若 executor 自身收到未被既有 disposition 忽略的 `SIGINT`、`SIGQUIT`、`SIGTERM`、`SIGHUP` 或 Windows console cancellation，所有 sink 都必须进入 interruption cancellation 路径：唤醒等待循环，转发/终止 stage，关闭 pipe，reap 直接 stage，恢复终端与临时 signal 状态，然后返回 `error.Interrupted`。这是公共 API 的稳定结果，不把 executor interruption 伪装成 `error.ProcessFailed`，也不在清理后重新触发默认信号处理。接收 result 指针的 sink 按普通错误规则返回空摘要；需要中断时的部分输出或状态必须等待后续显式 partial-result API。
 
-POSIX 实现不得在异步 signal handler 中分配、加锁、等待或操作 pipeline state；handler 只能设置原子标志或写入 runtime broker 的 self-pipe，由正常 poll/wait 路径执行清理。signal disposition 是进程级状态，不能由每个 sink 各自安装、保存和恢复：runtime broker 必须集中拥有 handler，通过引用计数/订阅表管理同时执行的 sink，并保存 broker 接管前的进程级 disposition；每个 sink 只保存和恢复自己调用线程的 mask。broker 收到进程定向的终止信号时必须通知所有活跃同步 pipeline sink，使它们各自进入 `Interrupted` 路径；注册/注销与 handler dispatch 必须避免 use-after-free。最后一个订阅者离开时，broker 只有在当前 disposition 仍由自己拥有时才能恢复原 handler，不能覆盖其他组件并发安装的新 disposition。既有 `SIG_IGN` 必须继续被忽略，已有自定义 handler 的 chaining/所有权由 broker 统一处理。
+> **阶段 0 已锁定**：POSIX 实现不得在异步 signal handler 中分配、加锁、等待或操作 pipeline state；handler 只能设置原子标志或写入 runtime broker 的 self-pipe，由正常 poll/wait 路径执行清理。signal disposition 是进程级状态，不能由每个 sink 各自安装、保存和恢复：runtime broker 必须集中拥有 handler，通过引用计数/订阅表管理同时执行的 sink，并保存 broker 接管前的进程级 disposition；每个 sink 只保存和恢复自己调用线程的 mask。broker 收到进程定向的终止信号时必须通知所有活跃同步 pipeline sink，使它们各自进入 `Interrupted` 路径；注册/注销与 handler dispatch 必须避免 use-after-free。最后一个订阅者离开时，broker 只有在当前 disposition 仍由自己拥有时才能恢复原 handler，不能覆盖其他组件并发安装的新 disposition。既有 `SIG_IGN` 必须继续被忽略，已有自定义 handler 的 chaining/所有权由 broker 统一处理。
 
 转发时先向每个 pipeline process group 发送一次原始信号，再只对 `getpgid(pid) != pipeline_pgid` 或无法证明仍在 group 的直接 PID 单独补发，不能让仍在 group 的 stage 收到重复信号。允许提供固定时长的 bounded grace period；期限到达后必须进入 process group + 直接 PID 的强制终止路径，不能因 stage 忽略终止信号而无限等待。Windows 对应路径通过同样的订阅式 runtime console-control broker 唤醒所有活跃 executor，并对每次执行分别完成有限取消。
 
@@ -830,7 +830,7 @@ struct ErasedPipelineStage {
 - POSIX child 必须在 READY 前移除 sink 临时 signal mask/disposition，并恢复 fork 前保存的调用线程 mask。
 > **阶段 0 已锁定**：所有内部 control/data/file source fd 必须避开 0/1/2，或使用等价的循环安全 stdio remap；不能假设宿主标准 fd 已打开。详见上文 POSIX 后端 fd 搬移与 remap 规则。
 - POSIX launch token 写入必须屏蔽本次写入产生的 `SIGPIPE` 并把 `EPIPE`/短写作为可清理的启动失败，不能让 executor 被默认 signal action 直接终止。
-- runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
+> **阶段 0 已锁定**：runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
 > **阶段 0 已锁定**：只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
 - wait loop 必须观察 stopped direct child；当前无公共 job-control 的模式将任何 stopped 状态收敛为有限取消和 `error.Interrupted`，不能遗留前台终端或永久等待。
 > **阶段 0 已锁定**：executor 自身收到未忽略的终止/取消信号时必须去重转发、有限取消并返回 `error.Interrupted`；异步 handler/callback 不能执行复杂清理。
