@@ -588,3 +588,11 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - `sed -n '473p' docs/typed_pipeline_design.md` 确认显式 `stdout_capture()` / `stderr_capture()` 将对应终端流策略设为 capture，这类 capture policy 只能与 `capture_into()` / `capture_limit_into()` 组合；在已设置 capture policy 的 pipeline 上使用 `check()` / `check_into()` / `status_into()` 必须报 `error.InvalidPipeline`。
 - `git diff --check` 无空白错误。
 - 本轮未修改生产代码或测试，仅完成规格锁定与文档标记。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `CaptureLimitExceeded`：超限后 POSIX 同时终止 process group 与全部直接 PID，Windows 终止 Job Object；取消路径关闭 capture 读端、不得无限 drain 或等待逃离后代持有的 pipe EOF，完成直接 stage 的 reap 后重置输出 result 为空摘要并返回普通 Uya error。
+  - 验证：
+    - `grep -n "阶段 0 已锁定.*CaptureLimitExceeded" docs/typed_pipeline_design.md` 命中行 436-438
+    - 确认新增段落覆盖：POSIX 先 `SIGKILL` process group 再对每个尚未 reap 的直接 PID 补发 `SIGKILL`；Windows 使用 `TerminateJobObject` 并对尚未入 Job 的直接进程单独 `TerminateProcess` 并等待；取消路径关闭 capture 读端、不得无限 drain、不得等待逃离后代 EOF；完成直接 stage reap 后重置输出 result 为空摘要并返回 `error.CaptureLimitExceeded`
+  - 相关改动：`docs/typed_pipeline_design.md` 在行 436-438 追加两条“阶段 0 已锁定”声明

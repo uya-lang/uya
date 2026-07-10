@@ -433,6 +433,10 @@ parent 向 per-child launch pipe 写 `RUN` / `ABORT` 时必须使用不受默认
 
 event loop 必须在开始取消前锁存一个 terminal cause，后续 cleanup 事件不得覆盖它。在同一次 poll/wait batch 中，已经 pending 的 executor/console interruption 或 stopped-child event 优先于 capture overflow 和 stage failure，返回 `error.Interrupted`；否则先观察到的 capture overflow、普通基础设施错误或可表示的 stage failure成为本次执行的稳定原因。取消期间随后到达的 signal 只用于加速清理，不把已经锁存的 `CaptureLimitExceeded` / 普通错误改写成 `Interrupted`。这样同一组底层事件不会因遍历 fd/PID 的顺序不同而返回不同错误。
 
+> **阶段 0 已锁定**：`CaptureLimitExceeded` 路径是普通 Uya error 返回，不通过 `PipelineCaptureResult` 携带部分输出。任一 captured stream 超过有效上限后，executor 进入强制取消路径：停止向调用方缓冲区写入新数据，可在固定字节数/轮次内做一次非阻塞 best-effort drain，但不得把“读到 EOF”作为继续回收的前置条件；随后关闭父进程持有的 capture 读端和其他 pipe 端，终止并 reap 所有直接 stage，最后把输出 result 重置为空摘要并返回 `error.CaptureLimitExceeded`。取消路径不得无限 drain，也不得因逃离后代仍持有 pipe 写端而等待 EOF。
+>
+> **阶段 0 已锁定**：POSIX 后端在 `CaptureLimitExceeded` 取消路径中必须先向本次 process group 发送 `SIGKILL`，再向每一个尚未 reap 的直接 process-stage PID 单独发送 `SIGKILL`；后一步覆盖直接 stage 在 exec 后主动调用 `setsid` / `setpgid` 逃离原 group 的情况。主动脱离且不再属于直接 stage 的后代不在回收保证范围内。Windows 后端必须使用 Job Object，并在超限时通过 `TerminateJobObject` 或等价机制终止整组进程；对尚未加入 Job 的直接进程需先单独 `TerminateProcess` 并等待其终止。有限完成保证以宿主内核能够调度并回收已收到强制终止请求的直接进程为前提。
+
 `capture_into()` 以调用方缓冲区容量为限制，`capture_limit_into(max_bytes, ...)` 以 `min(max_bytes, buffer.len)` 为限制；两者都按被捕获的每个流单独计算，并使用上一节的一字节 probe 区分“恰好达到限制后 EOF”和“至少多出一个字节”。任一 captured stream 超过有效限制时，executor 必须进入强制取消路径：停止把新数据写入调用方缓冲区；可在固定字节数/固定轮次内做一次非阻塞 best-effort drain，但不得把“读到 EOF”作为继续回收的前置条件；随后关闭父进程持有的 capture 读端和其他 pipe 端，终止所有直接 stage，reap/等待这些直接 stage，并把输出 result 重置为空摘要后返回 `error.CaptureLimitExceeded`。仅“关闭 pipe 后等待自然退出”或无限 drain 都不满足本设计。
 
 POSIX 后端必须先对本次 process group 发送 `SIGKILL`，再对每一个尚未 reap 的直接 process-stage PID 单独发送 `SIGKILL`；后一步覆盖直接 stage 在 exec 后主动调用 `setsid` / `setpgid` 逃离原 group 的情况。后代默认继承该 group，但主动脱离且不再属于直接 stage 的后代不在回收保证范围内；executor 不等待这些后代，也不能因其仍持有 pipe 写端而等待 EOF。Windows 后端必须使用 Job Object，并在超限时通过 `TerminateJobObject` 或等价机制终止整组进程。有限完成保证以宿主内核能够调度并回收已经收到强制终止请求的直接进程为前提。
