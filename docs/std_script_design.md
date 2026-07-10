@@ -234,6 +234,7 @@ Uya script / tests/*.uya / tools/*.uya
 - 支持输出捕获
 - 支持等待与退出码解析
 - 支持 pipeline，但 pipeline 是“进程图”或 helper，不是 shell 文法
+- process-only MVP 优先暴露 `cmd_argv` / `cmd_path_argv` 这类 slice 形式的基础 API；裸变参 `cmd` / `cmd_path` 仅在编译器支持 typed varargs materialization 后作为 facade 开放
 
 `Pipeline`、`|>`、checked/observing sink、capture 限制、stage 状态与跨平台取消域的详细语义由 [`typed_pipeline_design.md`](typed_pipeline_design.md) 统一定义；`std.process` / `std.script` 不得再建立不兼容的平行 pipeline API。
 

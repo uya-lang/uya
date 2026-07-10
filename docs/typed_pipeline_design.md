@@ -190,7 +190,7 @@ Sink：
 fn(Pipeline, ...) !T where T != Pipeline
 ```
 
-推荐的基础 API（名称已锁定为最终公共名）：
+推荐的基础 API（名称已锁定为最终公共名）。**阶段 0 已锁定**：process-only MVP 必须先实现 `cmd_argv` / `cmd_path_argv` 这类 slice 形式的基础 API；裸变参 `cmd` / `cmd_path` 不是 MVP 的公开入口，仅在编译器补齐 typed varargs materialization 后作为 facade 开放。
 
 ```uya
 fn pipeline() Pipeline;
