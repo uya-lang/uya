@@ -555,3 +555,17 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 锁定 capture sink 语义：
   - [x] stderr 只有显式 `stderr_capture()` 或 `stderr_to_stdout()` 后才进入返回值
   验证：已在主 todo 中标记为完成，本轮归档清理移入。原始完成状态无需额外验证命令。
+
+---
+
+## 阶段 0：规格锁定
+
+- [~] 锁定 capture sink 语义：
+  - [x] 显式 stdout file/inherit 后调用 `capture_into()` / `capture_limit_into()` 报 `InvalidPipeline`
+
+验证（2026-07-10）：
+- `sed -n '274p' docs/typed_pipeline_design.md` 确认阶段 0 已锁定：`capture_into()` / `capture_limit_into()` 隐式要求 terminal stdout 为 capture；若调用方已显式配置 terminal stdout 为 file 或 inherit，再调用 capture sink 必须返回 `error.InvalidPipeline`。
+- `sed -n '458,467p' docs/typed_pipeline_design.md` 确认冲突策略表新增 `inherit_stdio + capture sink => error.InvalidPipeline`，与已有的 `stdout_file + capture sink => error.InvalidPipeline` 并列。
+- `sed -n '470p' docs/typed_pipeline_design.md` 确认 `capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，且显式 `stdout_capture()` / `stderr_capture()` 要求最终 sink 必须是 capture sink。
+- `git diff --check` 无空白错误。
+- 本轮未修改生产代码或测试，仅完成规格锁定与文档标记。

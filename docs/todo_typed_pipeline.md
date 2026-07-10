@@ -13,8 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 capture sink 语义：
-  - [ ] 显式 stdout file/inherit 后调用 `capture_into()` / `capture_limit_into()` 报 `InvalidPipeline`
+- [~] 锁定 capture sink 语义：
   - [ ] capture policy 与 `check` / `check_into` / `status_into` 组合报 `InvalidPipeline`
 - [ ] 锁定 `CaptureLimitExceeded`：超限后 POSIX 同时终止 process group 与全部直接 PID，Windows 终止 Job Object；取消路径关闭 capture 读端、不得无限 drain 或等待逃离后代持有的 pipe EOF，完成直接 stage 的 reap 后重置输出 result 为空摘要并返回普通 Uya error。
 - [ ] 锁定空 result 摘要的字段值：`PipelineResult.stage_count=0`；`PipelineCaptureResult` 还需把 stdout/stderr 置为 `captured=false`、`byte_count=0`、`complete=false`。

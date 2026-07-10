@@ -463,6 +463,7 @@ stdout_capture + stdout_file      => error.InvalidPipeline
 stdout_file + inherit_stdio       => error.InvalidPipeline
 stderr_file + inherit_stdio       => error.InvalidPipeline
 stdout_file + capture sink        => error.InvalidPipeline
+inherit_stdio + capture sink      => error.InvalidPipeline
 ```
 
 `capture_into(statuses, stdout_buf, stderr_buf, result)` 使用调用方提供的 capture 缓冲区容量作为有效上限；`capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)` 在缓冲区容量之外额外施加 `max_bytes` 上限。第一版不提供隐藏默认 capture limit 常量。大输出应要求更大的调用方缓冲区、显式 limit 或文件 sink。
