@@ -169,3 +169,16 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
     - `grep -cE 'error\.CaptureLimitExceeded|CaptureLimitExceeded' docs/typed_pipeline_design.md` 返回 6 处匹配行；语义一致，无竞争候选名。
     - 决策：采用 `error.CaptureLimitExceeded` 作为 capture sink 输出超过有效上限时的稳定 Uya error 名。
 
+
+## 2026-07-10 完成归档
+
+### 阶段 0：规格锁定
+
+- [x] 决定精确错误名：
+  - [x] `Interrupted`
+    - **验证**：`docs/typed_pipeline_design.md` 已将 `error.Interrupted` 作为稳定错误名使用：
+      - L360：executor 收到未被忽略的终止/取消信号 => `error.Interrupted`
+      - L361：直接 stage 进入 stopped 状态 => `error.Interrupted`
+      - L385/L545/L547/L549/L609/L687：取消/中断路径统一返回 `error.Interrupted`
+    - `docs/std_refactor_design.md` L183 已声明 `error Interrupted;`，名称一致。
+    - **结论**：`Interrupted` 锁定为 pipeline executor 在自身收到未忽略取消信号、等待 terminal lease 被中断、以及 stopped child 强制收敛时的精确 Uya error 名。
