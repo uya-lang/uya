@@ -650,3 +650,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - L481: `capture_into(...)` 使用调用方提供的 capture 缓冲区容量作为有效上限；`capture_limit_into(max_bytes, ...)` 在缓冲区容量之外额外施加 `max_bytes` 上限；第一版不提供隐藏默认 capture limit 常量。
   - 验证命令：`grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md | head -n 20`
   - 验证结果：成功匹配到 L221、L230、L272、L274、L337、L358、L364、L366、L407、L422、L442、L481 等锁定段落，规格一致且无隐藏默认上限。
+# 类型化管道 TODO — 完成归档
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `capture_into()` 使用调用方缓冲区容量作为上限，`capture_limit_into()` 在缓冲区容量之外额外施加 `max_bytes`，不引入隐藏默认上限常量。
+  - 验证：规格条目经 review 后写入 `typed_pipeline_design.md`；本轮仅做规格锁定，未引入生产代码或测试。
+
