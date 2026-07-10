@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 决定 `filter` 是公共别名，还是仅作为文档术语。
 - [ ] 决定精确错误名：
   - [ ] `InvalidPipeline`
   - [ ] `ProcessFailed`

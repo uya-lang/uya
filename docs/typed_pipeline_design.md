@@ -502,7 +502,7 @@ try (pipeline()
     |> check());
 ```
 
-`filter` 可以作为 `stage` 的别名提供，但通用概念是 pipeline stage，而不只是 filter。
+`filter` 不作为公共 API 别名。它仅在本文档中作为概念性术语使用，指代“执行过滤的 pipeline stage”；自定义 Uya pipeline stage 的唯一公共 transformer 名称是 `stage`。
 
 ## 运行时执行模型
 
@@ -738,5 +738,5 @@ Lowering：
 ## 未决问题
 
 - Uya stage 的 owned-data 约束应通过接口、编译器能力还是运行时校验表达。
-- `stage` 已锁定为最终名称；`filter` 是否应保留为 `stage` 的公共别名（由 TODO L21 单独决定）。
+- `stage` 已锁定为最终名称；`filter` 仅作为文档术语，不暴露为公共别名。
 - 其中多少内容应属于 `std.process`，多少内容应属于 `std.script` facade。

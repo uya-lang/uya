@@ -108,3 +108,13 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
     - `sed -n '193,222p' docs/typed_pipeline_design.md` 确认 API 列表在“名称已锁定为最终公共名”标题下列出 `fn status_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void;`
     - `grep -cE 'status_into' docs/typed_pipeline_design.md` 返回 9 处引用
     - `grep -nE '\b(status_of|exit_status_into|result_into|statuses_into|get_status|pipe_status|wait_status|run_status|exec_status|process_status|pipeline_status|exit_into|wait_into|observe_status)\b' docs/typed_pipeline_design.md docs/std_script_design.md docs/todo_typed_pipeline.md` 未发现竞争候选名
+
+## 阶段 0：规格锁定
+
+- [x] 决定 `filter` 是公共别名，还是仅作为文档术语。
+  决策：`filter` 不作为公共 API 别名，仅作为文档/概念术语使用；自定义 Uya pipeline stage 的唯一公共 transformer 名称保持为 `stage`。
+  验证（2026-07-10）：
+  - `sed -n '449p' docs/typed_pipeline_design.md` 确认“名称锁定：自定义 Uya pipeline stage 的 transformer 最终名称为 `stage`”。
+  - `sed -n '505p' docs/typed_pipeline_design.md` 确认“`filter` 不作为公共 API 别名……”。
+  - `sed -n '741p' docs/typed_pipeline_design.md` 确认未决问题中写明“`filter` 仅作为文档术语，不暴露为公共别名”。
+  - `grep -nE '\bfn\s+filter\b|\bfilter\s*\(' docs/typed_pipeline_design.md docs/std_script_design.md docs/todo_typed_pipeline.md` 未发现公共 `filter` API 声明。
