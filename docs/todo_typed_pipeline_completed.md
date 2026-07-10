@@ -618,3 +618,13 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 
 - [x] 锁定 caller-provided `statuses` / stdout / stderr / result writable region 必须两两不重叠；重叠在任何文件打开或 stage 启动前返回 `InvalidPipeline`。
   验证：已在 `docs/typed_pipeline_design.md` 中锁定该规格。L362 明确 `statuses`、启用 capture 的 `stdout_buf` / `stderr_buf`、以及 `result` 指向的固定大小对象必须两两不重叠，零长度 region 不参与重叠判断；L360 与 L727 要求缓冲区容量、重叠预检和所有流策略验证必须在打开文件或启动 stage 前完成，发现重叠时返回 `error.InvalidPipeline`、消费计划并保持空 result，不得产生外部副作用。未改动 `.uya` 生产代码；本条目为纯规格锁定。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 caller-provided `statuses` / stdout / stderr / result writable region 必须两两不重叠；重叠在任何文件打开或 stage 启动前返回 `InvalidPipeline`。
+
+验证记录：
+- 核对设计文档 `docs/typed_pipeline_design.md` L362，caller-provided writable region（`statuses`、`stdout_buf`、`stderr_buf`、`result`）两两不重叠规则已写入，明确重叠时返回 `error.InvalidPipeline`，且不得打开文件或启动 stage。
+- 本轮为归档清理，任务已在主 todo 中标记完成。
