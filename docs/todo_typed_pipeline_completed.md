@@ -182,3 +182,12 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
       - L385/L545/L547/L549/L609/L687：取消/中断路径统一返回 `error.Interrupted`
     - `docs/std_refactor_design.md` L183 已声明 `error Interrupted;`，名称一致。
     - **结论**：`Interrupted` 锁定为 pipeline executor 在自身收到未忽略取消信号、等待 terminal lease 被中断、以及 stopped child 强制收敛时的精确 Uya error 名。
+
+## 阶段 0：规格锁定
+
+- [ ] 决定精确错误名：
+  - [x] `Interrupted`
+
+验证：
+- 命令：`grep -n "error.Interrupted" docs/typed_pipeline_design.md`
+- 结果：设计文档中稳定使用 `error.Interrupted` 表示 executor/同步 sink 收到未忽略终止信号、直接 stage stopped、前台终端 lease 中断等场景（如 L360-L361、L385、L395、L549、L609 等）。命名已锁定。

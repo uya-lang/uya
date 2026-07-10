@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 决定精确错误名：
-  - [x] `Interrupted`
   - [ ] `PipelineSpawnFailed`
   - [ ] `PipelineStageFailed`
 - [ ] 定义 checked sink 在非零退出时是否默认返回 `error.ProcessFailed`。
