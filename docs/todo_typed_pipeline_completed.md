@@ -670,3 +670,14 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 验证：读取 `docs/typed_pipeline_design.md` 错误分类表与必要不变量，确认已写入“空 pipeline 传给任何 sink 必须返回 `error.InvalidPipeline`”并覆盖 `check()` / `check_into()` / `status_into()` / `capture_into()` / `capture_limit_into()` 及所有未来 sink。
   - 验证命令：`grep -n "空 pipeline 传给 sink" docs/typed_pipeline_design.md` 与 `grep -n "error.InvalidPipeline" docs/typed_pipeline_design.md`
   - 结果：L384、L728 均已包含该规格；L380 已添加“阶段 0 已锁定”标记。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定空 pipeline 传给任何 sink 返回 `error.InvalidPipeline`。
+  验证（2026-07-10）：
+  - `sed -n '380p' docs/typed_pipeline_design.md` 确认 > **阶段 0 已锁定**：空 pipeline 传给任何 sink 必须返回 `error.InvalidPipeline`。此规则覆盖 `check()` / `check_into()` / `status_into()` / `capture_into()` / `capture_limit_into()` 及所有未来新增 sink；执行器不得在没有任何可执行 stage 时启动子进程、打开文件或产生其他外部副作用。
+  - `sed -n '386p' docs/typed_pipeline_design.md` 确认错误分类表：`空 pipeline 传给 sink => error.InvalidPipeline`。
+  - `sed -n '730p' docs/typed_pipeline_design.md` 确认必要不变量：`sink 要求至少有一个可执行 stage；空 pipeline 传给任何 sink 必须返回 error.InvalidPipeline`。
+  - 规格不涉及 `.uya` 实现代码，无需编译器/运行期验证；归档时主 todo 中对应条目为 `[x]`。
