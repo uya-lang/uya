@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定错误分类：API 误用返回 `InvalidPipeline`；stage 启动链路失败和 Uya stage 错误进入 `PipelineResult`；文件重定向、pipe、内存、编码转换等执行器资源失败返回普通 Uya error；executor 自身收到未忽略的取消信号返回 `Interrupted`。
+- [x] 锁定错误分类：API 误用返回 `InvalidPipeline`；stage 启动链路失败和 Uya stage 错误进入 `PipelineResult`；文件重定向、pipe、内存、编码转换等执行器资源失败返回普通 Uya error；executor 自身收到未忽略的取消信号返回 `Interrupted`。
 - [ ] 决定 `cmd` 使用 Uya 裸变参 `...` 加 `@params` 校验，还是使用基于 slice 的 `cmd_argv` API。
 - [ ] 若开放裸变参 `cmd(input, program, ...)`，明确 `@params` 包含固定参数，必须跳过 `input` / `program` 后校验剩余 argv。
 - [ ] MVP 优先考虑 `cmd_argv` / `cmd_path_argv` 基础 API，裸变参只作为 facade。

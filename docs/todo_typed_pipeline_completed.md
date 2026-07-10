@@ -901,3 +901,9 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - `grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 10` 命中 L268、L276、L287 等锁定段落。
   - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md docs/todo_typed_pipeline_completed.md` 通过，无空白/格式错误。
   - 本轮为归档清理，已将主 todo 中残留的 `[x]` 条目移除并移入完成归档；未修改生产代码或测试。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定错误分类：API 误用返回 `InvalidPipeline`；stage 启动链路失败和 Uya stage 错误进入 `PipelineResult`；文件重定向、pipe、内存、编码转换等执行器资源失败返回普通 Uya error；executor 自身收到未忽略的取消信号返回 `Interrupted`。
+  - 交付物：`docs/typed_pipeline_design.md` 新增「错误分类（阶段 0 已锁定）」章节，明确四类错误边界与对应示例表。
+  - 验证：`git diff --check docs/typed_pipeline_design.md docs/todo_typed_pipeline.md docs/todo_typed_pipeline_completed.md` 通过，无尾随空格或冲突标记。

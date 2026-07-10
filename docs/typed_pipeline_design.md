@@ -411,7 +411,14 @@ struct PipelineCaptureResult {
 
 > **阶段 0 已锁定**：空 pipeline 传给任何 sink 必须返回 `error.InvalidPipeline`。此规则覆盖 `check()` / `check_into()` / `status_into()` / `capture_into()` / `capture_limit_into()` 及所有未来新增 sink；执行器不得在没有任何可执行 stage 时启动子进程、打开文件或产生其他外部副作用。
 
-错误分类必须稳定，不能由后端随意决定：
+## 错误分类（阶段 0 已锁定）
+
+错误分类由公共 API 保证，不能由后端随意决定。四类边界划分如下：
+
+1. **API 误用返回 `error.InvalidPipeline`**：调用方违反 transformer/sink 前置条件，例如空 pipeline 传给 sink、`cmd` 命令名为空或含路径分隔符、stream policy 冲突、`cwd/env/unset_env` 在非法位置调用、caller-provided 缓冲区重叠或不足、已消费/已 drop 的 capability 再次使用等。
+2. **Stage 启动链路失败和 Uya stage 错误进入 `PipelineResult`**：PATH 查找失败、cwd 不可用、fork/CreateProcess 失败、执行域建立失败、stdio setup 失败、exec 映像失败、以及 Uya stage 正常返回或返回 Uya error，均通过 `statuses` / `PipelineResult` 传递，不由 sink 返回普通 Uya error 表示业务失败。
+3. **执行器资源失败返回普通 Uya error**：文件重定向打开失败、inter-stage / launch / startup-report pipe 创建失败、内存分配失败、UTF-8/UTF-16 编码转换失败、以及其他不属于 API 误用也不属于 stage 启动链路的基础设施失败，按 Uya 既有 error 返回。
+4. **Executor 自身收到未忽略的取消信号返回 `error.Interrupted`**：同步 sink 执行期间 executor 收到未被既有 disposition 忽略的 `SIGINT`、`SIGQUIT`、`SIGTERM`、`SIGHUP` 或 Windows console cancellation，或任一直接 stage 进入 stopped 状态，统一进入有限取消路径，清理后返回 `error.Interrupted`。
 
 ```text
 cmd 命令名为空、cmd 名称含路径分隔符                => error.InvalidPipeline
