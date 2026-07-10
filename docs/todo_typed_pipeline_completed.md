@@ -690,3 +690,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 确认 L491 已添加“阶段 0 已锁定”引用块：`inherit_stdio(input)` 是显式策略，不是 reset；要求 stdin/stdout/stderr 均处于 `unset` 才能设为 `inherit`，否则返回 `error.InvalidPipeline`；后续 file/capture 同样冲突。
   - 验证命令：`sed -n '466,491p' docs/typed_pipeline_design.md` 与 `grep -n "inherit_stdio" docs/typed_pipeline_design.md`
   - 验证结果：设计文档已锁定该规格，本轮仅修改规格文档，未创建生产模块或测试。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定所有 sink 对 unset stdin 默认使用 inherit。
+  验证：在 `docs/typed_pipeline_design.md` L489 添加 `> **阶段 0 已锁定**：所有 sink 对 unset stdin 默认使用 inherit` 并附带 stdout/stderr 默认策略说明；`grep` 确认该 callout 存在。

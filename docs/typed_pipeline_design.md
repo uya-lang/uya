@@ -486,7 +486,7 @@ inherit_stdio + capture sink      => error.InvalidPipeline
 
 `capture_into(statuses, stdout_buf, stderr_buf, result)` 使用调用方提供的 capture 缓冲区容量作为有效上限；`capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)` 在缓冲区容量之外额外施加 `max_bytes` 上限。第一版不提供隐藏默认 capture limit 常量。大输出应要求更大的调用方缓冲区、显式 limit 或文件 sink。
 
-所有 sink 对 unset stdin 默认使用 inherit。`check()` / `check_into()` / `status_into()` 对 unset stdout/stderr 默认使用 inherit。`capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，对 unset stderr 默认使用 inherit。显式 `stdout_capture()` / `stderr_capture()` 将对应终端流策略设为 capture；这类 capture policy 只能与返回 bytes 的 `capture_into()` / `capture_limit_into()` 组合。在已经设置 capture policy 的 pipeline 上使用 `check()`、`check_into()` 或 `status_into()` 没有返回 bytes 的路径，必须报 `error.InvalidPipeline`。
+> **阶段 0 已锁定**：所有 sink 对 unset stdin 默认使用 inherit。`check()` / `check_into()` / `status_into()` 对 unset stdout/stderr 默认使用 inherit。`capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，对 unset stderr 默认使用 inherit。显式 `stdout_capture()` / `stderr_capture()` 将对应终端流策略设为 capture；这类 capture policy 只能与返回 bytes 的 `capture_into()` / `capture_limit_into()` 组合。在已经设置 capture policy 的 pipeline 上使用 `check()`、`check_into()` 或 `status_into()` 没有返回 bytes 的路径，必须报 `error.InvalidPipeline`。
 
 > **阶段 0 已锁定**：`inherit_stdio(input)` 是显式策略，不是“清空之前配置”的 reset。它要求 stdin、stdout、stderr 三路终端流都仍处于 `unset` 状态，然后把三路都设为 `inherit`；只要任意一路已经被显式配置为 file、capture 或 `merge_stdout`，就返回 `error.InvalidPipeline`。在 `inherit_stdio()` 之后再调用 `stdout_file` / `stderr_file` / `stdout_capture` / `stderr_capture` / capture sink 同样报冲突。
 
