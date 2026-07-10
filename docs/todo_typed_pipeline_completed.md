@@ -1080,3 +1080,10 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
 - [x] 锁定 Windows child 必须 suspended 创建、加入 Job Object 后才能恢复，并使用严格 handle allowlist；默认 direct-stage 模式不使用 kill-on-close，取消显式终止 Job。
   - 验证：在 `docs/typed_pipeline_design.md` 的 `### Windows 后端` 下新增阶段 0 已锁定块，覆盖 suspended 创建、先加入 Job 后恢复、严格 handle allowlist、默认不使用 kill-on-close、取消时显式终止 Job、执行释放边界、不静默降级七点。
   - 验证命令：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md` 显示 Windows 后端锁定块存在；`grep -n "CREATE_SUSPENDED\|AssignProcessToJobObject\|PROC_THREAD_ATTRIBUTE_HANDLE_LIST\|JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE\|TerminateJobObject" docs/typed_pipeline_design.md` 显示相关关键词覆盖完整。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定平台中立执行释放边界：POSIX 为消费 RUN，Windows 为 primary thread 成功 resume，未来 Uya stage 为开始调用 `run`；未越过为 `not_started`，已释放后被 executor 强制终止为 `cancelled`，不声称用户指令已经实际运行。
+  - 验证：确认 `docs/typed_pipeline_design.md` 已在“结果模型”与“POSIX 后端”两处添加 `> **阶段 0 已锁定**` 标记，且边界定义覆盖 POSIX `RUN`、Windows `ResumeThread`、未来 Uya `run`、`not_started` 与 `cancelled`。
+  - 验证命令：`grep -n "阶段 0 已锁定.*执行释放边界" docs/typed_pipeline_design.md`
+  - 结果：匹配到 2 行（结果模型段与 POSIX 后端段），且 `git diff --check` 无空白错误。

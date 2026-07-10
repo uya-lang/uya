@@ -409,6 +409,8 @@ struct PipelineCaptureResult {
 
 > **阶段 0 已锁定**：`PipelineResult` 只保存 `stage_count` 摘要，不保存指向调用方 `statuses` 缓冲区的 slice、指针或其他借用；`PipelineResult.stage_count` 与调用方 `statuses` 缓冲区覆盖完整可执行 stage 列表；`PipelineStageStatus.stage_index` 使用完整 stage 列表的零基索引，混合 process/Uya stage 时不得压缩编号。
 
+> **阶段 0 已锁定**：平台中立执行释放边界的判定与状态语义已冻结：POSIX process stage 以成功消费自己的 `RUN` token 为越过边界；Windows process stage 以 `ResumeThread` 成功并使 primary thread suspend count 归零为越过边界；未来 Uya stage 以 runtime/worker 确认开始调用 `PipelineStage.run` 为越过边界。未越过该边界的 stage 记为 `not_started`；已越过但在尚未自然完成时被 executor 强制终止的 stage 记为 `cancelled`。该边界只表示 executor 已允许 stage 进入可能执行用户代码的阶段，不声称用户指令已经实际运行。
+
 公共状态使用平台中立的“执行释放边界”，它表示 executor 已经允许 stage 进入可能执行用户代码的阶段，不声称用户指令已经实际运行：POSIX process stage 在成功消费自己的 `RUN` token 后越过该边界；Windows process stage 在 `ResumeThread` 成功并使 primary thread suspend count 归零后越过；未来 Uya stage 在 runtime/worker 确认开始调用 `PipelineStage.run` 时越过。`not_started` 表示 stage 因更早的预检、启动失败或执行器取消而没有越过该边界。`spawn_failed` 只用于 process stage，覆盖 PATH lookup 失败、fork / CreateProcess 失败、执行域或 stdio setup 失败，以及 POSIX 已消费 RUN 但后续 chdir/dup2/exec 失败并通过 startup diagnostic 回传的情况。`cancelled` 表示 stage 已越过执行释放边界，但在尚未自然完成时被 executor 因其他 stage 启动失败、stage 错误或 sink 中断而强制终止；它不保证用户映像已经执行。若 executor 发起取消前已经观察到自然完成状态，则保留 `exited` / `signaled` / `completed` / `stage_failed`，不能覆盖成 `cancelled`。
 
 `spawn_failed` 的 `spawn_failure` 必须保存稳定、跨平台的失败类别，`platform_code` 可保存 POSIX errno 或 Windows `GetLastError()` 值用于诊断，没有适用平台码时为 0。跨平台逻辑只能依赖 `spawn_failure`，不能依赖 `platform_code` 数值。`exited` 和 `signaled` 只用于 process stage，分别使用 `exit_code` 和 `signal`。`exit_code` 使用 `u32`：POSIX 的正常退出值以 0..255 扩宽保存，Windows 必须原样保存 `GetExitCodeProcess` 返回的完整 `DWORD` bit pattern；跨平台成功判断统一为 `exit_code == 0u32`。`signaled` 保存 `signal: i32`：POSIX 上为实际导致子进程终止的正 signal number（如 `SIGTERM=15`、`SIGKILL=9`、`SIGSEGV=11`），没有 signal number 的 platform-specific 终止原因不得映射为 `signaled`；Windows process stage 没有 POSIX 信号语义，process-only MVP 中 Windows 子进程的全部 `GetExitCodeProcess` 结果一律以 `exited` + `exit_code` 表示，只有 runtime/executor 显式将某个平台终止原因分类为 signal 时才允许使用 `signaled`，且必须在文档中显式声明映射。非 `signaled` 状态的 `signal` 字段必须为 0。跨平台逻辑只能把 `signal` 作为诊断信息，不能依赖 signal 数值做控制流。`completed` 表示 Uya stage 正常返回；`stage_failed` 表示 Uya stage 返回 Uya error，并通过 `error_name` 保存稳定的语言级错误名；该名字必须指向程序期静态/驻留字符串，不能指向 execution-state 临时缓冲区。`cancelled`、`not_started` 及其他非 `spawn_failed` 状态的 `spawn_failure` 必须为 `none`、`platform_code` 必须为 0；其他未使用字段也必须填 0 或空字符串。
@@ -670,6 +672,8 @@ POSIX process group 必须通过带显式消息的启动屏障消除竞态。par
 > 如果后端选择不统一搬移 source，则必须实现等价的循环安全 remap 算法：按拓扑顺序处理每个 `(source, target)` 对，显式处理 `source == target` 时清除 `FD_CLOEXEC`，并避免按 stdin/stdout/stderr 固定顺序做可能覆盖后续 source 的裸 `dup2`。任何 remap 方案都必须保证 parent 在全部 child READY 后、发送任何 `RUN` token 前，不再持有任何 child-only 的 control/data fd 或 capture writer，且 child 不会因 source 与 target 重叠而丢失本 stage 所需的 stdio source。
 >
 > `inherit` 策略直接使用当前进程的 0/1/2，不把它们当作内部 source fd，也不对它们做搬移或 close-on-exec 修改；调用方仍对 inherit fd 的打开状态负责。
+
+> **阶段 0 已锁定**：POSIX 执行释放边界以成功消费 `RUN` token 为准；尚未消费 `RUN` 就因其他 stage 失败而退出的 child 即使已有 PID 也记为 `not_started`，已越过边界但在统一取消前尚未自然完成的 child 记为 `cancelled`。
 
 POSIX 执行释放边界以成功消费 `RUN` 为准：尚未消费 `RUN` 就因其他 stage 失败而退出的 child 即使已经有 PID，也写入 `not_started`；自身 fork、setpgid、signal setup、barrier 或后续 setup 失败的 stage 写入 `spawn_failed`。如果 parent 已经向部分 child 发出 `RUN` 后发生某个 per-child launch pipe 错误，未释放 child 记为 `not_started`，对应 launch pipe 的 stage 记为 `spawn_failed(execution_domain_failed)`；已经释放且在统一取消前尚未自然完成的 child 记为 `cancelled`，即使它还停留在 chdir/dup2/exec 前后；已经观察到自然完成的则保留实际状态。
 

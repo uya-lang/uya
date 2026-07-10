@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [ ] 锁定平台中立执行释放边界：POSIX 为消费 RUN，Windows 为 primary thread 成功 resume，未来 Uya stage 为开始调用 `run`；未越过为 `not_started`，已释放后被 executor 强制终止为 `cancelled`，不声称用户指令已经实际运行。
 - [ ] 锁定信号/console cancellation 由 runtime broker 唤醒正常 executor 路径，去重转发、有限取消、清理后返回 `error.Interrupted`；异步 handler/callback 不执行复杂清理。
 - [ ] 锁定 runtime broker 用订阅/引用计数协调并发 sink；进程定向信号通知全部活跃 sink，最后一个订阅者只能在仍拥有 disposition 时恢复原 handler，等待 terminal lease 前必须先完成订阅。
 - [ ] 锁定 fork child 在 READY 前移除 sink 临时 signal mask/disposition 与 broker fd；launch token 写入必须以 per-thread mask 处理 `SIGPIPE`，不能永久改变进程级 disposition。
