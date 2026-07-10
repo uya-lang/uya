@@ -212,3 +212,8 @@ make uya
 完整 `make tests-uya` 中 4 个失败与本轮修改无关：
 - `test_typed_pipeline_parser_negative` / `test_typed_pipeline_parser_negative_eof`：文件以 `test_` 开头但内容为 parser 负向用例，基线（stash 前旧编译器）同样失败。
 - `bench_malloc_phase4` / `bench_malloc_phase4_detail`：并行运行时偶发段错误（flaky），单独重复运行均通过，基线单独运行亦通过。
+
+# 类型化管道 TODO / 阶段 2：Type Checker 规则
+
+- [x] 仅为 `|>` 添加 `!Pipeline` try-forward 语义。
+  - 归档说明：本轮为归档清理轮，该任务已在之前轮次完成并标记为 `[x]`，本轮仅做归档移动。

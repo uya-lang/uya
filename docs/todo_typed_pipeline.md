@@ -15,7 +15,6 @@
 
 ## 阶段 2：Type Checker 规则
 
-- [x] 仅为 `|>` 添加 `!Pipeline` try-forward 语义。
 - [ ] 拒绝对非 `Pipeline` 值使用通用数据管道。
 - [ ] 拒绝 sink 之后继续链式管道，因为左侧不再是 `Pipeline`。
 - [ ] MVP 拒绝把带隐式 `self` receiver 的实例方法调用用作 `|>` 右侧；module-qualified 和无 receiver 静态调用继续支持。
