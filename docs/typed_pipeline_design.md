@@ -478,6 +478,8 @@ stderr_capture + check_into       => error.InvalidPipeline
 stderr_capture + status_into      => error.InvalidPipeline
 stdout_file + inherit_stdio       => error.InvalidPipeline
 stderr_file + inherit_stdio       => error.InvalidPipeline
+stdout_capture + inherit_stdio    => error.InvalidPipeline
+stderr_capture + inherit_stdio    => error.InvalidPipeline
 stdout_file + capture sink        => error.InvalidPipeline
 inherit_stdio + capture sink      => error.InvalidPipeline
 ```
@@ -486,7 +488,7 @@ inherit_stdio + capture sink      => error.InvalidPipeline
 
 所有 sink 对 unset stdin 默认使用 inherit。`check()` / `check_into()` / `status_into()` 对 unset stdout/stderr 默认使用 inherit。`capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，对 unset stderr 默认使用 inherit。显式 `stdout_capture()` / `stderr_capture()` 将对应终端流策略设为 capture；这类 capture policy 只能与返回 bytes 的 `capture_into()` / `capture_limit_into()` 组合。在已经设置 capture policy 的 pipeline 上使用 `check()`、`check_into()` 或 `status_into()` 没有返回 bytes 的路径，必须报 `error.InvalidPipeline`。
 
-`inherit_stdio()` 是显式策略，不是“清空之前配置”的 reset。它要求 stdin、stdout、stderr 三路都尚未设置终端策略，然后把三路都设为 inherit。后续再配置 file/capture 也必须报冲突。
+> **阶段 0 已锁定**：`inherit_stdio(input)` 是显式策略，不是“清空之前配置”的 reset。它要求 stdin、stdout、stderr 三路终端流都仍处于 `unset` 状态，然后把三路都设为 `inherit`；只要任意一路已经被显式配置为 file、capture 或 `merge_stdout`，就返回 `error.InvalidPipeline`。在 `inherit_stdio()` 之后再调用 `stdout_file` / `stderr_file` / `stdout_capture` / `stderr_capture` / capture sink 同样报冲突。
 
 sink 开始执行时必须先捕获一次宿主进程 cwd 快照。相对 `cwd(path)` 按该快照解释；同一 process stage 多次调用 `cwd()` 时最后一次覆盖前一次，但不会相对前一次 cwd 继续拼接。`stdin_file` / `stdout_file` / `stderr_file` 是 pipeline-global stream policy，它们的相对路径也按同一个 sink-time cwd 快照解释，绝不按任一 stage-local cwd 解释。transformer 只复制并保存路径；实际文件必须在所有语义/PATH/cwd/buffer 预检和 pipe/control-fd 创建成功后、启动第一个 child 前由 parent 按 stdin、stdout、stderr 的固定顺序打开，不能推迟到 child-side setup。每个活跃 stream policy 只打开一次：stdin file 供第一 stage 使用，stdout file 供最后 stage 使用，group-level stderr file 的同一个 open file description 供所有 process stage安装；这样不会因每个 stage 分别使用 truncate open 而反复截断。
 

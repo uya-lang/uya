@@ -681,3 +681,12 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - `sed -n '386p' docs/typed_pipeline_design.md` 确认错误分类表：`空 pipeline 传给 sink => error.InvalidPipeline`。
   - `sed -n '730p' docs/typed_pipeline_design.md` 确认必要不变量：`sink 要求至少有一个可执行 stage；空 pipeline 传给任何 sink 必须返回 error.InvalidPipeline`。
   - 规格不涉及 `.uya` 实现代码，无需编译器/运行期验证；归档时主 todo 中对应条目为 `[x]`。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `inherit_stdio` 是显式策略而不是 reset，和已有 terminal policy 冲突。
+  验证（2026-07-10）：
+  - 读取 `docs/typed_pipeline_design.md` L466-491，确认冲突策略表已包含 `stdout_file + inherit_stdio`、`stderr_file + inherit_stdio`、`stdout_capture + inherit_stdio`、`stderr_capture + inherit_stdio`、`stdout_file + capture sink`、`inherit_stdio + capture sink`。
+  - 确认 L491 已添加“阶段 0 已锁定”引用块：`inherit_stdio(input)` 是显式策略，不是 reset；要求 stdin/stdout/stderr 均处于 `unset` 才能设为 `inherit`，否则返回 `error.InvalidPipeline`；后续 file/capture 同样冲突。
+  - 验证命令：`sed -n '466,491p' docs/typed_pipeline_design.md` 与 `grep -n "inherit_stdio" docs/typed_pipeline_design.md`
+  - 验证结果：设计文档已锁定该规格，本轮仅修改规格文档，未创建生产模块或测试。
