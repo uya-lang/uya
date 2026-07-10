@@ -729,6 +729,16 @@ close fds/handles on completion
 
 ### Windows 后端
 
+> **阶段 0 已锁定**：Windows process stage 必须按以下规则创建、加入执行域并释放。
+>
+> 1. **Suspended 创建**：每个 child 必须使用 `CREATE_SUSPENDED` 创建，确保其 primary thread 在用户映像运行前保持挂起。
+> 2. **先加入 Job，后恢复执行**：child 进程在执行任何用户代码前必须先调用 `AssignProcessToJobObject` 加入本次 pipeline 的 Job Object；只有全部 child 都已成功创建、加入 Job，并且 parent 已关闭所有 child-only data/control handle 与 capture writer 后，才允许逐个恢复 primary thread。
+> 3. **严格 handle allowlist**：每个 child 必须通过 `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`（或语义等价的严格 allowlist）只继承该 stage 真正需要的 stdin/stdout/stderr 和 inter-stage pipe handles；不得允许任意 inheritable handle 被 child 继承，也不得让无关 child 或 parent 因多持有 pipe 写端而阻止 EOF。
+> 4. **默认 direct-stage 不使用 kill-on-close**：Job Object 用于显式取消和组终止，正常 sink 收尾关闭最后一个 Job handle 时**不得**设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，不能把仍存活的非直接后代隐式杀死。
+> 5. **取消时显式终止 Job**：执行器取消路径（capture 超限、启动失败、中断、停止收敛等）必须显式调用 `TerminateJobObject` 终止已入 Job 的进程，并对所有 `created_unassigned` child 单独调用 `TerminateProcess`、等待其终止后再关闭 thread/process/pipe/Job handles；`CloseHandle` 只释放句柄，不能替代终止与等待。
+> 6. **执行释放边界**：Windows process stage 越过执行释放边界的标志是成功 `ResumeThread` 并使 primary thread suspend count 归零；此前未越过的 stage 标记为 `not_started`，已越过但在取消路径中被终止的 stage 标记为 `cancelled`。
+> 7. **不静默降级**：若宿主已有 Job Object 策略导致 `AssignProcessToJobObject` 不可用，必须在恢复 child 前稳定失败并按规则终止未入 Job 的 suspended child，不得静默降级为无执行域模式。
+
 公共 API 必须保持不变，但后端会把进程 stage 映射到 `CreateProcessW`。每次 pipeline 执行必须先创建用于显式取消的 Job Object，并在创建任何 child 前完成全部 UTF 转换、command-line 构造、pipe 创建、每个活跃 file-redirection policy 的单次 parent-side `CreateFileW`，以及 `STARTUPINFOEXW` handle-list 准备；这些基础设施步骤失败时按普通 Uya error 返回，不伪造 stage 状态。group-level stderr file handle 必须由所有 stage 共享，不能为每个 child 重新 truncate/open。默认 direct-stage 语义不得设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`：正常 sink 收尾关闭最后一个 Job handle 时不能把仍存活的非直接后代隐式杀死。每个 child 使用 `CREATE_SUSPENDED` 创建，通过 `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`（或语义等价的严格 allowlist）只继承该 stage 真正需要的 stdin/stdout/stderr/inter-stage handles，然后在执行任何用户代码前调用 `AssignProcessToJobObject`。每次 CreateProcess 成功后立即关闭仅供该 child 继承的 parent-side handle 副本；共享 handle 在最后一个需要它的 child 创建成功后关闭。全部 child 已成功创建并加入 job、parent 已关闭所有 child-only data/control handle 与 capture writer 后，才逐个恢复所有 child 的 primary thread；不能只恢复某一个“主线程”。
 
 CreateProcess、job assignment 或 resume 某个 stage 失败时，该 stage 写入 `spawn_failed` 及对应失败详情。executor 必须分别跟踪 `created_unassigned`、`assigned_suspended` 和 `resumed`：先对每个已经创建但尚未成功加入 Job 的直接进程调用 `TerminateProcess`，再对 Job 中的 suspended/running process 调用 `TerminateJobObject`，随后等待所有已经创建的直接进程进入终止状态，最后才能关闭 thread/process/pipe/Job handles。`CloseHandle` 只释放句柄，绝不能替代对 created-but-unassigned child 的终止与等待。

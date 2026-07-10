@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [ ] 锁定 Windows child 必须 suspended 创建、加入 Job Object 后才能恢复，并使用严格 handle allowlist；默认 direct-stage 模式不使用 kill-on-close，取消显式终止 Job。
 - [ ] 锁定平台中立执行释放边界：POSIX 为消费 RUN，Windows 为 primary thread 成功 resume，未来 Uya stage 为开始调用 `run`；未越过为 `not_started`，已释放后被 executor 强制终止为 `cancelled`，不声称用户指令已经实际运行。
 - [ ] 锁定信号/console cancellation 由 runtime broker 唤醒正常 executor 路径，去重转发、有限取消、清理后返回 `error.Interrupted`；异步 handler/callback 不执行复杂清理。
 - [ ] 锁定 runtime broker 用订阅/引用计数协调并发 sink；进程定向信号通知全部活跃 sink，最后一个订阅者只能在仍拥有 disposition 时恢复原 handler，等待 terminal lease 前必须先完成订阅。
