@@ -14,7 +14,7 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 capture sink 语义：
-  - [ ] `capture_into()` 隐式捕获 terminal stdout
+  - [x] `capture_into()` 隐式捕获 terminal stdout
   - [ ] stderr 只有显式 `stderr_capture()` 或 `stderr_to_stdout()` 后才进入返回值
   - [ ] 显式 stdout file/inherit 后调用 `capture_into()` / `capture_limit_into()` 报 `InvalidPipeline`
   - [ ] capture policy 与 `check` / `check_into` / `status_into` 组合报 `InvalidPipeline`

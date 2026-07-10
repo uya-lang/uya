@@ -271,7 +271,7 @@ try (pipeline()
 
 `stdout_file` / `stderr_file` 是 transformer，不执行 pipeline。执行只发生在 sink：`check`、`check_into`、`status_into`、`capture_into`、`capture_limit_into`，以及后续按值返回 facade `status`、`capture`、`capture_limit`。
 
-`stdout_capture` / `stderr_capture` 只是声明哪些终端流需要由 capture sink 收集。`capture_into()` / `capture_limit_into()` 是执行 sink；它们会隐式要求 terminal stdout 为 capture。若调用方已经显式配置 terminal stdout 为 file 或 inherit，再调用 capture sink 必须返回 `error.InvalidPipeline`。stderr 不会被 capture sink 隐式捕获；需要 stderr bytes 时必须显式添加 `stderr_capture()`，或者先用 `stderr_to_stdout()` 合并到 stdout capture。
+> **阶段 0 已锁定**：`stdout_capture` / `stderr_capture` 只是声明哪些终端流需要由 capture sink 收集。`capture_into()` / `capture_limit_into()` 是执行 sink；它们会隐式要求 terminal stdout 为 capture。若调用方已经显式配置 terminal stdout 为 file 或 inherit，再调用 capture sink 必须返回 `error.InvalidPipeline`。stderr 不会被 capture sink 隐式捕获；需要 stderr bytes 时必须显式添加 `stderr_capture()`，或者先用 `stderr_to_stdout()` 合并到 stdout capture。
 
 ## 结果模型
 
