@@ -385,3 +385,14 @@ make uya
   - 验证命令：`./tests/run_programs_parallel.sh tests/error_typed_pipeline_checker_left.uya`
   - 验证结果：`✓ error_typed_pipeline_checker_left:预期编译失败`
   - 补充：相关 typed_pipeline 测试已全部通过，包括 error_typed_pipeline_checker_right、test_typed_pipeline_checker_positive 等 13 个测试文件。
+
+## 类型化管道 TODO
+### 阶段 2：Type Checker 规则
+
+- [x] 添加 `!Pipeline |> transformer` 的 checker 测试。
+  - 交付：在 `tests/test_typed_pipeline_checker_positive.uya` 中新增 `pipeline_lhs_error_union_to_error_union_transformer` 测试用例，验证左侧 `!Pipeline` 可通过 `|>` 传给返回 `!Pipeline` 的 transformer 并通过类型检查。
+  - 验证命令：`./bin/uya test tests/test_typed_pipeline_checker_positive.uya`
+  - 结果：3 个测试全部通过。
+  - 相关 broader 验证：
+    - 所有 `tests/test_typed_pipeline_*.uya` 正向测试通过。
+    - 所有 `tests/error_typed_pipeline_*.uya` check 失败符合预期。

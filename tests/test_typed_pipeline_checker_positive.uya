@@ -5,6 +5,7 @@ use std.process;
 use std.testing.assert_eq_i32;
 
 fn ok_transformer(p: Pipeline) Pipeline { return p; }
+fn err_transformer(p: Pipeline) !Pipeline { return p; }
 
 fn make_err_pipeline() !Pipeline {
     return pipeline();
@@ -17,5 +18,10 @@ test "pipeline_lhs_pipeline" {
 
 test "pipeline_lhs_error_union_pipeline" {
     _ = make_err_pipeline() |> ok_transformer();
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_lhs_error_union_to_error_union_transformer" {
+    _ = make_err_pipeline() |> err_transformer();
     try assert_eq_i32(1, 1);
 }
