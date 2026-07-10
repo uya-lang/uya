@@ -616,6 +616,41 @@ fn checker_check_cast_requires_asbang(checker: &TypeChecker, node: &ASTNode, exp
     return 0;
 }
 
+// 检查管道表达式
+// 参数：checker - TypeChecker 指针，node - 管道表达式节点
+// 返回：右侧调用表达式的推断类型（如果检查失败返回TYPE_VOID）
+// 当前阶段仅强制左侧为 Pipeline 或 !Pipeline；后续阶段再检查右侧 callee 的首个参数类型等。
+fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+
+    if checker == null || node == null || node.type != ASTNodeType.AST_PIPELINE_EXPR {
+        return result;
+    }
+
+    const left: &ASTNode = node.pipeline_expr_left;
+    const right: &ASTNode = node.pipeline_expr_right;
+    if left == null || right == null {
+        return result;
+    }
+
+    checker_walk_reachability_expr(checker, left);
+    checker_walk_reachability_expr(checker, right);
+
+    const left_type: Type = checker_infer_type(checker, left);
+    const is_pipeline: i32 = checker_type_is_pipeline(checker, &left_type);
+    const is_error_union_pipeline: i32 = checker_type_is_error_union_pipeline(checker, &left_type);
+    if is_pipeline == 0 && is_error_union_pipeline == 0 {
+        checker_report_error(checker, left,
+            "管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型" as *byte);
+        return result;
+    }
+
+    // parser 已将右侧限制为最外层是调用表达式的 postfix expression。
+    // 返回右侧调用表达式的推断类型；右侧 callee 首个参数是否为 Pipeline 的检查留给后续阶段。
+    return checker_infer_type(checker, right);
+}
+
 // 检查二元表达式
 // 参数：checker - TypeChecker 指针，node - 二元表达式节点
 // 返回：表达式类型（如果检查失败返回TYPE_VOID）

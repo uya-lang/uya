@@ -2102,6 +2102,8 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return make_void_type();
     } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
         return infer_unary_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_PIPELINE_EXPR {
+        return checker_check_pipeline_expr(checker, expr);
     } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
         return checker_check_binary_expr(checker, expr);
     } else if expr.type == ASTNodeType.AST_CALL_EXPR {

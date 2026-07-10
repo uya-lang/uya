@@ -1,0 +1,11 @@
+// test_typed_pipeline_checker_left_negative.uya
+// checker 负向测试：验证 |> 左侧不是 Pipeline 或 !Pipeline 时报错
+
+use std.process;
+
+fn cmd(a: &byte) i32 { return 0; }
+
+fn main() i32 {
+    _ = 1 |> cmd("x");
+    return 0;
+}

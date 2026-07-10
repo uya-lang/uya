@@ -1,0 +1,21 @@
+// test_typed_pipeline_checker_positive.uya
+// checker 正向测试：验证 |> 左侧为 Pipeline 或 !Pipeline 时通过类型检查。
+
+use std.process;
+use std.testing.assert_eq_i32;
+
+fn ok_transformer(p: Pipeline) Pipeline { return p; }
+
+fn make_err_pipeline() !Pipeline {
+    return pipeline();
+}
+
+test "pipeline_lhs_pipeline" {
+    _ = pipeline() |> ok_transformer();
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_lhs_error_union_pipeline" {
+    _ = make_err_pipeline() |> ok_transformer();
+    try assert_eq_i32(1, 1);
+}

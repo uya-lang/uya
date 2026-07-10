@@ -112,3 +112,26 @@
 
 - [x] checker 按 canonical 声明身份识别 `Pipeline`，不得仅比较未限定类型名字符串。
   - 归档说明：本任务已在主 TODO 中标记完成，本轮为归档清理移动至此；原始实现已完成 canonical 声明身份识别。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 强制 `|>` 左侧为 `Pipeline` 或 `!Pipeline`。
+  - 实现要点：
+    - 在 `src/checker/check_expr.uya` 的 `checker_infer_type` 分发中加入 `AST_PIPELINE_EXPR` 分支，调用新的 `checker_check_pipeline_expr`。
+    - 在 `src/checker/check_expr_extra.uya` 新增 `checker_check_pipeline_expr`：推断左侧类型，使用 `checker_type_is_pipeline` 与 `checker_type_is_error_union_pipeline` 校验是否为 canonical `Pipeline` 或 `!Pipeline`；否则在左侧节点上报错。
+    - 当前阶段仅做左侧类型强制；右侧 callee 首个参数类型、`!Pipeline` try-forward 等检查留给后续叶子任务。
+    - 更新 parser 正向测试 `tests/test_typed_pipeline_parser_positive.uya`，改用 `std.process.Pipeline` 类型，使 pipeline 左侧满足新规则。
+    - 新增 checker 正向测试 `tests/test_typed_pipeline_checker_positive.uya`，覆盖左侧为 `Pipeline` 和 `!Pipeline` 两种合法情况。
+    - 新增 checker 负向测试 `tests/error_typed_pipeline_checker_left.uya`，验证左侧为 `i32` 时报错。
+  - 验证命令与结果：
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - 正向测试：
+      - `../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK。
+      - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` 通过，2 个测试全部 OK。
+      - `../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过，3 个测试全部 OK。
+    - 负向测试：
+      - `../uya/bin/uya check tests/error_typed_pipeline_checker_left.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+  - 备注：`make tests-uya` 全量运行存在 4 个与 typed pipeline 无关或命名约定导致的 pre-existing 失败（`test_typed_pipeline_parser_negative_eof`、`test_typed_pipeline_parser_negative` 因文件名不以 `error_` 开头被当作正向测试；`bench_malloc_phase4_detail` 运行时崩溃 exit 139），本次改动未触及这些文件。
