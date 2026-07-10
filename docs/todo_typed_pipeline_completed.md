@@ -879,3 +879,13 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `git diff --check` 通过，无空白错误。
     - `sed -n '238,280p' docs/typed_pipeline_design.md` 确认新增接口小节及规则归属正确。
     - `git diff docs/typed_pipeline_design.md docs/std_script_design.md` 确认仅涉及规格文档的 PATH helper 定义与引用更新。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 PATH 缺失、空/相对 component、Windows `.exe` fallback、无隐式 PATHEXT/`cmd.exe` 和 lookup/spawn 失败分类。
+  - 验证：更新 `docs/typed_pipeline_design.md` §"PATH helper 接口"，明确写入以下内容：
+    - PATH 缺失返回 `path_not_found`，不注入默认搜索目录（L278）。
+    - POSIX 用 `:`、Windows 用 `;` 分隔；空 component 与 relative component 均以 stage 最终 cwd 为基准，不隐式把当前目录插入搜索序列（L279）。
+    - Windows 对每个 component 先尝试原 bare name，无扩展名时再尝试追加 `.exe`（扩展名比较不区分大小写）；MVP 不把 `.bat`/`.cmd` 当可执行映像，也不为了 PATHEXT 隐式调用 `cmd.exe`（L280）。
+    - lookup 阶段只返回 `path_not_found` / `permission_denied` / `platform_error`；`cwd_unavailable`、`process_create_failed`、`execution_domain_failed`、`stdio_setup_failed`、`exec_failed` 属于 spawn 阶段；TOCTOU 失败统一由 spawn 报告（L268-L274）。
+  - 文件校验：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 5` 显示新增锁定段落已落地。

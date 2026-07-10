@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 PATH 缺失、空/相对 component、Windows `.exe` fallback、无隐式 PATHEXT/`cmd.exe` 和 lookup/spawn 失败分类。
+- [x] 锁定 PATH 缺失、空/相对 component、Windows `.exe` fallback、无隐式 PATHEXT/`cmd.exe` 和 lookup/spawn 失败分类。
 - [ ] 锁定错误分类：API 误用返回 `InvalidPipeline`；stage 启动链路失败和 Uya stage 错误进入 `PipelineResult`；文件重定向、pipe、内存、编码转换等执行器资源失败返回普通 Uya error；executor 自身收到未忽略的取消信号返回 `Interrupted`。
 - [ ] 决定 `cmd` 使用 Uya 裸变参 `...` 加 `@params` 校验，还是使用基于 slice 的 `cmd_argv` API。
 - [ ] 若开放裸变参 `cmd(input, program, ...)`，明确 `@params` 包含固定参数，必须跳过 `input` / `program` 后校验剩余 argv。

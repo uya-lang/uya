@@ -265,6 +265,14 @@ fn process_resolve_path(program: &const byte, env: &EnvBlock, cwd: &const byte) 
 
 PATH lookup 和最终 spawn 必须使用同一个解析出的 `exec_path`，但 child / `CreateProcessW` 仍需报告 TOCTOU 之后的真实启动失败（映像格式错误等属于 `exec_failed`，不在 helper 中返回）。
 
+> **阶段 0 已锁定**：`process_resolve_path` 的 lookup 阶段只负责判定“按 env/cwd 能否找到可执行文件路径”，其稳定失败分类如下：
+>
+> - `path_not_found`：`PATH` 缺失、为空，或按规则搜索后没有任何候选存在。
+> - `permission_denied`：至少一个候选存在，但因权限不足、候选为目录、候选不可执行（POSIX）或其他 lookup 阶段可判定的条件而不可用。
+> - `platform_error`：lookup 阶段遇到无法稳定归类为前两项的平台错误；保留原始平台码用于诊断。
+>
+> lookup 阶段不返回 `cwd_unavailable`、`process_create_failed`、`execution_domain_failed`、`stdio_setup_failed` 或 `exec_failed`：这些属于 spawn 阶段。`cwd_unavailable` 由最终 stage cwd 的校验或 child-side `chdir` 失败产生；`process_create_failed` 由 `fork` / `CreateProcessW` 本身失败产生；`execution_domain_failed` 由 `setpgid`、child signal setup、launch barrier、Job assignment 或 primary thread resume 失败产生；`stdio_setup_failed` 由 child-side `dup2` 或 Windows stdio handle 安装失败产生；`exec_failed` 由已创建 child 但 `execve` / 启动映像失败产生。lookup 成功后到实际启动之间的 TOCTOU 失败统一归入 spawn 阶段报告。
+
 > **阶段 0 已锁定**：`process_resolve_path` 的搜索规则如下：
 >
 > - PATH 缺失表示没有搜索目录并返回 `path_not_found`，不注入宿主实现自选的默认目录。
