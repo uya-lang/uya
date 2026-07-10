@@ -635,3 +635,18 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 验证：检查 `docs/typed_pipeline_design.md` 已新增“阶段 0 已锁定”引用块，明确 exact-fit overflow probe 的一字节 scratch 行为、EOF/额外字节/`EAGAIN` 三种结果，以及不得停止 drain 后直接等待 child 的约束。
   - 验证命令：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 1 && sed -n '366,367p' docs/typed_pipeline_design.md`
   - 验证结果：设计文档第 366 行起已包含锁定段落，内容覆盖 scratch probe、`complete=true`、`CaptureLimitExceeded` 与 `complete=false` 分支。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `capture_into()` 使用调用方缓冲区容量作为上限，`capture_limit_into()` 在缓冲区容量之外额外施加 `max_bytes`，不引入隐藏默认上限常量。
+  - 验证：读取 `docs/typed_pipeline_design.md` 确认规格已写入。
+  - 关键锁定点：
+    - `capture_into` 的有效 capture 上限来自调用方提供的 stdout/stderr 缓冲区容量（`buffer.len`）。
+    - `capture_limit_into` 使用 `min(max_bytes, buffer.len)` 作为每个 captured stream 的有效上限。
+    - 第一版不提供隐藏默认 capture limit 常量。
+  - 引用位置：
+    - L364: `capture_into` 的有效 capture 上限来自调用方提供的 stdout/stderr 缓冲区容量；`capture_limit_into` 使用 `min(max_bytes, buffer.len)` 作为每个 captured stream 的有效上限。
+    - L442: `capture_into()` 以调用方缓冲区容量为限制，`capture_limit_into(max_bytes, ...)` 以 `min(max_bytes, buffer.len)` 为限制。
+    - L481: `capture_into(...)` 使用调用方提供的 capture 缓冲区容量作为有效上限；`capture_limit_into(max_bytes, ...)` 在缓冲区容量之外额外施加 `max_bytes` 上限；第一版不提供隐藏默认 capture limit 常量。
+  - 验证命令：`grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md | head -n 20`
+  - 验证结果：成功匹配到 L221、L230、L272、L274、L337、L358、L364、L366、L407、L422、L442、L481 等锁定段落，规格一致且无隐藏默认上限。

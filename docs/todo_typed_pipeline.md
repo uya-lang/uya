@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 `capture_into()` 使用调用方缓冲区容量作为上限，`capture_limit_into()` 在缓冲区容量之外额外施加 `max_bytes`，不引入隐藏默认上限常量。
+- [x] 锁定 `capture_into()` 使用调用方缓冲区容量作为上限，`capture_limit_into()` 在缓冲区容量之外额外施加 `max_bytes`，不引入隐藏默认上限常量。
 - [ ] 锁定 `stdout_file` / `stderr_file` 为 stream policy transformer，不作为 sink。
 - [ ] 锁定空 pipeline 传给任何 sink 返回 `error.InvalidPipeline`。
 - [ ] 锁定 `inherit_stdio` 是显式策略而不是 reset，和已有 terminal policy 冲突。
