@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [x] 锁定所有 POSIX 内部 control/data/file source fd 避开 0/1/2，或实现循环安全 remap 与 `source == target` 的 `FD_CLOEXEC` 清理；不能假设宿主标准 fd 已打开。
 - [ ] 锁定 controlling terminal 只有在 executor 当前就是前台 process group 时才转交/恢复 PGID；后台 executor 不得抢占终端，终止信号仍需转发。
 - [ ] 锁定 Windows child 必须 suspended 创建、加入 Job Object 后才能恢复，并使用严格 handle allowlist；默认 direct-stage 模式不使用 kill-on-close，取消显式终止 Job。
 - [ ] 锁定平台中立执行释放边界：POSIX 为消费 RUN，Windows 为 primary thread 成功 resume，未来 Uya stage 为开始调用 `run`；未越过为 `not_started`，已释放后被 executor 强制终止为 `cancelled`，不声称用户指令已经实际运行。
