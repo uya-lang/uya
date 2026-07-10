@@ -138,3 +138,12 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
     - caller-provided statuses / 缓冲区容量不足或重叠；
     - `stage_count(&Pipeline)` 查询到无效 / 过期 capability。
   - 验证：人工复核 `docs/typed_pipeline_design.md` 中所有 `InvalidPipeline` 出现位置，语义一致且无同名歧义。无代码实现，无需编译/运行验证。
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 决定精确错误名：
+  - [x] `InvalidPipeline` — 锁定为 `error.InvalidPipeline`：表示 pipeline 处于不可执行或不可转换状态（已消费/过期 capability、空 pipeline、策略冲突、参数无效、不可克隆 stage、caller 缓冲区问题等）。已复核 `typed_pipeline_design.md` 中全部出现位置，语义一致。
+
+验证：
+- 已人工复核 `docs/typed_pipeline_design.md` 中所有 `InvalidPipeline` 出现位置，语义一致。
+- 归档时间：2026-07-10。

@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 决定精确错误名：
-  - [x] `InvalidPipeline` — 锁定为 `error.InvalidPipeline`：表示 pipeline 处于不可执行或不可转换状态（已消费/过期 capability、空 pipeline、策略冲突、参数无效、不可克隆 stage、caller 缓冲区问题等）。已复核 `typed_pipeline_design.md` 中全部出现位置，语义一致。
   - [ ] `ProcessFailed`
   - [ ] `CaptureLimitExceeded`
   - [ ] `Interrupted`
