@@ -396,3 +396,18 @@ make uya
   - 相关 broader 验证：
     - 所有 `tests/test_typed_pipeline_*.uya` 正向测试通过。
     - 所有 `tests/error_typed_pipeline_*.uya` check 失败符合预期。
+
+---
+
+## 类型化管道 TODO / 阶段 2：Type Checker 规则
+
+- [x] 添加 checker 测试证明非 `Pipeline` 的 `!T` 不会得到 try-forward。
+  - 实现要点：
+    - 新增 `tests/error_typed_pipeline_non_pipeline_error_union.uya`：定义返回 `!i32` 的函数和首参为 `i32` 的 callee，在 `main` 中写 `make_err_i32() |> takes_i32()`。
+    - 若任意 `!T` 都触发 try-forward，该表达式会被接受为 `i32`；实际仅 `!Pipeline` 触发 try-forward，因此 checker 在左侧类型检查阶段即拒绝并报错。
+  - 验证命令与结果：
+    - `../uya/bin/uya check tests/error_typed_pipeline_non_pipeline_error_union.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+    - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_non_pipeline_error_union.uya` 通过，显示“预期编译失败”。
+    - 全部 typed pipeline 正/负向测试通过：`for f in tests/test_typed_pipeline_*.uya tests/error_typed_pipeline_*.uya; do ./tests/run_programs_parallel.sh "$f"; done`，14/14 通过。
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。

@@ -1,0 +1,18 @@
+// error_typed_pipeline_non_pipeline_error_union.uya
+// checker 负向测试：验证非 Pipeline 的 !T 不会得到 try-forward，
+// 左侧仍然必须是 Pipeline 或 !Pipeline 类型。
+
+fn make_err_i32() !i32 {
+    return 42;
+}
+
+fn takes_i32(x: i32) i32 {
+    return x;
+}
+
+fn main() i32 {
+    // 如果任意 !T 都触发 try-forward，这里会被接受为 i32。
+    // 实际只应对 !Pipeline 触发 try-forward，因此应报左侧类型错误。
+    _ = make_err_i32() |> takes_i32();
+    return 0;
+}
