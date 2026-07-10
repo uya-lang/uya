@@ -335,6 +335,8 @@ struct PipelineCaptureResult {
 > **阶段 0 已锁定**：`CaptureStreamResult.byte_count` 为 `usize`，表示在对应 stream policy 为 capture 时已写入调用方缓冲区的字节数；非 capture 路径、空摘要、预检失败、未观察到 EOF 的成功 observing 返回以及 `CaptureLimitExceeded` 路径均按规则为 `0`。`capture_into` / `capture_limit_into` 返回后，调用方通过 `stdout_buf[0:result.stdout.byte_count]` 与 `stderr_buf[0:result.stderr.byte_count]` 取得有效前缀；result 不保存指向缓冲区的借用。
 >
 > **阶段 0 已锁定**：`CaptureStreamResult.complete` 只有 executor 确实观察到对应 stream 的 EOF 时才为 `true`；正常 direct-stage cutoff（`EAGAIN`、drain budget 耗尽或 capture limit 触发的 `CaptureLimitExceeded` 路径）必须显式为 `false`，不得因数据已填满缓冲区或未等待到 EOF 而静默声称完整。
+>
+> **阶段 0 已锁定**：`PipelineCaptureResult` 仅保存内嵌 `PipelineResult` 与两路 `CaptureStreamResult` 的长度/状态摘要，不保存指向 `stdout_buf` / `stderr_buf` 或调用方任何其他缓冲区的 slice、指针或其他借用。调用方通过自己持有的缓冲区和 `result.stdout.byte_count` / `result.stderr.byte_count` 取得有效前缀；`PipelineCaptureResult` 可独立复制或保留，不延长缓冲区生命周期，也不形成函数签名无法表达的跨参数借用。
 
 `CaptureStreamResult.captured` 的语义由 stream policy 决定，而不是由实际读取到的字节数决定：
 

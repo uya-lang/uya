@@ -445,3 +445,11 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `CaptureStreamResult.complete` 只有 executor 确实观察到对应 stream 的 EOF 时才为 `true`（L337、L341、L354、L565）。
     - 正常 direct-stage cutoff（`EAGAIN`、drain budget 耗尽或 capture limit 触发的 `CaptureLimitExceeded` 路径）必须显式为 `false`，不得因数据已填满缓冲区或未等待到 EOF 而静默声称完整（L337、L364、L565、L710）。
     - 空摘要路径下 `complete=false`（L368）。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] capture result 只记录 stdout/stderr 已写入长度，调用方通过自己的缓冲区和长度取得有效前缀，不建立跨参数借用
+    验证：已在 `docs/typed_pipeline_design.md` L335-L342 增加阶段 0 已锁定声明，明确 `PipelineCaptureResult` 仅保存长度/状态摘要，不保存指向 `stdout_buf` / `stderr_buf` 或调用方其他缓冲区的 slice、指针或借用；调用方通过自己持有的缓冲区和 `result.stdout.byte_count` / `result.stderr.byte_count` 取得有效前缀。无代码实现变更。
