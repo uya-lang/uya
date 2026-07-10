@@ -344,3 +344,13 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - 验证：设计文档审查。`PipelineStageStatusKind` 已包含 `stage_failed`；`PipelineStageStatus` 已包含 `error_name: &const byte`；L334-L335 明确 `stage_failed` 表示 Uya stage 返回 Uya error，`error_name` 必须指向程序期静态/驻留字符串；新增“阶段 0 已锁定”标记冻结该语义。
     - 命令：`grep -n "stage_failed\\|error_name" docs/typed_pipeline_design.md`
     - 结果：匹配到枚举定义、结构体字段、详细语义段及阶段 0 锁定声明。
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [x] `stage_count` 与 statuses 覆盖完整可执行 stage 列表，`stage_index` 不因混合 stage 压缩
+
+验证：
+- `docs/typed_pipeline_design.md` 在 `PipelineCaptureResult` 结构定义后添加阶段 0 已锁定标记，明确 `PipelineResult.stage_count` 与调用方 `statuses` 覆盖完整可执行 stage 列表，`PipelineStageStatus.stage_index` 使用完整 stage 列表零基索引且混合 process/Uya stage 时不压缩编号。
+- 设计文档已写明：调用方提供的 `statuses` 长度必须至少覆盖全部可执行 stage 数量，`PipelineResult.stage_count` 等于该数量；`stage_index` 是完整 pipeline stage 列表中的零基索引，混合 process/Uya stage 时不得重新压缩编号。
+- 验证命令：`sed -n '333,341p' docs/typed_pipeline_design.md` 可看到锁定标记与对应段落。
+- 本轮未修改生产代码，仅完成规格锁定与文档标记。
