@@ -404,3 +404,14 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `sed -n '230,232p' docs/typed_pipeline_design.md` 确认锁定说明包含“不消费、不执行”“空计划返回 0”“无效 / 过期 / 伪造 capability 返回 `error.InvalidPipeline`”
     - `sed -n '681p' docs/typed_pipeline_design.md` 确认不变式列表重申该语义
     - 阶段 0 规格锁定任务，无 `.uya` 实现变更。
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `CaptureStreamResult.captured`
+    验证（2026-07-10）：
+    - `sed -n '322,345p' docs/typed_pipeline_design.md` 确认 `CaptureStreamResult` 定义及新增 `captured` 字段语义锁定说明。
+    - 说明明确 `captured` 由 stream policy 决定；false 时 `byte_count=0` 且 `complete=false`；true 时即使无数据也保持 true。
+    - 阶段 0 规格锁定任务，无 `.uya` 实现变更。

@@ -332,6 +332,13 @@ struct PipelineCaptureResult {
 }
 ```
 
+`CaptureStreamResult.captured` 的语义由 stream policy 决定，而不是由实际读取到的字节数决定：
+
+- 当对应 stream 的 policy 为 capture 时，`captured` 为 `true`；此时 `byte_count` 表示已写入调用方缓冲区的字节数，`complete` 表示是否已观察到 EOF。
+- 当 stream policy 不是 capture（例如 inherit、file、discard、通过 `stderr_to_stdout()` 合并到另一路等）时，`captured` 为 `false`；此时 `byte_count` 必须为 0、`complete` 必须为 false。
+- 对成功返回的 observing capture sink，即使预检失败、pipe 未创建或没有 stage 越过执行释放边界，只要 policy 是 capture，`captured` 仍为 `true`，`byte_count=0`、`complete=false`。
+- 返回普通 Uya error、`error.Interrupted` 或 `error.CaptureLimitExceeded` 前，输出 result 会被重置为空摘要，因此这些路径下 `captured=false`。
+
 > **阶段 0 已锁定**：`PipelineResult` 只保存 `stage_count` 摘要，不保存指向调用方 `statuses` 缓冲区的 slice、指针或其他借用；`PipelineResult.stage_count` 与调用方 `statuses` 缓冲区覆盖完整可执行 stage 列表；`PipelineStageStatus.stage_index` 使用完整 stage 列表的零基索引，混合 process/Uya stage 时不得压缩编号。
 
 公共状态使用平台中立的“执行释放边界”，它表示 executor 已经允许 stage 进入可能执行用户代码的阶段，不声称用户指令已经实际运行：POSIX process stage 在成功消费自己的 `RUN` token 后越过该边界；Windows process stage 在 `ResumeThread` 成功并使 primary thread suspend count 归零后越过；未来 Uya stage 在 runtime/worker 确认开始调用 `PipelineStage.run` 时越过。`not_started` 表示 stage 因更早的预检、启动失败或执行器取消而没有越过该边界。`spawn_failed` 只用于 process stage，覆盖 PATH lookup 失败、fork / CreateProcess 失败、执行域或 stdio setup 失败，以及 POSIX 已消费 RUN 但后续 chdir/dup2/exec 失败并通过 startup diagnostic 回传的情况。`cancelled` 表示 stage 已越过执行释放边界，但在尚未自然完成时被 executor 因其他 stage 启动失败、stage 错误或 sink 中断而强制终止；它不保证用户映像已经执行。若 executor 发起取消前已经观察到自然完成状态，则保留 `exited` / `signaled` / `completed` / `stage_failed`，不能覆盖成 `cancelled`。

@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [ ] `CaptureStreamResult.captured`
   - [ ] `CaptureStreamResult.byte_count`
   - [ ] `CaptureStreamResult.complete`，只有观察到 EOF 才为 true，normal cutoff 必须显式为 false
   - [ ] capture result 只记录 stdout/stderr 已写入长度，调用方通过自己的缓冲区和长度取得有效前缀，不建立跨参数借用
