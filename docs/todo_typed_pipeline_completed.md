@@ -1181,3 +1181,22 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
 验证：
 - 命令：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md`
 - 结果：命中 L682、L844-L846，设计文档已记录 terminal identity 独占 foreground lease、先恢复终端再释放 lease、以及 `tcsetpgrp` 转交/恢复规则，规格锁定完成。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 Uya stage 只有具备内存安全的强制 task 终止或隔离 worker process 时才能继承有限取消承诺；单纯 cancellation flag + join 不足。
+
+  验证方式：人工检查 `docs/typed_pipeline_design.md` 中阶段 0 锁定条款是否已覆盖该门槛。
+
+  验证命令：
+  ```bash
+  grep -n "cancellation flag\\|强制.*终止\\|隔离 worker process\\|有限取消承诺" docs/typed_pipeline_design.md
+  ```
+
+  验证结果：
+  - L23：自定义 Uya stage 进入公共 API 的前置条件 #2 明确要求“内存安全的强制 task 终止”或“可由宿主强制终止的隔离 worker process”，并声明单纯设置 cancellation flag 后 join 的协作式取消不足以继承 process-only pipeline 的有限取消承诺。
+  - L519：详细解释未来 Uya runtime stage 不能仅凭“设置 cancellation flag 后 join”宣称同样的有限终止语义，必须满足二选一条件；否则只能提供明确标注的协作式取消，且不能并入 process-only MVP 的有限完成承诺。
+  - L734：说明 task/thread 路线只是调度形态，不自动满足取消保证；进入公共 API 前必须证明 runtime 能打断阻塞 stream I/O 并按照强制终止门槛处理不协作 CPU-bound stage，否则应改用隔离 worker process 或明确限制为不承诺有限取消的实验能力。
+  - L826：必要不变量中明确“Uya stage 在没有强制、安全的终止机制或隔离 worker process 前，不得继承 process-only pipeline 的有限取消承诺”。
+
+  结论：该门槛已在设计文档中以阶段 0 已锁定形式确立，无需修改生产代码。
