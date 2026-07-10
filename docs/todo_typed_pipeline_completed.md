@@ -157,3 +157,58 @@
       - `./bin/uya check tests/test_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含"管道右侧必须是函数调用"。
       - `./bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含"管道右侧不完整或不是有效的函数调用"。
     - 全量回归：`./tests/run_programs_parallel.sh` 运行 1081 个测试，通过 1078 个；失败的 3 个为 pre-existing（`test_typed_pipeline_parser_negative`、`test_typed_pipeline_parser_negative_eof` 因文件名不以 `error_` 开头被测试框架当作正向测试；`bench_malloc_phase4` 运行时崩溃 exit 139），与本任务无关。
+
+---
+
+## 2026-07-10 完成：仅为 `|>` 添加 `!Pipeline` try-forward 语义
+
+**来源**：`docs/todo_typed_pipeline.md` 阶段 2 Type Checker 规则
+
+**原始任务**：
+- [x] 仅为 `|>` 添加 `!Pipeline` try-forward 语义。
+
+**实现概要**：
+在 `src/checker/check_expr_extra.uya` 的 `checker_check_pipeline_expr` 中，当左侧类型为 `!Pipeline` 时：
+1. 复用 `try` 表达式的上下文检查：要求当前位于函数内，且当前函数返回错误联合类型（或 async Future<!T> 兼容上下文）。
+2. 右侧调用表达式返回类型 `R` 为普通类型时，将结果类型提升为 `!R`；右侧已返回 `!R` 时保持 `!R` 不变。
+
+**改动文件**：
+- `src/checker/check_expr_extra.uya`
+- `tests/error_typed_pipeline_try_forward_type_mismatch.uya`（新增 checker 负向测试）
+
+**验证命令与结果**：
+
+```bash
+# 1. 正向：Pipeline 左侧继续通过
+./tests/run_programs_parallel.sh test_typed_pipeline_checker_positive.uya
+# 结果：✓ test_typed_pipeline_checker_positive:测试通过
+
+# 2. 负向：!Pipeline |> sink 返回 !R，不能直接赋给普通类型 R
+./tests/run_programs_parallel.sh error_typed_pipeline_try_forward_type_mismatch.uya
+# 结果：✓ error_typed_pipeline_try_forward_type_mismatch:预期编译失败
+# 报错：错误联合类型 !T 不能隐式用于普通类型上下文；请使用 try 或 catch 处理
+
+# 3. 正向 check-only：!Pipeline |> sink 可赋给 !R
+./bin/uya check tests/_tmp_check_try_forward.uya
+# 结果：CHECK PASSED
+#（临时文件已清理；等价代码见 tests/error_typed_pipeline_try_forward_type_mismatch.uya 的注释）
+
+# 4. 负向：非错误联合返回函数中使用 !Pipeline |> ... 报错
+./bin/uya check tests/_tmp_check_try_forward_in_non_error_fn.uya
+# 结果：try-forward 管道 '|>' 只能在返回错误联合类型的函数中使用
+#（临时文件已清理）
+
+# 5. 负向：非 Pipeline 的 !T 不会得到 try-forward
+./bin/uya check tests/_tmp_check_non_pipeline_error_union.uya
+# 结果：管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型
+#（临时文件已清理）
+
+# 6. 自举编译器构建
+make uya
+# 结果：构建成功
+```
+
+**基线说明**：
+完整 `make tests-uya` 中 4 个失败与本轮修改无关：
+- `test_typed_pipeline_parser_negative` / `test_typed_pipeline_parser_negative_eof`：文件以 `test_` 开头但内容为 parser 负向用例，基线（stash 前旧编译器）同样失败。
+- `bench_malloc_phase4` / `bench_malloc_phase4_detail`：并行运行时偶发段错误（flaky），单独重复运行均通过，基线单独运行亦通过。

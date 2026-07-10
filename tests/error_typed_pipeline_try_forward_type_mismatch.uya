@@ -1,0 +1,16 @@
+// error_typed_pipeline_try_forward_type_mismatch.uya
+// 验证 !Pipeline 左侧通过 |> 调用 sink 时，返回类型被 try-forward 为 !R，
+// 不能直接赋给普通类型 R。
+
+use std.process;
+
+fn sink_i32(p: Pipeline) i32 { return 42; }
+
+fn make_err_pipeline() !Pipeline {
+    return pipeline();
+}
+
+fn main() i32 {
+    const x: i32 = make_err_pipeline() |> sink_i32();
+    return x;
+}
