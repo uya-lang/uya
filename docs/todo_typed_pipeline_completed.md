@@ -1057,3 +1057,10 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   git diff --check docs/typed_pipeline_design.md docs/todo_typed_pipeline.md
   ```
 - 结果：无空白错误，diff 仅含设计文档与 TODO 状态变更。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 controlling terminal 只有在 executor 当前就是前台 process group 时才转交/恢复 PGID；后台 executor 不得抢占终端，终止信号仍需转发。
+  验证（2026-07-10）：已在 `docs/typed_pipeline_design.md` L676 添加 `> **阶段 0 已锁定**：` 标记，明确只有 `tcgetpgrp(tty_fd) == getpgrp()` 时才允许 `tcsetpgrp` 转交前台 PGID；后台 executor 不得抢占终端，所有转交路径必须恢复保存的前台 PGID，从未转交不得恢复；并发 sink 按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，终止信号仍必须转发。同文档 L818 内部计划草图对应项也已标记为阶段 0 已锁定。复核 `git diff -- docs/typed_pipeline_design.md` 确认只新增锁定标记与必要措辞调整，无实现代码改动。

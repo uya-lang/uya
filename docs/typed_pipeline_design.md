@@ -673,9 +673,7 @@ POSIX process group 必须通过带显式消息的启动屏障消除竞态。par
 
 POSIX 执行释放边界以成功消费 `RUN` 为准：尚未消费 `RUN` 就因其他 stage 失败而退出的 child 即使已经有 PID，也写入 `not_started`；自身 fork、setpgid、signal setup、barrier 或后续 setup 失败的 stage 写入 `spawn_failed`。如果 parent 已经向部分 child 发出 `RUN` 后发生某个 per-child launch pipe 错误，未释放 child 记为 `not_started`，对应 launch pipe 的 stage 记为 `spawn_failed(execution_domain_failed)`；已经释放且在统一取消前尚未自然完成的 child 记为 `cancelled`，即使它还停留在 chdir/dup2/exec 前后；已经观察到自然完成的则保留实际状态。
 
-独立 process group 不能破坏默认继承终端的行为。多个并发 sink 可能共享同一个 controlling terminal，因此 runtime 必须按 terminal identity 提供独占 foreground lease；需要把任一 inherit stream 连接到该 terminal 的 sink 必须在创建 child 和产生文件截断等外部副作用前取得 lease，并持有到前台 PGID恢复或确定从未转交为止。等待 lease 的 sink 可以被 runtime broker 中断并返回 `error.Interrupted`；不能让两个 sink 竞态调用 `tcsetpgrp`。不触及 controlling terminal 的 pipeline 不受该 lease 串行化。
-
-取得 lease 后，executor 必须先通过 `tcgetpgrp(tty_fd)` 读取并保存当前前台 PGID，并且只有该值等于 executor 自身的 `getpgrp()` 时，才允许在发送 `RUN` 前用 `tcsetpgrp` 把终端前台权转交给 pipeline group。若 executor 本身处于后台，必须保持后台语义，不能忽略 `SIGTTOU` 后抢占终端，也不能把其他前台 job 的 PGID 当作“父 PGID”覆盖。完成过转交时，正常完成、启动失败、capture 超限、stage stop 和收到取消信号的所有路径都必须恢复先前保存的前台 PGID；从未转交则不得调用恢复。切换 `tcsetpgrp` 时只允许在调用线程临时阻塞 `SIGTTOU`，调用后立即恢复原 mask；等待期间父进程不得读写已经转交的终端。`tcgetpgrp` / `tcsetpgrp` 失败属于执行器基础设施错误：在任何 `RUN` 发出前按 ABORT 协议取消全部 child 并返回普通 Uya error。释放 foreground lease 前必须完成上述恢复或失败收敛。
+> **阶段 0 已锁定**：controlling terminal 的前台 PGID 只有在 executor 自身当前就是前台 process group 时才允许转交给 pipeline group，并且只在确实发生过转交时才恢复。runtime 必须按 terminal identity 提供独占的 interruptible foreground lease；需要把任一 inherit stream 连接到该 terminal 的 sink 必须在创建 child 和产生文件截断等外部副作用前取得 lease，并持有到前台 PGID 恢复或确定从未转交为止。取得 lease 后，executor 必须先通过 `tcgetpgrp(tty_fd)` 读取并保存当前前台 PGID，并且只有该值等于 executor 自身的 `getpgrp()` 时，才允许在发送 `RUN` 前用 `tcsetpgrp` 把终端前台权转交给 pipeline group。若 executor 本身处于后台，必须保持后台语义，不能忽略 `SIGTTOU` 后抢占终端，也不能把其他前台 job 的 PGID 当作“父 PGID”覆盖。完成过转交时，正常完成、启动失败、capture 超限、stage stop 和收到取消信号的所有路径都必须恢复先前保存的前台 PGID；从未转交则不得调用恢复。切换 `tcsetpgrp` 时只允许在调用线程临时阻塞 `SIGTTOU`，调用后立即恢复原 mask；等待期间父进程不得读写已经转交的终端。`tcgetpgrp` / `tcsetpgrp` 失败属于执行器基础设施错误：在任何 `RUN` 发出前按 ABORT 协议取消全部 child 并返回普通 Uya error。释放 foreground lease 前必须完成上述恢复或失败收敛。等待 lease 的 sink 可以被 runtime broker 中断并返回 `error.Interrupted`；不能让两个 sink 竞态调用 `tcsetpgrp`。不触及 controlling terminal 的 pipeline 不受该 lease 串行化。
 
 同步 sink 不公开 suspended/stopped stage，因此 wait loop 必须使用 `WUNTRACED`（以及平台需要时的 `WCONTINUED`）观察直接 child 的停止状态，不能只等待退出。任一直接 child 因 `SIGTSTP`、`SIGTTIN`、`SIGTTOU`、`SIGSTOP` 或其他信号进入 stopped 状态时，executor 必须立即恢复曾转交的前台 PGID，对 process group 和全部直接 PID执行强制取消并 reap，然后返回 `error.Interrupted`；接收 result 指针的 sink 返回空摘要。该规则也覆盖后台 executor 的 child 因读取 controlling terminal 收到 `SIGTTIN`，避免同步 sink 永久挂起。若未来需要 shell 式“停止 executor、收到 SIGCONT 后恢复 pipeline”的行为，必须作为显式 job-control 模式另行设计；当前 MVP 不静默实现半套 job table。
 
@@ -817,7 +815,7 @@ struct ErasedPipelineStage {
 > **阶段 0 已锁定**：所有内部 control/data/file source fd 必须避开 0/1/2，或使用等价的循环安全 stdio remap；不能假设宿主标准 fd 已打开。详见上文 POSIX 后端 fd 搬移与 remap 规则。
 - POSIX launch token 写入必须屏蔽本次写入产生的 `SIGPIPE` 并把 `EPIPE`/短写作为可清理的启动失败，不能让 executor 被默认 signal action 直接终止。
 - runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
-- 只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
+> **阶段 0 已锁定**：只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
 - wait loop 必须观察 stopped direct child；当前无公共 job-control 的模式将任何 stopped 状态收敛为有限取消和 `error.Interrupted`，不能遗留前台终端或永久等待。
 - executor 自身收到未忽略的终止/取消信号时必须去重转发、有限取消并返回 `error.Interrupted`；异步 handler/callback 不能执行复杂清理。
 - Windows child 必须以 suspended 状态创建、在运行前加入 Job Object，并通过严格 handle allowlist 避免多余 pipe 端继承；成功 resume 是执行释放边界，默认 direct-stage 模式不得以 kill-on-close 改变正常后代语义。取消时必须显式终止 Job，并对 created-but-unassigned child 单独 `TerminateProcess`、等待后再关闭 handle。
