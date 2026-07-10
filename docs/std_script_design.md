@@ -1,8 +1,9 @@
 # Uya 脚本标准库与运行时设计文档
 
 **状态**：design draft  
-**更新日期**：2026-06-29
+**更新日期**：2026-07-10
 **配套 TODO**：[`todo_std_script.md`](todo_std_script.md)
+**类型化管道设计**：[`typed_pipeline_design.md`](typed_pipeline_design.md)
 
 ---
 
@@ -233,6 +234,8 @@ Uya script / tests/*.uya / tools/*.uya
 - 支持输出捕获
 - 支持等待与退出码解析
 - 支持 pipeline，但 pipeline 是“进程图”或 helper，不是 shell 文法
+
+`Pipeline`、`|>`、checked/observing sink、capture 限制、stage 状态与跨平台取消域的详细语义由 [`typed_pipeline_design.md`](typed_pipeline_design.md) 统一定义；`std.process` / `std.script` 不得再建立不兼容的平行 pipeline API。
 
 ### 1.2 建议数据模型
 
