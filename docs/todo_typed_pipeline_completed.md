@@ -268,3 +268,19 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
 - 必要不变量重申 `cancelled` 与 `not_started` 的区分（L701）。
 
 完成时间：2026-07-10
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] per-stage `cancelled`
+
+  验证：`typed_pipeline_design.md` 已锁定 per-stage `cancelled`：
+  - `PipelineStageStatusKind` 枚举包含 `cancelled`（L277–285）。
+  - 结果模型明确 `cancelled` 表示已越过执行释放边界、但在自然完成前被 executor 强制终止；自然完成状态不得覆盖为 `cancelled`（L326–330）。
+  - POSIX 执行释放边界以成功消费 `RUN` 为准，已释放但未自然完成的 stage 记为 `cancelled`（L551）。
+  - Windows 执行释放边界以 `ResumeThread` 成功为准，已恢复但被终止的 stage 记为 `cancelled`（L613）。
+  - 必要不变量重申 `cancelled` 与 `not_started` 的区分（L701）。
+
+  完成时间：2026-07-10
