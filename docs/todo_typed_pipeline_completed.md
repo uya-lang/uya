@@ -26,3 +26,16 @@
 ## 阶段 1：Lexer 与 Parser 骨架
 
 - [x] 添加左结合 pipeline expression 的 parser 支持，优先级低于当前 parser 中最低的非赋值表达式层级、高于赋值；实现前同步 formal grammar 中缺失的位或层级。
+
+## 阶段 1：Lexer 与 Parser 骨架
+
+- [x] 第一版将右侧限制为最外层是 call 的 postfix expression。
+  - 实现要点：
+    - 在 `src/parser/expressions.uya` 的 `parser_parse_pipeline_expr` 中，右侧通过 `parser_parse_primary_expr` 解析完整 postfix 链，并校验最外层节点类型必须为 `AST_CALL_EXPR`；非 call 的 postfix expression（如 `f().field`、`f()[0]`）会被拒绝。
+    - `docs/grammar_formal.md` 中 `pipeline_expr = or_expr { '|>' postfix_expr }` 已注释说明右侧限制为最外层是 call 的 postfix expression。
+  - 验证命令与结果：
+    - 正向测试：`../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK（覆盖 `s.cmd("a")` 实例方法调用、泛型 callee、括号左侧、多行格式）。
+    - 负向测试：
+      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+    - 额外验证：`pipeline() |> f().field` 与 `pipeline() |> f()[0]` 均被 parser 拒绝。
