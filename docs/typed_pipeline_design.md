@@ -254,7 +254,9 @@ PATH 查找属于 `std.process` / `std.path` 的平台敏感逻辑，不应在 p
 
 `env` / `unset_env` 必须复用 `std.env` 的校验规则：key 非空且不含 `=`，value 不得为 null；非法输入返回对应的 `error.EnvInvalidName` / `error.EnvInvalidValue`，而不是延迟到 child 启动。计划拥有 key/value 副本。PATH 解析与最终 spawn 必须使用同一份已经完成 overlay 的不可变 env block，避免查找时环境与 exec 时环境不一致。
 
-`cwd`、`env`、`unset_env` 是 stage-local transformer，作用于最近追加的 process stage。若当前计划尚无 process stage，或最近 stage 是 Uya stage，必须返回 `error.InvalidPipeline`。这样下面的写法含义固定：
+> **阶段 0 已锁定**：`cwd`、`env`、`unset_env` 是 stage-local transformer，作用于最近追加的 process stage。若当前计划尚无 process stage，或最近 stage 是 Uya stage，必须返回 `error.InvalidPipeline`。
+>
+> 这样下面的写法含义固定：
 
 ```uya
 const status_args: [&const byte: 1] = ["status"];
