@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [ ] `PipelineResult` 只保存 `stage_count` 摘要，不保存指向调用方 status 缓冲区的 slice/pointer
   - [ ] `stage_count(&Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，无效 capability 返回 `InvalidPipeline`
   - [ ] `CaptureStreamResult.captured`
   - [ ] `CaptureStreamResult.byte_count`

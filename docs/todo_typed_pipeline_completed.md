@@ -367,3 +367,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `sed -n '316,318p' docs/typed_pipeline_design.md` 确认 `PipelineResult.stage_count` 字段存在
     - `sed -n '333p' docs/typed_pipeline_design.md` 确认阶段 0 已锁定声明
     - `sed -n '341,343p' docs/typed_pipeline_design.md` 确认 `PipelineResult.stage_count`、调用方 `statuses` 缓冲区覆盖完整可执行 stage 列表，`stage_index` 使用完整 stage 列表零基索引，混合 process/Uya stage 时不得重新压缩编号
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `PipelineResult` 只保存 `stage_count` 摘要，不保存指向调用方 status 缓冲区的 slice/pointer
+
+验证（2026-07-10）：
+- `sed -n '316,330p' docs/typed_pipeline_design.md` 确认 `struct PipelineResult { stage_count: usize }`，无指向调用方缓冲区的 slice/pointer 字段。
+- `sed -n '333p' docs/typed_pipeline_design.md` 已追加“阶段 0 已锁定”说明，明确 `PipelineResult` 只保存 `stage_count` 摘要，不保存指向调用方 `statuses` 缓冲区的 slice、指针或其他借用。
+- `grep -n "PipelineResult" docs/typed_pipeline_design.md` 确认 L316-L318 定义、L341-L344 段落进一步解释 caller-provided buffer 方案与无借用语义。
