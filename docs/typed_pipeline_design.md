@@ -243,7 +243,29 @@ Uya 可变参数写作裸尾随 `...`，不是命名的 `args: ...`。当前 C99
 
 `cmd_argv` / `cmd_path_argv` 的 `args` 不包含 child `argv[0]`。执行器构造最终 argv 时必须显式前置一个 `argv0`：`cmd_argv` 使用 `program` 本身，`cmd_path_argv` 使用调用方传入的 `path` 本身。若后续需要伪装或自定义 `argv[0]`，应添加单独的 `cmd_argv0` / `cmd_path_argv0` API，不能改变现有 `args` 语义。
 
-> **阶段 0 已锁定**：PATH 查找属于 `std.process` / `std.path` 的平台敏感逻辑，由可由 pipeline 复用的 helper（例如 `process_resolve_path(program, env, cwd)` 或等价接口）执行；实现可放在 `std.process` 内部，但语义必须先于 pipeline executor 稳定定义，不能在 executor 中另写一套。第一版可先只交付 POSIX 规则，但 helper 接口与稳定规则在阶段 0 锁定如下：
+### PATH helper 接口
+
+PATH 查找由 `std.process` 内部的平台敏感 helper 执行，并同时供 pipeline executor、`std.path` 和其他需要一致 PATH 语义的内部模块复用。阶段 0 锁定的 helper 接口形如：
+
+```uya
+/// Resolve a bare command name to an executable path using the stage's final env and cwd.
+/// program: bare command name already validated to contain no path separators.
+/// env:     immutable child env block after all env/unset_env overlays have been applied.
+/// cwd:     final stage cwd used to interpret empty/relative PATH components and to reject
+///          platform-relative forms that cannot be stably resolved.
+fn process_resolve_path(program: &const byte, env: &EnvBlock, cwd: &const byte) !ProcessResolvePathResult;
+```
+
+`EnvBlock` 表示由 `std.env` 的 child-only env builder 生成的、以 null 结尾的不可变环境变量块；helper 对其只读访问，仅用于读取 `PATH`。`ProcessResolvePathResult` 承载以下结果之一：
+
+- 成功：返回解析出的可执行文件路径 `exec_path`。
+- `path_not_found`：`PATH` 缺失、为空，或按规则搜索后没有任何候选存在。
+- `permission_denied`：至少一个候选存在，但因权限、目录类型或其他 lookup 阶段可判定的条件不可用。
+- 其他可映射到 `PipelineSpawnFailureKind` 的 lookup 阶段具体失败类别；无法可靠映射时使用 `platform_error`，并保留原始平台码用于诊断。
+
+PATH lookup 和最终 spawn 必须使用同一个解析出的 `exec_path`，但 child / `CreateProcessW` 仍需报告 TOCTOU 之后的真实启动失败（映像格式错误等属于 `exec_failed`，不在 helper 中返回）。
+
+> **阶段 0 已锁定**：`process_resolve_path` 的搜索规则如下：
 >
 > - PATH 缺失表示没有搜索目录并返回 `path_not_found`，不注入宿主实现自选的默认目录。
 > - POSIX 使用 `:` 分隔；Windows 使用 `;` 分隔。空 component 明确表示该 stage 的最终 cwd，relative component 也以最终 cwd 为基准；除此之外不隐式把当前目录插入搜索序列。

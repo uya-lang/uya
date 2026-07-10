@@ -870,3 +870,12 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - `docs/std_script_design.md` L277-L279 已补充说明：PATH 查找语义由 `std.process` 内部复用 `std.path` 的平台 helper 实现，pipeline executor 只消费解析后的绝对 `exec_path`。
   - `git diff --check` 通过，无空白错误。
 
+
+## 阶段 0：规格锁定
+
+- [x] 先定义可由 pipeline 复用的 PATH helper，例如 `process_resolve_path(program, env, cwd)` 或等价接口。
+  - 交付：在 `docs/typed_pipeline_design.md` 新增 `### PATH helper 接口` 小节，定义 `process_resolve_path(program, env, cwd)` 的函数签名、参数语义（`program`、`env`、`cwd`）与 `ProcessResolvePathResult` 结果分类；在 `docs/std_script_design.md` 同步引用该 helper 名称与规则文档。
+  - 验证：
+    - `git diff --check` 通过，无空白错误。
+    - `sed -n '238,280p' docs/typed_pipeline_design.md` 确认新增接口小节及规则归属正确。
+    - `git diff docs/typed_pipeline_design.md docs/std_script_design.md` 确认仅涉及规格文档的 PATH helper 定义与引用更新。
