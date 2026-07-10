@@ -823,3 +823,13 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - 整条 pipeline 的 stderr 策略等价于 shell group 级重定向 `{ a | b; } 2>file` / `{ a | b; } 2>&1`，不是 `a 2>&1 | b` 这种 per-stage 数据流。
     - 多个 stage 同时写入同一个 stderr file/capture pipe 时，只保证 byte stream 不被 executor 主动重排，不保证跨进程日志行顺序稳定。
   - 结论：stderr 策略已在设计文档中锁定为 group-level 语义，任务完成。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定整条 pipeline stderr 策略是 shell group 级语义，不是 per-stage stderr 数据流。
+  验证（2026-07-10）：
+  - `sed -n '272p' docs/typed_pipeline_design.md` 确认 "配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect"
+  - `sed -n '278p' docs/typed_pipeline_design.md` 确认 "stderr 不会被 capture sink 隐式捕获"
+  - `sed -n '505p' docs/typed_pipeline_design.md` 确认 "整条 pipeline 的 stderr 策略等价于 shell group 级重定向 ... 不是 ... per-stage 数据流"
