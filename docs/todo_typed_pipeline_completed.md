@@ -22,3 +22,7 @@
     - 负向测试：
       - `./bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
       - `./bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+
+## 阶段 1：Lexer 与 Parser 骨架
+
+- [x] 添加左结合 pipeline expression 的 parser 支持，优先级低于当前 parser 中最低的非赋值表达式层级、高于赋值；实现前同步 formal grammar 中缺失的位或层级。

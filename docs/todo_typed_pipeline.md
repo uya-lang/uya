@@ -15,7 +15,6 @@
 
 ## 阶段 1：Lexer 与 Parser 骨架
 
-- [x] 添加左结合 pipeline expression 的 parser 支持，优先级低于当前 parser 中最低的非赋值表达式层级、高于赋值；实现前同步 formal grammar 中缺失的位或层级。
 - [ ] 第一版将右侧限制为最外层是 call 的 postfix expression。
 - [ ] parser MVP 保持空 pipeline 构造显式；暂不特殊处理 `_`。
 - [ ] 添加 parser 正向测试：
