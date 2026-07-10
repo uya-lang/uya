@@ -407,6 +407,7 @@ inter-stage / launch / startup-report pipe 创建失败   => 普通 Uya error
 执行 sink 分成 checked 和 observing 两类：
 
 > **阶段 0 已锁定**：`check()` 使用固定的 all-stage/pipefail 策略：任一 process stage 非零退出或 signal 终止都会返回 `error.ProcessFailed`；`spawn_failed` / `not_started` 链路优先返回 `error.PipelineSpawnFailed`；Uya stage 错误返回 `error.PipelineStageFailed`。MVP 不提供按 pipeline 配置或关闭 pipefail 的入口。
+> **阶段 0 已锁定**：`check_into(statuses, result)` 与 `check()` 使用同样的 all-stage/pipefail 策略，且在返回 `error.ProcessFailed`、`error.PipelineSpawnFailed` 或 `error.PipelineStageFailed` 前必须先把完整 stage 状态写入 `statuses[0:result.stage_count]` 并设置 `PipelineResult.stage_count`。
 
 - `check()` 使用固定的 all-stage/pipefail 策略：任一 process stage 非零退出或 signal 终止都会返回 `error.ProcessFailed`。MVP 不提供按 pipeline 配置或关闭 pipefail 的入口。
 - `check()` 若出现 `spawn_failed` / `not_started` 失败链路，优先返回 `error.PipelineSpawnFailed`；若 Uya stage 返回错误，则返回 `error.PipelineStageFailed`；否则任一 process stage 非零退出或 signal 终止时返回 `error.ProcessFailed`。
