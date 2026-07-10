@@ -39,3 +39,15 @@
     - `sed -n '196p' docs/typed_pipeline_design.md` 确认 `fn pipeline() Pipeline;`
     - `sed -n '238p' docs/std_script_design.md` 确认引用 typed_pipeline_design.md 的 pipeline 语义
     - `grep -R -n -E '(empty_pipeline|pipeline\s*\()' --include='*.uya' .` 未发现 `empty_pipeline`；`pipeline(` 仅在 `examples/example_152.uya` 中作为用户自定义函数名出现，非 typed pipeline 构造器。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 确定最终名称：
+  - [x] `cmd_argv` / `cmd_path_argv`，以及后续 `cmd` / `cmd_path` facade
+    验证（2026-07-10）：
+    - `sed -n '190,210p' docs/typed_pipeline_design.md` 确认 API 列表已使用 `cmd_argv`、`cmd_path_argv`、`cmd`、`cmd_path`
+    - `grep -cE 'cmd_argv|cmd_path_argv|fn cmd\(|fn cmd_path\(' docs/typed_pipeline_design.md` 返回 21 处引用
+    - `grep -nE '\b(exec_argv|run_argv|spawn_argv|exec_path_argv|run_path_argv|spawn_path_argv|process_argv|process_path_argv|pipeline_cmd_argv|pipe_cmd_argv|command_argv|command_path_argv)\b' docs/typed_pipeline_design.md docs/std_script_design.md` 未发现竞争候选名
+    - 已在 `typed_pipeline_design.md` API 列表标题处添加"名称已锁定为最终公共名"说明，并在 `cmd` / `cmd_path` 注释处补充"名称同样锁定"

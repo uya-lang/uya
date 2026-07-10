@@ -14,7 +14,7 @@
 ## 阶段 0：规格锁定
 
 - [ ] 确定最终名称：
-  - [ ] `cmd_argv` / `cmd_path_argv`，以及后续 `cmd` / `cmd_path` facade
+  - [x] `cmd_argv` / `cmd_path_argv`，以及后续 `cmd` / `cmd_path` facade
   - [ ] `stage`
   - [ ] `stdout_file`
   - [ ] `capture_into` / `capture_limit_into`

@@ -190,7 +190,7 @@ Sink：
 fn(Pipeline, ...) !T where T != Pipeline
 ```
 
-推荐的基础 API：
+推荐的基础 API（名称已锁定为最终公共名）：
 
 ```uya
 fn pipeline() Pipeline;
@@ -200,7 +200,7 @@ fn clone(input: &Pipeline) !Pipeline;
 fn cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) !Pipeline;
 fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline;
 
-// 后续 facade；不属于缺少 typed varargs materialization 时的 MVP。
+// 后续 facade；不属于缺少 typed varargs materialization 时的 MVP。名称同样锁定。
 fn cmd(input: Pipeline, program: &const byte, ...) !Pipeline;
 fn cmd_path(input: Pipeline, path: &const byte, ...) !Pipeline;
 fn cwd(input: Pipeline, path: &const byte) !Pipeline;
