@@ -217,3 +217,21 @@ make uya
 
 - [x] 仅为 `|>` 添加 `!Pipeline` try-forward 语义。
   - 归档说明：本轮为归档清理轮，该任务已在之前轮次完成并标记为 `[x]`，本轮仅做归档移动。
+
+---
+
+# 类型化管道 TODO / 阶段 2：Type Checker 规则
+
+- [x] 拒绝对非 `Pipeline` 值使用通用数据管道。
+  - 实现状态：本任务核心实现已在之前轮次完成（见上文“强制 `|>` 左侧为 `Pipeline` 或 `!Pipeline`”）。
+    - `src/checker/check_expr_extra.uya` 的 `checker_check_pipeline_expr` 在推断左侧类型后，使用 `checker_type_is_pipeline` 与 `checker_type_is_error_union_pipeline` 校验；若非 canonical `Pipeline` / `!Pipeline`，则在左侧节点上报错“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+    - 该检查通过 `std.process` 模块导出记录中的声明身份识别 `Pipeline`，不依赖未限定名字符串。
+  - 本轮工作：确认实现与测试存在，更新主 TODO 状态并归档。
+  - 验证命令与结果：
+    - `../uya/bin/uya check tests/error_typed_pipeline_checker_left.uya`
+      - 返回 exit 1，错误信息包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+    - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya`
+      - 通过，2 个测试全部 OK（覆盖左侧为 `Pipeline` 和 `!Pipeline`）。
+  - 相关测试文件：
+    - `tests/error_typed_pipeline_checker_left.uya`：负向测试 `1 |> cmd("x")`，验证非 `Pipeline` 左侧被拒绝。
+    - `tests/test_typed_pipeline_checker_positive.uya`：正向测试，验证合法 `Pipeline` / `!Pipeline` 左侧通过。
