@@ -530,3 +530,11 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 验证：
 - 命令：`grep -n "阶段 0 已锁定.*capture_into" docs/typed_pipeline_design.md`
 - 结果：匹配到 `docs/typed_pipeline_design.md:274` 的锁定段落，确认 `capture_into()` / `capture_limit_into()` 隐式要求 terminal stdout 为 capture，且与显式 stdout file/inherit 冲突时返回 `error.InvalidPipeline`。
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 capture sink 语义：
+  - [x] `capture_into()` 隐式捕获 terminal stdout
+
+**归档时间**：2026-07-10  
+**验证说明**：归档清理轮，无新增验证命令；该条目在上一轮已标记完成并验证。
