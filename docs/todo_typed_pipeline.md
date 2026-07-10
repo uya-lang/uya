@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [x] 锁定 terminal stdout/stderr 策略与 inter-stage pipe 的边界。
 - [ ] 锁定整条 pipeline stderr 策略是 shell group 级语义，不是 per-stage stderr 数据流。
 - [ ] 锁定 `cmd` 的 PATH-searching 语义，并提供 exact-path API `cmd_path`。
 - [ ] 锁定 `cmd` 只接受不含路径分隔符的命令名；路径执行必须使用 `cmd_path`。
