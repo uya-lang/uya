@@ -15,8 +15,6 @@
 
 ## 阶段 2：Type Checker 规则
 
-- [x] 添加诊断：
-  - [x] 实例方法 receiver 与 synthetic lhs 冲突
 - [ ] 添加 `1 |> cmd("x")` 的 checker 负向测试。
 - [ ] 添加 `!Pipeline |> transformer` 的 checker 测试。
 - [ ] 添加 checker 测试证明非 `Pipeline` 的 `!T` 不会得到 try-forward。
