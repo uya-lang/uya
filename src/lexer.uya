@@ -73,6 +73,7 @@ enum TokenType {
     TOKEN_EXCLAMATION,
     TOKEN_AMPERSAND,
     TOKEN_PIPE,
+    TOKEN_PIPE_GT,      // |>（类型化管道）
     TOKEN_CARET,
     TOKEN_TILDE,
     TOKEN_LSHIFT,
@@ -1213,6 +1214,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &CompilerArena) &Token {
     }
     if c == 124 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 62 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_PIPE_GT, "|>" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 124 {
             advance_char(lexer);
             return make_token(arena, TokenType.TOKEN_LOGICAL_OR, "||" as &byte, line, column);
