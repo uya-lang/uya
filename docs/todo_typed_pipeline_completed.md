@@ -803,3 +803,14 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   ```
   497:> **阶段 0 已锁定**：同一 process stage 多次调用 `cwd(path)` 时，最后一次覆盖前一次；`path` 始终按 sink-time 宿主进程 cwd 快照解释，不相对任何前一次 `cwd` 做链式拼接。例如 `cmd("git") |> cwd("a") |> cwd("b")` 等价于 `cmd("git") |> cwd("b")`，而不是 `cwd("a/b")`。
   ```
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 terminal stdout/stderr 策略与 inter-stage pipe 的边界。
+  验证（2026-07-10）：
+  - `sed -n '272p' docs/typed_pipeline_design.md` 确认已写入：
+    > **阶段 0 已锁定**：`stdin_file` 配置第一段 stage 的 stdin。`stdout_file`、`stdout_capture` 配置最后一段 stage 的 stdout。`stderr_file`、`stderr_capture`、`stderr_to_stdout` 配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect。
+  - `sed -n '505p' docs/typed_pipeline_design.md` 确认已写入：
+    > **阶段 0 已锁定**：Inter-stage stdout pipe 是执行拓扑的一部分，不受 `stdout_file` 等终端 stdout 策略影响：stage `i` 的 stdout 连接到 stage `i + 1` 的 stdin；只有最后一个 stage 的 stdout 进入终端 stdout 策略。stderr 默认不参与 stage 间数据流。整条 pipeline 的 stderr 策略等价于 shell group 级重定向，例如 `{ a | b; } 2>file` 或 `{ a | b; } 2>&1`，不是 `a 2>&1 | b` 这种 per-stage 数据流。

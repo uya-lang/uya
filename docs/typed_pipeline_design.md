@@ -269,7 +269,7 @@ try (pipeline()
     |> check());
 ```
 
-`stdin_file` 配置第一段 stage 的 stdin。`stdout_file`、`stdout_capture` 配置最后一段 stage 的 stdout。`stderr_file`、`stderr_capture`、`stderr_to_stdout` 配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect。需要精确复刻 shell 的每段 stderr 重定向时，应在后续加入显式 stage handle API，而不是让当前 transformer 静默猜测。
+> **阶段 0 已锁定**：`stdin_file` 配置第一段 stage 的 stdin。`stdout_file`、`stdout_capture` 配置最后一段 stage 的 stdout。`stderr_file`、`stderr_capture`、`stderr_to_stdout` 配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect。需要精确复刻 shell 的每段 stderr 重定向时，应在后续加入显式 stage handle API，而不是让当前 transformer 静默猜测。
 
 `stdout_file` / `stderr_file` 是 transformer，不执行 pipeline。执行只发生在 sink：`check`、`check_into`、`status_into`、`capture_into`、`capture_limit_into`，以及后续按值返回 facade `status`、`capture`、`capture_limit`。
 
@@ -502,7 +502,7 @@ POSIX stdin 使用 `O_RDONLY | O_CLOEXEC`；stdout/stderr 使用 `O_WRONLY | O_C
 
 多文件打开不是事务。若较早的 stdout/stderr `CREATE_ALWAYS`/`O_TRUNC` 已经成功，而后续 policy 打开失败，实现必须关闭已经打开的文件和内部 pipe/handle、释放 terminal lease、返回普通 Uya error并保持没有 child 启动，但不承诺回滚已经发生的文件创建或截断。固定打开顺序使该副作用可预测；文档和测试不能声称“文件打开失败完全没有外部副作用”。
 
-Inter-stage stdout pipe 是执行拓扑的一部分，不受 `stdout_file` 等终端 stdout 策略影响：stage `i` 的 stdout 连接到 stage `i + 1` 的 stdin；只有最后一个 stage 的 stdout 进入终端 stdout 策略。stderr 默认不参与 stage 间数据流。整条 pipeline 的 stderr 策略等价于 shell group 级重定向，例如 `{ a | b; } 2>file` 或 `{ a | b; } 2>&1`，不是 `a 2>&1 | b` 这种 per-stage 数据流。多个 stage 同时写入同一个 stderr file/capture pipe 时，只保证 byte stream 不被 executor 主动重排，不保证跨进程日志行顺序稳定。
+> **阶段 0 已锁定**：Inter-stage stdout pipe 是执行拓扑的一部分，不受 `stdout_file` 等终端 stdout 策略影响：stage `i` 的 stdout 连接到 stage `i + 1` 的 stdin；只有最后一个 stage 的 stdout 进入终端 stdout 策略。stderr 默认不参与 stage 间数据流。整条 pipeline 的 stderr 策略等价于 shell group 级重定向，例如 `{ a | b; } 2>file` 或 `{ a | b; } 2>&1`，不是 `a 2>&1 | b` 这种 per-stage 数据流。多个 stage 同时写入同一个 stderr file/capture pipe 时，只保证 byte stream 不被 executor 主动重排，不保证跨进程日志行顺序稳定。
 
 ## 未来扩展：自定义 Uya Pipeline Stage
 
