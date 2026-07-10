@@ -984,3 +984,10 @@ grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 5
 sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_design.md
 ```
 验证结果：确认设计文档中已出现覆盖上述三条规则的锁定声明，且上下文保留 pipeline() 返回 live 计划、transformer/sink 消费规则、自动 drop 与 capability 重复消费防御等完整约束。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 transformer/sink 在所有返回路径上消费 input，失败路径释放计划；未进入 sink 的 live pipeline 离开作用域时自动 drop。
+  验证：已在归档前完成并验证。
