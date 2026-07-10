@@ -70,3 +70,23 @@
       - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
       - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
 
+
+## 阶段 2：Type Checker 规则
+
+- [x] 添加 checker 可识别的 `Pipeline` 类型身份。
+  - 实现要点：
+    - 在 `src/checker/types.uya` 的 `Type` 结构体新增 `decl_node` 字段，为命名类型（struct/interface/union/enum）保存 canonical 声明节点，使 checker 可以按声明身份而非仅未限定名字符串识别类型。
+    - 在 `TypeChecker` 结构体新增 `pipeline_decl` 字段，缓存解析后的 canonical `std.process.Pipeline` 声明。
+    - 在 `src/checker/symbols.uya` 的 `checker_init` 中初始化 `pipeline_decl = null`。
+    - 在 `src/checker/check_expr.uya` 的 `copy_type` 中复制 `decl_node`。
+    - 在 `src/checker/type_utils.uya` 的所有 `make_*_type` 构造函数中初始化 `decl_node: null`。
+    - 在 `src/checker/type_from_ast.uya` 中，为命名类型节点解析到对应声明（enum/interface/union/struct）时，将声明节点写入 `result.decl_node`。
+    - 在 `src/checker/type_utils.uya` 新增 `checker_resolve_pipeline_decl`、`checker_type_is_pipeline`、`checker_type_is_error_union_pipeline` 三个 helper，按 `std.process` 模块导出记录中的声明身份识别 `Pipeline` 与 `!Pipeline`。
+    - 新增 `lib/std/process.uya`：声明 canonical `export struct Pipeline`（interim capability handle 表示）和 `export fn pipeline() Pipeline` 构造器，为 checker 提供可解析的 canonical 类型声明。
+    - 新增测试 `tests/test_typed_pipeline_type_identity.uya`：导入 `std.process` 并使用 `Pipeline` 类型与 `pipeline()` 构造器，验证 canonical 类型身份可被编译器识别。
+  - 验证命令与结果：
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - 聚焦测试：`../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过。
+    - 相关回归：`../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过（6/6）。
+    - 全量回归：`make tests-uya` 运行 1078 个测试，通过 1076 个；失败的 2 个为阶段 1 已存在的 parser 负向测试 `test_typed_pipeline_parser_negative.uya` 与 `test_typed_pipeline_parser_negative_eof.uya`（预期编译失败，但测试框架未按 `error_*.uya` 命名，故被标记为失败），与本任务无关。

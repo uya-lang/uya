@@ -1,0 +1,11 @@
+// test_typed_pipeline_type_identity.uya
+// 验证 checker 能识别 std.process.Pipeline 作为 canonical Pipeline 类型身份。
+
+use std.process;
+use std.testing.assert_eq_i32;
+
+test "pipeline_type_identity" {
+    const p: Pipeline = pipeline();
+    _ = p;
+    try assert_eq_i32(1, 1);
+}

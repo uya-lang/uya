@@ -31,6 +31,7 @@ fn copy_type(t: &Type) Type {
         struct_type_arg_count: t.struct_type_arg_count,
         union_type_args: t.union_type_args,
         union_type_arg_count: t.union_type_arg_count,
+        decl_node: t.decl_node,
     };
     return r;
 }

@@ -1,0 +1,17 @@
+// std.process - 进程与管道抽象（MVP interim）
+// 模块路径：lib/std/process.uya → use std.process;
+
+// 在编译器支持真正 opaque / non-copyable 类型之前，Pipeline 使用 capability handle
+// 作为 interim 内部表示。该表示不满足最终公开 API 的不透明性要求，仅供 checker
+// 建立 canonical 类型身份和后续阶段实现使用。
+
+/// 进程管道的不透明执行计划（interim 内部表示）。
+export struct Pipeline {
+    handle: usize,
+    generation: usize,
+}
+
+/// 创建一个空的 pipeline 计划。
+export fn pipeline() Pipeline {
+    return Pipeline { handle: 0, generation: 0 };
+}

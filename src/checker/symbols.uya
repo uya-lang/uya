@@ -178,6 +178,7 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     checker.async_frame_metas = null;
     checker.async_frame_meta_count = 0;
     checker.async_frame_meta_capacity = 0;
+    checker.pipeline_decl = null;
     
     return 0;
 }

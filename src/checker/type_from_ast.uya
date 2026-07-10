@@ -646,6 +646,7 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
                 if iface_decl != null {
                     result.kind = TypeKind.TYPE_INTERFACE;
                     result.interface_name = type_name;
+                    result.decl_node = iface_decl;
                     type_set_name(&result, type_name);
                     if type_node.type_named_type_arg_count > 0 && type_node.type_named_type_args != null {
                         const count_i: i32 = type_node.type_named_type_arg_count;
@@ -665,12 +666,14 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
                     if enum_decl != null {
                         result.kind = TypeKind.TYPE_ENUM;
                         result.enum_name = type_name;
+                        result.decl_node = enum_decl;
                         type_set_name(&result, type_name);
                     } else {
                         const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, type_name);
                         if union_decl != null {
                             result.kind = TypeKind.TYPE_UNION;
                             result.union_name = type_name;
+                            result.decl_node = union_decl;
                             type_set_name(&result, type_name);
                             if type_node.type_named_type_arg_count > 0 && type_node.type_named_type_args != null &&
                                 union_decl.union_decl_type_param_count > 0 {
@@ -687,8 +690,10 @@ fn type_from_ast_uncached(checker: &TypeChecker, type_node: &ASTNode) Type {
                                 }
                             }
                         } else {
+                            const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, type_name);
                             result.kind = TypeKind.TYPE_STRUCT;
                             result.struct_name = type_name;
+                            result.decl_node = struct_decl;
                             type_set_name(&result, type_name);
                             if type_node.type_named_type_arg_count > 0 && type_node.type_named_type_args != null {
                                 const count: i32 = type_node.type_named_type_arg_count;

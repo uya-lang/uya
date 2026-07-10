@@ -612,6 +612,76 @@ fn type_equals(t1: Type, t2: Type) i32 {
     return 1;
 }
 
+// ===== Pipeline 类型身份 =====
+
+// 解析并缓存 canonical Pipeline 类型声明（std.process.Pipeline）。
+// 优先使用 module table 中的导出记录，按模块名 + 声明身份匹配，
+// 不依赖未限定的 "Pipeline" 字符串。
+fn checker_resolve_pipeline_decl(checker: &TypeChecker) &ASTNode {
+    if checker == null {
+        return null;
+    }
+    if checker.pipeline_decl != null {
+        return checker.pipeline_decl;
+    }
+    if checker.program_node == null || checker.program_node.type != ASTNodeType.AST_PROGRAM {
+        return null;
+    }
+    const target_module: &byte = "std.process" as &byte;
+    var i: i32 = 0;
+    while i < MODULE_TABLE_SIZE {
+        const module: &ModuleInfo = checker.module_table.slots[i];
+        if module != null && module.module_name != null &&
+            str_equals(module.module_name, target_module) != 0 {
+            var ei: i32 = 0;
+            while ei < module.export_count {
+                const export_item: ExportedItem = module.exports[ei];
+                if export_item.name != null &&
+                    str_equals(export_item.name, "Pipeline" as &byte) != 0 &&
+                    export_item.item_type == 2 &&
+                    export_item.decl_node != null &&
+                    export_item.decl_node.type == ASTNodeType.AST_STRUCT_DECL {
+                    checker.pipeline_decl = export_item.decl_node;
+                    return checker.pipeline_decl;
+                }
+                ei = ei + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 判断类型 t 是否为 canonical Pipeline 类型。
+// 通过比较类型的声明节点身份，而不是仅比较未限定名字符串。
+fn checker_type_is_pipeline(checker: &TypeChecker, t: &Type) i32 {
+    if checker == null || t == null {
+        return 0;
+    }
+    const pipeline_decl: &ASTNode = checker_resolve_pipeline_decl(checker);
+    if pipeline_decl == null {
+        return 0;
+    }
+    if t.kind != TypeKind.TYPE_STRUCT {
+        return 0;
+    }
+    if t.decl_node == pipeline_decl {
+        return 1;
+    }
+    return 0;
+}
+
+// 判断类型 t 是否为 !Pipeline（错误联合类型，载荷为 canonical Pipeline）。
+fn checker_type_is_error_union_pipeline(checker: &TypeChecker, t: &Type) i32 {
+    if checker == null || t == null {
+        return 0;
+    }
+    if t.kind != TypeKind.TYPE_ERROR_UNION || t.error_union_payload_type == null {
+        return 0;
+    }
+    return checker_type_is_pipeline(checker, t.error_union_payload_type);
+}
+
 // 检查类型是否可以隐式转换
 fn type_can_implicitly_convert(from: Type, to: Type) i32 {
     if type_equals(from, to) != 0 {
@@ -681,6 +751,7 @@ fn make_void_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -712,6 +783,7 @@ fn make_i8_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -743,6 +815,7 @@ fn make_i16_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -774,6 +847,7 @@ fn make_i32_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -805,6 +879,7 @@ fn make_i64_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -836,6 +911,7 @@ fn make_f32_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -867,6 +943,7 @@ fn make_f64_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -898,6 +975,7 @@ fn make_u8_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -929,6 +1007,7 @@ fn make_u16_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -960,6 +1039,7 @@ fn make_u32_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -991,6 +1071,7 @@ fn make_u64_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1022,6 +1103,7 @@ fn make_bool_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1053,6 +1135,7 @@ fn make_usize_type() Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1090,6 +1173,7 @@ fn make_pointer_type(arena: &CompilerArena, pointee: &Type, is_ffi: i32) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1127,6 +1211,7 @@ fn make_array_type(arena: &CompilerArena, element: &Type, size: i32) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1163,6 +1248,7 @@ fn make_slice_type(arena: &CompilerArena, element: &Type) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1196,6 +1282,7 @@ fn make_named_type(kind: TypeKind, name: &byte) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
     if kind == TypeKind.TYPE_ENUM {
         t.enum_name = name;
@@ -1242,6 +1329,7 @@ export fn make_error_union_type(arena: &CompilerArena, payload: &Type) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1278,6 +1366,7 @@ fn make_atomic_type(arena: &CompilerArena, inner: &Type) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1316,6 +1405,7 @@ fn make_vector_type(arena: &CompilerArena, element: &Type, lanes: i32) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
@@ -1349,6 +1439,7 @@ fn make_mask_type(lanes: i32) Type {
         struct_type_arg_count: 0,
         union_type_args: null,
         union_type_arg_count: 0,
+        decl_node: null,
     };
 }
 
