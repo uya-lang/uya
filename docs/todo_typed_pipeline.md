@@ -14,7 +14,8 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [ ] per-stage `spawn_failed`
+  - [x] per-stage `spawn_failed`
+    - 验证：已确认 `docs/typed_pipeline_design.md` 中 `PipelineStageStatusKind` 定义了 `spawn_failed`，`PipelineStageStatus` 包含 `spawn_failure: PipelineSpawnFailureKind` 与 `platform_code: u32`，文档 L326-L369 明确语义、执行释放边界、`not_started` 区别、平台错误码映射及 `check()`/`status_into()`/`capture_into()` 的处理规则。
   - [ ] per-stage `cancelled`
   - [ ] per-stage `exited(exit_code: u32)`；POSIX 0..255 扩宽，Windows `DWORD` 原样保存
   - [ ] per-stage `signaled(signal)`

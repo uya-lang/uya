@@ -237,3 +237,12 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
   - [x] per-stage `not_started`
     - 验证：`grep -n "not_started" docs/typed_pipeline_design.md` 命中 10 处；`PipelineStageStatusKind` 枚举已包含 `not_started`（L278），语义定义为“因更早预检、启动失败或执行器取消而未越过执行释放边界”（L326），POSIX/Windows 边界（L551、L615）、预检失败场景（L348、L561）与字段约束（L328）均一致。
+
+---
+
+# 类型化管道 TODO
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] per-stage `spawn_failed`
+    - 验证：已确认 `docs/typed_pipeline_design.md` 中 `PipelineStageStatusKind` 定义了 `spawn_failed`，`PipelineStageStatus` 包含 `spawn_failure: PipelineSpawnFailureKind` 与 `platform_code: u32`，文档 L326-L369 明确语义、执行释放边界、`not_started` 区别、平台错误码映射及 `check()`/`status_into()`/`capture_into()` 的处理规则。
