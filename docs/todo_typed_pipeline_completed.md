@@ -750,3 +750,8 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - 最终 child env 中同一个 key 最多出现一次；
     - Windows bridge 必须把最终 UTF-16 environment block 按同一 case-insensitive 顺序排序并以双 `\0` 结束；
     - 不能把多个大小写变体传给 child。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `env` / `unset_env` 复用 `std.env` 的 key/value 校验并在 transformer 阶段复制数据。
+  - 验证：读取 `lib/std/env.uya` 的 `env_key_valid`、`with`、`without` 校验规则，确认 `typed_pipeline_design.md` 已对应锁定 `error.EnvInvalidName` / `error.EnvInvalidValue` 返回路径、stage-local 作用域以及 transformer 阶段复制 key/value 到计划私有存储。

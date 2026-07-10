@@ -252,7 +252,7 @@ PATH 查找属于 `std.process` / `std.path` 的平台敏感逻辑，不应在 p
 
 所有 process stage 在 sink 开始执行时共享同一个 canonical base-env 快照。该快照来自 `std.env` 的当前进程环境视图，不在 transformer 调用时捕获，也不能通过临时修改父进程全局环境再回滚来模拟。每个 stage 在该快照上按 transformer 调用顺序应用自己的 `env` / `unset_env`：后一次 `env` 覆盖同名旧值，`unset_env` 删除继承或更早设置的值，删除后再次 `env` 表示重新加入；最终 child env 中同一个 key 最多出现一次。POSIX key 比较按 byte 精确匹配；Windows key 比较使用平台 ordinal case-insensitive 规则，因此 `Path` / `PATH` 属于同一个 key，最后一次写入的 spelling/value 获胜。Windows bridge 必须把最终 UTF-16 environment block 按同一 case-insensitive 顺序排序并以双 `\0` 结束，不能把多个大小写变体传给 child。
 
-`env` / `unset_env` 必须复用 `std.env` 的校验规则：key 非空且不含 `=`，value 不得为 null；非法输入返回对应的 `error.EnvInvalidName` / `error.EnvInvalidValue`，而不是延迟到 child 启动。计划拥有 key/value 副本。PATH 解析与最终 spawn 必须使用同一份已经完成 overlay 的不可变 env block，避免查找时环境与 exec 时环境不一致。
+`env` / `unset_env` 必须复用 `std.env` 的校验规则：key 非空且不含 `=`，value 不得为 null；非法输入返回对应的 `error.EnvInvalidName` / `error.EnvInvalidValue`，而不是延迟到 child 启动。transformer 阶段即调用 `std.env` 的 `env_key_valid` 等效检查并校验 `value != null`，校验通过后立即把 key/value 复制进计划私有存储；`unset_env` 同样复制 key。计划不保存调用方传入字符串的借用，后续 PATH 查找与最终 spawn 使用同一份已完成 overlay 的不可变 env block。PATH 解析与最终 spawn 必须使用同一份已经完成 overlay 的不可变 env block，避免查找时环境与 exec 时环境不一致。
 
 > **阶段 0 已锁定**：`cwd`、`env`、`unset_env` 是 stage-local transformer，作用于最近追加的 process stage。若当前计划尚无 process stage，或最近 stage 是 Uya stage，必须返回 `error.InvalidPipeline`。
 >
