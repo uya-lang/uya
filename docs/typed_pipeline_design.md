@@ -446,6 +446,8 @@ Inter-stage stdout pipe 是执行拓扑的一部分，不受 `stdout_file` 等�
 
 自定义 Uya stage 不属于 process-only MVP。第一版应先完成外部进程 pipeline；Uya stage 在 runtime task/thread 执行模型和 stage 所有权规则明确后再开放。fork-backed Uya stage 只能作为受控实验或测试模式，不能作为默认生产实现。本节只描述未来扩展方向，不是 MVP 公共 API。
 
+**名称锁定**：自定义 Uya pipeline stage 的 transformer 最终名称为 `stage`；该名称已锁定，不会改为 `filter`、`step`、`node` 或其他候选名。
+
 推荐接口：
 
 ```uya
@@ -454,7 +456,7 @@ interface PipelineStage {
 }
 ```
 
-推荐 transformer：
+最终 transformer（名称已锁定）：
 
 ```uya
 fn stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline;
@@ -736,5 +738,5 @@ Lowering：
 ## 未决问题
 
 - Uya stage 的 owned-data 约束应通过接口、编译器能力还是运行时校验表达。
-- `filter` 是否应保留为 `stage` 的公共别名。
+- `stage` 已锁定为最终名称；`filter` 是否应保留为 `stage` 的公共别名（由 TODO L21 单独决定）。
 - 其中多少内容应属于 `std.process`，多少内容应属于 `std.script` facade。

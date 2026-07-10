@@ -51,3 +51,11 @@
     - `grep -cE 'cmd_argv|cmd_path_argv|fn cmd\(|fn cmd_path\(' docs/typed_pipeline_design.md` 返回 21 处引用
     - `grep -nE '\b(exec_argv|run_argv|spawn_argv|exec_path_argv|run_path_argv|spawn_path_argv|process_argv|process_path_argv|pipeline_cmd_argv|pipe_cmd_argv|command_argv|command_path_argv)\b' docs/typed_pipeline_design.md docs/std_script_design.md` 未发现竞争候选名
     - 已在 `typed_pipeline_design.md` API 列表标题处添加"名称已锁定为最终公共名"说明，并在 `cmd` / `cmd_path` 注释处补充"名称同样锁定"
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 确定最终名称：
+  - [x] `stage`
+    验证：`docs/typed_pipeline_design.md` L449 已声明“名称锁定”；L459-L463 将 transformer 标记为“最终 transformer（名称已锁定）”并使用 `fn stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline;`；未决问题 L741 已更新为“`stage` 已锁定为最终名称；`filter` 是否应保留为 `stage` 的公共别名（由 TODO L21 单独决定）”。`python3 scripts/todo_progress.py summary docs/todo_typed_pipeline.md` 确认 L17 已更新。
