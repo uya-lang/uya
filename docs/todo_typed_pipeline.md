@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 `cmd` 只接受不含路径分隔符的命令名；路径执行必须使用 `cmd_path`。
 - [ ] 锁定 `cmd` PATH 查找复用 `std.process` / `std.path` 平台 helper，不在 executor 内重复实现。
 - [ ] 先定义可由 pipeline 复用的 PATH helper，例如 `process_resolve_path(program, env, cwd)` 或等价接口。
 - [ ] 锁定 PATH 缺失、空/相对 component、Windows `.exe` fallback、无隐式 PATHEXT/`cmd.exe` 和 lookup/spawn 失败分类。

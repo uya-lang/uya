@@ -849,3 +849,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 交付：在 `docs/typed_pipeline_design.md` 中为 `cmd_argv` / `cmd` 的 PATH-searching 语义、`cmd_path_argv` / `cmd_path` 的 exact-path 语义以及 `process_resolve_path` 等价 PATH helper 的规则添加“阶段 0 已锁定”标记。
   - 验证命令：`git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md`
   - 验证结果：通过，无空白/格式错误。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `cmd` 只接受不含路径分隔符的命令名；路径执行必须使用 `cmd_path`。
+  验证（2026-07-10）：
+  - `sed -n '240p' docs/typed_pipeline_design.md` 确认阶段 0 已锁定：`cmd_argv` / `cmd` 是 PATH-searching API，只接受平台定义的 bare command name；POSIX bare name 不得包含 `/`；Windows bare name 不得包含 `/`、`\`、drive/namespace 前缀或 `:`；若调用方要传绝对路径、相对路径或已解析出的可执行文件，必须使用 `cmd_path_argv` / `cmd_path`。
+  - `sed -n '242p' docs/typed_pipeline_design.md` 确认阶段 0 已锁定：`cmd_path_argv` / `cmd_path` 是 exact-path API，路径中不做 PATH 查找。
+  - `sed -n '387p' docs/typed_pipeline_design.md` 确认错误分类表：`cmd 命令名为空、cmd 名称含路径分隔符 => error.InvalidPipeline`。
+  - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md` 无空白/格式错误。
+  - 本轮未修改生产代码或测试，仅完成规格锁定与归档。
