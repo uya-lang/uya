@@ -212,3 +212,11 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
     - `sed -n '342p' docs/typed_pipeline_design.md` 确认 `check_into()` 返回 `error.PipelineStageFailed` 时必须保留已写入 statuses 的完整 stage 摘要。
     - `grep -cE 'error\.PipelineStageFailed' docs/typed_pipeline_design.md` 返回 3 处引用；语义一致，无竞争候选名。
     - 决策：采用 `error.PipelineStageFailed` 作为 checked sink 遇到 `PipelineStageStatusKind.stage_failed` 时返回的精确 Uya error 名；优先级低于 `error.PipelineSpawnFailed`，高于 `error.ProcessFailed`。
+
+## 阶段 0：规格锁定
+
+- [x] 定义 checked sink 在非零退出时是否默认返回 `error.ProcessFailed`。
+  决策：是。`check()` / `check_into()` 使用固定 all-stage/pipefail；任一 process stage 非零退出或 signal 终止默认返回 `error.ProcessFailed`。`spawn_failed` / `not_started` 链路优先返回 `error.PipelineSpawnFailed`，Uya stage 错误优先返回 `error.PipelineStageFailed`。`check_into()` 在返回上述错误前必须先写入完整 `PipelineResult`。
+  验证（2026-07-10）：
+  - `sed -n '373,379p' docs/typed_pipeline_design.md` 确认 `check()` 固定 all-stage/pipefail，非零退出或 signal 终止默认返回 `error.ProcessFailed`，`spawn_failed`/`not_started` 链路优先返回 `error.PipelineSpawnFailed`，Uya stage 错误优先返回 `error.PipelineStageFailed`。
+  - `sed -n '382,383p' docs/typed_pipeline_design.md` 确认 `check_into()` 与 `check()` 语义相同，且返回错误前必须先写入完整 stage 状态。
