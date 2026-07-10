@@ -1152,3 +1152,14 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   - 验证：确认 `docs/typed_pipeline_design.md` L684 已含阶段 0 已锁定段落，L846 checklist 已补 `> **阶段 0 已锁定**：` 标记；文本覆盖 terminal 恢复、group/PID 强制取消、reap 与 `error.Interrupted` 返回。
 
 ---
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定按 terminal identity 串行化的 interruptible foreground lease；所有返回路径都先恢复终端再释放 lease，避免并发 sink 的 `tcsetpgrp` 竞态。
+  验证（2026-07-10）：
+  - `grep -n "foreground lease\|tcsetpgrp\|terminal identity\|先恢复终端再释放 lease" docs/typed_pipeline_design.md` 命中 L649、L657、L682、L845。
+  - 复核 `docs/typed_pipeline_design.md` L682 确认：runtime 按 terminal identity 提供独占 interruptible foreground lease；需要连接 controlling terminal 的 sink 在创建 child 和产生文件截断等外部副作用前取得 lease，并持有到前台 PGID 恢复或确定从未转交为止；所有返回路径（正常完成、启动失败、capture 超限、stage stop、收到取消信号）必须先恢复保存的前台 PGID，再释放 foreground lease。
+  - 复核 `docs/typed_pipeline_design.md` L845 确认：并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，避免两个 sink 竞态调用 `tcsetpgrp`。
+  - 当前阶段未产生 `.uya` 实现，规格层面已锁定。
