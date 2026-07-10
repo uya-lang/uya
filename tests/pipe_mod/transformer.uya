@@ -1,0 +1,9 @@
+// pipe_mod/transformer.uya
+// 类型化管道 module-qualified 测试辅助模块。
+
+use std.process;
+
+/// 接受 Pipeline 并返回 Pipeline 的 module-qualified transformer。
+export fn pipeline_transformer(p: Pipeline) Pipeline {
+    return p;
+}

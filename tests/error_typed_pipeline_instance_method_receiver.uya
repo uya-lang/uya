@@ -1,0 +1,16 @@
+// error_typed_pipeline_instance_method_receiver.uya
+// checker 负向测试：验证带隐式 self receiver 的实例方法调用不能用作 '|>' 右侧。
+
+use std.process;
+
+struct S {}
+
+S {
+    fn instance_transformer(self: &Self, p: Pipeline) Pipeline { return p; }
+}
+
+fn main() i32 {
+    const s: S = S{};
+    _ = pipeline() |> s.instance_transformer();
+    return 0;
+}

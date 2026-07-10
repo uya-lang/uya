@@ -247,3 +247,29 @@ make uya
     - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` → 通过
     - `make b` → 自举对比一致
     - `make tests-uya` → 1083 个测试通过 1079；4 个失败为既有问题（`test_async_compute_types`、`bench_malloc_phase4` 退出码 139，`test_typed_pipeline_parser_negative`、`test_typed_pipeline_parser_negative_eof` 命名导致预期通过但实际编译失败），与本改动无关。
+
+---
+
+## 阶段 2：Type Checker 规则
+
+- [x] MVP 拒绝把带隐式 `self` receiver 的实例方法调用用作 `|>` 右侧；module-qualified 和无 receiver 静态调用继续支持。
+  - 实现要点：
+    - 在 `src/checker/check_expr_extra.uya` 新增 `checker_pipeline_callee_is_implicit_self_instance_method_call`：当右侧 callee 为成员访问、不是模块限定调用、object 不是类型命名空间，且 object 值类型的实例方法表中找到对应方法时返回 1。
+    - 在 `checker_check_pipeline_expr` 中，左侧 `Pipeline` / `!Pipeline` 检查之后，调用上述函数；若返回 1，则报告“管道运算符 '|>' 右侧不能是带隐式 self receiver 的实例方法调用”。
+    - 模块限定调用（`mod.fn(...)`）因 `member_access_is_module_access != 0` 被排除。
+    - 无 receiver 的静态/自由函数调用（`fn(...)`）因 callee 不是 `AST_MEMBER_ACCESS` 被排除。
+    - `Type.static_method(...)` 等显式 receiver 调用因 object 是类型命名空间被排除。
+  - 新增测试：
+    - `tests/error_typed_pipeline_instance_method_receiver.uya`：负向测试，验证 `pipeline() |> s.instance_transformer()` 被 checker 拒绝。
+    - `tests/test_typed_pipeline_module_qualified_positive.uya`：正向测试，验证 `pipeline() |> pipe_mod.pipeline_transformer()` 通过。
+    - `tests/test_typed_pipeline_imported_transformer_positive.uya`：正向测试，验证导入的静态 transformer 可用作 `|>` 右侧。
+  - 验证命令与结果：
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - 负向测试：
+      - `../uya/bin/uya check tests/error_typed_pipeline_instance_method_receiver.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 右侧不能是带隐式 self receiver 的实例方法调用”。
+    - 正向测试：
+      - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` 通过（覆盖无 receiver 静态调用）。
+      - `../uya/bin/uya test tests/test_typed_pipeline_module_qualified_positive.uya` 通过（覆盖 module-qualified 静态调用）。
+      - `../uya/bin/uya test tests/test_typed_pipeline_imported_transformer_positive.uya` 通过（覆盖导入无 receiver 静态调用）。
+      - `../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过。

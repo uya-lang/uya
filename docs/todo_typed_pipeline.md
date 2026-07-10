@@ -15,7 +15,6 @@
 
 ## 阶段 2：Type Checker 规则
 
-- [ ] MVP 拒绝把带隐式 `self` receiver 的实例方法调用用作 `|>` 右侧；module-qualified 和无 receiver 静态调用继续支持。
 - [ ] 添加诊断：
   - [ ] 左侧不是 `Pipeline`
   - [ ] 右侧不是调用表达式

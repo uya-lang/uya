@@ -1,0 +1,10 @@
+// test_typed_pipeline_module_qualified_positive.uya
+// checker 正向测试：验证 module-qualified 静态调用可用作 '|>' 右侧。
+
+use std.process;
+use pipe_mod;
+
+fn main() i32 {
+    _ = pipeline() |> pipe_mod.pipeline_transformer();
+    return 0;
+}
