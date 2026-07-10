@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 决定精确错误名：
-  - [ ] `PipelineSpawnFailed`
   - [ ] `PipelineStageFailed`
 - [ ] 定义 checked sink 在非零退出时是否默认返回 `error.ProcessFailed`。
 - [ ] 定义失败详情通过 `check_into`、`status_into`、`capture_into`、`capture_limit_into` 返回，不依赖 Uya error payload。

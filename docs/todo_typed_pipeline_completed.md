@@ -191,3 +191,11 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
 验证：
 - 命令：`grep -n "error.Interrupted" docs/typed_pipeline_design.md`
 - 结果：设计文档中稳定使用 `error.Interrupted` 表示 executor/同步 sink 收到未忽略终止信号、直接 stage stopped、前台终端 lease 中断等场景（如 L360-L361、L385、L395、L549、L609 等）。命名已锁定。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 决定精确错误名：
+  - [x] `PipelineSpawnFailed`
+    验证：`grep -n 'error.PipelineSpawnFailed' docs/typed_pipeline_design.md` 命中 L378、L379；设计文档已将 checked sink 的 spawn 失败路径统一命名为 `error.PipelineSpawnFailed`，与 `PipelineStageStatusKind.spawn_failed` 状态对应。
