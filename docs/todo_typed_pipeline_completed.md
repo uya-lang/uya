@@ -301,3 +301,14 @@ make uya
       - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_checker_left.uya tests/error_typed_pipeline_checker_right.uya tests/error_typed_pipeline_instance_method_receiver.uya tests/error_typed_pipeline_sink_after_chain.uya tests/error_typed_pipeline_try_forward_type_mismatch.uya`：均 ✓ 预期编译失败。
       - `./tests/run_programs_parallel.sh tests/test_typed_pipeline_parser_positive.uya tests/test_typed_pipeline_checker_positive.uya tests/test_typed_pipeline_imported_transformer_positive.uya tests/test_typed_pipeline_module_qualified_positive.uya tests/test_typed_pipeline_type_identity.uya`：均 ✓ 测试通过。
       - 直接编译 `tests/error_typed_pipeline_right_not_call.uya` 输出：`管道运算符 '|>' 右侧必须是调用表达式`。
+
+---
+
+## 类型化管道 TODO
+
+### 阶段 2：Type Checker 规则
+
+- [ ] 添加诊断：
+  - [x] 右侧不是调用表达式
+
+验证记录：该叶子任务已在之前轮次完成实现与验证，本轮为归档清理，仅将其从主 todo 移入完成归档。主 todo 中同父级下仍有其他待完成子任务，父级保持 `[ ]` 继续推进。

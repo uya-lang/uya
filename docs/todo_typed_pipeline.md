@@ -16,7 +16,6 @@
 ## 阶段 2：Type Checker 规则
 
 - [ ] 添加诊断：
-  - [x] 右侧不是调用表达式
   - [ ] 首个参数不是 `Pipeline`
   - [ ] sink 后继续管道的误用
   - [ ] 实例方法 receiver 与 synthetic lhs 冲突
