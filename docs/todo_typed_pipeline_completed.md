@@ -889,3 +889,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - Windows 对每个 component 先尝试原 bare name，无扩展名时再尝试追加 `.exe`（扩展名比较不区分大小写）；MVP 不把 `.bat`/`.cmd` 当可执行映像，也不为了 PATHEXT 隐式调用 `cmd.exe`（L280）。
     - lookup 阶段只返回 `path_not_found` / `permission_denied` / `platform_error`；`cwd_unavailable`、`process_create_failed`、`execution_domain_failed`、`stdio_setup_failed`、`exec_failed` 属于 spawn 阶段；TOCTOU 失败统一由 spawn 报告（L268-L274）。
   - 文件校验：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 5` 显示新增锁定段落已落地。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 PATH 缺失、空/相对 component、Windows `.exe` fallback、无隐式 PATHEXT/`cmd.exe` 和 lookup/spawn 失败分类。
+  验证（2026-07-10，归档清理轮）：
+  - `sed -n '260,290p' docs/typed_pipeline_design.md` 确认 `process_resolve_path` 的 lookup 阶段失败分类（`path_not_found` / `permission_denied` / `platform_error`）与 spawn 阶段失败分类已分离，TOCTOU 失败统一归入 spawn 阶段报告。
+  - `sed -n '276,280p' docs/typed_pipeline_design.md` 确认搜索规则已锁定：PATH 缺失返回 `path_not_found`；POSIX 用 `:`、Windows 用 `;` 分隔；空 component 与 relative component 以 stage 最终 cwd 为基准；Windows 先尝试原 bare name，无扩展名时追加 `.exe`；MVP 不把 `.bat`/`.cmd` 当可执行映像，也不为了 PATHEXT 隐式调用 `cmd.exe`。
+  - `grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 10` 命中 L268、L276、L287 等锁定段落。
+  - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md docs/todo_typed_pipeline_completed.md` 通过，无空白/格式错误。
+  - 本轮为归档清理，已将主 todo 中残留的 `[x]` 条目移除并移入完成归档；未修改生产代码或测试。
