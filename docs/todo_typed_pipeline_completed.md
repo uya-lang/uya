@@ -16,6 +16,13 @@
 
 ---
 
+## 阶段 0：规格锁定
+
+- [x] 锁定 `cmd` 的 PATH-searching 语义，并提供 exact-path API `cmd_path`。
+  验证（2026-07-10）：复核 `docs/typed_pipeline_design.md` L141-L180 已定义 `cmd(input, program)` 执行 PATH lookup，`cmd_path(input, path)` 执行 exact-path 执行；无隐式路径分隔符处理，路径执行必须通过 `cmd_path`。当前阶段未产生 `.uya` 实现，规格层面已锁定。
+
+---
+
 ## 阶段 9：文档与稳定性门禁
 
 - [x] 更新 `std_script_design.md`。
