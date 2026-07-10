@@ -147,3 +147,13 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
 验证：
 - 已人工复核 `docs/typed_pipeline_design.md` 中所有 `InvalidPipeline` 出现位置，语义一致。
 - 归档时间：2026-07-10。
+
+## 阶段 0：规格锁定
+
+- [ ] 决定精确错误名：
+  - [x] `ProcessFailed`
+    验证（2026-07-10）：
+    - `sed -n '375,380p' docs/typed_pipeline_design.md` 确认 `check()` / `check_into()` 使用 `error.ProcessFailed` 表示任一 process stage 非零退出或 signal 终止。
+    - `sed -n '695p' docs/typed_pipeline_design.md` 确认“需要失败详情时不能依赖 `error.ProcessFailed` 携带 payload，必须使用 `check_into` / `status_into` / `capture_into` / `capture_limit_into`”。
+    - `grep -cE 'error\.ProcessFailed' docs/typed_pipeline_design.md` 返回 5 处引用；语义一致，无竞争候选名。
+    - 决策：采用 `error.ProcessFailed` 作为 checked sink 的 process stage 非零退出 / signal 终止错误名；优先级低于 `error.PipelineSpawnFailed` 与 `error.PipelineStageFailed`。
