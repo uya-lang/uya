@@ -411,3 +411,10 @@ make uya
     - 全部 typed pipeline 正/负向测试通过：`for f in tests/test_typed_pipeline_*.uya tests/error_typed_pipeline_*.uya; do ./tests/run_programs_parallel.sh "$f"; done`，14/14 通过。
     - 自举编译：`make uya` 成功。
     - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 添加 checker 测试证明非 `Pipeline` 的 `!T` 不会得到 try-forward。
+  - 验证命令与结果：
+    - `../uya/bin/uya check tests/error_typed_pipeline_non_pipeline_error_union.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+    - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` 通过，3 个测试全部 OK。

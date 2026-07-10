@@ -15,7 +15,6 @@
 
 ## 阶段 2：Type Checker 规则
 
-- [x] 添加 checker 测试证明非 `Pipeline` 的 `!T` 不会得到 try-forward。
 - [ ] 添加 checker 测试证明 `!Pipeline` 成功载荷只能提取并移动一次。
 
 ## 阶段 3：Lowering
