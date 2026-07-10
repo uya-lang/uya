@@ -861,3 +861,12 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - `sed -n '387p' docs/typed_pipeline_design.md` 确认错误分类表：`cmd 命令名为空、cmd 名称含路径分隔符 => error.InvalidPipeline`。
   - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md` 无空白/格式错误。
   - 本轮未修改生产代码或测试，仅完成规格锁定与归档。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `cmd` PATH 查找复用 `std.process` / `std.path` 平台 helper，不在 executor 内重复实现。
+  验证：
+  - `docs/typed_pipeline_design.md` L246-L251 已锁定 PATH 查找属于 `std.process` / `std.path` 平台敏感逻辑，由 `process_resolve_path(program, env, cwd)` 或等价 helper 执行，pipeline executor 不得另写一套。
+  - `docs/std_script_design.md` L277-L279 已补充说明：PATH 查找语义由 `std.process` 内部复用 `std.path` 的平台 helper 实现，pipeline executor 只消费解析后的绝对 `exec_path`。
+  - `git diff --check` 通过，无空白错误。
+

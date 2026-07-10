@@ -276,6 +276,7 @@ Uya script / tests/*.uya / tools/*.uya
 - `Command` 构造 PATH 搜索时应是显式策略
   - `command("git")` 可以执行 PATH 查找
   - `command_path("/abs/path/git")` 可显式绕过搜索
+- PATH 查找语义由 `std.process` 内部复用 `std.path` 的平台 helper 实现；pipeline executor 只消费解析后的绝对 `exec_path`，不得在 executor 内再实现一套 PATH 搜索逻辑。具体规则见 [`typed_pipeline_design.md`](typed_pipeline_design.md)。
 
 ---
 
