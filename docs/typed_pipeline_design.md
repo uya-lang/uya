@@ -296,6 +296,10 @@ enum PipelineSpawnFailureKind {
     platform_error,
 }
 
+> **阶段 0 已锁定**：`PipelineSpawnFailureKind` 枚举值与 `PipelineStageStatus.platform_code` 字段已冻结。
+> `spawn_failure` 提供跨平台稳定失败类别，`platform_code` 仅保存 POSIX `errno` 或 Windows `GetLastError()` 作诊断用途，无适用平台码时为 0。
+> 跨平台控制流只能依赖 `spawn_failure`，不得依赖 `platform_code` 数值。
+
 struct PipelineStageStatus {
     stage_index: usize,
     kind: PipelineStageStatusKind,

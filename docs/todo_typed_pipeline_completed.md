@@ -308,3 +308,16 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 ```
 
 验证结果：全部命中。`PipelineStageStatus.signal` 类型为 `i32`；POSIX 使用正 signal number；Windows process-only MVP 默认走 `exited` + `exit_code`，只有显式映射时才允许 `signaled`；非 `signaled` 状态 `signal` 必须为 0。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] process `spawn_failed` 保存稳定的 `PipelineSpawnFailureKind` 与可选平台错误码
+    验证（2026-07-10）：
+    - `sed -n '287,305p' docs/typed_pipeline_design.md` 确认 `PipelineSpawnFailureKind` 枚举已定义，且 `PipelineStageStatus` 包含 `spawn_failure: PipelineSpawnFailureKind` 与 `platform_code: u32`。
+    - `sed -n '326,330p' docs/typed_pipeline_design.md` 确认 `spawn_failed` 的 `spawn_failure` 保存稳定跨平台类别，`platform_code` 保存 POSIX errno 或 Windows `GetLastError()`，无适用平台码时为 0。
+    - `sed -n '369p' docs/typed_pipeline_design.md` 确认 `spawn_failed` 到 `PipelineSpawnFailureKind` 的稳定映射规则（PATH/cwd/权限/process create/执行域/stdio/exec/platform error）。
+    - `grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md` 确认已在 `PipelineSpawnFailureKind` 定义后追加锁定声明。
+    决策：`process spawn_failed` 状态保存稳定的 `PipelineSpawnFailureKind` 类别与可选 `u32` 平台错误码；跨平台控制流只能依赖 `spawn_failure`。
