@@ -453,3 +453,17 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
   - [x] capture result 只记录 stdout/stderr 已写入长度，调用方通过自己的缓冲区和长度取得有效前缀，不建立跨参数借用
     验证：已在 `docs/typed_pipeline_design.md` L335-L342 增加阶段 0 已锁定声明，明确 `PipelineCaptureResult` 仅保存长度/状态摘要，不保存指向 `stdout_buf` / `stderr_buf` 或调用方其他缓冲区的 slice、指针或借用；调用方通过自己持有的缓冲区和 `result.stdout.byte_count` / `result.stderr.byte_count` 取得有效前缀。无代码实现变更。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] capture result 只记录 stdout/stderr 已写入长度，调用方通过自己的缓冲区和长度取得有效前缀，不建立跨参数借用
+    验证：已复核 `docs/typed_pipeline_design.md`，相关锁定文本存在。
+    - L335：`CaptureStreamResult.byte_count` 为 `usize`，表示已写入调用方缓冲区的字节数；调用方通过 `stdout_buf[0:result.stdout.byte_count]` 与 `stderr_buf[0:result.stderr.byte_count]` 取得有效前缀；result 不保存指向缓冲区的借用。
+    - L339：`PipelineCaptureResult` 仅保存内嵌 `PipelineResult` 与两路 `CaptureStreamResult` 的长度/状态摘要，不保存指向 `stdout_buf` / `stderr_buf` 或调用方任何其他缓冲区的 slice、指针或其他借用。
+    - L356：`PipelineResult` / `PipelineCaptureResult` 只保存可复制的长度与状态摘要，不保存指向调用方缓冲区的 slice、指针或其他借用；result 可独立复制或保留，不会延长缓冲区生命周期，也不会形成函数签名无法表达的跨参数借用关系。
+    命令：`grep -n "byte_count" docs/typed_pipeline_design.md && grep -n "不保存指向" docs/typed_pipeline_design.md && grep -n "跨参数借用" docs/typed_pipeline_design.md`
+    结果：均命中上述行号与文本，规格已锁定并归档。
+
