@@ -494,6 +494,8 @@ inter-stage / launch / startup-report pipe 创建失败   => 普通 Uya error
 
 Uya 的 `error` 值本身不携带业务 payload，因此设计不能依赖“error payload”保存 `PipelineResult`。需要失败详情时，调用方必须使用 `check_into`、`status_into`、`capture_into` 或 `capture_limit_into`。
 
+> **阶段 0 已锁定**：同步 sink 执行期间收到未被既有 disposition 忽略的 `SIGINT`、`SIGQUIT`、`SIGTERM`、`SIGHUP` 或 Windows console cancellation 时，统一由 runtime signal/console broker 唤醒正常 executor poll/wait 路径；broker 通知全部活跃同步 pipeline sink 后，各 sink 进入有限取消路径，按 process group 去重转发原始信号，对无法证明仍在 group 的直接 PID 单独补发，bounded grace period 后强制终止，关闭 pipe，reap 直接 stage，恢复终端与临时 signal 状态，并把输出 result 重置为空摘要后返回 `error.Interrupted`。POSIX 异步 signal handler / Windows console callback 只能设置原子标志或写入 broker self-pipe/event，不得分配、加锁、等待或操作 pipeline state；清理必须由正常 executor 路径完成。
+
 同步 sink 执行期间若 executor 自身收到未被既有 disposition 忽略的 `SIGINT`、`SIGQUIT`、`SIGTERM`、`SIGHUP` 或 Windows console cancellation，所有 sink 都必须进入 interruption cancellation 路径：唤醒等待循环，转发/终止 stage，关闭 pipe，reap 直接 stage，恢复终端与临时 signal 状态，然后返回 `error.Interrupted`。这是公共 API 的稳定结果，不把 executor interruption 伪装成 `error.ProcessFailed`，也不在清理后重新触发默认信号处理。接收 result 指针的 sink 按普通错误规则返回空摘要；需要中断时的部分输出或状态必须等待后续显式 partial-result API。
 
 POSIX 实现不得在异步 signal handler 中分配、加锁、等待或操作 pipeline state；handler 只能设置原子标志或写入 runtime broker 的 self-pipe，由正常 poll/wait 路径执行清理。signal disposition 是进程级状态，不能由每个 sink 各自安装、保存和恢复：runtime broker 必须集中拥有 handler，通过引用计数/订阅表管理同时执行的 sink，并保存 broker 接管前的进程级 disposition；每个 sink 只保存和恢复自己调用线程的 mask。broker 收到进程定向的终止信号时必须通知所有活跃同步 pipeline sink，使它们各自进入 `Interrupted` 路径；注册/注销与 handler dispatch 必须避免 use-after-free。最后一个订阅者离开时，broker 只有在当前 disposition 仍由自己拥有时才能恢复原 handler，不能覆盖其他组件并发安装的新 disposition。既有 `SIG_IGN` 必须继续被忽略，已有自定义 handler 的 chaining/所有权由 broker 统一处理。
@@ -831,7 +833,7 @@ struct ErasedPipelineStage {
 - runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
 > **阶段 0 已锁定**：只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
 - wait loop 必须观察 stopped direct child；当前无公共 job-control 的模式将任何 stopped 状态收敛为有限取消和 `error.Interrupted`，不能遗留前台终端或永久等待。
-- executor 自身收到未忽略的终止/取消信号时必须去重转发、有限取消并返回 `error.Interrupted`；异步 handler/callback 不能执行复杂清理。
+> **阶段 0 已锁定**：executor 自身收到未忽略的终止/取消信号时必须去重转发、有限取消并返回 `error.Interrupted`；异步 handler/callback 不能执行复杂清理。
 - Windows child 必须以 suspended 状态创建、在运行前加入 Job Object，并通过严格 handle allowlist 避免多余 pipe 端继承；成功 resume 是执行释放边界，默认 direct-stage 模式不得以 kill-on-close 改变正常后代语义。取消时必须显式终止 Job，并对 created-but-unassigned child 单独 `TerminateProcess`、等待后再关闭 handle。
 - 相对 stage cwd 和 file stream path 都按 sink-time 宿主 cwd 快照解释；file stream path 不跟随任一 stage-local cwd。
 - 每个 file-redirection policy 必须在第一个 child 启动前由 parent 按固定顺序和平台 flags 打开一次；group-level stderr file 的同一 open file description 由所有 stage 共享，后续打开失败不承诺回滚已经发生的 create/truncate。

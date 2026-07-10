@@ -1087,3 +1087,10 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   - 验证：确认 `docs/typed_pipeline_design.md` 已在“结果模型”与“POSIX 后端”两处添加 `> **阶段 0 已锁定**` 标记，且边界定义覆盖 POSIX `RUN`、Windows `ResumeThread`、未来 Uya `run`、`not_started` 与 `cancelled`。
   - 验证命令：`grep -n "阶段 0 已锁定.*执行释放边界" docs/typed_pipeline_design.md`
   - 结果：匹配到 2 行（结果模型段与 POSIX 后端段），且 `git diff --check` 无空白错误。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定信号/console cancellation 由 runtime broker 唤醒正常 executor 路径，去重转发、有限取消、清理后返回 `error.Interrupted`；异步 handler/callback 不执行复杂清理。
+  验证（2026-07-10）：在 `docs/typed_pipeline_design.md` L497-L507 与 L834 追加“阶段 0 已锁定”标记；复核 `error.Interrupted` 返回路径、broker 唤醒正常 poll/wait 路径、去重转发与 bounded grace period 后强制终止、异步 handler 不执行复杂清理均已写入设计。当前阶段未产生 `.uya` 实现，规格层面已锁定。`git diff --check` 无错误。
