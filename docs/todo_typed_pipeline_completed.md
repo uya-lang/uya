@@ -99,3 +99,12 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
 ```
 
 验证结果：在设计文档中发现多处使用 `capture_into()` / `capture_limit_into()` 命名，包括 API 声明（L221-L222）、sink 说明（L268、L270、L332、L338、L371、L381、L383、L397、L429、L431）和约束条款（L672、L695）。名称已锁定。
+
+## 阶段 0：规格锁定
+
+- [x] 确定最终名称：
+  - [x] `status_into`
+    验证（2026-07-10）：
+    - `sed -n '193,222p' docs/typed_pipeline_design.md` 确认 API 列表在“名称已锁定为最终公共名”标题下列出 `fn status_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void;`
+    - `grep -cE 'status_into' docs/typed_pipeline_design.md` 返回 9 处引用
+    - `grep -nE '\b(status_of|exit_status_into|result_into|statuses_into|get_status|pipe_status|wait_status|run_status|exec_status|process_status|pipeline_status|exit_into|wait_into|observe_status)\b' docs/typed_pipeline_design.md docs/std_script_design.md docs/todo_typed_pipeline.md` 未发现竞争候选名
