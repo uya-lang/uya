@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 checked/observing sink 分层：
-  - [ ] `check()`：启动失败返回 `error.PipelineSpawnFailed`
   - [ ] `check_into(statuses, result)`：固定 all-stage/pipefail，返回 `ProcessFailed` / `PipelineSpawnFailed` / `PipelineStageFailed` 前写入完整 `PipelineResult`
   - [ ] `status_into(statuses, result)`：观察型，非零、signal、启动失败和 Uya stage 错误不作为 sink 自身的 Uya error
   - [ ] `capture_into(statuses, stdout_buf, stderr_buf, result)` / `capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)`：观察型，结果中包含完整 `PipelineResult`

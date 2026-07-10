@@ -479,3 +479,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - [ ] 锁定 checked/observing sink 分层：
   - [x] `check()`：pipefail，非零返回 `error.ProcessFailed`
     - 验证：读取 `docs/typed_pipeline_design.md` L405-415，确认已添加“阶段 0 已锁定”标记；`check()` 使用固定 all-stage/pipefail，任一 process stage 非零退出或 signal 终止返回 `error.ProcessFailed`；`spawn_failed` / `not_started` 链路优先返回 `error.PipelineSpawnFailed`；Uya stage 错误返回 `error.PipelineStageFailed`；MVP 不开放关闭 pipefail 的入口。
+
+---
+
+## 类型化管道 TODO
+
+### 阶段 0：规格锁定
+
+- [x] `check()`：启动失败返回 `error.PipelineSpawnFailed`
+
+验证：
+- 已核对 `docs/typed_pipeline_design.md` L409-412，`check()` 的启动失败链路已被锁定为优先返回 `error.PipelineSpawnFailed`；非零退出/信号终止返回 `error.ProcessFailed`；Uya stage 错误返回 `error.PipelineStageFailed`。
+- 验证命令：`grep -n "PipelineSpawnFailed" docs/typed_pipeline_design.md` 命中 L409、L412。
