@@ -354,3 +354,16 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - 设计文档已写明：调用方提供的 `statuses` 长度必须至少覆盖全部可执行 stage 数量，`PipelineResult.stage_count` 等于该数量；`stage_index` 是完整 pipeline stage 列表中的零基索引，混合 process/Uya stage 时不得重新压缩编号。
 - 验证命令：`sed -n '333,341p' docs/typed_pipeline_design.md` 可看到锁定标记与对应段落。
 - 本轮未修改生产代码，仅完成规格锁定与文档标记。
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `stage_count` 与 statuses 覆盖完整可执行 stage 列表，`stage_index` 不因混合 stage 压缩
+    验证（2026-07-10）：
+    - `sed -n '197p' docs/typed_pipeline_design.md` 确认 `fn stage_count(input: &Pipeline) !usize;`
+    - `sed -n '306,309p' docs/typed_pipeline_design.md` 确认 `PipelineStageStatus.stage_index` 字段存在
+    - `sed -n '316,318p' docs/typed_pipeline_design.md` 确认 `PipelineResult.stage_count` 字段存在
+    - `sed -n '333p' docs/typed_pipeline_design.md` 确认阶段 0 已锁定声明
+    - `sed -n '341,343p' docs/typed_pipeline_design.md` 确认 `PipelineResult.stage_count`、调用方 `statuses` 缓冲区覆盖完整可执行 stage 列表，`stage_index` 使用完整 stage 列表零基索引，混合 process/Uya stage 时不得重新压缩编号
