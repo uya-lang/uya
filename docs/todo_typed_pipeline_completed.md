@@ -284,3 +284,13 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
   - 必要不变量重申 `cancelled` 与 `not_started` 的区分（L701）。
 
   完成时间：2026-07-10
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] per-stage `exited(exit_code: u32)`；POSIX 0..255 扩宽，Windows `DWORD` 原样保存
+    验证（2026-07-10）：
+    - `sed -n '277,285p' docs/typed_pipeline_design.md` 确认 `PipelineStageStatusKind` 枚举包含 `exited`。
+    - `sed -n '299,307p' docs/typed_pipeline_design.md` 确认 `PipelineStageStatus` 结构体包含 `exit_code: u32`。
+    - `sed -n '328p' docs/typed_pipeline_design.md` 确认 `exit_code` 使用 `u32`：POSIX 的正常退出值以 0..255 扩宽保存，Windows 必须原样保存 `GetExitCodeProcess` 返回的完整 `DWORD` bit pattern；跨平台成功判断统一为 `exit_code == 0u32`。
+    - 决策：per-stage `exited` 状态的 `exit_code` 字段类型锁定为 `u32`；POSIX 将 0..255 零扩宽保存，Windows 原样保存 `DWORD`。
