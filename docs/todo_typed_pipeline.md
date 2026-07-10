@@ -15,7 +15,6 @@
 
 ## 阶段 1：Lexer 与 Parser 骨架
 
-- [ ] parser MVP 保持空 pipeline 构造显式；暂不特殊处理 `_`。
 - [ ] 添加 parser 正向测试：
   - [ ] `pipeline() |> cmd("a") |> cmd("b") |> stdout_file("out") |> check()`
   - [ ] `x = pipeline() |> cmd("a")`

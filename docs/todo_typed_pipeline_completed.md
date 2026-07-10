@@ -39,3 +39,12 @@
       - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
       - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
     - 额外验证：`pipeline() |> f().field` 与 `pipeline() |> f()[0]` 均被 parser 拒绝。
+
+## 阶段 1：Lexer 与 Parser 骨架
+
+- [x] parser MVP 保持空 pipeline 构造显式；暂不特殊处理 `_`。
+  - 验证：
+    - `./bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK。
+    - `./tests/run_programs_parallel.sh tests/test_typed_pipeline_parser_positive.uya` 通过。
+    - `make uya` 自举编译器构建成功。
+  - 说明：空 pipeline 起点保持为显式 `pipeline()` 函数调用；parser 未对 `_` 引入任何 pipeline 占位符语义，`_` 仍按既有 discard assignment / 模式绑定规则处理。
