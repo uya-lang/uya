@@ -737,3 +737,16 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 
 - [x] 锁定所有 stage 使用同一个 sink-time canonical base-env 快照；overlay 按调用顺序决议，PATH 查找与 spawn 使用同一最终 env block。
   验证：已在归档前完成并验证。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 POSIX env key 按 byte 区分、Windows env key 按 ordinal case-insensitive 合并且最终 UTF-16 block 使用同一比较规则排序；大小写变体不能重复传给 child。
+  验证（2026-07-10）：
+  - `sed -n '253p' docs/typed_pipeline_design.md` 确认已写入：
+    - POSIX key 比较按 byte 精确匹配；
+    - Windows key 比较使用平台 ordinal case-insensitive 规则；
+    - 最终 child env 中同一个 key 最多出现一次；
+    - Windows bridge 必须把最终 UTF-16 environment block 按同一 case-insensitive 顺序排序并以双 `\0` 结束；
+    - 不能把多个大小写变体传给 child。
