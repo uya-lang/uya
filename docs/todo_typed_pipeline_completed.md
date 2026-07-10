@@ -786,3 +786,8 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `cmd_path`、`cwd` 和 file-redirection path 都必须在外部副作用前以 `error.InvalidPipeline` 拒绝这种形式；
     - `C:\tool.exe`、UNC/namespace absolute path 和不带 drive prefix 的普通相对路径仍按各自规则处理。
   - `sed -n '729p' docs/typed_pipeline_design.md` 不变量列表同步包含该规则。
+
+---
+
+- [x] 锁定 sink 开始时捕获宿主 cwd 快照；相对 stage cwd 与 stdin/stdout/stderr file path 都按该快照解释，file path 不跟随 stage-local cwd。
+  验证：在 `docs/typed_pipeline_design.md` Stdio 策略部分新增“阶段 0 已锁定”块，明确 sink-time cwd 快照是解释相对 stage cwd 与 file stream path 的唯一基准，file path 不跟随 stage-local cwd。通过 `sed -n '498,500p' docs/typed_pipeline_design.md` 验证文本已落地。

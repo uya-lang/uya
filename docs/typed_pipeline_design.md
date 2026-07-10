@@ -492,6 +492,8 @@ inherit_stdio + capture sink      => error.InvalidPipeline
 
 > **阶段 0 已锁定**：`inherit_stdio(input)` 是显式策略，不是“清空之前配置”的 reset。它要求 stdin、stdout、stderr 三路终端流都仍处于 `unset` 状态，然后把三路都设为 `inherit`；只要任意一路已经被显式配置为 file、capture 或 `merge_stdout`，就返回 `error.InvalidPipeline`。在 `inherit_stdio()` 之后再调用 `stdout_file` / `stderr_file` / `stdout_capture` / `stderr_capture` / capture sink 同样报冲突。
 
+> **阶段 0 已锁定**：sink 开始执行时必须先捕获一次宿主进程 cwd 快照。该快照是本次 sink 调用期间解释所有相对路径的唯一基准：process stage 的相对 `cwd(path)` 按该快照解释；`stdin_file` / `stdout_file` / `stderr_file` 等 pipeline-global stream policy 的相对路径也按同一快照解释，绝不按任一 stage-local cwd 解释。同一 process stage 多次调用 `cwd()` 的覆盖规则由后续条目单独锁定。
+
 sink 开始执行时必须先捕获一次宿主进程 cwd 快照。相对 `cwd(path)` 按该快照解释；同一 process stage 多次调用 `cwd()` 时最后一次覆盖前一次，但不会相对前一次 cwd 继续拼接。`stdin_file` / `stdout_file` / `stderr_file` 是 pipeline-global stream policy，它们的相对路径也按同一个 sink-time cwd 快照解释，绝不按任一 stage-local cwd 解释。transformer 只复制并保存路径；实际文件必须在所有语义/PATH/cwd/buffer 预检和 pipe/control-fd 创建成功后、启动第一个 child 前由 parent 按 stdin、stdout、stderr 的固定顺序打开，不能推迟到 child-side setup。每个活跃 stream policy 只打开一次：stdin file 供第一 stage 使用，stdout file 供最后 stage 使用，group-level stderr file 的同一个 open file description 供所有 process stage安装；这样不会因每个 stage 分别使用 truncate open 而反复截断。
 
 POSIX stdin 使用 `O_RDONLY | O_CLOEXEC`；stdout/stderr 使用 `O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC`，创建 mode 为 `0666` 并服从调用进程当前 umask，`open` 被 `EINTR` 中断时重试。Windows stdin 使用 `GENERIC_READ + OPEN_EXISTING`，stdout/stderr 使用 `GENERIC_WRITE + CREATE_ALWAYS`；sharing mode 允许 read/write/delete，以接近 POSIX 没有强制 sharing lock 的行为，原始 parent handle 默认不可继承，只为每个 child 创建进入 allowlist 的可继承副本。所有这些 file handle/fd 随后仍须遵守前述 source > 2、严格 handle allowlist 和 parent-side 关闭规则。
