@@ -273,3 +273,14 @@ make uya
       - `../uya/bin/uya test tests/test_typed_pipeline_module_qualified_positive.uya` 通过（覆盖 module-qualified 静态调用）。
       - `../uya/bin/uya test tests/test_typed_pipeline_imported_transformer_positive.uya` 通过（覆盖导入无 receiver 静态调用）。
       - `../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过。
+
+## 类型化管道 TODO
+## 阶段 2：Type Checker 规则
+
+- [x] 左侧不是 `Pipeline`
+  - 实现要点：
+    - 在 `src/checker/check_expr_extra.uya` 的 `checker_check_pipeline_expr` 中，推断左侧表达式类型后，通过 `checker_type_is_pipeline` 与 `checker_type_is_error_union_pipeline` 判断；若左侧既不是 `Pipeline` 也不是 `!Pipeline`，则调用 `checker_report_error` 报错。
+    - 若左侧本身是另一个 pipeline 表达式（即 sink 后继续链式管道），给出更具体的错误信息“不能在 sink 之后继续链式管道 '|>'……”，否则给出“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+  - 验证命令与结果：
+    - `../uya/bin/uya test tests/error_typed_pipeline_checker_left.uya` 通过，输出包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
+    - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_checker_left.uya` 通过，显示“预期编译失败”。
