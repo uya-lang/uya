@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 caller-provided `statuses` / stdout / stderr / result writable region 必须两两不重叠；重叠在任何文件打开或 stage 启动前返回 `InvalidPipeline`。
+- [x] 锁定 caller-provided `statuses` / stdout / stderr / result writable region 必须两两不重叠；重叠在任何文件打开或 stage 启动前返回 `InvalidPipeline`。
 - [ ] 锁定 capture exact-fit 探测：达到有效上限但尚未 EOF 时使用独立一字节 scratch；EOF 成功、读到额外字节返回 `CaptureLimitExceeded`，不得停止 drain 后等待 child。
 - [ ] 锁定 `capture_into()` 使用调用方缓冲区容量作为上限，`capture_limit_into()` 在缓冲区容量之外额外施加 `max_bytes`，不引入隐藏默认上限常量。
 - [ ] 锁定 `stdout_file` / `stderr_file` 为 stream policy transformer，不作为 sink。

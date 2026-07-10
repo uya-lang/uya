@@ -611,3 +611,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 
 - [x] 锁定正常完成只等待直接 stage：全部直接 stage reap 后做有界非阻塞 capture 收尾并关闭读端，不等待/终止非直接后代；只有 EOF 设置 `complete=true`，EAGAIN/预算 cutoff 必须返回 `complete=false`。
   - 验证：在 `docs/typed_pipeline_design.md` 必要不变量区追加 “阶段 0 已锁定” 标注，措辞与 TODO 对齐；`git diff --check` 无空白错误。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 caller-provided `statuses` / stdout / stderr / result writable region 必须两两不重叠；重叠在任何文件打开或 stage 启动前返回 `InvalidPipeline`。
+  验证：已在 `docs/typed_pipeline_design.md` 中锁定该规格。L362 明确 `statuses`、启用 capture 的 `stdout_buf` / `stderr_buf`、以及 `result` 指向的固定大小对象必须两两不重叠，零长度 region 不参与重叠判断；L360 与 L727 要求缓冲区容量、重叠预检和所有流策略验证必须在打开文件或启动 stage 前完成，发现重叠时返回 `error.InvalidPipeline`、消费计划并保持空 result，不得产生外部副作用。未改动 `.uya` 生产代码；本条目为纯规格锁定。
