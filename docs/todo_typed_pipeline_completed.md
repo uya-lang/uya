@@ -118,3 +118,23 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
   - `sed -n '505p' docs/typed_pipeline_design.md` 确认“`filter` 不作为公共 API 别名……”。
   - `sed -n '741p' docs/typed_pipeline_design.md` 确认未决问题中写明“`filter` 仅作为文档术语，不暴露为公共别名”。
   - `grep -nE '\bfn\s+filter\b|\bfilter\s*\(' docs/typed_pipeline_design.md docs/std_script_design.md docs/todo_typed_pipeline.md` 未发现公共 `filter` API 声明。
+
+
+## 阶段 0：规格锁定
+
+### 决定精确错误名
+
+- [x] `InvalidPipeline`
+  - 决策：采用 `error.InvalidPipeline` 作为类型化管道的通用“无效 / 不可执行 pipeline”错误名。
+  - 语义锁定（详见 `docs/typed_pipeline_design.md`）：
+    - 已消费或已 drop 的 capability 再次使用；
+    - 空 pipeline 传给 sink；
+    - `cmd` 命令名为空或含路径分隔符；
+    - `cmd_path` 使用 Windows drive-relative 路径（如 `C:tool.exe`）；
+    - stream policy 冲突或错误的 transformer 位置；
+    - `cwd` / `env` / `unset_env` 作用于非 process stage 或空计划；
+    - capture sink 与 file / inherit 策略冲突；
+    - `clone` 遇到不可克隆的 erased stage；
+    - caller-provided statuses / 缓冲区容量不足或重叠；
+    - `stage_count(&Pipeline)` 查询到无效 / 过期 capability。
+  - 验证：人工复核 `docs/typed_pipeline_design.md` 中所有 `InvalidPipeline` 出现位置，语义一致且无同名歧义。无代码实现，无需编译/运行验证。
