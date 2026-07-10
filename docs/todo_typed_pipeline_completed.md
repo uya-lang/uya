@@ -569,3 +569,22 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - `sed -n '470p' docs/typed_pipeline_design.md` 确认 `capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，且显式 `stdout_capture()` / `stderr_capture()` 要求最终 sink 必须是 capture sink。
 - `git diff --check` 无空白错误。
 - 本轮未修改生产代码或测试，仅完成规格锁定与文档标记。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 capture sink 语义：
+  - [x] capture policy 与 `check` / `check_into` / `status_into` 组合报 `InvalidPipeline`
+
+验证（2026-07-10）：
+- `sed -n '458,475p' docs/typed_pipeline_design.md` 确认冲突策略表新增：
+  - `stdout_capture + check => error.InvalidPipeline`
+  - `stdout_capture + check_into => error.InvalidPipeline`
+  - `stdout_capture + status_into => error.InvalidPipeline`
+  - `stderr_capture + check => error.InvalidPipeline`
+  - `stderr_capture + check_into => error.InvalidPipeline`
+  - `stderr_capture + status_into => error.InvalidPipeline`
+- `sed -n '473p' docs/typed_pipeline_design.md` 确认显式 `stdout_capture()` / `stderr_capture()` 将对应终端流策略设为 capture，这类 capture policy 只能与 `capture_into()` / `capture_limit_into()` 组合；在已设置 capture policy 的 pipeline 上使用 `check()` / `check_into()` / `status_into()` 必须报 `error.InvalidPipeline`。
+- `git diff --check` 无空白错误。
+- 本轮未修改生产代码或测试，仅完成规格锁定与文档标记。

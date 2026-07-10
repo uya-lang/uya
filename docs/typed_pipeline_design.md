@@ -460,6 +460,12 @@ stderr_capture + stderr_file      => error.InvalidPipeline
 stderr_capture + stderr_to_stdout => error.InvalidPipeline
 stderr_file + stderr_to_stdout    => error.InvalidPipeline
 stdout_capture + stdout_file      => error.InvalidPipeline
+stdout_capture + check            => error.InvalidPipeline
+stdout_capture + check_into       => error.InvalidPipeline
+stdout_capture + status_into      => error.InvalidPipeline
+stderr_capture + check            => error.InvalidPipeline
+stderr_capture + check_into       => error.InvalidPipeline
+stderr_capture + status_into      => error.InvalidPipeline
 stdout_file + inherit_stdio       => error.InvalidPipeline
 stderr_file + inherit_stdio       => error.InvalidPipeline
 stdout_file + capture sink        => error.InvalidPipeline
@@ -468,7 +474,7 @@ inherit_stdio + capture sink      => error.InvalidPipeline
 
 `capture_into(statuses, stdout_buf, stderr_buf, result)` 使用调用方提供的 capture 缓冲区容量作为有效上限；`capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)` 在缓冲区容量之外额外施加 `max_bytes` 上限。第一版不提供隐藏默认 capture limit 常量。大输出应要求更大的调用方缓冲区、显式 limit 或文件 sink。
 
-所有 sink 对 unset stdin 默认使用 inherit。`check()` / `check_into()` / `status_into()` 对 unset stdout/stderr 默认使用 inherit。`capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，对 unset stderr 默认使用 inherit。显式 `stdout_capture()` / `stderr_capture()` 要求最终 sink 是 `capture_into()` 或 `capture_limit_into()`；与 `check()` / `status_into()` 组合没有返回 bytes 的路径，必须报 `error.InvalidPipeline`。
+所有 sink 对 unset stdin 默认使用 inherit。`check()` / `check_into()` / `status_into()` 对 unset stdout/stderr 默认使用 inherit。`capture_into()` / `capture_limit_into()` 对 unset stdout 默认使用 capture，对 unset stderr 默认使用 inherit。显式 `stdout_capture()` / `stderr_capture()` 将对应终端流策略设为 capture；这类 capture policy 只能与返回 bytes 的 `capture_into()` / `capture_limit_into()` 组合。在已经设置 capture policy 的 pipeline 上使用 `check()`、`check_into()` 或 `status_into()` 没有返回 bytes 的路径，必须报 `error.InvalidPipeline`。
 
 `inherit_stdio()` 是显式策略，不是“清空之前配置”的 reset。它要求 stdin、stdout、stderr 三路都尚未设置终端策略，然后把三路都设为 inherit。后续再配置 file/capture 也必须报冲突。
 
