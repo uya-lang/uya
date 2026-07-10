@@ -1200,3 +1200,15 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   - L826：必要不变量中明确“Uya stage 在没有强制、安全的终止机制或隔离 worker process 前，不得继承 process-only pipeline 的有限取消承诺”。
 
   结论：该门槛已在设计文档中以阶段 0 已锁定形式确立，无需修改生产代码。
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [x] 锁定 Uya stage 只有具备内存安全的强制 task 终止或隔离 worker process 时才能继承有限取消承诺；单纯 cancellation flag + join 不足。
+
+验证命令：
+```bash
+  grep -n "cancellation flag\|强制.*终止\|隔离 worker process\|有限取消承诺" docs/typed_pipeline_design.md
+```
+
+验证结果：
+规格门槛已在 design 文档多处确立；本轮为归档清理，无新增代码改动。
