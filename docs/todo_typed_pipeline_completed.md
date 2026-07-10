@@ -71,3 +71,10 @@
     - `sed -n '462p' docs/typed_pipeline_design.md` 确认 `fn stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline;`。
     - `sed -n '741p' docs/typed_pipeline_design.md` 确认未决问题中写明“`stage` 已锁定为最终名称；`filter` 是否应保留为 `stage` 的公共别名（由 TODO L21 单独决定）”。
     - `grep -nE '\b(filter|step|node)\b.*stage|stage.*\b(filter|step|node)\b' docs/typed_pipeline_design.md` 未发现将 `filter`/`step`/`node` 作为 transformer 最终名的声明。
+
+## 阶段 0：规格锁定
+
+- [ ] 确定最终名称：
+  - [x] `stdout_file`：锁定为最终公共名 `fn stdout_file(input: Pipeline, path: &const byte) !Pipeline;`；验证命令 `grep -n "stdout_file" docs/typed_pipeline_design.md` 命中 9 处，包括 API 列表 L213、示例 L30/L48/L501、语义说明 L266/L268、冲突策略 L423/L424/L426。
+
+---
