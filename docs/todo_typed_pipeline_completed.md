@@ -1105,3 +1105,16 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   - `sed -n '648,649p' docs/typed_pipeline_design.md` 确认 sink 执行顺序：先 subscribe broker，再 acquire terminal lease
   - `sed -n '833p' docs/typed_pipeline_design.md` 确认"等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state"已标记为"阶段 0 已锁定"
   - `git diff --check` 通过，无空白错误
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 runtime broker 用订阅/引用计数协调并发 sink；进程定向信号通知全部活跃 sink，最后一个订阅者只能在仍拥有 disposition 时恢复原 handler，等待 terminal lease 前必须先完成订阅。
+  - 验证：
+    - 文件存在性：`test -f docs/typed_pipeline_design.md` → 存在
+    - 关键规格关键词命中（节选）：
+      - `runtime broker 必须集中拥有 handler，通过引用计数/订阅表管理同时执行的 sink`
+      - `broker 收到进程定向的终止信号时必须通知所有活跃同步 pipeline sink`
+      - `最后一个订阅者离开时，broker 只有在当前 disposition 仍由自己拥有时才能恢复原 handler`
+      - `同步 sink 执行期间收到未被既有 disposition 忽略的 SIGINT... 统一由 runtime signal/console broker 唤醒`
+    - 命令：`grep -nE 'broker|subscription|reference.count|signal|disposition|terminal lease|tcsetpgrp|SIGPIPE' docs/typed_pipeline_design.md`
+    - 结果：设计文档已包含并锁定上述 runtime broker、订阅/引用计数、信号通知、disposition 恢复与 terminal lease 相关规格。本轮仅执行归档清理，未修改生产代码。
