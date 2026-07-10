@@ -13,10 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-## 阶段 2：Type Checker 规则
-
-- [ ] 添加 checker 测试证明 `!Pipeline` 成功载荷只能提取并移动一次。
-
 ## 阶段 3：Lowering
 
 - [ ] 将 `lhs |> f(args...)` 降低为普通调用和临时变量。

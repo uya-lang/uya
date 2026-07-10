@@ -418,3 +418,16 @@ make uya
   - 验证命令与结果：
     - `../uya/bin/uya check tests/error_typed_pipeline_non_pipeline_error_union.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
     - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` 通过，3 个测试全部 OK。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 添加 checker 测试证明 `!Pipeline` 成功载荷只能提取并移动一次。
+  - 交付物：`tests/error_typed_pipeline_try_forward_use_after_move.uya`
+  - 实现：`src/checker/check_expr_extra.uya` 中在确认 `|>` 右侧 callee 首个参数为 `Pipeline` 后，对左侧 `AST_IDENTIFIER` 调用 `checker_mark_moved`，使 move-only 的 `Pipeline` / `!Pipeline` 变量在消费后不能被二次使用。
+  - 验证命令：
+    - `./bin/uya test tests/error_typed_pipeline_try_forward_use_after_move.uya`（预期编译失败，exit code 1）
+    - `./tests/run_programs_parallel.sh tests/error_typed_pipeline_try_forward_use_after_move.uya`（预期编译失败）
+    - `./tests/run_programs_parallel.sh tests/test_typed_pipeline_*.uya tests/error_typed_pipeline_*.uya tests/test_move_simple.uya tests/test_drop_after_move.uya tests/error_move_*.uya`（全部通过）
+  - 验证结果：
+    - 新测试正确报错：`变量 'p' 已被移动，不能再次使用`
+    - 所有既有 typed pipeline 正向/负向测试、move 语义测试保持通过

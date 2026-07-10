@@ -1,0 +1,23 @@
+// error_typed_pipeline_try_forward_use_after_move.uya
+// checker 负向测试：验证 !Pipeline 成功载荷只能提取并移动一次。
+// 第一次 `|>` try-forward 消费了 error union 中的 Pipeline 载荷；
+// 第二次再对同一变量做 try-forward 应报移动错误。
+
+use std.process;
+
+fn ok_transformer(p: Pipeline) Pipeline { return p; }
+
+fn make_err_pipeline() !Pipeline {
+    return pipeline();
+}
+
+fn use_pipeline_twice() !void {
+    const p: !Pipeline = make_err_pipeline();
+    _ = p |> ok_transformer();
+    _ = p |> ok_transformer();
+}
+
+fn main() i32 {
+    _ = use_pipeline_twice();
+    return 0;
+}

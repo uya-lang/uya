@@ -821,6 +821,15 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
 
+    // Pipeline / !Pipeline 都是 move-only 类型；右侧 callee 已确认会消费左侧。
+    // 若左侧是单个变量引用，在此标记该变量已移动，使后续再次使用能报出移动错误。
+    if left.type == ASTNodeType.AST_IDENTIFIER {
+        const pipeline_decl: &ASTNode = checker_resolve_pipeline_decl(checker);
+        if pipeline_decl != null && pipeline_decl.struct_decl_name != null {
+            checker_mark_moved(checker, left, left.identifier_name, pipeline_decl.struct_decl_name);
+        }
+    }
+
     const right_type: Type = checker_infer_type(checker, right);
 
     // !Pipeline 左侧触发 try-forward 语义：等价于 f(try lhs, args...)。
