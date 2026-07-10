@@ -90,3 +90,20 @@
     - 聚焦测试：`../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过。
     - 相关回归：`../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过（6/6）。
     - 全量回归：`make tests-uya` 运行 1078 个测试，通过 1076 个；失败的 2 个为阶段 1 已存在的 parser 负向测试 `test_typed_pipeline_parser_negative.uya` 与 `test_typed_pipeline_parser_negative_eof.uya`（预期编译失败，但测试框架未按 `error_*.uya` 命名，故被标记为失败），与本任务无关。
+
+## 阶段 2：Type Checker 规则
+
+- [x] checker 按 canonical 声明身份识别 `Pipeline`，不得仅比较未限定类型名字符串。
+  - 实现状态：
+    - `src/checker/types.uya` 的 `Type` 结构体已保存命名类型的 `decl_node` canonical 声明节点。
+    - `src/checker/type_utils.uya` 已提供 `checker_resolve_pipeline_decl`、`checker_type_is_pipeline`、`checker_type_is_error_union_pipeline` 三个 helper，按 `std.process` 模块导出记录中的声明身份匹配 `Pipeline` 与 `!Pipeline`。
+    - `src/checker/type_from_ast.uya` 在解析命名类型时已将对应 enum/interface/union/struct 声明节点写入 `result.decl_node`。
+    - `lib/std/process.uya` 已声明 canonical `export struct Pipeline` 和 `export fn pipeline() Pipeline`。
+  - 本轮补充：
+    - 增强 `tests/test_typed_pipeline_type_identity.uya`，新增 `pipeline_as_function_arg` 与 `pipeline_as_return_type` 两个测试，验证 `std.process.Pipeline` 可作为函数参数类型与返回类型被正确识别。
+  - 验证命令与结果：
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - 聚焦测试：`./bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过（3/3 测试全部 OK）。
+    - 程序回归：`./tests/run_programs_parallel.sh tests/test_typed_pipeline_type_identity.uya` 通过。
+    - 全量回归：`make tests-uya` 在 300 秒超时窗口内未完成；聚焦测试与自举验证已通过。

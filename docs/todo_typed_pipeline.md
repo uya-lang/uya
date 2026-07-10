@@ -15,7 +15,7 @@
 
 ## 阶段 2：Type Checker 规则
 
-- [ ] checker 按 canonical 声明身份识别 `Pipeline`，不得仅比较未限定类型名字符串。
+- [x] checker 按 canonical 声明身份识别 `Pipeline`，不得仅比较未限定类型名字符串。
 - [ ] 强制 `|>` 左侧为 `Pipeline` 或 `!Pipeline`。
 - [ ] 强制右侧 callee 的首个参数为 `Pipeline`。
 - [ ] 仅为 `|>` 添加 `!Pipeline` try-forward 语义。
