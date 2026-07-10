@@ -377,6 +377,8 @@ struct PipelineCaptureResult {
 
 计划预检和 PATH lookup 应尽量在启动任何子进程前完成。若此阶段发现 PATH 查找失败或 stage 启动条件不满足，observing sink 应写入带 `spawn_failed` / `not_started` 状态的结果并成功返回；checked sink 应返回 `error.PipelineSpawnFailed`，其中 `check_into` 必须先写入 `PipelineResult`。如果错误发生在不属于某个 stage 的基础设施阶段，例如内存分配失败或 pipe 创建失败，则按普通 Uya error 返回，并按上一段规则清空输出 result。
 
+> **阶段 0 已锁定**：空 pipeline 传给任何 sink 必须返回 `error.InvalidPipeline`。此规则覆盖 `check()` / `check_into()` / `status_into()` / `capture_into()` / `capture_limit_into()` 及所有未来新增 sink；执行器不得在没有任何可执行 stage 时启动子进程、打开文件或产生其他外部副作用。
+
 错误分类必须稳定，不能由后端随意决定：
 
 ```text

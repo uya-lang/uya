@@ -13,7 +13,7 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定空 pipeline 传给任何 sink 返回 `error.InvalidPipeline`。
+- [x] 锁定空 pipeline 传给任何 sink 返回 `error.InvalidPipeline`。
 - [ ] 锁定 `inherit_stdio` 是显式策略而不是 reset，和已有 terminal policy 冲突。
 - [ ] 锁定所有 sink 对 unset stdin 默认使用 inherit。
 - [ ] 锁定 `cwd` / `env` / `unset_env` 作用于最近追加的 process stage。
