@@ -321,3 +321,7 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `sed -n '369p' docs/typed_pipeline_design.md` 确认 `spawn_failed` 到 `PipelineSpawnFailureKind` 的稳定映射规则（PATH/cwd/权限/process create/执行域/stdio/exec/platform error）。
     - `grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md` 确认已在 `PipelineSpawnFailureKind` 定义后追加锁定声明。
     决策：`process spawn_failed` 状态保存稳定的 `PipelineSpawnFailureKind` 类别与可选 `u32` 平台错误码；跨平台控制流只能依赖 `spawn_failure`。
+
+- [x] process `spawn_failed` 保存稳定的 `PipelineSpawnFailureKind` 与可选平台错误码
+  父级路径：`锁定 PipelineResult / PipelineCaptureResult 的结构`
+  验证：已在归档前完成并验证。

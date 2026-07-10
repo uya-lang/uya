@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [x] process `spawn_failed` 保存稳定的 `PipelineSpawnFailureKind` 与可选平台错误码
   - [ ] Uya stage `completed`
   - [ ] Uya stage `stage_failed(error_name)`
   - [ ] `stage_count` 与 statuses 覆盖完整可执行 stage 列表，`stage_index` 不因混合 stage 压缩
