@@ -774,3 +774,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `cmd_path`、`cwd` 和 file-redirection path 都必须在外部副作用前以 `error.InvalidPipeline` 拒绝这种形式；
     - `C:\tool.exe`、UNC/namespace absolute path 和不带 drive prefix 的普通相对路径仍按各自规则处理。
   - `sed -n '729p' docs/typed_pipeline_design.md` 不变量列表同步包含该规则。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 Windows drive-relative path（例如 `C:foo`）对 `cmd_path`、`cwd` 和 file redirection 均为 `InvalidPipeline`；只接受明确 absolute 或普通 relative 形式。
+  验证（2026-07-10）：
+  - `sed -n '242p' docs/typed_pipeline_design.md` 确认已以 `> **阶段 0 已锁定**：` 写入：
+    - Windows drive-relative 形式（例如 `C:tool.exe`）依赖进程级 per-drive cwd，无法由本设计的单一 cwd 快照稳定解释；
+    - `cmd_path`、`cwd` 和 file-redirection path 都必须在外部副作用前以 `error.InvalidPipeline` 拒绝这种形式；
+    - `C:\tool.exe`、UNC/namespace absolute path 和不带 drive prefix 的普通相对路径仍按各自规则处理。
+  - `sed -n '729p' docs/typed_pipeline_design.md` 不变量列表同步包含该规则。
