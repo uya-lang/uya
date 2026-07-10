@@ -616,10 +616,112 @@ fn checker_check_cast_requires_asbang(checker: &TypeChecker, node: &ASTNode, exp
     return 0;
 }
 
+// 获取管道表达式右侧调用表达式的 callee 首个参数类型。
+// 支持普通函数、模块限定调用、类型/值限定的方法调用；无法解析或无参数时返回 TYPE_VOID。
+fn checker_get_pipeline_callee_first_param_type(checker: &TypeChecker, call_node: &ASTNode) Type {
+    var result: Type = make_void_type();
+    if checker == null || call_node == null || call_node.type != ASTNodeType.AST_CALL_EXPR {
+        return result;
+    }
+    const callee: &ASTNode = call_node.call_expr_callee;
+    if callee == null {
+        return result;
+    }
+
+    var fn_decl: &ASTNode = null;
+
+    if callee.type == ASTNodeType.AST_IDENTIFIER {
+        const name: &byte = callee.identifier_name;
+        if name == null {
+            return result;
+        }
+        // 优先从 function table 获取签名（已包含非泛型局部/导入函数）
+        const sig: &FunctionSignature = function_table_lookup(checker, name);
+        if sig != null && sig.param_count > 0 && sig.param_types != null {
+            return copy_type(sig.param_types);
+        }
+        // function table 中可能缺少泛型函数签名，回退到 AST 查找
+        fn_decl = find_fn_decl_from_program(checker.program_node, name);
+    } else if callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const object: &ASTNode = callee.member_access_object;
+        const field_name: &byte = callee.member_access_field_name;
+        if object != null && object.type == ASTNodeType.AST_IDENTIFIER && object.identifier_name != null && field_name != null {
+            const obj_name: &byte = object.identifier_name;
+            const obj_symbol: &Symbol = symbol_table_lookup(checker, obj_name);
+            var module_name: &byte = null;
+            if checker_name_is_type_namespace_name(checker, obj_name) == 0 {
+                if callee.member_access_is_module_access != 0 && callee.member_access_module_name != null {
+                    module_name = callee.member_access_module_name;
+                } else if obj_symbol == null {
+                    module_name = checker_resolve_module_alias_from_file(checker, callee.filename, obj_name);
+                }
+            }
+            if module_name != null {
+                const mh: u32 = hash_string(module_name);
+                var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+                var i3: i32 = 0;
+                while i3 < MODULE_TABLE_SIZE {
+                    const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
+                    const mod: &ModuleInfo = checker.module_table.slots[ml];
+                    if mod == null { break; }
+                    if str_equals(mod.module_name, module_name) != 0 {
+                        if mod.exports != null {
+                            var ei: i32 = 0;
+                            while ei < mod.export_count {
+                                if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, field_name) != 0 {
+                                    const decl: &ASTNode = mod.exports[ei].decl_node;
+                                    if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+                                        fn_decl = decl;
+                                    }
+                                    break;
+                                }
+                                ei = ei + 1;
+                            }
+                        }
+                        break;
+                    }
+                    i3 = i3 + 1;
+                }
+            }
+        }
+
+        // 非模块限定调用：尝试结构体/联合体静态方法或实例方法
+        if fn_decl == null {
+            var owner_is_union: i32 = 0;
+            const owner_name: &byte = checker_type_namespace_owner_name(checker, object, &owner_is_union);
+            if owner_name != null && field_name != null {
+                var static_method: &ASTNode = null;
+                var instance_method: &ASTNode = null;
+                if owner_is_union != 0 {
+                    static_method = find_static_method_in_union(checker.program_node, owner_name, field_name);
+                    instance_method = find_instance_method_in_union(checker.program_node, owner_name, field_name);
+                } else {
+                    static_method = find_static_method_in_struct(checker.program_node, owner_name, field_name);
+                    instance_method = find_instance_method_in_struct(checker.program_node, owner_name, field_name);
+                }
+                if static_method != null {
+                    fn_decl = static_method;
+                } else if instance_method != null {
+                    fn_decl = instance_method;
+                }
+            }
+        }
+    }
+
+    if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL &&
+        fn_decl.fn_decl_param_count > 0 && fn_decl.fn_decl_params != null {
+        const param: &ASTNode = fn_decl.fn_decl_params[0];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_type != null {
+            return type_from_ast(checker, param.var_decl_type);
+        }
+    }
+
+    return result;
+}
+
 // 检查管道表达式
 // 参数：checker - TypeChecker 指针，node - 管道表达式节点
 // 返回：右侧调用表达式的推断类型（如果检查失败返回TYPE_VOID）
-// 当前阶段仅强制左侧为 Pipeline 或 !Pipeline；后续阶段再检查右侧 callee 的首个参数类型等。
 fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
     // 注意：Uya 要求所有变量必须初始化
     var result: Type = make_void_type();
@@ -647,7 +749,14 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
 
     // parser 已将右侧限制为最外层是调用表达式的 postfix expression。
-    // 返回右侧调用表达式的推断类型；右侧 callee 首个参数是否为 Pipeline 的检查留给后续阶段。
+    // 强制右侧 callee 的首个参数必须是 Pipeline 类型。
+    const first_param_type: Type = checker_get_pipeline_callee_first_param_type(checker, right);
+    if checker_type_is_pipeline(checker, &first_param_type) == 0 {
+        checker_report_error(checker, right,
+            "管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型" as *byte);
+        return result;
+    }
+
     return checker_infer_type(checker, right);
 }
 

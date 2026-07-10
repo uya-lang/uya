@@ -135,3 +135,25 @@
       - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
       - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
   - 备注：`make tests-uya` 全量运行存在 4 个与 typed pipeline 无关或命名约定导致的 pre-existing 失败（`test_typed_pipeline_parser_negative_eof`、`test_typed_pipeline_parser_negative` 因文件名不以 `error_` 开头被当作正向测试；`bench_malloc_phase4_detail` 运行时崩溃 exit 139），本次改动未触及这些文件。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 强制右侧 callee 的首个参数为 `Pipeline`。
+  - 实现要点：
+    - 在 `src/checker/check_expr_extra.uya` 新增 `checker_get_pipeline_callee_first_param_type` 辅助函数：针对右侧调用表达式的 callee（普通标识符函数、模块限定调用、结构体/联合体静态或实例方法）解析对应的函数声明或签名，并返回首个参数类型；无法解析或无参数时返回 TYPE_VOID。
+    - 在 `checker_check_pipeline_expr` 中，左侧 `Pipeline` / `!Pipeline` 检查之后，调用上述辅助函数并校验首参是否为 canonical `std.process.Pipeline`；否则在右侧调用节点上报错。
+    - 更新 `tests/test_typed_pipeline_parser_positive.uya`：将 `stage`、`stdout_file`、`check`、`generic_stage` 等右侧 callee 的首个参数改为 `Pipeline`；将原实例方法调用测试替换为"多参数 callee"测试，避免当前阶段未处理实例/静态方法参数个数检查的问题。
+    - 新增 `tests/error_typed_pipeline_checker_right.uya`：左侧为 `Pipeline`、右侧 callee 首参为 `i32`，验证 checker 报"右侧 callee 的首个参数必须是 Pipeline 类型"。
+  - 验证命令与结果：
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - 正向测试：
+      - `./bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK。
+      - `./bin/uya test tests/test_typed_pipeline_checker_positive.uya` 通过，2 个测试全部 OK。
+      - `./bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过，3 个测试全部 OK。
+    - 负向测试：
+      - `./bin/uya check tests/error_typed_pipeline_checker_right.uya` 返回 exit 1，错误信息包含"管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型"。
+      - `./bin/uya check tests/error_typed_pipeline_checker_left.uya` 仍返回 exit 1，错误信息包含"管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型"。
+      - `./bin/uya check tests/test_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含"管道右侧必须是函数调用"。
+      - `./bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含"管道右侧不完整或不是有效的函数调用"。
+    - 全量回归：`./tests/run_programs_parallel.sh` 运行 1081 个测试，通过 1078 个；失败的 3 个为 pre-existing（`test_typed_pipeline_parser_negative`、`test_typed_pipeline_parser_negative_eof` 因文件名不以 `error_` 开头被测试框架当作正向测试；`bench_malloc_phase4` 运行时崩溃 exit 139），与本任务无关。

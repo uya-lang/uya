@@ -4,14 +4,11 @@
 use std.process;
 use std.testing.assert_eq_i32;
 
-fn stage(a: &byte) Pipeline { return pipeline(); }
-fn stdout_file(a: &byte) Pipeline { return pipeline(); }
-fn check() i32 { return 0; }
-fn generic_stage<T>(a: &byte) Pipeline { return pipeline(); }
-
-struct Script {
-    fn cmd(self: &Script, a: &byte) Pipeline { return pipeline(); }
-}
+fn stage(p: Pipeline, a: &byte) Pipeline { return pipeline(); }
+fn stage2(p: Pipeline, a: &byte, b: &byte) Pipeline { return pipeline(); }
+fn stdout_file(p: Pipeline, a: &byte) Pipeline { return pipeline(); }
+fn check(p: Pipeline) i32 { return 0; }
+fn generic_stage<T>(p: Pipeline, a: &byte) Pipeline { return pipeline(); }
 
 test "pipeline_full_chain" {
     // 完整链式 pipeline
@@ -27,10 +24,9 @@ test "pipeline_assignment" {
     try assert_eq_i32(1, 1);
 }
 
-test "pipeline_module_method" {
-    // script.cmd("a") 形式
-    const s: Script = Script{};
-    _ = pipeline() |> s.cmd("a");
+test "pipeline_multi_arg_callee" {
+    // 多参数 callee
+    _ = pipeline() |> stage2("a", "b");
     try assert_eq_i32(1, 1);
 }
 

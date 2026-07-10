@@ -1,0 +1,11 @@
+// error_typed_pipeline_checker_right.uya
+// checker 负向测试：验证 |> 右侧 callee 的首个参数不是 Pipeline 时报错。
+
+use std.process;
+
+fn bad_transformer(a: i32) Pipeline { return pipeline(); }
+
+fn main() i32 {
+    _ = pipeline() |> bad_transformer(1);
+    return 0;
+}

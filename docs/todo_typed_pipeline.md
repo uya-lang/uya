@@ -15,7 +15,6 @@
 
 ## 阶段 2：Type Checker 规则
 
-- [ ] 强制右侧 callee 的首个参数为 `Pipeline`。
 - [ ] 仅为 `|>` 添加 `!Pipeline` try-forward 语义。
 - [ ] 拒绝对非 `Pipeline` 值使用通用数据管道。
 - [ ] 拒绝 sink 之后继续链式管道，因为左侧不再是 `Pipeline`。
