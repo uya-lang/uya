@@ -392,3 +392,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - `sed -n '230p' docs/typed_pipeline_design.md` 确认已追加“阶段 0 已锁定”标记，明确 `stage_count(input: &Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，空计划返回 0，无效 / 过期 / 伪造 capability 返回 `error.InvalidPipeline`
 - `sed -n '232p' docs/typed_pipeline_design.md` 确认详细语义：查询不得缓存 execution-time 状态，不得改变后续 sink 结果，必须保留 `!usize` 错误通道，不能用 0 混淆“合法空计划”和“无效 capability”
 - 本轮未修改生产代码，仅完成规格锁定与文档标记。
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `stage_count(&Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询，无效 capability 返回 `InvalidPipeline`
+    验证（2026-07-10）：
+    - `sed -n '196,198p' docs/typed_pipeline_design.md` 确认 API 签名为 `fn stage_count(input: &Pipeline) !usize;`
+    - `sed -n '230,232p' docs/typed_pipeline_design.md` 确认锁定说明包含“不消费、不执行”“空计划返回 0”“无效 / 过期 / 伪造 capability 返回 `error.InvalidPipeline`”
+    - `sed -n '681p' docs/typed_pipeline_design.md` 确认不变式列表重申该语义
+    - 阶段 0 规格锁定任务，无 `.uya` 实现变更。
