@@ -1118,3 +1118,23 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
       - `同步 sink 执行期间收到未被既有 disposition 忽略的 SIGINT... 统一由 runtime signal/console broker 唤醒`
     - 命令：`grep -nE 'broker|subscription|reference.count|signal|disposition|terminal lease|tcsetpgrp|SIGPIPE' docs/typed_pipeline_design.md`
     - 结果：设计文档已包含并锁定上述 runtime broker、订阅/引用计数、信号通知、disposition 恢复与 terminal lease 相关规格。本轮仅执行归档清理，未修改生产代码。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 fork child 在 READY 前移除 sink 临时 signal mask/disposition 与 broker fd；launch token 写入必须以 per-thread mask 处理 `SIGPIPE`，不能永久改变进程级 disposition。
+  验证（2026-07-10）：
+  - `docs/typed_pipeline_design.md` L830-L836 已追加"阶段 0 已锁定"块，明确 POSIX child 在 READY 前必须：
+    - 关闭 runtime broker self-pipe/event fd 及 broker 内部 fd
+    - 恢复 fork 前保存的调用线程 signal mask
+    - 将 broker 接管信号重置为 `SIG_DFL` 或保持 `SIG_IGN`
+    - 失败通过 startup-report 的 `signal_setup` phase 回传，映射为 `spawn_failed(execution_domain_failed)`
+  - `docs/typed_pipeline_design.md` L838-L843 已追加"阶段 0 已锁定"块，明确 launch token 写入必须使用 per-thread `SIGPIPE` 安全 helper：
+    - 临时阻塞当前线程 `SIGPIPE`（只改线程 mask，不改进程级 disposition）
+    - 循环处理 `EINTR`，精确写入固定 token
+    - 短写/`EPIPE`/未知响应视为 launch failure
+    - 写入后只消费本次新产生的 pending `SIGPIPE`，立即恢复原 mask
+    - 禁止永久忽略进程级 `SIGPIPE`
+  - 验证命令：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md`
+  - 结果：命中新增锁定块，且 `git diff --check` 无空白错误。
+
+---

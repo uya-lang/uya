@@ -827,9 +827,20 @@ struct ErasedPipelineStage {
 > **阶段 0 已锁定**：POSIX process group 建立必须使用 parent/child 双侧 `setpgid` 收敛：第一个 child 在 fork 后调用 `setpgid(0, 0)` 成为 group leader，后续 child 调用 `setpgid(0, leader_pid)`，parent 对每个 child 调用 `setpgid(child_pid, leader_pid)` 并验证结果。每个 child 拥有独立的 launch pipe 和 close-on-exec 的 startup-report pipe；禁止所有 child 共享一个无法识别 token 接收者的 launch pipe。child-side `setpgid` 成功后向自己的 report pipe 写入固定大小 `READY` record，然后只从自己的 launch pipe 读取一个 token：只有明确的 `RUN` token 才能继续 chdir/dup2/exec；`ABORT`、EOF、短读或未知 token 必须关闭 child fds 并 `_exit`，不得执行用户映像。parent 必须 poll 全部 report pipe，在收到每个 child 的 `READY` 且完成 parent-side `setpgid` 验证前不能写入任何 `RUN`；report pipe 在 READY 前出现 EOF、格式错误或 `FAILED` record，或已 READY child 在 RUN 前提前关闭 report pipe，均为启动失败。成功路径逐个向每个 child 的 launch pipe 写入 `RUN` token 并关闭对应 pipe；失败路径向尚未释放的 child 写入 `ABORT`（写入失败时直接关闭对应 pipe），再对 group 和每个直接 PID 执行强制取消并 reap。
 - POSIX child 必须通过双侧 `setpgid`、per-child startup-report/launch pipe 和显式 `RUN`/`ABORT` protocol 建立完整 process group；EOF 只能表示 abort，不能释放 child 执行用户代码。
 > **阶段 0 已锁定**：每个 POSIX child 在 READY 前必须关闭所有与本 stage 无关的控制 fd、数据 fd 和 runtime-broker fd；parent 必须在每次 fork 成功后立即关闭该 child 的 launch-read/report-write 端，并在某个 data/file fd 的最后一个预期继承者 fork 成功后立即关闭 parent 副本；全部 child READY 后、发送任何 `RUN` token 前，parent 不得再持有任何 child-only control/data fd 或 capture writer。
-- POSIX child 必须在 READY 前移除 sink 临时 signal mask/disposition，并恢复 fork 前保存的调用线程 mask。
+> **阶段 0 已锁定**：POSIX child 在报告 `READY` 之前必须完成以下 signal/fd 清理；任何一步失败都通过 startup-report 的 `signal_setup` phase 回传，并映射为 `spawn_failed(execution_domain_failed)`：
+>
+> 1. 关闭 runtime broker 的 self-pipe/event fd 以及 broker 用于信号分发的其他内部 fd；child 不得继承 broker 的 handler、self-pipe 或订阅状态。
+> 2. 恢复 fork 前保存的调用线程 signal mask；`SIGPIPE`、`SIGTTOU` 等由 sink 临时屏蔽的信号必须恢复为 fork 前的线程状态。
+> 3. 对 broker 接管的信号，若 broker 接管前进程级 disposition 为 `SIG_IGN`，child 中继续保持 `SIG_IGN`；否则在 child 中重置为默认 disposition（`SIG_DFL`）。child 不得执行 broker 或 sink 的自定义 handler。
+>
+> 上述规则只移除 sink/runtime broker 临时状态，不解除调用方在 sink 之前显式设置的其他 signal mask。
 > **阶段 0 已锁定**：所有内部 control/data/file source fd 必须避开 0/1/2，或使用等价的循环安全 stdio remap；不能假设宿主标准 fd 已打开。详见上文 POSIX 后端 fd 搬移与 remap 规则。
-- POSIX launch token 写入必须屏蔽本次写入产生的 `SIGPIPE` 并把 `EPIPE`/短写作为可清理的启动失败，不能让 executor 被默认 signal action 直接终止。
+> **阶段 0 已锁定**：parent 向每个 child 的 launch pipe 写入 `RUN` / `ABORT` token 时，必须使用 per-thread `SIGPIPE` 安全 helper，禁止永久改变进程级 `SIGPIPE` disposition：
+>
+> 1. 在当前写入线程临时阻塞 `SIGPIPE`（只能修改线程 mask，不能修改进程级 disposition）。
+> 2. 循环处理 `EINTR`，精确写入固定 token；短写、`EPIPE`、未知响应或写入失败都视为该 child 的 launch failure。
+> 3. 写入完成后只消费本次写入新产生的 pending `SIGPIPE`，然后立即恢复调用线程的原始 `SIGPIPE` mask。
+> 4. 不得为方便而永久忽略整个进程的 `SIGPIPE`；launch write 之外 `SIGPIPE` 默认 action 必须继续生效。
 > **阶段 0 已锁定**：runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
 > **阶段 0 已锁定**：只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
 - wait loop 必须观察 stopped direct child；当前无公共 job-control 的模式将任何 stopped 状态收敛为有限取消和 `error.Interrupted`，不能遗留前台终端或永久等待。
