@@ -59,3 +59,15 @@
 - [ ] 确定最终名称：
   - [x] `stage`
     验证：`docs/typed_pipeline_design.md` L449 已声明“名称锁定”；L459-L463 将 transformer 标记为“最终 transformer（名称已锁定）”并使用 `fn stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline;`；未决问题 L741 已更新为“`stage` 已锁定为最终名称；`filter` 是否应保留为 `stage` 的公共别名（由 TODO L21 单独决定）”。`python3 scripts/todo_progress.py summary docs/todo_typed_pipeline.md` 确认 L17 已更新。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 确定最终名称：
+  - [x] `stage`
+    验证（2026-07-10）：
+    - `sed -n '449p' docs/typed_pipeline_design.md` 确认“名称锁定：自定义 Uya pipeline stage 的 transformer 最终名称为 `stage`”。
+    - `sed -n '462p' docs/typed_pipeline_design.md` 确认 `fn stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline;`。
+    - `sed -n '741p' docs/typed_pipeline_design.md` 确认未决问题中写明“`stage` 已锁定为最终名称；`filter` 是否应保留为 `stage` 的公共别名（由 TODO L21 单独决定）”。
+    - `grep -nE '\b(filter|step|node)\b.*stage|stage.*\b(filter|step|node)\b' docs/typed_pipeline_design.md` 未发现将 `filter`/`step`/`node` 作为 transformer 最终名的声明。

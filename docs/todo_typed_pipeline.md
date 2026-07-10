@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 确定最终名称：
-  - [x] `stage`
   - [ ] `stdout_file`
   - [ ] `capture_into` / `capture_limit_into`
   - [ ] `status_into`
