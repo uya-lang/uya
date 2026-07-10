@@ -596,3 +596,13 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `grep -n "阶段 0 已锁定.*CaptureLimitExceeded" docs/typed_pipeline_design.md` 命中行 436-438
     - 确认新增段落覆盖：POSIX 先 `SIGKILL` process group 再对每个尚未 reap 的直接 PID 补发 `SIGKILL`；Windows 使用 `TerminateJobObject` 并对尚未入 Job 的直接进程单独 `TerminateProcess` 并等待；取消路径关闭 capture 读端、不得无限 drain、不得等待逃离后代 EOF；完成直接 stage reap 后重置输出 result 为空摘要并返回 `error.CaptureLimitExceeded`
   - 相关改动：`docs/typed_pipeline_design.md` 在行 436-438 追加两条“阶段 0 已锁定”声明
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定空 result 摘要的字段值：`PipelineResult.stage_count=0`；`PipelineCaptureResult` 还需把 stdout/stderr 置为 `captured=false`、`byte_count=0`、`complete=false`。
+  验证：复核 `docs/typed_pipeline_design.md` L368、L372 已明确定义：
+  - 接收 result 指针的 sink 在返回普通 Uya error、`error.Interrupted` 或 `error.CaptureLimitExceeded` 前，必须把输出 result 重置为空摘要；
+  - 空 `PipelineResult` 摘要定义为 `stage_count=0`；
+  - 空 `PipelineCaptureResult` 摘要定义为内嵌 `result.stage_count=0`，且 stdout/stderr 的 `captured=false`、`byte_count=0`、`complete=false`。
