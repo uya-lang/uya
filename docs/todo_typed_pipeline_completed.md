@@ -1028,3 +1028,17 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   验证命令：
   - `grep -n "阶段 0 已锁定.*POSIX process group" docs/typed_pipeline_design.md` → 命中 L809；
   - `sed -n '809p' docs/typed_pipeline_design.md` → 显示完整锁定引用。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定每个 POSIX child 在 READY 前关闭所有无关控制/数据/runtime-broker fd，parent 在最后一个继承者 fork 后立即关闭对应 child-only fd，发送 RUN 前不再持有 capture writer。
+  验证（2026-07-10）：在 `docs/typed_pipeline_design.md` L811 添加 `> **阶段 0 已锁定**` 引用，明确：
+  - 每个 POSIX child 在 READY 前必须关闭所有与本 stage 无关的控制 fd、数据 fd 和 runtime-broker fd；
+  - parent 在每次 fork 成功后立即关闭该 child 的 launch-read/report-write 端，并在某个 data/file fd 的最后一个预期继承者 fork 成功后立即关闭 parent 副本；
+  - 全部 child READY 后、发送任何 `RUN` token 前，parent 不得再持有任何 child-only control/data fd 或 capture writer。
+  同时把原 L811 混合的 signal mask/disposition 内容拆入独立列表项（L24 后续锁定），把 fd 避开 0/1/2 内容保留为独立列表项（L18 后续锁定），避免提前锁定相邻条目。
+  验证命令：
+  - `grep -n "阶段 0 已锁定.*POSIX child 在 READY 前" docs/typed_pipeline_design.md` → 命中 L811；
+  - `sed -n '811p' docs/typed_pipeline_design.md` → 显示完整锁定引用。
