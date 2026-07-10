@@ -14,7 +14,8 @@
 ## 阶段 0：规格锁定
 
 - [ ] 确定最终名称：
-  - [ ] `pipeline` 或 `empty_pipeline`
+  - [x] `pipeline`（空管道构造器最终名称为 `pipeline()`，`empty_pipeline` 废弃）
+    验证：复核 `docs/typed_pipeline_design.md` L126-L131、L196，以及 `docs/std_script_design.md` L238 均使用 `pipeline()`；无 `.uya` 实现引用任一候选名。
   - [ ] `cmd_argv` / `cmd_path_argv`，以及后续 `cmd` / `cmd_path` facade
   - [ ] `stage`
   - [ ] `stdout_file`
