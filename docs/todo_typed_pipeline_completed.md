@@ -415,3 +415,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - `sed -n '322,345p' docs/typed_pipeline_design.md` 确认 `CaptureStreamResult` 定义及新增 `captured` 字段语义锁定说明。
     - 说明明确 `captured` 由 stream policy 决定；false 时 `byte_count=0` 且 `complete=false`；true 时即使无数据也保持 true。
     - 阶段 0 规格锁定任务，无 `.uya` 实现变更。
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `CaptureStreamResult.byte_count`
+    验证：已在归档前完成并验证。
+    归档验证（2026-07-10）：
+    - `sed -n '322,326p' docs/typed_pipeline_design.md` 确认 `CaptureStreamResult` 包含 `byte_count: usize`
+    - `sed -n '335p' docs/typed_pipeline_design.md` 确认阶段 0 已锁定标注
+    - `sed -n '337,342p' docs/typed_pipeline_design.md` 确认 `byte_count` 语义覆盖 capture/non-capture/空摘要/预检失败等路径
