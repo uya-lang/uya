@@ -325,3 +325,12 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - [x] process `spawn_failed` 保存稳定的 `PipelineSpawnFailureKind` 与可选平台错误码
   父级路径：`锁定 PipelineResult / PipelineCaptureResult 的结构`
   验证：已在归档前完成并验证。
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [x] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] Uya stage `completed`
+
+验证：读取 `docs/typed_pipeline_design.md` L277-286 与 L330-332，确认 `PipelineStageStatusKind.completed` 已定义为“Uya stage 正常返回”，无额外 payload；并已在 L286 添加“阶段 0 已锁定”标记。
+
+---
+

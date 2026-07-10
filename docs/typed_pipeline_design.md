@@ -284,6 +284,8 @@ enum PipelineStageStatusKind {
     stage_failed,
 }
 
+> **阶段 0 已锁定**：`completed` 表示 Uya stage 正常返回，无额外 payload。
+
 enum PipelineSpawnFailureKind {
     none,
     path_not_found,
