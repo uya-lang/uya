@@ -473,3 +473,9 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - [x] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
   - [x] 后续按值 facade 使用独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult` 或不透明 handle，不复用仅含长度的摘要类型
     验证：在 `docs/typed_pipeline_design.md` 的“结果模型”段增加“阶段 0 已锁定”说明，明确 `status()` / `capture()` / `capture_limit()` 必须返回独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult`（或等价不透明 handle），不得复用 `PipelineResult` / `PipelineCaptureResult` 摘要类型，并补充所有权转移 / drop / clone 规则。
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 checked/observing sink 分层：
+  - [x] `check()`：pipefail，非零返回 `error.ProcessFailed`
+    - 验证：读取 `docs/typed_pipeline_design.md` L405-415，确认已添加“阶段 0 已锁定”标记；`check()` 使用固定 all-stage/pipefail，任一 process stage 非零退出或 signal 终止返回 `error.ProcessFailed`；`spawn_failed` / `not_started` 链路优先返回 `error.PipelineSpawnFailed`；Uya stage 错误返回 `error.PipelineStageFailed`；MVP 不开放关闭 pipefail 的入口。
