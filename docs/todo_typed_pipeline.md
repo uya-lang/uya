@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 `stdout_file` / `stderr_file` 为 stream policy transformer，不作为 sink。
 - [ ] 锁定空 pipeline 传给任何 sink 返回 `error.InvalidPipeline`。
 - [ ] 锁定 `inherit_stdio` 是显式策略而不是 reset，和已有 terminal policy 冲突。
 - [ ] 锁定所有 sink 对 unset stdin 默认使用 inherit。

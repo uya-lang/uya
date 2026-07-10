@@ -657,3 +657,9 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - [x] 锁定 `capture_into()` 使用调用方缓冲区容量作为上限，`capture_limit_into()` 在缓冲区容量之外额外施加 `max_bytes`，不引入隐藏默认上限常量。
   - 验证：规格条目经 review 后写入 `typed_pipeline_design.md`；本轮仅做规格锁定，未引入生产代码或测试。
 
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 `stdout_file` / `stderr_file` 为 stream policy transformer，不作为 sink。
+  - 验证：读取 `docs/typed_pipeline_design.md` L268-277，确认已添加"阶段 0 已锁定"引用块，明确 `stdout_file(input, path)` / `stderr_file(input, path)` 是 stream policy transformer，不是 sink；transformer 阶段仅复制并保存 `path`，不启动子进程或打开文件。
+  - 验证：检查本轮未创建任何生产模块、API 骨架或代码测试。
