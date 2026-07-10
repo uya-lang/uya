@@ -144,6 +144,17 @@ type Pipeline = opaque std.process.Pipeline;
 
 当前 Uya 只有声明级 `export`，没有结构体字段级私有性；因此“导出普通 struct/裸指针 handle，再通过 `std.script` facade 隐藏字段”不能满足本设计的不透明性要求。公开 `Pipeline` API 的前置条件是编译器先具备真正的 opaque、non-copyable 类型能力，并让 checker 按规范声明身份而不是按未限定名称 `Pipeline` 识别该类型。内部 bring-up 可以暂用带 generation 校验的整数 capability + 私有注册表，但这种表示必须拒绝伪造、过期和重复消费的 capability，且在完成真正 opaque 类型前不能作为稳定公共 API 发布。导出的 raw pointer 字段或可任意构造的普通 struct 不属于可接受实现。
 
+> **阶段 0 已锁定**：若内部 bring-up 使用 capability handle 表示 `Pipeline`，必须满足以下全部规则。
+>
+> 1. **Capability 形式**：handle 是由内部 `std.process` 模块生成的整数索引 + monotonic generation 组合。索引指向进程内私有注册表（不暴露给 `std.script` 或其他模块）中的 live slot；generation 在 slot 分配时递增，并在 slot 释放后保留为墓碑值。
+> 2. **私有注册表**：注册表由 `std.process` 内部静态拥有，不提供公共查询、枚举或构造接口。调用方无法通过常量、算术、转换或内存伪造获得合法 capability。
+> 3. **拒绝伪造**：任何不是由内部 API 分配的 capability 值（包括全零、越界索引、与当前 slot generation 不匹配的索引、来自其他进程的 capability）必须被识别为无效，并稳定返回 `error.InvalidPipeline`。
+> 4. **拒绝过期**：已 `drop`、已消费或被显式释放的 slot 必须保持墓碑 generation；后续对该 capability 的访问必须因为 generation 不匹配而返回 `error.InvalidPipeline`，不得解引用已释放内存或复用被新分配占用的 slot。
+> 5. **拒绝重复消费**：transformer 和 sink 必须在消费 input 的同时使原 capability 失效；同一个 capability 不能两次进入会读取或修改注册表的 API。运行时应在消费点原子地标记 slot 为已消费/释放，并校验调用方传入的 capability 尚未处于已消费状态。
+> 6. **防御层定位**：运行时 capability 校验只作为对编译器移动检查缺陷、内存破坏或实现错误的纵深防御，不能替代静态 move-only / non-copyable 语义。
+> 7. **公开 API 仍等待 opaque 类型**：capability handle 及其私有注册表属于内部实现细节，不得出现在任何 `export` 类型签名、脚本可见的 struct 字段或文档化公共函数参数中。在所有公共 API 中，`Pipeline` 仍必须表现为不透明、不可由脚本构造、不可按值复制的抽象。
+> 8. **并发安全**：私有注册表的分配、查找、消费和释放操作必须保证线程安全；同一进程内多个线程可并发构造、消费或查询 pipeline，但同一 capability 的重复消费必须被互斥或原子状态检查阻止。
+
 执行计划是延迟的。transformer 会同步构造或修改计划，但不会启动子进程。sink 消费计划并执行它。
 
 move-only 规则是有意设计：

@@ -958,3 +958,14 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - [x] 锁定公开 `Pipeline` 必须依赖真正 opaque / non-copyable 类型能力；导出普通 struct/raw pointer handle 不得作为稳定 API。
   - 验证：审查 `docs/typed_pipeline_design.md` 的 `Pipeline 类型` 章节，确认已追加 `**阶段 0 已锁定**：公开 Pipeline 必须依赖真正 opaque / non-copyable 类型能力；普通 export struct 或 raw pointer handle 不得作为稳定 API。` 的明确声明。
 
+# 类型化管道 TODO 完成归档
+
+## 阶段 0：规格锁定
+
+- [x] 若内部 bring-up 使用 capability handle，必须使用 generation 校验与私有注册表，并拒绝伪造、过期和重复消费；公开 API 仍等待 opaque 类型。
+  - 验证：已在 `docs/typed_pipeline_design.md` 的 `## Pipeline 类型` 下追加独立的阶段 0 锁定块，明确要求 capability = 整数索引 + monotonic generation、私有注册表、拒绝伪造/过期/重复消费、防御层定位、公开 API 不透明以及并发安全。
+  - 验证命令：`grep -n '阶段 0 已锁定：若内部 bring-up 使用 capability handle' docs/typed_pipeline_design.md`
+  - 实际验证：
+    - `grep -n 'Capability 形式' docs/typed_pipeline_design.md` -> 149:> 1. **Capability 形式**：...
+    - `grep -c '拒绝伪造\|拒绝过期\|拒绝重复消费\|私有注册表' docs/typed_pipeline_design.md` -> 8
+

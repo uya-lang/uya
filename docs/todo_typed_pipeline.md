@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [ ] 若内部 bring-up 使用 capability handle，必须使用 generation 校验与私有注册表，并拒绝伪造、过期和重复消费；公开 API 仍等待 opaque 类型。
 - [ ] 锁定 transformer/sink 在所有返回路径上消费 input，失败路径释放计划；未进入 sink 的 live pipeline 离开作用域时自动 drop。
 - [ ] 决定 `_` pipeline 占位符语法糖是延期，还是作为显式 parser/checker 工作实现。
 - [ ] 明确 process-only MVP 不包含自定义 Uya stage；Uya stage 需等待 owned-data 与满足取消/终止门槛的 execution domain 方案。
