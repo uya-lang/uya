@@ -377,3 +377,11 @@ make uya
 - 验证命令与结果：
   - `../uya/bin/uya test tests/error_typed_pipeline_instance_method_receiver.uya` 退出码 1，正确报告：「管道运算符 '|>' 右侧不能是带隐式 self receiver 的实例方法调用」。
   - 全部 typed pipeline 正向测试通过：`for f in tests/test_typed_pipeline_*.uya; do ../uya/bin/uya test "$f"; done`，5/5 退出码 0。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 添加 `1 |> cmd("x")` 的 checker 负向测试。
+  - 测试文件：`tests/error_typed_pipeline_checker_left.uya`
+  - 验证命令：`./tests/run_programs_parallel.sh tests/error_typed_pipeline_checker_left.uya`
+  - 验证结果：`✓ error_typed_pipeline_checker_left:预期编译失败`
+  - 补充：相关 typed_pipeline 测试已全部通过，包括 error_typed_pipeline_checker_right、test_typed_pipeline_checker_positive 等 13 个测试文件。
