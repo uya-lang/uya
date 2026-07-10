@@ -665,7 +665,11 @@ POSIX process group 必须通过带显式消息的启动屏障消除竞态。par
 
 因为全部 per-child pipe 在第一次 fork 前已经存在，fd 所有权必须在 READY 前收敛，不能依赖 exec-time `FD_CLOEXEC`：每个 child 一进入 fork 分支，就必须关闭所有 parent-only 控制端、runtime broker fd、其他 stage 的 launch/report 两端，以及与本 stage stdin/stdout/stderr 无关的数据 pipe 端，只保留自己的 launch read 端、startup-report write 端和完成本 stage stdio 安装所需的数据 fd。parent 在每次 fork 成功后必须立即关闭该 child 的 launch read 端和 startup-report write 端；某个 data/file fd 的最后一个预期继承者 fork 成功后，parent 也必须立即关闭自己的对应副本。全部 child READY 后、发送任何 `RUN` 前，parent 不得再持有任何 child-only control/data fd 或 capture write 端；否则 parent 自己持有的 pipe writer 会阻止下游 EOF并使直接 stage 永久等待。
 
-不能假设宿主的 0/1/2 一定已打开。所有新建的 control fd、inter-stage/capture data fd 和 file-redirection fd 都必须在第一次 fork 前移动到大于 `STDERR_FILENO` 的编号，并设置与用途一致的 close-on-exec 标志；因此 child-side 三路 stdio source 不会与目标 0/1/2 形成覆盖环。继承策略直接使用原有 0/1/2，不把它们当作内部 source fd。child 对每个非 inherit stream 用 `dup2(source, target)` 安装 stdio；因为 source 大于 2，成功的 `dup2` 会得到不带 close-on-exec 的目标，随后才能关闭全部内部 source fd。若后端选择不统一搬移 source，则必须实现等价的循环安全 remap，并显式处理 `source == target` 时清除 `FD_CLOEXEC`，不能按 stdin/stdout/stderr 固定顺序做可能覆盖后续 source 的裸 `dup2`。
+> **阶段 0 已锁定**：不能假设宿主的标准输入/输出/错误 fd（0/1/2）已经打开。所有 POSIX 后端内部使用的 control fd、inter-stage/capture data fd 和 file-redirection source fd 都必须在第一次 fork 前移动到严格大于 `STDERR_FILENO`（即 >2）的编号，并设置与用途一致的 close-on-exec 标志。child-side 对每个非 inherit 的 stdio target（0/1/2）使用 `dup2(source, target)` 安装；因为 source > 2，成功的 `dup2` 会得到不带 `FD_CLOEXEC` 的目标，随后 child 才能关闭全部内部 source fd。
+>
+> 如果后端选择不统一搬移 source，则必须实现等价的循环安全 remap 算法：按拓扑顺序处理每个 `(source, target)` 对，显式处理 `source == target` 时清除 `FD_CLOEXEC`，并避免按 stdin/stdout/stderr 固定顺序做可能覆盖后续 source 的裸 `dup2`。任何 remap 方案都必须保证 parent 在全部 child READY 后、发送任何 `RUN` token 前，不再持有任何 child-only 的 control/data fd 或 capture writer，且 child 不会因 source 与 target 重叠而丢失本 stage 所需的 stdio source。
+>
+> `inherit` 策略直接使用当前进程的 0/1/2，不把它们当作内部 source fd，也不对它们做搬移或 close-on-exec 修改；调用方仍对 inherit fd 的打开状态负责。
 
 POSIX 执行释放边界以成功消费 `RUN` 为准：尚未消费 `RUN` 就因其他 stage 失败而退出的 child 即使已经有 PID，也写入 `not_started`；自身 fork、setpgid、signal setup、barrier 或后续 setup 失败的 stage 写入 `spawn_failed`。如果 parent 已经向部分 child 发出 `RUN` 后发生某个 per-child launch pipe 错误，未释放 child 记为 `not_started`，对应 launch pipe 的 stage 记为 `spawn_failed(execution_domain_failed)`；已经释放且在统一取消前尚未自然完成的 child 记为 `cancelled`，即使它还停留在 chdir/dup2/exec 前后；已经观察到自然完成的则保留实际状态。
 
@@ -810,7 +814,7 @@ struct ErasedPipelineStage {
 - POSIX child 必须通过双侧 `setpgid`、per-child startup-report/launch pipe 和显式 `RUN`/`ABORT` protocol 建立完整 process group；EOF 只能表示 abort，不能释放 child 执行用户代码。
 > **阶段 0 已锁定**：每个 POSIX child 在 READY 前必须关闭所有与本 stage 无关的控制 fd、数据 fd 和 runtime-broker fd；parent 必须在每次 fork 成功后立即关闭该 child 的 launch-read/report-write 端，并在某个 data/file fd 的最后一个预期继承者 fork 成功后立即关闭 parent 副本；全部 child READY 后、发送任何 `RUN` token 前，parent 不得再持有任何 child-only control/data fd 或 capture writer。
 - POSIX child 必须在 READY 前移除 sink 临时 signal mask/disposition，并恢复 fork 前保存的调用线程 mask。
-- 所有内部 control/data/file source fd 必须避开 0/1/2，或使用等价的循环安全 stdio remap；不能假设宿主标准 fd 已打开。
+> **阶段 0 已锁定**：所有内部 control/data/file source fd 必须避开 0/1/2，或使用等价的循环安全 stdio remap；不能假设宿主标准 fd 已打开。详见上文 POSIX 后端 fd 搬移与 remap 规则。
 - POSIX launch token 写入必须屏蔽本次写入产生的 `SIGPIPE` 并把 `EPIPE`/短写作为可清理的启动失败，不能让 executor 被默认 signal action 直接终止。
 - runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
 - 只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。

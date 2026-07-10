@@ -1042,3 +1042,18 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   验证命令：
   - `grep -n "阶段 0 已锁定.*POSIX child 在 READY 前" docs/typed_pipeline_design.md` → 命中 L811；
   - `sed -n '811p' docs/typed_pipeline_design.md` → 显示完整锁定引用。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定所有 POSIX 内部 control/data/file source fd 避开 0/1/2，或实现循环安全 remap 与 `source == target` 的 `FD_CLOEXEC` 清理；不能假设宿主标准 fd 已打开。
+
+**验证记录**：
+- 更新 `docs/typed_pipeline_design.md`：在 POSIX 后端执行章节新增/升级“阶段 0 已锁定”段落，明确所有内部 control/data/file source fd 必须 >2 或等价循环安全 remap，并显式处理 `source == target` 时清除 `FD_CLOEXEC`。
+- 同步更新设计文档末尾 checklist 中对应条目为“阶段 0 已锁定”引用。
+- 规格验证命令：
+  ```bash
+  git diff --check docs/typed_pipeline_design.md docs/todo_typed_pipeline.md
+  ```
+- 结果：无空白错误，diff 仅含设计文档与 TODO 状态变更。
