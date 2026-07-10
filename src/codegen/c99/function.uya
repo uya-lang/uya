@@ -451,6 +451,41 @@ fn find_function_decl_c99(codegen: &C99CodeGenerator, func_name: &byte) &ASTNode
     return result;
 }
 
+// 在 checker 模块表中查找模块限定调用对应的函数声明。
+fn c99_find_module_export_function_decl(codegen: &C99CodeGenerator, module_name: &byte, func_name: &byte) &ASTNode {
+    if codegen == null || codegen.checker == null || module_name == null || func_name == null {
+        return null;
+    }
+    const checker_ptr: &TypeChecker = codegen.checker;
+    const mh: u32 = hash_string(module_name);
+    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+    var i3: i32 = 0;
+    while i3 < MODULE_TABLE_SIZE {
+        const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
+        const mod: &ModuleInfo = checker_ptr.module_table.slots[ml];
+        if mod == null {
+            break;
+        }
+        if mod.module_name != null && str_equals(mod.module_name, module_name) != 0 {
+            if mod.exports != null {
+                var ei: i32 = 0;
+                while ei < mod.export_count {
+                    if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, func_name) != 0 {
+                        const decl: &ASTNode = mod.exports[ei].decl_node;
+                        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+                            return decl;
+                        }
+                    }
+                    ei = ei + 1;
+                }
+            }
+            break;
+        }
+        i3 = i3 + 1;
+    }
+    return null;
+}
+
 // 检查函数是否是 extern "libc" fn（用于决定字符串参数类型）
 fn should_use_raw_libc_symbol_name(codegen: &C99CodeGenerator, fn_decl: &ASTNode) i32 {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || fn_decl.fn_decl_extern_lib_name == null {

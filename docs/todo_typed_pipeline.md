@@ -15,7 +15,7 @@
 
 ## 阶段 3：Lowering
 
-- [ ] 将 `lhs |> f(args...)` 降低为普通调用和临时变量。
+- [x] 将 `lhs |> f(args...)` 降低为普通调用和临时变量。
 - [ ] 保留 `Pipeline` 的移动语义。
 - [ ] transformer lowering 的成功路径转移所有权，错误路径触发输入计划清理。
 - [ ] 以和普通 `try` 一致的方式降低 `!Pipeline` try-forward。

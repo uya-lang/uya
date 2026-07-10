@@ -763,10 +763,19 @@ fn checker_pipeline_callee_is_implicit_self_instance_method_call(checker: &TypeC
     return 0;
 }
 
+// 返回 pipeline 链最左侧的非 pipeline 节点。
+fn checker_pipeline_expr_leftmost(node: &ASTNode) &ASTNode {
+    var cur: &ASTNode = node;
+    while cur != null && cur.type == ASTNodeType.AST_PIPELINE_EXPR {
+        cur = cur.pipeline_expr_left;
+    }
+    return cur;
+}
+
 // 检查管道表达式
 // 参数：checker - TypeChecker 指针，node - 管道表达式节点
 // 返回：管道表达式的推断类型（如果检查失败返回TYPE_VOID）
-fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
+fn checker_check_pipeline_expr_impl(checker: &TypeChecker, node: &ASTNode) Type {
     // 注意：Uya 要求所有变量必须初始化
     var result: Type = make_void_type();
 
@@ -783,7 +792,9 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
     checker_walk_reachability_expr(checker, left);
     checker_walk_reachability_expr(checker, right);
 
-    const left_type: Type = checker_infer_type(checker, left);
+    // 最左侧变量可能已被同一条 pipeline 的先前检查标记为 moved；
+    // 使用 bypass 变体重新推断类型，避免重复检查失败。
+    const left_type: Type = checker_infer_type_bypass_moved(checker, left);
     const is_pipeline: i32 = checker_type_is_pipeline(checker, &left_type);
     const is_error_union_pipeline: i32 = checker_type_is_error_union_pipeline(checker, &left_type);
     if is_pipeline == 0 && is_error_union_pipeline == 0 {
@@ -819,15 +830,6 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
         checker_report_error(checker, right,
             "管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型" as *byte);
         return result;
-    }
-
-    // Pipeline / !Pipeline 都是 move-only 类型；右侧 callee 已确认会消费左侧。
-    // 若左侧是单个变量引用，在此标记该变量已移动，使后续再次使用能报出移动错误。
-    if left.type == ASTNodeType.AST_IDENTIFIER {
-        const pipeline_decl: &ASTNode = checker_resolve_pipeline_decl(checker);
-        if pipeline_decl != null && pipeline_decl.struct_decl_name != null {
-            checker_mark_moved(checker, left, left.identifier_name, pipeline_decl.struct_decl_name);
-        }
     }
 
     const right_type: Type = checker_infer_type(checker, right);
@@ -881,6 +883,71 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
 
     return right_type;
+}
+
+// 包装器：管理 pipeline 链嵌套深度，并只在最外层 pipeline 标记最左侧变量已移动。
+fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
+    var result: Type = make_void_type();
+    if checker == null || node == null || node.type != ASTNodeType.AST_PIPELINE_EXPR {
+        return result;
+    }
+
+    checker.pipeline_chain_depth = checker.pipeline_chain_depth + 1;
+    // 进入时即判定是否为最外层：后续内层 pipeline 返回时 depth 也会回到 1，
+    // 若只在返回时判断会误标最左侧变量。
+    const is_outermost: i32 = if checker.pipeline_chain_depth == 1 { 1 } else { 0 };
+    result = checker_check_pipeline_expr_impl(checker, node);
+
+    // 最外层 pipeline 在整条链检查完成后，标记最左侧变量已移动。
+    // 内层 pipeline 不单独标记，避免链式左侧变量在类型推断阶段就被置为 moved。
+    if is_outermost != 0 {
+        const leftmost: &ASTNode = checker_pipeline_expr_leftmost(node);
+        if leftmost != null && leftmost.type == ASTNodeType.AST_IDENTIFIER {
+            const pipeline_decl: &ASTNode = checker_resolve_pipeline_decl(checker);
+            if pipeline_decl != null && pipeline_decl.struct_decl_name != null {
+                checker_mark_moved(checker, leftmost, leftmost.identifier_name, pipeline_decl.struct_decl_name);
+            }
+        }
+    }
+
+    checker.pipeline_chain_depth = checker.pipeline_chain_depth - 1;
+    return result;
+}
+
+// 临时绕过 moved 检查推断表达式类型。
+// codegen 阶段可能需要重新推断已被 checker 标记为 moved 的 pipeline 最左侧变量类型。
+fn checker_infer_type_bypass_moved(checker: &TypeChecker, expr: &ASTNode) Type {
+    if checker == null || expr == null {
+        return make_void_type();
+    }
+    if expr.type != ASTNodeType.AST_IDENTIFIER || expr.identifier_name == null {
+        return checker_infer_type(checker, expr);
+    }
+    const name: &byte = expr.identifier_name;
+    var found_idx: i32 = -1;
+    var i: i32 = 0;
+    while i < checker.moved_count && i < MAX_MOVED_NAMES {
+        if checker.moved_names[i] != null && str_equals(checker.moved_names[i], name) != 0 {
+            found_idx = i;
+            break;
+        }
+        i = i + 1;
+    }
+    if found_idx < 0 || found_idx >= checker.moved_count || found_idx >= MAX_MOVED_NAMES {
+        return checker_infer_type(checker, expr);
+    }
+    const saved_name: &byte = checker.moved_names[found_idx];
+    const last_idx: i32 = checker.moved_count - 1;
+    if last_idx >= 0 && last_idx < MAX_MOVED_NAMES {
+        checker.moved_names[found_idx] = checker.moved_names[last_idx];
+    }
+    checker.moved_count = checker.moved_count - 1;
+    const result: Type = checker_infer_type(checker, expr);
+    if checker.moved_count >= 0 && checker.moved_count < MAX_MOVED_NAMES {
+        checker.moved_names[checker.moved_count] = saved_name;
+    }
+    checker.moved_count = checker.moved_count + 1;
+    return result;
 }
 
 // 检查二元表达式

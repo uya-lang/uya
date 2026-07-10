@@ -401,6 +401,7 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.string_interp_buf = null;
     codegen.interp_temp_counter = 0;
     codegen.interp_fill_counter = 0;
+    codegen.pipeline_temp_counter = 0;
     var ii: i32 = 0;
     while ii < C99_MAX_CALL_ARGS {
         codegen.interp_arg_temp_names[ii] = null;

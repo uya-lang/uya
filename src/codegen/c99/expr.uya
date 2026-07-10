@@ -78,6 +78,9 @@ fn c99_expr_is_hosted_stdio_stream_arg(arg: &ASTNode) i32 {
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 
+extern fn c99_arena_strdup(arena: &CompilerArena, src: &byte) &byte;
+extern fn c99_find_module_export_function_decl(codegen: &C99CodeGenerator, module_name: &byte, func_name: &byte) &ASTNode;
+
 // 数组元素是否为聚合（结构体或数组），若是则结构体初始化用 {{0}}，否则用 {0}，避免 -Wbraces / -Wmissing-braces
 fn array_element_is_aggregate_c99(codegen: &C99CodeGenerator, array_type: &ASTNode) i32 {
     if codegen == null || array_type == null || array_type.type != ASTNodeType.AST_TYPE_ARRAY {
@@ -410,6 +413,165 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
     }
     c99_emit_indent(codegen);
     fprintf(codegen.emit_stream as *void, "%s[_off_%d] = '\\0';\n" as *byte, buf_name as *byte, fill_id);
+}
+
+// 将管道表达式 `lhs |> f(args...)` 降低为普通调用和临时变量。
+// 对链式 pipeline 生成扁平的 C99 语句表达式：
+//   ({ TYPE __uya_pipe_tmp_0 = (lhs); TYPE __uya_pipe_tmp_1 = f1(tmp_0, ...); ... fn(tmp_{n-1}, ...); })
+// 仅处理左侧为普通 Pipeline 的场景；!Pipeline 的 try-forward 留在后续任务。
+fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
+    if codegen == null || expr == null || expr.type != ASTNodeType.AST_PIPELINE_EXPR {
+        return;
+    }
+
+    // 1. 收集整条链：最左侧表达式 + 从内向外的右侧调用。
+    var chain_len: i32 = 0;
+    var cur: &ASTNode = expr;
+    while cur != null && cur.type == ASTNodeType.AST_PIPELINE_EXPR {
+        chain_len = chain_len + 1;
+        cur = cur.pipeline_expr_left;
+    }
+    if cur == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    const leftmost: &ASTNode = cur;
+
+    const calls: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * chain_len as usize) as & & ASTNode;
+    if chain_len > 0 && calls == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    cur = expr;
+    var idx: i32 = chain_len - 1;
+    while cur != null && cur.type == ASTNodeType.AST_PIPELINE_EXPR {
+        calls[idx] = cur.pipeline_expr_right;
+        idx = idx - 1;
+        cur = cur.pipeline_expr_left;
+    }
+
+    const stream: &void = codegen.emit_stream as &void;
+    const base_temp_id: i32 = codegen.pipeline_temp_counter;
+    codegen.pipeline_temp_counter = base_temp_id + chain_len;
+    var tmp_buf: [byte: 64] = [];
+
+    fputs("({ " as *byte, stream);
+
+    // 2. 生成最左侧临时变量：TYPE tmp_0 = (leftmost);
+    // 最左侧若是已被 checker 标记 moved 的变量，checker_infer_type 在 codegen 阶段会失败；
+    // 对标识符优先从 codegen 的局部/参数/声明类型节点查找，绕过 checker 的 moved 状态。
+    var tmp0_type_c: &byte = null;
+    if leftmost.type == ASTNodeType.AST_IDENTIFIER && leftmost.identifier_name != null {
+        const type_node: &ASTNode = c99_find_identifier_type_node(codegen, leftmost.identifier_name);
+        if type_node != null {
+            tmp0_type_c = c99_type_to_c(codegen, type_node);
+        }
+    }
+    if tmp0_type_c == null {
+        const leftmost_type: Type = checker_infer_type_bypass_moved(codegen.checker, leftmost);
+        if leftmost_type.kind != TypeKind.TYPE_STRUCT {
+            fputs("0; })" as *byte, stream);
+            return;
+        }
+        tmp0_type_c = c99_type_to_c_from_inferred_type(codegen, leftmost_type, expr.line, expr.column, expr.filename);
+    }
+    if tmp0_type_c == null {
+        fputs("0; })" as *byte, stream);
+        return;
+    }
+    _ = snprintf(&tmp_buf[0] as *byte, 64, "__uya_pipe_tmp_%d" as *byte, base_temp_id);
+    var prev_tmp_name: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
+    if prev_tmp_name == null {
+        fputs("0; })" as *byte, stream);
+        return;
+    }
+    fputs(tmp0_type_c as *byte, stream);
+    fputc(32, stream);
+    fputs(prev_tmp_name as *byte, stream);
+    fputs(" = " as *byte, stream);
+    gen_expr(codegen, leftmost);
+    fputs("; " as *byte, stream);
+
+    // 4. 生成中间 transformer 临时变量：每个 stage 的结果赋给新的临时变量。
+    var stage_i: i32 = 1;
+    while stage_i < chain_len {
+        const call_node: &ASTNode = calls[stage_i - 1];
+        if call_node == null || call_node.type != ASTNodeType.AST_CALL_EXPR {
+            fputs("0; })" as *byte, stream);
+            return;
+        }
+
+        const stage_type_c: &byte = c99_get_inferred_expr_type_c(codegen, call_node);
+        if stage_type_c == null {
+            fputs("0; })" as *byte, stream);
+            return;
+        }
+
+        _ = snprintf(&tmp_buf[0] as *byte, 64, "__uya_pipe_tmp_%d" as *byte, base_temp_id + stage_i);
+        const tmp_name_i: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
+        if tmp_name_i == null {
+            fputs("0; })" as *byte, stream);
+            return;
+        }
+
+        fputs(stage_type_c as *byte, stream);
+        fputc(32, stream);
+        fputs(tmp_name_i as *byte, stream);
+        fputs(" = " as *byte, stream);
+
+        gen_pipeline_synthetic_call(codegen, call_node, prev_tmp_name);
+        fputs("; " as *byte, stream);
+
+        prev_tmp_name = tmp_name_i;
+        stage_i = stage_i + 1;
+    }
+
+    // 5. 生成最终 sink 调用：last_call(prev_tmp_name, args...)。
+    const last_call: &ASTNode = calls[chain_len - 1];
+    if last_call == null || last_call.type != ASTNodeType.AST_CALL_EXPR {
+        fputs("0; })" as *byte, stream);
+        return;
+    }
+    gen_pipeline_synthetic_call(codegen, last_call, prev_tmp_name);
+    fputs("; })" as *byte, stream);
+}
+
+// 为 pipeline 阶段生成以 prev_tmp 为首个实参的合成调用。
+fn gen_pipeline_synthetic_call(codegen: &C99CodeGenerator, call_node: &ASTNode, prev_tmp_name: &byte) void {
+    if codegen == null || call_node == null || prev_tmp_name == null {
+        return;
+    }
+    const total_arg_count: i32 = call_node.call_expr_arg_count + 1;
+    const synthetic_call: &ASTNode = ast_new_node(ASTNodeType.AST_CALL_EXPR, call_node.line, call_node.column, codegen.arena, call_node.filename);
+    if synthetic_call == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    const args: & & ASTNode = compiler_arena_alloc(codegen.arena, @size_of(&ASTNode) * total_arg_count as usize) as & & ASTNode;
+    if total_arg_count > 0 && args == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    const tmp_id_node: &ASTNode = ast_new_node(ASTNodeType.AST_IDENTIFIER, call_node.line, call_node.column, codegen.arena, call_node.filename);
+    if tmp_id_node == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    tmp_id_node.identifier_name = prev_tmp_name;
+    args[0] = tmp_id_node;
+    var ai: i32 = 0;
+    while ai < call_node.call_expr_arg_count {
+        args[ai + 1] = call_node.call_expr_args[ai];
+        ai = ai + 1;
+    }
+    synthetic_call.call_expr_callee = call_node.call_expr_callee;
+    synthetic_call.call_expr_args = args;
+    synthetic_call.call_expr_arg_count = total_arg_count;
+    synthetic_call.call_expr_has_ellipsis_forward = call_node.call_expr_has_ellipsis_forward;
+    synthetic_call.call_expr_type_args = call_node.call_expr_type_args;
+    synthetic_call.call_expr_type_arg_count = call_node.call_expr_type_arg_count;
+
+    gen_call_expr(codegen, synthetic_call);
 }
 
 fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
@@ -1192,6 +1354,8 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
         
         fputs("})" as *byte, codegen.emit_stream as *void);
+    } else if expr.type == ASTNodeType.AST_PIPELINE_EXPR {
+        gen_pipeline_expr(codegen, expr);
     } else {
         fputs("0" as *byte, codegen.emit_stream as *void);
     }
@@ -2702,16 +2866,24 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 return;
             }
             
-            // 检查是否是 extern "libc" fn
-            const is_libc_fn: i32 = is_extern_libc_function(codegen, mod_callee);
-            
-            // 生成模块前缀函数名（extern "libc" fn 除外）
-            if module_name != null && mod_callee != null {
+            // 优先从已解析的函数声明获取其真实 C 名（export/private/module 前缀一致）
+            var module_func_c_name: &byte = null;
+            if fn_decl != null {
+                module_func_c_name = get_c_name_for_function_decl(codegen, fn_decl);
+            }
+            if module_func_c_name == null && module_name != null && mod_callee != null {
+                const module_fn_decl: &ASTNode = c99_find_module_export_function_decl(codegen, module_name, mod_callee);
+                if module_fn_decl != null {
+                    module_func_c_name = get_c_name_for_function_decl(codegen, module_fn_decl);
+                    fn_decl = module_fn_decl;
+                }
+            }
+            if module_func_c_name == null {
+                // 回退到旧拼接规则（保持与无声明缓存场景兼容）
+                const is_libc_fn: i32 = is_extern_libc_function(codegen, mod_callee);
                 if is_libc_fn != 0 {
-                    // extern "libc" fn 直接使用原始函数名
-                    const func_name: &byte = get_safe_c_identifier(codegen, mod_callee);
-                    fprintf(codegen.emit_stream as *void, "%s(" as *byte, func_name as *byte);
-                } else {
+                    module_func_c_name = get_safe_c_identifier(codegen, mod_callee);
+                } else if module_name != null && mod_callee != null {
                     var prefixed_name: [byte: NAME_BUF_SIZE] = [];
                     var pi: i32 = 0;
                     var p: &byte = module_name;
@@ -2737,14 +2909,12 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     if pi >= 0 && pi < NAME_BUF_SIZE {
                         prefixed_name[pi] = 0;
                     }
-                    
-                    const func_name: &byte = get_safe_c_identifier(codegen, &prefixed_name[0]);
-                    fprintf(codegen.emit_stream as *void, "%s(" as *byte, func_name as *byte);
+                    module_func_c_name = get_safe_c_identifier(codegen, &prefixed_name[0]);
+                } else {
+                    module_func_c_name = get_safe_c_identifier(codegen, mod_callee);
                 }
-            } else {
-                const func_name: &byte = get_safe_c_identifier(codegen, mod_callee);
-                fprintf(codegen.emit_stream as *void, "%s(" as *byte, func_name as *byte);
             }
+            fprintf(codegen.emit_stream as *void, "%s(" as *byte, module_func_c_name as *byte);
             var ai: i32 = 0;
             while ai < arg_count {
                 if ai > 0 {

@@ -353,4 +353,6 @@ struct TypeChecker {
     // canonical Pipeline 类型声明节点（std.process.Pipeline）。
     // 由 checker_resolve_pipeline_decl 延迟解析并缓存。
     pipeline_decl: &ASTNode,
+    // pipeline 链类型检查嵌套深度；用于把最左侧变量 moved 标记推迟到最外层 pipeline。
+    pipeline_chain_depth: i32,
 }

@@ -1,0 +1,33 @@
+// test_typed_pipeline_lowering.uya
+// lowering 正向测试：验证 `lhs |> f(args...)` 被降低为普通调用和临时变量。
+
+use std.process;
+use std.testing.assert_eq_u64;
+
+fn inc(p: Pipeline) Pipeline {
+    return Pipeline { handle: p.handle + 1, generation: 0 };
+}
+
+fn add(p: Pipeline, n: usize) Pipeline {
+    return Pipeline { handle: p.handle + n, generation: 0 };
+}
+
+fn value(p: Pipeline) u64 {
+    return p.handle as u64;
+}
+
+test "pipeline_lowering_single_transformer" {
+    const v: u64 = pipeline() |> inc() |> value();
+    try assert_eq_u64(v, 1);
+}
+
+test "pipeline_lowering_multi_transformer" {
+    const v: u64 = pipeline() |> inc() |> add(2) |> value();
+    try assert_eq_u64(v, 3);
+}
+
+test "pipeline_lowering_variable_lhs" {
+    const p: Pipeline = pipeline();
+    const v: u64 = p |> inc() |> add(5) |> value();
+    try assert_eq_u64(v, 6);
+}

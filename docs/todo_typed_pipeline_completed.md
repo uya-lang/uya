@@ -431,3 +431,20 @@ make uya
   - 验证结果：
     - 新测试正确报错：`变量 'p' 已被移动，不能再次使用`
     - 所有既有 typed pipeline 正向/负向测试、move 语义测试保持通过
+
+## 阶段 3：Lowering
+
+- [x] 将 `lhs |> f(args...)` 降低为普通调用和临时变量。
+  - 实现要点：
+    - 在 `src/codegen/c99/expr.uya` 中新增 `gen_pipeline_expr`：收集整条 pipeline 链的最左侧表达式与从内向外的右侧调用，生成 C99 语句表达式 `({ TYPE tmp_0 = (lhs); TYPE tmp_1 = f1(tmp_0, ...); ... fn(tmp_{n-1}, ...); })`。
+    - 新增 `gen_pipeline_synthetic_call`：为每个 stage 创建以临时变量为首个实参的合成 `AST_CALL_EXPR`，复用 `gen_call_expr` 生成调用。
+    - 在 `gen_expr` 中新增 `AST_PIPELINE_EXPR` 分支，分发到 `gen_pipeline_expr`。
+    - 修复 `src/codegen/c99/expr.uya` 中模块限定调用（`module.func(args)`）的 C 名生成：新增 `c99_find_module_export_function_decl`（位于 `src/codegen/c99/function.uya`），通过 checker 的模块导出表定位真实函数声明，并使用 `get_c_name_for_function_decl` 生成与函数定义一致的 C 名，解决 `pipe_mod.pipeline_transformer()` 等场景下的链接名不一致问题。
+    - 配合 checker 侧调整（`src/checker/check_expr_extra.uya`）：将 pipeline 链最左侧变量的 moved 标记推迟到最外层 pipeline 检查完成后，并新增 `checker_infer_type_bypass_moved` 供 codegen 在生成最左侧临时变量时重新推断已被标记为 moved 的标识符类型。
+  - 验证命令与结果：
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - lowering 正向测试：`../uya/bin/uya test tests/test_typed_pipeline_lowering.uya` 通过，3 个测试全部 OK（单个 transformer、多个 transformer、变量 lhs）。
+    - module-qualified callee 测试：`../uya/bin/uya test tests/test_typed_pipeline_module_qualified_positive.uya` 通过。
+    - typed pipeline 全量回归：所有 `tests/test_typed_pipeline_*.uya` 正向测试通过；负向测试按预期报错。
+    - 回归抽样：`../uya/bin/uya test tests/test_std_path_module.uya`、`tests/test_std_env.uya`、`tests/test_std_stdlib.uya`、`tests/test_async_fd.uya`、`tests/test_mem_allocator.uya` 均通过。
