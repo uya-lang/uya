@@ -547,3 +547,11 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - [x] stderr 只有显式 `stderr_capture()` 或 `stderr_to_stdout()` 后才进入返回值
     验证：复核 `docs/typed_pipeline_design.md` L274 已明确 capture sink 不会隐式捕获 stderr；L346 规定非 capture 路径（含 inherit、file、merge_stdout 等）`CaptureStreamResult.captured=false`、`byte_count=0`、`complete=false`；L364 说明未启用 stderr capture 时 `stderr_buf` 可为空且 executor 不得写入；L470 明确 `capture_into()` / `capture_limit_into()` 对 unset stderr 默认使用 inherit。语义已锁定，无需代码改动。
 
+
+---
+
+## 阶段 0：规格锁定
+
+锁定 capture sink 语义：
+  - [x] stderr 只有显式 `stderr_capture()` 或 `stderr_to_stdout()` 后才进入返回值
+  验证：已在主 todo 中标记为完成，本轮归档清理移入。原始完成状态无需额外验证命令。
