@@ -334,3 +334,13 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 
 ---
 
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] Uya stage `stage_failed(error_name)`
+    - 验证：设计文档审查。`PipelineStageStatusKind` 已包含 `stage_failed`；`PipelineStageStatus` 已包含 `error_name: &const byte`；L334-L335 明确 `stage_failed` 表示 Uya stage 返回 Uya error，`error_name` 必须指向程序期静态/驻留字符串；新增“阶段 0 已锁定”标记冻结该语义。
+    - 命令：`grep -n "stage_failed\\|error_name" docs/typed_pipeline_design.md`
+    - 结果：匹配到枚举定义、结构体字段、详细语义段及阶段 0 锁定声明。

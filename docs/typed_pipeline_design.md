@@ -285,6 +285,7 @@ enum PipelineStageStatusKind {
 }
 
 > **阶段 0 已锁定**：`completed` 表示 Uya stage 正常返回，无额外 payload。
+> **阶段 0 已锁定**：`stage_failed` 表示 Uya stage 返回 Uya error；`PipelineStageStatus.error_name` 保存稳定的语言级错误名，必须指向程序期静态/驻留字符串，不能指向 execution-state 临时缓冲区。
 
 enum PipelineSpawnFailureKind {
     none,
