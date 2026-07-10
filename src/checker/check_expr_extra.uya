@@ -743,8 +743,13 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
     const is_pipeline: i32 = checker_type_is_pipeline(checker, &left_type);
     const is_error_union_pipeline: i32 = checker_type_is_error_union_pipeline(checker, &left_type);
     if is_pipeline == 0 && is_error_union_pipeline == 0 {
-        checker_report_error(checker, left,
-            "管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型" as *byte);
+        if left.type == ASTNodeType.AST_PIPELINE_EXPR {
+            checker_report_error(checker, left,
+                "不能在 sink 之后继续链式管道 '|>'，因为左侧表达式的结果不再是 Pipeline 或 !Pipeline 类型" as *byte);
+        } else {
+            checker_report_error(checker, left,
+                "管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型" as *byte);
+        }
         return result;
     }
 

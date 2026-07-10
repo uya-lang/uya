@@ -1,0 +1,12 @@
+// error_typed_pipeline_sink_after_chain.uya
+// checker 负向测试：验证 sink 之后继续链式管道时报错，因为左侧不再是 Pipeline。
+
+use std.process;
+
+fn my_sink(p: Pipeline) i32 { return 0; }
+fn my_transformer(p: Pipeline) Pipeline { return p; }
+
+fn main() i32 {
+    _ = pipeline() |> my_sink() |> my_transformer();
+    return 0;
+}

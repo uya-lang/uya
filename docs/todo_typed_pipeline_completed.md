@@ -235,3 +235,15 @@ make uya
   - 相关测试文件：
     - `tests/error_typed_pipeline_checker_left.uya`：负向测试 `1 |> cmd("x")`，验证非 `Pipeline` 左侧被拒绝。
     - `tests/test_typed_pipeline_checker_positive.uya`：正向测试，验证合法 `Pipeline` / `!Pipeline` 左侧通过。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 拒绝 sink 之后继续链式管道，因为左侧不再是 `Pipeline`。
+  - 实现：在 `src/checker/check_expr_extra.uya` 的 `checker_check_pipeline_expr` 中，当左侧类型不是 `Pipeline` 或 `!Pipeline` 时，额外判断左侧子表达式是否为 `AST_PIPELINE_EXPR`；若是，报告专门诊断“不能在 sink 之后继续链式管道 '|>'，因为左侧表达式的结果不再是 Pipeline 或 !Pipeline 类型”。
+  - 新增测试：`tests/error_typed_pipeline_sink_after_chain.uya`
+  - 验证命令：
+    - `../uya/bin/uya test tests/error_typed_pipeline_sink_after_chain.uya` → 预期编译失败，输出包含 sink-after-chain 诊断
+    - `../uya/bin/uya test tests/error_typed_pipeline_checker_left.uya` → 仍报告通用“左侧必须是 Pipeline”诊断
+    - `../uya/bin/uya test tests/test_typed_pipeline_checker_positive.uya` → 通过
+    - `make b` → 自举对比一致
+    - `make tests-uya` → 1083 个测试通过 1079；4 个失败为既有问题（`test_async_compute_types`、`bench_malloc_phase4` 退出码 139，`test_typed_pipeline_parser_negative`、`test_typed_pipeline_parser_negative_eof` 命名导致预期通过但实际编译失败），与本改动无关。
