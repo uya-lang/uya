@@ -606,3 +606,8 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - 接收 result 指针的 sink 在返回普通 Uya error、`error.Interrupted` 或 `error.CaptureLimitExceeded` 前，必须把输出 result 重置为空摘要；
   - 空 `PipelineResult` 摘要定义为 `stage_count=0`；
   - 空 `PipelineCaptureResult` 摘要定义为内嵌 `result.stage_count=0`，且 stdout/stderr 的 `captured=false`、`byte_count=0`、`complete=false`。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定正常完成只等待直接 stage：全部直接 stage reap 后做有界非阻塞 capture 收尾并关闭读端，不等待/终止非直接后代；只有 EOF 设置 `complete=true`，EAGAIN/预算 cutoff 必须返回 `complete=false`。
+  - 验证：在 `docs/typed_pipeline_design.md` 必要不变量区追加 “阶段 0 已锁定” 标注，措辞与 TODO 对齐；`git diff --check` 无空白错误。

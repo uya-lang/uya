@@ -727,7 +727,7 @@ struct ErasedPipelineStage {
 - caller-provided statuses/stdout/stderr/result writable region 必须在任何外部副作用前验证为两两不重叠；达到 capture 上限但尚未 EOF 时必须用独立一字节 scratch probe 区分 exact-fit 与 overflow。
 - observing capture 即使在 preflight spawn failure 时也必须稳定标记启用流为 `captured=true`；只有实际观察到 EOF 才能设置 `complete=true`。
 - process-only pipeline 在 capture 超限或部分启动后的执行器错误中必须对 process group 和所有直接 PID 强制取消、关闭 capture 读端并有限完成直接 child 的 reap；不得等待逃离后代持有的 pipe EOF。
-- 正常完成只等待直接 stage；直接 stage 全部 reap 后对 capture 做有界非阻塞收尾并关闭读端，不等待或终止非直接后代；只有观察到 EOF 才能设置 `complete=true`，其他 cutoff 必须显式返回 `complete=false`。
+> **阶段 0 已锁定**：正常完成只等待直接 stage；全部直接 stage reap 后做有界非阻塞 capture 收尾并关闭读端，不等待/终止非直接后代；只有 EOF 设置 `complete=true`，`EAGAIN`/预算 cutoff 必须返回 `complete=false`。
 - Uya stage 在没有强制、安全的终止机制或隔离 worker process 前，不得继承 process-only pipeline 的有限取消承诺。
 - POSIX child 必须通过双侧 `setpgid`、per-child startup-report/launch pipe 和显式 `RUN`/`ABORT` protocol 建立完整 process group；EOF 只能表示 abort，不能释放 child 执行用户代码。
 - POSIX child 必须在 READY 前关闭所有无关控制/数据/broker fd并移除 sink 临时 signal 状态；parent 必须在最后一个继承者 fork 后立即关闭对应 child-only fd，且发送 RUN 前不再持有 capture writer。所有内部 control/data/file source fd 必须避开 0/1/2，或使用等价的循环安全 stdio remap。
