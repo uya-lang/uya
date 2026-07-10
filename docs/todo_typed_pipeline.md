@@ -16,7 +16,7 @@
 ## 阶段 2：Type Checker 规则
 
 - [ ] 添加诊断：
-  - [ ] sink 后继续管道的误用
+  - [x] sink 后继续管道的误用
   - [ ] 实例方法 receiver 与 synthetic lhs 冲突
 - [ ] 添加 `1 |> cmd("x")` 的 checker 负向测试。
 - [ ] 添加 `!Pipeline |> transformer` 的 checker 测试。
