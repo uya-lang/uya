@@ -134,6 +134,8 @@ pipeline() |> cmd_argv("rg", &rg_args[0:1])
 
 `Pipeline` 是由 `std.process` 拥有的抽象 move-only 执行计划。
 
+> **阶段 0 已锁定**：公开 `Pipeline` 必须依赖真正 opaque / non-copyable 类型能力；普通 `export struct` 或 raw pointer handle 不得作为稳定 API。
+
 当前 Uya 源码尚不支持如下形式的可工作声明：
 
 ```text

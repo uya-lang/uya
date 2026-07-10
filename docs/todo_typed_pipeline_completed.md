@@ -951,3 +951,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 - 在 `docs/typed_pipeline_design.md` “推荐的基础 API” 章节顶部追加阶段 0 锁定声明，明确 `cmd_argv` / `cmd_path_argv` 为 process-only MVP 先实现的基础 API，裸变参 `cmd` / `cmd_path` 仅在 typed varargs materialization 完备后作为 facade 开放。
 - 在 `docs/std_script_design.md` `std.process` 1.1 语义要求中追加同义锁定条目，确保分层文档一致。
 - 运行 `git diff --check` 无空白错误。
+# 类型化管道 TODO — 完成归档
+
+## 阶段 0：规格锁定
+
+- [x] 锁定公开 `Pipeline` 必须依赖真正 opaque / non-copyable 类型能力；导出普通 struct/raw pointer handle 不得作为稳定 API。
+  - 验证：审查 `docs/typed_pipeline_design.md` 的 `Pipeline 类型` 章节，确认已追加 `**阶段 0 已锁定**：公开 Pipeline 必须依赖真正 opaque / non-copyable 类型能力；普通 export struct 或 raw pointer handle 不得作为稳定 API。` 的明确声明。
+
