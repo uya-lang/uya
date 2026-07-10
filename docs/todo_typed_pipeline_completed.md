@@ -814,3 +814,12 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     > **阶段 0 已锁定**：`stdin_file` 配置第一段 stage 的 stdin。`stdout_file`、`stdout_capture` 配置最后一段 stage 的 stdout。`stderr_file`、`stderr_capture`、`stderr_to_stdout` 配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect。
   - `sed -n '505p' docs/typed_pipeline_design.md` 确认已写入：
     > **阶段 0 已锁定**：Inter-stage stdout pipe 是执行拓扑的一部分，不受 `stdout_file` 等终端 stdout 策略影响：stage `i` 的 stdout 连接到 stage `i + 1` 的 stdin；只有最后一个 stage 的 stdout 进入终端 stdout 策略。stderr 默认不参与 stage 间数据流。整条 pipeline 的 stderr 策略等价于 shell group 级重定向，例如 `{ a | b; } 2>file` 或 `{ a | b; } 2>&1`，不是 `a 2>&1 | b` 这种 per-stage 数据流。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定整条 pipeline stderr 策略是 shell group 级语义，不是 per-stage stderr 数据流。
+  - 验证：人工复核 `docs/typed_pipeline_design.md` 中以下规格段落：
+    - `stderr_file`、`stderr_capture`、`stderr_to_stdout` 被明确定义为配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect。
+    - 整条 pipeline 的 stderr 策略等价于 shell group 级重定向 `{ a | b; } 2>file` / `{ a | b; } 2>&1`，不是 `a 2>&1 | b` 这种 per-stage 数据流。
+    - 多个 stage 同时写入同一个 stderr file/capture pipe 时，只保证 byte stream 不被 executor 主动重排，不保证跨进程日志行顺序稳定。
+  - 结论：stderr 策略已在设计文档中锁定为 group-level 语义，任务完成。
