@@ -199,3 +199,16 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
 - [ ] 决定精确错误名：
   - [x] `PipelineSpawnFailed`
     验证：`grep -n 'error.PipelineSpawnFailed' docs/typed_pipeline_design.md` 命中 L378、L379；设计文档已将 checked sink 的 spawn 失败路径统一命名为 `error.PipelineSpawnFailed`，与 `PipelineStageStatusKind.spawn_failed` 状态对应。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 决定精确错误名：
+  - [x] `PipelineStageFailed`
+    验证（2026-07-10）：
+    - `sed -n '378p' docs/typed_pipeline_design.md` 确认 `check()` 在 Uya stage 返回错误时使用 `error.PipelineStageFailed`。
+    - `sed -n '379p' docs/typed_pipeline_design.md` 确认 `check_into()` 在 Uya stage 返回错误时返回 `error.PipelineStageFailed` 并保留完整摘要。
+    - `sed -n '342p' docs/typed_pipeline_design.md` 确认 `check_into()` 返回 `error.PipelineStageFailed` 时必须保留已写入 statuses 的完整 stage 摘要。
+    - `grep -cE 'error\.PipelineStageFailed' docs/typed_pipeline_design.md` 返回 3 处引用；语义一致，无竞争候选名。
+    - 决策：采用 `error.PipelineStageFailed` 作为 checked sink 遇到 `PipelineStageStatusKind.stage_failed` 时返回的精确 Uya error 名；优先级低于 `error.PipelineSpawnFailed`，高于 `error.ProcessFailed`。
