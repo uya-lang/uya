@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [ ] 决定 `_` pipeline 占位符语法糖是延期，还是作为显式 parser/checker 工作实现。
 - [ ] 明确 process-only MVP 不包含自定义 Uya stage；Uya stage 需等待 owned-data 与满足取消/终止门槛的 execution domain 方案。
 - [ ] 锁定 POSIX process group 通过 parent/child 双侧 `setpgid`、per-child startup-report/launch pipe 与显式 `RUN`/`ABORT` protocol 建立；EOF 必须 abort，不能释放 child；不得用无法识别 token 接收者的共享 launch pipe。
 - [ ] 锁定每个 POSIX child 在 READY 前关闭所有无关控制/数据/runtime-broker fd，parent 在最后一个继承者 fork 后立即关闭对应 child-only fd，发送 RUN 前不再持有 capture writer。

@@ -130,6 +130,8 @@ pipeline() |> cmd_argv("rg", &rg_args[0:1])
 
 这样可以避免重载 `_`。当前 Uya 已经在 discard assignment、模式和部分实参位置中特殊处理 `_`，因此若要把 `_` 用作 pipeline 语法糖，需要单独做 parser/type-checker 决策。若后续加入该语法糖，`_` 必须限制在第一个 `Pipeline` 实参位置，且不能变成通用默认值表达式。
 
+> **阶段 0 已锁定**：`_` 作为 pipeline 占位符语法糖在 process-only MVP 中**延期实现**。第一版 parser/checker 保持空 pipeline 构造显式，使用 `pipeline()` 作为唯一起点，不特殊处理 `_`。`_` 的新语义可在 pipeline 核心稳定后作为独立语法糖追加，追加时必须显式处理与现有 discard assignment、模式、实参位置 `_` 的冲突，并限制其仅出现在 `|>` 右侧调用表达式的第一个 `Pipeline` 实参位置。
+
 ## Pipeline 类型
 
 `Pipeline` 是由 `std.process` 拥有的抽象 move-only 执行计划。

@@ -991,3 +991,13 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
 
 - [x] 锁定 transformer/sink 在所有返回路径上消费 input，失败路径释放计划；未进入 sink 的 live pipeline 离开作用域时自动 drop。
   验证：已在归档前完成并验证。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 决定 `_` pipeline 占位符语法糖是延期，还是作为显式 parser/checker 工作实现。
+  决定：延期实现。process-only MVP 使用显式 `pipeline()` 作为空管道起点；`_` 不在 parser/checker 中作为 pipeline 占位符特殊处理。原因：`_` 已在 discard assignment、模式、部分实参位置有特殊语义，若要在 pipeline 第一个 `Pipeline` 实参位置引入新语义，需要独立的 parser/checker 设计与冲突分析，不属于 process-only MVP 必需功能，可在 pipeline 核心稳定后再作为显式语法糖追加。相关设计文档已同步标记为“阶段 0 已锁定：延期”。
+  验证（2026-07-10）：
+  - `sed -n '122,135p' docs/typed_pipeline_design.md` 确认 `_` 延期决定与 `pipeline()` 显式构造已写入设计文档。
+  - `grep -n 'parser MVP 保持空 pipeline 构造显式；暂不特殊处理' docs/todo_typed_pipeline.md` 确认 parser MVP 仍保持“暂不特殊处理 `_`”。
