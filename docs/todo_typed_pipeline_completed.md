@@ -791,3 +791,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 
 - [x] 锁定 sink 开始时捕获宿主 cwd 快照；相对 stage cwd 与 stdin/stdout/stderr file path 都按该快照解释，file path 不跟随 stage-local cwd。
   验证：在 `docs/typed_pipeline_design.md` Stdio 策略部分新增“阶段 0 已锁定”块，明确 sink-time cwd 快照是解释相对 stage cwd 与 file stream path 的唯一基准，file path 不跟随 stage-local cwd。通过 `sed -n '498,500p' docs/typed_pipeline_design.md` 验证文本已落地。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定同一 stage 多次 `cwd()` 时最后一次覆盖前一次，不做相对前值的链式拼接。
+  验证：在 `docs/typed_pipeline_design.md` 中加入明确「阶段 0 已锁定」段落。
+  命令：`grep -n "同一 process stage 多次调用" docs/typed_pipeline_design.md`
+  结果：
+  ```
+  497:> **阶段 0 已锁定**：同一 process stage 多次调用 `cwd(path)` 时，最后一次覆盖前一次；`path` 始终按 sink-time 宿主进程 cwd 快照解释，不相对任何前一次 `cwd` 做链式拼接。例如 `cmd("git") |> cwd("a") |> cwd("b")` 等价于 `cmd("git") |> cwd("b")`，而不是 `cwd("a/b")`。
+  ```
