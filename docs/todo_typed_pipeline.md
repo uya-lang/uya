@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 决定精确错误名：
-  - [x] `ProcessFailed`
   - [ ] `CaptureLimitExceeded`
   - [ ] `Interrupted`
   - [ ] `PipelineSpawnFailed`
