@@ -370,6 +370,14 @@ inter-stage / launch / startup-report pipe 创建失败   => 普通 Uya error
 
 也就是说，`status_into()` / `capture_into()` 对“进程启动链路已经形成但某个 stage 没能启动或退出失败”的情况保持观察型；对执行器自身无法搭建管道拓扑、无法打开用户指定文件或无法分配资源的情况，仍返回普通 Uya error。
 
+## 失败详情返回路径
+
+`check_into`、`status_into`、`capture_into`、`capture_limit_into` 通过调用方提供的 `statuses`、`result`、`stdout_buf` 与 `stderr_buf` 返回失败详情。Uya 的 `error` 值不携带业务 payload，因此除 `error.InvalidPipeline` 等 API 误用、`error.Interrupted` 以及内存、pipe、文件、编码等基础设施失败外，process stage 的非零退出 / signal 终止 / 启动失败、Uya stage 的错误返回，都不能依赖 sink 返回的 Uya error 传递；需要这些失败详情时，调用方必须使用上述 `_into` sink。
+
+- `check_into` 在成功时写入完整 `PipelineResult`；在返回 `error.ProcessFailed`、`error.PipelineSpawnFailed` 或 `error.PipelineStageFailed` 前，必须保留已经写入 `statuses` 的完整 stage 摘要。
+- `status_into` 是观察型 sink：无论 stage 成功或失败都成功返回，全部状态写入 `statuses` 与 `PipelineResult`。
+- `capture_into` / `capture_limit_into` 是观察型 sink：无论 stage 成功或失败都成功返回（除非发生基础设施失败或 `CaptureLimitExceeded`），完整状态与 capture 长度写入 `PipelineCaptureResult`。
+
 ## 退出状态策略
 
 执行 sink 分成 checked 和 observing 两类：

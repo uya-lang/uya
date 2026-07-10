@@ -220,3 +220,14 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
   验证（2026-07-10）：
   - `sed -n '373,379p' docs/typed_pipeline_design.md` 确认 `check()` 固定 all-stage/pipefail，非零退出或 signal 终止默认返回 `error.ProcessFailed`，`spawn_failed`/`not_started` 链路优先返回 `error.PipelineSpawnFailed`，Uya stage 错误优先返回 `error.PipelineStageFailed`。
   - `sed -n '382,383p' docs/typed_pipeline_design.md` 确认 `check_into()` 与 `check()` 语义相同，且返回错误前必须先写入完整 stage 状态。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 定义失败详情通过 `check_into`、`status_into`、`capture_into`、`capture_limit_into` 返回，不依赖 Uya error payload。
+  验证（2026-07-10）：
+  - `sed -n '373,379p' docs/typed_pipeline_design.md` 确认新增“失败详情返回路径”章节已明确该原则。
+  - `sed -n '391p' docs/typed_pipeline_design.md` 确认“需要失败详情时，调用方必须使用 `check_into`/`status_into`/`capture_into`/`capture_limit_into`”。
+  - `sed -n '703p' docs/typed_pipeline_design.md` 确认检查表再次强调该原则。
+  - `grep -cE 'check_into|status_into|capture_into|capture_limit_into' docs/typed_pipeline_design.md` 返回多处 API 声明与语义说明，所有失败详情写入调用方提供的 `statuses`/`result`/`stdout_buf`/`stderr_buf`。

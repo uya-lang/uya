@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 定义失败详情通过 `check_into`、`status_into`、`capture_into`、`capture_limit_into` 返回，不依赖 Uya error payload。
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
   - [ ] per-stage `not_started`
   - [ ] per-stage `spawn_failed`
