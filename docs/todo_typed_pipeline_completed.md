@@ -231,3 +231,9 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
   - `sed -n '391p' docs/typed_pipeline_design.md` 确认“需要失败详情时，调用方必须使用 `check_into`/`status_into`/`capture_into`/`capture_limit_into`”。
   - `sed -n '703p' docs/typed_pipeline_design.md` 确认检查表再次强调该原则。
   - `grep -cE 'check_into|status_into|capture_into|capture_limit_into' docs/typed_pipeline_design.md` 返回多处 API 声明与语义说明，所有失败详情写入调用方提供的 `statuses`/`result`/`stdout_buf`/`stderr_buf`。
+
+# 类型化管道 TODO
+## 阶段 0：规格锁定
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] per-stage `not_started`
+    - 验证：`grep -n "not_started" docs/typed_pipeline_design.md` 命中 10 处；`PipelineStageStatusKind` 枚举已包含 `not_started`（L278），语义定义为“因更早预检、启动失败或执行器取消而未越过执行释放边界”（L326），POSIX/Windows 边界（L551、L615）、预检失败场景（L348、L561）与字段约束（L328）均一致。
