@@ -349,3 +349,23 @@ make uya
 - 测试文件：tests/error_typed_pipeline_sink_after_chain.uya
 - 命令：../uya/bin/uya test tests/error_typed_pipeline_sink_after_chain.uya
 - 结果：测试按预期失败，类型检查器报告不能在 sink 之后继续链式管道 '|>'，因为左侧表达式的结果不再是 Pipeline 或 !Pipeline 类型。
+
+## 阶段 2：Type Checker 规则
+
+- [x] 添加诊断：
+  - [x] 实例方法 receiver 与 synthetic lhs 冲突
+
+验证：
+- 诊断已在 `src/checker/check_expr_extra.uya` 实现：
+  - `checker_pipeline_callee_is_implicit_self_instance_method_call` 检测隐式 self receiver 实例方法调用
+  - `checker_check_pipeline_expr` 报告错误：「管道运算符 '|>' 右侧不能是带隐式 self receiver 的实例方法调用」
+- 测试 `tests/error_typed_pipeline_instance_method_receiver.uya` 正确触发诊断并退出码 1
+- 运行全部 typed pipeline 正/负向测试均通过：
+  - 正向测试 `tests/test_typed_pipeline_*.uya`：5/5 退出码 0
+  - 负向测试 `tests/error_typed_pipeline_*.uya`：8/8 非零退出码
+- 验证命令：
+  ```bash
+  ../uya/bin/uya test tests/error_typed_pipeline_instance_method_receiver.uya
+  for f in tests/test_typed_pipeline_*.uya; do ../uya/bin/uya test "$f"; done
+  for f in tests/error_typed_pipeline_*.uya; do ../uya/bin/uya test "$f"; done
+  ```
