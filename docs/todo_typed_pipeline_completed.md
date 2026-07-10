@@ -1145,3 +1145,10 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
 
 - [x] 锁定 fork child 在 READY 前移除 sink 临时 signal mask/disposition 与 broker fd；launch token 写入必须以 per-thread mask 处理 `SIGPIPE`，不能永久改变进程级 disposition。
   验证（2026-07-10）：复核 `docs/typed_pipeline_design.md` 已明确 fork child 在发送 READY token 前清理临时 signal mask/disposition 并关闭 broker fd；launch token 写路径使用 per-thread `SIGPIPE` 阻塞掩码（或等效 `send` 标志）避免永久改变进程级 signal disposition。规格层面已锁定，当前阶段未产生 `.uya` 实现。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定同步 sink 观察 stopped direct child；当前无 job-control 模式将 stop 收敛为终端恢复、整组强制取消、reap 和 `error.Interrupted`。
+  - 验证：确认 `docs/typed_pipeline_design.md` L684 已含阶段 0 已锁定段落，L846 checklist 已补 `> **阶段 0 已锁定**：` 标记；文本覆盖 terminal 恢复、group/PID 强制取消、reap 与 `error.Interrupted` 返回。
+
+---

@@ -843,7 +843,7 @@ struct ErasedPipelineStage {
 > 4. 不得为方便而永久忽略整个进程的 `SIGPIPE`；launch write 之外 `SIGPIPE` 默认 action 必须继续生效。
 > **阶段 0 已锁定**：runtime signal/console broker 必须用安全订阅模型协调并发 sink；等待 terminal lease 前先注册，注销后 handler/callback 不得访问 execution state。
 > **阶段 0 已锁定**：只有 executor 自身当前拥有 controlling terminal 前台权时才能把前台 PGID 转交给 pipeline，并且只在确实转交后恢复；并发 sink 必须按 terminal identity 持有独占 foreground lease，先恢复终端再释放 lease，其他终止信号仍必须转发。
-- wait loop 必须观察 stopped direct child；当前无公共 job-control 的模式将任何 stopped 状态收敛为有限取消和 `error.Interrupted`，不能遗留前台终端或永久等待。
+> **阶段 0 已锁定**：wait loop 必须观察 stopped direct child；当前无公共 job-control 模式将 stop 收敛为终端恢复、整组强制取消、reap 和 `error.Interrupted`，不能遗留前台终端或永久等待。
 > **阶段 0 已锁定**：executor 自身收到未忽略的终止/取消信号时必须去重转发、有限取消并返回 `error.Interrupted`；异步 handler/callback 不能执行复杂清理。
 - Windows child 必须以 suspended 状态创建、在运行前加入 Job Object，并通过严格 handle allowlist 避免多余 pipe 端继承；成功 resume 是执行释放边界，默认 direct-stage 模式不得以 kill-on-close 改变正常后代语义。取消时必须显式终止 Job，并对 created-but-unassigned child 单独 `TerminateProcess`、等待后再关闭 handle。
 - 相对 stage cwd 和 file stream path 都按 sink-time 宿主 cwd 快照解释；file stream path 不跟随任一 stage-local cwd。

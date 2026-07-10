@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定同步 sink 观察 stopped direct child；当前无 job-control 模式将 stop 收敛为终端恢复、整组强制取消、reap 和 `error.Interrupted`。
 - [ ] 锁定按 terminal identity 串行化的 interruptible foreground lease；所有返回路径都先恢复终端再释放 lease，避免并发 sink 的 `tcsetpgrp` 竞态。
 - [ ] 锁定 Uya stage 只有具备内存安全的强制 task 终止或隔离 worker process 时才能继承有限取消承诺；单纯 cancellation flag + join 不足。
 
