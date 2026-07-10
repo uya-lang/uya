@@ -48,3 +48,25 @@
     - `./tests/run_programs_parallel.sh tests/test_typed_pipeline_parser_positive.uya` 通过。
     - `make uya` 自举编译器构建成功。
   - 说明：空 pipeline 起点保持为显式 `pipeline()` 函数调用；parser 未对 `_` 引入任何 pipeline 占位符语义，`_` 仍按既有 discard assignment / 模式绑定规则处理。
+
+## 阶段 1：Lexer 与 Parser 骨架
+
+- [x] 添加 parser 正向测试：
+  - [x] `pipeline() |> cmd("a") |> cmd("b") |> stdout_file("out") |> check()`
+  - [x] `x = pipeline() |> cmd("a")`
+  - [x] `pipeline() |> script.cmd("a")`
+  - [x] 允许的泛型 callee 形式
+  - [x] 必要时支持带括号的左侧表达式
+  - [x] 多行格式
+- [x] 添加 parser 负向测试：
+  - [x] `pipeline() |> y + z`
+  - [x] EOF 处不完整的 `|>`
+- [x] parser 行为稳定后更新 grammar 文档。
+  - 实现状态：lexer 已添加 `TOKEN_PIPE_GT`；AST 已添加 `AST_PIPELINE_EXPR` 及 `pipeline_expr_left/right` 字段；parser 已实现左结合 `parser_parse_pipeline_expr`；formatter 已支持 pipeline 表达式输出；`docs/grammar_formal.md` 已补充 `pipeline_expr = or_expr { '|>' postfix_expr }` 及右侧限制说明。
+  - 验证命令与结果：
+    - 正向测试：`../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK。
+    - 程序回归：`./tests/run_programs_parallel.sh tests/test_typed_pipeline_parser_positive.uya` 通过。
+    - 负向测试：
+      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+

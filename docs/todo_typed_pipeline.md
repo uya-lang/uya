@@ -13,20 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-## 阶段 1：Lexer 与 Parser 骨架
-
-- [ ] 添加 parser 正向测试：
-  - [ ] `pipeline() |> cmd("a") |> cmd("b") |> stdout_file("out") |> check()`
-  - [ ] `x = pipeline() |> cmd("a")`
-  - [ ] `pipeline() |> script.cmd("a")`
-  - [ ] 允许的泛型 callee 形式
-  - [ ] 必要时支持带括号的左侧表达式
-  - [ ] 多行格式
-- [ ] 添加 parser 负向测试：
-  - [ ] `pipeline() |> y + z`
-  - [ ] EOF 处不完整的 `|>`
-- [ ] parser 行为稳定后更新 grammar 文档。
-
 ## 阶段 2：Type Checker 规则
 
 - [ ] 添加 checker 可识别的 `Pipeline` 类型身份。
