@@ -225,8 +225,10 @@ test_stmt      = 'test' STRING '{' statements '}'
 
 ```
 expr           = assign_expr
-assign_expr    = or_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
-or_expr        = xor_expr { '||' xor_expr }
+assign_expr    = pipeline_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
+pipeline_expr  = or_expr { '|>' postfix_expr }   # 右侧当前限制为最外层是 call 的 postfix expression
+or_expr        = bitor_expr { '||' bitor_expr }
+bitor_expr     = xor_expr { '|' xor_expr }
 xor_expr       = and_expr { '^' and_expr }
 and_expr       = bitand_expr { '&&' bitand_expr }
 bitand_expr    = eq_expr { '&' eq_expr }

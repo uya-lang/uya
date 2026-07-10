@@ -89,6 +89,7 @@ enum ASTNodeType {
     AST_EXPR_STMT,
     AST_BLOCK,
     AST_BINARY_EXPR,
+    AST_PIPELINE_EXPR,  // pipeline 表达式：left |> right
     AST_UNARY_EXPR,
     AST_CALL_EXPR,
     AST_MEMBER_ACCESS,
@@ -288,6 +289,9 @@ struct ASTNode {
     binary_expr_left: &ASTNode,
     binary_expr_op: i32,
     binary_expr_right: &ASTNode,
+    // pipeline_expr (left |> right)
+    pipeline_expr_left: &ASTNode,
+    pipeline_expr_right: &ASTNode,
     // unary_expr
     unary_expr_op: i32,
     unary_expr_operand: &ASTNode,
@@ -598,6 +602,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.binary_expr_left = null;
     node.binary_expr_op = 0;
     node.binary_expr_right = null;
+    node.pipeline_expr_left = null;
+    node.pipeline_expr_right = null;
     node.unary_expr_op = 0;
     node.unary_expr_operand = null;
     node.try_expr_operand = null;

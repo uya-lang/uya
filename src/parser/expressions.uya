@@ -839,15 +839,63 @@ fn parser_parse_or_expr(parser: &Parser) &ASTNode {
     return left;
 }
 
+// 解析 pipeline 表达式（左结合）
+// pipeline_expr = or_expr { '|>' postfix_expr }
+// 右侧当前限制为最外层是 call 的 postfix expression
+fn parser_parse_pipeline_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数（逻辑或表达式，非赋值表达式中优先级最低）
+    var left: &ASTNode = parser_parse_or_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的管道运算符（左结合）
+    while parser.current_token != null && parser_match(parser, TokenType.TOKEN_PIPE_GT) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        parser_consume(parser);  // 消费 '|>'
+        
+        // 解析右侧 postfix expression
+        const right: &ASTNode = parser_parse_primary_expr(parser);
+        if right == null {
+            parser_report_syntax_error(parser, "管道右侧不完整或不是有效的函数调用" as *byte);
+            return null;
+        }
+        
+        // 限制右侧最外层必须是函数调用
+        if right.type != ASTNodeType.AST_CALL_EXPR {
+            parser_report_syntax_error(parser, "管道右侧必须是函数调用" as *byte);
+            return null;
+        }
+        
+        // 创建 pipeline 表达式节点
+        const node: &ASTNode = ast_new_node(ASTNodeType.AST_PIPELINE_EXPR, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        
+        node.pipeline_expr_left = left;
+        node.pipeline_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
 // 解析赋值表达式（右结合）
-// assign_expr = or_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
+// assign_expr = pipeline_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
 fn parser_parse_assign_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
     }
     
     // 解析左操作数
-    const left: &ASTNode = parser_parse_or_expr(parser);
+    const left: &ASTNode = parser_parse_pipeline_expr(parser);
     if left == null {
         return null;
     }

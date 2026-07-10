@@ -1,0 +1,55 @@
+// test_typed_pipeline_parser_positive.uya
+// parser 正向测试：验证 pipeline 表达式可正确解析
+
+use std.testing.assert_eq_i32;
+
+fn pipeline() i32 { return 0; }
+fn cmd(a: &byte) i32 { return 0; }
+fn stdout_file(a: &byte) i32 { return 0; }
+fn check() i32 { return 0; }
+fn generic_cmd<T>(a: &byte) i32 { return 0; }
+
+struct Script {
+    fn cmd(self: &Script, a: &byte) i32 { return 0; }
+}
+
+test "pipeline_full_chain" {
+    // 完整链式 pipeline
+    _ = pipeline() |> cmd("a") |> cmd("b") |> stdout_file("out") |> check();
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_assignment" {
+    // 赋值右侧
+    var x: i32 = 0;
+    x = pipeline() |> cmd("a");
+    _ = x;
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_module_method" {
+    // script.cmd("a") 形式
+    const s: Script = Script{};
+    _ = pipeline() |> s.cmd("a");
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_generic_callee" {
+    // 泛型 callee
+    _ = pipeline() |> generic_cmd<i32>("a");
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_parens_left" {
+    // 带括号的左侧表达式
+    _ = (pipeline()) |> cmd("a");
+    try assert_eq_i32(1, 1);
+}
+
+test "pipeline_multiline" {
+    // 多行格式
+    _ = pipeline()
+        |> cmd("a")
+        |> cmd("b");
+    try assert_eq_i32(1, 1);
+}
