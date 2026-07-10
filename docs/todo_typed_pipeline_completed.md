@@ -833,3 +833,12 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   - `sed -n '272p' docs/typed_pipeline_design.md` 确认 "配置整条 pipeline 的 stderr 收集策略；第一版不提供 per-stage stderr redirect"
   - `sed -n '278p' docs/typed_pipeline_design.md` 确认 "stderr 不会被 capture sink 隐式捕获"
   - `sed -n '505p' docs/typed_pipeline_design.md` 确认 "整条 pipeline 的 stderr 策略等价于 shell group 级重定向 ... 不是 ... per-stage 数据流"
+
+---
+
+## 类型化管道 TODO — 阶段 0：规格锁定
+
+- [x] 锁定 `cmd` 的 PATH-searching 语义，并提供 exact-path API `cmd_path`。
+  - 交付：在 `docs/typed_pipeline_design.md` 中为 `cmd_argv` / `cmd` 的 PATH-searching 语义、`cmd_path_argv` / `cmd_path` 的 exact-path 语义以及 `process_resolve_path` 等价 PATH helper 的规则添加“阶段 0 已锁定”标记。
+  - 验证命令：`git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md`
+  - 验证结果：通过，无空白/格式错误。

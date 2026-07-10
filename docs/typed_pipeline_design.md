@@ -237,18 +237,18 @@ Uya 可变参数写作裸尾随 `...`，不是命名的 `args: ...`。当前 C99
 
 第一版必须先实现 `cmd_argv` / `cmd_path_argv` 这类 slice 形式的基础 API。裸变参 `cmd` / `cmd_path` 只有在编译器补齐 typed varargs materialization 后才能开放为公共 facade；届时实现必须显式跳过 `input` 和 `program` 后再校验剩余 argv 项均为 `&const byte`，不能把整个 `@params` 当作 argv 列表。
 
-`cmd_argv` / `cmd` 是 PATH-searching API：它只接受平台定义的 bare command name，存储该名称，并在执行时按该 stage 的最终 child env 进行 PATH 查找；它不做 shell 展开、glob、alias 或函数查找。POSIX bare name 不得包含 `/`；Windows bare name 不得包含 `/`、`\`、drive/namespace 前缀或 `:`。若调用方要传绝对路径、相对路径或已经解析出的可执行文件，必须使用 `cmd_path_argv` / `cmd_path`。
+> **阶段 0 已锁定**：`cmd_argv` / `cmd` 是 PATH-searching API：它只接受平台定义的 bare command name，存储该名称，并在执行时按该 stage 的最终 child env 进行 PATH 查找；它不做 shell 展开、glob、alias 或函数查找。POSIX bare name 不得包含 `/`；Windows bare name 不得包含 `/`、`\`、drive/namespace 前缀或 `:`。若调用方要传绝对路径、相对路径或已经解析出的可执行文件，必须使用 `cmd_path_argv` / `cmd_path`。
 
 > **阶段 0 已锁定**：`cmd_path_argv` / `cmd_path` 是 exact-path API：路径中不做 PATH 查找。绝对路径按原样执行；相对路径按该 stage 的最终 cwd 解释，若没有显式 `cwd()` 则按调用 pipeline sink 时的宿主进程 cwd 解释。实现不得在 transformer 调用时把相对 `cmd_path` 绑定到当前父进程 cwd，因为后续 `cwd()` transformer 仍可改变该 stage 的执行目录。Windows 的 drive-relative 形式（例如 `C:tool.exe`）依赖进程级 per-drive cwd，无法由本设计的单一 cwd 快照稳定解释，因此 `cmd_path`、`cwd` 和 file-redirection path 都必须在外部副作用前以 `error.InvalidPipeline` 拒绝这种形式；`C:\tool.exe`、UNC/namespace absolute path 和不带 drive prefix 的普通相对路径仍按各自规则处理。
 
 `cmd_argv` / `cmd_path_argv` 的 `args` 不包含 child `argv[0]`。执行器构造最终 argv 时必须显式前置一个 `argv0`：`cmd_argv` 使用 `program` 本身，`cmd_path_argv` 使用调用方传入的 `path` 本身。若后续需要伪装或自定义 `argv[0]`，应添加单独的 `cmd_argv0` / `cmd_path_argv0` API，不能改变现有 `args` 语义。
 
-PATH 查找属于 `std.process` / `std.path` 的平台敏感逻辑，不应在 pipeline executor 中另写一套。第一版可以先只交付 POSIX 规则，但必须先补出可由 pipeline 复用的 helper，例如 `process_resolve_path(program, env, cwd)` 或等价接口；不能让 executor 内部私有实现成为事实标准。稳定规则如下：
-
-- PATH 缺失表示没有搜索目录并返回 `path_not_found`，不注入宿主实现自选的默认目录。
-- POSIX 使用 `:` 分隔；Windows 使用 `;` 分隔。空 component 明确表示该 stage 的最终 cwd，relative component 也以最终 cwd 为基准；除此之外不隐式把当前目录插入搜索序列。
-- POSIX 按 component 顺序尝试 bare name，并要求候选是可执行的非目录文件。Windows 对每个 component 先尝试调用方给出的 bare name；若名称没有扩展名，再尝试追加 `.exe`，比较扩展名时不区分大小写。MVP 不把 `.bat` / `.cmd` 当作可直接执行映像，也不为了 PATHEXT 条目隐式调用 `cmd.exe`。
-- 若没有候选存在，返回 `path_not_found`；若至少一个候选存在但都因权限、目录类型或其他 lookup 阶段可判定的条件不可用，返回最具体的稳定失败类别，例如 `permission_denied`，并保留所选平台码。映像格式错误等只能在 `execve` / `CreateProcessW` 时确认的失败属于 `exec_failed`。PATH lookup 和最终 spawn 使用同一个解析出的 `exec_path`，但 child/CreateProcess 仍需报告 TOCTOU 后的真实启动失败。
+> **阶段 0 已锁定**：PATH 查找属于 `std.process` / `std.path` 的平台敏感逻辑，由可由 pipeline 复用的 helper（例如 `process_resolve_path(program, env, cwd)` 或等价接口）执行；实现可放在 `std.process` 内部，但语义必须先于 pipeline executor 稳定定义，不能在 executor 中另写一套。第一版可先只交付 POSIX 规则，但 helper 接口与稳定规则在阶段 0 锁定如下：
+>
+> - PATH 缺失表示没有搜索目录并返回 `path_not_found`，不注入宿主实现自选的默认目录。
+> - POSIX 使用 `:` 分隔；Windows 使用 `;` 分隔。空 component 明确表示该 stage 的最终 cwd，relative component 也以最终 cwd 为基准；除此之外不隐式把当前目录插入搜索序列。
+> - POSIX 按 component 顺序尝试 bare name，并要求候选是可执行的非目录文件。Windows 对每个 component 先尝试调用方给出的 bare name；若名称没有扩展名，再尝试追加 `.exe`，比较扩展名时不区分大小写。MVP 不把 `.bat` / `.cmd` 当作可直接执行映像，也不为了 PATHEXT 条目隐式调用 `cmd.exe`。
+> - 若没有候选存在，返回 `path_not_found`；若至少一个候选存在但都因权限、目录类型或其他 lookup 阶段可判定的条件不可用，返回最具体的稳定失败类别，例如 `permission_denied`，并保留所选平台码。映像格式错误等只能在 `execve` / `CreateProcessW` 时确认的失败属于 `exec_failed`。PATH lookup 和最终 spawn 使用同一个解析出的 `exec_path`，但 child/CreateProcess 仍需报告 TOCTOU 后的真实启动失败。
 
 所有 process stage 在 sink 开始执行时共享同一个 canonical base-env 快照。该快照来自 `std.env` 的当前进程环境视图，不在 transformer 调用时捕获，也不能通过临时修改父进程全局环境再回滚来模拟。每个 stage 在该快照上按 transformer 调用顺序应用自己的 `env` / `unset_env`：后一次 `env` 覆盖同名旧值，`unset_env` 删除继承或更早设置的值，删除后再次 `env` 表示重新加入；最终 child env 中同一个 key 最多出现一次。POSIX key 比较按 byte 精确匹配；Windows key 比较使用平台 ordinal case-insensitive 规则，因此 `Path` / `PATH` 属于同一个 key，最后一次写入的 spelling/value 获胜。Windows bridge 必须把最终 UTF-16 environment block 按同一 case-insensitive 顺序排序并以双 `\0` 结束，不能把多个大小写变体传给 child。
 
