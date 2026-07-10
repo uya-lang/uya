@@ -510,3 +510,15 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
   验证：
   - `grep -n '阶段 0 已锁定.*status_into' docs/typed_pipeline_design.md` 命中 L416。
   - `git diff --check` 无空白错误。
+
+---
+
+## 类型化管道 TODO / 阶段 0：规格锁定
+
+- [x] 锁定 checked/observing sink 分层：
+  - [x] `capture_into(statuses, stdout_buf, stderr_buf, result)` / `capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)`：观察型，结果中包含完整 `PipelineResult`
+    验证（2026-07-10）：
+    - `sed -n '218,222p' docs/typed_pipeline_design.md` 确认 `capture_into` / `capture_limit_into` 签名接收 `statuses`、`stdout_buf`、`stderr_buf` 与 `result: &PipelineCaptureResult`。
+    - `sed -n '318,332p' docs/typed_pipeline_design.md` 确认 `PipelineCaptureResult` 内嵌完整 `PipelineResult { stage_count: usize }` 与两路 `CaptureStreamResult`。
+    - 已新增锁定标记：`grep -n 'capture_into.*observing' docs/typed_pipeline_design.md` 命中 L230-L231，明确其为观察型 sink 且返回内嵌 `PipelineResult`。
+    - 本轮未产生代码/测试变更；仅锁定设计规格。

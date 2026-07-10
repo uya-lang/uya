@@ -13,8 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [ ] 锁定 checked/observing sink 分层：
-  - [ ] `capture_into(statuses, stdout_buf, stderr_buf, result)` / `capture_limit_into(max_bytes, statuses, stdout_buf, stderr_buf, result)`：观察型，结果中包含完整 `PipelineResult`
 - [ ] 锁定 capture sink 语义：
   - [ ] `capture_into()` 隐式捕获 terminal stdout
   - [ ] stderr 只有显式 `stderr_capture()` 或 `stderr_to_stdout()` 后才进入返回值

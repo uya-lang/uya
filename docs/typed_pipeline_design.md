@@ -227,6 +227,8 @@ fn capture(input: Pipeline) !OwnedPipelineCaptureResult;
 fn capture_limit(input: Pipeline, max_bytes: usize) !OwnedPipelineCaptureResult;
 ```
 
+> **阶段 0 已锁定**：`capture_into(input, statuses, stdout_buf, stderr_buf, result)` 与 `capture_limit_into(input, max_bytes, statuses, stdout_buf, stderr_buf, result)` 为观察型（observing）sink，执行 pipeline 并将完整结果写入调用方缓冲区。返回的 `PipelineCaptureResult` 内嵌完整 `PipelineResult`（含 `stage_count`），并分别通过 `CaptureStreamResult` 摘要 stdout / stderr 捕获状态与字节数；不保存指向调用方缓冲区的借用。
+
 > **阶段 0 已锁定**：`stage_count(input: &Pipeline) !usize` 在 sink 前提供不消费、不执行的精确容量查询；空计划返回 0，无效 / 过期 / 伪造 capability 返回 `error.InvalidPipeline`。
 
 `stage_count(input)` 是不消费、不执行计划的只读查询，返回当前计划中的完整可执行 stage 数量；空计划返回 0。使用 caller-provided `statuses` 的调用方必须在所有 transformer 完成后、sink 消费计划前通过 `try stage_count(&pipeline)` 查询该值并据此分配缓冲区。查询不得缓存 execution-time 状态，也不得改变后续 sink 结果。若内部 capability 已失效、过期或被伪造，查询返回 `error.InvalidPipeline`；因此它必须保留 `!usize` 错误通道，不能用 0 混淆“合法空计划”和“无效 capability”。这样即使 pipeline 由通用 helper 动态追加 stage，调用方也不需要猜测容量；容量不足仍属于调用方错误，但不再是无法预知且无法重试的协议。
