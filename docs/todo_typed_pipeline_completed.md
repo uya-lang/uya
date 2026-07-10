@@ -339,3 +339,13 @@ make uya
     - 验证命令：`./bin/uya test tests/error_typed_pipeline_sink_after_chain.uya`
     - 结果：编译器正确报告 “不能在 sink 之后继续链式管道 '|>'，因为左侧表达式的结果不再是 Pipeline 或 !Pipeline 类型”
     - 更广泛测试：`for f in tests/*typed_pipeline*.uya; do ./tests/run_programs_parallel.sh "$f"; done` 全部通过
+
+## 阶段 2：Type Checker 规则
+
+- [ ] 添加诊断：
+  - [x] sink 后继续管道的误用
+
+验证：
+- 测试文件：tests/error_typed_pipeline_sink_after_chain.uya
+- 命令：../uya/bin/uya test tests/error_typed_pipeline_sink_after_chain.uya
+- 结果：测试按预期失败，类型检查器报告不能在 sink 之后继续链式管道 '|>'，因为左侧表达式的结果不再是 Pipeline 或 !Pipeline 类型。
