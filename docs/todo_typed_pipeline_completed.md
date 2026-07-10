@@ -87,3 +87,15 @@
     - `sed -n '193,222p' docs/typed_pipeline_design.md` 确认 API 列表标题写明“名称已锁定为最终公共名”，并声明 `fn capture_into(input: Pipeline, statuses: &[PipelineStageStatus], stdout_buf: &[byte], stderr_buf: &[byte], result: &PipelineCaptureResult) !void;` 和 `fn capture_limit_into(input: Pipeline, max_bytes: usize, statuses: &[PipelineStageStatus], stdout_buf: &[byte], stderr_buf: &[byte], result: &PipelineCaptureResult) !void;`
     - `grep -cE 'capture_into|capture_limit_into' docs/typed_pipeline_design.md` 返回 15 处引用
     - `grep -nE '\b(capture_output|output_of|read_into|collect_into|get_output|exec_capture|run_capture|spawn_capture|capture_stdout|capture_stderr|capture_all)\b' docs/typed_pipeline_design.md docs/std_script_design.md docs/todo_typed_pipeline.md` 未发现竞争候选名
+
+## 阶段 0：规格锁定
+
+- [ ] 确定最终名称：
+  - [x] `capture_into` / `capture_limit_into`
+
+验证命令：
+```bash
+grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
+```
+
+验证结果：在设计文档中发现多处使用 `capture_into()` / `capture_limit_into()` 命名，包括 API 声明（L221-L222）、sink 说明（L268、L270、L332、L338、L371、L381、L383、L397、L429、L431）和约束条款（L672、L695）。名称已锁定。
