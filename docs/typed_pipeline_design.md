@@ -361,7 +361,9 @@ struct PipelineCaptureResult {
 
 所有 caller-provided writable region 必须在执行前验证为两两不重叠：`statuses`、启用 capture 的 `stdout_buf` / `stderr_buf`，以及 `result` 指向的固定大小对象都不能共享任何字节；零长度 region 不参与重叠判断。当前 Uya 签名本身不能证明这一点，因此发现重叠时返回 `error.InvalidPipeline`、消费计划并保持空 result，且不得打开文件或启动 stage。需要把 stderr 合并进 stdout 时只能使用 `stderr_to_stdout()`，不能通过给两路 capture 传入同一缓冲区模拟。
 
-`capture_into` 的有效 capture 上限来自调用方提供的 stdout/stderr 缓冲区容量；`capture_limit_into` 使用 `min(max_bytes, buffer.len)` 作为每个 captured stream 的有效上限。未启用 stderr capture 时，`stderr_buf` 可以为空，executor 不得写入未启用 capture 的缓冲区。当某个 stream 的 `byte_count` 已达到有效上限但尚未观察到 EOF时，reader 不能停止 drain 后直接等待 child；它必须继续在事件循环中用独立的一字节 scratch 做 overflow probe。probe 返回 EOF 表示输出恰好等于上限，可以 `complete=true`；读到一个字节表示实际输出超过上限，立即进入 `CaptureLimitExceeded` 路径；`EAGAIN` 表示继续等待后续可读/EOF事件，或在全部直接 stage 已结束后按正常最终 drain budget 返回 `complete=false`。该 scratch 字节不写入调用方缓冲区。
+`capture_into` 的有效 capture 上限来自调用方提供的 stdout/stderr 缓冲区容量；`capture_limit_into` 使用 `min(max_bytes, buffer.len)` 作为每个 captured stream 的有效上限。未启用 stderr capture 时，`stderr_buf` 可以为空，executor 不得写入未启用 capture 的缓冲区。
+
+> **阶段 0 已锁定**：当某个 stream 的 `byte_count` 已达到有效上限但尚未观察到 EOF 时，reader 不得停止 drain 后直接等待 child；它必须继续在事件循环中用独立的一字节 scratch 做 exact-fit overflow probe。probe 返回 EOF 表示输出恰好等于上限，该 stream 可设置 `complete=true`；读到一个字节表示实际输出超过上限，立即进入 `CaptureLimitExceeded` 取消路径；`EAGAIN` 表示继续等待后续可读/EOF 事件，或在全部直接 stage 已结束后按正常最终 drain budget 返回 `complete=false`。该 scratch 字节不写入调用方缓冲区。
 
 > **阶段 0 已锁定**：按值返回的 facade `status()`、`capture()` 和 `capture_limit()` 不得复用仅含长度/状态摘要的 `PipelineResult` / `PipelineCaptureResult` 类型。它们必须返回独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult`（或等价不透明 handle），由 facade 自行分配并持有完整的 `statuses` 数组、captured stdout/stderr 字节缓冲区以及内嵌 `PipelineResult` / `PipelineCaptureResult` 摘要，再通过所有权转移交给调用方。`OwnedPipelineResult` / `OwnedPipelineCaptureResult` 必须附带明确的 drop/释放规则；若语言支持 move-only 类型，则它们为 move-only 且 drop 自动释放内部数据；若为不透明 handle，则必须提供对应的释放 API。clone 行为必须显式文档化，默认不实现隐式浅拷贝，因为内部数据可能包含动态分配或平台句柄。在语言/运行时具备这些能力之前，`status()` / `capture()` / `capture_limit()` 不能作为公共 API 开放。
 

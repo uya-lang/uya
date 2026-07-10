@@ -628,3 +628,10 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
 验证记录：
 - 核对设计文档 `docs/typed_pipeline_design.md` L362，caller-provided writable region（`statuses`、`stdout_buf`、`stderr_buf`、`result`）两两不重叠规则已写入，明确重叠时返回 `error.InvalidPipeline`，且不得打开文件或启动 stage。
 - 本轮为归档清理，任务已在主 todo 中标记完成。
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 capture exact-fit 探测：达到有效上限但尚未 EOF 时使用独立一字节 scratch；EOF 成功、读到额外字节返回 `CaptureLimitExceeded`，不得停止 drain 后等待 child。
+  - 验证：检查 `docs/typed_pipeline_design.md` 已新增“阶段 0 已锁定”引用块，明确 exact-fit overflow probe 的一字节 scratch 行为、EOF/额外字节/`EAGAIN` 三种结果，以及不得停止 drain 后直接等待 child 的约束。
+  - 验证命令：`grep -n "阶段 0 已锁定" docs/typed_pipeline_design.md | head -n 1 && sed -n '366,367p' docs/typed_pipeline_design.md`
+  - 验证结果：设计文档第 366 行起已包含锁定段落，内容覆盖 scratch probe、`complete=true`、`CaptureLimitExceeded` 与 `complete=false` 分支。
