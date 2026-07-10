@@ -294,3 +294,17 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
     - `sed -n '299,307p' docs/typed_pipeline_design.md` 确认 `PipelineStageStatus` 结构体包含 `exit_code: u32`。
     - `sed -n '328p' docs/typed_pipeline_design.md` 确认 `exit_code` 使用 `u32`：POSIX 的正常退出值以 0..255 扩宽保存，Windows 必须原样保存 `GetExitCodeProcess` 返回的完整 `DWORD` bit pattern；跨平台成功判断统一为 `exit_code == 0u32`。
     - 决策：per-stage `exited` 状态的 `exit_code` 字段类型锁定为 `u32`；POSIX 将 0..255 零扩宽保存，Windows 原样保存 `DWORD`。
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] per-stage `signaled(signal)`
+
+验证命令：
+```
+grep -n "signal: i32" docs/typed_pipeline_design.md
+grep -n "POSIX 上为实际导致子进程终止的正 signal number" docs/typed_pipeline_design.md
+grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pipeline_design.md
+```
+
+验证结果：全部命中。`PipelineStageStatus.signal` 类型为 `i32`；POSIX 使用正 signal number；Windows process-only MVP 默认走 `exited` + `exit_code`，只有显式映射时才允许 `signaled`；非 `signaled` 状态 `signal` 必须为 0。
