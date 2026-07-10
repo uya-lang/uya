@@ -157,3 +157,15 @@ grep -n "capture_into\|capture_limit_into" docs/typed_pipeline_design.md
     - `sed -n '695p' docs/typed_pipeline_design.md` 确认“需要失败详情时不能依赖 `error.ProcessFailed` 携带 payload，必须使用 `check_into` / `status_into` / `capture_into` / `capture_limit_into`”。
     - `grep -cE 'error\.ProcessFailed' docs/typed_pipeline_design.md` 返回 5 处引用；语义一致，无竞争候选名。
     - 决策：采用 `error.ProcessFailed` 作为 checked sink 的 process stage 非零退出 / signal 终止错误名；优先级低于 `error.PipelineSpawnFailed` 与 `error.PipelineStageFailed`。
+
+## 阶段 0：规格锁定
+
+- [ ] 决定精确错误名：
+  - [x] `CaptureLimitExceeded`
+    验证（2026-07-10）：
+    - `sed -n '338p' docs/typed_pipeline_design.md` 确认超过 capture limit 时返回 `error.CaptureLimitExceeded`，并通过独立一字节 scratch overflow probe 区分 exact-fit 与 overflow。
+    - `sed -n '342p' docs/typed_pipeline_design.md` 确认返回 `error.CaptureLimitExceeded` 前必须把输出 `PipelineCaptureResult` 重置为空摘要，不通过 `CaptureStreamResult` 表示截断。
+    - `sed -n '397p' docs/typed_pipeline_design.md` 确认任一 captured stream 超过有效限制时进入强制取消路径，终止所有直接 stage、reap 后重置输出 result 为空摘要并返回 `error.CaptureLimitExceeded`。
+    - `grep -cE 'error\.CaptureLimitExceeded|CaptureLimitExceeded' docs/typed_pipeline_design.md` 返回 6 处匹配行；语义一致，无竞争候选名。
+    - 决策：采用 `error.CaptureLimitExceeded` 作为 capture sink 输出超过有效上限时的稳定 Uya error 名。
+
