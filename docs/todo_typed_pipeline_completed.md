@@ -1013,3 +1013,18 @@ sed -n '/资源生命周期锁定/,/已消费或已 drop/p' docs/typed_pipeline_
   - `sed -n '238p' docs/std_script_design.md` 确认 `std.process` 语义要求已同步加入同义说明。
   - `git diff --check docs/todo_typed_pipeline.md docs/typed_pipeline_design.md docs/std_script_design.md` 通过，无空白/格式错误。
   - 本轮未创建生产模块、API 骨架或代码测试，仅完成规格锁定与文档同步。
+
+---
+
+## 阶段 0：规格锁定
+
+- [x] 锁定 POSIX process group 通过 parent/child 双侧 `setpgid`、per-child startup-report/launch pipe 与显式 `RUN`/`ABORT` protocol 建立；EOF 必须 abort，不能释放 child；不得用无法识别 token 接收者的共享 launch pipe。
+  验证（2026-07-10）：在 `docs/typed_pipeline_design.md` L809 添加 `> **阶段 0 已锁定**` 引用，明确：
+  - group leader 由首个 child 调用 `setpgid(0, 0)` 建立，后续 child 与 parent 双侧调用 `setpgid(0, leader_pid)` / `setpgid(child_pid, leader_pid)` 并验证；
+  - 每个 child 使用独立 launch pipe 与 close-on-exec startup-report pipe，禁止共享无法识别接收者的 launch pipe；
+  - 只有显式 `RUN` token 可释放 child 进入 chdir/dup2/exec，`ABORT`、EOF、短读或未知 token 必须关闭 fds 并 `_exit`；
+  - parent 必须 poll 全部 report pipe，收到每个 child `READY` 且完成 parent-side `setpgid` 验证前不得写 `RUN`；
+  - 失败路径向未释放 child 写 `ABORT` 后强制取消并 reap。
+  验证命令：
+  - `grep -n "阶段 0 已锁定.*POSIX process group" docs/typed_pipeline_design.md` → 命中 L809；
+  - `sed -n '809p' docs/typed_pipeline_design.md` → 显示完整锁定引用。

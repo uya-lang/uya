@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 
-- [ ] 锁定 POSIX process group 通过 parent/child 双侧 `setpgid`、per-child startup-report/launch pipe 与显式 `RUN`/`ABORT` protocol 建立；EOF 必须 abort，不能释放 child；不得用无法识别 token 接收者的共享 launch pipe。
 - [ ] 锁定每个 POSIX child 在 READY 前关闭所有无关控制/数据/runtime-broker fd，parent 在最后一个继承者 fork 后立即关闭对应 child-only fd，发送 RUN 前不再持有 capture writer。
 - [ ] 锁定所有 POSIX 内部 control/data/file source fd 避开 0/1/2，或实现循环安全 remap 与 `source == target` 的 `FD_CLOEXEC` 清理；不能假设宿主标准 fd 已打开。
 - [ ] 锁定 controlling terminal 只有在 executor 当前就是前台 process group 时才转交/恢复 PGID；后台 executor 不得抢占终端，终止信号仍需转发。
