@@ -13,7 +13,6 @@
 
 ## 阶段 0：规格锁定
 
-- [x] 按当前 Uya grammar 和接口语法复核 `typed_pipeline_design.md`。
 - [ ] 确定最终名称：
   - [ ] `pipeline` 或 `empty_pipeline`
   - [ ] `cmd_argv` / `cmd_path_argv`，以及后续 `cmd` / `cmd_path` facade
@@ -105,7 +104,6 @@
 - [ ] 锁定同步 sink 观察 stopped direct child；当前无 job-control 模式将 stop 收敛为终端恢复、整组强制取消、reap 和 `error.Interrupted`。
 - [ ] 锁定按 terminal identity 串行化的 interruptible foreground lease；所有返回路径都先恢复终端再释放 lease，避免并发 sink 的 `tcsetpgrp` 竞态。
 - [ ] 锁定 Uya stage 只有具备内存安全的强制 task 终止或隔离 worker process 时才能继承有限取消承诺；单纯 cancellation flag + join 不足。
-- [x] 在 `std_script_design.md` 中添加一个短章节链接到本设计。
 
 ## 阶段 1：Lexer 与 Parser 骨架
 
@@ -354,7 +352,6 @@ interface PipelineStage {
 
 ## 阶段 9：文档与稳定性门禁
 
-- [x] 更新 `std_script_design.md`。
 - [ ] 如果本工作成为标准脚本路线图的一部分，更新 `todo_std_script.md`。
 - [ ] 为 `|>` 更新 grammar 文档。
 - [ ] 向用户文档添加示例。
