@@ -14,7 +14,7 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [ ] per-stage `cancelled`
+  - [x] per-stage `cancelled`
   - [ ] per-stage `exited(exit_code: u32)`；POSIX 0..255 扩宽，Windows `DWORD` 原样保存
   - [ ] per-stage `signaled(signal)`
   - [ ] process `spawn_failed` 保存稳定的 `PipelineSpawnFailureKind` 与可选平台错误码
