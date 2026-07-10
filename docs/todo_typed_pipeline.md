@@ -14,7 +14,6 @@
 ## 阶段 0：规格锁定
 
 - [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
-  - [x] `CaptureStreamResult.complete`，只有观察到 EOF 才为 true，normal cutoff 必须显式为 false
   - [ ] capture result 只记录 stdout/stderr 已写入长度，调用方通过自己的缓冲区和长度取得有效前缀，不建立跨参数借用
   - [ ] 后续按值 facade 使用独立的 `OwnedPipelineResult` / `OwnedPipelineCaptureResult` 或不透明 handle，不复用仅含长度的摘要类型
 - [ ] 锁定 checked/observing sink 分层：

@@ -434,3 +434,14 @@ grep -n "非 \`signaled\` 状态的 \`signal\` 字段必须为 0" docs/typed_pip
     - 验证：已查阅 `docs/typed_pipeline_design.md` L322-L341、L352-L353、L358-L364、L553、L706、L708，并新增 L335-L338 的“阶段 0 已锁定”显式声明：`CaptureStreamResult.complete` 只有在 executor 确实观察到对应 stream 的 EOF 时才为 `true`；正常 direct-stage cutoff（`EAGAIN`、drain budget 耗尽或 capture limit 触发的 `CaptureLimitExceeded` 路径）必须显式为 `false`。
     - 命令：`sed -n '322,341p;352,353p;358,364p;553p;706,708p' docs/typed_pipeline_design.md`
     - 结果：设计文档已明确包含上述语义，且新增独立锁定语句。
+
+---
+
+## 阶段 0：规格锁定
+
+- [ ] 锁定 `PipelineResult` / `PipelineCaptureResult` 的结构：
+  - [x] `CaptureStreamResult.complete`，只有观察到 EOF 才为 true，normal cutoff 必须显式为 false
+    验证：规格已写入 `docs/typed_pipeline_design.md`。
+    - `CaptureStreamResult.complete` 只有 executor 确实观察到对应 stream 的 EOF 时才为 `true`（L337、L341、L354、L565）。
+    - 正常 direct-stage cutoff（`EAGAIN`、drain budget 耗尽或 capture limit 触发的 `CaptureLimitExceeded` 路径）必须显式为 `false`，不得因数据已填满缓冲区或未等待到 EOF 而静默声称完整（L337、L364、L565、L710）。
+    - 空摘要路径下 `complete=false`（L368）。
