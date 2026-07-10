@@ -173,6 +173,8 @@ const counted: Pipeline = try (p |> cmd_argv("wc", &wc_args[0:1])); // 错误：
 
 资源生命周期锁定如下：
 
+> **阶段 0 已锁定**：transformer 与 sink 在所有返回路径上都必须消费 input；成功路径转移计划所有权，失败路径必须在返回前释放输入计划及本次调用已分配的资源。未进入 sink 的 live pipeline 离开作用域时，自动 `drop` 必须释放 argv、env、stream policy 和 stage 存储，不得要求脚本作者手动调用析构函数。
+
 - `pipeline()` 返回一个 live、未消费的空计划。
 - transformer 在所有返回路径上都消费 `input`。成功时把计划所有权转移到返回的 `Pipeline`；失败时必须释放输入计划及本次调用已经分配的资源，调用方不能继续使用旧值。
 - sink 在成功或失败路径上都消费计划。若已经启动进程，sink 必须先完成取消/关闭/reap，再释放计划和 execution state。
