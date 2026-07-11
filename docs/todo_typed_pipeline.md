@@ -82,8 +82,8 @@
 - [x] 任一 fork/setpgid/barrier 失败时向尚未释放的 child 发送 ABORT 或关闭其 launch pipe，终止 group 与每个直接 PID并 reap；关闭 pipe 不得被解释为 release。
 - [x] inherit stdio 指向 controlling terminal 且 `tcgetpgrp(tty) == getpgrp()` 时才在 RUN 前 `tcsetpgrp` 到 pipeline PGID，并只在确实转交后恢复保存的前台 PGID。
 - [x] runtime broker 在等待 foreground lease 前注册 sink；按 terminal identity 独占 lease，所有正常/失败/中断路径在恢复终端后释放 lease并注销 broker。
-- [~] executor 已在后台时保持后台语义，不忽略 `SIGTTOU` 抢占终端；`tcgetpgrp`/`tcsetpgrp` 失败在 RUN 前走 ABORT 与普通 Uya error 路径。
-- [ ] signal handler 只写原子标志/self-pipe；正常等待路径向 group 转发一次信号，只对 `getpgid(pid) != pipeline_pgid` 或无法证明仍在 group 的直接 PID 补发，bounded grace 后强制取消并返回 `error.Interrupted`。
+- [x] executor 已在后台时保持后台语义，不忽略 `SIGTTOU` 抢占终端；`tcgetpgrp`/`tcsetpgrp` 失败在 RUN 前走 ABORT 与普通 Uya error 路径。
+- [~] signal handler 只写原子标志/self-pipe；正常等待路径向 group 转发一次信号，只对 `getpgid(pid) != pipeline_pgid` 或无法证明仍在 group 的直接 PID 补发，bounded grace 后强制取消并返回 `error.Interrupted`。
 - [ ] 保存/恢复既有 signal disposition/mask，保持 `SIG_IGN`，自定义 handler 由 runtime signal broker 统一协调。
 - [ ] child 在 READY 前关闭 broker fd、恢复 sink 前调用线程 mask；broker 管理的 signal 若原为 `SIG_IGN` 则保持，否则改为默认 disposition，失败通过 `signal_setup` startup phase 回传。
 - [ ] wait loop 使用 `WUNTRACED`/必要的 `WCONTINUED` 观察 stopped direct child；任一 stop 都恢复终端、强制取消整组、reap 并返回 `error.Interrupted`。

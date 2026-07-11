@@ -55,6 +55,7 @@ use libc.SIGPIPE;
 use libc.EPIPE;
 use libc.sys_write;
 use libc.sys_fstat;
+use libc.SIGTTOU;
 
 extern fn setpgid(pid: i32, pgid: i32) i32;
 extern fn sigwait(set: &const sigset_t, signal: &i32) i32;
@@ -1321,6 +1322,22 @@ fn pipeline_write_control_token(fd: i32, token: byte) !void {
     if write_error != 0 { return error.PipelineIoError; }
 }
 
+fn pipeline_tcsetpgrp(fd: i32, pgid: i32) !void {
+    var signal_set: sigset_t = sigset_t {};
+    var old_set: sigset_t = sigset_t {};
+    if sigemptyset(&signal_set) != 0 || sigaddset(&signal_set, SIGTTOU) != 0 ||
+        pthread_sigmask(SIG_BLOCK, &signal_set, &old_set) != 0 {
+        return error.PipelineIoError;
+    }
+    const changed: i32 = tcsetpgrp(fd, pgid);
+    const restored: i32 = pthread_sigmask(SIG_SETMASK, &old_set, null as &sigset_t);
+    if changed != 0 || restored != 0 { return error.PipelineIoError; }
+}
+
+fn pipeline_terminal_handoff_allowed(terminal_pgid: i32, executor_pgid: i32) bool {
+    return terminal_pgid > 0 && terminal_pgid == executor_pgid;
+}
+
 fn pipeline_prepare_process_stage(snapshot: &PipelineCwdSnapshot, stage: &PipelineProcessStage,
     status: &PipelineStageStatus) !PipelinePreparedProcessStage {
     var prepared: PipelinePreparedProcessStage = PipelinePreparedProcessStage {
@@ -1404,7 +1421,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var terminal_lease: usize = 16usize;
     defer {
         if foreground_handed_off && foreground_fd >= 0 && saved_foreground_pgid > 0 {
-            _ = tcsetpgrp(foreground_fd, saved_foreground_pgid);
+            const restored: !void = pipeline_tcsetpgrp(foreground_fd, saved_foreground_pgid);
+            _ = restored catch {};
         }
         if terminal_lease < 16usize { pipeline_terminal_lease_release(terminal_lease); }
         if broker_registered { pipeline_broker_unsubscribe(); }
@@ -1435,7 +1453,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         if foreground_fd >= 0 {
             terminal_lease = try pipeline_terminal_lease_acquire(foreground_fd);
             const terminal_pgid: i32 = tcgetpgrp(foreground_fd);
-            if terminal_pgid > 0 && terminal_pgid == getpgrp() {
+            if terminal_pgid <= 0 { return error.PipelineIoError; }
+            if pipeline_terminal_handoff_allowed(terminal_pgid, getpgrp()) {
                 saved_foreground_pgid = terminal_pgid;
             }
         }
@@ -1658,11 +1677,12 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         i = i + 1usize;
     }
     if foreground_fd >= 0 && saved_foreground_pgid > 0 {
-        if tcsetpgrp(foreground_fd, pipeline_pgid) != 0 {
+        const handed: !void = pipeline_tcsetpgrp(foreground_fd, pipeline_pgid);
+        _ = handed catch {
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineIoError;
-        }
+        };
         foreground_handed_off = true;
     }
     i = 0usize;
@@ -1873,6 +1893,11 @@ export fn pipeline_control_epipe_self_test() !void {
 
 /// 验证 runtime broker 订阅与按 terminal identity 租约的配对清理；仅供回归测试。
 export fn pipeline_broker_lifecycle_self_test() !void {
+    if !pipeline_terminal_handoff_allowed(42, 42) ||
+        pipeline_terminal_handoff_allowed(41, 42) ||
+        pipeline_terminal_handoff_allowed(0, 42) {
+        return error.InvalidPipeline;
+    }
     var fds: [i32: 2] = [];
     const created: !i32 = sys_pipe2(&fds[0], O_CLOEXEC);
     _ = created catch { return error.PipelineIoError; };
