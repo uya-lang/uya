@@ -25,6 +25,16 @@ struct PipelineBorrowedStage : PipelineStage {
     }
 }
 
+struct PipelineConstantStage : PipelineStage {
+    marker: byte,
+
+    fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
+        _ = self;
+        _ = input;
+        try output.write_all("uya-stage\n");
+    }
+}
+
 test "pipeline_capability_generation_registry" {
     try pipeline_capability_self_test();
 }
@@ -50,6 +60,36 @@ test "pipeline_stage_transformer_rejects_borrowed_fields" {
         PipelineBorrowedStage { borrowed: &local_value });
     _ = planned catch {};
     try assert_eq_u64(planned.error_id as u64, @error_id(error.InvalidPipeline) as u64);
+}
+
+test "pipeline_stage_executes_in_pipeline_topology" {
+    const planned: Pipeline = try stage<PipelineConstantStage>(pipeline(),
+        PipelineConstantStage { marker: 1 as byte });
+    const with_stdin: Pipeline = try stdin_file(planned, "/dev/null");
+    const captured: Pipeline = try stdout_capture(with_stdin);
+    var statuses: [PipelineStageStatus: 1] = [];
+    var stdout_buf: [byte: 32] = [];
+    var stderr_buf: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    pipeline_allow_next_fork_stage_for_test();
+    try capture_into(captured, &statuses[0:1], &stdout_buf[0:32], &stderr_buf[0:1], &result);
+    try assert_eq_u64(result.stdout.byte_count as u64, 10);
+    try assert_eq_u64(statuses[0].kind as u64, PipelineStageStatusKind.completed as u64);
+}
+
+test "pipeline_fork_stage_is_not_enabled_by_default" {
+    const planned: Pipeline = try stage<PipelineConstantStage>(pipeline(),
+        PipelineConstantStage { marker: 1 as byte });
+    const with_stdin: Pipeline = try stdin_file(planned, "/dev/null");
+    const captured: Pipeline = try stdout_capture(with_stdin);
+    var statuses: [PipelineStageStatus: 1] = [];
+    var stdout_buf: [byte: 32] = [];
+    var stderr_buf: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    const executed: !void = capture_into(captured, &statuses[0:1],
+        &stdout_buf[0:32], &stderr_buf[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_u64(executed.error_id as u64, @error_id(error.InvalidPipeline) as u64);
 }
 
 test "pipeline_clone_owns_an_independent_deep_copy" {

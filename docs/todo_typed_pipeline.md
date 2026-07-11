@@ -172,7 +172,7 @@ interface PipelineStage {
 - [ ] 让 Uya stage 成功写入 `completed`，错误写入 `stage_failed(error_name)`；`stage_index` 使用完整 stage 列表索引。
 - [ ] checked sink 遇到 `stage_failed` 返回 `error.PipelineStageFailed`，observing sink 保留状态并成功返回。
 - [ ] 若 runtime task 路线成立，证明阻塞 StreamReader/Writer 和 CPU-bound stage 都能安全终止；否则把有限取消后端收敛到隔离 worker process，并将普通 thread 路线标记为实验性协作取消。
-- [ ] 若保留 fork-backed 实验路径，必须显式标记为非默认测试/实验模式。
+- [x] 若保留 fork-backed 实验路径，必须显式标记为非默认测试/实验模式。
 - [ ] 添加测试：
   - [ ] line filter stage
   - [ ] line map stage

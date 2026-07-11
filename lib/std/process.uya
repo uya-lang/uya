@@ -91,6 +91,7 @@ export error PipelineSpawnFailed;
 export error PipelineIoError;
 export error CaptureLimitExceeded;
 export error Interrupted;
+export error PipelineStageFailed;
 
 /// Pipeline stage 的稳定执行状态类别。
 export enum PipelineStageStatusKind {
@@ -417,6 +418,7 @@ var _pipeline_broker_installed: i32 = 0;
 var _pipeline_broker_previous_actions: [PipelineSigaction: 4] = [];
 var _pipeline_broker_owned_actions: [i32: 4] = [];
 var _pipeline_test_fail_next_fork: atomic i32 = 0;
+var _pipeline_test_allow_next_fork_stage: atomic i32 = 0;
 var _pipeline_test_interrupt_direct_sends: atomic i32 = 0;
 
 extern fn pipeline_broker_signal_handler(signum: i32) void {
@@ -1852,16 +1854,26 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     defer { pipeline_cwd_snapshot_deinit(&cwd_snapshot); }
     var prepared_stages: [PipelinePreparedProcessStage: 32] = [];
     var prepared_count: usize = 0usize;
+    var has_uya_stage: bool = false;
     defer { pipeline_prepared_stages_deinit(&prepared_stages[0], prepared_count); }
     var i: usize = 0usize;
     while i < count {
         const storage_idx: usize = try pipeline_stage_storage_index(slot_idx, i);
         if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
         const stage: &PipelineProcessStage = &_pipeline_process_stages[storage_idx];
-        prepared_stages[i] = try pipeline_prepare_process_stage(&cwd_snapshot, stage, &statuses[i]);
+        if stage.command_kind == 3 {
+            if stage.active == 0 || _pipeline_erased_stages[storage_idx].active == 0 {
+                return error.InvalidPipeline;
+            }
+            has_uya_stage = true;
+        } else {
+            prepared_stages[i] = try pipeline_prepare_process_stage(&cwd_snapshot, stage, &statuses[i]);
+        }
         prepared_count = prepared_count + 1usize;
         i = i + 1usize;
     }
+    if has_uya_stage && __atomic_exchange_n((&_pipeline_test_allow_next_fork_stage) as &i32,
+        0, PIPELINE_ATOMIC_SEQ_CST) == 0 { return error.InvalidPipeline; }
     try pipeline_broker_subscribe();
     broker_registered = true;
     broker_signal_epoch = __atomic_load_n((&_pipeline_broker_signal_epoch) as &i32,
@@ -2008,6 +2020,10 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var pipeline_pgid: i32 = 0;
     i = 0usize;
     while i < count {
+        const storage_idx: usize = try pipeline_stage_storage_index(slot_idx, i);
+        if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
+        const plan_stage: &PipelineProcessStage = &_pipeline_process_stages[storage_idx];
+        const is_uya_stage: bool = plan_stage.command_kind == 3;
         const stage: &PipelinePreparedProcessStage = &prepared_stages[i];
         var pid: i32 = 0 - 1;
         if __atomic_exchange_n((&_pipeline_test_fail_next_fork) as &i32, 0,
@@ -2086,6 +2102,15 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                     PIPELINE_PHASE_BARRIER, pipeline_errno_value());
             }
             _ = close(launch_fds[i * 2usize]);
+            if is_uya_stage {
+                _ = close(report_fds[i * 2usize + 1usize]);
+                var input_stream: StreamReader = StreamReader { _fd: 0 };
+                var output_stream: StreamWriter = StreamWriter { _fd: 1 };
+                const ran: !void = _pipeline_erased_stages[storage_idx].ops.run_erased(
+                    &input_stream, &output_stream);
+                _ = ran catch { _exit(100); };
+                _exit(0);
+            }
             if chdir(stage.cwd) != 0 {
                 pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
                     PIPELINE_PHASE_CHDIR, pipeline_errno_value());
@@ -2356,6 +2381,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         if stderr_open { _ = close(stderr_capture_fds[0]); }
     }
     var saw_failure: bool = false;
+    var saw_stage_failure: bool = false;
     i = 0usize;
     while i < count {
         var raw_status: i32 = raw_statuses[i];
@@ -2386,13 +2412,26 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             statuses[i].kind = PipelineStageStatusKind.cancelled;
             saw_failure = true;
         } else {
+            const storage_idx: usize = try pipeline_stage_storage_index(slot_idx, i);
+            if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
+            const plan_stage: &PipelineProcessStage = &_pipeline_process_stages[storage_idx];
             statuses[i] = pipeline_wait_status(raw_status, i);
-            if statuses[i].kind != PipelineStageStatusKind.exited || statuses[i].exit_code != 0u32 {
+            if plan_stage.command_kind == 3 && statuses[i].kind == PipelineStageStatusKind.exited {
+                if statuses[i].exit_code == 0u32 {
+                    statuses[i].kind = PipelineStageStatusKind.completed;
+                } else {
+                    statuses[i].kind = PipelineStageStatusKind.stage_failed;
+                    statuses[i].error_name = "PipelineStageError";
+                    saw_stage_failure = true;
+                    saw_failure = true;
+                }
+            } else if statuses[i].kind != PipelineStageStatusKind.exited || statuses[i].exit_code != 0u32 {
                 saw_failure = true;
             }
         }
         i = i + 1usize;
     }
+    if checked && saw_stage_failure { return error.PipelineStageFailed; }
     if checked && saw_failure { return error.ProcessFailed; }
 }
 
@@ -2912,6 +2951,13 @@ export fn unset_env(input: Pipeline, key: &const byte) !Pipeline {
 /// 让下一次 pipeline fork 路径返回 process-create failure；仅供回归测试。
 export fn pipeline_fail_next_fork_for_test() void {
     _pipeline_test_fail_next_fork = 1;
+}
+
+/// 仅允许下一次含 Uya stage 的执行使用 POSIX fork 实验 worker。
+/// 参数：无；该一次性门闩不会改变 process-only pipeline。
+/// 返回：无；生产默认路径仍拒绝 fork-backed Uya stage。
+export fn pipeline_allow_next_fork_stage_for_test() void {
+    _pipeline_test_allow_next_fork_stage = 1;
 }
 
 /// 重置 interruption 的 direct-PID signal 计数；仅供回归测试。
