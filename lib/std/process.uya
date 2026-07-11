@@ -1,6 +1,7 @@
 // std.process - 进程与类型化管道抽象
 // 模块路径：lib/std/process.uya → use std.process;
 
+use std;
 use std.env.EnvBlockBuilder;
 use std.env.env_block_builder_new;
 use std.env.env_key_valid;
@@ -297,6 +298,25 @@ fn pipeline_c_string_equals(left: &const byte, right: &const byte) i32 {
         return 0;
     }
     return 1;
+}
+
+fn pipeline_command_name_valid(program: &const byte) bool {
+    if program == null || program[0] == 0 as byte {
+        return false;
+    }
+    var i: usize = 0usize;
+    while program[i] != 0 as byte {
+        if program[i] == 47 as byte {
+            return false;
+        }
+        std.cfg(std.target_os == .tos_windows, {
+            if program[i] == 92 as byte || program[i] == 58 as byte {
+                return false;
+            }
+        })
+        i = i + 1usize;
+    }
+    return true;
 }
 
 fn pipeline_execution_stage_init(exec_path: &const byte) !PipelineExecutionStage {
@@ -783,7 +803,7 @@ export fn pipeline() Pipeline {
 /// 参数：input 为按值消费的 pipeline；program 为命令名；args 不包含 argv[0]。
 /// 返回：成功时返回追加 stage 后的 pipeline；参数或 capability 无效时返回错误。
 export fn cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) !Pipeline {
-    if program == null || args.ptr == null && args.len != 0usize {
+    if !pipeline_command_name_valid(program) || args.ptr == null && args.len != 0usize {
         return error.InvalidPipeline;
     }
     try pipeline_registry_append_process_stage(&input, 1);

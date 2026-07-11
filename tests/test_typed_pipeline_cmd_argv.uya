@@ -12,3 +12,14 @@ test "pipeline_cmd_argv_appends_owned_process_stage" {
     const p: Pipeline = try cmd_argv(pipeline(), "printf", args);
     try assert_eq_i32((try stage_count(&p)) as i32, 1);
 }
+
+test "pipeline_cmd_argv_rejects_empty_or_path_command" {
+    const no_args_values: [&const byte: 1] = [""];
+    const no_args: &[&const byte] = &no_args_values[0:0];
+    const empty_result: !Pipeline = cmd_argv(pipeline(), "", no_args);
+    _ = empty_result catch { pipeline(); };
+    const path_result: !Pipeline = cmd_argv(pipeline(), "dir/tool", no_args);
+    _ = path_result catch { pipeline(); };
+    try assert_eq_i32(empty_result.error_id as i32, @error_id(error.InvalidPipeline) as i32);
+    try assert_eq_i32(path_result.error_id as i32, @error_id(error.InvalidPipeline) as i32);
+}
