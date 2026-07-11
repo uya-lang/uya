@@ -1148,6 +1148,31 @@ fn pipeline_cancel_pids(pids: &i32, count: usize) void {
     }
 }
 
+fn pipeline_cancel_started_group(pgid: i32, pids: &i32, count: usize) void {
+    if pgid > 0 { _ = kill(0 - pgid, SIGKILL); }
+    pipeline_cancel_pids(pids, count);
+}
+
+fn pipeline_abort_launches(launch_fds: &i32, report_fds: &i32, count: usize) void {
+    var i: usize = 0usize;
+    while i < count {
+        const launch_read: i32 = launch_fds[i * 2usize];
+        const launch_write: i32 = launch_fds[i * 2usize + 1usize];
+        const report_read: i32 = report_fds[i * 2usize];
+        const report_write: i32 = report_fds[i * 2usize + 1usize];
+        if launch_read >= 0 { _ = close(launch_read); launch_fds[i * 2usize] = 0 - 1; }
+        if launch_write >= 0 {
+            const aborted: !void = pipeline_write_control_token(launch_write, 65 as byte);
+            _ = aborted catch {};
+            _ = close(launch_write);
+            launch_fds[i * 2usize + 1usize] = 0 - 1;
+        }
+        if report_read >= 0 { _ = close(report_read); report_fds[i * 2usize] = 0 - 1; }
+        if report_write >= 0 { _ = close(report_write); report_fds[i * 2usize + 1usize] = 0 - 1; }
+        i = i + 1usize;
+    }
+}
+
 fn pipeline_open_retry(path: &const byte, flags: i32, mode: i32) !i32 {
     while true {
         const opened: !i32 = sys_open(path, flags, mode);
@@ -1435,6 +1460,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_fd >= 0 { _ = close(stderr_fd); }
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], i);
             return error.PipelineSpawnFailed;
         }
         if pid == 0 {
@@ -1482,7 +1509,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         if pipeline_pgid == 0 { pipeline_pgid = pid; }
         if setpgid(pid, pipeline_pgid) != 0 {
             pids[i] = pid;
-            pipeline_cancel_pids(&pids[0], i + 1usize);
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], i + 1usize);
             return error.PipelineSpawnFailed;
         }
         pids[i] = pid;
@@ -1503,7 +1531,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     while i < count {
         var report: byte = 0 as byte;
         if read(report_fds[i * 2usize], &report, 1usize) != 1i64 || report != 82 as byte {
-            pipeline_cancel_pids(&pids[0], count);
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineSpawnFailed;
         }
         _ = close(report_fds[i * 2usize]);
@@ -1514,7 +1543,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     while i < count {
         const sent: !void = pipeline_write_control_token(launch_fds[i * 2usize + 1usize], 71 as byte);
         _ = sent catch {
-            pipeline_cancel_pids(&pids[0], count);
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineSpawnFailed;
         };
         _ = close(launch_fds[i * 2usize + 1usize]);
