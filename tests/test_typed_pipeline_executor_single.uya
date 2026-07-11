@@ -1,0 +1,30 @@
+// typed pipeline 单 process executor 基础回归。
+
+use std.testing;
+use std.process.Pipeline;
+use std.process.PipelineResult;
+use std.process.PipelineStageStatus;
+use std.process.PipelineStageStatusKind;
+use std.process.check;
+use std.process.cmd_path_argv;
+use std.process.pipeline;
+use std.process.status_into;
+
+test "pipeline_single_exact_path_check_executes" {
+    const values: [&const byte: 1] = [""];
+    const args: &[&const byte] = &values[0:0];
+    try check(try cmd_path_argv(pipeline(), "/bin/true", args));
+}
+
+test "pipeline_single_observing_status_reports_nonzero_exit" {
+    const args_values: [&const byte: 2] = ["-c", "exit 7"];
+    const args: &[&const byte] = &args_values[0:2];
+    const p: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", args);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    const statuses: &[PipelineStageStatus] = &statuses_storage[0:1];
+    var result: PipelineResult = PipelineResult { stage_count: 0usize };
+    try status_into(p, statuses, &result);
+    try assert_eq_i32(result.stage_count as i32, 1);
+    try assert_eq_i32(statuses[0].kind as i32, PipelineStageStatusKind.exited as i32);
+    try assert_eq_i32(statuses[0].exit_code as i32, 7);
+}
