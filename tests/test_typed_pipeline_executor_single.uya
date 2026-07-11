@@ -177,6 +177,23 @@ test "pipeline_stderr_capture_conflicts_with_status_sink_before_start" {
     try assert_eq_i32(access(marker, F_OK), 0 - 1);
 }
 
+test "pipeline_capture_rejects_overlapping_output_regions_before_start" {
+    const marker: &const byte = "/tmp/uya_typed_pipeline_overlap_marker";
+    _ = unlink(marker);
+    const shell_values: [&const byte: 2] = ["-c",
+        "touch /tmp/uya_typed_pipeline_overlap_marker; printf out; printf err >&2"];
+    const command: Pipeline = try stderr_capture(
+        try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]));
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var shared_output: [byte: 16] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    const captured: !void = capture_into(command, &statuses_storage[0:1],
+        &shared_output[0:16], &shared_output[0:16], &result);
+    _ = captured catch {};
+    try assert_eq_i32(captured.error_id as i32, @error_id(error.InvalidPipeline) as i32);
+    try assert_eq_i32(access(marker, F_OK), 0 - 1);
+}
+
 test "pipeline_stderr_to_stdout_merge_uses_stdout_policy" {
     const shell_values: [&const byte: 2] = ["-c", "printf out; printf err >&2"];
     const command: Pipeline = try stderr_to_stdout(
