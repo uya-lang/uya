@@ -31,8 +31,8 @@
 - [x] 将 `|>` 绑定到该 canonical `Pipeline` 声明身份。
 - [x] 内部 capability bring-up 若先行，只能使用 generation 校验注册表，不能作为稳定公开类型。
 - [x] 添加 pipeline 自动 drop；覆盖未执行离开作用域、transformer 失败和 sink 失败路径。
-- [~] 添加进程 stage 计划存储。
-- [ ] 添加包含 `cancelled` 和 `exit_code: u32` 的 `PipelineStageStatus`、`PipelineSpawnFailureKind`、`PipelineResult`、带 `complete` 的 `CaptureStreamResult` 与 `PipelineCaptureResult` 表示。
+- [x] 添加进程 stage 计划存储。
+- [~] 添加包含 `cancelled` 和 `exit_code: u32` 的 `PipelineStageStatus`、`PipelineSpawnFailureKind`、`PipelineResult`、带 `complete` 的 `CaptureStreamResult` 与 `PipelineCaptureResult` 表示。
 - [ ] 为 statuses/capture 实现调用方缓冲区写入；result 仅返回 `stage_count` / `byte_count` / `complete` 摘要，不保存调用方 buffer 借用；statuses 容量按完整可执行 stage 数量校验。
 - [ ] 添加 `stage_count(input: &Pipeline) !usize`，保证不消费、不执行、不缓存 execution state，无效 capability 返回 `InvalidPipeline`；statuses 容量检查早于文件打开或进程启动。
 - [ ] 添加 owned argv 存储。

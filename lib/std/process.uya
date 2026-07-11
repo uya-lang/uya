@@ -6,6 +6,8 @@ export error InvalidPipeline;
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
 
 const PIPELINE_REGISTRY_CAPACITY: usize = 1024usize;
+const PIPELINE_MAX_STAGES: usize = 32usize;
+const PIPELINE_STAGE_STORAGE_CAPACITY: usize = 32768usize;
 const PIPELINE_ATOMIC_SEQ_CST: i32 = 5;
 
 struct PipelineSlot {
@@ -14,8 +16,14 @@ struct PipelineSlot {
     stage_count: usize,
 }
 
+struct PipelineProcessStage {
+    active: i32,
+    command_kind: i32,
+}
+
 var _pipeline_registry_lock: atomic i32 = 0;
 var _pipeline_registry: [PipelineSlot: 1024] = [];
+var _pipeline_process_stages: [PipelineProcessStage: 32768] = [];
 
 fn pipeline_registry_lock() void {
     while true {
@@ -80,6 +88,60 @@ fn pipeline_registry_stage_count(input: &Pipeline) !usize {
     return count;
 }
 
+fn pipeline_stage_storage_index(slot_idx: usize, stage_idx: usize) !usize {
+    if slot_idx >= PIPELINE_REGISTRY_CAPACITY || stage_idx >= PIPELINE_MAX_STAGES {
+        return error.InvalidPipeline;
+    }
+    const index: usize = slot_idx * PIPELINE_MAX_STAGES + stage_idx;
+    if index >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        return error.InvalidPipeline;
+    }
+    return index;
+}
+
+fn pipeline_registry_append_process_stage(input: &Pipeline, command_kind: i32) !void {
+    const slot_idx: usize = try pipeline_registry_slot_index(input);
+    if slot_idx >= PIPELINE_REGISTRY_CAPACITY {
+        return error.InvalidPipeline;
+    }
+    pipeline_registry_lock();
+    if _pipeline_registry[slot_idx].live == 0 ||
+        _pipeline_registry[slot_idx].generation != input.generation ||
+        _pipeline_registry[slot_idx].stage_count >= PIPELINE_MAX_STAGES {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
+    const stage_idx: usize = _pipeline_registry[slot_idx].stage_count;
+    const storage_result: !usize = pipeline_stage_storage_index(slot_idx, stage_idx);
+    const storage_idx: usize = storage_result catch {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    };
+    if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
+    _pipeline_process_stages[storage_idx].active = 1;
+    _pipeline_process_stages[storage_idx].command_kind = command_kind;
+    _pipeline_registry[slot_idx].stage_count = stage_idx + 1usize;
+    pipeline_registry_unlock();
+    return;
+}
+
+fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
+    var i: usize = 0usize;
+    while i < count && i < PIPELINE_MAX_STAGES {
+        const storage_result: !usize = pipeline_stage_storage_index(slot_idx, i);
+        const storage_idx: usize = storage_result catch { return; };
+        if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+            return;
+        }
+        _pipeline_process_stages[storage_idx].active = 0;
+        _pipeline_process_stages[storage_idx].command_kind = 0;
+        i = i + 1usize;
+    }
+}
+
 fn pipeline_registry_release(input: &Pipeline) i32 {
     const idx_result: !usize = pipeline_registry_slot_index(input);
     const idx: usize = idx_result catch { return 0; };
@@ -92,6 +154,8 @@ fn pipeline_registry_release(input: &Pipeline) i32 {
         pipeline_registry_unlock();
         return 0;
     }
+    const old_stage_count: usize = _pipeline_registry[idx].stage_count;
+    pipeline_registry_clear_stages(idx, old_stage_count);
     _pipeline_registry[idx].live = 0;
     _pipeline_registry[idx].stage_count = 0usize;
     pipeline_registry_unlock();
@@ -147,6 +211,11 @@ export fn pipeline_capability_self_test() !void {
     const first: Pipeline = pipeline_registry_allocate();
     const stale: Pipeline = Pipeline { handle: first.handle, generation: first.generation };
     if try pipeline_registry_stage_count(&first) != 0usize {
+        return error.InvalidPipeline;
+    }
+    try pipeline_registry_append_process_stage(&first, 1);
+    try pipeline_registry_append_process_stage(&first, 2);
+    if try pipeline_registry_stage_count(&first) != 2usize {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {
