@@ -73,8 +73,8 @@
 - [x] 对 stage cwd 失败写入 `spawn_failed` / `not_started` 状态。
 - [x] 对文件重定向打开失败、pipe 创建失败、内存分配失败返回普通 Uya error。
 - [x] 所有 PATH/cwd/buffer 预检和 pipe/control-fd 创建成功后、首个 fork 前，在 parent 中为每个活跃 file-redirection policy 打开一次文件；group stderr 的同一 open file description 供全部 stage 共享。
-- [~] 按 stdin/stdout/stderr 固定顺序和文档化平台 flags 打开重定向；后续 open 失败时关闭资源但不声称回滚已经发生的 create/truncate 副作用。
-- [ ] PATH/stage 预检通过后再创建所有 stage 间 pipe。
+- [x] 按 stdin/stdout/stderr 固定顺序和文档化平台 flags 打开重定向；后续 open 失败时关闭资源但不声称回滚已经发生的 create/truncate 副作用。
+- [~] PATH/stage 预检通过后再创建所有 stage 间 pipe。
 - [ ] 为每次 POSIX pipeline 执行创建独立 process group；child/parent 双侧调用 `setpgid`，每个 child 通过独立 startup-report pipe 发送 `READY` 并等待自己的 launch pipe token。
 - [ ] fork 前把所有内部 control/data/file source fd 移到 0/1/2 之外并配置正确 close-on-exec；child 在 READY 前关闭其他 stage 控制端、parent-only 端、runtime broker fd 和无关数据 pipe，parent 在最后一个继承者 fork 后立即关闭对应 launch/report/data/file 副本。
 - [ ] 定义 per-child launch pipe：只有 `RUN` 允许继续，`ABORT`/EOF/短读/未知 token 必须 `_exit`；全部 READY 前不得发送 RUN。

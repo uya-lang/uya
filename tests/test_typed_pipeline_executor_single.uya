@@ -13,6 +13,8 @@ use std.process.cmd_argv;
 use std.process.pipeline;
 use std.process.status_into;
 use std.process.stdout_file;
+use std.process.stderr_file;
+use std.process.stdin_file;
 use std.process.cwd;
 use std.process.PipelineCaptureResult;
 use std.process.capture_into;
@@ -152,4 +154,22 @@ test "pipeline_file_open_failure_is_infrastructure_error" {
     try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineIoError) as i32);
     try assert_eq_i32(access(marker, F_OK), 0 - 1);
     try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.not_started as i32);
+}
+
+test "pipeline_redirect_open_order_has_nontransactional_side_effects" {
+    const output: &const byte = "/tmp/uya_typed_pipeline_open_order.txt";
+    _ = unlink(output);
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const with_stdin: Pipeline = try stdin_file(command, "/dev/null");
+    const with_stdout: Pipeline = try stdout_file(with_stdin, output);
+    const full: Pipeline = try stderr_file(with_stdout, "/tmp/uya-missing-parent/stderr.txt");
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(full, &statuses_storage[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineIoError) as i32);
+    try assert_eq_i32(access(output, F_OK), 0);
+    try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.not_started as i32);
+    _ = unlink(output);
 }

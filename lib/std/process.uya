@@ -26,6 +26,8 @@ use libc.O_RDONLY;
 use libc.O_WRONLY;
 use libc.O_CREAT;
 use libc.O_TRUNC;
+use libc.O_CLOEXEC;
+use libc.EINTR;
 use libc.sys_read;
 use libc.sys_poll;
 use libc.PollFd;
@@ -1128,6 +1130,17 @@ fn pipeline_cancel_pids(pids: &i32, count: usize) void {
     }
 }
 
+fn pipeline_open_retry(path: &const byte, flags: i32, mode: i32) !i32 {
+    while true {
+        const opened: !i32 = sys_open(path, flags, mode);
+        const fd: i32 = opened catch |err| {
+            if @error_id(err) as i32 == EINTR { continue; }
+            return error.PipelineIoError;
+        };
+        return fd;
+    }
+}
+
 fn pipeline_prepare_process_stage(snapshot: &PipelineCwdSnapshot, stage: &PipelineProcessStage,
     status: &PipelineStageStatus) !PipelinePreparedProcessStage {
     var prepared: PipelinePreparedProcessStage = PipelinePreparedProcessStage {
@@ -1252,7 +1265,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     if _pipeline_stream_policies[slot_idx].stdin_kind == PipelineStdinPolicyKind.file {
         const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
             _pipeline_stream_policies[slot_idx].stdin_path);
-        const opened: !i32 = sys_open(path, O_RDONLY as i32, 0);
+        const opened: !i32 = pipeline_open_retry(path, (O_RDONLY | O_CLOEXEC) as i32, 0);
         stdin_fd = opened catch {
             free(path as &void);
             var pc: usize = 0usize;
@@ -1266,7 +1279,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     if _pipeline_stream_policies[slot_idx].stdout_kind == PipelineStdoutPolicyKind.file {
         const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
             _pipeline_stream_policies[slot_idx].stdout_path);
-        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
+        const opened: !i32 = pipeline_open_retry(path,
+            (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC) as i32, 438);
         stdout_fd = opened catch {
             free(path as &void);
             var pc: usize = 0usize;
@@ -1281,7 +1295,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.file {
         const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
             _pipeline_stream_policies[slot_idx].stderr_path);
-        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
+        const opened: !i32 = pipeline_open_retry(path,
+            (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC) as i32, 438);
         stderr_fd = opened catch {
             free(path as &void);
             var pc: usize = 0usize;
