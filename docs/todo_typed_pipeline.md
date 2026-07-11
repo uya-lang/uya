@@ -125,8 +125,8 @@
   - [x] 文件重定向打开失败返回普通 Uya error
   - [x] 多 stage group stderr file 只 open/truncate 一次，不因每个 stage 重复打开而覆盖输出
   - [x] 宿主 0/1/2 任一路预先关闭时，pipe/file stdio remap 仍正确且 exec 后目标 fd 不带 `FD_CLOEXEC`
-  - [~] parent 在 RUN 前关闭所有 child-only pipe writer，`printf | wc` 不会因 parent 持有写端而等待 EOF
-  - [ ] child 在 READY 前不会继承 runtime broker handler/self-pipe 或 sink 临时 signal mask
+  - [x] parent 在 RUN 前关闭所有 child-only pipe writer，`printf | wc` 不会因 parent 持有写端而等待 EOF
+  - [~] child 在 READY 前不会继承 runtime broker handler/self-pipe 或 sink 临时 signal mask
   - [ ] launch reader 提前关闭时 RUN/ABORT 写入返回可处理的 `EPIPE`，executor 不被 `SIGPIPE` 终止
   - [ ] signal 终止状态
   - [ ] executor 收到 SIGINT/SIGTERM 时不重复投递给仍在 group 的 PID，有限清理并返回 `error.Interrupted`
