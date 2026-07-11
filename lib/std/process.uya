@@ -1346,6 +1346,58 @@ export fn pipeline() Pipeline {
     return pipeline_registry_allocate();
 }
 
+fn pipeline_clone_plan(input: &Pipeline, output: &Pipeline) !void {
+    const source_slot: usize = try pipeline_registry_slot_index(input);
+    const count: usize = try pipeline_registry_stage_count(input);
+    var i: usize = 0usize;
+    while i < count {
+        const source_idx: usize = try pipeline_stage_storage_index(source_slot, i);
+        if source_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
+        const source: &PipelineProcessStage = &_pipeline_process_stages[source_idx];
+        if source.active == 0 || source.argv == null || source.argv_count == 0usize {
+            return error.InvalidPipeline;
+        }
+        try pipeline_registry_append_process_stage(output, source.command_kind);
+        var args: &&const byte = null as &&const byte;
+        if source.argv_count > 1usize { args = &source.argv[1] as &&const byte; }
+        try pipeline_registry_set_last_stage_argv(output, source.argv[0], args, source.argv_count - 1usize);
+        if source.cwd != null { try pipeline_registry_set_last_stage_cwd(output, source.cwd); }
+        var env_idx: usize = 0usize;
+        while env_idx < source.env_op_count {
+            const op: &PipelineEnvOp = &source.env_ops[env_idx];
+            try pipeline_registry_append_last_stage_env(output, op.key, op.value, op.remove);
+            env_idx = env_idx + 1usize;
+        }
+        i = i + 1usize;
+    }
+    if source_slot >= PIPELINE_REGISTRY_CAPACITY { return error.InvalidPipeline; }
+    const policy: &PipelineStreamPolicy = &_pipeline_stream_policies[source_slot];
+    if policy.stdin_kind != PipelineStdinPolicyKind.unset {
+        try pipeline_set_stdin_policy(output, policy.stdin_kind, policy.stdin_path);
+    }
+    if policy.stdout_kind != PipelineStdoutPolicyKind.unset {
+        try pipeline_set_stdout_policy(output, policy.stdout_kind, policy.stdout_path);
+    }
+    if policy.stderr_kind != PipelineStderrPolicyKind.unset {
+        try pipeline_set_stderr_policy(output, policy.stderr_kind, policy.stderr_path);
+    }
+}
+
+/// 深拷贝 pipeline 执行计划，返回独立拥有 argv、cwd、env 与 stream policy 的新 capability。
+/// 参数：input 为有效且仍存活的只读 pipeline capability。
+/// 返回：成功时返回可独立移动、执行和释放的副本；计划不可克隆或无效时返回 InvalidPipeline。
+export fn clone(input: &Pipeline) !Pipeline {
+    if input == null { return error.InvalidPipeline; }
+    var output: Pipeline = pipeline_registry_allocate();
+    if output.handle == 0usize { return error.InvalidPipeline; }
+    const copied: !void = pipeline_clone_plan(input, &output);
+    _ = copied catch {
+        _ = pipeline_registry_release(&output);
+        return error.InvalidPipeline;
+    };
+    return output;
+}
+
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。
 /// 参数：input 为按值消费的 pipeline；program 为命令名；args 不包含 argv[0]。
 /// 返回：成功时返回追加 stage 后的 pipeline；参数或 capability 无效时返回错误。

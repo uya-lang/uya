@@ -12,3 +12,21 @@ test "pipeline_stage_count_empty_is_read_only" {
     try assert_eq_u64(before as u64, 0);
     try assert_eq_u64(after as u64, 0);
 }
+
+test "pipeline_clone_owns_an_independent_deep_copy" {
+    const args: [&const byte: 1] = ["clone-ok"];
+    const with_command: Pipeline = try cmd_path_argv(pipeline(), "/bin/echo", &args[0:1]);
+    const with_cwd: Pipeline = try cwd(with_command, ".");
+    const original: Pipeline = try stdout_capture(with_cwd);
+    const copied: Pipeline = try clone(&original);
+    try assert_eq_u64((try stage_count(&original)) as u64, 1);
+    try assert_eq_u64((try stage_count(&copied)) as u64, 1);
+    pipeline_drop(original);
+    try assert_eq_u64((try stage_count(&copied)) as u64, 1);
+    var statuses: [PipelineStageStatus: 1] = [];
+    var stdout_buf: [byte: 32] = [];
+    var stderr_buf: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_into(copied, &statuses[0:1], &stdout_buf[0:32], &stderr_buf[0:1], &result);
+    try assert_eq_u64(result.stdout.byte_count as u64, 9);
+}
