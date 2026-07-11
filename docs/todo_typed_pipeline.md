@@ -93,8 +93,8 @@
 - [x] 为每个 child 实现固定大小、单次 async-signal-safe write 的 startup diagnostic record，包含 `READY|FAILED`、setup phase 与平台码，并让 report pipe 在 exec 成功时 close-on-exec。
 - [x] 为 child-side `setpgid`、barrier、chdir、三路 `dup2` 和 `execve` 失败回传精确 phase；不得只回传裸 errno。
 - [x] 最后一个继承者 fork 后立即关闭父进程对应的 data/file fd；全部 READY 后、任何 RUN 前断言 parent 不再持有 child-only control/data fd 或 capture writer。
-- [~] 在子进程执行期间并发驱动有界 stdout/stderr capture reader。
-- [ ] 仅在 pipe ownership 和 reader 状态不可能死锁后等待子进程。
+- [x] 在子进程执行期间并发驱动有界 stdout/stderr capture reader。
+- [~] 仅在 pipe ownership 和 reader 状态不可能死锁后等待子进程。
 - [ ] 正常路径在全部直接 child reap 后做有界非阻塞最终 drain，到 EAGAIN/EOF/预算耗尽即关闭 capture 读端，不等待非直接后代；仅 EOF 返回 `complete=true`，其他 cutoff 返回 `complete=false`。
 - [ ] 收集每个 stage 的状态。
 - [ ] `spawn_failed` 写入稳定 `spawn_failure` 类别以及 diagnostic pipe/平台 bridge 返回的原始平台码。
