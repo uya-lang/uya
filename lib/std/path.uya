@@ -572,6 +572,16 @@ fn path_copy_component(source: &const byte, start: usize, end: usize, out: &byte
     return 0;
 }
 
+fn path_program_has_extension(program: &const byte) bool {
+    if program == null { return false; }
+    var i: usize = 0usize;
+    while program[i] != 0 as byte {
+        if program[i] == 46 as byte { return true; }
+        i = i + 1usize;
+    }
+    return false;
+}
+
 /// 使用显式 PATH 值与最终 cwd 查找 bare executable。
 /// 参数：path_value 为 child env 中的 PATH；cwd 解释空/相对 component；program 为已校验命令名；out 接收路径。
 /// 返回：稳定 lookup 分类；成功时 out 为后续 spawn 必须复用的同一路径。
@@ -612,6 +622,36 @@ export fn find_executable(path_value: &const byte, cwd: &const byte, program: &c
                 }
                 saw_unusable = true;
             }
+            std.cfg(std.target_os == .tos_windows, {
+                if !path_program_has_extension(program) {
+                    var program_exe: [byte: 4096] = [];
+                    const program_len: usize = strlen(program);
+                    if program_len + 5usize > 4096usize {
+                        return ExecutableLookupKind.platform_error;
+                    }
+                    var pi: usize = 0usize;
+                    while pi < program_len { program_exe[pi] = program[pi]; pi = pi + 1usize; }
+                    program_exe[program_len] = 46 as byte;
+                    program_exe[program_len + 1usize] = 101 as byte;
+                    program_exe[program_len + 2usize] = 120 as byte;
+                    program_exe[program_len + 3usize] = 101 as byte;
+                    program_exe[program_len + 4usize] = 0 as byte;
+                    if join(&directory[0], &program_exe[0], &candidate[0], 4096usize) != 0 {
+                        return ExecutableLookupKind.platform_error;
+                    }
+                    var exe_info: Stat = Stat{};
+                    if stat(&candidate[0], &exe_info) == 0 {
+                        const exe_is_dir: bool = ((exe_info.st_mode as u32) & 61440u32) == 16384u32;
+                        if !exe_is_dir && access(&candidate[0], X_OK) == 0 {
+                            if path_copy_cstring(&candidate[0], out, out_cap) != 0 {
+                                return ExecutableLookupKind.platform_error;
+                            }
+                            return ExecutableLookupKind.found;
+                        }
+                        saw_unusable = true;
+                    }
+                }
+            })
             if at_end { break; }
             start = pos + 1usize;
         }

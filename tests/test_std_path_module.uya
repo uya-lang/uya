@@ -190,3 +190,28 @@ test "std.path extension ignores dotfiles roots and extensionless names" {
     try assert_eq_i32(extension("C:\\", &buf[0], 64), 0);
     try assert_eq_i32(strcmp(&buf[0], ""), 0);
 }
+
+test "std.path executable lookup rejects missing and empty PATH" {
+    var out: [byte: 4096] = [];
+    try assert_eq_i32(find_executable(null, "/", "sh", &out[0], 4096usize) as i32,
+        ExecutableLookupKind.path_not_found as i32);
+    try assert_eq_i32(find_executable("", "/", "sh", &out[0], 4096usize) as i32,
+        ExecutableLookupKind.path_not_found as i32);
+}
+
+std.cfg(std.target_os != .tos_windows, {
+test "std.path executable lookup resolves empty and relative components" {
+    var out: [byte: 4096] = [];
+    try assert_eq_i32(find_executable(":bin", "/", "sh", &out[0], 4096usize) as i32,
+        ExecutableLookupKind.found as i32);
+    try assert_eq_i32(strcmp(&out[0], "/bin/sh"), 0);
+}
+
+test "std.path executable lookup rejects directories and nonexecutables" {
+    var out: [byte: 4096] = [];
+    try assert_eq_i32(find_executable("/", "/", "tmp", &out[0], 4096usize) as i32,
+        ExecutableLookupKind.permission_denied as i32);
+    try assert_eq_i32(find_executable("/etc", "/", "passwd", &out[0], 4096usize) as i32,
+        ExecutableLookupKind.permission_denied as i32);
+}
+})

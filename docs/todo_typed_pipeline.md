@@ -56,8 +56,8 @@
 - [x] 在 sink 开始时捕获一次 cwd；实现相对 stage cwd 与 stream file path 的统一解析规则。
 - [x] 在语义预检中拒绝 Windows drive-relative command/cwd/file path。
 - [x] 定义并实现 `cmd` 的 PATH 查找使用 stage 最终 child env，且复用 `std.process` / `std.path` helper。
-- [~] 在 pipeline executor 前实现并测试 PATH helper，避免 executor 内私有 PATH 搜索逻辑。
-- [ ] PATH helper 覆盖 PATH 缺失、空/相对 component、POSIX executable non-directory、Windows exact/`.exe` 查找以及 lookup 与 spawn 错误分类。
+- [x] 在 pipeline executor 前实现并测试 PATH helper，避免 executor 内私有 PATH 搜索逻辑。
+- [~] PATH helper 覆盖 PATH 缺失、空/相对 component、POSIX executable non-directory、Windows exact/`.exe` 查找以及 lookup 与 spawn 错误分类。
 - [ ] 添加 `stdin_file`、`stdout_file`、`stderr_file`。
 - [ ] 添加 `stdout_capture`、`stderr_capture`、`stderr_to_stdout`。
 - [ ] 添加 `inherit_stdio` stream transformer。
