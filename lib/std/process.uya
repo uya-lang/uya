@@ -58,6 +58,9 @@ export struct PipelineCaptureResult {
 }
 
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
+extern fn malloc(size: usize) &void;
+extern fn free(ptr: &void) void;
+extern fn memcpy(dest: &void, src: &const void, count: usize) &void;
 
 const PIPELINE_REGISTRY_CAPACITY: usize = 1024usize;
 const PIPELINE_MAX_STAGES: usize = 32usize;
@@ -73,6 +76,8 @@ struct PipelineSlot {
 struct PipelineProcessStage {
     active: i32,
     command_kind: i32,
+    argv: &&byte,
+    argv_count: usize,
 }
 
 var _pipeline_registry_lock: atomic i32 = 0;
@@ -177,7 +182,122 @@ fn pipeline_registry_append_process_stage(input: &Pipeline, command_kind: i32) !
     }
     _pipeline_process_stages[storage_idx].active = 1;
     _pipeline_process_stages[storage_idx].command_kind = command_kind;
+    _pipeline_process_stages[storage_idx].argv = null as &&byte;
+    _pipeline_process_stages[storage_idx].argv_count = 0usize;
     _pipeline_registry[slot_idx].stage_count = stage_idx + 1usize;
+    pipeline_registry_unlock();
+    return;
+}
+
+fn pipeline_owned_c_string(value: &const byte) !&byte {
+    if value == null {
+        return error.InvalidPipeline;
+    }
+    var len: usize = 0usize;
+    while value[len] != 0 as byte {
+        len = len + 1usize;
+    }
+    const raw: &void = malloc(len + 1usize);
+    if raw == null {
+        return error.InvalidPipeline;
+    }
+    const out: &byte = raw as &byte;
+    _ = memcpy(out as &void, value as &const void, len + 1usize);
+    return out;
+}
+
+fn pipeline_c_string_equals(left: &const byte, right: &const byte) i32 {
+    if left == null || right == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while left[i] != 0 as byte && right[i] != 0 as byte {
+        if left[i] != right[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if left[i] != right[i] {
+        return 0;
+    }
+    return 1;
+}
+
+fn pipeline_free_stage_argv(stage: &PipelineProcessStage) void {
+    if stage == null || stage.argv == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < stage.argv_count {
+        if stage.argv[i] != null {
+            free(stage.argv[i] as &void);
+            stage.argv[i] = null as &byte;
+        }
+        i = i + 1usize;
+    }
+    free(stage.argv as &void);
+    stage.argv = null as &&byte;
+    stage.argv_count = 0usize;
+}
+
+fn pipeline_registry_set_last_stage_argv(input: &Pipeline, program: &const byte, args: &&const byte, args_len: usize) !void {
+    const slot_idx: usize = try pipeline_registry_slot_index(input);
+    if slot_idx >= PIPELINE_REGISTRY_CAPACITY {
+        return error.InvalidPipeline;
+    }
+    pipeline_registry_lock();
+    const count: usize = _pipeline_registry[slot_idx].stage_count;
+    if _pipeline_registry[slot_idx].live == 0 ||
+        _pipeline_registry[slot_idx].generation != input.generation || count == 0usize {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
+    const storage_result: !usize = pipeline_stage_storage_index(slot_idx, count - 1usize);
+    const storage_idx: usize = storage_result catch {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    };
+    if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
+    const argv_count: usize = args_len + 1usize;
+    const argv_raw: &void = malloc(argv_count * @size_of(&byte));
+    if argv_raw == null {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
+    const owned_argv: &&byte = argv_raw as &&byte;
+    var initialized: usize = 0usize;
+    const owned_program_result: !&byte = pipeline_owned_c_string(program);
+    const owned_program: &byte = owned_program_result catch {
+        free(argv_raw);
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    };
+    owned_argv[0] = owned_program;
+    initialized = 1usize;
+    var i: usize = 0usize;
+    while i < args_len {
+        const argument: &const byte = args[i];
+        const owned_arg_result: !&byte = pipeline_owned_c_string(argument);
+        const owned_arg: &byte = owned_arg_result catch {
+            var j: usize = 0usize;
+            while j < initialized {
+                free(owned_argv[j] as &void);
+                j = j + 1usize;
+            }
+            free(argv_raw);
+            pipeline_registry_unlock();
+            return error.InvalidPipeline;
+        };
+        owned_argv[i + 1usize] = owned_arg;
+        initialized = initialized + 1usize;
+        i = i + 1usize;
+    }
+    pipeline_free_stage_argv(&_pipeline_process_stages[storage_idx]);
+    _pipeline_process_stages[storage_idx].argv = owned_argv;
+    _pipeline_process_stages[storage_idx].argv_count = argv_count;
     pipeline_registry_unlock();
     return;
 }
@@ -190,6 +310,7 @@ fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
         if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
             return;
         }
+        pipeline_free_stage_argv(&_pipeline_process_stages[storage_idx]);
         _pipeline_process_stages[storage_idx].active = 0;
         _pipeline_process_stages[storage_idx].command_kind = 0;
         i = i + 1usize;
@@ -328,6 +449,19 @@ export fn pipeline_capability_self_test() !void {
     try pipeline_registry_append_process_stage(&first, 1);
     try pipeline_registry_append_process_stage(&first, 2);
     if try pipeline_registry_stage_count(&first) != 2usize {
+        return error.InvalidPipeline;
+    }
+    const argv_input: [&const byte: 2] = ["alpha", "beta"];
+    try pipeline_registry_set_last_stage_argv(&first, "tool", &argv_input[0], 2usize);
+    const first_slot: usize = try pipeline_registry_slot_index(&first);
+    const owned_stage_idx: usize = try pipeline_stage_storage_index(first_slot, 1usize);
+    if owned_stage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY ||
+        _pipeline_process_stages[owned_stage_idx].argv_count != 3usize ||
+        _pipeline_process_stages[owned_stage_idx].argv == null ||
+        _pipeline_process_stages[owned_stage_idx].argv[0] == ("tool" as &byte) ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].argv[0], "tool") == 0 ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].argv[1], "alpha") == 0 ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].argv[2], "beta") == 0 {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {
