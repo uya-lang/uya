@@ -1,0 +1,14 @@
+use std.process;
+use std.testing.assert_eq_u64;
+
+test "pipeline_capability_generation_registry" {
+    try pipeline_capability_self_test();
+}
+
+test "pipeline_stage_count_empty_is_read_only" {
+    const p: Pipeline = pipeline();
+    const before: usize = try stage_count(&p);
+    const after: usize = try stage_count(&p);
+    try assert_eq_u64(before as u64, 0);
+    try assert_eq_u64(after as u64, 0);
+}

@@ -671,6 +671,12 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
             fputs("; " as *byte, stream);
 
+            // sink (!R) 在所有返回路径上消费输入。即使 sink 实现尚未显式释放，
+            // lowering 也使 capability 失效；registry generation 校验让重复释放安全。
+            if payload_is_pipeline == 0 {
+                gen_pipeline_emit_input_cleanup(codegen, pipe_tmp_name);
+            }
+
             fputs("if (" as *byte, stream);
             fputs(err_tmp_name as *byte, stream);
             fputs(".error_id != 0) { " as *byte, stream);

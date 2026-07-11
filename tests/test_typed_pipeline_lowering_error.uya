@@ -15,6 +15,14 @@ fn run_fail() !void {
     _ = r;
 }
 
+fn fail_sink(p: Pipeline) !void {
+    return error.Fail;
+}
+
+fn run_sink_fail() !void {
+    return pipeline() |> fail_sink();
+}
+
 test "pipeline_error_path_cleans_input" {
     reset_pipeline_drop_count();
     _ = run_fail();
@@ -35,5 +43,11 @@ test "pipeline_unconsumed_scope_auto_drop" {
         const p: Pipeline = pipeline();
         _ = pipeline_drop_count();
     }
+    try assert_eq_u64(pipeline_drop_count(), 1);
+}
+
+test "pipeline_sink_failure_consumes_input" {
+    reset_pipeline_drop_count();
+    _ = run_sink_fail();
     try assert_eq_u64(pipeline_drop_count(), 1);
 }
