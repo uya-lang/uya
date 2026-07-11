@@ -80,6 +80,10 @@ struct PipelineProcessStage {
     argv_count: usize,
 }
 
+struct PipelineExecutionStage {
+    exec_path: &byte,
+}
+
 var _pipeline_registry_lock: atomic i32 = 0;
 var _pipeline_registry: [PipelineSlot: 1024] = [];
 var _pipeline_process_stages: [PipelineProcessStage: 32768] = [];
@@ -221,6 +225,18 @@ fn pipeline_c_string_equals(left: &const byte, right: &const byte) i32 {
         return 0;
     }
     return 1;
+}
+
+fn pipeline_execution_stage_init(exec_path: &const byte) !PipelineExecutionStage {
+    return PipelineExecutionStage { exec_path: try pipeline_owned_c_string(exec_path) };
+}
+
+fn pipeline_execution_stage_deinit(stage: &PipelineExecutionStage) void {
+    if stage == null || stage.exec_path == null {
+        return;
+    }
+    free(stage.exec_path as &void);
+    stage.exec_path = null as &byte;
 }
 
 fn pipeline_free_stage_argv(stage: &PipelineProcessStage) void {
@@ -462,6 +478,18 @@ export fn pipeline_capability_self_test() !void {
         pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].argv[0], "tool") == 0 ||
         pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].argv[1], "alpha") == 0 ||
         pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].argv[2], "beta") == 0 {
+        return error.InvalidPipeline;
+    }
+    var execution_stage: PipelineExecutionStage = try pipeline_execution_stage_init("/bin/tool");
+    if execution_stage.exec_path == null ||
+        execution_stage.exec_path == ("/bin/tool" as &byte) ||
+        pipeline_c_string_equals(execution_stage.exec_path, "/bin/tool") == 0 ||
+        _pipeline_process_stages[owned_stage_idx].argv[0] == execution_stage.exec_path {
+        pipeline_execution_stage_deinit(&execution_stage);
+        return error.InvalidPipeline;
+    }
+    pipeline_execution_stage_deinit(&execution_stage);
+    if execution_stage.exec_path != null {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {
