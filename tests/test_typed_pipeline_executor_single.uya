@@ -11,6 +11,9 @@ use std.process.cmd_path_argv;
 use std.process.pipeline;
 use std.process.status_into;
 use std.process.stdout_file;
+use std.process.PipelineCaptureResult;
+use std.process.capture_into;
+use std.process.capture_limit_into;
 use libc.F_OK;
 use libc.access;
 use libc.unlink;
@@ -59,4 +62,37 @@ test "pipeline_stdout_file_is_opened_once_before_spawn" {
     try check(p);
     try assert_eq_i32(access(output_path, F_OK), 0);
     _ = unlink(output_path);
+}
+
+test "pipeline_capture_drains_output_larger_than_pipe_buffer" {
+    const args_values: [&const byte: 3] = ["-c", "100000", "/dev/zero"];
+    const args: &[&const byte] = &args_values[0:3];
+    const p: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/head", args);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    const statuses: &[PipelineStageStatus] = &statuses_storage[0:1];
+    var stdout_storage: [byte: 100000] = [];
+    const stdout_buf: &[byte] = &stdout_storage[0:100000];
+    var stderr_storage: [byte: 1] = [];
+    const stderr_buf: &[byte] = &stderr_storage[0:0];
+    var result: PipelineCaptureResult = PipelineCaptureResult{};
+    try capture_into(p, statuses, stdout_buf, stderr_buf, &result);
+    try assert_eq_i32(result.stdout.byte_count as i32, 100000);
+    try assert_eq_bool(result.stdout.complete, true);
+}
+
+test "pipeline_capture_limit_uses_one_byte_overflow_probe" {
+    const args_values: [&const byte: 3] = ["-c", "11", "/dev/zero"];
+    const args: &[&const byte] = &args_values[0:3];
+    const p: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/head", args);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    const statuses: &[PipelineStageStatus] = &statuses_storage[0:1];
+    var stdout_storage: [byte: 10] = [];
+    const stdout_buf: &[byte] = &stdout_storage[0:10];
+    var stderr_storage: [byte: 1] = [];
+    const stderr_buf: &[byte] = &stderr_storage[0:0];
+    var result: PipelineCaptureResult = PipelineCaptureResult{};
+    const captured: !void = capture_limit_into(p, 10usize, statuses, stdout_buf, stderr_buf, &result);
+    _ = captured catch {};
+    try assert_eq_i32(captured.error_id as i32, @error_id(error.CaptureLimitExceeded) as i32);
+    try assert_eq_i32(result.result.stage_count as i32, 0);
 }

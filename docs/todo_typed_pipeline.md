@@ -61,8 +61,8 @@
 - [x] 添加 `stdin_file`、`stdout_file`、`stderr_file`。
 - [x] 添加 `stdout_capture`、`stderr_capture`、`stderr_to_stdout`。
 - [x] 添加 `inherit_stdio` stream transformer。
-- [~] 添加 `check`、`check_into`、`status_into`、`capture_into` 和 `capture_limit_into`。
-- [ ] 为所有 `*_into` sink 添加 caller writable-region 容量与两两不重叠预检，失败时在外部副作用前返回 `InvalidPipeline` 并清空 result。
+- [x] 添加 `check`、`check_into`、`status_into`、`capture_into` 和 `capture_limit_into`。
+- [~] 为所有 `*_into` sink 添加 caller writable-region 容量与两两不重叠预检，失败时在外部副作用前返回 `InvalidPipeline` 并清空 result。
 - [ ] 添加显式 `clone(input: &Pipeline) !Pipeline`。
 - [ ] `clone` 对包含不可克隆 erased stage 的计划返回 `error.InvalidPipeline`。
 
