@@ -99,6 +99,7 @@ struct PipelineEnvOp {
 
 struct PipelineExecutionStage {
     exec_path: &byte,
+    cwd: &byte,
 }
 
 enum PipelineStdinPolicyKind {
@@ -320,15 +321,36 @@ fn pipeline_command_name_valid(program: &const byte) bool {
 }
 
 fn pipeline_execution_stage_init(exec_path: &const byte) !PipelineExecutionStage {
-    return PipelineExecutionStage { exec_path: try pipeline_owned_c_string(exec_path) };
+    return PipelineExecutionStage { exec_path: try pipeline_owned_c_string(exec_path), cwd: null as &byte };
+}
+
+fn pipeline_execution_stage_from_process(stage: &PipelineProcessStage) !PipelineExecutionStage {
+    if stage == null || stage.active == 0 || stage.argv == null || stage.argv_count == 0usize {
+        return error.InvalidPipeline;
+    }
+    var execution: PipelineExecutionStage = try pipeline_execution_stage_init(stage.argv[0]);
+    if stage.cwd != null {
+        const cwd_result: !&byte = pipeline_owned_c_string(stage.cwd);
+        execution.cwd = cwd_result catch {
+            pipeline_execution_stage_deinit(&execution);
+            return error.InvalidPipeline;
+        };
+    }
+    return execution;
 }
 
 fn pipeline_execution_stage_deinit(stage: &PipelineExecutionStage) void {
-    if stage == null || stage.exec_path == null {
+    if stage == null {
         return;
     }
-    free(stage.exec_path as &void);
-    stage.exec_path = null as &byte;
+    if stage.exec_path != null {
+        free(stage.exec_path as &void);
+        stage.exec_path = null as &byte;
+    }
+    if stage.cwd != null {
+        free(stage.cwd as &void);
+        stage.cwd = null as &byte;
+    }
 }
 
 fn pipeline_free_stage_argv(stage: &PipelineProcessStage) void {
@@ -823,6 +845,17 @@ export fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]
     return input;
 }
 
+/// 为最近追加的 process stage 设置最终工作目录。
+/// 参数：input 为按值消费的 pipeline；path 在 sink 开始时相对 canonical cwd 解释。
+/// 返回：成功时返回修改后的 pipeline；没有最近 process stage 时返回 InvalidPipeline。
+export fn cwd(input: Pipeline, path: &const byte) !Pipeline {
+    if path == null || path[0] == 0 as byte {
+        return error.InvalidPipeline;
+    }
+    try pipeline_registry_set_last_stage_cwd(&input, path);
+    return input;
+}
+
 /// 返回计划中的完整可执行 stage 数量，不消费或执行计划。
 export fn stage_count(input: &Pipeline) !usize {
     return pipeline_registry_stage_count(input);
@@ -882,6 +915,14 @@ export fn pipeline_capability_self_test() !void {
         pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].cwd, "build/work") == 0 {
         return error.InvalidPipeline;
     }
+    var planned_execution: PipelineExecutionStage = try pipeline_execution_stage_from_process(
+        &_pipeline_process_stages[owned_stage_idx]);
+    if pipeline_c_string_equals(planned_execution.exec_path, "tool") == 0 ||
+        pipeline_c_string_equals(planned_execution.cwd, "build/work") == 0 {
+        pipeline_execution_stage_deinit(&planned_execution);
+        return error.InvalidPipeline;
+    }
+    pipeline_execution_stage_deinit(&planned_execution);
     try pipeline_registry_append_last_stage_env(&first, "MODE", "debug", 0);
     try pipeline_registry_append_last_stage_env(&first, "OLD_MODE", null, 1);
     if _pipeline_process_stages[owned_stage_idx].env_op_count != 2usize ||
