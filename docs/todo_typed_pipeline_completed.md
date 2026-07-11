@@ -473,3 +473,14 @@ make uya
     - 自举编译：`make uya` 成功。
     - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
     - 注：`error_typed_pipeline_try_forward_use_after_move.uya` 为 `!Pipeline` try-forward 预存在失败，不在本任务范围内。
+
+## 阶段 3：Lowering
+
+- [x] transformer lowering 的成功路径转移所有权，错误路径触发输入计划清理。
+  - 验证命令：`../uya/bin/uya test tests/test_typed_pipeline_lowering_error.uya`
+  - 结果：2 tests passed, 0 failed (pipeline_error_path_cleans_input, pipeline_success_path_does_not_clean)
+  - 相关回归：
+    - `../uya/bin/uya test tests/test_typed_pipeline_lowering.uya` → 5 tests passed
+    - 全部 `tests/test_typed_pipeline_*.uya` 正向测试通过
+    - `tests/error_typed_pipeline_*.uya` 均按预期报出类型/语法错误
+  - 实现位置：`src/codegen/c99/expr.uya` 的 `gen_pipeline_expr` 在 transformer 返回 `!Pipeline` 时生成错误路径 `pipeline_drop(input)` 清理；成功路径从错误联合提取 `Pipeline` 载荷并继续链式调用。

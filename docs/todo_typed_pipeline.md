@@ -15,7 +15,6 @@
 
 ## 阶段 3：Lowering
 
-- [ ] transformer lowering 的成功路径转移所有权，错误路径触发输入计划清理。
 - [ ] 以和普通 `try` 一致的方式降低 `!Pipeline` try-forward。
 - [ ] `!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。
 - [ ] 确保诊断源位置指向有用 span。

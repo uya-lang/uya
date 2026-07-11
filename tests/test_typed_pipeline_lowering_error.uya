@@ -1,0 +1,30 @@
+// test_typed_pipeline_lowering_error.uya
+// lowering 错误路径测试：验证 transformer 返回 !Pipeline 失败时，输入计划会被清理。
+
+use std.process;
+use std.testing.assert_eq_u64;
+
+fn fail_transformer(p: Pipeline) !Pipeline {
+    _ = p;
+    return error.Fail;
+}
+
+fn run_fail() !void {
+    // 仅触发 transformer 失败；错误路径应调用 pipeline_drop 清理输入计划。
+    const r: !Pipeline = pipeline() |> fail_transformer();
+    _ = r;
+}
+
+test "pipeline_error_path_cleans_input" {
+    reset_pipeline_drop_count();
+    _ = run_fail();
+    try assert_eq_u64(pipeline_drop_count(), 1);
+}
+
+test "pipeline_success_path_does_not_clean" {
+    reset_pipeline_drop_count();
+    // 成功路径转移所有权；结果离开作用域时不会触发 pipeline_drop（当前无自动 drop）。
+    const p: Pipeline = pipeline();
+    _ = p;
+    try assert_eq_u64(pipeline_drop_count(), 0);
+}

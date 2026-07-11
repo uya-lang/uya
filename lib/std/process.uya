@@ -11,6 +11,28 @@ export struct Pipeline {
     generation: usize,
 }
 
+// 以下 interim 测试/清理钩子将在真正 opaque/non-copyable 类型与自动 drop 支持
+// 落地后移除或替换为规范的 drop 语义。当前仅用于验证 lowering 错误路径会
+// 触发输入计划清理。
+var _pipeline_drop_count: u64 = 0;
+
+/// 返回 pipeline_drop 被调用的次数（interim 测试钩子）。
+export fn pipeline_drop_count() u64 {
+    return _pipeline_drop_count;
+}
+
+/// 重置 pipeline_drop 计数器（interim 测试钩子）。
+export fn reset_pipeline_drop_count() void {
+    _pipeline_drop_count = 0;
+}
+
+/// 显式释放输入 pipeline 计划（interim 清理钩子）。
+/// 真正的自动 drop 支持落地后， lowering 应改调用 Pipeline.drop 而不是此函数。
+export fn pipeline_drop(input: Pipeline) void {
+    _pipeline_drop_count = _pipeline_drop_count + 1;
+    _ = input;
+}
+
 /// 创建一个空的 pipeline 计划。
 export fn pipeline() Pipeline {
     return Pipeline { handle: 0, generation: 0 };

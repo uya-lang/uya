@@ -415,16 +415,61 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
     fprintf(codegen.emit_stream as *void, "%s[_off_%d] = '\\0';\n" as *byte, buf_name as *byte, fill_id);
 }
 
+// 查找 std.process.pipeline_drop 的 C 函数名；未找到时返回 null。
+fn gen_pipeline_find_cleanup_callee(codegen: &C99CodeGenerator) &byte {
+    if codegen == null {
+        return null;
+    }
+    const decl: &ASTNode = c99_find_module_export_function_decl(codegen, "std.process" as *byte, "pipeline_drop" as *byte);
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    return get_c_name_for_function_decl(codegen, decl);
+}
+
+// 在 pipeline lowering 的错误路径上触发输入计划清理。
+fn gen_pipeline_emit_input_cleanup(codegen: &C99CodeGenerator, pipe_tmp_name: &byte) void {
+    if codegen == null || pipe_tmp_name == null {
+        return;
+    }
+    const callee: &byte = gen_pipeline_find_cleanup_callee(codegen);
+    if callee == null {
+        return;
+    }
+    fprintf(codegen.emit_stream as *void, "%s(%s); " as *byte, callee as *byte, pipe_tmp_name as *byte);
+}
+
+// 判断 inferred_type 是否为错误联合类型。
+fn gen_pipeline_type_is_error_union(inferred_type: &Type) i32 {
+    if inferred_type == null {
+        return 0;
+    }
+    return (inferred_type[0].kind == TypeKind.TYPE_ERROR_UNION && inferred_type[0].error_union_payload_type != null) as i32;
+}
+
+// 判断 inferred_type 是否为基础 Pipeline 类型（不是 !Pipeline）。
+fn gen_pipeline_type_is_plain_pipeline(codegen: &C99CodeGenerator, inferred_type: &Type, pipe_type_c: &byte) i32 {
+    if codegen == null || inferred_type == null || pipe_type_c == null {
+        return 0;
+    }
+    if inferred_type[0].kind != TypeKind.TYPE_STRUCT {
+        return 0;
+    }
+    const inferred_c: &byte = c99_type_to_c_from_inferred_type(codegen, inferred_type[0], 0, 0, null);
+    if inferred_c == null {
+        return 0;
+    }
+    return (strcmp(inferred_c as *byte, pipe_type_c as *byte) == 0) as i32;
+}
+
 // 将管道表达式 `lhs |> f(args...)` 降低为普通调用和临时变量。
-// 对链式 pipeline 生成扁平的 C99 语句表达式，并复用同一个 Pipeline 临时变量：
-//   ({ TYPE __uya_pipe_tmp_N = (lhs);
-//      __uya_pipe_tmp_N = f1(__uya_pipe_tmp_N, ...);
-//      __uya_pipe_tmp_N = f2(__uya_pipe_tmp_N, ...);
-//      ...
-//      sink(__uya_pipe_tmp_N, ...); })
-// 复用单一临时变量可在 C99 层面更接近 move-only 语义：每个 transformer 消费并覆盖
-// 同一份 Pipeline 存储，避免在语句表达式中遗留多个持有已消费 capability 的副本。
-// 仅处理左侧为普通 Pipeline 的场景；!Pipeline 的 try-forward 留在后续任务。
+// 对链式 pipeline 生成扁平的 C99 语句表达式，并复用同一个 Pipeline 临时变量。
+// 当前实现覆盖：
+//   - 左侧为普通 Pipeline 的链；
+//   - transformer 返回 !Pipeline 时，成功路径提取 Pipeline 载荷并转移所有权，
+//     错误路径调用 std.process.pipeline_drop 清理输入计划；
+//   - 后续 stage 消费该 !Pipeline 结果（try-forward）时，从错误联合中提取载荷。
+// !Pipeline 作为整条链最左侧的 try-forward 留在后续任务。
 fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if codegen == null || expr == null || expr.type != ASTNodeType.AST_PIPELINE_EXPR {
         return;
@@ -476,12 +521,20 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if pipe_type_c == null {
         const leftmost_type: Type = checker_infer_type_bypass_moved(codegen.checker, leftmost);
         if leftmost_type.kind != TypeKind.TYPE_STRUCT {
+            // 左侧为 !Pipeline 等错误联合时，当前 lowering 尚不处理最外层 try-forward；
+            // 保持原行为，避免生成错误代码。
             fputs("0; })" as *byte, stream);
             return;
         }
         pipe_type_c = c99_type_to_c_from_inferred_type(codegen, leftmost_type, expr.line, expr.column, expr.filename);
     }
     if pipe_type_c == null {
+        fputs("0; })" as *byte, stream);
+        return;
+    }
+    // 校验左侧确实是普通 Pipeline，而非 !Pipeline 错误联合；后者属于 try-forward 后续任务。
+    // 这里用 C 类型名前缀判断最可靠：声明类型为 !Pipeline 的标识符会直接得到 err_union 前缀。
+    if strncmp(pipe_type_c as *byte, "struct err_union_" as *byte, 17) == 0 {
         fputs("0; })" as *byte, stream);
         return;
     }
@@ -498,32 +551,172 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     gen_expr(codegen, leftmost);
     fputs("; " as *byte, stream);
 
-    // 3. 生成中间 transformer 调用：用返回值覆盖同一个临时变量，保持单一 Pipeline 所有者。
+    // 3. 推断整条链的最终结果类型，并分配结果变量。
+    var result_is_err_union: i32 = 0;
+    var result_type_c: &byte = null;
+    {
+        const last_call_node: &ASTNode = calls[chain_len - 1];
+        const last_ret_type: Type = checker_infer_type_bypass_moved(codegen.checker, last_call_node);
+        var saw_err_union_pipeline: i32 = 0;
+        var si: i32 = 0;
+        while si < chain_len {
+            const rt: Type = checker_infer_type_bypass_moved(codegen.checker, calls[si]);
+            if gen_pipeline_type_is_error_union(&rt) != 0 {
+                const payload_type: &Type = rt.error_union_payload_type;
+                if payload_type != null && gen_pipeline_type_is_plain_pipeline(codegen, payload_type, pipe_type_c) != 0 {
+                    saw_err_union_pipeline = 1;
+                }
+            }
+            si = si + 1;
+        }
+        if gen_pipeline_type_is_error_union(&last_ret_type) != 0 {
+            result_is_err_union = 1;
+            result_type_c = c99_type_to_c_from_inferred_type(codegen, copy_type(&last_ret_type), expr.line, expr.column, expr.filename);
+        } else if saw_err_union_pipeline != 0 {
+            result_is_err_union = 1;
+            const result_type: &Type = compiler_arena_alloc(codegen.arena, @size_of(Type)) as &Type;
+            if result_type != null {
+                result_type[0].kind = TypeKind.TYPE_ERROR_UNION;
+                const payload_ptr: &Type = compiler_arena_alloc(codegen.arena, @size_of(Type)) as &Type;
+                if payload_ptr != null {
+                    payload_ptr[0] = last_ret_type;
+                    result_type[0].error_union_payload_type = payload_ptr;
+                }
+                result_type_c = c99_type_to_c_from_inferred_type(codegen, result_type[0], expr.line, expr.column, expr.filename);
+            }
+        } else {
+            result_is_err_union = 0;
+            result_type_c = c99_type_to_c_from_inferred_type(codegen, copy_type(&last_ret_type), expr.line, expr.column, expr.filename);
+        }
+    }
+    if result_type_c == null {
+        fputs("0; })" as *byte, stream);
+        return;
+    }
+    _ = snprintf(&tmp_buf[0] as *byte, 64, "__uya_pipe_res_%d" as *byte, base_temp_id);
+    const res_name: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
+    _ = snprintf(&tmp_buf[0] as *byte, 64, "__uya_pipe_end_%d" as *byte, base_temp_id);
+    const end_label: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
+    if res_name == null || end_label == null {
+        fputs("0; })" as *byte, stream);
+        return;
+    }
+    fputs(result_type_c as *byte, stream);
+    fputc(32, stream);
+    fputs(res_name as *byte, stream);
+    fputs("; " as *byte, stream);
+
+    // 4. 逐阶段生成调用。
     var stage_i: i32 = 0;
-    while stage_i < chain_len - 1 {
+    var result_set: i32 = 0;
+    while stage_i < chain_len {
         const call_node: &ASTNode = calls[stage_i];
         if call_node == null || call_node.type != ASTNodeType.AST_CALL_EXPR {
             fputs("0; })" as *byte, stream);
             return;
         }
+        const ret_type: Type = checker_infer_type_bypass_moved(codegen.checker, call_node);
 
-        fputs(pipe_tmp_name as *byte, stream);
-        fputs(" = " as *byte, stream);
-        gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
-        fputs("; " as *byte, stream);
+        if gen_pipeline_type_is_error_union(&ret_type) != 0 {
+            // stage 返回错误联合：可能是 transformer (!Pipeline) 或 sink (!R)。
+            const err_union_c: &byte = c99_type_to_c_from_inferred_type(codegen, copy_type(&ret_type), expr.line, expr.column, expr.filename);
+            const payload_type: &Type = ret_type.error_union_payload_type;
+            const payload_is_pipeline: i32 = if payload_type != null && gen_pipeline_type_is_plain_pipeline(codegen, payload_type, pipe_type_c) != 0 { 1 } else { 0 };
+            var err_buf: [byte: 64] = [];
+            _ = snprintf(&err_buf[0] as *byte, 64, "__uya_pipe_err_%d_%d" as *byte, base_temp_id, stage_i);
+            const err_tmp_name: &byte = c99_arena_strdup(codegen.arena, &err_buf[0] as &byte);
+            if err_tmp_name == null || err_union_c == null {
+                fputs("0; })" as *byte, stream);
+                return;
+            }
+            fputs(err_union_c as *byte, stream);
+            fputc(32, stream);
+            fputs(err_tmp_name as *byte, stream);
+            fputs(" = " as *byte, stream);
+            gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
+            fputs("; " as *byte, stream);
+
+            fputs("if (" as *byte, stream);
+            fputs(err_tmp_name as *byte, stream);
+            fputs(".error_id != 0) { " as *byte, stream);
+            if payload_is_pipeline != 0 {
+                // transformer 错误路径：清理输入计划，再传播错误。
+                gen_pipeline_emit_input_cleanup(codegen, pipe_tmp_name);
+            }
+            fputs(res_name as *byte, stream);
+            fputs(" = (" as *byte, stream);
+            fputs(result_type_c as *byte, stream);
+            fputs("){ .error_id = " as *byte, stream);
+            fputs(err_tmp_name as *byte, stream);
+            fputs(".error_id }; goto " as *byte, stream);
+            fputs(end_label as *byte, stream);
+            fputs("; } " as *byte, stream);
+
+            if payload_is_pipeline != 0 {
+                // 成功路径：提取 Pipeline 载荷并继续链式调用。
+                fputs(pipe_tmp_name as *byte, stream);
+                fputs(" = " as *byte, stream);
+                fputs(err_tmp_name as *byte, stream);
+                fputs(".value; " as *byte, stream);
+            } else {
+                // sink 返回 !R：最终结果即该错误联合。
+                fputs(res_name as *byte, stream);
+                fputs(" = " as *byte, stream);
+                fputs(err_tmp_name as *byte, stream);
+                fputs("; " as *byte, stream);
+                result_set = 1;
+            }
+        } else if gen_pipeline_type_is_plain_pipeline(codegen, &ret_type, pipe_type_c) != 0 {
+            // transformer 返回普通 Pipeline：覆盖同一份临时变量。
+            fputs(pipe_tmp_name as *byte, stream);
+            fputs(" = " as *byte, stream);
+            gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
+            fputs("; " as *byte, stream);
+        } else {
+            // sink 返回非 Pipeline 的 R（或 void）。
+            fputs(res_name as *byte, stream);
+            fputs(" = " as *byte, stream);
+            if result_is_err_union != 0 {
+                // 前面出现过 !Pipeline transformer，最终结果需包装为 !R。
+                fputs("(" as *byte, stream);
+                fputs(result_type_c as *byte, stream);
+                fputs("){ .error_id = 0" as *byte, stream);
+                const ret_c: &byte = c99_type_to_c_from_inferred_type(codegen, copy_type(&ret_type), expr.line, expr.column, expr.filename);
+                if ret_c == null || strcmp(ret_c as *byte, "void" as *byte) != 0 {
+                    fputs(", .value = " as *byte, stream);
+                    gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
+                }
+                fputs(" }; " as *byte, stream);
+            } else {
+                gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
+                fputs("; " as *byte, stream);
+            }
+            result_set = 1;
+        }
 
         stage_i = stage_i + 1;
     }
 
-    // 4. 生成最终调用：last_call(__uya_pipe_tmp_N, args...)。
-    // 最终调用可能是 sink（返回非 Pipeline）或 transformer（返回 Pipeline），
-    // 其返回值直接作为整个语句表达式的结果。
-    const last_call: &ASTNode = calls[chain_len - 1];
-    if last_call == null || last_call.type != ASTNodeType.AST_CALL_EXPR {
-        fputs("0; })" as *byte, stream);
-        return;
+    // 5. 若最终结果尚未设置（整条链以返回 Pipeline 的 transformer 结尾），从临时变量构造结果。
+    if result_set == 0 {
+        fputs(res_name as *byte, stream);
+        fputs(" = " as *byte, stream);
+        if result_is_err_union != 0 {
+            fputs("(" as *byte, stream);
+            fputs(result_type_c as *byte, stream);
+            fputs("){ .error_id = 0, .value = " as *byte, stream);
+            fputs(pipe_tmp_name as *byte, stream);
+            fputs(" }; " as *byte, stream);
+        } else {
+            fputs(pipe_tmp_name as *byte, stream);
+            fputs("; " as *byte, stream);
+        }
     }
-    gen_pipeline_synthetic_call(codegen, last_call, pipe_tmp_name);
+
+    // 6. 语句表达式出口标签与结果。
+    fputs(end_label as *byte, stream);
+    fputs(": " as *byte, stream);
+    fputs(res_name as *byte, stream);
     fputs("; })" as *byte, stream);
 }
 
