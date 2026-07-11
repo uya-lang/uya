@@ -220,3 +220,17 @@ test "pipeline_capture_does_not_wait_for_descendant_writer_eof" {
     try assert_eq_i32(result.stdout.byte_count as i32, 4);
     try assert_eq_bool(result.stdout.complete, false);
 }
+
+test "pipeline_checked_sink_uses_all_stage_pipefail" {
+    const no_args_values: [&const byte: 1] = [""];
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/false", &no_args_values[0:0]);
+    const full: Pipeline = try cmd_path_argv(first, "/bin/true", &no_args_values[0:0]);
+    var statuses_storage: [PipelineStageStatus: 2] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(full, &statuses_storage[0:2], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.ProcessFailed) as i32);
+    try assert_eq_i32(result.stage_count as i32, 2);
+    try assert_eq_i32(statuses_storage[0].exit_code as i32, 1);
+    try assert_eq_i32(statuses_storage[1].exit_code as i32, 0);
+}
