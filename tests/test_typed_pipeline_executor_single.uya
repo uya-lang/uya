@@ -288,3 +288,32 @@ test "pipeline_capture_partial_startup_cancel_is_incomplete_without_observed_eof
     try assert_eq_bool(result.stdout.complete, false);
     try assert_eq_i32(statuses_storage[1].kind as i32, PipelineStageStatusKind.spawn_failed as i32);
 }
+
+test "pipeline_capture_probe_distinguishes_zero_exact_and_overflow" {
+    const empty_values: [&const byte: 1] = [""];
+    const exact_values: [&const byte: 1] = ["abcd"];
+    const overflow_values: [&const byte: 1] = ["abcde"];
+    var empty_statuses: [PipelineStageStatus: 1] = [];
+    var empty_stdout: [byte: 1] = [];
+    var empty_stderr: [byte: 1] = [];
+    var empty_result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_limit_into(try cmd_path_argv(pipeline(), "/bin/true", &empty_values[0:0]),
+        0usize, &empty_statuses[0:1], &empty_stdout[0:0], &empty_stderr[0:0], &empty_result);
+    try assert_eq_bool(empty_result.stdout.complete, true);
+    var exact_statuses: [PipelineStageStatus: 1] = [];
+    var exact_stdout: [byte: 4] = [];
+    var exact_result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_limit_into(try cmd_path_argv(pipeline(), "/usr/bin/printf", &exact_values[0:1]),
+        4usize, &exact_statuses[0:1], &exact_stdout[0:4], &empty_stderr[0:0], &exact_result);
+    try assert_eq_i32(exact_result.stdout.byte_count as i32, 4);
+    try assert_eq_bool(exact_result.stdout.complete, true);
+    var overflow_statuses: [PipelineStageStatus: 1] = [];
+    var overflow_stdout: [byte: 4] = [];
+    var overflow_result: PipelineCaptureResult = PipelineCaptureResult {};
+    const overflowed: !void = capture_limit_into(
+        try cmd_path_argv(pipeline(), "/usr/bin/printf", &overflow_values[0:1]),
+        4usize, &overflow_statuses[0:1], &overflow_stdout[0:4], &empty_stderr[0:0], &overflow_result);
+    _ = overflowed catch {};
+    try assert_eq_i32(overflowed.error_id as i32, @error_id(error.CaptureLimitExceeded) as i32);
+    try assert_eq_i32(overflow_result.result.stage_count as i32, 0);
+}
