@@ -56,6 +56,14 @@ use libc.EPIPE;
 use libc.sys_write;
 use libc.sys_fstat;
 use libc.SIGTTOU;
+use libc.SIGINT;
+use libc.SIGQUIT;
+use libc.SIGTERM;
+use libc.SIGHUP;
+use libc.SIG_IGN;
+use libc.SIG_ERR;
+use libc.O_NONBLOCK;
+use libc.WNOHANG;
 
 extern fn setpgid(pid: i32, pgid: i32) i32;
 extern fn sigwait(set: &const sigset_t, signal: &i32) i32;
@@ -65,12 +73,15 @@ extern fn tcgetpgrp(fd: i32) i32;
 extern fn tcsetpgrp(fd: i32, pgid: i32) i32;
 extern fn getpgrp() i32;
 extern fn sched_yield() i32;
+extern fn getpgid(pid: i32) i32;
+extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
 
 export error InvalidPipeline;
 export error ProcessFailed;
 export error PipelineSpawnFailed;
 export error PipelineIoError;
 export error CaptureLimitExceeded;
+export error Interrupted;
 
 /// Pipeline stage 的稳定执行状态类别。
 export enum PipelineStageStatusKind {
@@ -127,6 +138,9 @@ export struct PipelineCaptureResult {
 }
 
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
+extern "libc" fn __atomic_exchange_n(ptr: &i32, value: i32, memory_order: i32) i32;
+extern "libc" fn __atomic_add_fetch(ptr: &i32, value: i32, memory_order: i32) i32;
+extern "libc" fn __atomic_load_n(ptr: &i32, memory_order: i32) i32;
 extern fn malloc(size: usize) &void;
 extern fn free(ptr: &void) void;
 extern fn memcpy(dest: &void, src: &const void, count: usize) &void;
@@ -223,6 +237,14 @@ struct PipelineTerminalLease {
     inode: i64,
 }
 
+struct PipelineSigaction {
+    handler: &void,
+    mask_words: [u64: 16],
+    flags: i32,
+    padding: i32,
+    restorer: &void,
+}
+
 struct PipelineEnvAllocator : IAllocator {
     inner: &MallocAllocator,
 
@@ -246,6 +268,55 @@ var _pipeline_stream_policies: [PipelineStreamPolicy: 1024] = [];
 var _pipeline_broker_lock: atomic i32 = 0;
 var _pipeline_broker_subscribers: usize = 0usize;
 var _pipeline_terminal_leases: [PipelineTerminalLease: 16] = [];
+var _pipeline_broker_pipe: [i32: 2] = [0 - 1, 0 - 1];
+var _pipeline_broker_pending_signal: atomic i32 = 0;
+var _pipeline_broker_signal_epoch: atomic i32 = 0;
+var _pipeline_broker_installed: i32 = 0;
+
+extern fn pipeline_broker_signal_handler(signum: i32) void {
+    _pipeline_broker_pending_signal = signum;
+    _ = __atomic_add_fetch((&_pipeline_broker_signal_epoch) as &i32, 1, PIPELINE_ATOMIC_SEQ_CST);
+}
+
+fn pipeline_broker_install_handler(signum: i32) !void {
+    var action: PipelineSigaction = PipelineSigaction {};
+    var previous: PipelineSigaction = PipelineSigaction {};
+    action.handler = &pipeline_broker_signal_handler as &void;
+    if sigaction(signum, &action, &previous) != 0 { return error.PipelineIoError; }
+    if previous.handler == SIG_IGN as &void {
+        action.handler = SIG_IGN as &void;
+        if sigaction(signum, &action, null as &PipelineSigaction) != 0 { return error.PipelineIoError; }
+    }
+}
+
+fn pipeline_broker_install() !void {
+    if _pipeline_broker_installed != 0 { return; }
+    const created: !i32 = sys_pipe2(&_pipeline_broker_pipe[0], O_CLOEXEC | O_NONBLOCK);
+    _ = created catch { return error.PipelineIoError; };
+    try pipeline_pipe_above_stdio(&_pipeline_broker_pipe[0]);
+    try pipeline_broker_install_handler(SIGINT);
+    try pipeline_broker_install_handler(SIGQUIT);
+    try pipeline_broker_install_handler(SIGTERM);
+    try pipeline_broker_install_handler(SIGHUP);
+    _pipeline_broker_installed = 1;
+}
+
+fn pipeline_broker_take_signal(observed_epoch: &i32) i32 {
+    if observed_epoch == null { return 0; }
+    const epoch: i32 = __atomic_load_n((&_pipeline_broker_signal_epoch) as &i32, PIPELINE_ATOMIC_SEQ_CST);
+    if epoch == observed_epoch[0] { return 0; }
+    observed_epoch[0] = epoch;
+    const pending: i32 = __atomic_load_n((&_pipeline_broker_pending_signal) as &i32, PIPELINE_ATOMIC_SEQ_CST);
+    if _pipeline_broker_pipe[0] >= 0 {
+        var scratch: [byte: 32] = [];
+        while true {
+            const drained: !isize = sys_read(_pipeline_broker_pipe[0], &scratch[0], 32usize);
+            const count: isize = drained catch { break; };
+            if count <= 0isize || count < 32isize { break; }
+        }
+    }
+    return pending;
+}
 
 fn pipeline_broker_lock() void {
     while true {
@@ -258,8 +329,12 @@ fn pipeline_broker_lock() void {
 
 fn pipeline_broker_unlock() void { _pipeline_broker_lock = 0; }
 
-fn pipeline_broker_subscribe() void {
+fn pipeline_broker_subscribe() !void {
     pipeline_broker_lock();
+    if _pipeline_broker_subscribers == 0usize {
+        const installed: !void = pipeline_broker_install();
+        _ = installed catch { pipeline_broker_unlock(); return error.PipelineIoError; };
+    }
     _pipeline_broker_subscribers = _pipeline_broker_subscribers + 1usize;
     pipeline_broker_unlock();
 }
@@ -1243,6 +1318,31 @@ fn pipeline_cancel_started_group(pgid: i32, pids: &i32, count: usize) void {
     pipeline_cancel_pids(pids, count);
 }
 
+fn pipeline_interrupt_started_group(pgid: i32, pids: &i32, count: usize, signum: i32) void {
+    if pgid > 0 { _ = kill(0 - pgid, signum); }
+    var i: usize = 0usize;
+    while i < count {
+        if pids[i] > 0 {
+            const current_group: i32 = getpgid(pids[i]);
+            if current_group != pgid { _ = kill(pids[i], signum); }
+        }
+        i = i + 1usize;
+    }
+    if _pipeline_broker_pipe[0] >= 0 {
+        var wait_fd: PollFd = PollFd { fd: _pipeline_broker_pipe[0], events: POLLIN, revents: 0 };
+        const waited: !i32 = sys_poll(&wait_fd, 1usize, 100);
+        _ = waited catch {};
+    }
+    pipeline_cancel_started_group(pgid, pids, count);
+}
+
+fn pipeline_take_and_handle_interrupt(pgid: i32, pids: &i32, count: usize, observed_epoch: &i32) bool {
+    const signum: i32 = pipeline_broker_take_signal(observed_epoch);
+    if signum == 0 { return false; }
+    pipeline_interrupt_started_group(pgid, pids, count, signum);
+    return true;
+}
+
 fn pipeline_abort_launches(launch_fds: &i32, report_fds: &i32, count: usize) void {
     var i: usize = 0usize;
     while i < count {
@@ -1419,6 +1519,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var foreground_handed_off: bool = false;
     var broker_registered: bool = false;
     var terminal_lease: usize = 16usize;
+    var broker_signal_epoch: i32 = 0;
     defer {
         if foreground_handed_off && foreground_fd >= 0 && saved_foreground_pgid > 0 {
             const restored: !void = pipeline_tcsetpgrp(foreground_fd, saved_foreground_pgid);
@@ -1441,8 +1542,10 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         prepared_count = prepared_count + 1usize;
         i = i + 1usize;
     }
-    pipeline_broker_subscribe();
+    try pipeline_broker_subscribe();
     broker_registered = true;
+    broker_signal_epoch = __atomic_load_n((&_pipeline_broker_signal_epoch) as &i32,
+        PIPELINE_ATOMIC_SEQ_CST);
     const policy: &PipelineStreamPolicy = &_pipeline_stream_policies[slot_idx];
     if policy.stdin_kind == PipelineStdinPolicyKind.inherit &&
         policy.stdout_kind == PipelineStdoutPolicyKind.inherit &&
@@ -1701,6 +1804,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         var stdout_open: bool = stdout_capture_fds[0] >= 0;
         var stderr_open: bool = stderr_capture_fds[0] >= 0;
         while stdout_open || stderr_open {
+            if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
+                if stdout_open { _ = close(stdout_capture_fds[0]); }
+                if stderr_open { _ = close(stderr_capture_fds[0]); }
+                return error.Interrupted;
+            }
             var poll_fds: [PollFd: 2] = [];
             var poll_count: usize = 0usize;
             if stdout_open {
@@ -1718,6 +1826,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                 if stderr_open { _ = close(stderr_capture_fds[0]); }
                 return error.PipelineIoError;
             };
+            if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
+                if stdout_open { _ = close(stdout_capture_fds[0]); }
+                if stderr_open { _ = close(stderr_capture_fds[0]); }
+                return error.Interrupted;
+            }
             var poll_idx: usize = 0usize;
             if stdout_open {
                 if poll_fds[poll_idx].revents != 0 {
@@ -1756,7 +1869,21 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     i = 0usize;
     while i < count {
         var raw_status: i32 = 0;
-        if waitpid(pids[i], &raw_status, 0) != pids[i] {
+        var waited_pid: i32 = 0;
+        while waited_pid == 0 {
+            waited_pid = waitpid(pids[i], &raw_status, WNOHANG);
+            if waited_pid == 0 {
+                if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
+                    return error.Interrupted;
+                }
+                if _pipeline_broker_pipe[0] >= 0 {
+                    var wait_fd: PollFd = PollFd { fd: _pipeline_broker_pipe[0], events: POLLIN, revents: 0 };
+                    const paused: !i32 = sys_poll(&wait_fd, 1usize, 20);
+                    _ = paused catch {};
+                }
+            }
+        }
+        if waited_pid != pids[i] {
             statuses[i].kind = PipelineStageStatusKind.cancelled;
             saw_failure = true;
         } else {
@@ -1901,7 +2028,7 @@ export fn pipeline_broker_lifecycle_self_test() !void {
     var fds: [i32: 2] = [];
     const created: !i32 = sys_pipe2(&fds[0], O_CLOEXEC);
     _ = created catch { return error.PipelineIoError; };
-    pipeline_broker_subscribe();
+    try pipeline_broker_subscribe();
     const lease_result: !usize = pipeline_terminal_lease_acquire(fds[0]);
     const lease: usize = lease_result catch {
         pipeline_broker_unsubscribe();
