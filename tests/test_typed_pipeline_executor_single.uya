@@ -26,6 +26,8 @@ use std.process.capture_limit_into;
 use libc.F_OK;
 use libc.access;
 use libc.unlink;
+use libc.chdir;
+use libc.getcwd;
 
 test "pipeline_single_exact_path_check_executes" {
     const values: [&const byte: 1] = [""];
@@ -409,4 +411,25 @@ test "pipeline_relative_cmd_path_resolves_after_stage_cwd" {
     const command: Pipeline = try cwd(
         try cmd_path_argv(pipeline(), "true", &no_args_values[0:0]), "/bin");
     try check(command);
+}
+
+test "pipeline_relative_cwd_and_file_path_share_sink_snapshot" {
+    const output_path: &const byte = "/tmp/uya_typed_pipeline_sink_snapshot.txt";
+    _ = unlink(output_path);
+    var original_cwd: [byte: 4096] = [];
+    if getcwd(&original_cwd[0], 4096usize) == null { return error.InvalidPipeline; }
+    const args_values: [&const byte: 1] = ["snapshot"];
+    const command: Pipeline = try stdout_file(
+        try cwd(try cmd_path_argv(pipeline(), "/bin/echo", &args_values[0:1]), "."),
+        "uya_typed_pipeline_sink_snapshot.txt");
+    if chdir("/tmp") != 0 { return error.InvalidPipeline; }
+    const executed: !void = check(command);
+    const restored: i32 = chdir(&original_cwd[0]);
+    _ = executed catch {
+        _ = unlink(output_path);
+        return error.InvalidPipeline;
+    };
+    if restored != 0 { return error.InvalidPipeline; }
+    try assert_eq_i32(access(output_path, F_OK), 0);
+    _ = unlink(output_path);
 }
