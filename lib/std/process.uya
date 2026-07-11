@@ -1426,6 +1426,29 @@ fn pipeline_take_and_handle_interrupt(pgid: i32, pids: &i32, count: usize, obser
     return true;
 }
 
+fn pipeline_capture_priority_interrupt(pgid: i32, pids: &i32, count: usize,
+    reaped: &bool, raw_statuses: &i32, reaped_count: &usize, observed_epoch: &i32) bool {
+    if pipeline_take_and_handle_interrupt(pgid, pids, count, observed_epoch) { return true; }
+    if reaped == null || raw_statuses == null || reaped_count == null { return false; }
+    var i: usize = 0usize;
+    while i < count {
+        if !reaped[i] {
+            const waited: i32 = waitpid(pids[i], &raw_statuses[i],
+                WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+            if waited == pids[i] && pipeline_wait_status_is_stopped(raw_statuses[i]) {
+                pipeline_cancel_started_group(pgid, pids, count);
+                return true;
+            }
+            if waited == pids[i] && !pipeline_wait_status_is_continued(raw_statuses[i]) {
+                reaped[i] = true;
+                reaped_count[0] = reaped_count[0] + 1usize;
+            }
+        }
+        i = i + 1usize;
+    }
+    return false;
+}
+
 fn pipeline_abort_launches(launch_fds: &i32, report_fds: &i32, count: usize) void {
     var i: usize = 0usize;
     while i < count {
@@ -2038,7 +2061,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         var stdout_open: bool = stdout_capture_fds[0] >= 0;
         var stderr_open: bool = stderr_capture_fds[0] >= 0;
         while (stdout_open || stderr_open) && reaped_count < count {
-            if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
+            if pipeline_capture_priority_interrupt(pipeline_pgid, &pids[0], count,
+                &reaped[0], &raw_statuses[0], &reaped_count, &broker_signal_epoch) {
                 if stdout_open { _ = close(stdout_capture_fds[0]); }
                 if stderr_open { _ = close(stderr_capture_fds[0]); }
                 return error.Interrupted;
@@ -2055,12 +2079,19 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             }
             const polled: !i32 = sys_poll(&poll_fds[0], poll_count, 50);
             _ = polled catch {
-                pipeline_cancel_pids(&pids[0], count);
+                if pipeline_capture_priority_interrupt(pipeline_pgid, &pids[0], count,
+                    &reaped[0], &raw_statuses[0], &reaped_count, &broker_signal_epoch) {
+                    if stdout_open { _ = close(stdout_capture_fds[0]); }
+                    if stderr_open { _ = close(stderr_capture_fds[0]); }
+                    return error.Interrupted;
+                }
+                pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
                 if stdout_open { _ = close(stdout_capture_fds[0]); }
                 if stderr_open { _ = close(stderr_capture_fds[0]); }
                 return error.PipelineIoError;
             };
-            if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
+            if pipeline_capture_priority_interrupt(pipeline_pgid, &pids[0], count,
+                &reaped[0], &raw_statuses[0], &reaped_count, &broker_signal_epoch) {
                 if stdout_open { _ = close(stdout_capture_fds[0]); }
                 if stderr_open { _ = close(stderr_capture_fds[0]); }
                 return error.Interrupted;
@@ -2118,6 +2149,12 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         }
         var drain_budget: usize = 64usize;
         while (stdout_open || stderr_open) && drain_budget > 0usize {
+            if pipeline_capture_priority_interrupt(pipeline_pgid, &pids[0], count,
+                &reaped[0], &raw_statuses[0], &reaped_count, &broker_signal_epoch) {
+                if stdout_open { _ = close(stdout_capture_fds[0]); }
+                if stderr_open { _ = close(stderr_capture_fds[0]); }
+                return error.Interrupted;
+            }
             var final_fds: [PollFd: 2] = [];
             var final_count: usize = 0usize;
             if stdout_open {
