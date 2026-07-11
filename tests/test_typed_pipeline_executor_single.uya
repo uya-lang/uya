@@ -138,3 +138,18 @@ test "pipeline_cwd_preflight_failure_starts_no_child" {
     try assert_eq_i32(statuses_storage[1].spawn_failure as i32,
         PipelineSpawnFailureKind.cwd_unavailable as i32);
 }
+
+test "pipeline_file_open_failure_is_infrastructure_error" {
+    const marker: &const byte = "/tmp/uya_typed_pipeline_file_open_marker";
+    _ = unlink(marker);
+    const shell_values: [&const byte: 2] = ["-c", "touch /tmp/uya_typed_pipeline_file_open_marker"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
+    const full: Pipeline = try stdout_file(command, "/tmp/uya-missing-parent/output.txt");
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(full, &statuses_storage[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineIoError) as i32);
+    try assert_eq_i32(access(marker, F_OK), 0 - 1);
+    try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.not_started as i32);
+}

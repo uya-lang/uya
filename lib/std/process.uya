@@ -1284,7 +1284,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_fd >= 0 { _ = close(stderr_fd); }
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
-            return error.InvalidPipeline;
+            return error.PipelineIoError;
         };
         pipe_count = pipe_count + 1usize;
     }
