@@ -975,6 +975,30 @@ export fn cwd(input: Pipeline, path: &const byte) !Pipeline {
     return input;
 }
 
+/// 将 pipeline 第一段 stdin 配置为文件输入。
+/// 参数：input 为按值消费的 pipeline；path 在 sink-time cwd 规则下解析。
+/// 返回：成功时返回新 pipeline；路径无效或 stdin 已配置时返回 InvalidPipeline。
+export fn stdin_file(input: Pipeline, path: &const byte) !Pipeline {
+    try pipeline_set_stdin_policy(&input, PipelineStdinPolicyKind.file, path);
+    return input;
+}
+
+/// 将 pipeline 最后一段 stdout 配置为文件输出。
+/// 参数：input 为按值消费的 pipeline；path 在 sink-time cwd 规则下解析。
+/// 返回：成功时返回新 pipeline；路径无效或 stdout 已配置时返回 InvalidPipeline。
+export fn stdout_file(input: Pipeline, path: &const byte) !Pipeline {
+    try pipeline_set_stdout_policy(&input, PipelineStdoutPolicyKind.file, path);
+    return input;
+}
+
+/// 将 pipeline 全部 process stage 的 stderr 配置为同一文件输出。
+/// 参数：input 为按值消费的 pipeline；path 在 sink-time cwd 规则下解析。
+/// 返回：成功时返回新 pipeline；路径无效或 stderr 已配置时返回 InvalidPipeline。
+export fn stderr_file(input: Pipeline, path: &const byte) !Pipeline {
+    try pipeline_set_stderr_policy(&input, PipelineStderrPolicyKind.file, path);
+    return input;
+}
+
 /// 返回计划中的完整可执行 stage 数量，不消费或执行计划。
 export fn stage_count(input: &Pipeline) !usize {
     return pipeline_registry_stage_count(input);

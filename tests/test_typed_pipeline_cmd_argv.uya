@@ -5,6 +5,9 @@ use std.process.Pipeline;
 use std.process.cmd_argv;
 use std.process.cmd_path_argv;
 use std.process.cwd;
+use std.process.stdin_file;
+use std.process.stdout_file;
+use std.process.stderr_file;
 use std.process.pipeline;
 use std.process.stage_count;
 
@@ -31,4 +34,14 @@ test "pipeline_cmd_path_argv_accepts_relative_exact_path" {
     const no_args: &[&const byte] = &no_args_values[0:0];
     const p: Pipeline = try cwd(try cmd_path_argv(pipeline(), "tools/helper", no_args), "workspace");
     try assert_eq_i32((try stage_count(&p)) as i32, 1);
+}
+
+test "pipeline_file_stream_transformers_store_owned_paths" {
+    const no_args_values: [&const byte: 1] = [""];
+    const no_args: &[&const byte] = &no_args_values[0:0];
+    const p0: Pipeline = try cmd_argv(pipeline(), "printf", no_args);
+    const p1: Pipeline = try stdin_file(p0, "input.txt");
+    const p2: Pipeline = try stdout_file(p1, "output.txt");
+    const p3: Pipeline = try stderr_file(p2, "error.txt");
+    try assert_eq_i32((try stage_count(&p3)) as i32, 1);
 }
