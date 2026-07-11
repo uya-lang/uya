@@ -10,6 +10,8 @@ use std.mem.allocator.MallocAllocator;
 use std.mem.allocator.get_allocator;
 use std.path.is_abs;
 use std.path.join;
+use std.path.ExecutableLookupKind;
+use std.path.find_executable;
 use libc.getcwd;
 
 export error InvalidPipeline;
@@ -671,6 +673,27 @@ fn pipeline_spawn_env(builder: &EnvBlockBuilder) &(&const byte) {
     return builder.envp();
 }
 
+fn pipeline_env_value(envp: &(&const byte), key: &const byte) &const byte {
+    if envp == null || key == null { return null; }
+    var i: usize = 0usize;
+    while envp[i] != null {
+        const entry: &const byte = envp[i];
+        var j: usize = 0usize;
+        while key[j] != 0 as byte && entry[j] == key[j] { j = j + 1usize; }
+        if key[j] == 0 as byte && entry[j] == 61 as byte { return &entry[j + 1usize]; }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+fn pipeline_resolve_command_path(builder: &EnvBlockBuilder, cwd: &const byte,
+    program: &const byte, out: &byte, out_cap: usize) ExecutableLookupKind {
+    if builder == null { return ExecutableLookupKind.platform_error; }
+    const envp: &(&const byte) = pipeline_path_env(builder);
+    const path_value: &const byte = pipeline_env_value(envp, "PATH");
+    return find_executable(path_value, cwd, program, out, out_cap);
+}
+
 fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
     var i: usize = 0usize;
     while i < count && i < PIPELINE_MAX_STAGES {
@@ -1051,10 +1074,16 @@ export fn pipeline_capability_self_test() !void {
     var env_builder: EnvBlockBuilder = env_block_builder_new(env_allocator);
     env_builder.inherit_current();
     try pipeline_apply_stage_env(&_pipeline_process_stages[owned_stage_idx], &env_builder);
+    try env_builder.with("PATH", "/bin:/usr/bin");
     try env_builder.build();
     const path_env: &(&const byte) = pipeline_path_env(&env_builder);
     const spawn_env: &(&const byte) = pipeline_spawn_env(&env_builder);
     if path_env == null || spawn_env != path_env {
+        return error.InvalidPipeline;
+    }
+    var found_exec: [byte: 4096] = [];
+    if pipeline_resolve_command_path(&env_builder, "/", "sh", &found_exec[0], 4096usize) !=
+        ExecutableLookupKind.found || found_exec[0] == 0 as byte {
         return error.InvalidPipeline;
     }
     const invalid_name: !void = pipeline_registry_append_last_stage_env(&first, "BAD=NAME", "x", 0);

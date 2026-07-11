@@ -2,6 +2,10 @@
 
 use std;
 use std.string.strlen;
+use libc.Stat;
+use libc.X_OK;
+use libc.access;
+use libc.stat;
 
 std.cfg(std.target_os == .tos_windows, const PATH_EXECUTABLE_SUFFIX: &const byte = ".exe";)
 std.cfg(std.target_os == .tos_linux, const PATH_EXECUTABLE_SUFFIX: &const byte = "";)
@@ -222,6 +226,14 @@ fn path_detect_normalize_separator(path: &const byte) byte {
 /// 参数说明：无。
 /// 返回值：常量值始终为 `true`。
 export const PATH_MODULE_PRESENT: bool = true;
+
+/// PATH executable lookup 的稳定结果分类。
+export enum ExecutableLookupKind {
+    found,
+    path_not_found,
+    permission_denied,
+    platform_error,
+}
 
 /// 返回 PATH 风格环境变量的路径列表分隔符。
 ///
@@ -550,4 +562,61 @@ export fn join(base: &const byte, child: &const byte, out: &byte, out_cap: usize
     }
     out[out_pos] = 0 as byte;
     return 0;
+}
+
+fn path_copy_component(source: &const byte, start: usize, end: usize, out: &byte, cap: usize) i32 {
+    if source == null || out == null || end < start || end - start + 1usize > cap { return 1; }
+    var i: usize = start;
+    while i < end { out[i - start] = source[i]; i = i + 1usize; }
+    out[end - start] = 0 as byte;
+    return 0;
+}
+
+/// 使用显式 PATH 值与最终 cwd 查找 bare executable。
+/// 参数：path_value 为 child env 中的 PATH；cwd 解释空/相对 component；program 为已校验命令名；out 接收路径。
+/// 返回：稳定 lookup 分类；成功时 out 为后续 spawn 必须复用的同一路径。
+export fn find_executable(path_value: &const byte, cwd: &const byte, program: &const byte,
+    out: &byte, out_cap: usize) ExecutableLookupKind {
+    if path_value == null || path_value[0] == 0 as byte || cwd == null || program == null || out == null {
+        return ExecutableLookupKind.path_not_found;
+    }
+    const separator: byte = path_list_separator();
+    var saw_unusable: bool = false;
+    var start: usize = 0usize;
+    var pos: usize = 0usize;
+    while true {
+        const at_end: bool = path_value[pos] == 0 as byte;
+        if at_end || path_value[pos] == separator {
+            var component: [byte: 4096] = [];
+            if path_copy_component(path_value, start, pos, &component[0], 4096usize) != 0 {
+                return ExecutableLookupKind.platform_error;
+            }
+            var directory: [byte: 4096] = [];
+            if component[0] == 0 as byte {
+                if path_copy_cstring(cwd, &directory[0], 4096usize) != 0 { return ExecutableLookupKind.platform_error; }
+            } else if path_is_absolute(&component[0]) {
+                if path_copy_cstring(&component[0], &directory[0], 4096usize) != 0 { return ExecutableLookupKind.platform_error; }
+            } else if join(cwd, &component[0], &directory[0], 4096usize) != 0 {
+                return ExecutableLookupKind.platform_error;
+            }
+            var candidate: [byte: 4096] = [];
+            if join(&directory[0], program, &candidate[0], 4096usize) != 0 {
+                return ExecutableLookupKind.platform_error;
+            }
+            var info: Stat = Stat{};
+            if stat(&candidate[0], &info) == 0 {
+                const is_dir: bool = ((info.st_mode as u32) & 61440u32) == 16384u32;
+                if !is_dir && access(&candidate[0], X_OK) == 0 {
+                    if path_copy_cstring(&candidate[0], out, out_cap) != 0 { return ExecutableLookupKind.platform_error; }
+                    return ExecutableLookupKind.found;
+                }
+                saw_unusable = true;
+            }
+            if at_end { break; }
+            start = pos + 1usize;
+        }
+        pos = pos + 1usize;
+    }
+    if saw_unusable { return ExecutableLookupKind.permission_denied; }
+    return ExecutableLookupKind.path_not_found;
 }
