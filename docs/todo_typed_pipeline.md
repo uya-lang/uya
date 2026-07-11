@@ -139,8 +139,8 @@
   - [x] 逃离后代持有 capture 写端时取消路径不会等待 EOF
   - [x] 正常完成时后代持续持有/写入 capture pipe 也不会阻止 sink 返回，后代后续 bytes 不进入结果
   - [x] 未观察到 capture EOF 时 `complete=false`，不会静默报告完整输出
-  - [~] capture 有效上限为 N 时覆盖 N-1、N、N+1 字节；N 正常完成，N+1 有限取消并返回 `CaptureLimitExceeded`
-  - [ ] stdout/stderr/statuses/result writable region 重叠时在启动前返回 `InvalidPipeline`
+  - [x] capture 有效上限为 N 时覆盖 N-1、N、N+1 字节；N 正常完成，N+1 有限取消并返回 `CaptureLimitExceeded`
+  - [~] stdout/stderr/statuses/result writable region 重叠时在启动前返回 `InvalidPipeline`
   - [ ] 终端继承下读取 stdin 不会因后台 process group 收到 `SIGTTIN`，完成后恢复父前台 PGID
   - [ ] executor 自身位于后台 process group 时不会调用 `tcsetpgrp` 抢占前台终端
   - [ ] 前台 child 收到 Ctrl-Z/SIGTSTP 或后台 child 收到 SIGTTIN 时，sink 恢复终端、有限取消并返回 `Interrupted`，不会永久等待 stopped child

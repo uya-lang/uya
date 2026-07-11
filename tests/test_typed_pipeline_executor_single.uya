@@ -478,6 +478,7 @@ test "pipeline_capture_partial_startup_cancel_is_incomplete_without_observed_eof
 
 test "pipeline_capture_probe_distinguishes_zero_exact_and_overflow" {
     const empty_values: [&const byte: 1] = [""];
+    const below_values: [&const byte: 1] = ["abc"];
     const exact_values: [&const byte: 1] = ["abcd"];
     const overflow_values: [&const byte: 1] = ["abcde"];
     var empty_statuses: [PipelineStageStatus: 1] = [];
@@ -487,6 +488,13 @@ test "pipeline_capture_probe_distinguishes_zero_exact_and_overflow" {
     try capture_limit_into(try cmd_path_argv(pipeline(), "/bin/true", &empty_values[0:0]),
         0usize, &empty_statuses[0:1], &empty_stdout[0:0], &empty_stderr[0:0], &empty_result);
     try assert_eq_bool(empty_result.stdout.complete, true);
+    var below_statuses: [PipelineStageStatus: 1] = [];
+    var below_stdout: [byte: 4] = [];
+    var below_result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_limit_into(try cmd_path_argv(pipeline(), "/usr/bin/printf", &below_values[0:1]),
+        4usize, &below_statuses[0:1], &below_stdout[0:4], &empty_stderr[0:0], &below_result);
+    try assert_eq_i32(below_result.stdout.byte_count as i32, 3);
+    try assert_eq_bool(below_result.stdout.complete, true);
     var exact_statuses: [PipelineStageStatus: 1] = [];
     var exact_stdout: [byte: 4] = [];
     var exact_result: PipelineCaptureResult = PipelineCaptureResult {};
