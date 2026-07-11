@@ -38,8 +38,8 @@
 - [x] 添加 owned argv 存储。
 - [x] 为 process stage 添加 execution-time `exec_path` 存储或等价临时结构；不要把解析结果持久化到可 clone 的 plan。
 - [x] 添加 cwd override 存储。
-- [~] 添加 env overlay 存储。
-- [ ] sink 开始时捕获一次 canonical base env；为每个 stage 按顺序应用 overlay/remove，并让 PATH helper 与 spawn 共用同一 env block。
+- [x] 添加 env overlay 存储。
+- [~] sink 开始时捕获一次 canonical base env；为每个 stage 按顺序应用 overlay/remove，并让 PATH helper 与 spawn 共用同一 env block。
 - [ ] `env` / `unset_env` 复用 `EnvInvalidName` / `EnvInvalidValue` 校验，计划保存 key/value 副本。
 - [ ] 添加 stage-local modifier 校验：`cwd/env/unset_env` 只能作用于最近 process stage。
 - [ ] 添加 stream policy 存储：

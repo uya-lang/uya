@@ -79,6 +79,14 @@ struct PipelineProcessStage {
     argv: &&byte,
     argv_count: usize,
     cwd: &byte,
+    env_ops: &PipelineEnvOp,
+    env_op_count: usize,
+}
+
+struct PipelineEnvOp {
+    key: &byte,
+    value: &byte,
+    remove: i32,
 }
 
 struct PipelineExecutionStage {
@@ -190,6 +198,8 @@ fn pipeline_registry_append_process_stage(input: &Pipeline, command_kind: i32) !
     _pipeline_process_stages[storage_idx].argv = null as &&byte;
     _pipeline_process_stages[storage_idx].argv_count = 0usize;
     _pipeline_process_stages[storage_idx].cwd = null as &byte;
+    _pipeline_process_stages[storage_idx].env_ops = null as &PipelineEnvOp;
+    _pipeline_process_stages[storage_idx].env_op_count = 0usize;
     _pipeline_registry[slot_idx].stage_count = stage_idx + 1usize;
     pipeline_registry_unlock();
     return;
@@ -353,6 +363,82 @@ fn pipeline_registry_set_last_stage_cwd(input: &Pipeline, cwd: &const byte) !voi
     return;
 }
 
+fn pipeline_free_env_ops(stage: &PipelineProcessStage) void {
+    if stage == null || stage.env_ops == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < stage.env_op_count {
+        if stage.env_ops[i].key != null {
+            free(stage.env_ops[i].key as &void);
+        }
+        if stage.env_ops[i].value != null {
+            free(stage.env_ops[i].value as &void);
+        }
+        i = i + 1usize;
+    }
+    free(stage.env_ops as &void);
+    stage.env_ops = null as &PipelineEnvOp;
+    stage.env_op_count = 0usize;
+}
+
+fn pipeline_registry_append_last_stage_env(input: &Pipeline, key: &const byte, value: &const byte, remove: i32) !void {
+    const slot_idx: usize = try pipeline_registry_slot_index(input);
+    if slot_idx >= PIPELINE_REGISTRY_CAPACITY || key == null || (remove == 0 && value == null) {
+        return error.InvalidPipeline;
+    }
+    const owned_key: &byte = try pipeline_owned_c_string(key);
+    var owned_value: &byte = null as &byte;
+    if remove == 0 {
+        const value_result: !&byte = pipeline_owned_c_string(value);
+        owned_value = value_result catch {
+            free(owned_key as &void);
+            return error.InvalidPipeline;
+        };
+    }
+    pipeline_registry_lock();
+    const count: usize = _pipeline_registry[slot_idx].stage_count;
+    if _pipeline_registry[slot_idx].live == 0 ||
+        _pipeline_registry[slot_idx].generation != input.generation || count == 0usize {
+        pipeline_registry_unlock();
+        free(owned_key as &void);
+        if owned_value != null { free(owned_value as &void); }
+        return error.InvalidPipeline;
+    }
+    const storage_result: !usize = pipeline_stage_storage_index(slot_idx, count - 1usize);
+    const storage_idx: usize = storage_result catch {
+        pipeline_registry_unlock();
+        free(owned_key as &void);
+        if owned_value != null { free(owned_value as &void); }
+        return error.InvalidPipeline;
+    };
+    if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        pipeline_registry_unlock();
+        free(owned_key as &void);
+        if owned_value != null { free(owned_value as &void); }
+        return error.InvalidPipeline;
+    }
+    const old_count: usize = _pipeline_process_stages[storage_idx].env_op_count;
+    const raw: &void = malloc((old_count + 1usize) * @size_of(PipelineEnvOp));
+    if raw == null {
+        pipeline_registry_unlock();
+        free(owned_key as &void);
+        if owned_value != null { free(owned_value as &void); }
+        return error.InvalidPipeline;
+    }
+    const ops: &PipelineEnvOp = raw as &PipelineEnvOp;
+    if old_count > 0usize {
+        _ = memcpy(raw, _pipeline_process_stages[storage_idx].env_ops as &const void,
+            old_count * @size_of(PipelineEnvOp));
+        free(_pipeline_process_stages[storage_idx].env_ops as &void);
+    }
+    ops[old_count] = PipelineEnvOp { key: owned_key, value: owned_value, remove: remove };
+    _pipeline_process_stages[storage_idx].env_ops = ops;
+    _pipeline_process_stages[storage_idx].env_op_count = old_count + 1usize;
+    pipeline_registry_unlock();
+    return;
+}
+
 fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
     var i: usize = 0usize;
     while i < count && i < PIPELINE_MAX_STAGES {
@@ -366,6 +452,7 @@ fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
             free(_pipeline_process_stages[storage_idx].cwd as &void);
             _pipeline_process_stages[storage_idx].cwd = null as &byte;
         }
+        pipeline_free_env_ops(&_pipeline_process_stages[storage_idx]);
         _pipeline_process_stages[storage_idx].active = 0;
         _pipeline_process_stages[storage_idx].command_kind = 0;
         i = i + 1usize;
@@ -535,6 +622,18 @@ export fn pipeline_capability_self_test() !void {
     if _pipeline_process_stages[owned_stage_idx].cwd == null ||
         _pipeline_process_stages[owned_stage_idx].cwd == ("build/work" as &byte) ||
         pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].cwd, "build/work") == 0 {
+        return error.InvalidPipeline;
+    }
+    try pipeline_registry_append_last_stage_env(&first, "MODE", "debug", 0);
+    try pipeline_registry_append_last_stage_env(&first, "OLD_MODE", null, 1);
+    if _pipeline_process_stages[owned_stage_idx].env_op_count != 2usize ||
+        _pipeline_process_stages[owned_stage_idx].env_ops == null ||
+        _pipeline_process_stages[owned_stage_idx].env_ops[0].remove != 0 ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].env_ops[0].key, "MODE") == 0 ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].env_ops[0].value, "debug") == 0 ||
+        _pipeline_process_stages[owned_stage_idx].env_ops[1].remove == 0 ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].env_ops[1].key, "OLD_MODE") == 0 ||
+        _pipeline_process_stages[owned_stage_idx].env_ops[1].value != null {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {
