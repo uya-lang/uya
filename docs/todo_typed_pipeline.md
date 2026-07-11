@@ -141,9 +141,9 @@
   - [x] 未观察到 capture EOF 时 `complete=false`，不会静默报告完整输出
   - [x] capture 有效上限为 N 时覆盖 N-1、N、N+1 字节；N 正常完成，N+1 有限取消并返回 `CaptureLimitExceeded`
   - [x] stdout/stderr/statuses/result writable region 重叠时在启动前返回 `InvalidPipeline`
-  - [~] 终端继承下读取 stdin 不会因后台 process group 收到 `SIGTTIN`，完成后恢复父前台 PGID
-  - [ ] executor 自身位于后台 process group 时不会调用 `tcsetpgrp` 抢占前台终端
-  - [ ] 前台 child 收到 Ctrl-Z/SIGTSTP 或后台 child 收到 SIGTTIN 时，sink 恢复终端、有限取消并返回 `Interrupted`，不会永久等待 stopped child
+  - [x] 终端继承下读取 stdin 不会因后台 process group 收到 `SIGTTIN`，完成后恢复父前台 PGID
+  - [x] executor 自身位于后台 process group 时不会调用 `tcsetpgrp` 抢占前台终端
+  - [~] 前台 child 收到 Ctrl-Z/SIGTSTP 或后台 child 收到 SIGTTIN 时，sink 恢复终端、有限取消并返回 `Interrupted`，不会永久等待 stopped child
 
 ## 阶段 6：自定义 Uya 流 Stage
 

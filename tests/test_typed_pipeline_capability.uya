@@ -47,6 +47,14 @@ test "pipeline_child_clears_inherited_broker_state_before_ready" {
     try pipeline_child_signal_setup_self_test();
 }
 
+test "pipeline_terminal_inherit_reads_and_restores_foreground_group" {
+    try pipeline_terminal_inherit_self_test();
+}
+
+test "pipeline_background_executor_does_not_steal_foreground_terminal" {
+    try pipeline_terminal_background_self_test();
+}
+
 test "pipeline_internal_fds_do_not_collide_with_closed_stdio" {
     try pipeline_closed_stdio_self_test();
 }

@@ -64,6 +64,7 @@ use libc.SIGHUP;
 use libc.SIG_IGN;
 use libc.SIG_ERR;
 use libc.O_NONBLOCK;
+use libc.O_RDWR;
 use libc.WNOHANG;
 
 extern fn setpgid(pid: i32, pgid: i32) i32;
@@ -75,6 +76,11 @@ extern fn tcsetpgrp(fd: i32, pgid: i32) i32;
 extern fn getpgrp() i32;
 extern fn sched_yield() i32;
 extern fn getpgid(pid: i32) i32;
+extern fn setsid() i32;
+extern fn posix_openpt(flags: i32) i32;
+extern fn grantpt(fd: i32) i32;
+extern fn unlockpt(fd: i32) i32;
+extern fn ptsname(fd: i32) &byte;
 extern fn __errno_location() &i32;
 extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
 
@@ -2461,6 +2467,94 @@ export fn pipeline_child_signal_setup_self_test() !void {
     if waitpid(pid, &raw, 0) != pid || ((raw >> 8) & 255) != 0 {
         return error.InvalidPipeline;
     }
+}
+
+fn pipeline_terminal_inherit_child_run(slave_name: &const byte, master_fd: i32) !void {
+    _ = close(master_fd);
+    if setsid() < 0 { return error.PipelineIoError; }
+    const slave_fd: i32 = try sys_open(slave_name, O_RDWR as i32, 0);
+    if tcsetpgrp(slave_fd, getpgrp()) != 0 || dup2(slave_fd, 0) < 0 ||
+        dup2(slave_fd, 1) < 0 || dup2(slave_fd, 2) < 0 { return error.PipelineIoError; }
+    if slave_fd > 2 { _ = close(slave_fd); }
+    const args: [&const byte: 2] = ["-c", "read value; test \"$value\" = token"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
+    try check(try inherit_stdio(command));
+    if tcgetpgrp(0) != getpgrp() { return error.InvalidPipeline; }
+}
+
+fn pipeline_terminal_inherit_child(slave_name: &const byte, master_fd: i32) void {
+    const completed: !void = pipeline_terminal_inherit_child_run(slave_name, master_fd);
+    _ = completed catch { _exit(1); };
+    _exit(0);
+}
+
+/// 验证继承终端 stdin 的 child 可读且 sink 完成后恢复 executor 前台 PGID；仅供回归测试。
+export fn pipeline_terminal_inherit_self_test() !void {
+    const master_fd: i32 = posix_openpt(O_RDWR as i32);
+    if master_fd < 0 || grantpt(master_fd) != 0 || unlockpt(master_fd) != 0 {
+        if master_fd >= 0 { _ = close(master_fd); }
+        return error.PipelineIoError;
+    }
+    const slave_name: &byte = ptsname(master_fd);
+    if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
+    const pid: i32 = fork();
+    if pid == 0 { pipeline_terminal_inherit_child(slave_name, master_fd); }
+    if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
+    const token: &const byte = "token\n";
+    const written: !isize = sys_write(master_fd, token, 6usize);
+    _ = written catch { _ = close(master_fd); return error.PipelineIoError; };
+    var raw: i32 = 0;
+    const waited: i32 = waitpid(pid, &raw, 0);
+    _ = close(master_fd);
+    if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+}
+
+fn pipeline_terminal_background_child_run(slave_name: &const byte, master_fd: i32) !void {
+    _ = close(master_fd);
+    if setsid() < 0 { return error.PipelineIoError; }
+    const slave_fd: i32 = try sys_open(slave_name, O_RDWR as i32, 0);
+    if tcsetpgrp(slave_fd, getpgrp()) != 0 || dup2(slave_fd, 0) < 0 ||
+        dup2(slave_fd, 1) < 0 || dup2(slave_fd, 2) < 0 { return error.PipelineIoError; }
+    if slave_fd > 2 { _ = close(slave_fd); }
+    const foreground_pid: i32 = fork();
+    if foreground_pid == 0 {
+        if setpgid(0, 0) != 0 { _exit(1); }
+        while true { _ = sched_yield(); }
+    }
+    if foreground_pid < 0 || setpgid(foreground_pid, foreground_pid) != 0 ||
+        tcsetpgrp(0, foreground_pid) != 0 { return error.PipelineIoError; }
+    const no_args: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args[0:0]);
+    const executed: !void = check(try inherit_stdio(command));
+    _ = kill(foreground_pid, SIGKILL);
+    var raw: i32 = 0;
+    _ = waitpid(foreground_pid, &raw, 0);
+    try executed;
+    if tcgetpgrp(0) != foreground_pid { return error.InvalidPipeline; }
+}
+
+fn pipeline_terminal_background_child(slave_name: &const byte, master_fd: i32) void {
+    const completed: !void = pipeline_terminal_background_child_run(slave_name, master_fd);
+    _ = completed catch { _exit(1); };
+    _exit(0);
+}
+
+/// 验证后台 executor 不会调用 tcsetpgrp 抢占现有前台 process group；仅供回归测试。
+export fn pipeline_terminal_background_self_test() !void {
+    const master_fd: i32 = posix_openpt(O_RDWR as i32);
+    if master_fd < 0 || grantpt(master_fd) != 0 || unlockpt(master_fd) != 0 {
+        if master_fd >= 0 { _ = close(master_fd); }
+        return error.PipelineIoError;
+    }
+    const slave_name: &byte = ptsname(master_fd);
+    if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
+    const pid: i32 = fork();
+    if pid == 0 { pipeline_terminal_background_child(slave_name, master_fd); }
+    if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
+    var raw: i32 = 0;
+    const waited: i32 = waitpid(pid, &raw, 0);
+    _ = close(master_fd);
+    if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
 }
 
 fn pipeline_closed_stdio_child(closed_fd: i32) void {
