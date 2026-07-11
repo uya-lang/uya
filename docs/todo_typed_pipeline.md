@@ -78,8 +78,8 @@
 - [x] 为每次 POSIX pipeline 执行创建独立 process group；child/parent 双侧调用 `setpgid`，每个 child 通过独立 startup-report pipe 发送 `READY` 并等待自己的 launch pipe token。
 - [x] fork 前把所有内部 control/data/file source fd 移到 0/1/2 之外并配置正确 close-on-exec；child 在 READY 前关闭其他 stage 控制端、parent-only 端、runtime broker fd 和无关数据 pipe，parent 在最后一个继承者 fork 后立即关闭对应 launch/report/data/file 副本。
 - [x] 定义 per-child launch pipe：只有 `RUN` 允许继续，`ABORT`/EOF/短读/未知 token 必须 `_exit`；全部 READY 前不得发送 RUN。
-- [~] 为 parent 的 RUN/ABORT 写入实现 per-thread `SIGPIPE` 屏蔽、pending-signal 精确消费、EINTR 重试和 exact-token/`EPIPE` 处理；不得永久忽略进程级 `SIGPIPE`。
-- [ ] 任一 fork/setpgid/barrier 失败时向尚未释放的 child 发送 ABORT 或关闭其 launch pipe，终止 group 与每个直接 PID并 reap；关闭 pipe 不得被解释为 release。
+- [x] 为 parent 的 RUN/ABORT 写入实现 per-thread `SIGPIPE` 屏蔽、pending-signal 精确消费、EINTR 重试和 exact-token/`EPIPE` 处理；不得永久忽略进程级 `SIGPIPE`。
+- [~] 任一 fork/setpgid/barrier 失败时向尚未释放的 child 发送 ABORT 或关闭其 launch pipe，终止 group 与每个直接 PID并 reap；关闭 pipe 不得被解释为 release。
 - [ ] inherit stdio 指向 controlling terminal 且 `tcgetpgrp(tty) == getpgrp()` 时才在 RUN 前 `tcsetpgrp` 到 pipeline PGID，并只在确实转交后恢复保存的前台 PGID。
 - [ ] runtime broker 在等待 foreground lease 前注册 sink；按 terminal identity 独占 lease，所有正常/失败/中断路径在恢复终端后释放 lease并注销 broker。
 - [ ] executor 已在后台时保持后台语义，不忽略 `SIGTTOU` 抢占终端；`tcgetpgrp`/`tcsetpgrp` 失败在 RUN 前走 ABORT 与普通 Uya error 路径。

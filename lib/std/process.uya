@@ -44,8 +44,20 @@ use libc.read;
 use libc.write;
 use libc.sys_fcntl;
 use libc.F_DUPFD_CLOEXEC;
+use libc.sigset_t;
+use libc.sigemptyset;
+use libc.sigaddset;
+use libc.sigismember;
+use libc.sigpending;
+use libc.SIG_BLOCK;
+use libc.SIG_SETMASK;
+use libc.SIGPIPE;
+use libc.EPIPE;
+use libc.sys_write;
 
 extern fn setpgid(pid: i32, pgid: i32) i32;
+extern fn sigwait(set: &const sigset_t, signal: &i32) i32;
+extern fn pthread_sigmask(how: i32, set: &const sigset_t, old_set: &sigset_t) i32;
 
 export error InvalidPipeline;
 export error ProcessFailed;
@@ -1162,6 +1174,39 @@ fn pipeline_pipe_above_stdio(fds: &i32) !void {
     try pipeline_fd_above_stdio(&fds[1]);
 }
 
+fn pipeline_write_control_token(fd: i32, token: byte) !void {
+    var pipe_set: sigset_t = sigset_t {};
+    var old_set: sigset_t = sigset_t {};
+    var pending_before: sigset_t = sigset_t {};
+    if sigemptyset(&pipe_set) != 0 || sigaddset(&pipe_set, SIGPIPE) != 0 ||
+        pthread_sigmask(SIG_BLOCK, &pipe_set, &old_set) != 0 || sigpending(&pending_before) != 0 {
+        return error.PipelineIoError;
+    }
+    var write_error: i32 = 0;
+    while true {
+        const written: !isize = sys_write(fd, &token, 1usize);
+        const count: isize = written catch |err| {
+            const error_id: i32 = @error_id(err) as i32;
+            if error_id == EINTR { continue; }
+            write_error = error_id;
+            break;
+        };
+        if count == 1isize { break; }
+        write_error = EPIPE;
+        break;
+    }
+    var pending_after: sigset_t = sigset_t {};
+    if sigpending(&pending_after) == 0 && sigismember(&pending_before, SIGPIPE) == 0 &&
+        sigismember(&pending_after, SIGPIPE) == 1 {
+        var consumed: i32 = 0;
+        _ = sigwait(&pipe_set, &consumed);
+    }
+    if pthread_sigmask(SIG_SETMASK, &old_set, null as &sigset_t) != 0 {
+        return error.PipelineIoError;
+    }
+    if write_error != 0 { return error.PipelineIoError; }
+}
+
 fn pipeline_prepare_process_stage(snapshot: &PipelineCwdSnapshot, stage: &PipelineProcessStage,
     status: &PipelineStageStatus) !PipelinePreparedProcessStage {
     var prepared: PipelinePreparedProcessStage = PipelinePreparedProcessStage {
@@ -1467,11 +1512,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     }
     i = 0usize;
     while i < count {
-        const run: byte = 71 as byte;
-        if write(launch_fds[i * 2usize + 1usize], &run, 1usize) != 1i64 {
+        const sent: !void = pipeline_write_control_token(launch_fds[i * 2usize + 1usize], 71 as byte);
+        _ = sent catch {
             pipeline_cancel_pids(&pids[0], count);
             return error.PipelineSpawnFailed;
-        }
+        };
         _ = close(launch_fds[i * 2usize + 1usize]);
         launch_fds[i * 2usize + 1usize] = 0 - 1;
         i = i + 1usize;
@@ -1656,6 +1701,18 @@ export fn pipeline_uncloneable_stage_self_test() !void {
     _pipeline_process_stages[storage].active = 1;
     _ = pipeline_registry_release(&source);
     if copied.error_id != @error_id(error.InvalidPipeline) { return error.InvalidPipeline; }
+}
+
+/// 验证 launch/control 写端遇到 EPIPE 时不会让宿主进程收到默认 SIGPIPE 终止；仅供回归测试。
+export fn pipeline_control_epipe_self_test() !void {
+    var fds: [i32: 2] = [];
+    const created: !i32 = sys_pipe2(&fds[0], O_CLOEXEC);
+    _ = created catch { return error.PipelineIoError; };
+    _ = close(fds[0]);
+    const sent: !void = pipeline_write_control_token(fds[1], 71 as byte);
+    _ = close(fds[1]);
+    _ = sent catch {};
+    if sent.error_id != @error_id(error.PipelineIoError) { return error.InvalidPipeline; }
 }
 
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。

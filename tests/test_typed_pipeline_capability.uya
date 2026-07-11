@@ -34,3 +34,7 @@ test "pipeline_clone_owns_an_independent_deep_copy" {
 test "pipeline_clone_rejects_uncloneable_erased_stage" {
     try pipeline_uncloneable_stage_self_test();
 }
+
+test "pipeline_control_write_handles_epipe_without_sigpipe_termination" {
+    try pipeline_control_epipe_self_test();
+}
