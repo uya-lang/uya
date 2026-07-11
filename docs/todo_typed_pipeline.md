@@ -59,8 +59,8 @@
 - [x] 在 pipeline executor 前实现并测试 PATH helper，避免 executor 内私有 PATH 搜索逻辑。
 - [x] PATH helper 覆盖 PATH 缺失、空/相对 component、POSIX executable non-directory、Windows exact/`.exe` 查找以及 lookup 与 spawn 错误分类。
 - [x] 添加 `stdin_file`、`stdout_file`、`stderr_file`。
-- [~] 添加 `stdout_capture`、`stderr_capture`、`stderr_to_stdout`。
-- [ ] 添加 `inherit_stdio` stream transformer。
+- [x] 添加 `stdout_capture`、`stderr_capture`、`stderr_to_stdout`。
+- [~] 添加 `inherit_stdio` stream transformer。
 - [ ] 添加 `check`、`check_into`、`status_into`、`capture_into` 和 `capture_limit_into`。
 - [ ] 为所有 `*_into` sink 添加 caller writable-region 容量与两两不重叠预检，失败时在外部副作用前返回 `InvalidPipeline` 并清空 result。
 - [ ] 添加显式 `clone(input: &Pipeline) !Pipeline`。

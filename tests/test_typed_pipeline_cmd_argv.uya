@@ -8,6 +8,9 @@ use std.process.cwd;
 use std.process.stdin_file;
 use std.process.stdout_file;
 use std.process.stderr_file;
+use std.process.stdout_capture;
+use std.process.stderr_capture;
+use std.process.stderr_to_stdout;
 use std.process.pipeline;
 use std.process.stage_count;
 
@@ -44,4 +47,23 @@ test "pipeline_file_stream_transformers_store_owned_paths" {
     const p2: Pipeline = try stdout_file(p1, "output.txt");
     const p3: Pipeline = try stderr_file(p2, "error.txt");
     try assert_eq_i32((try stage_count(&p3)) as i32, 1);
+}
+
+test "pipeline_capture_and_merge_transformers_configure_streams" {
+    const no_args_values: [&const byte: 1] = [""];
+    const no_args: &[&const byte] = &no_args_values[0:0];
+    const captured: Pipeline = try stderr_capture(try stdout_capture(
+        try cmd_argv(pipeline(), "printf", no_args)));
+    try assert_eq_i32((try stage_count(&captured)) as i32, 1);
+    const merged: Pipeline = try stderr_to_stdout(try cmd_argv(pipeline(), "printf", no_args));
+    try assert_eq_i32((try stage_count(&merged)) as i32, 1);
+}
+
+test "pipeline_stream_transformers_reject_conflicts" {
+    const no_args_values: [&const byte: 1] = [""];
+    const no_args: &[&const byte] = &no_args_values[0:0];
+    const configured: Pipeline = try stdout_file(try cmd_argv(pipeline(), "printf", no_args), "out.txt");
+    const conflict: !Pipeline = stdout_capture(configured);
+    _ = conflict catch { pipeline(); };
+    try assert_eq_i32(conflict.error_id as i32, @error_id(error.InvalidPipeline) as i32);
 }

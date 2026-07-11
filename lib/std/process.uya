@@ -999,6 +999,30 @@ export fn stderr_file(input: Pipeline, path: &const byte) !Pipeline {
     return input;
 }
 
+/// 捕获 pipeline 最后一段 stdout。
+/// 参数：input 为按值消费的 pipeline。
+/// 返回：成功时返回新 pipeline；stdout 已配置时返回 InvalidPipeline。
+export fn stdout_capture(input: Pipeline) !Pipeline {
+    try pipeline_set_stdout_policy(&input, PipelineStdoutPolicyKind.capture, null);
+    return input;
+}
+
+/// 捕获 pipeline 的 stderr。
+/// 参数：input 为按值消费的 pipeline。
+/// 返回：成功时返回新 pipeline；stderr 已配置时返回 InvalidPipeline。
+export fn stderr_capture(input: Pipeline) !Pipeline {
+    try pipeline_set_stderr_policy(&input, PipelineStderrPolicyKind.capture, null);
+    return input;
+}
+
+/// 将 pipeline 的 stderr 合并到 stdout policy。
+/// 参数：input 为按值消费的 pipeline。
+/// 返回：成功时返回新 pipeline；stderr 已配置时返回 InvalidPipeline。
+export fn stderr_to_stdout(input: Pipeline) !Pipeline {
+    try pipeline_set_stderr_policy(&input, PipelineStderrPolicyKind.merge_stdout, null);
+    return input;
+}
+
 /// 返回计划中的完整可执行 stage 数量，不消费或执行计划。
 export fn stage_count(input: &Pipeline) !usize {
     return pipeline_registry_stage_count(input);
