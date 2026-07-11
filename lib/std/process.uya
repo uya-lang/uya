@@ -312,6 +312,10 @@ fn pipeline_registry_set_last_stage_argv(input: &Pipeline, program: &const byte,
         pipeline_registry_unlock();
         return error.InvalidPipeline;
     }
+    if _pipeline_process_stages[storage_idx].active == 0 {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
     const argv_count: usize = args_len + 1usize;
     const argv_raw: &void = malloc(argv_count * @size_of(&byte));
     if argv_raw == null {
@@ -374,6 +378,11 @@ fn pipeline_registry_set_last_stage_cwd(input: &Pipeline, cwd: &const byte) !voi
         return error.InvalidPipeline;
     };
     if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        pipeline_registry_unlock();
+        free(owned_cwd as &void);
+        return error.InvalidPipeline;
+    }
+    if _pipeline_process_stages[storage_idx].active == 0 {
         pipeline_registry_unlock();
         free(owned_cwd as &void);
         return error.InvalidPipeline;
@@ -442,6 +451,12 @@ fn pipeline_registry_append_last_stage_env(input: &Pipeline, key: &const byte, v
         return error.InvalidPipeline;
     };
     if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        pipeline_registry_unlock();
+        free(owned_key as &void);
+        if owned_value != null { free(owned_value as &void); }
+        return error.InvalidPipeline;
+    }
+    if _pipeline_process_stages[storage_idx].active == 0 {
         pipeline_registry_unlock();
         free(owned_key as &void);
         if owned_value != null { free(owned_value as &void); }
@@ -638,6 +653,14 @@ export fn pipeline_capability_self_test() !void {
     const first: Pipeline = pipeline_registry_allocate();
     const stale: Pipeline = Pipeline { handle: first.handle, generation: first.generation };
     if try pipeline_registry_stage_count(&first) != 0usize {
+        return error.InvalidPipeline;
+    }
+    const empty_cwd: !void = pipeline_registry_set_last_stage_cwd(&first, "no-stage");
+    _ = empty_cwd catch {};
+    const empty_env: !void = pipeline_registry_append_last_stage_env(&first, "A", "1", 0);
+    _ = empty_env catch {};
+    if empty_cwd.error_id != @error_id(error.InvalidPipeline) ||
+        empty_env.error_id != @error_id(error.InvalidPipeline) {
         return error.InvalidPipeline;
     }
     try pipeline_registry_append_process_stage(&first, 1);
