@@ -149,6 +149,8 @@ const PIPELINE_REGISTRY_CAPACITY: usize = 1024usize;
 const PIPELINE_MAX_STAGES: usize = 32usize;
 const PIPELINE_STAGE_STORAGE_CAPACITY: usize = 32768usize;
 const PIPELINE_ATOMIC_SEQ_CST: i32 = 5;
+const PIPELINE_WAIT_UNTRACED: i32 = 2;
+const PIPELINE_WAIT_CONTINUED: i32 = 8;
 
 struct PipelineSlot {
     generation: usize,
@@ -1336,6 +1338,9 @@ fn pipeline_wait_status(raw: i32, index: usize) PipelineStageStatus {
     return status;
 }
 
+fn pipeline_wait_status_is_stopped(raw: i32) bool { return (raw & 255) == 127; }
+fn pipeline_wait_status_is_continued(raw: i32) bool { return raw == 65535; }
+
 fn pipeline_capture_read(fd: i32, output: &byte, limit: usize, count: &usize) !i32 {
     if count == null { return error.InvalidPipeline; }
     if count[0] < limit {
@@ -1940,7 +1945,15 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         var raw_status: i32 = 0;
         var waited_pid: i32 = 0;
         while waited_pid == 0 {
-            waited_pid = waitpid(pids[i], &raw_status, WNOHANG);
+            waited_pid = waitpid(pids[i], &raw_status,
+                WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+            if waited_pid == pids[i] && pipeline_wait_status_is_stopped(raw_status) {
+                pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+                return error.Interrupted;
+            }
+            if waited_pid == pids[i] && pipeline_wait_status_is_continued(raw_status) {
+                waited_pid = 0;
+            }
             if waited_pid == 0 {
                 if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
                     return error.Interrupted;

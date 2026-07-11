@@ -183,3 +183,13 @@ test "pipeline_runtime_broker_interrupts_and_cancels_process_group" {
     _ = executed catch {};
     try assert_eq_i32(executed.error_id as i32, @error_id(error.Interrupted) as i32);
 }
+
+test "pipeline_stopped_child_is_cancelled_without_hanging" {
+    const shell_values: [&const byte: 2] = ["-c", "kill -STOP $$"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(command, &statuses_storage[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.Interrupted) as i32);
+}
