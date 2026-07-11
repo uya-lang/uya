@@ -2141,6 +2141,28 @@ export fn pipeline_broker_lifecycle_self_test() !void {
     if after_action.handler != SIG_IGN as &void { return error.InvalidPipeline; }
 }
 
+/// 验证宿主预先关闭 0/1/2 时，内部 fd 仍会移出 stdio 区并安全执行；仅供回归测试。
+export fn pipeline_closed_stdio_self_test() !void {
+    const pid: i32 = fork();
+    if pid < 0 { return error.PipelineIoError; }
+    if pid == 0 {
+        _ = close(0); _ = close(1); _ = close(2);
+        const child_plan: Pipeline = pipeline_registry_allocate();
+        const appended: !void = pipeline_registry_append_process_stage(&child_plan, 2);
+        _ = appended catch { _exit(1); };
+        const argv_set: !void = pipeline_registry_set_last_stage_argv(&child_plan,
+            "/bin/true", null as &&const byte, 0usize);
+        _ = argv_set catch { _exit(1); };
+        var statuses: [PipelineStageStatus: 1] = [];
+        var result: PipelineResult = PipelineResult {};
+        const executed: !void = pipeline_execute_basic(&child_plan, &statuses[0:1], &result, true, null);
+        _ = executed catch { _exit(1); };
+        _exit(0);
+    }
+    var raw: i32 = 0;
+    if waitpid(pid, &raw, 0) != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+}
+
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。
 /// 参数：input 为按值消费的 pipeline；program 为命令名；args 不包含 argv[0]。
 /// 返回：成功时返回追加 stage 后的 pipeline；参数或 capability 无效时返回错误。

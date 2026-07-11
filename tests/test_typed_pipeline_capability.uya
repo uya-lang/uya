@@ -42,3 +42,7 @@ test "pipeline_control_write_handles_epipe_without_sigpipe_termination" {
 test "pipeline_broker_releases_subscription_and_terminal_lease" {
     try pipeline_broker_lifecycle_self_test();
 }
+
+test "pipeline_internal_fds_do_not_collide_with_closed_stdio" {
+    try pipeline_closed_stdio_self_test();
+}
