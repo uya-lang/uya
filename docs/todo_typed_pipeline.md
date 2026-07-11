@@ -51,8 +51,8 @@
 - [x] 添加 `cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) !Pipeline` 或选定的等价基础 API。
 - [x] 若添加 `cmd(input: Pipeline, program: &const byte, ...) !Pipeline` facade，跳过固定参数后校验 `@params` argv 类型。（MVP 按锁定设计不开放裸变参 facade，因此此条件不适用。）
 - [x] 校验 `cmd` 命令名非空且不含路径分隔符；违反时返回 `error.InvalidPipeline`。
-- [~] 添加 `cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline` 或选定的 exact-path 基础 API。
-- [ ] 实现相对 `cmd_path` 按 stage 最终 cwd 解释的语义。
+- [x] 添加 `cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline` 或选定的 exact-path 基础 API。
+- [~] 实现相对 `cmd_path` 按 stage 最终 cwd 解释的语义。
 - [ ] 在 sink 开始时捕获一次 cwd；实现相对 stage cwd 与 stream file path 的统一解析规则。
 - [ ] 在语义预检中拒绝 Windows drive-relative command/cwd/file path。
 - [ ] 定义并实现 `cmd` 的 PATH 查找使用 stage 最终 child env，且复用 `std.process` / `std.path` helper。

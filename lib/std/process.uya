@@ -811,6 +811,18 @@ export fn cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) 
     return input;
 }
 
+/// 向 pipeline 追加一个按 exact path 执行的 process stage。
+/// 参数：input 为按值消费的 pipeline；path 可为绝对或相对路径；args 不包含 argv[0]。
+/// 返回：成功时原样保存 path 并返回新 pipeline；参数或 capability 无效时返回错误。
+export fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline {
+    if path == null || path[0] == 0 as byte || args.ptr == null && args.len != 0usize {
+        return error.InvalidPipeline;
+    }
+    try pipeline_registry_append_process_stage(&input, 2);
+    try pipeline_registry_set_last_stage_argv(&input, path, args.ptr, args.len);
+    return input;
+}
+
 /// 返回计划中的完整可执行 stage 数量，不消费或执行计划。
 export fn stage_count(input: &Pipeline) !usize {
     return pipeline_registry_stage_count(input);

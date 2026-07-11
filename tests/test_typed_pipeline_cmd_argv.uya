@@ -3,6 +3,7 @@
 use std.testing;
 use std.process.Pipeline;
 use std.process.cmd_argv;
+use std.process.cmd_path_argv;
 use std.process.pipeline;
 use std.process.stage_count;
 
@@ -22,4 +23,11 @@ test "pipeline_cmd_argv_rejects_empty_or_path_command" {
     _ = path_result catch { pipeline(); };
     try assert_eq_i32(empty_result.error_id as i32, @error_id(error.InvalidPipeline) as i32);
     try assert_eq_i32(path_result.error_id as i32, @error_id(error.InvalidPipeline) as i32);
+}
+
+test "pipeline_cmd_path_argv_accepts_relative_exact_path" {
+    const no_args_values: [&const byte: 1] = [""];
+    const no_args: &[&const byte] = &no_args_values[0:0];
+    const p: Pipeline = try cmd_path_argv(pipeline(), "tools/helper", no_args);
+    try assert_eq_i32((try stage_count(&p)) as i32, 1);
 }
