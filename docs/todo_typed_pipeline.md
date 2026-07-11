@@ -42,11 +42,11 @@
 - [x] sink 开始时捕获一次 canonical base env；为每个 stage 按顺序应用 overlay/remove，并让 PATH helper 与 spawn 共用同一 env block。
 - [x] `env` / `unset_env` 复用 `EnvInvalidName` / `EnvInvalidValue` 校验，计划保存 key/value 副本。
 - [x] 添加 stage-local modifier 校验：`cwd/env/unset_env` 只能作用于最近 process stage。
-- [~] 添加 stream policy 存储：
+- [x] 添加 stream policy 存储：
   - [x] stdin unset/file/inherit
   - [x] stdout unset/inherit/file/capture
-  - [~] stderr unset/inherit/file/capture/merge_stdout
-- [ ] 添加 stream policy 冲突校验。
+  - [x] stderr unset/inherit/file/capture/merge_stdout
+- [~] 添加 stream policy 冲突校验。
 - [ ] 添加 `pipeline() Pipeline` 或选定的空构造器。
 - [ ] 添加 `cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) !Pipeline` 或选定的等价基础 API。
 - [ ] 若添加 `cmd(input: Pipeline, program: &const byte, ...) !Pipeline` facade，跳过固定参数后校验 `@params` argv 类型。

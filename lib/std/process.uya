@@ -113,11 +113,21 @@ enum PipelineStdoutPolicyKind {
     capture,
 }
 
+enum PipelineStderrPolicyKind {
+    unset,
+    inherit,
+    file,
+    capture,
+    merge_stdout,
+}
+
 struct PipelineStreamPolicy {
     stdin_kind: PipelineStdinPolicyKind,
     stdin_path: &byte,
     stdout_kind: PipelineStdoutPolicyKind,
     stdout_path: &byte,
+    stderr_kind: PipelineStderrPolicyKind,
+    stderr_path: &byte,
 }
 
 struct PipelineEnvAllocator : IAllocator {
@@ -176,6 +186,8 @@ fn pipeline_registry_allocate() Pipeline {
             _pipeline_stream_policies[i].stdin_path = null as &byte;
             _pipeline_stream_policies[i].stdout_kind = PipelineStdoutPolicyKind.unset;
             _pipeline_stream_policies[i].stdout_path = null as &byte;
+            _pipeline_stream_policies[i].stderr_kind = PipelineStderrPolicyKind.unset;
+            _pipeline_stream_policies[i].stderr_path = null as &byte;
             pipeline_registry_unlock();
             return Pipeline { handle: i + 1usize, generation: generation };
         }
@@ -597,6 +609,29 @@ fn pipeline_set_stdout_policy(input: &Pipeline, kind: PipelineStdoutPolicyKind, 
     pipeline_registry_unlock();
 }
 
+fn pipeline_set_stderr_policy(input: &Pipeline, kind: PipelineStderrPolicyKind, path: &const byte) !void {
+    const idx: usize = try pipeline_registry_slot_index(input);
+    if idx >= PIPELINE_REGISTRY_CAPACITY || (kind == PipelineStderrPolicyKind.file && path == null) {
+        return error.InvalidPipeline;
+    }
+    var owned_path: &byte = null as &byte;
+    if kind == PipelineStderrPolicyKind.file {
+        owned_path = try pipeline_owned_c_string(path);
+    }
+    pipeline_registry_lock();
+    if _pipeline_registry[idx].live == 0 || _pipeline_registry[idx].generation != input.generation {
+        pipeline_registry_unlock();
+        if owned_path != null { free(owned_path as &void); }
+        return error.InvalidPipeline;
+    }
+    if _pipeline_stream_policies[idx].stderr_path != null {
+        free(_pipeline_stream_policies[idx].stderr_path as &void);
+    }
+    _pipeline_stream_policies[idx].stderr_kind = kind;
+    _pipeline_stream_policies[idx].stderr_path = owned_path;
+    pipeline_registry_unlock();
+}
+
 fn pipeline_registry_release(input: &Pipeline) i32 {
     const idx_result: !usize = pipeline_registry_slot_index(input);
     const idx: usize = idx_result catch { return 0; };
@@ -621,6 +656,11 @@ fn pipeline_registry_release(input: &Pipeline) i32 {
         _pipeline_stream_policies[idx].stdout_path = null as &byte;
     }
     _pipeline_stream_policies[idx].stdout_kind = PipelineStdoutPolicyKind.unset;
+    if _pipeline_stream_policies[idx].stderr_path != null {
+        free(_pipeline_stream_policies[idx].stderr_path as &void);
+        _pipeline_stream_policies[idx].stderr_path = null as &byte;
+    }
+    _pipeline_stream_policies[idx].stderr_kind = PipelineStderrPolicyKind.unset;
     _pipeline_registry[idx].live = 0;
     _pipeline_registry[idx].stage_count = 0usize;
     pipeline_registry_unlock();
@@ -834,6 +874,16 @@ export fn pipeline_capability_self_test() !void {
     try pipeline_set_stdout_policy(&first, PipelineStdoutPolicyKind.capture, null);
     if _pipeline_stream_policies[first_slot].stdout_kind != PipelineStdoutPolicyKind.capture ||
         _pipeline_stream_policies[first_slot].stdout_path != null {
+        return error.InvalidPipeline;
+    }
+    try pipeline_set_stderr_policy(&first, PipelineStderrPolicyKind.file, "error.txt");
+    if _pipeline_stream_policies[first_slot].stderr_kind != PipelineStderrPolicyKind.file ||
+        pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stderr_path, "error.txt") == 0 {
+        return error.InvalidPipeline;
+    }
+    try pipeline_set_stderr_policy(&first, PipelineStderrPolicyKind.merge_stdout, null);
+    if _pipeline_stream_policies[first_slot].stderr_kind != PipelineStderrPolicyKind.merge_stdout ||
+        _pipeline_stream_policies[first_slot].stderr_path != null {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {
