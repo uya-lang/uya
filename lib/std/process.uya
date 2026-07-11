@@ -957,6 +957,62 @@ fn pipeline_copy_capture_bytes(output: &[byte], input: &[const byte], count: usi
     return count;
 }
 
+fn pipeline_regions_overlap(left: &const void, left_size: usize, right: &const void, right_size: usize) bool {
+    if left_size == 0usize || right_size == 0usize { return false; }
+    if left == null || right == null { return true; }
+    const left_start: usize = @usize_from_ptr(left);
+    const right_start: usize = @usize_from_ptr(right);
+    const left_end: usize = left_start + left_size;
+    const right_end: usize = right_start + right_size;
+    if left_end < left_start || right_end < right_start { return true; }
+    return left_start < right_end && right_start < left_end;
+}
+
+fn pipeline_preflight_status_regions(statuses: &[PipelineStageStatus], result: &PipelineResult) !void {
+    if result == null || (statuses.len > 0usize && statuses.ptr == null) {
+        return error.InvalidPipeline;
+    }
+    const statuses_size: usize = statuses.len * @size_of(PipelineStageStatus);
+    if statuses.len > 0usize && statuses_size / statuses.len != @size_of(PipelineStageStatus) {
+        return error.InvalidPipeline;
+    }
+    if pipeline_regions_overlap(statuses.ptr as &const void,
+        statuses_size, result as &const void, @size_of(PipelineResult)) {
+        return error.InvalidPipeline;
+    }
+}
+
+fn pipeline_preflight_capture_regions(statuses: &[PipelineStageStatus], stdout_buf: &[byte],
+    stderr_buf: &[byte], capture_stdout: bool, capture_stderr: bool, result: &PipelineCaptureResult) !void {
+    if result == null || (statuses.len > 0usize && statuses.ptr == null) ||
+        (capture_stdout && stdout_buf.len > 0usize && stdout_buf.ptr == null) ||
+        (capture_stderr && stderr_buf.len > 0usize && stderr_buf.ptr == null) {
+        return error.InvalidPipeline;
+    }
+    const statuses_size: usize = statuses.len * @size_of(PipelineStageStatus);
+    if statuses.len > 0usize && statuses_size / statuses.len != @size_of(PipelineStageStatus) {
+        return error.InvalidPipeline;
+    }
+    var stdout_size: usize = 0usize;
+    var stderr_size: usize = 0usize;
+    if capture_stdout { stdout_size = stdout_buf.len; }
+    if capture_stderr { stderr_size = stderr_buf.len; }
+    if pipeline_regions_overlap(statuses.ptr as &const void, statuses_size,
+            stdout_buf.ptr as &const void, stdout_size) ||
+        pipeline_regions_overlap(statuses.ptr as &const void, statuses_size,
+            stderr_buf.ptr as &const void, stderr_size) ||
+        pipeline_regions_overlap(statuses.ptr as &const void, statuses_size,
+            result as &const void, @size_of(PipelineCaptureResult)) ||
+        pipeline_regions_overlap(stdout_buf.ptr as &const void, stdout_size,
+            stderr_buf.ptr as &const void, stderr_size) ||
+        pipeline_regions_overlap(stdout_buf.ptr as &const void, stdout_size,
+            result as &const void, @size_of(PipelineCaptureResult)) ||
+        pipeline_regions_overlap(stderr_buf.ptr as &const void, stderr_size,
+            result as &const void, @size_of(PipelineCaptureResult)) {
+        return error.InvalidPipeline;
+    }
+}
+
 fn pipeline_final_stage_cwd(snapshot: &PipelineCwdSnapshot, stage: &PipelineProcessStage) !&byte {
     if snapshot == null || stage == null { return error.InvalidPipeline; }
     if stage.cwd == null { return pipeline_owned_c_string(snapshot.base); }
@@ -1395,6 +1451,8 @@ export fn check(input: Pipeline) !void {
 /// 参数：input 为按值消费的 pipeline；statuses/result 为调用方可写区域。
 /// 返回：成功无返回值；错误返回前仍保留已获得的结果。
 export fn check_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void {
+    pipeline_reset_result(result);
+    try pipeline_preflight_status_regions(statuses, result);
     try pipeline_execute_basic(&input, statuses, result, true, null);
 }
 
@@ -1402,6 +1460,8 @@ export fn check_into(input: Pipeline, statuses: &[PipelineStageStatus], result: 
 /// 参数：input 为按值消费的 pipeline；statuses/result 为调用方可写区域。
 /// 返回：执行基础设施成功时无错误，启动失败返回 PipelineSpawnFailed。
 export fn status_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void {
+    pipeline_reset_result(result);
+    try pipeline_preflight_status_regions(statuses, result);
     try pipeline_execute_basic(&input, statuses, result, false, null);
 }
 
@@ -1415,6 +1475,8 @@ fn pipeline_capture_into_impl(input: Pipeline, max_bytes: usize, statuses: &[Pip
     if stdout_kind == PipelineStdoutPolicyKind.file || stdout_kind == PipelineStdoutPolicyKind.inherit {
         return error.InvalidPipeline;
     }
+    const capture_stderr: bool = stderr_kind == PipelineStderrPolicyKind.capture;
+    try pipeline_preflight_capture_regions(statuses, stdout_buf, stderr_buf, true, capture_stderr, result);
     var stdout_limit: usize = stdout_buf.len;
     var stderr_limit: usize = stderr_buf.len;
     if max_bytes < stdout_limit { stdout_limit = max_bytes; }
@@ -1429,7 +1491,7 @@ fn pipeline_capture_into_impl(input: Pipeline, max_bytes: usize, statuses: &[Pip
         stderr_count: 0usize,
         stderr_complete: false,
         capture_stdout: true,
-        capture_stderr: stderr_kind == PipelineStderrPolicyKind.capture,
+        capture_stderr: capture_stderr,
     };
     const executed: !void = pipeline_execute_basic(&input, statuses, &result.result, false, &capture);
     _ = executed catch {
@@ -1684,4 +1746,17 @@ export fn pipeline_buffer_self_test(statuses: &[PipelineStageStatus], stdout_buf
         return error.InvalidPipeline;
     }
     return;
+}
+
+/// 验证 caller writable-region 的字节级重叠判定；仅供回归测试。
+export fn pipeline_region_self_test() !void {
+    var storage: [byte: 128] = [];
+    if pipeline_regions_overlap(&storage[0] as &const void, 32usize,
+            &storage[16] as &const void, 32usize) == false ||
+        pipeline_regions_overlap(&storage[0] as &const void, 16usize,
+            &storage[16] as &const void, 16usize) == true ||
+        pipeline_regions_overlap(&storage[0] as &const void, 0usize,
+            &storage[0] as &const void, 128usize) == true {
+        return error.InvalidPipeline;
+    }
 }

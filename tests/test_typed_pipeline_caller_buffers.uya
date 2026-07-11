@@ -35,3 +35,7 @@ test "pipeline_rejects_short_status_buffer_before_write" {
     try assert_eq_u64(result.result.stage_count as u64, 0);
     try assert_eq_u64(result.stdout.byte_count as u64, 0);
 }
+
+test "pipeline_rejects_overlapping_writable_regions" {
+    try pipeline_region_self_test();
+}
