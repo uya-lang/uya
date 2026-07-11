@@ -578,6 +578,11 @@ fn pipeline_set_stdin_policy(input: &Pipeline, kind: PipelineStdinPolicyKind, pa
         if owned_path != null { free(owned_path as &void); }
         return error.InvalidPipeline;
     }
+    if _pipeline_stream_policies[idx].stdin_kind != PipelineStdinPolicyKind.unset {
+        pipeline_registry_unlock();
+        if owned_path != null { free(owned_path as &void); }
+        return error.InvalidPipeline;
+    }
     if _pipeline_stream_policies[idx].stdin_path != null {
         free(_pipeline_stream_policies[idx].stdin_path as &void);
     }
@@ -601,6 +606,11 @@ fn pipeline_set_stdout_policy(input: &Pipeline, kind: PipelineStdoutPolicyKind, 
         if owned_path != null { free(owned_path as &void); }
         return error.InvalidPipeline;
     }
+    if _pipeline_stream_policies[idx].stdout_kind != PipelineStdoutPolicyKind.unset {
+        pipeline_registry_unlock();
+        if owned_path != null { free(owned_path as &void); }
+        return error.InvalidPipeline;
+    }
     if _pipeline_stream_policies[idx].stdout_path != null {
         free(_pipeline_stream_policies[idx].stdout_path as &void);
     }
@@ -620,6 +630,11 @@ fn pipeline_set_stderr_policy(input: &Pipeline, kind: PipelineStderrPolicyKind, 
     }
     pipeline_registry_lock();
     if _pipeline_registry[idx].live == 0 || _pipeline_registry[idx].generation != input.generation {
+        pipeline_registry_unlock();
+        if owned_path != null { free(owned_path as &void); }
+        return error.InvalidPipeline;
+    }
+    if _pipeline_stream_policies[idx].stderr_kind != PipelineStderrPolicyKind.unset {
         pipeline_registry_unlock();
         if owned_path != null { free(owned_path as &void); }
         return error.InvalidPipeline;
@@ -861,9 +876,11 @@ export fn pipeline_capability_self_test() !void {
         pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stdin_path, "input.txt") == 0 {
         return error.InvalidPipeline;
     }
-    try pipeline_set_stdin_policy(&first, PipelineStdinPolicyKind.inherit, null);
-    if _pipeline_stream_policies[first_slot].stdin_kind != PipelineStdinPolicyKind.inherit ||
-        _pipeline_stream_policies[first_slot].stdin_path != null {
+    const stdin_conflict: !void = pipeline_set_stdin_policy(&first, PipelineStdinPolicyKind.inherit, null);
+    _ = stdin_conflict catch {};
+    if stdin_conflict.error_id != @error_id(error.InvalidPipeline) ||
+        _pipeline_stream_policies[first_slot].stdin_kind != PipelineStdinPolicyKind.file ||
+        pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stdin_path, "input.txt") == 0 {
         return error.InvalidPipeline;
     }
     try pipeline_set_stdout_policy(&first, PipelineStdoutPolicyKind.file, "output.txt");
@@ -871,9 +888,11 @@ export fn pipeline_capability_self_test() !void {
         pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stdout_path, "output.txt") == 0 {
         return error.InvalidPipeline;
     }
-    try pipeline_set_stdout_policy(&first, PipelineStdoutPolicyKind.capture, null);
-    if _pipeline_stream_policies[first_slot].stdout_kind != PipelineStdoutPolicyKind.capture ||
-        _pipeline_stream_policies[first_slot].stdout_path != null {
+    const stdout_conflict: !void = pipeline_set_stdout_policy(&first, PipelineStdoutPolicyKind.capture, null);
+    _ = stdout_conflict catch {};
+    if stdout_conflict.error_id != @error_id(error.InvalidPipeline) ||
+        _pipeline_stream_policies[first_slot].stdout_kind != PipelineStdoutPolicyKind.file ||
+        pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stdout_path, "output.txt") == 0 {
         return error.InvalidPipeline;
     }
     try pipeline_set_stderr_policy(&first, PipelineStderrPolicyKind.file, "error.txt");
@@ -881,9 +900,11 @@ export fn pipeline_capability_self_test() !void {
         pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stderr_path, "error.txt") == 0 {
         return error.InvalidPipeline;
     }
-    try pipeline_set_stderr_policy(&first, PipelineStderrPolicyKind.merge_stdout, null);
-    if _pipeline_stream_policies[first_slot].stderr_kind != PipelineStderrPolicyKind.merge_stdout ||
-        _pipeline_stream_policies[first_slot].stderr_path != null {
+    const stderr_conflict: !void = pipeline_set_stderr_policy(&first, PipelineStderrPolicyKind.merge_stdout, null);
+    _ = stderr_conflict catch {};
+    if stderr_conflict.error_id != @error_id(error.InvalidPipeline) ||
+        _pipeline_stream_policies[first_slot].stderr_kind != PipelineStderrPolicyKind.file ||
+        pipeline_c_string_equals(_pipeline_stream_policies[first_slot].stderr_path, "error.txt") == 0 {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {

@@ -46,9 +46,9 @@
   - [x] stdin unset/file/inherit
   - [x] stdout unset/inherit/file/capture
   - [x] stderr unset/inherit/file/capture/merge_stdout
-- [~] 添加 stream policy 冲突校验。
-- [ ] 添加 `pipeline() Pipeline` 或选定的空构造器。
-- [ ] 添加 `cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) !Pipeline` 或选定的等价基础 API。
+- [x] 添加 stream policy 冲突校验。
+- [x] 添加 `pipeline() Pipeline` 或选定的空构造器。
+- [~] 添加 `cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) !Pipeline` 或选定的等价基础 API。
 - [ ] 若添加 `cmd(input: Pipeline, program: &const byte, ...) !Pipeline` facade，跳过固定参数后校验 `@params` argv 类型。
 - [ ] 校验 `cmd` 命令名非空且不含路径分隔符；违反时返回 `error.InvalidPipeline`。
 - [ ] 添加 `cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline` 或选定的 exact-path 基础 API。
