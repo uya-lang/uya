@@ -1,0 +1,16 @@
+// 回归：指针元素 slice 必须保留元素指针层级，不能与 byte slice 共用 C 结构体。
+
+use std.testing;
+
+fn first_arg(args: &[&const byte]) &const byte {
+    if args.len == 0usize {
+        return null;
+    }
+    return args.ptr[0];
+}
+
+test "slice_pointer_element_codegen_preserves_pointer_depth" {
+    const values: [&const byte: 2] = ["alpha", "beta"];
+    const args: &[&const byte] = &values[0:2];
+    try assert_true(first_arg(args) == values[0]);
+}

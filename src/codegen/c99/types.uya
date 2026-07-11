@@ -647,6 +647,39 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     return result;
 }
 
+fn c99_slice_element_name_token(codegen: &C99CodeGenerator, element_c: &byte) &byte {
+    if codegen == null || element_c == null {
+        return null;
+    }
+    var input: &byte = element_c;
+    if strncmp(input as *byte, "struct " as *byte, 7) == 0 {
+        input = &input[7];
+    } else if strncmp(input as *byte, "enum " as *byte, 5) == 0 {
+        input = &input[5];
+    }
+    var out: [byte: STRUCT_NAME_BUF_SIZE] = [];
+    var i: usize = 0usize;
+    var j: usize = 0usize;
+    while input[i] != 0 as byte && j + 5usize < STRUCT_NAME_BUF_SIZE {
+        const c: byte = input[i];
+        if (c >= 97 as byte && c <= 122 as byte) ||
+            (c >= 65 as byte && c <= 90 as byte) ||
+            (c >= 48 as byte && c <= 57 as byte) || c == 95 as byte {
+            out[j] = c;
+            j = j + 1usize;
+        } else if c == 42 as byte {
+            out[j] = 95 as byte;
+            out[j + 1usize] = 112 as byte;
+            out[j + 2usize] = 116 as byte;
+            out[j + 3usize] = 114 as byte;
+            j = j + 4usize;
+        }
+        i = i + 1usize;
+    }
+    out[j] = 0 as byte;
+    return c99_arena_strdup(codegen.arena, &out[0]);
+}
+
 fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     if type_node == null {
         return ("void" as *byte) as &byte;
@@ -1401,51 +1434,9 @@ fn c99_type_to_c_uncached(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte
         if elem_c == null {
             return ("void" as *byte) as &byte;
         }
-        var elem_simple: &byte = elem_c;
-        if strncmp(elem_c as *byte, "struct " as *byte, 7) == 0 {
-            elem_simple = &elem_c[7];
-        } else if strncmp(elem_c as *byte, "enum " as *byte, 5) == 0 {
-            elem_simple = &elem_c[5];
-        }
-        // 去除指针类型中的 "*" 和前面的空格（用于生成结构体名称）
-        // 例如 "uint8_t *" -> "uint8_t"
-        var elem_len: usize = strlen(elem_simple as *byte);
-        var elem_clean: &byte = elem_simple;
-        if elem_len > 0 {
-            const elem_ptr: *byte = elem_simple as *byte;
-            const last_char: *byte = elem_ptr + (elem_len - 1);
-            if last_char[0] == 42 {  // '*'
-                // 先去除 const 前缀（如 "const uint8_t *"）
-                var working_str: &byte = elem_simple;
-                if strncmp(elem_simple as *byte, "const " as *byte, 6) == 0 {
-                    working_str = &elem_simple[6];
-                }
-                
-                // 找到最后一个 '*'，向前查找并去除空格
-                var end: usize = strlen(working_str as *byte) - 1;
-                while end > 0 {
-                    const prev_char: *byte = working_str + (end - 1);
-                    if prev_char[0] != 32 {  // ' '
-                        break;
-                    }
-                    end = end - 1;
-                }
-                // 创建临时缓冲区存储去除 "*" 后的名称
-                var temp_buf: [byte: STRUCT_NAME_BUF_SIZE] = [];
-                if end < STRUCT_NAME_BUF_SIZE {
-                    var j: usize = 0;
-                    while j < end {
-                        const char_ptr: *byte = working_str + j;
-                        temp_buf[j] = char_ptr[0];
-                        j = j + 1;
-                    }
-                    temp_buf[j] = 0;  // '\0'
-                    elem_clean = c99_arena_strdup(codegen.arena, &temp_buf[0]);
-                    if elem_clean == null {
-                        return ("void" as *byte) as &byte;
-                    }
-                }
-            }
+        const elem_clean: &byte = c99_slice_element_name_token(codegen, elem_c);
+        if elem_clean == null {
+            return ("void" as *byte) as &byte;
         }
         var name_buf: [byte: STRUCT_NAME_BUF_SIZE] = [];
         snprintf(&name_buf[0] as *byte, STRUCT_NAME_BUF_SIZE, "uya_slice_%s" as *byte, elem_clean as *byte);
@@ -6895,14 +6886,9 @@ fn c99_slice_struct_type_from_elem_c(codegen: &C99CodeGenerator, elem_c: &byte) 
     if codegen == null || elem_c == null {
         return ("struct uya_slice_int32_t" as *byte) as &byte;
     }
-    var elem_simple: &byte = elem_c;
-    if strncmp(elem_simple as *byte, "const " as *byte, 6) == 0 {
-        elem_simple = &elem_simple[6];
-    }
-    if strncmp(elem_simple as *byte, "struct " as *byte, 7) == 0 {
-        elem_simple = &elem_simple[7];
-    } else if strncmp(elem_simple as *byte, "enum " as *byte, 5) == 0 {
-        elem_simple = &elem_simple[5];
+    var elem_simple: &byte = c99_slice_element_name_token(codegen, elem_c);
+    if elem_simple == null {
+        return ("struct uya_slice_int32_t" as *byte) as &byte;
     }
     if strcmp(elem_simple as *byte, "void" as *byte) == 0 {
         elem_simple = ("uint8_t" as *byte) as &byte;

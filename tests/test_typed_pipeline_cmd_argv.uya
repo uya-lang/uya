@@ -1,0 +1,14 @@
+// typed pipeline cmd_argv 基础 API 回归。
+
+use std.testing;
+use std.process.Pipeline;
+use std.process.cmd_argv;
+use std.process.pipeline;
+use std.process.stage_count;
+
+test "pipeline_cmd_argv_appends_owned_process_stage" {
+    const values: [&const byte: 2] = ["hello", "world"];
+    const args: &[&const byte] = &values[0:2];
+    const p: Pipeline = try cmd_argv(pipeline(), "printf", args);
+    try assert_eq_i32((try stage_count(&p)) as i32, 1);
+}
