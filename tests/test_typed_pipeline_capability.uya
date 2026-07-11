@@ -1,5 +1,8 @@
 use std.process;
 use std.testing.assert_eq_u64;
+use libc.strcmp;
+
+error PipelineExpectedStageFailure;
 
 struct PipelinePassStage : PipelineStage {
     marker: byte,
@@ -32,6 +35,17 @@ struct PipelineConstantStage : PipelineStage {
         _ = self;
         _ = input;
         try output.write_all("uya-stage\n");
+    }
+}
+
+struct PipelineFailingStage : PipelineStage {
+    marker: byte,
+
+    fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
+        _ = self;
+        _ = input;
+        _ = output;
+        return error.PipelineExpectedStageFailure;
     }
 }
 
@@ -90,6 +104,33 @@ test "pipeline_fork_stage_is_not_enabled_by_default" {
         &stdout_buf[0:32], &stderr_buf[0:1], &result);
     _ = executed catch {};
     try assert_eq_u64(executed.error_id as u64, @error_id(error.InvalidPipeline) as u64);
+}
+
+test "pipeline_stage_error_is_preserved_by_observing_sink" {
+    const planned: Pipeline = try stage<PipelineFailingStage>(pipeline(),
+        PipelineFailingStage { marker: 1 as byte });
+    const executable: Pipeline = try stdin_file(planned, "/dev/null");
+    var statuses: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    pipeline_allow_next_fork_stage_for_test();
+    try status_into(executable, &statuses[0:1], &result);
+    try assert_eq_u64(statuses[0].kind as u64, PipelineStageStatusKind.stage_failed as u64);
+    try assert_eq_u64(statuses[0].stage_index as u64, 0);
+    try assert_eq_u64(strcmp(statuses[0].error_name, "PipelineExpectedStageFailure") as u64, 0);
+}
+
+test "pipeline_checked_sink_returns_pipeline_stage_failed" {
+    const planned: Pipeline = try stage<PipelineFailingStage>(pipeline(),
+        PipelineFailingStage { marker: 1 as byte });
+    const executable: Pipeline = try stdin_file(planned, "/dev/null");
+    var statuses: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    pipeline_allow_next_fork_stage_for_test();
+    const checked: !void = check_into(executable, &statuses[0:1], &result);
+    _ = checked catch {};
+    try assert_eq_u64(checked.error_id as u64, @error_id(error.PipelineStageFailed) as u64);
+    try assert_eq_u64(statuses[0].kind as u64, PipelineStageStatusKind.stage_failed as u64);
+    try assert_eq_u64(strcmp(statuses[0].error_name, "PipelineExpectedStageFailure") as u64, 0);
 }
 
 test "pipeline_clone_owns_an_independent_deep_copy" {
