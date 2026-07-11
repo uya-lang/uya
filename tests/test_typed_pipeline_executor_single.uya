@@ -58,6 +58,22 @@ test "pipeline_two_stage_printf_wc_executes_with_pipe_eof" {
     try assert_eq_i32(statuses[1].exit_code as i32, 0);
 }
 
+test "pipeline_three_stage_process_chain_completes" {
+    const printf_values: [&const byte: 1] = ["alpha beta"];
+    const empty_values: [&const byte: 1] = [""];
+    const wc_values: [&const byte: 1] = ["-w"];
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/usr/bin/printf", &printf_values[0:1]);
+    const second: Pipeline = try cmd_path_argv(first, "/bin/cat", &empty_values[0:0]);
+    const full: Pipeline = try cmd_path_argv(second, "/usr/bin/wc", &wc_values[0:1]);
+    var statuses_storage: [PipelineStageStatus: 3] = [];
+    var result: PipelineResult = PipelineResult {};
+    try check_into(full, &statuses_storage[0:3], &result);
+    try assert_eq_i32(result.stage_count as i32, 3);
+    try assert_eq_i32(statuses_storage[0].exit_code as i32, 0);
+    try assert_eq_i32(statuses_storage[1].exit_code as i32, 0);
+    try assert_eq_i32(statuses_storage[2].exit_code as i32, 0);
+}
+
 test "pipeline_stdout_file_is_opened_once_before_spawn" {
     const output_path: &const byte = "/tmp/uya_typed_pipeline_executor_output.txt";
     _ = unlink(output_path);

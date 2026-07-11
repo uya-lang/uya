@@ -110,10 +110,10 @@
 - [x] 部分启动后发生 spawn/infrastructure 错误时复用同一整组取消路径，不能等待 stage 自然退出。
 - [x] 添加输出大于 pipe buffer 的死锁回归测试。
 - [~] 添加测试：
-  - [ ] `printf | wc`
-  - [ ] 三阶段 pipeline
-  - [ ] stdout 文件 sink
-  - [ ] stderr 文件 sink
+  - [x] `printf | wc`
+  - [x] 三阶段 pipeline
+  - [x] stdout 文件 sink
+  - [~] stderr 文件 sink
   - [ ] stderr capture
   - [ ] stderr to stdout merge
   - [ ] `cmd("a/b")` 返回 `error.InvalidPipeline`
