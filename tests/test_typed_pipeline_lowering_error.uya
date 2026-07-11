@@ -28,3 +28,12 @@ test "pipeline_success_path_does_not_clean" {
     _ = p;
     try assert_eq_u64(pipeline_drop_count(), 0);
 }
+
+test "pipeline_unconsumed_scope_auto_drop" {
+    reset_pipeline_drop_count();
+    {
+        const p: Pipeline = pipeline();
+        _ = pipeline_drop_count();
+    }
+    try assert_eq_u64(pipeline_drop_count(), 1);
+}

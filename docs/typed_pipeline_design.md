@@ -145,13 +145,15 @@ pipeline() |> cmd_argv("rg", &rg_args[0:1])
 
 > **阶段 0 已锁定**：公开 `Pipeline` 必须依赖真正 opaque / non-copyable 类型能力；普通 `export struct` 或 raw pointer handle 不得作为稳定 API。
 
-当前 Uya 源码尚不支持如下形式的可工作声明：
+Uya 使用以下可工作的 opaque struct 声明形式：
 
 ```text
-type Pipeline = opaque std.process.Pipeline;
+export opaque struct Pipeline {
+    // 字段仅 std.process 声明模块可见
+}
 ```
 
-当前 Uya 只有声明级 `export`，没有结构体字段级私有性；因此“导出普通 struct/裸指针 handle，再通过 `std.script` facade 隐藏字段”不能满足本设计的不透明性要求。公开 `Pipeline` API 的前置条件是编译器先具备真正的 opaque、non-copyable 类型能力，并让 checker 按规范声明身份而不是按未限定名称 `Pipeline` 识别该类型。内部 bring-up 可以暂用带 generation 校验的整数 capability + 私有注册表，但这种表示必须拒绝伪造、过期和重复消费的 capability，且在完成真正 opaque 类型前不能作为稳定公共 API 发布。导出的 raw pointer 字段或可任意构造的普通 struct 不属于可接受实现。
+`opaque struct` 的字段仅声明模块可见，外部代码不能通过字段访问或结构体字面量构造该类型；按值传递使用移动语义，未移动值可由 `drop` 自动清理。checker 仍须按 canonical 声明身份识别 `Pipeline`。内部存储可以使用带 generation 校验的整数 capability + 私有注册表，但必须拒绝伪造、过期和重复消费。导出的 raw pointer 字段或可任意构造的普通 struct 不属于可接受实现。
 
 > **阶段 0 已锁定**：若内部 bring-up 使用 capability handle 表示 `Pipeline`，必须满足以下全部规则。
 >

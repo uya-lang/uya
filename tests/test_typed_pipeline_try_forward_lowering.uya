@@ -5,16 +5,21 @@ use std.process;
 use std.testing.assert_eq_u64;
 use std.testing.assert_eq_i32;
 
+var stage_value: usize = 0;
+
 fn inc(p: Pipeline) Pipeline {
-    return Pipeline { handle: p.handle + 1, generation: 0 };
+    stage_value = stage_value + 1;
+    return p;
 }
 
 fn value_u64(p: Pipeline) u64 {
-    return p.handle as u64;
+    _ = p;
+    return stage_value as u64;
 }
 
 fn value_i32(p: Pipeline) i32 {
-    return p.handle as i32;
+    _ = p;
+    return stage_value as i32;
 }
 
 fn make_ok_pipeline() !Pipeline {
@@ -67,36 +72,43 @@ fn run_try_forward_as_error_union_error() !u64 {
 }
 
 test "pipeline_try_forward_success" {
+    stage_value = 0;
     const v: u64 = run_try_forward_success() catch { 65535u64; };
     try assert_eq_u64(v, 1);
 }
 
 test "pipeline_try_forward_error" {
+    stage_value = 0;
     const v: u64 = run_try_forward_error() catch { 43690u64; };
     try assert_eq_u64(v, 43690);
 }
 
 test "pipeline_try_forward_sink_error_union" {
+    stage_value = 0;
     const v: i32 = run_try_forward_sink_error_union() catch { 0 - 1; };
     try assert_eq_i32(v, 0);
 }
 
 test "pipeline_try_forward_variable" {
+    stage_value = 0;
     const v: u64 = run_try_forward_variable() catch { 65535u64; };
     try assert_eq_u64(v, 1);
 }
 
 test "pipeline_try_forward_variable_error" {
+    stage_value = 0;
     const v: u64 = run_try_forward_variable_error() catch { 48059u64; };
     try assert_eq_u64(v, 48059);
 }
 
 test "pipeline_try_forward_as_error_union_value" {
+    stage_value = 0;
     const v: u64 = run_try_forward_as_error_union_value() catch { 65535u64; };
     try assert_eq_u64(v, 1);
 }
 
 test "pipeline_try_forward_as_error_union_error" {
+    stage_value = 0;
     const v: u64 = run_try_forward_as_error_union_error() catch { 52428u64; };
     try assert_eq_u64(v, 52428);
 }

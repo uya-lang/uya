@@ -1,0 +1,25 @@
+export opaque struct OpaqueBox {
+    value: i32,
+    fn drop(self: OpaqueBox) void {
+        _opaque_drop_count = _opaque_drop_count + 1;
+        _ = self;
+    }
+}
+
+var _opaque_drop_count: i32 = 0;
+
+export fn make_box(value: i32) OpaqueBox {
+    return OpaqueBox { value: value };
+}
+
+export fn box_value(input: &OpaqueBox) i32 {
+    return input.value;
+}
+
+export fn reset_box_drop_count() void {
+    _opaque_drop_count = 0;
+}
+
+export fn box_drop_count() i32 {
+    return _opaque_drop_count;
+}

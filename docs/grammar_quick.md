@@ -1,6 +1,6 @@
 # Uya 语法速查手册（Quick Reference）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.52 同步（2026-06-29）
+> **版本**：与 [uya.md](./uya.md) 0.49.53 同步（2026-07-11）
 
 本文档是 Uya 语言的快速参考手册，包含精简语法定义、常用代码模式和速查表。
 
@@ -413,6 +413,7 @@ enum HttpStatus : u16 {
 ```uya
 export fn public_function() i32 { ... }
 export struct PublicStruct { ... }
+export opaque struct Resource { handle: usize }
 export interface PublicInterface { ... }
 export const PUBLIC_CONST: i32 = 42;
 export error PublicError;

@@ -25,6 +25,7 @@ enum TokenType {
     TOKEN_ENUM,
     TOKEN_INTERFACE,  // interface（接口声明）
     TOKEN_STRUCT,
+    TOKEN_OPAQUE,     // opaque（不透明、不可复制结构体属性）
     TOKEN_UNION,      // union（联合体声明）
     TOKEN_ATOMIC,     // atomic（原子类型关键字）
     TOKEN_CONST,
@@ -327,6 +328,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_MC;
     } else if str_equals_lexer(str, "type" as &byte) != 0 {
         result = TokenType.TOKEN_TYPE;
+    } else if str_equals_lexer(str, "opaque" as &byte) != 0 {
+        result = TokenType.TOKEN_OPAQUE;
     }
     return result;
 }

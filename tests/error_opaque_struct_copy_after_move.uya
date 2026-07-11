@@ -1,0 +1,9 @@
+use opaque_fixture.box;
+
+fn main() i32 {
+    const first: OpaqueBox = make_box(1);
+    const second: OpaqueBox = first;
+    _ = second;
+    _ = first;
+    return 0;
+}

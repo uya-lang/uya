@@ -1,19 +1,20 @@
-// std.process - 进程与管道抽象（MVP interim）
+// std.process - 进程与类型化管道抽象
 // 模块路径：lib/std/process.uya → use std.process;
 
-// 在编译器支持真正 opaque / non-copyable 类型之前，Pipeline 使用 capability handle
-// 作为 interim 内部表示。该表示不满足最终公开 API 的不透明性要求，仅供 checker
-// 建立 canonical 类型身份和后续阶段实现使用。
-
-/// 进程管道的不透明执行计划（interim 内部表示）。
-export struct Pipeline {
+/// 进程管道的不透明、不可复制执行计划。
+/// 字段仅 std.process 声明模块可见；调用方只能通过公开 transformer/sink 移动它。
+export opaque struct Pipeline {
     handle: usize,
     generation: usize,
+
+    fn drop(self: Pipeline) void {
+        _pipeline_drop_count = _pipeline_drop_count + 1;
+        _ = self;
+    }
 }
 
-// 以下 interim 测试/清理钩子将在真正 opaque/non-copyable 类型与自动 drop 支持
-// 落地后移除或替换为规范的 drop 语义。当前仅用于验证 lowering 错误路径会
-// 触发输入计划清理。
+// bring-up 计数器用于验证 lowering 与自动 drop；Pipeline executor 落地后由实际
+// plan 资源释放取代计数器主体。
 var _pipeline_drop_count: u64 = 0;
 
 /// 返回 pipeline_drop 被调用的次数（interim 测试钩子）。
@@ -26,8 +27,7 @@ export fn reset_pipeline_drop_count() void {
     _pipeline_drop_count = 0;
 }
 
-/// 显式释放输入 pipeline 计划（interim 清理钩子）。
-/// 真正的自动 drop 支持落地后， lowering 应改调用 Pipeline.drop 而不是此函数。
+/// 释放 lowering 错误路径已经消费的 pipeline 计划。
 export fn pipeline_drop(input: Pipeline) void {
     _pipeline_drop_count = _pipeline_drop_count + 1;
     _ = input;

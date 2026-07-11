@@ -1,4 +1,4 @@
-# Uya 语言规范 0.49.52（完整版 · 2026-06-29）
+# Uya 语言规范 0.49.53（完整版 · 2026-07-11）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -53,6 +53,12 @@
 ---
 
 ## 规范变更
+
+### 0.49.53（2026-07-11）
+
+- **opaque struct**：新增 `opaque` 关键字与 `export opaque struct Name { ... }` 声明。字段和结构体字面量构造仅声明文件可见；外部代码只能通过公开 API 借用或移动该值。
+- **不可复制资源类型**：opaque struct 沿用按值移动检查，移动后再次使用会在原始使用位置诊断；具有 `drop` 方法的未移动值在离开作用域时自动清理。
+- **后端覆盖**：C99、exec lowering 与 exec VM 共用普通 struct 布局，但不透明性和移动约束由 checker 强制执行。
 
 ### 0.49.52（2026-06-29）
 
@@ -817,6 +823,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 - **FFI 导出**：
   - `export extern` 或 `extern export` 用于导出 C FFI 函数：`export extern printf(fmt: *byte, ...) i32;` 或 `extern export printf(fmt: *byte, ...) i32;`（两种顺序等价）
   - `export struct` 用于导出结构体：`export struct MyStruct { field1: i32, field2: f64 }`
+  - `export opaque struct` 用于导出不透明、不可复制的资源类型。字段仅声明文件可见；外部代码不能使用结构体字面量构造或直接访问字段，只能通过公开函数移动值或借用引用。具有 `drop` 方法时，未移动值离开作用域会自动清理。
   - **统一标准**：
     - 所有结构体统一使用 C 内存布局，支持所有类型（包括切片、interface 等）
     - 导出的结构体可以直接与 C 代码互操作

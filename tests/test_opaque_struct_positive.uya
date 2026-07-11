@@ -1,0 +1,16 @@
+use opaque_fixture.box;
+use std.testing.assert_eq_i32;
+
+test "opaque_struct_public_api" {
+    const value: OpaqueBox = make_box(42);
+    try assert_eq_i32(box_value(&value), 42);
+}
+
+test "opaque_struct_auto_drop" {
+    reset_box_drop_count();
+    {
+        const value: OpaqueBox = make_box(7);
+        try assert_eq_i32(box_value(&value), 7);
+    }
+    try assert_eq_i32(box_drop_count(), 1);
+}

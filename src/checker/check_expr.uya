@@ -3618,6 +3618,13 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         return make_void_type();
     }
+
+    if struct_decl.struct_decl_is_opaque != 0 &&
+        (expr.filename == null || struct_decl.filename == null ||
+         str_equals(expr.filename, struct_decl.filename) == 0) {
+        checker_report_error(checker, expr, "opaque struct 的字段在声明模块外不可见" as *byte);
+        return make_void_type();
+    }
     
     // 查找字段类型
     var field_type: Type = make_void_type();

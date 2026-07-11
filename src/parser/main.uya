@@ -740,6 +740,17 @@ fn parser_parse_declaration(parser: &Parser) &ASTNode {
         is_export = 1;
         parser_consume(parser);
     }
+
+    // opaque 是 struct 的声明属性：export opaque struct Name { ... }
+    var is_opaque: i32 = 0;
+    if parser_match(parser, TokenType.TOKEN_OPAQUE) != 0 {
+        is_opaque = 1;
+        parser_consume(parser);
+        if parser_match(parser, TokenType.TOKEN_STRUCT) == 0 {
+            fprintf(libc.stderr, "错误: opaque 后必须跟着 struct 关键字\n" as *byte);
+            return null;
+        }
+    }
     
     // 检查 @align(N) 函数属性
     var align_val: i32 = 0;
@@ -851,8 +862,11 @@ fn parser_parse_declaration(parser: &Parser) &ASTNode {
         return decl;
     } else if parser_match(parser, TokenType.TOKEN_STRUCT) != 0 {
         const decl: &ASTNode = parser_parse_struct(parser);
-        if decl != null && is_export != 0 {
-            decl.struct_decl_is_export = 1;
+        if decl != null {
+            if is_export != 0 {
+                decl.struct_decl_is_export = 1;
+            }
+            decl.struct_decl_is_opaque = is_opaque;
         }
         return decl;
     } else if parser_match(parser, TokenType.TOKEN_UNION) != 0 {

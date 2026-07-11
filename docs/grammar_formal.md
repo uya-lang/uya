@@ -1,6 +1,6 @@
 # Uya 语言正式语法规范（Formal BNF）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.52 同步（2026-06-29）
+> **版本**：与 [uya.md](./uya.md) 0.49.53 同步（2026-07-11）
 
 本文档包含 Uya 语言的完整、无歧义的 BNF 语法定义，用于：
 - 编译器/解析器实现
@@ -51,7 +51,7 @@ constraint_list = ID { '+' ID }
 ### 结构体声明
 
 ```
-struct_decl    = 'struct' ID [ '<' type_param_list '>' ] [ ':' interface_list ] '{' struct_body '}'
+struct_decl    = [ 'opaque' ] 'struct' ID [ '<' type_param_list '>' ] [ ':' interface_list ] '{' struct_body '}'
 interface_list = ID { ',' ID }
 struct_body    = ( field_list | method_list | field_list method_list )
 field_list     = field { ',' field }

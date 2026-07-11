@@ -2,7 +2,7 @@
 
 > **用途**：指导模型编写可编译的 Uya，减少与其它语言混淆与臆造语法。  
 > **自包含**：下文已写入常用规则；**不**再依赖任何外部说明文件。  
-> **语言版本**：**0.49.50** · 更新 **2026-05-14**（与 [uya.md](./uya.md) 主规范同步；新增 `@error_name(err)` 返回语言级错误名字符串，未知或 `@syscall` 错误回退 `UnknownError`）
+> **语言版本**：**0.49.53** · 更新 **2026-07-11**（与 [uya.md](./uya.md) 主规范同步；新增 `export opaque struct` 的字段隐藏、移动与自动 drop 规则）
 
 ---
 
@@ -32,7 +32,7 @@
 
 ## 3. 关键字与模块
 
-**关键字**（词法层保留）：`enum` `struct` `const` `var` `fn` `return` `extern` `true` `false` `if` `else` `while` `for` `break` `continue` `match` `defer` `errdefer` `try` `catch` `error` `null` `interface` `atomic` `union` `export` `use` `type` `mc` `test` `as`。另：**`as!`** 为独立词法单元（强转），勿拆成 `as` 与 `!`。
+**关键字**（词法层保留）：`enum` `struct` `opaque` `const` `var` `fn` `return` `extern` `true` `false` `if` `else` `while` `for` `break` `continue` `match` `defer` `errdefer` `try` `catch` `error` `null` `interface` `atomic` `union` `export` `use` `type` `mc` `test` `as`。另：**`as!`** 为独立词法单元（强转），勿拆成 `as` 与 `!`。
 
 **类型名**（非上表关键字，出现在类型位置）：`bool` `byte` `void` `i8`…`i64` `u8`…`u64` `usize` `f32` `f64`；以及自定义 `struct`/`enum`/`union`/`interface` 名、泛型实参等。勿把「类型名」误记成可当作普通变量名的关键字。
 

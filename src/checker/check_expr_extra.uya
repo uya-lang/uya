@@ -389,6 +389,13 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
         // 这在编译器自举时很常见，因为结构体可能尚未定义或存在前向引用
         return make_named_type(TypeKind.TYPE_STRUCT, struct_name);
     }
+
+    if struct_decl.struct_decl_is_opaque != 0 &&
+        (node.filename == null || struct_decl.filename == null ||
+         str_equals(node.filename, struct_decl.filename) == 0) {
+        checker_report_error(checker, node, "opaque struct 只能由其声明模块构造" as *byte);
+        return result;
+    }
     
     // 检查字段数量和类型
     if node.struct_init_field_count != struct_decl.struct_decl_field_count {

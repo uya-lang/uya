@@ -4,35 +4,44 @@
 use std.process;
 use std.testing.assert_eq_u64;
 
+var stage_value: usize = 0;
+
 fn inc(p: Pipeline) Pipeline {
-    return Pipeline { handle: p.handle + 1, generation: 0 };
+    stage_value = stage_value + 1;
+    return p;
 }
 
 fn add(p: Pipeline, n: usize) Pipeline {
-    return Pipeline { handle: p.handle + n, generation: 0 };
+    stage_value = stage_value + n;
+    return p;
 }
 
 fn value(p: Pipeline) u64 {
-    return p.handle as u64;
+    _ = p;
+    return stage_value as u64;
 }
 
 test "pipeline_lowering_single_transformer" {
+    stage_value = 0;
     const v: u64 = pipeline() |> inc() |> value();
     try assert_eq_u64(v, 1);
 }
 
 test "pipeline_lowering_multi_transformer" {
+    stage_value = 0;
     const v: u64 = pipeline() |> inc() |> add(2) |> value();
     try assert_eq_u64(v, 3);
 }
 
 test "pipeline_lowering_variable_lhs" {
+    stage_value = 0;
     const p: Pipeline = pipeline();
     const v: u64 = p |> inc() |> add(5) |> value();
     try assert_eq_u64(v, 6);
 }
 
 test "pipeline_lowering_returns_pipeline" {
+    stage_value = 0;
     // 最终 stage 仍是 transformer：整条表达式返回 Pipeline，验证单一临时变量正确传值。
     const p: Pipeline = pipeline() |> inc() |> add(2);
     const v: u64 = value(p);
@@ -40,6 +49,7 @@ test "pipeline_lowering_returns_pipeline" {
 }
 
 test "pipeline_lowering_long_chain" {
+    stage_value = 0;
     const v: u64 = pipeline() |> inc() |> inc() |> add(3) |> add(2) |> value();
     try assert_eq_u64(v, 7);
 }

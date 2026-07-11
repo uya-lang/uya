@@ -1,0 +1,7 @@
+use opaque_fixture.box;
+
+fn main() i32 {
+    const value: OpaqueBox = OpaqueBox { value: 1 };
+    _ = value;
+    return 0;
+}
