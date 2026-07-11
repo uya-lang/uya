@@ -74,6 +74,7 @@ extern fn tcsetpgrp(fd: i32, pgid: i32) i32;
 extern fn getpgrp() i32;
 extern fn sched_yield() i32;
 extern fn getpgid(pid: i32) i32;
+extern fn __errno_location() &i32;
 extern fn sigaction(signum: i32, action: &const PipelineSigaction, old_action: &PipelineSigaction) i32;
 
 export error InvalidPipeline;
@@ -246,6 +247,23 @@ struct PipelineSigaction {
     padding: i32,
     restorer: &void,
 }
+
+struct PipelineStartupRecord {
+    kind: i32,
+    phase: i32,
+    platform_code: i32,
+}
+
+const PIPELINE_STARTUP_READY: i32 = 1;
+const PIPELINE_STARTUP_FAILED: i32 = 2;
+const PIPELINE_PHASE_SIGNAL_SETUP: i32 = 1;
+const PIPELINE_PHASE_SETPGID: i32 = 2;
+const PIPELINE_PHASE_BARRIER: i32 = 3;
+const PIPELINE_PHASE_CHDIR: i32 = 4;
+const PIPELINE_PHASE_STDIN: i32 = 5;
+const PIPELINE_PHASE_STDOUT: i32 = 6;
+const PIPELINE_PHASE_STDERR: i32 = 7;
+const PIPELINE_PHASE_EXEC: i32 = 8;
 
 struct PipelineEnvAllocator : IAllocator {
     inner: &MallocAllocator,
@@ -1487,6 +1505,55 @@ fn pipeline_write_control_token(fd: i32, token: byte) !void {
     if write_error != 0 { return error.PipelineIoError; }
 }
 
+fn pipeline_errno_value() i32 {
+    const location: &i32 = __errno_location();
+    if location == null { return 0; }
+    return location[0];
+}
+
+fn pipeline_child_write_startup(fd: i32, kind: i32, phase: i32, platform_code: i32) i32 {
+    const record: PipelineStartupRecord = PipelineStartupRecord {
+        kind: kind, phase: phase, platform_code: platform_code,
+    };
+    if write(fd, &record as &const byte, @size_of(PipelineStartupRecord)) !=
+        @size_of(PipelineStartupRecord) as i64 { return 0 - 1; }
+    return 0;
+}
+
+fn pipeline_child_fail_startup(fd: i32, phase: i32, platform_code: i32) void {
+    _ = pipeline_child_write_startup(fd, PIPELINE_STARTUP_FAILED, phase, platform_code);
+    _exit(123);
+}
+
+fn pipeline_read_startup_record(fd: i32, record: &PipelineStartupRecord) !i32 {
+    if record == null { return error.PipelineIoError; }
+    var received: usize = 0usize;
+    while received < @size_of(PipelineStartupRecord) {
+        const target: &byte = @ptr_from_usize(@usize_from_ptr(record as &void) + received) as &byte;
+        const read_count: i64 = read(fd, target, @size_of(PipelineStartupRecord) - received);
+        if read_count == 0i64 {
+            if received == 0usize { return 0; }
+            return error.PipelineIoError;
+        }
+        if read_count < 0i64 {
+            if pipeline_errno_value() == EINTR { continue; }
+            return error.PipelineIoError;
+        }
+        received = received + read_count as usize;
+    }
+    return 1;
+}
+
+fn pipeline_spawn_failure_for_phase(phase: i32) PipelineSpawnFailureKind {
+    if phase == PIPELINE_PHASE_SIGNAL_SETUP || phase == PIPELINE_PHASE_SETPGID ||
+        phase == PIPELINE_PHASE_BARRIER { return PipelineSpawnFailureKind.execution_domain_failed; }
+    if phase == PIPELINE_PHASE_CHDIR { return PipelineSpawnFailureKind.cwd_unavailable; }
+    if phase == PIPELINE_PHASE_STDIN || phase == PIPELINE_PHASE_STDOUT ||
+        phase == PIPELINE_PHASE_STDERR { return PipelineSpawnFailureKind.stdio_setup_failed; }
+    if phase == PIPELINE_PHASE_EXEC { return PipelineSpawnFailureKind.exec_failed; }
+    return PipelineSpawnFailureKind.platform_error;
+}
+
 fn pipeline_tcsetpgrp(fd: i32, pgid: i32) !void {
     var signal_set: sigset_t = sigset_t {};
     var old_set: sigset_t = sigset_t {};
@@ -1775,15 +1842,13 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         }
         if pid == 0 {
             if pipeline_child_signal_setup(&sink_thread_mask) != 0 {
-                const signal_failed: byte = 83 as byte;
-                _ = write(report_fds[i * 2usize + 1usize], &signal_failed, 1usize);
-                _exit(123);
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                    PIPELINE_PHASE_SIGNAL_SETUP, pipeline_errno_value());
             }
             const child_pgid: i32 = pipeline_pgid;
             if setpgid(0, child_pgid) != 0 {
-                const failed: byte = 70 as byte;
-                _ = write(report_fds[i * 2usize + 1usize], &failed, 1usize);
-                _exit(123);
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                    PIPELINE_PHASE_SETPGID, pipeline_errno_value());
             }
             var ci: usize = 0usize;
             while ci < count {
@@ -1795,15 +1860,31 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                 }
                 ci = ci + 1usize;
             }
-            if i > 0usize && dup2(pipe_fds[(i - 1usize) * 2usize], 0) < 0 { _exit(124); }
-            if i + 1usize < count && dup2(pipe_fds[i * 2usize + 1usize], 1) < 0 { _exit(124); }
-            if i == 0usize && stdin_fd >= 0 && dup2(stdin_fd, 0) < 0 { _exit(124); }
-            if i + 1usize == count && stdout_fd >= 0 && dup2(stdout_fd, 1) < 0 { _exit(124); }
-            if i + 1usize == count && stdout_capture_fds[1] >= 0 && dup2(stdout_capture_fds[1], 1) < 0 { _exit(124); }
-            if stderr_fd >= 0 && dup2(stderr_fd, 2) < 0 { _exit(124); }
-            if stderr_capture_fds[1] >= 0 && dup2(stderr_capture_fds[1], 2) < 0 { _exit(124); }
+            if i > 0usize && dup2(pipe_fds[(i - 1usize) * 2usize], 0) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDIN, pipeline_errno_value());
+            }
+            if i + 1usize < count && dup2(pipe_fds[i * 2usize + 1usize], 1) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDOUT, pipeline_errno_value());
+            }
+            if i == 0usize && stdin_fd >= 0 && dup2(stdin_fd, 0) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDIN, pipeline_errno_value());
+            }
+            if i + 1usize == count && stdout_fd >= 0 && dup2(stdout_fd, 1) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDOUT, pipeline_errno_value());
+            }
+            if i + 1usize == count && stdout_capture_fds[1] >= 0 && dup2(stdout_capture_fds[1], 1) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDOUT, pipeline_errno_value());
+            }
+            if stderr_fd >= 0 && dup2(stderr_fd, 2) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDERR, pipeline_errno_value());
+            }
+            if stderr_capture_fds[1] >= 0 && dup2(stderr_capture_fds[1], 2) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDERR, pipeline_errno_value());
+            }
             if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.merge_stdout &&
-                dup2(1, 2) < 0 { _exit(124); }
+                dup2(1, 2) < 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize], PIPELINE_PHASE_STDERR, pipeline_errno_value());
+            }
             var pc: usize = 0usize;
             while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
             if stdin_fd >= 0 { _ = close(stdin_fd); }
@@ -1811,14 +1892,21 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_fd >= 0 { _ = close(stderr_fd); }
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
-            const ready: byte = 82 as byte;
-            if write(report_fds[i * 2usize + 1usize], &ready, 1usize) != 1i64 { _exit(123); }
+            if pipeline_child_write_startup(report_fds[i * 2usize + 1usize],
+                PIPELINE_STARTUP_READY, 0, 0) != 0 { _exit(123); }
             var launch: byte = 0 as byte;
-            if read(launch_fds[i * 2usize], &launch, 1usize) != 1i64 || launch != 71 as byte { _exit(123); }
+            if read(launch_fds[i * 2usize], &launch, 1usize) != 1i64 || launch != 71 as byte {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                    PIPELINE_PHASE_BARRIER, pipeline_errno_value());
+            }
             _ = close(launch_fds[i * 2usize]);
-            if chdir(stage.cwd) != 0 { _exit(125); }
+            if chdir(stage.cwd) != 0 {
+                pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                    PIPELINE_PHASE_CHDIR, pipeline_errno_value());
+            }
             _ = execve(stage.exec_path, stage.argv, stage.envp);
-            _exit(126);
+            pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                PIPELINE_PHASE_EXEC, pipeline_errno_value());
         }
         if pipeline_pgid == 0 { pipeline_pgid = pid; }
         if setpgid(pid, pipeline_pgid) != 0 {
@@ -1843,14 +1931,23 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     if stderr_capture_fds[1] >= 0 { _ = close(stderr_capture_fds[1]); stderr_capture_fds[1] = 0 - 1; }
     i = 0usize;
     while i < count {
-        var report: byte = 0 as byte;
-        if read(report_fds[i * 2usize], &report, 1usize) != 1i64 || report != 82 as byte {
+        var report: PipelineStartupRecord = PipelineStartupRecord {};
+        const received: !i32 = pipeline_read_startup_record(report_fds[i * 2usize], &report);
+        const record_state: i32 = received catch {
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            return error.PipelineIoError;
+        };
+        if record_state != 1 || report.kind != PIPELINE_STARTUP_READY {
+            if record_state == 1 && report.kind == PIPELINE_STARTUP_FAILED {
+                statuses[i].kind = PipelineStageStatusKind.spawn_failed;
+                statuses[i].spawn_failure = pipeline_spawn_failure_for_phase(report.phase);
+                statuses[i].platform_code = report.platform_code as u32;
+            }
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineSpawnFailed;
         }
-        _ = close(report_fds[i * 2usize]);
-        report_fds[i * 2usize] = 0 - 1;
         i = i + 1usize;
     }
     if foreground_fd >= 0 && saved_foreground_pgid > 0 {
@@ -1872,6 +1969,29 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         };
         _ = close(launch_fds[i * 2usize + 1usize]);
         launch_fds[i * 2usize + 1usize] = 0 - 1;
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < count {
+        var diagnostic: PipelineStartupRecord = PipelineStartupRecord {};
+        const received: !i32 = pipeline_read_startup_record(report_fds[i * 2usize], &diagnostic);
+        const state: i32 = received catch {
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            return error.PipelineIoError;
+        };
+        _ = close(report_fds[i * 2usize]);
+        report_fds[i * 2usize] = 0 - 1;
+        if state != 0 {
+            if state == 1 && diagnostic.kind == PIPELINE_STARTUP_FAILED {
+                statuses[i].kind = PipelineStageStatusKind.spawn_failed;
+                statuses[i].spawn_failure = pipeline_spawn_failure_for_phase(diagnostic.phase);
+                statuses[i].platform_code = diagnostic.platform_code as u32;
+            }
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            return error.PipelineSpawnFailed;
+        }
         i = i + 1usize;
     }
     if capture != null {

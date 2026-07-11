@@ -193,3 +193,17 @@ test "pipeline_stopped_child_is_cancelled_without_hanging" {
     _ = executed catch {};
     try assert_eq_i32(executed.error_id as i32, @error_id(error.Interrupted) as i32);
 }
+
+test "pipeline_child_exec_failure_reports_phase_and_platform_code" {
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/tmp", &no_args_values[0:0]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(command, &statuses_storage[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineSpawnFailed) as i32);
+    try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.spawn_failed as i32);
+    try assert_eq_i32(statuses_storage[0].spawn_failure as i32,
+        PipelineSpawnFailureKind.exec_failed as i32);
+    try assert_eq_bool(statuses_storage[0].platform_code > 0u32, true);
+}
