@@ -40,8 +40,8 @@
 - [x] 添加 cwd override 存储。
 - [x] 添加 env overlay 存储。
 - [x] sink 开始时捕获一次 canonical base env；为每个 stage 按顺序应用 overlay/remove，并让 PATH helper 与 spawn 共用同一 env block。
-- [~] `env` / `unset_env` 复用 `EnvInvalidName` / `EnvInvalidValue` 校验，计划保存 key/value 副本。
-- [ ] 添加 stage-local modifier 校验：`cwd/env/unset_env` 只能作用于最近 process stage。
+- [x] `env` / `unset_env` 复用 `EnvInvalidName` / `EnvInvalidValue` 校验，计划保存 key/value 副本。
+- [~] 添加 stage-local modifier 校验：`cwd/env/unset_env` 只能作用于最近 process stage。
 - [ ] 添加 stream policy 存储：
   - [ ] stdin unset/file/inherit
   - [ ] stdout unset/inherit/file/capture
