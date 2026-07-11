@@ -8,6 +8,9 @@ use std.env.env_key_valid;
 use std.mem.allocator.IAllocator;
 use std.mem.allocator.MallocAllocator;
 use std.mem.allocator.get_allocator;
+use std.path.is_abs;
+use std.path.join;
+use libc.getcwd;
 
 export error InvalidPipeline;
 
@@ -100,6 +103,10 @@ struct PipelineEnvOp {
 struct PipelineExecutionStage {
     exec_path: &byte,
     cwd: &byte,
+}
+
+struct PipelineCwdSnapshot {
+    base: &byte,
 }
 
 enum PipelineStdinPolicyKind {
@@ -282,6 +289,68 @@ fn pipeline_owned_c_string(value: &const byte) !&byte {
     const out: &byte = raw as &byte;
     _ = memcpy(out as &void, value as &const void, len + 1usize);
     return out;
+}
+
+fn pipeline_c_string_len(value: &const byte) usize {
+    if value == null { return 0usize; }
+    var len: usize = 0usize;
+    while value[len] != 0 as byte { len = len + 1usize; }
+    return len;
+}
+
+fn pipeline_cwd_snapshot_from(base: &const byte) !PipelineCwdSnapshot {
+    return PipelineCwdSnapshot { base: try pipeline_owned_c_string(base) };
+}
+
+fn pipeline_cwd_snapshot_capture() !PipelineCwdSnapshot {
+    const raw: &void = malloc(4096usize);
+    if raw == null { return error.InvalidPipeline; }
+    const buffer: &byte = raw as &byte;
+    if getcwd(buffer, 4096usize) == null {
+        free(raw);
+        return error.InvalidPipeline;
+    }
+    return PipelineCwdSnapshot { base: buffer };
+}
+
+fn pipeline_cwd_snapshot_deinit(snapshot: &PipelineCwdSnapshot) void {
+    if snapshot != null && snapshot.base != null {
+        free(snapshot.base as &void);
+        snapshot.base = null as &byte;
+    }
+}
+
+fn pipeline_join_owned(base: &const byte, child: &const byte) !&byte {
+    const cap: usize = pipeline_c_string_len(base) + pipeline_c_string_len(child) + 2usize;
+    const raw: &void = malloc(cap);
+    if raw == null { return error.InvalidPipeline; }
+    const out: &byte = raw as &byte;
+    if join(base, child, out, cap) != 0 {
+        free(raw);
+        return error.InvalidPipeline;
+    }
+    return out;
+}
+
+fn pipeline_resolve_sink_path(snapshot: &PipelineCwdSnapshot, stage_cwd: &const byte, path: &const byte) !&byte {
+    if snapshot == null || snapshot.base == null || path == null {
+        return error.InvalidPipeline;
+    }
+    var final_cwd: &byte = null as &byte;
+    if stage_cwd == null {
+        final_cwd = try pipeline_owned_c_string(snapshot.base);
+    } else if is_abs(stage_cwd) {
+        final_cwd = try pipeline_owned_c_string(stage_cwd);
+    } else {
+        final_cwd = try pipeline_join_owned(snapshot.base, stage_cwd);
+    }
+    if is_abs(path) {
+        free(final_cwd as &void);
+        return pipeline_owned_c_string(path);
+    }
+    const result: !&byte = pipeline_join_owned(final_cwd, path);
+    free(final_cwd as &void);
+    return result;
 }
 
 fn pipeline_c_string_equals(left: &const byte, right: &const byte) i32 {
@@ -923,6 +992,24 @@ export fn pipeline_capability_self_test() !void {
         return error.InvalidPipeline;
     }
     pipeline_execution_stage_deinit(&planned_execution);
+    var cwd_snapshot: PipelineCwdSnapshot = try pipeline_cwd_snapshot_from("/sink/base");
+    const resolved_command: &byte = try pipeline_resolve_sink_path(&cwd_snapshot,
+        _pipeline_process_stages[owned_stage_idx].cwd, "tool");
+    const resolved_stream: &byte = try pipeline_resolve_sink_path(&cwd_snapshot,
+        _pipeline_process_stages[owned_stage_idx].cwd, "output.txt");
+    if pipeline_c_string_equals(resolved_command, "/sink/base/build/work/tool") == 0 ||
+        pipeline_c_string_equals(resolved_stream, "/sink/base/build/work/output.txt") == 0 {
+        free(resolved_command as &void);
+        free(resolved_stream as &void);
+        pipeline_cwd_snapshot_deinit(&cwd_snapshot);
+        return error.InvalidPipeline;
+    }
+    free(resolved_command as &void);
+    free(resolved_stream as &void);
+    pipeline_cwd_snapshot_deinit(&cwd_snapshot);
+    var captured_cwd: PipelineCwdSnapshot = try pipeline_cwd_snapshot_capture();
+    if captured_cwd.base == null { return error.InvalidPipeline; }
+    pipeline_cwd_snapshot_deinit(&captured_cwd);
     try pipeline_registry_append_last_stage_env(&first, "MODE", "debug", 0);
     try pipeline_registry_append_last_stage_env(&first, "OLD_MODE", null, 1);
     if _pipeline_process_stages[owned_stage_idx].env_op_count != 2usize ||
