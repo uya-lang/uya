@@ -101,8 +101,8 @@
 - [x] 实现 checked sink 的 pipefail 行为。
 - [x] `check_into` 在返回 `error.ProcessFailed` 或 `error.PipelineSpawnFailed` 前写入完整 `PipelineResult`。
 - [x] 将 `status_into()` 实现为观察型 sink：非零退出、signal、启动失败不失败。
-- [~] 将 `capture_into()` / `capture_limit_into()` 实现为观察型 sink：非零退出、signal、启动失败不失败且结果包含 `PipelineResult`。
-- [ ] observing capture 在预检 spawn failure 时仍对启用流返回 `captured=true, byte_count=0, complete=false`；部分启动取消只在实际观察到 EOF 时返回 `complete=true`。
+- [x] 将 `capture_into()` / `capture_limit_into()` 实现为观察型 sink：非零退出、signal、启动失败不失败且结果包含 `PipelineResult`。
+- [~] observing capture 在预检 spawn failure 时仍对启用流返回 `captured=true, byte_count=0, complete=false`；部分启动取消只在实际观察到 EOF 时返回 `complete=true`。
 - [ ] 实现有界 stdout/stderr capture。
 - [ ] capture 达到有效上限时使用一字节 scratch probe，覆盖 0 容量以及 exact N / N+1 输出，不能因剩余容量为 0 停止读取并死锁。
 - [ ] event loop 在取消前锁存 terminal cause；同批次 interruption/stopped 优先，后续 cleanup signal 不覆盖已经锁存的 capture/基础设施错误。

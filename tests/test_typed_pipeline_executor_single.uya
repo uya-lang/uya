@@ -256,3 +256,19 @@ test "pipeline_status_sink_observes_signal_without_error" {
     try status_into(command, &statuses_storage[0:1], &result);
     try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.signaled as i32);
 }
+
+test "pipeline_capture_sink_observes_spawn_failure_without_error" {
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_argv(pipeline(), "uya-capture-missing-command", &no_args_values[0:0]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var stdout_storage: [byte: 8] = [];
+    var stderr_storage: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_into(command, &statuses_storage[0:1], &stdout_storage[0:8],
+        &stderr_storage[0:0], &result);
+    try assert_eq_i32(result.result.stage_count as i32, 1);
+    try assert_eq_bool(result.stdout.captured, true);
+    try assert_eq_i32(result.stdout.byte_count as i32, 0);
+    try assert_eq_bool(result.stdout.complete, false);
+    try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.spawn_failed as i32);
+}

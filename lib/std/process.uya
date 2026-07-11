@@ -2524,10 +2524,21 @@ fn pipeline_capture_into_impl(input: Pipeline, max_bytes: usize, statuses: &[Pip
     };
     const executed: !void = pipeline_execute_basic(&input, statuses, &result.result, false, &capture);
     _ = executed catch {
+        if executed.error_id == @error_id(error.PipelineSpawnFailed) {
+            result.stdout.captured = true;
+            result.stdout.byte_count = capture.stdout_count;
+            result.stdout.complete = false;
+            result.stderr.captured = capture.capture_stderr;
+            result.stderr.byte_count = capture.stderr_count;
+            result.stderr.complete = false;
+            return;
+        }
         pipeline_reset_capture_result(result);
         if executed.error_id == @error_id(error.CaptureLimitExceeded) {
             return error.CaptureLimitExceeded;
         }
+        if executed.error_id == @error_id(error.Interrupted) { return error.Interrupted; }
+        if executed.error_id == @error_id(error.InvalidPipeline) { return error.InvalidPipeline; }
         return error.PipelineIoError;
     };
     result.stdout.captured = true;
