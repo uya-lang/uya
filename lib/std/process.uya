@@ -2638,6 +2638,15 @@ export fn inherit_stdio(input: Pipeline) !Pipeline {
     return input;
 }
 
+fn pipeline_preflight_non_capture_sink(input: &Pipeline) !void {
+    const slot_idx: usize = try pipeline_registry_slot_index(input);
+    if slot_idx >= PIPELINE_REGISTRY_CAPACITY ||
+        _pipeline_stream_policies[slot_idx].stdout_kind == PipelineStdoutPolicyKind.capture ||
+        _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.capture {
+        return error.InvalidPipeline;
+    }
+}
+
 /// 执行 pipeline，并按 pipefail 语义要求所有 process stage 成功。
 /// 参数：input 为按值消费的 pipeline。
 /// 返回：成功无返回值；启动失败或非零退出返回对应错误。
@@ -2645,6 +2654,7 @@ export fn check(input: Pipeline) !void {
     var statuses_storage: [PipelineStageStatus: 32] = [];
     const statuses: &[PipelineStageStatus] = &statuses_storage[0:32];
     var result: PipelineResult = PipelineResult { stage_count: 0usize };
+    try pipeline_preflight_non_capture_sink(&input);
     try pipeline_execute_basic(&input, statuses, &result, true, null);
 }
 
@@ -2654,6 +2664,7 @@ export fn check(input: Pipeline) !void {
 export fn check_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void {
     pipeline_reset_result(result);
     try pipeline_preflight_status_regions(statuses, result);
+    try pipeline_preflight_non_capture_sink(&input);
     try pipeline_execute_basic(&input, statuses, result, true, null);
 }
 
@@ -2663,6 +2674,7 @@ export fn check_into(input: Pipeline, statuses: &[PipelineStageStatus], result: 
 export fn status_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void {
     pipeline_reset_result(result);
     try pipeline_preflight_status_regions(statuses, result);
+    try pipeline_preflight_non_capture_sink(&input);
     const executed: !void = pipeline_execute_basic(&input, statuses, result, false, null);
     _ = executed catch {
         if executed.error_id == @error_id(error.PipelineSpawnFailed) { return; }

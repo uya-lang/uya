@@ -162,6 +162,21 @@ test "pipeline_stderr_capture_drains_separate_stream" {
     try assert_eq_bool(result.stderr.complete, true);
 }
 
+test "pipeline_stderr_capture_conflicts_with_status_sink_before_start" {
+    const marker: &const byte = "/tmp/uya_typed_pipeline_status_conflict_marker";
+    _ = unlink(marker);
+    const shell_values: [&const byte: 2] = ["-c",
+        "touch /tmp/uya_typed_pipeline_status_conflict_marker"];
+    const command: Pipeline = try stderr_capture(
+        try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]));
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    const observed: !void = status_into(command, &statuses_storage[0:1], &result);
+    _ = observed catch {};
+    try assert_eq_i32(observed.error_id as i32, @error_id(error.InvalidPipeline) as i32);
+    try assert_eq_i32(access(marker, F_OK), 0 - 1);
+}
+
 test "pipeline_stderr_to_stdout_merge_uses_stdout_policy" {
     const shell_values: [&const byte: 2] = ["-c", "printf out; printf err >&2"];
     const command: Pipeline = try stderr_to_stdout(
