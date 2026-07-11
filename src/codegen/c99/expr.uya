@@ -416,8 +416,14 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
 }
 
 // 将管道表达式 `lhs |> f(args...)` 降低为普通调用和临时变量。
-// 对链式 pipeline 生成扁平的 C99 语句表达式：
-//   ({ TYPE __uya_pipe_tmp_0 = (lhs); TYPE __uya_pipe_tmp_1 = f1(tmp_0, ...); ... fn(tmp_{n-1}, ...); })
+// 对链式 pipeline 生成扁平的 C99 语句表达式，并复用同一个 Pipeline 临时变量：
+//   ({ TYPE __uya_pipe_tmp_N = (lhs);
+//      __uya_pipe_tmp_N = f1(__uya_pipe_tmp_N, ...);
+//      __uya_pipe_tmp_N = f2(__uya_pipe_tmp_N, ...);
+//      ...
+//      sink(__uya_pipe_tmp_N, ...); })
+// 复用单一临时变量可在 C99 层面更接近 move-only 语义：每个 transformer 消费并覆盖
+// 同一份 Pipeline 存储，避免在语句表达式中遗留多个持有已消费 capability 的副本。
 // 仅处理左侧为普通 Pipeline 的场景；!Pipeline 的 try-forward 留在后续任务。
 fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if codegen == null || expr == null || expr.type != ASTNodeType.AST_PIPELINE_EXPR {
@@ -452,87 +458,72 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
 
     const stream: &void = codegen.emit_stream as &void;
     const base_temp_id: i32 = codegen.pipeline_temp_counter;
-    codegen.pipeline_temp_counter = base_temp_id + chain_len;
+    codegen.pipeline_temp_counter = base_temp_id + 1;
     var tmp_buf: [byte: 64] = [];
 
     fputs("({ " as *byte, stream);
 
-    // 2. 生成最左侧临时变量：TYPE tmp_0 = (leftmost);
+    // 2. 生成唯一的 Pipeline 临时变量：TYPE __uya_pipe_tmp_N = (leftmost);
     // 最左侧若是已被 checker 标记 moved 的变量，checker_infer_type 在 codegen 阶段会失败；
     // 对标识符优先从 codegen 的局部/参数/声明类型节点查找，绕过 checker 的 moved 状态。
-    var tmp0_type_c: &byte = null;
+    var pipe_type_c: &byte = null;
     if leftmost.type == ASTNodeType.AST_IDENTIFIER && leftmost.identifier_name != null {
         const type_node: &ASTNode = c99_find_identifier_type_node(codegen, leftmost.identifier_name);
         if type_node != null {
-            tmp0_type_c = c99_type_to_c(codegen, type_node);
+            pipe_type_c = c99_type_to_c(codegen, type_node);
         }
     }
-    if tmp0_type_c == null {
+    if pipe_type_c == null {
         const leftmost_type: Type = checker_infer_type_bypass_moved(codegen.checker, leftmost);
         if leftmost_type.kind != TypeKind.TYPE_STRUCT {
             fputs("0; })" as *byte, stream);
             return;
         }
-        tmp0_type_c = c99_type_to_c_from_inferred_type(codegen, leftmost_type, expr.line, expr.column, expr.filename);
+        pipe_type_c = c99_type_to_c_from_inferred_type(codegen, leftmost_type, expr.line, expr.column, expr.filename);
     }
-    if tmp0_type_c == null {
+    if pipe_type_c == null {
         fputs("0; })" as *byte, stream);
         return;
     }
     _ = snprintf(&tmp_buf[0] as *byte, 64, "__uya_pipe_tmp_%d" as *byte, base_temp_id);
-    var prev_tmp_name: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
-    if prev_tmp_name == null {
+    const pipe_tmp_name: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
+    if pipe_tmp_name == null {
         fputs("0; })" as *byte, stream);
         return;
     }
-    fputs(tmp0_type_c as *byte, stream);
+    fputs(pipe_type_c as *byte, stream);
     fputc(32, stream);
-    fputs(prev_tmp_name as *byte, stream);
+    fputs(pipe_tmp_name as *byte, stream);
     fputs(" = " as *byte, stream);
     gen_expr(codegen, leftmost);
     fputs("; " as *byte, stream);
 
-    // 4. 生成中间 transformer 临时变量：每个 stage 的结果赋给新的临时变量。
-    var stage_i: i32 = 1;
-    while stage_i < chain_len {
-        const call_node: &ASTNode = calls[stage_i - 1];
+    // 3. 生成中间 transformer 调用：用返回值覆盖同一个临时变量，保持单一 Pipeline 所有者。
+    var stage_i: i32 = 0;
+    while stage_i < chain_len - 1 {
+        const call_node: &ASTNode = calls[stage_i];
         if call_node == null || call_node.type != ASTNodeType.AST_CALL_EXPR {
             fputs("0; })" as *byte, stream);
             return;
         }
 
-        const stage_type_c: &byte = c99_get_inferred_expr_type_c(codegen, call_node);
-        if stage_type_c == null {
-            fputs("0; })" as *byte, stream);
-            return;
-        }
-
-        _ = snprintf(&tmp_buf[0] as *byte, 64, "__uya_pipe_tmp_%d" as *byte, base_temp_id + stage_i);
-        const tmp_name_i: &byte = c99_arena_strdup(codegen.arena, &tmp_buf[0] as &byte);
-        if tmp_name_i == null {
-            fputs("0; })" as *byte, stream);
-            return;
-        }
-
-        fputs(stage_type_c as *byte, stream);
-        fputc(32, stream);
-        fputs(tmp_name_i as *byte, stream);
+        fputs(pipe_tmp_name as *byte, stream);
         fputs(" = " as *byte, stream);
-
-        gen_pipeline_synthetic_call(codegen, call_node, prev_tmp_name);
+        gen_pipeline_synthetic_call(codegen, call_node, pipe_tmp_name);
         fputs("; " as *byte, stream);
 
-        prev_tmp_name = tmp_name_i;
         stage_i = stage_i + 1;
     }
 
-    // 5. 生成最终 sink 调用：last_call(prev_tmp_name, args...)。
+    // 4. 生成最终调用：last_call(__uya_pipe_tmp_N, args...)。
+    // 最终调用可能是 sink（返回非 Pipeline）或 transformer（返回 Pipeline），
+    // 其返回值直接作为整个语句表达式的结果。
     const last_call: &ASTNode = calls[chain_len - 1];
     if last_call == null || last_call.type != ASTNodeType.AST_CALL_EXPR {
         fputs("0; })" as *byte, stream);
         return;
     }
-    gen_pipeline_synthetic_call(codegen, last_call, prev_tmp_name);
+    gen_pipeline_synthetic_call(codegen, last_call, pipe_tmp_name);
     fputs("; })" as *byte, stream);
 }
 

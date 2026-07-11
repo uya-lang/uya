@@ -766,6 +766,9 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             
             // 重置证明步数计数器（每个测试块独立计数）
             checker_reset_proof_steps(checker);
+            // 每个测试块都是独立作用域，清空移动状态，避免上一条测试的 moved 集合泄漏
+            checker.moved_count = 0;
+            checker.pipeline_chain_depth = 0;
             
             // 检查测试体中的语句
             const ret: i32 = checker_check_node(checker, node.test_stmt_body);

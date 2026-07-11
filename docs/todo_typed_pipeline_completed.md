@@ -456,3 +456,20 @@ make uya
   - 实现位置：`src/codegen/c99/expr.uya` 中 `gen_pipeline_expr` / `gen_pipeline_synthetic_call`。
   - 验证命令：`../uya/bin/uya test tests/test_typed_pipeline_lowering.uya`
   - 验证结果：3/3 测试通过（`pipeline_lowering_single_transformer`、`pipeline_lowering_multi_transformer`、`pipeline_lowering_variable_lhs`）。
+
+## 阶段 3：Lowering
+
+- [x] 保留 `Pipeline` 的移动语义。
+  - 实现要点：
+    - 修改 `src/codegen/c99/expr.uya` 中的 `gen_pipeline_expr`：对普通 `Pipeline` 链复用同一个 C99 临时变量 `__uya_pipe_tmp_N`，中间 transformer 通过 `__uya_pipe_tmp_N = f(__uya_pipe_tmp_N, ...)` 覆盖同一份存储，最终调用直接消费该变量。
+    - 这样避免语句表达式中残留多个持有已消费 capability 的 Pipeline 副本，使 lowering 在 C99 层面更接近 move-only 语义。
+    - 修复 checker 侧测试语句间移动状态泄漏：`src/checker/main.uya` 在检查 `AST_TEST_STMT` 时清空 `moved_count` 与 `pipeline_chain_depth`，防止上一条 `test` 的 moved 集合影响下一条测试。
+  - 测试更新：
+    - 在 `tests/test_typed_pipeline_lowering.uya` 中新增 `pipeline_lowering_returns_pipeline`（最终 stage 为 transformer，表达式返回 Pipeline）和 `pipeline_lowering_long_chain`（更长链式调用）。
+  - 验证命令与结果：
+    - lowering 正向测试：`../uya/bin/uya test tests/test_typed_pipeline_lowering.uya` 通过，5/5 测试全部 OK。
+    - typed pipeline 正向回归：`for f in tests/test_typed_pipeline_*.uya; do ../uya/bin/uya test "$f"; done` 全部通过。
+    - move/drop 回归：`for f in tests/test_move_*.uya tests/error_move_*.uya tests/test_drop_*.uya; do ./tests/run_programs_parallel.sh "$f"; done` 全部通过。
+    - 自举编译：`make uya` 成功。
+    - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
+    - 注：`error_typed_pipeline_try_forward_use_after_move.uya` 为 `!Pipeline` try-forward 预存在失败，不在本任务范围内。
