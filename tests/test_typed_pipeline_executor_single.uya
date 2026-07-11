@@ -361,6 +361,19 @@ test "pipeline_checked_sink_uses_all_stage_pipefail" {
     try assert_eq_i32(statuses_storage[1].exit_code as i32, 0);
 }
 
+test "pipeline_checked_sink_reports_last_stage_nonzero_exit" {
+    const no_args_values: [&const byte: 1] = [""];
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const full: Pipeline = try cmd_path_argv(first, "/bin/false", &no_args_values[0:0]);
+    var statuses_storage: [PipelineStageStatus: 2] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(full, &statuses_storage[0:2], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.ProcessFailed) as i32);
+    try assert_eq_i32(statuses_storage[0].exit_code as i32, 0);
+    try assert_eq_i32(statuses_storage[1].exit_code as i32, 1);
+}
+
 test "pipeline_status_sink_observes_spawn_failure_without_error" {
     const no_args_values: [&const byte: 1] = [""];
     const command: Pipeline = try cmd_argv(pipeline(), "uya-observing-missing-command", &no_args_values[0:0]);
