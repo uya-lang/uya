@@ -149,11 +149,11 @@
 
 阶段 6 必须在 process-only pipeline 稳定后开始；默认实现不使用 fork-backed Uya stage。
 
-- [ ] 添加 `StreamReader`。
-- [ ] 添加 `StreamWriter`。
-- [ ] 定义 stage 函数的阻塞 read/write 语义。
-- [ ] 定义 EOF 行为。
-- [ ] 添加 `PipelineStage` 接口：
+- [x] 添加 `StreamReader`。
+- [x] 添加 `StreamWriter`。
+- [x] 定义 stage 函数的阻塞 read/write 语义。
+- [x] 定义 EOF 行为。
+- [x] 添加 `PipelineStage` 接口：
 
 ```uya
 interface PipelineStage {
@@ -161,7 +161,7 @@ interface PipelineStage {
 }
 ```
 
-- [ ] 添加 `stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline`。
+- [~] 添加 `stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline`。
 - [ ] 在 pipeline 计划中按值存储 stage 对象，并拒绝未拥有的内部借用。
 - [ ] 定义含 slice/pointer/interface 字段的 stage owned-data 规则。
 - [ ] 添加 erased thunk 表示或等价单态化存储：

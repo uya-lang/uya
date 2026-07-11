@@ -59,6 +59,10 @@ test "pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground" {
     try pipeline_terminal_stopped_self_test();
 }
 
+test "pipeline_stream_reader_writer_define_blocking_and_eof_semantics" {
+    try pipeline_stream_self_test();
+}
+
 test "pipeline_internal_fds_do_not_collide_with_closed_stdio" {
     try pipeline_closed_stdio_self_test();
 }

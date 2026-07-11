@@ -146,6 +146,88 @@ export struct PipelineCaptureResult {
     stderr: CaptureStreamResult,
 }
 
+/// Pipeline stage 的阻塞字节输入流；实例由 executor 提供，不拥有底层 fd。
+export struct StreamReader {
+    _fd: i32,
+
+    /// 阻塞读取至多 output.len 字节。
+    /// 参数：output 为调用方可写缓冲区。
+    /// 返回：读取字节数；仅在已观察到 EOF 且未读取字节时返回 0。
+    fn read(self: &Self, output: &[byte]) !usize {
+        if self == null || output.ptr == null && output.len != 0usize { return error.InvalidPipeline; }
+        while true {
+            const received: !isize = sys_read(self._fd, output.ptr, output.len);
+            const count: isize = received catch |err| {
+                if @error_id(err) as i32 == EINTR { continue; }
+                return error.PipelineIoError;
+            };
+            if count < 0isize { return error.PipelineIoError; }
+            return count as usize;
+        }
+    }
+
+    /// 阻塞读取一行，换行符包含在返回数据中。
+    /// 参数：output 为调用方可写缓冲区；缓冲区满时返回当前片段。
+    /// 返回：本次写入字节数；EOF 前已有字节时先返回该尾段，下一次调用返回 0。
+    fn read_line(self: &Self, output: &[byte]) !usize {
+        if self == null || output.ptr == null && output.len != 0usize { return error.InvalidPipeline; }
+        var count: usize = 0usize;
+        var one: [byte: 1] = [];
+        while count < output.len {
+            const read_count: usize = try self.read(&one[0:1]);
+            if read_count == 0usize { return count; }
+            output[count] = one[0];
+            count = count + 1usize;
+            if output[count - 1usize] == 10 as byte { return count; }
+        }
+        return count;
+    }
+}
+
+/// Pipeline stage 的阻塞字节输出流；实例由 executor 提供，不拥有底层 fd。
+export struct StreamWriter {
+    _fd: i32,
+
+    /// 阻塞写入一次，允许底层返回短写。
+    /// 参数：input 为待写入字节。
+    /// 返回：本次成功写入的字节数。
+    fn write(self: &Self, input: &[const byte]) !usize {
+        if self == null || input.ptr == null && input.len != 0usize { return error.InvalidPipeline; }
+        while true {
+            const sent: !isize = sys_write(self._fd, input.ptr, input.len);
+            const count: isize = sent catch |err| {
+                if @error_id(err) as i32 == EINTR { continue; }
+                return error.PipelineIoError;
+            };
+            if count < 0isize { return error.PipelineIoError; }
+            return count as usize;
+        }
+    }
+
+    /// 阻塞写完全部输入，自动处理短写与 EINTR。
+    /// 参数：input 为完整待写入字节。
+    /// 返回：成功时无返回值；写入停滞或失败时返回 PipelineIoError。
+    fn write_all(self: &Self, input: &[const byte]) !void {
+        if self == null || input.ptr == null && input.len != 0usize { return error.InvalidPipeline; }
+        var offset: usize = 0usize;
+        while offset < input.len {
+            const sent: !isize = sys_write(self._fd, &input.ptr[offset], input.len - offset);
+            const count: isize = sent catch |err| {
+                if @error_id(err) as i32 == EINTR { continue; }
+                return error.PipelineIoError;
+            };
+            if count <= 0isize { return error.PipelineIoError; }
+            offset = offset + count as usize;
+        }
+    }
+}
+
+/// 自定义 Uya pipeline stage 的同步流处理接口。
+export interface PipelineStage {
+    /// 阻塞运行 stage，直到输入 EOF、成功完成或返回 Uya error。
+    fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void;
+}
+
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
 extern "libc" fn __atomic_exchange_n(ptr: &i32, value: i32, memory_order: i32) i32;
 extern "libc" fn __atomic_add_fetch(ptr: &i32, value: i32, memory_order: i32) i32;
@@ -2621,6 +2703,32 @@ fn pipeline_terminal_stopped_case(background_read: bool) !void {
 export fn pipeline_terminal_stopped_self_test() !void {
     try pipeline_terminal_stopped_case(false);
     try pipeline_terminal_stopped_case(true);
+}
+
+/// 验证 StreamReader/StreamWriter 的阻塞、短行尾段与 EOF 语义；仅供回归测试。
+export fn pipeline_stream_self_test() !void {
+    var fds: [i32: 2] = [];
+    _ = try sys_pipe2(&fds[0], O_CLOEXEC);
+    var reader: StreamReader = StreamReader { _fd: fds[0] };
+    var writer: StreamWriter = StreamWriter { _fd: fds[1] };
+    var payload: [byte: 8] = [111 as byte, 110 as byte, 101 as byte, 10 as byte,
+        116 as byte, 97 as byte, 105 as byte, 108 as byte];
+    try writer.write_all(&payload[0:8]);
+    _ = close(fds[1]);
+    var line: [byte: 8] = [];
+    const first: usize = try reader.read_line(&line[0:8]);
+    if first != 4usize || line[0] != 111 as byte || line[3] != 10 as byte {
+        _ = close(fds[0]);
+        return error.InvalidPipeline;
+    }
+    const tail: usize = try reader.read_line(&line[0:8]);
+    if tail != 4usize || line[0] != 116 as byte || line[3] != 108 as byte {
+        _ = close(fds[0]);
+        return error.InvalidPipeline;
+    }
+    const eof: usize = try reader.read(&line[0:8]);
+    _ = close(fds[0]);
+    if eof != 0usize { return error.InvalidPipeline; }
 }
 
 fn pipeline_closed_stdio_child(closed_fd: i32) void {
