@@ -89,8 +89,8 @@
 - [x] wait loop 使用 `WUNTRACED`/必要的 `WCONTINUED` 观察 stopped direct child；任一 stop 都恢复终端、强制取消整组、reap 并返回 `error.Interrupted`。
 - [x] wait 前 spawn 所有 process stage。
 - [x] 对 stdin/stdout/stderr 使用 source fd > 2 的安全 `dup2`；若采用通用 remap，覆盖 source/target 环和 `source == target` 时的 `FD_CLOEXEC` 清理。
-- [~] 保持 child 的 fd 关闭逻辑在 READY 前完成；`dup2` 后再关闭本 stage 为 stdio setup 临时保留的数据 fd 和 launch fd，仅让 startup-report writer 依靠 close-on-exec 结束成功诊断。
-- [ ] 为每个 child 实现固定大小、单次 async-signal-safe write 的 startup diagnostic record，包含 `READY|FAILED`、setup phase 与平台码，并让 report pipe 在 exec 成功时 close-on-exec。
+- [x] 保持 child 的 fd 关闭逻辑在 READY 前完成；`dup2` 后再关闭本 stage 为 stdio setup 临时保留的数据 fd 和 launch fd，仅让 startup-report writer 依靠 close-on-exec 结束成功诊断。
+- [~] 为每个 child 实现固定大小、单次 async-signal-safe write 的 startup diagnostic record，包含 `READY|FAILED`、setup phase 与平台码，并让 report pipe 在 exec 成功时 close-on-exec。
 - [ ] 为 child-side `setpgid`、barrier、chdir、三路 `dup2` 和 `execve` 失败回传精确 phase；不得只回传裸 errno。
 - [ ] 最后一个继承者 fork 后立即关闭父进程对应的 data/file fd；全部 READY 后、任何 RUN 前断言 parent 不再持有 child-only control/data fd 或 capture writer。
 - [ ] 在子进程执行期间并发驱动有界 stdout/stderr capture reader。
