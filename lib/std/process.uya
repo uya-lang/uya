@@ -12,6 +12,9 @@ use std.path.is_abs;
 use std.path.join;
 use std.path.ExecutableLookupKind;
 use std.path.find_executable;
+use std.runtime.saved_envp;
+use std.runtime.get_argc;
+use std.runtime.get_argv;
 use libc.getcwd;
 use libc.fork;
 use libc.execve;
@@ -45,6 +48,7 @@ use libc.write;
 use libc.sys_fcntl;
 use libc.F_DUPFD_CLOEXEC;
 use libc.F_GETFD;
+use libc.F_SETFD;
 use libc.sigset_t;
 use libc.sigemptyset;
 use libc.sigaddset;
@@ -261,6 +265,10 @@ extern "libc" fn __atomic_load_n(ptr: &i32, memory_order: i32) i32;
 extern fn malloc(size: usize) &void;
 extern fn free(ptr: &void) void;
 extern fn memcpy(dest: &void, src: &const void, count: usize) &void;
+extern fn uya_interface_get_vtable(interface_value: &void) usize;
+extern fn uya_interface_set_vtable(interface_value: &void, vtable: usize) void;
+extern fn uya_interface_set_data(interface_value: &void, data: &void) void;
+extern fn uya_pipeline_image_anchor() usize;
 
 const PIPELINE_REGISTRY_CAPACITY: usize = 1024usize;
 const PIPELINE_MAX_STAGES: usize = 32usize;
@@ -289,6 +297,13 @@ struct PipelineProcessStage {
 struct PipelineErasedStage {
     active: i32,
     ops: PipelineErasedStageOps,
+    worker_vtable_offset: isize,
+    value_byte: byte,
+}
+
+struct PipelineWorkerDescriptor {
+    worker_vtable_offset: isize,
+    value_byte: byte,
 }
 
 struct PipelineEnvOp {
@@ -374,13 +389,15 @@ struct PipelineStartupRecord {
     kind: i32,
     phase: i32,
     platform_code: i32,
-    error_name: &const byte,
+    error_name_offset: isize,
 }
 
 const PIPELINE_STARTUP_READY: i32 = 1;
 const PIPELINE_STARTUP_FAILED: i32 = 2;
 const PIPELINE_STAGE_COMPLETED: i32 = 3;
 const PIPELINE_STAGE_FAILED: i32 = 4;
+const PIPELINE_WORKER_DESCRIPTOR_FD: i32 = 198;
+const PIPELINE_WORKER_REPORT_FD: i32 = 199;
 const PIPELINE_PHASE_SIGNAL_SETUP: i32 = 1;
 const PIPELINE_PHASE_SETPGID: i32 = 2;
 const PIPELINE_PHASE_BARRIER: i32 = 3;
@@ -719,7 +736,8 @@ fn pipeline_registry_append_process_stage(input: &Pipeline, command_kind: i32) !
     return;
 }
 
-fn pipeline_registry_append_erased_stage(input: &Pipeline, ops: PipelineErasedStageOps) !void {
+fn pipeline_registry_append_erased_stage(input: &Pipeline, ops: PipelineErasedStageOps,
+    worker_vtable_offset: isize, value_byte: byte) !void {
     try pipeline_registry_append_process_stage(input, 3);
     const slot_idx: usize = try pipeline_registry_slot_index(input);
     const count: usize = try pipeline_registry_stage_count(input);
@@ -728,6 +746,8 @@ fn pipeline_registry_append_erased_stage(input: &Pipeline, ops: PipelineErasedSt
     if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
     _pipeline_erased_stages[storage_idx].active = 1;
     _pipeline_erased_stages[storage_idx].ops = ops;
+    _pipeline_erased_stages[storage_idx].worker_vtable_offset = worker_vtable_offset;
+    _pipeline_erased_stages[storage_idx].value_byte = value_byte;
 }
 
 fn pipeline_owned_c_string(value: &const byte) !&byte {
@@ -1676,15 +1696,33 @@ fn pipeline_write_control_token(fd: i32, token: byte) !void {
     if write_error != 0 { return error.PipelineIoError; }
 }
 
+fn pipeline_write_all_bytes(fd: i32, input: &const byte, count: usize) !void {
+    var offset: usize = 0usize;
+    while offset < count {
+        const written: i64 = write(fd, &input[offset], count - offset);
+        if written < 0i64 {
+            if pipeline_errno_value() == EINTR { continue; }
+            return error.PipelineIoError;
+        }
+        if written == 0i64 { return error.PipelineIoError; }
+        offset = offset + written as usize;
+    }
+}
+
 fn pipeline_errno_value() i32 {
     const location: &i32 = __errno_location();
     if location == null { return 0; }
     return location[0];
 }
 
+fn pipeline_child_clear_cloexec(fd: i32) i32 {
+    const changed: !i32 = sys_fcntl(fd, F_SETFD, 0);
+    return changed catch { return 0 - 1; };
+}
+
 fn pipeline_child_write_startup(fd: i32, kind: i32, phase: i32, platform_code: i32) i32 {
     const record: PipelineStartupRecord = PipelineStartupRecord {
-        kind: kind, phase: phase, platform_code: platform_code, error_name: null,
+        kind: kind, phase: phase, platform_code: platform_code, error_name_offset: 0isize,
     };
     if write(fd, &record as &const byte, @size_of(PipelineStartupRecord)) !=
         @size_of(PipelineStartupRecord) as i64 { return 0 - 1; }
@@ -1692,12 +1730,65 @@ fn pipeline_child_write_startup(fd: i32, kind: i32, phase: i32, platform_code: i
 }
 
 fn pipeline_child_write_stage_result(fd: i32, kind: i32, error_name: &const byte) i32 {
+    var error_name_offset: isize = 0isize;
+    if error_name != null {
+        error_name_offset = @usize_from_ptr(error_name as &const void) as isize -
+            uya_pipeline_image_anchor() as isize;
+    }
     const record: PipelineStartupRecord = PipelineStartupRecord {
-        kind: kind, phase: 0, platform_code: 0, error_name: error_name,
+        kind: kind, phase: 0, platform_code: 0, error_name_offset: error_name_offset,
     };
     if write(fd, &record as &const byte, @size_of(PipelineStartupRecord)) !=
         @size_of(PipelineStartupRecord) as i64 { return 0 - 1; }
     return 0;
+}
+
+fn pipeline_worker_arg_matches(value: &const byte) bool {
+    const expected: &const byte = "--uya-pipeline-worker";
+    if value == null { return false; }
+    var i: usize = 0usize;
+    while expected[i] != 0 as byte && value[i] == expected[i] { i = i + 1usize; }
+    return expected[i] == 0 as byte && value[i] == 0 as byte;
+}
+
+/// 隔离 Uya-stage worker 的进程入口；由生成的弱 main bridge 在普通用户代码前调用。
+/// 参数：无；descriptor/report 使用 executor 保留的固定 fd。
+/// 返回：非 worker 进程返回 -1；worker 返回稳定进程退出码。
+export extern "libc" fn uya_pipeline_worker_main_if_requested() i32 {
+    if get_argc() != 2 || !pipeline_worker_arg_matches(get_argv(1)) { return 0 - 1; }
+    var descriptor_storage: [byte: 32] = [];
+    if @size_of(PipelineWorkerDescriptor) > 32usize { return 122; }
+    const descriptor: &PipelineWorkerDescriptor =
+        &descriptor_storage[0] as &PipelineWorkerDescriptor;
+    var received: usize = 0usize;
+    while received < @size_of(PipelineWorkerDescriptor) {
+        const target: &byte = @ptr_from_usize(
+            @usize_from_ptr(descriptor as &void) + received) as &byte;
+        const count: i64 = read(PIPELINE_WORKER_DESCRIPTOR_FD, target,
+            @size_of(PipelineWorkerDescriptor) - received);
+        if count <= 0i64 { return 122; }
+        received = received + count as usize;
+    }
+    var worker_interface_storage: [byte: 16] = [];
+    const worker_value: &PipelineStage =
+        &worker_interface_storage[0] as &PipelineStage;
+    const worker_vtable: usize = (uya_pipeline_image_anchor() as isize +
+        descriptor.worker_vtable_offset) as usize;
+    uya_interface_set_vtable(worker_value as &void, worker_vtable);
+    uya_interface_set_data(worker_value as &void, &descriptor.value_byte as &void);
+    var input: StreamReader = StreamReader { _fd: 0 };
+    var output: StreamWriter = StreamWriter { _fd: 1 };
+    const ran: !void = worker_value[0].run(&input, &output);
+    _ = ran catch |err| {
+        if pipeline_child_write_stage_result(PIPELINE_WORKER_REPORT_FD,
+            PIPELINE_STAGE_FAILED, @error_name(err)) != 0 { return 122; }
+        return 100;
+    };
+    {
+        if pipeline_child_write_stage_result(PIPELINE_WORKER_REPORT_FD,
+            PIPELINE_STAGE_COMPLETED, null) != 0 { return 122; }
+        return 0;
+    }
 }
 
 fn pipeline_child_fail_startup(fd: i32, phase: i32, platform_code: i32) void {
@@ -1867,6 +1958,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var prepared_stages: [PipelinePreparedProcessStage: 32] = [];
     var prepared_count: usize = 0usize;
     var has_uya_stage: bool = false;
+    var use_experimental_fork_stage: bool = false;
     defer { pipeline_prepared_stages_deinit(&prepared_stages[0], prepared_count); }
     var i: usize = 0usize;
     while i < count {
@@ -1884,8 +1976,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         prepared_count = prepared_count + 1usize;
         i = i + 1usize;
     }
-    if has_uya_stage && __atomic_exchange_n((&_pipeline_test_allow_next_fork_stage) as &i32,
-        0, PIPELINE_ATOMIC_SEQ_CST) == 0 { return error.InvalidPipeline; }
+    if has_uya_stage {
+        use_experimental_fork_stage = __atomic_exchange_n(
+            (&_pipeline_test_allow_next_fork_stage) as &i32, 0,
+            PIPELINE_ATOMIC_SEQ_CST) != 0;
+    }
     try pipeline_broker_subscribe();
     broker_registered = true;
     broker_signal_epoch = __atomic_load_n((&_pipeline_broker_signal_epoch) as &i32,
@@ -2113,8 +2208,22 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                 pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
                     PIPELINE_PHASE_BARRIER, pipeline_errno_value());
             }
-            _ = close(launch_fds[i * 2usize]);
             if is_uya_stage {
+                if !use_experimental_fork_stage {
+                    if dup2(launch_fds[i * 2usize], PIPELINE_WORKER_DESCRIPTOR_FD) < 0 ||
+                        dup2(report_fds[i * 2usize + 1usize], PIPELINE_WORKER_REPORT_FD) < 0 ||
+                        pipeline_child_clear_cloexec(PIPELINE_WORKER_DESCRIPTOR_FD) < 0 ||
+                        pipeline_child_clear_cloexec(PIPELINE_WORKER_REPORT_FD) < 0 {
+                        pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                            PIPELINE_PHASE_EXEC, pipeline_errno_value());
+                    }
+                    _ = close(launch_fds[i * 2usize]);
+                    var worker_argv: [&byte: 3] = ["/proc/self/exe", "--uya-pipeline-worker", null];
+                    _ = execve("/proc/self/exe", &worker_argv[0], saved_envp);
+                    pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
+                        PIPELINE_PHASE_EXEC, pipeline_errno_value());
+                }
+                _ = close(launch_fds[i * 2usize]);
                 var input_stream: StreamReader = StreamReader { _fd: 0 };
                 var output_stream: StreamWriter = StreamWriter { _fd: 1 };
                 const ran: !void = _pipeline_erased_stages[storage_idx].ops.run_erased(
@@ -2128,6 +2237,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                     PIPELINE_STAGE_COMPLETED, null);
                 _exit(0);
             }
+            _ = close(launch_fds[i * 2usize]);
             if chdir(stage.cwd) != 0 {
                 pipeline_child_fail_startup(report_fds[i * 2usize + 1usize],
                     PIPELINE_PHASE_CHDIR, pipeline_errno_value());
@@ -2221,6 +2331,24 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineSpawnFailed;
         };
+        const storage_idx: usize = try pipeline_stage_storage_index(slot_idx, i);
+        if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
+        if _pipeline_process_stages[storage_idx].command_kind == 3 &&
+            !use_experimental_fork_stage {
+            const worker: &PipelineErasedStage = &_pipeline_erased_stages[storage_idx];
+            const descriptor: PipelineWorkerDescriptor = PipelineWorkerDescriptor {
+                worker_vtable_offset: worker.worker_vtable_offset,
+                value_byte: worker.value_byte,
+            };
+            const descriptor_sent: !void = pipeline_write_all_bytes(
+                launch_fds[i * 2usize + 1usize], &descriptor as &const byte,
+                @size_of(PipelineWorkerDescriptor));
+            _ = descriptor_sent catch {
+                pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+                pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+                return error.PipelineSpawnFailed;
+            };
+        }
         _ = close(launch_fds[i * 2usize + 1usize]);
         launch_fds[i * 2usize + 1usize] = 0 - 1;
         i = i + 1usize;
@@ -2452,10 +2580,12 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                     statuses[i].exit_code = 0u32;
                 } else if statuses[i].kind == PipelineStageStatusKind.exited &&
                     report_state == 1 && stage_report.kind == PIPELINE_STAGE_FAILED &&
-                    stage_report.error_name != null {
+                    stage_report.error_name_offset != 0isize {
                     statuses[i].kind = PipelineStageStatusKind.stage_failed;
                     statuses[i].exit_code = 0u32;
-                    statuses[i].error_name = stage_report.error_name;
+                    statuses[i].error_name = @ptr_from_usize(
+                        (uya_pipeline_image_anchor() as isize +
+                            stage_report.error_name_offset) as usize) as &const byte;
                     saw_stage_failure = true;
                     saw_failure = true;
                 } else {
@@ -2524,7 +2654,9 @@ fn pipeline_clone_plan(input: &Pipeline, output: &Pipeline) !void {
         if source.command_kind == 3 {
             if _pipeline_erased_stages[source_idx].active == 0 { return error.InvalidPipeline; }
             const cloned: PipelineErasedStageOps = try _pipeline_erased_stages[source_idx].ops.clone_erased();
-            try pipeline_registry_append_erased_stage(output, cloned);
+            try pipeline_registry_append_erased_stage(output, cloned,
+                _pipeline_erased_stages[source_idx].worker_vtable_offset,
+                _pipeline_erased_stages[source_idx].value_byte);
             i = i + 1usize;
             continue;
         }
@@ -2955,7 +3087,11 @@ export fn stage<T: PipelineStage>(input: Pipeline, stage_value: T) !Pipeline {
     holder.value = boxed_value;
     holder.owned_value = value_raw;
     const ops: PipelineErasedStageOps = *holder;
-    const appended: !void = pipeline_registry_append_erased_stage(&input, ops);
+    const value_bytes: &byte = typed_value as &byte;
+    const worker_vtable_offset: isize = uya_interface_get_vtable(
+        &boxed_value as &void) as isize - uya_pipeline_image_anchor() as isize;
+    const appended: !void = pipeline_registry_append_erased_stage(&input, ops,
+        worker_vtable_offset, value_bytes[0]);
     _ = appended catch { holder.drop_erased(); return error.InvalidPipeline; };
     return input;
 }

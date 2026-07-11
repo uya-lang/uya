@@ -29,6 +29,7 @@ extern fn _NSGetEnviron() & & &byte;
 
 // 声明应用程序主入口（由编译器从 export fn main() 生成为 main_main）
 extern fn main_main() i32;
+extern fn uya_pipeline_worker_dispatch() i32;
 
 // 与内核 rlimit 布局一致；仅用 @syscall，勿声明 extern setrlimit（会与 libc 原型冲突）
 struct EntryRLimit {
@@ -103,6 +104,9 @@ export extern fn main(argc: i32, argv: & &byte) i32 {
     std.cfg(std.target_os == .tos_linux, {
         set_process_stack_limit_bytes(ENTRY_DEFAULT_STACK_LIMIT_BYTES);
     }, {})
+
+    const worker_result: i32 = uya_pipeline_worker_dispatch();
+    if worker_result >= 0 { return worker_result; }
 
     // 调用应用程序主程序（export fn main() → main_main()）
     return main_main();

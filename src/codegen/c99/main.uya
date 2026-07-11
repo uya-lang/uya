@@ -3716,6 +3716,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("int32_t uya_thread_call_bool(void *fn, int32_t arg);\n" as *byte, codegen.split_protos_out as *void);
         fputs("uint32_t uya_thread_call_f32(void *fn, uint32_t arg_bits);\n" as *byte, codegen.split_protos_out as *void);
         fputs("uint64_t uya_thread_call_f64(void *fn, uint64_t arg_bits);\n" as *byte, codegen.split_protos_out as *void);
+        fputs("int32_t uya_pipeline_worker_dispatch(void);\n" as *byte, codegen.split_protos_out as *void);
+        fputs("size_t uya_interface_get_vtable(void *interface_value);\n" as *byte, codegen.split_protos_out as *void);
+        fputs("void uya_interface_set_vtable(void *interface_value, size_t vtable);\n" as *byte, codegen.split_protos_out as *void);
+        fputs("void uya_interface_set_data(void *interface_value, void *data);\n" as *byte, codegen.split_protos_out as *void);
+        fputs("size_t uya_pipeline_image_anchor(void);\n" as *byte, codegen.split_protos_out as *void);
         if codegen.is_nostdlib == 0 {
             // hosted 模式跳过 heap.uya 实现体；split-C 头里补 no-op stub，避免 pthread TU 首次调用触发隐式声明。
             fputs("static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n" as *byte, codegen.split_protos_out as *void);
@@ -3772,6 +3777,15 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    typedef size_t (*uya_thrd_fn_usz)(size_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("    return ((uya_thrd_fn_usz)fn)(arg);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("#if defined(__GNUC__) || defined(__clang__)\n" as *byte, codegen.emit_stream as *void);
+    fputs("extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n" as *byte, codegen.emit_stream as *void);
+    fputs("int32_t uya_pipeline_worker_dispatch(void) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (uya_pipeline_worker_main_if_requested == (void *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_pipeline_worker_main_if_requested();\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("#else\n" as *byte, codegen.emit_stream as *void);
+    fputs("int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
+    fputs("#endif\n" as *byte, codegen.emit_stream as *void);
     fputs("int64_t uya_thread_call_i64(void *fn, int64_t arg) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    typedef int64_t (*uya_thrd_fn_i64)(int64_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("    return ((uya_thrd_fn_i64)fn)(arg);\n" as *byte, codegen.emit_stream as *void);
@@ -3816,6 +3830,18 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    a.u = arg_bits;\n" as *byte, codegen.emit_stream as *void);
     fputs("    out.d = ((uya_thrd_fn_f64)fn)(a.d);\n" as *byte, codegen.emit_stream as *void);
     fputs("    return out.u;\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n\n" as *byte, codegen.emit_stream as *void);
+    fputs("size_t uya_interface_get_vtable(void *interface_value) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (size_t)((void **)interface_value)[0];\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("void uya_interface_set_vtable(void *interface_value, size_t vtable) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    ((void **)interface_value)[0] = (void *)vtable;\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("void uya_interface_set_data(void *interface_value, void *data) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    ((void **)interface_value)[1] = data;\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("size_t uya_pipeline_image_anchor(void) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return (size_t)(void *)&uya_pipeline_image_anchor;\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n\n" as *byte, codegen.emit_stream as *void);
     
     // 第七步 d：按需生成系统调用辅助函数（@syscall 内置函数支持）

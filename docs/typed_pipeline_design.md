@@ -727,9 +727,14 @@ _exit(0 or 1)
 
 fork 后的 Uya stage 不能依赖共享父进程锁、allocator 状态、线程运行时、async runtime 或任何需要回写父进程内存的行为；错误也只能通过退出状态和 stderr/diagnostic pipe 回传。因此它不能作为 `.ush` MVP 的主实现。
 
-当前 POSIX bring-up 代码仅在测试显式调用一次性
-`pipeline_allow_next_fork_stage_for_test()` 门闩后允许下一次含 Uya stage 的执行；默认路径稳定返回
-`InvalidPipeline`。该门闩只用于验证 pipe topology、状态映射与流式行为，不构成生产 execution domain。
+当前 POSIX 默认路径使用可强制终止的 self-exec 隔离 worker。stage child 在 READY/RUN、stdio 和
+process-group 建立完成后执行当前程序映像；runtime entry 的弱 worker hook 在用户 `main` / tests 前读取
+descriptor，按 image-relative vtable offset 重建 `PipelineStage` interface，并只调用一次 `run`。stage
+值、vtable 和错误名都不跨 `exec` 保存绝对地址，因此 PIE/ASLR 下仍有效；worker 拥有全新的 runtime、
+allocator 和锁状态，capture 超限或 interruption 可通过执行域强制终止阻塞 I/O 与 CPU-bound stage。
+
+一次性 `pipeline_allow_next_fork_stage_for_test()` 仍保留旧 fork-direct bring-up 路径，仅用于回归比较；
+它不是默认生产 execution domain，也不承担 self-exec worker 的内存安全与有限取消承诺。
 
 长期实现选项：
 

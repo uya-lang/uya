@@ -84,6 +84,19 @@ struct PipelineUpperLineStage : PipelineStage {
     }
 }
 
+struct PipelineForcedCancellationStage : PipelineStage {
+    mode: byte,
+
+    fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
+        try output.write_all("0123456789abcdef0123456789abcdef");
+        if self.mode == 1 as byte {
+            while true {}
+        }
+        var one: [byte: 1] = [];
+        while true { _ = try input.read(&one[0:1]); }
+    }
+}
+
 test "pipeline_capability_generation_registry" {
     try pipeline_capability_self_test();
 }
@@ -126,7 +139,7 @@ test "pipeline_stage_executes_in_pipeline_topology" {
     try assert_eq_u64(statuses[0].kind as u64, PipelineStageStatusKind.completed as u64);
 }
 
-test "pipeline_fork_stage_is_not_enabled_by_default" {
+test "pipeline_exec_worker_stage_is_enabled_by_default" {
     const planned: Pipeline = try stage<PipelineConstantStage>(pipeline(),
         PipelineConstantStage { marker: 1 as byte });
     const with_stdin: Pipeline = try stdin_file(planned, "/dev/null");
@@ -135,10 +148,11 @@ test "pipeline_fork_stage_is_not_enabled_by_default" {
     var stdout_buf: [byte: 32] = [];
     var stderr_buf: [byte: 1] = [];
     var result: PipelineCaptureResult = PipelineCaptureResult {};
-    const executed: !void = capture_into(captured, &statuses[0:1],
+    try capture_into(captured, &statuses[0:1],
         &stdout_buf[0:32], &stderr_buf[0:1], &result);
-    _ = executed catch {};
-    try assert_eq_u64(executed.error_id as u64, @error_id(error.InvalidPipeline) as u64);
+    try assert_eq_u64(statuses[0].platform_code as u64, 0);
+    try assert_eq_u64(result.stdout.byte_count as u64, 10);
+    try assert_eq_u64(statuses[0].kind as u64, PipelineStageStatusKind.completed as u64);
 }
 
 test "pipeline_stage_error_is_preserved_by_observing_sink" {
@@ -147,7 +161,6 @@ test "pipeline_stage_error_is_preserved_by_observing_sink" {
     const executable: Pipeline = try stdin_file(planned, "/dev/null");
     var statuses: [PipelineStageStatus: 1] = [];
     var result: PipelineResult = PipelineResult {};
-    pipeline_allow_next_fork_stage_for_test();
     try status_into(executable, &statuses[0:1], &result);
     try assert_eq_u64(statuses[0].kind as u64, PipelineStageStatusKind.stage_failed as u64);
     try assert_eq_u64(statuses[0].stage_index as u64, 0);
@@ -160,7 +173,6 @@ test "pipeline_checked_sink_returns_pipeline_stage_failed" {
     const executable: Pipeline = try stdin_file(planned, "/dev/null");
     var statuses: [PipelineStageStatus: 1] = [];
     var result: PipelineResult = PipelineResult {};
-    pipeline_allow_next_fork_stage_for_test();
     const checked: !void = check_into(executable, &statuses[0:1], &result);
     _ = checked catch {};
     try assert_eq_u64(checked.error_id as u64, @error_id(error.PipelineStageFailed) as u64);
@@ -180,7 +192,6 @@ test "pipeline_line_filter_runs_between_external_commands" {
     var stdout_buf: [byte: 16] = [];
     var stderr_buf: [byte: 1] = [];
     var result: PipelineCaptureResult = PipelineCaptureResult {};
-    pipeline_allow_next_fork_stage_for_test();
     try capture_into(captured, &statuses[0:3], &stdout_buf[0:16], &stderr_buf[0:1], &result);
     try assert_eq_u64(strcmp(&stdout_buf[0], "2\n") as u64, 0);
     try assert_eq_u64(statuses[1].kind as u64, PipelineStageStatusKind.completed as u64);
@@ -197,7 +208,6 @@ test "pipeline_line_map_streams_to_capture" {
     var stdout_buf: [byte: 32] = [];
     var stderr_buf: [byte: 1] = [];
     var result: PipelineCaptureResult = PipelineCaptureResult {};
-    pipeline_allow_next_fork_stage_for_test();
     try capture_into(captured, &statuses[0:2], &stdout_buf[0:32], &stderr_buf[0:1], &result);
     try assert_eq_u64(strcmp(&stdout_buf[0], "HELLO\nWORLD\n") as u64, 0);
 }
@@ -214,9 +224,41 @@ test "pipeline_stage_streams_large_input_without_full_buffering" {
     var stdout_buf: [byte: 32] = [];
     var stderr_buf: [byte: 1] = [];
     var result: PipelineCaptureResult = PipelineCaptureResult {};
-    pipeline_allow_next_fork_stage_for_test();
     try capture_into(captured, &statuses[0:3], &stdout_buf[0:32], &stderr_buf[0:1], &result);
     try assert_eq_u64(strcmp(&stdout_buf[0], "200000\n") as u64, 0);
+}
+
+test "pipeline_exec_worker_force_terminates_cpu_bound_stage" {
+    const staged: Pipeline = try stage<PipelineForcedCancellationStage>(pipeline(),
+        PipelineForcedCancellationStage { mode: 1 as byte });
+    const with_input: Pipeline = try stdin_file(staged, "/dev/null");
+    const captured: Pipeline = try stdout_capture(with_input);
+    var statuses: [PipelineStageStatus: 1] = [];
+    var stdout_buf: [byte: 8] = [];
+    var stderr_buf: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    const executed: !void = capture_limit_into(captured, 8usize, &statuses[0:1],
+        &stdout_buf[0:8], &stderr_buf[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_u64(executed.error_id as u64,
+        @error_id(error.CaptureLimitExceeded) as u64);
+}
+
+test "pipeline_exec_worker_force_terminates_blocked_reader" {
+    const sleep_args: [&const byte: 1] = ["30"];
+    const producer: Pipeline = try cmd_path_argv(pipeline(), "/bin/sleep", &sleep_args[0:1]);
+    const staged: Pipeline = try stage<PipelineForcedCancellationStage>(producer,
+        PipelineForcedCancellationStage { mode: 2 as byte });
+    const captured: Pipeline = try stdout_capture(staged);
+    var statuses: [PipelineStageStatus: 2] = [];
+    var stdout_buf: [byte: 8] = [];
+    var stderr_buf: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    const executed: !void = capture_limit_into(captured, 8usize, &statuses[0:2],
+        &stdout_buf[0:8], &stderr_buf[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_u64(executed.error_id as u64,
+        @error_id(error.CaptureLimitExceeded) as u64);
 }
 
 test "pipeline_clone_owns_an_independent_deep_copy" {
