@@ -694,6 +694,13 @@ fn pipeline_resolve_command_path(builder: &EnvBlockBuilder, cwd: &const byte,
     return find_executable(path_value, cwd, program, out, out_cap);
 }
 
+fn pipeline_lookup_spawn_failure(kind: ExecutableLookupKind) PipelineSpawnFailureKind {
+    if kind == ExecutableLookupKind.path_not_found { return PipelineSpawnFailureKind.path_not_found; }
+    if kind == ExecutableLookupKind.permission_denied { return PipelineSpawnFailureKind.permission_denied; }
+    if kind == ExecutableLookupKind.platform_error { return PipelineSpawnFailureKind.platform_error; }
+    return PipelineSpawnFailureKind.none;
+}
+
 fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
     var i: usize = 0usize;
     while i < count && i < PIPELINE_MAX_STAGES {
@@ -978,6 +985,12 @@ export fn pipeline_capability_self_test() !void {
     if !pipeline_path_is_windows_drive_relative("C:tool.exe") ||
         pipeline_path_is_windows_drive_relative("C:\\tool.exe") ||
         pipeline_path_is_windows_drive_relative("/usr/bin/tool") {
+        return error.InvalidPipeline;
+    }
+    if pipeline_lookup_spawn_failure(ExecutableLookupKind.path_not_found) != PipelineSpawnFailureKind.path_not_found ||
+        pipeline_lookup_spawn_failure(ExecutableLookupKind.permission_denied) != PipelineSpawnFailureKind.permission_denied ||
+        pipeline_lookup_spawn_failure(ExecutableLookupKind.platform_error) != PipelineSpawnFailureKind.platform_error ||
+        pipeline_lookup_spawn_failure(ExecutableLookupKind.found) != PipelineSpawnFailureKind.none {
         return error.InvalidPipeline;
     }
     const first: Pipeline = pipeline_registry_allocate();
