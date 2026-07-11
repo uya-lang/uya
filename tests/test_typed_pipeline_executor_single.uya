@@ -85,6 +85,16 @@ test "pipeline_stdout_file_is_opened_once_before_spawn" {
     _ = unlink(output_path);
 }
 
+test "pipeline_stderr_file_sink_redirects_group_stderr" {
+    const output_path: &const byte = "/tmp/uya_typed_pipeline_stderr_output.txt";
+    _ = unlink(output_path);
+    const shell_values: [&const byte: 2] = ["-c", "printf stderr-data >&2"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
+    try check(try stderr_file(command, output_path));
+    try assert_eq_i32(access(output_path, F_OK), 0);
+    _ = unlink(output_path);
+}
+
 test "pipeline_capture_drains_output_larger_than_pipe_buffer" {
     const args_values: [&const byte: 3] = ["-c", "100000", "/dev/zero"];
     const args: &[&const byte] = &args_values[0:3];

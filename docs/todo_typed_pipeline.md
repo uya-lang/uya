@@ -113,8 +113,8 @@
   - [x] `printf | wc`
   - [x] 三阶段 pipeline
   - [x] stdout 文件 sink
-  - [~] stderr 文件 sink
-  - [ ] stderr capture
+  - [x] stderr 文件 sink
+  - [~] stderr capture
   - [ ] stderr to stdout merge
   - [ ] `cmd("a/b")` 返回 `error.InvalidPipeline`
   - [ ] 缺失命令
