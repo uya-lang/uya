@@ -896,6 +896,19 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
     // 进入时即判定是否为最外层：后续内层 pipeline 返回时 depth 也会回到 1，
     // 若只在返回时判断会误标最左侧变量。
     const is_outermost: i32 = if checker.pipeline_chain_depth == 1 { 1 } else { 0 };
+
+    // bypass 只允许解决同一条链内部的重复类型推断，不能让另一条独立 pipeline
+    // 再次消费已经移动的 Pipeline / !Pipeline 变量。
+    if is_outermost != 0 && node.pipeline_expr_move_checked == 0 {
+        const existing_leftmost: &ASTNode = checker_pipeline_expr_leftmost(node);
+        if existing_leftmost != null && existing_leftmost.type == ASTNodeType.AST_IDENTIFIER &&
+            existing_leftmost.identifier_name != null &&
+            moved_set_contains(checker, existing_leftmost.identifier_name) != 0 {
+            checker_report_error_moved(checker, existing_leftmost, existing_leftmost.identifier_name);
+            checker.pipeline_chain_depth = checker.pipeline_chain_depth - 1;
+            return result;
+        }
+    }
     result = checker_check_pipeline_expr_impl(checker, node);
 
     // 最外层 pipeline 在整条链检查完成后，标记最左侧变量已移动。
@@ -908,6 +921,7 @@ fn checker_check_pipeline_expr(checker: &TypeChecker, node: &ASTNode) Type {
                 checker_mark_moved(checker, leftmost, leftmost.identifier_name, pipeline_decl.struct_decl_name);
             }
         }
+        node.pipeline_expr_move_checked = 1;
     }
 
     checker.pipeline_chain_depth = checker.pipeline_chain_depth - 1;

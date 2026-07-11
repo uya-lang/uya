@@ -466,10 +466,11 @@ fn gen_pipeline_type_is_plain_pipeline(codegen: &C99CodeGenerator, inferred_type
 // 对链式 pipeline 生成扁平的 C99 语句表达式，并复用同一个 Pipeline 临时变量。
 // 当前实现覆盖：
 //   - 左侧为普通 Pipeline 的链；
+//   - 左侧为 !Pipeline 时，以和普通 try 一致的方式 try-forward：
+//     先求值到错误联合临时变量，错误时从当前函数返回，成功时提取载荷继续链；
 //   - transformer 返回 !Pipeline 时，成功路径提取 Pipeline 载荷并转移所有权，
 //     错误路径调用 std.process.pipeline_drop 清理输入计划；
 //   - 后续 stage 消费该 !Pipeline 结果（try-forward）时，从错误联合中提取载荷。
-// !Pipeline 作为整条链最左侧的 try-forward 留在后续任务。
 fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if codegen == null || expr == null || expr.type != ASTNodeType.AST_PIPELINE_EXPR {
         return;
@@ -508,33 +509,42 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
 
     fputs("({ " as *byte, stream);
 
-    // 2. 生成唯一的 Pipeline 临时变量：TYPE __uya_pipe_tmp_N = (leftmost);
+    // 2. 确定最左侧类型并生成其求值：普通 Pipeline 直接保存到临时变量；
+    //    !Pipeline 以和普通 try 一致的方式 try-forward（错误时从当前函数返回）。
     // 最左侧若是已被 checker 标记 moved 的变量，checker_infer_type 在 codegen 阶段会失败；
     // 对标识符优先从 codegen 的局部/参数/声明类型节点查找，绕过 checker 的 moved 状态。
+    var leftmost_is_try_forward: i32 = 0;
+    var input_union_type_c: &byte = null;
     var pipe_type_c: &byte = null;
     if leftmost.type == ASTNodeType.AST_IDENTIFIER && leftmost.identifier_name != null {
         const type_node: &ASTNode = c99_find_identifier_type_node(codegen, leftmost.identifier_name);
         if type_node != null {
-            pipe_type_c = c99_type_to_c(codegen, type_node);
+            if type_node.type == ASTNodeType.AST_TYPE_ERROR_UNION && type_node.type_error_union_payload_type != null {
+                leftmost_is_try_forward = 1;
+                input_union_type_c = c99_type_to_c(codegen, type_node);
+                pipe_type_c = c99_type_to_c(codegen, type_node.type_error_union_payload_type);
+            } else {
+                pipe_type_c = c99_type_to_c(codegen, type_node);
+            }
         }
     }
     if pipe_type_c == null {
         const leftmost_type: Type = checker_infer_type_bypass_moved(codegen.checker, leftmost);
-        if leftmost_type.kind != TypeKind.TYPE_STRUCT {
-            // 左侧为 !Pipeline 等错误联合时，当前 lowering 尚不处理最外层 try-forward；
-            // 保持原行为，避免生成错误代码。
-            fputs("0; })" as *byte, stream);
-            return;
+        if leftmost_type.kind == TypeKind.TYPE_ERROR_UNION && leftmost_type.error_union_payload_type != null {
+            leftmost_is_try_forward = 1;
+            input_union_type_c = c99_type_to_c_from_inferred_type(codegen, copy_type(&leftmost_type), expr.line, expr.column, expr.filename);
+            const payload_type: &Type = leftmost_type.error_union_payload_type;
+            pipe_type_c = c99_type_to_c_from_inferred_type(codegen, copy_type(payload_type), expr.line, expr.column, expr.filename);
+        } else if leftmost_type.kind == TypeKind.TYPE_STRUCT {
+            pipe_type_c = c99_type_to_c_from_inferred_type(codegen, leftmost_type, expr.line, expr.column, expr.filename);
         }
-        pipe_type_c = c99_type_to_c_from_inferred_type(codegen, leftmost_type, expr.line, expr.column, expr.filename);
     }
     if pipe_type_c == null {
         fputs("0; })" as *byte, stream);
         return;
     }
-    // 校验左侧确实是普通 Pipeline，而非 !Pipeline 错误联合；后者属于 try-forward 后续任务。
-    // 这里用 C 类型名前缀判断最可靠：声明类型为 !Pipeline 的标识符会直接得到 err_union 前缀。
-    if strncmp(pipe_type_c as *byte, "struct err_union_" as *byte, 17) == 0 {
+    // 安全网：若最左侧被判定为普通 Pipeline，但其 C 类型名仍是错误联合前缀，则不应继续。
+    if leftmost_is_try_forward == 0 && strncmp(pipe_type_c as *byte, "struct err_union_" as *byte, 17) == 0 {
         fputs("0; })" as *byte, stream);
         return;
     }
@@ -544,12 +554,37 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         fputs("0; })" as *byte, stream);
         return;
     }
-    fputs(pipe_type_c as *byte, stream);
-    fputc(32, stream);
-    fputs(pipe_tmp_name as *byte, stream);
-    fputs(" = " as *byte, stream);
-    gen_expr(codegen, leftmost);
-    fputs("; " as *byte, stream);
+    if leftmost_is_try_forward != 0 {
+        if input_union_type_c == null || codegen.current_function_return_type == null {
+            fputs("0; })" as *byte, stream);
+            return;
+        }
+        var try_ret_type: &ASTNode = codegen.current_function_return_type;
+        if codegen.async_state_var != null && codegen.async_poll_try_propagate_type != null {
+            try_ret_type = codegen.async_poll_try_propagate_type;
+        }
+        const ret_union_c: &byte = c99_type_to_c(codegen, try_ret_type);
+        if ret_union_c == null {
+            fputs("0; })" as *byte, stream);
+            return;
+        }
+        fputs(input_union_type_c as *byte, stream);
+        fputs(" _uya_try_tmp = " as *byte, stream);
+        gen_expr(codegen, leftmost);
+        c99_try_emit_error_return_stmt(codegen, ret_union_c, 0);
+        fputs(" " as *byte, stream);
+        fputs(pipe_type_c as *byte, stream);
+        fputc(32, stream);
+        fputs(pipe_tmp_name as *byte, stream);
+        fputs(" = _uya_try_tmp.value; " as *byte, stream);
+    } else {
+        fputs(pipe_type_c as *byte, stream);
+        fputc(32, stream);
+        fputs(pipe_tmp_name as *byte, stream);
+        fputs(" = " as *byte, stream);
+        gen_expr(codegen, leftmost);
+        fputs("; " as *byte, stream);
+    }
 
     // 3. 推断整条链的最终结果类型，并分配结果变量。
     var result_is_err_union: i32 = 0;
@@ -572,7 +607,7 @@ fn gen_pipeline_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if gen_pipeline_type_is_error_union(&last_ret_type) != 0 {
             result_is_err_union = 1;
             result_type_c = c99_type_to_c_from_inferred_type(codegen, copy_type(&last_ret_type), expr.line, expr.column, expr.filename);
-        } else if saw_err_union_pipeline != 0 {
+        } else if saw_err_union_pipeline != 0 || leftmost_is_try_forward != 0 {
             result_is_err_union = 1;
             const result_type: &Type = compiler_arena_alloc(codegen.arena, @size_of(Type)) as &Type;
             if result_type != null {

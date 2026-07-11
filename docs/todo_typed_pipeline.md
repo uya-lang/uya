@@ -15,14 +15,14 @@
 
 ## 阶段 3：Lowering
 
-- [ ] 以和普通 `try` 一致的方式降低 `!Pipeline` try-forward。
-- [ ] `!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。
-- [ ] 确保诊断源位置指向有用 span。
-- [ ] 为以下场景添加 lowering snapshot 或等价内部 dump：
-  - [ ] 单个 transformer
-  - [ ] 多个 transformer
-  - [ ] 最终 sink
-  - [ ] `!Pipeline` try-forward
+- [x] 以和普通 `try` 一致的方式降低 `!Pipeline` try-forward。
+- [x] `!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。
+- [x] 确保诊断源位置指向有用 span。
+- [x] 为以下场景添加 lowering snapshot 或等价内部 dump：
+  - [x] 单个 transformer
+  - [x] 多个 transformer
+  - [x] 最终 sink
+  - [x] `!Pipeline` try-forward
 
 ## 阶段 4：`std.process.Pipeline` MVP
 

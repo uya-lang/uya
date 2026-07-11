@@ -292,6 +292,9 @@ struct ASTNode {
     // pipeline_expr (left |> right)
     pipeline_expr_left: &ASTNode,
     pipeline_expr_right: &ASTNode,
+    // 最外层 pipeline 表达式是否已经完成 move 消费检查。
+    // checker 可能对同一 AST 重复推断；该标记避免把重复推断误报为二次消费。
+    pipeline_expr_move_checked: i32,
     // unary_expr
     unary_expr_op: i32,
     unary_expr_operand: &ASTNode,
@@ -604,6 +607,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.binary_expr_right = null;
     node.pipeline_expr_left = null;
     node.pipeline_expr_right = null;
+    node.pipeline_expr_move_checked = 0;
     node.unary_expr_op = 0;
     node.unary_expr_operand = null;
     node.try_expr_operand = null;
