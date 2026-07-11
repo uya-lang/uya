@@ -43,6 +43,10 @@ test "pipeline_broker_releases_subscription_and_terminal_lease" {
     try pipeline_broker_lifecycle_self_test();
 }
 
+test "pipeline_child_clears_inherited_broker_state_before_ready" {
+    try pipeline_child_signal_setup_self_test();
+}
+
 test "pipeline_internal_fds_do_not_collide_with_closed_stdio" {
     try pipeline_closed_stdio_self_test();
 }

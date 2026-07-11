@@ -44,6 +44,7 @@ use libc.read;
 use libc.write;
 use libc.sys_fcntl;
 use libc.F_DUPFD_CLOEXEC;
+use libc.F_GETFD;
 use libc.sigset_t;
 use libc.sigemptyset;
 use libc.sigaddset;
@@ -2414,6 +2415,47 @@ export fn pipeline_broker_lifecycle_self_test() !void {
     }
     _ = sigaction(SIGTERM, &saved_action, null as &PipelineSigaction);
     if after_action.handler != SIG_IGN as &void { return error.InvalidPipeline; }
+}
+
+/// 验证 fork child 在 READY 前移除 broker 继承状态并恢复 sink 原始 signal mask；仅供回归测试。
+export fn pipeline_child_signal_setup_self_test() !void {
+    var saved_mask: sigset_t = sigset_t {};
+    if pthread_sigmask(SIG_SETMASK, null as &const sigset_t, &saved_mask) != 0 {
+        return error.PipelineIoError;
+    }
+    try pipeline_broker_subscribe();
+    const broker_read: i32 = _pipeline_broker_pipe[0];
+    const broker_write: i32 = _pipeline_broker_pipe[1];
+    var blocked: sigset_t = sigset_t {};
+    if sigemptyset(&blocked) != 0 || sigaddset(&blocked, SIGTERM) != 0 ||
+        pthread_sigmask(SIG_BLOCK, &blocked, null as &sigset_t) != 0 {
+        pipeline_broker_unsubscribe();
+        return error.PipelineIoError;
+    }
+    const pid: i32 = fork();
+    if pid == 0 {
+        if pipeline_child_signal_setup(&saved_mask) != 0 { _exit(1); }
+        const read_flags: !i32 = sys_fcntl(broker_read, F_GETFD, 0);
+        if read_flags.error_id == 0 { _exit(2); }
+        const write_flags: !i32 = sys_fcntl(broker_write, F_GETFD, 0);
+        if write_flags.error_id == 0 { _exit(3); }
+        var current_mask: sigset_t = sigset_t {};
+        if pthread_sigmask(SIG_SETMASK, null as &const sigset_t, &current_mask) != 0 ||
+            sigismember(&current_mask, SIGTERM) != sigismember(&saved_mask, SIGTERM) {
+            _exit(4);
+        }
+        var action: PipelineSigaction = PipelineSigaction {};
+        if sigaction(SIGTERM, null as &const PipelineSigaction, &action) != 0 ||
+            action.handler == (&pipeline_broker_signal_handler as &void) { _exit(5); }
+        _exit(0);
+    }
+    _ = pthread_sigmask(SIG_SETMASK, &saved_mask, null as &sigset_t);
+    pipeline_broker_unsubscribe();
+    if pid < 0 { return error.PipelineIoError; }
+    var raw: i32 = 0;
+    if waitpid(pid, &raw, 0) != pid || ((raw >> 8) & 255) != 0 {
+        return error.InvalidPipeline;
+    }
 }
 
 fn pipeline_closed_stdio_child(closed_fd: i32) void {
