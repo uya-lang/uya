@@ -68,8 +68,8 @@
 
 ## 阶段 5：POSIX 仅进程 Executor
 
-- [~] spawn 前构造每个 process stage 的最终 argv/env/cwd。
-- [ ] spawn 前解析所有 `cmd` stage 的 PATH；失败时不启动任何子进程，并写入 `spawn_failed` / `not_started` 状态。
+- [x] spawn 前构造每个 process stage 的最终 argv/env/cwd。
+- [~] spawn 前解析所有 `cmd` stage 的 PATH；失败时不启动任何子进程，并写入 `spawn_failed` / `not_started` 状态。
 - [ ] 对 stage cwd 失败写入 `spawn_failed` / `not_started` 状态。
 - [ ] 对文件重定向打开失败、pipe 创建失败、内存分配失败返回普通 Uya error。
 - [ ] 所有 PATH/cwd/buffer 预检和 pipe/control-fd 创建成功后、首个 fork 前，在 parent 中为每个活跃 file-redirection policy 打开一次文件；group stderr 的同一 open file description 供全部 stage 共享。
