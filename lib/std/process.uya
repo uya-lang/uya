@@ -40,6 +40,10 @@ use libc.Stat;
 use libc.sys_stat;
 use libc.access;
 use libc.X_OK;
+use libc.read;
+use libc.write;
+
+extern fn setpgid(pid: i32, pgid: i32) i32;
 
 export error InvalidPipeline;
 export error ProcessFailed;
@@ -1259,6 +1263,42 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         };
         pipe_count = pipe_count + 1usize;
     }
+    var launch_fds: [i32: 64] = [];
+    var report_fds: [i32: 64] = [];
+    var control_count: usize = 0usize;
+    while control_count < count {
+        const launch_result: !i32 = sys_pipe2(&launch_fds[control_count * 2usize], O_CLOEXEC);
+        _ = launch_result catch {
+            var ci: usize = 0usize;
+            while ci < control_count {
+                _ = close(launch_fds[ci * 2usize]); _ = close(launch_fds[ci * 2usize + 1usize]);
+                _ = close(report_fds[ci * 2usize]); _ = close(report_fds[ci * 2usize + 1usize]);
+                ci = ci + 1usize;
+            }
+            var pc: usize = 0usize;
+            while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            return error.PipelineIoError;
+        };
+        const report_result: !i32 = sys_pipe2(&report_fds[control_count * 2usize], O_CLOEXEC);
+        _ = report_result catch {
+            _ = close(launch_fds[control_count * 2usize]);
+            _ = close(launch_fds[control_count * 2usize + 1usize]);
+            var ci: usize = 0usize;
+            while ci < control_count {
+                _ = close(launch_fds[ci * 2usize]); _ = close(launch_fds[ci * 2usize + 1usize]);
+                _ = close(report_fds[ci * 2usize]); _ = close(report_fds[ci * 2usize + 1usize]);
+                ci = ci + 1usize;
+            }
+            var pc: usize = 0usize;
+            while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            return error.PipelineIoError;
+        };
+        control_count = control_count + 1usize;
+    }
     var stdin_fd: i32 = 0 - 1;
     var stdout_fd: i32 = 0 - 1;
     var stderr_fd: i32 = 0 - 1;
@@ -1310,6 +1350,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         free(path as &void);
     }
     var pids: [i32: 32] = [];
+    var pipeline_pgid: i32 = 0;
     i = 0usize;
     while i < count {
         const stage: &PipelinePreparedProcessStage = &prepared_stages[i];
@@ -1327,6 +1368,22 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             return error.PipelineSpawnFailed;
         }
         if pid == 0 {
+            const child_pgid: i32 = pipeline_pgid;
+            if setpgid(0, child_pgid) != 0 {
+                const failed: byte = 70 as byte;
+                _ = write(report_fds[i * 2usize + 1usize], &failed, 1usize);
+                _exit(123);
+            }
+            var ci: usize = 0usize;
+            while ci < count {
+                _ = close(launch_fds[ci * 2usize + 1usize]);
+                _ = close(report_fds[ci * 2usize]);
+                if ci != i {
+                    _ = close(launch_fds[ci * 2usize]);
+                    _ = close(report_fds[ci * 2usize + 1usize]);
+                }
+                ci = ci + 1usize;
+            }
             if i > 0usize && dup2(pipe_fds[(i - 1usize) * 2usize], 0) < 0 { _exit(124); }
             if i + 1usize < count && dup2(pipe_fds[i * 2usize + 1usize], 1) < 0 { _exit(124); }
             if i == 0usize && stdin_fd >= 0 && dup2(stdin_fd, 0) < 0 { _exit(124); }
@@ -1343,11 +1400,48 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_fd >= 0 { _ = close(stderr_fd); }
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            const ready: byte = 82 as byte;
+            if write(report_fds[i * 2usize + 1usize], &ready, 1usize) != 1i64 { _exit(123); }
+            var launch: byte = 0 as byte;
+            if read(launch_fds[i * 2usize], &launch, 1usize) != 1i64 || launch != 71 as byte { _exit(123); }
+            _ = close(launch_fds[i * 2usize]);
             if chdir(stage.cwd) != 0 { _exit(125); }
             _ = execve(stage.exec_path, stage.argv, stage.envp);
             _exit(126);
         }
+        if pipeline_pgid == 0 { pipeline_pgid = pid; }
+        if setpgid(pid, pipeline_pgid) != 0 {
+            pids[i] = pid;
+            pipeline_cancel_pids(&pids[0], i + 1usize);
+            return error.PipelineSpawnFailed;
+        }
         pids[i] = pid;
+        _ = close(launch_fds[i * 2usize]);
+        launch_fds[i * 2usize] = 0 - 1;
+        _ = close(report_fds[i * 2usize + 1usize]);
+        report_fds[i * 2usize + 1usize] = 0 - 1;
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < count {
+        var report: byte = 0 as byte;
+        if read(report_fds[i * 2usize], &report, 1usize) != 1i64 || report != 82 as byte {
+            pipeline_cancel_pids(&pids[0], count);
+            return error.PipelineSpawnFailed;
+        }
+        _ = close(report_fds[i * 2usize]);
+        report_fds[i * 2usize] = 0 - 1;
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < count {
+        const run: byte = 71 as byte;
+        if write(launch_fds[i * 2usize + 1usize], &run, 1usize) != 1i64 {
+            pipeline_cancel_pids(&pids[0], count);
+            return error.PipelineSpawnFailed;
+        }
+        _ = close(launch_fds[i * 2usize + 1usize]);
+        launch_fds[i * 2usize + 1usize] = 0 - 1;
         i = i + 1usize;
     }
     var pc: usize = 0usize;
