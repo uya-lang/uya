@@ -228,6 +228,25 @@ export interface PipelineStage {
     fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void;
 }
 
+interface PipelineErasedStageOps {
+    fn run_erased(self: &Self, input: &StreamReader, output: &StreamWriter) !void;
+    fn drop_erased(self: &Self) void;
+}
+
+struct PipelineErasedStageBox : PipelineErasedStageOps {
+    value: PipelineStage,
+    owned_value: &void,
+
+    fn run_erased(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
+        try self.value.run(input, output);
+    }
+
+    fn drop_erased(self: &Self) void {
+        if self.owned_value != null { free(self.owned_value); }
+        free(self as &void);
+    }
+}
+
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
 extern "libc" fn __atomic_exchange_n(ptr: &i32, value: i32, memory_order: i32) i32;
 extern "libc" fn __atomic_add_fetch(ptr: &i32, value: i32, memory_order: i32) i32;
@@ -257,6 +276,11 @@ struct PipelineProcessStage {
     cwd: &byte,
     env_ops: &PipelineEnvOp,
     env_op_count: usize,
+}
+
+struct PipelineErasedStage {
+    active: i32,
+    ops: PipelineErasedStageOps,
 }
 
 struct PipelineEnvOp {
@@ -374,6 +398,7 @@ struct PipelineEnvAllocator : IAllocator {
 var _pipeline_registry_lock: atomic i32 = 0;
 var _pipeline_registry: [PipelineSlot: 1024] = [];
 var _pipeline_process_stages: [PipelineProcessStage: 32768] = [];
+var _pipeline_erased_stages: [PipelineErasedStage: 32768] = [];
 var _pipeline_stream_policies: [PipelineStreamPolicy: 1024] = [];
 var _pipeline_broker_lock: atomic i32 = 0;
 var _pipeline_broker_subscribers: usize = 0usize;
@@ -680,6 +705,17 @@ fn pipeline_registry_append_process_stage(input: &Pipeline, command_kind: i32) !
     _pipeline_registry[slot_idx].stage_count = stage_idx + 1usize;
     pipeline_registry_unlock();
     return;
+}
+
+fn pipeline_registry_append_erased_stage(input: &Pipeline, ops: PipelineErasedStageOps) !void {
+    try pipeline_registry_append_process_stage(input, 3);
+    const slot_idx: usize = try pipeline_registry_slot_index(input);
+    const count: usize = try pipeline_registry_stage_count(input);
+    if count == 0usize { return error.InvalidPipeline; }
+    const storage_idx: usize = try pipeline_stage_storage_index(slot_idx, count - 1usize);
+    if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
+    _pipeline_erased_stages[storage_idx].active = 1;
+    _pipeline_erased_stages[storage_idx].ops = ops;
 }
 
 fn pipeline_owned_c_string(value: &const byte) !&byte {
@@ -1164,6 +1200,10 @@ fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
         const storage_idx: usize = storage_result catch { return; };
         if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
             return;
+        }
+        if _pipeline_erased_stages[storage_idx].active != 0 {
+            _pipeline_erased_stages[storage_idx].ops.drop_erased();
+            _pipeline_erased_stages[storage_idx].active = 0;
         }
         pipeline_free_stage_argv(&_pipeline_process_stages[storage_idx]);
         if _pipeline_process_stages[storage_idx].cwd != null {
@@ -2804,6 +2844,26 @@ export fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]
     }
     try pipeline_registry_append_process_stage(&input, 2);
     try pipeline_registry_set_last_stage_argv(&input, path, args.ptr, args.len);
+    return input;
+}
+
+/// 向 pipeline 追加一个按值拥有的自定义 Uya 流 stage。
+/// 参数：input 为按值消费的 pipeline；stage_value 被移动到稳定 heap holder。
+/// 返回：成功时返回追加后的 pipeline；分配或计划容量失败时返回 InvalidPipeline。
+export fn stage<T: PipelineStage>(input: Pipeline, stage_value: T) !Pipeline {
+    const value_raw: &void = malloc(@size_of(T));
+    if value_raw == null { return error.InvalidPipeline; }
+    const typed_value: &T = value_raw as &T;
+    typed_value[0] = stage_value;
+    const holder_raw: &void = malloc(@size_of(PipelineErasedStageBox));
+    if holder_raw == null { free(value_raw); return error.InvalidPipeline; }
+    const holder: &PipelineErasedStageBox = holder_raw as &PipelineErasedStageBox;
+    const boxed_value: PipelineStage = *typed_value;
+    holder.value = boxed_value;
+    holder.owned_value = value_raw;
+    const ops: PipelineErasedStageOps = *holder;
+    const appended: !void = pipeline_registry_append_erased_stage(&input, ops);
+    _ = appended catch { holder.drop_erased(); return error.InvalidPipeline; };
     return input;
 }
 

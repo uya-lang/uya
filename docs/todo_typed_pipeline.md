@@ -161,8 +161,8 @@ interface PipelineStage {
 }
 ```
 
-- [~] 添加 `stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline`。
-- [ ] 在 pipeline 计划中按值存储 stage 对象，并拒绝未拥有的内部借用。
+- [x] 添加 `stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline`。
+- [~] 在 pipeline 计划中按值存储 stage 对象，并拒绝未拥有的内部借用。
 - [ ] 定义含 slice/pointer/interface 字段的 stage owned-data 规则。
 - [ ] 添加 erased thunk 表示或等价单态化存储：
   - [ ] `run_fn`
