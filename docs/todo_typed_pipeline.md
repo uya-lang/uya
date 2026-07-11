@@ -114,8 +114,8 @@
   - [x] 三阶段 pipeline
   - [x] stdout 文件 sink
   - [x] stderr 文件 sink
-  - [~] stderr capture
-  - [ ] stderr to stdout merge
+  - [x] stderr capture
+  - [~] stderr to stdout merge
   - [ ] `cmd("a/b")` 返回 `error.InvalidPipeline`
   - [ ] 缺失命令
   - [ ] child-side exec 失败诊断

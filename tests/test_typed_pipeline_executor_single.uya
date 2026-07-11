@@ -14,6 +14,8 @@ use std.process.pipeline;
 use std.process.status_into;
 use std.process.stdout_file;
 use std.process.stderr_file;
+use std.process.stderr_capture;
+use std.process.stderr_to_stdout;
 use std.process.stdin_file;
 use std.process.cwd;
 use std.process.PipelineCaptureResult;
@@ -93,6 +95,21 @@ test "pipeline_stderr_file_sink_redirects_group_stderr" {
     try check(try stderr_file(command, output_path));
     try assert_eq_i32(access(output_path, F_OK), 0);
     _ = unlink(output_path);
+}
+
+test "pipeline_stderr_capture_drains_separate_stream" {
+    const shell_values: [&const byte: 2] = ["-c", "printf stderr-data >&2"];
+    const command: Pipeline = try stderr_capture(
+        try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]));
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var stdout_storage: [byte: 1] = [];
+    var stderr_storage: [byte: 32] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_into(command, &statuses_storage[0:1], &stdout_storage[0:0],
+        &stderr_storage[0:32], &result);
+    try assert_eq_bool(result.stderr.captured, true);
+    try assert_eq_i32(result.stderr.byte_count as i32, 11);
+    try assert_eq_bool(result.stderr.complete, true);
 }
 
 test "pipeline_capture_drains_output_larger_than_pipe_buffer" {
