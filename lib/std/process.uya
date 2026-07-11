@@ -272,21 +272,58 @@ var _pipeline_broker_pipe: [i32: 2] = [0 - 1, 0 - 1];
 var _pipeline_broker_pending_signal: atomic i32 = 0;
 var _pipeline_broker_signal_epoch: atomic i32 = 0;
 var _pipeline_broker_installed: i32 = 0;
+var _pipeline_broker_previous_actions: [PipelineSigaction: 4] = [];
+var _pipeline_broker_owned_actions: [i32: 4] = [];
 
 extern fn pipeline_broker_signal_handler(signum: i32) void {
     _pipeline_broker_pending_signal = signum;
     _ = __atomic_add_fetch((&_pipeline_broker_signal_epoch) as &i32, 1, PIPELINE_ATOMIC_SEQ_CST);
 }
 
-fn pipeline_broker_install_handler(signum: i32) !void {
+fn pipeline_broker_signal_at(index: usize) i32 {
+    if index == 0usize { return SIGINT; }
+    if index == 1usize { return SIGQUIT; }
+    if index == 2usize { return SIGTERM; }
+    return SIGHUP;
+}
+
+fn pipeline_broker_install_handler(signum: i32, index: usize) !void {
+    if index >= 4usize { return error.PipelineIoError; }
     var action: PipelineSigaction = PipelineSigaction {};
     var previous: PipelineSigaction = PipelineSigaction {};
     action.handler = &pipeline_broker_signal_handler as &void;
     if sigaction(signum, &action, &previous) != 0 { return error.PipelineIoError; }
-    if previous.handler == SIG_IGN as &void {
+    const was_ignored: bool = previous.handler == SIG_IGN as &void;
+    _pipeline_broker_previous_actions[index] = previous;
+    if was_ignored {
         action.handler = SIG_IGN as &void;
         if sigaction(signum, &action, null as &PipelineSigaction) != 0 { return error.PipelineIoError; }
+        _pipeline_broker_owned_actions[index] = 0;
+    } else {
+        _pipeline_broker_owned_actions[index] = 1;
     }
+}
+
+fn pipeline_broker_uninstall() void {
+    if _pipeline_broker_installed == 0 { return; }
+    var i: usize = 0usize;
+    while i < 4usize {
+        if _pipeline_broker_owned_actions[i] != 0 {
+            var current: PipelineSigaction = PipelineSigaction {};
+            if sigaction(pipeline_broker_signal_at(i), null as &const PipelineSigaction, &current) == 0 &&
+                current.handler == (&pipeline_broker_signal_handler as &void) {
+                _ = sigaction(pipeline_broker_signal_at(i), &_pipeline_broker_previous_actions[i],
+                    null as &PipelineSigaction);
+            }
+        }
+        _pipeline_broker_owned_actions[i] = 0;
+        i = i + 1usize;
+    }
+    if _pipeline_broker_pipe[0] >= 0 { _ = close(_pipeline_broker_pipe[0]); }
+    if _pipeline_broker_pipe[1] >= 0 { _ = close(_pipeline_broker_pipe[1]); }
+    _pipeline_broker_pipe[0] = 0 - 1;
+    _pipeline_broker_pipe[1] = 0 - 1;
+    _pipeline_broker_installed = 0;
 }
 
 fn pipeline_broker_install() !void {
@@ -294,10 +331,10 @@ fn pipeline_broker_install() !void {
     const created: !i32 = sys_pipe2(&_pipeline_broker_pipe[0], O_CLOEXEC | O_NONBLOCK);
     _ = created catch { return error.PipelineIoError; };
     try pipeline_pipe_above_stdio(&_pipeline_broker_pipe[0]);
-    try pipeline_broker_install_handler(SIGINT);
-    try pipeline_broker_install_handler(SIGQUIT);
-    try pipeline_broker_install_handler(SIGTERM);
-    try pipeline_broker_install_handler(SIGHUP);
+    try pipeline_broker_install_handler(SIGINT, 0usize);
+    try pipeline_broker_install_handler(SIGQUIT, 1usize);
+    try pipeline_broker_install_handler(SIGTERM, 2usize);
+    try pipeline_broker_install_handler(SIGHUP, 3usize);
     _pipeline_broker_installed = 1;
 }
 
@@ -344,6 +381,7 @@ fn pipeline_broker_unsubscribe() void {
     if _pipeline_broker_subscribers > 0usize {
         _pipeline_broker_subscribers = _pipeline_broker_subscribers - 1usize;
     }
+    if _pipeline_broker_subscribers == 0usize { pipeline_broker_uninstall(); }
     pipeline_broker_unlock();
 }
 
@@ -2044,6 +2082,19 @@ export fn pipeline_broker_lifecycle_self_test() !void {
     const active: i32 = _pipeline_terminal_leases[lease].active;
     pipeline_broker_unlock();
     if subscribers != 0usize || active != 0 { return error.InvalidPipeline; }
+    var ignore_action: PipelineSigaction = PipelineSigaction {};
+    var saved_action: PipelineSigaction = PipelineSigaction {};
+    var after_action: PipelineSigaction = PipelineSigaction {};
+    ignore_action.handler = SIG_IGN as &void;
+    if sigaction(SIGTERM, &ignore_action, &saved_action) != 0 { return error.PipelineIoError; }
+    try pipeline_broker_subscribe();
+    pipeline_broker_unsubscribe();
+    if sigaction(SIGTERM, null as &const PipelineSigaction, &after_action) != 0 {
+        _ = sigaction(SIGTERM, &saved_action, null as &PipelineSigaction);
+        return error.PipelineIoError;
+    }
+    _ = sigaction(SIGTERM, &saved_action, null as &PipelineSigaction);
+    if after_action.handler != SIG_IGN as &void { return error.InvalidPipeline; }
 }
 
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。
