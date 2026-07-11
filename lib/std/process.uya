@@ -1,6 +1,12 @@
 // std.process - 进程与类型化管道抽象
 // 模块路径：lib/std/process.uya → use std.process;
 
+use std.env.EnvBlockBuilder;
+use std.env.env_block_builder_new;
+use std.mem.allocator.IAllocator;
+use std.mem.allocator.MallocAllocator;
+use std.mem.allocator.get_allocator;
+
 export error InvalidPipeline;
 
 /// Pipeline stage 的稳定执行状态类别。
@@ -91,6 +97,22 @@ struct PipelineEnvOp {
 
 struct PipelineExecutionStage {
     exec_path: &byte,
+}
+
+struct PipelineEnvAllocator : IAllocator {
+    inner: &MallocAllocator,
+
+    fn alloc(self: &Self, size: usize) !&byte {
+        return self.inner.alloc(size);
+    },
+
+    fn dealloc(self: &Self, ptr: &byte) void {
+        self.inner.dealloc(ptr);
+    },
+
+    fn realloc(self: &Self, ptr: &byte, new_size: usize) !&byte {
+        return self.inner.realloc(ptr, new_size);
+    },
 }
 
 var _pipeline_registry_lock: atomic i32 = 0;
@@ -439,6 +461,29 @@ fn pipeline_registry_append_last_stage_env(input: &Pipeline, key: &const byte, v
     return;
 }
 
+fn pipeline_apply_stage_env(stage: &PipelineProcessStage, builder: &EnvBlockBuilder) !void {
+    if stage == null || builder == null {
+        return error.InvalidPipeline;
+    }
+    var i: usize = 0usize;
+    while i < stage.env_op_count {
+        if stage.env_ops[i].remove != 0 {
+            try builder.without(stage.env_ops[i].key);
+        } else {
+            try builder.with(stage.env_ops[i].key, stage.env_ops[i].value);
+        }
+        i = i + 1usize;
+    }
+}
+
+fn pipeline_path_env(builder: &EnvBlockBuilder) &(&const byte) {
+    return builder.envp();
+}
+
+fn pipeline_spawn_env(builder: &EnvBlockBuilder) &(&const byte) {
+    return builder.envp();
+}
+
 fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
     var i: usize = 0usize;
     while i < count && i < PIPELINE_MAX_STAGES {
@@ -634,6 +679,16 @@ export fn pipeline_capability_self_test() !void {
         _pipeline_process_stages[owned_stage_idx].env_ops[1].remove == 0 ||
         pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].env_ops[1].key, "OLD_MODE") == 0 ||
         _pipeline_process_stages[owned_stage_idx].env_ops[1].value != null {
+        return error.InvalidPipeline;
+    }
+    var env_allocator: PipelineEnvAllocator = PipelineEnvAllocator { inner: get_allocator() };
+    var env_builder: EnvBlockBuilder = env_block_builder_new(env_allocator);
+    env_builder.inherit_current();
+    try pipeline_apply_stage_env(&_pipeline_process_stages[owned_stage_idx], &env_builder);
+    try env_builder.build();
+    const path_env: &(&const byte) = pipeline_path_env(&env_builder);
+    const spawn_env: &(&const byte) = pipeline_spawn_env(&env_builder);
+    if path_env == null || spawn_env != path_env {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {
