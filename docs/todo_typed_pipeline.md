@@ -64,11 +64,11 @@
 - [x] 添加 `check`、`check_into`、`status_into`、`capture_into` 和 `capture_limit_into`。
 - [x] 为所有 `*_into` sink 添加 caller writable-region 容量与两两不重叠预检，失败时在外部副作用前返回 `InvalidPipeline` 并清空 result。
 - [x] 添加显式 `clone(input: &Pipeline) !Pipeline`。
-- [~] `clone` 对包含不可克隆 erased stage 的计划返回 `error.InvalidPipeline`。
+- [x] `clone` 对包含不可克隆 erased stage 的计划返回 `error.InvalidPipeline`。
 
 ## 阶段 5：POSIX 仅进程 Executor
 
-- [ ] spawn 前构造每个 process stage 的最终 argv/env/cwd。
+- [~] spawn 前构造每个 process stage 的最终 argv/env/cwd。
 - [ ] spawn 前解析所有 `cmd` stage 的 PATH；失败时不启动任何子进程，并写入 `spawn_failed` / `not_started` 状态。
 - [ ] 对 stage cwd 失败写入 `spawn_failed` / `not_started` 状态。
 - [ ] 对文件重定向打开失败、pipe 创建失败、内存分配失败返回普通 Uya error。

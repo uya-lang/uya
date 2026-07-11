@@ -1398,6 +1398,24 @@ export fn clone(input: &Pipeline) !Pipeline {
     return output;
 }
 
+/// 验证 clone 会拒绝没有已知深拷贝实现的 erased stage；仅供回归测试。
+export fn pipeline_uncloneable_stage_self_test() !void {
+    const source: Pipeline = pipeline_registry_allocate();
+    try pipeline_registry_append_process_stage(&source, 1);
+    try pipeline_registry_set_last_stage_argv(&source, "placeholder", null as &&const byte, 0usize);
+    const slot: usize = try pipeline_registry_slot_index(&source);
+    const storage: usize = try pipeline_stage_storage_index(slot, 0usize);
+    if storage >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        _ = pipeline_registry_release(&source);
+        return error.InvalidPipeline;
+    }
+    _pipeline_process_stages[storage].active = 0;
+    const copied: !Pipeline = clone(&source);
+    _pipeline_process_stages[storage].active = 1;
+    _ = pipeline_registry_release(&source);
+    if copied.error_id != @error_id(error.InvalidPipeline) { return error.InvalidPipeline; }
+}
+
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。
 /// 参数：input 为按值消费的 pipeline；program 为命令名；args 不包含 argv[0]。
 /// 返回：成功时返回追加 stage 后的 pipeline；参数或 capability 无效时返回错误。

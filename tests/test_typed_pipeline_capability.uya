@@ -30,3 +30,7 @@ test "pipeline_clone_owns_an_independent_deep_copy" {
     try capture_into(copied, &statuses[0:1], &stdout_buf[0:32], &stderr_buf[0:1], &result);
     try assert_eq_u64(result.stdout.byte_count as u64, 9);
 }
+
+test "pipeline_clone_rejects_uncloneable_erased_stage" {
+    try pipeline_uncloneable_stage_self_test();
+}
