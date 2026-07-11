@@ -42,6 +42,8 @@ use libc.access;
 use libc.X_OK;
 use libc.read;
 use libc.write;
+use libc.sys_fcntl;
+use libc.F_DUPFD_CLOEXEC;
 
 extern fn setpgid(pid: i32, pgid: i32) i32;
 
@@ -1145,6 +1147,21 @@ fn pipeline_open_retry(path: &const byte, flags: i32, mode: i32) !i32 {
     }
 }
 
+fn pipeline_fd_above_stdio(fd: &i32) !void {
+    if fd == null || fd[0] < 0 { return error.PipelineIoError; }
+    if fd[0] > 2 { return; }
+    const duplicated: !i32 = sys_fcntl(fd[0], F_DUPFD_CLOEXEC, 3);
+    const moved: i32 = duplicated catch { return error.PipelineIoError; };
+    _ = close(fd[0]);
+    fd[0] = moved;
+}
+
+fn pipeline_pipe_above_stdio(fds: &i32) !void {
+    if fds == null { return error.PipelineIoError; }
+    try pipeline_fd_above_stdio(&fds[0]);
+    try pipeline_fd_above_stdio(&fds[1]);
+}
+
 fn pipeline_prepare_process_stage(snapshot: &PipelineCwdSnapshot, stage: &PipelineProcessStage,
     status: &PipelineStageStatus) !PipelinePreparedProcessStage {
     var prepared: PipelinePreparedProcessStage = PipelinePreparedProcessStage {
@@ -1238,22 +1255,24 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var stdout_capture_fds: [i32: 2] = [0 - 1, 0 - 1];
     var stderr_capture_fds: [i32: 2] = [0 - 1, 0 - 1];
     if capture != null && capture.capture_stdout {
-        const capture_pipe: !i32 = sys_pipe2(&stdout_capture_fds[0], 0);
+        const capture_pipe: !i32 = sys_pipe2(&stdout_capture_fds[0], O_CLOEXEC);
         _ = capture_pipe catch {
             return error.PipelineIoError;
         };
+        try pipeline_pipe_above_stdio(&stdout_capture_fds[0]);
     }
     if capture != null && capture.capture_stderr {
-        const capture_pipe: !i32 = sys_pipe2(&stderr_capture_fds[0], 0);
+        const capture_pipe: !i32 = sys_pipe2(&stderr_capture_fds[0], O_CLOEXEC);
         _ = capture_pipe catch {
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_pipe_above_stdio(&stderr_capture_fds[0]);
     }
     var pipe_fds: [i32: 62] = [];
     var pipe_count: usize = 0usize;
     while pipe_count + 1usize < count {
-        const pipe_result: !i32 = sys_pipe2(&pipe_fds[pipe_count * 2usize], 0);
+        const pipe_result: !i32 = sys_pipe2(&pipe_fds[pipe_count * 2usize], O_CLOEXEC);
         _ = pipe_result catch {
             var pc: usize = 0usize;
             while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
@@ -1261,6 +1280,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_pipe_above_stdio(&pipe_fds[pipe_count * 2usize]);
         pipe_count = pipe_count + 1usize;
     }
     var launch_fds: [i32: 64] = [];
@@ -1281,6 +1301,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_pipe_above_stdio(&launch_fds[control_count * 2usize]);
         const report_result: !i32 = sys_pipe2(&report_fds[control_count * 2usize], O_CLOEXEC);
         _ = report_result catch {
             _ = close(launch_fds[control_count * 2usize]);
@@ -1297,6 +1318,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_pipe_above_stdio(&report_fds[control_count * 2usize]);
         control_count = control_count + 1usize;
     }
     var stdin_fd: i32 = 0 - 1;
@@ -1314,6 +1336,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_fd_above_stdio(&stdin_fd);
         free(path as &void);
     }
     if _pipeline_stream_policies[slot_idx].stdout_kind == PipelineStdoutPolicyKind.file {
@@ -1330,6 +1353,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_fd_above_stdio(&stdout_fd);
         free(path as &void);
     }
     if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.file {
@@ -1347,6 +1371,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
+        try pipeline_fd_above_stdio(&stderr_fd);
         free(path as &void);
     }
     var pids: [i32: 32] = [];
@@ -1422,6 +1447,13 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         report_fds[i * 2usize + 1usize] = 0 - 1;
         i = i + 1usize;
     }
+    var pc: usize = 0usize;
+    while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+    if stdin_fd >= 0 { _ = close(stdin_fd); stdin_fd = 0 - 1; }
+    if stdout_fd >= 0 { _ = close(stdout_fd); stdout_fd = 0 - 1; }
+    if stderr_fd >= 0 { _ = close(stderr_fd); stderr_fd = 0 - 1; }
+    if stdout_capture_fds[1] >= 0 { _ = close(stdout_capture_fds[1]); stdout_capture_fds[1] = 0 - 1; }
+    if stderr_capture_fds[1] >= 0 { _ = close(stderr_capture_fds[1]); stderr_capture_fds[1] = 0 - 1; }
     i = 0usize;
     while i < count {
         var report: byte = 0 as byte;
@@ -1444,13 +1476,6 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         launch_fds[i * 2usize + 1usize] = 0 - 1;
         i = i + 1usize;
     }
-    var pc: usize = 0usize;
-    while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
-    if stdin_fd >= 0 { _ = close(stdin_fd); }
-    if stdout_fd >= 0 { _ = close(stdout_fd); }
-    if stderr_fd >= 0 { _ = close(stderr_fd); }
-    if stdout_capture_fds[1] >= 0 { _ = close(stdout_capture_fds[1]); stdout_capture_fds[1] = 0 - 1; }
-    if stderr_capture_fds[1] >= 0 { _ = close(stderr_capture_fds[1]); stderr_capture_fds[1] = 0 - 1; }
     if capture != null {
         var stdout_open: bool = stdout_capture_fds[0] >= 0;
         var stderr_open: bool = stderr_capture_fds[0] >= 0;
