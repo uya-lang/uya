@@ -54,6 +54,7 @@ use libc.SIG_SETMASK;
 use libc.SIGPIPE;
 use libc.EPIPE;
 use libc.sys_write;
+use libc.sys_fstat;
 
 extern fn setpgid(pid: i32, pgid: i32) i32;
 extern fn sigwait(set: &const sigset_t, signal: &i32) i32;
@@ -62,6 +63,7 @@ extern fn isatty(fd: i32) i32;
 extern fn tcgetpgrp(fd: i32) i32;
 extern fn tcsetpgrp(fd: i32, pgid: i32) i32;
 extern fn getpgrp() i32;
+extern fn sched_yield() i32;
 
 export error InvalidPipeline;
 export error ProcessFailed;
@@ -214,6 +216,12 @@ struct PipelineStreamPolicy {
     stderr_path: &byte,
 }
 
+struct PipelineTerminalLease {
+    active: i32,
+    device: i64,
+    inode: i64,
+}
+
 struct PipelineEnvAllocator : IAllocator {
     inner: &MallocAllocator,
 
@@ -234,6 +242,83 @@ var _pipeline_registry_lock: atomic i32 = 0;
 var _pipeline_registry: [PipelineSlot: 1024] = [];
 var _pipeline_process_stages: [PipelineProcessStage: 32768] = [];
 var _pipeline_stream_policies: [PipelineStreamPolicy: 1024] = [];
+var _pipeline_broker_lock: atomic i32 = 0;
+var _pipeline_broker_subscribers: usize = 0usize;
+var _pipeline_terminal_leases: [PipelineTerminalLease: 16] = [];
+
+fn pipeline_broker_lock() void {
+    while true {
+        var expected: i32 = 0;
+        if __atomic_compare_exchange_n((&_pipeline_broker_lock) as &i32, &expected, 1, 0,
+            PIPELINE_ATOMIC_SEQ_CST, PIPELINE_ATOMIC_SEQ_CST) != 0 { return; }
+        _ = sched_yield();
+    }
+}
+
+fn pipeline_broker_unlock() void { _pipeline_broker_lock = 0; }
+
+fn pipeline_broker_subscribe() void {
+    pipeline_broker_lock();
+    _pipeline_broker_subscribers = _pipeline_broker_subscribers + 1usize;
+    pipeline_broker_unlock();
+}
+
+fn pipeline_broker_unsubscribe() void {
+    pipeline_broker_lock();
+    if _pipeline_broker_subscribers > 0usize {
+        _pipeline_broker_subscribers = _pipeline_broker_subscribers - 1usize;
+    }
+    pipeline_broker_unlock();
+}
+
+fn pipeline_terminal_identity(fd: i32, device: &i64, inode: &i64) !void {
+    if device == null || inode == null { return error.PipelineIoError; }
+    var info: Stat = Stat {};
+    const stated: !i32 = sys_fstat(fd, &info);
+    const code: i32 = stated catch { return error.PipelineIoError; };
+    if code != 0 { return error.PipelineIoError; }
+    device[0] = info.st_dev;
+    inode[0] = info.st_ino;
+}
+
+fn pipeline_terminal_lease_acquire(fd: i32) !usize {
+    var device: i64 = 0;
+    var inode: i64 = 0;
+    try pipeline_terminal_identity(fd, &device, &inode);
+    while true {
+        pipeline_broker_lock();
+        var occupied: bool = false;
+        var free_idx: usize = 16usize;
+        var i: usize = 0usize;
+        while i < 16usize {
+            if _pipeline_terminal_leases[i].active != 0 &&
+                _pipeline_terminal_leases[i].device == device &&
+                _pipeline_terminal_leases[i].inode == inode {
+                occupied = true;
+            } else if _pipeline_terminal_leases[i].active == 0 && free_idx == 16usize {
+                free_idx = i;
+            }
+            i = i + 1usize;
+        }
+        if !occupied && free_idx < 16usize {
+            _pipeline_terminal_leases[free_idx] = PipelineTerminalLease {
+                active: 1, device: device, inode: inode,
+            };
+            pipeline_broker_unlock();
+            return free_idx;
+        }
+        pipeline_broker_unlock();
+        if !occupied { return error.PipelineIoError; }
+        _ = sched_yield();
+    }
+}
+
+fn pipeline_terminal_lease_release(index: usize) void {
+    if index >= 16usize { return; }
+    pipeline_broker_lock();
+    _pipeline_terminal_leases[index] = PipelineTerminalLease {};
+    pipeline_broker_unlock();
+}
 
 fn pipeline_registry_lock() void {
     while true {
@@ -1315,10 +1400,14 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var foreground_fd: i32 = 0 - 1;
     var saved_foreground_pgid: i32 = 0 - 1;
     var foreground_handed_off: bool = false;
+    var broker_registered: bool = false;
+    var terminal_lease: usize = 16usize;
     defer {
         if foreground_handed_off && foreground_fd >= 0 && saved_foreground_pgid > 0 {
             _ = tcsetpgrp(foreground_fd, saved_foreground_pgid);
         }
+        if terminal_lease < 16usize { pipeline_terminal_lease_release(terminal_lease); }
+        if broker_registered { pipeline_broker_unsubscribe(); }
     }
     var cwd_snapshot: PipelineCwdSnapshot = try pipeline_cwd_snapshot_capture();
     defer { pipeline_cwd_snapshot_deinit(&cwd_snapshot); }
@@ -1334,6 +1423,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         prepared_count = prepared_count + 1usize;
         i = i + 1usize;
     }
+    pipeline_broker_subscribe();
+    broker_registered = true;
     const policy: &PipelineStreamPolicy = &_pipeline_stream_policies[slot_idx];
     if policy.stdin_kind == PipelineStdinPolicyKind.inherit &&
         policy.stdout_kind == PipelineStdoutPolicyKind.inherit &&
@@ -1342,6 +1433,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         else if isatty(1) != 0 { foreground_fd = 1; }
         else if isatty(2) != 0 { foreground_fd = 2; }
         if foreground_fd >= 0 {
+            terminal_lease = try pipeline_terminal_lease_acquire(foreground_fd);
             const terminal_pgid: i32 = tcgetpgrp(foreground_fd);
             if terminal_pgid > 0 && terminal_pgid == getpgrp() {
                 saved_foreground_pgid = terminal_pgid;
@@ -1777,6 +1869,29 @@ export fn pipeline_control_epipe_self_test() !void {
     _ = close(fds[1]);
     _ = sent catch {};
     if sent.error_id != @error_id(error.PipelineIoError) { return error.InvalidPipeline; }
+}
+
+/// 验证 runtime broker 订阅与按 terminal identity 租约的配对清理；仅供回归测试。
+export fn pipeline_broker_lifecycle_self_test() !void {
+    var fds: [i32: 2] = [];
+    const created: !i32 = sys_pipe2(&fds[0], O_CLOEXEC);
+    _ = created catch { return error.PipelineIoError; };
+    pipeline_broker_subscribe();
+    const lease_result: !usize = pipeline_terminal_lease_acquire(fds[0]);
+    const lease: usize = lease_result catch {
+        pipeline_broker_unsubscribe();
+        _ = close(fds[0]); _ = close(fds[1]);
+        return error.PipelineIoError;
+    };
+    pipeline_terminal_lease_release(lease);
+    pipeline_broker_unsubscribe();
+    _ = close(fds[0]); _ = close(fds[1]);
+    if lease >= 16usize { return error.InvalidPipeline; }
+    pipeline_broker_lock();
+    const subscribers: usize = _pipeline_broker_subscribers;
+    const active: i32 = _pipeline_terminal_leases[lease].active;
+    pipeline_broker_unlock();
+    if subscribers != 0usize || active != 0 { return error.InvalidPipeline; }
 }
 
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。

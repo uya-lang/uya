@@ -38,3 +38,7 @@ test "pipeline_clone_rejects_uncloneable_erased_stage" {
 test "pipeline_control_write_handles_epipe_without_sigpipe_termination" {
     try pipeline_control_epipe_self_test();
 }
+
+test "pipeline_broker_releases_subscription_and_terminal_lease" {
+    try pipeline_broker_lifecycle_self_test();
+}
