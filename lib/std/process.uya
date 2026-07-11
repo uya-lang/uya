@@ -21,10 +21,16 @@ use libc._exit;
 use libc.close;
 use libc.dup2;
 use libc.sys_pipe2;
+use libc.sys_open;
+use libc.O_RDONLY;
+use libc.O_WRONLY;
+use libc.O_CREAT;
+use libc.O_TRUNC;
 
 export error InvalidPipeline;
 export error ProcessFailed;
 export error PipelineSpawnFailed;
+export error PipelineIoError;
 
 /// Pipeline stage 的稳定执行状态类别。
 export enum PipelineStageStatusKind {
@@ -988,6 +994,39 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         }
         i = i + 1usize;
     }
+    var stdin_fd: i32 = 0 - 1;
+    var stdout_fd: i32 = 0 - 1;
+    var stderr_fd: i32 = 0 - 1;
+    if _pipeline_stream_policies[slot_idx].stdin_kind == PipelineStdinPolicyKind.file {
+        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
+            _pipeline_stream_policies[slot_idx].stdin_path);
+        const opened: !i32 = sys_open(path, O_RDONLY as i32, 0);
+        stdin_fd = opened catch { free(path as &void); return error.PipelineIoError; };
+        free(path as &void);
+    }
+    if _pipeline_stream_policies[slot_idx].stdout_kind == PipelineStdoutPolicyKind.file {
+        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
+            _pipeline_stream_policies[slot_idx].stdout_path);
+        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
+        stdout_fd = opened catch {
+            free(path as &void);
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            return error.PipelineIoError;
+        };
+        free(path as &void);
+    }
+    if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.file {
+        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
+            _pipeline_stream_policies[slot_idx].stderr_path);
+        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
+        stderr_fd = opened catch {
+            free(path as &void);
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_fd >= 0 { _ = close(stdout_fd); }
+            return error.PipelineIoError;
+        };
+        free(path as &void);
+    }
     var pipe_fds: [i32: 62] = [];
     var pipe_count: usize = 0usize;
     while pipe_count + 1usize < count {
@@ -995,6 +1034,9 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         _ = pipe_result catch {
             var pc: usize = 0usize;
             while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_fd >= 0 { _ = close(stdout_fd); }
+            if stderr_fd >= 0 { _ = close(stderr_fd); }
             return error.InvalidPipeline;
         };
         pipe_count = pipe_count + 1usize;
@@ -1016,13 +1058,24 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             statuses[i].spawn_failure = PipelineSpawnFailureKind.process_create_failed;
             var pc: usize = 0usize;
             while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_fd >= 0 { _ = close(stdout_fd); }
+            if stderr_fd >= 0 { _ = close(stderr_fd); }
             return error.PipelineSpawnFailed;
         }
         if pid == 0 {
             if i > 0usize && dup2(pipe_fds[(i - 1usize) * 2usize], 0) < 0 { _exit(124); }
             if i + 1usize < count && dup2(pipe_fds[i * 2usize + 1usize], 1) < 0 { _exit(124); }
+            if i == 0usize && stdin_fd >= 0 && dup2(stdin_fd, 0) < 0 { _exit(124); }
+            if i + 1usize == count && stdout_fd >= 0 && dup2(stdout_fd, 1) < 0 { _exit(124); }
+            if stderr_fd >= 0 && dup2(stderr_fd, 2) < 0 { _exit(124); }
+            if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.merge_stdout &&
+                dup2(1, 2) < 0 { _exit(124); }
             var pc: usize = 0usize;
             while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_fd >= 0 { _ = close(stdout_fd); }
+            if stderr_fd >= 0 { _ = close(stderr_fd); }
             if chdir(&final_cwds[i][0]) != 0 { _exit(125); }
             _ = execve(&exec_paths[i][0], stage.argv, env_builder.envp() as &&byte);
             _exit(126);
@@ -1032,6 +1085,9 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     }
     var pc: usize = 0usize;
     while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+    if stdin_fd >= 0 { _ = close(stdin_fd); }
+    if stdout_fd >= 0 { _ = close(stdout_fd); }
+    if stderr_fd >= 0 { _ = close(stderr_fd); }
     var saw_failure: bool = false;
     i = 0usize;
     while i < count {
