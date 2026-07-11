@@ -216,6 +216,64 @@ fn pipeline_registry_release(input: &Pipeline) i32 {
     return 1;
 }
 
+fn pipeline_empty_stage_status(index: usize) PipelineStageStatus {
+    return PipelineStageStatus {
+        stage_index: index,
+        kind: PipelineStageStatusKind.not_started,
+        exit_code: 0u32,
+        signal: 0,
+        spawn_failure: PipelineSpawnFailureKind.none,
+        platform_code: 0u32,
+        error_name: "",
+    };
+}
+
+fn pipeline_reset_result(result: &PipelineResult) void {
+    if result != null {
+        result.stage_count = 0usize;
+    }
+}
+
+fn pipeline_reset_capture_result(result: &PipelineCaptureResult) void {
+    if result == null {
+        return;
+    }
+    result.result.stage_count = 0usize;
+    result.stdout.captured = false;
+    result.stdout.byte_count = 0usize;
+    result.stdout.complete = false;
+    result.stderr.captured = false;
+    result.stderr.byte_count = 0usize;
+    result.stderr.complete = false;
+}
+
+fn pipeline_prepare_status_buffer(input: &Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !usize {
+    pipeline_reset_result(result);
+    const count: usize = try pipeline_registry_stage_count(input);
+    if statuses.len < count {
+        return error.InvalidPipeline;
+    }
+    var i: usize = 0usize;
+    while i < count {
+        statuses[i] = pipeline_empty_stage_status(i);
+        i = i + 1usize;
+    }
+    result.stage_count = count;
+    return count;
+}
+
+fn pipeline_copy_capture_bytes(output: &[byte], input: &[const byte], count: usize) !usize {
+    if count > output.len || count > input.len {
+        return error.InvalidPipeline;
+    }
+    var i: usize = 0usize;
+    while i < count {
+        output[i] = input[i];
+        i = i + 1usize;
+    }
+    return count;
+}
+
 /// 进程管道的不透明、不可复制执行计划。
 /// 字段仅 std.process 声明模块可见；调用方只能通过公开 transformer/sink 移动它。
 export opaque struct Pipeline {
@@ -296,6 +354,27 @@ export fn pipeline_capability_self_test() !void {
     const forged_result: !usize = pipeline_registry_stage_count(&forged);
     _ = forged_result catch { 0usize; };
     if forged_result.error_id == 0 {
+        return error.InvalidPipeline;
+    }
+    return;
+}
+
+/// 验证 caller-provided statuses/capture buffer 协议；仅供编译器回归测试。
+export fn pipeline_buffer_self_test(statuses: &[PipelineStageStatus], stdout_buf: &[byte], result: &PipelineCaptureResult) !void {
+    pipeline_reset_capture_result(result);
+    const p: Pipeline = pipeline_registry_allocate();
+    try pipeline_registry_append_process_stage(&p, 1);
+    try pipeline_registry_append_process_stage(&p, 1);
+    const count: usize = try pipeline_prepare_status_buffer(&p, statuses, &result.result);
+    if count != 2usize {
+        return error.InvalidPipeline;
+    }
+    const sample: &[const byte] = &"ok"[0:2];
+    const copied: usize = try pipeline_copy_capture_bytes(stdout_buf, sample, 2usize);
+    result.stdout.captured = true;
+    result.stdout.byte_count = copied;
+    result.stdout.complete = true;
+    if pipeline_registry_release(&p) == 0 {
         return error.InvalidPipeline;
     }
     return;

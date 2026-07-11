@@ -1,0 +1,37 @@
+use std.process;
+use std.testing.assert_eq_i32;
+use std.testing.assert_eq_u64;
+
+test "pipeline_writes_caller_status_and_capture_buffers" {
+    var statuses: [PipelineStageStatus: 2] = [];
+    var stdout_buf: [byte: 2] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {
+        result: PipelineResult { stage_count: 0usize },
+        stdout: CaptureStreamResult { captured: false, byte_count: 0usize, complete: false },
+        stderr: CaptureStreamResult { captured: false, byte_count: 0usize, complete: false },
+    };
+    try pipeline_buffer_self_test(&statuses[0:2], &stdout_buf[0:2], &result);
+    try assert_eq_u64(result.result.stage_count as u64, 2);
+    try assert_eq_u64(statuses[0].stage_index as u64, 0);
+    try assert_eq_u64(statuses[1].stage_index as u64, 1);
+    try assert_eq_i32(statuses[0].kind as i32, PipelineStageStatusKind.not_started as i32);
+    try assert_eq_i32(stdout_buf[0] as i32, 111);
+    try assert_eq_i32(stdout_buf[1] as i32, 107);
+    try assert_eq_u64(result.stdout.byte_count as u64, 2);
+    try assert_eq_i32(if result.stdout.complete { 1 } else { 0 }, 1);
+}
+
+test "pipeline_rejects_short_status_buffer_before_write" {
+    var statuses: [PipelineStageStatus: 1] = [];
+    var stdout_buf: [byte: 2] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {
+        result: PipelineResult { stage_count: 0usize },
+        stdout: CaptureStreamResult { captured: false, byte_count: 0usize, complete: false },
+        stderr: CaptureStreamResult { captured: false, byte_count: 0usize, complete: false },
+    };
+    const outcome: !void = pipeline_buffer_self_test(&statuses[0:1], &stdout_buf[0:2], &result);
+    _ = outcome catch {};
+    try assert_eq_i32(if outcome.error_id != 0 { 1 } else { 0 }, 1);
+    try assert_eq_u64(result.result.stage_count as u64, 0);
+    try assert_eq_u64(result.stdout.byte_count as u64, 0);
+}
