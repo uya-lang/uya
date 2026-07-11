@@ -2416,26 +2416,56 @@ export fn pipeline_broker_lifecycle_self_test() !void {
     if after_action.handler != SIG_IGN as &void { return error.InvalidPipeline; }
 }
 
-/// 验证宿主预先关闭 0/1/2 时，内部 fd 仍会移出 stdio 区并安全执行；仅供回归测试。
+fn pipeline_closed_stdio_child(closed_fd: i32) void {
+    _ = close(closed_fd);
+    const child_plan: Pipeline = pipeline_registry_allocate();
+    const first_added: !void = pipeline_registry_append_process_stage(&child_plan, 2);
+    _ = first_added catch { _exit(1); };
+    const first_args: [&const byte: 2] = ["-c",
+        "test -e /proc/self/fd/0 -a -e /proc/self/fd/1 -a -e /proc/self/fd/2 || exit 91; printf token"];
+    const first_set: !void = pipeline_registry_set_last_stage_argv(&child_plan,
+        "/bin/sh", &first_args[0], 2usize);
+    _ = first_set catch { _exit(2); };
+    const second_added: !void = pipeline_registry_append_process_stage(&child_plan, 2);
+    _ = second_added catch { _exit(3); };
+    const second_args: [&const byte: 2] = ["-c",
+        "read value; test \"$value\" = token || exit 92; test -e /proc/self/fd/0 -a -e /proc/self/fd/1 -a -e /proc/self/fd/2 || exit 93; printf out; printf err >&2"];
+    const second_set: !void = pipeline_registry_set_last_stage_argv(&child_plan,
+        "/bin/sh", &second_args[0], 2usize);
+    _ = second_set catch { _exit(4); };
+    const stdin_set: !void = pipeline_set_stdin_policy(&child_plan,
+        PipelineStdinPolicyKind.file, "/dev/null");
+    _ = stdin_set catch { _exit(5); };
+    const stdout_set: !void = pipeline_set_stdout_policy(&child_plan,
+        PipelineStdoutPolicyKind.file, "/tmp/uya-pipeline-closed-stdio.out");
+    _ = stdout_set catch { _exit(6); };
+    const stderr_set: !void = pipeline_set_stderr_policy(&child_plan,
+        PipelineStderrPolicyKind.file, "/tmp/uya-pipeline-closed-stdio.err");
+    _ = stderr_set catch { _exit(7); };
+    var statuses: [PipelineStageStatus: 2] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = pipeline_execute_basic(&child_plan, &statuses[0:2], &result, true, null);
+    _ = executed catch { _exit(8); };
+    _exit(0);
+}
+
+/// 验证宿主分别预先关闭 0/1/2 时，pipe/file remap 与 exec 后 stdio 均正确；仅供回归测试。
 export fn pipeline_closed_stdio_self_test() !void {
-    const pid: i32 = fork();
-    if pid < 0 { return error.PipelineIoError; }
-    if pid == 0 {
-        _ = close(0); _ = close(1); _ = close(2);
-        const child_plan: Pipeline = pipeline_registry_allocate();
-        const appended: !void = pipeline_registry_append_process_stage(&child_plan, 2);
-        _ = appended catch { _exit(1); };
-        const argv_set: !void = pipeline_registry_set_last_stage_argv(&child_plan,
-            "/bin/true", null as &&const byte, 0usize);
-        _ = argv_set catch { _exit(1); };
-        var statuses: [PipelineStageStatus: 1] = [];
-        var result: PipelineResult = PipelineResult {};
-        const executed: !void = pipeline_execute_basic(&child_plan, &statuses[0:1], &result, true, null);
-        _ = executed catch { _exit(1); };
-        _exit(0);
+    _ = unlink("/tmp/uya-pipeline-closed-stdio.out");
+    _ = unlink("/tmp/uya-pipeline-closed-stdio.err");
+    var closed_fd: i32 = 0;
+    while closed_fd < 3 {
+        const pid: i32 = fork();
+        if pid < 0 { return error.PipelineIoError; }
+        if pid == 0 { pipeline_closed_stdio_child(closed_fd); }
+        var raw: i32 = 0;
+        if waitpid(pid, &raw, 0) != pid || ((raw >> 8) & 255) != 0 {
+            return error.InvalidPipeline;
+        }
+        closed_fd = closed_fd + 1;
     }
-    var raw: i32 = 0;
-    if waitpid(pid, &raw, 0) != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+    _ = unlink("/tmp/uya-pipeline-closed-stdio.out");
+    _ = unlink("/tmp/uya-pipeline-closed-stdio.err");
 }
 
 /// 向 pipeline 追加一个通过 PATH 查找的 process stage。
