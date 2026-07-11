@@ -2485,7 +2485,13 @@ export fn check_into(input: Pipeline, statuses: &[PipelineStageStatus], result: 
 export fn status_into(input: Pipeline, statuses: &[PipelineStageStatus], result: &PipelineResult) !void {
     pipeline_reset_result(result);
     try pipeline_preflight_status_regions(statuses, result);
-    try pipeline_execute_basic(&input, statuses, result, false, null);
+    const executed: !void = pipeline_execute_basic(&input, statuses, result, false, null);
+    _ = executed catch {
+        if executed.error_id == @error_id(error.PipelineSpawnFailed) { return; }
+        if executed.error_id == @error_id(error.Interrupted) { return error.Interrupted; }
+        if executed.error_id == @error_id(error.InvalidPipeline) { return error.InvalidPipeline; }
+        return error.PipelineIoError;
+    };
 }
 
 fn pipeline_capture_into_impl(input: Pipeline, max_bytes: usize, statuses: &[PipelineStageStatus],

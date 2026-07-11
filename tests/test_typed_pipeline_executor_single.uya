@@ -247,3 +247,12 @@ test "pipeline_status_sink_observes_spawn_failure_without_error" {
     try assert_eq_i32(statuses_storage[0].spawn_failure as i32,
         PipelineSpawnFailureKind.path_not_found as i32);
 }
+
+test "pipeline_status_sink_observes_signal_without_error" {
+    const shell_values: [&const byte: 2] = ["-c", "kill -TERM $$"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    try status_into(command, &statuses_storage[0:1], &result);
+    try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.signaled as i32);
+}
