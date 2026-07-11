@@ -1952,6 +1952,13 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         if pipeline_pgid == 0 { pipeline_pgid = pid; }
         if setpgid(pid, pipeline_pgid) != 0 {
             pids[i] = pid;
+            var failed_pc: usize = 0usize;
+            while failed_pc < pipe_count * 2usize { _ = close(pipe_fds[failed_pc]); failed_pc = failed_pc + 1usize; }
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_fd >= 0 { _ = close(stdout_fd); }
+            if stderr_fd >= 0 { _ = close(stderr_fd); }
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], i + 1usize);
             return error.PipelineSpawnFailed;
@@ -2009,6 +2016,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     if foreground_fd >= 0 && saved_foreground_pgid > 0 {
         const handed: !void = pipeline_tcsetpgrp(foreground_fd, pipeline_pgid);
         _ = handed catch {
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); stdout_capture_fds[0] = 0 - 1; }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); stderr_capture_fds[0] = 0 - 1; }
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineIoError;
@@ -2019,6 +2028,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     while i < count {
         const sent: !void = pipeline_write_control_token(launch_fds[i * 2usize + 1usize], 71 as byte);
         _ = sent catch {
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); stdout_capture_fds[0] = 0 - 1; }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); stderr_capture_fds[0] = 0 - 1; }
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
             return error.PipelineSpawnFailed;
@@ -2106,9 +2117,9 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                         _ = close(stdout_capture_fds[0]);
                         stdout_open = false;
                     } else if state == 2 {
-                        pipeline_cancel_pids(&pids[0], count);
                         _ = close(stdout_capture_fds[0]);
                         if stderr_open { _ = close(stderr_capture_fds[0]); }
+                        pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
                         return error.CaptureLimitExceeded;
                     }
                 }
@@ -2122,9 +2133,9 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                     _ = close(stderr_capture_fds[0]);
                     stderr_open = false;
                 } else if state == 2 {
-                    pipeline_cancel_pids(&pids[0], count);
                     if stdout_open { _ = close(stdout_capture_fds[0]); }
                     _ = close(stderr_capture_fds[0]);
+                    pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
                     return error.CaptureLimitExceeded;
                 }
             }
@@ -2174,7 +2185,12 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                     const state: i32 = try pipeline_capture_read(stdout_capture_fds[0], capture.stdout_ptr,
                         capture.stdout_limit, &capture.stdout_count);
                     if state == 0 { capture.stdout_complete = true; _ = close(stdout_capture_fds[0]); stdout_open = false; }
-                    else if state == 2 { pipeline_cancel_started_group(pipeline_pgid, &pids[0], count); return error.CaptureLimitExceeded; }
+                    else if state == 2 {
+                        _ = close(stdout_capture_fds[0]);
+                        if stderr_open { _ = close(stderr_capture_fds[0]); }
+                        pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+                        return error.CaptureLimitExceeded;
+                    }
                 }
                 final_idx = final_idx + 1usize;
             }
@@ -2182,7 +2198,12 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                 const state: i32 = try pipeline_capture_read(stderr_capture_fds[0], capture.stderr_ptr,
                     capture.stderr_limit, &capture.stderr_count);
                 if state == 0 { capture.stderr_complete = true; _ = close(stderr_capture_fds[0]); stderr_open = false; }
-                else if state == 2 { pipeline_cancel_started_group(pipeline_pgid, &pids[0], count); return error.CaptureLimitExceeded; }
+                else if state == 2 {
+                    if stdout_open { _ = close(stdout_capture_fds[0]); }
+                    _ = close(stderr_capture_fds[0]);
+                    pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+                    return error.CaptureLimitExceeded;
+                }
             }
             drain_budget = drain_budget - 1usize;
         }
