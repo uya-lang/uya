@@ -108,8 +108,8 @@
 - [x] event loop 在取消前锁存 terminal cause；同批次 interruption/stopped 优先，后续 cleanup signal 不覆盖已经锁存的 capture/基础设施错误。
 - [x] `capture_limit_into` 超限时对 process group 和全部直接 PID 强制终止，关闭 capture 读端且不等待 EOF，reap 直接 child、重置输出 result 为空摘要，并返回 `error.CaptureLimitExceeded`。
 - [x] 部分启动后发生 spawn/infrastructure 错误时复用同一整组取消路径，不能等待 stage 自然退出。
-- [~] 添加输出大于 pipe buffer 的死锁回归测试。
-- [ ] 添加测试：
+- [x] 添加输出大于 pipe buffer 的死锁回归测试。
+- [~] 添加测试：
   - [ ] `printf | wc`
   - [ ] 三阶段 pipeline
   - [ ] stdout 文件 sink
