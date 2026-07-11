@@ -240,6 +240,23 @@ test "pipeline_capture_limit_kills_writer_that_ignores_sigpipe" {
     try assert_eq_i32(result.result.stage_count as i32, 0);
 }
 
+test "pipeline_capture_limit_kills_direct_stage_after_setsid_escape" {
+    const no_args_values: [&const byte: 1] = [""];
+    const setsid_values: [&const byte: 3] = ["/bin/sh", "-c",
+        "exec 2>/dev/null; while :; do printf escaped-stage; done"];
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    const full: Pipeline = try cmd_path_argv(first, "/usr/bin/setsid", &setsid_values[0:3]);
+    var statuses_storage: [PipelineStageStatus: 2] = [];
+    var stdout_storage: [byte: 16] = [];
+    var stderr_storage: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    const captured: !void = capture_limit_into(full, 16usize,
+        &statuses_storage[0:2], &stdout_storage[0:16], &stderr_storage[0:0], &result);
+    _ = captured catch {};
+    try assert_eq_i32(captured.error_id as i32, @error_id(error.CaptureLimitExceeded) as i32);
+    try assert_eq_i32(result.result.stage_count as i32, 0);
+}
+
 test "pipeline_path_preflight_failure_starts_no_child" {
     const marker: &const byte = "/tmp/uya_typed_pipeline_preflight_marker";
     _ = unlink(marker);
