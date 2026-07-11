@@ -34,6 +34,10 @@ use libc.POLLHUP;
 use libc.POLLERR;
 use libc.kill;
 use libc.SIGKILL;
+use libc.Stat;
+use libc.sys_stat;
+use libc.access;
+use libc.X_OK;
 
 export error InvalidPipeline;
 export error ProcessFailed;
@@ -1145,6 +1149,21 @@ fn pipeline_prepare_process_stage(snapshot: &PipelineCwdSnapshot, stage: &Pipeli
         status.spawn_failure = PipelineSpawnFailureKind.cwd_unavailable;
         return error.PipelineSpawnFailed;
     };
+    var cwd_stat: Stat = Stat {};
+    const cwd_stat_result: !i32 = sys_stat(prepared.cwd, &cwd_stat);
+    const cwd_stat_code: i32 = cwd_stat_result catch {
+        pipeline_prepared_stage_deinit(&prepared);
+        status.kind = PipelineStageStatusKind.spawn_failed;
+        status.spawn_failure = PipelineSpawnFailureKind.cwd_unavailable;
+        return error.PipelineSpawnFailed;
+    };
+    if cwd_stat_code != 0 || (cwd_stat.st_mode as u32 & 61440u32) != 16384u32 ||
+        access(prepared.cwd, X_OK) != 0 {
+        pipeline_prepared_stage_deinit(&prepared);
+        status.kind = PipelineStageStatusKind.spawn_failed;
+        status.spawn_failure = PipelineSpawnFailureKind.cwd_unavailable;
+        return error.PipelineSpawnFailed;
+    }
     var env_allocator: PipelineEnvAllocator = PipelineEnvAllocator { inner: get_allocator() };
     var env_builder: EnvBlockBuilder = env_block_builder_new(env_allocator);
     env_builder.inherit_current();

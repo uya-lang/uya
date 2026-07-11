@@ -13,6 +13,7 @@ use std.process.cmd_argv;
 use std.process.pipeline;
 use std.process.status_into;
 use std.process.stdout_file;
+use std.process.cwd;
 use std.process.PipelineCaptureResult;
 use std.process.capture_into;
 use std.process.capture_limit_into;
@@ -116,4 +117,24 @@ test "pipeline_path_preflight_failure_starts_no_child" {
     try assert_eq_i32(statuses_storage[1].kind as i32, PipelineStageStatusKind.spawn_failed as i32);
     try assert_eq_i32(statuses_storage[1].spawn_failure as i32,
         PipelineSpawnFailureKind.path_not_found as i32);
+}
+
+test "pipeline_cwd_preflight_failure_starts_no_child" {
+    const marker: &const byte = "/tmp/uya_typed_pipeline_cwd_marker";
+    _ = unlink(marker);
+    const shell_values: [&const byte: 2] = ["-c", "touch /tmp/uya_typed_pipeline_cwd_marker"];
+    const true_values: [&const byte: 1] = [""];
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
+    const second: Pipeline = try cmd_path_argv(first, "/bin/true", &true_values[0:0]);
+    const full: Pipeline = try cwd(second, "/tmp/uya-directory-that-does-not-exist");
+    var statuses_storage: [PipelineStageStatus: 2] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(full, &statuses_storage[0:2], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineSpawnFailed) as i32);
+    try assert_eq_i32(access(marker, F_OK), 0 - 1);
+    try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.not_started as i32);
+    try assert_eq_i32(statuses_storage[1].kind as i32, PipelineStageStatusKind.spawn_failed as i32);
+    try assert_eq_i32(statuses_storage[1].spawn_failure as i32,
+        PipelineSpawnFailureKind.cwd_unavailable as i32);
 }
