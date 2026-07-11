@@ -808,6 +808,23 @@ fn pipeline_set_stderr_policy(input: &Pipeline, kind: PipelineStderrPolicyKind, 
     pipeline_registry_unlock();
 }
 
+fn pipeline_set_inherit_stdio(input: &Pipeline) !void {
+    const idx: usize = try pipeline_registry_slot_index(input);
+    if idx >= PIPELINE_REGISTRY_CAPACITY { return error.InvalidPipeline; }
+    pipeline_registry_lock();
+    if _pipeline_registry[idx].live == 0 || _pipeline_registry[idx].generation != input.generation ||
+        _pipeline_stream_policies[idx].stdin_kind != PipelineStdinPolicyKind.unset ||
+        _pipeline_stream_policies[idx].stdout_kind != PipelineStdoutPolicyKind.unset ||
+        _pipeline_stream_policies[idx].stderr_kind != PipelineStderrPolicyKind.unset {
+        pipeline_registry_unlock();
+        return error.InvalidPipeline;
+    }
+    _pipeline_stream_policies[idx].stdin_kind = PipelineStdinPolicyKind.inherit;
+    _pipeline_stream_policies[idx].stdout_kind = PipelineStdoutPolicyKind.inherit;
+    _pipeline_stream_policies[idx].stderr_kind = PipelineStderrPolicyKind.inherit;
+    pipeline_registry_unlock();
+}
+
 fn pipeline_registry_release(input: &Pipeline) i32 {
     const idx_result: !usize = pipeline_registry_slot_index(input);
     const idx: usize = idx_result catch { return 0; };
@@ -1020,6 +1037,14 @@ export fn stderr_capture(input: Pipeline) !Pipeline {
 /// 返回：成功时返回新 pipeline；stderr 已配置时返回 InvalidPipeline。
 export fn stderr_to_stdout(input: Pipeline) !Pipeline {
     try pipeline_set_stderr_policy(&input, PipelineStderrPolicyKind.merge_stdout, null);
+    return input;
+}
+
+/// 原子地让 pipeline 的 stdin/stdout/stderr 继承宿主标准流。
+/// 参数：input 为按值消费的 pipeline。
+/// 返回：成功时返回新 pipeline；任一路已配置时返回 InvalidPipeline 且不改变其余 policy。
+export fn inherit_stdio(input: Pipeline) !Pipeline {
+    try pipeline_set_inherit_stdio(&input);
     return input;
 }
 

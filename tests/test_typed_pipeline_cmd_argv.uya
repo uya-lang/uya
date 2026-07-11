@@ -11,6 +11,7 @@ use std.process.stderr_file;
 use std.process.stdout_capture;
 use std.process.stderr_capture;
 use std.process.stderr_to_stdout;
+use std.process.inherit_stdio;
 use std.process.pipeline;
 use std.process.stage_count;
 
@@ -64,6 +65,18 @@ test "pipeline_stream_transformers_reject_conflicts" {
     const no_args: &[&const byte] = &no_args_values[0:0];
     const configured: Pipeline = try stdout_file(try cmd_argv(pipeline(), "printf", no_args), "out.txt");
     const conflict: !Pipeline = stdout_capture(configured);
+    _ = conflict catch { pipeline(); };
+    try assert_eq_i32(conflict.error_id as i32, @error_id(error.InvalidPipeline) as i32);
+}
+
+test "pipeline_inherit_stdio_configures_all_streams_atomically" {
+    const no_args_values: [&const byte: 1] = [""];
+    const no_args: &[&const byte] = &no_args_values[0:0];
+    const inherited: Pipeline = try inherit_stdio(try cmd_argv(pipeline(), "printf", no_args));
+    try assert_eq_i32((try stage_count(&inherited)) as i32, 1);
+
+    const configured: Pipeline = try stdout_capture(try cmd_argv(pipeline(), "printf", no_args));
+    const conflict: !Pipeline = inherit_stdio(configured);
     _ = conflict catch { pipeline(); };
     try assert_eq_i32(conflict.error_id as i32, @error_id(error.InvalidPipeline) as i32);
 }
