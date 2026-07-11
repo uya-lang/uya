@@ -96,8 +96,8 @@
 - [x] 在子进程执行期间并发驱动有界 stdout/stderr capture reader。
 - [x] 仅在 pipe ownership 和 reader 状态不可能死锁后等待子进程。
 - [x] 正常路径在全部直接 child reap 后做有界非阻塞最终 drain，到 EAGAIN/EOF/预算耗尽即关闭 capture 读端，不等待非直接后代；仅 EOF 返回 `complete=true`，其他 cutoff 返回 `complete=false`。
-- [~] 收集每个 stage 的状态。
-- [ ] `spawn_failed` 写入稳定 `spawn_failure` 类别以及 diagnostic pipe/平台 bridge 返回的原始平台码。
+- [x] 收集每个 stage 的状态。
+- [~] `spawn_failed` 写入稳定 `spawn_failure` 类别以及 diagnostic pipe/平台 bridge 返回的原始平台码。
 - [ ] 实现 checked sink 的 pipefail 行为。
 - [ ] `check_into` 在返回 `error.ProcessFailed` 或 `error.PipelineSpawnFailed` 前写入完整 `PipelineResult`。
 - [ ] 将 `status_into()` 实现为观察型 sink：非零退出、signal、启动失败不失败。
