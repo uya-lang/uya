@@ -355,6 +355,28 @@ fn pipeline_broker_take_signal(observed_epoch: &i32) i32 {
     return pending;
 }
 
+fn pipeline_child_signal_setup(saved_mask: &const sigset_t) i32 {
+    if _pipeline_broker_pipe[0] >= 0 { _ = close(_pipeline_broker_pipe[0]); }
+    if _pipeline_broker_pipe[1] >= 0 { _ = close(_pipeline_broker_pipe[1]); }
+    if saved_mask == null || pthread_sigmask(SIG_SETMASK, saved_mask, null as &sigset_t) != 0 {
+        return 0 - 1;
+    }
+    var i: usize = 0usize;
+    while i < 4usize {
+        var action: PipelineSigaction = PipelineSigaction {};
+        if _pipeline_broker_previous_actions[i].handler == SIG_IGN as &void {
+            action.handler = SIG_IGN as &void;
+        } else {
+            action.handler = null as &void;
+        }
+        if sigaction(pipeline_broker_signal_at(i), &action, null as &PipelineSigaction) != 0 {
+            return 0 - 1;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
 fn pipeline_broker_lock() void {
     while true {
         var expected: i32 = 0;
@@ -1558,6 +1580,10 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     var broker_registered: bool = false;
     var terminal_lease: usize = 16usize;
     var broker_signal_epoch: i32 = 0;
+    var sink_thread_mask: sigset_t = sigset_t {};
+    if pthread_sigmask(SIG_SETMASK, null as &const sigset_t, &sink_thread_mask) != 0 {
+        return error.PipelineIoError;
+    }
     defer {
         if foreground_handed_off && foreground_fd >= 0 && saved_foreground_pgid > 0 {
             const restored: !void = pipeline_tcsetpgrp(foreground_fd, saved_foreground_pgid);
@@ -1743,6 +1769,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             return error.PipelineSpawnFailed;
         }
         if pid == 0 {
+            if pipeline_child_signal_setup(&sink_thread_mask) != 0 {
+                const signal_failed: byte = 83 as byte;
+                _ = write(report_fds[i * 2usize + 1usize], &signal_failed, 1usize);
+                _exit(123);
+            }
             const child_pgid: i32 = pipeline_pgid;
             if setpgid(0, child_pgid) != 0 {
                 const failed: byte = 70 as byte;
