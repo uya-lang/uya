@@ -138,8 +138,8 @@
   - [x] 直接 stage 调用 `setsid` 逃离 group 后仍会被按 PID 终止并 reap
   - [x] 逃离后代持有 capture 写端时取消路径不会等待 EOF
   - [x] 正常完成时后代持续持有/写入 capture pipe 也不会阻止 sink 返回，后代后续 bytes 不进入结果
-  - [~] 未观察到 capture EOF 时 `complete=false`，不会静默报告完整输出
-  - [ ] capture 有效上限为 N 时覆盖 N-1、N、N+1 字节；N 正常完成，N+1 有限取消并返回 `CaptureLimitExceeded`
+  - [x] 未观察到 capture EOF 时 `complete=false`，不会静默报告完整输出
+  - [~] capture 有效上限为 N 时覆盖 N-1、N、N+1 字节；N 正常完成，N+1 有限取消并返回 `CaptureLimitExceeded`
   - [ ] stdout/stderr/statuses/result writable region 重叠时在启动前返回 `InvalidPipeline`
   - [ ] 终端继承下读取 stdin 不会因后台 process group 收到 `SIGTTIN`，完成后恢复父前台 PGID
   - [ ] executor 自身位于后台 process group 时不会调用 `tcsetpgrp` 抢占前台终端
