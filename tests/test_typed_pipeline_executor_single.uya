@@ -207,3 +207,16 @@ test "pipeline_child_exec_failure_reports_phase_and_platform_code" {
         PipelineSpawnFailureKind.exec_failed as i32);
     try assert_eq_bool(statuses_storage[0].platform_code > 0u32, true);
 }
+
+test "pipeline_capture_does_not_wait_for_descendant_writer_eof" {
+    const shell_values: [&const byte: 2] = ["-c", "sleep 5 & printf done; exit 0"];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var stdout_storage: [byte: 16] = [];
+    var stderr_storage: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_into(command, &statuses_storage[0:1], &stdout_storage[0:16],
+        &stderr_storage[0:0], &result);
+    try assert_eq_i32(result.stdout.byte_count as i32, 4);
+    try assert_eq_bool(result.stdout.complete, false);
+}

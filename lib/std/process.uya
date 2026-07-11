@@ -2023,10 +2023,13 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         }
         i = i + 1usize;
     }
+    var reaped: [bool: 32] = [];
+    var raw_statuses: [i32: 32] = [];
+    var reaped_count: usize = 0usize;
     if capture != null {
         var stdout_open: bool = stdout_capture_fds[0] >= 0;
         var stderr_open: bool = stderr_capture_fds[0] >= 0;
-        while stdout_open || stderr_open {
+        while (stdout_open || stderr_open) && reaped_count < count {
             if pipeline_take_and_handle_interrupt(pipeline_pgid, &pids[0], count, &broker_signal_epoch) {
                 if stdout_open { _ = close(stdout_capture_fds[0]); }
                 if stderr_open { _ = close(stderr_capture_fds[0]); }
@@ -2042,7 +2045,7 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                 poll_fds[poll_count] = PollFd { fd: stderr_capture_fds[0], events: POLLIN | POLLHUP | POLLERR, revents: 0 };
                 poll_count = poll_count + 1usize;
             }
-            const polled: !i32 = sys_poll(&poll_fds[0], poll_count, 1000);
+            const polled: !i32 = sys_poll(&poll_fds[0], poll_count, 50);
             _ = polled catch {
                 pipeline_cancel_pids(&pids[0], count);
                 if stdout_open { _ = close(stdout_capture_fds[0]); }
@@ -2086,13 +2089,67 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
                     return error.CaptureLimitExceeded;
                 }
             }
+            var child_idx: usize = 0usize;
+            while child_idx < count {
+                if !reaped[child_idx] {
+                    const waited: i32 = waitpid(pids[child_idx], &raw_statuses[child_idx],
+                        WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
+                    if waited == pids[child_idx] && pipeline_wait_status_is_stopped(raw_statuses[child_idx]) {
+                        pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+                        if stdout_open { _ = close(stdout_capture_fds[0]); }
+                        if stderr_open { _ = close(stderr_capture_fds[0]); }
+                        return error.Interrupted;
+                    }
+                    if waited == pids[child_idx] && !pipeline_wait_status_is_continued(raw_statuses[child_idx]) {
+                        reaped[child_idx] = true;
+                        reaped_count = reaped_count + 1usize;
+                    }
+                }
+                child_idx = child_idx + 1usize;
+            }
         }
+        var drain_budget: usize = 64usize;
+        while (stdout_open || stderr_open) && drain_budget > 0usize {
+            var final_fds: [PollFd: 2] = [];
+            var final_count: usize = 0usize;
+            if stdout_open {
+                final_fds[final_count] = PollFd { fd: stdout_capture_fds[0], events: POLLIN | POLLHUP | POLLERR, revents: 0 };
+                final_count = final_count + 1usize;
+            }
+            if stderr_open {
+                final_fds[final_count] = PollFd { fd: stderr_capture_fds[0], events: POLLIN | POLLHUP | POLLERR, revents: 0 };
+                final_count = final_count + 1usize;
+            }
+            const final_polled: !i32 = sys_poll(&final_fds[0], final_count, 0);
+            const ready_count: i32 = final_polled catch { break; };
+            if ready_count <= 0 { break; }
+            var final_idx: usize = 0usize;
+            if stdout_open {
+                if final_fds[final_idx].revents != 0 {
+                    const state: i32 = try pipeline_capture_read(stdout_capture_fds[0], capture.stdout_ptr,
+                        capture.stdout_limit, &capture.stdout_count);
+                    if state == 0 { capture.stdout_complete = true; _ = close(stdout_capture_fds[0]); stdout_open = false; }
+                    else if state == 2 { pipeline_cancel_started_group(pipeline_pgid, &pids[0], count); return error.CaptureLimitExceeded; }
+                }
+                final_idx = final_idx + 1usize;
+            }
+            if stderr_open && final_fds[final_idx].revents != 0 {
+                const state: i32 = try pipeline_capture_read(stderr_capture_fds[0], capture.stderr_ptr,
+                    capture.stderr_limit, &capture.stderr_count);
+                if state == 0 { capture.stderr_complete = true; _ = close(stderr_capture_fds[0]); stderr_open = false; }
+                else if state == 2 { pipeline_cancel_started_group(pipeline_pgid, &pids[0], count); return error.CaptureLimitExceeded; }
+            }
+            drain_budget = drain_budget - 1usize;
+        }
+        if stdout_open { _ = close(stdout_capture_fds[0]); }
+        if stderr_open { _ = close(stderr_capture_fds[0]); }
     }
     var saw_failure: bool = false;
     i = 0usize;
     while i < count {
-        var raw_status: i32 = 0;
+        var raw_status: i32 = raw_statuses[i];
         var waited_pid: i32 = 0;
+        if reaped[i] { waited_pid = pids[i]; }
         while waited_pid == 0 {
             waited_pid = waitpid(pids[i], &raw_status,
                 WNOHANG | PIPELINE_WAIT_UNTRACED | PIPELINE_WAIT_CONTINUED);
