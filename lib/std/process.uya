@@ -389,6 +389,23 @@ fn pipeline_command_name_valid(program: &const byte) bool {
     return true;
 }
 
+fn pipeline_path_is_windows_drive_relative(path: &const byte) bool {
+    if path == null { return false; }
+    const first: byte = path[0];
+    const drive: bool = (first >= 65 as byte && first <= 90 as byte) ||
+        (first >= 97 as byte && first <= 122 as byte);
+    if !drive || path[1] != 58 as byte { return false; }
+    return path[2] != 47 as byte && path[2] != 92 as byte;
+}
+
+fn pipeline_path_preflight_valid(path: &const byte) bool {
+    if path == null || path[0] == 0 as byte { return false; }
+    std.cfg(std.target_os == .tos_windows, {
+        if pipeline_path_is_windows_drive_relative(path) { return false; }
+    })
+    return true;
+}
+
 fn pipeline_execution_stage_init(exec_path: &const byte) !PipelineExecutionStage {
     return PipelineExecutionStage { exec_path: try pipeline_owned_c_string(exec_path), cwd: null as &byte };
 }
@@ -676,7 +693,8 @@ fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
 
 fn pipeline_set_stdin_policy(input: &Pipeline, kind: PipelineStdinPolicyKind, path: &const byte) !void {
     const idx: usize = try pipeline_registry_slot_index(input);
-    if idx >= PIPELINE_REGISTRY_CAPACITY || (kind == PipelineStdinPolicyKind.file && path == null) {
+    if idx >= PIPELINE_REGISTRY_CAPACITY ||
+        (kind == PipelineStdinPolicyKind.file && !pipeline_path_preflight_valid(path)) {
         return error.InvalidPipeline;
     }
     var owned_path: &byte = null as &byte;
@@ -704,7 +722,8 @@ fn pipeline_set_stdin_policy(input: &Pipeline, kind: PipelineStdinPolicyKind, pa
 
 fn pipeline_set_stdout_policy(input: &Pipeline, kind: PipelineStdoutPolicyKind, path: &const byte) !void {
     const idx: usize = try pipeline_registry_slot_index(input);
-    if idx >= PIPELINE_REGISTRY_CAPACITY || (kind == PipelineStdoutPolicyKind.file && path == null) {
+    if idx >= PIPELINE_REGISTRY_CAPACITY ||
+        (kind == PipelineStdoutPolicyKind.file && !pipeline_path_preflight_valid(path)) {
         return error.InvalidPipeline;
     }
     var owned_path: &byte = null as &byte;
@@ -732,7 +751,8 @@ fn pipeline_set_stdout_policy(input: &Pipeline, kind: PipelineStdoutPolicyKind, 
 
 fn pipeline_set_stderr_policy(input: &Pipeline, kind: PipelineStderrPolicyKind, path: &const byte) !void {
     const idx: usize = try pipeline_registry_slot_index(input);
-    if idx >= PIPELINE_REGISTRY_CAPACITY || (kind == PipelineStderrPolicyKind.file && path == null) {
+    if idx >= PIPELINE_REGISTRY_CAPACITY ||
+        (kind == PipelineStderrPolicyKind.file && !pipeline_path_preflight_valid(path)) {
         return error.InvalidPipeline;
     }
     var owned_path: &byte = null as &byte;
@@ -906,7 +926,7 @@ export fn cmd_argv(input: Pipeline, program: &const byte, args: &[&const byte]) 
 /// 参数：input 为按值消费的 pipeline；path 可为绝对或相对路径；args 不包含 argv[0]。
 /// 返回：成功时原样保存 path 并返回新 pipeline；参数或 capability 无效时返回错误。
 export fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]) !Pipeline {
-    if path == null || path[0] == 0 as byte || args.ptr == null && args.len != 0usize {
+    if !pipeline_path_preflight_valid(path) || args.ptr == null && args.len != 0usize {
         return error.InvalidPipeline;
     }
     try pipeline_registry_append_process_stage(&input, 2);
@@ -918,7 +938,7 @@ export fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]
 /// 参数：input 为按值消费的 pipeline；path 在 sink 开始时相对 canonical cwd 解释。
 /// 返回：成功时返回修改后的 pipeline；没有最近 process stage 时返回 InvalidPipeline。
 export fn cwd(input: Pipeline, path: &const byte) !Pipeline {
-    if path == null || path[0] == 0 as byte {
+    if !pipeline_path_preflight_valid(path) {
         return error.InvalidPipeline;
     }
     try pipeline_registry_set_last_stage_cwd(&input, path);
@@ -932,6 +952,11 @@ export fn stage_count(input: &Pipeline) !usize {
 
 /// 运行 capability registry 的内部 bring-up 自检；仅供编译器回归测试。
 export fn pipeline_capability_self_test() !void {
+    if !pipeline_path_is_windows_drive_relative("C:tool.exe") ||
+        pipeline_path_is_windows_drive_relative("C:\\tool.exe") ||
+        pipeline_path_is_windows_drive_relative("/usr/bin/tool") {
+        return error.InvalidPipeline;
+    }
     const first: Pipeline = pipeline_registry_allocate();
     const stale: Pipeline = Pipeline { handle: first.handle, generation: first.generation };
     if try pipeline_registry_stage_count(&first) != 0usize {
