@@ -101,6 +101,28 @@ test "pipeline_stderr_file_sink_redirects_group_stderr" {
     _ = unlink(output_path);
 }
 
+test "pipeline_group_stderr_file_is_opened_once_for_all_stages" {
+    const output_path: &const byte = "/tmp/uya_typed_pipeline_group_stderr.txt";
+    _ = unlink(output_path);
+    const first_values: [&const byte: 2] = ["-c", "printf first >&2"];
+    const second_values: [&const byte: 2] = ["-c", "printf second >&2"];
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &first_values[0:2]);
+    const full: Pipeline = try cmd_path_argv(first, "/bin/sh", &second_values[0:2]);
+    try check(try stderr_file(full, output_path));
+
+    const cat_values: [&const byte: 1] = [output_path];
+    const cat_command: Pipeline = try cmd_path_argv(pipeline(), "/bin/cat", &cat_values[0:1]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var stdout_storage: [byte: 16] = [];
+    var stderr_storage: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_into(cat_command, &statuses_storage[0:1], &stdout_storage[0:16],
+        &stderr_storage[0:0], &result);
+    try assert_eq_i32(result.stdout.byte_count as i32, 11);
+    try assert_eq_bool(result.stdout.complete, true);
+    _ = unlink(output_path);
+}
+
 test "pipeline_stderr_capture_drains_separate_stream" {
     const shell_values: [&const byte: 2] = ["-c", "printf stderr-data >&2"];
     const command: Pipeline = try stderr_capture(

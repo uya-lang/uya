@@ -123,8 +123,8 @@
   - [x] 相对 `cmd_path` 搭配 `cwd()`
   - [x] 相对 `cwd()` 与 file stream path 使用同一 sink-time cwd 快照
   - [x] 文件重定向打开失败返回普通 Uya error
-  - [~] 多 stage group stderr file 只 open/truncate 一次，不因每个 stage 重复打开而覆盖输出
-  - [ ] 宿主 0/1/2 任一路预先关闭时，pipe/file stdio remap 仍正确且 exec 后目标 fd 不带 `FD_CLOEXEC`
+  - [x] 多 stage group stderr file 只 open/truncate 一次，不因每个 stage 重复打开而覆盖输出
+  - [~] 宿主 0/1/2 任一路预先关闭时，pipe/file stdio remap 仍正确且 exec 后目标 fd 不带 `FD_CLOEXEC`
   - [ ] parent 在 RUN 前关闭所有 child-only pipe writer，`printf | wc` 不会因 parent 持有写端而等待 EOF
   - [ ] child 在 READY 前不会继承 runtime broker handler/self-pipe 或 sink 临时 signal mask
   - [ ] launch reader 提前关闭时 RUN/ABORT 写入返回可处理的 `EPIPE`，executor 不被 `SIGPIPE` 终止
