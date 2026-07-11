@@ -1218,47 +1218,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         prepared_count = prepared_count + 1usize;
         i = i + 1usize;
     }
-    var stdin_fd: i32 = 0 - 1;
-    var stdout_fd: i32 = 0 - 1;
-    var stderr_fd: i32 = 0 - 1;
-    if _pipeline_stream_policies[slot_idx].stdin_kind == PipelineStdinPolicyKind.file {
-        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
-            _pipeline_stream_policies[slot_idx].stdin_path);
-        const opened: !i32 = sys_open(path, O_RDONLY as i32, 0);
-        stdin_fd = opened catch { free(path as &void); return error.PipelineIoError; };
-        free(path as &void);
-    }
-    if _pipeline_stream_policies[slot_idx].stdout_kind == PipelineStdoutPolicyKind.file {
-        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
-            _pipeline_stream_policies[slot_idx].stdout_path);
-        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
-        stdout_fd = opened catch {
-            free(path as &void);
-            if stdin_fd >= 0 { _ = close(stdin_fd); }
-            return error.PipelineIoError;
-        };
-        free(path as &void);
-    }
-    if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.file {
-        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
-            _pipeline_stream_policies[slot_idx].stderr_path);
-        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
-        stderr_fd = opened catch {
-            free(path as &void);
-            if stdin_fd >= 0 { _ = close(stdin_fd); }
-            if stdout_fd >= 0 { _ = close(stdout_fd); }
-            return error.PipelineIoError;
-        };
-        free(path as &void);
-    }
     var stdout_capture_fds: [i32: 2] = [0 - 1, 0 - 1];
     var stderr_capture_fds: [i32: 2] = [0 - 1, 0 - 1];
     if capture != null && capture.capture_stdout {
         const capture_pipe: !i32 = sys_pipe2(&stdout_capture_fds[0], 0);
         _ = capture_pipe catch {
-            if stdin_fd >= 0 { _ = close(stdin_fd); }
-            if stdout_fd >= 0 { _ = close(stdout_fd); }
-            if stderr_fd >= 0 { _ = close(stderr_fd); }
             return error.PipelineIoError;
         };
     }
@@ -1266,9 +1230,6 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         const capture_pipe: !i32 = sys_pipe2(&stderr_capture_fds[0], 0);
         _ = capture_pipe catch {
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
-            if stdin_fd >= 0 { _ = close(stdin_fd); }
-            if stdout_fd >= 0 { _ = close(stdout_fd); }
-            if stderr_fd >= 0 { _ = close(stderr_fd); }
             return error.PipelineIoError;
         };
     }
@@ -1279,14 +1240,59 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         _ = pipe_result catch {
             var pc: usize = 0usize;
             while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
-            if stdin_fd >= 0 { _ = close(stdin_fd); }
-            if stdout_fd >= 0 { _ = close(stdout_fd); }
-            if stderr_fd >= 0 { _ = close(stderr_fd); }
             if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
             if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
             return error.PipelineIoError;
         };
         pipe_count = pipe_count + 1usize;
+    }
+    var stdin_fd: i32 = 0 - 1;
+    var stdout_fd: i32 = 0 - 1;
+    var stderr_fd: i32 = 0 - 1;
+    if _pipeline_stream_policies[slot_idx].stdin_kind == PipelineStdinPolicyKind.file {
+        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
+            _pipeline_stream_policies[slot_idx].stdin_path);
+        const opened: !i32 = sys_open(path, O_RDONLY as i32, 0);
+        stdin_fd = opened catch {
+            free(path as &void);
+            var pc: usize = 0usize;
+            while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            return error.PipelineIoError;
+        };
+        free(path as &void);
+    }
+    if _pipeline_stream_policies[slot_idx].stdout_kind == PipelineStdoutPolicyKind.file {
+        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
+            _pipeline_stream_policies[slot_idx].stdout_path);
+        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
+        stdout_fd = opened catch {
+            free(path as &void);
+            var pc: usize = 0usize;
+            while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            return error.PipelineIoError;
+        };
+        free(path as &void);
+    }
+    if _pipeline_stream_policies[slot_idx].stderr_kind == PipelineStderrPolicyKind.file {
+        const path: &byte = try pipeline_resolve_sink_path(&cwd_snapshot, null,
+            _pipeline_stream_policies[slot_idx].stderr_path);
+        const opened: !i32 = sys_open(path, (O_WRONLY | O_CREAT | O_TRUNC) as i32, 420);
+        stderr_fd = opened catch {
+            free(path as &void);
+            var pc: usize = 0usize;
+            while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+            if stdin_fd >= 0 { _ = close(stdin_fd); }
+            if stdout_fd >= 0 { _ = close(stdout_fd); }
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); _ = close(stdout_capture_fds[1]); }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); _ = close(stderr_capture_fds[1]); }
+            return error.PipelineIoError;
+        };
+        free(path as &void);
     }
     var pids: [i32: 32] = [];
     i = 0usize;
