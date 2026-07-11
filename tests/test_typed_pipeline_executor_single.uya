@@ -382,7 +382,8 @@ test "pipeline_child_exec_failure_reports_phase_and_platform_code" {
 }
 
 test "pipeline_capture_does_not_wait_for_descendant_writer_eof" {
-    const shell_values: [&const byte: 2] = ["-c", "sleep 5 & printf done; exit 0"];
+    const shell_values: [&const byte: 2] = ["-c",
+        "(sleep 1; printf late) & printf done; exit 0"];
     const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
     var statuses_storage: [PipelineStageStatus: 1] = [];
     var stdout_storage: [byte: 16] = [];
