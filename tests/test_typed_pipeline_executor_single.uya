@@ -20,6 +20,8 @@ use std.process.stdin_file;
 use std.process.cwd;
 use std.process.env;
 use std.process.pipeline_fail_next_fork_for_test;
+use std.process.pipeline_reset_interrupt_direct_sends_for_test;
+use std.process.pipeline_interrupt_direct_sends_for_test;
 use std.process.PipelineCaptureResult;
 use std.process.capture_into;
 use std.process.capture_limit_into;
@@ -265,9 +267,11 @@ test "pipeline_runtime_broker_interrupts_and_cancels_process_group" {
     const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]);
     var statuses_storage: [PipelineStageStatus: 1] = [];
     var result: PipelineResult = PipelineResult {};
+    pipeline_reset_interrupt_direct_sends_for_test();
     const executed: !void = check_into(command, &statuses_storage[0:1], &result);
     _ = executed catch {};
     try assert_eq_i32(executed.error_id as i32, @error_id(error.Interrupted) as i32);
+    try assert_eq_i32(pipeline_interrupt_direct_sends_for_test(), 0);
 }
 
 test "pipeline_stopped_child_is_cancelled_without_hanging" {

@@ -296,6 +296,7 @@ var _pipeline_broker_installed: i32 = 0;
 var _pipeline_broker_previous_actions: [PipelineSigaction: 4] = [];
 var _pipeline_broker_owned_actions: [i32: 4] = [];
 var _pipeline_test_fail_next_fork: atomic i32 = 0;
+var _pipeline_test_interrupt_direct_sends: atomic i32 = 0;
 
 extern fn pipeline_broker_signal_handler(signum: i32) void {
     _pipeline_broker_pending_signal = signum;
@@ -1409,7 +1410,11 @@ fn pipeline_interrupt_started_group(pgid: i32, pids: &i32, count: usize, signum:
     while i < count {
         if pids[i] > 0 {
             const current_group: i32 = getpgid(pids[i]);
-            if current_group != pgid { _ = kill(pids[i], signum); }
+            if current_group != pgid {
+                _ = __atomic_add_fetch((&_pipeline_test_interrupt_direct_sends) as &i32,
+                    1, PIPELINE_ATOMIC_SEQ_CST);
+                _ = kill(pids[i], signum);
+            }
         }
         i = i + 1usize;
     }
@@ -2564,6 +2569,17 @@ export fn unset_env(input: Pipeline, key: &const byte) !Pipeline {
 /// 让下一次 pipeline fork 路径返回 process-create failure；仅供回归测试。
 export fn pipeline_fail_next_fork_for_test() void {
     _pipeline_test_fail_next_fork = 1;
+}
+
+/// 重置 interruption 的 direct-PID signal 计数；仅供回归测试。
+export fn pipeline_reset_interrupt_direct_sends_for_test() void {
+    _pipeline_test_interrupt_direct_sends = 0;
+}
+
+/// 返回 interruption 的 direct-PID signal 计数；仅供回归测试。
+export fn pipeline_interrupt_direct_sends_for_test() i32 {
+    return __atomic_load_n((&_pipeline_test_interrupt_direct_sends) as &i32,
+        PIPELINE_ATOMIC_SEQ_CST);
 }
 
 /// 将 pipeline 第一段 stdin 配置为文件输入。
