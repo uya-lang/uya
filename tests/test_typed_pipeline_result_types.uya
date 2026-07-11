@@ -1,0 +1,30 @@
+use std.process;
+use std.testing.assert_eq_i32;
+use std.testing.assert_eq_u64;
+
+test "pipeline_result_status_shapes" {
+    const status: PipelineStageStatus = PipelineStageStatus {
+        stage_index: 3usize,
+        kind: PipelineStageStatusKind.cancelled,
+        exit_code: 0xffffffffu32,
+        signal: 0,
+        spawn_failure: PipelineSpawnFailureKind.none,
+        platform_code: 0u32,
+        error_name: "",
+    };
+    try assert_eq_u64(status.stage_index as u64, 3);
+    try assert_eq_u64(status.exit_code as u64, 0xffffffffu32 as u64);
+    try assert_eq_i32(status.kind as i32, PipelineStageStatusKind.cancelled as i32);
+}
+
+test "pipeline_capture_summary_has_no_borrows" {
+    const result: PipelineCaptureResult = PipelineCaptureResult {
+        result: PipelineResult { stage_count: 2usize },
+        stdout: CaptureStreamResult { captured: true, byte_count: 5usize, complete: true },
+        stderr: CaptureStreamResult { captured: false, byte_count: 0usize, complete: false },
+    };
+    try assert_eq_u64(result.result.stage_count as u64, 2);
+    try assert_eq_u64(result.stdout.byte_count as u64, 5);
+    try assert_eq_i32(if result.stdout.complete { 1 } else { 0 }, 1);
+    try assert_eq_i32(if result.stderr.captured { 1 } else { 0 }, 0);
+}

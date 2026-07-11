@@ -3,6 +3,60 @@
 
 export error InvalidPipeline;
 
+/// Pipeline stage 的稳定执行状态类别。
+export enum PipelineStageStatusKind {
+    not_started,
+    spawn_failed,
+    cancelled,
+    exited,
+    signaled,
+    completed,
+    stage_failed,
+}
+
+/// Process stage 启动失败的稳定跨平台分类。
+export enum PipelineSpawnFailureKind {
+    none,
+    path_not_found,
+    cwd_unavailable,
+    permission_denied,
+    process_create_failed,
+    execution_domain_failed,
+    stdio_setup_failed,
+    exec_failed,
+    platform_error,
+}
+
+/// 单个完整 pipeline stage 的执行状态。
+export struct PipelineStageStatus {
+    stage_index: usize,
+    kind: PipelineStageStatusKind,
+    exit_code: u32,
+    signal: i32,
+    spawn_failure: PipelineSpawnFailureKind,
+    platform_code: u32,
+    error_name: &const byte,
+}
+
+/// Pipeline 执行结果摘要；不保存 caller statuses 缓冲区借用。
+export struct PipelineResult {
+    stage_count: usize,
+}
+
+/// 单路 capture 的长度与完整性摘要。
+export struct CaptureStreamResult {
+    captured: bool,
+    byte_count: usize,
+    complete: bool,
+}
+
+/// Pipeline capture 摘要；不保存 stdout/stderr caller buffer 借用。
+export struct PipelineCaptureResult {
+    result: PipelineResult,
+    stdout: CaptureStreamResult,
+    stderr: CaptureStreamResult,
+}
+
 extern "libc" fn __atomic_compare_exchange_n(ptr: &i32, expected: &i32, desired: i32, weak: i32, success_mem: i32, failure_mem: i32) i32;
 
 const PIPELINE_REGISTRY_CAPACITY: usize = 1024usize;
