@@ -78,6 +78,7 @@ struct PipelineProcessStage {
     command_kind: i32,
     argv: &&byte,
     argv_count: usize,
+    cwd: &byte,
 }
 
 struct PipelineExecutionStage {
@@ -188,6 +189,7 @@ fn pipeline_registry_append_process_stage(input: &Pipeline, command_kind: i32) !
     _pipeline_process_stages[storage_idx].command_kind = command_kind;
     _pipeline_process_stages[storage_idx].argv = null as &&byte;
     _pipeline_process_stages[storage_idx].argv_count = 0usize;
+    _pipeline_process_stages[storage_idx].cwd = null as &byte;
     _pipeline_registry[slot_idx].stage_count = stage_idx + 1usize;
     pipeline_registry_unlock();
     return;
@@ -318,6 +320,39 @@ fn pipeline_registry_set_last_stage_argv(input: &Pipeline, program: &const byte,
     return;
 }
 
+fn pipeline_registry_set_last_stage_cwd(input: &Pipeline, cwd: &const byte) !void {
+    const slot_idx: usize = try pipeline_registry_slot_index(input);
+    if slot_idx >= PIPELINE_REGISTRY_CAPACITY {
+        return error.InvalidPipeline;
+    }
+    const owned_cwd: &byte = try pipeline_owned_c_string(cwd);
+    pipeline_registry_lock();
+    const count: usize = _pipeline_registry[slot_idx].stage_count;
+    if _pipeline_registry[slot_idx].live == 0 ||
+        _pipeline_registry[slot_idx].generation != input.generation || count == 0usize {
+        pipeline_registry_unlock();
+        free(owned_cwd as &void);
+        return error.InvalidPipeline;
+    }
+    const storage_result: !usize = pipeline_stage_storage_index(slot_idx, count - 1usize);
+    const storage_idx: usize = storage_result catch {
+        pipeline_registry_unlock();
+        free(owned_cwd as &void);
+        return error.InvalidPipeline;
+    };
+    if storage_idx >= PIPELINE_STAGE_STORAGE_CAPACITY {
+        pipeline_registry_unlock();
+        free(owned_cwd as &void);
+        return error.InvalidPipeline;
+    }
+    if _pipeline_process_stages[storage_idx].cwd != null {
+        free(_pipeline_process_stages[storage_idx].cwd as &void);
+    }
+    _pipeline_process_stages[storage_idx].cwd = owned_cwd;
+    pipeline_registry_unlock();
+    return;
+}
+
 fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
     var i: usize = 0usize;
     while i < count && i < PIPELINE_MAX_STAGES {
@@ -327,6 +362,10 @@ fn pipeline_registry_clear_stages(slot_idx: usize, count: usize) void {
             return;
         }
         pipeline_free_stage_argv(&_pipeline_process_stages[storage_idx]);
+        if _pipeline_process_stages[storage_idx].cwd != null {
+            free(_pipeline_process_stages[storage_idx].cwd as &void);
+            _pipeline_process_stages[storage_idx].cwd = null as &byte;
+        }
         _pipeline_process_stages[storage_idx].active = 0;
         _pipeline_process_stages[storage_idx].command_kind = 0;
         i = i + 1usize;
@@ -490,6 +529,12 @@ export fn pipeline_capability_self_test() !void {
     }
     pipeline_execution_stage_deinit(&execution_stage);
     if execution_stage.exec_path != null {
+        return error.InvalidPipeline;
+    }
+    try pipeline_registry_set_last_stage_cwd(&first, "build/work");
+    if _pipeline_process_stages[owned_stage_idx].cwd == null ||
+        _pipeline_process_stages[owned_stage_idx].cwd == ("build/work" as &byte) ||
+        pipeline_c_string_equals(_pipeline_process_stages[owned_stage_idx].cwd, "build/work") == 0 {
         return error.InvalidPipeline;
     }
     if pipeline_registry_release(&first) == 0 {

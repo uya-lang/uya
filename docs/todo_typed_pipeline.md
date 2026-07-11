@@ -37,8 +37,8 @@
 - [x] 添加 `stage_count(input: &Pipeline) !usize`，保证不消费、不执行、不缓存 execution state，无效 capability 返回 `InvalidPipeline`；statuses 容量检查早于文件打开或进程启动。
 - [x] 添加 owned argv 存储。
 - [x] 为 process stage 添加 execution-time `exec_path` 存储或等价临时结构；不要把解析结果持久化到可 clone 的 plan。
-- [~] 添加 cwd override 存储。
-- [ ] 添加 env overlay 存储。
+- [x] 添加 cwd override 存储。
+- [~] 添加 env overlay 存储。
 - [ ] sink 开始时捕获一次 canonical base env；为每个 stage 按顺序应用 overlay/remove，并让 PATH helper 与 spawn 共用同一 env block。
 - [ ] `env` / `unset_env` 复用 `EnvInvalidName` / `EnvInvalidValue` 校验，计划保存 key/value 副本。
 - [ ] 添加 stage-local modifier 校验：`cwd/env/unset_env` 只能作用于最近 process stage。
