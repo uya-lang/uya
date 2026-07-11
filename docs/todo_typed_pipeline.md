@@ -120,8 +120,8 @@
   - [x] 缺失命令
   - [x] child-side exec 失败诊断
   - [x] PATH/cwd/permission/process-create/exec 失败写入不同 `PipelineSpawnFailureKind`
-  - [~] 相对 `cmd_path` 搭配 `cwd()`
-  - [ ] 相对 `cwd()` 与 file stream path 使用同一 sink-time cwd 快照
+  - [x] 相对 `cmd_path` 搭配 `cwd()`
+  - [~] 相对 `cwd()` 与 file stream path 使用同一 sink-time cwd 快照
   - [ ] 文件重定向打开失败返回普通 Uya error
   - [ ] 多 stage group stderr file 只 open/truncate 一次，不因每个 stage 重复打开而覆盖输出
   - [ ] 宿主 0/1/2 任一路预先关闭时，pipe/file stdio remap 仍正确且 exec 后目标 fd 不带 `FD_CLOEXEC`
