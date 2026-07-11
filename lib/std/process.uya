@@ -61,6 +61,7 @@ use libc.SIGINT;
 use libc.SIGQUIT;
 use libc.SIGTERM;
 use libc.SIGHUP;
+use libc.SIGTSTP;
 use libc.SIG_IGN;
 use libc.SIG_ERR;
 use libc.O_NONBLOCK;
@@ -2555,6 +2556,71 @@ export fn pipeline_terminal_background_self_test() !void {
     const waited: i32 = waitpid(pid, &raw, 0);
     _ = close(master_fd);
     if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+}
+
+fn pipeline_terminal_stopped_child_run(slave_name: &const byte, master_fd: i32,
+    background_read: bool) !void {
+    _ = close(master_fd);
+    if setsid() < 0 { return error.PipelineIoError; }
+    const slave_fd: i32 = try sys_open(slave_name, O_RDWR as i32, 0);
+    if tcsetpgrp(slave_fd, getpgrp()) != 0 || dup2(slave_fd, 0) < 0 ||
+        dup2(slave_fd, 1) < 0 || dup2(slave_fd, 2) < 0 { return error.PipelineIoError; }
+    if slave_fd > 2 { _ = close(slave_fd); }
+    var foreground_pid: i32 = 0 - 1;
+    if background_read {
+        foreground_pid = fork();
+        if foreground_pid == 0 {
+            if setpgid(0, 0) != 0 { _exit(1); }
+            while true { _ = sched_yield(); }
+        }
+        if foreground_pid < 0 || setpgid(foreground_pid, foreground_pid) != 0 ||
+            tcsetpgrp(0, foreground_pid) != 0 { return error.PipelineIoError; }
+    }
+    var script: &const byte = "kill -TSTP $$";
+    if background_read { script = "read value"; }
+    const args: [&const byte: 2] = ["-c", script];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/sh", &args[0:2]);
+    const executed: !void = check(try inherit_stdio(command));
+    const foreground_after: i32 = tcgetpgrp(0);
+    if foreground_pid > 0 {
+        _ = kill(foreground_pid, SIGKILL);
+        var raw: i32 = 0;
+        _ = waitpid(foreground_pid, &raw, 0);
+    }
+    if executed.error_id != @error_id(error.Interrupted) { return error.InvalidPipeline; }
+    if background_read && foreground_after != foreground_pid { return error.InvalidPipeline; }
+    if !background_read && foreground_after != getpgrp() { return error.InvalidPipeline; }
+}
+
+fn pipeline_terminal_stopped_child(slave_name: &const byte, master_fd: i32,
+    background_read: bool) void {
+    const completed: !void = pipeline_terminal_stopped_child_run(slave_name, master_fd,
+        background_read);
+    _ = completed catch { _exit(1); };
+    _exit(0);
+}
+
+fn pipeline_terminal_stopped_case(background_read: bool) !void {
+    const master_fd: i32 = posix_openpt(O_RDWR as i32);
+    if master_fd < 0 || grantpt(master_fd) != 0 || unlockpt(master_fd) != 0 {
+        if master_fd >= 0 { _ = close(master_fd); }
+        return error.PipelineIoError;
+    }
+    const slave_name: &byte = ptsname(master_fd);
+    if slave_name == null { _ = close(master_fd); return error.PipelineIoError; }
+    const pid: i32 = fork();
+    if pid == 0 { pipeline_terminal_stopped_child(slave_name, master_fd, background_read); }
+    if pid < 0 { _ = close(master_fd); return error.PipelineIoError; }
+    var raw: i32 = 0;
+    const waited: i32 = waitpid(pid, &raw, 0);
+    _ = close(master_fd);
+    if waited != pid || ((raw >> 8) & 255) != 0 { return error.InvalidPipeline; }
+}
+
+/// 验证 SIGTSTP/SIGTTIN stopped child 均有限取消、返回 Interrupted 并恢复终端；仅供回归测试。
+export fn pipeline_terminal_stopped_self_test() !void {
+    try pipeline_terminal_stopped_case(false);
+    try pipeline_terminal_stopped_case(true);
 }
 
 fn pipeline_closed_stdio_child(closed_fd: i32) void {

@@ -109,7 +109,7 @@
 - [x] `capture_limit_into` 超限时对 process group 和全部直接 PID 强制终止，关闭 capture 读端且不等待 EOF，reap 直接 child、重置输出 result 为空摘要，并返回 `error.CaptureLimitExceeded`。
 - [x] 部分启动后发生 spawn/infrastructure 错误时复用同一整组取消路径，不能等待 stage 自然退出。
 - [x] 添加输出大于 pipe buffer 的死锁回归测试。
-- [~] 添加测试：
+- [x] 添加测试：
   - [x] `printf | wc`
   - [x] 三阶段 pipeline
   - [x] stdout 文件 sink
@@ -143,7 +143,7 @@
   - [x] stdout/stderr/statuses/result writable region 重叠时在启动前返回 `InvalidPipeline`
   - [x] 终端继承下读取 stdin 不会因后台 process group 收到 `SIGTTIN`，完成后恢复父前台 PGID
   - [x] executor 自身位于后台 process group 时不会调用 `tcsetpgrp` 抢占前台终端
-  - [~] 前台 child 收到 Ctrl-Z/SIGTSTP 或后台 child 收到 SIGTTIN 时，sink 恢复终端、有限取消并返回 `Interrupted`，不会永久等待 stopped child
+  - [x] 前台 child 收到 Ctrl-Z/SIGTSTP 或后台 child 收到 SIGTTIN 时，sink 恢复终端、有限取消并返回 `Interrupted`，不会永久等待 stopped child
 
 ## 阶段 6：自定义 Uya 流 Stage
 

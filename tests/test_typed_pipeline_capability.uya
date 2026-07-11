@@ -55,6 +55,10 @@ test "pipeline_background_executor_does_not_steal_foreground_terminal" {
     try pipeline_terminal_background_self_test();
 }
 
+test "pipeline_stopped_terminal_child_is_cancelled_and_restores_foreground" {
+    try pipeline_terminal_stopped_self_test();
+}
+
 test "pipeline_internal_fds_do_not_collide_with_closed_stdio" {
     try pipeline_closed_stdio_self_test();
 }
