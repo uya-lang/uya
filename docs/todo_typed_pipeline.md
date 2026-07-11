@@ -174,11 +174,11 @@ interface PipelineStage {
 - [ ] 若 runtime task 路线成立，证明阻塞 StreamReader/Writer 和 CPU-bound stage 都能安全终止；否则把有限取消后端收敛到隔离 worker process，并将普通 thread 路线标记为实验性协作取消。
 - [x] 若保留 fork-backed 实验路径，必须显式标记为非默认测试/实验模式。
 - [ ] 添加测试：
-  - [ ] line filter stage
-  - [ ] line map stage
-  - [ ] 两个外部命令之间的 stage
-  - [ ] stage 错误传播
-  - [ ] 大输入流式处理，不全量缓冲
+  - [x] line filter stage
+  - [x] line map stage
+  - [x] 两个外部命令之间的 stage
+  - [x] stage 错误传播
+  - [x] 大输入流式处理，不全量缓冲
 
 ## 阶段 7：Script Facade 集成
 
