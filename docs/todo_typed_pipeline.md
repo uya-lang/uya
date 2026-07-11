@@ -115,11 +115,11 @@
   - [x] stdout 文件 sink
   - [x] stderr 文件 sink
   - [x] stderr capture
-  - [~] stderr to stdout merge
-  - [ ] `cmd("a/b")` 返回 `error.InvalidPipeline`
-  - [ ] 缺失命令
-  - [ ] child-side exec 失败诊断
-  - [ ] PATH/cwd/permission/process-create/exec 失败写入不同 `PipelineSpawnFailureKind`
+  - [x] stderr to stdout merge
+  - [x] `cmd("a/b")` 返回 `error.InvalidPipeline`
+  - [x] 缺失命令
+  - [x] child-side exec 失败诊断
+  - [~] PATH/cwd/permission/process-create/exec 失败写入不同 `PipelineSpawnFailureKind`
   - [ ] 相对 `cmd_path` 搭配 `cwd()`
   - [ ] 相对 `cwd()` 与 file stream path 使用同一 sink-time cwd 快照
   - [ ] 文件重定向打开失败返回普通 Uya error

@@ -112,6 +112,21 @@ test "pipeline_stderr_capture_drains_separate_stream" {
     try assert_eq_bool(result.stderr.complete, true);
 }
 
+test "pipeline_stderr_to_stdout_merge_uses_stdout_policy" {
+    const shell_values: [&const byte: 2] = ["-c", "printf out; printf err >&2"];
+    const command: Pipeline = try stderr_to_stdout(
+        try cmd_path_argv(pipeline(), "/bin/sh", &shell_values[0:2]));
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var stdout_storage: [byte: 16] = [];
+    var stderr_storage: [byte: 1] = [];
+    var result: PipelineCaptureResult = PipelineCaptureResult {};
+    try capture_into(command, &statuses_storage[0:1], &stdout_storage[0:16],
+        &stderr_storage[0:0], &result);
+    try assert_eq_i32(result.stdout.byte_count as i32, 6);
+    try assert_eq_bool(result.stdout.complete, true);
+    try assert_eq_bool(result.stderr.captured, false);
+}
+
 test "pipeline_capture_drains_output_larger_than_pipe_buffer" {
     const args_values: [&const byte: 3] = ["-c", "100000", "/dev/zero"];
     const args: &[&const byte] = &args_values[0:3];
