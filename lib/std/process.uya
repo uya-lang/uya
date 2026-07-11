@@ -1554,6 +1554,24 @@ fn pipeline_spawn_failure_for_phase(phase: i32) PipelineSpawnFailureKind {
     return PipelineSpawnFailureKind.platform_error;
 }
 
+fn pipeline_parent_child_only_fds_closed(pipe_fds: &i32, pipe_fd_count: usize,
+    launch_fds: &i32, report_fds: &i32, stage_count: usize,
+    stdin_fd: i32, stdout_fd: i32, stderr_fd: i32,
+    stdout_capture_writer: i32, stderr_capture_writer: i32) bool {
+    var i: usize = 0usize;
+    while i < pipe_fd_count {
+        if pipe_fds[i] >= 0 { return false; }
+        i = i + 1usize;
+    }
+    i = 0usize;
+    while i < stage_count {
+        if launch_fds[i * 2usize] >= 0 || report_fds[i * 2usize + 1usize] >= 0 { return false; }
+        i = i + 1usize;
+    }
+    return stdin_fd < 0 && stdout_fd < 0 && stderr_fd < 0 &&
+        stdout_capture_writer < 0 && stderr_capture_writer < 0;
+}
+
 fn pipeline_tcsetpgrp(fd: i32, pgid: i32) !void {
     var signal_set: sigset_t = sigset_t {};
     var old_set: sigset_t = sigset_t {};
@@ -1923,7 +1941,11 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         i = i + 1usize;
     }
     var pc: usize = 0usize;
-    while pc < pipe_count * 2usize { _ = close(pipe_fds[pc]); pc = pc + 1usize; }
+    while pc < pipe_count * 2usize {
+        _ = close(pipe_fds[pc]);
+        pipe_fds[pc] = 0 - 1;
+        pc = pc + 1usize;
+    }
     if stdin_fd >= 0 { _ = close(stdin_fd); stdin_fd = 0 - 1; }
     if stdout_fd >= 0 { _ = close(stdout_fd); stdout_fd = 0 - 1; }
     if stderr_fd >= 0 { _ = close(stderr_fd); stderr_fd = 0 - 1; }
@@ -1949,6 +1971,13 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             return error.PipelineSpawnFailed;
         }
         i = i + 1usize;
+    }
+    if !pipeline_parent_child_only_fds_closed(&pipe_fds[0], pipe_count * 2usize,
+        &launch_fds[0], &report_fds[0], count, stdin_fd, stdout_fd, stderr_fd,
+        stdout_capture_fds[1], stderr_capture_fds[1]) {
+        pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+        pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+        return error.PipelineIoError;
     }
     if foreground_fd >= 0 && saved_foreground_pgid > 0 {
         const handed: !void = pipeline_tcsetpgrp(foreground_fd, pipeline_pgid);
