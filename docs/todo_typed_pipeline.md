@@ -134,8 +134,8 @@
   - [x] `stderr_capture() |> status_into(...)` 冲突
   - [x] 第一 stage 非零退出
   - [x] 最后一 stage 非零退出
-  - [~] 忽略 `SIGPIPE` 并持续输出的程序在 capture 超限后仍能被有限终止
-  - [ ] 直接 stage 调用 `setsid` 逃离 group 后仍会被按 PID 终止并 reap
+  - [x] 忽略 `SIGPIPE` 并持续输出的程序在 capture 超限后仍能被有限终止
+  - [~] 直接 stage 调用 `setsid` 逃离 group 后仍会被按 PID 终止并 reap
   - [ ] 逃离后代持有 capture 写端时取消路径不会等待 EOF
   - [ ] 正常完成时后代持续持有/写入 capture pipe 也不会阻止 sink 返回，后代后续 bytes 不进入结果
   - [ ] 未观察到 capture EOF 时 `complete=false`，不会静默报告完整输出
