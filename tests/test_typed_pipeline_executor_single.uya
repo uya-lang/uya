@@ -274,9 +274,9 @@ test "pipeline_capture_sink_observes_spawn_failure_without_error" {
 }
 
 test "pipeline_capture_partial_startup_cancel_is_incomplete_without_observed_eof" {
-    const echo_values: [&const byte: 1] = ["hello"];
+    const first_values: [&const byte: 1] = ["10"];
     const no_args_values: [&const byte: 1] = [""];
-    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/echo", &echo_values[0:1]);
+    const first: Pipeline = try cmd_path_argv(pipeline(), "/bin/sleep", &first_values[0:1]);
     const full: Pipeline = try cmd_path_argv(first, "/tmp", &no_args_values[0:0]);
     var statuses_storage: [PipelineStageStatus: 2] = [];
     var stdout_storage: [byte: 16] = [];
