@@ -130,8 +130,8 @@
   - [x] launch reader 提前关闭时 RUN/ABORT 写入返回可处理的 `EPIPE`，executor 不被 `SIGPIPE` 终止
   - [x] signal 终止状态
   - [x] executor 收到 SIGINT/SIGTERM 时不重复投递给仍在 group 的 PID，有限清理并返回 `error.Interrupted`
-  - [~] `stdout_file(...) |> capture_into(...)` 冲突
-  - [ ] `stderr_capture() |> status_into(...)` 冲突
+  - [x] `stdout_file(...) |> capture_into(...)` 冲突
+  - [~] `stderr_capture() |> status_into(...)` 冲突
   - [ ] 第一 stage 非零退出
   - [ ] 最后一 stage 非零退出
   - [ ] 忽略 `SIGPIPE` 并持续输出的程序在 capture 超限后仍能被有限终止
