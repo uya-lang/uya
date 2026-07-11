@@ -1958,6 +1958,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         const record_state: i32 = received catch {
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); stdout_capture_fds[0] = 0 - 1; }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); stderr_capture_fds[0] = 0 - 1; }
             return error.PipelineIoError;
         };
         if record_state != 1 || report.kind != PIPELINE_STARTUP_READY {
@@ -1968,6 +1970,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             }
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); stdout_capture_fds[0] = 0 - 1; }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); stderr_capture_fds[0] = 0 - 1; }
             return error.PipelineSpawnFailed;
         }
         i = i + 1usize;
@@ -2007,6 +2011,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         const state: i32 = received catch {
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); stdout_capture_fds[0] = 0 - 1; }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); stderr_capture_fds[0] = 0 - 1; }
             return error.PipelineIoError;
         };
         _ = close(report_fds[i * 2usize]);
@@ -2019,6 +2025,8 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
             }
             pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
             pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            if stdout_capture_fds[0] >= 0 { _ = close(stdout_capture_fds[0]); stdout_capture_fds[0] = 0 - 1; }
+            if stderr_capture_fds[0] >= 0 { _ = close(stderr_capture_fds[0]); stderr_capture_fds[0] = 0 - 1; }
             return error.PipelineSpawnFailed;
         }
         i = i + 1usize;
