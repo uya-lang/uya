@@ -58,6 +58,10 @@ use libc.sys_write;
 extern fn setpgid(pid: i32, pgid: i32) i32;
 extern fn sigwait(set: &const sigset_t, signal: &i32) i32;
 extern fn pthread_sigmask(how: i32, set: &const sigset_t, old_set: &sigset_t) i32;
+extern fn isatty(fd: i32) i32;
+extern fn tcgetpgrp(fd: i32) i32;
+extern fn tcsetpgrp(fd: i32, pgid: i32) i32;
+extern fn getpgrp() i32;
 
 export error InvalidPipeline;
 export error ProcessFailed;
@@ -1308,6 +1312,14 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     if count == 0usize || count > PIPELINE_MAX_STAGES { return error.InvalidPipeline; }
     const slot_idx: usize = try pipeline_registry_slot_index(input);
     if slot_idx >= PIPELINE_REGISTRY_CAPACITY { return error.InvalidPipeline; }
+    var foreground_fd: i32 = 0 - 1;
+    var saved_foreground_pgid: i32 = 0 - 1;
+    var foreground_handed_off: bool = false;
+    defer {
+        if foreground_handed_off && foreground_fd >= 0 && saved_foreground_pgid > 0 {
+            _ = tcsetpgrp(foreground_fd, saved_foreground_pgid);
+        }
+    }
     var cwd_snapshot: PipelineCwdSnapshot = try pipeline_cwd_snapshot_capture();
     defer { pipeline_cwd_snapshot_deinit(&cwd_snapshot); }
     var prepared_stages: [PipelinePreparedProcessStage: 32] = [];
@@ -1321,6 +1333,20 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         prepared_stages[i] = try pipeline_prepare_process_stage(&cwd_snapshot, stage, &statuses[i]);
         prepared_count = prepared_count + 1usize;
         i = i + 1usize;
+    }
+    const policy: &PipelineStreamPolicy = &_pipeline_stream_policies[slot_idx];
+    if policy.stdin_kind == PipelineStdinPolicyKind.inherit &&
+        policy.stdout_kind == PipelineStdoutPolicyKind.inherit &&
+        policy.stderr_kind == PipelineStderrPolicyKind.inherit {
+        if isatty(0) != 0 { foreground_fd = 0; }
+        else if isatty(1) != 0 { foreground_fd = 1; }
+        else if isatty(2) != 0 { foreground_fd = 2; }
+        if foreground_fd >= 0 {
+            const terminal_pgid: i32 = tcgetpgrp(foreground_fd);
+            if terminal_pgid > 0 && terminal_pgid == getpgrp() {
+                saved_foreground_pgid = terminal_pgid;
+            }
+        }
     }
     var stdout_capture_fds: [i32: 2] = [0 - 1, 0 - 1];
     var stderr_capture_fds: [i32: 2] = [0 - 1, 0 - 1];
@@ -1538,6 +1564,14 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
         _ = close(report_fds[i * 2usize]);
         report_fds[i * 2usize] = 0 - 1;
         i = i + 1usize;
+    }
+    if foreground_fd >= 0 && saved_foreground_pgid > 0 {
+        if tcsetpgrp(foreground_fd, pipeline_pgid) != 0 {
+            pipeline_abort_launches(&launch_fds[0], &report_fds[0], count);
+            pipeline_cancel_started_group(pipeline_pgid, &pids[0], count);
+            return error.PipelineIoError;
+        }
+        foreground_handed_off = true;
     }
     i = 0usize;
     while i < count {

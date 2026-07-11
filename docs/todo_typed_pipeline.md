@@ -80,8 +80,8 @@
 - [x] 定义 per-child launch pipe：只有 `RUN` 允许继续，`ABORT`/EOF/短读/未知 token 必须 `_exit`；全部 READY 前不得发送 RUN。
 - [x] 为 parent 的 RUN/ABORT 写入实现 per-thread `SIGPIPE` 屏蔽、pending-signal 精确消费、EINTR 重试和 exact-token/`EPIPE` 处理；不得永久忽略进程级 `SIGPIPE`。
 - [x] 任一 fork/setpgid/barrier 失败时向尚未释放的 child 发送 ABORT 或关闭其 launch pipe，终止 group 与每个直接 PID并 reap；关闭 pipe 不得被解释为 release。
-- [~] inherit stdio 指向 controlling terminal 且 `tcgetpgrp(tty) == getpgrp()` 时才在 RUN 前 `tcsetpgrp` 到 pipeline PGID，并只在确实转交后恢复保存的前台 PGID。
-- [ ] runtime broker 在等待 foreground lease 前注册 sink；按 terminal identity 独占 lease，所有正常/失败/中断路径在恢复终端后释放 lease并注销 broker。
+- [x] inherit stdio 指向 controlling terminal 且 `tcgetpgrp(tty) == getpgrp()` 时才在 RUN 前 `tcsetpgrp` 到 pipeline PGID，并只在确实转交后恢复保存的前台 PGID。
+- [~] runtime broker 在等待 foreground lease 前注册 sink；按 terminal identity 独占 lease，所有正常/失败/中断路径在恢复终端后释放 lease并注销 broker。
 - [ ] executor 已在后台时保持后台语义，不忽略 `SIGTTOU` 抢占终端；`tcgetpgrp`/`tcsetpgrp` 失败在 RUN 前走 ABORT 与普通 Uya error 路径。
 - [ ] signal handler 只写原子标志/self-pipe；正常等待路径向 group 转发一次信号，只对 `getpgid(pid) != pipeline_pgid` 或无法证明仍在 group 的直接 PID 补发，bounded grace 后强制取消并返回 `error.Interrupted`。
 - [ ] 保存/恢复既有 signal disposition/mask，保持 `SIG_IGN`，自定义 handler 由 runtime signal broker 统一协调。
