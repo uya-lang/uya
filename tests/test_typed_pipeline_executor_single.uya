@@ -28,6 +28,7 @@ use libc.access;
 use libc.unlink;
 use libc.chdir;
 use libc.getcwd;
+use libc.SIGTERM;
 
 test "pipeline_single_exact_path_check_executes" {
     const values: [&const byte: 1] = [""];
@@ -339,6 +340,7 @@ test "pipeline_status_sink_observes_signal_without_error" {
     var result: PipelineResult = PipelineResult {};
     try status_into(command, &statuses_storage[0:1], &result);
     try assert_eq_i32(statuses_storage[0].kind as i32, PipelineStageStatusKind.signaled as i32);
+    try assert_eq_i32(statuses_storage[0].signal, SIGTERM);
 }
 
 test "pipeline_capture_sink_observes_spawn_failure_without_error" {
