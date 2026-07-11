@@ -294,6 +294,7 @@ var _pipeline_broker_signal_epoch: atomic i32 = 0;
 var _pipeline_broker_installed: i32 = 0;
 var _pipeline_broker_previous_actions: [PipelineSigaction: 4] = [];
 var _pipeline_broker_owned_actions: [i32: 4] = [];
+var _pipeline_test_fail_next_fork: atomic i32 = 0;
 
 extern fn pipeline_broker_signal_handler(signum: i32) void {
     _pipeline_broker_pending_signal = signum;
@@ -1866,7 +1867,9 @@ fn pipeline_execute_basic(input: &Pipeline, statuses: &[PipelineStageStatus], re
     i = 0usize;
     while i < count {
         const stage: &PipelinePreparedProcessStage = &prepared_stages[i];
-        const pid: i32 = fork();
+        var pid: i32 = 0 - 1;
+        if __atomic_exchange_n((&_pipeline_test_fail_next_fork) as &i32, 0,
+            PIPELINE_ATOMIC_SEQ_CST) == 0 { pid = fork(); }
         if pid < 0 {
             statuses[i].kind = PipelineStageStatusKind.spawn_failed;
             statuses[i].spawn_failure = PipelineSpawnFailureKind.process_create_failed;
@@ -2468,6 +2471,27 @@ export fn cwd(input: Pipeline, path: &const byte) !Pipeline {
     }
     try pipeline_registry_set_last_stage_cwd(&input, path);
     return input;
+}
+
+/// 为最近追加的 process stage 设置 child-only 环境变量覆盖。
+/// 参数：input 为按值消费的 pipeline；key/value 会复制到计划中。
+/// 返回：成功时返回修改后的 pipeline；名称或值无效时返回 std.env 校验错误。
+export fn env(input: Pipeline, key: &const byte, value: &const byte) !Pipeline {
+    try pipeline_registry_append_last_stage_env(&input, key, value, 0);
+    return input;
+}
+
+/// 从最近追加的 process stage 最终 child 环境中移除变量。
+/// 参数：input 为按值消费的 pipeline；key 会复制到计划中。
+/// 返回：成功时返回修改后的 pipeline；名称无效时返回 std.env 校验错误。
+export fn unset_env(input: Pipeline, key: &const byte) !Pipeline {
+    try pipeline_registry_append_last_stage_env(&input, key, null, 1);
+    return input;
+}
+
+/// 让下一次 pipeline fork 路径返回 process-create failure；仅供回归测试。
+export fn pipeline_fail_next_fork_for_test() void {
+    _pipeline_test_fail_next_fork = 1;
 }
 
 /// 将 pipeline 第一段 stdin 配置为文件输入。

@@ -18,6 +18,8 @@ use std.process.stderr_capture;
 use std.process.stderr_to_stdout;
 use std.process.stdin_file;
 use std.process.cwd;
+use std.process.env;
+use std.process.pipeline_fail_next_fork_for_test;
 use std.process.PipelineCaptureResult;
 use std.process.capture_into;
 use std.process.capture_limit_into;
@@ -374,4 +376,30 @@ test "pipeline_capture_probe_distinguishes_zero_exact_and_overflow" {
     _ = overflowed catch {};
     try assert_eq_i32(overflowed.error_id as i32, @error_id(error.CaptureLimitExceeded) as i32);
     try assert_eq_i32(overflow_result.result.stage_count as i32, 0);
+}
+
+test "pipeline_path_permission_failure_has_stable_classification" {
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try env(
+        try cmd_argv(pipeline(), "passwd", &no_args_values[0:0]), "PATH", "/etc");
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    const executed: !void = check_into(command, &statuses_storage[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineSpawnFailed) as i32);
+    try assert_eq_i32(statuses_storage[0].spawn_failure as i32,
+        PipelineSpawnFailureKind.permission_denied as i32);
+}
+
+test "pipeline_process_create_failure_has_stable_classification" {
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    pipeline_fail_next_fork_for_test();
+    const executed: !void = check_into(command, &statuses_storage[0:1], &result);
+    _ = executed catch {};
+    try assert_eq_i32(executed.error_id as i32, @error_id(error.PipelineSpawnFailed) as i32);
+    try assert_eq_i32(statuses_storage[0].spawn_failure as i32,
+        PipelineSpawnFailureKind.process_create_failed as i32);
 }
