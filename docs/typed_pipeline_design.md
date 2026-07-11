@@ -604,6 +604,8 @@ fn stage<T: PipelineStage>(input: Pipeline, stage: T) !Pipeline;
 
 文档示例里的字符串字面量具有静态存储期，适合作为 `needle`；来自局部缓冲区的切片不能直接保存在延迟执行的 stage 中。
 
+当前阶段 6 初始实现采用保守 owned-data 门禁：只接受大小恰为一字节的 marker stage 对象。该规则允许无借用的固定行为 stage，同时稳定拒绝引用、指针、slice、interface 及带状态对象；在显式 owned buffer/deep-clone 协议落地前不会放宽。erased holder 的 `clone_erased` 槽当前返回 `error.InvalidPipeline`，因此含 Uya stage 的计划不可克隆，不会退化为浅拷贝。
+
 示例：
 
 ```uya

@@ -230,6 +230,7 @@ export interface PipelineStage {
 
 interface PipelineErasedStageOps {
     fn run_erased(self: &Self, input: &StreamReader, output: &StreamWriter) !void;
+    fn clone_erased(self: &Self) !PipelineErasedStageOps;
     fn drop_erased(self: &Self) void;
 }
 
@@ -239,6 +240,11 @@ struct PipelineErasedStageBox : PipelineErasedStageOps {
 
     fn run_erased(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
         try self.value.run(input, output);
+    }
+
+    fn clone_erased(self: &Self) !PipelineErasedStageOps {
+        _ = self;
+        return error.InvalidPipeline;
     }
 
     fn drop_erased(self: &Self) void {
@@ -261,6 +267,7 @@ const PIPELINE_STAGE_STORAGE_CAPACITY: usize = 32768usize;
 const PIPELINE_ATOMIC_SEQ_CST: i32 = 5;
 const PIPELINE_WAIT_UNTRACED: i32 = 2;
 const PIPELINE_WAIT_CONTINUED: i32 = 8;
+
 
 struct PipelineSlot {
     generation: usize,
@@ -2436,6 +2443,13 @@ fn pipeline_clone_plan(input: &Pipeline, output: &Pipeline) !void {
         const source_idx: usize = try pipeline_stage_storage_index(source_slot, i);
         if source_idx >= PIPELINE_STAGE_STORAGE_CAPACITY { return error.InvalidPipeline; }
         const source: &PipelineProcessStage = &_pipeline_process_stages[source_idx];
+        if source.command_kind == 3 {
+            if _pipeline_erased_stages[source_idx].active == 0 { return error.InvalidPipeline; }
+            const cloned: PipelineErasedStageOps = try _pipeline_erased_stages[source_idx].ops.clone_erased();
+            try pipeline_registry_append_erased_stage(output, cloned);
+            i = i + 1usize;
+            continue;
+        }
         if source.active == 0 || source.argv == null || source.argv_count == 0usize {
             return error.InvalidPipeline;
         }
@@ -2851,6 +2865,7 @@ export fn cmd_path_argv(input: Pipeline, path: &const byte, args: &[&const byte]
 /// 参数：input 为按值消费的 pipeline；stage_value 被移动到稳定 heap holder。
 /// 返回：成功时返回追加后的 pipeline；分配或计划容量失败时返回 InvalidPipeline。
 export fn stage<T: PipelineStage>(input: Pipeline, stage_value: T) !Pipeline {
+    if @size_of(T) != 1 { return error.InvalidPipeline; }
     const value_raw: &void = malloc(@size_of(T));
     if value_raw == null { return error.InvalidPipeline; }
     const typed_value: &T = value_raw as &T;

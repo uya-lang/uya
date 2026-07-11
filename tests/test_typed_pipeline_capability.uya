@@ -2,7 +2,7 @@ use std.process;
 use std.testing.assert_eq_u64;
 
 struct PipelinePassStage : PipelineStage {
-    marker: i32,
+    marker: byte,
 
     fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
         _ = self;
@@ -12,6 +12,16 @@ struct PipelinePassStage : PipelineStage {
             if count == 0usize { return; }
             try output.write_all(&buffer[0:count]);
         }
+    }
+}
+
+struct PipelineBorrowedStage : PipelineStage {
+    borrowed: &i32,
+
+    fn run(self: &Self, input: &StreamReader, output: &StreamWriter) !void {
+        _ = self;
+        _ = input;
+        _ = output;
     }
 }
 
@@ -29,9 +39,17 @@ test "pipeline_stage_count_empty_is_read_only" {
 
 test "pipeline_stage_transformer_owns_erased_stage_in_plan" {
     const planned: Pipeline = try stage<PipelinePassStage>(pipeline(),
-        PipelinePassStage { marker: 7 });
+        PipelinePassStage { marker: 7 as byte });
     try assert_eq_u64((try stage_count(&planned)) as u64, 1);
     pipeline_drop(planned);
+}
+
+test "pipeline_stage_transformer_rejects_borrowed_fields" {
+    var local_value: i32 = 7;
+    const planned: !Pipeline = stage<PipelineBorrowedStage>(pipeline(),
+        PipelineBorrowedStage { borrowed: &local_value });
+    _ = planned catch {};
+    try assert_eq_u64(planned.error_id as u64, @error_id(error.InvalidPipeline) as u64);
 }
 
 test "pipeline_clone_owns_an_independent_deep_copy" {
