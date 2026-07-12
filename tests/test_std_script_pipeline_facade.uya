@@ -1,0 +1,19 @@
+// std.script typed pipeline facade 回归。
+
+use std.script;
+use std.testing.assert_eq_i32;
+
+test "script_facade_exposes_process_pipeline_check" {
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    try check(command);
+}
+
+test "script_facade_exposes_result_buffer_types" {
+    const no_args_values: [&const byte: 1] = [""];
+    const command: Pipeline = try cmd_path_argv(pipeline(), "/bin/true", &no_args_values[0:0]);
+    var statuses_storage: [PipelineStageStatus: 1] = [];
+    var result: PipelineResult = PipelineResult {};
+    try check_into(command, &statuses_storage[0:1], &result);
+    try assert_eq_i32(result.stage_count as i32, 1);
+}

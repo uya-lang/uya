@@ -681,3 +681,13 @@ interface PipelineStage {
 - `python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_typed_pipeline.md`：通过，报告 `0 active tasks`。
 - `rg -n "^- \[[xf]\]|^[[:space:]]+- \[[xf]\]" docs/todo_typed_pipeline.md`：无输出，主 TODO 无 `[x]` / `[f]` 残留。
 - `git diff --check -- docs/todo_typed_pipeline.md docs/todo_typed_pipeline_completed.md docs/todo_typed_pipeline_failed.md`：通过。
+
+---
+
+## 阶段 7：Script Facade 集成
+
+- [x] 如合适，通过 `std.script` 重新导出常用 API。
+  - 实现：新增 `lib/std/script/file.uya`，以独立 `std_script_*` facade 包装 `std.process` 的常用 process-only typed pipeline API，并重导出调用方常用结果类型。
+  - 验证：`../uya/bin/uya test tests/test_std_script_pipeline_facade.uya`（2 tests，1 assertion，通过）。
+  - 回归：`../uya/bin/uya test tests/test_typed_pipeline_executor_single.uya`（36 tests，94 assertions，通过）。
+  - 回归：`../uya/bin/uya test tests/test_typed_pipeline_cmd_argv.uya`（7 tests，10 assertions，通过）。
