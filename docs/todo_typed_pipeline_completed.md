@@ -494,3 +494,9 @@ make uya
   - 验证：归档清理轮；源任务已在主 todo 中标记为 `[x]`，本轮未重新运行代码测试。
   - 归档验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_typed_pipeline.md` -> `ok: docs/todo_typed_pipeline.md has 0 active tasks`
   - 归档验证：`git diff --check` -> 通过
+
+## 阶段 3：Lowering
+
+- [x] `!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。
+  - 验证：`sed -n '6,30p' docs/todo_typed_pipeline.md` 确认任务位于 `## 阶段 3：Lowering` 且已为 `[x]`。
+  - 验证：``rg -n --fixed-strings '`!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。' docs/todo_typed_pipeline.md`` 归档前唯一定位为 line 18。

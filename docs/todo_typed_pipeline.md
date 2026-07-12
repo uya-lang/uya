@@ -15,7 +15,6 @@
 
 ## 阶段 3：Lowering
 
-- [x] `!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。
 - [x] 确保诊断源位置指向有用 span。
 - [x] 为以下场景添加 lowering snapshot 或等价内部 dump：
   - [x] 单个 transformer
