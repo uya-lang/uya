@@ -500,3 +500,9 @@ make uya
 - [x] `!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。
   - 验证：`sed -n '6,30p' docs/todo_typed_pipeline.md` 确认任务位于 `## 阶段 3：Lowering` 且已为 `[x]`。
   - 验证：``rg -n --fixed-strings '`!Pipeline` try-forward 使用 AST/临时变量语义实现，不通过文本级 `f(try lhs, ...)` 重新解析。' docs/todo_typed_pipeline.md`` 归档前唯一定位为 line 18。
+
+## 阶段 3：Lowering
+
+- [x] 确保诊断源位置指向有用 span。
+  - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_typed_pipeline.md` -> 通过，输出 `ok: docs/todo_typed_pipeline.md has 0 active tasks`。
+  - 验证：`git diff --check -- docs/todo_typed_pipeline.md docs/todo_typed_pipeline_completed.md` -> 通过，无输出。

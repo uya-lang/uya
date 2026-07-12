@@ -15,7 +15,6 @@
 
 ## 阶段 3：Lowering
 
-- [x] 确保诊断源位置指向有用 span。
 - [x] 为以下场景添加 lowering snapshot 或等价内部 dump：
   - [x] 单个 transformer
   - [x] 多个 transformer
