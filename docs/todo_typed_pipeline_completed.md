@@ -484,3 +484,13 @@ make uya
     - 全部 `tests/test_typed_pipeline_*.uya` 正向测试通过
     - `tests/error_typed_pipeline_*.uya` 均按预期报出类型/语法错误
   - 实现位置：`src/codegen/c99/expr.uya` 的 `gen_pipeline_expr` 在 transformer 返回 `!Pipeline` 时生成错误路径 `pipeline_drop(input)` 清理；成功路径从错误联合提取 `Pipeline` 载荷并继续链式调用。
+
+---
+
+# 类型化管道 TODO
+## 阶段 3：Lowering
+
+- [x] 以和普通 `try` 一致的方式降低 `!Pipeline` try-forward。
+  - 验证：归档清理轮；源任务已在主 todo 中标记为 `[x]`，本轮未重新运行代码测试。
+  - 归档验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_typed_pipeline.md` -> `ok: docs/todo_typed_pipeline.md has 0 active tasks`
+  - 归档验证：`git diff --check` -> 通过
