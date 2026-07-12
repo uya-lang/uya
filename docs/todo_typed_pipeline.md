@@ -15,12 +15,6 @@
 
 ## 阶段 3：Lowering
 
-- [x] 为以下场景添加 lowering snapshot 或等价内部 dump：
-  - [x] 单个 transformer
-  - [x] 多个 transformer
-  - [x] 最终 sink
-  - [x] `!Pipeline` try-forward
-
 ## 阶段 4：`std.process.Pipeline` MVP
 
 - [x] 先实现并验证真正的 opaque/non-copyable type checker、C99 codegen、exec lowering 和 drop 支持。

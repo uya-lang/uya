@@ -506,3 +506,14 @@ make uya
 - [x] 确保诊断源位置指向有用 span。
   - 验证：`python3 ~/.codex/skills/goal-task-runner/scripts/check_todo.py docs/todo_typed_pipeline.md` -> 通过，输出 `ok: docs/todo_typed_pipeline.md has 0 active tasks`。
   - 验证：`git diff --check -- docs/todo_typed_pipeline.md docs/todo_typed_pipeline_completed.md` -> 通过，无输出。
+
+## 阶段 3：Lowering
+
+任务路径：# 类型化管道 TODO > 阶段 3：Lowering
+
+- [x] 为以下场景添加 lowering snapshot 或等价内部 dump：
+  - [x] 单个 transformer
+  - [x] 多个 transformer
+  - [x] 最终 sink
+  - [x] `!Pipeline` try-forward
+  - 验证：`sed -n '14,24p' docs/todo_typed_pipeline.md` 确认主 todo 中该完成子树已移除；`git diff --check -- docs/todo_typed_pipeline.md docs/todo_typed_pipeline_completed.md` 通过。
