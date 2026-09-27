@@ -4,6 +4,46 @@
 
 - 暂无
 
+## v0.10.2 - std.process 进程流水线、typed pipeline 落地与偶发红定位
+
+> 发布日期：2026-09-27
+
+### 概要
+
+**v0.10.2** 在 **v0.10.1** 的 async runtime 动态资源与 UPM/package 工作流基础上，把两条新主线推到端到端可发布口径，并把"偶发红"逐个定位到具体机制：
+
+1. **`std.process` 进程与流水线运行时收口**：stage stream 抽象、owned erased stage 生命周期、exec worker stage、child broker 隔离与信号/终端作业控制、capture 策略与取消、spawn 失败分类与结构化诊断。
+2. **typed pipeline 端到端**：checker 诊断（首个形参非 `Pipeline`、非 `Pipeline` 左值、sink-after-chain 等）、lowering 所有权转移与错误路径清理、C99 codegen，以及 `std.script` process facade。
+3. **`std.path` 与检查器/编译器修复**：平台条件与目录模块别名统一（含交叉目标验证）；边界证明器 `as usize` 范围事实、有符号下标下界与约束名悬垂指针修复；hosted stdio、模块作用域同名函数查找、macOS 交叉宿主绑定与微应用发射修复。
+4. **偶发红与发布闸门**：pthread join 早释放线程栈导致的偶发 SIGSEGV（`clear_child_tid` + 共享 `FUTEX_WAIT` 退出确认）；自举种子陈旧导致的 `make release` 冷启动链接失败；`RLIMIT_NOFILE` 软上限 1024 环境把 fd 密集用例的环境限制报成回归。
+
+详见 [docs/releases/RELEASE_v0.10.2.md](./docs/releases/RELEASE_v0.10.2.md)。
+
+### `std.process` / 流水线运行时
+
+- 新增 stage stream 抽象与 owned erased stage 计划，明确 stage 间所有权与析构顺序；新增 exec worker 上的 Uya stage 执行与实验性 fork-backed stage 闸门。
+- child broker 隔离、信号 disposition 保留、子进程信号状态清理；覆盖中断信号路由、停止作业取消与终端作业控制（前台所有权）。
+- capture 策略与取消语义收敛，stdio remap 加固并让内部 fd 保持在 stdio 之上；spawn 失败分类与结构化启动诊断补齐回归。
+
+### typed pipeline / `std.path`
+
+- checker 诊断补全并归档：首个形参不是 `Pipeline`、非 `Pipeline` 左值参与管道、sink-after-chain、实例方法接收者与合成左值冲突。
+- lowering 收口：成功路径转移所有权、错误路径清理输入计划、`try` 前向传播；新增 lowering dump / 诊断验证脚本。
+- `std.path` 平台条件（Linux / macOS / Windows）与目录模块别名统一，新增 `tests/verify_std_path_platform_targets.sh` 交叉目标验证。
+
+### 检查器 / 编译器 / 运行时
+
+- 边界证明器：范围事实跨 `as usize` 传递、有符号源 `as usize` 下标下界判定、成员访问约束名悬垂指针（负哈希跳过池化导致结果随变量名变化）修复；配套正向回归 `tests/test_bounds_prover_as_usize_cast.uya` 与负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`。
+- 编译器：hosted stdio 符号统一到模块前缀、模块作用域同名函数查找、macOS 交叉目标宿主绑定、微应用 payload 与宿主辅助符号泄漏修复；split-C 缓存锁验证补齐。
+- 运行时：pthread join 早释放线程栈导致的 use-after-unmap（偶发 SIGSEGV，#139）修复，新增 `tests/test_pthread_join_stack_reuse.uya`。
+
+### 发布流程
+
+- 刷新自举种子（`backup/*.c`）并修复由此暴露的冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）。
+- 测试脚本把 `RLIMIT_NOFILE` 软上限提升到硬上限；`test_async_event_dynamic_growth` 自身也会先抬够 fd 预算，环境确实不足时明确报 `skip:` 而不是失败。
+- UPM 运行时版本号对齐到 `0.10.2`（此前停在 `0.10.0`，影响 `upm --version` 与 `uya_min_version` 门控）；min_version 失败用例改用当前发行线达不到的版本号断言，不再与发布版本号耦合。
+- 全量单文件测试 1110/1110 通过；`bin/uya` 以 `-O3 -fno-builtin -DNDEBUG` 构建并 strip。
+
 ## v0.10.0 - fmt CLI 收口、if expression 与 C99 主线稳定性
 
 > 发布日期：2026-06-04

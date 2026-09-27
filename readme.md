@@ -323,14 +323,14 @@ fn increment(counter: *Counter) void {
 }
 ```
 
-## 当前状态（v0.10.1）
+## 当前状态（v0.10.2）
 
 - **自举编译器**：已完成自举，所有测试通过。编译器能编译自身，输出 C99 代码（默认多文件至 `.uyacache`，可用 `--no-split-c` 单文件）。
 - **开发模式**：仅维护 `src/` 目录的自举编译器。
 - **快速构建**：`gcc -std=c99 -O3 -fno-builtin bin/uya.c -o bin/uya` 即可从 C99 代码构建编译器。
 - **内存验证**：Valgrind 验证通过，无内存泄漏，无内存错误。
 - **语言规范**：完整版见 [docs/uya.md](./docs/uya.md)。
-- **最新特性**：在 **v0.10.0** 的 `fmt` CLI/API、if expression 与 C99 主线稳定性基础上，当前 **v0.10.1** 继续收口 async runtime 动态资源、UPM/package 工作流、malloc / HTTP benchmark、UyaGin 热路径与 Linux/macOS hosted release 种子稳定性。
+- **最新特性**：在 **v0.10.1** 的 async runtime 动态资源与 UPM/package 工作流基础上，当前 **v0.10.2** 把 `std.process` 进程/流水线运行时与 typed pipeline（parser→checker→lowering→codegen）推到端到端口径，收口 `std.path` 平台条件与交叉目标验证，并修掉 pthread join 早释放线程栈导致的偶发 SIGSEGV、边界证明器 `as usize` 事实传递与自举种子冷启动链接问题。
 
 ## 文档
 
@@ -361,6 +361,6 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.72）；当前 **补丁发行**为 **v0.10.1**，说明见 [docs/releases/RELEASE_v0.10.1.md](./docs/releases/RELEASE_v0.10.1.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.0.md](./docs/releases/RELEASE_v0.10.0.md) 与 [docs/uya.md](./docs/uya.md)。
+**注意**：语言规范为完整版（0.72）；当前 **补丁发行**为 **v0.10.2**，说明见 [docs/releases/RELEASE_v0.10.2.md](./docs/releases/RELEASE_v0.10.2.md)；上一里程碑总览见 [docs/releases/RELEASE_v0.10.1.md](./docs/releases/RELEASE_v0.10.1.md) 与 [docs/uya.md](./docs/uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025-2026 Uya 语言项目
