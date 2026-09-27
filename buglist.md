@@ -184,8 +184,8 @@
   - 状态：已修复
   - 验证状态：
     - 修复前 44 路并发复现：`PARALLEL_JOBS=44` 风格压测（44 个 bench 进程同时跑，40 轮 = 1760 次）失败 **1294 次，全部为退出码 139**；钉单 CPU 的最小用例 `tests/test_pthread_join_stack_reuse.uya` 修复前 10/10 SIGSEGV。
-    - 修复后同样压测 1760 次 **0 失败**；最小用例 10/10 通过、单次约 64ms。
-    - `make check` 全绿（主测试 1107/1107 + UPM 套件）。
+    - 修复后同样压测 1760 次 **0 失败**（另用 `-O3 -DNDEBUG` + strip 的 release 风格编译器复跑 12 轮 × 44 并发 = 528 次同样 0 失败；两者生成的 C 逐字节相同）；最小用例 10/10 通过、单次约 64ms。
+    - `make check` 全绿（主测试 1110/1110，含本轮新增 3 个用例 + UPM 套件）；`make b` 自举对比字节一致；`make from-c` 冷启动（种子未刷新）仍可用，冷启动 + 重新自举后的 `bin/uya` 与之前逐字节相同。
   - 归属：`lib/libc/pthread.uya` 的 join/退出握手（`_pthread_thread_exit` / `pthread_join` / `_pthread_release_resources_once`），不是 `tests/bench_malloc_phase4*.uya` 基准自身的问题
   - 现象：满并发批量跑套件时偶发段错误；单独运行、直接运行产物均正常
   - 根因（use-after-unmap）：
@@ -209,8 +209,8 @@
     - 变体矩阵全部通过：命名常量/字面量上界、上下界顺序互换、`&&` 型守卫、`i + 偏移` 线性下标、结构体字段下标、i8/u64/usize 源类型、循环体内下标
     - 曾"仍未编译"的 `benchmarks/http_bench_async_epoll_await.uya` 现在 `check` 通过（0 错误）
     - 新增 `tests/test_bounds_prover_as_usize_cast.uya`（编译 + 运行期取值校验），已进主套件
-  - 归属：`src/checker/interval.uya` 的 `extract_linear_expr`（识别 `AST_CAST_EXPR` 并递归剥离，保留源变量的线性形式）+ `verify_linear_expr_bounds_ex`（无符号下标的自动下界 0）
-  - 根因：下标走 `LinearExpr` 提取时，`i as usize` 曾经不是可识别的线性式（或未剥离 cast），导致守卫里对源变量 `i` 的范围事实无法用到下标判定上
+  - 归属：`src/checker/interval.uya` 的 `extract_linear_expr`（识别 `AST_CAST_EXPR` 并递归剥离，保留源变量的线性形式）+ `verify_linear_expr_bounds_ex`（下界/上界判定）
+  - 根因与现状：下标的线性形式现在能跨 cast 保留到源变量 `i`，上界由守卫给出的 `i < N` 约束提供；下界此前是靠"下标类型是 usize ⇒ 天然 ≥ 0"这条假设兜住的（该假设本身不安全，见下一条，已改为"只在源表达式无符号时才自动成立"）。修掉该假设后本用例仍通过——因为 `i < 0` 守卫的反条件给出了真正的 `i >= 0` 约束，说明现在确实是**证明**通过而不是靠假设
   - 影响面：任何"先在窄整型上做范围守卫、再 `as usize` 下标定长数组"的写法不再被误报
   - 最小复现（保留）：`tests/repros/bounds_prover_as_usize_cast.uya`
   - 相关文档：`docs/compiler_bug_report_2026-06-06_bounds_prover_as_usize_cast.md`
