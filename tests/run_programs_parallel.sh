@@ -98,7 +98,7 @@ test_should_use_nostdlib() {
     esac
 
     case "$name" in
-        test_libc_heap_*|bench_malloc_phase4|bench_malloc_phase4_detail|test_std_stdlib_malloc|test_std_stdlib_malloc_only|test_mem|test_string|test_pthread_cond|test_pthread_heap_*|test_syscall_process)
+        test_libc_heap_*|bench_malloc_phase4|bench_malloc_phase4_detail|test_std_stdlib_malloc|test_std_stdlib_malloc_only|test_mem|test_string|test_pthread_cond|test_pthread_heap_*|test_pthread_join_stack_reuse|test_syscall_process)
             return 0
             ;;
     esac

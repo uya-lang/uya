@@ -197,6 +197,12 @@ struct pthread_desc {
     tsd_values: &&void,
     alloc_base: &void,
     alloc_size: usize,
+    // clear_child_tid：子线程在 `_pthread_child_bootstrap` 里用
+    // `sys_set_tid_address(&desc.tid_clear)` 注册。内核在线程 do_exit（mm_release）
+    // 阶段把它清零并对它做一次 FUTEX_WAKE，join 侧据此确认线程不会再执行用户态代码，
+    // 之后才可释放该线程的栈与 descriptor（见 `_pthread_wait_thread_cleared`）。
+    // 未注册成功时保持 0（表示"无需等待"）。
+    tid_clear: atomic i32,
     heap_cache: pthread_heap_cache_t,
 }
 
@@ -232,6 +238,7 @@ var _pthread_main_desc: pthread_desc = pthread_desc{
     tsd_values: null,
     alloc_base: null,
     alloc_size: 0usize,
+    tid_clear: 0,
     heap_cache: pthread_heap_cache_t{
         heads: [],
         counts: [],
@@ -718,16 +725,57 @@ fn _pthread_thread_exit(desc: &pthread_desc, retval: &void) void {
     sys_exit(0);
 }
 
+// 子线程启动时注册 clear_child_tid。
+//
+// 内核在线程 do_exit（mm_release）阶段会把该字段清零并对它做一次 FUTEX_WAKE，
+// join 侧据此判断"线程不会再执行用户态代码"。注册失败（非 Linux 目标、
+// sys_set_tid_address 不可用）时不写哨兵值，字段保持 0，join 侧不会多等。
+fn _pthread_register_clear_tid(desc: &pthread_desc) void {
+    if desc == null {
+        return;
+    }
+    // 注册失败（非 Linux 目标 / sys_set_tid_address 不可用）时直接返回，
+    // 字段保持 0，join 侧不会多等一等。
+    _ = sys_set_tid_address((&desc.tid_clear) as &i32) catch { return; };
+    // 值本身不重要（join 侧只等它变成 0），但必须非 0：内核只在字段非 0 时
+    // 执行清零。写成常量也能避免依赖 syscall 返回值。
+    desc.tid_clear = 1;
+}
+
 export extern "libc" fn _pthread_child_bootstrap(desc: &pthread_desc) void {
     if desc == null {
         sys_exit(0);
         return;
     }
     _pthread_set_fast_desc(desc);
+    // 必须在任何可能退出的路径之前注册。
+    _pthread_register_clear_tid(desc);
     while desc.started == 0 {
         _ = pthread_yield();
     }
     _pthread_thread_exit(desc, _pthread_call_start(desc.start_routine, desc.arg));
+}
+
+// join 侧在释放子线程资源前的等待点。
+//
+// 子线程做完 `FUTEX_WAKE` 唤醒 join 侧时，自己仍在内核 syscall 返回路径上；此时
+// 若 join 侧直接 `free(stack)` + `munmap(desc)`，子线程会继续在已被释放、并被后续
+// mmap 复用清零的栈上执行，从栈里 pop/ret 出 0 返回地址 → 跳转到地址 0 → SIGSEGV
+// （进程退出码 139）。必须先等到子线程的 clear_child_tid 被内核清零，
+// 那一刻之后线程只能在内核里走完退出流程，永远不会再碰用户栈。
+fn _pthread_wait_thread_cleared(desc: &pthread_desc) void {
+    if desc == null {
+        return;
+    }
+    while true {
+        const pending: i32 = desc.tid_clear;
+        if pending == 0 {
+            return;
+        }
+        // 必须与内核的 clear_child_tid 唤醒保持一致：内核用的是共享 futex 唤醒，
+        // 这里只能用 FUTEX_WAIT（共享），用 FUTEX_WAIT_PRIVATE 会收不到唤醒。
+        sys_futex((&desc.tid_clear) as &i32, FUTEX_WAIT, pending, null);
+    }
 }
 
 fn _pthread_release_resources_once(desc: &pthread_desc) void {
@@ -738,6 +786,9 @@ fn _pthread_release_resources_once(desc: &pthread_desc) void {
     if __atomic_compare_exchange_n((&desc.resources_released) as &i32, &expected, 1, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) == 0 {
         return;
     }
+    // 线程已发布 EXITED，但可能还没在内核里退完；先等 clear_child_tid 清零，
+    // 再释放它的栈/描述符，避免 use-after-unmap（偶发 SIGSEGV 139 的根因）。
+    _pthread_wait_thread_cleared(desc);
     _pthread_stack_hint_forget(desc);
     const stack_mem: &void = desc.stack;
     const pub_handle: &pthread_t = desc.pub_handle;
@@ -901,6 +952,7 @@ export extern "libc" fn pthread_create(thread: &pthread_t, attr: &const pthread_
     desc.tsd_values = null;
     desc.alloc_base = desc as &void;
     desc.alloc_size = PTHREAD_DESC_MAP_SIZE;
+    desc.tid_clear = 0;
     desc.heap_cache = pthread_heap_cache_t{
         heads: [],
         counts: [],

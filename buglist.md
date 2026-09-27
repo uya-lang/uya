@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（新增 `bench_malloc_phase4` 系列满并发偶发 SIGSEGV 记录（单独运行稳定）；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya`，同时记录同源的反向漏判问题（有符号源 `as usize` 下标被当作天然非负，可静默越界读，未修复）；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -180,26 +180,51 @@
   - 已观察实例：`tests/test_typed_pipeline_parser_positive.uya`（定义了 `fn check(p: Pipeline) i32`）
   - 回归：`tests/test_module_scope_isolation_stdlib_check.uya`
 
-- [ ] **P2 / 中：`bench_malloc_phase4` 系列在满并发测试下偶发 SIGSEGV（单独运行稳定通过）**
-  - 状态：未修复（偶发，未阻塞 release）
-  - 验证状态：以 release 产物（`bin/uya`，`-O3 -DNDEBUG` + strip）跑全量单文件套件时，`bench_malloc_phase4`、`bench_malloc_phase4_detail` 各出现 1 次 `退出码 139`（1107 项中 2 项）；把这两项单独跑各 3 次均通过，直接执行生成的 `bench_malloc_phase4.bin`（4 组线程数、含 8 线程）也 `exit 0`。同一次 release 的 `make check` 门禁为 1107/1107 全过。
-  - 归属：`tests/bench_malloc_phase4*.uya`（nostdlib 多线程 malloc 吞吐基准）在 44 路并发下的资源/时序敏感行为，待定位到具体代码点
-  - 现象：满并发批量跑套件时偶发段错误；单独运行、直接运行产物均正常，说明与并发负载相关，非编译器该次改动引入
-  - 影响：`make check` 门禁存在小概率误报（需要重跑确认）；不影响 release 结论，但值得单独排查（栈/线程资源、基准自身的并发假设）
+- [x] **P2 / 中：`bench_malloc_phase4` 系列在满并发测试下偶发 SIGSEGV（单独运行稳定通过）**
+  - 状态：已修复
+  - 验证状态：
+    - 修复前 44 路并发复现：`PARALLEL_JOBS=44` 风格压测（44 个 bench 进程同时跑，40 轮 = 1760 次）失败 **1294 次，全部为退出码 139**；钉单 CPU 的最小用例 `tests/test_pthread_join_stack_reuse.uya` 修复前 10/10 SIGSEGV。
+    - 修复后同样压测 1760 次 **0 失败**；最小用例 10/10 通过、单次约 64ms。
+    - `make check` 全绿（主测试 1107/1107 + UPM 套件）。
+  - 归属：`lib/libc/pthread.uya` 的 join/退出握手（`_pthread_thread_exit` / `pthread_join` / `_pthread_release_resources_once`），不是 `tests/bench_malloc_phase4*.uya` 基准自身的问题
+  - 现象：满并发批量跑套件时偶发段错误；单独运行、直接运行产物均正常
+  - 根因（use-after-unmap）：
+    1. 子线程执行完 worker 后在 `_pthread_thread_exit` 里把 `joinstate` CAS 成 `EXITED`，再 `FUTEX_WAKE` 唤醒 join 侧，然后才走 `sys_exit(0)`；此时它仍在**内核 syscall 返回路径**上。
+    2. join 侧被唤醒后立即返回 `pthread_join` → `_pthread_release_resources_once` 直接 `free(stack)`（8MiB，走 mmap/munmap）+ `munmap(desc)`。
+    3. 紧接着的 mmap（下一轮线程的栈/其它 8MiB 分配）复用同一地址段，匿名映射按页零填充；子线程恢复执行时从栈里 `pop %rbp` / `ret` 取到 0 → 跳转到地址 0 → SIGSEGV。
+    - gdb 现场与该序列完全吻合：`rip=0x0`、`siginfo.si_addr=0x0`、`rbp=0x0`（栈槽已被清零）、`rsp` 仍在线程栈范围内、`rax=1`（`FUTEX_WAKE` 唤醒 1 个等待者）、`rdi=&desc->joinstate`、`rcx` 指向 `sys_futex` 里 `syscall` 的下一条指令；main 线程此时已在 `pthread_create` 里创建下一组线程（即已复用被释放的地址段）。
+    4. 只在满并发时出现的原因：机器空闲时被唤醒的 main 会被调度到空闲核并行执行，子线程几纳秒内就跑完 `sys_exit`；CPU 全部被占满时 main 只能在子线程所在 CPU 上做 wakeup preemption 抢占，子线程被挂在队列里，等它恢复执行时栈早已被释放并复用。
+  - 修复内容（`lib/libc/pthread.uya`）：
+    1. `pthread_desc` 新增 `tid_clear`；子线程在 `_pthread_child_bootstrap` 里通过 `sys_set_tid_address(&desc.tid_clear)` 注册 clear_child_tid 并写入非 0 哨兵；非 Linux 目标注册失败时保持 0（不做额外等待）。
+    2. 新增 `_pthread_wait_thread_cleared`：用 `FUTEX_WAIT`（共享 futex，与内核 clear_child_tid 的唤醒方式一致）等待该字段被内核清零。内核在 `do_exit → mm_release` 阶段清零并唤醒，此后线程只会在内核里走完退出流程，不会再碰用户栈。
+    3. `_pthread_release_resources_once` 在释放栈/描述符之前先做上述等待（join/detach 共用的唯一释放点）。
+  - 影响面：所有使用 `libc.pthread` 的程序（hosted 与 `--nostdlib` 都走同一份 uya 实现）；修复前偶发崩溃概率随机器负载升高，最小用例在单 CPU 上即可 100% 复现
+  - 回归：`tests/test_pthread_join_stack_reuse.uya`（已加入 nostdlib 用例列表；修复前 10/10 崩溃，修复后 10/10 通过）
   - 复现尝试：`UYA_COMPILER=$PWD/bin/uya PARALLEL_JOBS=44 RUNTIME_MODE=nostdlib LINK_MODE=static ./tests/run_programs_parallel.sh --uya --c99 --hide-pass`
 
-- [ ] **P2 / 中：数组索引边界证明器不跨 `as usize` cast 传递范围事实**
-  - 状态：未修复
-  - 验证状态：`./bin/uya build tests/repros/bounds_prover_as_usize_cast.uya -o /tmp/bounds_prover_as_usize_cast` 复现 `数组索引安全证明失败`（24:20）；改用 checked cast + 在 usize 值上守卫后通过
-  - 归属：`src/` 类型检查阶段的边界 / 区间证明器对 cast 节点的事实传播
-  - 现象：
-    1. 在 i32 变量 `i` 上已用 `if i < 0 || i >= N { return }` 证明 `0 <= i < N`（N == @len(数组)）
-    2. 下标用 `arr[i as usize]` 时，范围事实未跨 `as usize` 传播 → 误报越界证明失败
-    3. 把上界守卫的命名常量换成字面量同样失败，根因在 cast 边界丢事实
-  - 影响：常见的"窄整型守卫 + `as usize` 下标定长数组"写法被迫改为 `(i as! usize).value` 再在 usize 值上重做守卫，多一层样板
-  - 已观察实例：`benchmarks/http_bench_async_epoll.uya`（已绕过）、`benchmarks/http_bench_async_epoll_await.uya`（同源，仍未编译）
-  - 最小复现：`tests/repros/bounds_prover_as_usize_cast.uya`
+- [x] **P2 / 中：数组索引边界证明器不跨 `as usize` cast 传递范围事实**
+  - 状态：已修复（当前树已验证通过；补了回归用例锁定）
+  - 验证状态：
+    - 文档中的复现命令 `./bin/uya build tests/repros/bounds_prover_as_usize_cast.uya -o /tmp/bounds_prover_as_usize_cast` 现已编译通过（退出码 0），产物可运行
+    - 变体矩阵全部通过：命名常量/字面量上界、上下界顺序互换、`&&` 型守卫、`i + 偏移` 线性下标、结构体字段下标、i8/u64/usize 源类型、循环体内下标
+    - 曾"仍未编译"的 `benchmarks/http_bench_async_epoll_await.uya` 现在 `check` 通过（0 错误）
+    - 新增 `tests/test_bounds_prover_as_usize_cast.uya`（编译 + 运行期取值校验），已进主套件
+  - 归属：`src/checker/interval.uya` 的 `extract_linear_expr`（识别 `AST_CAST_EXPR` 并递归剥离，保留源变量的线性形式）+ `verify_linear_expr_bounds_ex`（无符号下标的自动下界 0）
+  - 根因：下标走 `LinearExpr` 提取时，`i as usize` 曾经不是可识别的线性式（或未剥离 cast），导致守卫里对源变量 `i` 的范围事实无法用到下标判定上
+  - 影响面：任何"先在窄整型上做范围守卫、再 `as usize` 下标定长数组"的写法不再被误报
+  - 最小复现（保留）：`tests/repros/bounds_prover_as_usize_cast.uya`
   - 相关文档：`docs/compiler_bug_report_2026-06-06_bounds_prover_as_usize_cast.md`
+
+- [ ] **P2 / 中：边界证明器把 `有符号源 as usize` 的下标当成天然非负（反向漏判，可静默越界读）**
+  - 状态：未修复（与上一条同源：都是 `as usize` cast 与范围事实的关系）
+  - 验证状态：
+    - `if i >= 8 { return -1; } return g[i as usize];`（`i: i32`，只证明上界）**编译通过**；`i = -1` 时下标的实际值是 `(usize)-1`，生成的 C 是 `g[(size_t)i]`（无运行期边界检查）→ 越界读
+    - 同一 cast 写在 `const u: usize = i as usize;` 里会被要求 `as!`（"可能溢出的整数转换必须使用 as!"），但写在**下标位置**时该检查被跳过
+    - `g[(n * 2) as usize]`（非线性下标）连"无法证明"的报错都没有，直接放行
+  - 根因：`infer_array_access` 用**下标表达式自身的类型**（cast 之后是 `usize`）判定 `is_unsigned_index`，于是 `verify_linear_expr_bounds_ex` 自动认定下界为 0；而 unchecked `as` 从有符号源转出来时，负值会回绕成巨大下标
+  - 期望行为（与 2026-06-06 文档一致）：只有"源表达式本身是无符号类型"或"上下文已证明 `0 <= v`"时才能认定下界为 0，否则应报证明失败（或强制 `as!`）
+  - 归属：`src/checker/check_expr.uya`（`infer_array_access`）、`src/checker/check_expr_extra.uya`（`checker_check_array_access`）
+  - 备注：收紧要谨慎——很多"有符号循环计数 + `as usize` 下标"的现有代码依赖当前宽松判定，需要先评估迁移面
 
 - [x] **P1 / 高：`std.thread.async_compute<usize>` 承载“worker 返回结构体结果指针”场景时，生成程序运行期 SIGSEGV**
   - 状态：已修复

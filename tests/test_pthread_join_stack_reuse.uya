@@ -1,0 +1,101 @@
+// test_pthread_join_stack_reuse.uya - join 释放线程资源前必须确认子线程已在内核里退出
+//
+// 背景（修复前的行为）：
+//   子线程在 `_pthread_thread_exit` 里把 joinstate CAS 成 EXITED、并做一次
+//   `FUTEX_WAKE` 唤醒 join 侧后，自己仍在内核 syscall 返回路径上；join 侧一旦被唤醒
+//   就立刻 `free(stack)` / `munmap(desc)`，把子线程正在使用的 8MiB 栈释放掉。紧接着
+//   的 mmap（下一轮线程的栈）会复用同一段地址并按匿名映射零填充，子线程恢复执行时从
+//   栈里 pop/ret 出 0 返回地址 → 跳转到地址 0 → SIGSEGV（进程退出码 139）。
+//
+// 用例要点：
+//   1. 把进程钉在单个 CPU 上：这样 main 被唤醒时只能抢占 worker（而不是被调度到空闲
+//      核并行跑），worker 会停在 `FUTEX_WAKE` 之后的返回路径上；
+//   2. worker 先烧 >1ms CPU，累积 vruntime，使其在唤醒 main 的瞬间被 wakeup
+//      preemption 抢占（vdiff 超过 wakeup_granularity）；
+//   3. join 返回后立刻 malloc 8MiB，逼内核把刚释放的线程栈地址复用给新的匿名映射；
+//   4. 重复若干轮，任何一轮命中都会以非 0（139）退出。
+//
+// 修复后（lib/libc/pthread.uya 用 clear_child_tid + FUTEX_WAIT 做退出确认）：
+//   join 侧必须等到内核清零子线程的 clear_child_tid 才释放资源，此时子线程只会
+//   在内核里走完退出流程，本用例稳定通过。
+//
+// 复现命令：
+//   ./bin/uya build tests/test_pthread_join_stack_reuse.uya -o /tmp/t && /tmp/t
+
+use std.runtime.entry;
+use libc.pthread;
+use libc.malloc;
+use libc.free;
+use libc.cpu_set_t;
+use libc.CPU_ZERO;
+use libc.CPU_SET;
+use libc.sched_setaffinity;
+
+const JOIN_REUSE_ROUNDS: i32 = 12;
+const JOIN_REUSE_SPIN_ITERS: i32 = 1000000;
+const JOIN_REUSE_STACK_BYTES: usize = 8usize * 1024usize * 1024usize;
+
+var g_join_reuse_sink: u64 = 0u64;
+
+fn join_reuse_worker(arg: &void) &void {
+    var scratch: [u64: 32] = [];
+    var fill: usize = 0usize;
+    while fill < 32usize {
+        scratch[fill] = (fill as u64) + 1u64;
+        fill = fill + 1usize;
+    }
+
+    var acc: u64 = scratch[0];
+    var spin: i32 = 0;
+    while spin < JOIN_REUSE_SPIN_ITERS {
+        acc = acc + 0x9E3779B97F4A7C15u64;
+        acc = acc ^ (acc >> 13);
+        spin = spin + 1;
+    }
+
+    g_join_reuse_sink = g_join_reuse_sink + acc;
+    _ = arg;
+    return null;
+}
+
+// 尽力把当前进程钉到单个 CPU：抢占式唤醒是本用例的关键前提。
+// 失败（非 Linux / 受限环境）不视为用例失败。
+fn join_reuse_pin_single_cpu() void {
+    var pin_set: cpu_set_t = cpu_set_t{
+        bits0: 0, bits1: 0, bits2: 0, bits3: 0,
+        bits4: 0, bits5: 0, bits6: 0, bits7: 0,
+        bits8: 0, bits9: 0, bits10: 0, bits11: 0,
+        bits12: 0, bits13: 0, bits14: 0, bits15: 0,
+    };
+    CPU_ZERO(&pin_set);
+    CPU_SET(0, &pin_set);
+    _ = sched_setaffinity(0 as i64, @size_of(cpu_set_t), (&pin_set) as &void);
+}
+
+export fn main() i32 {
+    join_reuse_pin_single_cpu();
+
+    var round: i32 = 0;
+    while round < JOIN_REUSE_ROUNDS {
+        var thread: pthread_t = pthread_t{};
+        if pthread_create(&thread,
+                          null as &const pthread_attr_t,
+                          &join_reuse_worker as &void,
+                          null as &void) != 0 {
+            return 1;
+        }
+        if pthread_join(&thread, null as & &void) != 0 {
+            return 2;
+        }
+
+        // 复用刚被 join 释放的 8MiB 线程栈地址（内容由内核按匿名映射清零）
+        const reuse: &void = malloc(JOIN_REUSE_STACK_BYTES);
+        if reuse == null as &void {
+            return 3;
+        }
+        free(reuse);
+
+        round = round + 1;
+    }
+    return 0;
+}

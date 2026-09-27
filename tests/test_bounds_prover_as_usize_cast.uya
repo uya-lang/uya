@@ -1,0 +1,142 @@
+// test_bounds_prover_as_usize_cast.uya - 边界证明器跨 `as usize` cast 传递范围事实
+//
+// 回归自: docs/compiler_bug_report_2026-06-06_bounds_prover_as_usize_cast.md
+// （最小复现 tests/repros/bounds_prover_as_usize_cast.uya）
+//
+// 期望：守卫 `if i < 0 || i >= N { return }` 已在 i32 `i` 上证明 `0 <= i < N`
+// （N == @len(数组)），该范围事实必须跨 `i as usize` 保留，下标不再被误报。
+// 这里同时覆盖：命名常量 / 字面量上界、上下界顺序互换、`&&` 型守卫、
+// `i + 偏移` 线性下标、结构体字段下标，并在运行期校验返回值。
+//
+// 运行：./bin/uya build tests/test_bounds_prover_as_usize_cast.uya -o /tmp/t && /tmp/t
+
+use std.runtime.entry;
+
+const BOUNDS_N: i32 = 8;
+const BOUNDS_OFFSET_N: i32 = 7;
+
+var g_bounds_arr: [i32: BOUNDS_N] = [];
+
+struct BoundsProbe {
+    index: i32,
+}
+
+// 命名常量上界 + 下界在前
+fn bounds_pick_const(i: i32) i32 {
+    if i < 0 || i >= BOUNDS_N {
+        return -1;
+    }
+    return g_bounds_arr[i as usize];
+}
+
+// 字面量上界
+fn bounds_pick_literal(i: i32) i32 {
+    if i < 0 || i >= 8 {
+        return -1;
+    }
+    return g_bounds_arr[i as usize];
+}
+
+// 上界在前、下界在后
+fn bounds_pick_swapped(i: i32) i32 {
+    if i >= BOUNDS_N || i < 0 {
+        return -1;
+    }
+    return g_bounds_arr[i as usize];
+}
+
+// `&&` 型守卫（无提前返回）
+fn bounds_pick_and(i: i32) i32 {
+    if i >= 0 && i < BOUNDS_N {
+        return g_bounds_arr[i as usize];
+    }
+    return -1;
+}
+
+// `i + 偏移` 的线性下标：约束落在源变量 i 上
+fn bounds_pick_offset(i: i32) i32 {
+    if i < 0 || i >= BOUNDS_OFFSET_N {
+        return -1;
+    }
+    return g_bounds_arr[(i + 1) as usize];
+}
+
+// 结构体字段下标
+fn bounds_pick_member(i: i32) i32 {
+    var probe: BoundsProbe = BoundsProbe{ index: i };
+    if probe.index < 0 || probe.index >= BOUNDS_N {
+        return -1;
+    }
+    return g_bounds_arr[probe.index as usize];
+}
+
+// 无符号源变量下标（类型本身即非负）
+fn bounds_pick_unsigned(u: usize) i32 {
+    if u >= (BOUNDS_N as usize) {
+        return -1;
+    }
+    return g_bounds_arr[u as usize];
+}
+
+fn bounds_case_check(actual: i32, expected: i32, code: i32) i32 {
+    if actual != expected {
+        return code;
+    }
+    return 0;
+}
+
+export fn main() i32 {
+    var fill: usize = 0usize;
+    while fill < (BOUNDS_N as usize) {
+        g_bounds_arr[fill] = (fill as i32) * 10;
+        fill = fill + 1usize;
+    }
+
+    var i: i32 = 0;
+    while i < BOUNDS_N {
+        const expected: i32 = i * 10;
+        var rc: i32 = bounds_case_check(bounds_pick_const(i), expected, 10);
+        if rc != 0 { return rc; }
+        rc = bounds_case_check(bounds_pick_literal(i), expected, 11);
+        if rc != 0 { return rc; }
+        rc = bounds_case_check(bounds_pick_swapped(i), expected, 12);
+        if rc != 0 { return rc; }
+        rc = bounds_case_check(bounds_pick_and(i), expected, 13);
+        if rc != 0 { return rc; }
+        rc = bounds_case_check(bounds_pick_member(i), expected, 14);
+        if rc != 0 { return rc; }
+        rc = bounds_case_check(bounds_pick_unsigned(i as usize), expected, 15);
+        if rc != 0 { return rc; }
+        i = i + 1;
+    }
+
+    // 越界输入必须走守卫分支（不读数组）
+    var rc: i32 = bounds_case_check(bounds_pick_const(-1), -1, 20);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_const(BOUNDS_N), -1, 21);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_literal(-5), -1, 22);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_swapped(BOUNDS_N + 3), -1, 23);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_and(-2), -1, 24);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_member(99), -1, 25);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_unsigned(1usize), 10, 26);
+    if rc != 0 { return rc; }
+
+    // offset 版本：i <= 6 时返回下标 i+1 的元素
+    var k: i32 = 0;
+    while k < BOUNDS_OFFSET_N {
+        rc = bounds_case_check(bounds_pick_offset(k), (k + 1) * 10, 30);
+        if rc != 0 { return rc; }
+        k = k + 1;
+    }
+    rc = bounds_case_check(bounds_pick_offset(BOUNDS_OFFSET_N), -1, 31);
+    if rc != 0 { return rc; }
+    rc = bounds_case_check(bounds_pick_offset(-1), -1, 32);
+    if rc != 0 { return rc; }
+
+    return 0;
+}
