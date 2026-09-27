@@ -143,6 +143,29 @@ fn c99_name_is_hosted_raw_stdio_symbol(name: &byte) i32 {
     return 0;
 }
 
+// hosted 下依旧交给宿主 libc 的 stdio 函数：它们只操作 char 缓冲区，不触及 FILE ABI。
+// uya 的 _vfprintf_impl 是精简实现，个别边界格式与系统 printf 不一致（例如 %g 对 DBL_MAX），
+// 交给宿主可保持与系统一致，也不存在 FILE 跨 ABI 风险。
+//
+// 参数：
+//   name - 函数名。
+//
+// 返回：属于「交给宿主」名单时返回 1，否则返回 0。
+fn c99_hosted_stdio_name_uses_host_libc(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "snprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "sprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vsnprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "vsprintf" as *byte) == 0 ||
+        strcmp(name as *byte, "sscanf" as *byte) == 0 ||
+        strcmp(name as *byte, "fscanf" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 fn c99_name_is_hosted_raw_memory_symbol(name: &byte) i32 {
     if name == null {
         return 0;
@@ -227,17 +250,6 @@ fn c99_name_is_hosted_stdio_stream(name: &byte) i32 {
     if strcmp(name as *byte, "stdin" as *byte) == 0 ||
         strcmp(name as *byte, "stdout" as *byte) == 0 ||
         strcmp(name as *byte, "stderr" as *byte) == 0 {
-        return 1;
-    }
-    return 0;
-}
-
-fn c99_name_is_hosted_uya_stdio_formatter(name: &byte) i32 {
-    if name == null {
-        return 0;
-    }
-    if strcmp(name as *byte, "fprintf" as *byte) == 0 ||
-        strcmp(name as *byte, "vfprintf" as *byte) == 0 {
         return 1;
     }
     return 0;
@@ -498,11 +510,17 @@ fn should_use_raw_libc_symbol_name(codegen: &C99CodeGenerator, fn_decl: &ASTNode
     const name: &byte = fn_decl.fn_decl_name;
 
     // hosted 下 C 后端输出文件使用 Uya FILE（std.io/libc.FILE 同布局）。
-    // fprintf/vfprintf 若映射到系统 libc，会把 Uya FILE* 误传给 glibc FILE*。
+    // stdio.uya 的函数整体保留 uya 实现（见 c99_should_skip_hosted_libc_function_body），
+    // 因此这里一律不用裸符号名，保证调用点解析到 libc_ 前缀的 uya 实现，
+    // 不会把 Uya FILE* 误传给 glibc FILE*。
     if codegen != null && codegen.is_nostdlib == 0 &&
         fn_decl.filename != null &&
-        c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) != 0 &&
-        c99_name_is_hosted_uya_stdio_formatter(name) != 0 {
+        c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) != 0 {
+        // 只操作字符串缓冲区的格式化/解析函数仍走宿主裸符号（见
+        // c99_hosted_stdio_name_uses_host_libc 的说明）。
+        if c99_hosted_stdio_name_uses_host_libc(name) != 0 {
+            return 1;
+        }
         return 0;
     }
 
@@ -573,11 +591,22 @@ fn c99_should_skip_hosted_libc_function_body(codegen: &C99CodeGenerator, fn_decl
     if c99_filename_is_libc_file(fn_decl.filename, "heap.uya" as &byte) != 0 {
         return 1;
     }
+    // stdio.uya 在 hosted 下也**整体保留 uya 实现**，不交给系统 libc。
+    //
+    // 原因：uya 的 struct FILE 是 fd + 用户态缓冲的自有布局，与 glibc 的 FILE 不是同一 ABI。
+    // 只把一部分函数交给宿主、另一部分留在 uya，必然出现跨 ABI 传递：例如
+    // `fopen` 走宿主返回 glibc FILE*，而 `fprintf` 走 uya 实现会按 struct FILE 读 fd 字段；
+    // 反之 uya fopen 得到的 FILE 交给宿主 fprintf 时，glibc 的 _IO_vtable_check 直接
+    // abort（"glibc detected an invalid stdio handle"）或段错误。
+    // 整体保留后语义与 --nostdlib 一致：stdin/stdout/stderr 由 _std* + 宏提供，
+    // 所有 stdio 调用都落在 libc_ 前缀的 uya 实现上，不再跨 ABI。
     if c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) != 0 {
-        if c99_name_is_hosted_uya_stdio_formatter(name) != 0 ||
-            strcmp(name as *byte, "_vfprintf_impl" as *byte) == 0 {
-            return 0;
+        // 纯字符串格式化/解析（只操作 char 缓冲区，不触及 FILE ABI）仍交给宿主 libc，
+        // 名单与判据见 c99_hosted_stdio_name_uses_host_libc。
+        if c99_hosted_stdio_name_uses_host_libc(name) != 0 {
+            return 1;
         }
+        return 0;
     }
     // 只有真实系统 libc/POSIX ABI 裸名才在 hosted 模式交给系统库；sys_* 等 Uya 包装必须保留。
     if fn_decl.fn_decl_extern_lib_name != null && c99_name_is_hosted_raw_libc_symbol(name) != 0 {
@@ -1138,9 +1167,117 @@ fn c99_fn_decl_is_user_entry_main(codegen: &C99CodeGenerator, fn_decl: &ASTNode)
     return c99_paths_match_entry_file(fn_decl.filename, codegen.module_name);
 }
 
+// 在合并后的程序里查找 lib/libc/stdio.uya 中带函数体的同名实现（stdio 的权威实现）。
+//
+// 参数：
+//   codegen - 代码生成器。
+//   name - 函数名（如 "printf"）。
+//
+// 返回：stdio.uya 中带函数体的同名声明；未并入本编译单元时返回 null。
+fn c99_find_libc_stdio_body_decl(codegen: &C99CodeGenerator, name: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || name == null {
+        return null;
+    }
+    if codegen.program_node.type != ASTNodeType.AST_PROGRAM {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < codegen.program_node.program_decl_count {
+        const d: &ASTNode = codegen.program_node.program_decls[i];
+        if d != null && d.type == ASTNodeType.AST_FN_DECL && d.fn_decl_body != null &&
+            d.fn_decl_name != null && d.filename != null &&
+            strcmp(d.fn_decl_name as *byte, name as *byte) == 0 &&
+            c99_filename_is_libc_file(d.filename, "stdio.uya" as &byte) != 0 {
+            return d;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// hosted 下 stdio 调用的权威 C 名：只要 uya 自己的 stdio 实现并入了当前编译单元，
+// 就必须解析到它（模块前缀名，如 libc_printf），而不是裸 libc 符号名。
+//
+// 背景：hosted 生成的 C 里 stdio 整体保留 uya 实现（见 c99_should_skip_hosted_libc_function_body），
+// 此时同一编译单元里既有 uya 的 struct FILE 定义、又刻意不包含 <stdio.h>（两者会冲突），
+// 于是裸名（printf/stdout）既无声明也无定义。而用户与测试代码里常见的
+// `extern "libc" fn printf(...);` 这类**无函数体**声明会按裸 libc 符号名解析，
+// 造成「定义叫 libc_printf、调用叫 printf」的错配（C 编译报隐式声明、链接失败）。
+//
+// 参数：
+//   codegen - 代码生成器。
+//   name - 函数名（如 "printf"）。
+//
+// 返回：uya 实现的 C 名（如 "libc_printf"）；不适用时返回 null——即 --nostdlib
+//       （本就以裸名发射）、交给宿主的纯缓冲区格式化函数、或该实现未并入本编译单元。
+fn c99_hosted_uya_stdio_impl_c_name(codegen: &C99CodeGenerator, name: &byte) &byte {
+    if codegen == null || codegen.is_nostdlib != 0 || name == null {
+        return null;
+    }
+    if c99_name_is_hosted_raw_stdio_symbol(name) == 0 {
+        return null;
+    }
+    if c99_hosted_stdio_name_uses_host_libc(name) != 0 {
+        return null;
+    }
+    const d: &ASTNode = c99_find_libc_stdio_body_decl(codegen, name);
+    if d == null || d.filename == null {
+        return null;
+    }
+    return get_export_function_c_name(codegen, name, d.filename);
+}
+
+// 声明点视角的 hosted stdio 权威 C 名。
+//
+// 只对两类声明生效：stdio.uya 自身的实现，以及无函数体的 extern 声明（stub）。
+// 用户自带函数体的同名函数（如自写 fn printf）不在此列，仍走原有命名规则，
+// 否则会与 stdio.uya 的实现重名。
+//
+// 参数：
+//   codegen - 代码生成器。
+//   fn_decl - 函数声明节点。
+//
+// 返回：权威 C 名；不适用时返回 null。
+fn c99_hosted_stdio_c_name_for_decl(codegen: &C99CodeGenerator, fn_decl: &ASTNode) &byte {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    if fn_decl.fn_decl_body != null &&
+        (fn_decl.filename == null ||
+            c99_filename_is_libc_file(fn_decl.filename, "stdio.uya" as &byte) == 0) {
+        return null;
+    }
+    return c99_hosted_uya_stdio_impl_c_name(codegen, fn_decl.fn_decl_name);
+}
+
+// 代码生成器直接以文本发射 printf 调用时使用的 C 名。
+//
+// 这类文本不经过调用点/声明点命名逻辑，必须显式取权威名：hosted 下若 uya 的 stdio
+// 实现并入了本编译单元，就写 libc_printf（见 c99_hosted_uya_stdio_impl_c_name）；
+// 否则保持裸名（由包含的 <stdio.h> 或 --nostdlib 下 uya 自己的 printf 提供）。
+//
+// 参数：
+//   codegen - 代码生成器。
+//
+// 返回：printf 的 C 名（"libc_printf" 或 "printf"）。
+fn c99_printf_c_name(codegen: &C99CodeGenerator) &byte {
+    const hosted_printf: &byte = c99_hosted_uya_stdio_impl_c_name(codegen, "printf" as &byte);
+    if hosted_printf != null {
+        return hosted_printf;
+    }
+    return "printf" as &byte;
+}
+
 fn get_c_name_for_function_decl(codegen: &C99CodeGenerator, fn_decl: &ASTNode) &byte {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || fn_decl.fn_decl_name == null {
         return get_safe_c_identifier(codegen, (" " as *byte) as &byte);
+    }
+    // hosted 下 stdio 一律解析到 uya 自身实现（见 c99_hosted_uya_stdio_impl_c_name）。
+    // 必须优先于 should_use_raw_libc_symbol_name：无函数体的 extern "libc" 声明在那里
+    // 会直接判为裸符号名。
+    const hosted_stdio_name: &byte = c99_hosted_stdio_c_name_for_decl(codegen, fn_decl);
+    if hosted_stdio_name != null {
+        return hosted_stdio_name;
     }
     if should_use_raw_libc_symbol_name(codegen, fn_decl) != 0 {
         return get_safe_c_identifier(codegen, fn_decl.fn_decl_name);
@@ -1170,6 +1307,13 @@ fn get_c_name_for_global_function(codegen: &C99CodeGenerator, name: &byte, for_d
     }
     if for_definition == 0 && codegen != null && codegen.program_node != null && codegen.program_node.type == ASTNodeType.AST_PROGRAM {
         const d: &ASTNode = find_function_decl_c99(codegen, name);
+        // hosted 下 stdio 一律解析到 uya 自身实现（见 c99_hosted_uya_stdio_impl_c_name）。
+        // 注意要放在下面 export 判定之前：stdio 的 stub 声明通常不是 export，
+        // 否则会落到最后的裸名分支。
+        const hosted_stdio_name: &byte = c99_hosted_stdio_c_name_for_decl(codegen, d);
+        if hosted_stdio_name != null {
+            return hosted_stdio_name;
+        }
         if d != null && d.type == ASTNodeType.AST_FN_DECL &&
            d.fn_decl_is_export != 0 && d.filename != null {
             // 仅原始 libc 符号使用裸名（例如 extern "libc" 无函数体，或 --nostdlib 下带函数体）

@@ -707,10 +707,12 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     snprintf(&name_buf[0] as *byte, 32, "__uya_interp_%d" as *byte, temp_name_idx);
                     c99_emit_string_interp_fill(codegen, inner, &name_buf[0] as &byte);
                     c99_emit_indent(codegen);
+                    // 文本发射 printf 时须取权威名（见 c99_printf_c_name）：hosted 下可能是 libc_printf。
+                    const interp_printf: &byte = c99_printf_c_name(codegen);
                     if stmt.type == ASTNodeType.AST_PRINTLN {
-                        fprintf(codegen.emit_stream as *void, "printf(\"%%s\\n\", __uya_interp_%d);\n" as *byte, temp_name_idx);
+                        fprintf(codegen.emit_stream as *void, "%s(\"%%s\\n\", __uya_interp_%d);\n" as *byte, interp_printf as *byte, temp_name_idx);
                     } else {
-                        fprintf(codegen.emit_stream as *void, "printf(\"%%s\", __uya_interp_%d);\n" as *byte, temp_name_idx);
+                        fprintf(codegen.emit_stream as *void, "%s(\"%%s\", __uya_interp_%d);\n" as *byte, interp_printf as *byte, temp_name_idx);
                     }
                     return;
                 }

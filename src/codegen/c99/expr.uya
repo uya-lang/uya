@@ -3024,6 +3024,16 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
         }
 
+        // 微应用（container_mode）下没有 exec worker 入口，uya_pipeline_worker_dispatch() 恒为 -1。
+        // 这里把调用点直接内联为 -1：调用点不再引用该符号，函数便不会被发射，微应用载荷也就
+        // 不会混入宿主辅助符号（microapp payload 符号白名单不允许它出现）。
+        // 注意：必须在查找函数声明的分支之前处理，否则调用点仍会被发射。
+        if codegen.container_mode != 0 && callee_name != null &&
+            arg_count == 0 && strcmp(callee_name as *byte, "uya_pipeline_worker_dispatch" as *byte) == 0 {
+            fputs("-1" as *byte, codegen.emit_stream as *void);
+            return;
+        }
+
         // 查找函数声明（用于检查参数类型）
         var fn_decl: &ASTNode = null;
         if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
@@ -3033,8 +3043,16 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 codegen.needs_string_h = 1;
             }
         } else if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_is_module_access != 0 {
-            // 模块限定调用：查找对应的 extern "libc" 声明
-            fn_decl = find_function_decl_c99(codegen, callee.member_access_field_name);
+            // 模块限定调用：先按「模块 + 导出名」精确定位声明。
+            // 仅按函数名查找时，若多个模块导出同名函数（如两个模块都有 export fn value），
+            // 会命中扁平声明表里第一个同名声明，从而把 `m.value()` 发射成另一个模块的实现。
+            if callee.member_access_module_name != null && callee.member_access_field_name != null {
+                fn_decl = c99_find_module_export_function_decl(codegen,
+                    callee.member_access_module_name, callee.member_access_field_name);
+            }
+            if fn_decl == null {
+                fn_decl = find_function_decl_c99(codegen, callee.member_access_field_name);
+            }
         }
         
         // 无 ... 转发的调用不生成 va_list（零开销转发）
@@ -3712,14 +3730,11 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 if fn_decl != null && fn_decl.fn_decl_type_param_count == 0 {
                     safe_name = get_c_name_for_function_decl(codegen, fn_decl);
                 }
-                if codegen != null && codegen.is_nostdlib == 0 &&
-                    callee_name != null &&
-                    c99_name_is_hosted_uya_stdio_formatter(callee_name) != 0 &&
-                    arg_count > 0 && expr.call_expr_args != null &&
-                    (strcmp(callee_name as *byte, "vfprintf" as *byte) == 0 ||
-                        c99_expr_is_hosted_stdio_stream_arg(expr.call_expr_args[0]) == 0) {
-                    safe_name = callee_name;
-                }
+                // hosted 下 stdio 整体保留 uya 实现（含 fopen/fprintf/fwrite 等），调用点因此
+                // 一律解析到 libc_ 前缀的 uya 符号，不再按实参归属在「uya 实现 / 宿主裸符号」
+                // 之间切换。混合两条路径会让 uya 的 struct FILE（fd + 用户态缓冲）与 glibc
+                // FILE 跨 ABI 传递：宿主 fprintf 遇到 uya FILE 会 abort
+                // （"glibc detected an invalid stdio handle"）或段错误。
                 if expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
                     const gen_decl: &ASTNode = find_generic_fn_decl_for_mono_call(codegen, func_name, expr.call_expr_type_arg_count);
                     const mono_name: &byte = get_mono_function_name(codegen, func_name, expr.call_expr_type_args, expr.call_expr_type_arg_count, gen_decl);
@@ -3866,24 +3881,14 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
             // 装箱：当形参是接口类型（值或指针）且实参是实现了该接口的结构体时，生成 vtable+data
             var did_box: i32 = 0;
-            if codegen != null && codegen.is_nostdlib == 0 && callee_name != null && i == 0 &&
-                c99_name_is_hosted_uya_stdio_formatter(callee_name) != 0 &&
-                expr.call_expr_args[i] != null &&
-                expr.call_expr_args[i].type == ASTNodeType.AST_IDENTIFIER &&
-                c99_name_is_hosted_stdio_stream(expr.call_expr_args[i].identifier_name) != 0 {
-                fputs(expr.call_expr_args[i].identifier_name as *byte, codegen.emit_stream as *void);
-                did_box = 1;
-            } else if codegen != null && codegen.is_nostdlib == 0 && callee_name != null && i == 0 &&
-                c99_name_is_hosted_uya_stdio_formatter(callee_name) != 0 &&
-                expr.call_expr_args[i] != null &&
-                expr.call_expr_args[i].type == ASTNodeType.AST_MEMBER_ACCESS &&
-                expr.call_expr_args[i].member_access_object != null &&
-                expr.call_expr_args[i].member_access_object.type == ASTNodeType.AST_IDENTIFIER &&
-                strcmp(expr.call_expr_args[i].member_access_object.identifier_name as *byte, "libc" as *byte) == 0 &&
-                c99_name_is_hosted_stdio_stream(expr.call_expr_args[i].member_access_field_name) != 0 {
-                fputs(expr.call_expr_args[i].member_access_field_name as *byte, codegen.emit_stream as *void);
-                did_box = 1;
-            }
+            // 注：这里原先还有两段 hosted 专用改写——把 fprintf/vfprintf 实参中的
+            // stdin/stdout/stderr（含 libc. 前缀写法）直接写成宿主裸名。该假设要求 hosted
+            // 下 stdio 走系统 libc，但 uya 的 struct FILE（fd + 用户态缓冲）与 glibc FILE
+            // 不是同一 ABI，混用会 abort/段错误。现在 hosted 下 stdio 整体保留 uya 实现，
+            // 这些名字必须保持常规发射，由标识符解析落到 uya 的流对象上：
+            // 单文件/多文件镜像下是 libc_stdout/libc_stderr（lib/libc/stdio.uya 的 export var
+            // 带模块前缀），split 镜像下另有 _std* + 宏路径（见 c99_mirror_emit_*），
+            // 两者都不能再改写成宿主裸名。
             if did_box == 0 && fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL && i < fn_decl.fn_decl_param_count {
                 const param: &ASTNode = fn_decl.fn_decl_params[i];
                 if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_type != null {
@@ -9877,10 +9882,12 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     }
                     fputs("__uya_interp_res; })" as *byte, codegen.emit_stream as *void);
                 } else {
+                    // 文本发射 printf 时须取权威名（见 c99_printf_c_name）：hosted 下可能是 libc_printf。
+                    const interp_printf: &byte = c99_printf_c_name(codegen);
                     if expr.type == ASTNodeType.AST_PRINTLN {
-                        fprintf(codegen.emit_stream as *void, "printf(\"%%s\\n\", __uya_interp_%d); })" as *byte, temp_name_idx);
+                        fprintf(codegen.emit_stream as *void, "%s(\"%%s\\n\", __uya_interp_%d); })" as *byte, interp_printf as *byte, temp_name_idx);
                     } else {
-                        fprintf(codegen.emit_stream as *void, "printf(\"%%s\", __uya_interp_%d); })" as *byte, temp_name_idx);
+                        fprintf(codegen.emit_stream as *void, "%s(\"%%s\", __uya_interp_%d); })" as *byte, interp_printf as *byte, temp_name_idx);
                     }
                 }
                 return;
@@ -9973,11 +9980,12 @@ fn gen_print_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs("; uya_write(1, \"\\n\", 1)" as *byte, codegen.emit_stream as *void);
                 }
             } else {
-                // 普通模式：生成 printf 调用
+                // 普通模式：生成 printf 调用。文本发射须取权威名（见 c99_printf_c_name）：
+                // hosted 下 uya 的 stdio 实现在同一编译单元里叫 libc_printf。
                 if expr.type == ASTNodeType.AST_PRINTLN {
-                    fprintf(codegen.emit_stream as *void, "printf(\"%s\\n\", " as *byte, fmt as *byte);
+                    fprintf(codegen.emit_stream as *void, "%s(\"%s\\n\", " as *byte, c99_printf_c_name(codegen) as *byte, fmt as *byte);
                 } else {
-                    fprintf(codegen.emit_stream as *void, "printf(\"%s\", " as *byte, fmt as *byte);
+                    fprintf(codegen.emit_stream as *void, "%s(\"%s\", " as *byte, c99_printf_c_name(codegen) as *byte, fmt as *byte);
                 }
 
                 if need_cast != 0 {

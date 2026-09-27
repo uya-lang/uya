@@ -772,6 +772,13 @@ fn function_table_lookup(checker: &TypeChecker, name: &byte) &FunctionSignature 
     if checker == null || name == null {
         return null;
     }
+    // 调用点所属模块：同名函数可能来自不同模块（用户模块与依赖模块各有一个 `check`），
+    // 必须优先返回本模块的签名，否则依赖模块内部的调用会被用户模块的同名函数劫持。
+    var want_file: &byte = null;
+    if checker.current_function_decl != null && checker.current_function_decl.filename != null {
+        want_file = checker.current_function_decl.filename;
+    }
+    var first_match: &FunctionSignature = null;
     
     const hash: i32 = hash_string(name);
     var index: i32 = hash % FUNCTION_TABLE_SIZE;
@@ -813,14 +820,86 @@ fn function_table_lookup(checker: &TypeChecker, name: &byte) &FunctionSignature 
             }
             j = j + 1;
         }
-        
+
         if matched != 0 {
-            return sig;
+            if want_file == null {
+                return sig;
+            }
+            if sig.filename != null && str_equals(sig.filename, want_file) != 0 {
+                return sig;
+            }
+            if first_match == null {
+                first_match = sig;
+            }
         }
-        
+
         i = i + 1;
     }
-    
+
+    return first_match;
+}
+
+// 在同一模块文件内查找同名函数签名（用于函数重复定义检测）。
+//
+// 参数：
+//   checker - 类型检查器。
+//   name - 函数名。
+//   filename - 模块文件名；null 时退化为按名查找第一个匹配项。
+//
+// 返回：同一模块内的函数签名；无匹配时返回 null。
+fn function_table_lookup_same_file(checker: &TypeChecker, name: &byte, filename: &byte) &FunctionSignature {
+    if checker == null || name == null || filename == null {
+        return null;
+    }
+
+    const hash: i32 = hash_string(name);
+    var index: i32 = hash % FUNCTION_TABLE_SIZE;
+    if index < 0 {
+        index = index + FUNCTION_TABLE_SIZE;
+    }
+
+    var i: i32 = 0;
+    while i < FUNCTION_TABLE_SIZE {
+        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
+        const slot_idx: i32 = slot;
+        if slot_idx < 0 {
+            i = i + 1;
+            continue;
+        }
+        if slot_idx >= @len(checker.function_table.slots) {
+            i = i + 1;
+            continue;
+        }
+        const sig: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
+
+        if sig == null {
+            i = i + 1;
+            continue;
+        }
+
+        var matched: i32 = 1;
+        var j: i32 = 0;
+        while matched != 0 {
+            const c1: byte = sig.name[j] as byte;
+            const c2: byte = name[j] as byte;
+            if c1 != c2 {
+                matched = 0;
+            } else if c1 == 0 {
+                if c2 != 0 {
+                    matched = 0;
+                }
+                break;
+            }
+            j = j + 1;
+        }
+
+        if matched != 0 && sig.filename != null && str_equals(sig.filename, filename) != 0 {
+            return sig;
+        }
+
+        i = i + 1;
+    }
+
     return null;
 }
 
@@ -829,13 +908,13 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     if checker == null || sig == null || sig.name == null {
         return -1;
     }
-    
+
     const hash: i32 = hash_string(sig.name);
     var index: i32 = hash % FUNCTION_TABLE_SIZE;
     if index < 0 {
         index = index + FUNCTION_TABLE_SIZE;
     }
-    
+
     var i: i32 = 0;
     while i < FUNCTION_TABLE_SIZE {
         const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
@@ -849,13 +928,13 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
             continue;
         }
         const existing: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
-        
+
         if existing == null {
             checker_function_slot_set(checker, slot_idx, sig);
             checker.function_table.count = checker.function_table.count + 1;
             return 0;
         }
-        
+
         var matched: i32 = 1;
         var j: i32 = 0;
         while matched != 0 {
@@ -871,24 +950,33 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
             }
             j = j + 1;
         }
-        
+
         if matched != 0 {
-            if existing.is_extern != 0 && sig.is_extern != 0 {
-                if existing.param_count == sig.param_count &&
-                    type_equals(existing.return_type, sig.return_type) != 0 &&
-                    existing.is_varargs == sig.is_varargs {
-                    return 0;
-                } else {
+            // 同名签名是否属于同一模块。不同模块的同名函数（用户模块与依赖模块各有一个
+            // `check`）必须共存，否则先注册者会遮蔽后者，使依赖模块内部的调用被劫持。
+            var same_module: i32 = 0;
+            if existing.filename != null && sig.filename != null &&
+                str_equals(existing.filename, sig.filename) != 0 {
+                same_module = 1;
+            }
+            if same_module != 0 {
+                if existing.is_extern != 0 && sig.is_extern != 0 {
+                    if existing.param_count == sig.param_count &&
+                        type_equals(existing.return_type, sig.return_type) != 0 &&
+                        existing.is_varargs == sig.is_varargs {
+                        return 0;
+                    } else {
+                        return -1;
+                    }
+                } else if existing.is_extern == 0 && sig.is_extern == 0 {
                     return -1;
-                }
-            } else if existing.is_extern == 0 && sig.is_extern == 0 {
-                return -1;
-            } else {
-                if existing.is_extern != 0 {
-                    checker_function_slot_set(checker, slot_idx, sig);
-                    return 0;
                 } else {
-                    return 0;
+                    if existing.is_extern != 0 {
+                        checker_function_slot_set(checker, slot_idx, sig);
+                        return 0;
+                    } else {
+                        return 0;
+                    }
                 }
             }
         }

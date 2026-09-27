@@ -647,11 +647,46 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     return result;
 }
 
+// C 侧元素类型的前导 const 限定是否可以安全剥离。
+//
+// 切片结构体名只编码元素类型「身份」，不编码限定符，故 `const T` 必须与 `T` 归一到同一
+// 个 `uya_slice_*`：否则会发射出从未定义的 `struct uya_slice_const<T>_t`
+// （例如 `&[const byte]` → uya_slice_constuint8_t、`&[const i32]` → uya_slice_constint32_t），
+// 调用点随即因结构体未定义而编译失败。
+//
+// 但**指针元素**是例外：`const uint8_t *` 的 const 属于被指向对象，若一并剥离就会与
+// `uint8_t *` 混用，破坏「指针元素 slice 保留指针层级」的既有约定
+// （tests/test_slice_pointer_element_codegen.uya 即为此约定与本次回归的守卫）。
+// 判据因此取「带前导 const 且剥离后剩余部分不含 '*'」。
+//
+// 参数：
+//   element_c - C 侧元素类型串（如 "const int32_t"、"const uint8_t *"）。
+//
+// 返回：可安全剥离时返回 1，否则返回 0。
+fn c99_slice_element_const_is_strippable(element_c: &byte) i32 {
+    if element_c == null {
+        return 0;
+    }
+    if strncmp(element_c as *byte, "const " as *byte, 6) != 0 {
+        return 0;
+    }
+    const rest: &byte = &element_c[6];
+    if strchr(rest as *byte, 42) != null {
+        return 0;
+    }
+    return 1;
+}
+
 fn c99_slice_element_name_token(codegen: &C99CodeGenerator, element_c: &byte) &byte {
     if codegen == null || element_c == null {
         return null;
     }
     var input: &byte = element_c;
+    // C 侧元素类型可能带前导 const 限定（如 &const byte 形参切片的指向类型 const uint8_t）。
+    // 仅对标量 const 字节归一化（见上），指针元素保持不变。
+    if c99_slice_element_const_is_strippable(input) != 0 {
+        input = &input[6];
+    }
     if strncmp(input as *byte, "struct " as *byte, 7) == 0 {
         input = &input[7];
     } else if strncmp(input as *byte, "enum " as *byte, 5) == 0 {

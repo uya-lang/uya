@@ -298,12 +298,21 @@ fn split_c_write_lock_owner_pid(lock_dir: &byte) i32 {
     if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
         return 1;
     }
-    const file: &void = fopen(&pid_path[0] as *byte, "w" as *byte) as &void;
+    // 先格式化到缓冲区，再用 std.io 自己的 fwrite 落盘：
+    // fopen 返回的是 std.io 的 FILE（fd + 用户态缓冲），不是宿主 libc 的 FILE。
+    // 把它交给宿主 fprintf 时，hosted 构建（链接宿主 libc）会因 glibc 的 vtable
+    // 校验失败而直接 abort（"Fatal error: glibc detected an invalid stdio handle"）。
+    var pid_buf: [byte: 32] = [];
+    const pid_len: i32 = snprintf(&pid_buf[0] as *byte, 32, "%d\n" as *byte, getpid());
+    if pid_len <= 0 {
+        return 1;
+    }
+    const file: &FILE = fopen(&pid_path[0] as *byte, "w" as *byte);
     if file == null {
         return 1;
     }
-    fprintf(file as *void, "%d\n" as *byte, getpid());
-    fclose(file as *void);
+    _ = fwrite(&pid_buf[0] as *const byte, 1usize, pid_len as usize, file);
+    _ = fclose(file);
     return 0;
 }
 
@@ -320,11 +329,19 @@ fn split_c_read_lock_owner_pid(lock_dir: &byte, pid_out: &i32) i32 {
         return 1;
     }
     var buf: [byte: 64] = [];
-    const line: &byte = fgets(&buf[0] as &byte, 64, file);
-    fclose(file);
-    if line == null {
+    // 同 split_c_write_lock_owner_pid：fgets 属宿主 libc 的 FILE API，不能作用在
+    // std.io 的 FILE 上（hosted 下 glibc 会 abort）。改用 std.io 自己的 fread，
+    // 再手工截断到首个换行，等价于原来的「读一行」。
+    const got: usize = fread(&buf[0] as &byte, 1usize, 63usize, file);
+    _ = fclose(file);
+    if got == 0usize {
         return 1;
     }
+    var nl: usize = 0usize;
+    while nl < got && buf[nl] != 10 as byte {
+        nl = nl + 1usize;
+    }
+    buf[nl] = 0 as byte;
     const pid: i32 = split_c_parse_owner_pid(&buf[0] as &byte);
     if pid <= 0 {
         return 1;

@@ -1,0 +1,30 @@
+// tests/test_module_scope_isolation_stdlib_check.uya
+//
+// 回归：用户模块中的函数名不得劫持依赖模块（标准库）内部的同名调用。
+//
+// 背景：编译器把主文件与全部依赖模块合并为扁平的 program_decls，函数表按名字索引且
+// 先注册者胜出。此前主文件定义 `fn check(p: Pipeline) i32` 后，std.process 内部
+// `pipeline_terminal_inherit_child_run` 的 `try check(try inherit_stdio(command))`
+// 会被解析到主文件的 `check`（返回 i32），于是类型检查报
+// “try 的操作数必须是错误联合类型 !T”，且错误位置落在 lib/std/process.uya。
+//
+// 本文件只定义与 std.process 内部函数同名的本地函数并就地调用：若模块作用域被正确
+// 隔离，本地 `check` 解析为本地定义、std.process 内部的 `check` 解析为其自身定义，
+// 类型检查与运行都应正常。更贴近真实场景的 Pipeline 同名用例见
+// `tests/test_typed_pipeline_parser_positive.uya`（其中同样定义了本地 `check`）。
+
+use std.process;
+use std.testing.assert_eq_i32;
+use std.testing.run_test;
+
+fn check(value: i32) i32 {
+    return value + 7;
+}
+
+fn test_module_scope_isolation_stdlib_check() !void {
+    try assert_eq_i32(check(1), 8);
+}
+
+test "module_scope_isolation_stdlib_check" {
+    run_test("module_scope_isolation_stdlib_check", test_module_scope_isolation_stdlib_check);
+}

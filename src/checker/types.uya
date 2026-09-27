@@ -212,6 +212,9 @@ struct FunctionSignature {
     is_varargs: i32,
     line: i32,
     column: i32,
+    // 声明所属模块文件。函数表按名索引且可容纳不同模块的同名函数，
+    // 查找时据此优先返回调用点所在模块的签名。
+    filename: &byte,
 }
 
 struct SymbolTable {

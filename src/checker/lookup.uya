@@ -8,6 +8,11 @@ const CHECKER_LOOKUP_RESULT_CACHE_BITS: i32 = 13;
 const CHECKER_LOOKUP_RESULT_CACHE_SIZE: i32 = 8192;
 const CHECKER_LOOKUP_RESULT_CACHE_MASK: i32 = 8191;
 
+// scan_fn_decl_in_file 的嵌套深度上限。该查找由表达式类型推断触发，而返回类型转换
+// 又可能反过来触发类型推断，故设上限避免相互递归耗尽 C 栈。
+const CHECKER_SCAN_DECL_MAX_DEPTH: i32 = 8;
+var checker_scan_decl_depth: i32 = 0;
+
 var g_lookup_cached_program: &ASTNode = null;
 var g_lookup_cached_decl_count: i32 = -1;
 var g_lookup_cache_initialized: i32 = 0;
@@ -637,6 +642,39 @@ fn scan_fn_decl_from_program(program_node: &ASTNode, fn_name: &byte) &ASTNode {
             if decl.fn_decl_name != null && str_equals(decl.fn_decl_name, fn_name) != 0 {
                 return decl;
             }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 只接受同一模块文件内的同名函数声明。
+//
+// 编译器把主文件与全部依赖模块合并为扁平的 program_decls，全局按名扫描会返回第一个
+// 同名声明——若用户模块定义了与依赖模块内部函数同名的函数，依赖模块内部的调用就会被
+// 解析到用户模块的版本（例如主文件写 `fn check(p: Pipeline) i32` 后，std.process 内的
+// `try check(...)` 被当成返回 i32）。此处按 filename 限定查找，使模块内部调用绑定到本
+// 模块的声明。
+//
+// 参数：
+//   program_node - 合并后的程序根节点。
+//   fn_name - 函数名。
+//   filename - 调用点所在模块的文件名；null 时不做限定，返回 null。
+//
+// 返回：同模块内首个匹配的函数声明；无匹配时返回 null。
+fn scan_fn_decl_in_file(program_node: &ASTNode, fn_name: &byte, filename: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM ||
+        fn_name == null || filename == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+            decl.fn_decl_name != null && decl.filename != null &&
+            str_equals(decl.fn_decl_name, fn_name) != 0 &&
+            str_equals(decl.filename, filename) != 0 {
+            return decl;
         }
         i = i + 1;
     }

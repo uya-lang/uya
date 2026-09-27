@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-06-06（新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`）；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -71,6 +71,93 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P2 / 中：macOS 交叉目标下 `uya_macos_*` 宿主包装被 `#ifdef __APPLE__` 裁掉，调用点报 `invalid initializer`**
+  - 状态：已修复
+  - 验证状态：`bash tests/verify_std_path_platform_targets.sh` 通过（`✓ std.path Linux/macOS/Windows 平台条件验证通过`）；`make check` 整体转绿（主测试 1107/1107，25 个验证项全过）
+  - 归属：`src/codegen/c99/main.uya` 中 macOS 宿主绑定的发射
+  - 现象：`TARGET_OS=macos`（宿主 Linux）生成 `std_path_platform_macos_x86_64.c` 后由宿主 cc 编译，报
+    `implicit declaration of function 'uya_macos_write'` 与 `error: invalid initializer`（`sys_write` / `sys_read` 等调用点）。
+  - 根因（共 4 层，逐层修复）：
+    1. **块被裁**：`uya_macos_write` 等宿主包装定义全部位于 `#ifdef __APPLE__` … `#endif` 内（生成文件第 262–717 行）。该 `#ifdef` 由 `c99_codegen_generate` 发射，本意只是让 `stat`/`time_t`/`timespec`/`S_IF*` 宏重命名避开 macOS SDK 同名屏蔽，但包装定义被一并纳入；宿主非 macOS 时整块被预处理器裁掉，调用点仍在 → 隐式声明 → `invalid initializer`。
+    2. **stat 时间戳成员名**：`struct stat` 的时间戳字段，macOS 是 `st_atime`/`st_atimensec`，glibc 是 `st_atim`（POSIX timespec）。
+    3. **timeval 成员名**：`st_atim` 的类型是在本文件宏重命名期间由 `<sys/stat.h>` 引入的，其成员名同样被 `#define tv_sec ...` 改成了 `uya_macos_native_tv_sec_hidden`。
+    4. **宿主符号名与 errno 入口**：`__asm__("_write")` 的 macOS 前导下划线、以及 `__error()` 在 glibc 上应为 `__errno_location()`。
+  - 修复内容：
+    1. 发射块条件由 `#ifdef __APPLE__` 改为 `#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)`，并在 `target_os_is_macos != 0` 时定义 `UYA_TARGET_MACOS`：使「目标 macOS 而宿主非 macOS」的交叉场景也能让该块生效（宿主 macOS 路径行为不变）。
+    2. `uya_macos_copy_stat` 的 6 个时间戳字段按 `#ifdef __APPLE__` 分支：macOS 用 `st_atime`/`st_atimensec`，其他宿主用重命名后的 `st_atim.uya_macos_native_tv_sec_hidden`。
+    3. `__error()` / `__errno_location()` 按宿主分支。
+    4. 新增 `c99_emit_host_symbol_decl(codegen, macos_decl, posix_decl)`：按 `HOST_OS` 在生成期选择要发射的声明文本，用于 27 处 `__asm__("_xxx")` 宿主符号声明。**注意**：不能用 `#define UYA_HOST_ASM(n)` 之类的宏——`tests/verify_macos_hosted_seed_decls.sh` 用 `grep -Fqx` 校验完整声明行（含 `__asm__("_getsockname")`），宏化会让该行不再出现。同理，最初把 27 处写成 27 个独立 `if/else` 块会使 `c99_codegen_generate` 体积增大并触发 `数组索引安全证明失败`，故收敛为一个辅助函数调用。
+  - 影响面：原先仅影响「宿主非 macOS 且目标为 macOS + 由宿主 cc 编译」的交叉场景；现已覆盖。
+
+- [x] **P1 / 高：hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）**
+  - 状态：已修复
+  - 验证状态：`make uya-hosted` 构建成功；`./bin/uya-hosted build tests/test_slice_expr_from_const_byte_param.uya -o /tmp/...` 正常完成并生成可运行程序（此前该命令立即 `SIGABRT`）；`make check` 全绿（主测试 1107/1107，25 个验证项全过），其中绝大多数用例走 hosted 生成路径
+  - 归属：`lib/libc/stdio.uya` 的 FILE 模型与 hosted 链接方式的冲突
+  - 根因：`lib/libc/stdio.uya` 自定义了 `struct FILE { fd, buffer, buf_pos, buf_len, buf_mode }` 与 `_stdin/_stdout/_stderr`，而 stdio 函数带函数体、C 符号名不加前缀。**hosted 构建下同名符号由宿主 glibc 提供**，于是 uya 自造的 `FILE` 被交给 glibc 的 `fprintf`，`_IO_vtable_check` 校验 `vtable == 0` 失败 → `__libc_fatal` → abort。另有配套的一处错配：头文件里 `extern struct FILE *stderr;` 绑定的是 glibc 的 `stderr`，而 `fprintf` 调用点却发射成 uya 的 `libc_fprintf`，同样把 glibc FILE 交给了 uya 实现。
+  - 已推进的崩溃点（早前改动，方向正确且经 `verify_split_c_cache_lock.sh` / `verify_split_c_cache_stale_lock.sh` / `verify_compile_sh_split_cache_cleanup.sh` 验证）：
+    1. `src/main.uya` 的 `split_c_write_lock_owner_pid` 原为 `fopen` 后 `fprintf(file as *void, "%d\n", getpid())`——把 std.io 的 FILE 交给宿主 fprintf。已改为 `snprintf` 到缓冲区 + std.io 自己的 `fwrite`。
+    2. `src/main.uya` 的 `split_c_read_lock_owner_pid` 原用宿主 `fgets`。已改为 std.io 的 `fread` + 手工截断换行。
+  - 最终修复内容（采用建议方向 1，并把不彻底处补齐）：
+    1. `c99_should_skip_hosted_libc_function_body`：hosted 下 `lib/libc/stdio.uya` 整体保留 uya 实现，只把纯字符串缓冲区格式化/解析（`snprintf`/`sprintf`/`vsnprintf`/`vsprintf`/`sscanf`/`fscanf`，名单收敛在 `c99_hosted_stdio_name_uses_host_libc`）继续交给宿主 libc。
+    2. `should_use_raw_libc_symbol_name` / `get_c_name_for_function_decl`：调用点与声明点一律解析到 uya 实现的模块前缀名（`libc_fprintf` 等），不再按实参归属在「uya 实现 / 宿主裸符号」之间切换；`c99_hosted_uya_stdio_impl_c_name` 负责「实现已并入本编译单元」时才接管，未并入时仍走裸名 + `<stdio.h>`。
+    3. `get_c_name_for_identifier_ref`：`stdin/stdout/stderr` 不再映射到宿主同名对象，改为解析到 uya 的 `libc_stdin/libc_stdout/libc_stderr`，与变量定义处一致。
+    4. 以文本直接发射 `printf` 的几处（`gen_test_runner`、测试汇总 `main_main`、字符串插值 `expr.uya`/`stmt.uya`）统一走 `c99_printf_c_name`，避免「定义叫 libc_printf、调用叫 printf」的错配。
+  - 影响面：`make check-hosted` / `make b-hosted`（hosted 路线）与 hosted 生成路径下的全部用例；`make check`（nostdlib 路线）行为不变。
+
+- [x] **P1 / 高：微应用 payload 打包失败且镜像混入宿主辅助符号**
+  - 状态：已修复
+  - 验证状态：`make microapp-check` 全部通过（此前 `verify_microapp_loader_generic.sh` 直接失败）；`./bin/uya run --app microapp examples/microapp/microcontainer_hello_source.uya` 输出 `microapp run x86_64 ok`
+  - 归属：`src/codegen/c99/main.uya` 的 `c99_codegen_generate`
+  - 现象：
+    1. `--app microapp` 构建 payload 时报 `无法从 microapp 对象文件提取段与 relocation 信息`，`.pobj` 无法生成。
+    2. 修好打包后，payload 目标文件出现白名单外符号 `uya_interface_get_vtable` / `uya_interface_set_vtable` / `uya_interface_set_data` / `uya_pipeline_image_anchor`。
+  - 根因：`eba705c2`（typed pipeline exec worker）在 `c99_codegen_generate` 中无条件发射了 `uya_pipeline_worker_dispatch`（引用未定义弱符号 `uya_pipeline_worker_main_if_requested`）、`uya_interface_*` 读写辅助与 `uya_pipeline_image_anchor`。其中：
+    1. `-fpie` 下对弱符号取地址生成 `R_X86_64_GOTPCREL` 重定位，而微应用镜像不含 GOT，`microapp_extract_object_elf64` 遇到该重定位类型即失败。
+    2. 宿主侧辅助符号被一并带入微应用载荷。
+  - 修复内容：
+    1. `gen_expr` 在微应用（`container_mode != 0`）下把 `uya_pipeline_worker_dispatch()` 调用点内联为 `-1`：调用点不再引用该符号，函数随之不被发射，微应用载荷因此不含任何宿主辅助符号。**未修改 `tests/verify_microapp_payload_symbols.sh` 的符号白名单**。
+    2. 微应用下不发射 `uya_pipeline_worker_dispatch` 定义（连同 `split_protos_out` 中的前向声明）与 `uya_interface_*`、`uya_pipeline_image_anchor`，它们不参与微应用调用路径。
+    3. `microapp_extract_object_elf64` 对无法定位的符号（未定义/WEAK UND）改为以 0 作为符号值继续处理，而不是让整次打包失败。
+  - 相关验证：`tests/verify_microapp_loader_generic.sh`、`tests/verify_microapp_payload_symbols.sh`（脚本原样未改，`make microapp-check` 全绿）
+  - 备注：非微应用路径保持原样——`uya_pipeline_worker_dispatch` 仍按 `__attribute__((weak))` 弱符号分派，`lib/std/runtime/entry/entry.uya` 的 C 入口逻辑不变。
+
+- [x] **P1 / 高：多个模块导出同名函数时，模块限定调用被发射成另一个模块的实现**
+  - 状态：已修复
+  - 验证状态：`bash tests/verify_module_alias_import_table_codegen.sh` 输出 `verify_module_alias_import_table_codegen: ok`；`make check` 该项由失败转绿
+  - 归属：`src/codegen/c99/expr.uya` 的 `gen_expr` 模块限定调用分支
+  - 现象：`use fixture.noop; use fixture.target;` 且两模块都 `export fn value` 时，`fixture_target_value()` 的调用被发射成 `fixture_noop_value()`，即运行时取到另一个模块的实现。加任意一条额外的 `use` 即可触发，与导入数量无关。
+  - 根因：该分支用 `find_function_decl_c99(codegen, callee.member_access_field_name)` 仅按函数名（`value`）在扁平声明表中查找，返回第一个同名声明；模块信息（`member_access_module_name`）没有参与限定。
+  - 修复内容：先按「模块名 + 导出名」用 `c99_find_module_export_function_decl` 精确定位声明，取不到时才回退到按名查找。该函数在同类逻辑（`types.uya` 的调用返回类型推断）中已被使用，故此修复与既有行为一致。
+  - 最小复现：两个模块各 `export fn value() i32`（返回不同常量），`main` 中调用其中之一的模块限定名
+  - 相关验证：`tests/verify_module_alias_import_table_codegen.sh`
+
+- [x] **P0 / 严重：指向 const 元素的指针形参切片时发射未定义 `struct uya_slice_constuint8_t`**
+  - 状态：已修复
+  - 验证状态：`./bin/uya test tests/test_slice_expr_from_const_byte_param.uya` 通过；`make tests` 1106 项中原先失败的网络/TLS/WebSocket/MQTT 等 35 项全部转绿
+  - 归属：`src/codegen/c99/types.uya` 的 `c99_slice_element_name_token`（切片结构体名归一化）
+  - 现象：形参为 `&const byte`（C 侧 `const uint8_t *`）时，对其切片 `pem[a: b]` 生成 `(struct uya_slice_constuint8_t){ .ptr = …, .len = … }`。该结构体从不曾被发射，C 编译报 `'struct uya_slice_constuint8_t' has no member named 'ptr'`，直接导致链接失败。
+  - 根因：切片元素类型词元保留了前导 `const` 限定（`const uint8_t` → `constuint8_t`），于是结构体名多出 `const`，与 `uint8_t` 分支的 `uya_slice_uint8_t` 归一化规则不一致。
+  - 修复内容：`c99_slice_element_name_token` 在剥离 `struct`/`enum` 前缀之前，先通过新增的 `c99_slice_element_const_is_strippable` 判断前导 `const ` 是否可安全剥离。判据为「带前导 `const ` 且剥离后剩余部分不含 `*`」：
+    - `const uint8_t` / `const int32_t` / `const struct Foo` 等**非指针**元素 → 剥离，与不带 const 的元素归一化为同一 `uya_slice_*`；
+    - `const uint8_t *` 等**指针**元素 → 保留，否则会与 `uint8_t *` 混用，破坏「指针元素 slice 保留指针层级」的既有约定（`tests/test_slice_pointer_element_codegen.uya` 即为此约定的守卫）。
+  - 注意：判据必须排除指针。最初只对 const 字节做归一化，随后发现 `examples/example_147.uya` 的 `&[const i32]` 仍会发射未定义的 `struct uya_slice_constint32_t`（`examples-check` 构建失败），故泛化为「非指针 const 一律归一化」。
+  - 最小复现/回归：`tests/test_slice_expr_from_const_byte_param.uya`（const byte 形参切片）、`examples/example_147.uya`（`&[const i32]`）
+  - 备注：真实命中点为 `lib/tls/x509/trust_store.uya` 的 `parse_one_pem_cert`（`decode_base64_mime(pem_data[b64_start: b64_len], …)`）。
+
+- [x] **P2 / 中：函数查找不区分模块，用户模块同名函数劫持依赖模块内部调用**
+  - 状态：已修复
+  - 验证状态：`./bin/uya test tests/test_module_scope_isolation_stdlib_check.uya` 通过；`make check` 全绿（主测试 1107/1107，25 个验证项全过），其中包含 `tests/test_typed_pipeline_parser_positive.uya`（定义本地 `fn check`）
+  - 归属：`src/checker/lookup.uya` 的函数声明查找与 `src/checker/symbols.uya` 的函数表
+  - 现象：主文件定义一个与依赖模块内部函数同名的函数后，依赖模块内部的同名调用会被解析到主文件的那个函数。例如主文件写 `fn check(input: Pipeline) i32` 后，`lib/std/process.uya` 的 `pipeline_terminal_inherit_child_run` 中 `try check(try inherit_stdio(command))` 被解析为返回 `i32` 的版本，于是类型检查失败且错误位置落在标准库内部。
+  - 根因：编译器把主文件与全部依赖模块合并为扁平的 `program_decls`（`src/ast.uya`），函数查找按名字扫描该扁平数组并返回第一个同名 `AST_FN_DECL`，不比较声明所属模块；函数表（`FunctionSignature`）同样只按名索引，同名函数先注册者胜出并遮蔽后者。
+  - 修复内容：
+    1. `FunctionSignature` 新增 `filename`（`src/checker/types.uya`），`checker_register_fn_decl` 注册时写入（`src/checker/check_stmt.uya`）。
+    2. `function_table_lookup` 优先返回与当前函数同模块（相同 `filename`）的签名，无同模块匹配时回退到第一个同名签名；重复定义检测改用新增的 `function_table_lookup_same_file`，只拦截同模块内的重复定义，使不同模块的同名函数得以共存（`src/checker/symbols.uya`）。
+    3. `src/checker/lookup.uya` 新增 `scan_fn_decl_in_file`：按调用点所在模块文件限定查找，并加了嵌套深度上限（`CHECKER_SCAN_DECL_MAX_DEPTH`）避免查找与返回类型推断相互递归耗尽 C 栈。
+  - 影响面：任何用户模块自定义与标准库内部函数同名的函数（`check`、`inherit_stdio` 等）都可能让标准库代码被误解析。
+  - 已观察实例：`tests/test_typed_pipeline_parser_positive.uya`（定义了 `fn check(p: Pipeline) i32`）
+  - 回归：`tests/test_module_scope_isolation_stdlib_check.uya`
 
 - [ ] **P2 / 中：数组索引边界证明器不跨 `as usize` cast 传递范围事实**
   - 状态：未修复

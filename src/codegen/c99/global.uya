@@ -668,13 +668,11 @@ fn get_c_name_for_identifier_ref(codegen: &C99CodeGenerator, name: &byte) &byte 
             return get_safe_c_identifier(codegen, "errno" as &byte);
         }
     }
-    if codegen != null && codegen.is_nostdlib == 0 && c99_name_is_hosted_stdio_stream(name) != 0 {
-        if codegen.current_function_decl == null ||
-            codegen.current_function_decl.filename == null ||
-            c99_filename_is_libc_file(codegen.current_function_decl.filename, "stdio.uya" as &byte) == 0 {
-            return get_safe_c_identifier(codegen, name);
-        }
-    }
+    // 注：hosted 下的 stdin/stdout/stderr 不再映射到宿主 libc 的同名对象。
+    // 生成文件里的 stdio 整体保留 uya 实现（见 c99_should_skip_hosted_libc_function_body），
+    // 宿主 glibc 的 FILE 与 uya struct FILE（fd + 用户态缓冲）不是同一 ABI，混用会 abort。
+    // 因此这三个名字一律走下面的全局变量解析，得到 libc/stdio.uya 里 export var 的
+    // 模块前缀名（libc_stdin / libc_stdout / libc_stderr），与变量定义处保持一致。
     c99_ident_ref_cache_ensure(codegen);
     const slot: i32 = c99_ident_ref_cache_slot(codegen, name);
     if slot < 0 {

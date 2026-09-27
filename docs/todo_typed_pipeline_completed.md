@@ -20,8 +20,8 @@
     - 自举验证：`make b` 通过（主编译器与自举编译器生成的可执行文件字节一致）。
     - 正向测试：`./bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK。
     - 负向测试：
-      - `./bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
-      - `./bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+      - `./bin/uya check tests/error_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `./bin/uya check tests/error_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
 
 ## 阶段 1：Lexer 与 Parser 骨架
 
@@ -36,8 +36,8 @@
   - 验证命令与结果：
     - 正向测试：`../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK（覆盖 `s.cmd("a")` 实例方法调用、泛型 callee、括号左侧、多行格式）。
     - 负向测试：
-      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
-      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+      - `../uya/bin/uya check tests/error_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `../uya/bin/uya check tests/error_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
     - 额外验证：`pipeline() |> f().field` 与 `pipeline() |> f()[0]` 均被 parser 拒绝。
 
 ## 阶段 1：Lexer 与 Parser 骨架
@@ -67,8 +67,8 @@
     - 正向测试：`../uya/bin/uya test tests/test_typed_pipeline_parser_positive.uya` 通过，6 个测试全部 OK。
     - 程序回归：`./tests/run_programs_parallel.sh tests/test_typed_pipeline_parser_positive.uya` 通过。
     - 负向测试：
-      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
-      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+      - `../uya/bin/uya check tests/error_typed_pipeline_parser_negative.uya` 返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `../uya/bin/uya check tests/error_typed_pipeline_parser_negative_eof.uya` 返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
 
 
 ## 阶段 2：Type Checker 规则
@@ -132,8 +132,8 @@
       - `../uya/bin/uya test tests/test_typed_pipeline_type_identity.uya` 通过，3 个测试全部 OK。
     - 负向测试：
       - `../uya/bin/uya check tests/error_typed_pipeline_checker_left.uya` 返回 exit 1，错误信息包含“管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型”。
-      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
-      - `../uya/bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
+      - `../uya/bin/uya check tests/error_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含“管道右侧必须是函数调用”。
+      - `../uya/bin/uya check tests/error_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含“管道右侧不完整或不是有效的函数调用”。
   - 备注：`make tests-uya` 全量运行存在 4 个与 typed pipeline 无关或命名约定导致的 pre-existing 失败（`test_typed_pipeline_parser_negative_eof`、`test_typed_pipeline_parser_negative` 因文件名不以 `error_` 开头被当作正向测试；`bench_malloc_phase4_detail` 运行时崩溃 exit 139），本次改动未触及这些文件。
 
 ## 阶段 2：Type Checker 规则
@@ -154,8 +154,8 @@
     - 负向测试：
       - `./bin/uya check tests/error_typed_pipeline_checker_right.uya` 返回 exit 1，错误信息包含"管道运算符 '|>' 右侧 callee 的首个参数必须是 Pipeline 类型"。
       - `./bin/uya check tests/error_typed_pipeline_checker_left.uya` 仍返回 exit 1，错误信息包含"管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型"。
-      - `./bin/uya check tests/test_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含"管道右侧必须是函数调用"。
-      - `./bin/uya check tests/test_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含"管道右侧不完整或不是有效的函数调用"。
+      - `./bin/uya check tests/error_typed_pipeline_parser_negative.uya` 仍返回 exit 1，错误信息包含"管道右侧必须是函数调用"。
+      - `./bin/uya check tests/error_typed_pipeline_parser_negative_eof.uya` 仍返回 exit 1，错误信息包含"管道右侧不完整或不是有效的函数调用"。
     - 全量回归：`./tests/run_programs_parallel.sh` 运行 1081 个测试，通过 1078 个；失败的 3 个为 pre-existing（`test_typed_pipeline_parser_negative`、`test_typed_pipeline_parser_negative_eof` 因文件名不以 `error_` 开头被测试框架当作正向测试；`bench_malloc_phase4` 运行时崩溃 exit 139），与本任务无关。
 
 ---
@@ -293,7 +293,8 @@ make uya
       - `src/parser/expressions.uya`：`parser_parse_pipeline_expr` 现在将 `|>` 右侧解析为 `postfix_expr`，不再在 parser 层强制要求最外层是调用表达式。
       - `src/checker/check_expr_extra.uya`：`checker_check_pipeline_expr` 在左侧类型校验后新增诊断：若 `right.type != AST_CALL_EXPR`，报告「管道运算符 '|>' 右侧必须是调用表达式」。
       - 新增 `tests/error_typed_pipeline_right_not_call.uya` 负向测试。
-      - 将 `tests/test_typed_pipeline_parser_negative.uya` 与 `tests/test_typed_pipeline_parser_negative_eof.uya` 重命名为 `error_` 前缀，使 `run_programs_parallel.sh` 正确识别为预期编译失败。
+      - 负向用例以 `error_` 前缀为准，使 `run_programs_parallel.sh` 正确识别为预期编译失败：`tests/error_typed_pipeline_parser_negative.uya`（右侧缺表达式）、`tests/error_typed_pipeline_parser_negative_eof.uya`（EOF 处不完整）、`tests/error_typed_pipeline_parser_negative_plus_expr.uya`（右侧为二元表达式 `|> y + z`，等价于原先以 `test_` 前缀提交的用例，仅按框架约定改前缀以保留全部覆盖）。
+      - `tests/test_typed_pipeline_parser_negative_eof.uya` 与 `tests/error_typed_pipeline_parser_negative_eof.uya` 的代码逐字节相同，属重复副本，已删除；对应覆盖由后者保留。
     - 验证命令与结果：
       - `make uya`：自举编译器构建成功。
       - `make b`：自举对比一致，字节相同。

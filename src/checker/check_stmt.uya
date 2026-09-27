@@ -406,6 +406,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     sig.is_varargs = node.fn_decl_is_varargs;  // 是否为可变参数函数
     sig.line = node.line;
     sig.column = node.column;
+    sig.filename = node.filename;
     
     // 分配参数类型数组
     if sig.param_count > 0 {
@@ -454,8 +455,10 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         return 0;
     }
 
-    // 将函数添加到函数表（若已存在同名则跳过，如已由 use 导入注册）
-    if function_table_lookup(checker, node.fn_decl_name) != null {
+    // 将函数添加到函数表。同名但不同模块的函数允许共存（查找时按调用点模块优先），
+    // 因此这里只对同一模块内的重复定义做拦截。
+    const existing_sig: &FunctionSignature = function_table_lookup_same_file(checker, node.fn_decl_name, node.filename);
+    if existing_sig != null {
         return 1;
     }
     if checker.function_table.count >= FUNCTION_TABLE_SIZE {

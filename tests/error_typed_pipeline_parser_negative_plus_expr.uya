@@ -1,0 +1,13 @@
+// error_typed_pipeline_parser_negative_plus_expr.uya
+// parser 负向测试：验证 pipeline 右侧为二元表达式（`|> y + z`）时被 parser 拒绝。
+//
+// 命名说明：内容为「预期编译失败」的负向用例，故使用 error_ 前缀，
+// run_programs_parallel.sh 才会按预期失败处理（见 tests/error_typed_pipeline_*.uya）。
+
+fn pipeline() i32 { return 0; }
+fn cmd(a: &byte) i32 { return 0; }
+fn main() i32 {
+    // 右侧不是函数调用
+    _ = pipeline() |> y + z;
+    return 0;
+}

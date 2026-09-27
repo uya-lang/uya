@@ -2016,6 +2016,10 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
         return;
     }
     
+    // 测试运行器直接以文本发射 printf 调用，不经过调用点命名逻辑，故须取权威名
+    // （见 c99_printf_c_name）。
+    const printf_c_name: &byte = c99_printf_c_name(codegen);
+
     fputs("static void uya_run_tests(void) {\n" as *byte, codegen.emit_stream as *void);
     
     var i: i32 = 0;
@@ -2026,14 +2030,14 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
             const description: &byte = test_node.test_stmt_description;
             if func_name != null {
                 // 输出测试名称
-                fprintf(codegen.emit_stream as *void, "    printf(\"  TEST: %s ... \");\n" as *byte, description as *byte);
+                fprintf(codegen.emit_stream as *void, "    %s(\"  TEST: %s ... \");\n" as *byte, printf_c_name as *byte, description as *byte);
                 // 运行测试并分别统计测试用例与断言
                 fputs("    {\n" as *byte, codegen.emit_stream as *void);
                 fputs("      struct err_union_void _test_result = " as *byte, codegen.emit_stream as *void);
                 fprintf(codegen.emit_stream as *void, "%s();\n" as *byte, func_name as *byte);
                 // try assert_* 失败时仅 error_id!=0，不会增加 _test_passed；须计入 _test_failed，否则 main_main 仍 return 0，脚本误判通过
-                fputs("      if (_test_result.error_id != 0) { printf(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n" as *byte, codegen.emit_stream as *void);
-                fputs("      else { _test_case_passed = _test_case_passed + 1; printf(\"OK\\n\"); } }\n" as *byte, codegen.emit_stream as *void);
+                fprintf(codegen.emit_stream as *void, "      if (_test_result.error_id != 0) { %s(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n" as *byte, printf_c_name as *byte);
+                fprintf(codegen.emit_stream as *void, "      else { _test_case_passed = _test_case_passed + 1; %s(\"OK\\n\"); } }\n" as *byte, printf_c_name as *byte);
             }
         }
         i = i + 1;
@@ -2043,6 +2047,34 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
 }
 
 // 生成 C99 代码
+/// 按宿主平台发射一条 host 符号声明。
+///
+/// macOS 的宿主 C 符号带前导下划线（`_write`），glibc 等不带（`write`）。交叉生成
+/// macOS 目标时宿主可能不是 macOS，故按 `HOST_OS` 在生成期选择要发射的声明文本，
+/// 使生成物在两种宿主下都能正确链接。
+///
+/// 参数：
+///   codegen - 代码生成器。
+///   macos_decl - 宿主为 macOS 时发射的声明文本（含 `__asm__("_xxx")`）。
+///   posix_decl - 其他宿主时发射的声明文本（含 `__asm__("xxx")`）。
+///
+/// 返回：无。
+fn c99_emit_host_symbol_decl(codegen: &C99CodeGenerator, macos_decl: &byte, posix_decl: &byte) void {
+    if codegen == null {
+        return;
+    }
+    var host_is_macos: i32 = 0;
+    const host_env: &byte = getenv("HOST_OS" as &byte);
+    if host_env != null && strcmp(host_env as *byte, "macos" as *byte) == 0 {
+        host_is_macos = 1;
+    }
+    if host_is_macos != 0 {
+        fputs(macos_decl as *byte, codegen.emit_stream as *void);
+    } else {
+        fputs(posix_decl as *byte, codegen.emit_stream as *void);
+    }
+}
+
 fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_file: &byte) i32 {
     if codegen == null || input_ast == null || output_file == null {
         return -1;
@@ -2309,35 +2341,26 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 fputs("#include <stdio.h>\n" as *byte, codegen.emit_stream as *void);  // for standard I/O functions (printf, puts, etc.)
             } else if is_bootstrap == 0 {
                 fputs("struct FILE;\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern struct FILE *stdin;\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern struct FILE *stdout;\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern struct FILE *stderr;\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int printf(const char *, ...);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fprintf(struct FILE *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int vprintf(const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int vfprintf(struct FILE *, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int sprintf(char *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                // hosted 下 stdio 整体保留 uya 实现（见 c99_should_skip_hosted_libc_function_body）：
+                // stdin/stdout/stderr 必须绑定到 uya 的 _std*（fd + 用户态缓冲的自有 FILE），
+                // 而不是宿主 libc 的同名对象——glibc FILE 与 uya struct FILE 不是同一 ABI，
+                // 混用会让 uya 的 fprintf/_vfprintf_impl 按错误布局读取而 abort 或段错误。
+                // 其余 stdio 函数（printf/fopen/fread/…）同样由 uya 自身实现提供，
+                // 其 C 符号为 libc_ 前缀，不再需要这里的宿主原型声明。
+                fputs("extern struct FILE _stdin, _stdout, _stderr;\n" as *byte, codegen.emit_stream as *void);
+                // 这里刻意**不用** `#define stdout (&_stdout)`：宏是文本替换，会污染用户代码里
+                // 同名的结构体字段/变量（例如 std.pipeline 的 PipelineCaptureResult.stdout），
+                // 报 "expected identifier or '(' before '&' token"。
+                // 改为声明 uya 自己的流变量（lib/libc/stdio.uya 的 export var stdin/stdout/stderr，
+                // C 名为 libc_ 前缀），调用点会解析到这些变量而不是宏。
+                fputs("extern struct FILE * libc_stdin, * libc_stdout, * libc_stderr;\n" as *byte, codegen.emit_stream as *void);
+                // 只操作字符串缓冲区的格式化/解析函数在 hosted 下仍由系统 libc 提供
+                // （见 c99_should_skip_hosted_libc_function_body），这里补它们的原型。
                 fputs("extern int snprintf(char *, size_t, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int vsprintf(char *, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int sprintf(char *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
                 fputs("extern int vsnprintf(char *, size_t, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int puts(const char *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int putchar(int);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fputs(const char *, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fputc(int, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fflush(struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern struct FILE *fopen(const char *, const char *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fclose(struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern size_t fread(void *, size_t, size_t, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern size_t fwrite(const void *, size_t, size_t, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fgetc(struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern char *fgets(char *, int, struct FILE *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int fscanf(struct FILE *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
+                fputs("extern int vsprintf(char *, const char *, va_list);\n" as *byte, codegen.emit_stream as *void);
                 fputs("extern int sscanf(const char *, const char *, ...);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern void perror(const char *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int remove(const char *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern int rename(const char *, const char *);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern struct FILE *tmpfile(void);\n" as *byte, codegen.emit_stream as *void);
-                fputs("extern char *tmpnam(char *);\n" as *byte, codegen.emit_stream as *void);
             }
             if is_bootstrap == 0 {
                 fputs("#include <errno.h>\n" as *byte, codegen.emit_stream as *void);
@@ -2833,7 +2856,15 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("struct err_union_void { uint32_t error_id; };\n" as *byte, codegen.emit_stream as *void);
     mark_struct_defined(codegen, ("err_union_void" as *byte) as &byte);
     emit_error_name_helper(codegen);
-    fputs("#ifdef __APPLE__\n" as *byte, codegen.emit_stream as *void);
+    // 该块是 macOS 目标专用的宿主绑定：先做 stat/time_t/timespec/S_IF* 宏重命名并 include
+    // <sys/stat.h>，再声明 uya_host_* / 生成 uya_macos_* 包装。
+    // 条件必须同时覆盖「宿主是 macOS」（__APPLE__）与「目标是 macOS 而宿主不是」（UYA_TARGET_MACOS）：
+    // 后者是交叉生成场景，宿主预处理器不认识 __APPLE__，若不补这一条，整块（含全部包装定义）
+    // 会被裁掉，而调用点仍在，于是退化为隐式声明并报 invalid initializer。
+    if target_os_is_macos != 0 {
+        fputs("#define UYA_TARGET_MACOS 1\n" as *byte, codegen.emit_stream as *void);
+    }
+    fputs("#if defined(__APPLE__) || defined(UYA_TARGET_MACOS)\n" as *byte, codegen.emit_stream as *void);
     fputs("#define stat uya_macos_native_stat_call\n" as *byte, codegen.emit_stream as *void);
     fputs("#define fstat uya_macos_native_fstat_call\n" as *byte, codegen.emit_stream as *void);
     fputs("#define lstat uya_macos_native_lstat_call\n" as *byte, codegen.emit_stream as *void);
@@ -2884,8 +2915,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("typedef void *(*uya_macos_opendir_fn)(const char *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef void *(*uya_macos_readdir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_closedir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"_fstat\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_macos_real_lstat(const char *, struct uya_macos_native_stat_call *) __asm__(\"_lstat\");\n" as *byte, codegen.emit_stream as *void);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"_fstat\");\n" as *byte, "extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"fstat\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_macos_real_lstat(const char *, struct uya_macos_native_stat_call *) __asm__(\"_lstat\");\n" as *byte, "extern int uya_macos_real_lstat(const char *, struct uya_macos_native_stat_call *) __asm__(\"lstat\");\n" as *byte);
     fputs("struct Stat;\n" as *byte, codegen.emit_stream as *void);
     fputs("struct TimeSpec;\n" as *byte, codegen.emit_stream as *void);
     fputs("struct PollFd;\n" as *byte, codegen.emit_stream as *void);
@@ -2913,39 +2944,46 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    int64_t _unused1;\n" as *byte, codegen.emit_stream as *void);
     fputs("    int64_t _unused2;\n" as *byte, codegen.emit_stream as *void);
     fputs("};\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern intptr_t uya_host_read(int, void *, size_t) __asm__(\"_read\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern intptr_t uya_host_write(int, const void *, size_t) __asm__(\"_write\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_open(const char *, int, ...) __asm__(\"_open\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_close(int) __asm__(\"_close\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int64_t uya_host_lseek(int, int64_t, int) __asm__(\"_lseek\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_access(const char *, int) __asm__(\"_access\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern intptr_t uya_host_readlink(const char *, char *, size_t) __asm__(\"_readlink\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_chdir(const char *) __asm__(\"_chdir\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern char *uya_host_getcwd(char *, size_t) __asm__(\"_getcwd\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_system(const char *) __asm__(\"_system\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_socket(int, int, int) __asm__(\"_socket\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_bind(int, const void *, uint32_t) __asm__(\"_bind\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_listen(int, int) __asm__(\"_listen\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_accept(int, void *, uint32_t *) __asm__(\"_accept\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_connect(int, const void *, uint32_t) __asm__(\"_connect\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern intptr_t uya_host_sendto(int, const void *, size_t, int, const void *, uint32_t) __asm__(\"_sendto\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern intptr_t uya_host_recvfrom(int, void *, size_t, int, void *, uint32_t *) __asm__(\"_recvfrom\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_shutdown(int, int) __asm__(\"_shutdown\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_setsockopt(int, int, int, const void *, uint32_t) __asm__(\"_setsockopt\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_getsockname(int, void *, uint32_t *) __asm__(\"_getsockname\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_getpeername(int, void *, uint32_t *) __asm__(\"_getpeername\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_poll(void *, uint32_t, int) __asm__(\"_poll\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_fork(void) __asm__(\"_fork\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int uya_host_waitpid(int, int *, int) __asm__(\"_waitpid\");\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern void *uya_host_dlsym(void *, const char *) __asm__(\"_dlsym\");\n" as *byte, codegen.emit_stream as *void);
+    c99_emit_host_symbol_decl(codegen, "extern intptr_t uya_host_read(int, void *, size_t) __asm__(\"_read\");\n" as *byte, "extern intptr_t uya_host_read(int, void *, size_t) __asm__(\"read\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern intptr_t uya_host_write(int, const void *, size_t) __asm__(\"_write\");\n" as *byte, "extern intptr_t uya_host_write(int, const void *, size_t) __asm__(\"write\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_open(const char *, int, ...) __asm__(\"_open\");\n" as *byte, "extern int uya_host_open(const char *, int, ...) __asm__(\"open\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_close(int) __asm__(\"_close\");\n" as *byte, "extern int uya_host_close(int) __asm__(\"close\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int64_t uya_host_lseek(int, int64_t, int) __asm__(\"_lseek\");\n" as *byte, "extern int64_t uya_host_lseek(int, int64_t, int) __asm__(\"lseek\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_access(const char *, int) __asm__(\"_access\");\n" as *byte, "extern int uya_host_access(const char *, int) __asm__(\"access\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern intptr_t uya_host_readlink(const char *, char *, size_t) __asm__(\"_readlink\");\n" as *byte, "extern intptr_t uya_host_readlink(const char *, char *, size_t) __asm__(\"readlink\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_chdir(const char *) __asm__(\"_chdir\");\n" as *byte, "extern int uya_host_chdir(const char *) __asm__(\"chdir\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern char *uya_host_getcwd(char *, size_t) __asm__(\"_getcwd\");\n" as *byte, "extern char *uya_host_getcwd(char *, size_t) __asm__(\"getcwd\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_system(const char *) __asm__(\"_system\");\n" as *byte, "extern int uya_host_system(const char *) __asm__(\"system\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_socket(int, int, int) __asm__(\"_socket\");\n" as *byte, "extern int uya_host_socket(int, int, int) __asm__(\"socket\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_bind(int, const void *, uint32_t) __asm__(\"_bind\");\n" as *byte, "extern int uya_host_bind(int, const void *, uint32_t) __asm__(\"bind\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_listen(int, int) __asm__(\"_listen\");\n" as *byte, "extern int uya_host_listen(int, int) __asm__(\"listen\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_accept(int, void *, uint32_t *) __asm__(\"_accept\");\n" as *byte, "extern int uya_host_accept(int, void *, uint32_t *) __asm__(\"accept\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_connect(int, const void *, uint32_t) __asm__(\"_connect\");\n" as *byte, "extern int uya_host_connect(int, const void *, uint32_t) __asm__(\"connect\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern intptr_t uya_host_sendto(int, const void *, size_t, int, const void *, uint32_t) __asm__(\"_sendto\");\n" as *byte, "extern intptr_t uya_host_sendto(int, const void *, size_t, int, const void *, uint32_t) __asm__(\"sendto\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern intptr_t uya_host_recvfrom(int, void *, size_t, int, void *, uint32_t *) __asm__(\"_recvfrom\");\n" as *byte, "extern intptr_t uya_host_recvfrom(int, void *, size_t, int, void *, uint32_t *) __asm__(\"recvfrom\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_shutdown(int, int) __asm__(\"_shutdown\");\n" as *byte, "extern int uya_host_shutdown(int, int) __asm__(\"shutdown\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_setsockopt(int, int, int, const void *, uint32_t) __asm__(\"_setsockopt\");\n" as *byte, "extern int uya_host_setsockopt(int, int, int, const void *, uint32_t) __asm__(\"setsockopt\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_getsockname(int, void *, uint32_t *) __asm__(\"_getsockname\");\n" as *byte, "extern int uya_host_getsockname(int, void *, uint32_t *) __asm__(\"getsockname\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_getpeername(int, void *, uint32_t *) __asm__(\"_getpeername\");\n" as *byte, "extern int uya_host_getpeername(int, void *, uint32_t *) __asm__(\"getpeername\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_poll(void *, uint32_t, int) __asm__(\"_poll\");\n" as *byte, "extern int uya_host_poll(void *, uint32_t, int) __asm__(\"poll\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_fork(void) __asm__(\"_fork\");\n" as *byte, "extern int uya_host_fork(void) __asm__(\"fork\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern int uya_host_waitpid(int, int *, int) __asm__(\"_waitpid\");\n" as *byte, "extern int uya_host_waitpid(int, int *, int) __asm__(\"waitpid\");\n" as *byte);
+    c99_emit_host_symbol_decl(codegen, "extern void *uya_host_dlsym(void *, const char *) __asm__(\"_dlsym\");\n" as *byte, "extern void *uya_host_dlsym(void *, const char *) __asm__(\"dlsym\");\n" as *byte);
     fputs("typedef void *(*uya_host_opendir_fn)(const char *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef void *(*uya_host_readdir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_host_closedir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
     fputs("extern int fcntl(int, int, ...);\n" as *byte, codegen.emit_stream as *void);
     fputs("extern int clock_gettime(int, struct uya_macos_native_timespec *);\n" as *byte, codegen.emit_stream as *void);
     fputs("extern int nanosleep(const struct uya_macos_native_timespec *, struct uya_macos_native_timespec *);\n" as *byte, codegen.emit_stream as *void);
+    // errno 的取址入口随宿主而不同：macOS 是 __error()，glibc 等是 __errno_location()。
+    // 交叉生成 macOS 目标时宿主为后者，需按宿主选择，否则链接期报 undefined reference to `__error'。
+    fputs("#ifdef __APPLE__\n" as *byte, codegen.emit_stream as *void);
     fputs("extern int *__error(void);\n" as *byte, codegen.emit_stream as *void);
     fputs("static int uya_macos_errno_value(void) { return *__error(); }\n" as *byte, codegen.emit_stream as *void);
+    fputs("#else\n" as *byte, codegen.emit_stream as *void);
+    fputs("extern int *__errno_location(void);\n" as *byte, codegen.emit_stream as *void);
+    fputs("static int uya_macos_errno_value(void) { return *__errno_location(); }\n" as *byte, codegen.emit_stream as *void);
+    fputs("#endif\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int32_t uya_macos_err_i32(int err) { return (struct err_union_int32_t){ .error_id = (uint32_t)err, .value = 0 }; }\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int32_t uya_macos_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int64_t uya_macos_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }\n" as *byte, codegen.emit_stream as *void);
@@ -2990,9 +3028,21 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    dst_stat->st_dev = (int64_t)src->st_dev; dst_stat->st_ino = (int64_t)src->st_ino; dst_stat->st_nlink = (int64_t)src->st_nlink;\n" as *byte, codegen.emit_stream as *void);
     fputs("    dst_stat->st_mode = (int32_t)src->st_mode; dst_stat->st_uid = (int32_t)src->st_uid; dst_stat->st_gid = (int32_t)src->st_gid; dst_stat->_pad0 = 0;\n" as *byte, codegen.emit_stream as *void);
     fputs("    dst_stat->st_rdev = (int64_t)src->st_rdev; dst_stat->st_size = src->st_size; dst_stat->st_blksize = (int64_t)src->st_blksize; dst_stat->st_blocks = src->st_blocks;\n" as *byte, codegen.emit_stream as *void);
+    // 时间戳字段名随宿主 C 库而不同：
+    //   - macOS 的 struct stat 直接给 st_atime / st_atimensec；
+    //   - 其余（glibc 等）用 POSIX 的 st_atim，但该 struct 是在本文件 A 段宏重命名期间
+    //     （#define tv_sec uya_macos_native_tv_sec_hidden 等）由 <sys/stat.h> 引入的，
+    //     故其成员名同样是重命名后的 hidden 名字，这里必须按重命名后的名字访问。
+    // 交叉生成 macOS 目标时宿主正是后者，按宿主分支可让两种宿主都编译这份绑定。
+    fputs("#ifdef __APPLE__\n" as *byte, codegen.emit_stream as *void);
     fputs("    dst_stat->st_atime = (int64_t)src->st_atime; dst_stat->st_atime_nsec = (int64_t)src->st_atimensec;\n" as *byte, codegen.emit_stream as *void);
     fputs("    dst_stat->st_mtime = (int64_t)src->st_mtime; dst_stat->st_mtime_nsec = (int64_t)src->st_mtimensec;\n" as *byte, codegen.emit_stream as *void);
     fputs("    dst_stat->st_ctime = (int64_t)src->st_ctime; dst_stat->st_ctime_nsec = (int64_t)src->st_ctimensec;\n" as *byte, codegen.emit_stream as *void);
+    fputs("#else\n" as *byte, codegen.emit_stream as *void);
+    fputs("    dst_stat->st_atime = (int64_t)src->st_atim.uya_macos_native_tv_sec_hidden; dst_stat->st_atime_nsec = (int64_t)src->st_atim.uya_macos_native_tv_nsec_hidden;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    dst_stat->st_mtime = (int64_t)src->st_mtim.uya_macos_native_tv_sec_hidden; dst_stat->st_mtime_nsec = (int64_t)src->st_mtim.uya_macos_native_tv_nsec_hidden;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    dst_stat->st_ctime = (int64_t)src->st_ctim.uya_macos_native_tv_sec_hidden; dst_stat->st_ctime_nsec = (int64_t)src->st_ctim.uya_macos_native_tv_nsec_hidden;\n" as *byte, codegen.emit_stream as *void);
+    fputs("#endif\n" as *byte, codegen.emit_stream as *void);
     fputs("    dst_stat->_unused0 = 0; dst_stat->_unused1 = 0; dst_stat->_unused2 = 0;\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("static struct err_union_int32_t uya_macos_stat(const char *pathname, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
@@ -3716,11 +3766,13 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("int32_t uya_thread_call_bool(void *fn, int32_t arg);\n" as *byte, codegen.split_protos_out as *void);
         fputs("uint32_t uya_thread_call_f32(void *fn, uint32_t arg_bits);\n" as *byte, codegen.split_protos_out as *void);
         fputs("uint64_t uya_thread_call_f64(void *fn, uint64_t arg_bits);\n" as *byte, codegen.split_protos_out as *void);
-        fputs("int32_t uya_pipeline_worker_dispatch(void);\n" as *byte, codegen.split_protos_out as *void);
-        fputs("size_t uya_interface_get_vtable(void *interface_value);\n" as *byte, codegen.split_protos_out as *void);
-        fputs("void uya_interface_set_vtable(void *interface_value, size_t vtable);\n" as *byte, codegen.split_protos_out as *void);
-        fputs("void uya_interface_set_data(void *interface_value, void *data);\n" as *byte, codegen.split_protos_out as *void);
-        fputs("size_t uya_pipeline_image_anchor(void);\n" as *byte, codegen.split_protos_out as *void);
+        if codegen.container_mode == 0 {
+            fputs("int32_t uya_pipeline_worker_dispatch(void);\n" as *byte, codegen.split_protos_out as *void);
+            fputs("size_t uya_interface_get_vtable(void *interface_value);\n" as *byte, codegen.split_protos_out as *void);
+            fputs("void uya_interface_set_vtable(void *interface_value, size_t vtable);\n" as *byte, codegen.split_protos_out as *void);
+            fputs("void uya_interface_set_data(void *interface_value, void *data);\n" as *byte, codegen.split_protos_out as *void);
+            fputs("size_t uya_pipeline_image_anchor(void);\n" as *byte, codegen.split_protos_out as *void);
+        }
         if codegen.is_nostdlib == 0 {
             // hosted 模式跳过 heap.uya 实现体；split-C 头里补 no-op stub，避免 pthread TU 首次调用触发隐式声明。
             fputs("static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n" as *byte, codegen.split_protos_out as *void);
@@ -3777,15 +3829,22 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    typedef size_t (*uya_thrd_fn_usz)(size_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("    return ((uya_thrd_fn_usz)fn)(arg);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
-    fputs("#if defined(__GNUC__) || defined(__clang__)\n" as *byte, codegen.emit_stream as *void);
-    fputs("extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n" as *byte, codegen.emit_stream as *void);
-    fputs("int32_t uya_pipeline_worker_dispatch(void) {\n" as *byte, codegen.emit_stream as *void);
-    fputs("    if (uya_pipeline_worker_main_if_requested == (void *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
-    fputs("    return uya_pipeline_worker_main_if_requested();\n" as *byte, codegen.emit_stream as *void);
-    fputs("}\n" as *byte, codegen.emit_stream as *void);
-    fputs("#else\n" as *byte, codegen.emit_stream as *void);
-    fputs("int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
-    fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+    // 微应用（container_mode）没有 exec worker 入口：既不发射该符号，也不引入可选弱符号宿主入口。
+    //   1. 微应用镜像有独立的 payload 符号白名单，宿主辅助符号不得出现。
+    //   2. -fpie 下对 uya_pipeline_worker_main_if_requested 取地址会生成 R_X86_64_GOTPCREL
+    //      重定位，而微应用镜像不含 GOT，microapp 对象提取会失败。
+    // entry.uya 中对本函数的调用已在 gen_expr 内联为 -1，故不发射不会留下未定义引用。
+    if codegen.container_mode == 0 {
+        fputs("#if defined(__GNUC__) || defined(__clang__)\n" as *byte, codegen.emit_stream as *void);
+        fputs("extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n" as *byte, codegen.emit_stream as *void);
+        fputs("int32_t uya_pipeline_worker_dispatch(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_pipeline_worker_main_if_requested == (void *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_pipeline_worker_main_if_requested();\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("#else\n" as *byte, codegen.emit_stream as *void);
+        fputs("int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+    }
     fputs("int64_t uya_thread_call_i64(void *fn, int64_t arg) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    typedef int64_t (*uya_thrd_fn_i64)(int64_t);\n" as *byte, codegen.emit_stream as *void);
     fputs("    return ((uya_thrd_fn_i64)fn)(arg);\n" as *byte, codegen.emit_stream as *void);
@@ -3831,18 +3890,21 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    out.d = ((uya_thrd_fn_f64)fn)(a.d);\n" as *byte, codegen.emit_stream as *void);
     fputs("    return out.u;\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n\n" as *byte, codegen.emit_stream as *void);
-    fputs("size_t uya_interface_get_vtable(void *interface_value) {\n" as *byte, codegen.emit_stream as *void);
-    fputs("    return (size_t)((void **)interface_value)[0];\n" as *byte, codegen.emit_stream as *void);
-    fputs("}\n" as *byte, codegen.emit_stream as *void);
-    fputs("void uya_interface_set_vtable(void *interface_value, size_t vtable) {\n" as *byte, codegen.emit_stream as *void);
-    fputs("    ((void **)interface_value)[0] = (void *)vtable;\n" as *byte, codegen.emit_stream as *void);
-    fputs("}\n" as *byte, codegen.emit_stream as *void);
-    fputs("void uya_interface_set_data(void *interface_value, void *data) {\n" as *byte, codegen.emit_stream as *void);
-    fputs("    ((void **)interface_value)[1] = data;\n" as *byte, codegen.emit_stream as *void);
-    fputs("}\n" as *byte, codegen.emit_stream as *void);
-    fputs("size_t uya_pipeline_image_anchor(void) {\n" as *byte, codegen.emit_stream as *void);
-    fputs("    return (size_t)(void *)&uya_pipeline_image_anchor;\n" as *byte, codegen.emit_stream as *void);
-    fputs("}\n\n" as *byte, codegen.emit_stream as *void);
+    // 微应用不发射这些宿主侧辅助：载荷符号白名单不允许，且它们不参与微应用调用路径。
+    if codegen.container_mode == 0 {
+        fputs("size_t uya_interface_get_vtable(void *interface_value) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (size_t)((void **)interface_value)[0];\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("void uya_interface_set_vtable(void *interface_value, size_t vtable) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    ((void **)interface_value)[0] = (void *)vtable;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("void uya_interface_set_data(void *interface_value, void *data) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    ((void **)interface_value)[1] = data;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("size_t uya_pipeline_image_anchor(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (size_t)(void *)&uya_pipeline_image_anchor;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n\n" as *byte, codegen.emit_stream as *void);
+    }
     
     // 第七步 d：按需生成系统调用辅助函数（@syscall 内置函数支持）
     if codegen.needs_syscall_helpers != 0 {
@@ -5141,23 +5203,25 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         c99_mirror_emit_common(codegen);
         // 测试计数变量已在第八步 c 中定义
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
-        fprintf(codegen.emit_stream as *void, "    printf(\"\\n=== Running %d tests ===\\n\");\n" as *byte, test_count);
+        // 测试汇总同样以文本发射 printf，须与调用点使用同一权威名（见 c99_printf_c_name）。
+        const summary_printf: &byte = c99_printf_c_name(codegen);
+        fprintf(codegen.emit_stream as *void, "    %s(\"\\n=== Running %d tests ===\\n\");\n" as *byte, summary_printf as *byte, test_count);
         fputs("    uya_run_tests();\n" as *byte, codegen.emit_stream as *void);
-        fputs("    printf(\"\\n=== Results ===\\n\");\n" as *byte, codegen.emit_stream as *void);
+        fprintf(codegen.emit_stream as *void, "    %s(\"\\n=== Results ===\\n\");\n" as *byte, summary_printf as *byte);
         if codegen.is_nostdlib != 0 {
-            fputs("    printf(\"  Tests Passed:       \");\n" as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void, "    %s(\"  Tests Passed:       \");\n" as *byte, summary_printf as *byte);
             fputs("    uya_print_i32(_test_case_passed);\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"\\n\");\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"  Tests Failed:       \");\n" as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void, "    %s(\"\\n\");\n" as *byte, summary_printf as *byte);
+            fprintf(codegen.emit_stream as *void, "    %s(\"  Tests Failed:       \");\n" as *byte, summary_printf as *byte);
             fputs("    uya_print_i32(_test_failed);\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"\\n\");\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"  Assertions Passed:  \");\n" as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void, "    %s(\"\\n\");\n" as *byte, summary_printf as *byte);
+            fprintf(codegen.emit_stream as *void, "    %s(\"  Assertions Passed:  \");\n" as *byte, summary_printf as *byte);
             fputs("    uya_print_i32(_test_passed);\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"\\n\");\n" as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void, "    %s(\"\\n\");\n" as *byte, summary_printf as *byte);
         } else {
-            fputs("    printf(\"  Tests Passed:       %d\\n\", _test_case_passed);\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"  Tests Failed:       %d\\n\", _test_failed);\n" as *byte, codegen.emit_stream as *void);
-            fputs("    printf(\"  Assertions Passed:  %d\\n\", _test_passed);\n" as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void, "    %s(\"  Tests Passed:       %%d\\n\", _test_case_passed);\n" as *byte, summary_printf as *byte);
+            fprintf(codegen.emit_stream as *void, "    %s(\"  Tests Failed:       %%d\\n\", _test_failed);\n" as *byte, summary_printf as *byte);
+            fprintf(codegen.emit_stream as *void, "    %s(\"  Assertions Passed:  %%d\\n\", _test_passed);\n" as *byte, summary_printf as *byte);
         }
         fputs("    return _test_failed;\n" as *byte, codegen.emit_stream as *void);
         c99_emit_close_brace_newline(codegen);

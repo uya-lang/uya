@@ -1,4 +1,4 @@
-// test_typed_pipeline_parser_negative_eof.uya
+// error_typed_pipeline_parser_negative_eof.uya
 // parser 负向测试：EOF 处不完整的 |>
 
 fn pipeline() i32 { return 0; }

@@ -1,0 +1,51 @@
+// tests/test_slice_expr_from_const_byte_param.uya
+//
+// 回归：从「指向 const byte 的指针」形参派生切片表达式时，C99 侧的元素类型名必须归一化。
+//
+// 背景：`parse_one_pem_cert(pem_data: &const byte, ...)` 内调用
+// `decode_base64_mime(pem_data[b64_start: b64_len], ...)` 时，旧实现对形参类型串
+// `const uint8_t *` 直接取词元得到 `constuint8_t`，于是发射
+// `struct uya_slice_constuint8_t` 复合字面量——而该结构体从不曾被定义，
+// 导致 C 编译报 “has no member named ‘ptr’”，test_https_google 等用例链接失败。
+//
+// 归一化后 `const uint8_t *` 与 `uint8_t *` 都必须落到 `struct uya_slice_uint8_t`。
+//
+// 注意：本文件只覆盖 `base[a: b]`（base 为指向 const byte 的指针）。对**裸指针**写
+// `pem.ptr[a: b]` 属于另一个既有限制：类型检查器的字段访问不支持指针的 `.ptr`/`.len`
+// （`infer_member_access` 对非 struct 类型返回 void），因此 C99 侧会退化为默认的
+// `struct uya_slice_int32_t`。该写法在 lib/ 与 tests/ 中均无真实使用点，故不在本回归范围。
+
+use std.testing.assert_eq_i32;
+use std.testing.run_test;
+
+fn slice_len_from_const_ptr(pem: &const byte, start: usize, len: usize) usize {
+    const view: &[byte] = pem[start: len];
+    return view.len;
+}
+
+fn slice_first_from_const_ptr(pem: &const byte, start: usize, len: usize) i32 {
+    const view: &[byte] = pem[start: len];
+    if view.len == 0usize {
+        return -1;
+    }
+    return view.ptr[0] as i32;
+}
+
+fn slice_len_in_call_arg(pem: &const byte, start: usize, len: usize) usize {
+    return take_len(pem[start: len]);
+}
+
+fn take_len(inner: &[byte]) usize {
+    return inner.len;
+}
+
+fn test_slice_expr_from_const_byte_param() !void {
+    const src: &[const byte] = &"hello"[0: 5];
+    try assert_eq_i32(slice_len_from_const_ptr(src.ptr, 2usize, 3usize) as i32, 3);
+    try assert_eq_i32(slice_first_from_const_ptr(src.ptr, 1usize, 3usize), 'e' as i32);
+    try assert_eq_i32(slice_len_in_call_arg(src.ptr, 0usize, 4usize) as i32, 4);
+}
+
+test "slice_expr_from_const_byte_param" {
+    run_test("slice_expr_from_const_byte_param", test_slice_expr_from_const_byte_param);
+}

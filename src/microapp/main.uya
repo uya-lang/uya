@@ -1923,7 +1923,12 @@ fn microapp_extract_object_elf64(obj_path: &byte, target_arch_raw: u32, code_len
                 const target_va_abs: u32 = target_section_va + target_sec_off_u32;
                 var sym_value_u32: u32 = 0u32;
                 if microapp_object_elf64_symbol_value_by_index(elf, elf_size_usize, shoff, shentsize, shnum, symtab_index, sym_index, &sym_value_u32) != 0 {
-                    return 1;
+                    // 可重定位目标文件里出现未定义符号（最常见的是 WEAK UND）是正常情况：
+                    // 编译器为可选宿主入口 uya_pipeline_worker_main_if_requested 生成
+                    // `extern ... __attribute__((weak))` + 空指针检查。微应用镜像不是完整
+                    // 链接产物，这类符号没有定义可解析；用 0 作为其符号值写入重定位槽，
+                    // 使生成的空指针检查走"该入口不存在"分支，而不是让整个打包失败。
+                    sym_value_u32 = 0u32;
                 }
                 if target_arch_raw == MICROAPP_TARGET_ARCH_X86_64_RAW &&
                    target_kind == ELF64_SECTION_KIND_CODE_RAW &&
