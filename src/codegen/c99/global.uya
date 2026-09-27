@@ -84,6 +84,56 @@ fn c99_c_type_str_leading_const(tc: &byte) i32 {
     return 0;
 }
 
+// 判断全局在 C 侧的名字是否可能与系统头宏同名。
+// hosted 生成会 `#include <errno.h>` 等系统头，宏（如 ETIMEDOUT=110）是文本替换，
+// 会把 `extern const int32_t ETIMEDOUT;` / `const int32_t ETIMEDOUT = 110;` 直接打编译错误。
+// 判据取「宏的形态」：纯标识符且含大写字母（ETIMEDOUT/PATH_MAX/SEEK_SET），外加少量已知小写宏。
+// 参数：cname —— 全局在 C 侧的名字。返回值：1 可能冲突需要撤销宏，0 不需要。
+fn c99_global_name_may_collide_with_c_macro(cname: &byte) i32 {
+    if cname == null || cname[0] == 0 as byte {
+        return 0;
+    }
+    if str_equals(cname, "errno") != 0 || str_equals(cname, "stdin") != 0 ||
+        str_equals(cname, "stdout") != 0 || str_equals(cname, "stderr") != 0 {
+        return 1;
+    }
+    // 编译器自身在生成 C 里发射的宏（uya_/UYA_ 前缀）不能被撤销，否则同一 TU 之后会失去宏定义。
+    if strncmp(cname as *byte, "uya_" as *byte, 4) == 0 || strncmp(cname as *byte, "UYA_" as *byte, 4) == 0 {
+        return 0;
+    }
+    var i: i32 = 0;
+    var has_upper: i32 = 0;
+    while cname[i] != 0 as byte {
+        const ch: byte = cname[i];
+        var is_ident_char: i32 = 0;
+        if ch >= 'A' as byte && ch <= 'Z' as byte {
+            has_upper = 1;
+            is_ident_char = 1;
+        } else if ch >= 'a' as byte && ch <= 'z' as byte {
+            is_ident_char = 1;
+        } else if ch >= '0' as byte && ch <= '9' as byte {
+            is_ident_char = 1;
+        } else if ch == '_' as byte {
+            is_ident_char = 1;
+        }
+        if is_ident_char == 0 {
+            return 0;  // 非纯标识符（单态化/名字修饰产物），不参与撤销
+        }
+        i = i + 1;
+    }
+    return has_upper;
+}
+
+/// 在全局的 C 声明或定义前撤销同名宏，避免系统头宏吞掉该声明。
+/// 参数：codegen —— 代码生成器（写入 `emit_stream`）；cname —— 全局在 C 侧的名字。
+/// 返回值：无。
+fn c99_emit_global_macro_undef_guard(codegen: &C99CodeGenerator, cname: &byte) void {
+    if codegen == null || c99_global_name_may_collide_with_c_macro(cname) == 0 {
+        return;
+    }
+    fprintf(codegen.emit_stream as *void, "#ifdef %s\n#undef %s\n#endif\n" as *byte, cname as *byte, cname as *byte);
+}
+
 // 全局初始化上下文为「指向 const byte 的指针」时，字符串字面量需 (const uint8_t *) 转型以满足 -Werror=pointer-sign
 fn global_init_ctx_is_const_ptr_to_byte(ctx: &ASTNode) i32 {
     if ctx == null || ctx.type != ASTNodeType.AST_TYPE_POINTER {
@@ -324,6 +374,9 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
         return;
     }
     
+    // 同名系统头宏（hosted 下的 ETIMEDOUT 等）会吞掉这条定义，先撤销宏。
+    c99_emit_global_macro_undef_guard(codegen, var_name);
+
     fputs("__attribute__((used)) " as *byte, codegen.emit_stream as *void);
     
     var type_c: &byte = null;
@@ -818,6 +871,9 @@ fn gen_extern_var_decl(codegen: &C99CodeGenerator, node: &ASTNode) void {
 
     const type_c: &byte = c99_type_to_c(codegen, var_type);
 
+    // 同名系统头宏（hosted 下的 ETIMEDOUT 等）会吞掉这条声明/定义，先撤销宏。
+    c99_emit_global_macro_undef_guard(codegen, var_name);
+
     // 生成声明
     if is_extern != 0 && init_expr == null {
         // extern 声明（无初始化）
@@ -866,6 +922,8 @@ fn c99_mirror_emit_extern_global_line(codegen: &C99CodeGenerator, tc: &byte, cna
     if codegen == null || tc == null || cname == null {
         return;
     }
+    // 镜像头在每个 TU 里紧随系统头被包含，同名宏同样会吞掉这条 extern，先撤销宏。
+    c99_emit_global_macro_undef_guard(codegen, cname);
     const first_bracket: *byte = strchr(tc as *byte, 91);
     if first_bracket != null {
         const base_len: i32 = ptr_diff(first_bracket, tc as *byte);

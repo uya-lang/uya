@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -20,14 +20,13 @@
   - 迁移内容：`dns_client_query_all_any_async` 从 `DnsQueryAllFuture` 手工状态机迁移为 `@async_fn`；`DnsQueryTransportFuture` 增加 `soft_error` 模式，在 `@async_fn` 中通过 `err_id_out` 侧向传递错误，避免 `@await catch` 多语句 block 的编译器限制
   - 备注：`DnsUdpFuture` / `DnsTcpFuture` 底层 I/O 状态机保留为手工实现，上层组合逻辑已 `@async_fn` 化。
 
-- [ ] **P3 / 低：`DNS_PREFER_ANY` 的异步聚合路径仍是顺序查询**
-  - 状态：未优化
-  - 验证状态：当前行为已确认，未做并发化改造
+- [x] **P3 / 低：`DNS_PREFER_ANY` 的异步聚合路径仍是顺序查询**
+  - 状态：已修复（2026-09-27 复核）
+  - 验证状态：`dns_client_query_all_any_async` 现在先同时创建 A / AAAA 两个 transport future（`dns_query_transport_future_new` 两次），再用 `async_join2_usize_results` 并发 join，最后 `dns_query_all_merge_results` 汇总；`async_join2_usize_results` 在 `lib/std/async.uya` 中用同一个 waker 轮询两个 future，属于真正的并发等待，不是"先 A 后 AAAA"的顺序等待。引入提交：`61469fe3`（Refactor DNS async composition layers），它把原 `DnsQueryAllAggregateFuture` 手工状态机改成 `@async_fn` + join 组合层
   - 归属：`lib/std/net/dns.uya`
-  - 现象：`dns_client_query_all_async` 目前先查 A 再查 AAAA，再汇总结果，并不是并发竞争。
-  - 影响：功能正确，但延迟仍然偏高，尤其在高 RTT 或 nameserver 慢响应时会放大等待时间。
-  - 可能位置：`lib/std/net/dns.uya`
-  - 备注：这不是阻塞性 bug，但属于后续可优化项。
+  - 结论：条目描述的"异步聚合顺序查询"已不成立；同步入口 `dns_client_query_all` 仍按 A→AAAA 顺序执行，这是同步 API 的应有语义，不作为待优化项
+  - 相关文件：`lib/std/net/dns.uya`（`dns_client_query_all_async`、`dns_client_query_all_any_async`）、`lib/std/async.uya`（`async_join2_usize_results`）
+  - 备注：并发化的延迟收益未单独测 benchmark；若后续要做多变 nameserver 竞争，另开新条目。
 
 ## 运行时 bug
 
@@ -71,6 +70,29 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P1 / 高：hosted 下用户顶层全局与系统头宏同名即编译失败（`ETIMEDOUT` 等）**
+  - 状态：已修复（2026-09-27）
+  - 现象：hosted（默认 `uya test` / `uya build`）会为非 bootstrap 编译单元 `#include <errno.h>`
+    （`src/codegen/c99/main.uya` 的 `is_bootstrap == 0` 分支），宏是文本替换，于是两处发射都被打断：
+    1. 定义路径：`__attribute__((used)) const int32_t ETIMEDOUT = 110;`（`src/codegen/c99/global.uya` 的 `gen_global_var`）
+    2. 镜像分 TU 路径：`uya_mirror_globals.h` 里的 `extern const int32_t ETIMEDOUT;`
+    两者都报 `error: expected identifier or '(' before numeric constant`。
+  - 最小复现：`const ETIMEDOUT: i32 = 110;` + `export fn main() i32 { return ETIMEDOUT; }`
+    → 修复前 `uya_mirror_globals.h:5:22: error: expected identifier or '(' before numeric constant`（单文件路径同样失败）
+  - 影响面：`./bin/uya test tests/test_pthread_cond.uya` 修复前必挂（该用例顶层声明 `const ETIMEDOUT: i32 = 110;`），
+    而 `tests/run_programs_parallel.sh` 把该用例归入 nostdlib 名单后仍然通过——即"`make check` 全绿，但 hosted 直跑同一用例红"；
+    连带 `tests/stress_pthread.sh` 第 1 轮必挂，`tests/verify_async_full_dynamic_resources_gate.sh all|c99-stress` 在 `pthread stress` 阶段失败。
+  - 根因：`1f617994`（2026-06-25）为 hosted 生成补 `#include <errno.h>`，但没有配套的同名宏撤销机制；
+    `lib/libc/errno.uya` 自身的常量带 `libc_` 前缀不受影响，只有**用户顶层全局是裸名**，因此必然撞上宏名。
+  - 修复内容：`src/codegen/c99/global.uya` 新增
+    `c99_global_name_may_collide_with_c_macro()`（判据为"宏形态"：纯标识符且含大写字母，外加 `errno`/`stdin`/`stdout`/`stderr`；
+    跳过编译器自身发射的 `uya_`/`UYA_` 宏前缀）与 `c99_emit_global_macro_undef_guard()`（发射 `#ifdef X / #undef X / #endif`），
+    并接入三个发射点：`gen_global_var`、`gen_extern_var_decl`、`c99_mirror_emit_extern_global_line`。
+  - 验证状态：新增回归 `tests/test_hosted_macro_name_collision.uya`（顶层 `ETIMEDOUT`/`EAGAIN` 常量、`EINVAL` 可变全局、export 常量），
+    `./bin/uya test` 3/3 通过、`./tests/run_programs_parallel.sh` 通过；`./bin/uya test tests/test_pthread_cond.uya` 4/4 通过；
+    `tests/stress_pthread.sh 1` 通过；最小复现程序在默认 split 与 `--no-split-c` 两种模式下都能构建并返回 110
+  - 相关文件：`src/codegen/c99/global.uya`、`src/codegen/c99/main.uya`、`tests/test_hosted_macro_name_collision.uya`
 
 - [x] **P0 / 严重：跟踪的自举种子里没有 `uya_pipeline_worker_dispatch`，`make release` 冷启动链接失败**
   - 状态：已修复
@@ -342,33 +364,20 @@
   - 后续观察：`-O2` 已恢复正常，若后续在更复杂场景下复现，再单独 reopen 并做 ASan/UBSan 深度排查。注意：`benchmarks/run_bench.sh` 使用 `-no-pie -O2 -fno-builtin` 编译标志可稳定通过压测；若使用不带 `-no-pie` 的自定义 CFLAGS，多线程 benchmark 可能因 PIC/PIE 与自定义 pthread 实现的交互出现 segfault。
   - 相关文件：`src/codegen/c99/function.uya`、`benchmarks/http_bench_async_epoll.uya`
 
-- [ ] **P2 / 中：`@async_fn` 的 `while true` 回跳逻辑导致生成代码体积膨胀**
-  - 状态：已知问题，功能正确，待优化
-  - 验证状态：生成 C 可正常编译运行，未触发测试失败；但 `handle_bench_client`、`serve_forever` 等含多层嵌套 await 的循环体被重复内联多次
+- [x] **P2 / 中：`@async_fn` 的 `while true` 回跳逻辑导致生成代码体积膨胀**
+  - 状态：已修复（2026-09-27 复核；按原"修复方向"落地）
+  - 验证状态：`emit_async_while_loopback_or_exit` 现在只发射 `goto _uya_async_while_head_<id>;` 一条语句，不再调用 `emit_async_segment_with_control(...)` 重新内联整个循环体；循环入口由 `emit_async_while_with_await` 发射的 `_uya_async_while_head_<id>:` label 承接，编号来自 `c99_async_while_label_id`（每个 while 稳定编号），即需求里的"统一顶部 label + 所有回跳 goto 到该 label"已实现
   - 归属：`src/codegen/c99/function.uya`
-  - 现象：
-    1. `emit_async_while_loopback_or_exit` 在 `while true` 回跳时，调用 `emit_async_segment_with_control(codegen, wbody, 0, wbody.block_stmt_count, ew, null)` 重新发射整个循环体
-    2. 若循环体内有多个 await 分支点，每个 continuation 末尾都会再次完整复制一遍循环体
-    3. 生成 C 代码体积随循环体大小和 await 数量近似指数增长
-  - 影响：编译时间增加、二进制体积膨胀、ICache 压力增大；目前功能未受影响
-  - 修复方向：将 while 循环体统一 lowering 为一个顶部 label，所有回跳和 continuation 统一 `goto` 到该 label，而非重复内联整个块
-  - 相关文件：`src/codegen/c99/function.uya`
-  - 备注：需要引入 `async_loop_state_index` 或类似机制，把循环入口状态编号化管理
+  - 结论：条目描述的"每个 continuation 末尾重复复制循环体、体积近似指数增长"已不成立
+  - 相关文件：`src/codegen/c99/function.uya`（`emit_async_while_loopback_or_exit`、`emit_async_while_with_await`、`c99_async_while_label_id`）
+  - 备注：如需量化，可对 `benchmarks/http_bench_async_epoll_await.uya` 统计生成 C 行数前后差异；当前无相关失败用例。
 
-- [ ] **P3 / 低：生成代码中大量使用 `uintptr_t` 指针算术，存在 strict aliasing 违规风险**
-  - 状态：潜在问题，待确认是否与 `-O2` SIGSEGV 直接相关
-  - 验证状态：生成 C 代码中常见形态：`(uint8_t*)(void*)(uintptr_t)(((uintptr_t)((void *)(&s->_uya_loc_xxx[0])) + offset))`
+- [x] **P3 / 低：生成代码中大量使用 `uintptr_t` 指针算术，存在 strict aliasing 违规风险**
+  - 状态：不再成立（2026-09-27 复核）
+  - 验证状态：条目描述的形态在生成 C 中命中 0 次——`grep -rho '(uint8_t\*)(void\*)(uintptr_t)' .uyacache/` 为空。当前生成 C 里的 `uintptr_t` 只出现在明确用途：ptr↔usize 内建（`@ptr_from_usize` / `@usize_from_ptr`，`src/codegen/c99/expr.uya:1293`、`:1303`）、async frame 分配头（`src/codegen/c99/function.uya:7643` 起）、microapp MMU 桥接与平台 helper（`src/codegen/c99/main.uya`），都不再是"把切片/数组偏移算完后强转回另一种指针类型"的形态
   - 归属：`src/codegen/c99/expr.uya`、`src/codegen/c99/function.uya`
-  - 现象：
-    1. `-O2` 下 GCC 的 type-based alias analysis 可能将 `uintptr_t` 转换后的指针与原类型指针视为无别名关系
-    2. 若后续通过该指针写入 `uint8_t`，再读取原始字段类型，可能被优化器错误裁剪
-    3. 目前 `-O1` 正常，`-O2` crash，高度怀疑与此模式有关
-  - 影响：所有涉及切片/数组偏移计算的状态机字段访问
-  - 修复方向：
-    1. 短期：默认编译 flags 加 `-fno-strict-aliasing`（会掩盖真正 UB，不推荐）
-    2. 长期：codegen 中对所有 state machine 字段访问统一使用 `memcpy`/`__uya_memcpy`，避免 type punning；或在生成指针偏移时使用 `char *` 而非 `uintptr_t` 转换
-  - 相关文件：`src/codegen/c99/expr.uya`（数组索引/切片偏移生成逻辑）
-  - 备注：建议优先通过 `-O2 -fno-strict-aliasing` 实验确认根因
+  - 结论：`-O2` SIGSEGV 的根因后来分别定位到别处并修复（`@async_fn` while true 终态死锁、async frame per-function free list 分配器、pthread join 早释放线程栈），与 aliasing 无关；本条不再作为待确认风险保留
+  - 备注：如后续在 `-O2` 下再次出现与指针类型相关的可疑裁剪，再按"用 memcpy / `char *` 偏移"的方向重新开条目。
 
 - [x] **P1 / 高：microapp `run` / `build` 在 LTO + `--gc-sections` 下链接失败（`undefined reference`）**
   - 状态：已修复

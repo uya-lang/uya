@@ -4555,275 +4555,275 @@ static const char str3823[] = "to_json";
 static const char str3824[] = "websocket_conn_write_json";
 static const char str3825[] = "from_json";
 static const char str3826[] = "(void)";
-static const char str3827[] = "(const uint8_t *)";
-static const char str3828[] = "{ .ptr = ";
-static const char str3829[] = "const %s %s%s";
-static const char str3830[] = "const %s %s";
-static const char str3831[] = "%s->%s";
-static const char str3832[] = "__uya_local_s";
-static const char str3833[] = "libc_errno";
-static const char str3834[] = "/lib/syscall/";
-static const char str3835[] = "\\lib\\syscall\\";
-static const char str3836[] = "extern %s %s;\n";
-static const char str3837[] = "extern const %s %s;\n";
-static const char str3838[] = "extern %s %s%s;\n";
-static const char str3839[] = "extern const %s %s%s;\n";
-static const char str3840[] = "%s/uya_mirror_globals.h";
-static const char str3841[] = "#ifndef UYA_MIRROR_GLOBALS_H\n#define UYA_MIRROR_GLOBALS_H\n\n";
-static const char str3842[] = "/* 镜像分 TU：全局 extern（须在 uya_split_protos.h 之后包含，以便类型已可见） */\n";
-static const char str3843[] = "RAND_MAX";
-static const char str3844[] = "\n#endif /* UYA_MIRROR_GLOBALS_H */\n";
-static const char str3845[] = "UYA_PROFILE_CODEGEN";
-static const char str3846[] = "// microapp bridge dispatch shim（portable runtime bridge ABI v1）\n";
-static const char str3847[] = "enum { UYA_MICROAPP_BRIDGE_ABI_MAGIC = 0x55414249U, UYA_MICROAPP_BRIDGE_ABI_VERSION = 1U };\n";
-static const char str3848[] = "enum { UYA_MICROAPP_SYS_PRINT = 1U, UYA_MICROAPP_SYS_ALLOC = 2U, UYA_MICROAPP_SYS_IO = 3U, UYA_MICROAPP_SYS_YIELD = 4U, UYA_MICROAPP_SYS_TIME = 5U };\n";
-static const char str3849[] = "struct UyaMicroappBridgeAbiV1 { uint32_t magic; uint32_t version; uintptr_t dispatch2; };\n";
-static const char str3850[] = "static __attribute__((used)) volatile struct UyaMicroappBridgeAbiV1 uya_microapp_bridge_abi_v1 = { UYA_MICROAPP_BRIDGE_ABI_MAGIC, UYA_MICROAPP_BRIDGE_ABI_VERSION, 0 };\n";
-static const char str3851[] = "static inline long uya_microapp_bridge_dispatch2(long nr, long a1, long a2) {\n";
-static const char str3852[] = "    if (uya_microapp_bridge_abi_v1.magic != UYA_MICROAPP_BRIDGE_ABI_MAGIC || uya_microapp_bridge_abi_v1.version != UYA_MICROAPP_BRIDGE_ABI_VERSION) { return -1; }\n";
-static const char str3853[] = "    if (uya_microapp_bridge_abi_v1.dispatch2 == 0) { return -1; }\n";
-static const char str3854[] = "    typedef long (*uya_bridge_dispatch2_fn)(long, long, long);\n";
-static const char str3855[] = "    return ((uya_bridge_dispatch2_fn)(uintptr_t)uya_microapp_bridge_abi_v1.dispatch2)(nr, a1, a2);\n";
-static const char str3856[] = "static inline long uya_microapp_bridge_dispatch1(long nr, long a1) { return uya_microapp_bridge_dispatch2(nr, a1, 0); }\n";
-static const char str3857[] = "static inline long uya_microapp_bridge_dispatch0(long nr) { return uya_microapp_bridge_dispatch2(nr, 0, 0); }\n\n";
-static const char str3858[] = "// microapp MMU translation hook（native adapter：按当前进程内存映射做权限校验）\n";
-static const char str3859[] = "extern char *getenv(const char *name);\n";
-static const char str3860[] = "extern int open(const char *pathname, int flags, ...);\n";
-static const char str3861[] = "extern int64_t read(int32_t fd, char *buf, size_t count);\n";
-static const char str3862[] = "extern int32_t close(int32_t fd);\n";
-static const char str3863[] = "struct FILE;\n";
-static const char str3864[] = "extern struct FILE *fopen(const char *filename, const char *mode);\n";
-static const char str3865[] = "extern int32_t fclose(struct FILE *stream);\n";
-static const char str3866[] = "extern char *fgets(char *buf, int32_t n, struct FILE *stream);\n";
-static const char str3867[] = "extern int32_t sscanf(const char *str, const char *format, ...);\n";
-static const char str3868[] = "extern int32_t fputs(const char *s, struct FILE *stream);\n";
-static const char str3869[] = "extern int32_t fputc(int32_t c, struct FILE *stream);\n";
-static const char str3870[] = "extern int32_t fprintf(struct FILE *stream, const char *format, ...);\n";
-static const char str3871[] = "extern struct FILE *stderr;\n";
-static const char str3872[] = "enum { UYA_MMU_ACCESS_R = 1U, UYA_MMU_ACCESS_W = 2U, UYA_MMU_ACCESS_X = 4U };\n";
-static const char str3873[] = "struct UyaMmuRegion { uintptr_t start; uintptr_t end; unsigned int perms; };\n";
-static const char str3874[] = "enum { UYA_MMU_REGION_MAX = 512U };\n";
-static const char str3875[] = "static int _uya_mmu_internal_depth = 0;\n";
-static const char str3876[] = "static int _uya_mmu_debug_enabled = -1;\n";
-static const char str3877[] = "static int _uya_mmu_maps_ready = 0;\n";
-static const char str3878[] = "static size_t _uya_mmu_region_count = 0;\n";
-static const char str3879[] = "static struct UyaMmuRegion _uya_mmu_regions[UYA_MMU_REGION_MAX];\n";
-static const char str3880[] = "static inline void _uya_mmu_internal_begin(void) { _uya_mmu_internal_depth = _uya_mmu_internal_depth + 1; }\n";
-static const char str3881[] = "static inline void _uya_mmu_internal_end(void) { if (_uya_mmu_internal_depth > 0) { _uya_mmu_internal_depth = _uya_mmu_internal_depth - 1; } }\n";
-static const char str3882[] = "static inline unsigned int _uya_mmu_parse_perms(const char *perms) {\n";
-static const char str3883[] = "    unsigned int out = 0U;\n";
-static const char str3884[] = "    if (perms != NULL) {\n";
-static const char str3885[] = "        if (perms[0] == 'r') { out |= UYA_MMU_ACCESS_R; }\n";
-static const char str3886[] = "        if (perms[1] == 'w') { out |= UYA_MMU_ACCESS_W; }\n";
-static const char str3887[] = "        if (perms[2] == 'x') { out |= UYA_MMU_ACCESS_X; }\n";
-static const char str3888[] = "    return out;\n";
-static const char str3889[] = "static inline unsigned int _uya_mmu_hex_digit(int32_t ch) {\n";
-static const char str3890[] = "    if (ch >= '0' && ch <= '9') { return (unsigned int)(ch - '0'); }\n";
-static const char str3891[] = "    if (ch >= 'a' && ch <= 'f') { return 10U + (unsigned int)(ch - 'a'); }\n";
-static const char str3892[] = "    if (ch >= 'A' && ch <= 'F') { return 10U + (unsigned int)(ch - 'A'); }\n";
-static const char str3893[] = "    return 255U;\n";
-static const char str3894[] = "static inline void _uya_mmu_ingest_map_line(const char *line) {\n";
-static const char str3895[] = "    const char *cursor = line;\n";
-static const char str3896[] = "    unsigned long long start = 0ULL;\n";
-static const char str3897[] = "    unsigned long long end = 0ULL;\n";
-static const char str3898[] = "    char perms[5] = {0};\n";
-static const char str3899[] = "    int have_start = 0;\n";
-static const char str3900[] = "    int have_end = 0;\n";
-static const char str3901[] = "    while (cursor[0] == ' ' || cursor[0] == '\\t') { cursor = cursor + 1; }\n";
-static const char str3902[] = "    while (cursor[0] != 0 && cursor[0] != '-') {\n";
-static const char str3903[] = "        const unsigned int nibble = _uya_mmu_hex_digit((int32_t)cursor[0]);\n";
-static const char str3904[] = "        if (nibble > 15U) { have_start = 0; break; }\n";
-static const char str3905[] = "        start = (start << 4U) | (unsigned long long)nibble;\n";
-static const char str3906[] = "        have_start = 1;\n";
-static const char str3907[] = "        cursor = cursor + 1;\n";
-static const char str3908[] = "    if (have_start == 0 || cursor[0] != '-') { return; }\n";
-static const char str3909[] = "    cursor = cursor + 1;\n";
-static const char str3910[] = "    while (cursor[0] != 0 && cursor[0] != ' ' && cursor[0] != '\\t') {\n";
-static const char str3911[] = "        if (nibble > 15U) { have_end = 0; break; }\n";
-static const char str3912[] = "        end = (end << 4U) | (unsigned long long)nibble;\n";
-static const char str3913[] = "        have_end = 1;\n";
-static const char str3914[] = "    perms[0] = cursor[0]; perms[1] = cursor[1]; perms[2] = cursor[2]; perms[3] = cursor[3]; perms[4] = 0;\n";
-static const char str3915[] = "    if (have_start != 0 && have_end != 0 && perms[0] != 0 && perms[1] != 0 && perms[2] != 0) {\n";
-static const char str3916[] = "        if (_uya_mmu_region_count < UYA_MMU_REGION_MAX) {\n";
-static const char str3917[] = "            _uya_mmu_regions[_uya_mmu_region_count].start = (uintptr_t)start;\n";
-static const char str3918[] = "            _uya_mmu_regions[_uya_mmu_region_count].end = (uintptr_t)end;\n";
-static const char str3919[] = "            _uya_mmu_regions[_uya_mmu_region_count].perms = _uya_mmu_parse_perms(perms);\n";
-static const char str3920[] = "            _uya_mmu_region_count = _uya_mmu_region_count + 1U;\n";
-static const char str3921[] = "static inline int _uya_mmu_debug_once(void) {\n";
-static const char str3922[] = "    if (_uya_mmu_debug_enabled >= 0) { return _uya_mmu_debug_enabled; }\n";
-static const char str3923[] = "    _uya_mmu_internal_begin();\n";
-static const char str3924[] = "    const char *flag = getenv(\"MICROAPP_DEBUG_MMU\");\n";
-static const char str3925[] = "    _uya_mmu_internal_end();\n";
-static const char str3926[] = "    if (flag != NULL && flag[0] != 0 && flag[0] != '0') { _uya_mmu_debug_enabled = 1; } else { _uya_mmu_debug_enabled = 0; }\n";
-static const char str3927[] = "    return _uya_mmu_debug_enabled;\n";
-static const char str3928[] = "static inline void _uya_mmu_refresh_maps(void) {\n";
-static const char str3929[] = "    if (_uya_mmu_maps_ready != 0) { return; }\n";
-static const char str3930[] = "    _uya_mmu_maps_ready = 1;\n";
-static const char str3931[] = "    int fd = open(\"/proc/self/maps\", 0);\n";
-static const char str3932[] = "    if (fd < 0) { _uya_mmu_internal_end(); return; }\n";
-static const char str3933[] = "    char line[512];\n";
-static const char str3934[] = "    char chunk[1024];\n";
-static const char str3935[] = "    size_t line_len = 0U;\n";
-static const char str3936[] = "    while (1) {\n";
-static const char str3937[] = "        const int64_t bytes_read = read(fd, chunk, sizeof(chunk));\n";
-static const char str3938[] = "        if (bytes_read <= 0) { break; }\n";
-static const char str3939[] = "        size_t chunk_pos = 0U;\n";
-static const char str3940[] = "        while (chunk_pos < (size_t)bytes_read) {\n";
-static const char str3941[] = "            const char ch = chunk[chunk_pos];\n";
-static const char str3942[] = "            if (ch == '\\n') {\n";
-static const char str3943[] = "                line[line_len] = 0;\n";
-static const char str3944[] = "                _uya_mmu_ingest_map_line(line);\n";
-static const char str3945[] = "                line_len = 0U;\n";
-static const char str3946[] = "            } else if (line_len + 1U < sizeof(line)) {\n";
-static const char str3947[] = "                line[line_len] = ch;\n";
-static const char str3948[] = "                line_len = line_len + 1U;\n";
-static const char str3949[] = "            }\n";
-static const char str3950[] = "            chunk_pos = chunk_pos + 1U;\n";
-static const char str3951[] = "    if (line_len > 0U) {\n";
-static const char str3952[] = "        line[line_len] = 0;\n";
-static const char str3953[] = "        _uya_mmu_ingest_map_line(line);\n";
-static const char str3954[] = "    (void)close(fd);\n";
-static const char str3955[] = "static inline const struct UyaMmuRegion *_uya_mmu_find_region(uintptr_t addr) {\n";
-static const char str3956[] = "    size_t i = 0;\n";
-static const char str3957[] = "    while (i < _uya_mmu_region_count) {\n";
-static const char str3958[] = "        if (addr >= _uya_mmu_regions[i].start && addr < _uya_mmu_regions[i].end) { return &_uya_mmu_regions[i]; }\n";
-static const char str3959[] = "        i = i + 1U;\n";
-static const char str3960[] = "    return (const struct UyaMmuRegion *)0;\n";
-static const char str3961[] = "static inline void _uya_mmu_write_u64_hex(unsigned long long value) {\n";
-static const char str3962[] = "    char digits[16];\n";
-static const char str3963[] = "    size_t pos = 0;\n";
-static const char str3964[] = "    if (value == 0ULL) { fputc((int32_t)'0', stderr); return; }\n";
-static const char str3965[] = "    while (value != 0ULL && pos < 16U) {\n";
-static const char str3966[] = "        const unsigned int nibble = (unsigned int)(value & 15ULL);\n";
-static const char str3967[] = "        digits[pos] = (nibble < 10U) ? (char)('0' + nibble) : (char)('a' + (nibble - 10U));\n";
-static const char str3968[] = "        pos = pos + 1U;\n";
-static const char str3969[] = "        value = value >> 4U;\n";
-static const char str3970[] = "    while (pos > 0U) {\n";
-static const char str3971[] = "        pos = pos - 1U;\n";
-static const char str3972[] = "        fputc((int32_t)digits[pos], stderr);\n";
-static const char str3973[] = "static inline void *_uya_mmu_fault(const char *kind, uintptr_t addr, size_t size, unsigned int access) {\n";
-static const char str3974[] = "    if (_uya_mmu_debug_once() != 0) {\n";
-static const char str3975[] = "        _uya_mmu_internal_begin();\n";
-static const char str3976[] = "        fputs(\"[mmu] fault kind=\", stderr);\n";
-static const char str3977[] = "        fputs(kind, stderr);\n";
-static const char str3978[] = "        fputs(\" addr=0x\", stderr);\n";
-static const char str3979[] = "        _uya_mmu_write_u64_hex((unsigned long long)addr);\n";
-static const char str3980[] = "        fputs(\" size=\", stderr);\n";
-static const char str3981[] = "        fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
-static const char str3982[] = "        fputs(\" access=0x\", stderr);\n";
-static const char str3983[] = "        fprintf(stderr, \"%x\", access);\n";
-static const char str3984[] = "        fputc(10, stderr);\n";
-static const char str3985[] = "        _uya_mmu_internal_end();\n";
-static const char str3986[] = "    return (void *)0;\n";
-static const char str3987[] = "static inline void *uya_mmu_translate(void *addr, size_t size, unsigned int access) {\n";
-static const char str3988[] = "    if (addr == NULL) { return (void *)0; }\n";
-static const char str3989[] = "    if (size == 0) { return addr; }\n";
-static const char str3990[] = "    if (_uya_mmu_internal_depth > 0) { return addr; }\n";
-static const char str3991[] = "    if (_uya_mmu_maps_ready == 0) { _uya_mmu_refresh_maps(); }\n";
-static const char str3992[] = "    if (_uya_mmu_region_count == 0) {\n";
-static const char str3993[] = "        if (_uya_mmu_debug_once() != 0) {\n";
-static const char str3994[] = "            _uya_mmu_internal_begin();\n";
-static const char str3995[] = "            fputs(\"[mmu] translate addr=0x\", stderr);\n";
-static const char str3996[] = "            _uya_mmu_write_u64_hex((unsigned long long)(uintptr_t)addr);\n";
-static const char str3997[] = "            fputs(\" size=\", stderr);\n";
-static const char str3998[] = "            fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
-static const char str3999[] = "            fputs(\" access=0x\", stderr);\n";
-static const char str4000[] = "            fprintf(stderr, \"%x\", access);\n";
-static const char str4001[] = "            fputs(\" (maps unavailable, fallback direct)\", stderr);\n";
-static const char str4002[] = "            fputc(10, stderr);\n";
-static const char str4003[] = "            _uya_mmu_internal_end();\n";
-static const char str4004[] = "        return addr;\n";
-static const char str4005[] = "    const uintptr_t start = (uintptr_t)addr;\n";
-static const char str4006[] = "    const uintptr_t end = start + (uintptr_t)size - 1U;\n";
-static const char str4007[] = "    if (end < start) { return _uya_mmu_fault(\"overflow\", start, size, access); }\n";
-static const char str4008[] = "    uintptr_t cursor = start;\n";
-static const char str4009[] = "    while (cursor <= end) {\n";
-static const char str4010[] = "        const struct UyaMmuRegion *region = _uya_mmu_find_region(cursor);\n";
-static const char str4011[] = "        if (region == NULL) { return _uya_mmu_fault(\"unmapped\", cursor, size, access); }\n";
-static const char str4012[] = "        if (((access & UYA_MMU_ACCESS_R) != 0U) && ((region->perms & UYA_MMU_ACCESS_R) == 0U)) { return _uya_mmu_fault(\"read\", cursor, size, access); }\n";
-static const char str4013[] = "        if (((access & UYA_MMU_ACCESS_W) != 0U) && ((region->perms & UYA_MMU_ACCESS_W) == 0U)) { return _uya_mmu_fault(\"write\", cursor, size, access); }\n";
-static const char str4014[] = "        if (((access & UYA_MMU_ACCESS_X) != 0U) && ((region->perms & UYA_MMU_ACCESS_X) == 0U)) { return _uya_mmu_fault(\"exec\", cursor, size, access); }\n";
-static const char str4015[] = "        if (region->end <= cursor) { return _uya_mmu_fault(\"stalled\", cursor, size, access); }\n";
-static const char str4016[] = "        if (region->end > end) { break; }\n";
-static const char str4017[] = "        cursor = region->end;\n";
-static const char str4018[] = "        fputs(\"[mmu] translate addr=0x\", stderr);\n";
-static const char str4019[] = "        _uya_mmu_write_u64_hex((unsigned long long)start);\n";
-static const char str4020[] = "    return addr;\n";
-static const char str4021[] = "static uint8_t *uya_error_name_from_id(uint32_t uya_error_id) {\n";
-static const char str4022[] = "    switch (uya_error_id) {\n";
-static const char str4023[] = "        case %uU: return (uint8_t *)\"%s\";\n";
-static const char str4024[] = "        default: return (uint8_t *)\"UnknownError\";\n";
-static const char str4025[] = "abs";
-static const char str4026[] = "/std/async_frame.uya";
-static const char str4027[] = "future_ready_ok";
-static const char str4028[] = "std_future_ready_ok";
-static const char str4029[] = "task_ready_ok";
-static const char str4030[] = "std_task_ready_ok";
-static const char str4031[] = "uya_test_%u";
-static const char str4032[] = "static struct err_union_void %s(void) {\n";
-static const char str4033[] = "    return (struct err_union_void){ .error_id = 0 };\n";
-static const char str4034[] = "static void uya_run_tests(void) {\n";
-static const char str4035[] = "    %s(\"  TEST: %s ... \");\n";
-static const char str4036[] = "      struct err_union_void _test_result = ";
-static const char str4037[] = "%s();\n";
-static const char str4038[] = "      if (_test_result.error_id != 0) { %s(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n";
-static const char str4039[] = "      else { _test_case_passed = _test_case_passed + 1; %s(\"OK\\n\"); } }\n";
-static const char str4040[] = "uya.c";
-static const char str4041[] = "compiler_bootstrap.c";
-static const char str4042[] = "// C99 代码由 Uya Mini 编译器生成\n";
-static const char str4043[] = "// 使用 -std=c99 编译\n";
-static const char str4044[] = "//\n";
-static const char str4045[] = "// 堆栈大小提示：此程序需要至少 %d KB 的堆栈空间\n";
-static const char str4046[] = "// 编译时请使用：ulimit -s %d\n";
-static const char str4047[] = "// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n";
-static const char str4048[] = "// 基本整数类型\n";
-static const char str4049[] = "typedef short int16_t;\n";
-static const char str4050[] = "typedef int int32_t;\n";
-static const char str4051[] = "typedef long long int64_t;\n";
-static const char str4052[] = "// size_t 和 ptrdiff_t\n";
-static const char str4053[] = "typedef long ptrdiff_t;\n";
-static const char str4054[] = "typedef long intptr_t;\n";
-static const char str4055[] = "typedef unsigned long uintptr_t;\n";
-static const char str4056[] = "// bool 类型\n";
-static const char str4057[] = "typedef uint8_t bool;\n";
-static const char str4058[] = "#define true ((bool)1)\n";
-static const char str4059[] = "#define false ((bool)0)\n";
-static const char str4060[] = "// NULL 定义\n";
-static const char str4061[] = "// offsetof 宏（C99 兼容）\n";
-static const char str4062[] = "#define offsetof(type, member) ((size_t) &((type *)0)->member)\n";
-static const char str4063[] = "// C99 兼容的 alignof 实现\n";
-static const char str4064[] = "#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n";
-static const char str4065[] = "// va_list 支持（可变参数函数）\n";
-static const char str4066[] = "typedef __builtin_va_list va_list;\n";
-static const char str4067[] = "#define va_start(v, l) __builtin_va_start(v, l)\n";
-static const char str4068[] = "#define va_end(v) __builtin_va_end(v)\n";
-static const char str4069[] = "#define va_arg(v, l) __builtin_va_arg(v, l)\n";
-static const char str4070[] = "#define va_copy(d, s) __builtin_va_copy(d, s)\n";
-static const char str4071[] = "#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n";
-static const char str4072[] = "// @asm_target 平台检测\n";
-static const char str4073[] = "  #if defined(__linux__)\n";
-static const char str4074[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
-static const char str4075[] = "  #elif defined(__APPLE__)\n";
-static const char str4076[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 1\n";
-static const char str4077[] = "  #elif defined(_WIN32)\n";
-static const char str4078[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 2\n";
-static const char str4079[] = "  #else\n";
-static const char str4080[] = "  #endif\n";
-static const char str4081[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 3\n";
-static const char str4082[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 4\n";
-static const char str4083[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 5\n";
-static const char str4084[] = "#elif defined(__riscv) && __riscv_xlen == 64\n";
-static const char str4085[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 6\n";
-static const char str4086[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
-static const char str4087[] = "#define UYA_TARGET_PLATFORM UYA_ASM_TARGET_X86_64_LINUX\n";
-static const char str4088[] = "#if defined(__linux__)\n";
-static const char str4089[] = "  #define UYA_TARGET_OS_LINUX 1\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str4090[] = "#elif defined(__APPLE__)\n";
-static const char str4091[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 1\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str4092[] = "#elif defined(_WIN32)\n";
-static const char str4093[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 1\n";
-static const char str4094[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
-static const char str4095[] = "  #define UYA_TARGET_ARCH_X86_64 1\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n";
+static const char str3827[] = "uya_";
+static const char str3828[] = "UYA_";
+static const char str3829[] = "#ifdef %s\n#undef %s\n#endif\n";
+static const char str3830[] = "(const uint8_t *)";
+static const char str3831[] = "{ .ptr = ";
+static const char str3832[] = "const %s %s%s";
+static const char str3833[] = "const %s %s";
+static const char str3834[] = "%s->%s";
+static const char str3835[] = "__uya_local_s";
+static const char str3836[] = "libc_errno";
+static const char str3837[] = "/lib/syscall/";
+static const char str3838[] = "\\lib\\syscall\\";
+static const char str3839[] = "extern %s %s;\n";
+static const char str3840[] = "extern const %s %s;\n";
+static const char str3841[] = "extern %s %s%s;\n";
+static const char str3842[] = "extern const %s %s%s;\n";
+static const char str3843[] = "%s/uya_mirror_globals.h";
+static const char str3844[] = "#ifndef UYA_MIRROR_GLOBALS_H\n#define UYA_MIRROR_GLOBALS_H\n\n";
+static const char str3845[] = "/* 镜像分 TU：全局 extern（须在 uya_split_protos.h 之后包含，以便类型已可见） */\n";
+static const char str3846[] = "RAND_MAX";
+static const char str3847[] = "\n#endif /* UYA_MIRROR_GLOBALS_H */\n";
+static const char str3848[] = "UYA_PROFILE_CODEGEN";
+static const char str3849[] = "// microapp bridge dispatch shim（portable runtime bridge ABI v1）\n";
+static const char str3850[] = "enum { UYA_MICROAPP_BRIDGE_ABI_MAGIC = 0x55414249U, UYA_MICROAPP_BRIDGE_ABI_VERSION = 1U };\n";
+static const char str3851[] = "enum { UYA_MICROAPP_SYS_PRINT = 1U, UYA_MICROAPP_SYS_ALLOC = 2U, UYA_MICROAPP_SYS_IO = 3U, UYA_MICROAPP_SYS_YIELD = 4U, UYA_MICROAPP_SYS_TIME = 5U };\n";
+static const char str3852[] = "struct UyaMicroappBridgeAbiV1 { uint32_t magic; uint32_t version; uintptr_t dispatch2; };\n";
+static const char str3853[] = "static __attribute__((used)) volatile struct UyaMicroappBridgeAbiV1 uya_microapp_bridge_abi_v1 = { UYA_MICROAPP_BRIDGE_ABI_MAGIC, UYA_MICROAPP_BRIDGE_ABI_VERSION, 0 };\n";
+static const char str3854[] = "static inline long uya_microapp_bridge_dispatch2(long nr, long a1, long a2) {\n";
+static const char str3855[] = "    if (uya_microapp_bridge_abi_v1.magic != UYA_MICROAPP_BRIDGE_ABI_MAGIC || uya_microapp_bridge_abi_v1.version != UYA_MICROAPP_BRIDGE_ABI_VERSION) { return -1; }\n";
+static const char str3856[] = "    if (uya_microapp_bridge_abi_v1.dispatch2 == 0) { return -1; }\n";
+static const char str3857[] = "    typedef long (*uya_bridge_dispatch2_fn)(long, long, long);\n";
+static const char str3858[] = "    return ((uya_bridge_dispatch2_fn)(uintptr_t)uya_microapp_bridge_abi_v1.dispatch2)(nr, a1, a2);\n";
+static const char str3859[] = "static inline long uya_microapp_bridge_dispatch1(long nr, long a1) { return uya_microapp_bridge_dispatch2(nr, a1, 0); }\n";
+static const char str3860[] = "static inline long uya_microapp_bridge_dispatch0(long nr) { return uya_microapp_bridge_dispatch2(nr, 0, 0); }\n\n";
+static const char str3861[] = "// microapp MMU translation hook（native adapter：按当前进程内存映射做权限校验）\n";
+static const char str3862[] = "extern char *getenv(const char *name);\n";
+static const char str3863[] = "extern int open(const char *pathname, int flags, ...);\n";
+static const char str3864[] = "extern int64_t read(int32_t fd, char *buf, size_t count);\n";
+static const char str3865[] = "extern int32_t close(int32_t fd);\n";
+static const char str3866[] = "struct FILE;\n";
+static const char str3867[] = "extern struct FILE *fopen(const char *filename, const char *mode);\n";
+static const char str3868[] = "extern int32_t fclose(struct FILE *stream);\n";
+static const char str3869[] = "extern char *fgets(char *buf, int32_t n, struct FILE *stream);\n";
+static const char str3870[] = "extern int32_t sscanf(const char *str, const char *format, ...);\n";
+static const char str3871[] = "extern int32_t fputs(const char *s, struct FILE *stream);\n";
+static const char str3872[] = "extern int32_t fputc(int32_t c, struct FILE *stream);\n";
+static const char str3873[] = "extern int32_t fprintf(struct FILE *stream, const char *format, ...);\n";
+static const char str3874[] = "extern struct FILE *stderr;\n";
+static const char str3875[] = "enum { UYA_MMU_ACCESS_R = 1U, UYA_MMU_ACCESS_W = 2U, UYA_MMU_ACCESS_X = 4U };\n";
+static const char str3876[] = "struct UyaMmuRegion { uintptr_t start; uintptr_t end; unsigned int perms; };\n";
+static const char str3877[] = "enum { UYA_MMU_REGION_MAX = 512U };\n";
+static const char str3878[] = "static int _uya_mmu_internal_depth = 0;\n";
+static const char str3879[] = "static int _uya_mmu_debug_enabled = -1;\n";
+static const char str3880[] = "static int _uya_mmu_maps_ready = 0;\n";
+static const char str3881[] = "static size_t _uya_mmu_region_count = 0;\n";
+static const char str3882[] = "static struct UyaMmuRegion _uya_mmu_regions[UYA_MMU_REGION_MAX];\n";
+static const char str3883[] = "static inline void _uya_mmu_internal_begin(void) { _uya_mmu_internal_depth = _uya_mmu_internal_depth + 1; }\n";
+static const char str3884[] = "static inline void _uya_mmu_internal_end(void) { if (_uya_mmu_internal_depth > 0) { _uya_mmu_internal_depth = _uya_mmu_internal_depth - 1; } }\n";
+static const char str3885[] = "static inline unsigned int _uya_mmu_parse_perms(const char *perms) {\n";
+static const char str3886[] = "    unsigned int out = 0U;\n";
+static const char str3887[] = "    if (perms != NULL) {\n";
+static const char str3888[] = "        if (perms[0] == 'r') { out |= UYA_MMU_ACCESS_R; }\n";
+static const char str3889[] = "        if (perms[1] == 'w') { out |= UYA_MMU_ACCESS_W; }\n";
+static const char str3890[] = "        if (perms[2] == 'x') { out |= UYA_MMU_ACCESS_X; }\n";
+static const char str3891[] = "    return out;\n";
+static const char str3892[] = "static inline unsigned int _uya_mmu_hex_digit(int32_t ch) {\n";
+static const char str3893[] = "    if (ch >= '0' && ch <= '9') { return (unsigned int)(ch - '0'); }\n";
+static const char str3894[] = "    if (ch >= 'a' && ch <= 'f') { return 10U + (unsigned int)(ch - 'a'); }\n";
+static const char str3895[] = "    if (ch >= 'A' && ch <= 'F') { return 10U + (unsigned int)(ch - 'A'); }\n";
+static const char str3896[] = "    return 255U;\n";
+static const char str3897[] = "static inline void _uya_mmu_ingest_map_line(const char *line) {\n";
+static const char str3898[] = "    const char *cursor = line;\n";
+static const char str3899[] = "    unsigned long long start = 0ULL;\n";
+static const char str3900[] = "    unsigned long long end = 0ULL;\n";
+static const char str3901[] = "    char perms[5] = {0};\n";
+static const char str3902[] = "    int have_start = 0;\n";
+static const char str3903[] = "    int have_end = 0;\n";
+static const char str3904[] = "    while (cursor[0] == ' ' || cursor[0] == '\\t') { cursor = cursor + 1; }\n";
+static const char str3905[] = "    while (cursor[0] != 0 && cursor[0] != '-') {\n";
+static const char str3906[] = "        const unsigned int nibble = _uya_mmu_hex_digit((int32_t)cursor[0]);\n";
+static const char str3907[] = "        if (nibble > 15U) { have_start = 0; break; }\n";
+static const char str3908[] = "        start = (start << 4U) | (unsigned long long)nibble;\n";
+static const char str3909[] = "        have_start = 1;\n";
+static const char str3910[] = "        cursor = cursor + 1;\n";
+static const char str3911[] = "    if (have_start == 0 || cursor[0] != '-') { return; }\n";
+static const char str3912[] = "    cursor = cursor + 1;\n";
+static const char str3913[] = "    while (cursor[0] != 0 && cursor[0] != ' ' && cursor[0] != '\\t') {\n";
+static const char str3914[] = "        if (nibble > 15U) { have_end = 0; break; }\n";
+static const char str3915[] = "        end = (end << 4U) | (unsigned long long)nibble;\n";
+static const char str3916[] = "        have_end = 1;\n";
+static const char str3917[] = "    perms[0] = cursor[0]; perms[1] = cursor[1]; perms[2] = cursor[2]; perms[3] = cursor[3]; perms[4] = 0;\n";
+static const char str3918[] = "    if (have_start != 0 && have_end != 0 && perms[0] != 0 && perms[1] != 0 && perms[2] != 0) {\n";
+static const char str3919[] = "        if (_uya_mmu_region_count < UYA_MMU_REGION_MAX) {\n";
+static const char str3920[] = "            _uya_mmu_regions[_uya_mmu_region_count].start = (uintptr_t)start;\n";
+static const char str3921[] = "            _uya_mmu_regions[_uya_mmu_region_count].end = (uintptr_t)end;\n";
+static const char str3922[] = "            _uya_mmu_regions[_uya_mmu_region_count].perms = _uya_mmu_parse_perms(perms);\n";
+static const char str3923[] = "            _uya_mmu_region_count = _uya_mmu_region_count + 1U;\n";
+static const char str3924[] = "static inline int _uya_mmu_debug_once(void) {\n";
+static const char str3925[] = "    if (_uya_mmu_debug_enabled >= 0) { return _uya_mmu_debug_enabled; }\n";
+static const char str3926[] = "    _uya_mmu_internal_begin();\n";
+static const char str3927[] = "    const char *flag = getenv(\"MICROAPP_DEBUG_MMU\");\n";
+static const char str3928[] = "    _uya_mmu_internal_end();\n";
+static const char str3929[] = "    if (flag != NULL && flag[0] != 0 && flag[0] != '0') { _uya_mmu_debug_enabled = 1; } else { _uya_mmu_debug_enabled = 0; }\n";
+static const char str3930[] = "    return _uya_mmu_debug_enabled;\n";
+static const char str3931[] = "static inline void _uya_mmu_refresh_maps(void) {\n";
+static const char str3932[] = "    if (_uya_mmu_maps_ready != 0) { return; }\n";
+static const char str3933[] = "    _uya_mmu_maps_ready = 1;\n";
+static const char str3934[] = "    int fd = open(\"/proc/self/maps\", 0);\n";
+static const char str3935[] = "    if (fd < 0) { _uya_mmu_internal_end(); return; }\n";
+static const char str3936[] = "    char line[512];\n";
+static const char str3937[] = "    char chunk[1024];\n";
+static const char str3938[] = "    size_t line_len = 0U;\n";
+static const char str3939[] = "    while (1) {\n";
+static const char str3940[] = "        const int64_t bytes_read = read(fd, chunk, sizeof(chunk));\n";
+static const char str3941[] = "        if (bytes_read <= 0) { break; }\n";
+static const char str3942[] = "        size_t chunk_pos = 0U;\n";
+static const char str3943[] = "        while (chunk_pos < (size_t)bytes_read) {\n";
+static const char str3944[] = "            const char ch = chunk[chunk_pos];\n";
+static const char str3945[] = "            if (ch == '\\n') {\n";
+static const char str3946[] = "                line[line_len] = 0;\n";
+static const char str3947[] = "                _uya_mmu_ingest_map_line(line);\n";
+static const char str3948[] = "                line_len = 0U;\n";
+static const char str3949[] = "            } else if (line_len + 1U < sizeof(line)) {\n";
+static const char str3950[] = "                line[line_len] = ch;\n";
+static const char str3951[] = "                line_len = line_len + 1U;\n";
+static const char str3952[] = "            }\n";
+static const char str3953[] = "            chunk_pos = chunk_pos + 1U;\n";
+static const char str3954[] = "    if (line_len > 0U) {\n";
+static const char str3955[] = "        line[line_len] = 0;\n";
+static const char str3956[] = "        _uya_mmu_ingest_map_line(line);\n";
+static const char str3957[] = "    (void)close(fd);\n";
+static const char str3958[] = "static inline const struct UyaMmuRegion *_uya_mmu_find_region(uintptr_t addr) {\n";
+static const char str3959[] = "    size_t i = 0;\n";
+static const char str3960[] = "    while (i < _uya_mmu_region_count) {\n";
+static const char str3961[] = "        if (addr >= _uya_mmu_regions[i].start && addr < _uya_mmu_regions[i].end) { return &_uya_mmu_regions[i]; }\n";
+static const char str3962[] = "        i = i + 1U;\n";
+static const char str3963[] = "    return (const struct UyaMmuRegion *)0;\n";
+static const char str3964[] = "static inline void _uya_mmu_write_u64_hex(unsigned long long value) {\n";
+static const char str3965[] = "    char digits[16];\n";
+static const char str3966[] = "    size_t pos = 0;\n";
+static const char str3967[] = "    if (value == 0ULL) { fputc((int32_t)'0', stderr); return; }\n";
+static const char str3968[] = "    while (value != 0ULL && pos < 16U) {\n";
+static const char str3969[] = "        const unsigned int nibble = (unsigned int)(value & 15ULL);\n";
+static const char str3970[] = "        digits[pos] = (nibble < 10U) ? (char)('0' + nibble) : (char)('a' + (nibble - 10U));\n";
+static const char str3971[] = "        pos = pos + 1U;\n";
+static const char str3972[] = "        value = value >> 4U;\n";
+static const char str3973[] = "    while (pos > 0U) {\n";
+static const char str3974[] = "        pos = pos - 1U;\n";
+static const char str3975[] = "        fputc((int32_t)digits[pos], stderr);\n";
+static const char str3976[] = "static inline void *_uya_mmu_fault(const char *kind, uintptr_t addr, size_t size, unsigned int access) {\n";
+static const char str3977[] = "    if (_uya_mmu_debug_once() != 0) {\n";
+static const char str3978[] = "        _uya_mmu_internal_begin();\n";
+static const char str3979[] = "        fputs(\"[mmu] fault kind=\", stderr);\n";
+static const char str3980[] = "        fputs(kind, stderr);\n";
+static const char str3981[] = "        fputs(\" addr=0x\", stderr);\n";
+static const char str3982[] = "        _uya_mmu_write_u64_hex((unsigned long long)addr);\n";
+static const char str3983[] = "        fputs(\" size=\", stderr);\n";
+static const char str3984[] = "        fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
+static const char str3985[] = "        fputs(\" access=0x\", stderr);\n";
+static const char str3986[] = "        fprintf(stderr, \"%x\", access);\n";
+static const char str3987[] = "        fputc(10, stderr);\n";
+static const char str3988[] = "        _uya_mmu_internal_end();\n";
+static const char str3989[] = "    return (void *)0;\n";
+static const char str3990[] = "static inline void *uya_mmu_translate(void *addr, size_t size, unsigned int access) {\n";
+static const char str3991[] = "    if (addr == NULL) { return (void *)0; }\n";
+static const char str3992[] = "    if (size == 0) { return addr; }\n";
+static const char str3993[] = "    if (_uya_mmu_internal_depth > 0) { return addr; }\n";
+static const char str3994[] = "    if (_uya_mmu_maps_ready == 0) { _uya_mmu_refresh_maps(); }\n";
+static const char str3995[] = "    if (_uya_mmu_region_count == 0) {\n";
+static const char str3996[] = "        if (_uya_mmu_debug_once() != 0) {\n";
+static const char str3997[] = "            _uya_mmu_internal_begin();\n";
+static const char str3998[] = "            fputs(\"[mmu] translate addr=0x\", stderr);\n";
+static const char str3999[] = "            _uya_mmu_write_u64_hex((unsigned long long)(uintptr_t)addr);\n";
+static const char str4000[] = "            fputs(\" size=\", stderr);\n";
+static const char str4001[] = "            fprintf(stderr, \"%llu\", (unsigned long long)size);\n";
+static const char str4002[] = "            fputs(\" access=0x\", stderr);\n";
+static const char str4003[] = "            fprintf(stderr, \"%x\", access);\n";
+static const char str4004[] = "            fputs(\" (maps unavailable, fallback direct)\", stderr);\n";
+static const char str4005[] = "            fputc(10, stderr);\n";
+static const char str4006[] = "            _uya_mmu_internal_end();\n";
+static const char str4007[] = "        return addr;\n";
+static const char str4008[] = "    const uintptr_t start = (uintptr_t)addr;\n";
+static const char str4009[] = "    const uintptr_t end = start + (uintptr_t)size - 1U;\n";
+static const char str4010[] = "    if (end < start) { return _uya_mmu_fault(\"overflow\", start, size, access); }\n";
+static const char str4011[] = "    uintptr_t cursor = start;\n";
+static const char str4012[] = "    while (cursor <= end) {\n";
+static const char str4013[] = "        const struct UyaMmuRegion *region = _uya_mmu_find_region(cursor);\n";
+static const char str4014[] = "        if (region == NULL) { return _uya_mmu_fault(\"unmapped\", cursor, size, access); }\n";
+static const char str4015[] = "        if (((access & UYA_MMU_ACCESS_R) != 0U) && ((region->perms & UYA_MMU_ACCESS_R) == 0U)) { return _uya_mmu_fault(\"read\", cursor, size, access); }\n";
+static const char str4016[] = "        if (((access & UYA_MMU_ACCESS_W) != 0U) && ((region->perms & UYA_MMU_ACCESS_W) == 0U)) { return _uya_mmu_fault(\"write\", cursor, size, access); }\n";
+static const char str4017[] = "        if (((access & UYA_MMU_ACCESS_X) != 0U) && ((region->perms & UYA_MMU_ACCESS_X) == 0U)) { return _uya_mmu_fault(\"exec\", cursor, size, access); }\n";
+static const char str4018[] = "        if (region->end <= cursor) { return _uya_mmu_fault(\"stalled\", cursor, size, access); }\n";
+static const char str4019[] = "        if (region->end > end) { break; }\n";
+static const char str4020[] = "        cursor = region->end;\n";
+static const char str4021[] = "        fputs(\"[mmu] translate addr=0x\", stderr);\n";
+static const char str4022[] = "        _uya_mmu_write_u64_hex((unsigned long long)start);\n";
+static const char str4023[] = "    return addr;\n";
+static const char str4024[] = "static uint8_t *uya_error_name_from_id(uint32_t uya_error_id) {\n";
+static const char str4025[] = "    switch (uya_error_id) {\n";
+static const char str4026[] = "        case %uU: return (uint8_t *)\"%s\";\n";
+static const char str4027[] = "        default: return (uint8_t *)\"UnknownError\";\n";
+static const char str4028[] = "abs";
+static const char str4029[] = "/std/async_frame.uya";
+static const char str4030[] = "future_ready_ok";
+static const char str4031[] = "std_future_ready_ok";
+static const char str4032[] = "task_ready_ok";
+static const char str4033[] = "std_task_ready_ok";
+static const char str4034[] = "uya_test_%u";
+static const char str4035[] = "static struct err_union_void %s(void) {\n";
+static const char str4036[] = "    return (struct err_union_void){ .error_id = 0 };\n";
+static const char str4037[] = "static void uya_run_tests(void) {\n";
+static const char str4038[] = "    %s(\"  TEST: %s ... \");\n";
+static const char str4039[] = "      struct err_union_void _test_result = ";
+static const char str4040[] = "%s();\n";
+static const char str4041[] = "      if (_test_result.error_id != 0) { %s(\"ERROR\\n\"); _test_failed = _test_failed + 1; }\n";
+static const char str4042[] = "      else { _test_case_passed = _test_case_passed + 1; %s(\"OK\\n\"); } }\n";
+static const char str4043[] = "uya.c";
+static const char str4044[] = "compiler_bootstrap.c";
+static const char str4045[] = "// C99 代码由 Uya Mini 编译器生成\n";
+static const char str4046[] = "// 使用 -std=c99 编译\n";
+static const char str4047[] = "//\n";
+static const char str4048[] = "// 堆栈大小提示：此程序需要至少 %d KB 的堆栈空间\n";
+static const char str4049[] = "// 编译时请使用：ulimit -s %d\n";
+static const char str4050[] = "// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n";
+static const char str4051[] = "// 基本整数类型\n";
+static const char str4052[] = "typedef short int16_t;\n";
+static const char str4053[] = "typedef int int32_t;\n";
+static const char str4054[] = "typedef long long int64_t;\n";
+static const char str4055[] = "// size_t 和 ptrdiff_t\n";
+static const char str4056[] = "typedef long ptrdiff_t;\n";
+static const char str4057[] = "typedef long intptr_t;\n";
+static const char str4058[] = "typedef unsigned long uintptr_t;\n";
+static const char str4059[] = "// bool 类型\n";
+static const char str4060[] = "typedef uint8_t bool;\n";
+static const char str4061[] = "#define true ((bool)1)\n";
+static const char str4062[] = "#define false ((bool)0)\n";
+static const char str4063[] = "// NULL 定义\n";
+static const char str4064[] = "// offsetof 宏（C99 兼容）\n";
+static const char str4065[] = "#define offsetof(type, member) ((size_t) &((type *)0)->member)\n";
+static const char str4066[] = "// C99 兼容的 alignof 实现\n";
+static const char str4067[] = "#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n";
+static const char str4068[] = "// va_list 支持（可变参数函数）\n";
+static const char str4069[] = "typedef __builtin_va_list va_list;\n";
+static const char str4070[] = "#define va_start(v, l) __builtin_va_start(v, l)\n";
+static const char str4071[] = "#define va_end(v) __builtin_va_end(v)\n";
+static const char str4072[] = "#define va_arg(v, l) __builtin_va_arg(v, l)\n";
+static const char str4073[] = "#define va_copy(d, s) __builtin_va_copy(d, s)\n";
+static const char str4074[] = "#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n";
+static const char str4075[] = "// @asm_target 平台检测\n";
+static const char str4076[] = "  #if defined(__linux__)\n";
+static const char str4077[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
+static const char str4078[] = "  #elif defined(__APPLE__)\n";
+static const char str4079[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 1\n";
+static const char str4080[] = "  #elif defined(_WIN32)\n";
+static const char str4081[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 2\n";
+static const char str4082[] = "  #else\n";
+static const char str4083[] = "  #endif\n";
+static const char str4084[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 3\n";
+static const char str4085[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 4\n";
+static const char str4086[] = "    #define UYA_ASM_TARGET_X86_64_LINUX 5\n";
+static const char str4087[] = "#elif defined(__riscv) && __riscv_xlen == 64\n";
+static const char str4088[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 6\n";
+static const char str4089[] = "  #define UYA_ASM_TARGET_X86_64_LINUX 0\n";
+static const char str4090[] = "#define UYA_TARGET_PLATFORM UYA_ASM_TARGET_X86_64_LINUX\n";
+static const char str4091[] = "#if defined(__linux__)\n";
+static const char str4092[] = "  #define UYA_TARGET_OS_LINUX 1\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4093[] = "#elif defined(__APPLE__)\n";
+static const char str4094[] = "  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 1\n  #define UYA_TARGET_OS_WINDOWS 0\n";
+static const char str4095[] = "#elif defined(_WIN32)\n";
 
 struct TypeInfo;
 struct err_union_size_t;
@@ -10027,6 +10027,8 @@ void codegen_c99_global_c99_ident_ref_cache_reset();
 static __attribute__((used)) void c99_ident_ref_cache_ensure(struct C99CodeGenerator * codegen);
 static __attribute__((used)) int32_t c99_ident_ref_cache_slot(struct C99CodeGenerator * codegen, uint8_t * name);
 static __attribute__((used)) int32_t c99_c_type_str_leading_const(uint8_t * tc);
+static __attribute__((used)) int32_t c99_global_name_may_collide_with_c_macro(uint8_t * cname);
+static __attribute__((used)) void c99_emit_global_macro_undef_guard(struct C99CodeGenerator * codegen, uint8_t * cname);
 static __attribute__((used)) int32_t global_init_ctx_is_const_ptr_to_byte(struct ASTNode * ctx);
 static __attribute__((used)) struct ASTNode * c99_find_top_level_const_init_expr(struct C99CodeGenerator * codegen, uint8_t * name, struct ASTNode * * out_type);
 static __attribute__((used)) struct ASTNode * c99_find_struct_init_field_expr(struct ASTNode * struct_init, uint8_t * field_name);
@@ -10494,7 +10496,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10531,7 +10533,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -10598,1055 +10600,3182 @@ int32_t cmd_upm_upm_lib_publish_upm_publish_prepare_plan(uint8_t * manifest_path
 int32_t cmd_upm_upm_lib_publish_upm_publish_write_metadata(struct UPMPublishPlan * plan, uint8_t * output_path);
 
 extern struct FILE _stdin, _stdout, _stderr;
+#ifdef HOST_SIZE_PTR_BYTES
+#undef HOST_SIZE_PTR_BYTES
+#endif
 __attribute__((used)) const size_t HOST_SIZE_PTR_BYTES = 8ULL;
 
+#ifdef HOST_SIZE_LEXER_BYTES
+#undef HOST_SIZE_LEXER_BYTES
+#endif
 __attribute__((used)) const size_t HOST_SIZE_LEXER_BYTES = 1052744ULL;
 
+#ifdef HOST_SIZE_TYPECHECKER_BYTES
+#undef HOST_SIZE_TYPECHECKER_BYTES
+#endif
 __attribute__((used)) const size_t HOST_SIZE_TYPECHECKER_BYTES = 8388608ULL;
 
+#ifdef HOST_SIZE_C99_CODEGENERATOR_BYTES
+#undef HOST_SIZE_C99_CODEGENERATOR_BYTES
+#endif
 __attribute__((used)) const size_t HOST_SIZE_C99_CODEGENERATOR_BYTES = 2097152ULL;
 
+#ifdef HOST_SIZE_CIMPORT_ITEM_BYTES
+#undef HOST_SIZE_CIMPORT_ITEM_BYTES
+#endif
 __attribute__((used)) const size_t HOST_SIZE_CIMPORT_ITEM_BYTES = 48ULL;
 
+#ifdef FILE_BUFFER_SIZE
+#undef FILE_BUFFER_SIZE
+#endif
 __attribute__((used)) const int32_t FILE_BUFFER_SIZE = /* optimized */ 1048576;
 
+#ifdef ARENA_BUFFER_SIZE
+#undef ARENA_BUFFER_SIZE
+#endif
 __attribute__((used)) const int32_t ARENA_BUFFER_SIZE = /* optimized */ 67108864;
 
+#ifdef MAX_INPUT_FILES
+#undef MAX_INPUT_FILES
+#endif
 __attribute__((used)) const int32_t MAX_INPUT_FILES = 512;
 
+#ifdef MICROAPP_REQUIRED_CAP_IO_UART
+#undef MICROAPP_REQUIRED_CAP_IO_UART
+#endif
 __attribute__((used)) const uint32_t MICROAPP_REQUIRED_CAP_IO_UART = (1U << 0);
 
+#ifdef MICROAPP_REQUIRED_CAP_IO_GPIO
+#undef MICROAPP_REQUIRED_CAP_IO_GPIO
+#endif
 __attribute__((used)) const uint32_t MICROAPP_REQUIRED_CAP_IO_GPIO = (1U << 1);
 
+#ifdef MICROAPP_REQUIRED_CAP_IO_TIMER
+#undef MICROAPP_REQUIRED_CAP_IO_TIMER
+#endif
 __attribute__((used)) const uint32_t MICROAPP_REQUIRED_CAP_IO_TIMER = (1U << 2);
 
+#ifdef POBJ_MAGIC
+#undef POBJ_MAGIC
+#endif
 __attribute__((used)) const uint32_t POBJ_MAGIC = 1245859664;
 
+#ifdef POBJ_HEADER_SIZE_V1
+#undef POBJ_HEADER_SIZE_V1
+#endif
 __attribute__((used)) const uint32_t POBJ_HEADER_SIZE_V1 = 40;
 
+#ifdef POBJ_HEADER_SIZE
+#undef POBJ_HEADER_SIZE
+#endif
 __attribute__((used)) const uint32_t POBJ_HEADER_SIZE = 68;
 
+#ifdef POBJ_HEADER_SIZE_V2
+#undef POBJ_HEADER_SIZE_V2
+#endif
 __attribute__((used)) const uint32_t POBJ_HEADER_SIZE_V2 = 84;
 
+#ifdef POBJ_VERSION
+#undef POBJ_VERSION
+#endif
 __attribute__((used)) const uint16_t POBJ_VERSION = 8;
 
+#ifdef POBJ_BUILD_MODE_MICROAPP
+#undef POBJ_BUILD_MODE_MICROAPP
+#endif
 __attribute__((used)) const uint32_t POBJ_BUILD_MODE_MICROAPP = 1;
 
+#ifdef MICROAPP_TARGET_ARCH_RV32_RAW
+#undef MICROAPP_TARGET_ARCH_RV32_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_TARGET_ARCH_RV32_RAW = 1U;
 
+#ifdef MICROAPP_TARGET_ARCH_X86_64_RAW
+#undef MICROAPP_TARGET_ARCH_X86_64_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_TARGET_ARCH_X86_64_RAW = 2U;
 
+#ifdef MICROAPP_TARGET_ARCH_AARCH64_RAW
+#undef MICROAPP_TARGET_ARCH_AARCH64_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_TARGET_ARCH_AARCH64_RAW = 3U;
 
+#ifdef MICROAPP_TARGET_ARCH_XTENSA_RAW
+#undef MICROAPP_TARGET_ARCH_XTENSA_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_TARGET_ARCH_XTENSA_RAW = 4U;
 
+#ifdef MICROAPP_PROFILE_UNKNOWN_RAW
+#undef MICROAPP_PROFILE_UNKNOWN_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_PROFILE_UNKNOWN_RAW = 0U;
 
+#ifdef MICROAPP_PROFILE_LINUX_X86_64_HARDVM_RAW
+#undef MICROAPP_PROFILE_LINUX_X86_64_HARDVM_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_PROFILE_LINUX_X86_64_HARDVM_RAW = 1U;
 
+#ifdef MICROAPP_PROFILE_LINUX_AARCH64_HARDVM_RAW
+#undef MICROAPP_PROFILE_LINUX_AARCH64_HARDVM_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_PROFILE_LINUX_AARCH64_HARDVM_RAW = 2U;
 
+#ifdef MICROAPP_PROFILE_RV32_BAREMETAL_SOFTVM_RAW
+#undef MICROAPP_PROFILE_RV32_BAREMETAL_SOFTVM_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_PROFILE_RV32_BAREMETAL_SOFTVM_RAW = 3U;
 
+#ifdef MICROAPP_PROFILE_XTENSA_BAREMETAL_SOFTVM_RAW
+#undef MICROAPP_PROFILE_XTENSA_BAREMETAL_SOFTVM_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_PROFILE_XTENSA_BAREMETAL_SOFTVM_RAW = 4U;
 
+#ifdef MICROAPP_PROFILE_MACOS_ARM64_HARDVM_RAW
+#undef MICROAPP_PROFILE_MACOS_ARM64_HARDVM_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_PROFILE_MACOS_ARM64_HARDVM_RAW = 5U;
 
+#ifdef MICROAPP_BRIDGE_UNKNOWN_RAW
+#undef MICROAPP_BRIDGE_UNKNOWN_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_BRIDGE_UNKNOWN_RAW = 0U;
 
+#ifdef MICROAPP_BRIDGE_TRAP_RAW
+#undef MICROAPP_BRIDGE_TRAP_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_BRIDGE_TRAP_RAW = 1U;
 
+#ifdef MICROAPP_BRIDGE_CALL_GATE_RAW
+#undef MICROAPP_BRIDGE_CALL_GATE_RAW
+#endif
 __attribute__((used)) const uint32_t MICROAPP_BRIDGE_CALL_GATE_RAW = 2U;
 
+#ifdef MICROAPP_VADDR_BASE
+#undef MICROAPP_VADDR_BASE
+#endif
 __attribute__((used)) const uint32_t MICROAPP_VADDR_BASE = 65536U;
 
+#ifdef MICROAPP_DEFAULT_STACK_HINT_BYTES
+#undef MICROAPP_DEFAULT_STACK_HINT_BYTES
+#endif
 __attribute__((used)) const uint32_t MICROAPP_DEFAULT_STACK_HINT_BYTES = 65536U;
 
+#ifdef ELF64_HEADER_SIZE
+#undef ELF64_HEADER_SIZE
+#endif
 __attribute__((used)) const size_t ELF64_HEADER_SIZE = 64ULL;
 
+#ifdef ELF64_SECTION_HEADER_SIZE
+#undef ELF64_SECTION_HEADER_SIZE
+#endif
 __attribute__((used)) const size_t ELF64_SECTION_HEADER_SIZE = 64ULL;
 
+#ifdef ELF64_SYMBOL_SIZE
+#undef ELF64_SYMBOL_SIZE
+#endif
 __attribute__((used)) const size_t ELF64_SYMBOL_SIZE = 24ULL;
 
+#ifdef ELF64_RELA_SIZE
+#undef ELF64_RELA_SIZE
+#endif
 __attribute__((used)) const size_t ELF64_RELA_SIZE = 24ULL;
 
+#ifdef ELFCLASS64_RAW
+#undef ELFCLASS64_RAW
+#endif
 __attribute__((used)) const uint8_t ELFCLASS64_RAW = (uint8_t)2;
 
+#ifdef ELFDATA2LSB_RAW
+#undef ELFDATA2LSB_RAW
+#endif
 __attribute__((used)) const uint8_t ELFDATA2LSB_RAW = (uint8_t)1;
 
+#ifdef ELF64_SECTION_TYPE_SYMTAB_RAW
+#undef ELF64_SECTION_TYPE_SYMTAB_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_TYPE_SYMTAB_RAW = 2U;
 
+#ifdef ELF64_SECTION_TYPE_RELA_RAW
+#undef ELF64_SECTION_TYPE_RELA_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_TYPE_RELA_RAW = 4U;
 
+#ifdef ELF64_SECTION_TYPE_DYNSYM_RAW
+#undef ELF64_SECTION_TYPE_DYNSYM_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_TYPE_DYNSYM_RAW = 11U;
 
+#ifdef ELF64_SECTION_TYPE_PROGBITS_RAW
+#undef ELF64_SECTION_TYPE_PROGBITS_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_TYPE_PROGBITS_RAW = 1U;
 
+#ifdef ELF64_SECTION_TYPE_NOBITS_RAW
+#undef ELF64_SECTION_TYPE_NOBITS_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_TYPE_NOBITS_RAW = 8U;
 
+#ifdef ELF64_SECTION_FLAG_WRITE_RAW
+#undef ELF64_SECTION_FLAG_WRITE_RAW
+#endif
 __attribute__((used)) const uint64_t ELF64_SECTION_FLAG_WRITE_RAW = 1ULL;
 
+#ifdef ELF64_SECTION_FLAG_ALLOC_RAW
+#undef ELF64_SECTION_FLAG_ALLOC_RAW
+#endif
 __attribute__((used)) const uint64_t ELF64_SECTION_FLAG_ALLOC_RAW = 2ULL;
 
+#ifdef ELF64_SECTION_FLAG_EXEC_RAW
+#undef ELF64_SECTION_FLAG_EXEC_RAW
+#endif
 __attribute__((used)) const uint64_t ELF64_SECTION_FLAG_EXEC_RAW = 4ULL;
 
+#ifdef ELF_MACHINE_X86_64_RAW
+#undef ELF_MACHINE_X86_64_RAW
+#endif
 __attribute__((used)) const uint16_t ELF_MACHINE_X86_64_RAW = 62U;
 
+#ifdef ELF_MACHINE_AARCH64_RAW
+#undef ELF_MACHINE_AARCH64_RAW
+#endif
 __attribute__((used)) const uint16_t ELF_MACHINE_AARCH64_RAW = 183U;
 
+#ifdef ELF_RELOC_X86_64_PC32_RAW
+#undef ELF_RELOC_X86_64_PC32_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_X86_64_PC32_RAW = 2U;
 
+#ifdef ELF_RELOC_X86_64_PLT32_RAW
+#undef ELF_RELOC_X86_64_PLT32_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_X86_64_PLT32_RAW = 4U;
 
+#ifdef ELF_RELOC_X86_64_64_RAW
+#undef ELF_RELOC_X86_64_64_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_X86_64_64_RAW = 1U;
 
+#ifdef ELF_RELOC_X86_64_GLOB_DAT_RAW
+#undef ELF_RELOC_X86_64_GLOB_DAT_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_X86_64_GLOB_DAT_RAW = 6U;
 
+#ifdef ELF_RELOC_X86_64_RELATIVE_RAW
+#undef ELF_RELOC_X86_64_RELATIVE_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_X86_64_RELATIVE_RAW = 8U;
 
+#ifdef ELF_RELOC_AARCH64_ABS64_RAW
+#undef ELF_RELOC_AARCH64_ABS64_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_ABS64_RAW = 257U;
 
+#ifdef ELF_RELOC_AARCH64_LD_PREL_LO19_RAW
+#undef ELF_RELOC_AARCH64_LD_PREL_LO19_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_LD_PREL_LO19_RAW = 273U;
 
+#ifdef ELF_RELOC_AARCH64_ADR_PREL_LO21_RAW
+#undef ELF_RELOC_AARCH64_ADR_PREL_LO21_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_ADR_PREL_LO21_RAW = 274U;
 
+#ifdef ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_RAW
+#undef ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_RAW = 275U;
 
+#ifdef ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_NC_RAW
+#undef ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_NC_RAW = 276U;
 
+#ifdef ELF_RELOC_AARCH64_ADD_ABS_LO12_NC_RAW
+#undef ELF_RELOC_AARCH64_ADD_ABS_LO12_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_ADD_ABS_LO12_NC_RAW = 277U;
 
+#ifdef ELF_RELOC_AARCH64_LDST8_ABS_LO12_NC_RAW
+#undef ELF_RELOC_AARCH64_LDST8_ABS_LO12_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_LDST8_ABS_LO12_NC_RAW = 278U;
 
+#ifdef ELF_RELOC_AARCH64_JUMP26_RAW
+#undef ELF_RELOC_AARCH64_JUMP26_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_JUMP26_RAW = 282U;
 
+#ifdef ELF_RELOC_AARCH64_CALL26_RAW
+#undef ELF_RELOC_AARCH64_CALL26_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_CALL26_RAW = 283U;
 
+#ifdef ELF_RELOC_AARCH64_LDST16_ABS_LO12_NC_RAW
+#undef ELF_RELOC_AARCH64_LDST16_ABS_LO12_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_LDST16_ABS_LO12_NC_RAW = 284U;
 
+#ifdef ELF_RELOC_AARCH64_LDST32_ABS_LO12_NC_RAW
+#undef ELF_RELOC_AARCH64_LDST32_ABS_LO12_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_LDST32_ABS_LO12_NC_RAW = 285U;
 
+#ifdef ELF_RELOC_AARCH64_LDST64_ABS_LO12_NC_RAW
+#undef ELF_RELOC_AARCH64_LDST64_ABS_LO12_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_LDST64_ABS_LO12_NC_RAW = 286U;
 
+#ifdef ELF_RELOC_AARCH64_GLOB_DAT_RAW
+#undef ELF_RELOC_AARCH64_GLOB_DAT_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_GLOB_DAT_RAW = 1025U;
 
+#ifdef ELF_RELOC_AARCH64_RELATIVE_RAW
+#undef ELF_RELOC_AARCH64_RELATIVE_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_RELATIVE_RAW = 1027U;
 
+#ifdef ELF_RELOC_AARCH64_LDST128_ABS_LO12_NC_RAW
+#undef ELF_RELOC_AARCH64_LDST128_ABS_LO12_NC_RAW
+#endif
 __attribute__((used)) const uint32_t ELF_RELOC_AARCH64_LDST128_ABS_LO12_NC_RAW = 299U;
 
+#ifdef MACHO_MAGIC_64_RAW
+#undef MACHO_MAGIC_64_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_MAGIC_64_RAW = ((uint32_t)4277009103ULL);
 
+#ifdef MACHO_CPU_TYPE_ARM64_RAW
+#undef MACHO_CPU_TYPE_ARM64_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_CPU_TYPE_ARM64_RAW = 16777228U;
 
+#ifdef MACHO_FILETYPE_OBJECT_RAW
+#undef MACHO_FILETYPE_OBJECT_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_FILETYPE_OBJECT_RAW = 1U;
 
+#ifdef MACHO_LOAD_COMMAND_SYMTAB_RAW
+#undef MACHO_LOAD_COMMAND_SYMTAB_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_LOAD_COMMAND_SYMTAB_RAW = 2U;
 
+#ifdef MACHO_LOAD_COMMAND_SEGMENT_64_RAW
+#undef MACHO_LOAD_COMMAND_SEGMENT_64_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_LOAD_COMMAND_SEGMENT_64_RAW = 25U;
 
+#ifdef MACHO_SEGMENT_COMMAND_64_SIZE
+#undef MACHO_SEGMENT_COMMAND_64_SIZE
+#endif
 __attribute__((used)) const size_t MACHO_SEGMENT_COMMAND_64_SIZE = 72ULL;
 
+#ifdef MACHO_SECTION_64_SIZE
+#undef MACHO_SECTION_64_SIZE
+#endif
 __attribute__((used)) const size_t MACHO_SECTION_64_SIZE = 80ULL;
 
+#ifdef MACHO_NLIST_64_SIZE
+#undef MACHO_NLIST_64_SIZE
+#endif
 __attribute__((used)) const size_t MACHO_NLIST_64_SIZE = 16ULL;
 
+#ifdef MACHO_ARM64_RELOC_UNSIGNED_RAW
+#undef MACHO_ARM64_RELOC_UNSIGNED_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_ARM64_RELOC_UNSIGNED_RAW = 0U;
 
+#ifdef PATH_MAX
+#undef PATH_MAX
+#endif
 __attribute__((used)) const size_t PATH_MAX = 4096;
 
+#ifdef DIRENT_OFF_D_TYPE
+#undef DIRENT_OFF_D_TYPE
+#endif
 __attribute__((used)) const size_t DIRENT_OFF_D_TYPE = 18;
 
+#ifdef DIRENT_OFF_D_NAME
+#undef DIRENT_OFF_D_NAME
+#endif
 __attribute__((used)) const size_t DIRENT_OFF_D_NAME = 19;
 
+#ifdef LIBC_SOURCES
+#undef LIBC_SOURCES
+#endif
 __attribute__((used)) const int32_t LIBC_SOURCES = 8;
 
+#ifdef LIBC_SOURCE_NAMES
+#undef LIBC_SOURCE_NAMES
+#endif
 __attribute__((used)) const uint8_t * LIBC_SOURCE_NAMES[8] = {(uint8_t *)(uint8_t *)str329, (uint8_t *)(uint8_t *)str330, (uint8_t *)(uint8_t *)str331, (uint8_t *)(uint8_t *)str332, (uint8_t *)(uint8_t *)str333, (uint8_t *)(uint8_t *)str334, (uint8_t *)(uint8_t *)str335, (uint8_t *)(uint8_t *)str336};
 
+#ifdef ENTRY_RLIMIT_STACK
+#undef ENTRY_RLIMIT_STACK
+#endif
 __attribute__((used)) const int32_t ENTRY_RLIMIT_STACK = 3;
 
+#ifdef ENTRY_DEFAULT_STACK_LIMIT_BYTES
+#undef ENTRY_DEFAULT_STACK_LIMIT_BYTES
+#endif
 __attribute__((used)) const uint64_t ENTRY_DEFAULT_STACK_LIMIT_BYTES = /* optimized */ 67108864;
 
+#ifdef ARENA_ALIGNMENT
+#undef ARENA_ALIGNMENT
+#endif
 __attribute__((used)) const size_t ARENA_ALIGNMENT = 8;
 
+#ifdef ARENA_CHUNK_SIZE
+#undef ARENA_CHUNK_SIZE
+#endif
 __attribute__((used)) const size_t ARENA_CHUNK_SIZE = /* optimized */ 1048576;
 
+#ifdef MAX_MERGE_PROGRAMS
+#undef MAX_MERGE_PROGRAMS
+#endif
 __attribute__((used)) const int32_t MAX_MERGE_PROGRAMS = 512;
 
+#ifdef S_IFMT
+#undef S_IFMT
+#endif
 __attribute__((used)) const uint32_t S_IFMT = 61440;
 
+#ifdef S_IFDIR
+#undef S_IFDIR
+#endif
 __attribute__((used)) const uint32_t S_IFDIR = 16384;
 
+#ifdef S_IFREG
+#undef S_IFREG
+#endif
 __attribute__((used)) const uint32_t S_IFREG = 32768;
 
+#ifdef DT_REG
+#undef DT_REG
+#endif
 __attribute__((used)) const uint8_t DT_REG = 8;
 
+#ifdef DT_UNKNOWN
+#undef DT_UNKNOWN
+#endif
 __attribute__((used)) const uint8_t DT_UNKNOWN = 0;
 
+#ifdef DT_DIR
+#undef DT_DIR
+#endif
 __attribute__((used)) const uint8_t DT_DIR = 4;
 
+#ifdef FMT_BUFFER_SIZE
+#undef FMT_BUFFER_SIZE
+#endif
 __attribute__((used)) const int32_t FMT_BUFFER_SIZE = /* optimized */ 1048576;
 
+#ifdef LEXER_BUFFER_SIZE
+#undef LEXER_BUFFER_SIZE
+#endif
 __attribute__((used)) const int32_t LEXER_BUFFER_SIZE = /* optimized */ 1048576;
 
+#ifdef LEXER_STRING_INTERP_BUFFER_SIZE
+#undef LEXER_STRING_INTERP_BUFFER_SIZE
+#endif
 __attribute__((used)) const int32_t LEXER_STRING_INTERP_BUFFER_SIZE = 4096;
 
+#ifdef libc_EPERM
+#undef libc_EPERM
+#endif
 const int32_t libc_EPERM = 1;
+#ifdef libc_ENOENT
+#undef libc_ENOENT
+#endif
 const int32_t libc_ENOENT = 2;
+#ifdef libc_ESRCH
+#undef libc_ESRCH
+#endif
 const int32_t libc_ESRCH = 3;
+#ifdef libc_EINTR
+#undef libc_EINTR
+#endif
 const int32_t libc_EINTR = 4;
+#ifdef libc_EIO
+#undef libc_EIO
+#endif
 const int32_t libc_EIO = 5;
+#ifdef libc_ENXIO
+#undef libc_ENXIO
+#endif
 const int32_t libc_ENXIO = 6;
+#ifdef libc_E2BIG
+#undef libc_E2BIG
+#endif
 const int32_t libc_E2BIG = 7;
+#ifdef libc_ENOEXEC
+#undef libc_ENOEXEC
+#endif
 const int32_t libc_ENOEXEC = 8;
+#ifdef libc_EBADF
+#undef libc_EBADF
+#endif
 const int32_t libc_EBADF = 9;
+#ifdef libc_ECHILD
+#undef libc_ECHILD
+#endif
 const int32_t libc_ECHILD = 10;
+#ifdef libc_ENOMEM
+#undef libc_ENOMEM
+#endif
 const int32_t libc_ENOMEM = 12;
+#ifdef libc_EACCES
+#undef libc_EACCES
+#endif
 const int32_t libc_EACCES = 13;
+#ifdef libc_EFAULT
+#undef libc_EFAULT
+#endif
 const int32_t libc_EFAULT = 14;
+#ifdef libc_ENOTBLK
+#undef libc_ENOTBLK
+#endif
 const int32_t libc_ENOTBLK = 15;
+#ifdef libc_EBUSY
+#undef libc_EBUSY
+#endif
 const int32_t libc_EBUSY = 16;
+#ifdef libc_EEXIST
+#undef libc_EEXIST
+#endif
 const int32_t libc_EEXIST = 17;
+#ifdef libc_EXDEV
+#undef libc_EXDEV
+#endif
 const int32_t libc_EXDEV = 18;
+#ifdef libc_ENODEV
+#undef libc_ENODEV
+#endif
 const int32_t libc_ENODEV = 19;
+#ifdef libc_ENOTDIR
+#undef libc_ENOTDIR
+#endif
 const int32_t libc_ENOTDIR = 20;
+#ifdef libc_EISDIR
+#undef libc_EISDIR
+#endif
 const int32_t libc_EISDIR = 21;
+#ifdef libc_EINVAL
+#undef libc_EINVAL
+#endif
 const int32_t libc_EINVAL = 22;
+#ifdef libc_ENFILE
+#undef libc_ENFILE
+#endif
 const int32_t libc_ENFILE = 23;
+#ifdef libc_EMFILE
+#undef libc_EMFILE
+#endif
 const int32_t libc_EMFILE = 24;
+#ifdef libc_ENOTTY
+#undef libc_ENOTTY
+#endif
 const int32_t libc_ENOTTY = 25;
+#ifdef libc_ETXTBSY
+#undef libc_ETXTBSY
+#endif
 const int32_t libc_ETXTBSY = 26;
+#ifdef libc_EFBIG
+#undef libc_EFBIG
+#endif
 const int32_t libc_EFBIG = 27;
+#ifdef libc_ENOSPC
+#undef libc_ENOSPC
+#endif
 const int32_t libc_ENOSPC = 28;
+#ifdef libc_ESPIPE
+#undef libc_ESPIPE
+#endif
 const int32_t libc_ESPIPE = 29;
+#ifdef libc_EROFS
+#undef libc_EROFS
+#endif
 const int32_t libc_EROFS = 30;
+#ifdef libc_EMLINK
+#undef libc_EMLINK
+#endif
 const int32_t libc_EMLINK = 31;
+#ifdef libc_EPIPE
+#undef libc_EPIPE
+#endif
 const int32_t libc_EPIPE = 32;
+#ifdef libc_EDOM
+#undef libc_EDOM
+#endif
 const int32_t libc_EDOM = 33;
+#ifdef libc_ERANGE
+#undef libc_ERANGE
+#endif
 const int32_t libc_ERANGE = 34;
+#ifdef libc_EDEADLK
+#undef libc_EDEADLK
+#endif
 const int32_t libc_EDEADLK = 35;
+#ifdef libc_ENAMETOOLONG
+#undef libc_ENAMETOOLONG
+#endif
 const int32_t libc_ENAMETOOLONG = 36;
+#ifdef libc_ENOLCK
+#undef libc_ENOLCK
+#endif
 const int32_t libc_ENOLCK = 37;
+#ifdef libc_ENOSYS
+#undef libc_ENOSYS
+#endif
 const int32_t libc_ENOSYS = 38;
+#ifdef libc_ENOTEMPTY
+#undef libc_ENOTEMPTY
+#endif
 const int32_t libc_ENOTEMPTY = 39;
+#ifdef libc_ELOOP
+#undef libc_ELOOP
+#endif
 const int32_t libc_ELOOP = 40;
+#ifdef libc_EWOULDBLOCK
+#undef libc_EWOULDBLOCK
+#endif
 const int32_t libc_EWOULDBLOCK = 11;
+#ifdef libc_ENOMSG
+#undef libc_ENOMSG
+#endif
 const int32_t libc_ENOMSG = 42;
+#ifdef libc_EIDRM
+#undef libc_EIDRM
+#endif
 const int32_t libc_EIDRM = 43;
+#ifdef libc_EILSEQ
+#undef libc_EILSEQ
+#endif
 const int32_t libc_EILSEQ = 84;
+#ifdef libc_EAGAIN
+#undef libc_EAGAIN
+#endif
 const int32_t libc_EAGAIN = 11;
+#ifdef libc_ENOTSOCK
+#undef libc_ENOTSOCK
+#endif
 const int32_t libc_ENOTSOCK = 88;
+#ifdef libc_EDESTADDRREQ
+#undef libc_EDESTADDRREQ
+#endif
 const int32_t libc_EDESTADDRREQ = 89;
+#ifdef libc_EMSGSIZE
+#undef libc_EMSGSIZE
+#endif
 const int32_t libc_EMSGSIZE = 90;
+#ifdef libc_EPROTOTYPE
+#undef libc_EPROTOTYPE
+#endif
 const int32_t libc_EPROTOTYPE = 91;
+#ifdef libc_ENOPROTOOPT
+#undef libc_ENOPROTOOPT
+#endif
 const int32_t libc_ENOPROTOOPT = 92;
+#ifdef libc_EPROTONOSUPPORT
+#undef libc_EPROTONOSUPPORT
+#endif
 const int32_t libc_EPROTONOSUPPORT = 93;
+#ifdef libc_ESOCKTNOSUPPORT
+#undef libc_ESOCKTNOSUPPORT
+#endif
 const int32_t libc_ESOCKTNOSUPPORT = 94;
+#ifdef libc_EOPNOTSUPP
+#undef libc_EOPNOTSUPP
+#endif
 const int32_t libc_EOPNOTSUPP = 95;
+#ifdef libc_EPFNOSUPPORT
+#undef libc_EPFNOSUPPORT
+#endif
 const int32_t libc_EPFNOSUPPORT = 96;
+#ifdef libc_EAFNOSUPPORT
+#undef libc_EAFNOSUPPORT
+#endif
 const int32_t libc_EAFNOSUPPORT = 97;
+#ifdef libc_EADDRINUSE
+#undef libc_EADDRINUSE
+#endif
 const int32_t libc_EADDRINUSE = 98;
+#ifdef libc_EADDRNOTAVAIL
+#undef libc_EADDRNOTAVAIL
+#endif
 const int32_t libc_EADDRNOTAVAIL = 99;
+#ifdef libc_ENETDOWN
+#undef libc_ENETDOWN
+#endif
 const int32_t libc_ENETDOWN = 100;
+#ifdef libc_ENETUNREACH
+#undef libc_ENETUNREACH
+#endif
 const int32_t libc_ENETUNREACH = 101;
+#ifdef libc_ENETRESET
+#undef libc_ENETRESET
+#endif
 const int32_t libc_ENETRESET = 102;
+#ifdef libc_ECONNABORTED
+#undef libc_ECONNABORTED
+#endif
 const int32_t libc_ECONNABORTED = 103;
+#ifdef libc_ECONNRESET
+#undef libc_ECONNRESET
+#endif
 const int32_t libc_ECONNRESET = 104;
+#ifdef libc_ENOBUFS
+#undef libc_ENOBUFS
+#endif
 const int32_t libc_ENOBUFS = 105;
+#ifdef libc_EISCONN
+#undef libc_EISCONN
+#endif
 const int32_t libc_EISCONN = 106;
+#ifdef libc_ENOTCONN
+#undef libc_ENOTCONN
+#endif
 const int32_t libc_ENOTCONN = 107;
+#ifdef libc_ESHUTDOWN
+#undef libc_ESHUTDOWN
+#endif
 const int32_t libc_ESHUTDOWN = 108;
+#ifdef libc_ETIMEDOUT
+#undef libc_ETIMEDOUT
+#endif
 const int32_t libc_ETIMEDOUT = 110;
+#ifdef libc_ECONNREFUSED
+#undef libc_ECONNREFUSED
+#endif
 const int32_t libc_ECONNREFUSED = 111;
+#ifdef libc_EHOSTDOWN
+#undef libc_EHOSTDOWN
+#endif
 const int32_t libc_EHOSTDOWN = 112;
+#ifdef libc_EHOSTUNREACH
+#undef libc_EHOSTUNREACH
+#endif
 const int32_t libc_EHOSTUNREACH = 113;
+#ifdef libc_EALREADY
+#undef libc_EALREADY
+#endif
 const int32_t libc_EALREADY = 114;
+#ifdef libc_EINPROGRESS
+#undef libc_EINPROGRESS
+#endif
 const int32_t libc_EINPROGRESS = 115;
+#ifdef HEAP_ATOMIC_SEQ_CST
+#undef HEAP_ATOMIC_SEQ_CST
+#endif
 __attribute__((used)) const int32_t HEAP_ATOMIC_SEQ_CST = 5;
 
+#ifdef MALLOC_ALIGN
+#undef MALLOC_ALIGN
+#endif
 __attribute__((used)) const size_t MALLOC_ALIGN = 16;
 
+#ifdef MIN_CHUNK_SIZE
+#undef MIN_CHUNK_SIZE
+#endif
 __attribute__((used)) const size_t MIN_CHUNK_SIZE = 32;
 
+#ifdef HEAP_PAGE_SIZE
+#undef HEAP_PAGE_SIZE
+#endif
 __attribute__((used)) const size_t HEAP_PAGE_SIZE = 4096;
 
+#ifdef CHUNK_MAGIC
+#undef CHUNK_MAGIC
+#endif
 __attribute__((used)) const uint64_t CHUNK_MAGIC = ((int64_t)(uint32_t)0xDEADBEEFULL + ((int64_t)(uint32_t)0x0ULL << 32));
 
+#ifdef CHUNK_FLAG_FREE
+#undef CHUNK_FLAG_FREE
+#endif
 __attribute__((used)) const size_t CHUNK_FLAG_FREE = 1;
 
+#ifdef CHUNK_FLAG_TCACHE
+#undef CHUNK_FLAG_TCACHE
+#endif
 __attribute__((used)) const size_t CHUNK_FLAG_TCACHE = 2;
 
+#ifdef CHUNK_STATE_MASK
+#undef CHUNK_STATE_MASK
+#endif
 __attribute__((used)) const size_t CHUNK_STATE_MASK = (CHUNK_FLAG_FREE | CHUNK_FLAG_TCACHE);
 
+#ifdef NUM_BINS
+#undef NUM_BINS
+#endif
 __attribute__((used)) const size_t NUM_BINS = 8;
 
+#ifdef TCACHE_MAX_SIZE
+#undef TCACHE_MAX_SIZE
+#endif
 __attribute__((used)) const size_t TCACHE_MAX_SIZE = 2048;
 
+#ifdef TCACHE_BATCH
+#undef TCACHE_BATCH
+#endif
 __attribute__((used)) const size_t TCACHE_BATCH = 8;
 
+#ifdef NUM_TCACHE_BINS
+#undef NUM_TCACHE_BINS
+#endif
 __attribute__((used)) const size_t NUM_TCACHE_BINS = 7;
 
+#ifdef libc_E
+#undef libc_E
+#endif
 const double libc_E = 2.7182818284590450;
+#ifdef libc_PI
+#undef libc_PI
+#endif
 const double libc_PI = 3.1415926535897931;
+#ifdef libc_PI_2
+#undef libc_PI_2
+#endif
 const double libc_PI_2 = 1.5707963267948965;
+#ifdef libc_PI_4
+#undef libc_PI_4
+#endif
 const double libc_PI_4 = 0.78539816339744819;
+#ifdef libc_TWO_PI
+#undef libc_TWO_PI
+#endif
 const double libc_TWO_PI = 6.2831853071795862;
+#ifdef libc_SQRT2
+#undef libc_SQRT2
+#endif
 const double libc_SQRT2 = 1.4142135623730951;
+#ifdef libc_SQRT1_2
+#undef libc_SQRT1_2
+#endif
 const double libc_SQRT1_2 = 0.70710678118654737;
+#ifdef libc_LN2
+#undef libc_LN2
+#endif
 const double libc_LN2 = 0.69314718055994521;
+#ifdef libc_LN10
+#undef libc_LN10
+#endif
 const double libc_LN10 = 2.3025850929940459;
+#ifdef libc_INFINITY
+#undef libc_INFINITY
+#endif
 const double libc_INFINITY = 1.7976931348623157e+308;
+#ifdef libc_NAN
+#undef libc_NAN
+#endif
 const double libc_NAN = 0.0000000000000000;
+#ifdef libc_HUGE_VAL
+#undef libc_HUGE_VAL
+#endif
 const double libc_HUGE_VAL = 1.7976931348623157e+308;
+#ifdef libc_HUGE_VALF
+#undef libc_HUGE_VALF
+#endif
 const float libc_HUGE_VALF = (float)libc_INFINITY;
+#ifdef libc_HUGE_VALL
+#undef libc_HUGE_VALL
+#endif
 const double libc_HUGE_VALL = 1.7976931348623157e+308;
+#ifdef PTHREAD_ATOMIC_SEQ_CST
+#undef PTHREAD_ATOMIC_SEQ_CST
+#endif
 __attribute__((used)) const int32_t PTHREAD_ATOMIC_SEQ_CST = 5;
 
+#ifdef PTHREAD_STACK_SIZE
+#undef PTHREAD_STACK_SIZE
+#endif
 __attribute__((used)) const size_t PTHREAD_STACK_SIZE = /* optimized */ 8388608;
 
+#ifdef PTHREAD_DESC_MAP_SIZE
+#undef PTHREAD_DESC_MAP_SIZE
+#endif
 __attribute__((used)) const size_t PTHREAD_DESC_MAP_SIZE = 4096ULL;
 
+#ifdef PTHREAD_STACK_HINT_SHIFT
+#undef PTHREAD_STACK_HINT_SHIFT
+#endif
 __attribute__((used)) const int32_t PTHREAD_STACK_HINT_SHIFT = 18;
 
+#ifdef PTHREAD_STACK_HINT_CAP
+#undef PTHREAD_STACK_HINT_CAP
+#endif
 __attribute__((used)) const size_t PTHREAD_STACK_HINT_CAP = 256ULL;
 
+#ifdef PTHREAD_STACK_HINT_MASK
+#undef PTHREAD_STACK_HINT_MASK
+#endif
 __attribute__((used)) const size_t PTHREAD_STACK_HINT_MASK = /* optimized */ 255;
 
+#ifdef PTHREAD_SYS_ARCH_PRCTL_X86_64
+#undef PTHREAD_SYS_ARCH_PRCTL_X86_64
+#endif
 __attribute__((used)) const int64_t PTHREAD_SYS_ARCH_PRCTL_X86_64 = 158;
 
+#ifdef PTHREAD_ARCH_SET_GS_X86_64
+#undef PTHREAD_ARCH_SET_GS_X86_64
+#endif
 __attribute__((used)) const int64_t PTHREAD_ARCH_SET_GS_X86_64 = 4097;
 
+#ifdef CLONE_FLAGS
+#undef CLONE_FLAGS
+#endif
 __attribute__((used)) const int64_t CLONE_FLAGS = 1380096;
 
+#ifdef PTHREAD_JOINSTATE_JOINABLE
+#undef PTHREAD_JOINSTATE_JOINABLE
+#endif
 __attribute__((used)) const int32_t PTHREAD_JOINSTATE_JOINABLE = 0;
 
+#ifdef PTHREAD_JOINSTATE_EXITED
+#undef PTHREAD_JOINSTATE_EXITED
+#endif
 __attribute__((used)) const int32_t PTHREAD_JOINSTATE_EXITED = 1;
 
+#ifdef PTHREAD_JOINSTATE_JOINED
+#undef PTHREAD_JOINSTATE_JOINED
+#endif
 __attribute__((used)) const int32_t PTHREAD_JOINSTATE_JOINED = 2;
 
+#ifdef PTHREAD_JOINSTATE_DETACHED
+#undef PTHREAD_JOINSTATE_DETACHED
+#endif
 __attribute__((used)) const int32_t PTHREAD_JOINSTATE_DETACHED = 3;
 
+#ifdef PTHREAD_DESTRUCTOR_ITERATIONS
+#undef PTHREAD_DESTRUCTOR_ITERATIONS
+#endif
 __attribute__((used)) const int32_t PTHREAD_DESTRUCTOR_ITERATIONS = 4;
 
+#ifdef PTHREAD_MAX_THREADS
+#undef PTHREAD_MAX_THREADS
+#endif
 __attribute__((used)) const size_t PTHREAD_MAX_THREADS = 1024;
 
+#ifdef libc_PTHREAD_MUTEX_NORMAL
+#undef libc_PTHREAD_MUTEX_NORMAL
+#endif
 const int32_t libc_PTHREAD_MUTEX_NORMAL = 0;
+#ifdef libc_PTHREAD_MUTEX_RECURSIVE
+#undef libc_PTHREAD_MUTEX_RECURSIVE
+#endif
 const int32_t libc_PTHREAD_MUTEX_RECURSIVE = 1;
+#ifdef libc_PTHREAD_MUTEX_ERRORCHECK
+#undef libc_PTHREAD_MUTEX_ERRORCHECK
+#endif
 const int32_t libc_PTHREAD_MUTEX_ERRORCHECK = 2;
+#ifdef libc_PTHREAD_CREATE_JOINABLE
+#undef libc_PTHREAD_CREATE_JOINABLE
+#endif
 const int32_t libc_PTHREAD_CREATE_JOINABLE = 0;
+#ifdef libc_PTHREAD_CREATE_DETACHED
+#undef libc_PTHREAD_CREATE_DETACHED
+#endif
 const int32_t libc_PTHREAD_CREATE_DETACHED = 1;
+#ifdef libc_CLOCK_REALTIME
+#undef libc_CLOCK_REALTIME
+#endif
 const int32_t libc_CLOCK_REALTIME = 0;
+#ifdef libc_CLOCK_MONOTONIC
+#undef libc_CLOCK_MONOTONIC
+#endif
 const int32_t libc_CLOCK_MONOTONIC = 1;
+#ifdef PTHREAD_KEYS_MAX
+#undef PTHREAD_KEYS_MAX
+#endif
 __attribute__((used)) const size_t PTHREAD_KEYS_MAX = 1024;
 
+#ifdef libc_PTHREAD_CANCEL_ENABLE
+#undef libc_PTHREAD_CANCEL_ENABLE
+#endif
 const int32_t libc_PTHREAD_CANCEL_ENABLE = 0;
+#ifdef libc_PTHREAD_CANCEL_DISABLE
+#undef libc_PTHREAD_CANCEL_DISABLE
+#endif
 const int32_t libc_PTHREAD_CANCEL_DISABLE = 1;
+#ifdef libc_PTHREAD_CANCEL_DEFERRED
+#undef libc_PTHREAD_CANCEL_DEFERRED
+#endif
 const int32_t libc_PTHREAD_CANCEL_DEFERRED = 0;
+#ifdef libc_PTHREAD_CANCEL_ASYNCHRONOUS
+#undef libc_PTHREAD_CANCEL_ASYNCHRONOUS
+#endif
 const int32_t libc_PTHREAD_CANCEL_ASYNCHRONOUS = 1;
+#ifdef libc_PTHREAD_CANCELED
+#undef libc_PTHREAD_CANCELED
+#endif
 void * libc_PTHREAD_CANCELED = (void *)(int64_t)(-1);
+#ifdef libc_PTHREAD_BARRIER_SERIAL_THREAD
+#undef libc_PTHREAD_BARRIER_SERIAL_THREAD
+#endif
 const int32_t libc_PTHREAD_BARRIER_SERIAL_THREAD = 1;
+#ifdef libc__JB_SIZE
+#undef libc__JB_SIZE
+#endif
 const size_t libc__JB_SIZE = 8;
+#ifdef libc__JB_SIG_SIZE
+#undef libc__JB_SIG_SIZE
+#endif
 const size_t libc__JB_SIG_SIZE = 16;
+#ifdef libc_SIGHUP
+#undef libc_SIGHUP
+#endif
 const int32_t libc_SIGHUP = 1;
+#ifdef libc_SIGINT
+#undef libc_SIGINT
+#endif
 const int32_t libc_SIGINT = 2;
+#ifdef libc_SIGQUIT
+#undef libc_SIGQUIT
+#endif
 const int32_t libc_SIGQUIT = 3;
+#ifdef libc_SIGILL
+#undef libc_SIGILL
+#endif
 const int32_t libc_SIGILL = 4;
+#ifdef libc_SIGTRAP
+#undef libc_SIGTRAP
+#endif
 const int32_t libc_SIGTRAP = 5;
+#ifdef libc_SIGABRT
+#undef libc_SIGABRT
+#endif
 const int32_t libc_SIGABRT = 6;
+#ifdef libc_SIGIOT
+#undef libc_SIGIOT
+#endif
 const int32_t libc_SIGIOT = 6;
+#ifdef libc_SIGBUS
+#undef libc_SIGBUS
+#endif
 const int32_t libc_SIGBUS = 7;
+#ifdef libc_SIGFPE
+#undef libc_SIGFPE
+#endif
 const int32_t libc_SIGFPE = 8;
+#ifdef libc_SIGKILL
+#undef libc_SIGKILL
+#endif
 const int32_t libc_SIGKILL = 9;
+#ifdef libc_SIGUSR1
+#undef libc_SIGUSR1
+#endif
 const int32_t libc_SIGUSR1 = 10;
+#ifdef libc_SIGSEGV
+#undef libc_SIGSEGV
+#endif
 const int32_t libc_SIGSEGV = 11;
+#ifdef libc_SIGUSR2
+#undef libc_SIGUSR2
+#endif
 const int32_t libc_SIGUSR2 = 12;
+#ifdef libc_SIGPIPE
+#undef libc_SIGPIPE
+#endif
 const int32_t libc_SIGPIPE = 13;
+#ifdef libc_SIGALRM
+#undef libc_SIGALRM
+#endif
 const int32_t libc_SIGALRM = 14;
+#ifdef libc_SIGTERM
+#undef libc_SIGTERM
+#endif
 const int32_t libc_SIGTERM = 15;
+#ifdef libc_SIGSTKFLT
+#undef libc_SIGSTKFLT
+#endif
 const int32_t libc_SIGSTKFLT = 16;
+#ifdef libc_SIGCHLD
+#undef libc_SIGCHLD
+#endif
 const int32_t libc_SIGCHLD = 17;
+#ifdef libc_SIGCONT
+#undef libc_SIGCONT
+#endif
 const int32_t libc_SIGCONT = 18;
+#ifdef libc_SIGSTOP
+#undef libc_SIGSTOP
+#endif
 const int32_t libc_SIGSTOP = 19;
+#ifdef libc_SIGTSTP
+#undef libc_SIGTSTP
+#endif
 const int32_t libc_SIGTSTP = 20;
+#ifdef libc_SIGTTIN
+#undef libc_SIGTTIN
+#endif
 const int32_t libc_SIGTTIN = 21;
+#ifdef libc_SIGTTOU
+#undef libc_SIGTTOU
+#endif
 const int32_t libc_SIGTTOU = 22;
+#ifdef libc_SIGURG
+#undef libc_SIGURG
+#endif
 const int32_t libc_SIGURG = 23;
+#ifdef libc_SIGXCPU
+#undef libc_SIGXCPU
+#endif
 const int32_t libc_SIGXCPU = 24;
+#ifdef libc_SIGXFSZ
+#undef libc_SIGXFSZ
+#endif
 const int32_t libc_SIGXFSZ = 25;
+#ifdef libc_SIGVTALRM
+#undef libc_SIGVTALRM
+#endif
 const int32_t libc_SIGVTALRM = 26;
+#ifdef libc_SIGPROF
+#undef libc_SIGPROF
+#endif
 const int32_t libc_SIGPROF = 27;
+#ifdef libc_SIGWINCH
+#undef libc_SIGWINCH
+#endif
 const int32_t libc_SIGWINCH = 28;
+#ifdef libc_SIGPOLL
+#undef libc_SIGPOLL
+#endif
 const int32_t libc_SIGPOLL = 29;
+#ifdef libc_SIGIO
+#undef libc_SIGIO
+#endif
 const int32_t libc_SIGIO = 29;
+#ifdef libc_SIGPWR
+#undef libc_SIGPWR
+#endif
 const int32_t libc_SIGPWR = 30;
+#ifdef libc_SIGSYS
+#undef libc_SIGSYS
+#endif
 const int32_t libc_SIGSYS = 31;
+#ifdef libc_NSIG
+#undef libc_NSIG
+#endif
 const int32_t libc_NSIG = 65;
+#ifdef libc_SIG_BLOCK
+#undef libc_SIG_BLOCK
+#endif
 const int32_t libc_SIG_BLOCK = 0;
+#ifdef libc_SIG_UNBLOCK
+#undef libc_SIG_UNBLOCK
+#endif
 const int32_t libc_SIG_UNBLOCK = 1;
+#ifdef libc_SIG_SETMASK
+#undef libc_SIG_SETMASK
+#endif
 const int32_t libc_SIG_SETMASK = 2;
+#ifdef libc_SIG_DFL
+#undef libc_SIG_DFL
+#endif
 const size_t libc_SIG_DFL = 0;
+#ifdef libc_SIG_IGN
+#undef libc_SIG_IGN
+#endif
 const size_t libc_SIG_IGN = 1;
+#ifdef libc_SIG_ERR
+#undef libc_SIG_ERR
+#endif
 const size_t libc_SIG_ERR = ((int64_t)(uint32_t)0xFFFFFFFFULL + ((int64_t)(uint32_t)0x0ULL << 32));
+#ifdef SYS_rt_sigaction
+#undef SYS_rt_sigaction
+#endif
 __attribute__((used)) const int64_t SYS_rt_sigaction = 13;
 
+#ifdef SYS_rt_sigprocmask
+#undef SYS_rt_sigprocmask
+#endif
 __attribute__((used)) const int64_t SYS_rt_sigprocmask = 14;
 
+#ifdef SYS_rt_sigpending
+#undef SYS_rt_sigpending
+#endif
 __attribute__((used)) const int64_t SYS_rt_sigpending = 127;
 
+#ifdef SYS_rt_sigsuspend
+#undef SYS_rt_sigsuspend
+#endif
 __attribute__((used)) const int64_t SYS_rt_sigsuspend = 130;
 
+#ifdef SYS_kill_sig
+#undef SYS_kill_sig
+#endif
 __attribute__((used)) const int64_t SYS_kill_sig = 62;
 
+#ifdef SYS_tgkill
+#undef SYS_tgkill
+#endif
 __attribute__((used)) const int64_t SYS_tgkill = 234;
 
+#ifdef SYS_alarm
+#undef SYS_alarm
+#endif
 __attribute__((used)) const int64_t SYS_alarm = 37;
 
+#ifdef SYS_pause
+#undef SYS_pause
+#endif
 __attribute__((used)) const int64_t SYS_pause = 34;
 
+#ifdef ATEXIT_MAX
+#undef ATEXIT_MAX
+#endif
 __attribute__((used)) const size_t ATEXIT_MAX = 32;
 
 struct FILE * libc_stdin = (&_stdin);
 struct FILE * libc_stdout = (&_stdout);
 struct FILE * libc_stderr = (&_stderr);
+#ifdef libc_STDIN
+#undef libc_STDIN
+#endif
 const int64_t libc_STDIN = 0;
+#ifdef libc_STDOUT
+#undef libc_STDOUT
+#endif
 const int64_t libc_STDOUT = 1;
+#ifdef libc_STDERR
+#undef libc_STDERR
+#endif
 const int64_t libc_STDERR = 2;
+#ifdef _FOPEN_W_FLAGS
+#undef _FOPEN_W_FLAGS
+#endif
 __attribute__((used)) const int64_t _FOPEN_W_FLAGS = ((1 | 64) | 512);
 
+#ifdef _FOPEN_A_FLAGS
+#undef _FOPEN_A_FLAGS
+#endif
 __attribute__((used)) const int64_t _FOPEN_A_FLAGS = ((1 | 64) | 1024);
 
+#ifdef _FOPEN_W_PLUS_FLAGS
+#undef _FOPEN_W_PLUS_FLAGS
+#endif
 __attribute__((used)) const int64_t _FOPEN_W_PLUS_FLAGS = ((2 | 64) | 512);
 
+#ifdef _FOPEN_A_PLUS_FLAGS
+#undef _FOPEN_A_PLUS_FLAGS
+#endif
 __attribute__((used)) const int64_t _FOPEN_A_PLUS_FLAGS = ((2 | 64) | 1024);
 
+#ifdef _VSPRINTF_BUF_CAP
+#undef _VSPRINTF_BUF_CAP
+#endif
 __attribute__((used)) const size_t _VSPRINTF_BUF_CAP = 2147483647;
 
+#ifdef _FMT_MINUS
+#undef _FMT_MINUS
+#endif
 __attribute__((used)) const int32_t _FMT_MINUS = 1;
 
+#ifdef _FMT_PLUS
+#undef _FMT_PLUS
+#endif
 __attribute__((used)) const int32_t _FMT_PLUS = 2;
 
+#ifdef _FMT_SPACE
+#undef _FMT_SPACE
+#endif
 __attribute__((used)) const int32_t _FMT_SPACE = 4;
 
+#ifdef _FMT_ZERO
+#undef _FMT_ZERO
+#endif
 __attribute__((used)) const int32_t _FMT_ZERO = 8;
 
+#ifdef _FMT_HASH
+#undef _FMT_HASH
+#endif
 __attribute__((used)) const int32_t _FMT_HASH = 16;
 
+#ifdef _TMPFILE_O_FLAGS
+#undef _TMPFILE_O_FLAGS
+#endif
 __attribute__((used)) const int32_t _TMPFILE_O_FLAGS = 194;
 
+#ifdef _TMPFILE_MODE
+#undef _TMPFILE_MODE
+#endif
 __attribute__((used)) const int32_t _TMPFILE_MODE = 384;
 
+#ifdef STRTOD_DBL_MAX_BITS
+#undef STRTOD_DBL_MAX_BITS
+#endif
 __attribute__((used)) const uint64_t STRTOD_DBL_MAX_BITS = ((uint64_t)(uint32_t)0xFFFFFFFFULL + ((uint64_t)(uint32_t)0x7FEFFFFFULL << 32));
 
+#ifdef libc_RAND_MAX
+#undef libc_RAND_MAX
+#endif
 const int32_t libc_RAND_MAX = 0;
+#ifdef CLOCKS_PER_SEC
+#undef CLOCKS_PER_SEC
+#endif
 const int64_t CLOCKS_PER_SEC = 1000000;
+#ifdef READDIR_BUF_SIZE
+#undef READDIR_BUF_SIZE
+#endif
 __attribute__((used)) const size_t READDIR_BUF_SIZE = 8192;
 
+#ifdef libc_AT_FDCWD
+#undef libc_AT_FDCWD
+#endif
 const int64_t libc_AT_FDCWD = (-100);
+#ifdef libc_AT_REMOVEDIR
+#undef libc_AT_REMOVEDIR
+#endif
 const int32_t libc_AT_REMOVEDIR = 512;
+#ifdef libc_AT_SYMLINK_NOFOLLOW
+#undef libc_AT_SYMLINK_NOFOLLOW
+#endif
 const int32_t libc_AT_SYMLINK_NOFOLLOW = 256;
+#ifdef libc_SYS_read
+#undef libc_SYS_read
+#endif
 const int64_t libc_SYS_read = 0;
+#ifdef libc_SYS_write
+#undef libc_SYS_write
+#endif
 const int64_t libc_SYS_write = 1;
+#ifdef libc_SYS_writev
+#undef libc_SYS_writev
+#endif
 const int64_t libc_SYS_writev = 20;
+#ifdef libc_SYS_open
+#undef libc_SYS_open
+#endif
 const int64_t libc_SYS_open = 2;
+#ifdef libc_SYS_close
+#undef libc_SYS_close
+#endif
 const int64_t libc_SYS_close = 3;
+#ifdef libc_SYS_stat
+#undef libc_SYS_stat
+#endif
 const int64_t libc_SYS_stat = 4;
+#ifdef libc_SYS_fstat
+#undef libc_SYS_fstat
+#endif
 const int64_t libc_SYS_fstat = 5;
+#ifdef libc_SYS_lstat
+#undef libc_SYS_lstat
+#endif
 const int64_t libc_SYS_lstat = 6;
+#ifdef libc_SYS_lseek
+#undef libc_SYS_lseek
+#endif
 const int64_t libc_SYS_lseek = 8;
+#ifdef libc_SYS_mmap
+#undef libc_SYS_mmap
+#endif
 const int64_t libc_SYS_mmap = 9;
+#ifdef libc_SYS_munmap
+#undef libc_SYS_munmap
+#endif
 const int64_t libc_SYS_munmap = 11;
+#ifdef libc_SYS_mprotect
+#undef libc_SYS_mprotect
+#endif
 const int64_t libc_SYS_mprotect = 10;
+#ifdef libc_SYS_brk
+#undef libc_SYS_brk
+#endif
 const int64_t libc_SYS_brk = 12;
+#ifdef libc_SYS_ioctl
+#undef libc_SYS_ioctl
+#endif
 const int64_t libc_SYS_ioctl = 16;
+#ifdef libc_SYS_access
+#undef libc_SYS_access
+#endif
 const int64_t libc_SYS_access = 21;
+#ifdef libc_SYS_dup
+#undef libc_SYS_dup
+#endif
 const int64_t libc_SYS_dup = 32;
+#ifdef libc_SYS_dup2
+#undef libc_SYS_dup2
+#endif
 const int64_t libc_SYS_dup2 = 33;
+#ifdef libc_SYS_dup3
+#undef libc_SYS_dup3
+#endif
 const int64_t libc_SYS_dup3 = 292;
+#ifdef libc_SYS_getpid
+#undef libc_SYS_getpid
+#endif
 const int64_t libc_SYS_getpid = 39;
+#ifdef libc_SYS_getppid
+#undef libc_SYS_getppid
+#endif
 const int64_t libc_SYS_getppid = 110;
+#ifdef libc_SYS_fork
+#undef libc_SYS_fork
+#endif
 const int64_t libc_SYS_fork = 57;
+#ifdef libc_SYS_execve
+#undef libc_SYS_execve
+#endif
 const int64_t libc_SYS_execve = 59;
+#ifdef libc_SYS_exit
+#undef libc_SYS_exit
+#endif
 const int64_t libc_SYS_exit = 60;
+#ifdef libc_SYS_waitpid
+#undef libc_SYS_waitpid
+#endif
 const int64_t libc_SYS_waitpid = 61;
+#ifdef libc_SYS_kill
+#undef libc_SYS_kill
+#endif
 const int64_t libc_SYS_kill = 62;
+#ifdef libc_SYS_tgkill
+#undef libc_SYS_tgkill
+#endif
 const int64_t libc_SYS_tgkill = 234;
+#ifdef libc_SYS_getcwd
+#undef libc_SYS_getcwd
+#endif
 const int64_t libc_SYS_getcwd = 79;
+#ifdef libc_SYS_chdir
+#undef libc_SYS_chdir
+#endif
 const int64_t libc_SYS_chdir = 80;
+#ifdef libc_SYS_mkdir
+#undef libc_SYS_mkdir
+#endif
 const int64_t libc_SYS_mkdir = 83;
+#ifdef libc_SYS_rmdir
+#undef libc_SYS_rmdir
+#endif
 const int64_t libc_SYS_rmdir = 84;
+#ifdef libc_SYS_unlink
+#undef libc_SYS_unlink
+#endif
 const int64_t libc_SYS_unlink = 87;
+#ifdef libc_SYS_rename
+#undef libc_SYS_rename
+#endif
 const int64_t libc_SYS_rename = 82;
+#ifdef libc_SYS_readlink
+#undef libc_SYS_readlink
+#endif
 const int64_t libc_SYS_readlink = 89;
+#ifdef libc_SYS_getdents64
+#undef libc_SYS_getdents64
+#endif
 const int64_t libc_SYS_getdents64 = 217;
+#ifdef libc_SYS_setrlimit
+#undef libc_SYS_setrlimit
+#endif
 const int64_t libc_SYS_setrlimit = 160;
+#ifdef libc_SYS_getrlimit
+#undef libc_SYS_getrlimit
+#endif
 const int64_t libc_SYS_getrlimit = 97;
+#ifdef libc_SYS_clone
+#undef libc_SYS_clone
+#endif
 const int64_t libc_SYS_clone = 56;
+#ifdef libc_SYS_futex
+#undef libc_SYS_futex
+#endif
 const int64_t libc_SYS_futex = 202;
+#ifdef libc_SYS_set_tid_address
+#undef libc_SYS_set_tid_address
+#endif
 const int64_t libc_SYS_set_tid_address = 218;
+#ifdef libc_SYS_eventfd
+#undef libc_SYS_eventfd
+#endif
 const int64_t libc_SYS_eventfd = 290;
+#ifdef libc_SYS_sched_setaffinity
+#undef libc_SYS_sched_setaffinity
+#endif
 const int64_t libc_SYS_sched_setaffinity = 203;
+#ifdef libc_SYS_sched_getaffinity
+#undef libc_SYS_sched_getaffinity
+#endif
 const int64_t libc_SYS_sched_getaffinity = 204;
+#ifdef libc_SYS_sched_yield
+#undef libc_SYS_sched_yield
+#endif
 const int64_t libc_SYS_sched_yield = 24;
+#ifdef libc_SYS_nanosleep
+#undef libc_SYS_nanosleep
+#endif
 const int64_t libc_SYS_nanosleep = 35;
+#ifdef libc_SYS_clock_gettime
+#undef libc_SYS_clock_gettime
+#endif
 const int64_t libc_SYS_clock_gettime = 228;
+#ifdef libc_SYS_gettimeofday
+#undef libc_SYS_gettimeofday
+#endif
 const int64_t libc_SYS_gettimeofday = 96;
+#ifdef libc_SYS_fcntl
+#undef libc_SYS_fcntl
+#endif
 const int64_t libc_SYS_fcntl = 72;
+#ifdef libc_SYS_pipe2
+#undef libc_SYS_pipe2
+#endif
 const int64_t libc_SYS_pipe2 = 293;
+#ifdef libc_SYS_poll
+#undef libc_SYS_poll
+#endif
 const int64_t libc_SYS_poll = 7;
+#ifdef libc_SYS_socket
+#undef libc_SYS_socket
+#endif
 const int64_t libc_SYS_socket = 41;
+#ifdef libc_SYS_bind
+#undef libc_SYS_bind
+#endif
 const int64_t libc_SYS_bind = 49;
+#ifdef libc_SYS_listen
+#undef libc_SYS_listen
+#endif
 const int64_t libc_SYS_listen = 50;
+#ifdef libc_SYS_accept
+#undef libc_SYS_accept
+#endif
 const int64_t libc_SYS_accept = 43;
+#ifdef libc_SYS_connect
+#undef libc_SYS_connect
+#endif
 const int64_t libc_SYS_connect = 42;
+#ifdef libc_SYS_send
+#undef libc_SYS_send
+#endif
 const int64_t libc_SYS_send = 44;
+#ifdef libc_SYS_recv
+#undef libc_SYS_recv
+#endif
 const int64_t libc_SYS_recv = 45;
+#ifdef libc_SYS_sendto
+#undef libc_SYS_sendto
+#endif
 const int64_t libc_SYS_sendto = 44;
+#ifdef libc_SYS_recvfrom
+#undef libc_SYS_recvfrom
+#endif
 const int64_t libc_SYS_recvfrom = 45;
+#ifdef libc_SYS_shutdown
+#undef libc_SYS_shutdown
+#endif
 const int64_t libc_SYS_shutdown = 48;
+#ifdef libc_SYS_setsockopt
+#undef libc_SYS_setsockopt
+#endif
 const int64_t libc_SYS_setsockopt = 54;
+#ifdef libc_SYS_getsockopt
+#undef libc_SYS_getsockopt
+#endif
 const int64_t libc_SYS_getsockopt = 55;
+#ifdef libc_SYS_getsockname
+#undef libc_SYS_getsockname
+#endif
 const int64_t libc_SYS_getsockname = 51;
+#ifdef libc_SYS_getpeername
+#undef libc_SYS_getpeername
+#endif
 const int64_t libc_SYS_getpeername = 52;
+#ifdef libc_SYS_openat
+#undef libc_SYS_openat
+#endif
 const int64_t libc_SYS_openat = 257;
+#ifdef libc_SYS_newfstatat
+#undef libc_SYS_newfstatat
+#endif
 const int64_t libc_SYS_newfstatat = 262;
+#ifdef libc_SYS_faccessat
+#undef libc_SYS_faccessat
+#endif
 const int64_t libc_SYS_faccessat = 269;
+#ifdef libc_SYS_unlinkat
+#undef libc_SYS_unlinkat
+#endif
 const int64_t libc_SYS_unlinkat = 263;
+#ifdef libc_SYS_mkdirat
+#undef libc_SYS_mkdirat
+#endif
 const int64_t libc_SYS_mkdirat = 258;
+#ifdef libc_SYS_renameat
+#undef libc_SYS_renameat
+#endif
 const int64_t libc_SYS_renameat = 264;
+#ifdef libc_SYS_readlinkat
+#undef libc_SYS_readlinkat
+#endif
 const int64_t libc_SYS_readlinkat = 267;
+#ifdef libc_SYS_epoll_create1
+#undef libc_SYS_epoll_create1
+#endif
 const int64_t libc_SYS_epoll_create1 = 291;
+#ifdef libc_SYS_epoll_ctl
+#undef libc_SYS_epoll_ctl
+#endif
 const int64_t libc_SYS_epoll_ctl = 233;
+#ifdef libc_SYS_epoll_wait
+#undef libc_SYS_epoll_wait
+#endif
 const int64_t libc_SYS_epoll_wait = 232;
+#ifdef libc_SYS_epoll_pwait
+#undef libc_SYS_epoll_pwait
+#endif
 const int64_t libc_SYS_epoll_pwait = 281;
+#ifdef libc_SYS_getuid
+#undef libc_SYS_getuid
+#endif
 const int64_t libc_SYS_getuid = 102;
+#ifdef libc_SYS_getgid
+#undef libc_SYS_getgid
+#endif
 const int64_t libc_SYS_getgid = 104;
+#ifdef libc_SYS_setuid
+#undef libc_SYS_setuid
+#endif
 const int64_t libc_SYS_setuid = 105;
+#ifdef libc_SYS_setgid
+#undef libc_SYS_setgid
+#endif
 const int64_t libc_SYS_setgid = 106;
+#ifdef libc_SYS_geteuid
+#undef libc_SYS_geteuid
+#endif
 const int64_t libc_SYS_geteuid = 107;
+#ifdef libc_SYS_getegid
+#undef libc_SYS_getegid
+#endif
 const int64_t libc_SYS_getegid = 108;
+#ifdef libc_SYS_gettid
+#undef libc_SYS_gettid
+#endif
 const int64_t libc_SYS_gettid = 186;
+#ifdef libc_AF_INET
+#undef libc_AF_INET
+#endif
 const int32_t libc_AF_INET = 2;
+#ifdef libc_AF_INET6
+#undef libc_AF_INET6
+#endif
 const int32_t libc_AF_INET6 = 10;
+#ifdef libc_SOCK_STREAM
+#undef libc_SOCK_STREAM
+#endif
 const int32_t libc_SOCK_STREAM = 1;
+#ifdef libc_SOCK_DGRAM
+#undef libc_SOCK_DGRAM
+#endif
 const int32_t libc_SOCK_DGRAM = 2;
+#ifdef libc_IPPROTO_TCP
+#undef libc_IPPROTO_TCP
+#endif
 const int32_t libc_IPPROTO_TCP = 6;
+#ifdef libc_IPPROTO_UDP
+#undef libc_IPPROTO_UDP
+#endif
 const int32_t libc_IPPROTO_UDP = 17;
+#ifdef libc_SHUT_RD
+#undef libc_SHUT_RD
+#endif
 const int32_t libc_SHUT_RD = 0;
+#ifdef libc_SHUT_WR
+#undef libc_SHUT_WR
+#endif
 const int32_t libc_SHUT_WR = 1;
+#ifdef libc_SHUT_RDWR
+#undef libc_SHUT_RDWR
+#endif
 const int32_t libc_SHUT_RDWR = 2;
+#ifdef libc_SOL_SOCKET
+#undef libc_SOL_SOCKET
+#endif
 const int32_t libc_SOL_SOCKET = 1;
+#ifdef libc_SO_REUSEADDR
+#undef libc_SO_REUSEADDR
+#endif
 const int32_t libc_SO_REUSEADDR = 2;
+#ifdef libc_SO_REUSEPORT
+#undef libc_SO_REUSEPORT
+#endif
 const int32_t libc_SO_REUSEPORT = 15;
+#ifdef libc_SO_SNDBUF
+#undef libc_SO_SNDBUF
+#endif
 const int32_t libc_SO_SNDBUF = 7;
+#ifdef libc_TCP_NODELAY
+#undef libc_TCP_NODELAY
+#endif
 const int32_t libc_TCP_NODELAY = 1;
+#ifdef libc_SO_RCVTIMEO
+#undef libc_SO_RCVTIMEO
+#endif
 const int32_t libc_SO_RCVTIMEO = 20;
+#ifdef libc_SO_SNDTIMEO
+#undef libc_SO_SNDTIMEO
+#endif
 const int32_t libc_SO_SNDTIMEO = 21;
+#ifdef libc_FUTEX_WAIT
+#undef libc_FUTEX_WAIT
+#endif
 const int32_t libc_FUTEX_WAIT = 0;
+#ifdef libc_FUTEX_WAKE
+#undef libc_FUTEX_WAKE
+#endif
 const int32_t libc_FUTEX_WAKE = 1;
+#ifdef libc_FUTEX_WAIT_PRIVATE
+#undef libc_FUTEX_WAIT_PRIVATE
+#endif
 const int32_t libc_FUTEX_WAIT_PRIVATE = 128;
+#ifdef libc_FUTEX_WAKE_PRIVATE
+#undef libc_FUTEX_WAKE_PRIVATE
+#endif
 const int32_t libc_FUTEX_WAKE_PRIVATE = 129;
+#ifdef libc_FUTEX_WAIT_BITSET
+#undef libc_FUTEX_WAIT_BITSET
+#endif
 const int32_t libc_FUTEX_WAIT_BITSET = 9;
+#ifdef libc_FUTEX_WAKE_BITSET
+#undef libc_FUTEX_WAKE_BITSET
+#endif
 const int32_t libc_FUTEX_WAKE_BITSET = 10;
+#ifdef libc_FUTEX_CLOCK_REALTIME
+#undef libc_FUTEX_CLOCK_REALTIME
+#endif
 const int32_t libc_FUTEX_CLOCK_REALTIME = 256;
+#ifdef libc_CLONE_VM
+#undef libc_CLONE_VM
+#endif
 const int64_t libc_CLONE_VM = 256;
+#ifdef libc_CLONE_FS
+#undef libc_CLONE_FS
+#endif
 const int64_t libc_CLONE_FS = 512;
+#ifdef libc_CLONE_FILES
+#undef libc_CLONE_FILES
+#endif
 const int64_t libc_CLONE_FILES = 1024;
+#ifdef libc_CLONE_SIGHAND
+#undef libc_CLONE_SIGHAND
+#endif
 const int64_t libc_CLONE_SIGHAND = 2048;
+#ifdef libc_CLONE_THREAD
+#undef libc_CLONE_THREAD
+#endif
 const int64_t libc_CLONE_THREAD = 65536;
+#ifdef libc_CLONE_SYSVSEM
+#undef libc_CLONE_SYSVSEM
+#endif
 const int64_t libc_CLONE_SYSVSEM = 262144;
+#ifdef libc_CLONE_SETTLS
+#undef libc_CLONE_SETTLS
+#endif
 const int64_t libc_CLONE_SETTLS = 524288;
+#ifdef libc_CLONE_PARENT_SETTID
+#undef libc_CLONE_PARENT_SETTID
+#endif
 const int64_t libc_CLONE_PARENT_SETTID = 1048576;
+#ifdef libc_CLONE_CHILD_CLEARTID
+#undef libc_CLONE_CHILD_CLEARTID
+#endif
 const int64_t libc_CLONE_CHILD_CLEARTID = 2097152;
+#ifdef libc_O_RDONLY
+#undef libc_O_RDONLY
+#endif
 const int64_t libc_O_RDONLY = 0;
+#ifdef libc_O_WRONLY
+#undef libc_O_WRONLY
+#endif
 const int64_t libc_O_WRONLY = 1;
+#ifdef libc_O_RDWR
+#undef libc_O_RDWR
+#endif
 const int64_t libc_O_RDWR = 2;
+#ifdef libc_O_CREAT
+#undef libc_O_CREAT
+#endif
 const int64_t libc_O_CREAT = 64;
+#ifdef libc_O_EXCL
+#undef libc_O_EXCL
+#endif
 const int64_t libc_O_EXCL = 128;
+#ifdef libc_O_TRUNC
+#undef libc_O_TRUNC
+#endif
 const int64_t libc_O_TRUNC = 512;
+#ifdef libc_O_APPEND
+#undef libc_O_APPEND
+#endif
 const int64_t libc_O_APPEND = 1024;
+#ifdef libc_O_DIRECTORY
+#undef libc_O_DIRECTORY
+#endif
 const int64_t libc_O_DIRECTORY = 65536;
+#ifdef libc_O_NONBLOCK
+#undef libc_O_NONBLOCK
+#endif
 const int32_t libc_O_NONBLOCK = 2048;
+#ifdef libc_O_CLOEXEC
+#undef libc_O_CLOEXEC
+#endif
 const int32_t libc_O_CLOEXEC = 524288;
+#ifdef libc_EFD_SEMAPHORE
+#undef libc_EFD_SEMAPHORE
+#endif
 const int32_t libc_EFD_SEMAPHORE = 1;
+#ifdef libc_EFD_NONBLOCK
+#undef libc_EFD_NONBLOCK
+#endif
 const int32_t libc_EFD_NONBLOCK = 2048;
+#ifdef libc_EFD_CLOEXEC
+#undef libc_EFD_CLOEXEC
+#endif
 const int32_t libc_EFD_CLOEXEC = 524288;
+#ifdef libc_POLLIN
+#undef libc_POLLIN
+#endif
 const int16_t libc_POLLIN = 1;
+#ifdef libc_POLLPRI
+#undef libc_POLLPRI
+#endif
 const int16_t libc_POLLPRI = 2;
+#ifdef libc_POLLOUT
+#undef libc_POLLOUT
+#endif
 const int16_t libc_POLLOUT = 4;
+#ifdef libc_POLLERR
+#undef libc_POLLERR
+#endif
 const int16_t libc_POLLERR = 8;
+#ifdef libc_POLLHUP
+#undef libc_POLLHUP
+#endif
 const int16_t libc_POLLHUP = 16;
+#ifdef libc_POLLNVAL
+#undef libc_POLLNVAL
+#endif
 const int16_t libc_POLLNVAL = 32;
+#ifdef libc_F_DUPFD
+#undef libc_F_DUPFD
+#endif
 const int32_t libc_F_DUPFD = 0;
+#ifdef libc_F_GETFD
+#undef libc_F_GETFD
+#endif
 const int32_t libc_F_GETFD = 1;
+#ifdef libc_F_SETFD
+#undef libc_F_SETFD
+#endif
 const int32_t libc_F_SETFD = 2;
+#ifdef libc_F_GETFL
+#undef libc_F_GETFL
+#endif
 const int32_t libc_F_GETFL = 3;
+#ifdef libc_F_SETFL
+#undef libc_F_SETFL
+#endif
 const int32_t libc_F_SETFL = 4;
+#ifdef libc_F_GETPATH
+#undef libc_F_GETPATH
+#endif
 const int32_t libc_F_GETPATH = 0;
+#ifdef libc_F_DUPFD_CLOEXEC
+#undef libc_F_DUPFD_CLOEXEC
+#endif
 const int32_t libc_F_DUPFD_CLOEXEC = 1030;
+#ifdef libc_FD_CLOEXEC
+#undef libc_FD_CLOEXEC
+#endif
 const int32_t libc_FD_CLOEXEC = 1;
+#ifdef libc_EPOLLIN
+#undef libc_EPOLLIN
+#endif
 const int32_t libc_EPOLLIN = 1;
+#ifdef libc_EPOLLOUT
+#undef libc_EPOLLOUT
+#endif
 const int32_t libc_EPOLLOUT = 4;
+#ifdef libc_EPOLL_CTL_ADD
+#undef libc_EPOLL_CTL_ADD
+#endif
 const int32_t libc_EPOLL_CTL_ADD = 1;
+#ifdef libc_EPOLL_CTL_DEL
+#undef libc_EPOLL_CTL_DEL
+#endif
 const int32_t libc_EPOLL_CTL_DEL = 2;
+#ifdef libc_EPOLL_CTL_MOD
+#undef libc_EPOLL_CTL_MOD
+#endif
 const int32_t libc_EPOLL_CTL_MOD = 3;
+#ifdef libc_EPOLL_CLOEXEC
+#undef libc_EPOLL_CLOEXEC
+#endif
 const int32_t libc_EPOLL_CLOEXEC = 524288;
+#ifdef libc_S_IRWXU
+#undef libc_S_IRWXU
+#endif
 const int64_t libc_S_IRWXU = 448;
+#ifdef libc_S_IRUSR
+#undef libc_S_IRUSR
+#endif
 const int64_t libc_S_IRUSR = 256;
+#ifdef libc_S_IWUSR
+#undef libc_S_IWUSR
+#endif
 const int64_t libc_S_IWUSR = 128;
+#ifdef libc_S_IXUSR
+#undef libc_S_IXUSR
+#endif
 const int64_t libc_S_IXUSR = 64;
+#ifdef libc_S_IRWXG
+#undef libc_S_IRWXG
+#endif
 const int64_t libc_S_IRWXG = 56;
+#ifdef libc_S_IRGRP
+#undef libc_S_IRGRP
+#endif
 const int64_t libc_S_IRGRP = 32;
+#ifdef libc_S_IWGRP
+#undef libc_S_IWGRP
+#endif
 const int64_t libc_S_IWGRP = 16;
+#ifdef libc_S_IXGRP
+#undef libc_S_IXGRP
+#endif
 const int64_t libc_S_IXGRP = 8;
+#ifdef libc_S_IRWXO
+#undef libc_S_IRWXO
+#endif
 const int64_t libc_S_IRWXO = 7;
+#ifdef libc_S_IROTH
+#undef libc_S_IROTH
+#endif
 const int64_t libc_S_IROTH = 4;
+#ifdef libc_S_IWOTH
+#undef libc_S_IWOTH
+#endif
 const int64_t libc_S_IWOTH = 2;
+#ifdef libc_S_IXOTH
+#undef libc_S_IXOTH
+#endif
 const int64_t libc_S_IXOTH = 1;
+#ifdef libc_UYA_STDIN_FILENO
+#undef libc_UYA_STDIN_FILENO
+#endif
 const int64_t libc_UYA_STDIN_FILENO = 0;
+#ifdef libc_UYA_STDOUT_FILENO
+#undef libc_UYA_STDOUT_FILENO
+#endif
 const int64_t libc_UYA_STDOUT_FILENO = 1;
+#ifdef libc_UYA_STDERR_FILENO
+#undef libc_UYA_STDERR_FILENO
+#endif
 const int64_t libc_UYA_STDERR_FILENO = 2;
+#ifdef libc_MAP_SHARED
+#undef libc_MAP_SHARED
+#endif
 const int32_t libc_MAP_SHARED = 1;
+#ifdef libc_MAP_PRIVATE
+#undef libc_MAP_PRIVATE
+#endif
 const int32_t libc_MAP_PRIVATE = 2;
+#ifdef libc_MAP_ANONYMOUS
+#undef libc_MAP_ANONYMOUS
+#endif
 const int32_t libc_MAP_ANONYMOUS = 32;
+#ifdef libc_PROT_READ
+#undef libc_PROT_READ
+#endif
 const int32_t libc_PROT_READ = 1;
+#ifdef libc_PROT_WRITE
+#undef libc_PROT_WRITE
+#endif
 const int32_t libc_PROT_WRITE = 2;
+#ifdef libc_PROT_EXEC
+#undef libc_PROT_EXEC
+#endif
 const int32_t libc_PROT_EXEC = 4;
+#ifdef libc_RLIMIT_STACK
+#undef libc_RLIMIT_STACK
+#endif
 const int32_t libc_RLIMIT_STACK = 3;
+#ifdef DAYS_IN_MONTH
+#undef DAYS_IN_MONTH
+#endif
 __attribute__((used)) const int32_t DAYS_IN_MONTH[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+#ifdef _WDAY_ABBREV
+#undef _WDAY_ABBREV
+#endif
 __attribute__((used)) const uint8_t * _WDAY_ABBREV[7] = {(const uint8_t *)"Sun", (const uint8_t *)"Mon", (const uint8_t *)"Tue", (const uint8_t *)"Wed", (const uint8_t *)"Thu", (const uint8_t *)"Fri", (const uint8_t *)"Sat"};
 
+#ifdef _WDAY_FULL
+#undef _WDAY_FULL
+#endif
 __attribute__((used)) const uint8_t * _WDAY_FULL[7] = {(const uint8_t *)"Sunday", (const uint8_t *)"Monday", (const uint8_t *)"Tuesday", (const uint8_t *)"Wednesday", (const uint8_t *)"Thursday", (const uint8_t *)"Friday", (const uint8_t *)"Saturday"};
 
+#ifdef _MON_ABBREV
+#undef _MON_ABBREV
+#endif
 __attribute__((used)) const uint8_t * _MON_ABBREV[12] = {(const uint8_t *)"Jan", (const uint8_t *)"Feb", (const uint8_t *)"Mar", (const uint8_t *)"Apr", (const uint8_t *)"May", (const uint8_t *)"Jun", (const uint8_t *)"Jul", (const uint8_t *)"Aug", (const uint8_t *)"Sep", (const uint8_t *)"Oct", (const uint8_t *)"Nov", (const uint8_t *)"Dec"};
 
+#ifdef _MON_FULL
+#undef _MON_FULL
+#endif
 __attribute__((used)) const uint8_t * _MON_FULL[12] = {(const uint8_t *)"January", (const uint8_t *)"February", (const uint8_t *)"March", (const uint8_t *)"April", (const uint8_t *)"May", (const uint8_t *)"June", (const uint8_t *)"July", (const uint8_t *)"August", (const uint8_t *)"September", (const uint8_t *)"October", (const uint8_t *)"November", (const uint8_t *)"December"};
 
+#ifdef libc_STDIN_FILENO
+#undef libc_STDIN_FILENO
+#endif
 const int32_t libc_STDIN_FILENO = 0;
+#ifdef libc_STDOUT_FILENO
+#undef libc_STDOUT_FILENO
+#endif
 const int32_t libc_STDOUT_FILENO = 1;
+#ifdef libc_STDERR_FILENO
+#undef libc_STDERR_FILENO
+#endif
 const int32_t libc_STDERR_FILENO = 2;
+#ifdef libc_SEEK_SET
+#undef libc_SEEK_SET
+#endif
 const int32_t libc_SEEK_SET = 0;
+#ifdef libc_SEEK_CUR
+#undef libc_SEEK_CUR
+#endif
 const int32_t libc_SEEK_CUR = 1;
+#ifdef libc_SEEK_END
+#undef libc_SEEK_END
+#endif
 const int32_t libc_SEEK_END = 2;
+#ifdef libc_F_OK
+#undef libc_F_OK
+#endif
 const int32_t libc_F_OK = 0;
+#ifdef libc_R_OK
+#undef libc_R_OK
+#endif
 const int32_t libc_R_OK = 4;
+#ifdef libc_W_OK
+#undef libc_W_OK
+#endif
 const int32_t libc_W_OK = 2;
+#ifdef libc_X_OK
+#undef libc_X_OK
+#endif
 const int32_t libc_X_OK = 1;
+#ifdef libc_PATH_MAX
+#undef libc_PATH_MAX
+#endif
 const size_t libc_PATH_MAX = 4096;
+#ifdef libc_WEOF
+#undef libc_WEOF
+#endif
 const wint_t libc_WEOF = (0 - 1);
 int32_t saved_argc = 0;
 uint8_t * * saved_argv = NULL;
 uint8_t * * saved_envp = NULL;
+#ifdef MAX_INTERP_SEGMENTS
+#undef MAX_INTERP_SEGMENTS
+#endif
 __attribute__((used)) const int32_t MAX_INTERP_SEGMENTS = 64;
 
+#ifdef MAX_GENERIC_NAME_BUF
+#undef MAX_GENERIC_NAME_BUF
+#endif
 __attribute__((used)) const int32_t MAX_GENERIC_NAME_BUF = 512;
 
+#ifdef ASYNC_FRAME_META_INITIAL_CAPACITY
+#undef ASYNC_FRAME_META_INITIAL_CAPACITY
+#endif
 __attribute__((used)) const int32_t ASYNC_FRAME_META_INITIAL_CAPACITY = 64;
 
+#ifdef MAX_ASYNC_CALL_VISITED
+#undef MAX_ASYNC_CALL_VISITED
+#endif
 __attribute__((used)) const int32_t MAX_ASYNC_CALL_VISITED = 64;
 
+#ifdef CHECKER_EMBED_PATH_MAX
+#undef CHECKER_EMBED_PATH_MAX
+#endif
 __attribute__((used)) const int32_t CHECKER_EMBED_PATH_MAX = 4096;
 
+#ifdef CHECKER_EMBED_MAX_DIR_ENTRIES
+#undef CHECKER_EMBED_MAX_DIR_ENTRIES
+#endif
 __attribute__((used)) const int32_t CHECKER_EMBED_MAX_DIR_ENTRIES = 4096;
 
+#ifdef DT_LNK
+#undef DT_LNK
+#endif
 __attribute__((used)) const int8_t DT_LNK = 10;
 
+#ifdef CHECKER_C_IMPORT_MAX_EXPANDED
+#undef CHECKER_C_IMPORT_MAX_EXPANDED
+#endif
 __attribute__((used)) const int32_t CHECKER_C_IMPORT_MAX_EXPANDED = 4096;
 
+#ifdef CHECKER_C_IMPORT_MAX_VISITED_DIRS
+#undef CHECKER_C_IMPORT_MAX_VISITED_DIRS
+#endif
 __attribute__((used)) const int32_t CHECKER_C_IMPORT_MAX_VISITED_DIRS = 4096;
 
+#ifdef CHECKER_C_IMPORT_MAX_SYMLINK_DEPTH
+#undef CHECKER_C_IMPORT_MAX_SYMLINK_DEPTH
+#endif
 __attribute__((used)) const int32_t CHECKER_C_IMPORT_MAX_SYMLINK_DEPTH = 64;
 
+#ifdef MONO_INSTANCE_INDEX_BITS
+#undef MONO_INSTANCE_INDEX_BITS
+#endif
 __attribute__((used)) const int32_t MONO_INSTANCE_INDEX_BITS = 10;
 
+#ifdef MONO_INSTANCE_INDEX_SIZE
+#undef MONO_INSTANCE_INDEX_SIZE
+#endif
 __attribute__((used)) const int32_t MONO_INSTANCE_INDEX_SIZE = 1024;
 
+#ifdef MONO_INSTANCE_INDEX_MASK
+#undef MONO_INSTANCE_INDEX_MASK
+#endif
 __attribute__((used)) const int32_t MONO_INSTANCE_INDEX_MASK = 1023;
 
+#ifdef CONSTRAINT_LT
+#undef CONSTRAINT_LT
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_LT = 0;
 
+#ifdef CONSTRAINT_LE
+#undef CONSTRAINT_LE
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_LE = 1;
 
+#ifdef CONSTRAINT_GT
+#undef CONSTRAINT_GT
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_GT = 2;
 
+#ifdef CONSTRAINT_GE
+#undef CONSTRAINT_GE
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_GE = 3;
 
+#ifdef CONSTRAINT_EQ
+#undef CONSTRAINT_EQ
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_EQ = 4;
 
+#ifdef CONSTRAINT_NE
+#undef CONSTRAINT_NE
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_NE = 5;
 
+#ifdef CONSTRAINT_EXPR_NAME_MAX
+#undef CONSTRAINT_EXPR_NAME_MAX
+#endif
 __attribute__((used)) const int32_t CONSTRAINT_EXPR_NAME_MAX = 256;
 
+#ifdef CHECKER_LOOKUP_CACHE_BITS
+#undef CHECKER_LOOKUP_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t CHECKER_LOOKUP_CACHE_BITS = 11;
 
+#ifdef CHECKER_LOOKUP_CACHE_SIZE
+#undef CHECKER_LOOKUP_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t CHECKER_LOOKUP_CACHE_SIZE = 2048;
 
+#ifdef CHECKER_LOOKUP_CACHE_MASK
+#undef CHECKER_LOOKUP_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t CHECKER_LOOKUP_CACHE_MASK = 2047;
 
+#ifdef CHECKER_LOOKUP_RESULT_CACHE_BITS
+#undef CHECKER_LOOKUP_RESULT_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t CHECKER_LOOKUP_RESULT_CACHE_BITS = 13;
 
+#ifdef CHECKER_LOOKUP_RESULT_CACHE_SIZE
+#undef CHECKER_LOOKUP_RESULT_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t CHECKER_LOOKUP_RESULT_CACHE_SIZE = 8192;
 
+#ifdef CHECKER_LOOKUP_RESULT_CACHE_MASK
+#undef CHECKER_LOOKUP_RESULT_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t CHECKER_LOOKUP_RESULT_CACHE_MASK = 8191;
 
+#ifdef CHECKER_SCAN_DECL_MAX_DEPTH
+#undef CHECKER_SCAN_DECL_MAX_DEPTH
+#endif
 __attribute__((used)) const int32_t CHECKER_SCAN_DECL_MAX_DEPTH = 8;
 
+#ifdef PROGDECL_INDEX_SLOTS
+#undef PROGDECL_INDEX_SLOTS
+#endif
 __attribute__((used)) const int32_t PROGDECL_INDEX_SLOTS = 16384;
 
+#ifdef PROGDECL_INDEX_MASK
+#undef PROGDECL_INDEX_MASK
+#endif
 __attribute__((used)) const int32_t PROGDECL_INDEX_MASK = 16383;
 
+#ifdef PROGDECL_INDEX_ENTRIES
+#undef PROGDECL_INDEX_ENTRIES
+#endif
 __attribute__((used)) const int32_t PROGDECL_INDEX_ENTRIES = 32768;
 
+#ifdef MAX_MODULES
+#undef MAX_MODULES
+#endif
 __attribute__((used)) const int32_t MAX_MODULES = 64;
 
+#ifdef INLINE_MAX_LINES
+#undef INLINE_MAX_LINES
+#endif
 __attribute__((used)) const int32_t INLINE_MAX_LINES = 20;
 
+#ifdef INLINE_MAX_DEPTH
+#undef INLINE_MAX_DEPTH
+#endif
 __attribute__((used)) const int32_t INLINE_MAX_DEPTH = 3;
 
+#ifdef UNROLL_MAX_ITERATIONS
+#undef UNROLL_MAX_ITERATIONS
+#endif
 __attribute__((used)) const int32_t UNROLL_MAX_ITERATIONS = 8;
 
+#ifdef UNROLL_MIN_ITERATIONS
+#undef UNROLL_MIN_ITERATIONS
+#endif
 __attribute__((used)) const int32_t UNROLL_MIN_ITERATIONS = 2;
 
+#ifdef I32_MAX
+#undef I32_MAX
+#endif
 __attribute__((used)) const int32_t I32_MAX = 2147483647LL;
 
+#ifdef I32_MIN
+#undef I32_MIN
+#endif
 __attribute__((used)) const int32_t I32_MIN = (-2147483647LL-1LL);
 
+#ifdef FUNCTION_EDGE_CACHE_SIZE
+#undef FUNCTION_EDGE_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t FUNCTION_EDGE_CACHE_SIZE = 32768;
 
+#ifdef FUNCTION_EDGE_CACHE_MASK
+#undef FUNCTION_EDGE_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t FUNCTION_EDGE_CACHE_MASK = 32767;
 
+#ifdef SYMBOL_LOOKUP_CACHE_SIZE
+#undef SYMBOL_LOOKUP_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t SYMBOL_LOOKUP_CACHE_SIZE = 8192;
 
+#ifdef SYMBOL_LOOKUP_CACHE_MASK
+#undef SYMBOL_LOOKUP_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t SYMBOL_LOOKUP_CACHE_MASK = 8191;
 
+#ifdef TYPE_FROM_AST_CACHE_BITS
+#undef TYPE_FROM_AST_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t TYPE_FROM_AST_CACHE_BITS = 12;
 
+#ifdef TYPE_FROM_AST_CACHE_SIZE
+#undef TYPE_FROM_AST_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t TYPE_FROM_AST_CACHE_SIZE = 4096;
 
+#ifdef TYPE_FROM_AST_CACHE_MASK
+#undef TYPE_FROM_AST_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t TYPE_FROM_AST_CACHE_MASK = 4095;
 
+#ifdef TYPE_FROM_AST_CACHE_MAX_PROBE
+#undef TYPE_FROM_AST_CACHE_MAX_PROBE
+#endif
 __attribute__((used)) const int32_t TYPE_FROM_AST_CACHE_MAX_PROBE = 8;
 
+#ifdef MAX_ERROR_NAMES
+#undef MAX_ERROR_NAMES
+#endif
 __attribute__((used)) const int32_t MAX_ERROR_NAMES = 1024;
 
+#ifdef MAX_MOVED_NAMES
+#undef MAX_MOVED_NAMES
+#endif
 __attribute__((used)) const int32_t MAX_MOVED_NAMES = 128;
 
+#ifdef MONO_INSTANCE_INITIAL_CAPACITY
+#undef MONO_INSTANCE_INITIAL_CAPACITY
+#endif
 __attribute__((used)) const int32_t MONO_INSTANCE_INITIAL_CAPACITY = 64;
 
+#ifdef MAX_UNION_VARIANTS
+#undef MAX_UNION_VARIANTS
+#endif
 __attribute__((used)) const int32_t MAX_UNION_VARIANTS = 32;
 
+#ifdef MAX_INTERFACE_METHODS
+#undef MAX_INTERFACE_METHODS
+#endif
 __attribute__((used)) const int32_t MAX_INTERFACE_METHODS = 128;
 
+#ifdef MAX_INTERFACE_STACK
+#undef MAX_INTERFACE_STACK
+#endif
 __attribute__((used)) const int32_t MAX_INTERFACE_STACK = 64;
 
+#ifdef MAX_BASE_NAME_LEN
+#undef MAX_BASE_NAME_LEN
+#endif
 __attribute__((used)) const int32_t MAX_BASE_NAME_LEN = 256;
 
+#ifdef MAX_MONO_NAME_LEN
+#undef MAX_MONO_NAME_LEN
+#endif
 __attribute__((used)) const int32_t MAX_MONO_NAME_LEN = 256;
 
+#ifdef MAX_MONO_NAME_LIMIT
+#undef MAX_MONO_NAME_LIMIT
+#endif
 __attribute__((used)) const int32_t MAX_MONO_NAME_LIMIT = 250;
 
+#ifdef MAX_POINTER_NAMES
+#undef MAX_POINTER_NAMES
+#endif
 __attribute__((used)) const int32_t MAX_POINTER_NAMES = 32;
 
+#ifdef MAX_CONSTRAINTS
+#undef MAX_CONSTRAINTS
+#endif
 __attribute__((used)) const int32_t MAX_CONSTRAINTS = 64;
 
+#ifdef MAX_ASYNC_CALL_EDGES
+#undef MAX_ASYNC_CALL_EDGES
+#endif
 __attribute__((used)) const int32_t MAX_ASYNC_CALL_EDGES = 512;
 
+#ifdef MAX_FN_CALL_EDGES
+#undef MAX_FN_CALL_EDGES
+#endif
 __attribute__((used)) const int32_t MAX_FN_CALL_EDGES = 16384;
 
+#ifdef MAX_FN_ROOTS
+#undef MAX_FN_ROOTS
+#endif
 __attribute__((used)) const int32_t MAX_FN_ROOTS = 8192;
 
+#ifdef MAX_REACHABLE_FN_DECLS
+#undef MAX_REACHABLE_FN_DECLS
+#endif
 __attribute__((used)) const int32_t MAX_REACHABLE_FN_DECLS = 8192;
 
+#ifdef MAX_REACHABILITY_VISIT_SLOTS
+#undef MAX_REACHABILITY_VISIT_SLOTS
+#endif
 __attribute__((used)) const int32_t MAX_REACHABILITY_VISIT_SLOTS = 262144;
 
+#ifdef MAX_REACHABILITY_VISIT_MASK
+#undef MAX_REACHABILITY_VISIT_MASK
+#endif
 __attribute__((used)) const size_t MAX_REACHABILITY_VISIT_MASK = 262143;
 
+#ifdef SYMBOL_TABLE_SIZE
+#undef SYMBOL_TABLE_SIZE
+#endif
 __attribute__((used)) const int32_t SYMBOL_TABLE_SIZE = 32768;
 
+#ifdef FUNCTION_TABLE_SIZE
+#undef FUNCTION_TABLE_SIZE
+#endif
 __attribute__((used)) const int32_t FUNCTION_TABLE_SIZE = 8192;
 
+#ifdef MODULE_TABLE_SIZE
+#undef MODULE_TABLE_SIZE
+#endif
 __attribute__((used)) const int32_t MODULE_TABLE_SIZE = 256;
 
+#ifdef IMPORT_TABLE_SIZE
+#undef IMPORT_TABLE_SIZE
+#endif
 __attribute__((used)) const int32_t IMPORT_TABLE_SIZE = 512;
 
+#ifdef STRING_POOL_SIZE
+#undef STRING_POOL_SIZE
+#endif
 __attribute__((used)) const int32_t STRING_POOL_SIZE = 16384;
 
+#ifdef PACKAGE_MODE_ALIAS_ROOT_MAX
+#undef PACKAGE_MODE_ALIAS_ROOT_MAX
+#endif
 __attribute__((used)) const int32_t PACKAGE_MODE_ALIAS_ROOT_MAX = 128;
 
+#ifdef MACHO_ARM64_RELOC_BRANCH26_RAW
+#undef MACHO_ARM64_RELOC_BRANCH26_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_ARM64_RELOC_BRANCH26_RAW = 2U;
 
+#ifdef MACHO_ARM64_RELOC_PAGE21_RAW
+#undef MACHO_ARM64_RELOC_PAGE21_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_ARM64_RELOC_PAGE21_RAW = 3U;
 
+#ifdef MACHO_ARM64_RELOC_PAGEOFF12_RAW
+#undef MACHO_ARM64_RELOC_PAGEOFF12_RAW
+#endif
 __attribute__((used)) const uint32_t MACHO_ARM64_RELOC_PAGEOFF12_RAW = 4U;
 
+#ifdef ELF64_SECTION_KIND_SKIP_RAW
+#undef ELF64_SECTION_KIND_SKIP_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_KIND_SKIP_RAW = 0U;
 
+#ifdef ELF64_SECTION_KIND_CODE_RAW
+#undef ELF64_SECTION_KIND_CODE_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_KIND_CODE_RAW = 1U;
 
+#ifdef ELF64_SECTION_KIND_RODATA_RAW
+#undef ELF64_SECTION_KIND_RODATA_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_KIND_RODATA_RAW = 2U;
 
+#ifdef ELF64_SECTION_KIND_DATA_RAW
+#undef ELF64_SECTION_KIND_DATA_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_KIND_DATA_RAW = 3U;
 
+#ifdef ELF64_SECTION_KIND_BSS_RAW
+#undef ELF64_SECTION_KIND_BSS_RAW
+#endif
 __attribute__((used)) const uint32_t ELF64_SECTION_KIND_BSS_RAW = 4U;
 
+#ifdef ELF64_MAX_SECTIONS
+#undef ELF64_MAX_SECTIONS
+#endif
 __attribute__((used)) const size_t ELF64_MAX_SECTIONS = 256ULL;
 
+#ifdef EXEC_MAX_BYTECODE_INSTRS
+#undef EXEC_MAX_BYTECODE_INSTRS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_BYTECODE_INSTRS = 16384;
 
+#ifdef EXEC_MAX_CONST_POOL_VALUES
+#undef EXEC_MAX_CONST_POOL_VALUES
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_CONST_POOL_VALUES = 8192;
 
+#ifdef EXEC_MAX_HOST_CALL_SITES
+#undef EXEC_MAX_HOST_CALL_SITES
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_HOST_CALL_SITES = 64;
 
+#ifdef EXEC_MAX_CLEANUP_SCOPE_DEPTH
+#undef EXEC_MAX_CLEANUP_SCOPE_DEPTH
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_CLEANUP_SCOPE_DEPTH = 512;
 
+#ifdef EXEC_MAX_FRAME_SLOTS
+#undef EXEC_MAX_FRAME_SLOTS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_FRAME_SLOTS = 8192;
 
+#ifdef EXEC_MAX_CALL_ARGS
+#undef EXEC_MAX_CALL_ARGS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_CALL_ARGS = 32;
 
+#ifdef EXEC_MAX_LOCALS
+#undef EXEC_MAX_LOCALS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_LOCALS = 256;
 
+#ifdef EXEC_MAX_GLOBALS
+#undef EXEC_MAX_GLOBALS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_GLOBALS = 1024;
 
+#ifdef EXEC_MAX_SCOPE_DEPTH
+#undef EXEC_MAX_SCOPE_DEPTH
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_SCOPE_DEPTH = 512;
 
+#ifdef EXEC_MAX_INTERFACE_METHODS
+#undef EXEC_MAX_INTERFACE_METHODS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_INTERFACE_METHODS = 64;
 
+#ifdef EXEC_MAX_MODULE_GLOBAL_REQUESTS
+#undef EXEC_MAX_MODULE_GLOBAL_REQUESTS
+#endif
 __attribute__((used)) const int32_t EXEC_MAX_MODULE_GLOBAL_REQUESTS = 256;
 
+#ifdef EXEC_VM_REF_KIND_BASE
+#undef EXEC_VM_REF_KIND_BASE
+#endif
 __attribute__((used)) const int32_t EXEC_VM_REF_KIND_BASE = 65536;
 
+#ifdef EXEC_VM_REF_KIND_INDEX_BASE
+#undef EXEC_VM_REF_KIND_INDEX_BASE
+#endif
 __attribute__((used)) const int32_t EXEC_VM_REF_KIND_INDEX_BASE = 131072;
 
+#ifdef ASYNC_LOWER_INITIAL_PLAN_CAPACITY
+#undef ASYNC_LOWER_INITIAL_PLAN_CAPACITY
+#endif
 __attribute__((used)) const int32_t ASYNC_LOWER_INITIAL_PLAN_CAPACITY = 64;
 
+#ifdef FMT_BUF_SIZE
+#undef FMT_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t FMT_BUF_SIZE = 64;
 
+#ifdef NAME_BUF_SIZE
+#undef NAME_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t NAME_BUF_SIZE = 256;
 
+#ifdef TEMP_BUF_SIZE
+#undef TEMP_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t TEMP_BUF_SIZE = 256;
 
+#ifdef TEMP_BUF_LIMIT
+#undef TEMP_BUF_LIMIT
+#endif
 __attribute__((used)) const int32_t TEMP_BUF_LIMIT = 255;
 
+#ifdef NUM_BUF_SIZE
+#undef NUM_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t NUM_BUF_SIZE = 32;
 
+#ifdef STRUCT_NAME_BUF_SIZE
+#undef STRUCT_NAME_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t STRUCT_NAME_BUF_SIZE = 128;
 
+#ifdef SHORT_NAME_BUF_SIZE
+#undef SHORT_NAME_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t SHORT_NAME_BUF_SIZE = 64;
 
+#ifdef C99_F64_DBL_MAX_BITS
+#undef C99_F64_DBL_MAX_BITS
+#endif
 __attribute__((used)) const uint64_t C99_F64_DBL_MAX_BITS = ((uint64_t)(uint32_t)0xFFFFFFFFULL + ((uint64_t)(uint32_t)0x7FEFFFFFULL << 32));
 
+#ifdef C99_F64_NEG_DBL_MAX_BITS
+#undef C99_F64_NEG_DBL_MAX_BITS
+#endif
 __attribute__((used)) const uint64_t C99_F64_NEG_DBL_MAX_BITS = ((uint64_t)(uint32_t)0xFFFFFFFFULL + ((uint64_t)(uint32_t)0xFFEFFFFFULL << 32));
 
+#ifdef C99_STRUCT_COMPARE_MAX_DEPTH
+#undef C99_STRUCT_COMPARE_MAX_DEPTH
+#endif
 __attribute__((used)) const int32_t C99_STRUCT_COMPARE_MAX_DEPTH = 16;
 
+#ifdef SIMD_VEC_LANE_PTR_SZ
+#undef SIMD_VEC_LANE_PTR_SZ
+#endif
 __attribute__((used)) const int32_t SIMD_VEC_LANE_PTR_SZ = 96;
 
+#ifdef C99_IDENTIFIER_TYPE_NODE_CACHE_BITS
+#undef C99_IDENTIFIER_TYPE_NODE_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_NODE_CACHE_BITS = 12;
 
+#ifdef C99_IDENTIFIER_TYPE_NODE_CACHE_SIZE
+#undef C99_IDENTIFIER_TYPE_NODE_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_NODE_CACHE_SIZE = 4096;
 
+#ifdef C99_IDENTIFIER_TYPE_NODE_CACHE_MASK
+#undef C99_IDENTIFIER_TYPE_NODE_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_NODE_CACHE_MASK = 4095;
 
+#ifdef C99_PRIVATE_FN_SCOPE_CACHE_BITS
+#undef C99_PRIVATE_FN_SCOPE_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_PRIVATE_FN_SCOPE_CACHE_BITS = 13;
 
+#ifdef C99_PRIVATE_FN_SCOPE_CACHE_SIZE
+#undef C99_PRIVATE_FN_SCOPE_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_PRIVATE_FN_SCOPE_CACHE_SIZE = 8192;
 
+#ifdef C99_PRIVATE_FN_SCOPE_CACHE_MASK
+#undef C99_PRIVATE_FN_SCOPE_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_PRIVATE_FN_SCOPE_CACHE_MASK = 8191;
 
+#ifdef C99_STATIC_TOP_FN_CACHE_BITS
+#undef C99_STATIC_TOP_FN_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_STATIC_TOP_FN_CACHE_BITS = 13;
 
+#ifdef C99_STATIC_TOP_FN_CACHE_SIZE
+#undef C99_STATIC_TOP_FN_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_STATIC_TOP_FN_CACHE_SIZE = 8192;
 
+#ifdef C99_STATIC_TOP_FN_CACHE_MASK
+#undef C99_STATIC_TOP_FN_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_STATIC_TOP_FN_CACHE_MASK = 8191;
 
+#ifdef ASYNC_SEGMENT_EMITTED_TRANSFER
+#undef ASYNC_SEGMENT_EMITTED_TRANSFER
+#endif
 __attribute__((used)) const int32_t ASYNC_SEGMENT_EMITTED_TRANSFER = 0;
 
+#ifdef ASYNC_SEGMENT_REACHED_END
+#undef ASYNC_SEGMENT_REACHED_END
+#endif
 __attribute__((used)) const int32_t ASYNC_SEGMENT_REACHED_END = 1;
 
+#ifdef ASYNC_SEGMENT_TERMINATED_RETURN
+#undef ASYNC_SEGMENT_TERMINATED_RETURN
+#endif
 __attribute__((used)) const int32_t ASYNC_SEGMENT_TERMINATED_RETURN = 2;
 
+#ifdef C99_IDENT_REF_CACHE_SIZE
+#undef C99_IDENT_REF_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_IDENT_REF_CACHE_SIZE = 4096;
 
+#ifdef C99_IDENT_REF_CACHE_MASK
+#undef C99_IDENT_REF_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_IDENT_REF_CACHE_MASK = 4095;
 
+#ifdef C99_GLOBAL_INIT_MAX_EXPAND_DEPTH
+#undef C99_GLOBAL_INIT_MAX_EXPAND_DEPTH
+#endif
 __attribute__((used)) const int32_t C99_GLOBAL_INIT_MAX_EXPAND_DEPTH = 32;
 
+#ifdef C99_MAX_STRING_CONSTANTS
+#undef C99_MAX_STRING_CONSTANTS
+#endif
 __attribute__((used)) const int32_t C99_MAX_STRING_CONSTANTS = 4096;
 
+#ifdef C99_MAX_EMBEDDED_CONSTANTS
+#undef C99_MAX_EMBEDDED_CONSTANTS
+#endif
 __attribute__((used)) const int32_t C99_MAX_EMBEDDED_CONSTANTS = 4096;
 
+#ifdef C99_MAX_EMBED_DIR_TABLES
+#undef C99_MAX_EMBED_DIR_TABLES
+#endif
 __attribute__((used)) const int32_t C99_MAX_EMBED_DIR_TABLES = 512;
 
+#ifdef C99_MAX_STRUCT_DEFINITIONS
+#undef C99_MAX_STRUCT_DEFINITIONS
+#endif
 __attribute__((used)) const int32_t C99_MAX_STRUCT_DEFINITIONS = 1024;
 
+#ifdef C99_MAX_ENUM_DEFINITIONS
+#undef C99_MAX_ENUM_DEFINITIONS
+#endif
 __attribute__((used)) const int32_t C99_MAX_ENUM_DEFINITIONS = 512;
 
+#ifdef C99_MAX_FUNCTION_DECLS
+#undef C99_MAX_FUNCTION_DECLS
+#endif
 __attribute__((used)) const int32_t C99_MAX_FUNCTION_DECLS = 512;
 
+#ifdef C99_MAX_REACHABLE_FUNCTIONS
+#undef C99_MAX_REACHABLE_FUNCTIONS
+#endif
 __attribute__((used)) const int32_t C99_MAX_REACHABLE_FUNCTIONS = 4096;
 
+#ifdef C99_MAX_GLOBAL_VARS
+#undef C99_MAX_GLOBAL_VARS
+#endif
 __attribute__((used)) const int32_t C99_MAX_GLOBAL_VARS = 512;
 
+#ifdef C99_MAX_LOCAL_VARS
+#undef C99_MAX_LOCAL_VARS
+#endif
 __attribute__((used)) const int32_t C99_MAX_LOCAL_VARS = 1024;
 
+#ifdef C99_MAX_LOOP_STACK
+#undef C99_MAX_LOOP_STACK
+#endif
 __attribute__((used)) const int32_t C99_MAX_LOOP_STACK = 64;
 
+#ifdef C99_MAX_CALL_ARGS
+#undef C99_MAX_CALL_ARGS
+#endif
 __attribute__((used)) const int32_t C99_MAX_CALL_ARGS = 64;
 
+#ifdef C99_MAX_DEFER_STACK
+#undef C99_MAX_DEFER_STACK
+#endif
 __attribute__((used)) const int32_t C99_MAX_DEFER_STACK = 64;
 
+#ifdef C99_MAX_DEFERS_PER_BLOCK
+#undef C99_MAX_DEFERS_PER_BLOCK
+#endif
 __attribute__((used)) const int32_t C99_MAX_DEFERS_PER_BLOCK = 128;
 
+#ifdef C99_MAX_DROP_VARS_PER_BLOCK
+#undef C99_MAX_DROP_VARS_PER_BLOCK
+#endif
 __attribute__((used)) const int32_t C99_MAX_DROP_VARS_PER_BLOCK = 128;
 
+#ifdef C99_MAX_SLICE_STRUCTS
+#undef C99_MAX_SLICE_STRUCTS
+#endif
 __attribute__((used)) const int32_t C99_MAX_SLICE_STRUCTS = 128;
 
+#ifdef C99_MAX_ERR_UNION_STRUCTS
+#undef C99_MAX_ERR_UNION_STRUCTS
+#endif
 __attribute__((used)) const int32_t C99_MAX_ERR_UNION_STRUCTS = 256;
 
+#ifdef C99_MAX_SIMD_STRUCTS
+#undef C99_MAX_SIMD_STRUCTS
+#endif
 __attribute__((used)) const int32_t C99_MAX_SIMD_STRUCTS = 128;
 
+#ifdef C99_MAX_MONO_INSTANCES
+#undef C99_MAX_MONO_INSTANCES
+#endif
 __attribute__((used)) const int32_t C99_MAX_MONO_INSTANCES = 1024;
 
+#ifdef C99_MAX_ERROR_IDS
+#undef C99_MAX_ERROR_IDS
+#endif
 __attribute__((used)) const int32_t C99_MAX_ERROR_IDS = 1024;
 
+#ifdef C99_ASYNC_INITIAL_AWAIT_CAPACITY
+#undef C99_ASYNC_INITIAL_AWAIT_CAPACITY
+#endif
 __attribute__((used)) const int32_t C99_ASYNC_INITIAL_AWAIT_CAPACITY = 64;
 
+#ifdef C99_GENERIC_NAME_BUF_SIZE
+#undef C99_GENERIC_NAME_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t C99_GENERIC_NAME_BUF_SIZE = 128;
 
+#ifdef C99_MAX_INTERFACE_METHODS
+#undef C99_MAX_INTERFACE_METHODS
+#endif
 __attribute__((used)) const int32_t C99_MAX_INTERFACE_METHODS = 128;
 
+#ifdef C99_TYPE_ARG_BUF_SIZE
+#undef C99_TYPE_ARG_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t C99_TYPE_ARG_BUF_SIZE = 256;
 
+#ifdef C99_TYPE_ARG_BUF_LIMIT
+#undef C99_TYPE_ARG_BUF_LIMIT
+#endif
 __attribute__((used)) const int32_t C99_TYPE_ARG_BUF_LIMIT = 250;
 
+#ifdef C99_OUTPUT_FILENAME_BUF_SIZE
+#undef C99_OUTPUT_FILENAME_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t C99_OUTPUT_FILENAME_BUF_SIZE = 100;
 
+#ifdef C99_STRING_INTERP_BUF_SIZE
+#undef C99_STRING_INTERP_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t C99_STRING_INTERP_BUF_SIZE = 2048;
 
+#ifdef C99_STRING_INTERP_LIMIT
+#undef C99_STRING_INTERP_LIMIT
+#endif
 __attribute__((used)) const int32_t C99_STRING_INTERP_LIMIT = 2046;
 
+#ifdef C99_SUFFIX_BUF_SIZE
+#undef C99_SUFFIX_BUF_SIZE
+#endif
 __attribute__((used)) const int32_t C99_SUFFIX_BUF_SIZE = 512;
 
+#ifdef C99_DECL_CACHE_BITS
+#undef C99_DECL_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_DECL_CACHE_BITS = 12;
 
+#ifdef C99_DECL_CACHE_SIZE
+#undef C99_DECL_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_DECL_CACHE_SIZE = 4096;
 
+#ifdef C99_DECL_CACHE_MASK
+#undef C99_DECL_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_DECL_CACHE_MASK = 4095;
 
+#ifdef MAX_TESTS
+#undef MAX_TESTS
+#endif
 __attribute__((used)) const int32_t MAX_TESTS = 1000;
 
+#ifdef C99_TYPE_CONV_MAX_DEPTH
+#undef C99_TYPE_CONV_MAX_DEPTH
+#endif
 __attribute__((used)) const int32_t C99_TYPE_CONV_MAX_DEPTH = 64;
 
+#ifdef C99_TYPE_TO_C_CACHE_BITS
+#undef C99_TYPE_TO_C_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_TYPE_TO_C_CACHE_BITS = 12;
 
+#ifdef C99_TYPE_TO_C_CACHE_SIZE
+#undef C99_TYPE_TO_C_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_TYPE_TO_C_CACHE_SIZE = 4096;
 
+#ifdef C99_TYPE_TO_C_CACHE_MASK
+#undef C99_TYPE_TO_C_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_TYPE_TO_C_CACHE_MASK = 4095;
 
+#ifdef C99_IDENTIFIER_TYPE_CACHE_BITS
+#undef C99_IDENTIFIER_TYPE_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_CACHE_BITS = 12;
 
+#ifdef C99_IDENTIFIER_TYPE_CACHE_SIZE
+#undef C99_IDENTIFIER_TYPE_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_CACHE_SIZE = 4096;
 
+#ifdef C99_IDENTIFIER_TYPE_CACHE_MASK
+#undef C99_IDENTIFIER_TYPE_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_IDENTIFIER_TYPE_CACHE_MASK = 4095;
 
+#ifdef C99_SAFE_IDENT_CACHE_BITS
+#undef C99_SAFE_IDENT_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_SAFE_IDENT_CACHE_BITS = 11;
 
+#ifdef C99_SAFE_IDENT_CACHE_SIZE
+#undef C99_SAFE_IDENT_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_SAFE_IDENT_CACHE_SIZE = 2048;
 
+#ifdef C99_SAFE_IDENT_CACHE_MASK
+#undef C99_SAFE_IDENT_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_SAFE_IDENT_CACHE_MASK = 2047;
 
+#ifdef C99_STRING_CONST_CACHE_BITS
+#undef C99_STRING_CONST_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_STRING_CONST_CACHE_BITS = 12;
 
+#ifdef C99_STRING_CONST_CACHE_SIZE
+#undef C99_STRING_CONST_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_STRING_CONST_CACHE_SIZE = 4096;
 
+#ifdef C99_STRING_CONST_CACHE_MASK
+#undef C99_STRING_CONST_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_STRING_CONST_CACHE_MASK = 4095;
 
+#ifdef C99_DECL_RESULT_CACHE_BITS
+#undef C99_DECL_RESULT_CACHE_BITS
+#endif
 __attribute__((used)) const int32_t C99_DECL_RESULT_CACHE_BITS = 13;
 
+#ifdef C99_DECL_RESULT_CACHE_SIZE
+#undef C99_DECL_RESULT_CACHE_SIZE
+#endif
 __attribute__((used)) const int32_t C99_DECL_RESULT_CACHE_SIZE = 8192;
 
+#ifdef C99_DECL_RESULT_CACHE_MASK
+#undef C99_DECL_RESULT_CACHE_MASK
+#endif
 __attribute__((used)) const int32_t C99_DECL_RESULT_CACHE_MASK = 8191;
 
+#ifdef IMAGE_MAGIC
+#undef IMAGE_MAGIC
+#endif
 const uint32_t IMAGE_MAGIC = 1431912704;
+#ifdef IMAGE_HEADER_SIZE_V1
+#undef IMAGE_HEADER_SIZE_V1
+#endif
 const uint32_t IMAGE_HEADER_SIZE_V1 = 96;
+#ifdef IMAGE_HEADER_SIZE_V2
+#undef IMAGE_HEADER_SIZE_V2
+#endif
 const uint32_t IMAGE_HEADER_SIZE_V2 = 176;
+#ifdef IMAGE_HEADER_SIZE
+#undef IMAGE_HEADER_SIZE
+#endif
 const uint32_t IMAGE_HEADER_SIZE = 176;
+#ifdef BUILD_MODE_CONTAINER
+#undef BUILD_MODE_CONTAINER
+#endif
 const uint8_t BUILD_MODE_CONTAINER = 1;
+#ifdef OFF_MAGIC
+#undef OFF_MAGIC
+#endif
 const uint32_t OFF_MAGIC = 0;
+#ifdef OFF_FORMAT_VER
+#undef OFF_FORMAT_VER
+#endif
 const uint32_t OFF_FORMAT_VER = 4;
+#ifdef OFF_API_VER
+#undef OFF_API_VER
+#endif
 const uint32_t OFF_API_VER = 6;
+#ifdef OFF_IMAGE_SIZE
+#undef OFF_IMAGE_SIZE
+#endif
 const uint32_t OFF_IMAGE_SIZE = 8;
+#ifdef OFF_ENTRY
+#undef OFF_ENTRY
+#endif
 const uint32_t OFF_ENTRY = 12;
+#ifdef OFF_CODE_SIZE
+#undef OFF_CODE_SIZE
+#endif
 const uint32_t OFF_CODE_SIZE = 16;
+#ifdef OFF_RODATA_SIZE
+#undef OFF_RODATA_SIZE
+#endif
 const uint32_t OFF_RODATA_SIZE = 20;
+#ifdef OFF_RELOC_COUNT
+#undef OFF_RELOC_COUNT
+#endif
 const uint32_t OFF_RELOC_COUNT = 24;
+#ifdef OFF_SHA256
+#undef OFF_SHA256
+#endif
 const uint32_t OFF_SHA256 = 28;
+#ifdef OFF_CAPS
+#undef OFF_CAPS
+#endif
 const uint32_t OFF_CAPS = 60;
+#ifdef OFF_BUILD_MODE
+#undef OFF_BUILD_MODE
+#endif
 const uint32_t OFF_BUILD_MODE = 64;
+#ifdef OFF_TARGET_ARCH
+#undef OFF_TARGET_ARCH
+#endif
 const uint32_t OFF_TARGET_ARCH = 65;
+#ifdef OFF_DATA_SIZE
+#undef OFF_DATA_SIZE
+#endif
 const uint32_t OFF_DATA_SIZE = 96;
+#ifdef OFF_BSS_SIZE
+#undef OFF_BSS_SIZE
+#endif
 const uint32_t OFF_BSS_SIZE = 100;
+#ifdef OFF_STACK_HINT
+#undef OFF_STACK_HINT
+#endif
 const uint32_t OFF_STACK_HINT = 104;
+#ifdef OFF_CODE_OFF
+#undef OFF_CODE_OFF
+#endif
 const uint32_t OFF_CODE_OFF = 108;
+#ifdef OFF_RODATA_OFF
+#undef OFF_RODATA_OFF
+#endif
 const uint32_t OFF_RODATA_OFF = 112;
+#ifdef OFF_DATA_OFF
+#undef OFF_DATA_OFF
+#endif
 const uint32_t OFF_DATA_OFF = 116;
+#ifdef OFF_RELOC_OFF
+#undef OFF_RELOC_OFF
+#endif
 const uint32_t OFF_RELOC_OFF = 120;
+#ifdef OFF_PROFILE
+#undef OFF_PROFILE
+#endif
 const uint32_t OFF_PROFILE = 124;
+#ifdef OFF_FLAGS
+#undef OFF_FLAGS
+#endif
 const uint32_t OFF_FLAGS = 128;
+#ifdef OFF_BRIDGE_KIND
+#undef OFF_BRIDGE_KIND
+#endif
 const uint32_t OFF_BRIDGE_KIND = 132;
+#ifdef OFF_ENTRY_VA
+#undef OFF_ENTRY_VA
+#endif
 const uint32_t OFF_ENTRY_VA = 136;
+#ifdef OFF_CODE_VA
+#undef OFF_CODE_VA
+#endif
 const uint32_t OFF_CODE_VA = 140;
+#ifdef OFF_RODATA_VA
+#undef OFF_RODATA_VA
+#endif
 const uint32_t OFF_RODATA_VA = 144;
+#ifdef OFF_DATA_VA
+#undef OFF_DATA_VA
+#endif
 const uint32_t OFF_DATA_VA = 148;
+#ifdef KERNEL_ERRORS_VERSION
+#undef KERNEL_ERRORS_VERSION
+#endif
 const int32_t KERNEL_ERRORS_VERSION = 1;
+#ifdef OPCODE_SYSTEM
+#undef OPCODE_SYSTEM
+#endif
 __attribute__((used)) const uint32_t OPCODE_SYSTEM = 115;
 
+#ifdef OPCODE_MISC_MEM
+#undef OPCODE_MISC_MEM
+#endif
 __attribute__((used)) const uint32_t OPCODE_MISC_MEM = 15;
 
+#ifdef FUNCT3_PRIV
+#undef FUNCT3_PRIV
+#endif
 __attribute__((used)) const uint32_t FUNCT3_PRIV = 0;
 
+#ifdef FUNCT3_CSRRW
+#undef FUNCT3_CSRRW
+#endif
 __attribute__((used)) const uint32_t FUNCT3_CSRRW = 1;
 
+#ifdef FUNCT3_CSRRS
+#undef FUNCT3_CSRRS
+#endif
 __attribute__((used)) const uint32_t FUNCT3_CSRRS = 2;
 
+#ifdef FUNCT3_CSRRC
+#undef FUNCT3_CSRRC
+#endif
 __attribute__((used)) const uint32_t FUNCT3_CSRRC = 3;
 
+#ifdef FUNCT3_CSRRWI
+#undef FUNCT3_CSRRWI
+#endif
 __attribute__((used)) const uint32_t FUNCT3_CSRRWI = 5;
 
+#ifdef FUNCT3_CSRRSI
+#undef FUNCT3_CSRRSI
+#endif
 __attribute__((used)) const uint32_t FUNCT3_CSRRSI = 6;
 
+#ifdef FUNCT3_CSRRCI
+#undef FUNCT3_CSRRCI
+#endif
 __attribute__((used)) const uint32_t FUNCT3_CSRRCI = 7;
 
+#ifdef FUNCT3_FENCE_I
+#undef FUNCT3_FENCE_I
+#endif
 __attribute__((used)) const uint32_t FUNCT3_FENCE_I = 1;
 
+#ifdef INSN_ECALL
+#undef INSN_ECALL
+#endif
 __attribute__((used)) const uint32_t INSN_ECALL = 115;
 
+#ifdef INSN_EBREAK
+#undef INSN_EBREAK
+#endif
 __attribute__((used)) const uint32_t INSN_EBREAK = 1048691;
 
+#ifdef INSN_MRET
+#undef INSN_MRET
+#endif
 __attribute__((used)) const uint32_t INSN_MRET = 807403635;
 
+#ifdef INSN_SRET
+#undef INSN_SRET
+#endif
 __attribute__((used)) const uint32_t INSN_SRET = 268566643;
 
+#ifdef INSN_WFI
+#undef INSN_WFI
+#endif
 __attribute__((used)) const uint32_t INSN_WFI = 276955251;
 
+#ifdef UPM_PATH_MAX
+#undef UPM_PATH_MAX
+#endif
 const size_t UPM_PATH_MAX = 4096;
+#ifdef UPM_LINE_MAX
+#undef UPM_LINE_MAX
+#endif
 const int32_t UPM_LINE_MAX = 2048;
+#ifdef UPM_CMD_MAX
+#undef UPM_CMD_MAX
+#endif
 const int32_t UPM_CMD_MAX = 16384;
+#ifdef UPM_MAX_DEPS
+#undef UPM_MAX_DEPS
+#endif
 const int32_t UPM_MAX_DEPS = 64;
+#ifdef UPM_MAX_ALIAS_LEN
+#undef UPM_MAX_ALIAS_LEN
+#endif
 const size_t UPM_MAX_ALIAS_LEN = 128;
+#ifdef UPM_MAX_NAME_LEN
+#undef UPM_MAX_NAME_LEN
+#endif
 const size_t UPM_MAX_NAME_LEN = 128;
+#ifdef UPM_MAX_VERSION_LEN
+#undef UPM_MAX_VERSION_LEN
+#endif
 const size_t UPM_MAX_VERSION_LEN = 64;
 const uint8_t * UYA_UPM_RUNTIME_VERSION = (uint8_t *)(uint8_t *)"0.10.2";
+#ifdef UPM_MAX_META_LEN
+#undef UPM_MAX_META_LEN
+#endif
 const size_t UPM_MAX_META_LEN = 256;
+#ifdef UPM_MAX_REF_LEN
+#undef UPM_MAX_REF_LEN
+#endif
 const size_t UPM_MAX_REF_LEN = 256;
+#ifdef UPM_MAX_LOCK_ITEMS
+#undef UPM_MAX_LOCK_ITEMS
+#endif
 const int32_t UPM_MAX_LOCK_ITEMS = 128;
+#ifdef UPM_MAX_VISITED
+#undef UPM_MAX_VISITED
+#endif
 const int32_t UPM_MAX_VISITED = 64;
+#ifdef UPM_S_IFMT
+#undef UPM_S_IFMT
+#endif
 const uint32_t UPM_S_IFMT = 61440U;
+#ifdef UPM_S_IFDIR
+#undef UPM_S_IFDIR
+#endif
 const uint32_t UPM_S_IFDIR = 16384U;
+#ifdef UPM_S_IFREG
+#undef UPM_S_IFREG
+#endif
 const uint32_t UPM_S_IFREG = 32768U;
+#ifdef UPM_LOCKFILE_VERSION
+#undef UPM_LOCKFILE_VERSION
+#endif
 __attribute__((used)) const int32_t UPM_LOCKFILE_VERSION = 2;
 
+#ifdef UPM_DIRENT_OFF_D_NAME
+#undef UPM_DIRENT_OFF_D_NAME
+#endif
 __attribute__((used)) const size_t UPM_DIRENT_OFF_D_NAME = 19ULL;
 
+#ifdef UPM_REGISTRY_DIRENT_OFF_D_NAME
+#undef UPM_REGISTRY_DIRENT_OFF_D_NAME
+#endif
 __attribute__((used)) const size_t UPM_REGISTRY_DIRENT_OFF_D_NAME = 19ULL;
 
 __attribute__((used)) uint8_t g_split_c_dir[4096] = {0};
@@ -135415,6 +137544,70 @@ static __attribute__((used)) int32_t c99_c_type_str_leading_const(uint8_t * tc) 
         }
 }
 
+static __attribute__((used)) int32_t c99_global_name_may_collide_with_c_macro(uint8_t * cname) {
+    (void)cname;
+    if (((cname == NULL) || (cname[0] == (uint8_t)0))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (((((str_equals((uint8_t *)cname, (uint8_t *)(uint8_t *)str3527) != 0) || (str_equals((uint8_t *)cname, (uint8_t *)(uint8_t *)str2294) != 0)) || (str_equals((uint8_t *)cname, (uint8_t *)(uint8_t *)str2295) != 0)) || (str_equals((uint8_t *)cname, (uint8_t *)(uint8_t *)str2296) != 0))) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+    if (((std_string_strncmp((uint8_t *)cname, (uint8_t *)(uint8_t *)str3827, 4) == 0) || (std_string_strncmp((uint8_t *)cname, (uint8_t *)(uint8_t *)str3828, 4) == 0))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    int32_t has_upper = 0;
+    while (cname[i] != (uint8_t)0) {
+        const uint8_t ch = cname[i];
+        int32_t is_ident_char = 0;
+        if (((ch >= (uint8_t)65) && (ch <= (uint8_t)90))) {
+            has_upper = 1;
+            is_ident_char = 1;
+        } else {
+            if (((ch >= (uint8_t)97) && (ch <= (uint8_t)122))) {
+                is_ident_char = 1;
+            } else {
+                if (((ch >= (uint8_t)48) && (ch <= (uint8_t)57))) {
+                    is_ident_char = 1;
+                } else {
+                    if (ch == (uint8_t)95) {
+                        is_ident_char = 1;
+                    }
+                }
+            }
+        }
+        if (is_ident_char == 0) {
+                        {
+                int32_t _uya_ret = 0;
+                return _uya_ret;
+                        }
+        }
+        i = (i + 1);
+    }
+        {
+        int32_t _uya_ret = has_upper;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void c99_emit_global_macro_undef_guard(struct C99CodeGenerator * codegen, uint8_t * cname) {
+    (void)codegen;
+    (void)cname;
+    if (((codegen == NULL) || (c99_global_name_may_collide_with_c_macro((uint8_t *)cname) == 0))) {
+        return;
+    }
+    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3829, (uint8_t *)cname, (uint8_t *)cname)    );
+}
+
 static __attribute__((used)) int32_t global_init_ctx_is_const_ptr_to_byte(struct ASTNode * ctx) {
     (void)ctx;
     if (((ctx == NULL) || (ctx->type != main_ASTNodeType_AST_TYPE_POINTER))) {
@@ -135620,7 +137813,7 @@ static __attribute__((used)) void gen_global_init_expr(struct C99CodeGenerator *
         } else {
             if (expr->type == main_ASTNodeType_AST_STRING) {
                 if (global_init_ctx_is_const_ptr_to_byte(init_ctx_type) != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3827, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3830, (void *)codegen->emit_stream)                    );
                 }
                 if (expr->string_literal_value != NULL) {
                     (void)(std_io_fputc(34, (void *)codegen->emit_stream)                    );
@@ -135643,7 +137836,7 @@ static __attribute__((used)) void gen_global_init_expr(struct C99CodeGenerator *
                     if (expr->type == main_ASTNodeType_AST_EMBED) {
                         (void)(c99_register_embed_slice_types(codegen, 0)                        );
                         uint8_t * const embed_name = add_embed_constant(codegen, expr->embed_resolved_path, expr->embed_data, expr->embed_size);
-                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3828, (void *)codegen->emit_stream)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3831, (void *)codegen->emit_stream)                        );
                         if (embed_name != NULL) {
                             (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str2680, (uint8_t *)embed_name)                            );
                         } else {
@@ -135654,7 +137847,7 @@ static __attribute__((used)) void gen_global_init_expr(struct C99CodeGenerator *
                         if (expr->type == main_ASTNodeType_AST_EMBED_DIR) {
                             (void)(c99_register_embed_slice_types(codegen, 1)                            );
                             uint8_t * const table_name = add_embed_dir_table(codegen, expr);
-                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3828, (void *)codegen->emit_stream)                            );
+                            (void)(std_io_fputs((uint8_t *)(uint8_t *)str3831, (void *)codegen->emit_stream)                            );
                             if (table_name != NULL) {
                                 (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str2684, (uint8_t *)table_name)                                );
                             } else {
@@ -135690,6 +137883,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
     if (((var_name == NULL) || (var_type == NULL))) {
         return;
     }
+    (void)(c99_emit_global_macro_undef_guard(codegen, var_name)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3570, (void *)codegen->emit_stream)    );
     uint8_t * type_c = NULL;
     if (var_type->type == main_ASTNodeType_AST_TYPE_ARRAY) {
@@ -135706,7 +137900,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
                     if (c99_c_type_str_leading_const(base_type) != 0) {
                         (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3550, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     } else {
-                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3829, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
+                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3832, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     }
                 } else {
                     (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3550, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                    );
@@ -135718,7 +137912,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
                     if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                         (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                     } else {
-                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3830, (uint8_t *)type_c, (uint8_t *)var_name)                        );
+                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3833, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                     }
                 } else {
                     (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                    );
@@ -135730,7 +137924,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
                 if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                     (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 } else {
-                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3830, (uint8_t *)type_c, (uint8_t *)var_name)                    );
+                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3833, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 }
             } else {
                 (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                );
@@ -135742,7 +137936,7 @@ static __attribute__((used)) void gen_global_var(struct C99CodeGenerator * codeg
             if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                 (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                );
             } else {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3830, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3833, (uint8_t *)type_c, (uint8_t *)var_name)                );
             }
         } else {
             (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)            );
@@ -136041,7 +138235,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
                 const int32_t n_len = std_string_strlen((uint8_t *)name);
                 uint8_t * const buf = (uint8_t *)compiler_arena_alloc(codegen->arena, (size_t)(((s_len + 2) + n_len) + 1));
                 if (buf != NULL) {
-                    (void)(snprintf((char *)(uint8_t *)buf, (((s_len + 2) + n_len) + 1), (const char *)str3831, (uint8_t *)codegen->async_state_var, (uint8_t *)name)                    );
+                    (void)(snprintf((char *)(uint8_t *)buf, (((s_len + 2) + n_len) + 1), (const char *)str3834, (uint8_t *)codegen->async_state_var, (uint8_t *)name)                    );
                                         {
                         uint8_t * _uya_ret = buf;
                         return _uya_ret;
@@ -136104,7 +138298,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
             while (((li < codegen->local_variable_count) && (li < C99_MAX_LOCAL_VARS))) {
                 if (((codegen->local_variables[li].name != NULL) && ((std_string_strcmp((uint8_t *)codegen->local_variables[li].name, (uint8_t *)name) == 0) || (std_string_strcmp((uint8_t *)codegen->local_variables[li].name, (uint8_t *)safe_name) == 0)))) {
                                         {
-                        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3832;
+                        uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str3835;
                         return _uya_ret;
                                         }
                 }
@@ -136131,7 +138325,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
                 return _uya_ret;
                         }
         }
-        if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3833) == 0) {
+        if (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3836) == 0) {
                         {
                 uint8_t * _uya_ret = get_safe_c_identifier(codegen, (uint8_t *)(uint8_t *)str3527);
                 return _uya_ret;
@@ -136178,7 +138372,7 @@ static __attribute__((used)) uint8_t * get_c_name_for_identifier_ref(struct C99C
             if (((((pdecl != NULL) && (pdecl->type == main_ASTNodeType_AST_EXTERN_VAR_DECL)) && (pdecl->extern_var_decl_name != NULL)) && (std_string_strcmp((uint8_t *)pdecl->extern_var_decl_name, (uint8_t *)name) == 0))) {
                 int32_t use_prefixed_name = 0;
                 if (((pdecl->extern_var_decl_is_export != 0) && (pdecl->filename != NULL))) {
-                    if (((((std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str1289) != NULL) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str2289) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3834) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3835) != NULL))) {
+                    if (((((std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str1289) != NULL) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str2289) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3837) != NULL)) || (std_string_strstr((uint8_t *)pdecl->filename, (uint8_t *)(uint8_t *)str3838) != NULL))) {
                         use_prefixed_name = 1;
                     }
                 }
@@ -136230,7 +138424,7 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
     uint8_t * const extern_lib_name = node->extern_var_decl_extern_lib_name;
     int32_t use_prefixed_name = 0;
     if (((is_export != 0) && (node->filename != NULL))) {
-        if (((((std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str1289) != NULL) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str2289) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3834) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3835) != NULL))) {
+        if (((((std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str1289) != NULL) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str2289) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3837) != NULL)) || (std_string_strstr((uint8_t *)node->filename, (uint8_t *)(uint8_t *)str3838) != NULL))) {
             use_prefixed_name = 1;
         }
     }
@@ -136255,22 +138449,23 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
         return;
     }
     uint8_t * const type_c = c99_type_to_c(codegen, var_type);
+    (void)(c99_emit_global_macro_undef_guard(codegen, (uint8_t *)var_name)    );
     if (((is_extern != 0) && (init_expr == NULL))) {
         if (is_const != 0) {
             if (c99_c_type_str_leading_const(type_c) != 0) {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3836, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3839, (uint8_t *)type_c, (uint8_t *)var_name)                );
             } else {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3837, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3840, (uint8_t *)type_c, (uint8_t *)var_name)                );
             }
         } else {
-            (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3836, (uint8_t *)type_c, (uint8_t *)var_name)            );
+            (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3839, (uint8_t *)type_c, (uint8_t *)var_name)            );
         }
     } else {
         if (is_const != 0) {
             if (c99_c_type_str_leading_const(type_c) != 0) {
                 (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                );
             } else {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3830, (uint8_t *)type_c, (uint8_t *)var_name)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3833, (uint8_t *)type_c, (uint8_t *)var_name)                );
             }
         } else {
             (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)            );
@@ -136299,6 +138494,7 @@ static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99C
     if ((((codegen == NULL) || (tc == NULL)) || (cname == NULL))) {
         return;
     }
+    (void)(c99_emit_global_macro_undef_guard(codegen, (uint8_t *)cname)    );
     uint8_t * const first_bracket = std_string_strchr((uint8_t *)tc, 91);
     if (first_bracket != NULL) {
         const int32_t base_len = std_runtime_ptr_diff(first_bracket, (uint8_t *)tc);
@@ -136308,24 +138504,24 @@ static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99C
             base_type[base_len] = 0;
             if (is_const != 0) {
                 if (c99_c_type_str_leading_const(base_type) != 0) {
-                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3838, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
+                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3841, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
                 } else {
-                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3839, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
+                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3842, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                    );
                 }
             } else {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3838, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3841, (uint8_t *)base_type, (uint8_t *)cname, first_bracket)                );
             }
             return;
         }
     }
     if (is_const != 0) {
         if (c99_c_type_str_leading_const((uint8_t *)tc) != 0) {
-            (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3836, (uint8_t *)tc, (uint8_t *)cname)            );
+            (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3839, (uint8_t *)tc, (uint8_t *)cname)            );
         } else {
-            (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3837, (uint8_t *)tc, (uint8_t *)cname)            );
+            (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3840, (uint8_t *)tc, (uint8_t *)cname)            );
         }
     } else {
-        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3836, (uint8_t *)tc, (uint8_t *)cname)        );
+        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3839, (uint8_t *)tc, (uint8_t *)cname)        );
     }
 }
 
@@ -136339,7 +138535,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
         return;
     }
     uint8_t gpath[1024] = {0};
-    const int32_t gl = snprintf((char *)(uint8_t *)(&gpath[0]), 1024, (const char *)str3840, (uint8_t *)codegen->split_dir);
+    const int32_t gl = snprintf((char *)(uint8_t *)(&gpath[0]), 1024, (const char *)str3843, (uint8_t *)codegen->split_dir);
     if (((gl <= 0) || (gl >= 1024))) {
         return;
     }
@@ -136347,8 +138543,8 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
     if (gh == NULL) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3841, (void *)gh)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3842, (void *)gh)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3844, (void *)gh)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3845, (void *)gh)    );
     void * const saved = codegen->emit_stream;
     codegen->emit_stream = (void *)gh;
     int32_t di = 0;
@@ -136396,7 +138592,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
                 }
                 uint8_t * cname = get_safe_c_identifier(codegen, decl->extern_var_decl_name);
                 if (((decl->extern_var_decl_is_export != 0) && (decl->filename != NULL))) {
-                    if (((((std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str1289) != NULL) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str2289) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3834) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3835) != NULL))) {
+                    if (((((std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str1289) != NULL) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str2289) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3837) != NULL)) || (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str3838) != NULL))) {
                         cname = get_c_name_for_global_constant(codegen, decl->extern_var_decl_name, decl->filename, decl->extern_var_decl_is_export);
                     }
                 }
@@ -136405,7 +138601,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
                     di = (di + 1);
                     continue;
                 }
-                if (((cname != NULL) && (std_string_strcmp((uint8_t *)cname, (uint8_t *)(uint8_t *)str3843) == 0))) {
+                if (((cname != NULL) && (std_string_strcmp((uint8_t *)cname, (uint8_t *)(uint8_t *)str3846) == 0))) {
                     di = (di + 1);
                     continue;
                 }
@@ -136419,7 +138615,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
         di = (di + 1);
     }
     (void)(c99_emit_newline(codegen)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3844, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3847, (void *)codegen->emit_stream)    );
     (void)(std_io_fflush((void *)codegen->emit_stream));
     (void)(std_io_fclose((void *)codegen->emit_stream));
     codegen->emit_stream = saved;
@@ -136430,7 +138626,7 @@ void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator
 
 
 static __attribute__((used)) int32_t c99_want_profile_codegen() {
-    uint8_t * const p = (uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str3845);
+    uint8_t * const p = (uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str3848);
     if (p == NULL) {
                 {
             int32_t _uya_ret = 0;
@@ -136484,9 +138680,6 @@ static __attribute__((used)) void emit_microapp_syscall_helpers(struct C99CodeGe
     if (((codegen == NULL) || (codegen->emit_stream == NULL))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3846, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3847, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3848, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3849, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3850, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3851, (void *)codegen->emit_stream)    );
@@ -136494,9 +138687,12 @@ static __attribute__((used)) void emit_microapp_syscall_helpers(struct C99CodeGe
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3853, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3854, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3855, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str409, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3856, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3857, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3858, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str409, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3859, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3860, (void *)codegen->emit_stream)    );
 }
 
 static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenerator * codegen) {
@@ -136504,25 +138700,22 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     if ((((codegen == NULL) || (codegen->emit_stream == NULL)) || (codegen->container_mode == 0))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3858, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3859, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3860, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3861, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3862, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3863, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3864, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3865, (void *)codegen->emit_stream)    );
     if (codegen->has_stdio_conflicts != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3863, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3864, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3865, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3866, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3867, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3868, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3869, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3870, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3871, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3872, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3873, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3874, (void *)codegen->emit_stream)        );
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3872, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3873, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3874, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3875, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3876, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3877, (void *)codegen->emit_stream)    );
@@ -136536,18 +138729,18 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3885, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3886, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3887, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3888, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3889, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3890, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3891, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3892, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3893, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3894, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3895, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3896, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3897, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3898, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3899, (void *)codegen->emit_stream)    );
@@ -136559,42 +138752,42 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3905, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3906, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3907, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3908, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3909, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3910, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3903, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3911, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3912, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3913, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3907, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3901, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3906, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3914, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3915, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3916, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3910, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3904, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3917, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3918, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3919, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3920, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3618, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3921, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3922, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3923, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3618, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3924, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3925, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3926, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3927, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3928, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3929, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3930, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3923, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3931, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3932, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3933, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3926, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3934, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3935, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3936, (void *)codegen->emit_stream)    );
@@ -136612,41 +138805,41 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3948, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3949, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3950, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3618, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3951, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3952, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3953, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3618, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3954, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3925, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3955, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3956, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3957, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3928, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3958, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3959, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3960, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3961, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3962, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3963, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3964, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3965, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3966, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3967, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3968, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3969, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3970, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3971, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3972, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3973, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3974, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3975, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3976, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3977, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3978, (void *)codegen->emit_stream)    );
@@ -136657,12 +138850,12 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3983, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3984, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3985, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3986, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3987, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3988, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3989, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str366, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3990, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3991, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3992, (void *)codegen->emit_stream)    );
@@ -136677,12 +138870,12 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4001, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4002, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4003, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3618, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4004, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4005, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4006, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3618, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4007, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4008, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4009, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4010, (void *)codegen->emit_stream)    );
@@ -136693,19 +138886,22 @@ static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenera
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4015, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4016, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4017, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3974, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3975, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4018, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str4019, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3980, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3981, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3982, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4020, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3977, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3978, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4021, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4022, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3983, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3984, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3985, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3986, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3987, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3988, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4020, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4023, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str409, (void *)codegen->emit_stream)    );
 }
 
@@ -136714,19 +138910,19 @@ static __attribute__((used)) void emit_error_name_helper(struct C99CodeGenerator
     if (((codegen == NULL) || (codegen->emit_stream == NULL))) {
         return;
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4021, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4022, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4024, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4025, (void *)codegen->emit_stream)    );
     if (codegen->checker != NULL) {
         int32_t i = 0;
         const int32_t count = codegen->checker->error_name_count;
         while (i < count) {
             if ((((i >= 0) && (i < (sizeof(codegen->checker->error_names) / sizeof((codegen->checker->error_names)[0])))) && (codegen->checker->error_names[i] != NULL))) {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4023, codegen->checker->error_hashes[i], (uint8_t *)codegen->checker->error_names[i])                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4026, codegen->checker->error_hashes[i], (uint8_t *)codegen->checker->error_names[i])                );
             }
             i = (i + 1);
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4024, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4027, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3700, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str409, (void *)codegen->emit_stream)    );
 }
@@ -136748,7 +138944,7 @@ static __attribute__((used)) void collect_stdlib_functions_from_node(struct C99C
                         if ((((is_string_function(callee_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str4025) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str4028) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             } else {
                                 if (c99_name_is_hosted_raw_stdio_symbol(callee_name) != 0) {
@@ -136760,7 +138956,7 @@ static __attribute__((used)) void collect_stdlib_functions_from_node(struct C99C
                         if ((((is_string_function(callee_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str4025) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee_name) != 0)) || (std_string_strcmp((uint8_t *)callee_name, (uint8_t *)(uint8_t *)str4028) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             }
                         }
@@ -136775,7 +138971,7 @@ static __attribute__((used)) void collect_stdlib_functions_from_node(struct C99C
                         if ((((is_string_function(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee->member_access_field_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee->member_access_field_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee->member_access_field_name) != 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str4025) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee->member_access_field_name) != 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str4028) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             } else {
                                 if (c99_name_is_hosted_raw_stdio_symbol(callee->member_access_field_name) != 0) {
@@ -136787,7 +138983,7 @@ static __attribute__((used)) void collect_stdlib_functions_from_node(struct C99C
                         if ((((is_string_function(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_string_symbol(callee->member_access_field_name) != 0)) || (c99_name_is_hosted_raw_memory_symbol(callee->member_access_field_name) != 0))) {
                             codegen->needs_string_h = 1;
                         } else {
-                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee->member_access_field_name) != 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str4025) == 0))) {
+                            if ((((c99_name_is_hosted_raw_alloc_symbol(callee->member_access_field_name) != 0) || (c99_name_is_hosted_raw_stdlib_symbol(callee->member_access_field_name) != 0)) || (std_string_strcmp((uint8_t *)callee->member_access_field_name, (uint8_t *)(uint8_t *)str4028) == 0))) {
                                 codegen->needs_stdlib_h = 1;
                             }
                         }
@@ -136944,7 +139140,7 @@ static __attribute__((used)) void precollect_codegen_decl(struct C99CodeGenerato
             if (is_stdio_conflict_name(decl->fn_decl_name) != 0) {
                 codegen->has_stdio_conflicts = 1;
             }
-            if (((decl->filename != NULL) && (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str4026) != NULL))) {
+            if (((decl->filename != NULL) && (std_string_strstr((uint8_t *)decl->filename, (uint8_t *)(uint8_t *)str4029) != NULL))) {
                 codegen->needs_string_h = 1;
             }
             if (c99_should_skip_hosted_libc_function_body(codegen, decl) == 0) {
@@ -137668,7 +139864,7 @@ static __attribute__((used)) int32_t c99_mono_name_is_future_ready_helper(uint8_
             return _uya_ret;
                 }
     }
-    if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4027) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4028) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4029) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4030) == 0))) {
+    if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4030) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4031) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4032) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str4033) == 0))) {
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
@@ -138506,7 +140702,7 @@ static __attribute__((used)) uint8_t * get_test_function_name(struct C99CodeGene
             return _uya_ret;
                 }
     }
-    (void)(snprintf((char *)(uint8_t *)buf, 64, (const char *)str4031, hash)    );
+    (void)(snprintf((char *)(uint8_t *)buf, 64, (const char *)str4034, hash)    );
         {
         uint8_t * _uya_ret = get_safe_c_identifier(codegen, buf);
         return _uya_ret;
@@ -138558,9 +140754,9 @@ static __attribute__((used)) void gen_test_function(struct C99CodeGenerator * co
         }
     }
     (void)(emit_line_directive(codegen, test_stmt->line, test_stmt->filename)    );
-    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4032, (uint8_t *)func_name)    );
+    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4035, (uint8_t *)func_name)    );
     (void)(gen_stmt(codegen, body)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4033, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4036, (void *)codegen->emit_stream)    );
     codegen->current_function_return_type = saved_return_type;
     codegen->current_function_decl = saved_function_decl;
     codegen->local_variable_count = saved_local_variable_count;
@@ -138581,7 +140777,7 @@ static __attribute__((used)) void gen_test_runner(struct C99CodeGenerator * code
         return;
     }
     uint8_t * const printf_c_name = c99_printf_c_name(codegen);
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4034, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4037, (void *)codegen->emit_stream)    );
     int32_t i = 0;
     while (i < test_count) {
         struct ASTNode * const test_node = tests[i];
@@ -138589,12 +140785,12 @@ static __attribute__((used)) void gen_test_runner(struct C99CodeGenerator * code
             uint8_t * const func_name = get_test_function_name(codegen, test_node->test_stmt_description);
             uint8_t * const description = test_node->test_stmt_description;
             if (func_name != NULL) {
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4035, (uint8_t *)printf_c_name, (uint8_t *)description)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4038, (uint8_t *)printf_c_name, (uint8_t *)description)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str3723, (void *)codegen->emit_stream)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4036, (void *)codegen->emit_stream)                );
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4037, (uint8_t *)func_name)                );
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4038, (uint8_t *)printf_c_name)                );
-                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4039, (uint8_t *)printf_c_name)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str4039, (void *)codegen->emit_stream)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4040, (uint8_t *)func_name)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4041, (uint8_t *)printf_c_name)                );
+                (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4042, (uint8_t *)printf_c_name)                );
             }
         }
         i = (i + 1);
@@ -138676,7 +140872,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         target_os_is_macos = 1;
     }
     if (output_file != NULL) {
-        if (((c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4040) != 0) || (c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4041) != 0))) {
+        if (((c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4043) != 0) || (c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4044) != 0))) {
             is_bootstrap = 1;
         }
         int32_t i = 0;
@@ -138688,13 +140884,13 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             i = (i + 1);
         }
     }
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4042, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4043, (void *)codegen->emit_stream)    );
-    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4045, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4046, (void *)codegen->emit_stream)    );
+    (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)    );
     if (codegen->stack_size > 0) {
-        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4045, codegen->stack_size)        );
-        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4046, codegen->stack_size)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4044, (void *)codegen->emit_stream)        );
+        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4048, codegen->stack_size)        );
+        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str4049, codegen->stack_size)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)        );
     }
     const int32_t decl_count = ast->program_decl_count;
     if (prof_codegen != 0) {
@@ -138724,89 +140920,89 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         }
     }
     if (is_std_lib != 0) {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4047, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4050, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4048, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4051, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str346, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str347, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4049, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4052, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str349, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4050, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4053, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str351, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4051, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4054, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str353, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4052, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str354, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4053, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4054, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4055, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str354, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4056, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4057, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4058, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4059, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4060, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str358, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4061, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4062, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4063, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str358, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4065, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4068, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4069, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4070, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4071, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4072, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
     } else {
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4071, (void *)codegen->emit_stream)        );
-        (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4072, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4074, (void *)codegen->emit_stream)        );
+        (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4077, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4078, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4079, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4074, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4080, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str389, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4081, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4075, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4082, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4077, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4083, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4079, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4081, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4080, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str389, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4076, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4084, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4078, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4085, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str397, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4080, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4086, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str399, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4082, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4084, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4083, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4087, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4088, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str397, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4089, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str399, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4090, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4091, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4092, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4093, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str397, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4094, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4095, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 1\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str397, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_OS_LINUX 0\n  #define UYA_TARGET_OS_DARWIN 0\n  #define UYA_TARGET_OS_WINDOWS 0\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str399, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str378, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4095, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_ARCH_X86_64 1\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str389, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 1\n  #define UYA_TARGET_ARCH_RISCV64 0\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4084, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4087, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 1\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str397, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n", (void *)codegen->emit_stream)        );
@@ -138828,7 +141024,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str354, (void *)codegen->emit_stream)            );
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef signed long ssize_t;\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4055, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4058, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef signed long intptr_t;\n", (void *)codegen->emit_stream)        );
         if (codegen->freestanding != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef signed long ptrdiff_t;\n", (void *)codegen->emit_stream)            );
@@ -138840,18 +141036,18 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef _Bool bool;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct uya_tagged_Poll_err_i32;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef struct uya_tagged_Poll_err_i32 uya_tagged_Poll_T;\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4068, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4069, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4070, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4071, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4072, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4073, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         if (codegen->freestanding == 0) {
             if (((codegen->has_stdio_conflicts == 0) && (is_bootstrap == 0))) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <stdio.h>\n", (void *)codegen->emit_stream)                );
             } else {
                 if (is_bootstrap == 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3863, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str3866, (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE _stdin, _stdout, _stderr;\n", (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern struct FILE * libc_stdin, * libc_stdout, * libc_stderr;\n", (void *)codegen->emit_stream)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int snprintf(char *, size_t, const char *, ...);\n", (void *)codegen->emit_stream)                    );
@@ -139228,8 +141424,8 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern void _exit(int);\n", (void *)codegen->emit_stream)            );
         }
         (void)(c99_emit_newline(codegen)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4063, (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4064, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str4067, (void *)codegen->emit_stream)        );
         (void)(c99_emit_newline(codegen)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    char *d = (char *)dest; const char *s = (const char *)src;\n", (void *)codegen->emit_stream)        );
@@ -139263,7 +141459,7 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str409, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"// 打印 i32（--nostdlib 下避免依赖 printf 的 %d）\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void uya_print_i32(int32_t value) {\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3962, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3965, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    char out[16];\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned long len = 0;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t temp = value;\n", (void *)codegen->emit_stream)        );
@@ -144915,7 +147111,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
     }
     uint8_t * var_name = get_safe_c_identifier(codegen, stmt->var_decl_name);
     if (((((codegen != NULL) && (codegen->async_state_var != NULL)) && (var_name != NULL)) && (std_string_strcmp((uint8_t *)var_name, (uint8_t *)codegen->async_state_var) == 0))) {
-        var_name = (uint8_t *)(uint8_t *)str3832;
+        var_name = (uint8_t *)(uint8_t *)str3835;
     }
     struct ASTNode * const var_type = stmt->var_decl_type;
     struct ASTNode * const init_expr = stmt->var_decl_init;
@@ -145095,7 +147291,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                     if (c99_c_type_str_leading_const((uint8_t *)base_type) != 0) {
                         (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3550, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     } else {
-                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3829, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
+                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3832, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                        );
                     }
                 } else {
                     (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3550, (uint8_t *)base_type, (uint8_t *)var_name, dimensions)                    );
@@ -145153,7 +147349,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                 if (c99_c_type_str_leading_const((uint8_t *)type_c) != 0) {
                     (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 } else {
-                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3830, (uint8_t *)type_c, (uint8_t *)var_name)                    );
+                    (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3833, (uint8_t *)type_c, (uint8_t *)var_name)                    );
                 }
             } else {
                 (void)(c99_emit_indent(codegen)                );
@@ -145217,7 +147413,7 @@ static __attribute__((used)) void gen_var_decl_stmt(struct C99CodeGenerator * co
                         (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str1737, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                         stored_type_c_for_pointer = c99_arena_strdup(codegen->arena, (uint8_t *)type_c);
                     } else {
-                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3830, (uint8_t *)type_c, (uint8_t *)var_name)                        );
+                        (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)str3833, (uint8_t *)type_c, (uint8_t *)var_name)                        );
                         const int32_t str_len4 = (std_string_strlen((uint8_t *)type_c) + 7);
                         stored_type_c_for_pointer = (uint8_t *)compiler_arena_alloc(codegen->arena, str_len4);
                         if (stored_type_c_for_pointer != NULL) {
@@ -167127,7 +169323,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -168374,7 +170570,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -168618,7 +170814,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

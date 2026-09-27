@@ -1,0 +1,54 @@
+// test_hosted_macro_name_collision.uya - hosted 下顶层全局与系统头宏同名时仍可编译运行
+//
+// 背景：hosted 生成会 `#include <errno.h>`（见 src/codegen/c99/main.uya），宏是文本替换，
+// 会把定义 `const int32_t ETIMEDOUT = 110;` 和镜像头声明 `extern const int32_t ETIMEDOUT;`
+// 打成「expected identifier or '(' before numeric constant」。
+//
+// 本用例必须在 hosted（默认）方式下运行：tests/run_programs_parallel.sh 只对 nostdlib 名单里的
+// 用例走 freestanding，本文件不在该名单内，因此走 hosted 路径，正好覆盖该缺陷。
+
+use std.runtime.entry;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+// 与 <errno.h> 宏同名（ETIMEDOUT = 110）
+const ETIMEDOUT: i32 = 110;
+// 与 <errno.h> 宏同名（EAGAIN = 11）
+const EAGAIN: i32 = 11;
+// 顶层可变全局与 <errno.h> 宏同名（EINVAL = 22）
+var EINVAL: i32 = 22;
+// export 常量会走镜像头 extern 前向声明路径
+export const HOSTED_MACRO_PROBE_LIMIT: i32 = 4096;
+
+fn test_macro_named_globals_evaluate() !void {
+    try assert_eq_i32(ETIMEDOUT, 110);
+    try assert_eq_i32(EAGAIN, 11);
+    try assert_eq_i32(EINVAL, 22);
+    try assert_eq_i32(HOSTED_MACRO_PROBE_LIMIT, 4096);
+}
+
+fn test_macro_named_globals_in_expressions() !void {
+    var total: i32 = ETIMEDOUT + EAGAIN;
+    EINVAL = EINVAL + 1;
+    total = total + EINVAL;
+    try expect(total > 0);
+    try assert_eq_i32(total, 144);
+}
+
+fn test_macro_named_global_writable() !void {
+    EINVAL = 22;
+    try assert_eq_i32(EINVAL, 22);
+}
+
+export fn main() i32 {
+    test_suite_begin("hosted global macro name collision");
+
+    run_test("macro-named globals evaluate", test_macro_named_globals_evaluate);
+    run_test("macro-named globals in expressions", test_macro_named_globals_in_expressions);
+    run_test("macro-named global writable", test_macro_named_global_writable);
+
+    return test_suite_end();
+}

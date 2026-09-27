@@ -2,7 +2,21 @@
 
 ## Unreleased
 
-- 暂无
+### 修复
+
+- **C99 hosted 后端：用户顶层全局与系统头宏同名导致编译失败**。hosted 生成会为非 bootstrap 编译单元
+  `#include <errno.h>` 等系统头，宏是文本替换，因此用户顶层全局写成裸名时，单文件定义
+  （`__attribute__((used)) const int32_t ETIMEDOUT = 110;`）与镜像分 TU 的声明
+  （`uya_mirror_globals.h` 里的 `extern const int32_t ETIMEDOUT;`）都会被写成
+  `error: expected identifier or '(' before numeric constant`。
+  现在在全局声明/定义前按需发射 `#ifdef X / #undef X / #endif` 护栏（判据为"宏形态"标识符——
+  纯标识符且含大写字母，外加 `errno`/`stdin`/`stdout`/`stderr`；跳过编译器自身发射的 `uya_`/`UYA_`
+  宏前缀），覆盖 `gen_global_var`、`gen_extern_var_decl`、`c99_mirror_emit_extern_global_line`
+  三个发射点。新增回归 `tests/test_hosted_macro_name_collision.uya`。
+  该缺陷此前被闸门漏检：`tests/run_programs_parallel.sh` 把 `tests/test_pthread_cond.uya` 归入
+  nostdlib 名单，于是 `make check` 全绿，但 hosted 直跑同一用例必挂，并连带
+  `tests/stress_pthread.sh` 第 1 轮失败、`tests/verify_async_full_dynamic_resources_gate.sh`
+  的 `c99-stress` 阶段失败。修复后 `make check` 1111/1111 通过。
 
 ## v0.10.2 - std.process 进程流水线、typed pipeline 落地与偶发红定位
 
