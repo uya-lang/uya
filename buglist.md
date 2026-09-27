@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（新增 `bench_malloc_phase4` 系列满并发偶发 SIGSEGV 记录（单独运行稳定）；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -179,6 +179,14 @@
   - 影响面：任何用户模块自定义与标准库内部函数同名的函数（`check`、`inherit_stdio` 等）都可能让标准库代码被误解析。
   - 已观察实例：`tests/test_typed_pipeline_parser_positive.uya`（定义了 `fn check(p: Pipeline) i32`）
   - 回归：`tests/test_module_scope_isolation_stdlib_check.uya`
+
+- [ ] **P2 / 中：`bench_malloc_phase4` 系列在满并发测试下偶发 SIGSEGV（单独运行稳定通过）**
+  - 状态：未修复（偶发，未阻塞 release）
+  - 验证状态：以 release 产物（`bin/uya`，`-O3 -DNDEBUG` + strip）跑全量单文件套件时，`bench_malloc_phase4`、`bench_malloc_phase4_detail` 各出现 1 次 `退出码 139`（1107 项中 2 项）；把这两项单独跑各 3 次均通过，直接执行生成的 `bench_malloc_phase4.bin`（4 组线程数、含 8 线程）也 `exit 0`。同一次 release 的 `make check` 门禁为 1107/1107 全过。
+  - 归属：`tests/bench_malloc_phase4*.uya`（nostdlib 多线程 malloc 吞吐基准）在 44 路并发下的资源/时序敏感行为，待定位到具体代码点
+  - 现象：满并发批量跑套件时偶发段错误；单独运行、直接运行产物均正常，说明与并发负载相关，非编译器该次改动引入
+  - 影响：`make check` 门禁存在小概率误报（需要重跑确认）；不影响 release 结论，但值得单独排查（栈/线程资源、基准自身的并发假设）
+  - 复现尝试：`UYA_COMPILER=$PWD/bin/uya PARALLEL_JOBS=44 RUNTIME_MODE=nostdlib LINK_MODE=static ./tests/run_programs_parallel.sh --uya --c99 --hide-pass`
 
 - [ ] **P2 / 中：数组索引边界证明器不跨 `as usize` cast 传递范围事实**
   - 状态：未修复
