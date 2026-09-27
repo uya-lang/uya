@@ -1,5 +1,9 @@
 # @asm 内置函数实施 TODO 清单
 
+> **归档/核对头（2026-09-27）**：`@asm` 已完成（本文件头部自述"项目完成"，与代码一致）。
+> 证据：parser/checker/codegen 全链路支持（`src/parser/primary.uya`、`src/checker/check_expr.uya`、`src/codegen/c99/*`），20+ 个 `tests/error_asm_*.uya` 负例、`tests/bench_asm_*.uya` 与 `tests/run_asm_tests.sh`，规范见 `docs/uya.md` §`@asm`。
+> 下方未勾选条目属历史书写形式；`asm_*` 系列其它文档（设计/进度/阶段报告）同为历史记录。
+
 **创建日期**: 2026-02-22
 **预计完成**: 2026-03-15 (3周)
 **优先级**: P0 (核心功能)

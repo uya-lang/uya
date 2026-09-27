@@ -1,5 +1,9 @@
 # Uya fmt 开发计划
 
+> **核对头（2026-09-27）**：`uya fmt` 已落地：`src/main.uya` 有 `COMMAND_FMT`，实现主体在 `src/fmt.uya`（1100+ 行），仓库内还有 `tools/fmt*.uya` 与十余个 `tests/test_fmt_*.uya` 回归。
+> 因此本计划与 `fmt_phase1..4` 任务文档里的 "Not started" 勾选状态**已过时**；其中明确仍未支持的只有 `fmt_phase4_cli_tasks.md` 记录的一项：stdin 与 `-s/-r` 组合。
+> 进度请以测试与 `src/fmt.uya` 现状为准。
+
 > 参考 Go `go/format` + `go/printer` + `gofmt` 实现
 
 **版本**: v0.2.5  

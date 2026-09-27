@@ -1,5 +1,7 @@
 # 标准库重构待办
 
+> **核对头（2026-09-27）**：本文件为 `std` 重构设计配套清单，未逐条核对；实现现状以 `lib/std/` 目录结构与测试为准。总体口径见 `docs/todo_status_index.md`。
+
 基于 [std_refactor_design.md](std_refactor_design.md)，执行前请阅读设计文档。开发流程遵循 [.codebuddy/rules/uya-dev-flow.mdc](../.codebuddy/rules/uya-dev-flow.mdc)（TDD、`make check`）。
 
 **实现约定**：每项任务均需「先写测试（或注明沿用现有测试）→ 实现 → `make check`」；大函数/深嵌套按 uya-dev-flow 规则拆分（函数 ≤50 行、嵌套 ≤3 层）。

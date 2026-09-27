@@ -1,5 +1,7 @@
 # UPM TODO List（按文件拆分）
 
+> **核对头（2026-09-27）**：本文件是 UPM 的按文件实施清单，未逐条核对；`docs/upm_todolist.md` 与 `docs/todo_package_management.md` 的勾选已全部完成，可作参考。
+
 基于：
 
 - [`docs/upm_evolution_design.md`](./upm_evolution_design.md) 第 12 节“实施优先级与里程碑表”

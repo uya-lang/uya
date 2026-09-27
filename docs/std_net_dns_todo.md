@@ -1,5 +1,8 @@
 # `std.net.dns` 标准 DNS 客户端 TODO
 
+> **核对头（2026-09-27）**：其中"DNS `A/AAAA` 异步聚合"一项**已完成**（`dns_client_query_all_any_async` 先建两个 future 再 `async_join2_usize_results`，提交 `61469fe3`）；
+> 其余未勾选条目本轮未逐条核对。总体口径见 `docs/todo_status_index.md`。
+
 本文档用于规划一个最小但可复用的 **标准 DNS 客户端**，目标是把“解析主机名”从各个业务模块里剥离出来，统一收敛到 `std.net.dns`。
 
 这个模块的直接受益方包括：

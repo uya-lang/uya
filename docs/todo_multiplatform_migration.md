@@ -1,5 +1,9 @@
 # Uya 多平台迁移总待办
 
+> **核对头（2026-09-27）**：本文件列出的三条"当前事实"（`src/compile.sh` 仍直接调 gcc、`src/main.uya` 写死 Linux GCC 路径、`@syscall` 只支持 Linux x86-64）**已过时**：
+> 工具链选择已在 `src/driver/toolchain.uya` 中抽象，交叉目标与 macOS 路线有 `make uya-hosted` / `b-hosted` / `tests-hosted` 与 `.github/workflows/macos-ci.yml`，并有 `tests/verify_std_path_platform_targets.sh` 做平台条件交叉验证。
+> **仍然有效的剩余项**：macOS 的 async / syscall / pthread 运行时对等（`tests/run_programs_parallel.sh` 在 macOS 默认跳过全部 `test_async_*`/`test_std_async_*`/`test_pthread*` 与约 40 个 Linux-centric 用例），以及 Windows 运行时层（当前只有交叉编译 flag）。
+
 本文档将现有以 macOS 为中心的迁移路线，扩展为一份统一的**多平台总蓝图**。默认目标覆盖：
 
 - Linux `x86_64` 作为持续回归基线

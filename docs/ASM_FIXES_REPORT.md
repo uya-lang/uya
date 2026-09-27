@@ -1,5 +1,7 @@
 # @asm 设计文档修正完成报告
 
+> **核对头（2026-09-27）**：`@asm` 已完成，本文件属历史过程记录。现状与证据见 `docs/ASM_TODO.md` 的核对头与 `docs/todo_status_index.md`。
+
 **修正日期**：2026-02-22
 **修正范围**：docs/asm_api_reference.md, docs/asm_design.md, docs/asm_implementation_plan.md, docs/asm_summary.md
 **修正状态**：✅ 已完成

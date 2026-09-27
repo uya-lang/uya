@@ -1,5 +1,8 @@
 # Uya fmt Phase 2 TodoList
 
+> **核对头（2026-09-27）**：本 phase 文档的 "Not started" 勾选状态已过时——对应能力已在 `src/fmt.uya` + `tests/test_fmt_*.uya` 落地（`uya fmt` 命令见 `src/main.uya` 的 `COMMAND_FMT`）。
+> 保留本文件作为任务分解记录；唯一仍明确未支持的是 `fmt_phase4_cli_tasks.md` 里的"stdin 与 `-s/-r` 组合"。
+
 > 基于 `docs/fmt_development_plan.md` 的方案 B，Phase 2 聚焦 comments / positions 在格式化链路中的落地。
 
 **Goal**: 在 Phase 1 最小 formatter 之上，补齐注释收集、注释附着、注释打印与位置保持能力。

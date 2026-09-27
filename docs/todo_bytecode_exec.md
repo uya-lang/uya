@@ -1,5 +1,8 @@
 # Uya Bytecode / IR 执行后端 TODO
 
+> **核对头（2026-09-27）**：本 TODO 状态标 "implementation in progress" 属实。已落地：`src/exec/` 下的 `bytecode.uya`、`hir.uya`、`lower.uya`、`builder.uya`、`frame.uya`、`value.uya`、`vm.uya`、`debug.uya`，以及 `tests/test_exec_vm_*.uya` 一族回归。
+> 仍未支持（与文末清单一致）：async/`@await`、`@frame`、`@c_import` 直接接入、SIMD、inline asm、microapp/softvm/hosted 以外的目标、native JIT；以及 `uya run --exec` 的稳定性与"相比现有 run 总耗时有明显下降"的目标。
+
 **状态**：executable TODO, implementation in progress
 **更新日期**：2026-05-30
 **配套设计**：`docs/bytecode_exec_design.md`

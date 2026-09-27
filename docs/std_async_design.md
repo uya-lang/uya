@@ -1,5 +1,8 @@
 # std.async 异步标准库设计文档
 
+> **核对头（2026-09-27）**：设计主体有效；文末 2 项未勾选仍属实——macOS（`std/async/event/macos.uya`）与 Windows（`std/async/event/windows.uya`）EventLoop 后端**未实现**（仓库只有 Linux `LinuxEpoll`）。
+> 其余"待收口"结论请以 `docs/todo_async_full_language_dynamic_resources.md` 的核对头为准。
+
 **最后更新**：2026-06-21
 
 **相关文档**：

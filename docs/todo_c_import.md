@@ -1,5 +1,11 @@
 # @c_import 实施 TODO
 
+> **归档/核对头（2026-09-27）**：本 TODO 的功能目标已**全部落地**，清单里的复选框是 2026-04 的书写形式，未逐项回填。
+>
+> - 核对证据：`@c_import` 已进入 lexer 白名单（`src/lexer.uya` 的未知内置错误文案已列出 `@c_import`）、parser（`src/parser/declarations.uya`）、checker（`src/checker/main.uya`、`expr`、`macro_expand`）与构建集成（提交 `fba37b65`）；仓库内有 8 个 `tests/*c_import*` 用例与 `tests/verify_c_import_split_sidecar.sh`、`tests/verify_c_import_symlink_dedupe.sh` 两个验证脚本。
+> - 仍有意义的后续（非本 TODO 项）：`@c_import` 与 exec/bytecode 后端的接入，见 `docs/todo_bytecode_exec.md`。
+> - 本文件保留为历史实施顺序记录；若发现具体条目未落地，请按条目重新开 issue 而不是沿用本清单状态。
+
 **参考**：[c_import_design.md](./c_import_design.md)  
 **目标功能**：
 

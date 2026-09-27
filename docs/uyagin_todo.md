@@ -1,5 +1,11 @@
 # UyaGin TODO / 路线图
 
+> **核对头（2026-09-27）**：P0–P6 已完成；**P7（性能达标）与 P8（文档）仍未收口**。
+> - 运行时门禁不再是 blocker：本轮实测 `tests/verify_uyagin_http_bench_runtime.sh` 在 `threads=4` 下通过（2026-04 记录的 multi-shard SIGSEGV 已不复现）。
+> - 但正式验收口径所需的"5 场景 × 5 run + syscall/CPU probe + 原始 report.json/summary.csv"从未产出；仓库里唯一带 Gin 对照的一次是 `build/uyagin_http_bench/20260627_063210`（runs=1、server_threads=1、单场景 hello），其 `rps_ratio_vs_gin=2.17`、`p99_ratio_vs_gin=0.227` 只是 smoke 证据，不能替代 P7 验收。
+> - P8 的 API 文档 / 迁移指南 / 示例 / 压测报告四项均未开始。
+> 因此本文件的勾选状态（P7 全部门槛未勾）与事实一致，属于**真实的未完成工作**。
+
 本 TODO 以“先稳定、再压测、最后超过 Gin”为主线。所有性能结论必须用同机、同业务、同连接模型的 benchmark 证明，不能只凭设计假设宣称达标。
 
 ## P0：核心切片（已完成）

@@ -1,5 +1,7 @@
 # Uya 微容器通用共享库机制 TODO
 
+> **核对头（2026-09-27）**：本 TODO（124 项未勾）对应的共享库能力**尚未实现**：`src/`、`lib/`、`Makefile` 中均无共享库（`.so`/`dylib`）产出路径，也没有相关测试；本文件是真实未开工的设计待办（对应设计文档：`shared_library_design.md`）。
+
 **版本**: v0.1  
 **日期**: 2026-04-28  
 **对应设计**: `docs/microcontainer/shared_library_design.md`

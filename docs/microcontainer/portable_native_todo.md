@@ -1,5 +1,8 @@
 # Uya 微程序可移植 Native 运行 TODO
 
+> **核对头（2026-09-27）**：可移植 native 路线**部分落地**：`src/microapp/main.uya` 与 `make microapp-check` / `microapp-hosted-smoke` / `microapp-aarch64-runtime-check` / `microapp-macos-runtime-check` 已存在，macOS CI 也跑 aarch64/macOS 微应用运行时检查；M1（Linux x86_64 真执行）与 M2（hosted 多平台）因此不是全空。
+> 仍需收口的项见下方未勾选条目（本文件未逐条回填状态）。
+
 **版本**: v0.1  
 **日期**: 2026-04-19  
 **对应设计**: `docs/microcontainer/portable_native_design.md`

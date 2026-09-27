@@ -1,8 +1,34 @@
 # Uya 异步生产化 TODO（完整语法 + 动态资源）
 
-**最后更新**：2026-06-22
-**当前定位**：本文件是当前“让异步编程生产级可用”目标的权威 TODO。  
-**口径说明**：在本文件完成前，`docs/async_production_todo.md`、`docs/async_status_matrix.md`、`docs/std_async_design.md` 中“量产已完成”或“主链路已收口”的表述都只能视为历史阶段结论，不能直接当作本目标的完成依据。
+**最后更新**：2026-06-22（正文）；2026-09-27 加了归档/核对头（见下）
+**当前定位**：本文件是当前"让异步编程生产级可用"目标的权威 TODO。
+**口径说明**：在本文件完成前，`docs/async_production_todo.md`、`docs/async_status_matrix.md`、`docs/std_async_design.md` 中"量产已完成"或"主链路已收口"的表述都只能视为历史阶段结论，不能直接当作本目标的完成依据。
+
+> ## 归档与核对头（2026-09-27）
+>
+> 已完成的部分已迁入 [`todo_async_full_language_dynamic_resources_completed.md`](todo_async_full_language_dynamic_resources_completed.md)（失败记录见 [`..._failed.md`](todo_async_full_language_dynamic_resources_failed.md)，当前无有效失败项）。
+> **下方正文里"源码现状审计""语法缺口"等表的结论只代表 2026-06-22 时点**，其中多条已被 2026-09-27 的仓库状态推翻，逐条核对如下（证据均为当轮实测命令/代码位置）：
+>
+> | 原文结论 | 当前位置 | 2026-09-27 核对结果 |
+> |---|---|---|
+> | §1 epoll slot/event 固定 `1024` | `lib/std/async_event.uya` | 仍是**默认容量** `LINUX_EPOLL_DEFAULT_CAPACITY = 1024`，但已实现 `grow_slots()` 满载自动扩容，并可由构造参数配置 |
+> | §1 `ThreadPool` 容量固定 32/32/16 | `lib/std/thread.uya` | 兼容常量保留，但容量已可配置到 `THREAD_POOL_MAX_CONFIG_CAPACITY = 4096`，默认策略显式固定为 queue-or-error |
+> | §1 `ASYNC_FRAME_POOL_MAX_BUCKETS=128` / `MAX_PER_BUCKET=4096` | `lib/std/async_frame.uya` | 仍是**默认值**，已支持 `ASYNC_FRAME_POOL_MAX_BUCKETS` / `ASYNC_FRAME_POOL_MAX_PER_BUCKET` 环境变量与实例配置 |
+> | §1 请求头 scratch 固定 `4096` | `lib/std/http/http1_async.uya:35` | **仍成立**（`HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP`）——大 header 走扩容路径，属尚未收口的容量项 |
+> | §3 泛型方法与 `@async_fn` 组合"不能标为已验证覆盖" | `tests/test_generic_async_method_codegen.uya` | **已推翻**：该回归已入库并通过（`./bin/uya test --c99 tests/test_generic_async_method_codegen.uya` → 2/2），归档文件亦已记录 |
+> | §1.1 "缺失覆盖：暂无；后续继续审计" | — | 完整语法矩阵已由 `tests/verify_async_full_language_matrix.sh` + `tests/verify_async_production_smoke.sh` 固化，二者 2026-09-27 实测通过 |
+> | "共享 runtime 矩阵仍需补齐"（本文与 `async_status_matrix.md`） | `tests/verify_async_shared_runtime_matrix.sh` | **已补齐并通过**（HTTP/DNS/TLS/`async_compute`/`Scheduler` 同 `EventLoop`/`Waker` 语义 smoke） |
+>
+> **本目标当前真正剩余的项**（源码级确认缺失，2026-09-27）：
+>
+> 1. 跨平台 `EventLoop` 后端：macOS `kqueue` / Windows `IOCP`（仓库内无实现）。
+> 2. 多 interest `Waker`：`lib/std/async.uya` 的 `Waker` 仍是单 `_io_fd` / `_io_interest`。
+> 3. HTTP 客户端连接池与 keep-alive 复用（`lib/std/http/http1_async.uya` 只有单次请求 API）。
+> 4. TLS 会话复用 / `https_handshake_async` 真实 pending-ready 行为回归（`lib/tls/` 无 session resumption）。
+> 5. HTTP/1.1 请求头 inline scratch 容量（上游硬边界仍在）。
+>
+> **验证闸门现状**：`verify_async_production_smoke.sh`、`verify_async_shared_runtime_matrix.sh`、`verify_async_full_language_matrix.sh`、`verify_async_full_dynamic_resources_gate.sh unit-scan` 通过；
+> `verify_async_full_dynamic_resources_gate.sh all/c99-stress` 曾因 `pthread stress` 阶段失败（hosted 下 `ETIMEDOUT` 宏名冲突，见 `buglist.md` 编译器 bug 首条），该缺陷已于 2026-09-27 修复，`tests/stress_pthread.sh 1` 已通过。
 
 ## 源码现状审计
 
@@ -10,11 +36,11 @@
 
 | 模块 | 现状 | 影响 |
 |------|------|------|
-| `lib/std/async_event.uya` | `LinuxEpoll` 的 slot / event 数组均固定 `1024`，`find_slot()` 线性扫描固定容量 | 并发 fd 上限、退化 O(n)、容量达到上限时只能报错 |
+| `lib/std/async_event.uya` | `LinuxEpoll` 的 slot / event 数组默认为 `1024`（`LINUX_EPOLL_DEFAULT_CAPACITY`），`find_slot()` 线性扫描；**2026-09-27 核对：已实现 `grow_slots()` 满载自动扩容，并可按实例配置容量** | 默认值仍是 1024，但不再是硬上限 |
 | `lib/std/async_scheduler.uya` | `TaskQueue<T>` 默认队列已自动增长；scheduler frame pool backing buffer 与 inline repoll 默认策略均支持实例级配置与 `UYA_SCHEDULER_FRAME_BUFFER_BYTES` / `UYA_SCHEDULER_INLINE_REPOLL_LIMIT` | 默认路径不再写死 `1024`；剩余风险转为跨 HTTP/DNS/TLS/`async_compute` 共享调度 smoke 不足 |
-| `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回 `error.TaskQueueFull`），不再依赖 `fork` fallback | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
-| `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512` | frame 元信息和池容量都有硬上限 |
-| `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096` | 大 header / 扩展请求场景不是真动态 |
+| `lib/std/thread.uya` | 仍保留 `THREAD_POOL_MAX_WORKERS=32`、`THREAD_POOL_MAX_PENDING=32`、`THREAD_POOL_MAX_TASK_SLOTS=16` 兼容常量；`ThreadPoolConfig.submit_strategy` 已显式固定默认策略为 queue-or-error（共享 FIFO，容量不足返回 `error.TaskQueueFull`），不再依赖 `fork` fallback；**2026-09-27 核对：容量可配置到 `THREAD_POOL_MAX_CONFIG_CAPACITY = 4096`** | 容量与饱和策略虽然已显式化，但仍缺更丰富的生产级策略与动态扩缩容 |
+| `lib/std/async_frame.uya` | `ASYNC_FRAME_POOL_MAX_BUCKETS=128`、`ASYNC_FRAME_POOL_MAX_PER_BUCKET=4096`、descriptor 表固定 `512`；**2026-09-27 核对：bucket 上限已是可配置默认值（`ASYNC_FRAME_POOL_MAX_BUCKETS` / `..._PER_BUCKET` 环境变量与实例配置），descriptor 表已按真实数量发射** | frame 池容量仍是默认上限，但可配置 |
+| `lib/std/http/http1_async.uya` | 多处请求头 scratch buffer 固定 `4096`（**2026-09-27 核对：仍成立**，`HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP`） | 大 header / 扩展请求场景不是真动态 |
 
 ### 2. 编译器 async 容量路径现状
 
@@ -71,7 +97,7 @@
 | 迭代器 interface/ref 边界 + `@await` | `tests/error_for_iterator_interface_value.uya`、`tests/error_async_for_iterator_interface_await.uya`、`tests/test_async_for_iterator_ref_await.uya` | 已有覆盖 | 接口值 `for` 是同步也不支持的通用语言边界；`for iter |&x|` 引用绑定已作为 async 正向回归覆盖 |
 | 复合表达式 / await 绑定跨段重放 / 大状态机 | `tests/test_async_compound_try_await.uya`、`tests/test_async_fn_multi_segment_unwrap.uya`、`tests/test_async_await_limits_and_segments.uya`、`tests/test_async_large_state_machine_syntax.uya` | 已有覆盖 | 覆盖 RHS/return 表达式、多段 bind 依赖，以及包含顺序 20 awaits、循环、跨段变量、副作用和表达式链的大状态机语法回归 |
 | 方法 / 接口 / 局部接口 future | `tests/test_async_method_interface.uya`、`tests/test_async_local_interface_await.uya` | 已有覆盖 | 证明结构体方法、方法块和接口签名主链路可用 |
-| 泛型函数 / 泛型方法 / 接口方法 / 结构体外方法块 | `docs/grammar_formal.md` 的 `fn_decl`、`method_decl`、`struct_method_block`、`method_sig`；`docs/uya.md` 第 18.3.1；`tests/test_async_fn_basic.uya`、`tests/test_generic_async_function_codegen.uya`、`tests/test_async_method_interface.uya` | 部分覆盖，泛型 async 方法仍为缺口 | 顶层泛型 `@async_fn`、接口 `@async_fn` 方法签名、结构体内部 async 方法与结构体外方法块 async 实现已有正向回归；本轮临时正向回归 `AsyncBox { @async_fn fn choose<T>(...) Future<!T> }` 暴露 C99 未生成 `uya_AsyncBox_choose_i32`，因此泛型方法与 `@async_fn` 的组合不能标为已验证覆盖 |
+| 泛型函数 / 泛型方法 / 接口方法 / 结构体外方法块 | `docs/grammar_formal.md` 的 `fn_decl`、`method_decl`、`struct_method_block`、`method_sig`；`docs/uya.md` 第 18.3.1；`tests/test_async_fn_basic.uya`、`tests/test_generic_async_function_codegen.uya`、`tests/test_async_method_interface.uya` | 部分覆盖，泛型 async 方法仍为缺口（**2026-09-27 核对：已推翻**） | 顶层泛型 `@async_fn`、接口 `@async_fn` 方法签名、结构体内部 async 方法与结构体外方法块 async 实现已有正向回归；本轮临时正向回归 `AsyncBox { @async_fn fn choose<T>(...) Future<!T> }` 暴露 C99 未生成 `uya_AsyncBox_choose_i32`，因此泛型方法与 `@async_fn` 的组合不能标为已验证覆盖。**2026-09-27：该缺口已修复并由 `tests/test_generic_async_method_codegen.uya` 固化（结构体内/方法块两种形态的泛型 async 方法，`./bin/uya test --c99` 2/2 通过），结论作废** |
 | caller-owned inline / frame / 局部定长数组 | `tests/test_async_frame_inline_temp.uya`、`tests/test_async_frame_inline_temp2.uya`、`tests/test_async_fn_local_fixed_array.uya`、`tests/test_async_frame_type.uya` | 已有覆盖 | 更偏 codegen/frame correctness，不等于完整语法 |
 | runtime / scheduler / real client 集成 | `tests/test_std_async_scheduler.uya`、`tests/test_async_compute_types.uya`、`tests/test_http1_async_client.uya` | 已有覆盖 | 是“真实使用链路”证据，但不覆盖全部语法 |
 | sync/async 函数体对齐矩阵 | `tests/test_async_sync_body_matrix.uya`、`tests/verify_async_full_language_matrix.sh` | 已有覆盖 | 用同步/async 成对断言覆盖局部变量、提前 return、分支、循环、`match`、`catch`、`defer/errdefer` 等组合语法 |
@@ -172,8 +198,13 @@
 
 ## 执行顺序
 
-1. [ ] 先做 Phase 0，把“真实缺口”与“验证入口”钉住。
-2. [ ] 再做 Phase 1，先拿下完整语法支持，不继续在 emitter 里堆特判。
-3. [ ] 接着做 Phase 2，把编译器内部 async 容量全部动态化。
-4. [ ] 然后做 Phase 3，把 runtime 和协议层资源动态化。
-5. [ ] 最后做 Phase 4 和 Phase 5，用真实压测和 release 闸门把“生产级”口径关上。
+> **2026-09-27 状态**：下面 5 步里 Phase 0/1/2 的目标已由 `verify_async_full_language_matrix.sh`、
+> `verify_async_production_smoke.sh`、`verify_async_shared_runtime_matrix.sh` 与 `verify_async_full_dynamic_resources_gate.sh unit-scan`
+> 的通过记录覆盖（本轮实测）；Phase 3/Phase 5 的剩余项见文首"本目标当前真正剩余的项"。
+> 勾选框保留为历史形式，不代表当前进度，进度以文首核对头为准。
+
+1. [ ] 先做 Phase 0，把“真实缺口”与“验证入口”钉住。（已由验证脚本固化）
+2. [ ] 再做 Phase 1，先拿下完整语法支持，不继续在 emitter 里堆特判。（full-language / production smoke 已通过）
+3. [ ] 接着做 Phase 2，把编译器内部 async 容量全部动态化。（frame meta / descriptor 已动态化，unit-scan 通过）
+4. [ ] 然后做 Phase 3，把 runtime 和协议层资源动态化。（剩余：HTTP/1 请求头 inline 容量）
+5. [ ] 最后做 Phase 4 和 Phase 5，用真实压测和 release 闸门把“生产级”口径关上。（仍待收口）

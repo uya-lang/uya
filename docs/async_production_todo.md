@@ -146,8 +146,11 @@
 
 ## P2：量产后二阶段能力（2026-04 历史口径）
 
-- [ ] DNS A / AAAA 并发聚合，减少高 RTT 下延迟。
-  - 当前状态：`dns_client_query_all_any_async` 采用顺序 `A -> AAAA` 查询，功能正确但延迟未优化。
+> 2026-09-27 核对：第 1 项（DNS A/AAAA 并发聚合）**已完成**——`dns_client_query_all_any_async` 现在先创建 A / AAAA 两个 transport future，
+> 再用 `async_join2_usize_results` 并发 join（提交 `61469fe3`）；第 2–5 项仍然有效。
+
+- [x] DNS A / AAAA 并发聚合，减少高 RTT 下延迟。
+  - 2026-09-27 更新：`dns_client_query_all_any_async` 已改为"先建两个 future，再并发 join"，不再是顺序 `A -> AAAA`。
 - [ ] HTTP 连接池与 keep-alive 复用。
 - [ ] TLS 会话复用。
 - [ ] macOS kqueue / Windows IOCP 后端。

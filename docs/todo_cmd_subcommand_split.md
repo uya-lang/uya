@@ -1,5 +1,9 @@
 # Uya 编译器入口瘦身 TODO
 
+> **核对头（2026-09-27）**：状态 "implementation pending" 基本属实，但已有部分落地：
+> `src/cmd/build/main.uya`、`src/cmd/upm/main.uya`（含 `upm_lib`）与 `src/driver/{modules,toolchain}.uya` 已存在；
+> 本 TODO 的核心目标**尚未完成**：`src/main.uya` 仍为 3902 行单文件，`CommandType`、`parse_args()`、`print_usage()` 与 build/run/test 共享流程都在其中，`src/compiler_driver.uya` 尚不存在。
+
 **状态**: executable TODO, implementation pending
 **更新日期**: 2026-05-03
 **配套设计**: `docs/cmd_subcommand_split_design.md`

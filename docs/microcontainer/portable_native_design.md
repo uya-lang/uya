@@ -1,5 +1,7 @@
 # Uya 微程序可移植 Native 运行架构设计
 
+> **核对头（2026-09-27）**：设计文档主体有效；实现进度见 `docs/microcontainer/portable_native_todo.md` 的核对头（M1/M2 已部分落地，`make microapp-*` 与 macOS CI 已有 aarch64/macOS 运行时检查）。
+
 **版本**: v0.1  
 **日期**: 2026-04-19  
 **关联文档**:

@@ -1,7 +1,23 @@
 # Uya Async 现状总表
 
-**最后更新**：2026-06-21
+**最后更新**：2026-06-21（正文）；2026-09-27 加了核对头（见下）
 **范围**：Linux + C99 后端；聚焦 `@async_fn` / `@await` / `Future` / `Poll` / `Waker` / `AsyncFd` / `Scheduler` / `async_compute`
+
+> ## 2026-09-27 核对头（先读这段再看下面的历史表）
+>
+> 本文是 2026-06 写的能力快照，**下表中"仍需收口/未完成"的多项已在 2026-09 由实测闸门覆盖**，避免下一轮再按旧结论误判：
+>
+> | 本文旧结论 | 2026-09-27 核对结果（证据） |
+> |---|---|
+> | 共享 runtime 矩阵"仍缺跨链路统一 smoke" | **已落地并通过**：`tests/verify_async_shared_runtime_matrix.sh`（HTTP / DNS / TLS / `async_compute` / `Scheduler` 同 `EventLoop`/`Waker`/cancellation 语义） |
+> | "生产闸门不全" | `tests/verify_async_production_smoke.sh` 通过（full-language + shared runtime + nested future + cancel cleanup 四段串联） |
+> | `ThreadPool` 未形成真正动态扩缩容 | 部分改善：容量可配置到 `THREAD_POOL_MAX_CONFIG_CAPACITY = 4096`，默认策略显式 queue-or-error；真动态扩缩容仍未做 |
+> | `LinuxEpoll` 满载自动扩容 | 已实现 `grow_slots()`；`1024` 只是默认初始容量 |
+> | DNS `A/AAAA` 并发聚合未完成 | **已并发**：`dns_client_query_all_any_async` 先建 A/AAAA 两个 future 再 `async_join2_usize_results`（提交 `61469fe3`） |
+> | `https_handshake_async` 缺真实 pending/ready 回归 | 已有 `tests/test_tls_async_io_future.uya`、`tests/test_tls_async_runtime_boundary.uya`；session 复用仍缺 |
+> | 迭代器 / 泛型 async 方法等语法缺口 | **已收口**：`tests/test_generic_async_method_codegen.uya`（泛型 async 方法）2/2 通过；`verify_async_full_language_matrix.sh` 覆盖迭代器边界 |
+>
+> **仍然有效的剩余项**（源码级确认缺失）：跨平台 `EventLoop`（macOS `kqueue` / Windows `IOCP`）、多 interest `Waker`（`lib/std/async.uya` 仍单 fd/单 interest）、HTTP 客户端连接池与 keep-alive 复用、TLS 会话复用、HTTP/1 请求头 inline 容量、`ThreadPool` 真动态扩缩容。
 
 > **2026-06-21 注意**
 >
@@ -98,9 +114,11 @@
 
 ## 剩余 P2
 
+> 2026-09-27 核对：第 6 项（DNS `A/AAAA` 并发聚合）已完成（见核对头），第 7 项已由 `tests/test_tls_async_io_future.uya` 部分覆盖；其余 1–5 项仍然有效。
+
 - 跨平台 `EventLoop` 后端：macOS `kqueue` / Windows `IOCP`
 - 更丰富 async formatting/helper（typed writer、`write_byte`、更高层格式化输出等）
 - 多 interest `Waker`
 - HTTP 连接池与 keep-alive 复用
 - TLS 会话复用
-- DNS `A/AAAA` 并发聚合
+- ~~DNS `A/AAAA` 并发聚合~~（2026-09-27 已完成，提交 `61469fe3`）

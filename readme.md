@@ -338,6 +338,7 @@ fn increment(counter: *Counter) void {
 - **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** - 开发指导说明
 - **[docs/TESTING.md](./docs/TESTING.md)** - 回归测试说明
 - **[buglist.md](./buglist.md)** - 当前已知问题与优先级清单，便于后续自动收集
+- **[docs/todo_status_index.md](./docs/todo_status_index.md)** - 任务文档状态总表：区分"真实剩余工作"与"已过期/已归档文档"，避免按旧复选框误判进度
 - **[docs/uya.md](./docs/uya.md)** - 完整语言规范（Markdown）
 - **[docs/changelog.md](./docs/changelog.md)** - 语言规范变更历史
 - **[docs/std_sql.md](./docs/std_sql.md)** - `std.sql` 模块与 SQLite/MySQL 驱动接入说明

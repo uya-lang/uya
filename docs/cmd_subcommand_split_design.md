@@ -1,5 +1,7 @@
 # Uya 编译器入口瘦身设计：`src/main.uya` 拆分与职责外置
 
+> **核对头（2026-09-27）**：设计有效；实施进度见 `docs/todo_cmd_subcommand_split.md` 的核对头（`src/cmd/{build,upm}` 与 `src/driver/` 已存在，`src/main.uya` 仍未瘦身）。
+
 **状态**: design draft, implementation pending
 **更新日期**: 2026-05-03
 **范围**: `src/main.uya` 物理拆分，`build`/`check`/`run`/`test`/`fmt`/`upm` 真实独立

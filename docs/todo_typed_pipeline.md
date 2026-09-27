@@ -1,5 +1,14 @@
 # 类型化管道 TODO
 
+> **核对头（2026-09-27）**：Linux/POSIX 侧已端到端落地（见 `docs/releases/RELEASE_v0.10.2.md` 与 `docs/todo_typed_pipeline_completed.md` 归档）。
+> **本文件当前真正的剩余项**（下方复选框里的其余条目为历史形式）：
+>
+> 1. **阶段 8：Windows hosted 后端**——`CreateProcessW`、Job Object 取消、handle allowlist、capture、UTF-8/UTF-16 bridge、Windows smoke 等，全部未实现（仓库无 Windows 运行时层）。
+> 2. **阶段 9：文档与稳定性门禁**——`|>` 的 grammar 文档、用户文档示例、迁移说明、已知限制章节。
+> 3. 验收标准一节是历史勾选形式，POSIX 侧行为已由 `tests/` 下的管道用例覆盖，未逐条回填。
+>
+> 伸缩口径：Windows 后端是独立大项，应先确认 Windows 运行时层（`std/os` 级）是否在路线图上，再决定是否启动。
+
 **状态**：可执行 TODO，规划中
 **更新日期**：2026-07-10
 **配套设计**：[`typed_pipeline_design.md`](typed_pipeline_design.md)

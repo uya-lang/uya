@@ -1,5 +1,7 @@
 # Uya WebSocket HTTP/2 / HTTP/3 路线占位
 
+> **核对头（2026-09-27）**：路线占位文档，接口边界仍有效。实现现状：HTTP/2 frame / stream / HPACK 栈在仓库中（`lib/std/http/http2_*.uya`、`hpack.uya`）；**QUIC / HTTP/3 与 HTTP/2 WebSocket transport adapter 尚未实现**。
+
 本文档对应 `std.http.websocket` 的 Phase 11 路线收敛。当前仓库已经补上 **HTTP/2 frame / stream / HPACK 基础栈**，本页继续负责把**模块归属、接口边界、复用策略和后续 transport 落点**固定下来，避免后续 extended CONNECT / QUIC 实现偏航。
 
 ## 1. 模块归属

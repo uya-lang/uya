@@ -1,5 +1,9 @@
 # extern 变量/常量编译器实现计划
 
+> **核对头（2026-09-27）**：本计划的任务清单指向**已退役的 `compiler-c/` 路线**（`compiler-c/src/ast.h`、`parser.c` 等），按 `AGENTS.md` 不再维护该路线。
+> 新树现状：`@extern_var` 已在 `src/` 落地（`src/ast.uya` 的 `AST_EXTERN_VAR_DECL`、`src/checker/check_expr*.uya`/`check_stmt.uya`、`src/codegen/c99/global.uya` 的 `gen_extern_var_decl`）。
+> 本文件仅作历史设计参考；如需补新语义（例如新的 ABI 约束），请基于 `src/` 重新开条目。
+
 ## 概述
 
 在 C 编译器（`compiler-c/`）和自举编译器（`src/`）中同时实现 `extern` 变量/常量支持。

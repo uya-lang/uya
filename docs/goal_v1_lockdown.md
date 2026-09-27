@@ -1,5 +1,11 @@
 # Uya 1.0 语法锁定目标清单（goal_v1_lockdown）
 
+> **核对头（2026-09-27）**：本文件自述"进行中"，核对后仍成立，但**T3 已有实质进展**：
+> - T3（卫生宏）：**代码已完成**（`src/checker/macro_expand.uya`、`tests/test_macro_hygiene.uya` 6/6），`docs/uya.md` §25.2.2 已写卫生宏章节；仍缺 `docs/grammar_formal.md` 的引用与 `macro_hygiene_design.md`/`todo_macro_hygiene.md` 的状态回填。
+> - T2/T5：`tests/error_try_catch_combined.uya`、`tests/test_catch_multistmt_block.uya`、`tests/test_async_await_catch_multistmt.uya` 三个本文件要求的用例**均不存在**，说明对应语义收敛尚未落地。
+> - T4/T6：闭包契约文档与 stdlib 手写状态机收编未完成（`lib/std/async.uya` 的 `AsyncWaitFdFuture`、`lib/std/thread.uya` 的 worker 桥接仍为手写 `poll()`，属既定 substrate 例外）。
+> 结论：本文件是**真实的未完成清单**，可作为 1.0 收口闸门；各项进展请按上面证据更新，而不是按复选框数量推断。
+
 **创建：** 2026-06-06
 **状态：** 进行中
 **达标定义：** 本文件 6 个工作项全部勾选完成、`make check` 通过，方算达标。未全部完成不得收口。

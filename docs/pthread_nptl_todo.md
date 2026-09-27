@@ -1,5 +1,10 @@
 # Uya libc pthread NPTL-lite 改造 TODO
 
+> **核对头（2026-09-27）**：本文件 89 个未勾选条目多为 2026-04 的书写形式，实际能力已推进：
+> `CLONE_THREAD`/`CLONE_PARENT_SETTID` 标志位、`set_tid_address` 驱动的 join 退出握手、`pthread_cond` 时钟与 `pthread_mutex_timedlock` 的 `ETIMEDOUT` 返回等均已在 `lib/libc/pthread.uya` 落地，并有 `tests/test_pthread*.uya` 与 `tests/stress_pthread.sh` 覆盖。
+> 本轮（2026-09-27）另修复了 hosted 下 `ETIMEDOUT` 宏名冲突导致 `./bin/uya test tests/test_pthread_cond.uya` 与 `tests/stress_pthread.sh` 必挂的缺陷（见 `buglist.md` 编译器 bug 首条）。
+> 剩余：macOS/Darwin 侧 pthread 与 syscall 层（见 `docs/macos_porting_todo.md`、`tests/run_programs_parallel.sh` 的 `SKIP_DARWIN_DEFAULT` 名单）。
+
 日期：2026-04-12
 最新更新：2026-04-12（稳定基线恢复，condvar clock 语义已落地）
 

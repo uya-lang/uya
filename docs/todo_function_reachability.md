@@ -1,5 +1,10 @@
 # Uya 顶层函数可达性重构待办
 
+> **归档/核对头（2026-09-27）**：本重构已落地，清单复选框为历史形式。
+>
+> - 核对证据：checker 侧已建立可达性记录（`src/checker/check_call.uya` 的 `checker_record_reachable_call` / `checker_add_function_root_decl` / `checker_add_function_edge`）；codegen 侧 `should_emit_top_level_function_decl`（`src/codegen/c99/main.uya`）已从"总是发射"改为查询 `is_top_level_function_reachable`，`export fn` 与无函数体的 extern/前向声明按 root 保活。
+> - 剩余：无已知剩余项；如后续新增发射判定（例如新的 root 形态）需在同处补 root 建模与回归。
+
 **目标**：把“顶层函数是否发射”收敛为分析阶段的一次性结论，恢复 `checker -> reachability -> codegen` 的单向职责链。
 
 **当前状态**：C99 backend 侧仍保留 reachability owner。当前实现位于 `src/codegen/c99/main.uya`，其中 `prepare_codegen_tests_and_emit_flags()` 会在 codegen 阶段全量标记，`should_emit_top_level_function_decl()` 目前等价于“总是发射”。

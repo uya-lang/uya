@@ -1,5 +1,8 @@
 # Uya HTTP WebSocket 实现待办
 
+> **核对头（2026-09-27）**：HTTP/2 基础栈已落地（`lib/std/http/http2_types.uya`、`http2_frame.uya`、`http2_stream.uya`、`hpack.uya`、`websocket_http2_h3_route.uya`）；
+> **HTTP/3 / QUIC 未实现**（仓库内无 QUIC/HTTP/3 代码），RFC 8441 extended CONNECT 的 stream adapter 也仍需落地。详见 `docs/std_http_websocket_http2_http3_route.md`。
+
 **参考**：[std_http_websocket_design.md](./std_http_websocket_design.md)、[todo_http.md](./todo_http.md)
 
 实现时遵循项目 TDD 流程：先添加测试 → 实现代码 → 运行相关快速验证。  

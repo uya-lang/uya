@@ -1,5 +1,9 @@
 # 标准脚本运行时 TODO
 
+> **核对头（2026-09-27）**：本 TODO 的"用 Uya 脚本替换仓库 shell"目标**尚未开始迁移**：
+> `docs/std_script_shell_inventory.md`（2026-06-29）盘点出 183 个 `.sh`、其中 132 个 B 类候选；本轮核对仓库中 `.ush` 文件数为 **0**，`lib/std/script/` 已存在但尚未接管任何验证脚本。
+> 已归档的部分见 `todo_std_script_completed.md`；下方未勾选条目即为真实剩余工作。
+
 **状态**：executable TODO, planning
 **更新日期**：2026-06-29
 **配套设计**：[`std_script_design.md`](std_script_design.md)

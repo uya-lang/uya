@@ -1,5 +1,10 @@
 # libc 开发进度与改进计划 v0.9.2
 
+> **核对头（2026-09-27）**：本进度文档为 2026-03 快照，其中"待办"多项**已落地**：
+> `Option<T>`（`lib/std/core/option.uya`）、`Writer`/`Reader`（`lib/std/io/writer.uya`、`reader.uya`、`stream.uya`）、`Vec<T>`/`StringBuf`（`lib/std/collections/vec.uya`、`string_buf.uya`）、`HeapAllocator`（`lib/std/mem/heap.uya`、`allocator.uya`）；
+> pthread 侧 `CLONE_THREAD`（`lib/libc/pthread.uya` 的 `CLONE_FLAGS`）与 `set_tid_address`（同文件 join 退出握手）也已落地。
+> 仍有效的剩余项：TSD destructor、多轮 cancel 语义细化、与系统 libc 的性能对比基准。
+
 **整合版本**：基于 std_refactor_design.md v0.7.1 架构  
 **日期**：2026-03-12（stdio _vfprintf_impl C99 兼容）  
 **参考**：musl-libc (https://musl.libc.org)

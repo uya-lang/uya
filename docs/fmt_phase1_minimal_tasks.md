@@ -1,5 +1,8 @@
 # Uya fmt Phase 1 TodoList
 
+> **核对头（2026-09-27）**：本 phase 文档的 "Not started" 勾选状态已过时——对应能力已在 `src/fmt.uya` + `tests/test_fmt_*.uya` 落地（`uya fmt` 命令见 `src/main.uya` 的 `COMMAND_FMT`）。
+> 保留本文件作为任务分解记录；唯一仍明确未支持的是 `fmt_phase4_cli_tasks.md` 里的"stdin 与 `-s/-r` 组合"。
+
 > 基于 `docs/fmt_development_plan.md` 的方案 B，Phase 1 聚焦最小可运行 formatter 主链路。
 
 **Goal**: 做出一个可运行、可测试、可幂等的最小 formatter。  

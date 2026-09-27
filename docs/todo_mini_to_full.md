@@ -1,5 +1,9 @@
 # Uya Mini 到完整版待办文档
 
+> **核对头（2026-09-27）**：本文件是 2026-05 的历史路线图，46 个未勾选条目中有相当部分**已落地**：
+> `uya build/run/test`（含 `check`）命令、原子类型、`nostdlib`/freestanding 路线、`std.core`/`std.io`/`std.collections`/`std.mem`/`std.fmt`/`std.net` 等模块、`test "name" {}` 测试格式。
+> 本文件最后更新已 3 个月以上，**不要再把它当当前进度表**；具体缺口以 `buglist.md`、`docs/async_status_matrix.md`、`docs/uyagin_todo.md` 与各专项 TODO 为准。
+
 基于项目根目录 [uya.md](uya.md) 完整规范。实现时按「建议实现顺序」执行，每项需在自举编译器中实现，测试需同时通过 `--c99` 与 `--uya --c99`。
 
 **实现约定**：在编写编译器代码前，先在 `tests/` 添加测试用例（如 `test_xxx.uya` 或预期编译失败的 `error_xxx.uya`），覆盖目标场景；实现后再跑 `--c99` 与 `--uya --c99` 验证，二者都通过才算通过。
