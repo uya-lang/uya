@@ -6077,6 +6077,7 @@ struct pthread_desc {
     void * * tsd_values;
     void * alloc_base;
     size_t alloc_size;
+    _Atomic(int32_t) tid_clear;
     struct pthread_heap_cache_t heap_cache;
 };
 
@@ -8277,7 +8278,9 @@ struct pthread_heap_cache_t * libc_pthread_current_heap_cache();
 static __attribute__((used)) int32_t _pthread_clock_gettime(int32_t clock_id, struct timespec * tp);
 static __attribute__((used)) void _pthread_run_tsd_destructors(struct pthread_desc * desc);
 static __attribute__((used)) void _pthread_thread_exit(struct pthread_desc * desc, void * retval);
+static __attribute__((used)) void _pthread_register_clear_tid(struct pthread_desc * desc);
 void _pthread_child_bootstrap(struct pthread_desc * desc);
+static __attribute__((used)) void _pthread_wait_thread_cleared(struct pthread_desc * desc);
 static __attribute__((used)) void _pthread_release_resources_once(struct pthread_desc * desc);
 int32_t pthread_attr_init(struct pthread_attr_t * attr);
 int32_t pthread_attr_destroy(struct pthread_attr_t * attr);
@@ -9236,6 +9239,7 @@ static __attribute__((used)) uint8_t * type_to_string(struct CompilerArena * are
 static __attribute__((used)) int32_t is_integer_type(enum checker_TypeKind k);
 static __attribute__((used)) int32_t is_float_type(enum checker_TypeKind k);
 static __attribute__((used)) int32_t is_unsigned_type(enum checker_TypeKind k);
+static __attribute__((used)) int32_t index_lower_bound_is_zero_by_type(struct TypeChecker * checker, struct ASTNode * expr);
 static __attribute__((used)) int32_t is_numeric_type(enum checker_TypeKind k);
 static __attribute__((used)) int32_t simd_reduce_add_elem_ok(struct Type elem);
 static __attribute__((used)) int32_t type_satisfies_builtin_constraint(struct Type type, uint8_t * constraint_name);
@@ -10606,7 +10610,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10643,7 +10647,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -11866,7 +11870,7 @@ __attribute__((used)) struct pthread_stack_hint_entry _pthread_stack_hints[256] 
 
 __attribute__((used)) size_t _pthread_registry_high_water = 0ULL;
 
-__attribute__((used)) struct pthread_desc _pthread_main_desc = {.self = NULL, .fast_heap_cache = NULL, .tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .resources_released = 0, .started = 1, .result = NULL, .pub_handle = NULL, .start_routine = NULL, .arg = NULL, .joinstate = 0, .cancel_state = 0, .cancel_type = 0, .cancel_pending = 0, .tsd_values = NULL, .alloc_base = NULL, .alloc_size = 0ULL, .heap_cache = {.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .last_find_start_bin = 0ULL, .last_find_steps = 0ULL, .last_split_remainder_bin = (0 - 1), .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL, .debug_lookup_hint_count = 0ULL, .debug_lookup_stack_count = 0ULL, .debug_lookup_tid_count = 0ULL, .debug_free_fast_count = 0ULL, .debug_free_locked_count = 0ULL, .debug_free_global_count = 0ULL}};
+__attribute__((used)) struct pthread_desc _pthread_main_desc = {.self = NULL, .fast_heap_cache = NULL, .tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .resources_released = 0, .started = 1, .result = NULL, .pub_handle = NULL, .start_routine = NULL, .arg = NULL, .joinstate = 0, .cancel_state = 0, .cancel_type = 0, .cancel_pending = 0, .tsd_values = NULL, .alloc_base = NULL, .alloc_size = 0ULL, .tid_clear = 0, .heap_cache = {.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .last_find_start_bin = 0ULL, .last_find_steps = 0ULL, .last_split_remainder_bin = (0 - 1), .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL, .debug_lookup_hint_count = 0ULL, .debug_lookup_stack_count = 0ULL, .debug_lookup_tid_count = 0ULL, .debug_free_fast_count = 0ULL, .debug_free_locked_count = 0ULL, .debug_free_global_count = 0ULL}};
 
 __attribute__((used)) struct pthread_t _pthread_main_handle = {.tid = 0, .stack = NULL, .stack_size = 0, .detached = 0, .exited = 0, .result = NULL, .start_routine = NULL, .arg = NULL};
 
@@ -25733,6 +25737,17 @@ static __attribute__((used)) void _pthread_thread_exit(struct pthread_desc * des
     (void)(sys_exit(0)    );
 }
 
+static __attribute__((used)) void _pthread_register_clear_tid(struct pthread_desc * desc) {
+    (void)desc;
+    if (desc == NULL) {
+        return;
+    }
+    (void)(({ struct err_union_int32_t _uya_catch_tmp = sys_set_tid_address((int32_t *)(&desc->tid_clear)); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+        return;
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; }));
+    __atomic_store_n((int32_t *)&(desc->tid_clear), 1, __ATOMIC_SEQ_CST);
+}
+
 __attribute__((used)) void _pthread_child_bootstrap(struct pthread_desc * desc) {
     (void)desc;
     if (desc == NULL) {
@@ -25740,10 +25755,25 @@ __attribute__((used)) void _pthread_child_bootstrap(struct pthread_desc * desc) 
         return;
     }
     (void)(_pthread_set_fast_desc(desc)    );
+    (void)(_pthread_register_clear_tid(desc)    );
     while (__atomic_load_n((int32_t *)&(desc->started), __ATOMIC_SEQ_CST) == 0) {
         (void)(pthread_yield());
     }
     (void)(_pthread_thread_exit(desc, _pthread_call_start(desc->start_routine, desc->arg))    );
+}
+
+static __attribute__((used)) void _pthread_wait_thread_cleared(struct pthread_desc * desc) {
+    (void)desc;
+    if (desc == NULL) {
+        return;
+    }
+    while (true) {
+        const int32_t pending = __atomic_load_n((int32_t *)&(desc->tid_clear), __ATOMIC_SEQ_CST);
+        if (pending == 0) {
+            return;
+        }
+        (void)(sys_futex((int32_t *)(&desc->tid_clear), libc_FUTEX_WAIT, pending, NULL)        );
+    }
 }
 
 static __attribute__((used)) void _pthread_release_resources_once(struct pthread_desc * desc) {
@@ -25755,6 +25785,7 @@ static __attribute__((used)) void _pthread_release_resources_once(struct pthread
     if (__atomic_compare_exchange_n((int32_t *)(&desc->resources_released), (&expected), 1, 0, PTHREAD_ATOMIC_SEQ_CST, PTHREAD_ATOMIC_SEQ_CST) == 0) {
         return;
     }
+    (void)(_pthread_wait_thread_cleared(desc)    );
     (void)(_pthread_stack_hint_forget(desc)    );
     void * const stack_mem = desc->stack;
     struct pthread_t * const pub_handle = desc->pub_handle;
@@ -25958,6 +25989,7 @@ __attribute__((used)) int32_t pthread_create(struct pthread_t * thread, const st
     desc->tsd_values = NULL;
     desc->alloc_base = (void *)desc;
     desc->alloc_size = PTHREAD_DESC_MAP_SIZE;
+    __atomic_store_n((int32_t *)&(desc->tid_clear), 0, __ATOMIC_SEQ_CST);
     desc->heap_cache = (struct pthread_heap_cache_t){.heads = {0}, .counts = {0}, .last_region_start = 0ULL, .last_region_end = 0ULL, .last_find_start_bin = 0ULL, .last_find_steps = 0ULL, .last_split_remainder_bin = (0 - 1), .alloc_hit_count = 0ULL, .alloc_miss_count = 0ULL, .debug_lookup_hint_count = 0ULL, .debug_lookup_stack_count = 0ULL, .debug_lookup_tid_count = 0ULL, .debug_free_fast_count = 0ULL, .debug_free_locked_count = 0ULL, .debug_free_global_count = 0ULL};
     (void)(_pthread_init_main_thread_if_needed()    );
     (void)(pthread_mutex_lock((&_pthread_create_mutex)));
@@ -57259,8 +57291,7 @@ static __attribute__((used)) struct Type infer_array_access(struct TypeChecker *
             if (checker->enable_safety_proof != 0) {
                 struct LinearExpr linear_expr = extract_linear_expr(checker, index_expr);
                 if (linear_expr.is_valid != 0) {
-                    struct Type index_type = checker_check_expr_checker_infer_type(checker, index_expr);
-                    const int32_t is_unsigned_index = is_unsigned_type(index_type.kind);
+                    const int32_t is_unsigned_index = index_lower_bound_is_zero_by_type(checker, index_expr);
                     if (verify_linear_expr_bounds_ex(checker, (&linear_expr), array_size, index_expr, is_unsigned_index) == 0) {
                         if (linear_expr.var_name != NULL) {
                             (void)(checker_report_error_ex(checker, index_expr, (uint8_t *)(uint8_t *)str1274, linear_expr.var_name, array_size)                            );
@@ -57548,8 +57579,7 @@ static __attribute__((used)) struct Type checker_check_array_access(struct TypeC
                     const int32_t array_size = array_type.array_size;
                     struct LinearExpr linear_expr = extract_linear_expr(checker, index_expr);
                     if (linear_expr.is_valid != 0) {
-                        struct Type index_type_for_bounds = checker_check_expr_checker_infer_type(checker, index_expr);
-                        const int32_t is_unsigned_index = is_unsigned_type(index_type_for_bounds.kind);
+                        const int32_t is_unsigned_index = index_lower_bound_is_zero_by_type(checker, index_expr);
                         if (verify_linear_expr_bounds_ex(checker, (&linear_expr), array_size, node->array_access_index, is_unsigned_index) == 0) {
                             if (linear_expr.var_name != NULL) {
                                 (void)(checker_report_error_ex(checker, node->array_access_index, (uint8_t *)(uint8_t *)str1274, linear_expr.var_name, array_size)                                );
@@ -63477,8 +63507,14 @@ static __attribute__((used)) uint8_t * constraint_expr_name(struct TypeChecker *
                 return _uya_ret;
                         }
         }
-        uint8_t buf[256] = {0};
-        const int32_t name_len = snprintf((char *)(&buf[0]), CONSTRAINT_EXPR_NAME_MAX, (const char *)str1038, (uint8_t *)object_name, (uint8_t *)expr->member_access_field_name);
+        uint8_t * const buf = (uint8_t *)compiler_arena_alloc(checker->arena, (size_t)CONSTRAINT_EXPR_NAME_MAX);
+        if (buf == NULL) {
+                        {
+                uint8_t * _uya_ret = NULL;
+                return _uya_ret;
+                        }
+        }
+        const int32_t name_len = snprintf((char *)buf, CONSTRAINT_EXPR_NAME_MAX, (const char *)str1038, (uint8_t *)object_name, (uint8_t *)expr->member_access_field_name);
         if (((name_len <= 0) || (name_len >= CONSTRAINT_EXPR_NAME_MAX))) {
                         {
                 uint8_t * _uya_ret = NULL;
@@ -63486,7 +63522,7 @@ static __attribute__((used)) uint8_t * constraint_expr_name(struct TypeChecker *
                         }
         }
                 {
-            uint8_t * _uya_ret = checker_intern_strdup(checker, (uint8_t *)(&buf[0]));
+            uint8_t * _uya_ret = checker_intern_strdup(checker, buf);
             return _uya_ret;
                 }
     }
@@ -64429,6 +64465,51 @@ static __attribute__((used)) struct Interval eval_expr_interval(struct TypeCheck
             return _uya_ret;
                 }
     }
+    if (expr->type == main_ASTNodeType_AST_CHAR) {
+                {
+            struct Interval _uya_ret = interval_const(expr->char_literal_value);
+            return _uya_ret;
+                }
+    }
+    if (expr->type == main_ASTNodeType_AST_UNARY_EXPR) {
+        struct err_union_enummain_TokenType u_op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->unary_expr_op) }; _uya_asbang; });
+        const enum main_TokenType u_op = u_op_tmp.value;
+        struct Interval operand_interval = eval_expr_interval(checker, expr->unary_expr_operand);
+        if (operand_interval.is_valid == 0) {
+                        {
+                struct Interval _uya_ret = interval_invalid();
+                return _uya_ret;
+                        }
+        }
+        if (u_op == main_TokenType_TOKEN_PLUS) {
+                        {
+                struct Interval _uya_ret = operand_interval;
+                return _uya_ret;
+                        }
+        }
+        if (u_op == main_TokenType_TOKEN_MINUS) {
+                        {
+                struct Interval _uya_ret = interval_range((0 - operand_interval.max), (0 - operand_interval.min));
+                return _uya_ret;
+                        }
+        }
+        if (u_op == main_TokenType_TOKEN_TILDE) {
+                        {
+                struct Interval _uya_ret = interval_range(((0 - operand_interval.max) - 1), ((0 - operand_interval.min) - 1));
+                return _uya_ret;
+                        }
+        }
+        if (u_op == main_TokenType_TOKEN_EXCLAMATION) {
+                        {
+                struct Interval _uya_ret = interval_range(0, 1);
+                return _uya_ret;
+                        }
+        }
+                {
+            struct Interval _uya_ret = interval_invalid();
+            return _uya_ret;
+                }
+    }
     if (expr->type == main_ASTNodeType_AST_BINARY_EXPR) {
         struct err_union_enummain_TokenType op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->binary_expr_op) }; _uya_asbang; });
         const enum main_TokenType op = op_tmp.value;
@@ -64717,14 +64798,14 @@ static __attribute__((used)) int32_t verify_linear_expr_bounds_ex(struct TypeChe
                 if (((op == CONSTRAINT_GE) && (val >= need_lower))) {
                     has_lower_bound = 1;
                 } else {
-                    if (((op == CONSTRAINT_GT) && (val > need_lower))) {
+                    if ((((op == CONSTRAINT_GT) && (val < 2147483647)) && ((val + 1) >= need_lower))) {
                         has_lower_bound = 1;
                     }
                 }
                 if (((op == CONSTRAINT_LT) && (val <= need_upper))) {
                     has_upper_bound = 1;
                 } else {
-                    if (((op == CONSTRAINT_LE) && (val < need_upper))) {
+                    if ((((op == CONSTRAINT_LE) && (val < 2147483647)) && ((val + 1) <= need_upper))) {
                         has_upper_bound = 1;
                     }
                 }
@@ -82233,7 +82314,7 @@ static __attribute__((used)) uint8_t * string_pool_intern(struct StringPool * po
                 }
     }
     const int32_t hash = hash_string((uint8_t *)str);
-    const int32_t bucket_idx = (hash % STRING_POOL_SIZE);
+    const int32_t bucket_idx = ((hash & 2147483647) % STRING_POOL_SIZE);
     if (bucket_idx < 0) {
                 {
             uint8_t * _uya_ret = str;
@@ -85117,6 +85198,43 @@ static __attribute__((used)) int32_t is_unsigned_type(enum checker_TypeKind k) {
     }
         {
         int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) int32_t index_lower_bound_is_zero_by_type(struct TypeChecker * checker, struct ASTNode * expr) {
+    (void)checker;
+    (void)expr;
+    if (((checker == NULL) || (expr == NULL))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (expr->type == main_ASTNodeType_AST_CAST_EXPR) {
+        if (expr->cast_expr_is_force_cast != 0) {
+            struct Type cast_type = checker_check_expr_checker_infer_type(checker, expr);
+                        {
+                int32_t _uya_ret = is_unsigned_type(cast_type.kind);
+                return _uya_ret;
+                        }
+        }
+        struct ASTNode * const source = expr->cast_expr_expr;
+        if (source == NULL) {
+                        {
+                int32_t _uya_ret = 0;
+                return _uya_ret;
+                        }
+        }
+        struct Type source_type = checker_check_expr_checker_infer_type(checker, source);
+                {
+            int32_t _uya_ret = is_unsigned_type(source_type.kind);
+            return _uya_ret;
+                }
+    }
+    struct Type self_type = checker_check_expr_checker_infer_type(checker, expr);
+        {
+        int32_t _uya_ret = is_unsigned_type(self_type.kind);
         return _uya_ret;
         }
 }
@@ -171935,7 +172053,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -173182,7 +173300,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -173426,7 +173544,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;
