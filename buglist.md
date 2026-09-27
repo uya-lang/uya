@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -497,6 +497,18 @@
   - 影响：CI/本地验证时偶发误报，需重试
   - 修复方向：增加同步屏障、放宽时间敏感断言容差，或拆分为更小粒度的无竞态子测试
   - 相关文件：`tests/test_pthread_api.uya`、`lib/libc/pthread.uya`
+
+- [x] **P2 / 中：`test_async_event_dynamic_growth` 在默认 fd 软上限的终端里必然失败（`make release` 只挂这一项）**
+  - 状态：已修复（环境限制，不是扩容回归）
+  - 验证状态：修复前在“终端同款限制”下 100% 复现（软上限 1024 / 硬上限 1048576：旧用例 `exit=1`，`Tests Failed: 1`）；修复后同一限制下 `make check` 1110/1110 通过，`./bin/uya test tests/test_async_event_dynamic_growth.uya` 也由 139 断言（跳过扩容）变为 150 断言（完整跑完扩容用例）
+  - 归属：测试环境依赖 / `tests/run_programs_parallel.sh`、`tests/test_async_event_dynamic_growth.uya`
+  - 现象：`make release` 走到 `check` 时报 `❌ test_async_event_dynamic_growth:测试失败（退出码: 1）`，总计 1110 / 通过 1109 / 失败 1；单独重跑该用例又通过
+  - 根因：该用例要注册 1025 个 fd 才能跨过 `LinuxEpoll` 默认的 1024 slot 边界，用 pipe 对制造可读事件，因此**单个测试进程需同时持有 2050+ 个 fd**。登录终端（本机 `deepin-terminal`：`Max open files 1024 1048576`）与多数 CI 的 `RLIMIT_NOFILE` 软上限是 1024，`pipe2` 返回 `EMFILE`，`try test_sys_pipe2(...)` 把错误抛出测试块 → 退出码 1。代理/自动化环境里软上限是 1048576，所以同样的树在代理侧全绿、在用户终端必挂——“偶发”只是因为跑命令的环境不同
+  - 修复内容：
+    1. `tests/run_programs_parallel.sh`：启动时把 `RLIMIT_NOFILE` 软上限提升到硬上限（软→硬是合法提升，与脚本已有的 `ulimit -s unlimited` 同一手法），并在头部打印生效的 fd 上限、上限仍不足时给出提示，避免环境限制再被当成回归
+    2. `tests/test_async_event_dynamic_growth.uya`：用例自己先用 `getrlimit`/`setrlimit`（`@syscall`，与 `lib/std/runtime/entry` 抬栈同一手法）把软上限抬够，使 `./bin/uya test ...` 这类直接运行也自洽；抬到硬上限仍不足时向 stderr 打印 `skip:` 说明并跳过扩容部分（默认容量断言仍覆盖），不再把环境问题记成失败
+  - 影响：任何需要同时持有大量 fd 的用例；排查此类“代理通过、终端失败”时应先比对 `ulimit -Sn`/`/proc/<pid>/limits`
+  - 相关文件：`tests/run_programs_parallel.sh`、`tests/test_async_event_dynamic_growth.uya`
 
 ## 修复验收
 

@@ -1,10 +1,12 @@
 // test_async_event_dynamic_growth.uya
 // 验证 LinuxEpoll 在跨过旧 slot 常量边界后仍会自动扩容，并保持 poll/wake 语义正确。
 
+use std;
 use std.async;
 use std.async_event;
 use std.testing.assert_eq_i32;
 use std.testing.expect;
+use std.string.strlen;
 use libc.syscall;
 use libc.stdlib;
 
@@ -14,6 +16,65 @@ const TEST_O_NONBLOCK: i32 = 0x800;
 const LEGACY_SLOT_CAPACITY: i32 = 64;
 const LEGACY_DEFAULT_SLOT_CAPACITY: i32 = 1024;
 const TARGET_POLL_EVENT_CAPACITY: i32 = 1;
+
+// ============================================================
+// fd 预算：把 RLIMIT_NOFILE 软上限抬到硬上限
+// ============================================================
+//
+// 默认容量用例要注册 1025 个 fd 才能跨过 LinuxEpoll 默认的 1024 slot 边界，而本用例用 pipe 对
+// 制造可读事件，每个注册项占一个 pipe 读端，因此整个用例需要同时持有 2050+ 个 fd。
+// 登录终端/CI 的 RLIMIT_NOFILE 软上限常是 1024（硬上限一般远大于它，本机 deepin-terminal 即
+// 1024/1048576），此时 pipe2 返回 EMFILE，用例会以“测试失败”收场——那是环境限制，不是扩容
+// 回归。软上限合法提升到硬上限即可，所以用例自己先抬够（与 lib/std/runtime/entry 用 setrlimit
+// 抬栈同一手法）；抬到硬上限仍不够时明确报出环境不足并跳过扩容部分。
+const GROWTH_CASE_PIPE_COUNT: u64 = 1025u64; // = LEGACY_DEFAULT_SLOT_CAPACITY + 1
+const GROWTH_CASE_REQUIRED_FDS: u64 = GROWTH_CASE_PIPE_COUNT * 2u64 + 8u64;
+const TEST_RLIMIT_NOFILE: i32 = 7; // Linux RLIMIT_NOFILE
+
+// 与内核 rlimit 布局一致；仅用 @syscall，勿声明 extern setrlimit（会与 libc 原型冲突）
+struct TestRLimit {
+    rlim_cur: u64,
+    rlim_max: u64
+}
+
+/// 尝试把 RLIMIT_NOFILE 软上限提升到硬上限，返回提升后的软上限。
+/// 读取失败返回 0，表示“未知”，调用方维持原有行为（直接尝试用例）。
+fn raise_fd_limit_to_hard() u64 {
+    var soft: u64 = 0u64;
+    std.cfg(std.target_os == .tos_linux, {
+        var lim: TestRLimit = TestRLimit { rlim_cur: 0u64, rlim_max: 0u64 };
+        const got: !i64 = @syscall(SYS_getrlimit, TEST_RLIMIT_NOFILE as i64, &lim as i64);
+        if got.error_id != 0 {
+            return 0u64;
+        }
+        soft = lim.rlim_cur;
+        if lim.rlim_max == 0u64 || lim.rlim_max <= soft {
+            return soft;
+        }
+        var want: u64 = GROWTH_CASE_REQUIRED_FDS;
+        if want > lim.rlim_max {
+            want = lim.rlim_max;
+        }
+        if want <= soft {
+            return soft;
+        }
+        var raised: TestRLimit = TestRLimit { rlim_cur: want, rlim_max: lim.rlim_max };
+        const set_result: !i64 = @syscall(SYS_setrlimit, TEST_RLIMIT_NOFILE as i64, &raised as i64);
+        if set_result.error_id != 0 {
+            return soft;
+        }
+        soft = want;
+    }, {})
+    return soft;
+}
+
+const FD_BUDGET_SKIP_NOTICE: &const byte =
+    "skip: RLIMIT_NOFILE 上限不足（扩容用例需要同时持有 2050+ 个 fd），已跳过 LinuxEpoll 默认容量扩容部分\n";
+
+/// 环境 fd 预算不足时把原因写到 stderr：测试仍算通过，但不静默掩盖覆盖缺口。
+fn report_fd_budget_skip() void {
+    _ = test_sys_write(2, FD_BUDGET_SKIP_NOTICE, strlen(FD_BUDGET_SKIP_NOTICE)) catch {};
+}
 
 fn test_sys_pipe2(pipefd: &i32, flags: i32) !i32 {
     return @syscall(SYS_pipe2, pipefd as i64, flags as i64) as! i32;
@@ -160,5 +221,13 @@ test "linux_epoll_default_capacity_grows_past_1024_and_wakes_all_registered_fds"
     }
     try assert_eq_i32(linux_epoll_slot_capacity(&ep), LEGACY_DEFAULT_SLOT_CAPACITY);
     try assert_eq_i32(linux_epoll_event_capacity(&ep), LEGACY_DEFAULT_SLOT_CAPACITY);
+
+    // 跨 1024 slot 边界需要 1025 个 pipe 对；环境给不出这些 fd 时报出并跳过扩容部分，
+    // 而不是把环境限制记成回归（上面的默认容量断言仍覆盖这一半）。
+    const fd_limit: u64 = raise_fd_limit_to_hard();
+    if fd_limit != 0u64 && fd_limit < GROWTH_CASE_REQUIRED_FDS {
+        report_fd_budget_skip();
+        return;
+    }
     try run_linux_epoll_growth_case(&ep, LEGACY_DEFAULT_SLOT_CAPACITY);
 }

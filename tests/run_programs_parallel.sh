@@ -37,6 +37,21 @@ fi
 # 自举编译器递归较深，需增大栈限制避免段错误
 ulimit -s unlimited 2>/dev/null || ulimit -s 524288 2>/dev/null || true
 
+# fd 上限：登录终端/CI 的 RLIMIT_NOFILE 软上限常是 1024（本机 deepin-terminal 即如此），
+# 而 test_async_event_dynamic_growth 要注册 1025 个 fd 才能跨过 LinuxEpoll 默认的 1024 slot
+# 边界，需要同时持有 2050+ 个 fd；软上限不够时 pipe2 返回 EMFILE，用例会以“测试失败”收场，
+# 把环境限制误报成回归。软上限合法提升到硬上限即可，与上面的 ulimit -s 同一手法。
+UYA_NOFILE_HARD="$(ulimit -Hn 2>/dev/null || true)"
+case "$UYA_NOFILE_HARD" in
+    "") : ;;
+    unlimited) ulimit -n unlimited 2>/dev/null || true ;;
+    *) ulimit -n "$UYA_NOFILE_HARD" 2>/dev/null || true ;;
+esac
+# 需要大量 fd 的用例所需的预算（见 tests/test_async_event_dynamic_growth.uya：
+# 1025 个 pipe 对 = 2050 个 fd，再加 epoll fd、标准 fd 与余量）。
+UYA_REQUIRED_FD_BUDGET=2064
+UYA_NOFILE_EFFECTIVE="$(ulimit -n 2>/dev/null || echo unknown)"
+
 # 获取脚本所在目录的绝对路径，然后推导各路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -261,6 +276,16 @@ fi
 if [ "$ERRORS_ONLY" = false ]; then
     echo "开始运行 Uya 测试程序（并行版本，${PARALLEL_JOBS} 线程）..."
     echo "使用编译器: $COMPILER"
+    echo "fd 上限: ${UYA_NOFILE_EFFECTIVE}（RLIMIT_NOFILE 软上限，已按硬上限提升）"
+    # 提升后仍不够时要显式说明，否则只会看到某个 fd 用例“自行跳过”，看不出是环境限制
+    case "$UYA_NOFILE_EFFECTIVE" in
+        unlimited|unknown|"") : ;;
+        *)
+            if [ "$UYA_NOFILE_EFFECTIVE" -lt "$UYA_REQUIRED_FD_BUDGET" ]; then
+                echo "提示: fd 上限 ${UYA_NOFILE_EFFECTIVE} 低于 ${UYA_REQUIRED_FD_BUDGET}（fd 密集用例的预算），相关用例会自行跳过扩容部分"
+            fi
+            ;;
+    esac
     if [ -n "$TARGET_PATH" ]; then
         echo "目标: $TARGET_PATH"
     fi
