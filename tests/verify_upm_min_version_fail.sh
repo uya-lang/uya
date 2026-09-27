@@ -19,11 +19,13 @@ if [ "${UYA_UPM_SUITE_PREBUILT:-0}" != "1" ] && [ ! -x "$ROOT_DIR/bin/cmd/upm" ]
 fi
 
 mkdir -p "$WORK_DIR"
+# 用一个当前发行线永远达不到的 min_version，让本用例只验证"不满足即拒绝"的路径，
+# 不再把出错的当前版本号（曾写死 0.10.0）绑进断言——否则每次升版本号都要连带改这个用例。
 cat > "$WORK_DIR/uya.toml" <<'EOF_MANIFEST'
 [package]
 name = "min_version_fail"
 version = "0.1.0"
-uya_min_version = "0.10.1"
+uya_min_version = "99.0.0"
 EOF_MANIFEST
 
 cat > "$WORK_DIR/main.uya" <<'EOF_SRC'
@@ -44,6 +46,7 @@ if [ "$STATUS" -eq 0 ]; then
 fi
 
 grep -q "package.uya_min_version" "$BUILD_LOG"
-grep -q "当前 uya 版本 0.10.0 低于" "$BUILD_LOG"
+grep -q "当前 uya 版本" "$BUILD_LOG"
+grep -q "低于 package.uya_min_version 要求 99.0.0" "$BUILD_LOG"
 
 echo "verify_upm_min_version_fail: ok"
