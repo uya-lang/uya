@@ -1,0 +1,21 @@
+// error_array_bounds_signed_cast_lower_bound.uya - 有符号源 `as usize` 下标缺少下界证明
+//
+// 背景：`i as usize`（i: i32）的结果类型是 usize，但 unchecked `as` 对负值会回绕成
+// 巨大的 usize。只证明上界（i < 8）并不能说明下标落在 [0, 8) 内，因此必须同时证明
+// i >= 0；否则生成的代码是 `g[(size_t)i]`，i = -1 时直接越界读。
+// 与 test_bounds_prover_as_usize_cast.uya（正例：上下界都证明过）配对。
+//
+// 预期：编译失败（数组索引安全证明失败）
+
+var g_array: [i32: 8] = [];
+
+export fn main() i32 {
+    return pick(3);
+}
+
+fn pick(i: i32) i32 {
+    if i >= 8 {
+        return -1;
+    }
+    return g_array[i as usize];
+}

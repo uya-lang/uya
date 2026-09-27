@@ -97,8 +97,7 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
                 
                 if linear_expr.is_valid != 0 {
                     // 使用符号执行验证边界
-                    const index_type_for_bounds: Type = checker_infer_type(checker, index_expr);
-                    const is_unsigned_index: i32 = is_unsigned_type(index_type_for_bounds.kind);
+                    const is_unsigned_index: i32 = index_lower_bound_is_zero_by_type(checker, index_expr);
                     if verify_linear_expr_bounds_ex(checker, &linear_expr, array_size, node.array_access_index, is_unsigned_index) == 0 {
                         // 无法证明安全，报告编译错误
                         if linear_expr.var_name != null {

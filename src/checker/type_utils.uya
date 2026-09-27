@@ -207,6 +207,33 @@ fn is_unsigned_type(k: TypeKind) i32 {
     return 0;
 }
 
+// 数组下标能否按类型自动认定下界为 0（供 verify_linear_expr_bounds_ex 使用）。
+//
+// 注意：不能只看下标表达式自身的类型。`i as usize`（i 为 i32）的**结果类型**是
+// usize，但 unchecked `as` 对负值会回绕成巨大的 usize，此时下界并不是 0。
+// 因此对 unchecked cast 要看它的源表达式类型：只有源值本身是无符号类型，
+// 才能认定下界为 0；有符号源必须由约束系统给出 `i >= 0` 的证明。
+// checked cast（`as!`）溢出会返回错误而不是回绕，故按目标（无符号）处理。
+fn index_lower_bound_is_zero_by_type(checker: &TypeChecker, expr: &ASTNode) i32 {
+    if checker == null || expr == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        if expr.cast_expr_is_force_cast != 0 {
+            const cast_type: Type = checker_infer_type(checker, expr);
+            return is_unsigned_type(cast_type.kind);
+        }
+        const source: &ASTNode = expr.cast_expr_expr;
+        if source == null {
+            return 0;
+        }
+        const source_type: Type = checker_infer_type(checker, source);
+        return is_unsigned_type(source_type.kind);
+    }
+    const self_type: Type = checker_infer_type(checker, expr);
+    return is_unsigned_type(self_type.kind);
+}
+
 // 是否为数值类型
 fn is_numeric_type(k: TypeKind) i32 {
     if is_integer_type(k) != 0 || is_float_type(k) != 0 {

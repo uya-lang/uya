@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya`，同时记录同源的反向漏判问题（有符号源 `as usize` 下标被当作天然非负，可静默越界读，未修复）；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -215,16 +215,36 @@
   - 最小复现（保留）：`tests/repros/bounds_prover_as_usize_cast.uya`
   - 相关文档：`docs/compiler_bug_report_2026-06-06_bounds_prover_as_usize_cast.md`
 
-- [ ] **P2 / 中：边界证明器把 `有符号源 as usize` 的下标当成天然非负（反向漏判，可静默越界读）**
-  - 状态：未修复（与上一条同源：都是 `as usize` cast 与范围事实的关系）
+- [x] **P2 / 中：边界证明器把 `有符号源 as usize` 的下标当成天然非负（反向漏判，可静默越界读）**
+  - 状态：已修复
   - 验证状态：
-    - `if i >= 8 { return -1; } return g[i as usize];`（`i: i32`，只证明上界）**编译通过**；`i = -1` 时下标的实际值是 `(usize)-1`，生成的 C 是 `g[(size_t)i]`（无运行期边界检查）→ 越界读
-    - 同一 cast 写在 `const u: usize = i as usize;` 里会被要求 `as!`（"可能溢出的整数转换必须使用 as!"），但写在**下标位置**时该检查被跳过
-    - `g[(n * 2) as usize]`（非线性下标）连"无法证明"的报错都没有，直接放行
+    - 修复前：`if i >= 8 { return -1; } return g[i as usize];`（`i: i32`，只证明上界）**编译通过**；`i = -1` 时下标实际是 `(usize)-1`，生成的 C 是 `g[(size_t)i]`（无运行期边界检查）→ 越界读
+    - 修复后：同形代码报 `数组索引安全证明失败`；`if i >= 0 && i < 8`、`if i < 0 || i >= 8 { return }`、`if i <= -1 || i > 7 { return }` 等"上下界都证明过"的写法仍全部通过
+    - 回归面：用新编译器编译 `tests/*.uya` 全部 1107 个用例，编译失败集合与改动前完全一致（只有 `check_cli_no_main` 这个刻意无 `main` 的用例）；最小复现 `tests/repros/bounds_prover_as_usize_cast.uya` 仍编译通过
+    - `make check` 全绿
   - 根因：`infer_array_access` 用**下标表达式自身的类型**（cast 之后是 `usize`）判定 `is_unsigned_index`，于是 `verify_linear_expr_bounds_ex` 自动认定下界为 0；而 unchecked `as` 从有符号源转出来时，负值会回绕成巨大下标
-  - 期望行为（与 2026-06-06 文档一致）：只有"源表达式本身是无符号类型"或"上下文已证明 `0 <= v`"时才能认定下界为 0，否则应报证明失败（或强制 `as!`）
-  - 归属：`src/checker/check_expr.uya`（`infer_array_access`）、`src/checker/check_expr_extra.uya`（`checker_check_array_access`）
-  - 备注：收紧要谨慎——很多"有符号循环计数 + `as usize` 下标"的现有代码依赖当前宽松判定，需要先评估迁移面
+  - 修复内容：
+    1. 新增 `index_lower_bound_is_zero_by_type()`（`src/checker/type_utils.uya`）：只看 unchecked cast 的**源表达式**类型，源是无符号类型才自动认定下界 0；`as!`（checked，溢出会返回错误而非回绕）按目标类型处理；两个证明入口（`infer_array_access` / `checker_check_array_access`）统一改用它
+    2. 顺带补上比较约束的边界换算（`src/checker/interval.uya`）：`i > val` 等价 `i >= val+1`、`i <= val` 等价 `i < val+1`，避免收紧后把 `if i <= -1 || i > N-1 { return }` 这类等价守卫误判
+    3. `eval_expr_interval` 支持一元表达式（`-1`/`+x`/`~x`/`!x`）与字符字面量：旧实现遇到 `i <= -1` 的右操作数直接判为无效区间，整条约束都不会被记录
+  - 归属：`src/checker/check_expr.uya`（`infer_array_access`）、`src/checker/check_expr_extra.uya`（`checker_check_array_access`）、`src/checker/interval.uya`、`src/checker/type_utils.uya`
+  - 负例回归：`tests/error_array_bounds_signed_cast_lower_bound.uya`（只证明上界 → 预期编译失败）
+  - 仍存在的宽松点（未修，另计）：非线性下标表达式（如 `g[(n * 2) as usize]`）在线性式提取失败后没有任何兜底检查；`checker_check_array_access` 对非 i32 下标类型也会提前放行（"放宽检查，允许通过"）。收紧这一块会拒绝大量"复杂下标 + 无证明"的现有写法，需要先决定是报错还是由 codegen 插入运行期检查
+
+- [x] **P2 / 中：成员访问约束名用栈缓冲 + 负哈希跳过池化 → 约束表里留下悬垂名字（证明结果随变量名变化）**
+  - 状态：已修复
+  - 现象：同一段代码只改局部变量名，边界证明结果就不同：`probe.index`/`a.index`/`abc.index` 报"数组索引安全证明失败"，`s.index`/`abcd.index`/`probe2.index` 通过
+  - 根因：
+    1. `constraint_expr_name()` 把 `对象.字段` 拼进**栈上** `buf`，再交给 `checker_intern_strdup`
+    2. `string_pool_intern()` 用 `hash_string()` 的返回值（`u32 as i32`，高位为 1 时是负数）算桶下标，负数时直接 `return str` —— 于是返回的是那个**已经失效的栈指针**
+    3. 该指针被存进 `checker.constraint_var_names[]`，之后按名字比较约束时结果取决于栈内容被谁覆盖 → 表现为"换个变量名就时好时坏"
+  - 修复内容：
+    1. `constraint_expr_name()` 改用 `compiler_arena_alloc` 分配名字缓冲（生命周期稳定）
+    2. `string_pool_intern()` 把桶下标规范化为非负（`(hash & 0x7FFFFFFF) % STRING_POOL_SIZE`），负哈希不再跳过池化
+  - 影响面：所有靠 `对象.字段` 形式下标做边界证明的代码（本轮就是在这个路径上发现测试用例名字不同结果不同的）
+  - 验证状态：名字扫描（`a`/`s`/`ab`/`abc`/`abcd`/`probe`/`probe2`/`probeindex`/`xxxxxxxxxx`）修复后全部通过；`make check` 全绿
+  - 回归：`tests/test_bounds_prover_as_usize_cast.uya` 的 `bounds_pick_member`（结构体字段下标）覆盖该路径
+
 
 - [x] **P1 / 高：`std.thread.async_compute<usize>` 承载“worker 返回结构体结果指针”场景时，生成程序运行期 SIGSEGV**
   - 状态：已修复

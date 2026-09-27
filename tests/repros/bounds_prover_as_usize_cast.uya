@@ -2,8 +2,12 @@
 //
 // 期望：编译通过。守卫 `if i < 0 || i >= N { return }` 已在 i32 上
 //       证明 `0 <= i < N`，其中 N == @len(g_arr)。
-// 实际：`数组索引安全证明失败, 变量: i, 数组大小: 8`
+// 状态（2026-09-27）：已修复，本文件现在编译通过。修复前报
+//       `数组索引安全证明失败, 变量: i, 数组大小: 8`
 //       —— 范围事实在 `i as usize` 处丢失，未传递到下标表达式。
+//       回归用例见 tests/test_bounds_prover_as_usize_cast.uya，
+//       负例（只证明上界 → 应报错）见
+//       tests/error_array_bounds_signed_cast_lower_bound.uya。
 //
 // 复现命令：
 //   ./bin/uya build tests/repros/bounds_prover_as_usize_cast.uya -o /tmp/bounds_prover_as_usize_cast

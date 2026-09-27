@@ -275,13 +275,20 @@ fn constraint_expr_name(checker: &TypeChecker, expr: &ASTNode) &byte {
         if object_len <= 0 || field_len <= 0 || object_len + field_len + 2 > CONSTRAINT_EXPR_NAME_MAX {
             return null;
         }
-        var buf: [byte: CONSTRAINT_EXPR_NAME_MAX] = [];
-        const name_len: i32 = snprintf(&buf[0], CONSTRAINT_EXPR_NAME_MAX, "%s.%s" as *byte,
+        // 名称必须放在生命周期稳定的内存里：之前用栈上 buf 再交给
+        // string_pool_intern，而后者对负哈希（`hash as i32 < 0`）会直接返回入参，
+        // 于是约束表里存下的是已失效的栈指针，名字比较结果取决于栈内容被谁覆盖
+        // （表现为同一段代码换个变量名就时好时坏）。这里改用 arena 分配。
+        const buf: &byte = compiler_arena_alloc(checker.arena, CONSTRAINT_EXPR_NAME_MAX as usize) as &byte;
+        if buf == null {
+            return null;
+        }
+        const name_len: i32 = snprintf(buf, CONSTRAINT_EXPR_NAME_MAX, "%s.%s" as &byte,
             object_name as *byte, expr.member_access_field_name as *byte);
         if name_len <= 0 || name_len >= CONSTRAINT_EXPR_NAME_MAX {
             return null;
         }
-        return checker_intern_strdup(checker, &buf[0] as &byte);
+        return checker_intern_strdup(checker, buf);
     }
     return null;
 }
@@ -1125,6 +1132,36 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
         return interval_invalid();
     }
 
+    if expr.type == ASTNodeType.AST_CHAR {
+        return interval_const(expr.char_literal_value);
+    }
+
+    // 一元运算：`i <= -1` 这类守卫的右操作数是 AST_UNARY_EXPR，
+    // 旧实现直接判为无效区间，于是整条约束都不会被记录
+    // （导致等价于 `i >= 0` 的下界证明失败）。
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        const u_op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
+        const u_op: TokenType = u_op_tmp.value;
+        const operand_interval: Interval = eval_expr_interval(checker, expr.unary_expr_operand);
+        if operand_interval.is_valid == 0 {
+            return interval_invalid();
+        }
+        if u_op == TokenType.TOKEN_PLUS {
+            return operand_interval;
+        }
+        if u_op == TokenType.TOKEN_MINUS {
+            return interval_range(0 - operand_interval.max, 0 - operand_interval.min);
+        }
+        if u_op == TokenType.TOKEN_TILDE {
+            // ~x 等价于 -x - 1
+            return interval_range((0 - operand_interval.max) - 1, (0 - operand_interval.min) - 1);
+        }
+        if u_op == TokenType.TOKEN_EXCLAMATION {
+            return interval_range(0, 1);
+        }
+        return interval_invalid();
+    }
+
     // 二元运算
     if expr.type == ASTNodeType.AST_BINARY_EXPR {
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
@@ -1320,7 +1357,8 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
                 // 如果约束是 i >= val，需要 val >= need_lower（val 更强）
                 if op == CONSTRAINT_GE && val >= need_lower {
                     has_lower_bound = 1;
-                } else if op == CONSTRAINT_GT && val > need_lower {
+                } else if op == CONSTRAINT_GT && val < 2147483647 && val + 1 >= need_lower {
+                    // i > val 等价于 i >= val + 1
                     has_lower_bound = 1;
                 }
 
@@ -1328,7 +1366,8 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
                 // 如果约束是 i < val，需要 val <= need_upper（val 更强）
                 if op == CONSTRAINT_LT && val <= need_upper {
                     has_upper_bound = 1;
-                } else if op == CONSTRAINT_LE && val < need_upper {
+                } else if op == CONSTRAINT_LE && val < 2147483647 && val + 1 <= need_upper {
+                    // i <= val 等价于 i < val + 1
                     has_upper_bound = 1;
                 }
             }
@@ -1411,7 +1450,8 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
                 // 如果约束是 i >= val，需要 val >= need_lower（val 更强）
                 if op == CONSTRAINT_GE && val >= need_lower {
                     has_lower_bound = 1;
-                } else if op == CONSTRAINT_GT && val > need_lower {
+                } else if op == CONSTRAINT_GT && val < 2147483647 && val + 1 >= need_lower {
+                    // i > val 等价于 i >= val + 1
                     has_lower_bound = 1;
                 }
 
@@ -1419,7 +1459,8 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
                 // 如果约束是 i < val，需要 val <= need_upper（val 更强）
                 if op == CONSTRAINT_LT && val <= need_upper {
                     has_upper_bound = 1;
-                } else if op == CONSTRAINT_LE && val < need_upper {
+                } else if op == CONSTRAINT_LE && val < 2147483647 && val + 1 <= need_upper {
+                    // i <= val 等价于 i < val + 1
                     has_upper_bound = 1;
                 }
             }

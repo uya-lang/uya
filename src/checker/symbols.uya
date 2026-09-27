@@ -1116,7 +1116,10 @@ fn string_pool_intern(pool: &StringPool, arena: &CompilerArena, str: &byte) &byt
     }
 
     const hash: i32 = hash_string(str);
-    const bucket_idx: i32 = hash % STRING_POOL_SIZE;
+    // hash_string 返回 `hash as i32`，u32 高位置 1 时会得到负数；负数取模仍是负数，
+    // 旧代码在这种情况下直接返回入参、完全跳过池化（调用方若传栈上缓冲，就会
+    // 把悬垂指针留在约束表/符号表里）。这里把桶下标规范化为非负。
+    const bucket_idx: i32 = (hash & 2147483647) % STRING_POOL_SIZE;
     if bucket_idx < 0 {
         return str;
     }

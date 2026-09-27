@@ -89,3 +89,18 @@ export fn pick_ok(i: i32) i32 {
 - 这不是 sample 逻辑 bug，而是**类型检查阶段边界证明器**对 `as usize` cast 的范围事实传播缺失。
 - repro 足够小，建议补成回归测试，再定位 `src/` 中边界证明（range/bounds prover）对 cast 节点的事实传播路径，
   补上整型无损转换的区间传递规则。
+
+## 后续（2026-09-27 更新）
+
+- 已在当前树验证修复：本文档中的复现命令编译通过（退出码 0），
+  `extract_linear_expr` 会剥掉 `AST_CAST_EXPR` 保留源变量的线性形式，
+  上界事实由约束系统提供；`tests/repros/bounds_prover_as_usize_cast.uya` 保留为最小复现。
+- 回归用例：`tests/test_bounds_prover_as_usize_cast.uya`（命名常量/字面量上界、上下界顺序互换、
+  `&&` 型守卫、`i + 偏移`、结构体字段下标、usize 源，并做运行期取值校验）。
+- 同时修掉了同源的反向问题：下标类型是 `usize` **不等于**值必然非负
+  （`i as usize` 在 `i < 0` 时会回绕成巨大下标），因此"自动认定下界为 0"改为只在
+  unchecked cast 的**源表达式**本身是无符号类型时成立；负例见
+  `tests/error_array_bounds_signed_cast_lower_bound.uya`。
+- 一并修掉约束名悬垂指针：`constraint_expr_name` 以前把 `对象.字段` 拼到栈上缓冲再交给
+  `string_pool_intern`，负哈希时该函数直接返回入参，于是约束表里留下已失效的栈指针，
+  表现为"换个局部变量名，同一个函数时好时坏"。

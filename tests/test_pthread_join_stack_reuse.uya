@@ -88,12 +88,12 @@ export fn main() i32 {
             return 2;
         }
 
-        // 复用刚被 join 释放的 8MiB 线程栈地址（内容由内核按匿名映射清零）
+        // 复用刚被 join 释放的 8MiB 线程栈地址（内容由内核按匿名映射清零）。
+        // 分配失败（内存紧张）不影响本用例的结论，跳过这一轮即可。
         const reuse: &void = malloc(JOIN_REUSE_STACK_BYTES);
-        if reuse == null as &void {
-            return 3;
+        if reuse != null as &void {
+            free(reuse);
         }
-        free(reuse);
 
         round = round + 1;
     }
