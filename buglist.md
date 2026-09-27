@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-09-27（跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -71,6 +71,27 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P0 / 严重：跟踪的自举种子里没有 `uya_pipeline_worker_dispatch`，`make release` 冷启动链接失败**
+  - 状态：已修复
+  - 验证状态：`make release` 冷启动段（`clean` → `from-c` → `uya`）通过；`make b` 自举对比一致；`make check` 全绿（主测试 1107/1107）
+  - 归属：`backup/` 下跟踪的自举种子种子陈旧，非编译器逻辑缺陷
+  - 现象：`make release` 在 `from-c` 之后的 `make uya` 阶段链接失败：
+    `/usr/bin/ld: uya_common.o: in function 'main': undefined reference to 'uya_pipeline_worker_dispatch'`。
+    注意 `make check` / `make release-dirty` 都不做 `clean`，因此走不到这条冷启动路径，长期未被发现。
+  - 根因：`lib/std/runtime/entry/entry.uya` 的 `main` 会调用由编译器发射的运行时 shim
+    `uya_pipeline_worker_dispatch()`（`src/codegen/c99/main.uya`）。该特性随 `eba705c2`
+    （2026-07-11，「feat(process): run Uya stages in exec workers」）引入，而仓库跟踪的种子
+    `backup/uya-linux-x86_64.c` / `backup/uya.c` 最后一次刷新是 `588248d3`（2026-07-07），
+    早于该提交——种子里根本没有这个符号，用它编译当前 `src/` 必然留下未定义引用。
+  - 修复内容：按仓库既有流程刷新自举种子（`make backup-seed` + `make backup-hosted-seed`），
+    使 `backup/uya.c`、`backup/uya-linux-x86_64.c`、`backup/uya-hosted.c`、
+    `backup/uya-hosted-linux-x86_64.c` 与当前 `src/` 一致。
+    由于旧种子无法独立编译出可用编译器（缺的正是它自己不会发射的符号），
+    刷新时先用一个仅用于冷启动的 `uya_pipeline_worker_dispatch` 恒为 -1 的临时 C 桩把首个
+    `bin/uya` 链接出来，再由该编译器正常重编译自身并生成正式种子；该桩未进入仓库。
+  - 预防：把 `backup/*.c` 与当前 `src/` 的一致性纳入 release 收口（种子陈旧属于"工作树干净但种子过期"，
+    preflight 的 `bin/uya.c` 对比检查覆盖不到，因为 `bin/` 被忽略）。
 
 - [x] **P2 / 中：macOS 交叉目标下 `uya_macos_*` 宿主包装被 `#ifdef __APPLE__` 裁掉，调用点报 `invalid initializer`**
   - 状态：已修复
