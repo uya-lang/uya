@@ -952,9 +952,11 @@ extern fn bsearch(key: &const void, base: &const void, nmemb: usize, size: usize
 // 时间函数
 // ============================================================
 
-// CLOCKS_PER_SEC - 每秒时钟滴答数
-export const CLOCKS_PER_SEC: i64 = 1000000;
-
+// CLOCKS_PER_SEC 由 libc.time 提供（C 标准里它属于 <time.h>）。
+// 这里**不再**定义第二份：split-C 后端（UYA_SPLIT_C_DIR）每个模块单独出一个 .o，
+// 顶层同名常量会被 emit 成两份外部定义 → 链接期 `multiple definition`
+// （实测 libc/stdlib.o 与 libc/time.o）。合并后的 libc 命名空间里名字仍然只有一个，
+// `use libc.CLOCKS_PER_SEC` 照旧可用。复现：uya-agent 工程在 split 模式下必然链接失败。
 // ============================================================
 // 系统函数（C 标准库兼容）
 // ============================================================
