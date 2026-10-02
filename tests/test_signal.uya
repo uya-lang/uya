@@ -15,6 +15,13 @@ use libc.sigfillset;
 use libc.sigaddset;
 use libc.sigdelset;
 use libc.sigismember;
+use libc.SIGUSR1;
+use libc.SIG_BLOCK;
+use libc.SIG_UNBLOCK;
+use libc.SIG_SETMASK;
+use libc.signal;
+use libc.raise;
+use libc.sigprocmask;
 
 // 导入测试框架
 use std.testing.assert_eq_i32;
@@ -81,6 +88,54 @@ fn test_sigset_add_del() !void {
 }
 
 // ============================================================
+// 处理器真的被调用
+//
+// 回归：signal() 曾经用裸 rt_sigaction 装处理器，sa_flags = 0 且 sa_restorer = null
+// （x86_64 上没有 SA_RESTORER + rt_sigreturn 垫片）—— 信号一交付进程就直接崩，
+// 处理器体一次都不执行。下面两个用例在没有 SA_RESTORER 的实现上会以 SIGSEGV(139) 挂掉。
+// ============================================================
+
+var signal_handler_count: i32 = 0;
+var signal_handler_last: i32 = 0;
+
+fn test_usr1_handler(signum: i32) void {
+    signal_handler_count = signal_handler_count + 1;
+    signal_handler_last = signum;
+}
+
+fn test_signal_handler_is_invoked() !void {
+    signal_handler_count = 0;
+    signal_handler_last = 0;
+    const old_handler: &void = signal(SIGUSR1, &test_usr1_handler as &void);
+    try expect(old_handler != SIG_ERR as &void);
+    try assert_eq_i32(raise(SIGUSR1), 0);
+    try assert_eq_i32(signal_handler_count, 1);
+    try assert_eq_i32(signal_handler_last, SIGUSR1);
+    _ = signal(SIGUSR1, old_handler);
+}
+
+// 屏蔽期间不投递、解除屏蔽后补投递；顺带钉住 sigprocmask 传的是**指针**而不是值
+// （旧实现把 sigset_t 的值当指针传，内核 EFAULT，第一个断言就会红）
+fn test_sigprocmask_blocks_delivery() !void {
+    signal_handler_count = 0;
+    signal_handler_last = 0;
+    const old_handler: &void = signal(SIGUSR1, &test_usr1_handler as &void);
+    try expect(old_handler != SIG_ERR as &void);
+
+    var blocked: sigset_t = sigset_t{ val: 0 };
+    var original: sigset_t = sigset_t{ val: 0 };
+    _ = sigemptyset(&blocked);
+    _ = sigaddset(&blocked, SIGUSR1);
+    try assert_eq_i32(sigprocmask(SIG_BLOCK, &blocked, &original), 0);
+    try assert_eq_i32(raise(SIGUSR1), 0);
+    try assert_eq_i32(signal_handler_count, 0);            // 屏蔽期间不投递
+    try assert_eq_i32(sigprocmask(SIG_SETMASK, &original, null as &sigset_t), 0);
+    try assert_eq_i32(signal_handler_count, 1);            // 解除屏蔽后补投递
+    try assert_eq_i32(signal_handler_last, SIGUSR1);
+    _ = signal(SIGUSR1, old_handler);
+}
+
+// ============================================================
 // 主函数
 // ============================================================
 
@@ -91,6 +146,8 @@ export fn main() i32 {
     run_test("sigset_empty", test_sigset_empty);
     run_test("sigset_fill", test_sigset_fill);
     run_test("sigset_add_del", test_sigset_add_del);
+    run_test("signal_handler_is_invoked", test_signal_handler_is_invoked);
+    run_test("sigprocmask_blocks_delivery", test_sigprocmask_blocks_delivery);
 
     return test_suite_end();
 }

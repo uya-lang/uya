@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-10-03（`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -12,6 +12,24 @@
 - **网络 / TLS 回归**：TCP、HTTP、HTTPS、DNS、TLS 链路问题。
 
 ## 标准库 bug
+
+- [x] **P0 / 严重：`signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER）**
+  - 状态：已修复（2026-10-03）
+  - 现象：`libc.signal.signal(sig, handler)` 装好处理器后，一收到信号进程就以 SIGSEGV(139) 退出，**处理器体一次都不执行**。外部项目文档里"uya 0.10.1 的信号处理器一调用就 SIGSEGV，所以干脆不装信号处理器"的限制即此（`uya-agent` 的 README 踩坑 20、`src/tty.uya` 的注释）。
+  - 根因：`signal()` 用裸 `rt_sigaction` 装处理器，`sa_flags = 0`、`sa_restorer = null`。x86-64 上 glibc/musl 一律置 `SA_RESTORER`(0x04000000) 并把 `sa_restorer` 指向执行 `rt_sigreturn` 的垫片；缺了它，信号交付路径本身就崩。旧代码那句注释"sa_restorer 为 null 时不要置 SA_RESTORER（与 Linux uapi / glibc 行为一致）"是错的。
+  - 证据（最小复现 + 三项对照，均在 uya 0.10 上实测）：
+    1. `signal()` 装处理器 + `sys_kill(self, SIGUSR1)` → 退出码 139，处理器体未执行；
+    2. 同一套裸 `rt_sigaction`，只补 `SA_RESTORER|SA_RESTART` 并复用 glibc 的 `sa_restorer` → 处理器正常执行并返回；
+    3. 直接绑定宿主 `sigaction`（它自己填 `SA_RESTORER`）→ 同样正常；回读宿主装好的动作可见 `sa_flags` 带 `SA_RESTORER`、`sa_restorer` 非空。
+  - 修复内容：回移 0.11 的同名实现（`224dc6f`，本文件与 `uya-0.11/lib/libc/signal.uya` 逐字节一致）：
+    * 新增 `@naked_fn _signal_restorer()`：x86_64 走 `movq $15, %%rax; syscall`（arm64/arm32 各有分支）；
+    * `signal()` 置 `SA_RESTORER` + `sa_restorer`，并把内核回填的旧动作（`oact`）作为返回值；删掉从未生效的 `_signal_handlers` 分发表与空壳 `_signal_dispatch`；
+    * `SIG_ERR` 由 `0xFFFFFFFF` 改成全 1（64 位下 `(void*)-1`），否则"旧处理器判等"永远不成立；
+    * `sigprocmask` 把 `sigset_t` 的**指针**交给内核（旧实现传的是值，必然 `EFAULT`）；
+    * `raise` 用 `gettid` 定位调用线程；`atexit`/`on_exit` 改为声明宿主实现（旧实现只把回调存进表里，从不调用）。
+  - 验证状态：`uya test tests/test_signal.uya` → 6/6 通过、24 条断言；把 `libc.signal` 换回未修版本重跑同一用例集 → `Segmentation fault`、退出码 139（说明新增用例是有效回归闸门）。
+  - 归属：`lib/libc/signal.uya`、`tests/test_signal.uya`
+  - 备注：`uya-agent` 项目侧不依赖本修复（它自己 `extern "libc" fn sigaction` 走宿主实现）；本修复是给 0.10 路线上所有项目补上。
 
 - [x] **P0 / 严重：`dns_client_query_all_async` 仍依赖手工状态机绕过 lowering 问题**
   - 状态：已修复
