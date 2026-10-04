@@ -19,13 +19,27 @@
 > | §1.1 "缺失覆盖：暂无；后续继续审计" | — | 完整语法矩阵已由 `tests/verify_async_full_language_matrix.sh` + `tests/verify_async_production_smoke.sh` 固化，二者 2026-09-27 实测通过 |
 > | "共享 runtime 矩阵仍需补齐"（本文与 `async_status_matrix.md`） | `tests/verify_async_shared_runtime_matrix.sh` | **已补齐并通过**（HTTP/DNS/TLS/`async_compute`/`Scheduler` 同 `EventLoop`/`Waker` 语义 smoke） |
 >
-> **本目标当前真正剩余的项**（源码级确认缺失，2026-09-27）：
+> **本目标当前真正剩余的项**（源码级确认缺失，2026-09-27；2026-10-04 更新见下）：
 >
 > 1. 跨平台 `EventLoop` 后端：macOS `kqueue` / Windows `IOCP`（仓库内无实现）。
-> 2. 多 interest `Waker`：`lib/std/async.uya` 的 `Waker` 仍是单 `_io_fd` / `_io_interest`。
-> 3. HTTP 客户端连接池与 keep-alive 复用（`lib/std/http/http1_async.uya` 只有单次请求 API）。
+> 2. ~~多 interest `Waker`~~ —— **2026-10-04 已收口**：`Waker` 扩为有界槽表
+>    （`WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并成 READWRITE），
+>    `async_scheduler` 遍历全部槽注册并对陈旧注册做差集注销；
+>    回归 `tests/test_async_waker_multi_interest.uya`，见 `buglist.md`「运行时 bug」。
+> 3. HTTP 客户端连接池与 keep-alive 复用（`lib/std/http/http1_async.uya` 只有单次请求 API，
+>    且请求头写死 `Connection: close`）。
 > 4. TLS 会话复用 / `https_handshake_async` 真实 pending-ready 行为回归（`lib/tls/` 无 session resumption）。
-> 5. HTTP/1.1 请求头 inline scratch 容量（上游硬边界仍在）。
+> 5. ~~HTTP/1.1 请求头 inline scratch 容量~~ —— **2026-10-04 已收口**：
+>    请求头本来就是「按 `required` 动态分配、4096 只是起步容量」；
+>    响应头上限从写死 65536 改为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖
+>    （`http1_async_response_header_max_cap()`），见 `buglist.md`「标准库 bug」。
+>
+> **2026-10-04 另修一项此前未列出的 P0**：hosted 模式下多线程并发 `malloc/free` 必然踩坏堆。
+> 根因是 `lib/libc/pthread.uya` 的 `clone` 不含 `CLONE_SETTLS`（线程没有 FS/TLS），
+> 而 hosted 把 `malloc/free` 让给了宿主 glibc（per-thread tcache/arena 在 FS 上）。
+> 修法：hosted 下保留 uya 自己的线程安全堆（`lib/libc/heap.uya`），`calloc` 一并留在 uya 侧；
+> 回归 `tests/test_pthread_heap_concurrency.uya`。详见 `buglist.md`「运行时 bug」首条。
+> 这一项使「线程 + 堆」在 hosted 路线重新可信，也是 `async_compute` / `ThreadPool` 在生产用法下的前置。
 >
 > **验证闸门现状**：`verify_async_production_smoke.sh`、`verify_async_shared_runtime_matrix.sh`、`verify_async_full_language_matrix.sh`、`verify_async_full_dynamic_resources_gate.sh unit-scan` 通过；
 > `verify_async_full_dynamic_resources_gate.sh all/c99-stress` 曾因 `pthread stress` 阶段失败（hosted 下 `ETIMEDOUT` 宏名冲突，见 `buglist.md` 编译器 bug 首条），该缺陷已于 2026-09-27 修复，`tests/stress_pthread.sh 1` 已通过。

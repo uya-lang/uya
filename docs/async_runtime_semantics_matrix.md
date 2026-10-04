@@ -17,8 +17,8 @@
 统一语义口径：
 
 - `Poll.Pending` 表示 future 还不能产出结果；业务成功或失败都必须回到 `Poll.Ready(!T)`。
-- I/O future 在 `EAGAIN` / `EWOULDBLOCK` 时通过 `Waker.wait_readable(fd)` 或 `Waker.wait_writable(fd)` 记录单 fd、单 interest。
-- `Scheduler` 在 pending 后同步注册 `eventfd + io fd`，由 `EventLoop.poll()` 唤醒后再 poll future。
+- I/O future 在 `EAGAIN` / `EWOULDBLOCK` 时通过 `Waker.wait_readable(fd)` 或 `Waker.wait_writable(fd)` 登记关注；同一 `Waker` 可以在一轮 poll 里登记**多个 fd**（有界槽表 `WAKER_IO_SLOT_MAX = 4`），同一个 fd 的读+写关注会合并成 `READWRITE`。
+- `Scheduler` 在 pending 后同步注册 `eventfd + 全部已登记 io fd`，由 `EventLoop.poll()` 唤醒后再 poll future；对「上轮注册、本轮不再关注」的 fd 做差集注销，避免陈旧注册在 fd 复用后误唤醒。
 - 取消是协作式语义：`TaskQueue.cancel()` / `Waker.cancel()` 只设置取消位，future 必须在 `poll()` 中读取 `waker.is_cancelled()` 并返回 `error.Cancelled`。
 - 清理语义由调度层负责关闭 eventfd、注销 I/O fd、清理 slot；具体 future 仍负责自身 fd 或任务资源释放。
 

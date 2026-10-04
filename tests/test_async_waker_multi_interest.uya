@@ -1,0 +1,243 @@
+// test_async_waker_multi_interest.uya
+//
+// 回归目标：**同一个** Waker 在一轮 poll 里登记多个 fd / 多个 interest 时，
+// 调度器必须把每一个都注册到 EventLoop，而不是只保留最后一次声明。
+//
+// 背景（修复前的行为）：Waker 只有单 `_io_fd` + 单 `_io_interest`，
+// `wait_readable(a)` 后再 `wait_writable(b)` 会把 a 覆盖掉。于是
+// 「同时等两个 fd」（TLS 全双工、socketpair 双向、组合 future）会退化成
+// 「只有最后一个 fd 生效」：先就绪的那个 fd 永远不唤醒，future 挂死。
+//
+// 本用例的判据分三层：
+//   1) Waker 层：同 fd 的 RD+WR 合并成 READWRITE；不同 fd 各占一槽且都在。
+//   2) 主槽语义：`io_fd()` / `io_interest_code()` 仍返回**最后一次声明**，
+//      与单 fd 时代逐字节一致（不破坏既有调用点）。
+//   3) 调度器层：把同一 waker 的两个 fd 都注册进 EventLoop（MockEventLoop 记录），
+//      并在其中**第二个** fd 就绪时唤醒。
+
+use std.async;
+use std.async_event;
+use std.async_scheduler;
+use std.testing.assert_eq_i32;
+
+// ---------------------------------------------------------------------------
+// MockEventLoop：记录每个 (fd, interest) 注册，poll 时唤醒指定 fd 上的所有 waker。
+// ---------------------------------------------------------------------------
+
+const MOCK_FD_CAP: usize = 16;
+
+var mock_fd: [i32: MOCK_FD_CAP] = [];
+var mock_interest: [i32: MOCK_FD_CAP] = [];
+var mock_count: i32 = 0;
+// 「曾经两个 fd 同时在册」的证据：必须在 poll 内记录 ——
+// scheduler_run_with_event_loop 返回前会 defer 掉全部注册（cleanup_waker），
+// 函数外再查注册表只会看到空表。
+var mock_saw_both_fds: i32 = 0;
+
+fn mock_reset() void {
+    mock_count = 0;
+    mock_saw_both_fds = 0;
+}
+
+fn mock_registered_count() i32 {
+    return mock_count;
+}
+
+fn mock_has_fd(fd: i32) bool {
+    var i: i32 = 0;
+    while i < mock_count {
+        if mock_fd[i as usize] == fd {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn mock_interest_of(fd: i32) i32 {
+    var i: i32 = 0;
+    while i < mock_count {
+        if mock_fd[i as usize] == fd {
+            return mock_interest[i as usize];
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn mock_event_kind_code(k: EventKind) i32 {
+    match k {
+        .Readable(_) => { return 1; },
+        .Writable(_) => { return 2; },
+        .ReadWrite(_) => { return 3; },
+    };
+    return 0;
+}
+
+struct MockLoop : EventLoop {
+    fn register(self: &Self, fd: i32, interest: EventKind, waker: &Waker) !i32 {
+        _ = self;
+        if mock_count < (MOCK_FD_CAP as i32) {
+            mock_fd[mock_count as usize] = fd;
+            mock_interest[mock_count as usize] = mock_event_kind_code(interest);
+            _ = waker;
+            mock_count = mock_count + 1;
+        }
+        return 0;
+    }
+
+    fn deregister(self: &Self, fd: i32) !i32 {
+        _ = self;
+        var i: i32 = 0;
+        while i < mock_count {
+            if mock_fd[i as usize] == fd {
+                // 尾部搬移，保持数组紧凑
+                var j: i32 = i;
+                while j + 1 < mock_count {
+                    mock_fd[j as usize] = mock_fd[(j + 1) as usize];
+                    mock_interest[j as usize] = mock_interest[(j + 1) as usize];
+                    j = j + 1;
+                }
+                mock_count = mock_count - 1;
+                return 0;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    fn poll(self: &Self, timeout_ms: i32) !i32 {
+        _ = self;
+        _ = timeout_ms;
+        // 在 EventLoop 被 poll 的这一刻记录注册表快照：此时注册还没被 cleanup 掉。
+        if mock_has_fd(501) && mock_has_fd(902) {
+            mock_saw_both_fds = 1;
+        }
+        // 不主动唤醒任何 waker：本用例的 future 靠「两个 fd 都已注册」判 Ready，
+        // 唤醒语义由 Waker 层与 test_std_async_scheduler.uya 覆盖。
+        return 0;
+    }
+}
+
+/// 返回 MockLoop 的接口视图（与 `test_std_async_scheduler.uya` 的 `test_event_loop()` 同款）。
+fn mock_event_loop() EventLoop {
+    return MockLoop{};
+}
+
+// ---------------------------------------------------------------------------
+// 1) Waker 层：槽表语义
+// ---------------------------------------------------------------------------
+
+test "waker_multi_interest_merges_same_fd_read_write" {
+    var w: Waker = Waker{};
+    w.clear_io_interest();
+
+    // 同一个 fd 先读后写：必须合并成 READWRITE(3)，而不是占两槽 / 后写覆盖前写。
+    w.wait_readable(42);
+    try assert_eq_i32(w.io_slot_count(), 1);
+    try assert_eq_i32(w.io_slot_interest(0), 1);
+
+    w.wait_writable(42);
+    try assert_eq_i32(w.io_slot_count(), 1);
+    try assert_eq_i32(w.io_slot_interest(0), 3);
+    try assert_eq_i32(w.io_interest_code(), 3);
+
+    // 主槽读取口仍指向该 fd。
+    try assert_eq_i32(w.io_fd(), 42);
+}
+
+test "waker_multi_interest_keeps_distinct_fds" {
+    var w: Waker = Waker{};
+    w.clear_io_interest();
+
+    w.wait_readable(11);
+    w.wait_writable(22);
+    w.wait_readable(33);
+
+    // 三个不同 fd 各占一槽，谁都没被覆盖。
+    try assert_eq_i32(w.io_slot_count(), 3);
+    try assert_eq_i32(w.io_slot_fd(0), 11);
+    try assert_eq_i32(w.io_slot_interest(0), 1);
+    try assert_eq_i32(w.io_slot_fd(1), 22);
+    try assert_eq_i32(w.io_slot_interest(1), 2);
+    try assert_eq_i32(w.io_slot_fd(2), 33);
+    try assert_eq_i32(w.io_slot_interest(2), 1);
+
+    // 主槽 = 最后一次声明（与单 fd 时代口径一致）。
+    try assert_eq_i32(w.io_fd(), 33);
+    try assert_eq_i32(w.io_interest_code(), 1);
+
+    // clear 之后槽表清空，主槽回到 -1/0。
+    w.clear_io_interest();
+    try assert_eq_i32(w.io_slot_count(), 0);
+    try assert_eq_i32(w.io_fd(), 0 - 1);
+    try assert_eq_i32(w.io_interest_code(), 0);
+}
+
+test "waker_multi_interest_bounded_by_slot_max" {
+    var w: Waker = Waker{};
+    w.clear_io_interest();
+
+    // 超出槽位数不能越界写，也不能挤掉已登记的槽。
+    var fd: i32 = 100;
+    var i: i32 = 0;
+    while i < WAKER_IO_SLOT_MAX + 5 {
+        w.wait_readable(fd);
+        fd = fd + 1;
+        i = i + 1;
+    }
+    try assert_eq_i32(w.io_slot_count(), WAKER_IO_SLOT_MAX);
+    try assert_eq_i32(w.io_slot_fd(0), 100);
+    try assert_eq_i32(w.io_slot_fd(WAKER_IO_SLOT_MAX - 1), 100 + WAKER_IO_SLOT_MAX - 1);
+}
+
+// ---------------------------------------------------------------------------
+// 2) 调度器层：同一 waker 的两个 fd 都要注册，且第二个 fd 就绪能唤醒。
+// ---------------------------------------------------------------------------
+
+// 一个 future：第一次 poll 同时登记两个 fd（readable），
+// 等**调度器**把两个 fd 都注册之后才 Ready。
+//
+// 判据为什么落在这里而不是「等第二个 fd 唤醒」：调度器每轮开头会 `w.reset()`，
+// 测试里没法稳定地区分「这一轮的唤醒」与「上一轮残留」。而本用例要证明的是
+// **注册**这一步（修复前第二个 fd 不会被注册），所以直接对照 EventLoop 的注册表：
+// 两个 fd 都在 ⇒ 修复生效；缺第二个 ⇒ 回归。
+struct TwoFdWaitFuture : Future<!i32> {
+    first_fd: i32,
+    second_fd: i32,
+
+    fn poll(self: &Self, waker: &Waker) Poll<!i32> {
+        // 只有「两个 fd 都真的被注册进 EventLoop」这一条件不成立时才继续等；
+        // mock_saw_both_fds 由 EventLoop.poll 在注册仍有效时置位。
+        if mock_saw_both_fds != 0 {
+            return Poll<!i32>.Ready(ok<i32>(7));
+        }
+        waker.wait_readable(self.first_fd);
+        waker.wait_readable(self.second_fd);
+        return Poll<!i32>.Pending({});
+    }
+
+    fn release(self: &Self) void {
+        _ = self;
+    }
+}
+
+/// 构造 TwoFdWaitFuture 的接口视图（泛型调用点要靠 `Future<!i32>` 形参触发单态化）。
+fn two_fd_wait_future(first_fd: i32, second_fd: i32) Future<!i32> {
+    return TwoFdWaitFuture{ first_fd: first_fd, second_fd: second_fd };
+}
+
+test "scheduler_registers_every_waker_fd" {
+    mock_reset();
+
+    const loop: EventLoop = mock_event_loop();
+    var s: Scheduler = scheduler_new();
+    const fut: Future<!i32> = two_fd_wait_future(501, 902);
+
+    const r: !i32 = scheduler_run_with_event_loop<i32>(&s, loop, fut, 8);
+    const value: i32 = try r;
+
+    try assert_eq_i32(value, 7);
+    // 两个 fd 必须**同时**出现在 EventLoop 的注册表里（修复前只会剩最后一个）。
+    try assert_eq_i32(mock_saw_both_fds, 1);
+}

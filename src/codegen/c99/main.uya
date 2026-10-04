@@ -2581,9 +2581,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 if has_decl_clock != 0 && has_impl_clock == 0 {
                     fputs("extern int64_t clock(void);\n" as *byte, codegen.emit_stream as *void);
                 }
-                fputs("static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n" as *byte, codegen.emit_stream as *void);
-                fputs("static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }\n" as *byte, codegen.emit_stream as *void);
-                fputs("static inline void libc_heap_flush_current_thread_cache(void) { }\n" as *byte, codegen.emit_stream as *void);
+                // EXPERIMENT-A: only stub heap thread-cache hooks when heap.uya is skipped.
+                if has_impl_malloc == 0 {
+                    fputs("static inline void libc_heap_detach_thread_cache_for_exit(void *cache) { (void)cache; }\n" as *byte, codegen.emit_stream as *void);
+                    fputs("static inline void libc_heap_flush_thread_cache(void *cache) { (void)cache; }\n" as *byte, codegen.emit_stream as *void);
+                    fputs("static inline void libc_heap_flush_current_thread_cache(void) { }\n" as *byte, codegen.emit_stream as *void);
+                }
             }
             // macOS hosted 自举单文件（src/build/uya-hosted.c / compiler_bootstrap.c）中，
             // read/write 可能只在调用点可见，AST 预扫未必能稳定拾取声明；

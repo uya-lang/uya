@@ -10,6 +10,9 @@ use std.async_scheduler;
 use std.async_event;
 use libc.unistd;
 use libc.syscall;
+use libc.getenv;
+use libc.setenv;
+use libc.unsetenv;
 use std.testing.assert_eq_i32;
 
 fn response_has_subslice(hay: &[byte], needle: &[byte]) bool {
@@ -881,6 +884,32 @@ test "http1_async_response_header_buffer_grows_past_legacy_cap" {
         return;
     }
     try async_http1_get_large_response_header_roundtrip();
+}
+
+// 响应头上限是「默认值 + 环境变量可覆盖」，不是产品硬边界。
+// 与 LinuxEpoll / AsyncFramePool / Scheduler 同一口径；环境变量非法（0/负数/非数字）
+// 时必须回退到默认值，避免把配置错误变成「悄悄把上限调成 0」。
+test "http1_async_response_header_max_cap_defaults_and_env_override" {
+    const default_cap: usize = 65536usize;
+
+    _ = unsetenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP");
+    try expect(http1_async_response_header_max_cap() == default_cap);
+
+    _ = setenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP", "131072", 1);
+    try expect(http1_async_response_header_max_cap() == 131072usize);
+
+    // 0 / 负数 / 非数字都回退默认值。
+    _ = setenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP", "0", 1);
+    try expect(http1_async_response_header_max_cap() == default_cap);
+
+    _ = setenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP", "-1", 1);
+    try expect(http1_async_response_header_max_cap() == default_cap);
+
+    _ = setenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP", "abc", 1);
+    try expect(http1_async_response_header_max_cap() == default_cap);
+
+    _ = unsetenv("UYA_HTTP1_RESPONSE_HEADER_MAX_CAP");
+    try expect(http1_async_response_header_max_cap() == default_cap);
 }
 
 test "http1_async_get_loopback_roundtrip" {

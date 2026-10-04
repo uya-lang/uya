@@ -587,9 +587,9 @@ fn c99_should_skip_hosted_libc_function_body(codegen: &C99CodeGenerator, fn_decl
     if name == null {
         return 0;
     }
-    // hosted 模式使用系统 malloc/free/realloc/calloc；heap.uya 是 --nostdlib 专用堆实现。
+    // EXPERIMENT-A: keep uya heap in hosted mode (thread-safe: GS cache + spinlock).
     if c99_filename_is_libc_file(fn_decl.filename, "heap.uya" as &byte) != 0 {
-        return 1;
+        return 0;
     }
     // stdio.uya 在 hosted 下也**整体保留 uya 实现**，不交给系统 libc。
     //
@@ -606,6 +606,14 @@ fn c99_should_skip_hosted_libc_function_body(codegen: &C99CodeGenerator, fn_decl
         if c99_hosted_stdio_name_uses_host_libc(name) != 0 {
             return 1;
         }
+        return 0;
+    }
+    // heap.uya 是 hosted 下唯一保留的 uya 分配器（见上方 heap.uya 分支）。
+    // calloc 定义在 libc.stdlib 里，但它必须与同一套 uya heap 配对：
+    // 让 calloc 走宿主 glibc 而 free 走 uya heap，会出现「glibc 指针交给 uya free」
+    // 的跨分配器错配（uya free 对非自有指针静默返回 ⇒ 内存泄漏）。
+    if c99_filename_is_libc_file(fn_decl.filename, "stdlib.uya" as &byte) != 0 &&
+        strcmp(name as *byte, "calloc" as *byte) == 0 {
         return 0;
     }
     // 只有真实系统 libc/POSIX ABI 裸名才在 hosted 模式交给系统库；sys_* 等 Uya 包装必须保留。
@@ -639,8 +647,9 @@ fn c99_should_skip_hosted_libc_global_var(codegen: &C99CodeGenerator, var_decl: 
         c99_filename_is_libc_file(var_decl.filename, "errno.uya" as &byte) != 0 {
         return 1;
     }
+    // EXPERIMENT-A: keep uya heap globals in hosted mode alongside the heap bodies.
     if c99_filename_is_libc_file(var_decl.filename, "heap.uya" as &byte) != 0 {
-        return 1;
+        return 0;
     }
     if c99_filename_is_libc_file(var_decl.filename, "stdlib.uya" as &byte) != 0 {
         if strcmp(name as *byte, "rand_seed" as *byte) == 0 ||

@@ -1,0 +1,134 @@
+// test_pthread_heap_concurrency.uya - 多线程并发 malloc/free 回归
+//
+// 背景：hosted 模式下 libc.pthread 的线程由 uya 自己用 raw clone 创建
+// （CLONE_FLAGS 不含 CLONE_SETTLS，只通过 arch_prctl 设了 GS），子线程从不建立 FS/TLS。
+// 若 hosted 下 malloc/free 走宿主 glibc，glibc 的 per-thread tcache/arena 在 FS 上，
+// 于是所有 uya 线程共用父线程的 glibc TLS，并发 malloc/free 会互相踩坏 tcache，
+// 表现为 free(): double free detected in tcache 2 之后 SIGABRT(134) 或 SIGSEGV(139)。
+// 隔离复现（C 层）：glibc pthread_create → 3/3 OK；raw clone（无 CLONE_SETTLS）→ 3/3 堆损坏。
+// 修法：hosted 下也保留 uya 自己的线程安全堆（per-thread GS 缓存 + 全局自旋锁，
+// 见 lib/libc/heap.uya），即 src/codegen/c99 不再把 heap.uya 交给宿主 libc。
+//
+// 本用例强制多线程同时 malloc/free：写入模式再校验，最后释放。堆一旦被踩坏，
+// 校验失败、free 报错或进程直接崩，三种都算回归失败。
+//
+// 命名以 test_pthread_heap_ 开头是刻意的：它让 tests/run_programs_parallel.sh 把本用例
+// 归入 nostdlib 名单（两条堆实现路径都要能被这套断言覆盖）。
+//
+// 退出码约定：0 = 通过；10/11 = 参数或建线程失败；20+ = join 失败；
+// 40+status = 某线程内部失败（status 见 heap_worker 的赋值）。
+
+use std.runtime.entry;
+use libc.pthread;
+use libc.malloc;
+use libc.free;
+
+const WORKER_COUNT: usize = 8usize;
+const ROUNDS: usize = 800usize;
+const BLOCK_BYTES: usize = 64usize;
+
+var g_start: atomic i32 = 0;
+
+struct WorkerState {
+    index: usize,
+    status: i32,
+}
+
+fn fill_pattern(ptr: &byte, len: usize, seed: usize) void {
+    var i: usize = 0usize;
+    while i < len {
+        ptr[i] = ((seed + i) & 0xFFusize) as byte;
+        i = i + 1usize;
+    }
+}
+
+fn check_pattern(ptr: &byte, len: usize, seed: usize) bool {
+    var i: usize = 0usize;
+    while i < len {
+        if ptr[i] != (((seed + i) & 0xFFusize) as byte) {
+            return false;
+        }
+        i = i + 1usize;
+    }
+    return true;
+}
+
+fn heap_worker(arg: &void) &void {
+    const st: &WorkerState = arg as &WorkerState;
+    while g_start == 0 {
+    }
+
+    var round: usize = 0usize;
+    while round < ROUNDS {
+        const a: &byte = malloc(BLOCK_BYTES) as &byte;
+        if a == null {
+            st.status = 1;
+            return null;
+        }
+        const b: &byte = malloc(BLOCK_BYTES * 2usize) as &byte;
+        if b == null {
+            free(a as &void);
+            st.status = 2;
+            return null;
+        }
+
+        const seed_a: usize = st.index * 7usize + round;
+        const seed_b: usize = st.index * 13usize + round;
+        fill_pattern(a, BLOCK_BYTES, seed_a);
+        fill_pattern(b, BLOCK_BYTES * 2usize, seed_b);
+        if !check_pattern(a, BLOCK_BYTES, seed_a) {
+            st.status = 3;
+            return null;
+        }
+        if !check_pattern(b, BLOCK_BYTES * 2usize, seed_b) {
+            st.status = 4;
+            return null;
+        }
+
+        free(a as &void);
+        free(b as &void);
+        round = round + 1usize;
+    }
+
+    st.status = 0;
+    return null;
+}
+
+fn run_concurrency_case(worker_count: usize) i32 {
+    if worker_count == 0usize || worker_count > WORKER_COUNT {
+        return 10;
+    }
+
+    g_start = 0;
+
+    var threads: [pthread_t: WORKER_COUNT] = [];
+    var states: [WorkerState: WORKER_COUNT] = [];
+    var created: usize = 0usize;
+    while created < worker_count {
+        states[created] = WorkerState{ index: created, status: 99 };
+        if pthread_create(&threads[created], null as &const pthread_attr_t, &heap_worker as &void, (&states[created]) as &void) != 0 {
+            g_start = 1;
+            return 11;
+        }
+        created = created + 1usize;
+    }
+
+    g_start = 1;
+
+    var joined: usize = 0usize;
+    while joined < created {
+        if pthread_join(&threads[joined], null as & &void) != 0 {
+            return 20 + (joined as i32);
+        }
+        if states[joined].status != 0 {
+            return 40 + states[joined].status;
+        }
+        joined = joined + 1usize;
+    }
+
+    return 0;
+}
+
+export fn main() i32 {
+    return run_concurrency_case(WORKER_COUNT);
+}

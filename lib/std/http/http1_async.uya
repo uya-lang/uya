@@ -17,6 +17,7 @@ use std.net.dns;
 use libc.errno;
 use libc.syscall;
 use libc.heap;
+use libc.stdlib;
 use libc.unistd;
 use libc.read;
 use libc.write;
@@ -38,6 +39,31 @@ export const HTTP1_ASYNC_REQUEST_HEADER_INLINE_CAP: usize = 4096;
 /// 参数说明：无。
 /// 返回值说明：响应头读取按需增长到该上限，避免旧 8 KiB 临时 buffer 成为默认产品上限。
 export const HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP: usize = 65536;
+
+/// 覆盖响应头块上限的环境变量名。
+/// 参数说明：无。
+/// 返回值说明：返回环境变量名字面量，供 `http1_async_response_header_max_cap()` 读取。
+export const HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP_ENV: &const byte = "UYA_HTTP1_RESPONSE_HEADER_MAX_CAP" as &const byte;
+
+/// 解析响应头块上限：默认 `HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP`，
+/// 环境变量 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 给了正整数时以它为准。
+///
+/// 为什么可配：65536 是默认值而不是产品硬边界——响应头超过它时读取会返回
+/// `error.HeaderTooLarge`，而调用方无法在不改库的情况下放宽；与 `LinuxEpoll` /
+/// `AsyncFramePool` / `Scheduler` 的既有做法保持一致（默认值 + 环境变量可覆盖）。
+/// 参数说明：无。
+/// 返回值说明：返回本次进程内生效的响应头块字节上限；环境变量非法（非正整数）时回退默认值。
+export fn http1_async_response_header_max_cap() usize {
+    var cap: usize = HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP;
+    const env: &byte = getenv(HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP_ENV);
+    if env != null && env[0] != 0 as byte {
+        const parsed: i32 = atoi(env as &const byte);
+        if parsed > 0 {
+            cap = parsed as usize;
+        }
+    }
+    return cap;
+}
 
 export struct Http1AsyncRequestHeaderBuffer {
     ptr: &byte,
@@ -834,8 +860,9 @@ fn http1_response_header_buffer_grow(buf: &Http1AsyncResponseHeaderBuffer) !void
     if next_cap <= buf.cap {
         return error.HeaderTooLarge;
     }
-    if next_cap > HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP {
-        next_cap = HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP;
+    const max_cap: usize = http1_async_response_header_max_cap();
+    if next_cap > max_cap {
+        next_cap = max_cap;
     }
     if next_cap <= buf.cap {
         return error.HeaderTooLarge;
@@ -972,8 +999,9 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
     while !header_complete_raw(rb_ptr, rb_len) {
         if rb_len >= rb_cap {
             var next_cap: usize = rb_cap * 2;
-            if next_cap > HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP {
-                next_cap = HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP;
+            const max_cap: usize = http1_async_response_header_max_cap();
+            if next_cap > max_cap {
+                next_cap = max_cap;
             }
             if next_cap <= rb_cap {
                 free(rb_ptr as &void);

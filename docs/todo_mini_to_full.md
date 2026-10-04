@@ -856,7 +856,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - **循环**：`while` / `if` 内含 await 的通用 lowering；**范围 `for` 与定长数组 `for` 内含 await**（`tests/test_async_for_await.uya`）
 - **方法与接口**：结构体内部方法、外部方法块与接口方法签名现已支持 `@async_fn`；接口 async 调用经 vtable 分派 future 的主链路已打通（`tests/test_async_method_interface.uya`）
 - 标准库已有最小模块：`std.async`、`std.async_event`、`std.async_channel`、`std.async_scheduler`
-- 与最终目标仍有差距：跨平台后端、更完整 async I/O 原语、多-interest `Waker` 与更严格唤醒安全性验证仍待完善
+- 与最终目标仍有差距：跨平台后端、更完整 async I/O 原语、HTTP 连接池/keep-alive、TLS 会话复用与更严格唤醒安全性验证仍待完善（多-interest `Waker` 已于 2026-10-04 收口）
 
 **已知语义缺口（更新至 2026-04）**：
 - **已缓解**：连续 `while` 内多 await（Bug A）、`return try @await`（Bug C）、**范围/定长数组 `for` 内 await** 等已由通用段发射路径覆盖；见 `tests/test_async_bug_a_two_while.uya`、`tests/test_async_bug_c_tail_await.uya`、`tests/test_async_for_await.uya` 与 [plan_async_coroutine_transform.md](plan_async_coroutine_transform.md)。

@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-03（split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义导致链接期 multiple definition 已修复：`lib/libc/stdlib.uya` 删掉那份重复常量，`uya-agent` 工程 split 构建恢复通过，详见"标准库 bug"首条；`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-10-04（异步编程缺失项收口第一轮：**hosted 模式下多线程并发 `malloc/free` 必然踩坏堆**（P0）已定位并修复 —— 根因是 `lib/libc/pthread.uya` 的 `clone` 不含 `CLONE_SETTLS`，线程没有 FS/TLS，而 hosted 下 `malloc/free` 让给了宿主 glibc（per-thread tcache/arena 挂在 FS 上），于是所有 uya 线程共用父线程的 glibc TLS；独立 C 复现：glibc `pthread_create` 3/3 通过、raw clone 3/3 堆损坏。修法是 hosted 下保留 uya 自己的线程安全堆（`lib/libc/heap.uya`）并把 `calloc` 一并留在 uya 侧避免跨分配器错配；新增回归 `tests/test_pthread_heap_concurrency.uya`，hosted 套件 1112/1112。同轮：**`Waker` 单 fd/单 interest**（P2）扩成有界槽表并让调度器注册全部 fd（新增 `tests/test_async_waker_multi_interest.uya`）；**HTTP/1 响应头上限**（P2）改为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖。详见"运行时 bug"与"标准库 bug"首两条。2026-10-03（split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义导致链接期 multiple definition 已修复：`lib/libc/stdlib.uya` 删掉那份重复常量，`uya-agent` 工程 split 构建恢复通过，详见"标准库 bug"首条；`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -12,6 +12,22 @@
 - **网络 / TLS 回归**：TCP、HTTP、HTTPS、DNS、TLS 链路问题。
 
 ## 标准库 bug
+
+- [x] **P2 / 中：HTTP/1 响应头块上限 `65536` 是硬边界，调用方无法在不改库的情况下放宽**
+  - 状态：已修复（2026-10-04）
+  - 现象：`lib/std/http/http1_async.uya` 的 `HTTP1_ASYNC_RESPONSE_HEADER_MAX_CAP = 65536` 直接写死在
+    两处增长逻辑里，响应头超过它时读取消以 `error.HeaderTooLarge` 结束。
+    与 `LinuxEpoll` / `AsyncFramePool` / `Scheduler` 的「默认值 + 环境变量可覆盖」口径不一致：
+    同一份库，别的容量都能按部署调，只有这一项不能。
+  - 修复内容：新增 `http1_async_response_header_max_cap()`（默认 `65536`，
+    环境变量 `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 给正整数时以它为准，非法值回退默认）；
+    两处增长点（`http1_response_header_buffer_grow` 与 `http1_async_request_stream` 内的内联增长）
+    改为调用该函数。请求头一侧本来就是「按 `required` 动态分配、4096 只是起步容量」，本次一并核对口径。
+  - 验证状态：`tests/test_http1_async_client.uya` 新增
+    `http1_async_response_header_max_cap_defaults_and_env_override`（默认值 / 覆盖 / 0 / 负数 / 非数字回退），
+    与既有 `http1_async_response_header_buffer_grows_past_legacy_cap`、
+    `http1_async_request_header_buffer_grows_past_inline_cap` 一并通过。
+  - 归属：`lib/std/http/http1_async.uya`。
 
 - [x] **P1 / 高：split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义（链接期 multiple definition）**
   - 状态：已修复（2026-10-03）
@@ -64,6 +80,68 @@
 
 ## 运行时 bug
 
+- [x] **P0 / 严重：hosted 模式下多线程并发 `malloc/free` 必然踩坏堆（`double free detected in tcache 2` / SIGSEGV）**
+  - 状态：已修复（2026-10-04）
+  - 现象：hosted（默认 `RUNTIME_MODE=hosted`）下任何「uya 线程 + 堆分配」的组合都不可信：
+    `./bin/uya test --c99 tests/test_pthread_heap_cache_identity.uya` 连跑 3 次全挂，
+    退出码 139（SIGSEGV）/134（SIGABRT），stderr 为 glibc 的
+    `free(): double free detected in tcache 2`、`Fatal glibc error: malloc.c:2600 (sysmalloc): assertion failed`。
+    同一用例的 nostdlib 静态产物 20/20 通过 —— 缺陷只在 hosted 路线。
+  - 根因（C 层隔离复现，三层证据）：
+    1) `gdb` 回溯命中 **glibc** 分配器：`#0 tcache_get_n (malloc.c:3179) ← #2 __GI___libc_malloc ← #3 worker ← #4 _pthread_call_start`；
+       `nm` 显示 `U malloc@GLIBC_2.2.5`（hosted 下 heap 让给 glibc），而 `libc_pthread_create` 仍是 uya 自己的 raw clone 实现。
+    2) `lib/libc/pthread.uya` 的 `CLONE_FLAGS = 0x00150F00` **不含 `CLONE_SETTLS`**，子线程只用
+       `arch_prctl(ARCH_SET_GS)` 设了 GS；实测 `parent_fs == child_fs`（`movq %fs:0` 双端相同）。
+       glibc 的 per-thread tcache/arena 挂在 **FS** 上，于是所有 uya 线程共用父线程的 glibc TLS。
+    3) 独立 C 复现（不依赖 uya）：同一份 `malloc/free` 负载下，glibc `pthread_create` 3/3 通过，
+       而模拟 uya 的 raw `clone`（无 `CLONE_SETTLS`）3/3 堆损坏；连「不用用户 malloc、只走 glibc 内部
+       分配（`snprintf`/`fopen`）」也 10/10 崩 —— 证明是 TLS 缺失而非调用方用法。
+  - 修复内容：hosted 下**保留 uya 自己的线程安全堆**（per-thread GS 缓存 + 全局自旋锁，
+    `lib/libc/heap.uya`），即 `src/codegen/c99` 不再把 `heap.uya` 的实现/全局让给宿主 libc；
+    同时把 `libc.stdlib` 的 `calloc` 也保留在 uya 侧，避免「glibc `calloc` + uya `free`」的跨分配器错配
+    （uya `free` 对非自有指针静默返回 ⇒ 泄漏）。hosted 下发射的线程缓存钩子桩改为只在
+    `.uyacache/libc/heap.c` 确实为空时才补，避免与真实 `heap.uya` 定义冲突。
+  - 验证状态：新增回归 `tests/test_pthread_heap_concurrency.uya`（8 线程 × 800 轮 malloc/free + 模式校验）：
+    修复前 hosted 3/3 崩（139/134），修复后 hosted 连跑 10 次 0 失败；`tests/test_pthread_heap_cache_identity.uya`
+    hosted 5/5 通过；`tests/test_std_thread.uya`、`tests/test_async_compute_types.uya` 保持通过；
+    全量 hosted 套件 1112/1112、nostdlib 套件 1111/1112（唯一失败 `test_raw_tls` 是依赖公网 DNS 的用例，单跑通过）。
+  - 归属：`src/codegen/c99/function.uya`（`c99_should_skip_hosted_libc_function_body` /
+    `c99_should_skip_hosted_libc_global_var`）、`src/codegen/c99/main.uya`（hosted 线程缓存钩子桩）。
+  - 备注：这是 uya-agent 当初放弃「TUI 渲染与 agent loop 双线程」的真实底层原因（见其 README 踩坑 47 ——
+    当时归因为「分配器不支持两条线程并发 malloc」，实际是 hosted 下 glibc TLS 缺失）。
+    仍未做的是 `CLONE_SETTLS` + TCB + static TLS image 的完整 NPTL 化（见 `docs/pthread_nptl_todo.md`）；
+    当前修法让 hosted 不再依赖宿主分配器，因而不需要 TCB。
+
+- [x] **P2 / 中：`Waker` 只有单 fd / 单 interest，「同时等两个 fd」会退化成只等最后一个**
+  - 状态：已修复（2026-10-04）
+  - 现象：`Waker` 只有 `_io_fd` + `_io_interest` 两个标量，`wait_readable(a)` 之后
+    `wait_writable(b)`（或第二次 `wait_readable`）会把前一个 fd **覆盖**掉。于是
+    「同一轮 poll 里关注两个 fd」（TLS 全双工、socketpair 双向、组合 future）只有最后一次声明生效，
+    先就绪的 fd 永远不产生唤醒。上一条 P1（`LinuxEpoll` 注册语义）的备注里
+    「后续如需同时关注读写再扩展为小数组或链表」即指本项。
+  - 根因：`lib/std/async.uya` 的 `Waker` 用两个标量承载 I/O 关注；
+    `lib/std/async_scheduler.uya` 的 `scheduler_sync_waker_registrations` 只读 `waker.io_fd()` 注册一个 fd。
+  - 修复内容：
+    1) `Waker` 增加有界槽表（`WAKER_IO_SLOT_MAX = 4`，`_io_slot_fds` / `_io_slot_interests` / `_io_slot_count`）：
+       同 fd 的 RD+WR **合并**成 READWRITE(3)，不同 fd 各占一槽；`_io_fd` / `_io_interest` 保留为
+       「最后一次声明」的主槽镜像，单 fd 调用点读到的值与旧实现逐字节一致。
+    2) `async_scheduler` 新增 `SchedulerFdRegs` 记录**每一个**已注册 fd，遍历 waker 全部槽注册，
+       并对「上轮注册、本轮不再关注」的 fd 做差集注销（否则 epoll 留陈旧注册，数字 fd 复用时会收到
+       别的 future 的唤醒）。原单 fd 入口保留为兼容包装。
+  - 验证状态：新增回归 `tests/test_async_waker_multi_interest.uya`（4 个用例）：
+    ① 同 fd RD+WR 合并成 READWRITE；② 三个不同 fd 各占一槽且主槽 = 最后一次声明；
+    ③ 超出槽位数不越界、不挤掉已登记槽；④ 调度器把同一 waker 的两个 fd **同时**注册进 EventLoop。
+    该用例在「临时退回单 fd 注册」时无法通过（挂死到超时），在修复后通过；
+    `tests/test_std_async_waker.uya`、`test_async_fd`、`test_async_io`、`test_async_multi_fd_concurrent`、
+    `test_std_async_scheduler`、`test_task_std_async`、`test_async_task_queue_dynamic_growth` 全部保持通过；
+    `tests/verify_async_shared_runtime_matrix.sh`、`verify_async_production_smoke.sh`、
+    `verify_async_full_language_matrix.sh`、`verify_async_nested_future_boundary.sh`、
+    `verify_async_cancel_cleanup.sh` 全部通过。
+  - 归属：`lib/std/async.uya`、`lib/std/async_scheduler.uya`。
+  - 备注：槽位是**有界**的（4 个），超出后新 fd 不再登记（不会覆盖已登记的）；
+    按当前主链路（HTTP/1 + eventfd + 组合 future 的两个子 future）足够。
+    若后续需要无界关注，应把槽表改成可增长结构，同时保持 `Waker` 的 Copy 语义评估。
+
 - [x] **P1 / 高：`LinuxEpoll` 的注册/反注册语义仍偏脆弱**
   - 状态：已修复
   - 验证状态：`tests/test_std_dns_async_transport.uya`、`tests/test_http1_async_client.uya` 已通过；`tests/test_async_fd.uya`、`tests/test_std_dns.uya`、`tests/test_std_async_event_fd_reuse.uya` 也已通过
@@ -71,9 +149,44 @@
   - 现象：`block_on_with_event_loop` / `LinuxEpoll` 在 fd 复用、slot 清理和 epoll interest 重建时出现过 `ENOENT`、`EEXIST` 一类边界错误。
   - 修复内容：引入显式状态机（`SLOT_STATE_EMPTY` / `SLOT_STATE_REGISTERED`）与 `slot_generations` 代际数组，彻底消除 fd 复用混淆；新增 `find_slot` / `alloc_slot` / `init_slot` / `clear_slot` 方法。
   - 可能位置：`lib/std/async_event.uya`
-  - 备注：当前已补了幂等清理和失败回退，量产阶段建议保持单 fd interest 语义，后续如需同时关注读写再扩展为小数组或链表。
+  - 备注：当前已补了幂等清理和失败回退。~~量产阶段建议保持单 fd interest 语义，后续如需同时关注读写再扩展为小数组或链表~~
+    —— **该建议已于 2026-10-04 落地**：`Waker` 扩为有界槽表并由调度器全槽注册（见上一条 P2），
+    本条不再把「单 fd interest」当作量产前提。
 
 ## 运行时 / 调度限制
+
+- [ ] **P2 / 中：HTTP/1.1 客户端没有连接池，也不复用连接（每次请求都 `Connection: close`）**
+  - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
+  - 现象：`lib/std/http/http1_async.uya` 的请求头构建里写死 `\r\nConnection: close\r\n`，
+    且 API 是「一次请求一条连接」：`http1_request_async` / `http1_async_get` / `http1_async_post`
+    各自建连、用完即关。连续 N 个请求 = N 次 TCP（HTTPS 还要 N 次 TLS 握手）。
+  - 影响：单请求功能正确；高频/批量请求时延迟与 fd 消耗偏高，且无法利用 keep-alive。
+  - 修复方向（供后续参考）：按 `host:port` 建连接池并复用；响应按 `Content-Length` 切分
+    （chunked 仍拒绝，见 `error.HttpChunkedNotSupported`）；池的关闭/注销语义需同步写进
+    `docs/async_runtime_semantics_matrix.md` 的叶子合约。
+  - 验证建议：loopback 上连发 N 个请求复用同一条连接（服务器侧断言只 `accept` 1 次）。
+  - 归属：`lib/std/http/http1_async.uya`。
+
+- [ ] **P2 / 中：TLS 无会话复用（没有 session ticket / session ID 缓存）**
+  - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
+  - 现象：`lib/tls/` 全仓库无 `session_resumption` / `session_ticket` / `PSK` 相关实现；
+    每次新建 HTTPS 连接都走完整握手。
+  - 修复方向（供后续参考）：先做最小闭环 —— 会话 ID 缓存 + TLS 1.2 session ticket 的
+    存储与复用；API 形状对齐既有 `https_*_async` 叶子合约（不拥有 `SslContext` 生命周期）。
+  - 验证建议：两次握手在第二次命中复用（断言 `NewSessionTicket`/AbbreviatedHandshake 路径被走到，
+    或至少断言握手记录数下降）。
+  - 归属：`lib/tls/`。
+
+- [ ] **P3 / 低：跨平台 `EventLoop` 后端缺失（macOS `kqueue` / Windows `IOCP`）**
+  - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
+  - 现象：`lib/std/async_event.uya` 只有 `LinuxEpoll`；macOS 分支退化成 `poll(2)` 轮询，
+    全仓库无 `kqueue`/`kevent`。`lib/std/async_event.uya:35` 的 `event_kind_to_epoll`
+    在 macOS 下直接 `return 0`。
+  - 说明：Windows 目标当前仅 hosted bring-up（见 `docs/uya.md` 的 `@syscall` 说明），
+    `IOCP` 属更远期；macOS `kqueue` 可先做（`EventLoop` 接口已就位，新增实现即可）。
+  - 验证建议：macOS 目标至少编译 + 冒烟，并同步 `tests/run_programs_parallel.sh` 的
+    `SKIP_DARWIN_DEFAULT` 名单。
+  - 归属：`lib/std/async_event.uya`。
 
 - [ ] **P2 / 中：`benchmarks/http_bench_async_epoll_await_simple.uya` 单 worker 顺序处理模型无法支撑高并发 keep-alive 连接**
   - 状态：已知限制，非编译器 bug

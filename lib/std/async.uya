@@ -182,6 +182,21 @@ const WAKER_WAKE_SOURCE_EXPLICIT: i32 = 1;
 const WAKER_WAKE_SOURCE_EVENT_LOOP: i32 = 2;
 const WAKER_WAKE_SOURCE_CANCEL: i32 = 3;
 
+/// interest 编码（与历史 _io_interest 取值保持一致）。
+const WAKER_INTEREST_NONE: i32 = 0;
+const WAKER_INTEREST_READABLE: i32 = 1;
+const WAKER_INTEREST_WRITABLE: i32 = 2;
+const WAKER_INTEREST_READWRITE: i32 = 3;
+
+/// 单个 Waker 可同时登记的最大 fd/interest 数。
+///
+/// 为什么需要多槽：单 fd/单 interest 的 Waker 在一个 poll 里登记第二个 fd 时会**覆盖**
+/// 前一个，于是「同时等两个 fd」（TLS 全双工、socketpair 双向、组合取消）只能退化成
+/// 「最后一个生效」。4 槽覆盖现有主链路（HTTP/1 请求 fd + eventfd + 组合 future 的两个
+/// 子 future），且不改变单 fd 路径的行为：单 fd future 仍只占第 0 槽，
+/// `io_fd()` / `io_interest_code()` 读到的仍是「最后一次声明」。
+export const WAKER_IO_SLOT_MAX: i32 = 4;
+
 /// 最小唤醒器。
 /// 当前仅维护“是否被唤醒”的可观察状态，供 Future 在 poll 内请求立即重试。
 /// 后续可在此基础上扩展到事件循环注册、任务队列与跨线程唤醒。
@@ -190,6 +205,11 @@ export struct Waker {
     _wake_source: atomic i32,
     _io_fd: i32,
     _io_interest: i32,
+    // 多 interest 扩展槽：第 0 槽与 _io_fd/_io_interest 保持镜像（单 fd 路径行为不变），
+    // 第 1..WAKER_IO_SLOT_MAX-1 槽供「同一 poll 内登记多个 fd」使用。
+    _io_slot_fds: [i32: WAKER_IO_SLOT_MAX],
+    _io_slot_interests: [i32: WAKER_IO_SLOT_MAX],
+    _io_slot_count: i32,
     _event_fd: i32,
     _event_write_fd: i32,
     _event_fd_bound: atomic i32,
@@ -239,23 +259,94 @@ export struct Waker {
         return self._wake_source == WAKER_WAKE_SOURCE_CANCEL;
     }
 
-    fn wait_readable(self: &Self, fd: i32) void {
-        self._io_fd = fd;
-        self._io_interest = 1;
+    /// 把 fd 的 interest 合并进槽表，并把该槽标为「主槽」。
+    ///
+    /// 语义要点（两条，都来自既有调用契约）：
+    /// 1) **同 fd 合并**：`wait_readable(fd)` 后再 `wait_writable(fd)` 表示「同一个 fd
+    ///    既要读又要写」（TLS 全双工），合并成 READWRITE；旧实现是后写覆盖前写，
+    ///    于是只注册了一半的 interest，socket 反过来就绪时 future 永远醒不过来。
+    /// 2) **主槽 = 最后一次声明**：`io_fd()` / `io_interest_code()` 仍旧返回「最近一次
+    ///    声明」的 fd/interest，与单 fd 时代逐字节一致（调用方在一轮 poll 里先声明 A
+    ///    再声明 B 时，读到的仍是 B）；不同 fd 各自占一个槽，互不覆盖。
+    fn register_io_interest(self: &Self, fd: i32, interest: i32) void {
+        if fd < 0 || interest == WAKER_INTEREST_NONE {
+            return;
+        }
+        var i: i32 = 0;
+        while i < self._io_slot_count {
+            if self._io_slot_fds[i] == fd {
+                self._io_slot_interests[i] = self._io_slot_interests[i] | interest;
+                self._set_primary_io_slot(i);
+                return;
+            }
+            i = i + 1;
+        }
+        if self._io_slot_count < WAKER_IO_SLOT_MAX {
+            self._io_slot_fds[self._io_slot_count] = fd;
+            self._io_slot_interests[self._io_slot_count] = interest;
+            self._set_primary_io_slot(self._io_slot_count);
+            self._io_slot_count = self._io_slot_count + 1;
+        }
     }
 
+    /// 把第 `index` 槽设为「主槽」：`_io_fd` / `_io_interest` 是历史读取口，
+    /// 始终镜像最后一次声明的那一槽，保证单 fd 调用方看到的值与旧实现相同。
+    fn _set_primary_io_slot(self: &Self, index: i32) void {
+        if index < 0 || index >= WAKER_IO_SLOT_MAX {
+            return;
+        }
+        self._io_fd = self._io_slot_fds[index];
+        self._io_interest = self._io_slot_interests[index];
+    }
+
+    /// 登记「关心 fd 可读」。
+    /// 与 `wait_writable` 对同一 fd 连续调用时，两次关注会**合并**成 READWRITE
+    /// （旧实现是「后一次覆盖前一次」，于是同一个 poll 里先读后写的 future
+    /// 只会被注册一半的 interest）。
+    fn wait_readable(self: &Self, fd: i32) void {
+        self.register_io_interest(fd, WAKER_INTEREST_READABLE);
+    }
+
+    /// 登记「关心 fd 可写」。语义与 `wait_readable` 对称（同 fd 合并为 READWRITE）。
     fn wait_writable(self: &Self, fd: i32) void {
-        self._io_fd = fd;
-        self._io_interest = 2;
+        self.register_io_interest(fd, WAKER_INTEREST_WRITABLE);
     }
 
     fn clear_io_interest(self: &Self) void {
         self._io_fd = 0 - 1;
-        self._io_interest = 0;
+        self._io_interest = WAKER_INTEREST_NONE;
+        self._io_slot_count = 0;
     }
 
     fn has_io_interest(self: &Self) bool {
         return self._io_interest != 0;
+    }
+
+    /// 当前登记在槽表里的 fd/interest 个数。
+    /// 参数说明：无。
+    /// 返回值说明：返回槽位数（0 表示本 waker 没有任何 I/O 关注）。
+    fn io_slot_count(self: &Self) i32 {
+        return self._io_slot_count;
+    }
+
+    /// 读取第 `index` 槽的 fd（不做 in-range 检查，调用方用 `io_slot_count` 界定）。
+    /// 参数说明：`index` 为槽下标。
+    /// 返回值说明：返回该槽的 fd；越界返回 -1。
+    fn io_slot_fd(self: &Self, index: i32) i32 {
+        if index < 0 || index >= self._io_slot_count {
+            return 0 - 1;
+        }
+        return self._io_slot_fds[index];
+    }
+
+    /// 读取第 `index` 槽的 interest 编码（1=RD / 2=WR / 3=RDWR）。
+    /// 参数说明：`index` 为槽下标。
+    /// 返回值说明：返回该槽的 interest 编码；越界返回 `WAKER_INTEREST_NONE`。
+    fn io_slot_interest(self: &Self, index: i32) i32 {
+        if index < 0 || index >= self._io_slot_count {
+            return WAKER_INTEREST_NONE;
+        }
+        return self._io_slot_interests[index];
     }
 
     fn io_fd(self: &Self) i32 {

@@ -17,7 +17,21 @@
 > | `https_handshake_async` 缺真实 pending/ready 回归 | 已有 `tests/test_tls_async_io_future.uya`、`tests/test_tls_async_runtime_boundary.uya`；session 复用仍缺 |
 > | 迭代器 / 泛型 async 方法等语法缺口 | **已收口**：`tests/test_generic_async_method_codegen.uya`（泛型 async 方法）2/2 通过；`verify_async_full_language_matrix.sh` 覆盖迭代器边界 |
 >
-> **仍然有效的剩余项**（源码级确认缺失）：跨平台 `EventLoop`（macOS `kqueue` / Windows `IOCP`）、多 interest `Waker`（`lib/std/async.uya` 仍单 fd/单 interest）、HTTP 客户端连接池与 keep-alive 复用、TLS 会话复用、HTTP/1 请求头 inline 容量、`ThreadPool` 真动态扩缩容。
+> **仍然有效的剩余项**（源码级确认缺失）：跨平台 `EventLoop`（macOS `kqueue` / Windows `IOCP`）、HTTP 客户端连接池与 keep-alive 复用、TLS 会话复用、`ThreadPool` 真动态扩缩容。
+>
+> **2026-10-04 更新 —— 本轮收口三项并把一项 P0 补进台账**：
+> - **多 interest `Waker`：已收口**。`Waker` 扩为有界槽表（`WAKER_IO_SLOT_MAX = 4`），
+>   同 fd 的 RD|WR 合并成 `READWRITE(3)`，不同 fd 各占一槽；`async_scheduler` 遍历全部槽注册，
+>   并对「上轮注册、本轮不再关注」的 fd 做差集注销。回归 `tests/test_async_waker_multi_interest.uya`。
+> - **HTTP/1 请求头/响应头容量：已收口**。请求头是「按 `required` 动态分配、4096 只是起步容量」；
+>   响应头上限由写死 `65536` 改为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖。
+> - **新增 P0：hosted 下多线程并发 `malloc/free` 必然踩坏堆**（此前未列）。
+>   根因：`lib/libc/pthread.uya` 的 `clone` 不含 `CLONE_SETTLS`（线程无 FS/TLS），
+>   而 hosted 的 `malloc/free` 走宿主 glibc（per-thread tcache/arena 在 FS 上）。
+>   修法：hosted 保留 uya 自己的线程安全堆，`calloc` 一并留在 uya 侧。
+>   回归 `tests/test_pthread_heap_concurrency.uya`。详见 `buglist.md`「运行时 bug」首条。
+> - 口径提醒：本表「`Waker` / `EventLoop` / `AsyncFd`」一行里「多 interest 仍需另行验收」
+>   的历史表述已由本轮推翻，按本轮结论读。
 
 > **2026-06-21 注意**
 >
@@ -40,7 +54,7 @@
 | async lowering / 状态机控制流 | ⚠️ 部分完成 | `if/else if`、`while`、范围 `for`、定长数组值/引用迭代、具体 struct 迭代器值迭代、嵌套块、循环间同步语句已稳定 | Bug A/B/C/D 与复合表达式中的 `try @await`（赋值 RHS / return 表达式）已修复；`const r: !T = @await fut` 这类 direct err-union await 绑定也已接通；`return error.X`、局部变量提升、await 间同步语句恢复；**接口值迭代** 是同步也不支持的通用语言边界，不再计作 async 独有缺口；迭代器 `for iter |&x|` 引用绑定已有 async 正向回归 | `test_async_bug_b_sync_between.uya` `test_async_for_await.uya` `test_async_for_iterator_ref_await.uya` `test_async_bug_d_nested_block.uya` `test_async_compound_try_await.uya` `test_async_await_direct_err_union.uya` `error_for_iterator_interface_value.uya` `error_async_for_iterator_interface_await.uya` | `async_coroutine_transform_design.md` `plan_async_coroutine_transform.md` `async_loop_await_design.md` |
 | async 方法 / 接口方法签名 | ✅ 已覆盖 | 结构体内部方法、外部方法块、接口方法签名均支持 `@async_fn`；接口 ABI 仍以 `Future<!T>` / `!Future<T>` 表达 | 方法 async wrapper/poll、`Self` 解析、`Type::method` async 调用图键与 vtable 分派已接通 | `test_async_method_interface.uya` `test_interface_error_union_method.uya` `test_struct_inner_method_void.uya` | `uya.md` `builtin_functions.md` `grammar_formal.md` `std_async_design.md` |
 | async frame 分配 / 生命周期 | ✅ 已覆盖 | 默认路径已切 `AsyncFramePool` + caller-owned inline + pinned 语义；`@frame(foo)` 暴露 `start/poll/stop`；Ready/Error/Cancel 统一释放 | `@frame(foo)` 类型构造器与 frame 生命周期命名已收口 | `test_async_frame_methods.uya` `test_async_frame_stack_ok.uya` `test_async_frame_release_path.uya` | `async_frame_allocation_design.md` `todo_async_frame_allocation.md` |
-| `Waker` / `EventLoop` / `AsyncFd` | ✅ Linux 主路径已覆盖 | `Waker` 支持单 interest、`eventfd` 绑定/关闭、`cancel/is_cancelled`；`LinuxEpoll` + `AsyncFd` 已接通 readiness；`LinuxEpoll` 的 `slot/lookup/poll scratch` 在满载时会自动扩容并暴露 resize metrics；`AsyncWriter/AsyncReader` 已具备 `write_all` / `read_exact`，helper 层已有 `async_write_bytes/cstr`、`async_print_to/println_to` | 已验证的是 Linux 单 fd/单 interest 主路径；多 interest、跨 HTTP/DNS/TLS 组合与跨平台后端仍需另行验收 | `test_std_async_event.uya` `test_async_event_dynamic_growth.uya` `test_async_event_config.uya` `test_async_fd.uya` `test_async_io.uya` | `std_async_design.md` `async_production_todo.md` |
+| `Waker` / `EventLoop` / `AsyncFd` | ✅ Linux 主路径已覆盖 | `Waker` 支持**多 fd / 多 interest（有界槽表，同 fd 的 RD\|WR 合并为 READWRITE）**、`eventfd` 绑定/关闭、`cancel/is_cancelled`；`LinuxEpoll` + `AsyncFd` 已接通 readiness；`LinuxEpoll` 的 `slot/lookup/poll scratch` 在满载时会自动扩容并暴露 resize metrics；`AsyncWriter/AsyncReader` 已具备 `write_all` / `read_exact`，helper 层已有 `async_write_bytes/cstr`、`async_print_to/println_to` | 已验证的是 Linux 主路径；跨 HTTP/DNS/TLS 组合与跨平台后端仍需另行验收 | `test_std_async_event.uya` `test_async_event_dynamic_growth.uya` `test_async_event_config.uya` `test_async_fd.uya` `test_async_io.uya` `test_async_waker_multi_interest.uya` | `std_async_design.md` `async_production_todo.md` |
 | `Scheduler` / 泛型 `TaskQueue<T>` | ✅ 阶段性覆盖 | `scheduler_run_*_with_event_loop`、`scheduler_run_pair_i32_with_event_loop`、`TaskQueue<T>` / typed wrappers、共享 `EventLoop` 单轮推进已覆盖；默认 `TaskQueue<T>` 现以 legacy `64` 为起步容量并在 `push()` 时自动增长，`task_queue_new_with_capacity<T>()` 保留调用方显式上限；`Future<!usize>` 的真实 shared-epoll I/O 队列也已验证 | 队列依赖的“数组元素上的接口字段方法调用”与“结构体依赖收集误展开接口模板”已修复；frame buffer / inline repoll 资源策略已支持 runtime 配置；仍缺跨链路共享 runtime 矩阵与同队列 smoke | `test_std_async_scheduler.uya` `test_async_task_queue_dynamic_growth.uya` `test_async_multi_fd_concurrent.uya` `test_async_fd.uya` | `std_async_design.md` `todo_async_runtime_and_http.md` `todo_mini_to_full.md` |
 | 跨线程 wake / `eventfd` | ✅ Linux 阶段性覆盖 | `Scheduler` 在 `Pending` 时同步注册 `eventfd + io fd`；worker/外部线程 `wake()` 可直接唤醒主 `EventLoop` | 仅证明 Linux eventfd 路径；跨平台与跨 HTTP/DNS/TLS 组合仍需另行验收 | `test_std_async_scheduler.uya` 外部 wake 场景 | `async_production_todo.md` `todo_async_runtime_and_http.md` |
 | 协作式取消语义 | ✅ 阶段性覆盖 | `Waker.cancel()`、`TaskQueue.cancel()`、统一 deregister / eventfd close / slot cleanup；结果用 `error.Cancelled` 写回 | 已覆盖调度器和 async_compute 相关路径；HTTP/DNS/TLS 与共享调度组合中的取消语义仍需矩阵化验收 | `test_std_async_scheduler.uya` 取消 slot；`test_std_thread.uya` queued/running cancel | `std_async_design.md` `async_production_todo.md` |
@@ -84,7 +98,7 @@
 
 - `Pending` 仍表示“调度层未就绪”，业务错误走 `!T`
 - 取消模型是**协作式取消**，future 需要在 `poll()` 中显式检查 `waker.is_cancelled()`
-- `Waker` 当前仍是**单 interest / 单 fd** 模型；多 interest 不是当前实现范围
+- `Waker` 当前支持**有界多 fd / 多 interest**（槽表上限 `WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并为 READWRITE）；超出槽位数的新 fd 不再登记（不覆盖已登记项），需要更多并发关注时应扩展槽表而不是退回单 fd
 - 跨线程唤醒当前依赖 **Linux `eventfd`**，因此这部分能力口径是 **Linux-only**
 - 生产收口必须同时证明 HTTP、DNS、TLS、`async_compute` 与 `Scheduler` 共享同一套 `Future` / `Poll` / `Waker` / `EventLoop` / cancellation 语义；单项测试通过不能再单独视为“异步主链路已完全量产”
 - 共享 runtime 是否收口，以 `docs/async_runtime_semantics_matrix.md` 的链路矩阵和后续统一测试为准；本表不再单独给出“主链路已收口”结论
@@ -118,7 +132,7 @@
 
 - 跨平台 `EventLoop` 后端：macOS `kqueue` / Windows `IOCP`
 - 更丰富 async formatting/helper（typed writer、`write_byte`、更高层格式化输出等）
-- 多 interest `Waker`
+- ~~多 interest `Waker`~~（2026-10-04 已完成：有界槽表 + 调度器全槽注册，回归 `tests/test_async_waker_multi_interest.uya`）
 - HTTP 连接池与 keep-alive 复用
 - TLS 会话复用
 - ~~DNS `A/AAAA` 并发聚合~~（2026-09-27 已完成，提交 `61469fe3`）

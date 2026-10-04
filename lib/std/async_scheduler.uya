@@ -77,6 +77,18 @@ fn scheduler_event_kind_from_waker(w: &Waker) EventKind {
     return EventKind.ReadWrite({});
 }
 
+/// 把 Waker 的 interest 编码（1=RD / 2=WR / 3=RDWR）转成 EventLoop 的 EventKind。
+/// 参数说明：`code` 为 interest 编码。返回值说明：返回对应 EventKind；未知编码按 ReadWrite 处理。
+fn scheduler_event_kind_from_code(code: i32) EventKind {
+    if code == 1 {
+        return EventKind.Readable({});
+    }
+    if code == 2 {
+        return EventKind.Writable({});
+    }
+    return EventKind.ReadWrite({});
+}
+
 fn scheduler_deregister_fd(loop: EventLoop, registered_fd: &i32) !i32 {
     if *registered_fd < 0 {
         return 0;
@@ -87,6 +99,69 @@ fn scheduler_deregister_fd(loop: EventLoop, registered_fd: &i32) !i32 {
     };
     *registered_fd = 0 - 1;
     return 0;
+}
+
+/// 一个等待中 future 在 EventLoop 上的 fd 注册表（有界，槽数与 `WAKER_IO_SLOT_MAX` 对齐）。
+///
+/// 为什么需要整张表而不是两个 i32：单 interest 时代每个 waker 最多只可能注册一个 io fd，
+/// 所以「已注册 fd」用一个 i32 就够。支持多 fd 之后必须记住**每一个**已注册的 fd，
+/// 才能在本轮注销掉已经不再需要关注的那些——否则 epoll 里会留下陈旧注册，fd 关闭后
+/// 数字被复用时会收到不属于本 future 的唤醒。
+///
+/// `io_fds[0]` 同时是历史读取口 `io_epoll_fd` 的镜像（测试与旧调用点只认主 fd）。
+export struct SchedulerFdRegs {
+    io_fds: [i32: WAKER_IO_SLOT_MAX],
+    io_count: i32,
+    event_fd: i32,
+
+    /// 主 io fd（历史 `io_epoll_fd` 语义）。
+    /// 参数说明：无。返回值说明：返回第 0 个已注册 io fd，没有则 -1。
+    fn primary_io_fd(self: &Self) i32 {
+        if self.io_count <= 0 {
+            return 0 - 1;
+        }
+        return self.io_fds[0];
+    }
+
+    /// 清空全部注册记录（不碰 EventLoop，注销由调用方负责）。
+    /// 参数说明：无。返回值说明：无。
+    fn clear(self: &Self) void {
+        var i: i32 = 0;
+        while i < WAKER_IO_SLOT_MAX {
+            self.io_fds[i] = 0 - 1;
+            i = i + 1;
+        }
+        self.io_count = 0;
+        self.event_fd = 0 - 1;
+    }
+
+    /// 清空 io fd 注册记录，保留 event fd（同步过程中 eventfd 与 io fd 分开管理）。
+    /// 参数说明：无。返回值说明：无。
+    fn clear_io_only(self: &Self) void {
+        var i: i32 = 0;
+        while i < WAKER_IO_SLOT_MAX {
+            self.io_fds[i] = 0 - 1;
+            i = i + 1;
+        }
+        self.io_count = 0;
+    }
+
+    /// 追加一个已注册 io fd（同 fd 不重复记录）。
+    /// 参数说明：`fd` 为本次成功注册的 fd。返回值说明：无。
+    fn remember_io_fd(self: &Self, fd: i32) void {
+        if fd < 0 || self.io_count >= WAKER_IO_SLOT_MAX {
+            return;
+        }
+        var i: i32 = 0;
+        while i < self.io_count {
+            if self.io_fds[i] == fd {
+                return;
+            }
+            i = i + 1;
+        }
+        self.io_fds[self.io_count] = fd;
+        self.io_count = self.io_count + 1;
+    }
 }
 
 fn scheduler_sync_registered_fd(loop: EventLoop, fd: i32, interest: EventKind, waker: &Waker, registered_fd: &i32) !i32 {
@@ -109,23 +184,101 @@ fn scheduler_sync_registered_fd(loop: EventLoop, fd: i32, interest: EventKind, w
     return 1;
 }
 
-fn scheduler_sync_waker_registrations(loop: EventLoop, waker: &Waker, io_registered_fd: &i32, event_registered_fd: &i32) !i32 {
+/// 把 waker 当前登记的全部 io 关注同步到 EventLoop，并注销不再需要的旧注册。
+///
+/// 单 interest 时代只要看 `io_fd()` 就够；多 fd 之后必须遍历 waker 的所有槽：
+/// - 每个槽按自己的 interest 注册（同 fd 的 RD|WR 已由 Waker 合并成 READWRITE）；
+/// - 上一轮注册过、这一轮 waker 不再关注的 fd 必须注销，否则 epoll 里留陈旧注册，
+///   数字 fd 被复用时会收到别的 future 的唤醒（表现为「莫名 Readable」）。
+/// 参数说明：`loop` 为事件循环；`waker` 为本次 poll 用过的 waker；`regs` 为该 future 的注册表。
+/// 返回值说明：返回本轮注册成功的 fd 数（含 eventfd）。
+fn scheduler_sync_waker_registrations_multi(loop: EventLoop, waker: &Waker, regs: &SchedulerFdRegs) !i32 {
     var registered: i32 = 0;
 
     if waker.has_event_fd() {
-        _ = try scheduler_sync_registered_fd(loop, waker.event_fd(), EventKind.Readable({}), waker, event_registered_fd);
+        _ = try scheduler_sync_registered_fd(loop, waker.event_fd(), EventKind.Readable({}), waker, &regs.event_fd);
         registered = 1;
     } else {
-        _ = try scheduler_deregister_fd(loop, event_registered_fd);
+        _ = try scheduler_deregister_fd(loop, &regs.event_fd);
     }
 
-    if waker.has_io_interest() && waker.io_fd() >= 0 {
-        _ = try scheduler_sync_registered_fd(loop, waker.io_fd(), scheduler_event_kind_from_waker(waker), waker, io_registered_fd);
-        registered = 1;
-    } else {
-        _ = try scheduler_deregister_fd(loop, io_registered_fd);
+    // 先把「本轮仍需要」的 fd 收进一个临时掩码，再拿它对照旧注册表做差集注销。
+    var keep: [i32: WAKER_IO_SLOT_MAX] = [];
+    var keep_count: i32 = 0;
+
+    const slot_total: i32 = waker.io_slot_count();
+    var i: i32 = 0;
+    while i < slot_total {
+        const fd: i32 = waker.io_slot_fd(i);
+        if fd >= 0 {
+            const interest: EventKind = scheduler_event_kind_from_code(waker.io_slot_interest(i));
+            var scratch: i32 = fd;
+            _ = try scheduler_sync_registered_fd(loop, fd, interest, waker, &scratch);
+            registered = registered + 1;
+            if keep_count < WAKER_IO_SLOT_MAX {
+                keep[keep_count] = fd;
+                keep_count = keep_count + 1;
+            }
+        }
+        i = i + 1;
     }
 
+    // 旧注册里不再被关注的 fd：注销。
+    var old_i: i32 = 0;
+    while old_i < regs.io_count {
+        const old_fd: i32 = regs.io_fds[old_i];
+        var still_needed: bool = false;
+        var k: i32 = 0;
+        while k < keep_count {
+            if keep[k] == old_fd {
+                still_needed = true;
+                break;
+            }
+            k = k + 1;
+        }
+        if !still_needed {
+            var scratch2: i32 = old_fd;
+            _ = try scheduler_deregister_fd(loop, &scratch2);
+        }
+        old_i = old_i + 1;
+    }
+
+    // 记录本轮注册：主 fd 放第 0 位，保持 `primary_io_fd()` 与历史 `io_epoll_fd` 一致。
+    regs.clear_io_only();
+    var w: i32 = 0;
+    while w < keep_count {
+        regs.remember_io_fd(keep[w]);
+        w = w + 1;
+    }
+
+    return registered;
+}
+
+/// 创建一个空的 fd 注册表（所有 io 槽位记为「未注册」，event fd 为 -1）。
+/// 参数说明：无。返回值说明：返回可直接交给 `scheduler_sync_waker_registrations_multi` 的注册表。
+fn scheduler_fd_regs_new() SchedulerFdRegs {
+    var regs: SchedulerFdRegs = SchedulerFdRegs{ io_count: 0, event_fd: 0 - 1 };
+    var i: i32 = 0;
+    while i < WAKER_IO_SLOT_MAX {
+        regs.io_fds[i] = 0 - 1;
+        i = i + 1;
+    }
+    return regs;
+}
+
+/// 兼容入口：单 fd 调用方（只认一个 `io_registered_fd`）转走多 fd 实现。
+/// 参数说明：`loop` 事件循环；`waker` 本次 waker；`io_registered_fd`/`event_registered_fd` 为主 fd 镜像。
+/// 返回值说明：返回本轮注册成功的 fd 数。
+fn scheduler_sync_waker_registrations(loop: EventLoop, waker: &Waker, io_registered_fd: &i32, event_registered_fd: &i32) !i32 {
+    var regs: SchedulerFdRegs = scheduler_fd_regs_new();
+    regs.event_fd = *event_registered_fd;
+    if *io_registered_fd >= 0 {
+        regs.io_fds[0] = *io_registered_fd;
+        regs.io_count = 1;
+    }
+    const registered: i32 = try scheduler_sync_waker_registrations_multi(loop, waker, &regs);
+    *io_registered_fd = regs.primary_io_fd();
+    *event_registered_fd = regs.event_fd;
     return registered;
 }
 
