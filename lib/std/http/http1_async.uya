@@ -65,6 +65,202 @@ export fn http1_async_response_header_max_cap() usize {
     return cap;
 }
 
+// =============================================================================
+// HTTP/1.1 客户端连接池（keep-alive 复用）
+//
+// 为什么需要：修复前每个请求都发 `Connection: close`，用完即关 —— N 个请求就是
+// N 次 TCP（HTTPS 还要 N 次 TLS 握手）。这里按 `host:port` 缓存空闲连接，
+// 下一个同目标请求直接复用，把「建连 + 握手」从每次请求摊到每 N 次请求。
+//
+// 边界（刻意保守，避免把复杂度引进来）：
+// - 池是**进程内单例**且**有界**（`HTTP1_ASYNC_POOL_MAX` 个空闲槽），满了就关最旧的；
+// - 只缓存「响应读完且服务器没要求关闭」的连接；
+// - 响应读不完 / 服务器 `Connection: close` / 中途出错时，该连接直接关闭，不回池；
+// - 单线程语义：本项目当前是「单线程 + 泵点」模型，池不加锁。
+// =============================================================================
+
+/// 连接池可缓存的空闲连接数上限。
+export const HTTP1_ASYNC_POOL_MAX: i32 = 8;
+
+/// 缓存的 host 字符串长度上限（超出则不入池 —— 宁可少复用，不要截断误配）。
+const HTTP1_ASYNC_POOL_HOST_MAX: usize = 128;
+
+/// 一个空闲连接槽：目标 `host`/`port` + 已建好的 fd。
+export struct Http1AsyncPoolSlot {
+    fd: i32,
+    port: u16,
+    host_len: usize,
+    host_bytes: [byte: HTTP1_ASYNC_POOL_HOST_MAX],
+}
+
+/// 进程内单例连接池。
+export struct Http1AsyncPool {
+    slots: [Http1AsyncPoolSlot: HTTP1_ASYNC_POOL_MAX],
+    count: i32,
+    /// 累计复用次数（观测用：回归靠它断言「第二次真的复用了」）。
+    reused_count: i64,
+    /// 累计入池次数。
+    stored_count: i64,
+
+    /// 初始化：所有槽位标记为空闲（fd = -1）。
+    /// 参数说明：无。返回值说明：无。
+    fn init(self: &Self) void {
+        var i: i32 = 0;
+        while i < HTTP1_ASYNC_POOL_MAX {
+            self.slots[i as usize].fd = 0 - 1;
+            self.slots[i as usize].port = 0;
+            self.slots[i as usize].host_len = 0;
+            i = i + 1;
+        }
+        self.count = 0;
+        self.reused_count = 0;
+        self.stored_count = 0;
+    }
+
+    fn slot_host_matches(self: &Self, idx: i32, host: &[byte], port: u16) bool {
+        const s: &Http1AsyncPoolSlot = &self.slots[idx as usize];
+        if s.port != port {
+            return false;
+        }
+        if s.host_len != host.len {
+            return false;
+        }
+        var i: usize = 0;
+        while i < host.len {
+            if s.host_bytes[i] != host.ptr[i] {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// 取出一条匹配 `host:port` 的空闲连接（取出即从池中移除，交由调用方独占）。
+    /// 参数说明：`host` 目标主机；`port` 目标端口。
+    /// 返回值说明：返回可用 fd；没有匹配项时返回 -1。
+    fn take(self: &Self, host: &[byte], port: u16) i32 {
+        var i: i32 = 0;
+        while i < self.count {
+            if self.slot_host_matches(i, host, port) {
+                const fd: i32 = self.slots[i as usize].fd;
+                // 尾部搬移，保持数组紧凑
+                var j: i32 = i;
+                while j + 1 < self.count {
+                    self.slots[j as usize] = self.slots[(j + 1) as usize];
+                    j = j + 1;
+                }
+                self.count = self.count - 1;
+                self.slots[self.count as usize].fd = 0 - 1;
+                self.reused_count = self.reused_count + 1i64;
+                return fd;
+            }
+            i = i + 1;
+        }
+        return 0 - 1;
+    }
+
+    /// 把一个「读完且可复用」的连接放回池中。
+    /// 参数说明：`fd` 连接；`host`/`port` 目标；超长 host 或池满时直接关闭该 fd 并返回 false。
+    /// 返回值说明：真正入池返回 true；被拒绝（并已关闭 fd）返回 false。
+    fn put(self: &Self, fd: i32, host: &[byte], port: u16) bool {
+        if fd < 0 {
+            return false;
+        }
+        if host.len > HTTP1_ASYNC_POOL_HOST_MAX || self.count >= HTTP1_ASYNC_POOL_MAX {
+            _ = sys_close(fd) catch {};
+            return false;
+        }
+        const idx: i32 = self.count;
+        const s: &Http1AsyncPoolSlot = &self.slots[idx as usize];
+        s.fd = fd;
+        s.port = port;
+        s.host_len = host.len;
+        var i: usize = 0;
+        while i < host.len {
+            s.host_bytes[i] = host.ptr[i];
+            i = i + 1;
+        }
+        self.count = self.count + 1;
+        self.stored_count = self.stored_count + 1i64;
+        return true;
+    }
+
+    /// 关闭并清空池中所有空闲连接。
+    /// 参数说明：无。返回值说明：返回被关闭的连接数。
+    fn close_all(self: &Self) i32 {
+        var closed: i32 = 0;
+        var i: i32 = 0;
+        while i < self.count {
+            if self.slots[i as usize].fd >= 0 {
+                _ = sys_close(self.slots[i as usize].fd) catch {};
+                closed = closed + 1;
+            }
+            self.slots[i as usize].fd = 0 - 1;
+            i = i + 1;
+        }
+        self.count = 0;
+        return closed;
+    }
+
+    /// 主动丢弃一条（从池中移除并关闭）。连接不可用时由调用方使用。
+    /// 参数说明：`fd` 要丢弃的连接。返回值说明：无。
+    fn discard_fd(self: &Self, fd: i32) void {
+        var i: i32 = 0;
+        while i < self.count {
+            if self.slots[i as usize].fd == fd {
+                var j: i32 = i;
+                while j + 1 < self.count {
+                    self.slots[j as usize] = self.slots[(j + 1) as usize];
+                    j = j + 1;
+                }
+                self.count = self.count - 1;
+                self.slots[self.count as usize].fd = 0 - 1;
+                break;
+            }
+            i = i + 1;
+        }
+        _ = sys_close(fd) catch {};
+    }
+}
+
+var g_http1_async_pool: Http1AsyncPool = Http1AsyncPool{ count: 0, reused_count: 0i64, stored_count: 0i64 };
+
+fn http1_async_pool() &Http1AsyncPool {
+    return &g_http1_async_pool;
+}
+
+/// 进程级连接池观测快照。
+export struct Http1AsyncPoolStats {
+    idle_count: i32,
+    reused_count: i64,
+    stored_count: i64,
+}
+
+/// 读取连接池当前状态（观测/回归用）。
+/// 参数说明：无。返回值说明：返回空闲连接数、累计复用次数、累计入池次数。
+export fn http1_async_pool_stats() Http1AsyncPoolStats {
+    const p: &Http1AsyncPool = http1_async_pool();
+    return Http1AsyncPoolStats{ idle_count: p.count, reused_count: p.reused_count, stored_count: p.stored_count };
+}
+
+/// 关闭并清空连接池（进程退出/测试隔离用）。
+/// 参数说明：无。返回值说明：返回被关闭的空闲连接数。
+export fn http1_async_pool_close_all() i32 {
+    return http1_async_pool().close_all();
+}
+
+/// 直接向池中放入一条连接（供测试/上层自管连接时使用）。
+/// 参数说明：`fd` 连接；`host`/`port` 目标。返回值说明：真正入池返回 true。
+export fn http1_async_pool_put_raw(fd: i32, host: &[byte], port: u16) bool {
+    return http1_async_pool().put(fd, host, port);
+}
+
+/// 直接从池中取出一条连接（供测试/上层自管连接时使用）。
+/// 参数说明：`host`/`port` 目标。返回值说明：返回 fd；没有匹配返回 -1。
+export fn http1_async_pool_take_raw(host: &[byte], port: u16) i32 {
+    return http1_async_pool().take(host, port);
+}
+
 export struct Http1AsyncRequestHeaderBuffer {
     ptr: &byte,
     len: usize,
@@ -198,6 +394,9 @@ export struct Http1AsyncRequest {
     path: &[byte],
     body: &[byte],
     content_type: &[byte],
+    /// 是否允许 keep-alive 复用（0 = 旧行为，发 `Connection: close` 且用完即关；
+    /// 1 = 走连接池，发 `Connection: keep-alive`）。不写即 0，老调用点语义不变。
+    persist: i32,
 }
 
 export struct Http1AsyncResponse {
@@ -577,7 +776,8 @@ export fn http1_async_request_header_required_capacity(req: &Http1AsyncRequest) 
     if req.port != 80 {
         total = total + 1 + u16_dec_len(req.port);
     }
-    total = total + 21;  // "\r\nConnection: close\r\n"
+    // 连接语义行：两种取值长度不同，按 persist 精确计入。
+    total = total + http1_async_connection_header_len(req.persist);
     if req.method == Method.POST {
         if req.content_type.len > 0 {
             total = total + 14 + req.content_type.len + 2;
@@ -586,6 +786,28 @@ export fn http1_async_request_header_required_capacity(req: &Http1AsyncRequest) 
     }
     total = total + 2;
     return total;
+}
+
+/// `Connection` 行的字节数（含前导 `\r\n`）。
+/// 参数说明：`persist` 非 0 表示 keep-alive，否则 close。
+/// 返回值说明：返回该行的完整长度，供容量计算使用。
+fn http1_async_connection_header_len(persist: i32) usize {
+    if persist != 0 {
+        // "\r\nConnection: keep-alive\r\n" = 26 字节
+        return 26;
+    }
+    // "\r\nConnection: close\r\n" = 21 字节
+    return 21;
+}
+
+/// 追加 `Connection` 行。
+/// 参数说明：`buf` 目标；`pos` 写入位置；`persist` 非 0 表示 keep-alive。
+/// 返回值说明：返回写完后的新位置。
+fn http1_async_append_connection_header(buf: &byte, pos: usize, persist: i32) usize {
+    if persist != 0 {
+        return http1_async_append_bytes(buf, pos, &"\r\nConnection: keep-alive\r\n"[0: 26]);
+    }
+    return http1_async_append_bytes(buf, pos, &"\r\nConnection: close\r\n"[0: 21]);
 }
 
 fn build_request_headers(req: &Http1AsyncRequest, buf: &byte, cap: usize) !usize {
@@ -604,7 +826,7 @@ fn build_request_headers(req: &Http1AsyncRequest, buf: &byte, cap: usize) !usize
     pos = http1_async_append_bytes(buf, pos, &" HTTP/1.1\r\n"[0: 11]);
     pos = http1_async_append_bytes(buf, pos, &"Host: "[0: 6]);
     pos = format_host_header_at(buf, pos, req.host, req.port);
-    pos = http1_async_append_bytes(buf, pos, &"\r\nConnection: close\r\n"[0: 21]);
+    pos = http1_async_append_connection_header(buf, pos, req.persist);
     if req.method == Method.POST {
         if req.content_type.len > 0 {
             pos = http1_async_append_bytes(buf, pos, &"Content-Type: "[0: 14]);
@@ -729,6 +951,25 @@ fn line_has_chunked_value(line: &[byte]) bool {
     return false;
 }
 
+/// 判断一个头行是否把连接声明为 close（`Connection: close`）。
+/// 参数说明：`line` 为完整头行（含名字、冒号与值）。
+/// 返回值说明：值里出现 `close`（大小写不敏感）返回 true。
+fn line_has_close_value(line: &[byte]) bool {
+    var i: usize = 0;
+    while i + 5 <= line.len {
+        if line.ptr[i] == 'c' as byte || line.ptr[i] == 'C' as byte {
+            if (line.ptr[i + 1] == 'l' as byte || line.ptr[i + 1] == 'L' as byte)
+                && (line.ptr[i + 2] == 'o' as byte || line.ptr[i + 2] == 'O' as byte)
+                && (line.ptr[i + 3] == 's' as byte || line.ptr[i + 3] == 'S' as byte)
+                && (line.ptr[i + 4] == 'e' as byte || line.ptr[i + 4] == 'E' as byte) {
+                return true;
+            }
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
 fn parse_status_from_first_line(line: &[byte]) !i32 {
     var i: usize = 0;
     while i < line.len && line.ptr[i] != ' ' as byte {
@@ -787,6 +1028,8 @@ struct ParsedRespMeta {
     has_content_length: bool,
     read_until_eof: bool,
     transfer_encoding_chunked: bool,
+    /// 响应头是否声明了 `Connection: close`（声明了就不能回池复用）。
+    connection_close: bool,
 }
 
 fn parse_response_meta(header_block: &[byte]) !ParsedRespMeta {
@@ -804,8 +1047,10 @@ fn parse_response_meta(header_block: &[byte]) !ParsedRespMeta {
     var cl: usize = 0;
     var rte: bool = false;
     var chunked: bool = false;
+    var conn_close: bool = false;
     const name_cl: &[byte] = &"content-length"[0: 14];
     const name_te: &[byte] = &"transfer-encoding"[0: 17];
+    const name_conn: &[byte] = &"connection"[0: 10];
     while pos < header_block.len {
         const line_end: usize = find_crlf_end(header_block, pos, header_block.len);
         if line_end == pos {
@@ -818,6 +1063,9 @@ fn parse_response_meta(header_block: &[byte]) !ParsedRespMeta {
         }
         if header_name_is(line, name_te) && line_has_chunked_value(line) {
             chunked = true;
+        }
+        if header_name_is(line, name_conn) && line_has_close_value(line) {
+            conn_close = true;
         }
         pos = line_end + 2;
     }
@@ -833,6 +1081,7 @@ fn parse_response_meta(header_block: &[byte]) !ParsedRespMeta {
         has_content_length: has_cl,
         read_until_eof: rte,
         transfer_encoding_chunked: chunked,
+        connection_close: conn_close,
     };
 }
 
@@ -925,6 +1174,7 @@ fn parse_response_meta_allow_chunked(header_block: &[byte]) !ParsedRespMeta {
         has_content_length: has_cl,
         read_until_eof: rte,
         transfer_encoding_chunked: chunked,
+        connection_close: false,
     };
 }
 
@@ -942,7 +1192,18 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
     // 计算整体 deadline（0 表示不设置超时）
     const deadline_ms: u64 = try http_deadline_after_ms(timeout_ms);
 
-    const fd: i32 = try @await http1_connect_for_host_future(req.host, req.port, deadline_ms);
+    // persist != 0 时优先复用池中同 host:port 的空闲连接；没有才建新连。
+    // 复用失败（对端已关）由下面的写/读路径兜住：出错即关闭该 fd，不回池。
+    var fd: i32 = 0 - 1;
+    if req.persist != 0 {
+        fd = http1_async_pool().take(req.host, req.port);
+    }
+    if fd < 0 {
+        const connect_result: !i32 = @await http1_connect_for_host_future(req.host, req.port, deadline_ms);
+        fd = connect_result catch |err| {
+            return err;
+        };
+    }
 
     const hdr_result: !Http1AsyncRequestHeaderBuffer = http1_async_request_header_build(req);
     const hdr: Http1AsyncRequestHeaderBuffer = hdr_result catch |err| {
@@ -1062,7 +1323,7 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
 
     if body_total == 0 {
         free(rb_ptr as &void);
-        _ = sys_close(fd) catch {};
+        http1_async_finish_connection(req, meta, fd);
         var empty_raw: [byte: 4] = [];
         const eb: &[byte] = slice_from_raw(&empty_raw[0] as &byte, 0);
         return Http1AsyncResponse{ status: meta.status, body: eb, body_storage: null };
@@ -1135,8 +1396,26 @@ export @async_fn fn http1_request_async(req: &Http1AsyncRequest, timeout_ms: u32
     }
 
     free(rb_ptr as &void);
-    _ = sys_close(fd) catch {};
+    http1_async_finish_connection(req, meta, fd);
     return Http1AsyncResponse{ status: meta.status, body: slice_from_raw(mem as &byte, body_total), body_storage: mem };
+}
+
+/// 一次请求读完后的连接归属决定：可复用则回池，否则关闭。
+///
+/// 可复用的充要条件（宁可少复用，也不要把坏连接放回池）：
+/// - 调用方要求 persist；
+/// - 响应**不是** `read_until_eof`（那种响应体靠对端关闭来界定，连接已经不可复用）；
+/// - 响应头没有声明 `Connection: close`。
+/// 参数说明：`req` 本次请求；`meta` 解析出的响应元数据；`fd` 连接。
+/// 返回值说明：无。
+fn http1_async_finish_connection(req: &Http1AsyncRequest, meta: &ParsedRespMeta, fd: i32) void {
+    if req.persist != 0 && !meta.read_until_eof && !meta.connection_close {
+        if http1_async_pool().put(fd, req.host, req.port) {
+            return;
+        }
+        return;
+    }
+    _ = sys_close(fd) catch {};
 }
 
 /// 同步封装：`linux_epoll_create` + `block_on_with_event_loop_deadline` 驱动 `http1_request_async`。
@@ -1164,10 +1443,14 @@ fn http1_async_empty_body_slice() &[byte] {
 fn http1_async_request_from_url(method: Method, pu: ParsedHttpUrl, req: &Http1AsyncRequest) Http1AsyncRequest {
     var body: &[byte] = http1_async_empty_body_slice();
     var content_type: &[byte] = http1_async_empty_body_slice();
+    var persist: i32 = 0;
     if req != null {
         const r0: Http1AsyncRequest = *req;
         body = r0.body;
         content_type = r0.content_type;
+        // URL 版入口必须把 keep-alive 意图透传下去，否则调用方在 req 上设了 persist
+        // 也会被这里丢掉（表现为「设了复用却每次都在建连」）。
+        persist = r0.persist;
     }
     return Http1AsyncRequest{
         method: method,
@@ -1176,6 +1459,7 @@ fn http1_async_request_from_url(method: Method, pu: ParsedHttpUrl, req: &Http1As
         path: pu.path,
         body: body,
         content_type: content_type,
+        persist: persist,
     };
 }
 

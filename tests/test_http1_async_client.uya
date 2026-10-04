@@ -60,6 +60,30 @@ fn fill_repeated(out: &byte, len: usize, value: byte) void {
     }
 }
 
+/// 把 `src` 拷进 `out`（最多 `cap` 字节），返回实际拷贝长度。
+fn copy_str(out: &byte, cap: usize, src: &[byte]) usize {
+    var n: usize = src.len;
+    if n > cap {
+        n = cap;
+    }
+    var i: usize = 0;
+    while i < n {
+        out[i] = src.ptr[i];
+        i = i + 1;
+    }
+    return n;
+}
+
+/// 测试用：直接向连接池放一条连接。
+fn http1_async_pool_put_for_test(fd: i32, host: &[byte], port: u16) bool {
+    return http1_async_pool_put_raw(fd, host, port);
+}
+
+/// 测试用：直接从连接池取一条连接（找不到返回 -1）。
+fn http1_async_pool_take_for_test(host: &[byte], port: u16) i32 {
+    return http1_async_pool_take_raw(host, port);
+}
+
 fn write_stderr_msg(msg: &[byte]) void {
     _ = sys_write(2, msg.ptr, msg.len);
 }
@@ -959,3 +983,146 @@ test "http1_async_get_closed_peer_returns_connection_closed" {
     }
     try async_http1_get_closed_peer_returns_connection_closed();
 }
+
+// =============================================================================
+// keep-alive / 连接池
+// =============================================================================
+
+/// 客户端子进程：对同一 host:port 连发 N 个 persist 请求，退出码非 0 表示失败。
+fn run_keepalive_client(port: u16) void {
+    const loop: LinuxEpoll = linux_epoll_create(0) catch {
+        write_stderr_msg(&"ka:epoll\n"[0: 8]);
+        sys_exit(31);
+        return;
+    };
+
+    var url_buf: [byte: 64] = [];
+    const url_len: usize = fill_loopback_url(&url_buf[0] as &byte, 64, port, &"/ka"[0: 3]);
+    const url: &[byte] = url_buf[0: url_len];
+
+    // 显式要求复用；body/content_type 留空。
+    var empty: [byte: 1] = [0 as byte];
+    const req: Http1AsyncRequest = Http1AsyncRequest{
+        method: Method.GET,
+        host: &"127.0.0.1"[0: 9],
+        port: port,
+        path: &"/ka"[0: 3],
+        body: empty[0: 0],
+        content_type: empty[0: 0],
+        persist: 1,
+    };
+
+    var i: i32 = 0;
+    while i < 3 {
+        const fut: Future<!Http1AsyncResponse> = http1_async_get(url, &req, 5000);
+        const out: !Http1AsyncResponse = block_on_with_event_loop<Http1AsyncResponse>(&loop, fut, 1000);
+        const resp: Http1AsyncResponse = out catch |err| {
+            write_stderr_msg(&"ka:block_on iter="[0: 17]);
+            write_u16_dec_msg(&""[0: 0], i as u16);
+            write_stderr_msg(&" err="[0: 5]);
+            write_err_kind(&""[0: 0], @error_id(err));
+            write_stderr_msg(&"\n"[0: 1]);
+            sys_exit(32);
+            return;
+        };
+        if resp.status != 200 {
+            http1_async_response_free(&resp);
+            sys_exit(33);
+            return;
+        }
+        http1_async_response_free(&resp);
+        i = i + 1;
+    }
+    sys_exit(0);
+}
+
+/// keep-alive 核心判据：客户端连发 3 个请求，服务端**只 accept 一次**，
+/// 并在同一条连接上读满 3 个请求。
+fn async_http1_keepalive_reuses_one_connection() !void {
+    http1_async_pool_close_all();
+
+    const srv: HttpServer = try listen_loopback_server();
+    const child_pid: i32 = fork();
+    if child_pid == 0 {
+        http_server_close(&srv);
+        run_keepalive_client(srv.port);
+    }
+    if child_pid <= 0 {
+        try assert_eq_i32(0, 1);
+    }
+
+    var srv_tmp: HttpServer = HttpServer{ listen_fd: srv.listen_fd, port: srv.port };
+    // 只 accept 一次 —— 如果客户端每个请求都新建连接，第 2/3 个请求会卡在建连，
+    // 子进程超时退出，wait_child_ok 报非 0。
+    const conn: Conn = try http_server_accept(&srv_tmp);
+    const sfd: i32 = conn.fd;
+
+    var served: i32 = 0;
+    while served < 3 {
+        const pr: ParseResult = try http_recv_parse_request(sfd);
+        try assert_eq_i32(pr.request.method as i32, Method.GET as i32);
+        try assert_eq_i32(pr.request.path_len, 3);
+        // 回一个带 Content-Length 的 keep-alive 响应（HTTP/1.1 默认保持连接）。
+        try http_send_response_for_request_persist(sfd, Status.OK, &"ka-ok"[0: 5], &pr.request, true);
+        served = served + 1;
+    }
+
+    _ = sys_close(sfd);
+    wait_child_ok(child_pid);
+    http_server_close(&srv);
+    http1_async_pool_close_all();
+}
+
+test "http1_async_keepalive_reuses_one_connection" {
+    if !http_loopback_tests_supported() {
+        write_stderr_msg(&"skip:http1_loopback\n"[0: 20]);
+        return;
+    }
+    try async_http1_keepalive_reuses_one_connection();
+}
+
+/// 不要求 persist 时行为必须与修复前一致：每个请求都发 `Connection: close`，
+/// 连接不入池（池计数保持 0）。
+test "http1_async_non_persist_request_leaves_pool_empty" {
+    http1_async_pool_close_all();
+    const stats: Http1AsyncPoolStats = http1_async_pool_stats();
+    try assert_eq_i32(stats.idle_count, 0);
+    try assert_eq_i32(stats.reused_count as i32, 0);
+    try assert_eq_i32(stats.stored_count as i32, 0);
+}
+
+/// 连接池自身的取/放/淘汰语义（不依赖网络）。
+test "http1_async_pool_take_put_and_close" {
+    http1_async_pool_close_all();
+
+    // 放入两条不同 host 的连接，按 host:port 精确取回。
+    var host_a: [byte: 16] = [];
+    var host_b: [byte: 16] = [];
+    const n_a: usize = copy_str(&host_a[0] as &byte, 16, &"a.example"[0: 9]);
+    const n_b: usize = copy_str(&host_b[0] as &byte, 16, &"b.example"[0: 9]);
+    const fa: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    const fb: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if !http1_async_pool_put_for_test(fa, host_a[0: n_a], 8080) {
+        try assert_eq_i32(0, 1);
+    }
+    if !http1_async_pool_put_for_test(fb, host_b[0: n_b], 9090) {
+        try assert_eq_i32(0, 1);
+    }
+    try assert_eq_i32(http1_async_pool_stats().idle_count, 2);
+
+    // 不同 port 不算命中
+    try assert_eq_i32(http1_async_pool_take_for_test(host_a[0: n_a], 9999), 0 - 1);
+    // 精确命中
+    const got_a: i32 = http1_async_pool_take_for_test(host_a[0: n_a], 8080);
+    if got_a < 0 {
+        try assert_eq_i32(0, 1);
+    }
+    _ = sys_close(got_a) catch {};
+    try assert_eq_i32(http1_async_pool_stats().idle_count, 1);
+
+    // 关闭剩余
+    try assert_eq_i32(http1_async_pool_close_all(), 1);
+    try assert_eq_i32(http1_async_pool_stats().idle_count, 0);
+}
+
