@@ -1,0 +1,8 @@
+// split-C 重名顶层常量回归：第二个源文件重复声明同名 export const。
+// 只有一份定义可以落到镜像 TU 里，否则链接期 multiple definition。
+
+export const DUP_SHARED_CONST: i64 = 1000000;
+
+export fn dup_shared_b() i64 {
+    return DUP_SHARED_CONST;
+}

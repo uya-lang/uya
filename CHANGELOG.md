@@ -4,6 +4,24 @@
 
 ### 修复
 
+- **C99 split-C 后端：同名顶层常量的「定义」会重复发射（链接期 `multiple definition`）**。
+  合并命名空间下两个源文件可以各写一份同名 `export const`（真实例子：`lib/libc` 的
+  `CLOCKS_PER_SEC` 曾由 `stdlib.uya` 与 `time.uya` 各定义一次）。`gen_extern_var_decl` 用
+  `codegen.global_variables` 注册表判断「这个 C 名是否已经发射过定义」，而该表上限是
+  `C99_MAX_GLOBAL_VARS`（512）且**表满后静默丢弃登记**：小程序撑不满、去重生效看不出问题，
+  `uya-agent`（1700+ 顶层全局）表早就满了，两份定义一路漏到链接期。
+  现在新增一张独立的「已发射定义的全局 C 名」集合（开放寻址 + 线性探测，容量 8192），
+  在定义路径上先查再登记；**表满时不再静默降级，而是当场报错退出**，错误信息带
+  `文件:(行:列)`、表名与容量、以及本次要登记的全局名，并指明去调哪个常量 ——
+  漏登记会静默产出「会链接失败或结果错误」的 C，比直接编译失败更难排查。
+  `gen_global_var`（模块内私有非常量全局）刻意不动 —— 那里重名会**大声**报链接错误，
+  去重反而会把 loud failure 换成 silent wrong。注意 `global_variables` 本身是**缓存**
+  （满了按名查找会退回 `program_decls` 线性扫描），它继续保留「满则降级」的语义。
+  新增回归 `tests/verify_split_dup_global.sh`（固定装置 `tests/fixtures/split_dup_global/`），
+  已挂进 `make check` / `make check-hosted`；修复前该脚本报
+  `multiple definition of 'DUP_SHARED_CONST'`。修复后 `make b` 自举对比字节一致，
+  `make check` 1111/1111 通过。
+
 - **C99 hosted 后端：用户顶层全局与系统头宏同名导致编译失败**。hosted 生成会为非 bootstrap 编译单元
   `#include <errno.h>` 等系统头，宏是文本替换，因此用户顶层全局写成裸名时，单文件定义
   （`__attribute__((used)) const int32_t ETIMEDOUT = 110;`）与镜像分 TU 的声明
