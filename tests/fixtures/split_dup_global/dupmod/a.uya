@@ -1,0 +1,11 @@
+// split-C 重名顶层常量回归：同一模块目录下两个源文件各写一份同名 export const。
+//
+// 合并命名空间里这是同一个名字（真实例子：lib/libc 的 CLOCKS_PER_SEC 曾由
+// stdlib.uya 与 time.uya 各定义一次）。C99 后端只应发射一份定义，另一份走 extern。
+// 见 tests/verify_split_dup_global.sh 与 buglist「编译器 bug」条目。
+
+export const DUP_SHARED_CONST: i64 = 1000000;
+
+export fn dup_shared_a() i64 {
+    return DUP_SHARED_CONST;
+}

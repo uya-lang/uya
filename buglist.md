@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-03（split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义导致链接期 multiple definition 已修复：`lib/libc/stdlib.uya` 删掉那份重复常量，`uya-agent` 工程 split 构建恢复通过，详见"标准库 bug"首条；`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-10-04（split-C 下同名顶层常量重复发射定义（`multiple definition`）的**根因**已在后端收口：`gen_extern_var_decl` 原本用上限 512 的 `global_variables` 注册表当查重依据，`uya-agent` 有 1700+ 顶层全局、表满后静默停登导致去重失效；新增独立的「已发射全局 C 名」集合（`C99_EMITTED_GLOBAL_CAP = 8192`，**表满即报错并指出文件:行:列与全局名**，不再静默降级）与 `tests/verify_split_dup_global.sh` 回归（已挂进 `make check` / `make check-hosted`），`make b` 自举字节一致、`make check` 1111/1111，详见"编译器 bug"首条；2026-10-03（split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义导致链接期 multiple definition 已修复：`lib/libc/stdlib.uya` 删掉那份重复常量，`uya-agent` 工程 split 构建恢复通过，详见"标准库 bug"首条；`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -27,7 +27,9 @@
   - 验证状态：`uya-agent` 工程 split-C 构建从「链接失败」变为「编译完成」并跑通 `--selftest`；
     `./bin/uya test tests/test_signal.uya` 6/6 通过
   - 归属：`lib/libc/stdlib.uya`
-  - 备注：编译器侧（split 时对同名顶层常量去重）仍建议后续在 `src/codegen` 里收口，避免同类常量再次踩到。
+  - 备注：编译器侧（split 时对同名顶层常量去重）已于 2026-10-04 在 `src/codegen/c99` 里收口
+    （根因是查重用的 `global_variables` 注册表上限 512 饱和后静默停登），详见"编译器 bug"首条；
+    库里这份重复常量保持删除状态。
 
 - [x] **P0 / 严重：`signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER）**
   - 状态：已修复（2026-10-03）
@@ -104,6 +106,57 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [x] **P1 / 高：split-C 下同名顶层常量会重复发射定义（`multiple definition`），根因是去重用的全局注册表在 512 槽饱和后静默停登**
+  - 状态：已修复（2026-10-04）
+  - 现象：`UYA_SPLIT_C_DIR=<dir>`（split-C 后端）下，合并命名空间里两个源文件各写一份同名 `export const`
+    （真实例子：`lib/libc` 的 `CLOCKS_PER_SEC` 同时存在于 `stdlib.uya` 与 `time.uya`）时，两个镜像 TU
+    各自发射一份定义，链接期直接：
+    ```
+    /usr/bin/ld: lib/libc/time.o:(.rodata+0x560): multiple definition of `CLOCKS_PER_SEC';
+                  lib/libc/stdlib.o:(.rodata+0x570): first defined here
+    ```
+  - 复现：`uya-agent` 工程（47 个 `.uya`、`UYA_SPLIT_C_DIR` 打开）**必然**链接失败；
+    `lib/libc/stdlib.uya` 里删掉那份重复常量即通过。**同一个 bug 只用纯用户码也能复现**：
+    两个源文件各写一份 `export const DUP_SHARED_CONST: i64 = 1000000;`，主程序再铺 600 个
+    `export const` 撑满注册表，链接期同样报 `multiple definition`（见 `tests/verify_split_dup_global.sh`）。
+  - 根因：`gen_extern_var_decl` 用 `codegen.global_variables` 注册表判断「这个 C 名是否已经
+    发射过定义」，而该表上限是 `C99_MAX_GLOBAL_VARS`（512）；登记语句只写
+    `if (idx >= 0 && idx < C99_MAX_GLOBAL_VARS)`，**表满后静默丢弃**，查重随即失效。
+    小程序（顶层全局数 < 512）撑不满 ⇒ 去重生效、看不出问题；`uya-agent` 有 1700+ 顶层全局，
+    表早就满了 ⇒ libc 的那份重复常量一路漏到链接期。这也解释了 2026-10-03 那条备注里
+    「同一棵树增减若干用户文件就会从一处定义翻成两处定义」的抖动。
+    注：`global_variables` 本身是**缓存**（满了按名查找会退回 `program_decls` 线性扫描），
+    它继续保留「满则降级」的语义；出问题的是把它当**查重依据**用。
+  - 修复内容（`src/codegen/c99/global.uya`、`src/codegen/c99/utils.uya`）：
+    * 新增一张独立的「已发射定义的全局 C 名」集合（开放寻址 + 线性探测，
+      `C99_EMITTED_GLOBAL_CAP = 8192`），走
+      `c99_global_c_name_emitted` / `c99_global_c_name_mark_emitted`；
+    * **表满时不再静默降级，而是当场报错退出**（`c99_report_global_table_overflow`），
+      错误信息带 `文件:(行:列)`、表名与容量、以及本次要登记的全局名，并指明去调哪个常量：
+      `main.uya:(8:14): 错误: 顶层全局变量过多，已发射全局 C 名集合（容量 4）已满，无法登记；
+      本次要登记的是 `PAD_C4`。`（缩容实验实测输出）。
+      这条判据之所以必须 fail loud：漏登记会静默产出「会链接失败或结果错误」的 C，
+      比直接编译失败更难排查；
+    * `c99_emitted_global_names_reset()` 挂进 `c99_codegen_new` 的初始化序列；
+    * `gen_extern_var_decl` 的**定义**路径改走新判据（`export const/var … = value` 一律经此函数），
+      先查再登记，保证同一个 C 名全树只有一份定义。
+    * 刻意**不动** `gen_global_var`（模块内私有非常量全局）：两个 `var g` 落在不同模块时，
+      合并命名空间会给同一个裸 C 名，现在会**大声**报 `multiple definition`；
+      若在那里也去重就会变成「静默只留第一份」的错误结果，属于把 loud failure 换成 silent wrong。
+      私有全局重名应由模块前缀机制解决，不由这里兜。
+  - 验证状态：
+    * 新增回归 `tests/verify_split_dup_global.sh`（固定装置 `tests/fixtures/split_dup_global/`），
+      已挂进 `make check` 与 `make check-hosted`「验证 split-C 重名顶层常量」；
+      **门是有效的**：把修复 stash 掉重跑同一脚本 → `multiple definition of 'DUP_SHARED_CONST'`、退出码 1；
+      带修复 → `verify_split_dup_global: ok`。
+    * `uya-agent` 工程 split-C 构建：把那份重复常量加回 `lib/libc/stdlib.uya` 后
+      **从「链接失败」变为「编译完成」（3.2 MB ELF，`--print-config` 正常）**。
+    * `make uya` 自举对比**字节一致**（`cmp`）；`make check` **1111/1111** 全绿。
+  - 归属：`src/codegen/c99/global.uya`、`src/codegen/c99/utils.uya`
+  - 备注：本次把「同名顶层常量」这一层在**后端**收口了，库里那份重复常量仍保持删除状态
+    （`CLOCKS_PER_SEC` 按 C 标准只由 `libc.time` 提供）。同类饱和问题若再出现，
+    应优先怀疑「用 `global_variables` / 其它定容表当查重依据」的写法。
 
 - [x] **P1 / 高：hosted 下用户顶层全局与系统头宏同名即编译失败（`ETIMEDOUT` 等）**
   - 状态：已修复（2026-09-27）

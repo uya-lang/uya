@@ -333,6 +333,7 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     c99_utils_reset_caches(codegen);
     c99_decl_result_cache_reset(codegen);
     c99_ident_ref_cache_reset();
+    c99_emitted_global_names_reset();
     c99_private_fn_scope_cache_reset(codegen);
     c99_static_top_fn_cache_reset(codegen);
     codegen.arena = arena;
