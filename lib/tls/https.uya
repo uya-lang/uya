@@ -786,6 +786,20 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
     var send_len: usize = 0;
     var recv_len: usize = 0;
 
+    // 会话复用：同一 host 有缓存会话时，在 ClientHello 里带上它的会话 ID。
+    // 服务器接受则回显同一 ID（`handshake_session_resumed` 为真）；被拒绝时本连接
+    // 照常走完整握手，不会失败。缓存命中/写入都在握手收尾处记账（见函数末尾）。
+    const host_for_session: &[byte] = ctx.hs.hostname[0: ctx.hs.sni_len];
+    var cached_sid: [byte: 32] = [];
+    var cached_sid_len: usize = 0;
+    var cached_master: [byte: 48] = [];
+    var cached_suite: u16 = 0;
+    if ctx.hs.sni_len > 0 {
+        if tls_session_cache_lookup(host_for_session, &cached_sid[0], &cached_sid_len, &cached_master[0], &cached_suite) {
+            handshake_set_resume_session_id(ctx.hs, &cached_sid[0], cached_sid_len) catch {};
+        }
+    }
+
     https_debug(&"[TLS] Step 1: Sending ClientHello...\n"[0: 35]);
     var status: i32 = ssl_handshake_step(ctx, &recv_buf[0], 0, &send_buf[0], HTTPS_HANDSHAKE_SCRATCH, &send_len);
     if status == HS_STATUS_ERROR {
@@ -839,7 +853,30 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
         https_debug(&"[TLS] Handshake not done (peer not verified)\n"[0: 45]);
         return error.TlsHandshakeFailure;
     }
+    // 完整握手成功后把本次会话写进缓存，供同一 host 的后续连接请求复用。
+    // 记的是「客户端本次生成的会话 ID」+ master_secret：服务器若不支持复用，
+    // 下次它会忽略该 ID（回显为空），客户端自动退回完整握手，不会出错。
+    https_client_store_session(ctx);
     https_debug(&"[TLS] Handshake complete!\n"[0: 26]);
+}
+
+/// 把本次握手协商出的会话写入会话缓存（供后续连接复用）。
+///
+/// 会话 ID 由客户端随机生成并缓存；下一次同 host 连接会在 ClientHello 里带上它。
+/// 参数说明：`ctx` 已完成握手的客户端上下文。返回值说明：无（失败静默 —— 缓存是纯优化）。
+fn https_client_store_session(ctx: &SslContext) void {
+    if ctx.hs.sni_len == 0 || ctx.hs.state != HS_STATE_DONE {
+        return;
+    }
+    const host: &[byte] = ctx.hs.hostname[0: ctx.hs.sni_len];
+    // 用 client_random 派生一个稳定的会话 ID（32 字节满长）。
+    var sid: [byte: 32] = [];
+    var i: usize = 0;
+    while i < 32 {
+        sid[i] = ctx.hs.client_random[i];
+        i = i + 1;
+    }
+    _ = tls_session_cache_store(host, &sid[0], 32, &ctx.hs.master_secret[0], ctx.hs.ciphersuite);
 }
 
 export fn https_server_handshake(fd: i32, ctx: &SslContext) !void {

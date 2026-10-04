@@ -157,27 +157,52 @@
 
 ## 运行时 / 调度限制
 
-- [ ] **P2 / 中：HTTP/1.1 客户端没有连接池，也不复用连接（每次请求都 `Connection: close`）**
-  - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
+- [x] **P2 / 中：HTTP/1.1 客户端没有连接池，也不复用连接（每次请求都 `Connection: close`）**
+  - 状态：已修复（2026-10-04）
   - 现象：`lib/std/http/http1_async.uya` 的请求头构建里写死 `\r\nConnection: close\r\n`，
-    且 API 是「一次请求一条连接」：`http1_request_async` / `http1_async_get` / `http1_async_post`
-    各自建连、用完即关。连续 N 个请求 = N 次 TCP（HTTPS 还要 N 次 TLS 握手）。
-  - 影响：单请求功能正确；高频/批量请求时延迟与 fd 消耗偏高，且无法利用 keep-alive。
-  - 修复方向（供后续参考）：按 `host:port` 建连接池并复用；响应按 `Content-Length` 切分
-    （chunked 仍拒绝，见 `error.HttpChunkedNotSupported`）；池的关闭/注销语义需同步写进
-    `docs/async_runtime_semantics_matrix.md` 的叶子合约。
-  - 验证建议：loopback 上连发 N 个请求复用同一条连接（服务器侧断言只 `accept` 1 次）。
+    且 API 是「一次请求一条连接」：连续 N 个请求 = N 次 TCP（HTTPS 还要 N 次 TLS 握手）。
+  - 修复内容：
+    1) `Http1AsyncPool`：进程内单例、有界（`HTTP1_ASYNC_POOL_MAX = 8` 个空闲槽），
+       按 host 字节 + port 精确匹配取用；池满或 host 超长时关闭 fd 而不是截断误配。
+    2) `Http1AsyncRequest.persist`（默认 0 = 旧行为）控制是否走 keep-alive；
+       URL 版入口 `http1_async_get/post` 透传该字段。
+    3) `Connection` 行按 persist 精确计入容量（keep-alive 26 字节 / close 21 字节）。
+    4) 响应头解析新增 `Connection: close` 识别；`http1_async_finish_connection` 只在
+       「要求 persist + 响应非 read_until_eof + 未声明 close」时回池 —— 宁可少复用，
+       也不要把坏连接放回池。
+    5) 观测/测试入口：`http1_async_pool_stats` / `http1_async_pool_close_all` /
+       `http1_async_pool_put_raw` / `http1_async_pool_take_raw`。
+  - 验证状态：`tests/test_http1_async_client.uya` 新增
+    `http1_async_keepalive_reuses_one_connection`（客户端连发 3 个 persist 请求，
+    服务端只 `accept` 一次并在同一条连接上读满 3 个 —— 临时关掉池复用该用例在 iter=1 报
+    `HttpTimeout`，证实判据有效）、`http1_async_non_persist_request_leaves_pool_empty`、
+    `http1_async_pool_take_put_and_close`；该文件 15/15 通过，
+    `test_http_server` / `test_http_uyagin` / `test_https_loopback` / `test_std_dns_async_transport` 无回归。
   - 归属：`lib/std/http/http1_async.uya`。
 
-- [ ] **P2 / 中：TLS 无会话复用（没有 session ticket / session ID 缓存）**
-  - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
-  - 现象：`lib/tls/` 全仓库无 `session_resumption` / `session_ticket` / `PSK` 相关实现；
-    每次新建 HTTPS 连接都走完整握手。
-  - 修复方向（供后续参考）：先做最小闭环 —— 会话 ID 缓存 + TLS 1.2 session ticket 的
-    存储与复用；API 形状对齐既有 `https_*_async` 叶子合约（不拥有 `SslContext` 生命周期）。
-  - 验证建议：两次握手在第二次命中复用（断言 `NewSessionTicket`/AbbreviatedHandshake 路径被走到，
-    或至少断言握手记录数下降）。
-  - 归属：`lib/tls/`。
+- [x] **P2 / 中：TLS 无会话复用（没有 session ID 缓存）**
+  - 状态：已修复（2026-10-04，**会话 ID 路径**；session ticket 仍未做）
+  - 现象：`lib/tls/` 全仓库无会话复用实现；每次新建 HTTPS 连接都走完整握手
+    （ClientHello → 服务器 flight → ClientKeyExchange/Finished → ServerFinished）。
+  - 修复内容：
+    1) `TlsSessionCache`（`lib/tls/ssl/handshake.uya`）：按 host 缓存会话 ID + master_secret +
+       密码套件，进程内单例、有界（`TLS_SESSION_CACHE_MAX = 8`），同 host 覆盖。
+    2) `HandshakeCtx` 增加复用字段；`handshake_set_resume_session_id()` 让客户端在
+       ClientHello 里携带会话 ID（小写、长度字段与记录长度同步增长）。
+    3) 服务器侧 `hs_server_decide_session_resumption()`：客户端带了 ID **且**本地缓存有
+       同 host 同 ID 的白名单条目时才回显接受（不因为客户端给了 ID 就接受），
+       回显时把缓存的 master_secret 装回上下文。
+    4) 客户端解析服务器回显的会话 ID：与请求一致才算「已复用」
+       （`handshake_session_resumed()`）；不一致/为空视为拒绝，连接退回完整握手而不失败。
+    5) `https_client_handshake` 在握手成功后把本次会话写入缓存，并在下次连接时按 host 查询。
+  - 验证状态：新增 `tests/test_tls_session_resumption.uya`（7 个用例，覆盖缓存的存/查/覆盖/
+    入参校验/有界、ClientHello 线上格式、服务器接受与拒绝两种往返）；
+    临时禁掉服务器回显时 `test_roundtrip_server_accepts` 报 `ServerDidNotAccept`（判据有效）；
+    `test_https_loopback` / `test_tls_async_io_future` / `test_tls_async_runtime_boundary` /
+    `test_https_real_site` 均无回归。
+  - 归属：`lib/tls/ssl/handshake.uya`、`lib/tls/https.uya`。
+  - 备注：本项实现期间撞到一个**编译器 bug**（切片字面量传给 `&const byte` 形参时发射错指针），
+    见本文件「编译器 bug」首条；测试里按仓库既有做法改用局部数组传参绕开。
 
 - [ ] **P3 / 低：跨平台 `EventLoop` 后端缺失（macOS `kqueue` / Windows `IOCP`）**
   - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
@@ -219,6 +244,45 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [ ] **P1 / 高：切片字面量传给 `&const byte` 形参时，生成 C 传的是「切片描述符临时量的地址」而不是字节指针**
+  - 状态：**未修复**（2026-10-04 发现并记录；本轮通过在测试里改用局部数组绕开）
+  - 现象：被调函数按 `&const byte` / `*const byte` 声明形参时，调用方写
+    `f(&"abc"[0: 3])`（或任何 `&[byte]` 切片表达式的取址）→ 进了函数读到的**不是** `"abc"`，
+    而是栈上切片描述符的位模式（实测打印出 `38514DD3…` 这类指针/长度字节）。
+    形参写成 `&[byte]`（切片）则正常。
+  - 复现（最小，已实测）：
+    ```uya
+    const N: usize = 64;
+    export struct S { len: usize, buf: [byte: N] }
+    fn setter(s: &S, name: &const byte, n: usize) void {
+        s.len = n;
+        var i: usize = 0;
+        while i < n { s.buf[i] = name[i]; i = i + 1; }
+    }
+    // 调用：setter(&a, &"r.example.com"[0: 13], 13);
+    //   → a.buf 里拿到的不是 "r.example.com"
+    // 同一函数若形参改写成 `name: &[byte]`（并用 name.ptr），则字节正确。
+    ```
+  - 生成的 C（`UYA_SPLIT_C_DIR=… uya build --c99`，观察调用点）：
+    ```c
+    // 形参：const uint8_t * name
+    // 调用点实际发射：
+    setter((&a), (&(struct uya_slice_uint8_t){ .ptr = (uint8_t *)((uint8_t *)str0) + 0, .len = 13}), 13);
+    //            ^^ 取了整个切片描述符临时量的地址；应传它的 .ptr
+    ```
+    即「切片值 → 指针形参」这条隐式转换漏了取 `.ptr`，直接把描述符地址当指针传。
+  - 影响：所有「形参是 `&const byte` + 实参写切片字面量」的调用点都静默拿到错数据
+    （不报错、不崩溃，只是内容不对）。本轮在 `lib/tls/ssl/handshake.uya` 的
+    `handshake_set_hostname` 上撞到：SNI hostname 字段因此写坏，会话复用按 host 匹配
+    必然失败（表现为「客户端带了会话 ID，服务器也解析到了，但按 host 查缓存永远 miss」）。
+  - 现有绕法（仓库既有测试同款）：把字面量先拷进**局部数组**，再传 `&arr[0]`。
+    例如 `tests/test_https_loopback.uya` 的 `var host: [byte: 9] = [...]; ssl_set_hostname(ctx, &host[0], 9);`。
+  - 待定修复方向：`src/codegen/c99` 里「切片表达式作为指针形参实参」的转换分支，
+    应发射 `(uint8_t *)(<切片>.ptr)` 而不是 `&(struct uya_slice_*){...}`；
+    需要先补齐回归（形参 `&const byte` + 实参各种切片形式：
+    字面量切片、数组切片、字段切片、函数返回切片）。
+  - 归属：`src/codegen/c99/expr.uya`（切片/取址发射）或 `src/checker`（隐式转换注入点）。
 
 - [x] **P1 / 高：split-C 下同名顶层常量会重复发射定义（`multiple definition`），根因是去重用的全局注册表在 512 槽饱和后静默停登**
   - 状态：已修复（2026-10-04）

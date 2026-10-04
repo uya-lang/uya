@@ -1,0 +1,437 @@
+// test_tls_session_resumption.uya - TLS 1.2 会话复用（会话 ID 缓存）回归
+//
+// 覆盖三层：
+//   1) 会话缓存的存/查/覆盖/容量/误配语义（不依赖网络与握手）；
+//   2) ClientHello 携带会话 ID 的线上格式（长度字段 + 正文 + 记录长度同步增长）；
+//   3) 客户端 ↔ 服务器完整往返：服务器接受时客户端判定「已复用」，
+//      服务器拒绝（回显为空）时客户端判定「未复用」——
+//      两种情况都必须能推进握手，而不是把拒绝当错误。
+
+use std.runtime.entry;
+use tls.ssl.handshake.HandshakeCtx;
+use tls.ssl.handshake.handshake_ctx_init;
+use tls.ssl.handshake.HS_ROLE_CLIENT;
+use tls.ssl.handshake.HS_ROLE_SERVER;
+use tls.ssl.handshake.HS_STATUS_NEED_SEND;
+use tls.ssl.handshake.HS_STATUS_ERROR;
+use tls.ssl.handshake.handshake_client_start;
+use tls.ssl.handshake.handshake_client_step;
+use tls.ssl.handshake.handshake_server_step;
+use tls.ssl.handshake.handshake_set_resume_session_id;
+use tls.ssl.handshake.handshake_set_hostname;
+use tls.ssl.handshake.handshake_session_resumed;
+use tls.ssl.handshake.TLS_SESSION_ID_LEN;
+use tls.ssl.handshake.TLS_SESSION_CACHE_MAX;
+use tls.ssl.handshake.tls_session_cache_stats;
+use tls.ssl.handshake.tls_session_cache_store;
+use tls.ssl.handshake.tls_session_cache_lookup;
+use tls.ssl.handshake.tls_session_cache_clear;
+
+
+/// 把字面量拷进局部数组再取地址传参。
+/// 为什么不直接传切片字面量：编译器把 `&"..."[0: n]` 传到 `&const byte` 形参时，
+/// 生成 C 传的是**切片描述符临时量的地址**（`&(struct uya_slice_uint8_t){...}`），
+/// 而不是字节指针 —— 被调方读到的就不是字符串内容。仓库既有测试统一用局部数组传参。
+fn fill_host(out: &byte, lit: &[byte]) usize {
+    var i: usize = 0;
+    while i < lit.len {
+        out[i] = lit.ptr[i];
+        i = i + 1;
+    }
+    return lit.len;
+}
+
+const SID_LEN: usize = 32usize;
+
+fn fill_sid(out: &byte, seed: usize) void {
+    var i: usize = 0;
+    while i < SID_LEN {
+        out[i] = (((seed + i) & 0xFFusize) as! byte).value;
+        i = i + 1;
+    }
+}
+
+fn fill_master(out: &byte, seed: usize) void {
+    var i: usize = 0;
+    while i < 48usize {
+        out[i] = (((seed + i * 3usize) & 0xFFusize) as! byte).value;
+        i = i + 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 1) 会话缓存本身
+// ---------------------------------------------------------------------------
+
+fn test_session_cache_store_lookup() !void {
+    tls_session_cache_clear();
+    if tls_session_cache_stats().count != 0 {
+        return error.CacheNotEmpty;
+    }
+
+    var sid: [byte: SID_LEN] = [];
+    var master: [byte: 48] = [];
+    fill_sid(&sid[0], 5);
+    fill_master(&master[0], 9);
+
+    const host: &[byte] = &"a.example.com"[0: 13];
+    if !tls_session_cache_store(host, &sid[0], SID_LEN, &master[0], 0xc02f) {
+        return error.StoreFailed;
+    }
+    if tls_session_cache_stats().count != 1 {
+        return error.BadCount;
+    }
+
+    var got_sid: [byte: SID_LEN] = [];
+    var got_master: [byte: 48] = [];
+    var got_len: usize = 0;
+    var got_suite: u16 = 0;
+    if !tls_session_cache_lookup(host, &got_sid[0], &got_len, &got_master[0], &got_suite) {
+        return error.LookupMiss;
+    }
+    if got_len != SID_LEN || got_suite != 0xc02f {
+        return error.BadMeta;
+    }
+    var i: usize = 0;
+    while i < SID_LEN {
+        if got_sid[i] != sid[i] {
+            return error.SidMismatch;
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < 48usize {
+        if got_master[i] != master[i] {
+            return error.MasterMismatch;
+        }
+        i = i + 1;
+    }
+
+    // 不同 host 不命中
+    var zs: [byte: SID_LEN] = [];
+    var zm: [byte: 48] = [];
+    var zl: usize = 0;
+    var zu: u16 = 0;
+    if tls_session_cache_lookup(&"other.com"[0: 9], &zs[0], &zl, &zm[0], &zu) {
+        return error.WrongHostHit;
+    }
+}
+
+fn test_session_cache_overwrite_same_host() !void {
+    tls_session_cache_clear();
+    const host: &[byte] = &"b.example.com"[0: 13];
+    var sid1: [byte: SID_LEN] = [];
+    var sid2: [byte: SID_LEN] = [];
+    var master: [byte: 48] = [];
+    fill_sid(&sid1[0], 1);
+    fill_sid(&sid2[0], 77);
+    fill_master(&master[0], 3);
+
+    if !tls_session_cache_store(host, &sid1[0], SID_LEN, &master[0], 0x009c) {
+        return error.Store1;
+    }
+    if !tls_session_cache_store(host, &sid2[0], SID_LEN, &master[0], 0x009c) {
+        return error.Store2;
+    }
+    // 同 host 覆盖，条目数不增长
+    if tls_session_cache_stats().count != 1 {
+        return error.CountGrew;
+    }
+    var got_sid: [byte: SID_LEN] = [];
+    var got_master: [byte: 48] = [];
+    var got_len: usize = 0;
+    var got_suite: u16 = 0;
+    if !tls_session_cache_lookup(host, &got_sid[0], &got_len, &got_master[0], &got_suite) {
+        return error.LookupAfterOverwrite;
+    }
+    var i: usize = 0;
+    while i < SID_LEN {
+        if got_sid[i] != sid2[i] {
+            return error.NotOverwritten;
+        }
+        i = i + 1;
+    }
+}
+
+fn test_session_cache_rejects_bad_input() !void {
+    tls_session_cache_clear();
+    var sid: [byte: SID_LEN] = [];
+    var master: [byte: 48] = [];
+    fill_sid(&sid[0], 2);
+    fill_master(&master[0], 4);
+
+    // 空 host / 超长 host / 0 长 sid / 超长 sid 都必须被拒
+    if tls_session_cache_store(&""[0: 0], &sid[0], SID_LEN, &master[0], 0x009c) {
+        return error.EmptyHostAccepted;
+    }
+    var long_host: [byte: 200] = [];
+    var i: usize = 0;
+    while i < 200usize {
+        long_host[i] = 'h' as byte;
+        i = i + 1;
+    }
+    if tls_session_cache_store(long_host[0: 200], &sid[0], SID_LEN, &master[0], 0x009c) {
+        return error.LongHostAccepted;
+    }
+    if tls_session_cache_store(&"c.example.com"[0: 13], &sid[0], 0usize, &master[0], 0x009c) {
+        return error.ZeroSidAccepted;
+    }
+    var big_sid: [byte: 64] = [];
+    if tls_session_cache_store(&"c.example.com"[0: 13], &big_sid[0], 64usize, &master[0], 0x009c) {
+        return error.BigSidAccepted;
+    }
+    if tls_session_cache_stats().count != 0 {
+        return error.CachePolluted;
+    }
+}
+
+fn test_session_cache_bounded() !void {
+    tls_session_cache_clear();
+    var sid: [byte: SID_LEN] = [];
+    var master: [byte: 48] = [];
+    fill_sid(&sid[0], 6);
+    fill_master(&master[0], 6);
+
+    // 填满后继续写新 host 必须被拒（有界，不静默丢旧条目）
+    var i: i32 = 0;
+    var host_buf: [byte: 32] = [];
+    while i < TLS_SESSION_CACHE_MAX {
+        // 构造 "h<i>.example" 形式的 host
+        host_buf[0] = 'h' as byte;
+        host_buf[1] = ((48 + (i % 10)) as! byte).value;
+        host_buf[2] = '.' as byte;
+        const suffix: &[byte] = &"example"[0: 7];
+        var k: usize = 0;
+        while k < 7usize {
+            host_buf[3 + k] = suffix[k];
+            k = k + 1;
+        }
+        if !tls_session_cache_store(host_buf[0: 10], &sid[0], SID_LEN, &master[0], 0x009c) {
+            return error.FillFailed;
+        }
+        i = i + 1;
+    }
+    if tls_session_cache_stats().count != TLS_SESSION_CACHE_MAX {
+        return error.BadCap;
+    }
+    // 第 MAX+1 个新 host 应被拒
+    const extra: &[byte] = &"overflow.example"[0: 16];
+    if tls_session_cache_store(extra, &sid[0], SID_LEN, &master[0], 0x009c) {
+        return error.OverflowAccepted;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2) ClientHello 线上格式
+// ---------------------------------------------------------------------------
+
+fn test_client_hello_carries_session_id() !void {
+    var sid: [byte: SID_LEN] = [];
+    fill_sid(&sid[0], 11);
+
+    // 基线：不带会话 ID
+    var base: HandshakeCtx = HandshakeCtx{};
+    handshake_ctx_init(&base, HS_ROLE_CLIENT);
+    var host_a: [byte: 32] = [];
+    const host_a_len: usize = fill_host(&host_a[0], &"a.example.com"[0: 13]);
+    handshake_set_hostname(&base, &host_a[0], host_a_len) catch {
+        return error.SetHostFailed;
+    };
+    var base_buf: [byte: 2048] = [];
+    var base_len: usize = 0;
+    if handshake_client_start(&base, &base_buf[0], 2048, &base_len) != HS_STATUS_NEED_SEND {
+        return error.BaseStartFailed;
+    }
+    if base_buf[43] != 0 as byte {
+        return error.BaselineSidNotEmpty;
+    }
+
+    // 带会话 ID：总长恰好 +32，长度字段为 32，正文一致
+    var with_sid: HandshakeCtx = HandshakeCtx{};
+    handshake_ctx_init(&with_sid, HS_ROLE_CLIENT);
+    var host_a2: [byte: 32] = [];
+    const host_a2_len: usize = fill_host(&host_a2[0], &"a.example.com"[0: 13]);
+    handshake_set_hostname(&with_sid, &host_a2[0], host_a2_len) catch {
+        return error.SetHostFailed2;
+    };
+    handshake_set_resume_session_id(&with_sid, &sid[0], SID_LEN) catch {
+        return error.SetSidFailed;
+    };
+    var sid_buf: [byte: 2048] = [];
+    var sid_len: usize = 0;
+    if handshake_client_start(&with_sid, &sid_buf[0], 2048, &sid_len) != HS_STATUS_NEED_SEND {
+        return error.SidStartFailed;
+    }
+    if sid_len != base_len + SID_LEN {
+        return error.SidLenWrong;
+    }
+    if sid_buf[43] != (SID_LEN as! byte).value {
+        return error.SidFieldWrong;
+    }
+    var i: usize = 0;
+    while i < SID_LEN {
+        if sid_buf[44 + i] != sid[i] {
+            return error.SidBodyWrong;
+        }
+        i = i + 1;
+    }
+    // 记录长度字段（大端 16 位，偏移 3）也必须跟着增长
+    const base_rec: usize = ((base_buf[3] as usize) << 8) | (base_buf[4] as usize);
+    const sid_rec: usize = ((sid_buf[3] as usize) << 8) | (sid_buf[4] as usize);
+    if sid_rec != base_rec + SID_LEN {
+        return error.RecordLenWrong;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 3) 客户端 ↔ 服务器往返
+// ---------------------------------------------------------------------------
+
+/// 服务器接受复用：客户端必须判定 session_resumed。
+fn test_roundtrip_server_accepts() !void {
+    tls_session_cache_clear();
+    var sid: [byte: SID_LEN] = [];
+    fill_sid(&sid[0], 21);
+
+    var cli: HandshakeCtx = HandshakeCtx{};
+    handshake_ctx_init(&cli, HS_ROLE_CLIENT);
+    var host_r: [byte: 32] = [];
+    const host_r_len: usize = fill_host(&host_r[0], &"r.example.com"[0: 13]);
+    handshake_set_hostname(&cli, &host_r[0], host_r_len) catch {
+        return error.HostA;
+    };
+    handshake_set_resume_session_id(&cli, &sid[0], SID_LEN) catch {
+        return error.SetA;
+    };
+    var ch: [byte: 2048] = [];
+    var ch_len: usize = 0;
+    if handshake_client_start(&cli, &ch[0], 2048, &ch_len) != HS_STATUS_NEED_SEND {
+        return error.StartA;
+    }
+
+    // 服务器：先往缓存里放同 host 同 ID 的会话，再走握手步 —— 应回显并标记复用
+    var master: [byte: 48] = [];
+    fill_master(&master[0], 21);
+    if !tls_session_cache_store(&"r.example.com"[0: 13], &sid[0], SID_LEN, &master[0], 0x009c) {
+        return error.StoreServer;
+    }
+    var srv: HandshakeCtx = HandshakeCtx{};
+    handshake_ctx_init(&srv, HS_ROLE_SERVER);
+    var flight: [byte: 8192] = [];
+    var flight_len: usize = 0;
+    if handshake_server_step(&srv, &ch[0], ch_len, &flight[0], 8192, &flight_len) == HS_STATUS_ERROR {
+        return error.ServerParseA;
+    }
+    if srv.peer_session_id_len != SID_LEN {
+        return error.ServerMissedSid;
+    }
+    if !handshake_session_resumed(&srv) {
+        return error.ServerDidNotAccept;
+    }
+
+    var out: [byte: 8192] = [];
+    var out_len: usize = 0;
+    if handshake_client_step(&cli, &flight[0], flight_len, &out[0], 8192, &out_len) == HS_STATUS_ERROR {
+        return error.ClientParseA;
+    }
+    if !handshake_session_resumed(&cli) {
+        return error.ClientDidNotSeeResume;
+    }
+}
+
+/// 服务器拒绝（客户端给的 ID 不在缓存里）：客户端必须判定未复用，且握手照常推进。
+fn test_roundtrip_server_rejects() !void {
+    tls_session_cache_clear();
+    var sid: [byte: SID_LEN] = [];
+    fill_sid(&sid[0], 31);
+
+    var cli: HandshakeCtx = HandshakeCtx{};
+    handshake_ctx_init(&cli, HS_ROLE_CLIENT);
+    var host_x: [byte: 32] = [];
+    const host_x_len: usize = fill_host(&host_x[0], &"x.example.com"[0: 13]);
+    handshake_set_hostname(&cli, &host_x[0], host_x_len) catch {
+        return error.HostB;
+    };
+    handshake_set_resume_session_id(&cli, &sid[0], SID_LEN) catch {
+        return error.SetB;
+    };
+    var ch: [byte: 2048] = [];
+    var ch_len: usize = 0;
+    if handshake_client_start(&cli, &ch[0], 2048, &ch_len) != HS_STATUS_NEED_SEND {
+        return error.StartB;
+    }
+
+    // 缓存为空 ⇒ 服务器无从认同该会话 ID ⇒ 不回显
+    var srv: HandshakeCtx = HandshakeCtx{};
+    handshake_ctx_init(&srv, HS_ROLE_SERVER);
+    var flight: [byte: 8192] = [];
+    var flight_len: usize = 0;
+    if handshake_server_step(&srv, &ch[0], ch_len, &flight[0], 8192, &flight_len) == HS_STATUS_ERROR {
+        return error.ServerParseB;
+    }
+    if handshake_session_resumed(&srv) {
+        return error.ServerWronglyAccepted;
+    }
+
+    var out: [byte: 8192] = [];
+    var out_len: usize = 0;
+    if handshake_client_step(&cli, &flight[0], flight_len, &out[0], 8192, &out_len) == HS_STATUS_ERROR {
+        return error.ClientParseB;
+    }
+    if handshake_session_resumed(&cli) {
+        return error.ClientWronglyResumed;
+    }
+}
+
+export fn main() i32 {
+    var failures: i32 = 0;
+
+    test_session_cache_store_lookup() catch |err| {
+        @println("FAIL test_session_cache_store_lookup");
+        _ = err;
+        failures = failures + 1;
+    };
+    test_session_cache_overwrite_same_host() catch |err| {
+        @println("FAIL test_session_cache_overwrite_same_host");
+        _ = err;
+        failures = failures + 1;
+    };
+    test_session_cache_rejects_bad_input() catch |err| {
+        @println("FAIL test_session_cache_rejects_bad_input");
+        _ = err;
+        failures = failures + 1;
+    };
+    test_session_cache_bounded() catch |err| {
+        @println("FAIL test_session_cache_bounded");
+        _ = err;
+        failures = failures + 1;
+    };
+    test_client_hello_carries_session_id() catch |err| {
+        @println("FAIL test_client_hello_carries_session_id");
+        _ = err;
+        failures = failures + 1;
+    };
+    test_roundtrip_server_accepts() catch |err| {
+        @println("FAIL test_roundtrip_server_accepts");
+        const eid: u32 = @error_id(err);
+        if eid == @error_id(error.ServerMissedSid) { @println("  ServerMissedSid"); }
+        else if eid == @error_id(error.ServerDidNotAccept) { @println("  ServerDidNotAccept"); }
+        else if eid == @error_id(error.ServerParseA) { @println("  ServerParseA"); }
+        else if eid == @error_id(error.ClientParseA) { @println("  ClientParseA"); }
+        else if eid == @error_id(error.ClientDidNotSeeResume) { @println("  ClientDidNotSeeResume"); }
+        else if eid == @error_id(error.StoreServer) { @println("  StoreServer"); }
+        else { @println("  other"); }
+        failures = failures + 1;
+    };
+    test_roundtrip_server_rejects() catch |err| {
+        @println("FAIL test_roundtrip_server_rejects");
+        _ = err;
+        failures = failures + 1;
+    };
+
+    if failures != 0 {
+        return failures;
+    }
+    @println("tls session resumption: all cases passed");
+    return 0;
+}

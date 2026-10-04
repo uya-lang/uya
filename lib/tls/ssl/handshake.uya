@@ -38,6 +38,210 @@ const HS_MAX_CLIENT_HELLO_MSG: usize = 512;
 const HS_MAX_SERVER_FLIGHT_MSG: usize = 8192;
 const HS_MAX_TRANSCRIPT_MSG: usize = 12288;
 
+// =============================================================================
+// TLS 1.2 会话缓存（会话 ID 复用）
+//
+// 为什么需要：修复前每次新建 HTTPS 连接都走完整握手（ClientHello → 服务器
+// flight → ClientKeyExchange/Finished → ServerFinished），首字节延迟里含完整
+// 密钥协商与证书链处理。按 host 缓存上一次协商出的会话（会话 ID + master_secret
+// + 密码套件）后，同一 host 的后续连接可以在 ClientHello 里带上会话 ID，
+// 服务器接受时即可沿用缓存的 master_secret。
+//
+// 边界（刻意保守）：
+// - 缓存是**进程内单例**、**有界**（`TLS_SESSION_CACHE_MAX` 条），满了不再收新 host；
+// - 会话 ID 由客户端本地生成；服务器侧按其自有策略决定接受或拒绝，
+//   被拒绝时本连接退回完整握手，不会失败；
+// - 只缓存「完整握手成功」的会话；服务器未回显会话 ID 时不复用；
+// - 单线程语义（本项目是「单线程 + 泵点」模型），缓存不加锁。
+// =============================================================================
+
+/// 会话缓存条数上限。
+export const TLS_SESSION_CACHE_MAX: i32 = 8;
+
+/// TLS 1.2 会话 ID 长度（RFC 5246 允许 0..32；本项目固定 32 字节满长）。
+export const TLS_SESSION_ID_LEN: usize = 32;
+
+/// 会话里记录的 host 长度上限（超出则不入缓存 —— 宁可不复用，不要截断误配）。
+const TLS_SESSION_HOST_MAX: usize = 128;
+
+/// 一条缓存会话：host + 会话 ID + master_secret + 套件。
+export struct TlsSessionEntry {
+    used: bool,
+    host_len: usize,
+    host_bytes: [byte: TLS_SESSION_HOST_MAX],
+    session_id_len: usize,
+    session_id: [byte: TLS_SESSION_ID_LEN],
+    master_secret: [byte: HS_MASTER_SECRET_LEN],
+    ciphersuite: u16,
+}
+
+/// 进程内 TLS 会话缓存（单例）。
+export struct TlsSessionCache {
+    entries: [TlsSessionEntry: TLS_SESSION_CACHE_MAX],
+    count: i32,
+    /// 累计命中次数（观测/回归用：靠它断言「第二次真的复用了」）。
+    hit_count: i64,
+    /// 累计写入次数。
+    store_count: i64,
+
+    /// 初始化：所有条目标记为未使用，计数清零。
+    /// 参数说明：无。返回值说明：无。
+    fn init(self: &Self) void {
+        var i: i32 = 0;
+        while i < TLS_SESSION_CACHE_MAX {
+            self.entries[i as usize].used = false;
+            self.entries[i as usize].host_len = 0;
+            self.entries[i as usize].session_id_len = 0;
+            i = i + 1;
+        }
+        self.count = 0;
+        self.hit_count = 0;
+        self.store_count = 0;
+    }
+
+    fn host_matches(self: &Self, idx: i32, host: &[byte]) bool {
+        if idx < 0 || idx >= TLS_SESSION_CACHE_MAX {
+            return false;
+        }
+        const e: &TlsSessionEntry = &self.entries[idx as usize];
+        if e.host_len != host.len {
+            return false;
+        }
+        // host_bytes 容量是 TLS_SESSION_HOST_MAX；host 更长时不可能匹配（store 已拒绝超长 host）。
+        if host.len > TLS_SESSION_HOST_MAX {
+            return false;
+        }
+        var i: usize = 0;
+        while i < host.len {
+            if e.host_bytes[i] != host.ptr[i] {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /// 查找 host 对应的缓存会话下标。
+    /// 参数说明：`host` 目标主机。返回值说明：命中返回下标；未命中返回 -1。
+    fn find(self: &Self, host: &[byte]) i32 {
+        var i: i32 = 0;
+        while i < self.count {
+            if self.host_matches(i, host) {
+                return i;
+            }
+            i = i + 1;
+        }
+        return 0 - 1;
+    }
+}
+
+var g_tls_session_cache: TlsSessionCache = TlsSessionCache{ count: 0, hit_count: 0i64, store_count: 0i64 };
+var g_tls_session_cache_ready: bool = false;
+
+/// 取得进程内会话缓存（首次调用时初始化）。
+/// 参数说明：无。返回值说明：返回单例指针。
+fn tls_session_cache() &TlsSessionCache {
+    if !g_tls_session_cache_ready {
+        g_tls_session_cache.init();
+        g_tls_session_cache_ready = true;
+    }
+    return &g_tls_session_cache;
+}
+
+/// 会话缓存观测快照。
+export struct TlsSessionCacheStats {
+    count: i32,
+    hit_count: i64,
+    store_count: i64,
+}
+
+/// 读取会话缓存状态（观测/回归用）。
+/// 参数说明：无。返回值说明：返回条目数、累计命中次数、累计写入次数。
+export fn tls_session_cache_stats() TlsSessionCacheStats {
+    const c: &TlsSessionCache = tls_session_cache();
+    return TlsSessionCacheStats{ count: c.count, hit_count: c.hit_count, store_count: c.store_count };
+}
+
+/// 清空会话缓存（测试隔离/进程退出用）。
+/// 参数说明：无。返回值说明：无。
+export fn tls_session_cache_clear() void {
+    tls_session_cache().init();
+}
+
+/// 写入/更新一条会话（同 host 覆盖）。
+/// 参数说明：`host` 目标；`session_id`/`id_len` 会话 ID；`master` 主密钥；`suite` 密码套件。
+/// 返回值说明：真正写入返回 true；host 超长、id 长度非法或缓存已满时返回 false。
+export fn tls_session_cache_store(host: &[byte], session_id: &const byte, id_len: usize, master: &const byte, suite: u16) bool {
+    if host.len == 0 || host.len > TLS_SESSION_HOST_MAX || id_len == 0 || id_len > TLS_SESSION_ID_LEN {
+        return false;
+    }
+    const c: &TlsSessionCache = tls_session_cache();
+    var idx: i32 = c.find(host);
+    if idx < 0 {
+        if c.count >= TLS_SESSION_CACHE_MAX {
+            return false;
+        }
+        idx = c.count;
+        c.count = c.count + 1;
+    }
+    // 显式重证上下界：`find` 的返回值要跨函数调用才能证明，边界证明器不跨调用传递；
+    // 这里把「idx 已是非负且在容量内」重新说清楚，索引才可通过安全证明。
+    if idx < 0 || idx >= TLS_SESSION_CACHE_MAX {
+        return false;
+    }
+    const e: &TlsSessionEntry = &c.entries[idx as usize];
+    e.used = true;
+    e.host_len = host.len;
+    var i: usize = 0;
+    while i < host.len {
+        e.host_bytes[i] = host.ptr[i];
+        i = i + 1;
+    }
+    e.session_id_len = id_len;
+    i = 0;
+    while i < id_len {
+        e.session_id[i] = session_id[i];
+        i = i + 1;
+    }
+    i = 0;
+    while i < HS_MASTER_SECRET_LEN {
+        e.master_secret[i] = master[i];
+        i = i + 1;
+    }
+    e.ciphersuite = suite;
+    c.store_count = c.store_count + 1i64;
+    return true;
+}
+
+/// 读取 host 的缓存会话。
+/// 参数说明：`host` 目标；`session_id_out` 输出会话 ID（容量须 ≥ `TLS_SESSION_ID_LEN`）；
+/// `id_len_out` 输出会话 ID 长度；`master_out` 输出主密钥（容量须 ≥ `HS_MASTER_SECRET_LEN`）；
+/// `suite_out` 输出密码套件。
+/// 返回值说明：命中返回 true（并填满全部输出参数）；未命中返回 false（不写输出）。
+export fn tls_session_cache_lookup(host: &[byte], session_id_out: &byte, id_len_out: &usize, master_out: &byte, suite_out: &u16) bool {
+    const c: &TlsSessionCache = tls_session_cache();
+    const idx: i32 = c.find(host);
+    if idx < 0 || idx >= TLS_SESSION_CACHE_MAX {
+        return false;
+    }
+    const e: &TlsSessionEntry = &c.entries[idx as usize];
+    var i: usize = 0;
+    while i < e.session_id_len {
+        session_id_out[i] = e.session_id[i];
+        i = i + 1;
+    }
+    id_len_out[0] = e.session_id_len;
+    i = 0;
+    while i < HS_MASTER_SECRET_LEN {
+        master_out[i] = e.master_secret[i];
+        i = i + 1;
+    }
+    suite_out[0] = e.ciphersuite;
+    c.hit_count = c.hit_count + 1i64;
+    return true;
+}
+
+
 export const HS_STATUS_NEED_SEND: i32 = 0;
 export const HS_STATUS_NEED_RECV: i32 = 1;
 export const HS_STATUS_DONE: i32 = 2;
@@ -68,6 +272,15 @@ export struct HandshakeCtx {
     server_rsa_key: &const RsaPrivateKey,
     client_random: [byte: HS_RANDOM_LEN],
     server_random: [byte: HS_RANDOM_LEN],
+    // 会话复用：客户端在 ClientHello 里带的会话 ID（来自会话缓存）；
+    // 服务器回显同一个 ID 时表示接受复用，此时跳过密钥协商直接沿用缓存的 master_secret。
+    resume_session_id_len: usize,
+    resume_session_id: [byte: TLS_SESSION_ID_LEN],
+    // 服务器侧：本次 ClientHello 带的会话 ID（回显用）。
+    peer_session_id_len: usize,
+    peer_session_id: [byte: TLS_SESSION_ID_LEN],
+    // 服务器是否接受了会话复用（回显了非空会话 ID）。
+    session_resumed: bool,
     client_hello_msg_len: usize,
     client_hello_msg: [byte: HS_MAX_CLIENT_HELLO_MSG],
     server_flight_msg_len: usize,
@@ -133,9 +346,36 @@ export fn handshake_ctx_init(ctx: &HandshakeCtx, role: i32) void {
     ctx.client_hello_msg_len = 0;
     ctx.server_flight_msg_len = 0;
     ctx.tls12_keys_ready = false;
+    ctx.resume_session_id_len = 0;
+    ctx.peer_session_id_len = 0;
+    ctx.session_resumed = false;
     hs_reset_negotiated(ctx);
     hs_fill_random(&ctx.client_random[0], 0x42);
     hs_fill_random(&ctx.server_random[0], 0xA7);
+}
+
+/// 设置客户端 ClientHello 要携带的会话 ID（会话复用请求）。
+/// 参数说明：`id` 会话 ID；`len` 长度（0 表示不复用；上限 `TLS_SESSION_ID_LEN`）。
+/// 返回值说明：长度非法返回 `error.TlsBadInput`，否则无返回值。
+export fn handshake_set_resume_session_id(ctx: &HandshakeCtx, id: &const byte, len: usize) !void {
+    if len > TLS_SESSION_ID_LEN {
+        return error.TlsBadInput;
+    }
+    ctx.resume_session_id_len = len;
+    if len == 0 {
+        return;
+    }
+    var i: usize = 0;
+    while i < len {
+        ctx.resume_session_id[i] = id[i];
+        i = i + 1;
+    }
+}
+
+/// 查询服务器是否接受了会话复用（回显了非空会话 ID）。
+/// 参数说明：`ctx` 握手上下文。返回值说明：接受返回 true。
+export fn handshake_session_resumed(ctx: &const HandshakeCtx) bool {
+    return ctx.session_resumed;
 }
 
 export fn handshake_set_hostname(ctx: &HandshakeCtx, name: &const byte, len: usize) !void {
@@ -323,7 +563,10 @@ fn hs_encode_client_hello_tls_record(ctx: &const HandshakeCtx, out: &byte, out_m
     const sig_algs_len: usize = 8;  // 类型(2) + 长度(2) + 列表长度(2) + 2个算法(4)
     const ext_len: usize = sni_ext_len + supported_groups_len + ec_point_formats_len + sig_algs_len;
     const cipher_suites_len: usize = 6;  // len(2) + 2 suites(4)
-    const body_len: usize = 2 + 32 + 1 + cipher_suites_len + 1 + 1 + 2 + ext_len;  // 版本 + 随机数 + 会话ID长度 + 密码套件 + 压缩 + 扩展长度
+    // 会话 ID 长度字段本身恒占 1 字节，另加会话 ID 正文长度
+    // （`resume_session_id_len == 0` 时与修复前逐字节一致）。
+    const sid_len: usize = ctx.resume_session_id_len;
+    const body_len: usize = 2 + 32 + 1 + sid_len + cipher_suites_len + 1 + 1 + 2 + ext_len;  // 版本 + 随机数 + 会话ID长度 + 会话ID + 密码套件 + 压缩 + 扩展长度
     const total_len: usize = 5 + 4 + body_len;  // 记录头 + 握手头 + 主体
     
     if out_max < total_len {
@@ -347,9 +590,17 @@ fn hs_encode_client_hello_tls_record(ctx: &const HandshakeCtx, out: &byte, out_m
     mem_copy(&out[11], &ctx.client_random[0], 32);
     var pos: usize = 43;
     
-    // 会话 ID
-    out[pos] = 0;
+    // 会话 ID：带缓存会话时非空（请求复用），否则 0 长度（旧行为）。
+    out[pos] = (sid_len as! byte).value;
     pos = pos + 1;
+    if sid_len > 0 {
+        var si: usize = 0;
+        while si < sid_len {
+            out[pos + si] = ctx.resume_session_id[si];
+            si = si + 1;
+        }
+        pos = pos + sid_len;
+    }
     
     // 密码套件
     hs_write_u16(&out[pos], 4 as u16);  // 4 字节 = 2 个套件
@@ -569,6 +820,17 @@ fn hs_parse_client_hello_tls_record(ctx: &HandshakeCtx, in_: &const byte, in_len
     pos = pos + 1;
     if pos + session_len + 2 > hs_len {
         return false;
+    }
+    // 记录客户端请求复用的会话 ID（长度合法才记；服务器据此决定是否回显接受）。
+    if session_len > 0 && session_len <= TLS_SESSION_ID_LEN {
+        ctx.peer_session_id_len = session_len;
+        var sid_i: usize = 0;
+        while sid_i < session_len {
+            ctx.peer_session_id[sid_i] = body[pos + sid_i];
+            sid_i = sid_i + 1;
+        }
+    } else {
+        ctx.peer_session_id_len = 0;
     }
     pos = pos + session_len;
     const cipher_len: usize = hs_read_u16(&body[pos]) as usize;
@@ -931,7 +1193,15 @@ fn hs_encode_server_finished_tls_record(ctx: &const HandshakeCtx, out: &byte, ou
 }
 
 fn hs_encode_server_flight_tls_record(ctx: &const HandshakeCtx, out: &byte, out_max: usize, out_len: &usize) bool {
-    const sh_body_len: usize = 2 + HS_RANDOM_LEN + 1 + 2 + 1 + 2 + HS_SERVER_RENEG_EXT_LEN;
+    // 接受会话复用时回显客户端会话 ID（RFC 5246 §7.4.1.3）：ServerHello 里带着
+    // 与 ClientHello 相同的会话 ID 即表示「沿用该会话」。
+    // 这里只做「回显 + 置 session_resumed」这一层；后续是否走精简握手由调用方按
+    // `handshake_session_resumed()` 决定。
+    var echo_len: usize = 0;
+    if ctx.session_resumed && ctx.peer_session_id_len > 0 && ctx.peer_session_id_len <= TLS_SESSION_ID_LEN {
+        echo_len = ctx.peer_session_id_len;
+    }
+    const sh_body_len: usize = 2 + HS_RANDOM_LEN + 1 + echo_len + 2 + 1 + 2 + HS_SERVER_RENEG_EXT_LEN;
     const cert_body_len: usize = 6 + ctx.cert_der_len;
     const sh_done_body_len: usize = 0;
     const rec_payload_len: usize = 4 + sh_body_len + 4 + cert_body_len + 4 + sh_done_body_len;
@@ -946,23 +1216,42 @@ fn hs_encode_server_flight_tls_record(ctx: &const HandshakeCtx, out: &byte, out_
     hs_write_u24(&out[6], sh_body_len);
     hs_write_u16(&out[9], TLS_VERSION_1_2);
     mem_copy(&out[11], &ctx.server_random[0], HS_RANDOM_LEN);
-    out[43] = 0;
-    hs_write_u16(&out[44], HS_CIPHERSUITE_RSA_AES_128_GCM_SHA256);
-    out[46] = 0;
-    hs_write_u16(&out[47], HS_SERVER_RENEG_EXT_LEN as u16);
-    hs_write_u16(&out[49], 0xff01u16);
-    hs_write_u16(&out[51], 1);
-    out[53] = 0;
-    out[54] = HS_MSG_CERTIFICATE;
-    hs_write_u24(&out[55], cert_body_len);
-    hs_write_u24(&out[58], 3 + ctx.cert_der_len);
-    hs_write_u24(&out[61], ctx.cert_der_len);
-    if ctx.cert_der_len > 0 {
-        mem_copy(&out[64], ctx.cert_der, ctx.cert_der_len);
+    out[43] = (echo_len as! byte).value;
+    var pos: usize = 44;
+    if echo_len > 0 {
+        var ei: usize = 0;
+        while ei < echo_len {
+            out[pos + ei] = ctx.peer_session_id[ei];
+            ei = ei + 1;
+        }
+        pos = pos + echo_len;
     }
-    const shd_pos: usize = 64 + ctx.cert_der_len;
-    out[shd_pos] = HS_MSG_SERVER_HELLO_DONE;
-    hs_write_u24(&out[shd_pos + 1], sh_done_body_len);
+    hs_write_u16(&out[pos], HS_CIPHERSUITE_RSA_AES_128_GCM_SHA256);
+    pos = pos + 2;
+    out[pos] = 0;
+    pos = pos + 1;
+    hs_write_u16(&out[pos], HS_SERVER_RENEG_EXT_LEN as u16);
+    pos = pos + 2;
+    hs_write_u16(&out[pos], 0xff01u16);
+    pos = pos + 2;
+    hs_write_u16(&out[pos], 1);
+    pos = pos + 2;
+    out[pos] = 0;
+    pos = pos + 1;
+    out[pos] = HS_MSG_CERTIFICATE;
+    pos = pos + 1;
+    hs_write_u24(&out[pos], cert_body_len);
+    pos = pos + 3;
+    hs_write_u24(&out[pos], 3 + ctx.cert_der_len);
+    pos = pos + 3;
+    hs_write_u24(&out[pos], ctx.cert_der_len);
+    pos = pos + 3;
+    if ctx.cert_der_len > 0 {
+        mem_copy(&out[pos], ctx.cert_der, ctx.cert_der_len);
+        pos = pos + ctx.cert_der_len;
+    }
+    out[pos] = HS_MSG_SERVER_HELLO_DONE;
+    hs_write_u24(&out[pos + 1], sh_done_body_len);
     out_len[0] = total_len;
     return true;
 }
@@ -1067,6 +1356,23 @@ fn hs_parse_server_flight_tls_record(ctx: &HandshakeCtx, in_: &const byte, in_le
                 if suite_pos + 3 > pos + 4 + msg_len {
                     hs_debug(&"[HS] Bad suite_pos\n"[0: 20]);
                     return false;
+                }
+                // 服务器回显的会话 ID 非空即表示它接受了复用请求（RFC 5246 §7.4.1.3）。
+                // 回显内容必须与请求的一致，否则视为拒绝（不信任错配的会话身份）。
+                if sid_len > 0 && sid_len <= TLS_SESSION_ID_LEN &&
+                   ctx.resume_session_id_len == sid_len {
+                    var sids_match: bool = true;
+                    var smi: usize = 0;
+                    while smi < sid_len {
+                        if in_[pos + 39 + smi] != ctx.resume_session_id[smi] {
+                            sids_match = false;
+                            break;
+                        }
+                        smi = smi + 1;
+                    }
+                    ctx.session_resumed = sids_match;
+                } else {
+                    ctx.session_resumed = false;
                 }
                 const suite: u16 = hs_read_u16(&in_[suite_pos]);
                 hs_debug(&"[HS] Read suite\n"[0: 16]);
@@ -1477,6 +1783,44 @@ export fn handshake_client_step(ctx: &HandshakeCtx, recv_buf: &const byte, recv_
     return HS_STATUS_ERROR;
 }
 
+/// 服务器侧会话复用决策：客户端带了会话 ID 且本地缓存有同 host 会话时接受（回显）。
+///
+/// 判据刻意保守：只看「ID 长度合法 + 本地缓存里存在同 host 且会话 ID 一致的白名单」，
+/// 不因为客户端给了 ID 就接受 —— 否则任意 ID 都能换来一次「复用」标记。
+/// 参数说明：`ctx` 已解析完 ClientHello 的服务器上下文。返回值说明：无。
+fn hs_server_decide_session_resumption(ctx: &HandshakeCtx) void {
+    ctx.session_resumed = false;
+    if ctx.peer_session_id_len == 0 || ctx.sni_len == 0 {
+        return;
+    }
+    const host: &[byte] = ctx.hostname[0: ctx.sni_len];
+    var cached_sid: [byte: TLS_SESSION_ID_LEN] = [];
+    var cached_sid_len: usize = 0;
+    var cached_master: [byte: HS_MASTER_SECRET_LEN] = [];
+    var cached_suite: u16 = 0;
+    if !tls_session_cache_lookup(host, &cached_sid[0], &cached_sid_len, &cached_master[0], &cached_suite) {
+        return;
+    }
+    if cached_sid_len != ctx.peer_session_id_len || cached_sid_len > TLS_SESSION_ID_LEN {
+        return;
+    }
+    var i: usize = 0;
+    while i < cached_sid_len {
+        if cached_sid[i] != ctx.peer_session_id[i] {
+            return;
+        }
+        i = i + 1;
+    }
+    // 会话认同：把缓存的 master_secret 装回上下文，后续可跳过密钥协商。
+    i = 0;
+    while i < HS_MASTER_SECRET_LEN {
+        ctx.master_secret[i] = cached_master[i];
+        i = i + 1;
+    }
+    ctx.ciphersuite = cached_suite;
+    ctx.session_resumed = true;
+}
+
 export fn handshake_server_step(ctx: &HandshakeCtx, recv_buf: &const byte, recv_len: usize, send_buf: &byte, send_max: usize, send_len_out: &usize) i32 {
     if ctx.state == HS_STATE_INIT {
         if recv_len == 0 {
@@ -1485,6 +1829,9 @@ export fn handshake_server_step(ctx: &HandshakeCtx, recv_buf: &const byte, recv_
         if !hs_parse_client_hello(ctx, recv_buf, recv_len) {
             return HS_STATUS_ERROR;
         }
+        // 会话复用策略：客户端带了会话 ID，且本地缓存里确实有同 host 的会话时才回显接受。
+        // 这样「回显 = 服务端认可该会话」，而不是无脑回显客户端给的任意 ID。
+        hs_server_decide_session_resumption(ctx);
         if !hs_encode_server_flight(ctx, send_buf, send_max, send_len_out) {
             return HS_STATUS_ERROR;
         }

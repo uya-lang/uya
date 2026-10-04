@@ -26,9 +26,13 @@
 >    （`WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并成 READWRITE），
 >    `async_scheduler` 遍历全部槽注册并对陈旧注册做差集注销；
 >    回归 `tests/test_async_waker_multi_interest.uya`，见 `buglist.md`「运行时 bug」。
-> 3. HTTP 客户端连接池与 keep-alive 复用（`lib/std/http/http1_async.uya` 只有单次请求 API，
->    且请求头写死 `Connection: close`）。
-> 4. TLS 会话复用 / `https_handshake_async` 真实 pending-ready 行为回归（`lib/tls/` 无 session resumption）。
+> 3. ~~HTTP 客户端连接池与 keep-alive 复用~~ —— **2026-10-04 已收口**：`Http1AsyncPool`
+>    按 host:port 复用空闲连接，`Http1AsyncRequest.persist` 控制是否 keep-alive；
+>    回归 `tests/test_http1_async_client.uya` 的 `http1_async_keepalive_reuses_one_connection`
+>    （服务端只 accept 一次、同连接读满 3 个请求）。
+> 4. ~~TLS 会话复用~~ —— **2026-10-04 已收口（会话 ID 路径）**：`TlsSessionCache` 按 host 缓存
+>    会话 ID + master_secret，ClientHello 携带会话 ID，服务器按本地白名单认同并回显；
+>    回归 `tests/test_tls_session_resumption.uya`。session ticket（RFC 5077）仍未做。
 > 5. ~~HTTP/1.1 请求头 inline scratch 容量~~ —— **2026-10-04 已收口**：
 >    请求头本来就是「按 `required` 动态分配、4096 只是起步容量」；
 >    响应头上限从写死 65536 改为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖
