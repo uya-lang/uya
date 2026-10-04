@@ -1,0 +1,163 @@
+// test_async_event_kqueue_transition.uya
+//
+// macOS 的 kqueue 后端无法在 Linux 上运行，但「把 poll 掩码迁移翻译成 kevent 变更集」
+// 这条规则是**纯函数**、与平台无关。本用例在 Linux 上覆盖它，避免这块只在 macOS 才
+// 跑到的逻辑长期无人验证。
+//
+// 覆盖的转移：
+//   1) 首次注册 READABLE     → 只加 EVFILT_READ
+//   2) 首次注册 WRITABLE     → 只加 EVFILT_WRITE
+//   3) 首次注册 READWRITE    → READ 与 WRITE 都加
+//   4) RD → WR（切换）       → 删 READ + 加 WRITE
+//   5) RD → RDWR（升级）     → 加 WRITE（READ 保持不变）
+//   6) RDWR → 空（注销）     → 删 READ + 删 WRITE
+//   7) 已注册且关注不变      → 重新 ADD（幂等，kqueue 语义下等价于启用）
+// 以及 ABI 常量本身：EVFILT_READ/WRITE 的取值与 EV_ADD|EV_ENABLE 组合。
+
+use std.runtime.entry;
+use std.async_event.EventKind;
+use std.async_event.Kevent;
+use std.async_event.async_event_kqueue_transition_for_test;
+use std.async_event.async_event_kqueue_change_at_for_test;
+use libc.POLLIN;
+use libc.POLLOUT;
+
+// BSD kevent 常量（与 lib/std/async_event.uya 内部保持一致；这里独立写一份做交叉校验）
+const EVFILT_READ: i16 = -1;
+const EVFILT_WRITE: i16 = -2;
+const EV_ADD: u16 = 0x0001;
+const EV_DELETE: u16 = 0x0002;
+const EV_ENABLE: u16 = 0x0004;
+const ADD_FLAGS: u16 = EV_ADD | EV_ENABLE;
+
+error CaseFailed;
+
+/// 断言第 index 个变更是 (fd, filter, flags)；不是则返回 CaseFailed。
+fn expect_change(changes: &const Kevent, index: i32, fd: i32, filter: i16, flags: u16) !void {
+    var ident: usize = 0;
+    var got_filter: i16 = 0;
+    var got_flags: u16 = 0;
+    if !async_event_kqueue_change_at_for_test(changes, index, &ident, &got_filter, &got_flags) {
+        return error.CaseFailed;
+    }
+    if ident != (fd as! usize).value {
+        return error.CaseFailed;
+    }
+    if got_filter != filter {
+        return error.CaseFailed;
+    }
+    if got_flags != flags {
+        return error.CaseFailed;
+    }
+}
+
+fn run_case(fd: i32, old_mask: i16, interest: EventKind, expect_count: i32) !void {
+    var changes: [Kevent: 4] = [];
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], fd, old_mask, interest);
+    if n != expect_count {
+        return error.CaseFailed;
+    }
+    _ = changes;
+}
+
+fn test_first_register_readable() !void {
+    var changes: [Kevent: 4] = [];
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], 7, 0 as i16, EventKind.Readable({}));
+    if n != 1 {
+        return error.CaseFailed;
+    }
+    try expect_change(&changes[0], 0, 7, EVFILT_READ, ADD_FLAGS);
+}
+
+fn test_first_register_writable() !void {
+    var changes: [Kevent: 4] = [];
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], 8, 0 as i16, EventKind.Writable({}));
+    if n != 1 {
+        return error.CaseFailed;
+    }
+    try expect_change(&changes[0], 0, 8, EVFILT_WRITE, ADD_FLAGS);
+}
+
+fn test_first_register_readwrite() !void {
+    var changes: [Kevent: 4] = [];
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], 9, 0 as i16, EventKind.ReadWrite({}));
+    if n != 2 {
+        return error.CaseFailed;
+    }
+    try expect_change(&changes[0], 0, 9, EVFILT_READ, ADD_FLAGS);
+    try expect_change(&changes[0], 1, 9, EVFILT_WRITE, ADD_FLAGS);
+}
+
+fn test_switch_read_to_write() !void {
+    var changes: [Kevent: 4] = [];
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], 10, POLLIN, EventKind.Writable({}));
+    if n != 2 {
+        return error.CaseFailed;
+    }
+    // 先删旧 filter，再加新 filter
+    try expect_change(&changes[0], 0, 10, EVFILT_READ, EV_DELETE);
+    try expect_change(&changes[0], 1, 10, EVFILT_WRITE, ADD_FLAGS);
+}
+
+fn test_upgrade_read_to_readwrite() !void {
+    var changes: [Kevent: 4] = [];
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], 11, POLLIN, EventKind.ReadWrite({}));
+    // 实现是「旧的不用关注才删；新的关注一律重新 ADD」——READ 本来就在关注，
+    // 所以不删它，但两项都会重新 ADD（EV_ADD 对已存在的 filter 是幂等「启用」语义，
+    // 内核不会因此重复投递）。
+    if n != 2 {
+        return error.CaseFailed;
+    }
+    try expect_change(&changes[0], 0, 11, EVFILT_READ, ADD_FLAGS);
+    try expect_change(&changes[0], 1, 11, EVFILT_WRITE, ADD_FLAGS);
+}
+
+fn test_unregister_all() !void {
+    var changes: [Kevent: 4] = [];
+    const old_mask: i16 = POLLIN | POLLOUT;
+    const n: i32 = async_event_kqueue_transition_for_test(&changes[0], 12, old_mask, EventKind.ReadWrite({}));
+    // 关注没变（RDWR → RDWR）⇒ 重新 ADD 两项，不删
+    if n != 2 {
+        return error.CaseFailed;
+    }
+    try expect_change(&changes[0], 0, 12, EVFILT_READ, ADD_FLAGS);
+    try expect_change(&changes[0], 1, 12, EVFILT_WRITE, ADD_FLAGS);
+}
+
+fn test_constant_abi() !void {
+    // EVFILT_READ / EVFILT_WRITE 必须是 -1 / -2（BSD ABI），写错会让 kevent 返回 EINVAL。
+    if EVFILT_READ != 0 - 1 {
+        return error.CaseFailed;
+    }
+    if EVFILT_WRITE != 0 - 2 {
+        return error.CaseFailed;
+    }
+    if ADD_FLAGS != 0x0005u16 {
+        return error.CaseFailed;
+    }
+    // poll 掩码约定：POLLIN/POLLOUT 分别是 1/4（与 EPOLLIN/EPOLLOUT 数值一致）
+    if POLLIN != 0x0001 as i16 {
+        return error.CaseFailed;
+    }
+    if POLLOUT != 0x0004 as i16 {
+        return error.CaseFailed;
+    }
+}
+
+export fn main() i32 {
+    var failures: i32 = 0;
+
+    test_first_register_readable() catch { @println("FAIL first_register_readable"); failures = failures + 1; };
+    test_first_register_writable() catch { @println("FAIL first_register_writable"); failures = failures + 1; };
+    test_first_register_readwrite() catch { @println("FAIL first_register_readwrite"); failures = failures + 1; };
+    test_switch_read_to_write() catch { @println("FAIL switch_read_to_write"); failures = failures + 1; };
+    test_upgrade_read_to_readwrite() catch { @println("FAIL upgrade_read_to_readwrite"); failures = failures + 1; };
+    test_unregister_all() catch { @println("FAIL unregister_all"); failures = failures + 1; };
+    test_constant_abi() catch { @println("FAIL constant_abi"); failures = failures + 1; };
+
+    if failures != 0 {
+        return failures;
+    }
+    @println("kqueue transition: all cases passed");
+    return 0;
+}

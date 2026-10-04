@@ -17,8 +17,8 @@
 > | `https_handshake_async` 缺真实 pending/ready 回归 | 已有 `tests/test_tls_async_io_future.uya`、`tests/test_tls_async_runtime_boundary.uya`；session 复用仍缺 |
 > | 迭代器 / 泛型 async 方法等语法缺口 | **已收口**：`tests/test_generic_async_method_codegen.uya`（泛型 async 方法）2/2 通过；`verify_async_full_language_matrix.sh` 覆盖迭代器边界 |
 >
-> **仍然有效的剩余项**（源码级确认缺失）：跨平台 `EventLoop`（macOS `kqueue` / Windows `IOCP`）、`ThreadPool` 真动态扩缩容、TLS session ticket（RFC 5077）。
-> **2026-10-04 已收口**：HTTP/1.1 连接池与 keep-alive、TLS 会话复用（会话 ID 路径）。
+> **仍然有效的剩余项**（源码级确认缺失）：Windows `IOCP` 后端、`ThreadPool` 真动态扩缩容、TLS session ticket（RFC 5077）。
+> **2026-10-04 已收口**：HTTP/1.1 连接池与 keep-alive、TLS 会话复用（会话 ID 路径）、macOS `kqueue` 后端（运行时未真机验收）。
 >
 > **2026-10-04 更新 —— 本轮收口三项并把一项 P0 补进台账**：
 > - **多 interest `Waker`：已收口**。`Waker` 扩为有界槽表（`WAKER_IO_SLOT_MAX = 4`），
@@ -131,7 +131,8 @@
 
 > 2026-09-27 核对：第 6 项（DNS `A/AAAA` 并发聚合）已完成（见核对头），第 7 项已由 `tests/test_tls_async_io_future.uya` 部分覆盖；其余 1–5 项仍然有效。
 
-- 跨平台 `EventLoop` 后端：macOS `kqueue` / Windows `IOCP`
+- ~~macOS `kqueue` 后端~~（2026-10-04 已完成；运行时未真机验收）
+- Windows `IOCP` 后端
 - 更丰富 async formatting/helper（typed writer、`write_byte`、更高层格式化输出等）
 - ~~多 interest `Waker`~~（2026-10-04 已完成：有界槽表 + 调度器全槽注册，回归 `tests/test_async_waker_multi_interest.uya`）
 - ~~HTTP 连接池与 keep-alive 复用~~（2026-10-04 已完成）

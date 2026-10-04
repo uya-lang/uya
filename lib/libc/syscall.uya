@@ -889,6 +889,8 @@ extern "libc" fn uya_macos_setsockopt(sockfd: i32, level: i32, optname: i32, opt
 extern "libc" fn uya_macos_getsockname(sockfd: i32, addr: *void, addrlen: *u32) !i32;
 extern "libc" fn uya_macos_getpeername(sockfd: i32, addr: *void, addrlen: *u32) !i32;
 extern "libc" fn uya_macos_poll(fds: &PollFd, nfds: usize, timeout_ms: i32) !i32;
+extern "libc" fn uya_macos_kqueue() !i32;
+extern "libc" fn uya_macos_kevent(kq: i32, changelist: &void, nchanges: i32, eventlist: &void, nevents: i32, timeout: &const void) !i32;
 extern "libc" fn uya_macos_fork() !i64;
 extern "libc" fn uya_macos_waitpid(pid: i32, status: &i32, options: i32) !i32;
 extern "libc" fn uya_macos_getpid() i32;
@@ -1726,6 +1728,40 @@ export fn sys_poll(fds: &PollFd, nfds: usize, timeout_ms: i32) !i32 {
         return uya_macos_poll(fds, nfds, timeout_ms);
     }, {
         return @syscall(SYS_poll, fds as i64, nfds as i64, timeout_ms as i64) as! i32;
+    })
+}
+
+/// 创建 kqueue 实例（macOS 内核事件队列）。
+/// 参数：无。
+/// 返回值：成功时返回 kqueue 文件描述符；非 macOS 目标返回 `error.NotSupported`。
+export fn sys_kqueue() !i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_kqueue();
+    }, {
+        return error.NotSupported;
+    })
+}
+
+/// 提交/读取 kqueue 事件。
+/// 参数：
+/// - `kq`：`sys_kqueue` 返回的 kqueue 描述符。
+/// - `changelist`：待提交的 `kevent` 变更数组首地址（`void*`），可为 null。
+/// - `nchanges`：`changelist` 中的变更条目数。
+/// - `eventlist`：接收就绪事件的 `kevent` 数组首地址（`void*`），可为 null。
+/// - `nevents`：`eventlist` 的容量。
+/// - `timeout`：`timespec*` 超时，null 表示无限阻塞。
+/// 返回值：成功时返回写入 `eventlist` 的就绪事件数；非 macOS 目标返回 `error.NotSupported`。
+export fn sys_kevent(kq: i32, changelist: &void, nchanges: i32, eventlist: &void, nevents: i32, timeout: &const void) !i32 {
+    std.cfg(std.target_os == .tos_macos, {
+        return uya_macos_kevent(kq, changelist, nchanges, eventlist, nevents, timeout);
+    }, {
+        _ = kq;
+        _ = changelist;
+        _ = nchanges;
+        _ = eventlist;
+        _ = nevents;
+        _ = timeout;
+        return error.NotSupported;
     })
 }
 

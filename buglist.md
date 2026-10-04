@@ -204,16 +204,38 @@
   - 备注：本项实现期间撞到一个**编译器 bug**（切片字面量传给 `&const byte` 形参时发射错指针），
     见本文件「编译器 bug」首条；测试里按仓库既有做法改用局部数组传参绕开。
 
-- [ ] **P3 / 低：跨平台 `EventLoop` 后端缺失（macOS `kqueue` / Windows `IOCP`）**
-  - 状态：已知限制，非编译器 bug（本轮未做，留作后续）
-  - 现象：`lib/std/async_event.uya` 只有 `LinuxEpoll`；macOS 分支退化成 `poll(2)` 轮询，
-    全仓库无 `kqueue`/`kevent`。`lib/std/async_event.uya:35` 的 `event_kind_to_epoll`
-    在 macOS 下直接 `return 0`。
-  - 说明：Windows 目标当前仅 hosted bring-up（见 `docs/uya.md` 的 `@syscall` 说明），
-    `IOCP` 属更远期；macOS `kqueue` 可先做（`EventLoop` 接口已就位，新增实现即可）。
-  - 验证建议：macOS 目标至少编译 + 冒烟，并同步 `tests/run_programs_parallel.sh` 的
-    `SKIP_DARWIN_DEFAULT` 名单。
-  - 归属：`lib/std/async_event.uya`。
+- [x] **P3 / 低：跨平台 `EventLoop` 后端缺失（macOS `kqueue`；Windows `IOCP` 仍缺）**
+  - 状态：**macOS kqueue 已实现（2026-10-04）**；Windows `IOCP` 仍未做
+  - 现象（修复前）：`lib/std/async_event.uya` 只有 `LinuxEpoll`；macOS 分支退化成 `poll(2)`
+    全表扫描（功能性正确，但 O(n) 且有 1024 级别的 `poll(2)` 上限），全仓库无 `kqueue`/`kevent`。
+  - 修复内容：
+    1) `lib/libc/syscall.uya`：macOS 分支新增 `uya_macos_kqueue()` / `uya_macos_kevent(...)`
+       宿主声明，并导出 `sys_kqueue()` / `sys_kevent()`（非 macOS 目标返回 `error.NotSupported`）。
+    2) `src/codegen/c99/main.uya`：按仓库既有垫片模式发射 `uya_host_kqueue` / `uya_host_kevent`
+       宿主符号声明（`__asm__("_kqueue")` / `__asm__("kevent")`）与 `uya_macos_*` 包装体。
+    3) `lib/std/async_event.uya`：新增 `Kevent`（BSD `struct kevent`，x86_64/arm64 均 32 字节）
+       与 `TimeSpec`；`LinuxEpoll` 增加 `kqfd` 字段；macOS 上 `kqueue()` 成功即走 kqueue
+       （`register` 发 `EV_ADD|EV_ENABLE` + `EVFILT_READ/WRITE`，`deregister` 发 `EV_DELETE`，
+       `poll` 用 `kevent` 取就绪列表后按 slot 唤醒 waker）；`kqueue()` 失败则**回退**到原
+       `poll(2)` 实现；`linux_epoll_close` 一并关闭 `kqfd`。采用水平触发（不加 `EV_CLEAR`）
+       以对齐 epoll 默认语义。Linux 路径逐字节未变（仍是 `epoll_*`）。
+  - 验证状态：
+    - **Linux 无回归**：`test_std_async_event` / `test_std_async_scheduler` / `test_async_fd` /
+      `test_async_waker_multi_interest` 全部 `通过: 1 失败: 0`。
+    - **kqueue 翻译规则有 Linux 回归**：新增 `tests/test_async_event_kqueue_transition.uya`
+      （7 个用例：首次注册 RD/WR/RDWR、RD→WR 切换、RD→RDWR 升级、RDWR→RDWR 幂等、
+      EVFILT_*/EV_*, POLLIN/POLLOUT 常量 ABI 交叉校验）。因为这条翻译规则是纯函数、
+      与平台无关，所以在 Linux 上也能覆盖。
+    - **ABI 交叉验证**：`Kevent`/`TimeSpec` 的 C 侧同构定义在 zig 交叉编译下通过
+      32/16 字节静态断言，并成功产出 `Mach-O 64-bit x86_64` 与 `Mach-O 64-bit arm64` object；
+      生成的 `uya_macos_kqueue`/`uya_macos_kevent` 包装体在生成的 C 中确认存在。
+  - **未验证的部分（重要）**：macOS 上的**运行时行为**（`kqueue()`/`kevent()` 真实调用、
+    事件投递、唤醒时序）本机无 macOS SDK/runtime，**未真机验收**。同时发现：本机
+    zig 交叉编译**任何**含 `libc` 的 uya 程序到 macOS 都会因 `struct timeval` 与 Darwin SDK
+    的 `_STRUCT_TIMEVAL` 重定义而失败（用最小 `libc.sys_write` 程序即可复现，与本项无关），
+    所以「生成 C → 交叉编译成 Mach-O」这条路径当前对含 libc 的程序走不通。
+  - 归属：`lib/std/async_event.uya`、`lib/libc/syscall.uya`、`src/codegen/c99/main.uya`。
+  - 备注：Windows `IOCP` 仍未做（Windows 目标当前仅 hosted bring-up）。
 
 - [ ] **P2 / 中：`benchmarks/http_bench_async_epoll_await_simple.uya` 单 worker 顺序处理模型无法支撑高并发 keep-alive 连接**
   - 状态：已知限制，非编译器 bug

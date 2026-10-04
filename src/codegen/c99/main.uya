@@ -2918,6 +2918,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("typedef void *(*uya_macos_opendir_fn)(const char *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef void *(*uya_macos_readdir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
     fputs("typedef int (*uya_macos_closedir_fn)(void *);\n" as *byte, codegen.emit_stream as *void);
+    // kqueue/kevent 通过 dlsym 解析（见下方 uya_macos_kqueue/uya_macos_kevent 的注释）。
+    fputs("typedef int (*uya_macos_kqueue_fn)(void);\n" as *byte, codegen.emit_stream as *void);
+    fputs("typedef int (*uya_macos_kevent_fn)(int, const void *, int, void *, int, const void *);\n" as *byte, codegen.emit_stream as *void);
     c99_emit_host_symbol_decl(codegen, "extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"_fstat\");\n" as *byte, "extern int uya_macos_real_fstat(int, struct uya_macos_native_stat_call *) __asm__(\"fstat\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern int uya_macos_real_lstat(const char *, struct uya_macos_native_stat_call *) __asm__(\"_lstat\");\n" as *byte, "extern int uya_macos_real_lstat(const char *, struct uya_macos_native_stat_call *) __asm__(\"lstat\");\n" as *byte);
     fputs("struct Stat;\n" as *byte, codegen.emit_stream as *void);
@@ -2969,6 +2972,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_getsockname(int, void *, uint32_t *) __asm__(\"_getsockname\");\n" as *byte, "extern int uya_host_getsockname(int, void *, uint32_t *) __asm__(\"getsockname\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_getpeername(int, void *, uint32_t *) __asm__(\"_getpeername\");\n" as *byte, "extern int uya_host_getpeername(int, void *, uint32_t *) __asm__(\"getpeername\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_poll(void *, uint32_t, int) __asm__(\"_poll\");\n" as *byte, "extern int uya_host_poll(void *, uint32_t, int) __asm__(\"poll\");\n" as *byte);
+    // kqueue/kevent 不在此声明宿主符号（改走 dlsym，见下方 uya_macos_kqueue 的注释）。
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_fork(void) __asm__(\"_fork\");\n" as *byte, "extern int uya_host_fork(void) __asm__(\"fork\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern int uya_host_waitpid(int, int *, int) __asm__(\"_waitpid\");\n" as *byte, "extern int uya_host_waitpid(int, int *, int) __asm__(\"waitpid\");\n" as *byte);
     c99_emit_host_symbol_decl(codegen, "extern void *uya_host_dlsym(void *, const char *) __asm__(\"_dlsym\");\n" as *byte, "extern void *uya_host_dlsym(void *, const char *) __asm__(\"dlsym\");\n" as *byte);
@@ -3237,6 +3241,27 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("static struct err_union_int32_t uya_macos_poll(struct PollFd *fds, size_t nfds, int32_t timeout_ms) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (nfds > (size_t)0xffffffffu) return uya_macos_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
     fputs("    int ret = uya_host_poll((void *)fds, (uint32_t)nfds, (int)timeout_ms);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    // kqueue/kevent 走 dlsym 而不是直接引用宿主符号：macOS 目标的 C 也会被
+    // tests/verify_std_path_platform_targets.sh 用**宿主 Linux cc** 编译来跑语义测试，
+    // 而 Linux 没有 kqueue/kevent —— 直接引用会在链接期 undefined reference。
+    // dlsym(RTLD_DEFAULT) 在真 macOS 上解析到 libSystem 的实现；在 Linux 上解析为 null，
+    // 调用方（sys_kqueue/sys_kevent）只在 macOS 分支才会走到这里。
+    fputs("static struct err_union_int32_t uya_macos_kqueue(void) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_kqueue_fn real_kqueue = (uya_macos_kqueue_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_kqueue == (uya_macos_kqueue_fn)0) real_kqueue = (uya_macos_kqueue_fn)dlsym((void *)-1, \"kqueue\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_kqueue == (uya_macos_kqueue_fn)0) return uya_macos_err_i32(38);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_kqueue();\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
+    fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+    fputs("}\n" as *byte, codegen.emit_stream as *void);
+    fputs("static struct err_union_int32_t uya_macos_kevent(int32_t kq, const void *changelist, int32_t nchanges, void *eventlist, int32_t nevents, const void *timeout) {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    static uya_macos_kevent_fn real_kevent = (uya_macos_kevent_fn)0;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_kevent == (uya_macos_kevent_fn)0) real_kevent = (uya_macos_kevent_fn)dlsym((void *)-1, \"kevent\");\n" as *byte, codegen.emit_stream as *void);
+    fputs("    if (real_kevent == (uya_macos_kevent_fn)0) return uya_macos_err_i32(38);\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int ret = real_kevent((int)kq, changelist, (int)nchanges, eventlist, (int)nevents, timeout);\n" as *byte, codegen.emit_stream as *void);
     fputs("    if (ret == -1) return uya_macos_err_i32(uya_macos_errno_value());\n" as *byte, codegen.emit_stream as *void);
     fputs("    return uya_macos_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);

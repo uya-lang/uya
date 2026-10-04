@@ -21,7 +21,11 @@
 >
 > **本目标当前真正剩余的项**（源码级确认缺失，2026-09-27；2026-10-04 更新见下）：
 >
-> 1. 跨平台 `EventLoop` 后端：macOS `kqueue` / Windows `IOCP`（仓库内无实现）。
+> 1. 跨平台 `EventLoop` 后端：~~macOS `kqueue`~~（**2026-10-04 已实现**：`sys_kqueue`/`sys_kevent`
+>    + `Kevent`/`TimeSpec` + macOS 分支走 kqueue、失败回退 poll；回归
+>    `tests/test_async_event_kqueue_transition.uya`。**运行时行为未真机验收** —— 本机无 macOS
+>    SDK/runtime；且 zig 交叉编译含 libc 的 uya 程序到 macOS 会因 `struct timeval` 与 Darwin SDK
+>    重定义而失败（与本项无关，见 buglist），故只做了 ABI/C 级验证）/ Windows `IOCP`（仍无实现）。
 > 2. ~~多 interest `Waker`~~ —— **2026-10-04 已收口**：`Waker` 扩为有界槽表
 >    （`WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并成 READWRITE），
 >    `async_scheduler` 遍历全部槽注册并对陈旧注册做差集注销；
