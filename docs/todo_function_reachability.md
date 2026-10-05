@@ -4,6 +4,18 @@
 >
 > - 核对证据：checker 侧已建立可达性记录（`src/checker/check_call.uya` 的 `checker_record_reachable_call` / `checker_add_function_root_decl` / `checker_add_function_edge`）；codegen 侧 `should_emit_top_level_function_decl`（`src/codegen/c99/main.uya`）已从"总是发射"改为查询 `is_top_level_function_reachable`，`export fn` 与无函数体的 extern/前向声明按 root 保活。
 > - 剩余：无已知剩余项；如后续新增发射判定（例如新的 root 形态）需在同处补 root 建模与回归。
+>
+> **后续核对（2026-10-06）**：Phase 1.2 那条「任一 reachability 数组容量打满时必须报错、
+> 不允许静默丢」当时**只落实在 checker 侧**（`src/checker/symbols.uya` 的 root / call edge /
+> reachable 三处都 `checker_report_error` 后返回），**codegen 侧没有落实**：
+> `c99_codegen_set_reachable_functions` 以 `C99_MAX_REACHABLE_FUNCTIONS`（=4096）为循环上界，
+> 目标数组又是同一常量——第 4097 个可达函数被**静默丢掉**：定义与原型都不发射、调用点还在，
+> 宿主 C 报 `implicit declaration` + `invalid initializer`，报错点指向调用处。
+> 最小复现：N 个互相串联的私有函数，N=4000 通过、N=4090 起恰好丢最后一个。
+> 现已在 `src/codegen/c99/utils.uya` + `src/codegen/c99/internal.uya` 收口：目标表改成
+> `&(&ASTNode)` 按 checker 的实际条数分配、满时经 `c99_grow_reachable_functions` 2 倍扩容，
+> 常量降级为「初始容量」。回归：`uya-agent`（3600+ 个函数）的构建 + `buglist.md` 里记的
+> 最小复现。
 
 **目标**：把“顶层函数是否发射”收敛为分析阶段的一次性结论，恢复 `checker -> reachability -> codegen` 的单向职责链。
 
