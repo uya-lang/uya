@@ -615,14 +615,44 @@ fn c99_codegen_set_c_import_plan(codegen: &C99CodeGenerator, plan: &CImportPlan)
     codegen.c_import_plan = plan;
 }
 
+// 把 checker 算出的 reachable 函数表拷进 codegen（codegen 侧按实际条数分配）。
+//
+// 为什么不再用固定表：原先目标数组是 `[&ASTNode: C99_MAX_REACHABLE_FUNCTIONS=4096]`，
+// 这里又以同一个 4096 为循环上界 —— 第 4097 个可达函数被**静默丢掉**：它的定义不发射、
+// 原型也不写进 uya_split_protos.h，可调用点照样发射，于是宿主 C 编译报
+// `implicit declaration of function` + `invalid initializer`，报错点指向调用处。
+// 现在按 checker 的实际条数分配，只受内存限制。
 fn c99_codegen_set_reachable_functions(codegen: &C99CodeGenerator, checker: &TypeChecker) i32 {
     if codegen == null || checker == null {
         return -1;
     }
     codegen.reachable_function_decl_count = 0;
+    const want: i32 = checker.reachable_fn_decl_count;
+    if want <= 0 {
+        codegen.reachable_function_decls = null;
+        codegen.reachable_function_capacity = 0;
+        return 0;
+    }
+    // 至少留一格，避免 count == capacity 时下面越界（调用方只按 count 遍历，多一格无害）
+    var cap: i32 = want;
+    if cap < C99_MAX_REACHABLE_FUNCTIONS {
+        cap = C99_MAX_REACHABLE_FUNCTIONS;
+    }
+    const nu: usize = (cap as! usize) catch { return -1; };
+    const mem: &(&ASTNode) = compiler_arena_alloc(codegen.arena, nu * @size_of(&ASTNode)) as &(&ASTNode);
+    if mem == null {
+        return -1;
+    }
+    var z: i32 = 0;
+    while z < cap {
+        mem[z] = null;
+        z = z + 1;
+    }
+    codegen.reachable_function_decls = mem;
+    codegen.reachable_function_capacity = cap;
     var i: i32 = 0;
-    while i < checker.reachable_fn_decl_count && i < C99_MAX_REACHABLE_FUNCTIONS {
-        codegen.reachable_function_decls[i] = checker.reachable_fn_decls[i];
+    while i < want {
+        mem[i] = checker.reachable_fn_decls[i];
         codegen.reachable_function_decl_count = codegen.reachable_function_decl_count + 1;
         i = i + 1;
     }

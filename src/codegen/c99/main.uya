@@ -1757,6 +1757,41 @@ fn is_library_source_file(filename: &byte) i32 {
     return 0;
 }
 
+// 把 reachable 函数表扩到 2 倍（首建为 C99_MAX_REACHABLE_FUNCTIONS）。
+// 成功 0；失败（arena 分配不出来）返回 -1，调用方放弃标记该函数。
+// 表只装指针，搬迁不打断任何指针身份。
+fn c99_grow_reachable_functions(codegen: &C99CodeGenerator) i32 {
+    if codegen == null {
+        return -1;
+    }
+    var ncap: i32 = codegen.reachable_function_capacity;
+    if ncap <= 0 {
+        ncap = C99_MAX_REACHABLE_FUNCTIONS;
+    } else {
+        ncap = ncap * 2;
+        if ncap <= 0 {
+            return -1;   // i32 溢出（病态输入）
+        }
+    }
+    const nu: usize = (ncap as! usize) catch { return -1; };
+    const mem: &(&ASTNode) = compiler_arena_alloc(codegen.arena, nu * @size_of(&ASTNode)) as &(&ASTNode);
+    if mem == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < codegen.reachable_function_decl_count {
+        mem[i] = codegen.reachable_function_decls[i];
+        i = i + 1;
+    }
+    while i < ncap {
+        mem[i] = null;
+        i = i + 1;
+    }
+    codegen.reachable_function_decls = mem;
+    codegen.reachable_function_capacity = ncap;
+    return 0;
+}
+
 fn mark_top_level_function_reachable(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if codegen == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return;
@@ -1764,12 +1799,17 @@ fn mark_top_level_function_reachable(codegen: &C99CodeGenerator, fn_decl: &ASTNo
     if is_top_level_function_reachable(codegen, fn_decl) != 0 {
         return;
     }
-    if codegen.reachable_function_decl_count >= C99_MAX_REACHABLE_FUNCTIONS {
-        return;
-    }
+    // 表按需增长（原先以 C99_MAX_REACHABLE_FUNCTIONS=4096 为界直接 return，
+    // 第 4097 个可达函数连定义都不发射 —— 见 c99_codegen_set_reachable_functions 的说明）。
     const reachable_idx: i32 = codegen.reachable_function_decl_count;
-    if reachable_idx >= 0 && reachable_idx < @len(codegen.reachable_function_decls) {
-        codegen.reachable_function_decls[reachable_idx] = fn_decl;
+    if reachable_idx >= codegen.reachable_function_capacity {
+        if c99_grow_reachable_functions(codegen) != 0 {
+            return;
+        }
+    }
+    const tbl: &(&ASTNode) = codegen.reachable_function_decls;
+    if tbl != null && reachable_idx >= 0 && reachable_idx < codegen.reachable_function_capacity {
+        tbl[reachable_idx] = fn_decl;
         codegen.reachable_function_decl_count = reachable_idx + 1;
     }
     if fn_decl.fn_decl_type_param_count > 0 {

@@ -170,8 +170,14 @@ struct C99CodeGenerator {
     // 函数声明表
     function_declarations: [FunctionDeclaration: C99_MAX_FUNCTION_DECLS],
     function_declaration_count: i32,
-    reachable_function_decls: [&ASTNode: C99_MAX_REACHABLE_FUNCTIONS],
+    // reachable 函数表：按**实际条数**从 arena 分配（原先写死 [&ASTNode: 4096]，
+    // 超过 4096 个可达函数时 `c99_codegen_set_reachable_functions` 静默截断 ⇒
+    // 被截掉的函数既不发射定义、也不写进 uya_split_protos.h，而调用点还在，
+    // 最终在宿主 C 编译期报 `implicit declaration` + `invalid initializer`，
+    // 报错点指向调用处，与实际原因（表满）无关）。
+    reachable_function_decls: &(&ASTNode),
     reachable_function_decl_count: i32,
+    reachable_function_capacity: i32,
 
     // 声明缓存（一次性构建，用于加速 find_*_c99 系列查找）
     fn_decl_cache: [&ASTNode: C99_DECL_CACHE_SIZE],      // 函数名哈希缓存
