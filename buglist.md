@@ -267,6 +267,29 @@
 
 ## 编译器 bug
 
+- [ ] **P1 / 高：普通用户程序的 `main` 也被弱 worker 入口抢先接管 —— 凡带 argv 的用户进程都可能被误判成 pipeline worker**
+  - 状态：**未修复**（2026-10-06 定位；`uya-agent` 的整组 TUI 自测轮因此红）
+  - 现象：`lib/std/runtime/entry/entry.uya` 的 `main` 在调用 `main_main()` **之前**先调
+    `uya_pipeline_worker_dispatch()`；而 codegen 在 `container_mode == 0` 时**总是**发射那个
+    弱桥接（`src/codegen/c99/main.uya` 的 `uya_thread_call_*` 一族旁边）：它取
+    `uya_pipeline_worker_main_if_requested` 的地址并直接调用。该函数在
+    `lib/std/process.uya` 里**无条件**导出，判据是 `get_argc() == 2 &&
+    pipeline_worker_arg_matches(get_argv(1))`。
+  - 后果：**任何**用新版标准库编译出来的用户程序，只要 `argc == 2` 且 `argv[1]` 恰好是
+    `--uya-pipeline-worker`，就会被当作 worker 走进 pipeline 分支；反过来，
+    `0.10.1` 的 `entry.uya` **没有**这段桥接，所以同一个程序在 0.10.1 下行为正常。
+    `uya-agent` 的 `tui-approve` / `tui-plan` / `tui-ask` / `tui-quit` 等轮都在真 PTY 里
+    fork 子进程并在父进程里断言首帧，实测**同一份未改动源码**：
+      0.10.1 编 → 0 条 FAIL；新编译器编 → 23~38 条 FAIL，
+    且与「怎么改容量」（静态常量抬高 / 改成动态表）无关 —— 只要编译器能把本仓编过就会红。
+  - 为什么与本仓拆分无关：拆分前后各编一次，FAIL 数是 21（拆后）与 27（拆前），都在同一量级；
+    把 `input_file_indices` 与 reachable 表两处**都**修好（本仓 build 能过）之后，拆前拆后
+    仍同样红。也就是它是**编译器/标准库侧**的行为改变，不是搬文件引入的。
+  - 建议修法（二选一）：
+    1. codegen 只在「确实要走 pipeline worker 入口」时才发射弱桥接（例如按 `--exec` /
+       `container_mode` / 显式开关决定），普通用户程序不发射；或
+    2. `entry.uya` 的这段调用改成「先看环境变量/显式标记」，别只看 argc/argv 形状。
+
 - [ ] **P1 / 高：切片字面量传给 `&const byte` 形参时，生成 C 传的是「切片描述符临时量的地址」而不是字节指针**
   - 状态：**未修复**（2026-10-04 发现并记录；本轮通过在测试里改用局部数组绕开）
   - 现象：被调函数按 `&const byte` / `*const byte` 声明形参时，调用方写
