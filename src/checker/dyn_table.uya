@@ -1,0 +1,290 @@
+// checker/dyn_table.uya - 通用动态哈希表（编译器内部各表共用一套算法）
+//
+// 背景：编译器里原先的五张表（symbol_table / function_table / module_table /
+// import_table / string_pool）都是**定长数组**，容量写死在 checker/types.uya 的
+// SYMBOL_TABLE_SIZE / FUNCTION_TABLE_SIZE / MODULE_TABLE_SIZE / IMPORT_TABLE_SIZE /
+// STRING_POOL_SIZE 里，装不下就报「容量不足」并编译失败。实测：一个 112 文件、
+// 约 6800 个声明的工程，在 FUNCTION_TABLE_SIZE = 8192 下只剩 **9 个函数**的余量，
+// 加第 10 个函数就报错，而且报错点落在**标准库**里（那是被编译到的第 8193 个函数
+// 所在的位置），完全看不出根因。
+//
+// 本文件把「开放寻址 + 线性探测 + 容量倍增 + rehash」收成**唯一一份**实现，
+// 五张表（以及后续任何新表）都复用它，不再各写一遍探测循环。
+//
+// ---- 为什么是「字节缓冲」而不是 `DynTable<T>` ----
+// 最自然的写法是泛型结构体 `struct DynTable<T> { keys: &&byte, slots: &T, ... }`，
+// 但 uya 0.10 的 checker 有一个硬限制：**泛型实参 T 在字段访问处不会被落实**。
+// 具体表现（都实测过）：
+//   * `fn value_at(self: &Self, i: i32) T { return self.slots[i]; }` —— 调用点写成
+//     `&FunctionSignature` 会报「return 返回值：期望类型 &FunctionSignature，推断为 T」；
+//   * 自由泛型函数 + turbofish（`dyn_value_at<&FunctionSignature>(...)`）同样报这一条；
+//   * 绕成 `&T`/`&&T` 出口（`std Vec<T>.elem_ref` 那种）也一样。
+// 也就是说泛型表能**写**（put/分配/rehash 都行）却**读不出来**，而编译器这些表的
+// 全部用法都是「按键取出 &Symbol / &FunctionSignature / …」。
+//
+// 所以这里改成**非泛型**的字节缓冲表：键存 `&&byte`，值存进一块 `&byte` 缓冲，
+// 元素大小 `elem_size` 在运行时给（调用方传 `@size_of(自己的结构)`）。
+// 泛型/具体类型的分界因此落在调用方那一侧 —— `dyn_table_value_as_*` 式的强转
+// 由各表自己的 accessor 做（见 checker_function_slot_at），而**算法只有一份**。
+//
+// 键语义（与旧的五张表逐条对齐）：键是 C 字符串（`&byte`，以 0 结尾）；
+// 指针相同或内容相同都算同一个键。
+//
+// 生命周期：两块数组都是 malloc 的，`dyn_table_free` 归还；表本身是值结构体，
+// 嵌在 TypeChecker 里，`dyn_table_init` 负责清零 + 预留。
+
+use libc;
+
+// ===== 键比较 =====
+
+// 字符串相等判定：先比指针（intern 之后同一份字符串是最常见情形），再逐字节比内容。
+// 返回 1 = 相等，0 = 不等；null 只在「两侧同为一个非空指针」时算相等 ——
+// 两个 null 表示空槽，不算命中。
+fn dyn_str_eq(a: &byte, b: &byte) i32 {
+    if a == b {
+        if a == null {
+            return 0;
+        }
+        return 1;
+    }
+    if a == null || b == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while true {
+        const ca: byte = a[i];
+        const cb: byte = b[i];
+        if ca != cb {
+            return 0;
+        }
+        if ca == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// ===== 通用动态表（字节缓冲版）=====
+
+// 动态哈希表：字符串键 + 任意固定大小的值。
+//   keys      : 键数组，null = 空槽
+//   values    : 值缓冲，第 i 个元素在 `values + elem_size * i`
+//   elem_size : 单个值多少字节（调用方传 @size_of(结构)）
+//   capacity  : 当前容量（0 = 还没分配）
+//   count     : 已用槽数。无墓碑：查找/插入探测到 null 即停。
+//
+// 负载因子 3/4：put 前若 (count+1)*4 > capacity*3 先扩容到 2 倍。
+// 初始容量由调用方给（各表沿用旧常量），小工程不发生扩容，容量与性能与改动前一致。
+export struct DynTable {
+    keys: & & byte,
+    values: &byte,
+    elem_size: usize,
+    capacity: i32,
+    count: i32,
+
+    // 第 i 个值的地址（&byte，调用方自己 as 成目标类型）。
+    fn value_ptr(self: &Self, i: i32) &byte {
+        const esz: usize = self.elem_size;
+        const off: usize = esz * ((i as! usize) catch { 0usize; });
+        return self.values + off;
+    }
+
+    // 确保容量至少 want（2 倍增长），并把旧内容 rehash 进新数组。
+    // 返回 0 = 成功（含「已经够大」），-1 = 分配失败 / elem_size 还没设。
+    fn reserve(self: &Self, want: i32) i32 {
+        if want <= 0 || self.elem_size == 0 {
+            return -1;
+        }
+        if self.capacity >= want {
+            return 0;
+        }
+        var nc: i32 = self.capacity;
+        if nc < DYN_TABLE_MIN_CAPACITY {
+            nc = DYN_TABLE_MIN_CAPACITY;
+        }
+        while nc < want {
+            nc = nc * 2;
+            if nc <= 0 {
+                return -1;   // 溢出（真到 i32 上限只能是病态输入）
+            }
+        }
+        const nu: usize = (nc as! usize) catch { return -1; };
+        const nk_raw: &byte = malloc(DYN_TABLE_PTR_BYTES * nu);
+        if nk_raw == null {
+            return -1;
+        }
+        const nv_raw: &byte = malloc(self.elem_size * nu);
+        if nv_raw == null {
+            free(nk_raw as &void);
+            return -1;
+        }
+        const kk: & &byte = nk_raw as & &byte;
+        // 键与值**都要清零**：空槽的判据是 key == null，但调用方拿到槽下标之后会
+        // 直接读值（`value_ptr(i) as &&X`），值缓冲里若是 malloc 的垃圾，读出来就是
+        // 一个野指针 —— 本轮真踩到：只清了 keys，`function_table_lookup_same_file`
+        // 在第一个空槽前的垃圾槽上解引用，编译器自己编自己当场段错误。
+        memset(nv_raw, 0, self.elem_size * nu);
+        var i: i32 = 0;
+        while i < nc {
+            kk[i] = null;
+            i = i + 1;
+        }
+        // rehash：旧表逐槽搬进新表。容量变了 ⇒ `hash % capacity` 全变，
+        // 所以只能按**键重新探测**，绝不能按下标整段拷贝。
+        const old_cap: i32 = self.capacity;
+        const old_keys: & &byte = self.keys;
+        const old_vals: &byte = self.values;
+        const esz: usize = self.elem_size;
+        self.keys = kk;
+        self.values = nv_raw;
+        self.capacity = nc;
+        self.count = 0;
+        var j: i32 = 0;
+        while j < old_cap {
+            if old_keys[j] != null {
+                const slot: i32 = self.find_empty_slot(old_keys[j]);
+                if slot < 0 {
+                    return -1;
+                }
+                self.keys[slot] = old_keys[j];
+                const src: &byte = old_vals + (esz * ((j as! usize) catch { 0usize; }));
+                memcpy(self.value_ptr(slot), src, esz);
+                self.count = self.count + 1;
+            }
+            j = j + 1;
+        }
+        if old_keys != null {
+            free(old_keys as &void);
+        }
+        if old_vals != null {
+            free(old_vals as &void);
+        }
+        return 0;
+    }
+
+    // 键该落的下标：命中同键返回它（覆盖用），遇空槽返回空槽（插入用）。-1 = 表满。
+    fn find_empty_slot(self: &Self, key: &byte) i32 {
+        const cap: i32 = self.capacity;
+        if cap <= 0 || key == null {
+            return -1;
+        }
+        const h: i32 = hash_string(key);
+        var idx: i32 = h % cap;
+        if idx < 0 {
+            idx = idx + cap;
+        }
+        var i: i32 = 0;
+        while i < cap {
+            const slot: i32 = (idx + i) % cap;
+            if self.keys[slot] == null {
+                return slot;
+            }
+            if dyn_str_eq(self.keys[slot], key) != 0 {
+                return slot;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    // 查找键所在槽下标；-1 = 不存在（或表还没建）。调用方用 value_ptr 取值。
+    fn find(self: &Self, key: &byte) i32 {
+        if key == null || self.capacity <= 0 {
+            return -1;
+        }
+        const h: i32 = hash_string(key);
+        var idx: i32 = h % self.capacity;
+        if idx < 0 {
+            idx = idx + self.capacity;
+        }
+        var i: i32 = 0;
+        while i < self.capacity {
+            const slot: i32 = (idx + i) % self.capacity;
+            if self.keys[slot] == null {
+                return -1;   // 探测到空槽 ⇒ 后面不可能有（无墓碑）
+            }
+            if dyn_str_eq(self.keys[slot], key) != 0 {
+                return slot;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    // 插入或覆盖：value 指向要拷进去的值（长度必须 = elem_size）。
+    // 返回 0 = 成功，-1 = 分配失败 / 表满。
+    fn put(self: &Self, key: &byte, value: &byte) i32 {
+        if key == null || value == null || self.elem_size == 0 {
+            return -1;
+        }
+        if self.capacity <= 0 {
+            if self.reserve(DYN_TABLE_MIN_CAPACITY) != 0 {
+                return -1;
+            }
+        }
+        // 先扩容再放：留出负载因子余量，探测长度才可控
+        if (self.count + 1) * DYN_TABLE_LOAD_DEN > self.capacity * DYN_TABLE_LOAD_NUM {
+            if self.reserve(self.capacity * 2) != 0 {
+                return -1;
+            }
+        }
+        const slot: i32 = self.find_empty_slot(key);
+        if slot < 0 {
+            return -1;
+        }
+        if self.keys[slot] == null {
+            self.key_set(slot, key);
+            self.count = self.count + 1;
+        }
+        memcpy(self.value_ptr(slot), value, self.elem_size);
+        return 0;
+    }
+
+    // 写第 slot 槽的键（单独开一个方法：keys 是 `&&byte`，直接下标赋值在
+    // uya 0.10 下会生成错类型的 C）
+    fn key_set(self: &Self, slot: i32, key: &byte) void {
+        self.keys[slot] = key;
+    }
+
+    // 第 slot 槽的键（null = 空槽）。全表扫描时用它过滤。
+    fn key_at(self: &Self, slot: i32) &byte {
+        return self.keys[slot];
+    }
+
+    // 清空（容量与数组留着复用）。值也要清 —— 空槽之后调用方可能直接读值。
+    fn clear(self: &Self) void {
+        if self.values != null {
+            const nu: usize = (self.capacity as! usize) catch { 0usize; };
+            memset(self.values, 0, self.elem_size * nu);
+        }
+        var i: i32 = 0;
+        while i < self.capacity {
+            self.keys[i] = null;
+            i = i + 1;
+        }
+        self.count = 0;
+    }
+
+    // 归还数组（表结构本身跟着 TypeChecker 走）。
+    fn free_arrays(self: &Self) void {
+        if self.keys != null {
+            free(self.keys as &void);
+            self.keys = null;
+        }
+        if self.values != null {
+            free(self.values as &void);
+            self.values = null;
+        }
+        self.capacity = 0;
+        self.count = 0;
+    }
+}
+
+// 一个键指针占多少字节（keys 数组的元素大小）
+const DYN_TABLE_PTR_BYTES: usize = 8usize;
+// 初始容量下限：reserve 从非零底数开始倍增，避免 0 → 1 → 2 的碎步
+const DYN_TABLE_MIN_CAPACITY: i32 = 8;
+// 负载因子：count/capacity 超过 3/4 就扩容
+const DYN_TABLE_LOAD_NUM: i32 = 3;
+const DYN_TABLE_LOAD_DEN: i32 = 4;

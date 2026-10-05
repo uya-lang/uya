@@ -301,11 +301,15 @@ fn checker_import_table_lookup_local_name(checker: &TypeChecker, local_name: &by
         return null;
     }
     var ih: u32 = hash_string(local_name);
-    var ii: i32 = (ih as i32) & (IMPORT_TABLE_SIZE - 1);
+    const itbl_cap: i32 = checker.import_table.table.capacity;
+    var ii: i32 = (ih as i32) % itbl_cap;
+    if ii < 0 {
+        ii = ii + itbl_cap;
+    }
     var i: i32 = 0;
-    while i < IMPORT_TABLE_SIZE {
-        const sl: i32 = (ii + i) & (IMPORT_TABLE_SIZE - 1);
-        const imp: &ImportedItem = checker.import_table.slots[sl];
+    while i < itbl_cap {
+        const sl: i32 = (ii + i) % itbl_cap;
+        const imp: &ImportedItem = checker_import_slot_at(checker, sl);
         if imp == null {
             break;
         }
@@ -409,11 +413,15 @@ fn checker_module_exports_name(checker: &TypeChecker, module_name: &byte, item_n
         return 0;
     }
     const mh: i32 = hash_string(module_name);
-    var mi: i32 = mh & (MODULE_TABLE_SIZE - 1);
+    const mtbl_cap: i32 = checker.module_table.table.capacity;
+    var mi: i32 = mh % mtbl_cap;
+    if mi < 0 {
+        mi = mi + mtbl_cap;
+    }
     var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
-        const mod: &ModuleInfo = checker.module_table.slots[slot];
+    while i < mtbl_cap {
+        const slot: i32 = (mi + i) % mtbl_cap;
+        const mod: &ModuleInfo = checker_module_slot_at(checker, slot);
         if mod == null {
             break;
         }
@@ -656,11 +664,15 @@ fn resolve_reachable_callee_fn_decl(checker: &TypeChecker, callee: &ASTNode) &AS
             return null;
         }
         var mh: u32 = hash_string(module_name);
-        var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+        const mtbl_cap: i32 = checker.module_table.table.capacity;
+        var mi: i32 = (mh as i32) % mtbl_cap;
+        if mi < 0 {
+            mi = mi + mtbl_cap;
+        }
         var i3: i32 = 0;
-        while i3 < MODULE_TABLE_SIZE {
-            const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
-            const mod: &ModuleInfo = checker.module_table.slots[ml];
+        while i3 < mtbl_cap {
+            const ml: i32 = (mi + i3) % mtbl_cap;
+            const mod: &ModuleInfo = checker_module_slot_at(checker, ml);
             if mod == null {
                 break;
             }
@@ -1594,12 +1606,16 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                     // 在模块导出表中查找函数
                     if module_name != null {
                         var mh: u32 = hash_string(module_name);
-                        var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+                        const mtbl_cap: i32 = checker.module_table.table.capacity;
+                        var mi: i32 = (mh as i32) % mtbl_cap;
+                        if mi < 0 {
+                            mi = mi + mtbl_cap;
+                        }
                         var i3: i32 = 0;
                         var found_module: i32 = 0;
-                        while i3 < MODULE_TABLE_SIZE {
-                            const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
-                            const mod: &ModuleInfo = checker.module_table.slots[ml];
+                        while i3 < mtbl_cap {
+                            const ml: i32 = (mi + i3) % mtbl_cap;
+                            const mod: &ModuleInfo = checker_module_slot_at(checker, ml);
                             if mod == null { break; }
                             if str_equals(mod.module_name, module_name) != 0 {
                                 found_module = 1;
@@ -2709,11 +2725,15 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
         // 局部/参数变量优先于导入模块：避免变量名与模块别名同名时误判 module.field
         if symbol == null {
             const ih: i32 = hash_string(obj.identifier_name);
-            var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
+            const itbl_cap: i32 = checker.import_table.table.capacity;
+            var ii: i32 = ih % itbl_cap;
+            if ii < 0 {
+                ii = ii + itbl_cap;
+            }
             var mi: i32 = 0;
-            while mi < IMPORT_TABLE_SIZE {
-                const sl: i32 = (ii + mi) & (IMPORT_TABLE_SIZE - 1);
-                const imp: &ImportedItem = checker.import_table.slots[sl];
+            while mi < itbl_cap {
+                const sl: i32 = (ii + mi) % itbl_cap;
+                const imp: &ImportedItem = checker_import_slot_at(checker, sl);
                 if imp == null {
                     break;
                 }

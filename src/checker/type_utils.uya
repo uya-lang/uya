@@ -656,8 +656,9 @@ fn checker_resolve_pipeline_decl(checker: &TypeChecker) &ASTNode {
     }
     const target_module: &byte = "std.process" as &byte;
     var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const module: &ModuleInfo = checker.module_table.slots[i];
+    const mtbl_cap: i32 = checker.module_table.table.capacity;
+    while i < mtbl_cap {
+        const module: &ModuleInfo = checker_module_slot_at(checker, i);
         if module != null && module.module_name != null &&
             str_equals(module.module_name, target_module) != 0 {
             var ei: i32 = 0;

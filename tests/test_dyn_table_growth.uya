@@ -1,0 +1,424 @@
+// tests/test_dyn_table_growth.uya
+//
+// 回归：编译器的「动态哈希表」（checker/dyn_table.uya）在**超出初始容量**之后仍然正确。
+//
+// 背景（P54）：编译器原先的五张表（symbol / function / module / import / string_pool）
+// 都是定长数组，容量写死。实测一个 112 文件、约 6800 声明的工程在
+// FUNCTION_TABLE_SIZE = 8192 下只剩 **9 个函数**的余量，加第 10 个函数就报
+// 「函数表容量不足，请增大 FUNCTION_TABLE_SIZE」，而报错点落在**标准库**里
+// （那是被编译到的第 8193 个函数所在的位置），完全看不出根因。
+//
+// 本文件直接测算法本身（不依赖编译器内部状态）：put 远超初始容量 ⇒ 必须扩容 rehash，
+// 且扩容后**旧键仍然命中、值仍然正确**。三条判据各自咬住一个曾经的实现缺陷：
+//   ① count 与逐键回查  —— 咬「rehash 只搬了键没搬值」；
+//   ② 指针身份           —— 咬「表按值拷贝结构体」（编译器靠指针身份认作用域链，拷贝会让它崩）；
+//   ③ 负数哈希可取       —— 咬「hash % cap 得到负下标」（旧的掩码式天生非负，换 % 之后会翻车）。
+//
+// ⚠ 本文件的泛型表是**按字节缓冲 + 元素大小**实现的（与 dyn_table.uya 同形），
+// 不是 `DynTable<T>`：uya 0.10 的 checker 在字段访问处不落实泛型实参 T，
+// 泛型表能写却读不出来（详见 dyn_table.uya 的文件头注释）。
+
+use libc;
+use std.testing.assert_eq_i32;
+use std.testing.run_test;
+
+// 0..9 的数字 → ASCII 数字字符。上下界都显式钳制：--safety-proof 的证明器只认
+// 「显式写在眼前的边界」，`(48 + d) as byte` 即使 d 明明来自 % 10 也会报可能溢出。
+fn digit_char(d: i32) byte {
+    var v: i32 = d;
+    if v < 0 {
+        v = 0;
+    }
+    if v > 9 {
+        v = 9;
+    }
+    return (48 + v) as byte;
+}
+
+fn test_hash(str: &byte) i32 {
+    var hash: u32 = 5381;
+    var i: i32 = 0;
+    while str[i] != 0 {
+        hash = (hash * 33) + (str[i] as u32);
+        i = i + 1;
+    }
+    return hash as i32;
+}
+
+fn test_str_eq(a: &byte, b: &byte) i32 {
+    if a == b {
+        if a == null {
+            return 0;
+        }
+        return 1;
+    }
+    if a == null || b == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while true {
+        const ca: byte = a[i];
+        const cb: byte = b[i];
+        if ca != cb {
+            return 0;
+        }
+        if ca == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 与 checker/dyn_table.uya 同形的动态表（键 + 值指针缓冲 + 元素大小）
+struct TestTable {
+    keys: & & byte,
+    values: &byte,
+    elem_size: usize,
+    capacity: i32,
+    count: i32,
+
+    fn value_ptr(self: &Self, i: i32) &byte {
+        // 下标先用「负数夹到 0」保证非负，再走**安全** as（不需要 as! + catch：
+        // 这种写法在方法体里嵌 catch 会带出 !T，把整个 struct 的解析搞乱）
+        var idx: i32 = i;
+        if idx < 0 {
+            idx = 0;
+        }
+        const iu: usize = idx as usize;
+        const off: usize = self.elem_size * iu;
+        return self.values + off;
+    }
+
+    fn find_empty_slot(self: &Self, key: &byte) i32 {
+        const cap: i32 = self.capacity;
+        if cap <= 0 || key == null {
+            return -1;
+        }
+        const h: i32 = test_hash(key);
+        var idx: i32 = h % cap;
+        if idx < 0 {
+            idx = idx + cap;
+        }
+        var i: i32 = 0;
+        while i < cap {
+            const slot: i32 = (idx + i) % cap;
+            if self.keys[slot] == null {
+                return slot;
+            }
+            if test_str_eq(self.keys[slot], key) != 0 {
+                return slot;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    fn find(self: &Self, key: &byte) i32 {
+        if key == null || self.capacity <= 0 {
+            return -1;
+        }
+        const h: i32 = test_hash(key);
+        var idx: i32 = h % self.capacity;
+        if idx < 0 {
+            idx = idx + self.capacity;
+        }
+        var i: i32 = 0;
+        while i < self.capacity {
+            const slot: i32 = (idx + i) % self.capacity;
+            if self.keys[slot] == null {
+                return -1;
+            }
+            if test_str_eq(self.keys[slot], key) != 0 {
+                return slot;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    fn reserve(self: &Self, want: i32) i32 {
+        if want <= 0 || self.elem_size == 0 {
+            return -1;
+        }
+        if self.capacity >= want {
+            return 0;
+        }
+        var nc: i32 = self.capacity;
+        if nc < 8 {
+            nc = 8;
+        }
+        while nc < want {
+            nc = nc * 2;
+            if nc <= 0 {
+                return -1;
+            }
+        }
+        var nc_pos: i32 = nc;
+        if nc_pos < 0 {
+            return -1;
+        }
+        const nu: usize = nc_pos as usize;
+        const nk_raw: &byte = malloc(8usize * nu);
+        if nk_raw == null {
+            return -1;
+        }
+        const nv_raw: &byte = malloc(self.elem_size * nu);
+        if nv_raw == null {
+            _ = free(nk_raw as &void);
+            return -1;
+        }
+        const kk: & &byte = nk_raw as & &byte;
+        // 键与值一起清零：空槽判据是 key == null，但调用方会直接读值
+        memset(nv_raw, 0, self.elem_size * nu);
+        var i: i32 = 0;
+        while i < nc {
+            kk[i] = null;
+            i = i + 1;
+        }
+        const old_cap: i32 = self.capacity;
+        const old_keys: & &byte = self.keys;
+        const old_vals: &byte = self.values;
+        const esz: usize = self.elem_size;
+        self.keys = kk;
+        self.values = nv_raw;
+        self.capacity = nc;
+        self.count = 0;
+        var j: i32 = 0;
+        while j < old_cap {
+            if old_keys[j] != null {
+                const slot: i32 = self.find_empty_slot(old_keys[j]);
+                if slot < 0 {
+                    return -1;
+                }
+                self.keys[slot] = old_keys[j];
+                const ju: usize = j as usize;
+                const src: &byte = old_vals + (esz * ju);
+                memcpy(self.value_ptr(slot), src, esz);
+                self.count = self.count + 1;
+            }
+            j = j + 1;
+        }
+        if old_keys != null {
+            _ = free(old_keys as &void);
+        }
+        if old_vals != null {
+            _ = free(old_vals as &void);
+        }
+        return 0;
+    }
+
+    fn put(self: &Self, key: &byte, value: &byte) i32 {
+        if key == null || value == null || self.elem_size == 0 {
+            return -1;
+        }
+        if self.capacity <= 0 {
+            if self.reserve(8) != 0 {
+                return -1;
+            }
+        }
+        if (self.count + 1) * 4 > self.capacity * 3 {
+            if self.reserve(self.capacity * 2) != 0 {
+                return -1;
+            }
+        }
+        const slot: i32 = self.find_empty_slot(key);
+        if slot < 0 {
+            return -1;
+        }
+        if self.keys[slot] == null {
+            self.keys[slot] = key;
+            self.count = self.count + 1;
+        }
+        memcpy(self.value_ptr(slot), value, self.elem_size);
+        return 0;
+    }
+}
+
+struct Payload {
+    id: i32,
+    tag: i32,
+}
+
+// 条目数：远超初始容量 8，逼出多次 2 倍扩容与 rehash
+const GROW_N: i32 = 500;
+
+// 测试体：返回失败计数（0 = 全部通过）
+fn dyn_table_growth_body() i32 {
+    var fails: i32 = 0;
+
+    var t: TestTable = TestTable{
+        keys: null, values: null,
+        elem_size: @size_of(&Payload) as usize,
+        capacity: 0, count: 0,
+    };
+    if t.reserve(8) != 0 {
+        return 1;
+    }
+    const cap0: i32 = t.capacity;
+
+    // 键缓冲：连排的 "k0\0k1\0…"；值缓冲：每键一个 Payload
+    var keybuf: [byte: 4096] = [0: 4096];
+    var koff: [i32: GROW_N] = [0: GROW_N];
+    var payloads: [Payload: GROW_N] = [];
+    var pos: i32 = 0;
+    var i: i32 = 0;
+    while i < GROW_N {
+        koff[i] = pos;
+        keybuf[pos] = 107;   // 'k'
+        pos = pos + 1;
+        const d2: i32 = (i / 100) % 10;
+        const d1: i32 = (i / 10) % 10;
+        const d0: i32 = i % 10;
+        if i >= 100 {
+            keybuf[pos] = digit_char(d2);
+            pos = pos + 1;
+        }
+        if i >= 10 {
+            keybuf[pos] = digit_char(d1);
+            pos = pos + 1;
+        }
+        keybuf[pos] = digit_char(d0);
+        pos = pos + 1;
+        keybuf[pos] = 0;
+        pos = pos + 1;
+        payloads[i].id = i;
+        payloads[i].tag = 1000 + i;
+        i = i + 1;
+    }
+
+    // ---- 1) 插入 GROW_N 条：必须扩容，且每条都能回查 ----
+    i = 0;
+    while i < GROW_N {
+        // 表里存的是**指针**（&Payload）：所以传的就是「指向 Payload* 的地址」
+        var pv: &Payload = &payloads[i];
+        if t.put(&keybuf[koff[i]] as &byte, &pv as &byte) != 0 {
+            fails = fails + 1;   // ① 插入失败（put 返回非 0）
+            break;
+        }
+        i = i + 1;
+    }
+    if t.count != GROW_N {
+        fails = fails + 1;   // ① count 不等于插入条数          // ① count 不对 = 插入/覆盖路径错
+    }
+    if t.capacity <= cap0 {
+        fails = fails + 1;   // 从未扩容（用例没测到 rehash）          // 从没扩过容 ⇒ 这条用例根本没测到 rehash
+    }
+    // 扩容后逐键回查（值与键都要对）
+    i = 0;
+    while i < GROW_N {
+        const slot: i32 = t.find(&keybuf[koff[i]] as &byte);
+        if slot < 0 {
+            fails = fails + 1;   // ① 扩容后取不到某个键
+            break;
+        }
+        const slotv: & &Payload = t.value_ptr(slot) as & &Payload;
+        const got: &Payload = slotv[0];
+        if got.id != i {
+            fails = fails + 1;   // ① 扩容后值串了（id 不对）      // ① 值在 rehash 里丢了/串了
+            break;
+        }
+        if got.tag != 1000 + i {
+            fails = fails + 1;   // ① 扩容后伴生字段丢了（tag 不对）
+            break;
+        }
+        i = i + 1;
+    }
+
+    // ---- 2) 指针身份：写进去的 value 指针取出来必须还是同一个 ----
+    // 键用可变缓冲（不用字符串字面量）：同一份字面量在不同位置可能是不同地址，
+    // 而这里要验的是**值**的指针身份（dyn_str_eq 对键是「指针或内容」都算命中）。
+    var idkey: [byte: 16] = [0: 16];
+    idkey[0] = 105;   // 'i'
+    idkey[1] = 100;   // 'd'
+    idkey[2] = 0;
+    var probe: Payload = Payload{ id: 7, tag: 8 };
+    var probev: &Payload = &probe;
+    if t.put(&idkey[0] as &byte, &probev as &byte) != 0 {
+        fails = fails + 1;   // ② put(同一缓冲键) 失败
+    }
+    const islot: i32 = t.find(&idkey[0] as &byte);
+    if islot < 0 {
+        fails = fails + 1;   // ② find(同一缓冲键) 取不到          // ② 取不到 = 身份/键比较错
+    } else {
+        // 表里存的**值**是 `&Payload`（指针），所以槽地址要按 `&&Payload` 解引用；
+        // 这正是编译器四张表的用法（dyn_table 存指针，checker_*_slot_at 再解一层）。
+        const slotv: & &Payload = t.value_ptr(islot) as & &Payload;
+        const gotp: &Payload = slotv[0];
+        if gotp != &probe {
+            fails = fails + 1;   // ② 值的指针身份丢了      // ② 指针身份丢了 = 表把指针按字节拷坏了
+        }
+    }
+
+    // ---- 3) 覆盖语义：同键再写，count 不涨、值被换掉 ----
+    const cnt_before: i32 = t.count;
+    var probe2: Payload = Payload{ id: 99, tag: 100 };
+    var probe2v: &Payload = &probe2;
+    if t.put(&idkey[0] as &byte, &probe2v as &byte) != 0 {
+        fails = fails + 1;   // ③ 覆盖写入失败
+    }
+    if t.count != cnt_before {
+        fails = fails + 1;   // ③ 覆盖之后 count 涨了          // 覆盖不该新增槽
+    }
+    const islot2: i32 = t.find(&idkey[0] as &byte);
+    if islot2 < 0 {
+        fails = fails + 1;   // ③ 覆盖后取不到
+    } else {
+        const slotv2: & &Payload = t.value_ptr(islot2) as & &Payload;
+        const gotp2: &Payload = slotv2[0];
+        if gotp2.id != 99 {
+            fails = fails + 1;   // ③ 覆盖没生效      // 覆盖没生效
+        }
+    }
+
+    // ---- 4) 不存在的键必须回 -1（而不是撞上别的槽）----
+    var misskey: [byte: 16] = [0: 16];
+    misskey[0] = 110;   // 'n'
+    misskey[1] = 111;   // 'o'
+    misskey[2] = 112;   // 'p'
+    misskey[3] = 101;   // 'e'
+    misskey[4] = 0;
+    const miss: i32 = t.find(&misskey[0] as &byte);
+    if miss >= 0 {
+        fails = fails + 1;   // ④ 不存在的键竟然命中了
+    }
+
+    // ---- 5) 手工把容量逼到很大（模拟「再来几千个函数」），旧键仍必须命中 ----
+    if t.reserve(8192) != 0 {
+        fails = fails + 1;   // ⑤ reserve(8192) 返回非 0
+    }
+    if t.capacity < 8192 {
+        fails = fails + 1;   // ⑤ 容量没到 8192
+    }
+    if t.count != cnt_before {
+        fails = fails + 1;   // ⑤ 扩容之后条目数变了          // 扩容不该丢条目（cnt_before 是覆盖后的条目数）
+    }
+    i = 0;
+    while i < GROW_N {
+        const slot: i32 = t.find(&keybuf[koff[i]] as &byte);
+        if slot < 0 {
+            fails = fails + 1;   // ⑤ 大容量下取不到旧键
+            break;
+        }
+        const slotv5: & &Payload = t.value_ptr(slot) as & &Payload;
+        const got: &Payload = slotv5[0];
+        if got.id != i {
+            fails = fails + 1;   // ⑤ 大容量下值串了
+            break;
+        }
+        i = i + 1;
+    }
+
+    return fails;
+}
+
+fn test_dyn_table_growth() !void {
+    // 测试体在 main 之外：所有断言都收敛到 fails 计数，最后一次性断言 0
+    var fails: i32 = 0;
+    fails = dyn_table_growth_body();
+    try assert_eq_i32(fails, 0);
+}
+
+test "dyn_table_growth" {
+    run_test("dyn_table_growth", test_dyn_table_growth);
+}

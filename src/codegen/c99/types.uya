@@ -7516,11 +7516,15 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
             const module_name: &byte = callee.member_access_module_name;
             const func_name: &byte = callee.member_access_field_name;
             var mh: u32 = hash_string(module_name);
-            var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+            const mtbl_cap: i32 = codegen.checker.module_table.table.capacity;
+            var mi: i32 = (mh as i32) % mtbl_cap;
+            if mi < 0 {
+                mi = mi + mtbl_cap;
+            }
             var i3: i32 = 0;
-            while i3 < MODULE_TABLE_SIZE {
-                const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
-                const mod: &ModuleInfo = codegen.checker.module_table.slots[ml];
+            while i3 < mtbl_cap {
+                const ml: i32 = (mi + i3) % mtbl_cap;
+                const mod: &ModuleInfo = checker_module_slot_at(codegen.checker, ml);
                 if mod == null {
                     break;
                 }

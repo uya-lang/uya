@@ -457,16 +457,18 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
 
     // 将函数添加到函数表。同名但不同模块的函数允许共存（查找时按调用点模块优先），
     // 因此这里只对同一模块内的重复定义做拦截。
+    //
+    // P54：**不再有「函数表容量不足」这条失败路径** —— 表已是动态哈希表
+    // （checker/dyn_table.uya），满了就 2 倍扩容 rehash。旧的
+    // `count >= FUNCTION_TABLE_SIZE` 预检（以及那句会让使用者误以为是自己的代码太大
+    // 的报错）已删除。insert 现在只剩两种失败：同一模块内签名冲突（-1，下面报
+    // 「函数重复定义」），以及极端情况下扩容分配不到内存（同样 -1）。
     const existing_sig: &FunctionSignature = function_table_lookup_same_file(checker, node.fn_decl_name, node.filename);
     if existing_sig != null {
         return 1;
     }
-    if checker.function_table.count >= FUNCTION_TABLE_SIZE {
-        checker_report_error(checker, node, "函数表容量不足，请增大 FUNCTION_TABLE_SIZE" as *byte);
-        return 0;
-    }
     if function_table_insert(checker, sig) != 0 {
-        checker_report_error(checker, node, "函数重复定义" as *byte);
+        checker_report_error(checker, node, "函数重复定义（或函数表扩容失败）" as *byte);
         return 0;
     }
 

@@ -34,48 +34,50 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     
     checker.arena = arena;
     
-    // 初始化符号表（所有槽位设为null）
-    var i: i32 = 0;
-    while i < SYMBOL_TABLE_SIZE {
-        checker.symbol_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.symbol_table.count = 0;
-    
-    // 初始化函数表（所有槽位设为null）
-    i = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        checker.function_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.function_table.count = 0;
-    
-    // 初始化模块表（所有槽位设为null）
-    i = 0;
-    while i < MODULE_TABLE_SIZE {
-        checker.module_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.module_table.count = 0;
-    
-    // 初始化导入表（所有槽位设为null）
-    i = 0;
-    while i < IMPORT_TABLE_SIZE {
-        checker.import_table.slots[i] = null;
-        i = i + 1;
-    }
-    checker.import_table.count = 0;
-
-    // 初始化字符串池（所有桶设为null）
-    i = 0;
-    while i < STRING_POOL_SIZE {
-        checker.string_pool.buckets[i] = null;
-        i = i + 1;
-    }
+    // 初始化五张表：都是动态哈希表（dyn_table.uya），初始容量沿用旧常量（不再是上限）。
+    // elem_size 在这里一次性设好 —— 以后扩容时 rehash 靠它逐元素搬值。
+    checker.symbol_table.table.keys = null;
+    checker.symbol_table.table.values = null;
+    checker.symbol_table.table.elem_size = (@size_of(&Symbol) as! usize) catch { 0usize; };
+    checker.symbol_table.table.capacity = 0;
+    checker.symbol_table.table.count = 0;
+    checker.function_table.table.keys = null;
+    checker.function_table.table.values = null;
+    checker.function_table.table.elem_size = (@size_of(&FunctionSignature) as! usize) catch { 0usize; };
+    checker.function_table.table.capacity = 0;
+    checker.function_table.table.count = 0;
+    checker.module_table.table.keys = null;
+    checker.module_table.table.values = null;
+    checker.module_table.table.elem_size = (@size_of(&ModuleInfo) as! usize) catch { 0usize; };
+    checker.module_table.table.capacity = 0;
+    checker.module_table.table.count = 0;
+    checker.import_table.table.keys = null;
+    checker.import_table.table.values = null;
+    checker.import_table.table.elem_size = (@size_of(&ImportedItem) as! usize) catch { 0usize; };
+    checker.import_table.table.capacity = 0;
+    checker.import_table.table.count = 0;
+    checker.string_pool.buckets = null;
+    checker.string_pool.bucket_count = 0;
     checker.string_pool.count = 0;
+    // 预留初始容量，把「分配失败」挡在编译早期（旧实现在这里就是静态数组，不会失败）
+    if checker.symbol_table.table.reserve(SYMBOL_TABLE_SIZE) != 0 {
+        return -1;
+    }
+    if checker.function_table.table.reserve(FUNCTION_TABLE_SIZE) != 0 {
+        return -1;
+    }
+    if checker.module_table.table.reserve(MODULE_TABLE_SIZE) != 0 {
+        return -1;
+    }
+    if checker.import_table.table.reserve(IMPORT_TABLE_SIZE) != 0 {
+        return -1;
+    }
+    if !string_pool_ensure_buckets(&checker.string_pool, STRING_POOL_SIZE) {
+        return -1;
+    }
 
     // 初始化作用域链表头数组
-    i = 0;
+    var i: i32 = 0;
     while i < @len(checker.scope_heads) {
         checker.scope_heads[i] = null;
         i = i + 1;
@@ -346,12 +348,25 @@ fn checker_scope_head_set(checker: &TypeChecker, idx: i32, value: &Symbol) void 
     }
 }
 
+// 四张表的 slot accessor 是「字节缓冲 → 具体类型」的**唯一**转换点
+// （dyn_table.uya 的表是非泛型的，值只按字节存）。
+//
+// ⚠ 表里存的是**指针**（`&Symbol` / `&FunctionSignature` / …），元素大小 =
+// `@size_of(&X)`，**不是结构体本身的拷贝**。两条理由，都踩过：
+//   ① 旧实现就是 `[&Symbol: N]` —— 符号/函数结构体由 arena 拥有，表只持指针；
+//   ② 编译器有**指针身份**语义：作用域链表（symbol.next_in_scope）与表槽指向
+//      同一个 Symbol，`checker_symbol_slot_at(...) == symbol` 这类比较必须成立。
+//      第一版写成「按值拷贝进表中转缓冲」之后，编译器自己编自己当场段错误。
+//
+// ⚠ **_set 系列必须同时写键**：rehash 靠 keys 数组重新探测（见 dyn_table.reserve），
+// 只写值不写键的话，第一次扩容就会把这张表里的内容**全部丢掉**。键在 set 里一并落盘。
 fn checker_symbol_slot_at(checker: &TypeChecker, idx: i32) &Symbol {
     if checker == null {
         return null;
     }
-    if idx >= 0 && idx < SYMBOL_TABLE_SIZE {
-        return checker.symbol_table.slots[idx];
+    if idx >= 0 && idx < checker.symbol_table.table.capacity {
+        const slot: & &Symbol = checker.symbol_table.table.value_ptr(idx) as & &Symbol;
+        return slot[0];
     }
     return null;
 }
@@ -360,8 +375,16 @@ fn checker_symbol_slot_set(checker: &TypeChecker, idx: i32, value: &Symbol) void
     if checker == null {
         return;
     }
-    if idx >= 0 && idx < SYMBOL_TABLE_SIZE {
-        checker.symbol_table.slots[idx] = value;
+    if idx >= 0 && idx < checker.symbol_table.table.capacity {
+        const slot: & &Symbol = checker.symbol_table.table.value_ptr(idx) as & &Symbol;
+        slot[0] = value;
+        // key 用显式变量传：`if ... else ...` 当**表达式**嵌进调用会在 C 后端生成
+        // `__uya_ifexpr_N`（类型被推成 int32_t），赋给指针参数直接编译失败。
+        var slot_key: &byte = null;
+        if value != null {
+            slot_key = value.name;
+        }
+        checker.symbol_table.table.key_set(idx, slot_key);
     }
 }
 
@@ -369,8 +392,9 @@ fn checker_function_slot_at(checker: &TypeChecker, idx: i32) &FunctionSignature 
     if checker == null {
         return null;
     }
-    if idx >= 0 && idx < FUNCTION_TABLE_SIZE {
-        return checker.function_table.slots[idx];
+    if idx >= 0 && idx < checker.function_table.table.capacity {
+        const slot: & &FunctionSignature = checker.function_table.table.value_ptr(idx) as & &FunctionSignature;
+        return slot[0];
     }
     return null;
 }
@@ -379,8 +403,77 @@ fn checker_function_slot_set(checker: &TypeChecker, idx: i32, value: &FunctionSi
     if checker == null {
         return;
     }
-    if idx >= 0 && idx < FUNCTION_TABLE_SIZE {
-        checker.function_table.slots[idx] = value;
+    if idx >= 0 && idx < checker.function_table.table.capacity {
+        const slot: & &FunctionSignature = checker.function_table.table.value_ptr(idx) as & &FunctionSignature;
+        slot[0] = value;
+        // key 用显式变量传：`if ... else ...` 当**表达式**嵌进调用会在 C 后端生成
+        // `__uya_ifexpr_N`（类型被推成 int32_t），赋给指针参数直接编译失败。
+        var slot_key: &byte = null;
+        if value != null {
+            slot_key = value.name;
+        }
+        checker.function_table.table.key_set(idx, slot_key);
+    }
+}
+
+// 模块表 / 导入表同族的两个 accessor（P54）。
+// 为什么必须有它们：这两张表原先在 9 个文件里被直接下标访问
+// （`checker.module_table.slots[ml]`），而表改成动态之后「容量」是运行时值 ——
+// 越界检查必须跟 capacity 走，散在各处的下标访问没法保证这一点。
+// 顺带把「字节缓冲 → 具体类型」的强转收在一处（与上面两个 slot accessor 同一分工）。
+fn checker_module_slot_at(checker: &TypeChecker, idx: i32) &ModuleInfo {
+    if checker == null {
+        return null;
+    }
+    if idx >= 0 && idx < checker.module_table.table.capacity {
+        const slot: & &ModuleInfo = checker.module_table.table.value_ptr(idx) as & &ModuleInfo;
+        return slot[0];
+    }
+    return null;
+}
+
+fn checker_module_slot_set(checker: &TypeChecker, idx: i32, value: &ModuleInfo) void {
+    if checker == null {
+        return;
+    }
+    if idx >= 0 && idx < checker.module_table.table.capacity {
+        const slot: & &ModuleInfo = checker.module_table.table.value_ptr(idx) as & &ModuleInfo;
+        slot[0] = value;
+        // key 用显式变量传：`if ... else ...` 当**表达式**嵌进调用会在 C 后端生成
+        // `__uya_ifexpr_N`（类型被推成 int32_t），赋给指针参数直接编译失败。
+        var slot_key: &byte = null;
+        if value != null {
+            slot_key = value.module_name;
+        }
+        checker.module_table.table.key_set(idx, slot_key);
+    }
+}
+
+fn checker_import_slot_at(checker: &TypeChecker, idx: i32) &ImportedItem {
+    if checker == null {
+        return null;
+    }
+    if idx >= 0 && idx < checker.import_table.table.capacity {
+        const slot: & &ImportedItem = checker.import_table.table.value_ptr(idx) as & &ImportedItem;
+        return slot[0];
+    }
+    return null;
+}
+
+fn checker_import_slot_set(checker: &TypeChecker, idx: i32, value: &ImportedItem) void {
+    if checker == null {
+        return;
+    }
+    if idx >= 0 && idx < checker.import_table.table.capacity {
+        const slot: & &ImportedItem = checker.import_table.table.value_ptr(idx) as & &ImportedItem;
+        slot[0] = value;
+        // key 用显式变量传：`if ... else ...` 当**表达式**嵌进调用会在 C 后端生成
+        // `__uya_ifexpr_N`（类型被推成 int32_t），赋给指针参数直接编译失败。
+        var slot_key: &byte = null;
+        if value != null {
+            slot_key = value.local_name;
+        }
+        checker.import_table.table.key_set(idx, slot_key);
     }
 }
 
@@ -659,7 +752,7 @@ fn symbol_table_lookup(checker: &TypeChecker, name: &byte) &Symbol {
         g_symbol_lookup_cache_checker[cache_slot] == checker &&
         g_symbol_lookup_cache_hash[cache_slot] == name_hash &&
         g_symbol_lookup_cache_scope[cache_slot] == checker.scope_level &&
-        g_symbol_lookup_cache_count[cache_slot] == checker.symbol_table.count &&
+        g_symbol_lookup_cache_count[cache_slot] == checker.symbol_table.table.count &&
         g_symbol_lookup_cache_generation[cache_slot] == g_symbol_lookup_generation {
         const cached_key: &byte = g_symbol_lookup_cache_key[cache_slot];
         if cached_key == name || str_equals(cached_key, name) != 0 {
@@ -687,7 +780,7 @@ fn symbol_table_lookup(checker: &TypeChecker, name: &byte) &Symbol {
                     g_symbol_lookup_cache_key[cache_slot] = name;
                     g_symbol_lookup_cache_hash[cache_slot] = name_hash;
                     g_symbol_lookup_cache_scope[cache_slot] = checker.scope_level;
-                    g_symbol_lookup_cache_count[cache_slot] = checker.symbol_table.count;
+                    g_symbol_lookup_cache_count[cache_slot] = checker.symbol_table.table.count;
                     g_symbol_lookup_cache_generation[cache_slot] = g_symbol_lookup_generation;
                     g_symbol_lookup_cache_value[cache_slot] = symbol;
                     g_symbol_lookup_cache_valid[cache_slot] = 1;
@@ -704,7 +797,7 @@ fn symbol_table_lookup(checker: &TypeChecker, name: &byte) &Symbol {
         g_symbol_lookup_cache_key[cache_slot] = name;
         g_symbol_lookup_cache_hash[cache_slot] = name_hash;
         g_symbol_lookup_cache_scope[cache_slot] = checker.scope_level;
-        g_symbol_lookup_cache_count[cache_slot] = checker.symbol_table.count;
+        g_symbol_lookup_cache_count[cache_slot] = checker.symbol_table.table.count;
         g_symbol_lookup_cache_generation[cache_slot] = g_symbol_lookup_generation;
         g_symbol_lookup_cache_value[cache_slot] = null;
         g_symbol_lookup_cache_valid[cache_slot] = 1;
@@ -724,28 +817,30 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
         return -1;
     }
     
-    const hash: i32 = hash_string(symbol.name);
-    var index: i32 = hash % SYMBOL_TABLE_SIZE;
-    if index < 0 {
-        index = index + SYMBOL_TABLE_SIZE;
+    // P54：符号表也是动态哈希表 —— 先按负载因子扩容，再把符号放进空槽。
+    if (checker.symbol_table.table.count + 1) * DYN_TABLE_LOAD_DEN
+        > checker.symbol_table.table.capacity * DYN_TABLE_LOAD_NUM {
+        if checker.symbol_table.table.reserve(checker.symbol_table.table.capacity * 2) != 0 {
+            return -1;
+        }
     }
-    
+    const hash: i32 = hash_string(symbol.name);
+    const sym_cap: i32 = checker.symbol_table.table.capacity;
+    if sym_cap <= 0 {
+        return -1;
+    }
+    var index: i32 = hash % sym_cap;
+    if index < 0 {
+        index = index + sym_cap;
+    }
+
     var i: i32 = 0;
-    while i < SYMBOL_TABLE_SIZE {
-        const slot: i32 = (index + i) % SYMBOL_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
-        }
-        if slot_idx >= @len(checker.symbol_table.slots) {
-            i = i + 1;
-            continue;
-        }
-        
+    while i < sym_cap {
+        const slot_idx: i32 = (index + i) % sym_cap;
+
         if checker_symbol_slot_at(checker, slot_idx) == null {
             checker_symbol_slot_set(checker, slot_idx, symbol);
-            checker.symbol_table.count = checker.symbol_table.count + 1;
+            checker.symbol_table.table.count = checker.symbol_table.table.count + 1;
 
             // 添加到当前作用域的链表头部
             const scope: i32 = symbol.scope_level;
@@ -779,30 +874,27 @@ fn function_table_lookup(checker: &TypeChecker, name: &byte) &FunctionSignature 
         want_file = checker.current_function_decl.filename;
     }
     var first_match: &FunctionSignature = null;
-    
+
     const hash: i32 = hash_string(name);
-    var index: i32 = hash % FUNCTION_TABLE_SIZE;
-    if index < 0 {
-        index = index + FUNCTION_TABLE_SIZE;
+    // 探测上界是**当前容量**（动态表），不再是编译期常量。
+    // 语义与旧实现逐条相同：无墓碑，探测到空槽即停；同名不同模块由 want_file 优先。
+    const cap: i32 = checker.function_table.table.capacity;
+    if cap <= 0 {
+        return null;
     }
-    
+    var index: i32 = hash % cap;
+    if index < 0 {
+        index = index + cap;
+    }
+
     var i: i32 = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
-        }
-        if slot_idx >= @len(checker.function_table.slots) {
-            i = i + 1;
-            continue;
-        }
+    while i < cap {
+        const slot_idx: i32 = (index + i) % cap;
         const sig: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
-        
+
         if sig == null {
-            i = i + 1;
-            continue;
+            // 空槽 = 探测链结束（插入时线性探测，不会有空洞后的同名项）
+            break;
         }
         
         var matched: i32 = 1;
@@ -853,28 +945,22 @@ fn function_table_lookup_same_file(checker: &TypeChecker, name: &byte, filename:
     }
 
     const hash: i32 = hash_string(name);
-    var index: i32 = hash % FUNCTION_TABLE_SIZE;
+    const cap: i32 = checker.function_table.table.capacity;
+    if cap <= 0 {
+        return null;
+    }
+    var index: i32 = hash % cap;
     if index < 0 {
-        index = index + FUNCTION_TABLE_SIZE;
+        index = index + cap;
     }
 
     var i: i32 = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
-        }
-        if slot_idx >= @len(checker.function_table.slots) {
-            i = i + 1;
-            continue;
-        }
+    while i < cap {
+        const slot_idx: i32 = (index + i) % cap;
         const sig: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
 
         if sig == null {
-            i = i + 1;
-            continue;
+            break;   // 空槽 = 探测链结束（与 function_table_lookup 同一口径）
         }
 
         var matched: i32 = 1;
@@ -904,34 +990,41 @@ fn function_table_lookup_same_file(checker: &TypeChecker, name: &byte, filename:
 }
 
 // 函数表插入函数（使用开放寻址的哈希表）
+//
+// P54：表换成动态哈希表（dyn_table.uya）—— 装满不再报「函数表容量不足」，
+// 而是 2 倍扩容 rehash。下面各分支的**同名/同模块语义一字未动**（这是本轮最需要
+// 保真的地方：同名不同模块必须共存，见 tests/test_module_scope_isolation_stdlib_check.uya）。
 fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     if checker == null || sig == null || sig.name == null {
         return -1;
     }
 
+    // 先扩容再插入：留出负载因子余量，探测长度才可控（与 dyn_table.put 同口径）
+    if (checker.function_table.table.count + 1) * DYN_TABLE_LOAD_DEN
+        > checker.function_table.table.capacity * DYN_TABLE_LOAD_NUM {
+        if checker.function_table.table.reserve(checker.function_table.table.capacity * 2) != 0 {
+            return -1;
+        }
+    }
+
     const hash: i32 = hash_string(sig.name);
-    var index: i32 = hash % FUNCTION_TABLE_SIZE;
+    const cap: i32 = checker.function_table.table.capacity;
+    if cap <= 0 {
+        return -1;
+    }
+    var index: i32 = hash % cap;
     if index < 0 {
-        index = index + FUNCTION_TABLE_SIZE;
+        index = index + cap;
     }
 
     var i: i32 = 0;
-    while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;
-        const slot_idx: i32 = slot;
-        if slot_idx < 0 {
-            i = i + 1;
-            continue;
-        }
-        if slot_idx >= @len(checker.function_table.slots) {
-            i = i + 1;
-            continue;
-        }
+    while i < cap {
+        const slot_idx: i32 = (index + i) % cap;
         const existing: &FunctionSignature = checker_function_slot_at(checker, slot_idx);
 
         if existing == null {
             checker_function_slot_set(checker, slot_idx, sig);
-            checker.function_table.count = checker.function_table.count + 1;
+            checker.function_table.table.count = checker.function_table.table.count + 1;
             return 0;
         }
 
@@ -1018,18 +1111,26 @@ fn checker_exit_scope(checker: &TypeChecker) void {
         var symbol: &Symbol = checker_scope_head_at(checker, scope_idx);
         while symbol != null {
             // 从哈希表中移除符号
+            // P54：探测上界改成动态容量。⚠ 这里把槽位置 null（与改动前逐字相同）——
+            // 开放寻址下这确实会截断后来者的探测链，但符号**查找**走的是作用域链表
+            // （symbol_table_lookup 从 scope_heads 出发），哈希槽只在插入与这里被碰，
+            // 所以旧行为原样保留，不在本轮顺手改语义。
             const hash: i32 = hash_string(symbol.name);
-            var index: i32 = hash % SYMBOL_TABLE_SIZE;
-            if index < 0 {
-                index = index + SYMBOL_TABLE_SIZE;
+            const sym_cap: i32 = checker.symbol_table.table.capacity;
+            if sym_cap <= 0 {
+                break;
             }
-            
+            var index: i32 = hash % sym_cap;
+            if index < 0 {
+                index = index + sym_cap;
+            }
+
             var i: i32 = 0;
-            while i < SYMBOL_TABLE_SIZE {
-                const slot: i32 = (index + i) % SYMBOL_TABLE_SIZE;
+            while i < sym_cap {
+                const slot: i32 = (index + i) % sym_cap;
                 if checker_symbol_slot_at(checker, slot) == symbol {
                     checker_symbol_slot_set(checker, slot, null);
-                    checker.symbol_table.count = checker.symbol_table.count - 1;
+                    checker.symbol_table.table.count = checker.symbol_table.table.count - 1;
                     break;
                 }
                 if checker_symbol_slot_at(checker, slot) == null {
@@ -1108,6 +1209,66 @@ fn str_equals(s1: &byte, s2: &byte) i32 {
 
 // ===== 字符串池（String Interning）=====
 
+// P54：桶数组动态化。桶链形态不变（StringPoolEntry.next 拉链），只把「桶有多少个」
+// 从编译期常量变成运行时容量：负载因子超过 3/4 就把桶数翻倍，并把每条链**按新桶号重挂**
+// （每桶的链会拆成两截，所以必须逐条目重新挂，不能整段拷贝）。
+//
+// 返回 true = 桶表至少 want 个桶（含「已经够大」），false = 分配失败。
+fn string_pool_ensure_buckets(pool: &StringPool, want: i32) bool {
+    if want <= 0 {
+        return false;
+    }
+    if pool.bucket_count >= want {
+        return true;
+    }
+    var nc: i32 = pool.bucket_count;
+    if nc < 8 {
+        nc = 8;
+    }
+    while nc < want {
+        nc = nc * 2;
+        if nc <= 0 {
+            return false;
+        }
+    }
+    const want_u: usize = (nc as! usize) catch { return false; };
+    const bytes: usize = (@size_of((&pool.buckets[0])[0]) as usize) * want_u;
+    const raw: &byte = malloc(bytes);
+    if raw == null {
+        return false;
+    }
+    const nb: & &StringPoolEntry = raw as & &StringPoolEntry;
+    var i: i32 = 0;
+    while i < nc {
+        nb[i] = null;
+        i = i + 1;
+    }
+    // 旧桶逐条链搬到新桶（新桶号 = hash & (nc-1)，nc 是 2 的幂）
+    const old: & &StringPoolEntry = pool.buckets;
+    const old_n: i32 = pool.bucket_count;
+    var j: i32 = 0;
+    while j < old_n {
+        var entry: &StringPoolEntry = old[j];
+        while entry != null {
+            const next_entry: &StringPoolEntry = entry.next;
+            var nb_idx: i32 = (entry.hash & 2147483647) % nc;
+            if nb_idx < 0 {
+                nb_idx = 0;
+            }
+            entry.next = nb[nb_idx];
+            nb[nb_idx] = entry;
+            entry = next_entry;
+        }
+        j = j + 1;
+    }
+    if old != null {
+        free(old as &void);
+    }
+    pool.buckets = nb;
+    pool.bucket_count = nc;
+    return true;
+}
+
 // 字符串池：查找或插入字符串
 // 如果字符串已存在，返回现有指针；否则创建新条目
 fn string_pool_intern(pool: &StringPool, arena: &CompilerArena, str: &byte) &byte {
@@ -1115,15 +1276,28 @@ fn string_pool_intern(pool: &StringPool, arena: &CompilerArena, str: &byte) &byt
         return str;
     }
 
+    // 桶不够就扩：首次直接给到历史容量（STRING_POOL_SIZE），之后就**只在桶链变长时**翻倍。
+    //
+    // ⚠ 触发条件不能看 pool.count：它数的是**池化过的字符串个数**，而链式桶的负载
+    // 取决于「落在几个桶上」。第一版按 count 判负载因子，于是每 intern 一个字符串
+    // 就触发一次 rehash（几千次），把每个条目的 next 指针重挂一遍 —— 编译器自己编
+    // 自己时表现为段错误。现在只在「首次」与「池内条目数 >> 桶数」时才动桶
+    // （链式桶本来就能容忍长链，扩桶只是摊销优化，不是正确性要求）。
+    if pool.bucket_count <= 0 {
+        _ = string_pool_ensure_buckets(pool, STRING_POOL_SIZE);
+    } else if pool.count > pool.bucket_count * 4 {
+        _ = string_pool_ensure_buckets(pool, pool.bucket_count * 2);
+    }
+    if pool.bucket_count <= 0 {
+        return str;
+    }
+
     const hash: i32 = hash_string(str);
     // hash_string 返回 `hash as i32`，u32 高位置 1 时会得到负数；负数取模仍是负数，
     // 旧代码在这种情况下直接返回入参、完全跳过池化（调用方若传栈上缓冲，就会
     // 把悬垂指针留在约束表/符号表里）。这里把桶下标规范化为非负。
-    const bucket_idx: i32 = (hash & 2147483647) % STRING_POOL_SIZE;
+    const bucket_idx: i32 = (hash & 2147483647) % pool.bucket_count;
     if bucket_idx < 0 {
-        return str;
-    }
-    if bucket_idx >= STRING_POOL_SIZE {
         return str;
     }
 

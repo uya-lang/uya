@@ -121,8 +121,9 @@ fn c99_find_module_export_decl(codegen: &C99CodeGenerator, module_name: &byte, i
         return null;
     }
     var mi: i32 = 0;
-    while mi < MODULE_TABLE_SIZE {
-        const module: &ModuleInfo = codegen.checker.module_table.slots[mi];
+    const mtbl_cap: i32 = codegen.checker.module_table.table.capacity;
+    while mi < mtbl_cap {
+        const module: &ModuleInfo = checker_module_slot_at(codegen.checker, mi);
         if module != null && module.module_name != null &&
             strcmp(module.module_name as *byte, module_name as *byte) == 0 {
             var ei: i32 = 0;

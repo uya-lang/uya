@@ -3010,11 +3010,15 @@ fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
                 const func_name: &byte = callee.member_access_field_name;
                 if func_name != null {
                     var mh: u32 = hash_string(module_name);
-                    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+                    const mtbl_cap: i32 = checker.module_table.table.capacity;
+                    var mi: i32 = (mh as i32) % mtbl_cap;
+                    if mi < 0 {
+                        mi = mi + mtbl_cap;
+                    }
                     var i3: i32 = 0;
-                    while i3 < MODULE_TABLE_SIZE {
-                        const ml: i32 = (mi + i3) & (MODULE_TABLE_SIZE - 1);
-                        const mod: &ModuleInfo = checker.module_table.slots[ml];
+                    while i3 < mtbl_cap {
+                        const ml: i32 = (mi + i3) % mtbl_cap;
+                        const mod: &ModuleInfo = checker_module_slot_at(checker, ml);
                         if mod == null {
                             break;
                         }
@@ -3504,11 +3508,15 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
                 
                 // 不是枚举，检查是否是模块导入
                 const ih: i32 = hash_string(enum_name);
-                var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
+                const itbl_cap: i32 = checker.import_table.table.capacity;
+                var ii: i32 = ih % itbl_cap;
+                if ii < 0 {
+                    ii = ii + itbl_cap;
+                }
                 var i2: i32 = 0;
-                while i2 < IMPORT_TABLE_SIZE {
-                    const sl: i32 = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
-                    const imp: &ImportedItem = checker.import_table.slots[sl];
+                while i2 < itbl_cap {
+                    const sl: i32 = (ii + i2) % itbl_cap;
+                    const imp: &ImportedItem = checker_import_slot_at(checker, sl);
                     if imp == null { break; }
                     if checker_name_is_type_namespace_name(checker, enum_name) == 0 &&
                         imp.item_type == (0 - 1) && str_equals(imp.local_name, enum_name) != 0 {

@@ -586,15 +586,33 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
         return null;
     }
 
-    // 计算哈希值
+    // P54：模块表是动态哈希表 —— 先按负载因子扩容，再用「容量取模」定起点。
+    // 旧实现是 `hash & (MODULE_TABLE_SIZE - 1)` 的掩码式，掩码只在容量是编译期
+    // 2 的幂时才成立；容量已经是运行时值，所以统一走 `%`。
+    if (checker.module_table.table.count + 1) * DYN_TABLE_LOAD_DEN
+        > checker.module_table.table.capacity * DYN_TABLE_LOAD_NUM {
+        if checker.module_table.table.reserve(checker.module_table.table.capacity * 2) != 0 {
+            return null;
+        }
+    }
+    const mod_cap: i32 = checker.module_table.table.capacity;
+    if mod_cap <= 0 {
+        return null;
+    }
     const hash: i32 = hash_string(module_name);
-    var index: i32 = hash & (MODULE_TABLE_SIZE - 1);
+    var index: i32 = hash % mod_cap;
+    if index < 0 {
+        index = index + mod_cap;
+    }
+    if index < 0 {
+        index = index + mod_cap;
+    }
 
     // 查找现有模块
     var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (index + i) & (MODULE_TABLE_SIZE - 1);
-        var module: &ModuleInfo = checker.module_table.slots[slot];
+    while i < mod_cap {
+        const slot: i32 = (index + i) % mod_cap;
+        var module: &ModuleInfo = checker_module_slot_at(checker, slot);
         if module != null && str_equals(module.module_name, module_name) != 0 {
             return module;
         }
@@ -610,14 +628,15 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
             module.export_count = 0;
             module.dependencies = null;
             module.dependency_count = 0;
-            checker.module_table.slots[slot] = module;
-            checker.module_table.count = checker.module_table.count + 1;
+            // slot_set 会一并写键（见 checker_module_slot_set 的注释）
+            checker_module_slot_set(checker, slot, module);
+            checker.module_table.table.count = checker.module_table.table.count + 1;
             return module;
         }
         i = i + 1;
     }
 
-    return null;  // 哈希表已满
+    return null;  // 扩容之后仍扫满：只可能是扩容分配失败
 }
 
 fn append_module_export(
@@ -1032,13 +1051,17 @@ fn checker_insert_import_item(
     import.item_type = item_type;
 
     const import_hash: i32 = hash_string(import.local_name);
-    var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
+    const imp_cap: i32 = checker.import_table.table.capacity;
+    var import_index: i32 = import_hash % imp_cap;
+    if import_index < 0 {
+        import_index = import_index + imp_cap;
+    }
     var slot_i: i32 = 0;
-    while slot_i < IMPORT_TABLE_SIZE {
-        const slot: i32 = (import_index + slot_i) & (IMPORT_TABLE_SIZE - 1);
-        if checker.import_table.slots[slot] == null {
-            checker.import_table.slots[slot] = import;
-            checker.import_table.count = checker.import_table.count + 1;
+    while slot_i < imp_cap {
+        const slot: i32 = (import_index + slot_i) % imp_cap;
+        if checker_import_slot_at(checker, slot) == null {
+            checker_import_slot_set(checker, slot, import);
+            checker.import_table.table.count = checker.import_table.table.count + 1;
             return 1;
         }
         slot_i = slot_i + 1;
@@ -1376,12 +1399,16 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                 } else {
                 // 在 module_table 中查找全路径
                 const fh: i32 = hash_string(full_path);
-                var fi: i32 = fh & (MODULE_TABLE_SIZE - 1);
+                const mod_cap2: i32 = checker.module_table.table.capacity;
+                var fi: i32 = fh % mod_cap2;
+                if fi < 0 {
+                    fi = fi + mod_cap2;
+                }
                 var full_mod: &ModuleInfo = null;
                 i = 0;
-                while i < MODULE_TABLE_SIZE {
-                    const slot: i32 = (fi + i) & (MODULE_TABLE_SIZE - 1);
-                    const m: &ModuleInfo = checker.module_table.slots[slot];
+                while i < mod_cap2 {
+                    const slot: i32 = (fi + i) % mod_cap2;
+                    const m: &ModuleInfo = checker_module_slot_at(checker, slot);
                     if m != null && str_equals(m.module_name, full_path) != 0 {
                         full_mod = m;
                         break;
@@ -1494,12 +1521,16 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         } else {
             // 查找当前模块
             const current_hash: i32 = hash_string(current_module_name);
-            var current_index: i32 = current_hash & (MODULE_TABLE_SIZE - 1);
+            const mod_cap3: i32 = checker.module_table.table.capacity;
+            var current_index: i32 = current_hash % mod_cap3;
+            if current_index < 0 {
+                current_index = current_index + mod_cap3;
+            }
             var current_module: &ModuleInfo = null;
             var si: i32 = 0;
-            while si < MODULE_TABLE_SIZE {
-                const slot: i32 = (current_index + si) & (MODULE_TABLE_SIZE - 1);
-                const m: &ModuleInfo = checker.module_table.slots[slot];
+            while si < mod_cap3 {
+                const slot: i32 = (current_index + si) % mod_cap3;
+                const m: &ModuleInfo = checker_module_slot_at(checker, slot);
                 if m != null && str_equals(m.module_name, current_module_name) != 0 {
                     current_module = m;
                     break;
@@ -1583,13 +1614,18 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         import.item_type = 0 - 1;  // -1 = 模块导入
 
         const import_hash: i32 = hash_string(import.local_name);
-        var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
+        const imp_cap: i32 = checker.import_table.table.capacity;
+        var import_index: i32 = import_hash % imp_cap;
+        if import_index < 0 {
+            import_index = import_index + imp_cap;
+        }
+        const imp_cap2: i32 = checker.import_table.table.capacity;
         var j: i32 = 0;
-        while j < IMPORT_TABLE_SIZE {
-            const slot: i32 = (import_index + j) & (IMPORT_TABLE_SIZE - 1);
-            if checker.import_table.slots[slot] == null {
-                checker.import_table.slots[slot] = import;
-                checker.import_table.count = checker.import_table.count + 1;
+        while j < imp_cap2 {
+            const slot: i32 = (import_index + j) % imp_cap2;
+            if checker_import_slot_at(checker, slot) == null {
+                checker_import_slot_set(checker, slot, import);
+                checker.import_table.table.count = checker.import_table.table.count + 1;
                 break;
             }
             j = j + 1;
@@ -1664,13 +1700,17 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         import.item_type = item_type;
 
         const import_hash: i32 = hash_string(import.local_name);
-        var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
+        const imp_cap: i32 = checker.import_table.table.capacity;
+        var import_index: i32 = import_hash % imp_cap;
+        if import_index < 0 {
+            import_index = import_index + imp_cap;
+        }
         var slot_i: i32 = 0;
-        while slot_i < IMPORT_TABLE_SIZE {
-            const slot: i32 = (import_index + slot_i) & (IMPORT_TABLE_SIZE - 1);
-            if checker.import_table.slots[slot] == null {
-                checker.import_table.slots[slot] = import;
-                checker.import_table.count = checker.import_table.count + 1;
+        while slot_i < imp_cap {
+            const slot: i32 = (import_index + slot_i) % imp_cap;
+            if checker_import_slot_at(checker, slot) == null {
+                checker_import_slot_set(checker, slot, import);
+                checker.import_table.table.count = checker.import_table.table.count + 1;
                 break;
             }
             slot_i = slot_i + 1;
@@ -1731,11 +1771,15 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
         if path_len > 0 {
             const last_module: &byte = path[path_len - 1];
             const last_hash: i32 = hash_string(last_module);
-            var last_index: i32 = last_hash & (MODULE_TABLE_SIZE - 1);
+            const mod_cap4: i32 = checker.module_table.table.capacity;
+            var last_index: i32 = last_hash % mod_cap4;
+            if last_index < 0 {
+                last_index = last_index + mod_cap4;
+            }
             i = 0;
-            while i < MODULE_TABLE_SIZE {
-                const slot: i32 = (last_index + i) & (MODULE_TABLE_SIZE - 1);
-                const m: &ModuleInfo = checker.module_table.slots[slot];
+            while i < mod_cap4 {
+                const slot: i32 = (last_index + i) % mod_cap4;
+                const m: &ModuleInfo = checker_module_slot_at(checker, slot);
                 if m != null && str_equals(m.module_name, last_module) != 0 {
                     // 查找对 module_name 的依赖
                     var j: i32 = 0;
@@ -1772,12 +1816,16 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
 
     // 查找模块
     const hash: i32 = hash_string(module_name);
-    var index: i32 = hash & (MODULE_TABLE_SIZE - 1);
+    const mod_cap5: i32 = checker.module_table.table.capacity;
+    var index: i32 = hash % mod_cap5;
+    if index < 0 {
+        index = index + mod_cap5;
+    }
     var module: &ModuleInfo = null;
     i = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (index + i) & (MODULE_TABLE_SIZE - 1);
-        const m: &ModuleInfo = checker.module_table.slots[slot];
+    while i < mod_cap5 {
+        const slot: i32 = (index + i) % mod_cap5;
+        const m: &ModuleInfo = checker_module_slot_at(checker, slot);
         if m != null && str_equals(m.module_name, module_name) != 0 {
             module = m;
             break;
@@ -1828,9 +1876,10 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
     var visit_count: i32 = 0;
 
     // 初始化访问状态
+    const mod_cap_init: i32 = checker.module_table.table.capacity;
     var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const module: &ModuleInfo = checker.module_table.slots[i];
+    while i < mod_cap_init {
+        const module: &ModuleInfo = checker_module_slot_at(checker, i);
         if module != null {
             if visit_count < MAX_MODULES {
                 visit_state[visit_count].module_name = module.module_name;

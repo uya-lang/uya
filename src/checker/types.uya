@@ -31,11 +31,14 @@ const MAX_REACHABLE_FN_DECLS: i32 = 8192;
 const MAX_REACHABILITY_VISIT_SLOTS: i32 = 262144;
 const MAX_REACHABILITY_VISIT_MASK: usize = 262143;
 
-const SYMBOL_TABLE_SIZE: i32 = 32768;
-const FUNCTION_TABLE_SIZE: i32 = 8192;
-const MODULE_TABLE_SIZE: i32 = 256;
-const IMPORT_TABLE_SIZE: i32 = 512;
-const STRING_POOL_SIZE: i32 = 16384;  // 字符串池大小
+// ===== 各表的**初始**容量 =====
+// 不再是「上限」：表满了会按 DYN_TABLE_GROW_FACTOR 倍增并 rehash（见 dyn_table.uya）。
+// 数值刻意与历史值相同 —— 小工程不发生扩容，容量与性能与改动前逐字节一致。
+const SYMBOL_TABLE_SIZE: i32 = 32768;   // symbol_table 初始容量
+const FUNCTION_TABLE_SIZE: i32 = 8192;  // function_table 初始容量
+const MODULE_TABLE_SIZE: i32 = 256;     // module_table 初始容量
+const IMPORT_TABLE_SIZE: i32 = 512;     // import_table 初始容量
+const STRING_POOL_SIZE: i32 = 16384;    // 字符串池初始桶数
 
 // ===== 类型枚举 =====
 
@@ -217,14 +220,19 @@ struct FunctionSignature {
     filename: &byte,
 }
 
+// 五张表都是**动态哈希表**（见 checker/dyn_table.uya 的文件头注释）：
+// 旧的 SYMBOL_TABLE_SIZE / FUNCTION_TABLE_SIZE / MODULE_TABLE_SIZE / IMPORT_TABLE_SIZE /
+// STRING_POOL_SIZE 现在是**初始容量**，不再是上限 —— 装不下就 2 倍扩容 rehash。
+// 保留这些常量名与数值：小工程的容量、内存画像与性能与改动前**完全一致**。
+//
+// 表本身是**非泛型**的字节缓冲表（DynTable 在构造时拿 elem_size = @size_of(元素)），
+// 元素类型只在各表的 accessor 里出现 —— 见 checker_function_slot_at 的注释。
 struct SymbolTable {
-    slots: [&Symbol: SYMBOL_TABLE_SIZE],
-    count: i32,
+    table: DynTable,
 }
 
 struct FunctionTable {
-    slots: [&FunctionSignature: FUNCTION_TABLE_SIZE],
-    count: i32,
+    table: DynTable,
 }
 
 struct ExportedItem {
@@ -249,8 +257,7 @@ struct ModuleInfo {
 }
 
 struct ModuleTable {
-    slots: [&ModuleInfo: MODULE_TABLE_SIZE],
-    count: i32,
+    table: DynTable,
 }
 
 struct ImportedItem {
@@ -261,8 +268,7 @@ struct ImportedItem {
 }
 
 struct ImportTable {
-    slots: [&ImportedItem: IMPORT_TABLE_SIZE],
-    count: i32,
+    table: DynTable,
 }
 
 // 字符串池条目
@@ -272,9 +278,12 @@ struct StringPoolEntry {
     next: &StringPoolEntry, // 链表下一个（哈希冲突时）
 }
 
-// 字符串池（用于字符串 intern）
+// 字符串池（用于字符串 intern）。
+// 桶链形态不变（StringPoolEntry.next 拉链），只把桶数组从定长 16384 换成动态的：
+// 桶数按负载因子倍增，扩容时把每条链按新桶号重挂（见 string_pool_intern 的 ensure）。
 struct StringPool {
-    buckets: [&StringPoolEntry: STRING_POOL_SIZE],  // 哈希桶
+    buckets: & &StringPoolEntry,   // 哈希桶
+    bucket_count: i32,
     count: i32,
 }
 

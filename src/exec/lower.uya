@@ -2339,11 +2339,15 @@ fn exec_lower_find_module_export_decl(checker: &TypeChecker, module_name: &byte,
         return null;
     }
     var mh: u32 = hash_string(module_name);
-    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+    const mtbl_cap: i32 = checker.module_table.table.capacity;
+    var mi: i32 = (mh as i32) % mtbl_cap;
+    if mi < 0 {
+        mi = mi + mtbl_cap;
+    }
     var i: i32 = 0;
-    while i < MODULE_TABLE_SIZE {
-        const slot: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
-        const module: &ModuleInfo = checker.module_table.slots[slot];
+    while i < mtbl_cap {
+        const slot: i32 = (mi + i) % mtbl_cap;
+        const module: &ModuleInfo = checker_module_slot_at(checker, slot);
         if module == null {
             break;
         }
@@ -2366,8 +2370,8 @@ fn exec_lower_find_module_export_decl(checker: &TypeChecker, module_name: &byte,
     }
     if str_equals(module_name, "libc" as &byte) != 0 {
         var slot_i: i32 = 0;
-        while slot_i < MODULE_TABLE_SIZE {
-            const module2: &ModuleInfo = checker.module_table.slots[slot_i];
+        while slot_i < mtbl_cap {
+            const module2: &ModuleInfo = checker_module_slot_at(checker, slot_i);
             if module2 != null && module2.filename != null &&
                 (strstr(module2.filename as *byte, "/lib/libc/" as *byte) != null ||
                  strstr(module2.filename as *byte, "lib/libc/" as *byte) != null ||
@@ -2911,8 +2915,9 @@ fn exec_lower_collect_global_slots_from_symbol_table(checker: &TypeChecker, glob
         return -1;
     }
     var slot: i32 = 0;
-    while slot < SYMBOL_TABLE_SIZE {
-        const symbol: &Symbol = checker.symbol_table.slots[slot];
+    const stbl_cap: i32 = checker.symbol_table.table.capacity;
+    while slot < stbl_cap {
+        const symbol: &Symbol = checker_symbol_slot_at(checker, slot);
         if symbol != null &&
             exec_lower_global_is_runtime_decl(symbol.decl_node) != 0 &&
             exec_lower_find_global_slot_by_decl_in_globals(globals, out_count[0], symbol.decl_node) < 0 {
@@ -2930,8 +2935,9 @@ fn exec_lower_collect_global_slots_from_imports(checker: &TypeChecker, globals: 
         return -1;
     }
     var slot: i32 = 0;
-    while slot < IMPORT_TABLE_SIZE {
-        const import_item: &ImportedItem = checker.import_table.slots[slot];
+    const itbl_cap: i32 = checker.import_table.table.capacity;
+    while slot < itbl_cap {
+        const import_item: &ImportedItem = checker_import_slot_at(checker, slot);
         if import_item != null && import_item.item_type != (0 - 1) && import_item.local_name != null {
             const decl: &ASTNode = exec_lower_resolve_global_decl(checker, import_item.local_name);
             if decl != null && exec_lower_find_global_slot_by_decl_in_globals(globals, out_count[0], decl) < 0 {
@@ -3249,8 +3255,9 @@ fn exec_lower_collect_global_slots_from_module_imports(checker: &TypeChecker, gl
         return -1;
     }
     var slot: i32 = 0;
-    while slot < IMPORT_TABLE_SIZE {
-        const import_item: &ImportedItem = checker.import_table.slots[slot];
+    const itbl_cap: i32 = checker.import_table.table.capacity;
+    while slot < itbl_cap {
+        const import_item: &ImportedItem = checker_import_slot_at(checker, slot);
         if import_item != null && import_item.item_type == (0 - 1) && import_item.module_name != null {
             var requested_names: [&byte: EXEC_MAX_MODULE_GLOBAL_REQUESTS] = [];
             var requested_count: i32 = 0;
