@@ -7175,8 +7175,9 @@ struct C99CodeGenerator {
     int32_t enum_definition_count;
     struct FunctionDeclaration function_declarations[512];
     int32_t function_declaration_count;
-    struct ASTNode * reachable_function_decls[4096];
+    struct ASTNode * * reachable_function_decls;
     int32_t reachable_function_decl_count;
+    int32_t reachable_function_capacity;
     struct ASTNode * fn_decl_cache[4096];
     struct ASTNode * struct_decl_cache[4096];
     struct ASTNode * enum_decl_cache[4096];
@@ -166039,9 +166040,42 @@ static __attribute__((used)) int32_t c99_codegen_set_reachable_functions(struct 
                 }
     }
     codegen->reachable_function_decl_count = 0;
+    const int32_t want = checker->reachable_fn_decl_count;
+    if (want <= 0) {
+        codegen->reachable_function_decls = NULL;
+        codegen->reachable_function_capacity = 0;
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    int32_t cap = want;
+    if (cap < C99_MAX_REACHABLE_FUNCTIONS) {
+        cap = C99_MAX_REACHABLE_FUNCTIONS;
+    }
+    const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(cap) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    struct ASTNode * * const mem = (struct ASTNode * *)compiler_arena_alloc(codegen->arena, (nu * (int32_t)sizeof(struct ASTNode *)));
+    if (mem == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t z = 0;
+    while (z < cap) {
+        mem[z] = NULL;
+        z = (z + 1);
+    }
+    codegen->reachable_function_decls = mem;
+    codegen->reachable_function_capacity = cap;
     int32_t i = 0;
-    while (((i < checker->reachable_fn_decl_count) && (i < C99_MAX_REACHABLE_FUNCTIONS))) {
-        codegen->reachable_function_decls[i] = checker->reachable_fn_decls[i];
+    while (i < want) {
+        mem[i] = checker->reachable_fn_decls[i];
         codegen->reachable_function_decl_count = (codegen->reachable_function_decl_count + 1);
         i = (i + 1);
     }
