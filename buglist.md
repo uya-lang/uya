@@ -267,6 +267,220 @@
 
 ## 编译器 bug
 
+- [ ] **P1 / 高：同一份源码用 0.10.3 编出来的程序，整组 TUI 自测轮红；0.10.1 编则全绿**
+  - 状态：**已定位到「编译器/标准库侧的行为差异」，但**根因未坐实**（2026-10-06）
+  - 现象：`uya-agent` 这个工程，**源码一字不改**，换编译器就换结论：
+      * `0.10.1`（`/home/winger/uya-0.10`，配它的 `lib/`）编译 → 全部自测轮通过，0 条 FAIL；
+      * `0.10.3 + 本仓两处容量修复`（`/home/winger/uya/uya`）编译 → `tui-approve` /
+        `tui-plan` / `tui-ask` / `tui-quit` / `tui-p30` 等轮红 23~38 条；
+        报的是「首屏没有输入面板占位文案」「没有进备用屏幕」「mock LLM 侧报错（mock_rc=62，
+        即请求数不够）」—— 即**子进程根本没跑起来**。
+  - 已排除的假设（都实测过）：
+      * **不是 `uya-agent` 那一轮拆分引入的**：拆前（62 个构建文件）FAIL 27、拆后（89 个）FAIL 21，
+        同一量级；两边的生成 C 在语义上逐 TU 比对（去掉 `#ifdef` 守卫与空行后 diff）**完全一致**。
+      * **不是「容量常量抬多高」的问题**：把 `C99_MAX_REACHABLE_FUNCTIONS` 等一批常量静态抬到
+        65536、或改成按实际条数动态分配，红法一模一样。
+      * **不是本仓输入文件表的改动**：只用 reachable 表那一处修复（不动输入文件表）也能编过本仓，
+        TUI 轮同样红。
+  - 未坐实的部分：曾怀疑 `entry.uya` 的 `uya_pipeline_worker_dispatch()` 弱桥接抢先接管
+    `main`（codegen 在 `container_mode == 0` 时总是发射它，`process.uya` 里
+    `uya_pipeline_worker_main_if_requested` 也无条件导出）。**但该判据是
+    `argc == 2 && argv[1] == "--uya-pipeline-worker"`，自测子进程的 argv 不可能满足**，
+    所以这条不能解释现象 —— 留作**线索**而非结论。下一步应该做的是：把 0.10.3 与 0.10.1
+    生成的两份 `uya_common.c` 的 `main` 路径逐指令对一遍，看 `main_main()` 之前
+    多了/少了什么（目前已知的两份差异里有 `uya_interface_*`、`uya_pipeline_image_anchor`
+    等宿主辅助符号的有无，以及一张 `AsyncFrameDescriptor` 表的偏移量差异）。
+  - 为什么值得单列：它让「`uya-agent` 的 split-C 自测」在 0.10.3 上**不可用**，
+    而本仓（`uya-agent`）已经把默认编译器指向 0.10.3，所以这条不修，那边的
+    `make selftest` 就一直红。
+
+## 运行时 bug
+
+- [x] **P0 / 严重：hosted 模式下多线程并发 `malloc/free` 必然踩坏堆（`double free detected in tcache 2` / SIGSEGV）**
+  - 状态：已修复（2026-10-04）
+  - 现象：hosted（默认 `RUNTIME_MODE=hosted`）下任何「uya 线程 + 堆分配」的组合都不可信：
+    `./bin/uya test --c99 tests/test_pthread_heap_cache_identity.uya` 连跑 3 次全挂，
+    退出码 139（SIGSEGV）/134（SIGABRT），stderr 为 glibc 的
+    `free(): double free detected in tcache 2`、`Fatal glibc error: malloc.c:2600 (sysmalloc): assertion failed`。
+    同一用例的 nostdlib 静态产物 20/20 通过 —— 缺陷只在 hosted 路线。
+  - 根因（C 层隔离复现，三层证据）：
+    1) `gdb` 回溯命中 **glibc** 分配器：`#0 tcache_get_n (malloc.c:3179) ← #2 __GI___libc_malloc ← #3 worker ← #4 _pthread_call_start`；
+       `nm` 显示 `U malloc@GLIBC_2.2.5`（hosted 下 heap 让给 glibc），而 `libc_pthread_create` 仍是 uya 自己的 raw clone 实现。
+    2) `lib/libc/pthread.uya` 的 `CLONE_FLAGS = 0x00150F00` **不含 `CLONE_SETTLS`**，子线程只用
+       `arch_prctl(ARCH_SET_GS)` 设了 GS；实测 `parent_fs == child_fs`（`movq %fs:0` 双端相同）。
+       glibc 的 per-thread tcache/arena 挂在 **FS** 上，于是所有 uya 线程共用父线程的 glibc TLS。
+    3) 独立 C 复现（不依赖 uya）：同一份 `malloc/free` 负载下，glibc `pthread_create` 3/3 通过，
+       而模拟 uya 的 raw `clone`（无 `CLONE_SETTLS`）3/3 堆损坏；连「不用用户 malloc、只走 glibc 内部
+       分配（`snprintf`/`fopen`）」也 10/10 崩 —— 证明是 TLS 缺失而非调用方用法。
+  - 修复内容：hosted 下**保留 uya 自己的线程安全堆**（per-thread GS 缓存 + 全局自旋锁，
+    `lib/libc/heap.uya`），即 `src/codegen/c99` 不再把 `heap.uya` 的实现/全局让给宿主 libc；
+    同时把 `libc.stdlib` 的 `calloc` 也保留在 uya 侧，避免「glibc `calloc` + uya `free`」的跨分配器错配
+    （uya `free` 对非自有指针静默返回 ⇒ 泄漏）。hosted 下发射的线程缓存钩子桩改为只在
+    `.uyacache/libc/heap.c` 确实为空时才补，避免与真实 `heap.uya` 定义冲突。
+  - 验证状态：新增回归 `tests/test_pthread_heap_concurrency.uya`（8 线程 × 800 轮 malloc/free + 模式校验）：
+    修复前 hosted 3/3 崩（139/134），修复后 hosted 连跑 10 次 0 失败；`tests/test_pthread_heap_cache_identity.uya`
+    hosted 5/5 通过；`tests/test_std_thread.uya`、`tests/test_async_compute_types.uya` 保持通过；
+    全量 hosted 套件 1112/1112、nostdlib 套件 1111/1112（唯一失败 `test_raw_tls` 是依赖公网 DNS 的用例，单跑通过）。
+  - 归属：`src/codegen/c99/function.uya`（`c99_should_skip_hosted_libc_function_body` /
+    `c99_should_skip_hosted_libc_global_var`）、`src/codegen/c99/main.uya`（hosted 线程缓存钩子桩）。
+  - 备注：这是 uya-agent 当初放弃「TUI 渲染与 agent loop 双线程」的真实底层原因（见其 README 踩坑 47 ——
+    当时归因为「分配器不支持两条线程并发 malloc」，实际是 hosted 下 glibc TLS 缺失）。
+    仍未做的是 `CLONE_SETTLS` + TCB + static TLS image 的完整 NPTL 化（见 `docs/pthread_nptl_todo.md`）；
+    当前修法让 hosted 不再依赖宿主分配器，因而不需要 TCB。
+
+- [x] **P2 / 中：`Waker` 只有单 fd / 单 interest，「同时等两个 fd」会退化成只等最后一个**
+  - 状态：已修复（2026-10-04）
+  - 现象：`Waker` 只有 `_io_fd` + `_io_interest` 两个标量，`wait_readable(a)` 之后
+    `wait_writable(b)`（或第二次 `wait_readable`）会把前一个 fd **覆盖**掉。于是
+    「同一轮 poll 里关注两个 fd」（TLS 全双工、socketpair 双向、组合 future）只有最后一次声明生效，
+    先就绪的 fd 永远不产生唤醒。上一条 P1（`LinuxEpoll` 注册语义）的备注里
+    「后续如需同时关注读写再扩展为小数组或链表」即指本项。
+  - 根因：`lib/std/async.uya` 的 `Waker` 用两个标量承载 I/O 关注；
+    `lib/std/async_scheduler.uya` 的 `scheduler_sync_waker_registrations` 只读 `waker.io_fd()` 注册一个 fd。
+  - 修复内容：
+    1) `Waker` 增加有界槽表（`WAKER_IO_SLOT_MAX = 4`，`_io_slot_fds` / `_io_slot_interests` / `_io_slot_count`）：
+       同 fd 的 RD+WR **合并**成 READWRITE(3)，不同 fd 各占一槽；`_io_fd` / `_io_interest` 保留为
+       「最后一次声明」的主槽镜像，单 fd 调用点读到的值与旧实现逐字节一致。
+    2) `async_scheduler` 新增 `SchedulerFdRegs` 记录**每一个**已注册 fd，遍历 waker 全部槽注册，
+       并对「上轮注册、本轮不再关注」的 fd 做差集注销（否则 epoll 留陈旧注册，数字 fd 复用时会收到
+       别的 future 的唤醒）。原单 fd 入口保留为兼容包装。
+  - 验证状态：新增回归 `tests/test_async_waker_multi_interest.uya`（4 个用例）：
+    ① 同 fd RD+WR 合并成 READWRITE；② 三个不同 fd 各占一槽且主槽 = 最后一次声明；
+    ③ 超出槽位数不越界、不挤掉已登记槽；④ 调度器把同一 waker 的两个 fd **同时**注册进 EventLoop。
+    该用例在「临时退回单 fd 注册」时无法通过（挂死到超时），在修复后通过；
+    `tests/test_std_async_waker.uya`、`test_async_fd`、`test_async_io`、`test_async_multi_fd_concurrent`、
+    `test_std_async_scheduler`、`test_task_std_async`、`test_async_task_queue_dynamic_growth` 全部保持通过；
+    `tests/verify_async_shared_runtime_matrix.sh`、`verify_async_production_smoke.sh`、
+    `verify_async_full_language_matrix.sh`、`verify_async_nested_future_boundary.sh`、
+    `verify_async_cancel_cleanup.sh` 全部通过。
+  - 归属：`lib/std/async.uya`、`lib/std/async_scheduler.uya`。
+  - 备注：槽位是**有界**的（4 个），超出后新 fd 不再登记（不会覆盖已登记的）；
+    按当前主链路（HTTP/1 + eventfd + 组合 future 的两个子 future）足够。
+    若后续需要无界关注，应把槽表改成可增长结构，同时保持 `Waker` 的 Copy 语义评估。
+
+- [x] **P1 / 高：`LinuxEpoll` 的注册/反注册语义仍偏脆弱**
+  - 状态：已修复
+  - 验证状态：`tests/test_std_dns_async_transport.uya`、`tests/test_http1_async_client.uya` 已通过；`tests/test_async_fd.uya`、`tests/test_std_dns.uya`、`tests/test_std_async_event_fd_reuse.uya` 也已通过
+  - 归属：`lib/std/async_event.uya`
+  - 现象：`block_on_with_event_loop` / `LinuxEpoll` 在 fd 复用、slot 清理和 epoll interest 重建时出现过 `ENOENT`、`EEXIST` 一类边界错误。
+  - 修复内容：引入显式状态机（`SLOT_STATE_EMPTY` / `SLOT_STATE_REGISTERED`）与 `slot_generations` 代际数组，彻底消除 fd 复用混淆；新增 `find_slot` / `alloc_slot` / `init_slot` / `clear_slot` 方法。
+  - 可能位置：`lib/std/async_event.uya`
+  - 备注：当前已补了幂等清理和失败回退。~~量产阶段建议保持单 fd interest 语义，后续如需同时关注读写再扩展为小数组或链表~~
+    —— **该建议已于 2026-10-04 落地**：`Waker` 扩为有界槽表并由调度器全槽注册（见上一条 P2），
+    本条不再把「单 fd interest」当作量产前提。
+
+## 运行时 / 调度限制
+
+- [x] **P2 / 中：HTTP/1.1 客户端没有连接池，也不复用连接（每次请求都 `Connection: close`）**
+  - 状态：已修复（2026-10-04）
+  - 现象：`lib/std/http/http1_async.uya` 的请求头构建里写死 `\r\nConnection: close\r\n`，
+    且 API 是「一次请求一条连接」：连续 N 个请求 = N 次 TCP（HTTPS 还要 N 次 TLS 握手）。
+  - 修复内容：
+    1) `Http1AsyncPool`：进程内单例、有界（`HTTP1_ASYNC_POOL_MAX = 8` 个空闲槽），
+       按 host 字节 + port 精确匹配取用；池满或 host 超长时关闭 fd 而不是截断误配。
+    2) `Http1AsyncRequest.persist`（默认 0 = 旧行为）控制是否走 keep-alive；
+       URL 版入口 `http1_async_get/post` 透传该字段。
+    3) `Connection` 行按 persist 精确计入容量（keep-alive 26 字节 / close 21 字节）。
+    4) 响应头解析新增 `Connection: close` 识别；`http1_async_finish_connection` 只在
+       「要求 persist + 响应非 read_until_eof + 未声明 close」时回池 —— 宁可少复用，
+       也不要把坏连接放回池。
+    5) 观测/测试入口：`http1_async_pool_stats` / `http1_async_pool_close_all` /
+       `http1_async_pool_put_raw` / `http1_async_pool_take_raw`。
+  - 验证状态：`tests/test_http1_async_client.uya` 新增
+    `http1_async_keepalive_reuses_one_connection`（客户端连发 3 个 persist 请求，
+    服务端只 `accept` 一次并在同一条连接上读满 3 个 —— 临时关掉池复用该用例在 iter=1 报
+    `HttpTimeout`，证实判据有效）、`http1_async_non_persist_request_leaves_pool_empty`、
+    `http1_async_pool_take_put_and_close`；该文件 15/15 通过，
+    `test_http_server` / `test_http_uyagin` / `test_https_loopback` / `test_std_dns_async_transport` 无回归。
+  - 归属：`lib/std/http/http1_async.uya`。
+
+- [x] **P2 / 中：TLS 无会话复用（没有 session ID 缓存）**
+  - 状态：已修复（2026-10-04，**会话 ID 路径**；session ticket 仍未做）
+  - 现象：`lib/tls/` 全仓库无会话复用实现；每次新建 HTTPS 连接都走完整握手
+    （ClientHello → 服务器 flight → ClientKeyExchange/Finished → ServerFinished）。
+  - 修复内容：
+    1) `TlsSessionCache`（`lib/tls/ssl/handshake.uya`）：按 host 缓存会话 ID + master_secret +
+       密码套件，进程内单例、有界（`TLS_SESSION_CACHE_MAX = 8`），同 host 覆盖。
+    2) `HandshakeCtx` 增加复用字段；`handshake_set_resume_session_id()` 让客户端在
+       ClientHello 里携带会话 ID（小写、长度字段与记录长度同步增长）。
+    3) 服务器侧 `hs_server_decide_session_resumption()`：客户端带了 ID **且**本地缓存有
+       同 host 同 ID 的白名单条目时才回显接受（不因为客户端给了 ID 就接受），
+       回显时把缓存的 master_secret 装回上下文。
+    4) 客户端解析服务器回显的会话 ID：与请求一致才算「已复用」
+       （`handshake_session_resumed()`）；不一致/为空视为拒绝，连接退回完整握手而不失败。
+    5) `https_client_handshake` 在握手成功后把本次会话写入缓存，并在下次连接时按 host 查询。
+  - 验证状态：新增 `tests/test_tls_session_resumption.uya`（7 个用例，覆盖缓存的存/查/覆盖/
+    入参校验/有界、ClientHello 线上格式、服务器接受与拒绝两种往返）；
+    临时禁掉服务器回显时 `test_roundtrip_server_accepts` 报 `ServerDidNotAccept`（判据有效）；
+    `test_https_loopback` / `test_tls_async_io_future` / `test_tls_async_runtime_boundary` /
+    `test_https_real_site` 均无回归。
+  - 归属：`lib/tls/ssl/handshake.uya`、`lib/tls/https.uya`。
+  - 备注：本项实现期间撞到一个**编译器 bug**（切片字面量传给 `&const byte` 形参时发射错指针），
+    见本文件「编译器 bug」首条；测试里按仓库既有做法改用局部数组传参绕开。
+
+- [x] **P3 / 低：跨平台 `EventLoop` 后端缺失（macOS `kqueue`；Windows `IOCP` 仍缺）**
+  - 状态：**macOS kqueue 已实现（2026-10-04）**；Windows `IOCP` 仍未做
+  - 现象（修复前）：`lib/std/async_event.uya` 只有 `LinuxEpoll`；macOS 分支退化成 `poll(2)`
+    全表扫描（功能性正确，但 O(n) 且有 1024 级别的 `poll(2)` 上限），全仓库无 `kqueue`/`kevent`。
+  - 修复内容：
+    1) `lib/libc/syscall.uya`：macOS 分支新增 `uya_macos_kqueue()` / `uya_macos_kevent(...)`
+       宿主声明，并导出 `sys_kqueue()` / `sys_kevent()`（非 macOS 目标返回 `error.NotSupported`）。
+    2) `src/codegen/c99/main.uya`：按仓库既有垫片模式发射 `uya_host_kqueue` / `uya_host_kevent`
+       宿主符号声明（`__asm__("_kqueue")` / `__asm__("kevent")`）与 `uya_macos_*` 包装体。
+    3) `lib/std/async_event.uya`：新增 `Kevent`（BSD `struct kevent`，x86_64/arm64 均 32 字节）
+       与 `TimeSpec`；`LinuxEpoll` 增加 `kqfd` 字段；macOS 上 `kqueue()` 成功即走 kqueue
+       （`register` 发 `EV_ADD|EV_ENABLE` + `EVFILT_READ/WRITE`，`deregister` 发 `EV_DELETE`，
+       `poll` 用 `kevent` 取就绪列表后按 slot 唤醒 waker）；`kqueue()` 失败则**回退**到原
+       `poll(2)` 实现；`linux_epoll_close` 一并关闭 `kqfd`。采用水平触发（不加 `EV_CLEAR`）
+       以对齐 epoll 默认语义。Linux 路径逐字节未变（仍是 `epoll_*`）。
+  - 验证状态：
+    - **Linux 无回归**：`test_std_async_event` / `test_std_async_scheduler` / `test_async_fd` /
+      `test_async_waker_multi_interest` 全部 `通过: 1 失败: 0`。
+    - **kqueue 翻译规则有 Linux 回归**：新增 `tests/test_async_event_kqueue_transition.uya`
+      （7 个用例：首次注册 RD/WR/RDWR、RD→WR 切换、RD→RDWR 升级、RDWR→RDWR 幂等、
+      EVFILT_*/EV_*, POLLIN/POLLOUT 常量 ABI 交叉校验）。因为这条翻译规则是纯函数、
+      与平台无关，所以在 Linux 上也能覆盖。
+    - **ABI 交叉验证**：`Kevent`/`TimeSpec` 的 C 侧同构定义在 zig 交叉编译下通过
+      32/16 字节静态断言，并成功产出 `Mach-O 64-bit x86_64` 与 `Mach-O 64-bit arm64` object；
+      生成的 `uya_macos_kqueue`/`uya_macos_kevent` 包装体在生成的 C 中确认存在。
+  - **未验证的部分（重要）**：macOS 上的**运行时行为**（`kqueue()`/`kevent()` 真实调用、
+    事件投递、唤醒时序）本机无 macOS SDK/runtime，**未真机验收**。同时发现：本机
+    zig 交叉编译**任何**含 `libc` 的 uya 程序到 macOS 都会因 `struct timeval` 与 Darwin SDK
+    的 `_STRUCT_TIMEVAL` 重定义而失败（用最小 `libc.sys_write` 程序即可复现，与本项无关），
+    所以「生成 C → 交叉编译成 Mach-O」这条路径当前对含 libc 的程序走不通。
+  - 归属：`lib/std/async_event.uya`、`lib/libc/syscall.uya`、`src/codegen/c99/main.uya`。
+  - 备注：Windows `IOCP` 仍未做（Windows 目标当前仅 hosted bring-up）。
+
+- [ ] **P2 / 中：`benchmarks/http_bench_async_epoll_await_simple.uya` 单 worker 顺序处理模型无法支撑高并发 keep-alive 连接**
+  - 状态：已知限制，非编译器 bug
+  - 验证状态：`-c 28` 正常；`-c 100` 时 `ab` 最后少量请求 timeout（`apr_pollset_poll: The timeout specified has expired`）
+  - 归属：benchmark 设计 / 异步调度模型
+  - 现象：
+    1. 每个 worker 线程运行独立的 `block_on_with_event_loop` + `serve_forever`
+    2. `serve_forever` 内顺序执行 `accept` → `await handle_bench_client(cfd)` → 回到 `accept`
+    3. `handle_bench_client` 含 `while true` 处理 keep-alive，导致一个 worker 拿到连接后会持续独占该连接，不再 accept 新连接
+    4. 当并发连接数（`-c 100`）远大于 worker 数（7）时，大量已建立的 keep-alive 连接上的请求无人处理，ab 等待超时
+  - 影响：仅影响高并发 keep-alive 压测场景；功能正确，但并发上限受限于 worker 线程数
+  - 修复方向：将 `serve_forever` 改为 `accept` 后把 client handler **spawn** 为独立 Future 并注册到同一 event loop 中并发调度，而非顺序 await。
+  - 相关文件：`benchmarks/http_bench_async_epoll_await_simple.uya`
+
+## 网络 / TLS 回归
+
+- [x] **P0 / 严重：`make release-dirty` 还需要重新跑一轮做最终验收**
+  - 状态：已修复，测试通过
+  - 验证状态：2026-04-11 已修复 `test_https_real_site` 与 `test_raw_tls` 的编译问题；两个测试现均已通过
+  - 归属：整体验收
+  - 现象：
+    1. `test_raw_tls.uya` 存在语法错误（catch 块内使用表达式语法不正确）
+    2. GitHub CI 环境下无法连接外部网络，导致网络测试失败
+  - 修复内容：
+    - `test_raw_tls.uya`：修正 catch 块语法，使用 `0 as isize;` 替代错误的表达式语法；添加 allow_skip_network 检查
+    - `test_https_real_site.uya`：修复 O_RDONLY 导入（添加 fcntl），网络失败时返回 0 而非 1
+    - `test_https_debug.uya`：添加 allow_skip_network 检查，网络失败时返回 0 而非 1
+  - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
+
+## 编译器 bug
+
 - [ ] **P1 / 高：普通用户程序的 `main` 也被弱 worker 入口抢先接管 —— 凡带 argv 的用户进程都可能被误判成 pipeline worker**
   - 状态：**未修复**（2026-10-06 定位；`uya-agent` 的整组 TUI 自测轮因此红）
   - 现象：`lib/std/runtime/entry/entry.uya` 的 `main` 在调用 `main_main()` **之前**先调
