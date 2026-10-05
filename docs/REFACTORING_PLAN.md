@@ -208,6 +208,17 @@ var main_file_paths: &&byte = null;  // 按需分配
 fn ensure_file_paths_capacity(capacity: i32) void;
 ```
 
+> **已完成（2026-10-06）**：这一条已落地，落在 `src/driver/path_list.uya` 的 `PathList`（路径表）
+> 与 `IntList`（argv 下标表）上 —— 容量按 2 倍增长，只受内存限制。`main.uya` 里
+> `resolved_files` / `all_files` / `processed_files` / `main_files` / `input_file_indices` /
+> `input_paths_override` 六处定长数组全部换成它们，`main_file_paths_global`（262KB）删除。
+> 同轮一并收口的还有：`ast_merge_programs` 的 `MAX_MERGE_PROGRAMS`（512）、C99 split-C 镜像的
+> `split_mirror_keys/handles` 与局部 `uniq`（各 128）、`lib/libc/stdio.uya` 与
+> `lib/std/io/file.uya` 的 fopen FILE 池（各 `[FILE: 128]`，128 × 64KiB = 8MiB BSS）。
+> 回归：`tests/verify_input_file_count.sh`（100 个显式输入），已挂进 `make check`。
+> 注意原有的「显式输入文件数上限 64」在当时还只是**崩溃**（守卫用 512、数组写死 64，第 65 个越界写栈），
+> 现在已无数量上限。
+
 ---
 
 ### 阶段三：性能优化（优先级：低）
