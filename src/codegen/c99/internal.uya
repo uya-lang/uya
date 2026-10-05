@@ -426,10 +426,12 @@ struct C99CodeGenerator {
     // split_mirror：一源一 .c（uya_common + 镜像 .c），--split-c-dir 时默认 1；0 时用 uya_part2.c
     split_mirror: i32,
     split_mirror_count: i32,
-    split_mirror_keys: [&byte: 128],
+    // 镜像表按**实际源文件数**从 arena 分配（原先写死 [&byte: 128] / [&void: 128]，
+    // 超过 128 个源文件就静默开不出 .c，报「无法打开输出文件」）。
+    split_mirror_keys: &(&byte),
     // 计算镜像相对路径时的最长公共目录前缀长度（与 prepare 中一致）
     split_mirror_lcp: i32,
-    split_mirror_handles: [&void: 128],
+    split_mirror_handles: &(&void),
     split_common_out: &void,
     // 镜像模式：第七步函数原型写入 uya_split_protos.h（含 #include uya_part1_types.h），各 .c 首行 #include 该头
     split_protos_out: &void,

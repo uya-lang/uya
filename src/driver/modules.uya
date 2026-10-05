@@ -1,34 +1,42 @@
 // driver/modules.uya - 编译器模块依赖收集
 // 从 src/main.uya 拆分
-// 在目录中查找包含 main 函数的文件
+// 在目录中查找包含 main 函数的文件，命中路径追加进 main_files（可增长，无固定上限）。
+// 路径文本从 arena 分配并保管到编译结束（与依赖收集里 path_copy 的惯例一致），
+// 因此 main_files 里的 &byte 可直接存进 resolved_files、活到本次编译结束。
+// 参数：dir_path 目录；main_files 承接命中项（调用方负责 init/free）；arena 存路径拷贝。
+// 返回：0 成功（0 命中也是成功）；-1 参数/目录/分配错误。
 fn find_main_files_in_dir(
     dir_path: &byte,
-    main_files: &(&byte),
-    file_paths_buffer: &([byte: PATH_MAX]),
-    max_files: i32,
-    file_count: &i32
+    main_files: &PathList,
+    arena: &CompilerArena
 ) i32 {
-    if dir_path == null || main_files == null || file_count == null {
+    if dir_path == null || main_files == null || arena == null {
         return -1;
     }
-    file_count[0] = 0;
     const dir: *DIR = opendir(dir_path as *byte);
     if dir == null {
         return -1;
     }
     var entry: *Dirent = readdir(dir);
-    while entry != null && file_count[0] < max_files {
+    while entry != null {
         if dirent_is_regular_file(entry as &byte) != 0 {
             const name: *byte = dirent_get_name(entry as &byte) as *byte;
             const name_len: usize = strlen(name);
             if name_len > 4 {
                 const ext: *byte = name + (name_len - 4);
                 if strcmp(ext, ".uya" as *byte) == 0 {
-                    const len: i32 = snprintf(&file_paths_buffer[file_count[0]][0], PATH_MAX, "%s/%s" as *byte, dir_path as *byte, name);
-                    if len > 0 && len < PATH_MAX as i32 {
-                        if detect_main_function(&file_paths_buffer[file_count[0]][0] as &byte) != 0 {
-                            main_files[file_count[0]] = &file_paths_buffer[file_count[0]][0] as &byte;
-                            file_count[0] = file_count[0] + 1;
+                    var fp: [byte: PATH_MAX] = [];
+                    const len: i32 = snprintf(&fp[0], PATH_MAX, "%s/%s" as *byte, dir_path as *byte, name);
+                    if len > 0 && len < PATH_MAX as i32 && detect_main_function(&fp[0] as &byte) != 0 {
+                        const copy: &byte = compiler_arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
+                        if copy == null {
+                            closedir(dir);
+                            return -1;
+                        }
+                        strcpy(copy as *byte, &fp[0]);
+                        if path_list_push(main_files, copy) != 0 {
+                            closedir(dir);
+                            return -1;
                         }
                     }
                 }
@@ -39,7 +47,6 @@ fn find_main_files_in_dir(
     closedir(dir);
     return 0;
 }
-
 
 fn package_mode_module_root_for_path(module_path: &byte, module_root: &byte, out_root: &byte, out_cap: usize) i32 {
     if module_path == null || module_root == null || out_root == null || out_cap == 0usize {
@@ -541,8 +548,8 @@ fn module_dir_exists(module_path: &byte, module_root: &byte, uya_root: &byte, ou
     return 0;
 }
 
-// 从 AST 中提取 use 语句的模块路径
-// 辅助函数：将 segments[0..count) 连接为 "a.b.c" 形式
+// 将 segments[0..count) 连接为 "a.b.c" 形式（点号分隔），从 arena 分配。
+// 参数：segs 段指针数组；count 段数；arena 分配器。返回新串（null 表示参数无效或空/分配失败）。
 fn join_segments_alloc(segs: &(&byte), count: i32, arena: &CompilerArena) &byte {
     var total_len: usize = 0;
     var j: i32 = 0;
@@ -571,27 +578,29 @@ fn join_segments_alloc(segs: &(&byte), count: i32, arena: &CompilerArena) &byte 
     return buf;
 }
 
+// 从 AST 中提取 use 语句的模块路径，去重后追加进 modules（可增长，无固定上限）。
+// modules 里的字符串是 **arena 分配**的：调用方随后会回滚 arena 释放 AST，届时这些
+// 指针失效 —— 需要跨越回滚保留，请用 `path_list_push_strdup` 另拷一份堆内存。
+// 参数：ast 程序节点；modules 承接模块名（调用方负责 init/free）；arena 拼字符串用。
+// 返回 0 成功；-1 参数错误或分配失败。
 fn extract_use_modules(
     ast: &ASTNode,
-    modules: &(&byte),
-    max_modules: i32,
-    module_count: &i32,
+    modules: &PathList,
     module_root: &byte,
     uya_root: &byte,
     arena: &CompilerArena
 ) i32 {
-    if ast == null || ast.type != ASTNodeType.AST_PROGRAM || modules == null || module_count == null || arena == null {
+    if ast == null || ast.type != ASTNodeType.AST_PROGRAM || modules == null || arena == null {
         return -1;
     }
-    module_count[0] = 0;
     var i: i32 = 0;
-    while i < ast.program_decl_count && module_count[0] < max_modules {
+    while i < ast.program_decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_USE_STMT {
             const seg_count: i32 = decl.use_stmt_path_segment_count;
             if seg_count > 0 {
                 var module_name: &byte = null;
-                
+
                 if decl.use_stmt_item_name != null {
                     // item_name 已设置，所有 segments 都是模块路径
                     module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
@@ -613,21 +622,22 @@ fn extract_use_modules(
                 } else {
                     module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
                 }
-                
+
                 if module_name != null {
-                    // 去重
+                    // 去重：同名模块只收一次
                     var duplicate: i32 = 0;
                     var k: i32 = 0;
-                    while k < module_count[0] {
-                        if modules[k] != null && strcmp(modules[k] as *byte, module_name as *byte) == 0 {
+                    while k < modules.count {
+                        if modules.items[k] != null && strcmp(modules.items[k] as *byte, module_name as *byte) == 0 {
                             duplicate = 1;
                             break;
                         }
                         k = k + 1;
                     }
                     if duplicate == 0 {
-                        modules[module_count[0]] = module_name;
-                        module_count[0] = module_count[0] + 1;
+                        if path_list_push(modules, module_name) != 0 {
+                            return -1;
+                        }
                     }
                 }
             }
@@ -637,60 +647,57 @@ fn extract_use_modules(
     return 0;
 }
 
-// 对路径指针数组按字符串排序（与 C 编译器 qsort 一致，保证自举比对顺序）
-fn sort_paths(paths: &(&byte), count: i32) void {
+// 对路径表按字符串排序（与 C 编译器 qsort 一致，保证自举比对顺序）。
+// 就地插入排序：表很短（一个目录下的 .uya），且顺序必须确定。
+fn sort_paths(l: &PathList) void {
+    if l == null {
+        return;
+    }
     var i: i32 = 0;
-    while i < count - 1 {
+    while i < l.count - 1 {
         var j: i32 = i + 1;
-        while j < count {
-            if strcmp(paths[i] as *byte, paths[j] as *byte) > 0 {
-                const tmp: &byte = paths[i];
-                paths[i] = paths[j];
-                paths[j] = tmp;
+        while j < l.count {
+            if strcmp(l.items[i] as *byte, l.items[j] as *byte) > 0 {
+                const tmp: &byte = l.items[i];
+                l.items[i] = l.items[j];
+                l.items[j] = tmp;
             }
             j = j + 1;
         }
         i = i + 1;
     }
 }
-
-// 递归收集模块依赖
-// 返回：成功返回新的文件列表大小，失败返回-1
+// 递归收集模块依赖，把命中的文件路径追加进 file_list（可增长，无固定上限）。
+//
+// 参数：filename 当前文件；file_list 承接全部依赖（含 filename 自己）；processed_files
+// 已处理集合（防循环依赖与重复添加）；module_root / uya_root 模块查找根；arena 存路径拷贝。
+// 返回：成功返回 file_list 的新 count；失败 -1。
+//
+// 为什么路径都从 arena 分配：`paths_equal` 与调用方都按 `&byte` 存路径文本，文本必须活到
+// 本次编译结束；arena 在编译收尾统一释放，符合「一次编译的内存一次归还」。
 fn collect_module_dependencies(
     filename: &byte,
-    file_list: &(&byte),
-    file_list_size: i32,
-    max_files: i32,
-    processed_files: &(&byte),
-    processed_count: &i32,
-    max_processed: i32,
+    file_list: &PathList,
+    processed_files: &PathList,
     module_root: &byte,
     uya_root: &byte,
     arena: &CompilerArena
 ) i32 {
-    if filename == null || file_list == null || processed_files == null || processed_count == null || arena == null {
+    if filename == null || file_list == null || processed_files == null || arena == null {
         return -1;
     }
-    
-    // 使用局部变量存储可修改的 file_list_size（函数参数在 Uya 中不可修改）
-    var current_size: i32 = file_list_size;
-    
-    // 检查是否已处理过（避免循环依赖）
-    // 使用路径比较函数，考虑路径格式差异
-    var i: i32 = 0;
-    while i < processed_count[0] {
-        if processed_files[i] != null && paths_equal(processed_files[i], filename) != 0 {
-            return current_size;  // 已处理，直接返回
-        }
-        i = i + 1;
+
+    // 检查是否已处理过（避免循环依赖）。用路径比较函数，考虑路径格式差异。
+    if path_list_contains(processed_files, filename) != 0 {
+        return file_list.count;  // 已处理，直接返回
     }
-    
+
     // 标记为已处理
-    if processed_count[0] >= max_processed {
+    if path_list_push(processed_files, filename) != 0 {
         return -1;
     }
-    processed_files[processed_count[0]] = filename;
-    processed_count[0] = processed_count[0] + 1;
+
+    var i: i32 = 0;
 
     // 保存 arena 偏移量，用于解析后回滚释放 AST 内存
     const arena_save_offset: usize = compiler_arena_save(arena);
@@ -732,25 +739,29 @@ fn collect_module_dependencies(
         return -1;
     }
 
-    // 提取 use 语句中的模块路径
-    var modules: [&byte: MAX_INPUT_FILES] = [];
-    var module_count: i32 = 0;
-    if extract_use_modules(ast, &modules[0], MAX_INPUT_FILES, &module_count, module_root, uya_root, arena) != 0 {
+    // 提取 use 语句中的模块路径。
+    // 模块名先落在 arena 里，随后**必须**拷成堆内存：下面要回滚 arena 释放 AST，
+    // 回滚会把 arena 拼出来的模块名一并作废。原先拷进栈上 [[byte:256]:512]（128KB 栈帧，
+    // 且以 MAX_INPUT_FILES 为上限），现在改成 malloc 的 C 串 + 可增长表。
+    var modules: PathList = path_list_empty();
+    // modules 里是 **arena** 拼出来的字符串，只归还索引数组
+    // （free_all 会去 free arena 内存，那是错的）。
+    defer { path_list_free(&modules); }
+    if extract_use_modules(ast, &modules, module_root, uya_root, arena) != 0 {
         compiler_arena_restore(arena, arena_save_offset);
         return -1;
     }
 
-    // 将模块名复制到栈上（arena 回滚后 modules 指针会失效）
-    var module_names_stack: [[byte: 256]: MAX_INPUT_FILES] = [];
+    // module_names 里是 strdup 的堆串，要活过下面的 arena 回滚，所以 free_all。
+    var module_names: PathList = path_list_empty();
+    defer { path_list_free_all(&module_names); }
     var mi: i32 = 0;
-    while mi < module_count {
-        if modules[mi] != null {
-            var si: usize = 0;
-            while si < 255 && modules[mi][si] != 0 {
-                module_names_stack[mi][si] = modules[mi][si];
-                si = si + 1;
+    while mi < modules.count {
+        if modules.items[mi] != null {
+            if path_list_push_strdup(&module_names, modules.items[mi]) != 0 {
+                compiler_arena_restore(arena, arena_save_offset);
+                return -1;
             }
-            module_names_stack[mi][si] = 0 as byte;
         }
         mi = mi + 1;
     }
@@ -760,32 +771,30 @@ fn collect_module_dependencies(
 
     // 对于每个模块，查找文件并递归处理
     i = 0;
-    while i < module_count {
-        if module_names_stack[i][0] == 0 {
+    while i < module_names.count {
+        if module_names.items[i][0] == 0 {
             i = i + 1;
             continue;
         }
         // 精确 `use std;` 只提供 std.cfg / 平台选择器，稳定映射到 lib/std/platform.uya。
-        if strcmp(&module_names_stack[i][0] as *byte, "std" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
+        if strcmp(module_names.items[i], "std" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
             var std_platform_file: [byte: PATH_MAX] = [];
             if find_module_file("std" as *byte, module_root, uya_root, &std_platform_file[0], PATH_MAX) == 0 {
                 var in_list: i32 = 0;
                 var j: i32 = 0;
-                while j < current_size {
-                    if file_list[j] != null && paths_equal(file_list[j], &std_platform_file[0] as &byte) != 0 {
+                while j < file_list.count {
+                    if file_list.items[j] != null && paths_equal(file_list.items[j], &std_platform_file[0] as &byte) != 0 {
                         in_list = 1;
                         break;
                     }
                     j = j + 1;
                 }
-                if in_list == 0 && current_size < max_files {
+                if in_list == 0 {
                     const path_copy: &byte = compiler_arena_alloc(arena, strlen(&std_platform_file[0]) + 1) as &byte;
                     if path_copy != null {
                         strcpy(path_copy as *byte, &std_platform_file[0]);
-                        file_list[current_size] = path_copy;
-                        current_size = current_size + 1;
-                        current_size = collect_module_dependencies(path_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                        if current_size < 0 { return -1; }
+                        if path_list_push(file_list, path_copy) != 0 { return -1; }
+        if collect_module_dependencies(path_copy, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                     }
                 }
             }
@@ -794,9 +803,9 @@ fn collect_module_dependencies(
         }
 
         // std 子模块：目录模块收集目录下所有 .uya；单文件模块优先走精确文件。
-        if strncmp(&module_names_stack[i][0] as *byte, "std." as *byte, 4) == 0 && uya_root != null && uya_root[0] != 0 {
+        if strncmp(module_names.items[i], "std." as *byte, 4) == 0 && uya_root != null && uya_root[0] != 0 {
             var std_dir_exact: [byte: PATH_MAX] = [];
-            const std_has_dir: i32 = module_dir_exists(&module_names_stack[i][0] as *byte, module_root, uya_root, &std_dir_exact[0] as &byte, PATH_MAX);
+            const std_has_dir: i32 = module_dir_exists(module_names.items[i], module_root, uya_root, &std_dir_exact[0] as &byte, PATH_MAX);
             // 约定目录内的 file.uya 代表该目录模块本身，例如 std.io -> lib/std/io/file.uya。
             // 只有没有 file.uya 聚合文件时，才把 std.xxx 当成目录模块展开。
             if std_has_dir != 0 {
@@ -805,29 +814,27 @@ fn collect_module_dependencies(
                 if std_file_len > 0 && std_file_len < PATH_MAX && is_file(&std_file_module[0] as &byte) != 0 {
                     var in_list_file: i32 = 0;
                     var jf: i32 = 0;
-                    while jf < current_size {
-                        if file_list[jf] != null && paths_equal(file_list[jf], &std_file_module[0] as &byte) != 0 {
+                    while jf < file_list.count {
+                        if file_list.items[jf] != null && paths_equal(file_list.items[jf], &std_file_module[0] as &byte) != 0 {
                             in_list_file = 1;
                             break;
                         }
                         jf = jf + 1;
                     }
-                    if in_list_file == 0 && current_size < max_files {
+                    if in_list_file == 0 {
                         const file_copy: &byte = compiler_arena_alloc(arena, strlen(&std_file_module[0]) + 1) as &byte;
                         if file_copy != null {
                             strcpy(file_copy as *byte, &std_file_module[0]);
-                            file_list[current_size] = file_copy;
-                            current_size = current_size + 1;
-                            current_size = collect_module_dependencies(file_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                            if current_size < 0 { return -1; }
+                            if path_list_push(file_list, file_copy) != 0 { return -1; }
+        if collect_module_dependencies(file_copy, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                         }
                     }
                     i = i + 1;
                     continue;
                 }
 
-                var module_base_name: &byte = &module_names_stack[i][0] as &byte;
-                const module_last_dot: *byte = strrchr(&module_names_stack[i][0] as *byte, 46);
+                var module_base_name: &byte = module_names.items[i];
+                const module_last_dot: *byte = strrchr(module_names.items[i], 46);
                 if module_last_dot != null {
                     module_base_name = (module_last_dot + 1) as &byte;
                 }
@@ -836,21 +843,19 @@ fn collect_module_dependencies(
                 if std_named_len > 0 && std_named_len < PATH_MAX && is_file(&std_named_module[0] as &byte) != 0 {
                     var in_list_named: i32 = 0;
                     var jn: i32 = 0;
-                    while jn < current_size {
-                        if file_list[jn] != null && paths_equal(file_list[jn], &std_named_module[0] as &byte) != 0 {
+                    while jn < file_list.count {
+                        if file_list.items[jn] != null && paths_equal(file_list.items[jn], &std_named_module[0] as &byte) != 0 {
                             in_list_named = 1;
                             break;
                         }
                         jn = jn + 1;
                     }
-                    if in_list_named == 0 && current_size < max_files {
+                    if in_list_named == 0 {
                         const named_copy: &byte = compiler_arena_alloc(arena, strlen(&std_named_module[0]) + 1) as &byte;
                         if named_copy != null {
                             strcpy(named_copy as *byte, &std_named_module[0]);
-                            file_list[current_size] = named_copy;
-                            current_size = current_size + 1;
-                            current_size = collect_module_dependencies(named_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                            if current_size < 0 { return -1; }
+                            if path_list_push(file_list, named_copy) != 0 { return -1; }
+        if collect_module_dependencies(named_copy, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                         }
                     }
                     i = i + 1;
@@ -859,24 +864,22 @@ fn collect_module_dependencies(
             }
             // 只有精确单文件模块优先走单文件；若存在同名目录，必须收集目录内全部 .uya。
             var single_file: [byte: PATH_MAX] = [];
-            if std_has_dir == 0 && find_direct_module_file(&module_names_stack[i][0] as *byte, module_root, uya_root, &single_file[0], PATH_MAX) == 0 {
+            if std_has_dir == 0 && find_direct_module_file(module_names.items[i], module_root, uya_root, &single_file[0], PATH_MAX) == 0 {
                 var in_list: i32 = 0;
                 var j: i32 = 0;
-                while j < current_size {
-                    if file_list[j] != null && paths_equal(file_list[j], &single_file[0] as &byte) != 0 {
+                while j < file_list.count {
+                    if file_list.items[j] != null && paths_equal(file_list.items[j], &single_file[0] as &byte) != 0 {
                         in_list = 1;
                         break;
                     }
                     j = j + 1;
                 }
-                if in_list == 0 && current_size < max_files {
+                if in_list == 0 {
                     const path_copy: &byte = compiler_arena_alloc(arena, strlen(&single_file[0]) + 1) as &byte;
                     if path_copy != null {
                         strcpy(path_copy as *byte, &single_file[0]);
-                        file_list[current_size] = path_copy;
-                        current_size = current_size + 1;
-                        current_size = collect_module_dependencies(path_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                        if current_size < 0 { return -1; }
+                        if path_list_push(file_list, path_copy) != 0 { return -1; }
+        if collect_module_dependencies(path_copy, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                     }
                 }
                 i = i + 1;
@@ -884,13 +887,13 @@ fn collect_module_dependencies(
             }
             var std_dir: [byte: PATH_MAX] = [];
             var dlen: i32 = 0;
-            if strcmp(&module_names_stack[i][0] as *byte, "std" as *byte) == 0 {
+            if strcmp(module_names.items[i], "std" as *byte) == 0 {
                 dlen = snprintf(&std_dir[0], PATH_MAX, "%sstd/" as *byte, uya_root as *byte);
             } else {
                 // std.xxx.yyy 模块 -> lib/std/xxx/yyy/
                 // 需要将点号替换为斜杠
                 var path_suffix: [byte: PATH_MAX] = [];
-                const suffix: &byte = &module_names_stack[i][0] as *byte + 4;  // 跳过 "std."
+                const suffix: &byte = module_names.items[i] + 4;  // 跳过 "std."
                 var k: usize = 0;
                 while suffix[k] != 0 && k < PATH_MAX - 2 {
                     if suffix[k] == 46 {  // '.'
@@ -935,10 +938,10 @@ fn collect_module_dependencies(
             if dlen > 0 && dlen < PATH_MAX && is_directory(&std_dir[0] as &byte) != 0 {
                 const dir: *DIR = opendir(&std_dir[0]);
                 if dir != null {
-                    var pending: [&byte: MAX_INPUT_FILES] = [];
-                    var pending_count: i32 = 0;
+                    var pending: PathList = path_list_empty();
+                    defer { path_list_free(&pending); }
                     var entry: *Dirent = readdir(dir);
-                    while entry != null && pending_count < max_files {
+                    while entry != null {
                         if dirent_may_be_regular_file(entry as &byte) != 0 {
                             const name: *byte = dirent_get_name(entry as &byte) as *byte;
                             const nlen: usize = strlen(name);
@@ -948,8 +951,8 @@ fn collect_module_dependencies(
                                 if flen > 0 && flen < PATH_MAX {
                                     var in_list: i32 = 0;
                                     var j: i32 = 0;
-                                    while j < current_size {
-                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                    while j < file_list.count {
+                                        if file_list.items[j] != null && paths_equal(file_list.items[j], &fp[0] as &byte) != 0 {
                                             in_list = 1;
                                             break;
                                         }
@@ -958,8 +961,8 @@ fn collect_module_dependencies(
                                     // 同时检查 pending 数组中是否已存在（防止重复添加）
                                     if in_list == 0 {
                                         var pk: i32 = 0;
-                                        while pk < pending_count {
-                                            if pending[pk] != null && paths_equal(pending[pk], &fp[0] as &byte) != 0 {
+                                        while pk < pending.count {
+                                            if pending.items[pk] != null && paths_equal(pending.items[pk], &fp[0] as &byte) != 0 {
                                                 in_list = 1;
                                                 break;
                                             }
@@ -970,8 +973,7 @@ fn collect_module_dependencies(
                                         const path_copy: &byte = compiler_arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
                                         if path_copy != null {
                                             strcpy(path_copy as *byte, &fp[0]);
-                                            pending[pending_count] = path_copy;
-                                            pending_count = pending_count + 1;
+                                            if path_list_push(&pending, path_copy) != 0 { return -1; }
                                         }
                                     }
                                 }
@@ -980,21 +982,19 @@ fn collect_module_dependencies(
                         entry = readdir(dir);
                     }
                     closedir(dir);
-                    if pending_count > 0 {
-                        sort_paths(&pending[0] as &(&byte), pending_count);
+                    if pending.count > 0 {
+                        sort_paths(&pending);
                         // 先把所有文件添加到 file_list（防止递归时重复添加）
                         var added_count: i32 = 0;
-                        while added_count < pending_count && current_size < max_files {
-                            file_list[current_size] = pending[added_count];
-                            current_size = current_size + 1;
+                        while added_count < pending.count {
+                            if path_list_push(file_list, pending.items[added_count]) != 0 { return -1; }
                             added_count = added_count + 1;
                         }
                         // 然后递归处理每个文件的依赖
                         var idx: i32 = 0;
                         while idx < added_count {
-                            const pc: &byte = pending[idx];
-                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                            if current_size < 0 { return -1; }
+                            const pc: &byte = pending.items[idx];
+        if collect_module_dependencies(pc, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                             idx = idx + 1;
                         }
                     }
@@ -1004,16 +1004,16 @@ fn collect_module_dependencies(
             continue;
         }
         // libc 模块：收集 lib/libc/ 目录下所有 .uya 文件（与 C 编译器一致）
-        if strcmp(&module_names_stack[i][0] as *byte, "libc" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
+        if strcmp(module_names.items[i], "libc" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
             var libc_dir: [byte: PATH_MAX] = [];
             const dlen: i32 = snprintf(&libc_dir[0], PATH_MAX, "%slibc/" as *byte, uya_root as *byte);
             if dlen > 0 && dlen < PATH_MAX && is_directory(&libc_dir[0] as &byte) != 0 {
                 const dir: *DIR = opendir(&libc_dir[0]);
                 if dir != null {
-                    var pending: [&byte: MAX_INPUT_FILES] = [];
-                    var pending_count: i32 = 0;
+                    var pending: PathList = path_list_empty();
+                    defer { path_list_free(&pending); }
                     var entry: *Dirent = readdir(dir);
-                    while entry != null && pending_count < max_files {
+                    while entry != null {
                         if dirent_may_be_regular_file(entry as &byte) != 0 {
                             const name: *byte = dirent_get_name(entry as &byte) as *byte;
                             const nlen: usize = strlen(name);
@@ -1023,8 +1023,8 @@ fn collect_module_dependencies(
                                 if flen > 0 && flen < PATH_MAX {
                                     var in_list: i32 = 0;
                                     var j: i32 = 0;
-                                    while j < current_size {
-                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                    while j < file_list.count {
+                                        if file_list.items[j] != null && paths_equal(file_list.items[j], &fp[0] as &byte) != 0 {
                                             in_list = 1;
                                             break;
                                         }
@@ -1033,8 +1033,8 @@ fn collect_module_dependencies(
                                     if in_list == 0 {
                                         var in_proc: i32 = 0;
                                         j = 0;
-                                        while j < processed_count[0] {
-                                            if processed_files[j] != null && paths_equal(processed_files[j], &fp[0] as &byte) != 0 {
+                                        while j < processed_files.count {
+                                            if processed_files.items[j] != null && paths_equal(processed_files.items[j], &fp[0] as &byte) != 0 {
                                                 in_proc = 1;
                                                 break;
                                             }
@@ -1043,8 +1043,8 @@ fn collect_module_dependencies(
                                         // 同时检查 pending 数组中是否已存在（防止重复添加）
                                         if in_proc == 0 {
                                             var k: i32 = 0;
-                                            while k < pending_count {
-                                                if pending[k] != null && paths_equal(pending[k], &fp[0] as &byte) != 0 {
+                                            while k < pending.count {
+                                                if pending.items[k] != null && paths_equal(pending.items[k], &fp[0] as &byte) != 0 {
                                                     in_proc = 1;
                                                     break;
                                                 }
@@ -1055,8 +1055,7 @@ fn collect_module_dependencies(
                                             const path_copy: &byte = compiler_arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
                                             if path_copy != null {
                                                 strcpy(path_copy as *byte, &fp[0]);
-                                                pending[pending_count] = path_copy;
-                                                pending_count = pending_count + 1;
+                                                if path_list_push(&pending, path_copy) != 0 { return -1; }
                                             }
                                         }
                                     }
@@ -1066,21 +1065,19 @@ fn collect_module_dependencies(
                         entry = readdir(dir);
                     }
                     closedir(dir);
-                    if pending_count > 0 {
-                        sort_paths(&pending[0] as &(&byte), pending_count);
+                    if pending.count > 0 {
+                        sort_paths(&pending);
                         // 先把所有文件添加到 file_list（防止递归时重复添加）
                         var added_count: i32 = 0;
-                        while added_count < pending_count && current_size < max_files {
-                            file_list[current_size] = pending[added_count];
-                            current_size = current_size + 1;
+                        while added_count < pending.count {
+                            if path_list_push(file_list, pending.items[added_count]) != 0 { return -1; }
                             added_count = added_count + 1;
                         }
                         // 然后递归处理每个文件的依赖
                         var idx: i32 = 0;
                         while idx < added_count {
-                            const pc: &byte = pending[idx];
-                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                            if current_size < 0 { return -1; }
+                            const pc: &byte = pending.items[idx];
+        if collect_module_dependencies(pc, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                             idx = idx + 1;
                         }
                     }
@@ -1090,16 +1087,16 @@ fn collect_module_dependencies(
             continue;
         }
         // syscall 模块：收集 lib/syscall/ 目录下所有 .uya 文件（标准库重构 syscall 层）
-        if strcmp(&module_names_stack[i][0] as *byte, "syscall" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
+        if strcmp(module_names.items[i], "syscall" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
             var syscall_dir: [byte: PATH_MAX] = [];
             const dlen: i32 = snprintf(&syscall_dir[0], PATH_MAX, "%ssyscall/" as *byte, uya_root as *byte);
             if dlen > 0 && dlen < PATH_MAX && is_directory(&syscall_dir[0] as &byte) != 0 {
                 const dir: *DIR = opendir(&syscall_dir[0]);
                 if dir != null {
-                    var pending: [&byte: MAX_INPUT_FILES] = [];
-                    var pending_count: i32 = 0;
+                    var pending: PathList = path_list_empty();
+                    defer { path_list_free(&pending); }
                     var entry: *Dirent = readdir(dir);
-                    while entry != null && pending_count < max_files {
+                    while entry != null {
                         if dirent_may_be_regular_file(entry as &byte) != 0 {
                             const name: *byte = dirent_get_name(entry as &byte) as *byte;
                             const nlen: usize = strlen(name);
@@ -1109,8 +1106,8 @@ fn collect_module_dependencies(
                                 if flen > 0 && flen < PATH_MAX {
                                     var in_list: i32 = 0;
                                     var j: i32 = 0;
-                                    while j < current_size {
-                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                    while j < file_list.count {
+                                        if file_list.items[j] != null && paths_equal(file_list.items[j], &fp[0] as &byte) != 0 {
                                             in_list = 1;
                                             break;
                                         }
@@ -1118,8 +1115,8 @@ fn collect_module_dependencies(
                                     }
                                     if in_list == 0 {
                                         var k: i32 = 0;
-                                        while k < pending_count {
-                                            if pending[k] != null && paths_equal(pending[k], &fp[0] as &byte) != 0 {
+                                        while k < pending.count {
+                                            if pending.items[k] != null && paths_equal(pending.items[k], &fp[0] as &byte) != 0 {
                                                 in_list = 1;
                                                 break;
                                             }
@@ -1130,8 +1127,7 @@ fn collect_module_dependencies(
                                         const path_copy: &byte = compiler_arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
                                         if path_copy != null {
                                             strcpy(path_copy as *byte, &fp[0]);
-                                            pending[pending_count] = path_copy;
-                                            pending_count = pending_count + 1;
+                                            if path_list_push(&pending, path_copy) != 0 { return -1; }
                                         }
                                     }
                                 }
@@ -1140,19 +1136,17 @@ fn collect_module_dependencies(
                         entry = readdir(dir);
                     }
                     closedir(dir);
-                    if pending_count > 0 {
-                        sort_paths(&pending[0] as &(&byte), pending_count);
+                    if pending.count > 0 {
+                        sort_paths(&pending);
                         var added_count: i32 = 0;
-                        while added_count < pending_count && current_size < max_files {
-                            file_list[current_size] = pending[added_count];
-                            current_size = current_size + 1;
+                        while added_count < pending.count {
+                            if path_list_push(file_list, pending.items[added_count]) != 0 { return -1; }
                             added_count = added_count + 1;
                         }
                         var idx: i32 = 0;
                         while idx < added_count {
-                            const pc: &byte = pending[idx];
-                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                            if current_size < 0 { return -1; }
+                            const pc: &byte = pending.items[idx];
+        if collect_module_dependencies(pc, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                             idx = idx + 1;
                         }
                     }
@@ -1162,14 +1156,14 @@ fn collect_module_dependencies(
             continue;
         }
         // use main：收集主工程目录下所有 .uya，排序后加入（与 C 编译器一致）
-        if strcmp(&module_names_stack[i][0] as *byte, "main" as *byte) == 0 {
+        if strcmp(module_names.items[i], "main" as *byte) == 0 {
             var main_dir: [byte: PATH_MAX] = [];
             var dir_src: &byte = null;
-            // 优先 module_root（主文件所在目录，一般为 src/），避免双输入时 processed_files[0] 为 entry 路径而误扫子目录
+            // 优先 module_root（主文件所在目录，一般为 src/），避免双输入时 processed_files.items[0] 为 entry 路径而误扫子目录
             if module_root != null && strlen(module_root) > 0 {
                 dir_src = module_root;
-            } else if processed_count[0] > 0 && processed_files[0] != null {
-                const entry_file: &byte = processed_files[0];
+            } else if processed_files.count > 0 && processed_files.items[0] != null {
+                const entry_file: &byte = processed_files.items[0];
                 const slash: *byte = strrchr(entry_file as *byte, 47);
                 if slash != null {
                     const dlen_tmp: !usize = (slash as i64 - entry_file as i64 + 1) as! usize;
@@ -1188,10 +1182,10 @@ fn collect_module_dependencies(
             if dir_src != null {
                 const dir: *DIR = opendir(dir_src as *byte);
                 if dir != null {
-                    var pending: [&byte: MAX_INPUT_FILES] = [];
-                    var pending_count: i32 = 0;
+                    var pending: PathList = path_list_empty();
+                    defer { path_list_free(&pending); }
                     var entry: *Dirent = readdir(dir);
-                    while entry != null && pending_count < max_files {
+                    while entry != null {
                         const name: *byte = dirent_get_name(entry as &byte) as *byte;
                         if dirent_may_be_regular_file(entry as &byte) != 0 && strlen(name) > 4 {
                             if strcmp(name + (strlen(name) - 4), ".uya" as *byte) == 0 {
@@ -1200,8 +1194,8 @@ fn collect_module_dependencies(
                                 if flen > 0 && flen < PATH_MAX as i32 {
                                     var in_list: i32 = 0;
                                     var j: i32 = 0;
-                                    while j < current_size {
-                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                    while j < file_list.count {
+                                        if file_list.items[j] != null && paths_equal(file_list.items[j], &fp[0] as &byte) != 0 {
                                             in_list = 1;
                                             break;
                                         }
@@ -1210,8 +1204,8 @@ fn collect_module_dependencies(
                                     if in_list == 0 {
                                         var in_proc: i32 = 0;
                                         j = 0;
-                                        while j < processed_count[0] {
-                                            if processed_files[j] != null && paths_equal(processed_files[j], &fp[0] as &byte) != 0 {
+                                        while j < processed_files.count {
+                                            if processed_files.items[j] != null && paths_equal(processed_files.items[j], &fp[0] as &byte) != 0 {
                                                 in_proc = 1;
                                                 break;
                                             }
@@ -1221,8 +1215,7 @@ fn collect_module_dependencies(
                                             const path_copy: &byte = compiler_arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
                                             if path_copy != null {
                                                 strcpy(path_copy as *byte, &fp[0]);
-                                                pending[pending_count] = path_copy;
-                                                pending_count = pending_count + 1;
+                                                if path_list_push(&pending, path_copy) != 0 { return -1; }
                                             }
                                         }
                                     }
@@ -1232,21 +1225,19 @@ fn collect_module_dependencies(
                         entry = readdir(dir);
                     }
                     closedir(dir);
-                    if pending_count > 0 {
-                        sort_paths(&pending[0] as &(&byte), pending_count);
+                    if pending.count > 0 {
+                        sort_paths(&pending);
                         // 先把所有文件添加到 file_list（防止递归时重复添加）
                         var added_count: i32 = 0;
-                        while added_count < pending_count && current_size < max_files {
-                            file_list[current_size] = pending[added_count];
-                            current_size = current_size + 1;
+                        while added_count < pending.count {
+                            if path_list_push(file_list, pending.items[added_count]) != 0 { return -1; }
                             added_count = added_count + 1;
                         }
                         // 然后递归处理每个文件的依赖
                         var idx: i32 = 0;
                         while idx < added_count {
-                            const pc: &byte = pending[idx];
-                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                            if current_size < 0 { return -1; }
+                            const pc: &byte = pending.items[idx];
+        if collect_module_dependencies(pc, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                             idx = idx + 1;
                         }
                     }
@@ -1257,12 +1248,12 @@ fn collect_module_dependencies(
         }
         // 目录模块：将模块路径转为目录路径，若存在则收集该目录下所有 .uya（与 C 一致）
         var file_path: [byte: PATH_MAX] = [];
-        const path_len: usize = strlen(&module_names_stack[i][0] as *byte);
+        const path_len: usize = strlen(module_names.items[i]);
         if path_len >= PATH_MAX as usize {
             i = i + 1;
             continue;
         }
-        strcpy(&file_path[0], &module_names_stack[i][0] as *byte);
+        strcpy(&file_path[0], module_names.items[i]);
         var k: usize = 0;
         while k < path_len {
             if file_path[k] == 46 as byte { file_path[k] = 47 as byte; }
@@ -1270,7 +1261,7 @@ fn collect_module_dependencies(
         }
         var found_dir: i32 = 0;
         var module_dir_path: [byte: PATH_MAX] = [];
-        if package_mode_dependency_module_dir(&module_names_stack[i][0] as &byte, &module_dir_path[0] as &byte, PATH_MAX as usize) != 0 {
+        if package_mode_dependency_module_dir(module_names.items[i], &module_dir_path[0] as &byte, PATH_MAX as usize) != 0 {
             found_dir = 1;
         } else {
             var ri: i32 = 0;
@@ -1293,10 +1284,10 @@ fn collect_module_dependencies(
             const dir_path: &byte = &module_dir_path[0] as &byte;
             const dir: *DIR = opendir(&module_dir_path[0]);
             if dir != null {
-                var pending: [&byte: MAX_INPUT_FILES] = [];
-                var pending_count: i32 = 0;
+                var pending: PathList = path_list_empty();
+                defer { path_list_free(&pending); }
                 var entry: *Dirent = readdir(dir);
-                while entry != null && pending_count < max_files {
+                while entry != null {
                     if dirent_is_regular_file(entry as &byte) != 0 {
                         const name: *byte = dirent_get_name(entry as &byte) as *byte;
                         const name_len: usize = strlen(name);
@@ -1306,8 +1297,8 @@ fn collect_module_dependencies(
                             if flen > 0 && flen < PATH_MAX as i32 {
                                 var already_added: i32 = 0;
                                 var j: i32 = 0;
-                                while j < current_size {
-                                    if file_list[j] != null && paths_equal(file_list[j], &full_path[0] as &byte) != 0 {
+                                while j < file_list.count {
+                                    if file_list.items[j] != null && paths_equal(file_list.items[j], &full_path[0] as &byte) != 0 {
                                         already_added = 1;
                                         break;
                                     }
@@ -1316,8 +1307,8 @@ fn collect_module_dependencies(
                                 // 同时检查 pending 数组中是否已存在（防止重复添加）
                                 if already_added == 0 {
                                     var pk: i32 = 0;
-                                    while pk < pending_count {
-                                        if pending[pk] != null && paths_equal(pending[pk], &full_path[0] as &byte) != 0 {
+                                    while pk < pending.count {
+                                        if pending.items[pk] != null && paths_equal(pending.items[pk], &full_path[0] as &byte) != 0 {
                                             already_added = 1;
                                             break;
                                         }
@@ -1328,8 +1319,7 @@ fn collect_module_dependencies(
                                     const path_copy: &byte = compiler_arena_alloc(arena, strlen(&full_path[0]) + 1) as &byte;
                                     if path_copy != null {
                                         strcpy(path_copy as *byte, &full_path[0]);
-                                        pending[pending_count] = path_copy;
-                                        pending_count = pending_count + 1;
+                                        if path_list_push(&pending, path_copy) != 0 { return -1; }
                                     }
                                 }
                             }
@@ -1338,15 +1328,13 @@ fn collect_module_dependencies(
                     entry = readdir(dir);
                 }
                 closedir(dir);
-                if pending_count > 0 {
-                    sort_paths(&pending[0] as &(&byte), pending_count);
+                if pending.count > 0 {
+                    sort_paths(&pending);
                     var idx: i32 = 0;
-                    while idx < pending_count && current_size < max_files {
-                        const path_copy: &byte = pending[idx];
-                        file_list[current_size] = path_copy;
-                        current_size = current_size + 1;
-                        current_size = collect_module_dependencies(path_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                        if current_size < 0 { return -1; }
+                    while idx < pending.count {
+                        const pc2: &byte = pending.items[idx];
+                        if path_list_push(file_list, pc2) != 0 { return -1; }
+                        if collect_module_dependencies(pc2, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                         idx = idx + 1;
                     }
                 }
@@ -1356,29 +1344,27 @@ fn collect_module_dependencies(
         }
         // 单文件模块：find_module_file
         var module_file: [byte: PATH_MAX] = [];
-        if find_module_file(&module_names_stack[i][0] as &byte, module_root, uya_root, &module_file[0] as &byte, PATH_MAX) == 0 {
+        if find_module_file(module_names.items[i], module_root, uya_root, &module_file[0] as &byte, PATH_MAX) == 0 {
             var already_added: i32 = 0;
             var j: i32 = 0;
-            while j < current_size {
-                if file_list[j] != null && paths_equal(file_list[j], &module_file[0] as &byte) != 0 {
+            while j < file_list.count {
+                if file_list.items[j] != null && paths_equal(file_list.items[j], &module_file[0] as &byte) != 0 {
                     already_added = 1;
                     break;
                 }
                 j = j + 1;
             }
-            if already_added == 0 && current_size < max_files {
+            if already_added == 0 {
                 const path_copy: &byte = compiler_arena_alloc(arena, strlen(&module_file[0]) + 1) as &byte;
                 if path_copy != null {
                     strcpy(path_copy as *byte, &module_file[0]);
-                    file_list[current_size] = path_copy;
-                    current_size = current_size + 1;
-                    current_size = collect_module_dependencies(path_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, module_root, uya_root, arena);
-                    if current_size < 0 { return -1; }
+                    if path_list_push(file_list, path_copy) != 0 { return -1; }
+        if collect_module_dependencies(path_copy, file_list, processed_files, module_root, uya_root, arena) < 0 { return -1; }
                 }
             }
         }
         i = i + 1;
     }
     
-    return current_size;
+    return file_list.count;
 }

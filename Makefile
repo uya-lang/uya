@@ -724,6 +724,18 @@ check: uya
 		exit 1; \
 	fi; \
 	echo ""; \
+	echo "验证显式输入文件数无上限（>64 回归）..."; \
+	if bash ./tests/verify_input_file_count.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "ok$$|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 显式输入文件数验证失败"; \
+		exit 1; \
+	fi; \
 	echo "验证 split-C 重名顶层常量（multiple definition 回归）..."; \
 	if bash ./tests/verify_split_dup_global.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "ok$$|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
@@ -1015,6 +1027,8 @@ check-hosted: b-hosted
 		exit 1; \
 	fi
 	@echo ""
+	@echo "验证显式输入文件数无上限（>64 回归）..."
+	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_input_file_count.sh; \
 	@echo "验证 split-C 重名顶层常量（multiple definition 回归）..."
 	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_split_dup_global.sh; \
 	VERIFY_EXIT=$$?; \

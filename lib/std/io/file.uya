@@ -29,7 +29,88 @@ export struct FILE {
     buf_mode: i32,  // 0=无缓冲, 1=行缓冲, 2=全缓冲
 }
 
-var std_io_fopen_fd_storage: [FILE: 128] = [];
+// fopen 的 FILE 池：槽位指针表 + 每个 FILE 独立 malloc（地址稳定）。
+// 原先写死 [FILE: 128]（128 × 64KiB = 8MiB BSS，且第 129 个 fopen 直接失败）。
+// 与 lib/libc/stdio.uya 同一套做法与同一套理由：调用方会长期持有 &FILE，不能搬迁本体。
+var std_io_fopen_fd_table: &(&FILE) = null;
+var std_io_fopen_fd_cap: usize = 0;
+const STD_IO_FILE_POOL_INIT: usize = 128;
+const STD_IO_FILE_POOL_MAX: usize = 1 << 20;
+
+// 扩一次槽位表（2 倍）。成功 0；失败/超上限 -1。
+fn std_io_file_pool_grow() i32 {
+    var ncap: usize = std_io_fopen_fd_cap;
+    if ncap == 0 {
+        ncap = STD_IO_FILE_POOL_INIT;
+    } else {
+        ncap = ncap * 2;
+    }
+    if ncap > STD_IO_FILE_POOL_MAX {
+        return -1;
+    }
+    const raw: &(&FILE) = malloc(ncap * @size_of(&FILE)) as &(&FILE);
+    if raw == null {
+        return -1;
+    }
+    var i: usize = 0;
+    while i < ncap {
+        raw[i] = null;
+        i = i + 1;
+    }
+    if std_io_fopen_fd_table != null {
+        var c: usize = 0;
+        while c < std_io_fopen_fd_cap {
+            raw[c] = std_io_fopen_fd_table[c];
+            c = c + 1;
+        }
+        free(std_io_fopen_fd_table as &void);
+    }
+    std_io_fopen_fd_table = raw;
+    std_io_fopen_fd_cap = ncap;
+    return 0;
+}
+
+// 取一个空闲槽的 &FILE（空槽 null 或 fd <= 0 都算空闲），必要时扩表。
+fn std_io_file_pool_acquire() &FILE {
+    var guard: i32 = 0;
+    while guard < 32 {
+        guard = guard + 1;
+        if std_io_fopen_fd_table == null || std_io_fopen_fd_cap == 0 {
+            if std_io_file_pool_grow() != 0 {
+                return null;
+            }
+        }
+        // 表在证明器眼里可能是空的（malloc 结果），先取一份带非空检查的引用
+        const tbl: &(&FILE) = std_io_fopen_fd_table;
+        if tbl == null {
+            return null;
+        }
+        var j: usize = 0;
+        while j < std_io_fopen_fd_cap {
+            const slot: &FILE = tbl[j];
+            if slot == null {
+                const fresh: &FILE = malloc(@size_of(FILE)) as &FILE;
+                if fresh == null {
+                    return null;
+                }
+                fresh.fd = 0;
+                fresh.buf_pos = 0;
+                fresh.buf_len = 0;
+                fresh.buf_mode = 0;
+                tbl[j] = fresh;
+                return fresh;
+            }
+            if slot.fd <= 0 {
+                return slot;
+            }
+            j = j + 1;
+        }
+        if std_io_file_pool_grow() != 0 {
+            return null;
+        }
+    }
+    return null;
+}
 
 export fn file_open(path: &const byte, flags: i32, mode: u32) !File {
     const raw_fd: i32 = try sys_open(path as *const byte, flags, mode as i32);
@@ -193,21 +274,16 @@ export fn fopen(path: &const byte, mode: &const byte) &FILE {
         return null;
     };
 
-    const storage_size: usize = @len(std_io_fopen_fd_storage);
-    var j: usize = 0;
-    while j < storage_size {
-        if std_io_fopen_fd_storage[j].fd <= 0 {
-            std_io_fopen_fd_storage[j].fd = fd as i64;
-            std_io_fopen_fd_storage[j].buf_pos = 0;
-            std_io_fopen_fd_storage[j].buf_len = 0;
-            std_io_fopen_fd_storage[j].buf_mode = 2;
-            return &std_io_fopen_fd_storage[j];
-        }
-        j = j + 1;
+    const slot: &FILE = std_io_file_pool_acquire();
+    if slot == null {
+        _ = sys_close(fd);
+        return null;
     }
-
-    _ = sys_close(fd);
-    return null;
+    slot.fd = fd as i64;
+    slot.buf_pos = 0;
+    slot.buf_len = 0;
+    slot.buf_mode = 2;
+    return slot;
 }
 
 export fn fclose(stream: &FILE) i32 {

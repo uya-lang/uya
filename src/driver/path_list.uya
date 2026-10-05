@@ -1,0 +1,262 @@
+// driver/path_list.uya - 编译器输入文件表（可增长，无固定上限）
+//
+// 背景：编译器处理输入文件用的几张表原先都是**定长数组**，长度 MAX_INPUT_FILES（512）。
+// 表满之后的行为分两种，都不是好行为：
+//   * `main()` 里 `input_file_indices` 曾写死 `[i32: 64]`，而 `parse_args` 的上限守卫用的是
+//     MAX_INPUT_FILES ⇒ 第 65 个输入文件的下标被写到数组之外，读回来是栈上相邻变量的垃圾值，
+//     报「无法获取输入文件路径（索引 1886221359）」或「收集模块依赖失败: <编译器路径>」
+//     —— 报错说的位置（编译器自身路径 / 文件路径）与真实原因（数组比守卫小）完全无关；
+//   * 依赖收集里 `while ... && current_size < max_files` 这类循环在表满时**静默停手**，
+//     少掉的依赖文件不会进编译，错误在很久之后的链接期才冒出来。
+//
+// 本文件把「路径表」与「下标表」收成两个可增长结构，容量按 2 倍增长（同
+// `checker/dyn_table.uya` 的容量策略），只受内存限制。
+//
+// ---- 为什么表用 `&(&byte)` 而不是 `[&byte: N]` ----
+// `&byte` 元素就是 C 的 `char *`，`&(&byte)` 就是 `char **`。表在堆上，增长 =
+// malloc 新块 + 搬运 + free 旧块。元素是指针 ⇒ 搬运不打断任何**指针身份**
+// （调用方拿到的 `&byte` 与表里存的是同一个指针值）。
+//
+// 生命周期：`*_init` 只清零，`*_free` 归还堆块，表本身是值结构体（可放栈上）。
+// 注意 `path_list_free_all` 与 `path_list_free` 的区别：前者连每条字符串一起 free，
+// 只用于 `path_list_push_strdup` 填的表。
+
+use libc;
+
+// 可增长的路径表：items[0..count) 是有效的 C 字符串指针，容量 = capacity。
+struct PathList {
+    items: &(&byte),   // 堆上的指针数组（malloc；空表时为 null）
+    count: i32,        // 有效条目数
+    capacity: i32,     // 当前容量（0 = 还没分配）
+}
+
+// 可增长的 i32 表（命令行输入文件在 argv 中的下标）。
+struct IntList {
+    items: &i32,       // 堆上的 i32 数组（malloc；空表时为 null）
+    count: i32,
+    capacity: i32,
+}
+
+// 空表的最小容量：避免前几次 push 每次都 malloc。
+const PATH_LIST_MIN_CAPACITY: i32 = 16;
+
+// 空路径表（供 `var l: PathList = path_list_empty();` 用，等价于手工清零）。
+fn path_list_empty() PathList {
+    return PathList { items: null, count: 0, capacity: 0 };
+}
+
+// 初始化（清零）。表可以反复 init/free。
+fn path_list_init(l: &PathList) void {
+    if l == null {
+        return;
+    }
+    l.items = null;
+    l.count = 0;
+    l.capacity = 0;
+}
+
+// 归还堆块并把表复位。只归还索引数组，**不**碰表里各字符串。
+// 对 null/空表安全。
+fn path_list_free(l: &PathList) void {
+    if l == null {
+        return;
+    }
+    if l.items != null {
+        free(l.items as &void);
+    }
+    l.items = null;
+    l.count = 0;
+    l.capacity = 0;
+}
+
+// 释放表里**每条字符串自身**，再归还索引数组。
+// 只对 `path_list_push_strdup` 填的表调用（其它表里的指针归 arena 管，不能在这里 free）。
+fn path_list_free_all(l: &PathList) void {
+    if l == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < l.count {
+        if l.items[i] != null {
+            free(l.items[i] as &void);
+        }
+        i = i + 1;
+    }
+    path_list_free(l);
+}
+
+// 确保容量 ≥ want。成功 0；分配失败或容量溢出 -1。
+// 增长策略：至少 PATH_LIST_MIN_CAPACITY，之后 2 倍，直到够用。
+fn path_list_reserve(l: &PathList, want: i32) i32 {
+    if l == null {
+        return -1;
+    }
+    if want <= l.capacity {
+        return 0;
+    }
+    var nc: i32 = l.capacity;
+    if nc < PATH_LIST_MIN_CAPACITY {
+        nc = PATH_LIST_MIN_CAPACITY;
+    }
+    while nc < want {
+        nc = nc * 2;
+        if nc <= 0 {
+            return -1;   // i32 溢出（病态输入）
+        }
+    }
+    const nu: usize = (nc as! usize) catch { return -1; };
+    const raw: &byte = malloc(nu * @size_of(&byte));
+    if raw == null {
+        return -1;
+    }
+    const np: &(&byte) = raw as &(&byte);
+    // 搬旧内容；空槽补 null（与「空槽判据是 null」的既有调用方约定一致）
+    var i: i32 = 0;
+    while i < l.count {
+        np[i] = l.items[i];
+        i = i + 1;
+    }
+    while i < nc {
+        np[i] = null;
+        i = i + 1;
+    }
+    if l.items != null {
+        free(l.items as &void);
+    }
+    l.items = np;
+    l.capacity = nc;
+    return 0;
+}
+
+// 追加一个路径指针。成功 0；失败 -1（此时表不变）。
+fn path_list_push(l: &PathList, p: &byte) i32 {
+    if l == null {
+        return -1;
+    }
+    if path_list_reserve(l, l.count + 1) != 0 {
+        return -1;
+    }
+    l.items[l.count] = p;
+    l.count = l.count + 1;
+    return 0;
+}
+
+// 复制 src（C 串）到堆上再追加。成功 0；失败 -1。
+// 用它的表必须用 `path_list_free_all` 释放。
+fn path_list_push_strdup(l: &PathList, src: &byte) i32 {
+    if l == null || src == null {
+        return -1;
+    }
+    const n: usize = strlen(src as *byte) + 1usize;
+    const mem: &byte = malloc(n);
+    if mem == null {
+        return -1;
+    }
+    strcpy(mem as *byte, src as *byte);
+    if path_list_push(l, mem) != 0 {
+        free(mem as &void);
+        return -1;
+    }
+    return 0;
+}
+
+// 取第 idx 项；越界返回 null（调用方按「空槽」处理）。
+fn path_list_at(l: &PathList, idx: i32) &byte {
+    if l == null || idx < 0 || idx >= l.count {
+        return null;
+    }
+    return l.items[idx];
+}
+
+// 表内容里是否已有该路径（按 paths_equal 的「考虑路径格式差异」口径）。
+// 命中返回 1，否则 0。
+fn path_list_contains(l: &PathList, p: &const byte) i32 {
+    if l == null || p == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < l.count {
+        if l.items[i] != null && paths_equal(l.items[i], p) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 初始化（清零）。
+fn int_list_init(l: &IntList) void {
+    if l == null {
+        return;
+    }
+    l.items = null;
+    l.count = 0;
+    l.capacity = 0;
+}
+
+// 归还堆块并复位。对 null/空表安全。
+fn int_list_free(l: &IntList) void {
+    if l == null {
+        return;
+    }
+    if l.items != null {
+        free(l.items as &void);
+    }
+    l.items = null;
+    l.count = 0;
+    l.capacity = 0;
+}
+
+// 确保容量 ≥ want。成功 0；分配失败/溢出 -1。
+fn int_list_reserve(l: &IntList, want: i32) i32 {
+    if l == null {
+        return -1;
+    }
+    if want <= l.capacity {
+        return 0;
+    }
+    var nc: i32 = l.capacity;
+    if nc < PATH_LIST_MIN_CAPACITY {
+        nc = PATH_LIST_MIN_CAPACITY;
+    }
+    while nc < want {
+        nc = nc * 2;
+        if nc <= 0 {
+            return -1;
+        }
+    }
+    const nu: usize = (nc as! usize) catch { return -1; };
+    const raw: &byte = malloc(nu * @size_of(i32));
+    if raw == null {
+        return -1;
+    }
+    const np: &i32 = raw as &i32;
+    var i: i32 = 0;
+    while i < l.count {
+        np[i] = l.items[i];
+        i = i + 1;
+    }
+    while i < nc {
+        np[i] = 0;
+        i = i + 1;
+    }
+    if l.items != null {
+        free(l.items as &void);
+    }
+    l.items = np;
+    l.capacity = nc;
+    return 0;
+}
+
+// 追加一个值。成功 0；失败 -1（表不变）。
+fn int_list_push(l: &IntList, v: i32) i32 {
+    if l == null {
+        return -1;
+    }
+    if int_list_reserve(l, l.count + 1) != 0 {
+        return -1;
+    }
+    l.items[l.count] = v;
+    l.count = l.count + 1;
+    return 0;
+}

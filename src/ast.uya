@@ -761,11 +761,11 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     return node;
 }
 
-const MAX_MERGE_PROGRAMS: i32 = 512;
-
 // 合并多个 ASTNodeType.AST_PROGRAM 节点为一个程序节点
-// 参数：programs - 程序节点数组（元素类型为 &ASTNode），count - 数量，arena - Arena
-fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, arena: &CompilerArena) &ASTNode {
+// 参数：programs - 程序节点数组（元素类型为 &ASTNode，长度 = count）；count - 数量；arena - Arena
+// 调用方按**实际文件数**分配 programs（原先这里写死 `[&ASTNode: MAX_MERGE_PROGRAMS]` = 512，
+// 文件多于 512 个就会越界），所以不再需要固定上限常量。
+fn ast_merge_programs(programs: &(&ASTNode), count: i32, arena: &CompilerArena) &ASTNode {
     if count <= 0 || arena == null {
         return null;
     }

@@ -4,6 +4,9 @@
 // 注意：需要先包含 internal.uya（包含类型定义和函数声明）
 // 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
+// 镜像表初始槽位（真正的规模在 prepare 时按声明数扩大；只是起步值，不是上限）
+const C99_MIRROR_INIT_SLOTS: i32 = 256;
+
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 extern fn mkdir(pathname: *byte, mode: i32) i32;
@@ -362,8 +365,15 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
         codegen.split_part2_path[0] = 0 as byte;
         codegen.split_mirror = 0;
     }
+    // 镜像表：这里只预留一个初始容量（真正的规模在 c99_split_mirror_prepare 里按
+    // 合并 AST 的声明数扩到够用）。用 arena 分配 —— 见 internal.uya 的字段注释。
+    codegen.split_mirror_keys = compiler_arena_alloc(arena, C99_MIRROR_INIT_SLOTS as usize * @size_of(&byte)) as &(&byte);
+    codegen.split_mirror_handles = compiler_arena_alloc(arena, C99_MIRROR_INIT_SLOTS as usize * @size_of(&void)) as &(&void);
+    if codegen.split_mirror_keys == null || codegen.split_mirror_handles == null {
+        return -1;
+    }
     var sm_init: i32 = 0;
-    while sm_init < 128 {
+    while sm_init < C99_MIRROR_INIT_SLOTS {
         codegen.split_mirror_keys[sm_init] = null;
         codegen.split_mirror_handles[sm_init] = null;
         sm_init = sm_init + 1;
@@ -693,7 +703,7 @@ fn c99_codegen_free(codegen: &C99CodeGenerator) void {
             }
             var mci: i32 = 0;
             while mci < codegen.split_mirror_count {
-                if mci >= 0 && mci < @len(codegen.split_mirror_handles) {
+                if mci >= 0 {
                     if codegen.split_mirror_handles[mci] != null {
                         _ = fclose(codegen.split_mirror_handles[mci] as *void);
                         codegen.split_mirror_handles[mci] = null;
@@ -943,7 +953,19 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
         fprintf(libc.stderr, "错误: split-C mirror prepare 收到非程序 AST\n" as *byte);
         return -1;
     }
-    var uniq: [[byte: 512]: 128] = [];
+    // 去重后的源文件表：按**声明数**分配（每个声明至多引入一个源文件）。
+    // 原先写死 [[byte:512]:128] —— 源文件超过 128 个时会在镜像阶段静默少开 .c，
+    // 报的却是「无法打开输出文件: <第 128 个之后的某条路径>」，与真实原因无关。
+    var uniq_cap: i32 = C99_MIRROR_INIT_SLOTS;
+    if program.program_decl_count + 1 > uniq_cap {
+        uniq_cap = program.program_decl_count + 1;
+    }
+    const uniq_nu: usize = (uniq_cap as! usize) catch { return -1; };
+    const uniq: &([byte: 512]) = compiler_arena_alloc(codegen.arena, uniq_nu * 512usize) as &([byte: 512]);
+    if uniq == null {
+        fprintf(libc.stderr, "错误: split-C mirror 源文件表分配失败\n" as *byte);
+        return -1;
+    }
     var uniq_count: i32 = 0;
     var di: i32 = 0;
     while di < program.program_decl_count {
@@ -959,7 +981,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
                 }
                 u = u + 1;
             }
-            if found == 0 && uniq_count < 128 {
+            if found == 0 {
                 var skip_entry: i32 = 0;
                 var tmp_norm: [byte: 512] = [];
                 if c99_mirror_normalize_one_path(fnm, &tmp_norm[0] as &byte, 512) == 0 {
@@ -986,7 +1008,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
                         uniq[uniq_count][z] = fnm[z];
                         z = z + 1;
                     }
-                    if z >= 0 && z < @len(uniq[uniq_count]) {
+                    if z >= 0 && z < 512 {
                         uniq[uniq_count][z] = 0 as byte;
                     }
                     uniq_count = uniq_count + 1;
@@ -1002,11 +1024,11 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
             fprintf(libc.stderr, "错误: split-C mirror 无法规范化路径: %s\n" as *byte, &uniq[nui][0] as *byte);
             return -1;
         }
-        if nui >= 0 && nui < @len(uniq) {
+        if nui >= 0 {
             var nz: i32 = 0;
             while nz < 511 {
                 if nz >= 0 && nz < @len(merged) && merged[nz] != 0 as byte {
-                    if nz >= 0 && nz < @len(uniq[nui]) {
+                    if nz >= 0 {
                         uniq[nui][nz] = merged[nz];
                     }
                     nz = nz + 1;
@@ -1014,7 +1036,7 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
                     break;
                 }
             }
-            if nz >= 0 && nz < @len(uniq[nui]) {
+            if nz >= 0 {
                 uniq[nui][nz] = 0 as byte;
             }
         }
@@ -1022,9 +1044,31 @@ export fn c99_split_mirror_prepare(codegen: &C99CodeGenerator, program: &ASTNode
     }
     const lcp: i32 = c99_mirror_lcp_len_flat(&uniq[0][0] as &byte, uniq_count);
     codegen.split_mirror_lcp = lcp;
+    // 镜像表按**实际条数**重新分配：`c99_codegen_new` 里只预留了 C99_MIRROR_INIT_SLOTS 个
+    // 起步槽，源文件多于它时下面 ci 会写到表外（heap 越界），现场是 uya_part1_types.h 里
+    // 出现被踩坏的 `struct <乱码>;` —— 报错完全指向别处。这里按 uniq_count 精确分配。
+    var mirror_cap: i32 = C99_MIRROR_INIT_SLOTS;
+    if uniq_count + 1 > mirror_cap {
+        mirror_cap = uniq_count + 1;
+    }
+    const mirror_nu: usize = (mirror_cap as! usize) catch { return -1; };
+    const mkeys: &(&byte) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&byte)) as &(&byte);
+    const mhandles: &(&void) = compiler_arena_alloc(codegen.arena, mirror_nu * @size_of(&void)) as &(&void);
+    if mkeys == null || mhandles == null {
+        fprintf(libc.stderr, "错误: split-C mirror 表分配失败\n" as *byte);
+        return -1;
+    }
+    var mk: i32 = 0;
+    while mk < mirror_cap {
+        mkeys[mk] = null;
+        mhandles[mk] = null;
+        mk = mk + 1;
+    }
+    codegen.split_mirror_keys = mkeys;
+    codegen.split_mirror_handles = mhandles;
     var ci: i32 = 0;
     while ci < uniq_count {
-        if ci >= 0 && ci < @len(uniq) {
+        if ci >= 0 {
             const src: &byte = &uniq[ci][0] as &byte;
             var rel_c_buf: [byte: 512] = [];
             if c99_mirror_rel_c_from_key(src, lcp, &rel_c_buf[0] as &byte, 512) != 0 {
@@ -1176,7 +1220,7 @@ export fn c99_mirror_emit_for_node(codegen: &C99CodeGenerator, node: &ASTNode) v
     }
     var ix: i32 = 0;
     while ix < codegen.split_mirror_count {
-        if ix >= 0 && ix < @len(codegen.split_mirror_keys) {
+        if ix >= 0 {
             if codegen.split_mirror_keys[ix] != null && strcmp(codegen.split_mirror_keys[ix] as *byte, &norm_fnm[0] as *byte) == 0 {
                 if codegen.split_mirror_handles[ix] != null {
                     codegen.emit_stream = codegen.split_mirror_handles[ix];
@@ -1228,7 +1272,7 @@ export fn c99_split_finish_part2_externs(codegen: &C99CodeGenerator) void {
         }
         var mfi: i32 = 0;
         while mfi < codegen.split_mirror_count {
-            if mfi >= 0 && mfi < @len(codegen.split_mirror_handles) {
+            if mfi >= 0 {
                 if codegen.split_mirror_handles[mfi] != null {
                     _ = fflush(codegen.split_mirror_handles[mfi] as *void);
                 }
@@ -1348,7 +1392,16 @@ export fn c99_write_mirror_manifest(codegen: &C99CodeGenerator, program: &ASTNod
         return;
     }
     fputs("# 合并 AST 中出现的源文件路径（去重），一行一个；用于后续按目录镜像拆分为多 .c\n" as *byte, mf as *void);
-    var uniq: [[byte: 512]: 128] = [];
+    // 同 c99_split_mirror_prepare：按声明数分配，不再有 128 个源文件的固定上限。
+    var m_cap: i32 = C99_MIRROR_INIT_SLOTS;
+    if program.program_decl_count + 1 > m_cap {
+        m_cap = program.program_decl_count + 1;
+    }
+    const m_nu: usize = (m_cap as! usize) catch { return; };
+    const uniq: &([byte: 512]) = compiler_arena_alloc(codegen.arena, m_nu * 512usize) as &([byte: 512]);
+    if uniq == null {
+        return;
+    }
     var uniq_count: i32 = 0;
     var di: i32 = 0;
     while di < program.program_decl_count {
@@ -1364,16 +1417,16 @@ export fn c99_write_mirror_manifest(codegen: &C99CodeGenerator, program: &ASTNod
                 }
                 u = u + 1;
             }
-            if found == 0 && uniq_count < 128 {
-                if uniq_count >= 0 && uniq_count < @len(uniq) {
+            if found == 0 {
+                if uniq_count >= 0 {
                     var z: i32 = 0;
                     while z < 511 && fnm[z] != 0 as byte {
-                        if z >= 0 && z < @len(uniq[uniq_count]) {
+                        if z >= 0 {
                             uniq[uniq_count][z] = fnm[z];
                         }
                         z = z + 1;
                     }
-                    if z >= 0 && z < @len(uniq[uniq_count]) {
+                    if z >= 0 {
                         uniq[uniq_count][z] = 0 as byte;
                     }
                 }
@@ -1420,7 +1473,7 @@ export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
         const klcp: i32 = codegen.split_mirror_lcp;
         var oi: i32 = 0;
         while oi < codegen.split_mirror_count {
-            if oi >= 0 && oi < @len(codegen.split_mirror_keys) {
+            if oi >= 0 {
                 if codegen.split_mirror_keys[oi] != null {
                     var cpath: [byte: 512] = [];
                     var opath: [byte: 512] = [];
@@ -1509,7 +1562,7 @@ export fn c99_write_split_makefile(codegen: &C99CodeGenerator) void {
         }
         var ri: i32 = 0;
         while ri < codegen.split_mirror_count {
-            if ri >= 0 && ri < @len(codegen.split_mirror_keys) {
+            if ri >= 0 {
                 if codegen.split_mirror_keys[ri] != null {
                     var cpr: [byte: 512] = [];
                     if c99_mirror_rel_c_from_key(codegen.split_mirror_keys[ri], klcp, &cpr[0] as &byte, 512) == 0 {

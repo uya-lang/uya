@@ -23,11 +23,14 @@ var _stdin: FILE = FILE{ fd: 0, buf_pos: 0, buf_len: 0, buf_mode: 0 };
 var _stdout: FILE = FILE{ fd: 1, buf_pos: 0, buf_len: 0, buf_mode: 1 };  // 行缓冲
 var _stderr: FILE = FILE{ fd: 2, buf_pos: 0, buf_len: 0, buf_mode: 0 };  // 无缓冲
 
+// 打不开的槽位回 null（与「fd <= 0 即空闲」的既有约定一致）。
+// fopen 的池子是**可增长**的（槽位指针表 + 每个 FILE 独立 malloc，地址稳定）：
+// 见 stdio_file_pool_acquire / stdio_file_pool_grow。
 fn stdio_fopen_slot_at(idx: usize) &FILE {
-    if idx >= @len(fopen_fd_storage) {
+    if fopen_fd_table == null || idx >= fopen_fd_cap {
         return null;
     }
-    return &fopen_fd_storage[idx];
+    return fopen_fd_table[idx];
 }
 
 export var stdin: &FILE = &_stdin;
@@ -408,8 +411,102 @@ export extern "libc" fn print_i64(value: i64) usize {
 // C 标准库兼容函数（用于 --nostdlib 模式）
 // ============================================================
 
-// 全局 FILE 存储（用于 fopen/fclose，split mirror 自举时会并发打开大量输出文件）
-var fopen_fd_storage: [FILE: 128] = [];
+// 全局 FILE 存储（用于 fopen/fclose）。
+// split mirror 自举时会**并发**打开大量输出文件（一源一 .c），所以池子必须能长：
+// 原先写死 [FILE: 128]（128 × 64KiB 缓冲 = 8MiB BSS），第 129 个 fopen 直接返回 null，
+// 上层看到的是「无法打开输出文件」——与真实原因（池子满了）无关。
+// 现在按 2 倍增长，初始 128 槽（小工程的行为与内存画像不变）。
+// 槽位指针表：每个 FILE 单独 malloc，**地址稳定**。
+// 为什么不是「一整块 FILE 值数组 + 扩容」：调用方会把 fopen 返回的 &FILE 长期存着
+// （镜像模式下 split_mirror_handles 保存每条流的句柄，跨很多次 fputs 调用），
+// 值数组一旦搬迁，这些指针全部悬垂 ⇒ 对已打开的流写入会踩到释放掉的内存。
+// 所以只扩**指针表**，FILE 本体不动。
+var fopen_fd_table: &(&FILE) = null;
+var fopen_fd_cap: usize = 0;
+// 初始槽数（上限保护用同一常量；不是硬上限 —— 满了按 2 倍扩，见 stdio_file_pool_grow）。
+const STDIO_FILE_POOL_INIT: usize = 128;
+// 槽位数的上限保护：足够大，且避免病态输入把内存吃光。
+const STDIO_FILE_POOL_MAX: usize = 1 << 20;
+
+// 把槽位指针表扩一次（2 倍）。成功 0；失败或超过上限返回 -1。
+// 表里新增的槽一律置 null（null = 该槽还没有 FILE）。
+fn stdio_file_pool_grow() i32 {
+    var ncap: usize = fopen_fd_cap;
+    if ncap == 0 {
+        ncap = STDIO_FILE_POOL_INIT;
+    } else {
+        ncap = ncap * 2;
+    }
+    if ncap > STDIO_FILE_POOL_MAX {
+        return -1;
+    }
+    const raw: &(&FILE) = malloc(ncap * @size_of(&FILE)) as &(&FILE);
+    if raw == null {
+        return -1;
+    }
+    var i: usize = 0;
+    while i < ncap {
+        raw[i] = null;
+        i = i + 1;
+    }
+    if fopen_fd_table != null {
+        var c: usize = 0;
+        while c < fopen_fd_cap {
+            raw[c] = fopen_fd_table[c];
+            c = c + 1;
+        }
+        free(fopen_fd_table as &void);
+    }
+    fopen_fd_table = raw;
+    fopen_fd_cap = ncap;
+    return 0;
+}
+
+// 返回一个空闲槽的 &FILE（需要时分配 FILE、需要时扩表）。
+// 空闲判据与既有实现一致：槽为 null，或槽里的流 fd <= 0。
+// 返回 null 表示分配失败/超过上限。
+fn stdio_file_pool_acquire() &FILE {
+    var guard: i32 = 0;
+    while guard < 32 {
+        guard = guard + 1;
+        if fopen_fd_table == null || fopen_fd_cap == 0 {
+            if stdio_file_pool_grow() != 0 {
+                return null;
+            }
+        }
+        // 表在证明器眼里可能是空的（malloc 结果），先取一份带非空检查的引用
+        const tbl: &(&FILE) = fopen_fd_table;
+        if tbl == null {
+            return null;
+        }
+        var j: usize = 0;
+        while j < fopen_fd_cap {
+            const slot: &FILE = tbl[j];
+            if slot == null {
+                // 该槽还没有 FILE：分配一个并清零（fd = 0 ⇒ 「未使用」）
+                const fresh: &FILE = malloc(@size_of(FILE)) as &FILE;
+                if fresh == null {
+                    return null;
+                }
+                fresh.fd = 0;
+                fresh.buf_pos = 0;
+                fresh.buf_len = 0;
+                fresh.buf_mode = 0;
+                tbl[j] = fresh;
+                return fresh;
+            }
+            if slot.fd <= 0 {
+                return slot;   // 复用已关闭的槽（内存不随「开过多少个」增长）
+            }
+            j = j + 1;
+        }
+        // 全满：扩表再来
+        if stdio_file_pool_grow() != 0 {
+            return null;
+        }
+    }
+    return null;
+}
 std.cfg(std.target_os == .tos_macos, {
     const _FOPEN_W_FLAGS: i64 = 0x00000001 | 0x00000200 | 0x00000400;
     const _FOPEN_A_FLAGS: i64 = 0x00000001 | 0x00000200 | 0x00000008;
@@ -468,29 +565,21 @@ export extern "libc" fn fopen(filename: &const byte, mode: &const byte) &FILE {
         return null;
     };
     
-    // 使用全局数组存储 FILE（简化实现，最多支持 64 个打开的文件）
-    const storage_size: usize = @len(fopen_fd_storage);
-    var j: usize = 0;
-    while j < storage_size {
-        // 查找空闲槽位（fd <= 0 表示未使用）
-        const slot: &FILE = stdio_fopen_slot_at(j);
-        if slot != null && slot.fd <= 0 {
-            slot.fd = fd as i64;
-            slot.buf_pos = 0;
-            slot.buf_len = 0;
-            // 普通文件默认应使用全缓冲；编译器代码生成依赖这一点，
-            // 以避免病态的超小 write() 输出。
-            slot.buf_mode = 2;
-            return slot;
+    // 取空闲槽（池子按需增长，见 stdio_file_pool_acquire）
+    const slot: &FILE = stdio_file_pool_acquire();
+    if slot == null {
+        const close_result: i32 = sys_close(fd) catch { 0; };
+        if close_result != 0 {
         }
-        j = j + 1;
+        return null;
     }
-    
-    // 如果数组满了，关闭文件描述符并返回 null
-    const close_result: i32 = sys_close(fd) catch { 0; };
-    if close_result != 0 {
-    }
-    return null;
+    slot.fd = fd as i64;
+    slot.buf_pos = 0;
+    slot.buf_len = 0;
+    // 普通文件默认应使用全缓冲；编译器代码生成依赖这一点，
+    // 以避免病态的超小 write() 输出。
+    slot.buf_mode = 2;
+    return slot;
 }
 
 // fclose - 关闭文件（C 标准库兼容）

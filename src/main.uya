@@ -111,8 +111,8 @@ const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
 // 初始缓冲区 64MB，不足时自动分配新 chunk
 const ARENA_BUFFER_SIZE: i32 = 64 * 1024 * 1024;  // 64MB 初始
 
-// 最大输入文件数
-const MAX_INPUT_FILES: i32 = 512;
+// 输入文件表已改到 driver/path_list.uya 的可增长 PathList / IntList，
+// 不再有 MAX_INPUT_FILES 这类编译期固定上限（历史常量已删除）。
 
 // --split-c-dir / UYA_SPLIT_C_DIR：多文件 C 输出目录；非空时链接阶段走 make -j
 // C99 且非「显式 -o xxx.c」时默认目录 .uyacache（与显式 --split-c-dir 省略路径一致）；UYA_SPLIT_C=0 或 --no-split-c 可关闭
@@ -609,15 +609,10 @@ var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
 // 临时 Arena 缓冲区（用于依赖收集，全局变量避免栈溢出）
 // v2.0: 动态增长，初始 16MB
 var temp_arena_buffer: [byte: 16 * 1024 * 1024] = [];
-// 大数组移到全局变量避免栈溢出（main_file_paths 是 64 * 4096 = 262KB）
-var main_file_paths_global: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
-// 将 resolved_files 也移到全局变量，避免栈溢出
-var resolved_files_global: [&byte: MAX_INPUT_FILES] = [];
-
-// 大数组移到全局变量避免 compile_files/main 主栈帧膨胀（macOS x86_64 hosted seed 会在 ___chkstk_darwin 崩）
-var all_files_global: [&byte: MAX_INPUT_FILES] = [];
-var processed_files_global: [&byte: MAX_INPUT_FILES] = [];
-var main_files_global: [&byte: MAX_INPUT_FILES] = [];
+// 输入文件相关的表（resolved / all / processed / main_files）与 `main_file_paths_global`
+// 原先都是长度 MAX_INPUT_FILES 的定长全局数组，为的是避开栈溢出。现在统一换成
+// driver/path_list.uya 的可增长 PathList（堆上，容量按需 2 倍增长），既没有固定上限，
+// 也不再占那几个 256KB 级的全局 BSS。
 
 fn main_file_buffer_ptr_at(idx: usize) &byte {
     const slot: usize = idx;
@@ -649,27 +644,7 @@ fn main_path_buf_set(buf: [byte: PATH_MAX], idx: i32, value: byte) void {
     buf[slot] = value;
 }
 
-fn resolved_file_at(files: [&byte: MAX_INPUT_FILES], idx: i32) &byte {
-    const slot: i32 = idx;
-    if slot < 0 {
-        return null;
-    }
-    if slot >= MAX_INPUT_FILES {
-        return null;
-    }
-    return files[slot];
-}
-
-fn resolved_file_set(files: [&byte: MAX_INPUT_FILES], idx: i32, value: &byte) void {
-    const slot: i32 = idx;
-    if slot < 0 {
-        return;
-    }
-    if slot >= MAX_INPUT_FILES {
-        return;
-    }
-    files[slot] = value;
-}
+// 输出常量与函数声明之间的空档：输入文件表已改到 driver/path_list.uya（PathList）。
 
 // 读取文件内容到缓冲区
 // 成功返回读取字节数，失败返回 -1
@@ -858,23 +833,23 @@ fn paths_equal(path1: &byte, path2: &byte) i32 {
     return 0;
 }
 
-// 原地稳定去重路径数组，保留首次出现顺序。
+// 原地稳定去重路径表，保留首次出现顺序，返回去重后的条数。
 // 依赖收集阶段可能因为目录模块与单文件模块交叉命中，把同一文件放进 all_files 多次；
 // 若不在最终编译列表收口，会导致同一源文件被重复解析并在 split-C 下重复发射定义。
-fn dedupe_paths_in_place(paths: &(&byte), count: i32) i32 {
-    if paths == null || count <= 0 {
+fn dedupe_paths_in_place(paths: &PathList) i32 {
+    if paths == null || paths.count <= 0 {
         return 0;
     }
 
     var write_idx: i32 = 0;
     var read_idx: i32 = 0;
-    while read_idx < count {
-        const candidate: &byte = paths[read_idx];
+    while read_idx < paths.count {
+        const candidate: &byte = paths.items[read_idx];
         var duplicate: i32 = 0;
         if candidate != null {
             var seen_idx: i32 = 0;
             while seen_idx < write_idx {
-                if paths[seen_idx] != null && paths_equal(paths[seen_idx], candidate) != 0 {
+                if paths.items[seen_idx] != null && paths_equal(paths.items[seen_idx], candidate) != 0 {
                     duplicate = 1;
                     break;
                 }
@@ -882,17 +857,18 @@ fn dedupe_paths_in_place(paths: &(&byte), count: i32) i32 {
             }
         }
         if duplicate == 0 {
-            paths[write_idx] = candidate;
+            paths.items[write_idx] = candidate;
             write_idx = write_idx + 1;
         }
         read_idx = read_idx + 1;
     }
 
     const unique_count: i32 = write_idx;
-    while write_idx < count {
-        paths[write_idx] = null;
+    while write_idx < paths.count {
+        paths.items[write_idx] = null;
         write_idx = write_idx + 1;
     }
+    paths.count = unique_count;
     return unique_count;
 }
 
@@ -1690,7 +1666,7 @@ fn host_run_microapp_loader(loader_exe: &byte, uapp_path: &byte, payload_exe_pat
 
 // 解析命令行参数
 // command: 输出命令类型
-// input_file_indices: 填充前 *input_file_count 个为输入文件在 argv 中的下标
+// input_files: 逐个追加「输入文件在 argv 中的下标」（可增长，无数量上限）
 // outlibc_index: --outlibc 选项的参数索引（-1 表示未指定）
 // run_arg_start: run 命令的运行时参数起始索引（-1 表示无运行时参数）
 // is_nostdlib: --nostdlib 选项（生成 _start 入口）
@@ -1698,8 +1674,7 @@ fn host_run_microapp_loader(loader_exe: &byte, uapp_path: &byte, payload_exe_pat
 // 返回：0 成功，-1 失败
 fn parse_args(
     command: &CommandType,
-    input_file_indices: &i32,
-    input_file_count: &i32,
+    input_files: &IntList,
     output_file_index: &i32,
     backend_type: &BackendType,
     emit_line_directives: &i32,
@@ -1727,7 +1702,6 @@ fn parse_args(
 
     // 初始化输出参数
     command[0] = CommandType.COMMAND_BUILD;  // 默认为 build
-    input_file_count[0] = 0;
     output_file_index[0] = -1;
     backend_type[0] = BackendType.BACKEND_LLVM;
     emit_line_directives[0] = 0;
@@ -2057,13 +2031,10 @@ fn parse_args(
         } else {
             const c: byte = arg[0];
             if c != 45 {  // 不是 '-' 开头
-                if input_file_count[0] >= MAX_INPUT_FILES {
-                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
+                if int_list_push(input_files, i) != 0 {
+                    fprintf(libc.stderr, "错误: 输入文件下标表分配失败\n" as *byte);
                     return -1;
                 }
-                const idx: i32 = input_file_count[0];
-                input_file_indices[idx] = i;
-                input_file_count[0] = idx + 1;
             }
         }
         i = i + 1;
@@ -2074,7 +2045,7 @@ fn parse_args(
         return 0;
     }
 
-    if input_file_count[0] == 0 {
+    if input_files.count == 0 {
         fprintf(libc.stderr, "错误: 未指定输入文件\n" as *byte);
         const program_name: *byte = get_argv(0);
         if program_name != null {
@@ -2145,27 +2116,24 @@ fn prepare_package_alias_roots_from_plan(package_build_plan: &UPMPackageBuildPla
 
 fn prepare_package_context_for_command(
     command: CommandType,
-    input_file_indices: &i32,
-    input_file_count: i32,
+    input_files: &const IntList,
     package_context: &UPMPackageContext,
     package_build_plan: &UPMPackageBuildPlan,
     package_build_plan_needs_cleanup: &i32,
-    input_paths_override: &(&byte),
-    input_paths_override_count: &i32
+    input_paths_override: &PathList
 ) i32 {
     if package_context == null || package_build_plan == null || package_build_plan_needs_cleanup == null ||
-        input_paths_override == null || input_paths_override_count == null {
+        input_paths_override == null {
         return 1;
     }
     package_context.active = 0;
-    input_paths_override_count[0] = 0;
     package_mode_alias_roots_clear();
     if !((command == CommandType.COMMAND_BUILD || command == CommandType.COMMAND_CHECK ||
         command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST) &&
-        input_file_count == 1) {
+        input_files.count == 1) {
         return 0;
     }
-    const input0: *byte = get_argv(input_file_indices[0]);
+    const input0: *byte = get_argv(input_files.items[0]);
     if input0 == null {
         return 0;
     }
@@ -2194,8 +2162,9 @@ fn prepare_package_context_for_command(
     if prepare_package_alias_roots_from_plan(package_build_plan) != 0 {
         return 1;
     }
-    input_paths_override[0] = &package_build_plan.compile_input[0] as &byte;
-    input_paths_override_count[0] = 1;
+    if path_list_push(input_paths_override, &package_build_plan.compile_input[0] as &byte) != 0 {
+        return 1;
+    }
     strcpy(&g_module_root_override[0] as *byte, &package_build_plan.module_root[0] as *byte);
     g_module_root_override_active = 1;
     package_build_plan_needs_cleanup[0] = 0;
@@ -2203,10 +2172,8 @@ fn prepare_package_context_for_command(
 }
 
 fn compile_files(
-    input_file_indices: &i32,
-    input_file_count: i32,
-    input_paths_override: &(&byte),
-    input_paths_override_count: i32,
+    input_files: &const IntList,
+    input_paths_override: &const PathList,
     output_file_index: i32,
     backend: BackendType,
     emit_line_directives: i32,
@@ -2275,9 +2242,9 @@ fn compile_files(
     }
 
     // 处理输入：如果是目录，查找包含 main 的文件；如果是文件，检查是否包含 main
-    // 使用全局变量避免栈溢出
-    var resolved_files: [&byte: MAX_INPUT_FILES] = resolved_files_global;
-    var resolved_count: i32 = 0;
+    // 表都是可增长的（driver/path_list.uya），只受内存限制、没有编译期固定上限。
+    var resolved_files: PathList = path_list_empty();
+    defer { path_list_free(&resolved_files); }
     var module_root_buffer: [byte: PATH_MAX] = [];
     var module_root: &byte = null;
     if g_module_root_override_active != 0 {
@@ -2296,16 +2263,14 @@ fn compile_files(
         }
         module_root = &module_root_buffer[0] as &byte;
     }
-    // 使用全局变量避免栈溢出（262KB 太大），直接使用全局数组
-    // var main_file_paths: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
 
     var i: i32 = 0;
-    while i < input_file_count {
-        const idx_i: i32 = input_file_indices[i];
+    while i < input_files.count {
+        const idx_i: i32 = input_files.items[i];
         var input_path: *byte = null;
-        if input_paths_override != null && i < input_paths_override_count {
-            if input_paths_override[i] != null {
-                input_path = input_paths_override[i] as *byte;
+        if input_paths_override != null && i < input_paths_override.count {
+            if input_paths_override.items[i] != null {
+                input_path = input_paths_override.items[i] as *byte;
             }
         } else {
             input_path = get_argv(idx_i);
@@ -2319,27 +2284,31 @@ fn compile_files(
         const is_dir_result: i32 = is_directory(input);
         if is_dir_result != 0 {
             // 是目录，查找包含 main 的文件
-            var main_files: [&byte: MAX_INPUT_FILES] = main_files_global;
-            var main_count: i32 = 0;
-            if find_main_files_in_dir(input, &main_files[0], &main_file_paths_global[0], MAX_INPUT_FILES, &main_count) != 0 {
+            var main_files: PathList = path_list_empty();
+            defer { path_list_free(&main_files); }
+            // main_files 里的路径从 temp_arena 分配：它与主 arena 同期存活（编译结束统一释放），
+            // 但此处主 arena 还没建，所以用已经 init 好的 temp_arena（与 entry.uya 的 path 同一口径）。
+            if find_main_files_in_dir(input, &main_files, &temp_arena) != 0 {
                 fprintf(libc.stderr, "错误: 无法读取目录 '%s'\n" as *byte, input_path);
                 return 1;
             }
-            if main_count == 0 {
+            if main_files.count == 0 {
                 fprintf(libc.stderr, "错误: 目录 '%s' 中未找到包含 main 函数的文件\n" as *byte, input_path);
                 return 1;
             }
-            if main_count > 1 {
+            if main_files.count > 1 {
                 fprintf(libc.stderr, "错误: 目录 '%s' 中有多个文件包含 main 函数:\n" as *byte, input_path);
                 var j: i32 = 0;
-                while j < main_count {
-                    fprintf(libc.stderr, "  %s\n" as *byte, main_files[j] as *byte);
+                while j < main_files.count {
+                    fprintf(libc.stderr, "  %s\n" as *byte, main_files.items[j] as *byte);
                     j = j + 1;
                 }
                 return 1;
             }
-            resolved_files[resolved_count] = main_files[0];
-            resolved_count = resolved_count + 1;
+            if path_list_push(&resolved_files, main_files.items[0]) != 0 {
+                fprintf(libc.stderr, "错误: 输入文件表分配失败\n" as *byte);
+                return 1;
+            }
             // 设置模块根目录
             if module_root == null {
                 const input_len: usize = strlen(input_path);
@@ -2356,24 +2325,17 @@ fn compile_files(
             }
         } else if is_file(input) != 0 {
             // 检查是否已在 resolved_files 中（避免重复添加）
-            var already_resolved: i32 = 0;
-            var j: i32 = 0;
-            while j < resolved_count {
-                if resolved_files[j] != null && paths_equal(resolved_files[j], input) != 0 {
-                    already_resolved = 1;
-                    break;
-                }
-                j = j + 1;
-            }
-            if already_resolved != 0 {
+            if path_list_contains(&resolved_files, input) != 0 {
                 i = i + 1;
                 continue;
             }
 
             // check 模式允许单文件无 main；其余命令保持现有 main 约束
             if stop_after_checker != 0 || detect_main_function(input) != 0 {
-                resolved_files[resolved_count] = input;
-                resolved_count = resolved_count + 1;
+                if path_list_push(&resolved_files, input) != 0 {
+                    fprintf(libc.stderr, "错误: 输入文件表分配失败\n" as *byte);
+                    return 1;
+                }
                 // 设置模块根目录（文件所在目录）
                 if module_root == null {
                     const input_last_slash: *byte = strrchr(input_path, 47);
@@ -2394,14 +2356,16 @@ fn compile_files(
                 }
             } else {
                 // 多文件模式下，允许某些文件不包含 main（它们是库文件）
-                // 但如果这是唯一输入文件�����则必须包含 main
-                if stop_after_checker == 0 && input_file_count == 1 {
+                // 但如果这是唯一输入文件，则必须包含 main
+                if stop_after_checker == 0 && input_files.count == 1 {
                     fprintf(libc.stderr, "错误: 文件 '%s' 不包含 main 函数\n" as *byte, input_path);
                     return 1;
                 }
-                // 多文件模式：将不包含 main 的文件也加入列表（作为���文件）
-                resolved_files[resolved_count] = input;
-                resolved_count = resolved_count + 1;
+                // 多文件模式：将不包含 main 的文件也加入列表（作为库文件）
+                if path_list_push(&resolved_files, input) != 0 {
+                    fprintf(libc.stderr, "错误: 输入文件表分配失败\n" as *byte);
+                    return 1;
+                }
             }
         } else {
             fprintf(libc.stderr, "错误: '%s' 既不是文件也不是目录\n" as *byte, input_path);
@@ -2410,7 +2374,7 @@ fn compile_files(
         i = i + 1;
     }
 
-    if resolved_count == 0 {
+    if resolved_files.count == 0 {
         if stop_after_checker != 0 {
             fprintf(libc.stderr, "错误: 未找到可检查的 .uya 文件\n" as *byte);
         } else {
@@ -2425,8 +2389,8 @@ fn compile_files(
     var has_test_stmt: i32 = 0;
     var has_export_extern_main: i32 = 0;
     i = 0;
-    while i < resolved_count {
-        const main_type: i32 = detect_main_function(resolved_files[i]);
+    while i < resolved_files.count {
+        const main_type: i32 = detect_main_function(resolved_files.items[i]);
         if main_type == 3 {
             has_export_extern_main = 1;
         } else if main_type == 2 {
@@ -2437,89 +2401,67 @@ fn compile_files(
         i = i + 1;
     }
 
-    // 如果有 export fn main 或 test 语句（但没有 export fn main），自动添加 std.runtime.entry
+    // 如果有 export fn main 或 test 语句（但没有 export main），自动添加 std.runtime.entry
     // test 模式下需要 entry.uya 来提供 C main 入口
     if stop_after_checker == 0 && has_export_extern_main == 0 && (has_export_main != 0 || has_test_stmt != 0) {
         var entry_path: [byte: PATH_MAX] = [];
         const entry_len: i32 = snprintf(&entry_path[0], PATH_MAX, "%sstd/runtime/entry/entry.uya" as *byte, &uya_root_buffer[0] as *byte);
         if entry_len > 0 && entry_len < PATH_MAX {
             if is_file(&entry_path[0] as &byte) != 0 {
-                var already_in_list: i32 = 0;
-                var j: i32 = 0;
-                while j < resolved_count {
-                    if resolved_files[j] != null && paths_equal(resolved_files[j], &entry_path[0] as &byte) != 0 {
-                        already_in_list = 1;
-                        break;
-                    }
-                    j = j + 1;
-                }
-                if already_in_list == 0 && resolved_count < MAX_INPUT_FILES {
+                if path_list_contains(&resolved_files, &entry_path[0] as &byte) == 0 {
                     const entry_copy: &byte = compiler_arena_alloc(&temp_arena, entry_len + 1) as &byte;
                     if entry_copy != null {
                         strcpy(entry_copy as *byte, &entry_path[0]);
-                        resolved_files[resolved_count] = entry_copy;
-                        resolved_count = resolved_count + 1;
+                        if path_list_push(&resolved_files, entry_copy) != 0 {
+                            fprintf(libc.stderr, "错误: 输入文件表分配失败\n" as *byte);
+                            return 1;
+                        }
                     }
                 }
             }
         }
     }
 
-    // 自动收集模块依赖
-    // 只对包含 main 的文件进行依赖收集，库文件已经在列表中，不需要进行依赖收集
-    var all_files: [&byte: MAX_INPUT_FILES] = all_files_global;
-    var all_file_count: i32 = resolved_count;
+    // 自动收集模块依赖：先以 resolved 表为起点，再对每个文件递归补全依赖。
+    // all_files / processed_files 都是可增长表，依赖多少就装多少（无固定上限）。
+    var all_files: PathList = path_list_empty();
+    defer { path_list_free(&all_files); }
     i = 0;
-    while i < resolved_count {
-        all_files[i] = resolved_files[i];
-        i = i + 1;
-    }
-
-    // 收集依赖（只对包含 main 的文件进行依赖收集）
-    var processed_files: [&byte: MAX_INPUT_FILES] = processed_files_global;
-    var processed_count: i32 = 0;
-
-    // 找出包含 main 的文件（入口文件）
-    var main_files: [&byte: MAX_INPUT_FILES] = [];
-    var main_file_count: i32 = 0;
-    i = 0;
-    while i < resolved_count {
-        if detect_main_function(resolved_files[i]) != 0 {
-            main_files[main_file_count] = resolved_files[i];
-            main_file_count = main_file_count + 1;
+    while i < resolved_files.count {
+        if path_list_push(&all_files, resolved_files.items[i]) != 0 {
+            fprintf(libc.stderr, "错误: 输入文件表分配失败\n" as *byte);
+            return 1;
         }
         i = i + 1;
     }
+
+    var processed_files: PathList = path_list_empty();
+    defer { path_list_free(&processed_files); }
 
     // 依赖收集策略：对所有输入文件进行依赖收集（与 C 版一致）
     i = 0;
-    while i < all_file_count {
-        const new_count: i32 = collect_module_dependencies(
-            all_files[i],
-            &all_files[0],
-            all_file_count,
-            MAX_INPUT_FILES,
-            &processed_files[0],
-            &processed_count,
-            MAX_INPUT_FILES,
+    while i < all_files.count {
+        const target: &byte = all_files.items[i];
+        if collect_module_dependencies(
+            target,
+            &all_files,
+            &processed_files,
             module_root,
             &uya_root_buffer[0] as &byte,
             &temp_arena
-        );
-        if new_count < 0 {
-            fprintf(libc.stderr, "错误: 收集模块依赖失败: %s\n" as *byte, all_files[i] as *byte);
+        ) < 0 {
+            fprintf(libc.stderr, "错误: 收集模块依赖失败: %s\n" as *byte, target as *byte);
             return 1;
         }
-        all_file_count = new_count;
         i = i + 1;
     }
 
-    all_file_count = dedupe_paths_in_place(&all_files[0], all_file_count);
+    var all_file_count: i32 = dedupe_paths_in_place(&all_files);
     const debug_dep_list_env: *byte = getenv("UYA_DEBUG_DEPENDENCY_LIST" as *byte);
     if debug_dep_list_env != null && debug_dep_list_env[0] != 0 as byte {
         i = 0;
         while i < all_file_count {
-            fprintf(libc.stderr, "依赖文件[%d]: %s\n" as *byte, i, all_files[i] as *byte);
+            fprintf(libc.stderr, "依赖文件[%d]: %s\n" as *byte, i, all_files.items[i] as *byte);
             i = i + 1;
         }
     }
@@ -2535,13 +2477,13 @@ fn compile_files(
     }
     var module_name: *byte = "(unknown)" as *byte;
     if all_file_count > 0 {
-        module_name = all_files[0] as *byte;
+        module_name = all_files.items[0] as *byte;
     }
     i = 0;
     while i < all_file_count {
-        const entry_main_type: i32 = detect_main_function(all_files[i]);
+        const entry_main_type: i32 = detect_main_function(all_files.items[i]);
         if entry_main_type == 1 || entry_main_type == 2 {
-            module_name = all_files[i] as *byte;
+            module_name = all_files.items[i] as *byte;
             break;
         }
         i = i + 1;
@@ -2560,11 +2502,19 @@ fn compile_files(
     var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize };
     compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
 
-    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+    // 每个文件的 AST 根节点。all_file_count 到这里已经定下来（依赖收集完毕），
+    // 所以按实际条数一次分配，既没有编译期固定上限，也不会浪费。
+    const programs_raw: &byte = malloc((all_file_count as! usize) catch { return 1; } * @size_of(&ASTNode));
+    if programs_raw == null {
+        fprintf(libc.stderr, "错误: 程序表分配失败\n" as *byte);
+        return 1;
+    }
+    defer { free(programs_raw as &void); }
+    const programs: &(&ASTNode) = programs_raw as &(&ASTNode);
 
     i = 0;
     while i < all_file_count {
-        const input_path: *byte = all_files[i] as *byte;
+        const input_path: *byte = all_files.items[i] as *byte;
         const file_size: i32 = read_file_content(input_path as &byte, &file_buffer[0], FILE_BUFFER_SIZE as usize);
         if file_size < 0 {
             fprintf(libc.stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
@@ -2663,7 +2613,7 @@ fn compile_files(
     memset(checker as *byte, 0, HOST_SIZE_TYPECHECKER_BYTES);
     var default_filename: *byte = "(unknown)" as *byte;
     if all_file_count > 0 {
-        default_filename = all_files[0] as *byte;
+        default_filename = all_files.items[0] as *byte;
     }
     if checker_init(checker, &arena, default_filename as &byte) != 0 {
         fprintf(libc.stderr, "错误: TypeChecker 初始化失败\n" as *byte);
@@ -2944,8 +2894,13 @@ export fn main() i32 {
         return dispatch_external_upm(1);
     }
 
-    var input_file_indices: [i32: 64] = [];
-    var input_file_count: i32 = 0;
+    // 输入文件下标表：可增长（无数量上限）。
+    // 历史上这里是写死的 `[i32: 64]`，而上限守卫用的是 MAX_INPUT_FILES(=512) ⇒ 第 65 个
+    // 输入文件的下标被写到数组之外，读回的是栈上相邻变量的垃圾值（现场报
+    // 「无法获取输入文件路径（索引 1886221359）」或「收集模块依赖失败: <编译器路径>」）。
+    var input_files: IntList = IntList { items: null, count: 0, capacity: 0 };
+    int_list_init(&input_files);
+    defer { int_list_free(&input_files); }
     var output_file_index: i32 = -1;
     var backend: BackendType = BackendType.BACKEND_LLVM;
     var emit_line_directives: i32 = 0;
@@ -2966,7 +2921,7 @@ export fn main() i32 {
     // 临时缓冲区用于自动生成输出路径
     var auto_output_path: [byte: PATH_MAX] = [];
 
-    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size, &async_frame_heap_fallback, &exec_requested, &exec_only, &dump_exec_hir, &dump_bytecode, &trace_vm) != 0 {
+    if parse_args(&command, &input_files, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size, &async_frame_heap_fallback, &exec_requested, &exec_only, &dump_exec_hir, &dump_bytecode, &trace_vm) != 0 {
         return 1;
     }
     g_exec_dump_hir_enabled = dump_exec_hir;
@@ -3006,11 +2961,11 @@ export fn main() i32 {
     }
 
     if command == CommandType.COMMAND_INSPECT_IMAGE {
-        if input_file_count != 1 {
+        if input_files.count != 1 {
             fprintf(libc.stderr, "错误: inspect-image 只接受一个输入文件\n" as *byte);
             return 1;
         }
-        const input_path: *byte = get_argv(input_file_indices[0]);
+        const input_path: *byte = get_argv(input_files.items[0]);
         if input_path == null {
             fprintf(libc.stderr, "错误: 无法获取 inspect-image 输入路径\n" as *byte);
             return 1;
@@ -3019,11 +2974,11 @@ export fn main() i32 {
     }
 
     if command == CommandType.COMMAND_VERIFY_IMAGE {
-        if input_file_count != 1 {
+        if input_files.count != 1 {
             fprintf(libc.stderr, "错误: verify-image 只接受一个输入文件\n" as *byte);
             return 1;
         }
-        const input_path: *byte = get_argv(input_file_indices[0]);
+        const input_path: *byte = get_argv(input_files.items[0]);
         if input_path == null {
             fprintf(libc.stderr, "错误: 无法获取 verify-image 输入路径\n" as *byte);
             return 1;
@@ -3032,7 +2987,7 @@ export fn main() i32 {
     }
 
     if command == CommandType.COMMAND_PACK_IMAGE {
-        if input_file_count != 1 {
+        if input_files.count != 1 {
             fprintf(libc.stderr, "错误: pack-image 只接受一个 .pobj 输入文件\n" as *byte);
             return 1;
         }
@@ -3040,7 +2995,7 @@ export fn main() i32 {
             fprintf(libc.stderr, "错误: pack-image 需要 -o 指定输出 .uapp 路径\n" as *byte);
             return 1;
         }
-        const pobj_path: *byte = get_argv(input_file_indices[0]);
+        const pobj_path: *byte = get_argv(input_files.items[0]);
         const uapp_path: *byte = get_argv(output_file_index);
         if pobj_path == null || uapp_path == null {
             fprintf(libc.stderr, "错误: 无法获取 pack-image 输入或输出路径\n" as *byte);
@@ -3075,7 +3030,7 @@ export fn main() i32 {
     // run 和 test 命令：自动生成输出路径
     if (command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST) && output_file_index < 0 {
         // 从输入文件名生成输出路径
-        const input_path: *byte = get_argv(input_file_indices[0]);
+        const input_path: *byte = get_argv(input_files.items[0]);
         if input_path == null {
             fprintf(libc.stderr, "错误: 无法获取输入文件路径\n" as *byte);
             return 1;
@@ -3224,25 +3179,20 @@ export fn main() i32 {
             package_build_plan_needs_cleanup = 0;
         }
     }
-    var input_paths_override: [&byte: MAX_INPUT_FILES] = [null: MAX_INPUT_FILES];
-    var input_paths_override_count: i32 = 0;
+    var input_paths_override: PathList = path_list_empty();
+    defer { path_list_free(&input_paths_override); }
     if prepare_package_context_for_command(
         command,
-        &input_file_indices[0],
-        input_file_count,
+        &input_files,
         &package_context,
         &package_build_plan,
         &package_build_plan_needs_cleanup,
-        &input_paths_override[0] as &(&byte),
-        &input_paths_override_count
+        &input_paths_override
     ) != 0 {
         return 1;
     }
-    var input_paths_override_ptr: &(&byte) = null;
-    if input_paths_override_count > 0 {
-        input_paths_override_ptr = &input_paths_override[0] as &(&byte);
-    }
-    var result: i32 = compile_files(&input_file_indices[0], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts);
+    const input_paths_override_ptr: &PathList = &input_paths_override;
+    var result: i32 = compile_files(&input_files, input_paths_override_ptr, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts);
     if result == 2 && selected_backend == BackendType.BACKEND_EXEC && exec_only == 0 {
         if exec_backend_should_fallback() == 0 {
             fprintf(libc.stderr, "错误: exec backend 命中未登记的 fallback 原因码: %s\n" as *byte, exec_backend_get_last_unsupported_reason_name() as *byte);
@@ -3260,7 +3210,7 @@ export fn main() i32 {
             }
         }
         selected_backend = BackendType.BACKEND_C99;
-        result = compile_files(&input_file_indices[0], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts);
+        result = compile_files(&input_files, input_paths_override_ptr, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts);
     }
     if result != 0 {
         return 1;
@@ -3268,7 +3218,7 @@ export fn main() i32 {
     backend = selected_backend;
 
     if command == CommandType.COMMAND_RUN && g_app_mode_microapp != 0 {
-        const source_path: *byte = get_argv(input_file_indices[0]);
+        const source_path: *byte = get_argv(input_files.items[0]);
         if source_path == null {
             fprintf(libc.stderr, "错误：无法获取 microapp 源文件路径\n" as *byte);
             return 1;
@@ -3331,7 +3281,7 @@ export fn main() i32 {
     }
 
     if command == CommandType.COMMAND_BUILD && g_app_mode_microapp != 0 && user_output_path != null && is_pobj_output(user_output_path as &byte) != 0 {
-        const source_path: *byte = get_argv(input_file_indices[0]);
+        const source_path: *byte = get_argv(input_files.items[0]);
         if source_path == null {
             fprintf(libc.stderr, "错误: 无法获取 microapp 源文件路径\n" as *byte);
             return 1;
@@ -3349,7 +3299,7 @@ export fn main() i32 {
     }
 
     if command == CommandType.COMMAND_BUILD && g_app_mode_microapp != 0 && user_output_path != null && is_uapp_output(user_output_path as &byte) != 0 {
-        const source_path: *byte = get_argv(input_file_indices[0]);
+        const source_path: *byte = get_argv(input_files.items[0]);
         if source_path == null {
             fprintf(libc.stderr, "错误: 无法获取 microapp 源文件路径\n" as *byte);
             return 1;
