@@ -1,6 +1,19 @@
 # Uya 变更日志
 
-## Unreleased
+## v0.10.3 - 检查器动态表与 async 缺失项收口
+
+> 发布日期：2026-10-05
+
+### 概要
+
+**v0.10.3** 在 **v0.10.2** 的 `std.process` / typed pipeline 基础上，收口两类问题：
+
+1. **大工程与 C99 split-C 容量/命名收口**：checker 五张定长表改成通用动态哈希表，`uya-agent`
+   这类上万声明规模的工程不再撞「函数表容量不足」；split-C 下同名顶层常量定义去重、
+   hosted 系统头宏名冲突加护栏。
+2. **async 缺失项三条主线**：hosted 下多线程并发 `malloc/free` 必然踩坏堆（P0）、`Waker`
+   多 fd/多 interest、HTTP/1 客户端连接池 + keep-alive 复用、TLS 1.2 会话复用、macOS
+   `kqueue` 后端。
 
 ### 修复
 
@@ -61,6 +74,58 @@
   nostdlib 名单，于是 `make check` 全绿，但 hosted 直跑同一用例必挂，并连带
   `tests/stress_pthread.sh` 第 1 轮失败、`tests/verify_async_full_dynamic_resources_gate.sh`
   的 `c99-stress` 阶段失败。修复后 `make check` 1111/1111 通过。
+
+- **`libc.signal`：`signal()` 装的处理器一收到信号就 SIGSEGV（x86_64）**。
+  x86-64 的信号交付路径要求 `sa_flags` 带 `SA_RESTORER` 且 `sa_restorer` 指向执行
+  `rt_sigreturn` 的垫片，而旧实现用裸 `rt_sigaction` 装处理器（`sa_flags = 0`、
+  `sa_restorer = null`），于是处理器体一次都不执行、进程直接以 SIGSEGV(139) 退出。
+  回移 0.11 的同名实现：新增 `@naked_fn _signal_restorer()`（x86_64 走
+  `movq $15, %rax; syscall`，arm64/arm32 分支同在）；`signal()` 置 `SA_RESTORER` +
+  `sa_restorer` 并返回内核回填的旧动作；`SIG_ERR` 改成全 1（64 位 `(void*)-1`）；
+  `sigprocmask` 改为把 `sigset_t` 指针交给内核（旧实现传值必然 `EFAULT`）；`raise`
+  用 `gettid` 定位调用线程；`atexit`/`on_exit` 改为声明宿主实现。新增回归
+  `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`
+  两个用例（反向对照：换回未修版本重跑同一用例集报 Segmentation fault、退出码 139）。
+
+- **`libc.stdlib` / `libc.time`：`CLOCKS_PER_SEC` 重复定义导致 split-C 链接失败**。
+  合并后的 libc 命名空间里两份 `export const CLOCKS_PER_SEC` 是同一个名字，单 TU 只 emit
+  一份所以 `make check` 看不到问题，但 split-C 下每个模块各出一个 `.o`、两个都带外部定义，
+  链接期报 `multiple definition of 'CLOCKS_PER_SEC'`（`uya-agent` 那类 33+ 文件工程必然
+  复现）。按 C 标准（`CLOCKS_PER_SEC` 属于 `<time.h>`），常量只由 `libc.time` 提供，
+  `libc.stdlib` 不再定义第二份；名字仍留在合并后的 libc 命名空间里，`use libc.CLOCKS_PER_SEC`
+  用法不变。
+
+### 新特性
+
+- **async：hosted 多线程并发 `malloc/free` 堆损坏修复（P0）**。根因是
+  `lib/libc/pthread.uya` 的 `clone` 不含 `CLONE_SETTLS`，子线程只用
+  `arch_prctl(ARCH_SET_GS)` 设了 GS、从不建立 FS/TLS，而 hosted 模式把 `malloc/free`
+  让给了宿主 glibc（per-thread tcache/arena 挂在 FS 上），于是所有 uya 线程共用父线程的
+  glibc TLS。修法是 hosted 下保留 uya 自己的线程安全堆（`lib/libc/heap.uya`），
+  `libc.stdlib` 的 `calloc` 一并留在 uya 侧避免跨分配器错配。新增回归
+  `tests/test_pthread_heap_concurrency.uya`（8 线程 × 800 轮 `malloc/free`）。
+- **async：`Waker` 多 fd / 多 interest**。原先单 fd / 单 interest 会让「同时等两个 fd」
+  退化成只等最后一个；现扩为有界槽表（`WAKER_IO_SLOT_MAX = 4`，同 fd 的 RD|WR 合并成
+  `READWRITE`，不同 fd 各占一槽），`_io_fd`/`_io_interest` 保留为「最后一次声明」的主槽镜像，
+  单 fd 调用点行为不变；`async_scheduler` 新增 `SchedulerFdRegs` 记录每个已注册 fd，遍历全槽
+  注册并对陈旧注册做差集注销。新增回归 `tests/test_async_waker_multi_interest.uya`。
+- **async：HTTP/1 客户端连接池 + keep-alive 复用**。修复前每个请求都发
+  `Connection: close`、用完即关（N 个请求 = N 次 TCP，HTTPS 还要 N 次握手）。新增进程内单例
+  `Http1AsyncPool`（有界 8 个空闲槽，按 host 字节 + port 精确匹配，池满或 host 超长时关 fd
+  而不是截断误配）；`Http1AsyncRequest.persist`（默认 0 = 旧行为）控制是否走 keep-alive；
+  响应头解析新增 `Connection: close` 识别，`http1_async_finish_connection` 只在
+  「调用方要求 persist + 响应非 `read_until_eof` + 未声明 close」时回池。新增
+  `http1_async_pool_stats` / `_close_all` / `_put_raw` / `_take_raw` 观测入口与
+  `tests/test_http1_async_client.uya` 三个用例。
+- **TLS 1.2 会话复用（会话 ID 路径）**。新增 `TlsSessionCache` 按 host 缓存会话，同 host 的
+  后续连接可在 ClientHello 里带会话 ID 请求复用；服务器认同后把缓存的 `master_secret`
+  装回上下文。新增回归 `tests/test_tls_session_resumption.uya`。
+- **async：macOS `kqueue` 后端**。导出 `sys_kqueue()` / `sys_kevent()`（非 macOS 目标返回
+  `error.NotSupported`），macOS 分支走 kqueue、失败回退 poll，Linux 路径不变。新增回归
+  `tests/test_async_event_kqueue_transition.uya`；运行时行为尚待真机验收（本机无 macOS）。
+- **HTTP/1 响应头块上限可配置**。新增 `http1_async_response_header_max_cap()`
+  （默认 65536，`UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖，非法值回退默认），
+  与 `LinuxEpoll` / `AsyncFramePool` / `Scheduler` 的既有口径一致。
 
 ## v0.10.2 - std.process 进程流水线、typed pipeline 落地与偶发红定位
 
