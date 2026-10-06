@@ -89,13 +89,17 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
         i = i + 1;
     }
     checker.async_call_edge_count = 0;
-    i = 0;
-    while i < @len(checker.fn_call_edge_from) {
-        checker.fn_call_edge_from[i] = null;
-        checker.fn_call_edge_to[i] = null;
-        i = i + 1;
-    }
+    // call edge 表：按需分配（初始 MAX_FN_CALL_EDGES 个槽）。
+    // 为什么不像另几张表那样在 checker_init 里 reserve：本函数在每次编译开头被调，
+    // 而 `uya` 会在同一进程里连做两次完整编译（见 checker_init 的说明）——
+    // 分配放在这里、只做一次，两次编译不会各留一份。
+    checker.fn_call_edge_from = null;
+    checker.fn_call_edge_to = null;
     checker.fn_call_edge_count = 0;
+    checker.fn_call_edge_capacity = 0;
+    if checker_grow_call_edges(checker) != 0 {
+        return -1;
+    }
     reset_function_edge_cache();
     i = 0;
     while i < @len(checker.fn_root_decls) {
@@ -536,6 +540,56 @@ fn function_edge_cache_slot(from_decl: &ASTNode, to_decl: &ASTNode) i32 {
     return (((from_hash * 131usize) + to_hash) & 32767usize) as i32;
 }
 
+// 把顶层函数 call edge 表扩到 2 倍（首建为 MAX_FN_CALL_EDGES）。
+// 成功 0；失败（arena 分配不出来）返回 -1，调用方放弃记这条边。
+// 表只装指针，搬迁不打断任何指针身份（与 c99_grow_reachable_functions 同一套写法）。
+//
+// 为什么必须动态：原先 `fn_call_edge_from/to` 是定长数组（MAX_FN_CALL_EDGES = 16384），
+// 装满就 `checker_report_error` 报「顶层函数 call edge 容量已满」——**报错点落在标准库里**
+// （被编译到的那一条边所在的文件），完全看不出根因。实测 uya-agent 工程基线已用掉
+// 16336/16384（余量 48 条边），任何一个新功能都会撞上它。
+fn checker_grow_call_edges(checker: &TypeChecker) i32 {
+    if checker == null || checker.arena == null {
+        return -1;
+    }
+    var ncap: i32 = checker.fn_call_edge_capacity;
+    if ncap <= 0 {
+        ncap = MAX_FN_CALL_EDGES;
+    } else {
+        ncap = ncap * 2;
+        if ncap <= 0 {
+            return -1;   // i32 溢出（病态输入）
+        }
+    }
+    const nu: usize = (ncap as! usize) catch { return -1; };
+    const esz: usize = (@size_of(&ASTNode) as! usize) catch { return -1; };
+    const from_mem: &(&ASTNode) = compiler_arena_alloc(checker.arena, nu * esz) as &(&ASTNode);
+    if from_mem == null {
+        return -1;
+    }
+    const to_mem: &(&ASTNode) = compiler_arena_alloc(checker.arena, nu * esz) as &(&ASTNode);
+    if to_mem == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < checker.fn_call_edge_count {
+        from_mem[i] = checker.fn_call_edge_from[i];
+        to_mem[i] = checker.fn_call_edge_to[i];
+        i = i + 1;
+    }
+    while i < ncap {
+        from_mem[i] = null;
+        to_mem[i] = null;
+        i = i + 1;
+    }
+    checker.fn_call_edge_from = from_mem;
+    checker.fn_call_edge_to = to_mem;
+    checker.fn_call_edge_capacity = ncap;
+    return 0;
+}
+
+// 记一条顶层函数调用边（去重靠上面那个 32K 槽的探测缓存）。
+// 返回 1 = 记下了（或早就有了）；0 = 没记（参数不合法 / 扩容失败）。
 fn checker_add_function_edge(checker: &TypeChecker, from_decl: &ASTNode, to_decl: &ASTNode) i32 {
     const canonical_from_decl: &ASTNode = checker_canonicalize_fn_decl(checker, from_decl);
     const canonical_to_decl: &ASTNode = checker_canonicalize_fn_decl(checker, to_decl);
@@ -558,12 +612,15 @@ fn checker_add_function_edge(checker: &TypeChecker, from_decl: &ASTNode, to_decl
         edge_slot = (edge_slot + 1) & FUNCTION_EDGE_CACHE_MASK;
         probe = probe + 1;
     }
-    if checker.fn_call_edge_count >= MAX_FN_CALL_EDGES {
-        checker_report_error(checker, canonical_from_decl, "顶层函数 call edge 容量已满" as *byte);
-        return 0;
-    }
     const edge_idx: i32 = checker.fn_call_edge_count;
-    if edge_idx >= 0 && edge_idx < @len(checker.fn_call_edge_from) && edge_idx < @len(checker.fn_call_edge_to) {
+    // 表满就**扩容**（不再报错终止）—— 见 checker_grow_call_edges
+    if edge_idx >= checker.fn_call_edge_capacity {
+        if checker_grow_call_edges(checker) != 0 {
+            checker_report_error(checker, canonical_from_decl, "顶层函数 call edge 表扩容失败" as *byte);
+            return 0;
+        }
+    }
+    if edge_idx >= 0 && edge_idx < checker.fn_call_edge_capacity {
         checker.fn_call_edge_from[edge_idx] = canonical_from_decl;
         checker.fn_call_edge_to[edge_idx] = canonical_to_decl;
         checker.fn_call_edge_count = edge_idx + 1;

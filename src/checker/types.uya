@@ -25,6 +25,8 @@ const MAX_MONO_NAME_LIMIT: i32 = 250;
 const MAX_POINTER_NAMES: i32 = 32;
 const MAX_CONSTRAINTS: i32 = 64;
 const MAX_ASYNC_CALL_EDGES: i32 = 512;
+// 顶层函数 call edge 表的**初始**容量（不再是上限：满了按 2 倍增长，
+// 见 checker_grow_call_edges）。数值沿用历史值 —— 小工程不发生扩容。
 const MAX_FN_CALL_EDGES: i32 = 16384;
 const MAX_FN_ROOTS: i32 = 8192;
 const MAX_REACHABLE_FN_DECLS: i32 = 8192;
@@ -350,9 +352,13 @@ struct TypeChecker {
     async_call_edge_to: [&byte: MAX_ASYNC_CALL_EDGES],
     async_call_edge_count: i32,
     // 顶层函数可达性（由 checker 收集，codegen 只消费结果）
-    fn_call_edge_from: [&ASTNode: MAX_FN_CALL_EDGES],
-    fn_call_edge_to: [&ASTNode: MAX_FN_CALL_EDGES],
+    // 边表是**按需增长**的指针表（初始 MAX_FN_CALL_EDGES，满了 2 倍扩容）——
+    // 见 checker_grow_call_edges。原先它是定长数组，装不下就报「容量已满」并
+    // 让整个工程编不过（uya-agent 实测只剩 48 条边的余量）。
+    fn_call_edge_from: &(&ASTNode),
+    fn_call_edge_to: &(&ASTNode),
     fn_call_edge_count: i32,
+    fn_call_edge_capacity: i32,
     fn_root_decls: [&ASTNode: MAX_FN_ROOTS],
     fn_root_count: i32,
     reachable_fn_decls: [&ASTNode: MAX_REACHABLE_FN_DECLS],
