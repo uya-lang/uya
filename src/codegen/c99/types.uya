@@ -8226,6 +8226,39 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
         }
         i = i + 1;
     }
+    // 顶层变量表的**降级路径**：这张表是缓存（`C99_MAX_GLOBAL_VARS`），大程序会撑满，
+    // 之后登记被静默丢弃（见 c99_emit_global_variable 的说明）。**名字**查找
+    // （get_c_name_for_identifier_ref）早就有 program_decls 兜底，**类型**查找这里一直没有 ——
+    // 表满之后 `get_identifier_type_c` 返回 null，`get_slice_struct_type_c` 于是落到默认的
+    // `struct uya_slice_int32_t`：`&SOME_CONST[0: n]` 生成的 C 当场报
+    // 「request for member 'ptr' in something not a structure or union」。
+    //
+    // 实测（uya-agent 加一组插件文件后顶层全局 771 → 783，远超 512）：
+    // 报错点落在**与改动毫无关系**的 `agent/ag_tui_sessions.uya` 的 `sess_cell_has_title`
+    // （`find_sub(line, &SESS_TITLE_KEY[0: n], 0)`）—— 正是「表满之后类型查不到」的形状。
+    // 这里按名字扫一遍 program_decls 兜住类型，与名字那条同款。
+    if codegen.program_node != null {
+        const decl_count: i32 = codegen.program_node.program_decl_count;
+        var di: i32 = 0;
+        while di < decl_count {
+            const decl: &ASTNode = codegen.program_node.program_decls[di];
+            if decl != null && (decl.type == ASTNodeType.AST_VAR_DECL || decl.type == ASTNodeType.AST_EXTERN_VAR_DECL) {
+                var vname: &byte = null;
+                var vtype: &ASTNode = null;
+                if decl.type == ASTNodeType.AST_VAR_DECL {
+                    vname = decl.var_decl_name;
+                    vtype = decl.var_decl_type;
+                } else {
+                    vname = decl.extern_var_decl_name;
+                    vtype = decl.extern_var_decl_var_type;
+                }
+                if vname != null && vtype != null && strcmp(vname as *byte, name as *byte) == 0 {
+                    return c99_type_to_c(codegen, vtype);
+                }
+            }
+            di = di + 1;
+        }
+    }
     return null;
 }
 
