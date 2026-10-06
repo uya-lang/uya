@@ -23682,7 +23682,7 @@ __attribute__((used)) char * strerror(int32_t errnum) {
 static __attribute__((used)) void _heap_lock_acquire() {
     int32_t expected = 0;
     bool contended = false;
-    while (__atomic_compare_exchange_n((int32_t *)(&_heap_lock), (&expected), 1, 0, HEAP_ATOMIC_SEQ_CST, HEAP_ATOMIC_SEQ_CST) == 0) {
+    while (__atomic_compare_exchange_n((int32_t *)&_heap_lock, (&expected), 1, 0, HEAP_ATOMIC_SEQ_CST, HEAP_ATOMIC_SEQ_CST) == 0) {
         contended = true;
         expected = 0;
     }
@@ -23690,7 +23690,7 @@ static __attribute__((used)) void _heap_lock_acquire() {
 }
 
 static __attribute__((used)) void _heap_lock_release() {
-    _heap_lock = 0;
+    __atomic_store_n((int32_t *)&_heap_lock, 0, __ATOMIC_SEQ_CST);
 }
 
 static __attribute__((used)) void heap_debug_set_last_find(struct pthread_heap_cache_t * cache, size_t start_bin, size_t steps) {
@@ -27637,7 +27637,7 @@ __asm__ volatile ("movq %%rsp, %%r10\n\tandq $-16, %%rsp\n\tsubq $16, %%rsp\n\tm
 
 static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_hint(struct pthread_desc * desc) {
     (void)desc;
-    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+    if (((__atomic_load_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, __ATOMIC_SEQ_CST) == 0) || (desc == NULL))) {
         return;
     }
     desc->heap_cache.debug_lookup_hint_count = (desc->heap_cache.debug_lookup_hint_count + 1ULL);
@@ -27645,7 +27645,7 @@ static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_hint(str
 
 static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_stack(struct pthread_desc * desc) {
     (void)desc;
-    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+    if (((__atomic_load_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, __ATOMIC_SEQ_CST) == 0) || (desc == NULL))) {
         return;
     }
     desc->heap_cache.debug_lookup_stack_count = (desc->heap_cache.debug_lookup_stack_count + 1ULL);
@@ -27653,7 +27653,7 @@ static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_stack(st
 
 static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_tid(struct pthread_desc * desc) {
     (void)desc;
-    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+    if (((__atomic_load_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, __ATOMIC_SEQ_CST) == 0) || (desc == NULL))) {
         return;
     }
     desc->heap_cache.debug_lookup_tid_count = (desc->heap_cache.debug_lookup_tid_count + 1ULL);
@@ -27661,11 +27661,11 @@ static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_tid(stru
 
 void libc_pthread_debug_set_heap_cache_lookup_metrics_enabled(int32_t enabled) {
     (void)enabled;
-    _pthread_debug_heap_cache_lookup_metrics_enabled = enabled;
+    __atomic_store_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, enabled, __ATOMIC_SEQ_CST);
 }
 
 static __attribute__((used)) void _pthread_init_main_thread_if_needed() {
-    if (_pthread_main_initialized != 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_main_initialized, __ATOMIC_SEQ_CST) != 0) {
         return;
     }
     const int64_t tid = ({ struct err_union_int32_t _uya_catch_tmp = libc_sys_gettid(); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
@@ -27678,7 +27678,7 @@ static __attribute__((used)) void _pthread_init_main_thread_if_needed() {
     _pthread_main_handle.tid = tid;
     (void)(_pthread_set_fast_desc((&_pthread_main_desc))    );
     _pthread_fast_heap_cache_ready = 1;
-    _pthread_main_initialized = 1;
+    __atomic_store_n((int32_t *)&_pthread_main_initialized, 1, __ATOMIC_SEQ_CST);
 }
 
 static __attribute__((used)) void _pthread_set_fast_desc(struct pthread_desc * desc) {
@@ -27779,7 +27779,7 @@ static __attribute__((used)) struct pthread_desc * _pthread_registry_find(int64_
 }
 
 static __attribute__((used)) size_t pthread_live_thread_count_hint() {
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
                 {
             size_t _uya_ret = 1ULL;
             return _uya_ret;
@@ -27922,10 +27922,10 @@ static __attribute__((used)) void _pthread_stack_hint_forget(struct pthread_desc
     size_t i = 0ULL;
     while (i < PTHREAD_STACK_HINT_CAP) {
         if (_pthread_stack_hints[i].desc == target) {
-            _pthread_stack_hints[i].page_key = 0ULL;
-            _pthread_stack_hints[i].desc = 0ULL;
-            _pthread_stack_hints[i].stack_start = 0ULL;
-            _pthread_stack_hints[i].stack_end = 0ULL;
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].page_key), 0ULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].desc), 0ULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].stack_start), 0ULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].stack_end), 0ULL, __ATOMIC_SEQ_CST);
         }
         i = (i + 1ULL);
     }
@@ -27963,7 +27963,7 @@ static __attribute__((used)) struct pthread_desc * _pthread_registry_find_by_sta
 }
 
 static __attribute__((used)) struct pthread_desc * _pthread_desc_self() {
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
         (void)(_pthread_init_main_thread_if_needed()        );
                 {
             struct pthread_desc * _uya_ret = (&_pthread_main_desc);
@@ -28023,7 +28023,7 @@ struct pthread_heap_cache_t * libc_pthread_current_heap_cache() {
                         }
         }
     }
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
         (void)(_pthread_init_main_thread_if_needed()        );
                 {
             struct pthread_heap_cache_t * _uya_ret = (&_pthread_main_desc.heap_cache);
@@ -28410,7 +28410,7 @@ __asm__ volatile ("mov $56, %%rax\n\tmov $0x150f00, %%rdi\n\tmov %1, %%rsi\n\tmo
     thread->arg = arg;
     (void)(_pthread_registry_insert(tid, desc)    );
     __atomic_store_n((int32_t *)&(desc->started), 1, __ATOMIC_SEQ_CST);
-    _pthread_has_created_thread = 1;
+    __atomic_store_n((int32_t *)&_pthread_has_created_thread, 1, __ATOMIC_SEQ_CST);
     (void)(pthread_mutex_unlock((&_pthread_create_mutex)));
         {
         int32_t _uya_ret = 0;
@@ -28932,7 +28932,7 @@ static __attribute__((used)) struct pthread_t _synthetic_pthread_self(int64_t ti
 }
 
 __attribute__((used)) struct pthread_t pthread_self() {
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
         (void)(_pthread_init_main_thread_if_needed()        );
         if (_pthread_main_desc.pub_handle != NULL) {
                         {
@@ -28954,11 +28954,11 @@ __attribute__((used)) struct pthread_t pthread_self() {
             return _uya_ret;
                 }
     }
-    if (_pthread_main_initialized == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_main_initialized, __ATOMIC_SEQ_CST) == 0) {
         _pthread_main_desc.tid = tid;
         _pthread_main_desc.pub_handle = (&_pthread_main_handle);
         _pthread_main_handle.tid = tid;
-        _pthread_main_initialized = 1;
+        __atomic_store_n((int32_t *)&_pthread_main_initialized, 1, __ATOMIC_SEQ_CST);
     }
     if (_pthread_main_desc.pub_handle == NULL) {
                 {
@@ -82817,7 +82817,7 @@ static __attribute__((used)) void checker_report_error_with_notes(struct TypeChe
             return;
         }
         last_checker_error_message = stash_checker_error_message((uint8_t *)message);
-        (void)(checker_record_reported_error(checker, node, last_checker_error_message)        );
+        (void)(checker_record_reported_error(checker, node, (uint8_t *)last_checker_error_message)        );
         checker->error_count = (checker->error_count + 1);
         if (((stderr != NULL) && (message != NULL))) {
             uint8_t * filename = (uint8_t *)(uint8_t *)str214;
@@ -82984,7 +82984,7 @@ static __attribute__((used)) void checker_report_error(struct TypeChecker * chec
             return;
         }
         last_checker_error_message = stash_checker_error_message((uint8_t *)message);
-        (void)(checker_record_reported_error(checker, node, last_checker_error_message)        );
+        (void)(checker_record_reported_error(checker, node, (uint8_t *)last_checker_error_message)        );
         checker->error_count = (checker->error_count + 1);
         if (((stderr != NULL) && (message != NULL))) {
             uint8_t * filename = (uint8_t *)(uint8_t *)str214;
@@ -83011,10 +83011,10 @@ static __attribute__((used)) void checker_report_error_moved(struct TypeChecker 
     (void)var_name;
     if (((checker != NULL) && (checker->suppress_codegen_diagnostics == 0))) {
         last_checker_error_message = (uint8_t *)(uint8_t *)str1595;
-        if (checker_should_suppress_duplicate_error(checker, node, last_checker_error_message) != 0) {
+        if (checker_should_suppress_duplicate_error(checker, node, (uint8_t *)last_checker_error_message) != 0) {
             return;
         }
-        (void)(checker_record_reported_error(checker, node, last_checker_error_message)        );
+        (void)(checker_record_reported_error(checker, node, (uint8_t *)last_checker_error_message)        );
         checker->error_count = (checker->error_count + 1);
         if (stderr != NULL) {
             uint8_t * filename = (uint8_t *)(uint8_t *)str214;
@@ -167899,6 +167899,31 @@ static __attribute__((used)) uint8_t * lookup_identifier_type_c_impl(struct C99C
                         }
         }
         i = (i + 1);
+    }
+    if (codegen->program_node != NULL) {
+        const int32_t decl_count = codegen->program_node->program_decl_count;
+        int32_t di = 0;
+        while (di < decl_count) {
+            struct ASTNode * const decl = codegen->program_node->program_decls[di];
+            if (((decl != NULL) && ((decl->type == main_ASTNodeType_AST_VAR_DECL) || (decl->type == main_ASTNodeType_AST_EXTERN_VAR_DECL)))) {
+                uint8_t * vname = NULL;
+                struct ASTNode * vtype = NULL;
+                if (decl->type == main_ASTNodeType_AST_VAR_DECL) {
+                    vname = decl->var_decl_name;
+                    vtype = decl->var_decl_type;
+                } else {
+                    vname = decl->extern_var_decl_name;
+                    vtype = decl->extern_var_decl_var_type;
+                }
+                if ((((vname != NULL) && (vtype != NULL)) && (std_string_strcmp((uint8_t *)vname, (uint8_t *)name) == 0))) {
+                                        {
+                        uint8_t * _uya_ret = c99_type_to_c(codegen, vtype);
+                        return _uya_ret;
+                                        }
+                }
+            }
+            di = (di + 1);
+        }
     }
         {
         uint8_t * _uya_ret = NULL;
