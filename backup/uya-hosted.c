@@ -2355,7 +2355,7 @@ static const char str1611[] = "@await 不能出现在 while 条件表达式中�
 static const char str1612[] = "@await 不能出现在 for range 起始表达式中；请先 await 再进入循环";
 static const char str1613[] = "@await 不能出现在 for range 结束表达式中；请先 await 再进入循环";
 static const char str1614[] = "顶层函数 root 容量已满";
-static const char str1615[] = "顶层函数 call edge 容量已满";
+static const char str1615[] = "顶层函数 call edge 表扩容失败";
 static const char str1616[] = "顶层函数 reachable 集合已满";
 static const char str1617[] = "顶层函数 reachable 队列已满";
 static const char str1618[] = "变量存在活跃指针，不能移动";
@@ -6733,9 +6733,10 @@ struct TypeChecker {
     uint8_t * async_call_edge_from[512];
     uint8_t * async_call_edge_to[512];
     int32_t async_call_edge_count;
-    struct ASTNode * fn_call_edge_from[16384];
-    struct ASTNode * fn_call_edge_to[16384];
+    struct ASTNode * * fn_call_edge_from;
+    struct ASTNode * * fn_call_edge_to;
     int32_t fn_call_edge_count;
+    int32_t fn_call_edge_capacity;
     struct ASTNode * fn_root_decls[8192];
     int32_t fn_root_count;
     struct ASTNode * reachable_fn_decls[8192];
@@ -9215,6 +9216,7 @@ static __attribute__((used)) void checker_import_slot_set(struct TypeChecker * c
 static __attribute__((used)) int32_t checker_add_function_root_decl(struct TypeChecker * checker, struct ASTNode * fn_decl);
 static __attribute__((used)) void reset_function_edge_cache();
 static __attribute__((used)) int32_t function_edge_cache_slot(struct ASTNode * from_decl, struct ASTNode * to_decl);
+static __attribute__((used)) int32_t checker_grow_call_edges(struct TypeChecker * checker);
 static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecker * checker, struct ASTNode * from_decl, struct ASTNode * to_decl);
 static __attribute__((used)) int32_t checker_mark_reachability_node_visited(struct TypeChecker * checker, struct ASTNode * node);
 static __attribute__((used)) void checker_reset_reachability_visit_cache(struct TypeChecker * checker);
@@ -81119,13 +81121,16 @@ static __attribute__((used)) int32_t checker_init(struct TypeChecker * checker, 
         i = (i + 1);
     }
     checker->async_call_edge_count = 0;
-    i = 0;
-    while (i < (sizeof(checker->fn_call_edge_from) / sizeof((checker->fn_call_edge_from)[0]))) {
-        checker->fn_call_edge_from[i] = NULL;
-        checker->fn_call_edge_to[i] = NULL;
-        i = (i + 1);
-    }
+    checker->fn_call_edge_from = NULL;
+    checker->fn_call_edge_to = NULL;
     checker->fn_call_edge_count = 0;
+    checker->fn_call_edge_capacity = 0;
+    if (checker_grow_call_edges(checker) != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
     (void)(reset_function_edge_cache()    );
     i = 0;
     while (i < (sizeof(checker->fn_root_decls) / sizeof((checker->fn_root_decls)[0]))) {
@@ -81665,6 +81670,72 @@ static __attribute__((used)) int32_t function_edge_cache_slot(struct ASTNode * f
         }
 }
 
+static __attribute__((used)) int32_t checker_grow_call_edges(struct TypeChecker * checker) {
+    (void)checker;
+    if (((checker == NULL) || (checker->arena == NULL))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t ncap = checker->fn_call_edge_capacity;
+    if (ncap <= 0) {
+        ncap = MAX_FN_CALL_EDGES;
+    } else {
+        ncap = (ncap * 2);
+        if (ncap <= 0) {
+                        {
+                int32_t _uya_ret = (-1);
+                return _uya_ret;
+                        }
+        }
+    }
+    const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(ncap) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    const size_t esz = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)((int32_t)sizeof(struct ASTNode *)) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    struct ASTNode * * const from_mem = (struct ASTNode * *)compiler_arena_alloc(checker->arena, (nu * esz));
+    if (from_mem == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    struct ASTNode * * const to_mem = (struct ASTNode * *)compiler_arena_alloc(checker->arena, (nu * esz));
+    if (to_mem == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    while (i < checker->fn_call_edge_count) {
+        from_mem[i] = checker->fn_call_edge_from[i];
+        to_mem[i] = checker->fn_call_edge_to[i];
+        i = (i + 1);
+    }
+    while (i < ncap) {
+        from_mem[i] = NULL;
+        to_mem[i] = NULL;
+        i = (i + 1);
+    }
+    checker->fn_call_edge_from = from_mem;
+    checker->fn_call_edge_to = to_mem;
+    checker->fn_call_edge_capacity = ncap;
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecker * checker, struct ASTNode * from_decl, struct ASTNode * to_decl) {
     (void)checker;
     (void)from_decl;
@@ -81694,15 +81765,17 @@ static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecke
         edge_slot = ((edge_slot + 1) & FUNCTION_EDGE_CACHE_MASK);
         probe = (probe + 1);
     }
-    if (checker->fn_call_edge_count >= MAX_FN_CALL_EDGES) {
-        (void)(checker_report_error(checker, canonical_from_decl, (uint8_t *)(uint8_t *)str1615)        );
-                {
-            int32_t _uya_ret = 0;
-            return _uya_ret;
-                }
-    }
     const int32_t edge_idx = checker->fn_call_edge_count;
-    if ((((edge_idx >= 0) && (edge_idx < (sizeof(checker->fn_call_edge_from) / sizeof((checker->fn_call_edge_from)[0])))) && (edge_idx < (sizeof(checker->fn_call_edge_to) / sizeof((checker->fn_call_edge_to)[0]))))) {
+    if (edge_idx >= checker->fn_call_edge_capacity) {
+        if (checker_grow_call_edges(checker) != 0) {
+            (void)(checker_report_error(checker, canonical_from_decl, (uint8_t *)(uint8_t *)str1615)            );
+                        {
+                int32_t _uya_ret = 0;
+                return _uya_ret;
+                        }
+        }
+    }
+    if (((edge_idx >= 0) && (edge_idx < checker->fn_call_edge_capacity))) {
         checker->fn_call_edge_from[edge_idx] = canonical_from_decl;
         checker->fn_call_edge_to[edge_idx] = canonical_to_decl;
         checker->fn_call_edge_count = (edge_idx + 1);
