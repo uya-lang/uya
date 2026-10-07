@@ -4756,6 +4756,9 @@ fn caller() void {
 | `std.crypto.hmac_sha256` | `hmac_sha256(key, msg, mac_out)` | HMAC-SHA256，一次性 MAC，输出 32 字节 |
 | `std.crypto.md5` | `md5_digest(data, digest_out)` | MD5 一次性摘要，输出 16 字节 |
 | `std.crypto.crc32` | `crc32_compute(data) -> u32` | CRC-32（IEEE / ZIP）校验和 |
+| `std.image` | `Image` / `image_new` / `image_get` / `image_set` | 内存位图（灰度 / RGB，行优先） |
+| `std.image.jpeg_decode` | `jpeg_decode(data, n, alloc, img)` / `jpeg_decode_info(data, n, info)` | 基线 JPEG 解码（4:4:4 / 4:2:2 / 4:2:0 + 重启间隔；渐进式等明确拒绝） |
+| `std.image.jpeg_encode` | `jpeg_encode(img, opts, out, cap, alloc, len)` / `jpeg_encode_q(img, quality, ...)` | 基线 JPEG 编码（JFIF + Annex K 表；质量 1..100） |
 
 > **`std.sql` 详细说明**：见 [std_sql.md](./std_sql.md)
 

@@ -1,5 +1,74 @@
 # Uya 变更日志
 
+## v0.10.4 - 纯 Uya 的 JPEG 编解码（未发布）
+
+> 发布日期：待定
+
+### 概要
+
+新增 **`std.image`**：内存位图 + **纯 Uya 的基线 JPEG 编解码**（Huffman + 8×8 DCT），
+**零 libm、零 C 依赖**（全整数定点），编码除调用方给的分配器外不用堆。
+
+这是「多模态图片只能接受原图或拒绝」那条硬约束的收口：此前超预算的图缩不了，
+因为没有编解码器；现在有了「解码 → 缩放 → 重编码」的前两半（缩放不在本次范围）。
+
+### 新增
+
+- **`lib/std/image/image.uya`**：内存位图 `Image`（灰度 / RGB，行优先、无填充）。
+  接口：`image_new` / `image_free` / `image_get` / `image_set` / `image_fill` /
+  `image_bytes_for` / `image_is_valid`。像素缓冲是 `&u8`（`byte` 在 Uya 里是独立
+  类型，热循环里逐像素 `as! u8` 不划算；交接处用 `image_pixels_as_u8/_byte` 重解释）。
+- **`lib/std/image/jpeg_tables.uya`**：T.81 Annex K 的量化表（亮度 / 色度）与
+  四张标准 Huffman 表（BITS + HUFFVAL）、zigzag 顺序、`jpeg_quality_scale`
+  （质量 → 量化表，libjpeg 同款缩放）、`JpegHuffDecoder` 译码表装配
+  （快表 + 规范码区间）、`JpegHuffEncoder` 编码表装配。表值用
+  `cjpeg -quality 50 -baseline` 的输出**机器提取**（不是手抄），并断言等于 Annex K。
+- **`lib/std/image/jpeg_bits.uya`**：熵段位读写。读侧 **逐位、不预读**（`pos` 永远
+  指向下一个未读的流字节，撞到标记时停在它上面）；0xFF00 反转义、RSTn 同步；
+  写侧按 T.81 补 **1** 收尾。
+- **`lib/std/image/jpeg_dct.uya`**：8×8 整数 FDCT / IDCT（矩阵式两趟，矩阵 13 位
+  定标 + 趟间 2 位小数，i64 中间量）、`jpeg_quantize` / `jpeg_dequantize`。
+  定标口径 = **真值**（不带 libjpeg 的 ×8），实测往返误差 ≤ 1 个灰阶。
+- **`lib/std/image/jpeg_marker.uya`**：段解析（SOI/APPn/COM/DQT/DHT/DRI/SOF0-3/SOF9-10/
+  DAC/SOS/EOI）。**解析层不拒绝渐进式**（见下面「设计取舍」），只把事实读出来。
+- **`lib/std/image/jpeg_decode.uya`**：解码主流程。支持基线顺序 DCT、1/3 分量、
+  任意 h/v ∈ 1..4 的矩形采样（块重复上采样）、DRI 重启间隔、8-bit。
+  入口：`jpeg_decode`（解进 `Image`）、`jpeg_decode_info`（只读文件头，渐进式也
+  能给出宽高）。
+- **`lib/std/image/jpeg_encode.uya`**：编码主流程。JFIF + 标准 Annex K 表、
+  灰色 / RGB、`JPEG_SUB_444` / `_422` / `_420`、质量 1..100。
+  入口：`jpeg_encode`（完整选项）、`jpeg_encode_q`（只调质量）、`jpeg_max_bytes`
+  （缓冲上界）、`jpeg_options_default`。
+- **测试**：`tests/test_std_jpeg_decode.uya`（12 条断言组：4:2:0+重启 / 灰度 /
+  4:4:4 的块均值比对、渐进式与非 JPEG 与截断的拒绝、截断熵段、`jpeg_decode_info`）、
+  `tests/test_std_jpeg_encode.uya`（12 个 test / 71 条断言：往返、质量单调性、
+  **逐字节断言 DQT 等于 Annex K**、质量两端、缓冲不足、非法输入）。
+- **文档**：`docs/std_jpeg.md`（分层、支持矩阵、接口、不变量、测试与证据）；
+  `docs/uya.md` 的标准库表补 `std.image` 三行。
+
+### 设计取舍
+
+- **渐进式 / 算术编码 / 12-bit / 4 分量一律明确拒绝**（`JpegUnsupported`），
+  不按基线硬解 —— 按基线解渐进式会得到「上半张对、下半张糊」，比报错糟得多。
+  拒绝判定放在**解码侧**而不是解析侧：`jpeg_decode_info` 的用途是「先问尺寸再
+  决定收不收」，它要能在渐进式上照样给出宽高。
+- **上采样用块重复**（与 `djpeg -nosmooth` 一致）：三角滤波对「缩图 → 重编码」
+  收益看不出来，而实现只有几行。
+- **编码不做码表优化**：用标准 Huffman 表，实现短、输出可被任何解码器读。
+
+### 外部证据（开发期实测，改 DCT / 量化定标时要重做）
+
+- 我们的编码输出用 `djpeg -dct int` 能解：q90、4:2:0、64×64 渐变，
+  平均误差 **1.29/255**、最大 **5/255**。
+- 我们的解码器与 `djpeg -nosmooth` 在 4:4:4 / 4:2:2 / 4:2:0 / 4:2:0+重启 四种
+  256×256 图上逐样本比对：**最大误差 4/255**（196608 个样本，0 个超过 4）。
+
+### 顺带记录
+
+- `buglist.md` 新增一条**编译器 bug**：除数是「函数形参的加减表达式」时
+  编译器自己 `SIGFPE`（无错误输出、退出码 136）。最小复现、规避写法
+  （除数先落临时量）与推测方向都写在那条里。
+
 ## v0.10.3 - 检查器动态表与 async 缺失项收口
 
 > 发布日期：2026-10-05

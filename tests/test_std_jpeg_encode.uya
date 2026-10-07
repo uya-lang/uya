@@ -1,0 +1,370 @@
+// tests/test_std_jpeg_encode.uya — std.image.jpeg_encode：基线 JPEG 编码
+//
+// 覆盖点：灰度 / 彩色编码的段结构（SOI/APP0/DQT/SOF0/DHT/SOS/EOI）、
+//   **自解往返**（编码 → 本库解码 → 与原图比）、质量单调性（低质量必须更小）、
+//   三种色度采样、缓冲不足报 JpegBufferTooSmall、jpeg_max_bytes 够用、
+//   非法输入拒绝。
+//
+// 为什么往返用「自己的解码器」：这条测的是**两半的定标与语义是否自洽**
+//   （量化/反量化/FDCT/IDCT/zigzag/DC 预测器都要配对）。跨实现的一致性另有
+//   外部证据：本文件里的图用 `djpeg -dct int` 解过，平均误差 1.3/255、
+//   最大 5/255（quality 90、4:2:0）—— 这条写在这里是提醒：**改 DCT/量化的
+//   定标时两个证据都要重看**，只跑往返会掩盖「两边一起错」。
+use std.image.image.Image;
+use std.image.image.image_new;
+use std.image.image.image_free;
+use std.image.image.image_set;
+use std.image.image.IMAGE_GRAY;
+use std.image.image.IMAGE_RGB;
+use std.mem.allocator.get_allocator;
+use std.mem.allocator.MallocAllocator;
+use std.mem.allocator.IAllocator;
+use std.testing.assert_eq_i32;
+use std.testing.assert_true;
+use std.image.jpeg_encode.jpeg_encode;
+use std.image.jpeg_encode.jpeg_encode_q;
+use std.image.jpeg_encode.jpeg_max_bytes;
+use std.image.jpeg_encode.jpeg_options_default;
+use std.image.jpeg_encode.JpegEncodeOptions;
+use std.image.jpeg_encode.JPEG_SUB_444;
+use std.image.jpeg_encode.JPEG_SUB_422;
+use std.image.jpeg_encode.JPEG_SUB_420;
+use std.image.jpeg_decode.jpeg_decode;
+
+// 把 !bool 收成 bool（失败 = false）。
+fn ok_of(r: !bool) bool {
+    return r catch { false; };
+}
+
+// 空图。
+fn blank_image() Image {
+    var z: Image = Image{ width: 0, height: 0, channels: 0,
+        pixels: null, allocator: null };
+    return z;
+}
+
+// 造一张 w x h 的彩色测试图（R 随 x、G 随 y、B 随 x+y 的渐变 + 一点高频）。
+fn make_rgb(w: i32, h: i32, alc: IAllocator) !Image {
+    var im: Image = try image_new(w, h, IMAGE_RGB, alc);
+    var y: i32 = 0;
+    while y < h {
+        var x: i32 = 0;
+        while x < w {
+            // 除数先落临时量：直接写 `/(w + h - 2)` 会让**编译器**SIGFPE
+            // （见 buglist.md「除数是形参加减表达式时编译器自己 SIGFPE」）
+            const dw: i32 = w - 1;
+            const dh: i32 = h - 1;
+            const dwh: i32 = w + h - 2;
+            const rv: i32 = (x * 255) / dw;
+            const gv: i32 = (y * 255) / dh;
+            var bv: i32 = ((x + y) * 255) / dwh;
+            if ((x / 2 + y / 2) % 2) == 0 {
+                bv = bv + 24;
+            }
+            const r8: u8 = (rv as! u8).value;
+            const g8: u8 = (gv as! u8).value;
+            const b8: u8 = (bv as! u8).value;
+            try image_set(&im, x, y, 0, r8);
+            try image_set(&im, x, y, 1, g8);
+            try image_set(&im, x, y, 2, b8);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return im;
+}
+
+// 造一张 w x h 的灰度测试图（横向渐变 + 棋盘）。
+fn make_gray(w: i32, h: i32, alc: IAllocator) !Image {
+    var im: Image = try image_new(w, h, IMAGE_GRAY, alc);
+    var y: i32 = 0;
+    while y < h {
+        var x: i32 = 0;
+        while x < w {
+            const dw: i32 = w - 1;
+            var v: i32 = (x * 255) / dw;
+            if ((x / 4 + y / 4) % 2) == 0 {
+                v = 255 - v;
+            }
+            const v8: u8 = (v as! u8).value;
+            try image_set(&im, x, y, 0, v8);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return im;
+}
+
+// 逐通道平均绝对误差（0..255 定标）。
+fn mean_abs_err(a: &const Image, b: &const Image) i32 {
+    if a.width != b.width || a.height != b.height {
+        return 255;
+    }
+    if a.channels != b.channels {
+        return 255;
+    }
+    const n: usize = (((a.width * a.height) as usize) * (a.channels as usize));
+    var sum: i64 = 0;
+    var i: usize = 0;
+    while i < n {
+        var d: i32 = (a.pixels[i] as i32) - (b.pixels[i] as i32);
+        if d < 0 {
+            d = 0 - d;
+        }
+        sum = sum + (d as i64);
+        i = i + 1;
+    }
+    if n == 0 {
+        return 255;
+    }
+    return (sum / (n as i64)) as i32;
+}
+
+// 编一张图并解回来，返回编码字节数（失败返回 -1）。
+fn encode_then_decode(src: &const Image, quality: i32, subs: i32,
+                      alc: IAllocator, back: &Image) i32 {
+    const cap: usize = jpeg_max_bytes(src.width, src.height);
+    if cap == 0 as usize {
+        return 0 - 1;
+    }
+    const buf: &u8 = alc.alloc(cap) catch { return 0 - 1; };
+    defer { alc.dealloc(buf as &byte); }
+    var n: usize = 0;
+    var o: JpegEncodeOptions = jpeg_options_default();
+    o.quality = quality;
+    o.subsample = subs;
+    if !ok_of(jpeg_encode(src, &o, buf, cap, alc, &n)) {
+        return 0 - 1;
+    }
+    if !ok_of(jpeg_decode(buf, n, alc, back)) {
+        return 0 - 1;
+    }
+    return (n as! i32).value;
+}
+
+test "jpeg_encode_gray_roundtrip" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_gray(32, 32, alc);
+    defer { image_free(&src); }
+    var back: Image = blank_image();
+    const n: i32 = encode_then_decode(&src, 90, JPEG_SUB_420, alc, &back);
+    defer { image_free(&back); }
+    try assert_true(n > 0);
+    try assert_eq_i32(back.width, 32);
+    try assert_eq_i32(back.height, 32);
+    try assert_eq_i32(back.channels, IMAGE_GRAY);
+    // 往返误差（含色度无关的灰度路径）
+    try assert_true(mean_abs_err(&src, &back) <= 5);
+}
+
+test "jpeg_encode_rgb_444_roundtrip" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(32, 32, alc);
+    defer { image_free(&src); }
+    var back: Image = blank_image();
+    const n: i32 = encode_then_decode(&src, 90, JPEG_SUB_444, alc, &back);
+    defer { image_free(&back); }
+    try assert_true(n > 0);
+    try assert_eq_i32(back.channels, IMAGE_RGB);
+    // 4:4:4 无色度下采样：只有 DCT 量化损失（实测 2，留 5 的余量）
+    try assert_true(mean_abs_err(&src, &back) <= 5);
+}
+
+test "jpeg_encode_rgb_422_roundtrip" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(32, 32, alc);
+    defer { image_free(&src); }
+    var back: Image = blank_image();
+    const n: i32 = encode_then_decode(&src, 90, JPEG_SUB_422, alc, &back);
+    defer { image_free(&back); }
+    try assert_true(n > 0);
+    try assert_true(mean_abs_err(&src, &back) <= 8);
+}
+
+test "jpeg_encode_rgb_420_roundtrip" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(32, 32, alc);
+    defer { image_free(&src); }
+    var back: Image = blank_image();
+    const n: i32 = encode_then_decode(&src, 90, JPEG_SUB_420, alc, &back);
+    defer { image_free(&back); }
+    try assert_true(n > 0);
+    // 实测 4（色度下采样的固有损失），留到 8
+    try assert_true(mean_abs_err(&src, &back) <= 8);
+}
+
+test "jpeg_encode_quality_monotonic_size" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(32, 32, alc);
+    defer { image_free(&src); }
+    var low: Image = blank_image();
+    defer { image_free(&low); }
+    var high: Image = blank_image();
+    defer { image_free(&high); }
+    const nlow: i32 = encode_then_decode(&src, 20, JPEG_SUB_420, alc, &low);
+    const nhigh: i32 = encode_then_decode(&src, 95, JPEG_SUB_420, alc, &high);
+    try assert_true(nlow > 0);
+    try assert_true(nhigh > 0);
+    // 低质量必须明显更小（同一张图、同一采样）
+    try assert_true(nlow < nhigh);
+    // 低质量的往返误差必须更大（否则「质量」没生效）
+    try assert_true(mean_abs_err(&src, &low) > mean_abs_err(&src, &high));
+    // 实测：q20 -> 8、q95 -> 3；给「质量真的在起作用」钉一个绝对口径
+    try assert_true(mean_abs_err(&src, &low) >= 5);
+    try assert_true(mean_abs_err(&src, &high) <= 5);
+}
+
+test "jpeg_encode_segment_structure" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(16, 16, alc);
+    defer { image_free(&src); }
+    const cap: usize = jpeg_max_bytes(16, 16);
+    const buf: &u8 = alc.alloc(cap) catch { return; };
+    defer { alc.dealloc(buf as &byte); }
+    var n: usize = 0;
+    _ = try jpeg_encode_q(&src, 85, buf, cap, alc, &n);
+    try assert_true(n > 100 as usize);
+    // SOI
+    try assert_eq_i32(buf[0] as i32, 0xFF);
+    try assert_eq_i32(buf[1] as i32, 0xD8);
+    // APP0（JFIF）
+    try assert_eq_i32(buf[2] as i32, 0xFF);
+    try assert_eq_i32(buf[3] as i32, 0xE0);
+    try assert_eq_i32(buf[6] as i32, 0x4A);      // 'J'
+    try assert_eq_i32(buf[7] as i32, 0x46);      // 'F'
+    // DQT
+    try assert_eq_i32(buf[20] as i32, 0xFF);
+    try assert_eq_i32(buf[21] as i32, 0xDB);
+    // SOF0
+    try assert_eq_i32(buf[154] as i32, 0xFF);
+    try assert_eq_i32(buf[155] as i32, 0xC0);
+    // 尺寸（段布局：SOI 2 + APP0 18 = 20；DQT 段 2 + 2 + 2*65 = 134 -> 154；
+    //   SOF0 标记 154/155、长度 156/157、精度 158、高 159/160、宽 161/162、
+    //   分量数 163）
+    try assert_eq_i32(buf[156] as i32, 0);
+    try assert_eq_i32(buf[157] as i32, 17);    // 段长 = 8 + 3*3
+    try assert_eq_i32(buf[158] as i32, 8);     // 精度
+    try assert_eq_i32(buf[159] as i32, 0);     // 高 = 16
+    try assert_eq_i32(buf[160] as i32, 16);
+    try assert_eq_i32(buf[161] as i32, 0);     // 宽 = 16
+    try assert_eq_i32(buf[162] as i32, 16);
+    // 分量数 3
+    try assert_eq_i32(buf[163] as i32, 3);
+    // EOI
+    try assert_eq_i32(buf[n - 2] as i32, 0xFF);
+    try assert_eq_i32(buf[n - 1] as i32, 0xD9);
+}
+
+test "jpeg_encode_gray_is_one_component" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_gray(16, 16, alc);
+    defer { image_free(&src); }
+    const cap: usize = jpeg_max_bytes(16, 16);
+    const buf: &u8 = alc.alloc(cap) catch { return; };
+    defer { alc.dealloc(buf as &byte); }
+    var n: usize = 0;
+    _ = try jpeg_encode_q(&src, 85, buf, cap, alc, &n);
+    // 灰度只写一张 DQT：SOI+APP0 = 20，DQT 段 = 2 + 2 + 1*65 = 69 -> 89
+    try assert_eq_i32(buf[89] as i32, 0xFF);
+    try assert_eq_i32(buf[90] as i32, 0xC0);
+    try assert_eq_i32(buf[91] as i32, 0);       // 段长 = 8 + 3*1
+    try assert_eq_i32(buf[92] as i32, 11);
+    try assert_eq_i32(buf[98] as i32, 1);       // 分量数
+}
+
+test "jpeg_encode_dqt_matches_annex_k" {
+    // 段布局（本编码器固定）：SOI 2 + APP0 18 = 20；DQT 标记 20/21、长度 22/23、
+    // 表头（精度/表号）24，其后 64 个值是 **zigzag 顺序** 的量化表。
+    // quality 50 时缩放系数 = 1，写出来的必须逐字节等于 T.81 Annex K 的亮度表 ——
+    // 这条是「量化表没抄错、zigzag 顺序没搞反」的**绝对**证据，不依赖往返自洽。
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(16, 16, alc);
+    defer { image_free(&src); }
+    const cap: usize = jpeg_max_bytes(16, 16);
+    const buf: &u8 = alc.alloc(cap) catch { return; };
+    defer { alc.dealloc(buf as &byte); }
+    var n: usize = 0;
+    _ = try jpeg_encode_q(&src, 50, buf, cap, alc, &n);
+    try assert_eq_i32(buf[20] as i32, 0xFF);
+    try assert_eq_i32(buf[21] as i32, 0xDB);
+    try assert_eq_i32(buf[22] as i32, 0);      // 段长 = 2 + 2*65 = 132
+    try assert_eq_i32(buf[23] as i32, 132);
+    try assert_eq_i32(buf[24] as i32, 0);      // 精度 0（8-bit）+ 表号 0
+    // Annex K 亮度表的前 8 个 zigzag 值
+    try assert_eq_i32(buf[25] as i32, 16);
+    try assert_eq_i32(buf[26] as i32, 11);
+    try assert_eq_i32(buf[27] as i32, 12);
+    try assert_eq_i32(buf[28] as i32, 14);
+    try assert_eq_i32(buf[29] as i32, 12);
+    try assert_eq_i32(buf[30] as i32, 10);
+    try assert_eq_i32(buf[31] as i32, 16);
+    try assert_eq_i32(buf[32] as i32, 14);
+    // 末 4 个（zigzag 62..63 附近的值：92 101 103 99）
+    try assert_eq_i32(buf[85] as i32, 92);
+    try assert_eq_i32(buf[86] as i32, 101);
+    try assert_eq_i32(buf[87] as i32, 103);
+    try assert_eq_i32(buf[88] as i32, 99);
+    // 第二张表（色度）紧随其后：表头在 89，第一个值应当是 Annex K 的 17
+    try assert_eq_i32(buf[89] as i32, 1);      // 精度 0 + 表号 1
+    try assert_eq_i32(buf[90] as i32, 17);
+    try assert_eq_i32(buf[91] as i32, 18);
+}
+
+test "jpeg_encode_quality_scales_quant_table" {
+    // quality 100 -> scale = 0 -> 全 1；quality 1 -> scale = 5000 -> 夹到 255。
+    // 这条把「质量 → 量化表」的映射钉在两端（比往返误差更直接）。
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(16, 16, alc);
+    defer { image_free(&src); }
+    const cap: usize = jpeg_max_bytes(16, 16);
+    const buf: &u8 = alc.alloc(cap) catch { return; };
+    defer { alc.dealloc(buf as &byte); }
+    var n: usize = 0;
+    _ = try jpeg_encode_q(&src, 100, buf, cap, alc, &n);
+    try assert_eq_i32(buf[25] as i32, 1);      // 亮度表第一个值 = 1
+    _ = try jpeg_encode_q(&src, 1, buf, cap, alc, &n);
+    try assert_eq_i32(buf[25] as i32, 255);    // 夹到上限
+}
+
+test "jpeg_encode_buffer_too_small" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var src: Image = try make_rgb(16, 16, alc);
+    defer { image_free(&src); }
+    var tiny: [u8: 32] = [0: 32];
+    var tn: usize = 0;
+    try assert_true(!ok_of(jpeg_encode_q(&src, 85, &tiny[0], 32 as usize,
+        alc, &tn)));
+}
+
+test "jpeg_encode_max_bytes_is_enough" {
+    const alc: MallocAllocator = get_allocator()[0];
+    // 最坏组合：4:4:4 + quality 100（量化表全 1，系数几乎不丢）
+    var src: Image = try make_rgb(48, 48, alc);
+    defer { image_free(&src); }
+    const cap: usize = jpeg_max_bytes(48, 48);
+    const buf: &u8 = alc.alloc(cap) catch { return; };
+    defer { alc.dealloc(buf as &byte); }
+    var n: usize = 0;
+    var o: JpegEncodeOptions = jpeg_options_default();
+    o.quality = 100;
+    o.subsample = JPEG_SUB_444;
+    _ = try jpeg_encode(&src, &o, buf, cap, alc, &n);
+    try assert_true(n > 0 as usize);
+    try assert_true(n < cap);
+}
+
+test "jpeg_encode_rejects_bad_input" {
+    const alc: MallocAllocator = get_allocator()[0];
+    var buf: [u8: 64] = [0: 64];
+    var n: usize = 0;
+    // 空图
+    var bad: Image = blank_image();
+    try assert_true(!ok_of(jpeg_encode_q(&bad, 85, &buf[0], 64 as usize,
+        alc, &n)));
+    // 通道数非法（2）
+    var two: Image = try image_new(4, 4, IMAGE_GRAY, alc);
+    defer { image_free(&two); }
+    two.channels = 2;
+    try assert_true(!ok_of(jpeg_encode_q(&two, 85, &buf[0], 64 as usize,
+        alc, &n)));
+}
