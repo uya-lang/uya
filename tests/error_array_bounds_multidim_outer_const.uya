@@ -1,0 +1,12 @@
+// error_array_bounds_multidim_outer_const.uya - 多维数组第一维常量索引越界
+//
+// 与 error_array_bounds_multidim_const.uya（第二维越界）配对，确认多维数组
+// 的每一层下标都做常量越界检查，而不是只检查最内层。
+//
+// 预期：编译失败，报告「数组索引越界：常量索引超出数组边界」
+
+export fn main() i32 {
+    var matrix: [[i32: 3]: 2] = [[1, 2, 3], [4, 5, 6]];
+    // 第一维长度是 2，下标 2 越界
+    return matrix[2][0];
+}

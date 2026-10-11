@@ -1,0 +1,24 @@
+// error_array_bounds_guard_off_by_one.uya - 守卫边界差一（`<= len` 而非 `< len`）
+//
+// 规范 §14.2：变量索引必须证明 `i < len`。`i <= len` 允许 `i == len`，
+// 正好是第一个越界下标，因此不能作为合法证明。这里确认证明器按
+// 「严格小于」判定，而不是把 `<=` 当等价条件放行。
+//
+// 与 tests/test_ub_safety_guards.uya 的 `bounds guard both sides` 正例配对。
+//
+// 预期：编译失败，报告「数组索引安全证明失败」
+
+fn pick(i: i32) i32 {
+    var arr: [i32: 5] = [0, 0, 0, 0, 0];
+
+    // i <= 5 允许 i == 5，而合法下标只到 4
+    if i >= 0 && i <= 5 {
+        return arr[i];
+    }
+
+    return 0;
+}
+
+export fn main() i32 {
+    return pick(1);
+}

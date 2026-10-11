@@ -1,0 +1,27 @@
+// error_move_active_pointer_after_borrow.uya - 借用仍活跃时移动变量
+//
+// 规范 §12.5.5：存在活跃指针时禁止移动，防止悬垂指针。既有负例
+// error_move_active_pointer.uya 覆盖「先借后移」，这里补齐「先移后借」
+// 的镜像形态——移动之后再取原变量的地址，同样是拿不到旧值的悬垂借用。
+//
+// 预期：编译失败，报告「已被移动」或「存在活跃指针」
+
+struct Box {
+    id: i32,
+}
+
+fn read_id(v: &Box) i32 {
+    return v[0].id;
+}
+
+export fn main() i32 {
+    const a: Box = Box{ id: 7 };
+
+    // a 被移动到 b
+    const b: Box = a;
+
+    // a 已移动，再对它取址就是悬垂借用
+    const from_old: i32 = read_id(&a);
+
+    return b.id + from_old;
+}

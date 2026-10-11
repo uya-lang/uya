@@ -1,6 +1,10 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-04（异步编程缺失项收口第一轮：**hosted 模式下多线程并发 `malloc/free` 必然踩坏堆**（P0）已定位并修复 —— 根因是 `lib/libc/pthread.uya` 的 `clone` 不含 `CLONE_SETTLS`，线程没有 FS/TLS，而 hosted 下 `malloc/free` 让给了宿主 glibc（per-thread tcache/arena 挂在 FS 上），于是所有 uya 线程共用父线程的 glibc TLS；独立 C 复现：glibc `pthread_create` 3/3 通过、raw clone 3/3 堆损坏。修法是 hosted 下保留 uya 自己的线程安全堆（`lib/libc/heap.uya`）并把 `calloc` 一并留在 uya 侧避免跨分配器错配；新增回归 `tests/test_pthread_heap_concurrency.uya`，hosted 套件 1112/1112。同轮：**`Waker` 单 fd/单 interest**（P2）扩成有界槽表并让调度器注册全部 fd（新增 `tests/test_async_waker_multi_interest.uya`）；**HTTP/1 响应头上限**（P2）改为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖。详见"运行时 bug"与"标准库 bug"首两条。；另 2026-10-04：2026-10-04（split-C 下同名顶层常量重复发射定义（`multiple definition`）的**根因**已在后端收口：`gen_extern_var_decl` 原本用上限 512 的 `global_variables` 注册表当查重依据，`uya-agent` 有 1700+ 顶层全局、表满后静默停登导致去重失效；新增独立的「已发射全局 C 名」集合（`C99_EMITTED_GLOBAL_CAP = 8192`，**表满即报错并指出文件:行:列与全局名**，不再静默降级）与 `tests/verify_split_dup_global.sh` 回归（已挂进 `make check` / `make check-hosted`），`make b` 自举字节一致、`make check` 1111/1111，详见"编译器 bug"首条；2026-10-03（split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义导致链接期 multiple definition 已修复：`lib/libc/stdlib.uya` 删掉那份重复常量，`uya-agent` 工程 split 构建恢复通过，详见"标准库 bug"首条；`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
+**最后更新：** 2026-10-11（补 UB 测试覆盖：新增 21 个负例 + 正例 `tests/test_ub_safety_guards.uya`（22 用例）；
+补覆盖过程中发现 **7 条 UB 漏检**，已按 P0 记入"编译器 bug"首条并各带 `tests/repros/` 最小复现 ——
+其中「移动嵌套字段后同一块堆内存被 free 两次」已实测确认真 double free，
+「常量 -1 下标」已定位到 `checker_eval_const_expr` 拿 -1 当"非常量"哨兵的根因。
+此前：2026-10-04（异步编程缺失项收口第一轮：**hosted 模式下多线程并发 `malloc/free` 必然踩坏堆**（P0）已定位并修复 —— 根因是 `lib/libc/pthread.uya` 的 `clone` 不含 `CLONE_SETTLS`，线程没有 FS/TLS，而 hosted 下 `malloc/free` 让给了宿主 glibc（per-thread tcache/arena 挂在 FS 上），于是所有 uya 线程共用父线程的 glibc TLS；独立 C 复现：glibc `pthread_create` 3/3 通过、raw clone 3/3 堆损坏。修法是 hosted 下保留 uya 自己的线程安全堆（`lib/libc/heap.uya`）并把 `calloc` 一并留在 uya 侧避免跨分配器错配；新增回归 `tests/test_pthread_heap_concurrency.uya`，hosted 套件 1112/1112。同轮：**`Waker` 单 fd/单 interest**（P2）扩成有界槽表并让调度器注册全部 fd（新增 `tests/test_async_waker_multi_interest.uya`）；**HTTP/1 响应头上限**（P2）改为默认值 + `UYA_HTTP1_RESPONSE_HEADER_MAX_CAP` 可覆盖。详见"运行时 bug"与"标准库 bug"首两条。；另 2026-10-04：2026-10-04（split-C 下同名顶层常量重复发射定义（`multiple definition`）的**根因**已在后端收口：`gen_extern_var_decl` 原本用上限 512 的 `global_variables` 注册表当查重依据，`uya-agent` 有 1700+ 顶层全局、表满后静默停登导致去重失效；新增独立的「已发射全局 C 名」集合（`C99_EMITTED_GLOBAL_CAP = 8192`，**表满即报错并指出文件:行:列与全局名**，不再静默降级）与 `tests/verify_split_dup_global.sh` 回归（已挂进 `make check` / `make check-hosted`），`make b` 自举字节一致、`make check` 1111/1111，详见"编译器 bug"首条；2026-10-03（split-C 下 `libc.stdlib` 与 `libc.time` 的 `CLOCKS_PER_SEC` 双双 emit 成外部定义导致链接期 multiple definition 已修复：`lib/libc/stdlib.uya` 删掉那份重复常量，`uya-agent` 工程 split 构建恢复通过，详见"标准库 bug"首条；`libc.signal` 的 `signal()` 装的处理器一收到信号就 SIGSEGV（x86_64 缺 SA_RESTORER / rt_sigreturn 垫片）已修复：回移 0.11 实现，新增回归 `tests/test_signal.uya` 的 `signal_handler_is_invoked` / `sigprocmask_blocks_delivery`，详见"标准库 bug"首条；2026-09-27（hosted 下用户顶层全局与系统头宏同名（如 `const ETIMEDOUT: i32 = 110;`）导致镜像头 `uya_mirror_globals.h` 与单文件定义双双编译失败已修复，详见"编译器 bug"首条，新增回归 `tests/test_hosted_macro_name_collision.uya`；本轮复核并关闭 3 条已被代码推翻的旧条目：`DNS_PREFER_ANY` 异步聚合已并发化、`@async_fn` 的 `while true` 回跳已改为统一 label + goto、`uintptr_t` 指针算术模式在当前生成 C 中已不存在；`test_async_event_dynamic_growth` 在默认 fd 软上限（1024）的终端里必然失败（`make release` 只挂这一项）已修复：根因是用例要同时持有 2050+ 个 fd 才能跨过 `LinuxEpoll` 默认 1024 slot 边界，而登录终端/CI 的 `RLIMIT_NOFILE` 软上限常为 1024，`pipe2` 报 `EMFILE`；`tests/run_programs_parallel.sh` 启动时把软上限提升到硬上限，用例自身也用 `setrlimit` 抬够（抬不够则 stderr 报 `skip:` 并跳过扩容部分）；同限制下 `make check` 1110/1110；`bench_malloc_phase4` 系列满并发偶发 SIGSEGV 已定位并修复：根因是 pthread join 在子线程还在内核返回路径上就 `free(stack)`/`munmap(desc)`，栈被后续 mmap 复用清零后子线程从栈里取到 0 返回地址跳转到地址 0（use-after-unmap），修复方式是用 `clear_child_tid`(set_tid_address) + 共享 `FUTEX_WAIT` 做退出确认，新增回归 `tests/test_pthread_join_stack_reuse.uya`；"数组索引边界证明器不跨 `as usize` cast 传递范围事实"经当前树复现验证已修复（文档复现命令编译通过），补回归 `tests/test_bounds_prover_as_usize_cast.uya` + 负例 `tests/error_array_bounds_signed_cast_lower_bound.uya`；同源的反向漏判（有符号源 `as usize` 下标被当作天然非负 → 静默越界读）及其暴露出的成员访问约束名悬垂指针（负哈希跳过池化 → 证明结果随变量名变化）一并修复；跟踪的自举种子陈旧导致 `make release` 冷启动链接失败（`uya_pipeline_worker_dispatch` 未定义）：已按流程刷新 `backup/*.c` 种子；hosted 路线下 `bin/uya-hosted` 一运行即 abort（`glibc detected an invalid stdio handle`）已修复：hosted 下 stdio 整体保留 uya 实现，调用点/声明点/文本发射的 C 名统一解析到 uya 的模块前缀符号，`stdin/stdout/stderr` 一并绑回 uya 流对象；模块作用域 bug 经 `make check` 全绿确认关闭）；2026-09-11 新增并修复 5 项编译器 bug：macOS 交叉目标宿主绑定被 `#ifdef __APPLE__` 裁掉、微应用 payload 打包失败与宿主辅助符号泄漏：指向 const 元素指针形参切片发射未定义 `struct uya_slice_constuint8_t`、多个模块导出同名函数时模块限定调用被发射成另一模块实现、函数查找不区分模块导致用户模块同名函数劫持依赖模块内部调用；后两项同源，均属"扁平 `program_decls` 按名查找不带模块限定"；2026-06-06 新增“数组索引边界证明器不跨 `as usize` cast 传递范围事实”编译器 bug，P2/中，含最小复现 `tests/repros/bounds_prover_as_usize_cast.uya`；2026-05-28 曾新增“`std.thread.async_compute<usize>` 并行 worker 返回结构体结果时运行时崩溃”编译器/运行时交界 bug，及“泛型 wrapper 转发 `std.thread.async_compute<T>` 时 C99 backend 漏发射单态化符号”
 
 本文档用于跟踪 release 验证中发现的问题，便于逐项修复、验证和关闭。
 
@@ -266,6 +270,112 @@
   - 影响：release 流程不再被这些测试阻塞，CI 环境下网络测试会优雅跳过
 
 ## 编译器 bug
+
+- [ ] **P0 / 严重：UB 漏检一批（7 条，含实测 double free）—— 常量 -1 下标、循环体下标、切片下标/范围、指针形参解引用、嵌套字段移动、元组下标越界**
+  - 状态：**未修复**（2026-10-11 补 UB 测试覆盖时发现；每条都有 `tests/repros/` 最小复现）
+  - 背景：本轮为「所有 UB 必须被编译期证明为安全」（`docs/uya.md` §14）补测试覆盖。
+    补负例时发现一部分场景编译器**根本不设放行条件**，直接静默生成越界 / 悬垂 / 重复释放的代码。
+    这些不是「测试没写」，是「检查没接上」，因此先以 `tests/repros/` 复现文件记录，
+    负例（`tests/error_*.uya`）等修好后补。7 条互相独立，都只在 `--safety-proof`（默认开启）下复现。
+
+  - **① 常量下标等于 -1 时边界检查整体失灵**（`tests/repros/bounds_const_negative_index.uya`）
+    - 根因（已坐实到行）：`checker_eval_const_expr()`（`src/checker/proof.uya`）用返回值
+      **-1** 同时表示「非常量表达式」与「常量 -1」。两个调用点
+      （`src/checker/check_expr_extra.uya:80`、`src/checker/check_expr.uya:4051`）都写成
+      `if index_val >= 0 { 常量越界检查 } else { 变量证明 }`，于是**常量 -1 掉进「变量」分支**；
+      在那里它既不是合法线性表达式、也不是有效区间，证明静默失败且不报错，直接放行。
+    - 后果：`const a: [i32: 3] = [1,2,3]; return a[0 - 1];` 编译通过，生成 `a[(-1)]`；
+      对照 `a[3]` 正常报「数组索引越界」。
+    - 影响面大于数组下标：`-1` 是常量求值的**通用失败哨兵**，凡「中间折叠结果等于 -1」的检查点
+      （常量溢出、除零等）都会跳过 —— 例如 `2147483647 - (0 - 1)`（减法上溢）同样静默通过。
+    - 修法方向：常量求值改为「成功标志 + 值」双返回（或独立 `has_const` 出参），不要拿 -1 当哨兵。
+
+  - **② 移动嵌套字段后原字段仍可读，同一块堆内存被 free 两次（实测真 double free）**
+    （`tests/repros/move_nested_field_double_free.uya`）
+    - 现象：移动标记只落在**顶层变量**上。`const b: S = a;` 后再用 `a` 会报「变量 'a' 已被移动」；
+      但**字段移动**不设标记：
+      ```uya
+      const h: Holder = Holder{ buf: Buf{ data: malloc(64usize) } };
+      const moved: Buf = h.buf;      // 字段被移走，h.buf 未标记
+      const again: &void = h.buf.data;   // 读已移走字段：静默通过 ✗
+      // 出作用域：moved 与 h.buf 各自清理 → 同一指针 free 两次
+      ```
+    - 实测（`./bin/uya build --safety-proof tests/repros/move_nested_field_double_free.uya`）：
+      ```
+      moved.data=0x7f9cb6aad030
+      free(0x7f9cb6aad030)      ← moved 的 drop
+      free(0x7f9cb6aad030)      ← h.buf 的字段 drop，同一指针
+      Holder.drop
+      ```
+      计数器版本更直观：同一个 `Inner.drop` 被调用两次，而**整变量**移动的同形代码只调用一次
+      （`tests/test_drop_after_move.uya` 断言 `drop_count == 1`）。
+    - 注：本轮早些时候写过一版「只看到生成 C 里两次 `_drop(moved)`」的推测，实测第二次位于
+      `return` 之后（死代码）**不会真的重复释放**；上面这版用「外层结构体也带 drop 且字段被移走」
+      才触发**可达**的重复释放，已实测确认。`lib/libc/heap.uya` 对重复 `free` 只静默忽略
+      （`if is_free(hdr) { return; }`，`heap.uya:1348`），所以运行期不报错，UB 被掩盖。
+    - 归属：`src/checker/`（`moved_set` 只登记顶层变量，未覆盖成员访问链）。
+
+  - **③ `while`/`for` 循环体内的下标不参与边界证明**（`tests/repros/bounds_loop_body_not_proved.uya`）
+    - 现象：下标初值是**常量 0** 时循环体静默放行；初值换成**函数参数**（区间未知）反而报错 ——
+      说明「初值为常量」这条路径漏检：
+      ```uya
+      fn inside() i32 { var a: [i32: 5] = ...; var i: i32 = 0;
+                        while i < 9 { a[i] = 1; i = i + 1; }   // 静默通过 ✗
+                        return 0; }
+      fn with_param(start: i32) i32 { var a: [i32: 5] = ...; var i: i32 = start;
+                        while i < 9 { a[i] = 1; i = i + 1; }   // 报「证明失败」 ✓
+                        return 0; }
+      ```
+    - 后果：实测越界写 `a[5]`，返回值被破坏（期望 495 → 实际 239）。
+      同一段访问放在循环**外**会正确报错。
+    - 归属：`src/checker/`（循环体的数组访问检查未接边界证明）。
+
+  - **④ `return` 里的 cast / 实参位置跳过常量越界检查**
+    （`tests/repros/bounds_const_oob_in_return_cast.uya`）
+    - 现象：同一越界下标，是否**直接出现在 `return` 表达式里**决定检查是否执行：
+      ```uya
+      const via: i32 = a[3];   // 报「数组索引越界」 ✓
+      return a[3] as i32;      // 静默通过，生成 (int32_t)a[3]      ✗
+      return identity(a[3]);   // 静默通过，生成 identity(a[3])     ✗
+      ```
+    - 归属：两条数组访问检查路径（`infer_array_access` `src/checker/check_expr.uya` 与
+      `checker_check_array_access` `src/checker/check_expr_extra.uya`）覆盖不一致，
+      `return` 路径只走到其中一条。
+
+  - **⑤ 切片（`&[T]`）下标不做边界证明，切片范围越界不检查**
+    （`tests/repros/bounds_slice_index_not_proved.uya`）
+    - 现象 1：`fn read_at(s: &[i32], i: i32) i32 { return s[i]; }` 中 `i` 毫无约束，读写都不报错；
+      同形的数组版本 `return a[i]` 会报「数组索引安全证明失败」。
+    - 现象 2：`&buf[0:99]`（底层 `[i32: 4]`）静默通过，`@len` 得到 99，越界读。
+    - 归属：`checker_check_array_access` 的 `TYPE_SLICE` 分支
+      （`src/checker/check_expr_extra.uya:62`）只做元素类型推断，不进入 `TYPE_ARRAY` 分支的证明逻辑；
+      切片范围表达式无长度校验。
+
+  - **⑥ 指针形参（`&T`）解引用不做空指针检查**（`tests/repros/null_param_deref_not_checked.uya`）
+    - 现象：空指针跟踪只看**局部变量**是否由 `null` 初始化
+      （`pointer_is_nullable()`，`src/checker/interval.uya:136`），形参不在跟踪集合里：
+      ```uya
+      fn ok() i32 { var p: &i32 = null; return p[0]; }   // 报「指针可能为空」 ✓
+      fn bad(p: &i32) i32 { return p[0]; }               // 静默通过            ✗
+      ```
+      调用点 `bad(null)` 也无告警；写解引用（`p[0] = 1`）与成员访问（`p[0].field`）同样漏检。
+    - 后果：实测产物运行期 SIGSEGV（退出码 139）。
+
+  - **⑦ 元组下标越界（`t.N`）不检查，落到 C 编译器才报错**
+    （`tests/repros/tuple_index_oob_not_checked.uya`）
+    - 现象：checker 里存在「元组下标越界（.0/.1/... 必须在元组元素个数内）」诊断
+      （`src/checker/check_call.uya:2679`），但在常量元组上不可达：
+      `const t: (i32,i32,i32) = (1,2,3); return t.3;` 通过 checker。
+    - 后果：生成的 C 是 `struct { int32_t f0,f1,f2; } t = {...}; ... = t.f3;`，
+      报错被推迟到 C 编译器（`‘struct <anonymous>’ has no member named ‘f3’`），
+      位置失真（指向生成的 `.c` 而不是 `.uya` 源码）。
+
+  - 本轮同时补齐的**放行侧**覆盖（这些检查本来就正确，只是缺用例）：
+    新增 21 个负例（常量越界：多维 / 结构体数组 / 常量表达式 / 远大于长度；
+    证明失败：参数读写、单边守卫、usize 与 `as usize` 只证下界、守卫差一、`for` 范围过宽；
+    常量模零 / 嵌套除零 / 减、乘、一元负溢出；空指针写与成员访问、移动后取址），
+    以及正例 `tests/test_ub_safety_guards.uya`（22 个用例覆盖各类守卫的正确写法与 drop 只执行一次）。
+  - 归属：`src/checker/`（①-⑦ 全部落在 checker）。
 
 - [ ] **P1 / 高：除数是「函数形参的加减表达式」时编译器自己 SIGFPE（浮点数例外）**
   - 状态：**已定位并给出最小复现**（2026-10-07，做 `std.image.jpeg_*` 时踩到）

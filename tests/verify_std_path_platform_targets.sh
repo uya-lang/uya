@@ -7,7 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build/std_path_platform_targets"
-COMPILER="../uya/bin/uya"
+# 环境变量：UYA_COMPILER 覆盖编译器路径（默认 <root>/bin/uya）。
+# 不要用 `../uya/bin/uya` 这类相对路径：它只在「仓库目录名恰好是 uya」的
+# 布局下才碰巧指回仓库自己，在 worktree / 改名目录下会直接找不到编译器。
+COMPILER="${UYA_COMPILER:-$REPO_ROOT/bin/uya}"
 TEST_FILE="tests/test_std_path_platform_cfg.uya"
 CC_BIN="${CC:-cc}"
 HOST_OS_NAME="${HOST_OS:-$(uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')}"

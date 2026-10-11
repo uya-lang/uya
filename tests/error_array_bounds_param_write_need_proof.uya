@@ -1,0 +1,19 @@
+// error_array_bounds_param_write_need_proof.uya - 函数参数下标写入缺少边界证明
+//
+// 与 error_array_bounds_param_read_need_proof.uya（读）配对，确认写路径也走
+// 同一套边界证明。既有负例 error_bounds_need_proof.uya 同样是写路径，但下标
+// 来自「局部变量 + 调用返回值」；这里用函数参数，确认「参数区间未知」不会
+// 被当成「可证明安全」。
+//
+// 预期：编译失败，报告「数组索引安全证明失败」
+
+fn store(i: i32) i32 {
+    var arr: [i32: 4] = [0, 0, 0, 0];
+    // i 是参数，区间完全未知
+    arr[i] = 7;
+    return 0;
+}
+
+export fn main() i32 {
+    return store(1);
+}

@@ -1,0 +1,12 @@
+// error_array_bounds_index_too_large.uya - 索引远大于数组长度
+//
+// 与 error_const_bounds.uya（下标恰好比长度大 1）配对，确认越界判定不是
+// 「只抓差一」的特例，而是按 `index >= len` 统一拒绝。
+//
+// 预期：编译失败，报告「数组索引越界：常量索引超出数组边界」
+
+export fn main() i32 {
+    const small: [i32: 3] = [1, 2, 3];
+    // 下标 100 远大于长度 3
+    return small[100];
+}

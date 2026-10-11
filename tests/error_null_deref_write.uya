@@ -1,0 +1,18 @@
+// error_null_deref_write.uya - 空指针写解引用检测
+//
+// 规范 §14.2 空指针解引用行：必须证明 `ptr != null`，否则编译错误。
+// 既有负例 error_null_deref.uya 覆盖的是**读**路径（`return ptr[0]`），
+// 这里补齐**写**路径：证明失败同样必须报错，不能因为写入而放行。
+//
+// 与 tests/test_ub_safety_guards.uya 的 `null guard positive branch` 正例配对。
+//
+// 预期：编译失败，报告「指针可能为空」
+
+export fn main() i32 {
+    var ptr: &i32 = null;
+
+    // 没有空指针检查，写解引用必须被拒绝
+    ptr[0] = 7;
+
+    return 0;
+}

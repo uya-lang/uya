@@ -1,0 +1,44 @@
+// 复现：指针形参（&T）解引用不做空指针检查，可静默段错误
+//
+// 状态（2026-10-11）：**未修复**。本文件在当前编译器下**编译通过**，
+// 实测运行期 SIGSEGV（退出码 139），是真实的 UB 漏检。
+//
+// 现象：空指针检查只跟踪**局部变量**是否由 `null` 初始化
+//       （`pointer_is_nullable()`，src/checker/interval.uya:136），
+//       函数形参 `p: &T` 不在跟踪集合里，于是解引用不报错：
+//
+//   fn ok() i32 { var p: &i32 = null; return p[0]; }       // 报「指针可能为空」 ✓
+//   fn bad(p: &i32) i32 { return p[0]; }                   // 静默通过            ✗
+//   // main 里调用 bad(null) 也无告警
+//
+// 同一缺口覆盖写解引用（`p[0] = 1`）与结构体成员访问（`p[0].field`）。
+//
+// 复现命令：
+//   ./bin/uya build --safety-proof tests/repros/null_param_deref_not_checked.uya -o /tmp/null_param
+//   /tmp/null_param; echo $?   # 期望编译失败；实际编译通过并以 139 段错误收场
+
+struct Item {
+    value: i32,
+}
+
+// 缺口：形参的可空性没有进入跟踪，解引用静默放行
+fn read_through(p: &i32) i32 {
+    return p[0];
+}
+
+fn write_through(p: &i32) i32 {
+    p[0] = 7;
+    return p[0];
+}
+
+fn member_through(p: &Item) i32 {
+    return p[0].value;
+}
+
+export fn main() i32 {
+    // 三个调用都把 null 传进非空形参
+    const a: i32 = read_through(null);
+    const b: i32 = write_through(null);
+    const c: i32 = member_through(null);
+    return a + b + c;
+}

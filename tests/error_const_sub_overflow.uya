@@ -1,0 +1,14 @@
+// error_const_sub_overflow.uya - 常量减法下溢编译错误
+//
+// 规范 §14.2 整数溢出行：常量溢出 → 编译错误。既有负例
+// error_const_overflow.uya 只覆盖加法（`2147483647 + 1`），这里补齐减法下溢，
+// 确认 `check_i32_sub_overflow` 的两个分支（上溢 / 下溢）都接在诊断上。
+//
+// 预期：编译失败，报告「常量表达式溢出: 减法结果超出 i32 范围」
+
+export fn main() i32 {
+    // 0 - 2147483647 - 2 在第二步下溢到 i32 最小值以下
+    const underflow: i32 = 0 - 2147483647 - 2;
+
+    return underflow;
+}

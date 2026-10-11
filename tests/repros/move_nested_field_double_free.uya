@@ -1,0 +1,70 @@
+// 复现：移动嵌套字段后原字段仍可读，同一块堆内存被 free 两次（真 double free）
+//
+// 状态（2026-10-11）：**未修复**。本文件在当前编译器下**编译通过**，
+// 实测同一块 `malloc` 得到的内存被 `free` 两次，是真实的 UB。
+//
+// 现象：移动标记只落在**顶层变量**上，字段移动不设标记。整变量移动会被抓：
+//
+//   const b: S = a;    const y: i32 = a.id;   // 报「变量 'a' 已被移动」 ✓
+//
+//   但嵌套字段移动不设标记：
+//   const h: Holder = Holder{ buf: Buf{ data: malloc(64) } };
+//   const moved: Buf = h.buf;        // 字段被移走，h.buf 未标记
+//   // 出作用域时 h 的字段清理 与 moved 的清理 都作用在同一份资源上
+//
+// 实测输出（`./bin/uya build --safety-proof` 后运行）：
+//   moved.data=0x7f8ab59c7030
+//   free(0x7f8ab59c7030)      ← moved 的 drop
+//   free(0x7f8ab59c7030)      ← h.buf 的字段 drop，同一指针
+//   Holder.drop
+//
+// 用计数器版本更直观（不需要堆）：把上面的 `data` 换成 `i32`、drop 里累加计数，
+// 同一个 `Inner.drop` 会被调用两次，而**整变量**移动的同形代码只调用一次
+// （见 tests/test_drop_after_move.uya：那里断言 drop_count == 1）。
+//
+// 附带缺口：`const again: i32 = h.buf.data;` 这种「读已移走字段」也静默通过。
+//
+// 复现命令：
+//   ./bin/uya build --safety-proof tests/repros/move_nested_field_double_free.uya -o /tmp/nested_df
+//   /tmp/nested_df          # 期望编译失败；实际编译通过并打印两次同一个地址的 free
+
+use libc.malloc;
+use libc.free;
+
+struct Buf {
+    data: &void,
+    fn drop(self: Buf) void {
+        if self.data != null {
+            printf("free(%p)\n" as *byte, self.data);
+            free(self.data);
+        }
+    }
+}
+
+struct Holder {
+    buf: Buf,
+    fn drop(self: Holder) void {
+        printf("Holder.drop\n" as *byte);
+    }
+}
+
+export fn main() i32 {
+    {
+        const h: Holder = Holder{ buf: Buf{ data: malloc(64usize) } };
+
+        // h.buf 被移动到局部变量：h.buf 应被标记为已移动
+        const moved: Buf = h.buf;
+
+        printf("moved.data=%p\n" as *byte, moved.data);
+
+        // 读已移走字段也应报「已被移动」
+        const again: &void = h.buf.data;
+        if again == null {
+            return 1;
+        }
+    }
+
+    // 出作用域：moved 与 h.buf 各自清理 → 同一指针 free 两次
+    printf("scope done\n" as *byte);
+    return 0;
+}
