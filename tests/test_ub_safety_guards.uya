@@ -1,0 +1,311 @@
+// test_ub_safety_guards.uya - UB 安全路径（编译期证明成立）正向回归
+//
+// 背景：规范 §14「内存安全」要求所有 UB 场景必须被编译期证明为安全，
+// 证明失败即编译错误。本文件覆盖「开发者按规范写对了守卫 → 编译器必须放行
+// 且运行结果正确」的另一半：只测负例（error_*.uya）无法防止过度收紧。
+//
+// 覆盖的 UB 类别：
+//   1. 数组越界：常量索引合法、`>= 0 && < len` 守卫、提前 return 守卫、
+//      for 范围循环自动推导、while 条件自动推导
+//   2. 空指针：`&局部变量` 天然非空、`if p != null` / `if p == null return` 守卫
+//   3. 除零 / 模零：`if b == 0 return` 守卫、非零常量除数
+//   4. 整数溢出：饱和 / 包装运算符、显式上下溢守卫、`try` 错误传播
+//   5. 移动语义：移动后只用目标变量、移动前不留活跃指针
+//
+// 与负例配对：
+//   tests/error_array_bounds_signed_cast_lower_bound.uya
+//   tests/error_bounds_need_proof.uya
+//   tests/error_null_deref.uya
+//   tests/error_move_use_after.uya
+//   tests/test_bounds_prover_as_usize_cast.uya（同类正向回归，偏 cast 场景）
+
+use std.runtime.entry;
+use std.testing.assert_eq_i32;
+use std.testing.assert_true;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+error DivisionByZero;
+
+// ===== 1. 数组越界：证明成立的写法 =====
+
+fn test_bounds_constant_index() !void {
+    const arr: [i32: 3] = [10, 20, 30];
+    // 常量索引 0 / len-1 都是编译期可直接验证的合法边界
+    try assert_eq_i32(arr[0], 10);
+    try assert_eq_i32(arr[2], 30);
+}
+
+fn test_bounds_guard_both_sides() !void {
+    var arr: [i32: 4] = [0, 0, 0, 0];
+    var i: i32 = 2;
+    // 上下界同时证明：编译器放行
+    if i >= 0 && i < 4 {
+        arr[i] = 42;
+    }
+    try assert_eq_i32(arr[2], 42);
+}
+
+fn test_bounds_guard_early_return() !void {
+    var arr: [i32: 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+    var i: i32 = 5;
+    // 守卫取反后提前 return，其后代码处于 [0, 8) 约束中
+    if i < 0 || i >= 8 {
+        return;
+    }
+    try assert_eq_i32(arr[i], 6);
+}
+
+fn test_bounds_for_range_auto() !void {
+    var arr: [i32: 6] = [0, 0, 0, 0, 0, 0];
+    // for 范围循环的迭代变量范围由编译器自动推导
+    for 0..6 |j| {
+        arr[j] = j * 2;
+    }
+    try assert_eq_i32(arr[0], 0);
+    try assert_eq_i32(arr[5], 10);
+}
+
+fn test_bounds_while_condition_auto() !void {
+    var arr: [i32: 5] = [0, 0, 0, 0, 0];
+    var i: i32 = 0;
+    // while 条件本身提供 i < 5；有符号循环变量下界由初值 `= 0` 提供
+    while i < 5 {
+        arr[i] = i + 1;
+        i = i + 1;
+    }
+    try assert_eq_i32(arr[4], 5);
+}
+
+fn test_bounds_usize_upper_only() !void {
+    var arr: [i32: 3] = [7, 8, 9];
+    var u: usize = 1;
+    // usize 本身非负，只需证明上界
+    if u < 3usize {
+        try assert_eq_i32(arr[u], 8);
+    }
+}
+
+// ===== 2. 空指针：证明非空的写法 =====
+
+fn test_null_address_of_local() !void {
+    var value: i32 = 7;
+    // &局部变量 天然非空，无需检查
+    const p: &i32 = &value;
+    try assert_eq_i32(p[0], 7);
+}
+
+fn test_null_guard_positive_branch() !void {
+    var value: i32 = 11;
+    var p: &i32 = &value;
+    if p != null {
+        try assert_eq_i32(p[0], 11);
+    }
+}
+
+fn test_null_guard_negative_branch() !void {
+    var p: &i32 = null;
+    // p == null 时走 return，其后分支不触碰指针
+    if p == null {
+        try assert_true(true);
+        return;
+    }
+    try assert_eq_i32(p[0], 0);
+}
+
+// ===== 3. 除零 / 模零：证明除数非零 =====
+
+fn safe_div(a: i32, b: i32) !i32 {
+    if b == 0 {
+        return error.DivisionByZero;
+    }
+    // 证明 b != 0 后，除法/取模都放行
+    return a / b;
+}
+
+fn safe_mod(a: i32, b: i32) !i32 {
+    if b == 0 {
+        return error.DivisionByZero;
+    }
+    return a % b;
+}
+
+fn test_div_zero_guard() !void {
+    const q: i32 = try safe_div(10, 3);
+    try assert_eq_i32(q, 3);
+}
+
+fn test_mod_zero_guard() !void {
+    const r: i32 = try safe_mod(10, 3);
+    try assert_eq_i32(r, 1);
+}
+
+fn test_div_zero_guard_else_form() !void {
+    // `if b != 0 { ... }` 的另一种守卫形态
+    var b: i32 = 4;
+    if b != 0 {
+        const q: i32 = 20 / b;
+        try assert_eq_i32(q, 5);
+    }
+}
+
+fn test_div_zero_error_path() !void {
+    // 零除数必须走错误路径，而不是执行除法
+    const failed: !i32 = safe_div(10, 0);
+    const handled: i32 = failed catch { 0 - 1; };
+    try assert_eq_i32(handled, -1);
+}
+
+// ===== 4. 整数溢出：显式检查与替代运算符 =====
+
+fn safe_add(a: i32, b: i32) i32 {
+    // 规范 §14.4 给出的上下溢检查模式
+    if a > 0 && b > 0 && a > MAX_I32 - b {
+        return MAX_I32;
+    }
+    if a < 0 && b < 0 && a < MIN_I32 - b {
+        return MIN_I32;
+    }
+    return a + b;
+}
+
+const MAX_I32: i32 = @max;
+const MIN_I32: i32 = @min;
+
+fn test_overflow_guard_add() !void {
+    try assert_eq_i32(safe_add(3, 4), 7);
+    try assert_eq_i32(safe_add(MAX_I32, 1), MAX_I32);
+    try assert_eq_i32(safe_add(MIN_I32, 0 - 1), MIN_I32);
+}
+
+fn test_overflow_saturating_operators() !void {
+    // 饱和运算符不需要显式守卫
+    try assert_eq_i32(MAX_I32 +| 1, MAX_I32);
+    try assert_eq_i32(MIN_I32 -| 1, MIN_I32);
+    try assert_eq_i32(1000 *| 1000, 1000000);
+}
+
+fn test_overflow_wrapping_operators() !void {
+    // 包装运算符同样不需要显式守卫
+    try assert_eq_i32(10 +% 20, 30);
+    try assert_eq_i32(100 -% 40, 60);
+    try assert_eq_i32(6 *% 7, 42);
+}
+
+fn test_overflow_mul_guard() !void {
+    var a: i32 = 3;
+    var b: i32 = 4;
+    // 乘法上溢守卫（同符号正数）
+    if a > 0 && b > 0 && a > MAX_I32 / b {
+        return;
+    }
+    try assert_eq_i32(a * b, 12);
+}
+
+// ===== 5. 移动语义：证明成立的所有权转移 =====
+
+struct MoveBox {
+    id: i32,
+}
+
+fn test_move_then_use_target() !void {
+    const a: MoveBox = MoveBox{ id: 42 };
+    // a 移动进 b；此后只使用 b
+    const b: MoveBox = a;
+    try assert_eq_i32(b.id, 42);
+}
+
+fn test_move_into_call_then_use_param() !void {
+    const a: MoveBox = MoveBox{ id: 7 };
+    // 移动作为实参后，函数内使用的是形参副本
+    const got: i32 = move_box_id(a);
+    try assert_eq_i32(got, 7);
+}
+
+fn test_move_without_active_pointer() !void {
+    const a: MoveBox = MoveBox{ id: 5 };
+    // 借用先结束（未跨过移动点），移动合法
+    const before: i32 = peek_box_id(&a);
+    const b: MoveBox = a;
+    try assert_eq_i32(before, 5);
+    try assert_eq_i32(b.id, 5);
+}
+
+fn move_box_id(v: MoveBox) i32 {
+    return v.id;
+}
+
+fn peek_box_id(v: &MoveBox) i32 {
+    return v[0].id;
+}
+
+// ===== 6. drop 只执行一次：移动后不重复清理 =====
+//
+// 移动语义的 UB 形态之一是「同一份资源被 drop 两次」（double free 的温床）。
+// 这里用计数器断言「移动后 total drop == 1」：整变量移动与字段移动各一条。
+// 见 tests/repros/move_nested_field_double_free.uya（字段移动 + 外层 drop 的漏检形态）。
+
+var guard_drop_count: i32 = 0;
+
+struct GuardInner {
+    value: i32,
+    fn drop(self: GuardInner) void {
+        guard_drop_count = guard_drop_count + 1;
+    }
+}
+
+struct GuardOuter {
+    inner: GuardInner,
+}
+
+fn test_drop_once_after_whole_move() !void {
+    guard_drop_count = 0;
+    {
+        const a: GuardInner = GuardInner{ value: 1 };
+        // a 移入 b：只有 b 负责清理
+        const b: GuardInner = a;
+        try assert_eq_i32(b.value, 1);
+    }
+    try assert_eq_i32(guard_drop_count, 1);
+}
+
+fn test_drop_once_after_field_move() !void {
+    guard_drop_count = 0;
+    {
+        const o: GuardOuter = GuardOuter{ inner: GuardInner{ value: 2 } };
+        // o.inner 移入局部变量：只有移动后的变量负责清理
+        const moved: GuardInner = o.inner;
+        try assert_eq_i32(moved.value, 2);
+    }
+    try assert_eq_i32(guard_drop_count, 1);
+}
+
+// ===== 套件入口 =====
+
+export fn main() i32 {
+    test_suite_begin("UB Safety Guards");
+    run_test("bounds constant index", test_bounds_constant_index);
+    run_test("bounds guard both sides", test_bounds_guard_both_sides);
+    run_test("bounds guard early return", test_bounds_guard_early_return);
+    run_test("bounds for range auto", test_bounds_for_range_auto);
+    run_test("bounds while condition auto", test_bounds_while_condition_auto);
+    run_test("bounds usize upper only", test_bounds_usize_upper_only);
+    run_test("null address of local", test_null_address_of_local);
+    run_test("null guard positive branch", test_null_guard_positive_branch);
+    run_test("null guard negative branch", test_null_guard_negative_branch);
+    run_test("div zero guard", test_div_zero_guard);
+    run_test("mod zero guard", test_mod_zero_guard);
+    run_test("div zero guard else form", test_div_zero_guard_else_form);
+    run_test("div zero error path", test_div_zero_error_path);
+    run_test("overflow guard add", test_overflow_guard_add);
+    run_test("overflow saturating operators", test_overflow_saturating_operators);
+    run_test("overflow wrapping operators", test_overflow_wrapping_operators);
+    run_test("overflow mul guard", test_overflow_mul_guard);
+    run_test("move then use target", test_move_then_use_target);
+    run_test("move into call then use param", test_move_into_call_then_use_param);
+    run_test("move without active pointer", test_move_without_active_pointer);
+    run_test("drop once after whole move", test_drop_once_after_whole_move);
+    run_test("drop once after field move", test_drop_once_after_field_move);
+    return test_suite_end();
+}

@@ -1,0 +1,18 @@
+// error_null_deref_member.uya - 空指针成员访问检测
+//
+// 规范 §14.2 空指针解引用行。既有负例 error_null_deref.uya 用的是 `ptr[0]`
+// 下标形态；结构体指针的 `ptr[0].field` 成员访问链是另一种常见写法，
+// 这里确认空指针检查覆盖成员访问链，而不只是裸下标。
+//
+// 预期：编译失败，报告「指针可能为空」
+
+struct Item {
+    value: i32,
+}
+
+export fn main() i32 {
+    var ptr: &Item = null;
+
+    // 没有空指针检查，成员访问必须被拒绝
+    return ptr[0].value;
+}

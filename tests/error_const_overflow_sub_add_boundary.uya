@@ -1,0 +1,14 @@
+// error_const_overflow_sub_add_boundary.uya - 减法边界（@min - 1）溢出
+//
+// 与 error_const_sub_overflow.uya 互补：那条走的是「大负数累减」，这条是
+// 最直接的下溢形态（最小值再减 1）。确认下溢判定覆盖 @min 这个端点，
+// 而不是只在远离端点时生效。
+//
+// 预期：编译失败，报告「常量表达式溢出: 减法结果超出 i32 范围」
+
+export fn main() i32 {
+    // (-2147483647 - 1) 即 i32 最小值，再减 1 下溢
+    const underflow: i32 = (0 - 2147483647 - 1) - 1;
+
+    return underflow;
+}

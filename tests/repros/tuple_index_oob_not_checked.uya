@@ -1,0 +1,28 @@
+// 复现：元组下标（t.N）越界不做检查，落成引用不存在字段的 C 代码
+//
+// 状态（2026-10-11）：**未修复**。本文件在当前编译器下 checker 放行，
+// 生成的 C 引用 `t.f3`（三元组只发射 f0/f1/f2），是真实的检查缺口。
+//
+// 现象：checker 里存在「元组下标越界（.0/.1/... 必须在元组元素个数内）」
+//       诊断（src/checker/check_call.uya:2679），但该分支在常量元组上不可达：
+//
+//   const t: (i32, i32, i32) = (1, 2, 3);
+//   return t.2;    // 合法 ✓
+//   return t.3;    // 越界，应报「元组下标越界」，实际静默通过 ✗
+//
+// 后续后果：生成的 C 是
+//   struct { int32_t f0; int32_t f1; int32_t f2; } t = {...};
+//   int32_t _uya_ret = t.f3;            // ← 编译 C 时 'struct <anonymous>' has no member named 'f3'
+// 也就是错误被推迟到 C 编译器，诊断可读性差且位置失真（指向生成的 .c 而不是 .uya）。
+//
+// 复现命令：
+//   ./bin/uya build --safety-proof tests/repros/tuple_index_oob_not_checked.uya -o /tmp/tuple_oob
+//   # 期望在 checker 阶段报「元组下标越界」；
+//   # 实际先通过 checker，再在生成 C 编译时报 no member named 'f3'
+
+export fn main() i32 {
+    const triple: (i32, i32, i32) = (1, 2, 3);
+
+    // 下标合法范围是 .0 / .1 / .2
+    return triple.3;
+}

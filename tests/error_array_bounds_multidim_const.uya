@@ -1,0 +1,13 @@
+// error_array_bounds_multidim_const.uya - 多维数组常量索引越界
+//
+// 规范 §14.2：数组越界「常量索引越界 → 编译错误」。既有用例只覆盖一维数组
+// （error_const_bounds.uya / error_array_overrange.uya），这里补齐二维数组
+// 第二维的常量越界，防止边界检查只在最外层数组生效。
+//
+// 预期：编译失败，报告「数组索引越界：常量索引超出数组边界」
+
+export fn main() i32 {
+    var matrix: [[i32: 3]: 2] = [[1, 2, 3], [4, 5, 6]];
+    // 第二维长度是 3，下标 3 越界
+    return matrix[1][3];
+}

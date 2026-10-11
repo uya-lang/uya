@@ -1,0 +1,47 @@
+// 复现：while/for 循环体内的下标不参与边界证明（可静默越界读写）
+//
+// 状态（2026-10-11）：**未修复**。本文件在当前编译器下**编译通过**，
+// 运行期越界写 a[5]（数组只有 5 个元素），是真实的 UB 漏检。
+//
+// 现象：同一段下标访问，放在循环体**外**会被拒绝，放在 while 体**内**
+//       就静默放行 —— 说明循环体的检查路径没接上边界证明：
+//
+//   fn outside(i: i32) i32 {          fn inside() i32 {
+//       var a: [i32: 5] = ...;            var a: [i32: 5] = ...;
+//       return a[i];   // 报「证明失败」   var i: i32 = 0;
+//   }                                     while i < 9 { a[i] = 1; i = i + 1; }
+//                                         return 0;   // 静默通过
+//                                     }
+//
+//       对照：把下标初值改成**参数**（区间未知）时循环体反而会报错，
+//       即「初值为常量 0」这条路径漏检。
+//
+// 影响：越界写落回栈上相邻对象，实测返回值被破坏（本例 495 期望 → 239）。
+//
+// 复现命令：
+//   ./bin/uya build --safety-proof tests/repros/bounds_loop_body_not_proved.uya -o /tmp/loop_oob
+//   /tmp/loop_oob; echo $?      # 期望编译失败；实际编译通过且运行期越界
+
+fn fill_out_of_bounds() i32 {
+    var a: [i32: 5] = [1, 2, 3, 4, 5];
+    var i: i32 = 0;
+
+    // i 的初值 0 是常量，循环条件只给上界 9 > 5，越界写 a[5..8]
+    while i <= 5 {
+        a[i] = 99;
+        i = i + 1;
+    }
+
+    var k: i32 = 0;
+    var sum: i32 = 0;
+    while k < 5 {
+        sum = sum + a[k];
+        k = k + 1;
+    }
+    return sum;
+}
+
+export fn main() i32 {
+    // 健全时 sum 恒为 99 * 5 = 495
+    return fill_out_of_bounds();
+}

@@ -1,0 +1,16 @@
+// error_array_bounds_struct_const.uya - 结构体数组的常量索引越界
+//
+// 规范 §14.2：常量索引越界必须编译报错。结构体元素数组是常见形态，但既有
+// 负例只覆盖标量元素数组，这里确认越界检查对结构体元素同样生效。
+//
+// 预期：编译失败，报告「数组索引越界：常量索引超出数组边界」
+
+struct Point {
+    x: i32,
+}
+
+export fn main() i32 {
+    var points: [Point: 2] = [Point{ x: 1 }, Point{ x: 2 }];
+    // 数组长度是 2，下标 2 越界
+    return points[2].x;
+}

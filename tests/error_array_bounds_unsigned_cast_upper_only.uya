@@ -1,0 +1,23 @@
+// error_array_bounds_unsigned_cast_upper_only.uya - `as usize` 下标只证明上界
+//
+// 规范 §14.2 与 buglist「边界证明器把有符号源 as usize 的下标当成天然非负」
+// 一条：`i as usize`（i: i32）的负值会回绕成巨大下标，因此必须同时证明
+// 源变量 `i >= 0`。既有负例 error_array_bounds_signed_cast_lower_bound.uya
+// 用的是「守卫取反 + 提前 return」写法；这里用单边 `if i < 8` 守卫，
+// 确认「只证明上界」在 cast 形态下同样被拒。
+//
+// 预期：编译失败，报告「数组索引安全证明失败」
+
+var g_array: [i32: 8] = [];
+
+fn pick(i: i32) i32 {
+    // 只证明 i < 8，没有证明 i >= 0
+    if i < 8 {
+        return g_array[i as usize];
+    }
+    return -1;
+}
+
+export fn main() i32 {
+    return pick(3);
+}

@@ -1,0 +1,24 @@
+// error_array_bounds_usize_lower_only.uya - usize 下标只证明下界
+//
+// 规范 §14.2：变量索引必须证明 `i >= 0 && i < len`。usize 天然非负，
+// 因此只剩上界一条需要证明；这里确认「只写 i >= 0」不会因为类型是无符号
+// 就被当成「上界也成立」而放行。
+//
+// 与 tests/test_ub_safety_guards.uya 的 `bounds usize upper only` 正例配对。
+//
+// 预期：编译失败，报告「数组索引安全证明失败」
+
+fn pick(i: usize) i32 {
+    var arr: [i32: 3] = [1, 2, 3];
+
+    // 只有下界，缺上界证明
+    if i >= 0usize {
+        return arr[i];
+    }
+
+    return 0;
+}
+
+export fn main() i32 {
+    return pick(1usize);
+}

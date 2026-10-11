@@ -1,0 +1,16 @@
+// error_const_mod_zero.uya - 常量模零编译错误
+//
+// 规范 §14.2 除零错误行：常量除零 → 编译错误。既有负例
+// error_const_div_zero.uya 只覆盖 `/ 0`，取模 `% 0` 在 C 中同样是 UB，
+// 但一直没有对应用例，这里补齐。
+//
+// 与 tests/test_ub_safety_guards.uya 的 `mod zero guard` 正例配对。
+//
+// 预期：编译失败，报告「常量表达式模零错误」
+
+export fn main() i32 {
+    // 常量取模零应在编译期被拒绝
+    const mod_zero: i32 = 100 % 0;
+
+    return mod_zero;
+}

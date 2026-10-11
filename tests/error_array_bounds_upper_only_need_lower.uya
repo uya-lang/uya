@@ -1,0 +1,23 @@
+// error_array_bounds_upper_only_need_lower.uya - 只证明上界的 i32 下标应报错
+//
+// 规范 §14.2：变量索引必须同时证明下界 `i >= 0` 与上界 `i < len`。
+// 既有负例 error_path_while_need_proof.uya 覆盖「循环条件只给上界」的形态，
+// 这里用最简单的 `if i < 4` 单边守卫，确认「只证明上界」不足以放行有符号下标
+// —— 负索引会绕过上界检查直接越界读。
+//
+// 与 tests/test_ub_safety_guards.uya 的 `bounds guard both sides` 正例配对。
+//
+// 预期：编译失败，报告「数组索引安全证明失败」
+
+fn pick(i: i32) i32 {
+    var arr: [i32: 4] = [1, 2, 3, 4];
+    // 只证明 i < 4，没有证明 i >= 0
+    if i < 4 {
+        return arr[i];
+    }
+    return 0;
+}
+
+export fn main() i32 {
+    return pick(1);
+}

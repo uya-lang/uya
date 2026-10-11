@@ -1,0 +1,14 @@
+// error_const_div_zero_nested.uya - 嵌套常量表达式除零
+//
+// 与 error_const_div_zero.uya（除数写成立字面量 `0`）配对：这里除数是
+// 「折叠后才等于 0」的表达式，确认除零检查发生在常量求值之后，
+// 而不是只匹配语法上的 `0` 字面量。
+//
+// 预期：编译失败，报告「常量表达式除零错误」
+
+export fn main() i32 {
+    // 除数 5 - 5 折叠为 0
+    const div_zero: i32 = 10 / (5 - 5);
+
+    return div_zero;
+}
