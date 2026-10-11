@@ -1,6 +1,19 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-11（补 UB 测试覆盖：新增 21 个负例 + 正例 `tests/test_ub_safety_guards.uya`（22 用例）；
+**最后更新：** 2026-10-11（**区间端点回绕 = 健全性漏洞（P0）已修复**：`interval_add/_sub` 用 i32
+原生运算求区间端点，两个无约束形参相加会回绕成反转区间 `[0, -2]`，而 `interval_within_bounds`
+只比较两个端点，于是 `a[w + h]` 被误判「已证明安全」（gdb 实测 `min=2,max=-2,upper=5` → 返回 1），
+静默生成越界访问；同一条也解释了下面那条 P1「除数是形参表达式时编译器自己 SIGFPE」——
+`interval_div` 的含零判据对回绕区间 `[0, -4]` 失效后直接 `1785 / 0`（gdb 命中 `idiv` 除数为 0），
+而该条此前只写到「未定位到具体文件」。修复取向是**保守拒绝**（`interval_within_bounds` /
+`verify_linear_expr_bounds{,_ex}` 只接受 `min <= max`，`interval_div` 遇反转区间不做除法），
+新增负例 `tests/error_array_bounds_interval_wrap.uya` + 最小复现
+`tests/repros/bounds_interval_wrap_unsound.uya` + 正例 `tests/test_bounds_interval_wrap.uya`
+（防止证明器收紧到误报）；`make b` 自举字节一致、`make check` 1142/1142。
+同轮登记欠账：**取值路径**（`infer_array_access`）仍缺非线性下标的 `else` 分支，
+补它需连带为 `lib/`+`src/` 的 13 处 `digits[di - 1 - i]` 型多变量下标补证明；
+**除法正确性证明**（证明除数 != 0）尚未实现，`a / b` 乃至 `a / 0` 都还不报错。
+此前：2026-10-11（补 UB 测试覆盖：新增 21 个负例 + 正例 `tests/test_ub_safety_guards.uya`（22 用例）；
 补覆盖过程中发现 **7 条 UB 漏检**，已按 P0 记入"编译器 bug"首条并各带 `tests/repros/` 最小复现 ——
 其中「移动嵌套字段后同一块堆内存被 free 两次」已实测确认真 double free，
 「常量 -1 下标」已定位到 `checker_eval_const_expr` 拿 -1 当"非常量"哨兵的根因。
@@ -377,9 +390,62 @@
     以及正例 `tests/test_ub_safety_guards.uya`（22 个用例覆盖各类守卫的正确写法与 drop 只执行一次）。
   - 归属：`src/checker/`（①-⑦ 全部落在 checker）。
 
-- [ ] **P1 / 高：除数是「函数形参的加减表达式」时编译器自己 SIGFPE（浮点数例外）**
-  - 状态：**已定位并给出最小复现**（2026-10-07，做 `std.image.jpeg_*` 时踩到）
-  - 现象：`uya build` / `uya check` 在**编译期**以 `SIGFPE`（shell 报「浮点数例外」、
+- [x] **P0 / 严重：区间端点 i32 回绕产出「反转区间」，被当成「已证明安全」而放行越界访问（健全性漏洞）**
+  - 状态：**已修复**（2026-10-11；`make b` 自举字节一致，`make check` 1142/1142）
+  - 现象：`a[w + h]`（`w`/`h` 是无约束形参）**静默通过**边界证明，生成的程序
+    运行期越界；同形的线性下标 `a[w]` 反而被正确拒绝 —— 所以这不是「漏报」，
+    是**健全性漏洞**：本该失败的证明被判成功了。
+  - 根因（已坐实到行，gdb 实测）：`interval_add` / `interval_sub` 用 i32 原生运算
+    求端点，两个形参的区间都是 `[i32::MIN, i32::MAX]`，相加回绕成 **`[0, -2]`**
+    （`/tmp` 的 C 复现：`INT32_MIN + INT32_MIN == 0`、`INT32_MAX + INT32_MAX == -2`）。
+    而 `interval_within_bounds`（`src/checker/interval.uya`）只比较两个端点：
+    ```uya
+    if interval.min >= lower && interval.max < upper { return 1; }   // [0, -2] 满足 min>=0 && max<5
+    ```
+    gdb 在该函数断点上实测 `interval.min=2, interval.max=-2, upper=5` → 返回 1
+    （判定「已证明安全」）。对照：`w * w` 回绕成 `[-1, 1]`，`min` 为负，判据第一项
+    就不成立，所以**乘法形态反而没事，必须是加减形态**才触发。
+  - 影响面：`checker_check_array_access`（赋值路径）与 `infer_array_access`（取值路径）
+    的区间分支都受影响；`verify_linear_expr_bounds` / `_ex` 的「变量区间」快捷判据同样只看端点。
+  - 修复内容（`src/checker/interval.uya`，取向为「证明不成立就不放行」）：
+    1) `interval_within_bounds`：端点反转（`min > max`）直接判「无法证明」；
+    2) `verify_linear_expr_bounds` / `verify_linear_expr_bounds_ex`：同样只接受 `min <= max`；
+    3) `interval_div`：除数区间端点反转时不做除法（见下一条，本条同时收口了那个 SIGFPE）。
+  - 验证状态：
+    * 新增负例 `tests/error_array_bounds_interval_wrap.uya`（`w + h` / `w - h` / `w + w`
+      三种加减形态的写下标）与最小复现 `tests/repros/bounds_interval_wrap_unsound.uya`：
+      修复前 `uya check --safety-proof` **编译通过**（实测），修复后报
+      「数组索引需要安全证明」。
+    * 新增正例 `tests/test_bounds_interval_wrap.uya`：合法守卫写法必须仍然放行
+      （防止证明器被收紧到误报），并在运行期校验返回值。
+    * 19 个 `tests/error_array_bounds_*` / `tests/test_bounds*` / `tests/test_ub_safety_guards.uya`
+      用例逐个通过；`make b` 自举字节一致；`make check` **1142/1142**。
+  - 归属：`src/checker/interval.uya`。
+  - 备注：本条的取向是**保守拒绝**（不引入 i64 饱和运算也是出于同一考虑：
+    多算一步就多一个静默放行的机会）。剩余同类欠账：**取值路径**
+    （`infer_array_access`）至今没有非线性下标的 `else` 分支，`a[w + h]` 作为
+    **取值**仍不做检查（与赋值路径不一致）；补这一步会连带要求 `lib/libc/stdio.uya`、
+    `stdlib.uya`、`pthread.uya`、`src/main.uya` 等 13 处
+    `digits[di - 1 - i]` 型多变量下标补证明，属独立工作量，未在本轮改动。
+
+- [x] **P1 / 高：除数是「函数形参的加减表达式」时编译器自己 SIGFPE（浮点数例外）**
+  - 状态：**已修复**（2026-10-11，与上一条同源；`make check` 1142/1142）
+  - 根因（已坐实到行，`buglist` 此前只写了「未定位到具体文件」）：`interval_div`
+    （`src/checker/interval.uya`）的「区间含 0」判据是
+    `if b.min <= 0 && b.max >= 0`，对**端点反转**的除数区间失效 —— 触发例里
+    `w + h` 回绕成 `[0, -2]`、再减 2 得到 `[-2, -4]`（`0 - 2 == -2`、`-2 - 2 == -4`），
+    `min<=0 && max>=0` 为假，于是直接执行 `a.min / b.min`，而 `b.min` 恰好是 `0`。
+    gdb 在 `interval_div` 断点实测：`a=[1785,1785]`、`b=[0,-4]`，崩溃指令
+    `idiv %esi` 且 `%esi=0`。
+  - 修复内容：`interval_div` 在含零判据前先判端点反转（`b.min > b.max`），
+    反转即不做除法、保守返回全范围。
+  - 验证状态：`tests/fpe2` 式的对照用例（`div_wh2` / `div_w_sub_h` 触发，`div_wh` /
+    `div_w1` / `div_w_minus1` 不触发）在修复前退出码 136、修复后退出码 0 且正常报错；
+    正例 `tests/test_bounds_interval_wrap.uya` 的 `wrap_div_param_expr` 覆盖该路径。
+  - 归属：`src/checker/interval.uya`。
+  - 备注：**除法的正确性证明（证明除数 != 0）目前仍未实现** —— `a / b`、乃至
+    `a / 0` 都还不报错，属独立缺口；本条只收口「编译器自己崩溃」这一半。
+  - 现象（原文保留）：`uya build` / `uya check` 在**编译期**以 `SIGFPE`（shell 报「浮点数例外」、
     退出码 136）中止，不打印任何错误信息 —— 看起来像编译器崩了，而不是源码有错，
     所以第一反应会去翻被测代码。
   - 最小复现（`/tmp` 里试出来的，两条对照）：
@@ -402,14 +468,19 @@
     const bv: i32 = ((x + y) * 255) / d;
     ```
     实测「除数与被除数都落临时量」也正常。
-  - 推测方向（未坐实）：常量折叠 / 区间证明里对除法做了「除以区间含 0 则先算个值」
+  - 推测方向（**已被上面的根因取代，原文保留**）：常量折叠 / 区间证明里对除法做了「除以区间含 0 则先算个值」
     的处理，形参的区间是 `INT32_MIN..INT32_MAX`（含 0），减 2 之后仍然含 0，
     某处直接执行了整数除零；而 `w + h` 或 `w - 1` 的区间推导路径不同，没走到那一步。
     编译器是 nostdlib 构建（不装 SIGFPE handler），所以直接死。
+    > 更正：`w + h` 之所以「没走到那一步」，是因为端点**回绕**后的含零判据失效与否
+    > 取决于回绕结果（`[0, -2]` 失效、`[-1, 1]` 恰好仍成立）；而 `(w - 1)` 的端点
+    > 分别是 `INT32_MIN - 1`（回绕成 `INT32_MAX`）与 `INT32_MAX - 1`，不产生反转区间。
+    > 已定位到 `interval_div`（见上面「根因」），不再是推测。
   - 为什么值得单列：**报错形式完全误导**（无消息 + 非 0 退出码，退出码还被 shell
     解释成「浮点数例外」），且触发条件（形参表达式做除数）在数值代码里非常常见 ——
     `std.image.jpeg_encode` 的测试第一版就写成了 `/(w + h - 2)`，整份测试编不过。
-  - 归属：`src/`（checker 的区间证明或 codegen 的常量折叠，未定位到具体文件）。
+  - 归属：`src/checker/interval.uya` 的 `interval_div`（修复前原文写的
+    「未定位到具体文件」已由上面的根因收口）。
 
 - [ ] **P1 / 高：同一份源码用 0.10.3 编出来的程序，整组 TUI 自测轮红；0.10.1 编则全绿**
   - 状态：**已定位到「编译器/标准库侧的行为差异」，但**根因未坐实**（2026-10-06）

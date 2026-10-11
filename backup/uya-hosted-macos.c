@@ -2353,7 +2353,7 @@ static const char str1609[] = "@await 不能出现在 while 条件表达式中�
 static const char str1610[] = "@await 不能出现在 for range 起始表达式中；请先 await 再进入循环";
 static const char str1611[] = "@await 不能出现在 for range 结束表达式中；请先 await 再进入循环";
 static const char str1612[] = "顶层函数 root 容量已满";
-static const char str1613[] = "顶层函数 call edge 容量已满";
+static const char str1613[] = "顶层函数 call edge 表扩容失败";
 static const char str1614[] = "顶层函数 reachable 集合已满";
 static const char str1615[] = "顶层函数 reachable 队列已满";
 static const char str1616[] = "变量存在活跃指针，不能移动";
@@ -6733,9 +6733,10 @@ struct TypeChecker {
     uint8_t * async_call_edge_from[512];
     uint8_t * async_call_edge_to[512];
     int32_t async_call_edge_count;
-    struct ASTNode * fn_call_edge_from[16384];
-    struct ASTNode * fn_call_edge_to[16384];
+    struct ASTNode * * fn_call_edge_from;
+    struct ASTNode * * fn_call_edge_to;
     int32_t fn_call_edge_count;
+    int32_t fn_call_edge_capacity;
     struct ASTNode * fn_root_decls[8192];
     int32_t fn_root_count;
     struct ASTNode * reachable_fn_decls[8192];
@@ -9215,6 +9216,7 @@ static __attribute__((used)) void checker_import_slot_set(struct TypeChecker * c
 static __attribute__((used)) int32_t checker_add_function_root_decl(struct TypeChecker * checker, struct ASTNode * fn_decl);
 static __attribute__((used)) void reset_function_edge_cache();
 static __attribute__((used)) int32_t function_edge_cache_slot(struct ASTNode * from_decl, struct ASTNode * to_decl);
+static __attribute__((used)) int32_t checker_grow_call_edges(struct TypeChecker * checker);
 static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecker * checker, struct ASTNode * from_decl, struct ASTNode * to_decl);
 static __attribute__((used)) int32_t checker_mark_reachability_node_visited(struct TypeChecker * checker, struct ASTNode * node);
 static __attribute__((used)) void checker_reset_reachability_visit_cache(struct TypeChecker * checker);
@@ -10666,7 +10668,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_3876519000_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10703,7 +10705,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1998271836_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -23233,7 +23235,7 @@ __attribute__((used)) int32_t toascii(int32_t c) {
 static __attribute__((used)) void _heap_lock_acquire() {
     int32_t expected = 0;
     bool contended = false;
-    while (__atomic_compare_exchange_n((int32_t *)(&_heap_lock), (&expected), 1, 0, HEAP_ATOMIC_SEQ_CST, HEAP_ATOMIC_SEQ_CST) == 0) {
+    while (__atomic_compare_exchange_n((int32_t *)&_heap_lock, (&expected), 1, 0, HEAP_ATOMIC_SEQ_CST, HEAP_ATOMIC_SEQ_CST) == 0) {
         contended = true;
         expected = 0;
     }
@@ -23241,7 +23243,7 @@ static __attribute__((used)) void _heap_lock_acquire() {
 }
 
 static __attribute__((used)) void _heap_lock_release() {
-    _heap_lock = 0;
+    __atomic_store_n((int32_t *)&_heap_lock, 0, __ATOMIC_SEQ_CST);
 }
 
 static __attribute__((used)) void heap_debug_set_last_find(struct pthread_heap_cache_t * cache, size_t start_bin, size_t steps) {
@@ -27060,7 +27062,7 @@ __asm__ volatile ("movq %%rsp, %%r10\n\tandq $-16, %%rsp\n\tsubq $16, %%rsp\n\tm
 
 static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_hint(struct pthread_desc * desc) {
     (void)desc;
-    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+    if (((__atomic_load_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, __ATOMIC_SEQ_CST) == 0) || (desc == NULL))) {
         return;
     }
     desc->heap_cache.debug_lookup_hint_count = (desc->heap_cache.debug_lookup_hint_count + 1ULL);
@@ -27068,7 +27070,7 @@ static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_hint(str
 
 static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_stack(struct pthread_desc * desc) {
     (void)desc;
-    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+    if (((__atomic_load_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, __ATOMIC_SEQ_CST) == 0) || (desc == NULL))) {
         return;
     }
     desc->heap_cache.debug_lookup_stack_count = (desc->heap_cache.debug_lookup_stack_count + 1ULL);
@@ -27076,7 +27078,7 @@ static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_stack(st
 
 static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_tid(struct pthread_desc * desc) {
     (void)desc;
-    if (((_pthread_debug_heap_cache_lookup_metrics_enabled == 0) || (desc == NULL))) {
+    if (((__atomic_load_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, __ATOMIC_SEQ_CST) == 0) || (desc == NULL))) {
         return;
     }
     desc->heap_cache.debug_lookup_tid_count = (desc->heap_cache.debug_lookup_tid_count + 1ULL);
@@ -27084,11 +27086,11 @@ static __attribute__((used)) void _pthread_debug_note_heap_cache_lookup_tid(stru
 
 void libc_pthread_debug_set_heap_cache_lookup_metrics_enabled(int32_t enabled) {
     (void)enabled;
-    _pthread_debug_heap_cache_lookup_metrics_enabled = enabled;
+    __atomic_store_n((int32_t *)&_pthread_debug_heap_cache_lookup_metrics_enabled, enabled, __ATOMIC_SEQ_CST);
 }
 
 static __attribute__((used)) void _pthread_init_main_thread_if_needed() {
-    if (_pthread_main_initialized != 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_main_initialized, __ATOMIC_SEQ_CST) != 0) {
         return;
     }
     const int64_t tid = ({ struct err_union_int32_t _uya_catch_tmp = libc_sys_gettid(); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
@@ -27101,7 +27103,7 @@ static __attribute__((used)) void _pthread_init_main_thread_if_needed() {
     _pthread_main_handle.tid = tid;
     (void)(_pthread_set_fast_desc((&_pthread_main_desc))    );
     _pthread_fast_heap_cache_ready = 1;
-    _pthread_main_initialized = 1;
+    __atomic_store_n((int32_t *)&_pthread_main_initialized, 1, __ATOMIC_SEQ_CST);
 }
 
 static __attribute__((used)) void _pthread_set_fast_desc(struct pthread_desc * desc) {
@@ -27175,7 +27177,7 @@ static __attribute__((used)) struct pthread_desc * _pthread_registry_find(int64_
 }
 
 static __attribute__((used)) size_t pthread_live_thread_count_hint() {
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
                 {
             size_t _uya_ret = 1ULL;
             return _uya_ret;
@@ -27318,10 +27320,10 @@ static __attribute__((used)) void _pthread_stack_hint_forget(struct pthread_desc
     size_t i = 0ULL;
     while (i < PTHREAD_STACK_HINT_CAP) {
         if (_pthread_stack_hints[i].desc == target) {
-            _pthread_stack_hints[i].page_key = 0ULL;
-            _pthread_stack_hints[i].desc = 0ULL;
-            _pthread_stack_hints[i].stack_start = 0ULL;
-            _pthread_stack_hints[i].stack_end = 0ULL;
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].page_key), 0ULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].desc), 0ULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].stack_start), 0ULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n((size_t *)&(_pthread_stack_hints[i].stack_end), 0ULL, __ATOMIC_SEQ_CST);
         }
         i = (i + 1ULL);
     }
@@ -27359,7 +27361,7 @@ static __attribute__((used)) struct pthread_desc * _pthread_registry_find_by_sta
 }
 
 static __attribute__((used)) struct pthread_desc * _pthread_desc_self() {
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
         (void)(_pthread_init_main_thread_if_needed()        );
                 {
             struct pthread_desc * _uya_ret = (&_pthread_main_desc);
@@ -27419,7 +27421,7 @@ struct pthread_heap_cache_t * libc_pthread_current_heap_cache() {
                         }
         }
     }
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
         (void)(_pthread_init_main_thread_if_needed()        );
                 {
             struct pthread_heap_cache_t * _uya_ret = (&_pthread_main_desc.heap_cache);
@@ -27803,7 +27805,7 @@ __attribute__((used)) int32_t libc_pthread_create(struct pthread_t * thread, con
     thread->arg = arg;
     (void)(_pthread_registry_insert(tid, desc)    );
     __atomic_store_n((int32_t *)&(desc->started), 1, __ATOMIC_SEQ_CST);
-    _pthread_has_created_thread = 1;
+    __atomic_store_n((int32_t *)&_pthread_has_created_thread, 1, __ATOMIC_SEQ_CST);
     (void)(libc_pthread_mutex_unlock((&_pthread_create_mutex)));
         {
         int32_t _uya_ret = 0;
@@ -28324,7 +28326,7 @@ static __attribute__((used)) struct pthread_t _synthetic_pthread_self(int64_t ti
 }
 
 __attribute__((used)) struct pthread_t libc_pthread_self() {
-    if (_pthread_has_created_thread == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_has_created_thread, __ATOMIC_SEQ_CST) == 0) {
         (void)(_pthread_init_main_thread_if_needed()        );
         if (_pthread_main_desc.pub_handle != NULL) {
                         {
@@ -28346,11 +28348,11 @@ __attribute__((used)) struct pthread_t libc_pthread_self() {
             return _uya_ret;
                 }
     }
-    if (_pthread_main_initialized == 0) {
+    if (__atomic_load_n((int32_t *)&_pthread_main_initialized, __ATOMIC_SEQ_CST) == 0) {
         _pthread_main_desc.tid = tid;
         _pthread_main_desc.pub_handle = (&_pthread_main_handle);
         _pthread_main_handle.tid = tid;
-        _pthread_main_initialized = 1;
+        __atomic_store_n((int32_t *)&_pthread_main_initialized, 1, __ATOMIC_SEQ_CST);
     }
     if (_pthread_main_desc.pub_handle == NULL) {
                 {
@@ -63896,6 +63898,12 @@ static __attribute__((used)) struct Interval interval_div(struct Interval a, str
             return _uya_ret;
                 }
     }
+    if (b.min > b.max) {
+                {
+            struct Interval _uya_ret = interval_range((-2147483647), 2147483647);
+            return _uya_ret;
+                }
+    }
     if (((b.min <= 0) && (b.max >= 0))) {
                 {
             struct Interval _uya_ret = interval_range((-2147483647), 2147483647);
@@ -64016,6 +64024,12 @@ static __attribute__((used)) int32_t interval_within_bounds(struct Interval inte
     (void)lower;
     (void)upper;
     if (interval.is_valid == 0) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (interval.min > interval.max) {
                 {
             int32_t _uya_ret = 0;
             return _uya_ret;
@@ -64661,7 +64675,7 @@ static __attribute__((used)) int32_t verify_linear_expr_bounds_ex(struct TypeChe
     }
     const int32_t need_lower = (-offset);
     const int32_t need_upper = (array_size - offset);
-    if ((((var_interval.is_valid != 0) && (var_interval.min >= need_lower)) && (var_interval.max < need_upper))) {
+    if (((((var_interval.is_valid != 0) && (var_interval.min <= var_interval.max)) && (var_interval.min >= need_lower)) && (var_interval.max < need_upper))) {
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
@@ -79803,7 +79817,7 @@ static __attribute__((used)) void checker_report_error_with_notes(struct TypeChe
             return;
         }
         last_checker_error_message = stash_checker_error_message((uint8_t *)message);
-        (void)(checker_record_reported_error(checker, node, last_checker_error_message)        );
+        (void)(checker_record_reported_error(checker, node, (uint8_t *)last_checker_error_message)        );
         checker->error_count = (checker->error_count + 1);
         if (((libc_stderr != NULL) && (message != NULL))) {
             uint8_t * filename = (uint8_t *)(uint8_t *)str214;
@@ -79970,7 +79984,7 @@ static __attribute__((used)) void checker_report_error(struct TypeChecker * chec
             return;
         }
         last_checker_error_message = stash_checker_error_message((uint8_t *)message);
-        (void)(checker_record_reported_error(checker, node, last_checker_error_message)        );
+        (void)(checker_record_reported_error(checker, node, (uint8_t *)last_checker_error_message)        );
         checker->error_count = (checker->error_count + 1);
         if (((libc_stderr != NULL) && (message != NULL))) {
             uint8_t * filename = (uint8_t *)(uint8_t *)str214;
@@ -79997,10 +80011,10 @@ static __attribute__((used)) void checker_report_error_moved(struct TypeChecker 
     (void)var_name;
     if (((checker != NULL) && (checker->suppress_codegen_diagnostics == 0))) {
         last_checker_error_message = (uint8_t *)(uint8_t *)str1593;
-        if (checker_should_suppress_duplicate_error(checker, node, last_checker_error_message) != 0) {
+        if (checker_should_suppress_duplicate_error(checker, node, (uint8_t *)last_checker_error_message) != 0) {
             return;
         }
-        (void)(checker_record_reported_error(checker, node, last_checker_error_message)        );
+        (void)(checker_record_reported_error(checker, node, (uint8_t *)last_checker_error_message)        );
         checker->error_count = (checker->error_count + 1);
         if (libc_stderr != NULL) {
             uint8_t * filename = (uint8_t *)(uint8_t *)str214;
@@ -81061,13 +81075,16 @@ static __attribute__((used)) int32_t checker_init(struct TypeChecker * checker, 
         i = (i + 1);
     }
     checker->async_call_edge_count = 0;
-    i = 0;
-    while (i < (sizeof(checker->fn_call_edge_from) / sizeof((checker->fn_call_edge_from)[0]))) {
-        checker->fn_call_edge_from[i] = NULL;
-        checker->fn_call_edge_to[i] = NULL;
-        i = (i + 1);
-    }
+    checker->fn_call_edge_from = NULL;
+    checker->fn_call_edge_to = NULL;
     checker->fn_call_edge_count = 0;
+    checker->fn_call_edge_capacity = 0;
+    if (checker_grow_call_edges(checker) != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
     (void)(reset_function_edge_cache()    );
     i = 0;
     while (i < (sizeof(checker->fn_root_decls) / sizeof((checker->fn_root_decls)[0]))) {
@@ -81607,6 +81624,72 @@ static __attribute__((used)) int32_t function_edge_cache_slot(struct ASTNode * f
         }
 }
 
+static __attribute__((used)) int32_t checker_grow_call_edges(struct TypeChecker * checker) {
+    (void)checker;
+    if (((checker == NULL) || (checker->arena == NULL))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t ncap = checker->fn_call_edge_capacity;
+    if (ncap <= 0) {
+        ncap = MAX_FN_CALL_EDGES;
+    } else {
+        ncap = (ncap * 2);
+        if (ncap <= 0) {
+                        {
+                int32_t _uya_ret = (-1);
+                return _uya_ret;
+                        }
+        }
+    }
+    const size_t nu = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)(ncap) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    const size_t esz = ({ struct err_union_size_t _uya_catch_tmp = ({ struct err_union_size_t _uya_asbang = { .error_id = 0, .value = (size_t)((int32_t)sizeof(struct ASTNode *)) }; _uya_asbang; }); __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
+    struct ASTNode * * const from_mem = (struct ASTNode * *)compiler_arena_alloc(checker->arena, (nu * esz));
+    if (from_mem == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    struct ASTNode * * const to_mem = (struct ASTNode * *)compiler_arena_alloc(checker->arena, (nu * esz));
+    if (to_mem == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    int32_t i = 0;
+    while (i < checker->fn_call_edge_count) {
+        from_mem[i] = checker->fn_call_edge_from[i];
+        to_mem[i] = checker->fn_call_edge_to[i];
+        i = (i + 1);
+    }
+    while (i < ncap) {
+        from_mem[i] = NULL;
+        to_mem[i] = NULL;
+        i = (i + 1);
+    }
+    checker->fn_call_edge_from = from_mem;
+    checker->fn_call_edge_to = to_mem;
+    checker->fn_call_edge_capacity = ncap;
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecker * checker, struct ASTNode * from_decl, struct ASTNode * to_decl) {
     (void)checker;
     (void)from_decl;
@@ -81636,15 +81719,17 @@ static __attribute__((used)) int32_t checker_add_function_edge(struct TypeChecke
         edge_slot = ((edge_slot + 1) & FUNCTION_EDGE_CACHE_MASK);
         probe = (probe + 1);
     }
-    if (checker->fn_call_edge_count >= MAX_FN_CALL_EDGES) {
-        (void)(checker_report_error(checker, canonical_from_decl, (uint8_t *)(uint8_t *)str1613)        );
-                {
-            int32_t _uya_ret = 0;
-            return _uya_ret;
-                }
-    }
     const int32_t edge_idx = checker->fn_call_edge_count;
-    if ((((edge_idx >= 0) && (edge_idx < (sizeof(checker->fn_call_edge_from) / sizeof((checker->fn_call_edge_from)[0])))) && (edge_idx < (sizeof(checker->fn_call_edge_to) / sizeof((checker->fn_call_edge_to)[0]))))) {
+    if (edge_idx >= checker->fn_call_edge_capacity) {
+        if (checker_grow_call_edges(checker) != 0) {
+            (void)(checker_report_error(checker, canonical_from_decl, (uint8_t *)(uint8_t *)str1613)            );
+                        {
+                int32_t _uya_ret = 0;
+                return _uya_ret;
+                        }
+        }
+    }
+    if (((edge_idx >= 0) && (edge_idx < checker->fn_call_edge_capacity))) {
         checker->fn_call_edge_from[edge_idx] = canonical_from_decl;
         checker->fn_call_edge_to[edge_idx] = canonical_to_decl;
         checker->fn_call_edge_count = (edge_idx + 1);
@@ -164815,6 +164900,31 @@ static __attribute__((used)) uint8_t * lookup_identifier_type_c_impl(struct C99C
         }
         i = (i + 1);
     }
+    if (codegen->program_node != NULL) {
+        const int32_t decl_count = codegen->program_node->program_decl_count;
+        int32_t di = 0;
+        while (di < decl_count) {
+            struct ASTNode * const decl = codegen->program_node->program_decls[di];
+            if (((decl != NULL) && ((decl->type == main_ASTNodeType_AST_VAR_DECL) || (decl->type == main_ASTNodeType_AST_EXTERN_VAR_DECL)))) {
+                uint8_t * vname = NULL;
+                struct ASTNode * vtype = NULL;
+                if (decl->type == main_ASTNodeType_AST_VAR_DECL) {
+                    vname = decl->var_decl_name;
+                    vtype = decl->var_decl_type;
+                } else {
+                    vname = decl->extern_var_decl_name;
+                    vtype = decl->extern_var_decl_var_type;
+                }
+                if ((((vname != NULL) && (vtype != NULL)) && (std_string_strcmp((uint8_t *)vname, (uint8_t *)name) == 0))) {
+                                        {
+                        uint8_t * _uya_ret = c99_type_to_c(codegen, vtype);
+                        return _uya_ret;
+                                        }
+                }
+            }
+            di = (di + 1);
+        }
+    }
         {
         uint8_t * _uya_ret = NULL;
         return _uya_ret;
@@ -172936,7 +173046,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_3876519000_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -174183,7 +174293,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1998271836_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -174427,7 +174537,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_1998271836_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

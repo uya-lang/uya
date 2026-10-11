@@ -1,0 +1,77 @@
+// test_bounds_interval_wrap.uya - 区间分析不得因端点溢出回绕而放行越界下标
+//
+// 回归自: buglist.md「UB 漏检」批次的同源根因（2026-10-11 定位并修复），
+// 最小复现见 tests/repros/ 与负例 tests/error_array_bounds_interval_wrap.uya。
+//
+// 背景：区间端点用 i32 原生运算，溢出**回绕**会产出 min > max 的反转区间，
+// 而「区间完全落在 [0, len) 内」的判据只比较两个端点，反转区间能通过判定。
+// 修复后的取向是「证明不成立就不放行」，所以本文件断言的是：
+//   1) 合法的守卫写法仍然放行（不能把证明器收紧到误报）；
+//   2) 除数是形参表达式的除法不再让**编译器自己** SIGFPE（退出码 136）——
+//      这曾经让整份源码编不过，且不打印任何错误信息。
+//
+// 运行：./bin/uya build tests/test_bounds_interval_wrap.uya -o /tmp/t && /tmp/t
+
+use std.runtime.entry;
+
+const WRAP_N: i32 = 5;
+
+var g_wrap_arr: [i32: WRAP_N] = [1, 2, 3, 4, 5];
+
+fn wrap_expect(cond: bool) i32 {
+    if cond == false {
+        return 1;
+    }
+    return 0;
+}
+
+// 单变量下标 + 显式守卫：区间分析必须仍然证明成功
+fn wrap_single_param_guarded(i: i32) i32 {
+    if i < 0 || i >= WRAP_N {
+        return -1;
+    }
+    return g_wrap_arr[i];
+}
+
+// 形参 + 常量的线性下标：带守卫后同样必须放行
+fn wrap_linear_offset_guarded(i: i32) i32 {
+    if i < 0 || i >= WRAP_N - 1 {
+        return -1;
+    }
+    return g_wrap_arr[i + 1];
+}
+
+// 除法：除数是「形参的加减表达式」，曾经令编译器自己 SIGFPE。
+// 这里只断言进程能跑起来并给出确定结果 —— 除法正确性证明尚未实现。
+fn wrap_div_param_expr(w: i32, h: i32) i32 {
+    var x: i32 = 3;
+    var y: i32 = 4;
+    const d: i32 = w + h - 2;
+    if d == 0 {
+        return -1;
+    }
+    return ((x + y) * 255) / d;
+}
+
+export fn main() i32 {
+    if wrap_expect(wrap_single_param_guarded(0) == 1) != 0 {
+        return 1;
+    }
+    if wrap_expect(wrap_single_param_guarded(4) == 5) != 0 {
+        return 2;
+    }
+    if wrap_expect(wrap_single_param_guarded(5) == -1) != 0 {
+        return 3;
+    }
+    if wrap_expect(wrap_linear_offset_guarded(3) == 5) != 0 {
+        return 4;
+    }
+    if wrap_expect(wrap_linear_offset_guarded(4) == -1) != 0 {
+        return 5;
+    }
+    // 8 + 8 - 2 = 14，不会真的除零；((3 + 4) * 255) / 14 == 127
+    if wrap_expect(wrap_div_param_expr(8, 8) == 127) != 0 {
+        return 6;
+    }
+    return 0;
+}
