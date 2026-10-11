@@ -1,0 +1,52 @@
+// 复现：加法回绕出的反转区间被当成「已证明安全」，越界写下标静默通过
+//
+// 状态（2026-10-11）：**已修复**。本文件在修复前的编译器下**编译通过**
+// 并生成越界写（运行期破坏栈上相邻对象），是真实的 UB 漏检；
+// 现在应报「数组索引需要安全证明：复杂表达式暂不支持…」。
+//
+// 根因：`interval_add` / `interval_sub` 用 i32 原生运算求区间端点，两个形参的
+// 区间都是 [i32::MIN, i32::MAX]，相加回绕成 **[0, -2]**、相减回绕成类似的反转
+// 区间。而 `interval_within_bounds` 只比较两个端点：
+//     if interval.min >= lower && interval.max < upper { return 1; }   // [0, -2] 满足！
+// 于是「区间完全落在 [0, 5) 内」这个判据被反转区间骗过，越界访问被放行。
+// 同为非线性下标的 `w * w` 反而没事 —— 它回绕成 [-1, 1]，min 是负数，
+// 判据第一项就不成立。所以本文件的用例必须用**加法/减法**形态。
+//
+// 修复（src/checker/interval.uya，取向是「证明不成立就不放行」）：
+//   1) `interval_within_bounds`：端点反转（min > max）直接判「无法证明」；
+//   2) `verify_linear_expr_bounds` / `verify_linear_expr_bounds_ex`：同样只接受 min <= max；
+//   3) `interval_div`：除数区间端点反转时不做除法 —— 顺带修掉
+//      「除数是形参表达式时编译器自己 SIGFPE（退出码 136）」那条 P1。
+//
+// 对照（本来就正确拒绝）：`a[i]`（线性，见 error_bounds_need_proof.uya）、
+// `a[w * w]`（回绕后 min 为负）；合法守卫写法仍放行，见 test_bounds_interval_wrap.uya。
+//
+// 复现命令：
+//   ./bin/uya check --safety-proof tests/repros/bounds_interval_wrap_unsound.uya
+//   # 期望：编译失败（修复前：静默通过并生成越界写）
+
+// 两个形参相加：端点相加回绕成 [0, -2]
+fn write_add(w: i32, h: i32) i32 {
+    var a: [i32: 5] = [11, 22, 33, 44, 55];
+    a[w + h] = 99;
+    return a[0];
+}
+
+// 两个形参相减：端点相减同样会回绕
+fn write_sub(w: i32, h: i32) i32 {
+    var a: [i32: 5] = [11, 22, 33, 44, 55];
+    a[w - h] = 99;
+    return a[0];
+}
+
+// 同一形参自加：回绕成 [o + o] 型反转区间
+fn write_self_add(w: i32) i32 {
+    var a: [i32: 5] = [11, 22, 33, 44, 55];
+    a[w + w] = 99;
+    return a[0];
+}
+
+export fn main() i32 {
+    // 运行期下标远超 5，修复前会越界写
+    return write_add(100000000, 100000000) + write_sub(1, 2) + write_self_add(2);
+}

@@ -770,7 +770,12 @@ fn interval_div(a: Interval, b: Interval) Interval {
     if a.is_valid == 0 || b.is_valid == 0 {
         return interval_invalid();
     }
-    // 除以零检查：如果 b 区间包含 0，结果不确定
+    // 除以零检查：如果 b 区间包含 0，结果不确定。
+    // 必须先排除端点反转：回绕得到的 [0, -4] 会让下面的含零判据失效，
+    // 随后 `a.min / b.min` 就是编译期除零，编译器自己以 SIGFPE（退出码 136）中止。
+    if b.min > b.max {
+        return interval_range(-2147483647, 2147483647);
+    }
     if b.min <= 0 && b.max >= 0 {
         // 包含 0，保守估计为全范围
         return interval_range(-2147483647, 2147483647);
@@ -851,6 +856,11 @@ fn interval_bitand(a: Interval, b: Interval) Interval {
 // 检查区间是否完全在 [lower, upper) 范围内
 fn interval_within_bounds(interval: Interval, lower: i32, upper: i32) i32 {
     if interval.is_valid == 0 {
+        return 0;
+    }
+    // 端点反转的区间不构成证明：i32 回绕会产出 min > max 的区间（如 [2, -2]），
+    // 只比较两个端点会误判为「完全在 [lower, upper) 内」，放行真实越界。
+    if interval.min > interval.max {
         return 0;
     }
     if interval.min >= lower && interval.max < upper {
@@ -1339,7 +1349,8 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
     const need_lower: i32 = -offset;  // i >= -offset
     const need_upper: i32 = array_size - offset;  // i < size - offset
 
-    if var_interval.is_valid != 0 &&
+    // 端点反转不构成证明（证明不成立就不放行）。
+    if var_interval.is_valid != 0 && var_interval.min <= var_interval.max &&
         var_interval.min >= need_lower && var_interval.max < need_upper {
         return 1;
     }
@@ -1432,7 +1443,8 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
     const need_lower: i32 = -offset;  // i >= -offset
     const need_upper: i32 = array_size - offset;  // i < size - offset
 
-    if var_interval.is_valid != 0 &&
+    // 端点反转不构成证明（证明不成立就不放行）。
+    if var_interval.is_valid != 0 && var_interval.min <= var_interval.max &&
         var_interval.min >= need_lower && var_interval.max < need_upper {
         return 1;
     }
