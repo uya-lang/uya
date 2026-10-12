@@ -136,7 +136,7 @@ test "parse_consumed_keepalive" {
 test "parse_then_request_get_header" {
     var raw: [byte: 256] = [];
     var r: usize = 0;
-    const line: &[byte] = &"GET /z HTTP/1.1\r\nX-Test: hi\r\n\r\n"[0: 33];
+    const line: &[byte] = &"GET /z HTTP/1.1\r\nX-Test: hi\r\n\r\n"[0: 31];
     var i: usize = 0;
     while i < line.len {
         raw[r] = line.ptr[i];
@@ -153,7 +153,7 @@ test "parse_then_request_get_header" {
 
 test "parse_chunked_request_and_decode_inplace" {
     var raw: [byte: 256] = [];
-    const line: &[byte] = &"POST /chunk HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\nX-T: y\r\n\r\n"[0: 108];
+    const line: &[byte] = &"POST /chunk HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\nX-T: y\r\n\r\n"[0: 100];
     var i: usize = 0;
     while i < line.len {
         raw[i] = line.ptr[i];

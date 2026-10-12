@@ -318,7 +318,7 @@ fn load_certs_from_dir(ts: &TrustStore, dir_path: &const byte, dir_len: usize) v
     // 尝试常见的根证书路径
     const path1: &[byte] = &"/etc/ssl/certs/ca-certificates.crt"[0:34];  // Debian/Ubuntu
     const path2: &[byte] = &"/etc/pki/tls/certs/ca-bundle.crt"[0:33];    // RHEL/CentOS/Fedora
-    const path3: &[byte] = &"/etc/ssl/cert.pem"[0:21];                   // macOS/BSD
+    const path3: &[byte] = &"/etc/ssl/cert.pem"[0:17];                   // macOS/BSD
     
     if load_pem_file(ts, path1.ptr, path1.len) {
         return;

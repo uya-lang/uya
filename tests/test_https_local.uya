@@ -30,7 +30,7 @@ fn local_tls_server_available() bool {
 }
 
 export fn main() i32 {
-    debug(&"Testing local TLS 1.2 server...\n"[0: 34]);
+    debug(&"Testing local TLS 1.2 server...\n"[0: 32]);
     if !local_tls_server_available() {
         debug(&"skip:https_local_server_unavailable\n"[0: 35]);
         return 0;

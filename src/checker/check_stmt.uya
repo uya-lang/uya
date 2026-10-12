@@ -238,6 +238,25 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                 var_type.kind == TypeKind.TYPE_STRUCT && var_type.struct_name != null {
                 checker_mark_moved(checker, node, node.var_decl_init.identifier_name, var_type.struct_name);
             }
+            // 嵌套字段移动：`const moved: Buf = h.buf;` 把外层变量的字段移走。
+            // 字段移动早先完全不设标记，于是读已移走字段、以及出作用域时外层
+            // 结构体的字段 drop 都照常执行 → 同一份堆内存 free 两次
+            // （tests/repros/move_nested_field_double_free.uya 实测）。
+            //
+            // **只在字段类型自带 drop 时才登记**：重复释放的充要条件是
+            // 「外层结构体的 drop 会调这个字段的 drop」。对没有 drop 的纯数据
+            // 字段（如 `Type`），移动只是复制，登记反而会把
+            // `checker.current_return_type.kind` 这类正常读法误报成「已被移动」
+            // （实测这样收紧会让自举爆出 110 个误报）。
+            if node.var_decl_init != null && node.var_decl_init.type == ASTNodeType.AST_MEMBER_ACCESS &&
+                var_type.kind == TypeKind.TYPE_STRUCT && var_type.struct_name != null &&
+                checker_type_has_drop_method(checker, &var_type) != 0 {
+                const src_path: &byte = constraint_expr_name(checker, node.var_decl_init);
+                if src_path != null {
+                    checker_mark_moved_path(checker, node, src_path, var_type.struct_name);
+                    node.var_decl_moved_field_src = src_path;
+                }
+            }
             if checker.enable_safety_proof != 0 && node.var_decl_init != null && var_type.kind == TypeKind.TYPE_POINTER {
                 const init_node: &ASTNode = node.var_decl_init;
                 if init_node.type == ASTNodeType.AST_CALL_EXPR && init_node.call_expr_callee != null &&

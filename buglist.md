@@ -1,6 +1,24 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-11（**区间端点回绕 = 健全性漏洞（P0）已修复**：`interval_add/_sub` 用 i32
+**最后更新：** 2026-10-12（**UB 漏检批次 7 条收口 ①②④⑦ + ⑤ 的缺口 2，余 ③、⑤ 的缺口 1、⑥ 未修复**：
+① 常量 -1 下标（`checker_eval_const_expr` 拿 -1 兼作「非常量」哨兵）、② 嵌套字段移动后
+同一块堆内存被 free 两次（实测真 double free）、④ `return` 里的 cast/实参位置跳过越界检查、
+⑦ 元组下标越界落到 C 编译器才报错 —— 四条取向都是「证明不成立就不放行」；
+⑤ 的**缺口 2（切片范围越界不校验）已修复**：
+`check_slice_bounds`（`src/checker/proof.uya`）本来就实现了常量 start/len 的校验，但**全树没有任何
+调用者**（死代码），于是 `&buf[0:99]`（底层只有 4 个元素）静默通过并生成 `@len == 99` 的越界切片。
+本轮把它接到切片表达式的类型推断上（`infer_type` 的 `AST_SLICE_EXPR` 分支），覆盖「底层是数组/
+字符串字面量 + start/len 都是常量」的保守子集。接上后立刻暴露两处同源代码问题：
+(1) `is_constant_expression` 对块内已绑定标识符一律返回 1、而 `checker_eval_const_expr` 对非常量
+返回 -1，于是**变量**长度（`img[0: n]` 里的 `n`）被读成「常量 -1」直接报错 —— 改用**成功标志**
+（`checker_eval_const_expr_ex`）判常量；(2) 同源根因让库里/测试里 12 处**越界切片**现形
+（`"[CONN] Creating socket...\n"[0: 29]` 实际只有 26 字节等），逐个改为精确长度 —— 那些长度此前
+都跨过了字符串结尾的 `\0`。新增负例 `tests/error_slice_range_oob.uya` + 正例
+`tests/test_slice_range_bounds.uya`；`make check` **1150/1150**。
+同条**缺口 1（`&[T]` 形参下标不做证明）仍未修复**：`s.len` 这类符号上界进不了约束表
+（`constraint_add` 只收常量），而全树 340 处 `while i < X.len` 目前正靠「切片完全不做证明」才通过，
+属独立工作量。）
+此前：2026-10-11（**区间端点回绕 = 健全性漏洞（P0）已修复**：`interval_add/_sub` 用 i32
 原生运算求区间端点，两个无约束形参相加会回绕成反转区间 `[0, -2]`，而 `interval_within_bounds`
 只比较两个端点，于是 `a[w + h]` 被误判「已证明安全」（gdb 实测 `min=2,max=-2,upper=5` → 返回 1），
 静默生成越界访问；同一条也解释了下面那条 P1「除数是形参表达式时编译器自己 SIGFPE」——
@@ -285,13 +303,22 @@
 ## 编译器 bug
 
 - [ ] **P0 / 严重：UB 漏检一批（7 条，含实测 double free）—— 常量 -1 下标、循环体下标、切片下标/范围、指针形参解引用、嵌套字段移动、元组下标越界**
-  - 状态：**未修复**（2026-10-11 补 UB 测试覆盖时发现；每条都有 `tests/repros/` 最小复现）
+  - 状态：**部分修复**（2026-10-11 发现；2026-10-12 收口 ①②④⑦ 与 ⑤ 的缺口 2；
+    **③ 循环体下标、⑤ 的缺口 1（切片形参下标）、⑥ 指针形参解引用仍未修复**）
   - 背景：本轮为「所有 UB 必须被编译期证明为安全」（`docs/uya.md` §14）补测试覆盖。
     补负例时发现一部分场景编译器**根本不设放行条件**，直接静默生成越界 / 悬垂 / 重复释放的代码。
     这些不是「测试没写」，是「检查没接上」，因此先以 `tests/repros/` 复现文件记录，
     负例（`tests/error_*.uya`）等修好后补。7 条互相独立，都只在 `--safety-proof`（默认开启）下复现。
 
   - **① 常量下标等于 -1 时边界检查整体失灵**（`tests/repros/bounds_const_negative_index.uya`）
+    - 状态：**已修复**（2026-10-12）。常量求值改为「成功标志 + 值」双返回
+      （`checker_eval_const_expr_ex`，内部走 `_ex_impl`），下标检查、`for` 范围端点、
+      区间提取、codegen 常量折叠全部改看成功标志；同源顺带收口减法上溢
+      `2147483647 - (0 - 1)`。实测 `a[0-1]` / `a[0-2]` / `a[-1]` / `a[k]`（k = 0-1）
+      此前全部编译通过，现在报「数组索引越界：索引不能为负数」；
+      `a[3 - 2]`、`a[(0-1)+2]`、`a[@len(a)-1]` 等合法写法仍放行
+      （负例 `tests/error_array_bounds_const_negative_index.uya`、
+      正例 `tests/test_bounds_const_negative_index.uya` 钉住）。
     - 根因（已坐实到行）：`checker_eval_const_expr()`（`src/checker/proof.uya`）用返回值
       **-1** 同时表示「非常量表达式」与「常量 -1」。两个调用点
       （`src/checker/check_expr_extra.uya:80`、`src/checker/check_expr.uya:4051`）都写成
@@ -305,6 +332,13 @@
 
   - **② 移动嵌套字段后原字段仍可读，同一块堆内存被 free 两次（实测真 double free）**
     （`tests/repros/move_nested_field_double_free.uya`）
+    - 状态：**已修复**（2026-10-12；`make check` 1147/1147）。checker 侧把移动登记扩到
+      **访问路径**（`h.buf`，判定用「前缀 + 恰好停在字段边界」，`h.bufx` 不误判），
+      且只对「字段类型自带 drop」的形态登记（不加这条门会让自举爆出 110 个误报）；
+      codegen 侧在移动点把源字段置零
+      （`__builtin_memset((void *)&(h.buf), 0, sizeof(h.buf))`），使那次**类型级**字段 drop
+      看到空值成为空操作，与规范 §12.5 一致。正例 `tests/test_nested_field_move.uya`
+      用**资源释放次数**断言（同一文件用修复前编译器跑，三个用例报 `actual: 3`/`3`/`4`）。
     - 现象：移动标记只落在**顶层变量**上。`const b: S = a;` 后再用 `a` 会报「变量 'a' 已被移动」；
       但**字段移动**不设标记：
       ```uya
@@ -329,6 +363,10 @@
     - 归属：`src/checker/`（`moved_set` 只登记顶层变量，未覆盖成员访问链）。
 
   - **③ `while`/`for` 循环体内的下标不参与边界证明**（`tests/repros/bounds_loop_body_not_proved.uya`）
+    - 状态：**未修复**。2026-10-12 试过一版「进循环体前丢掉被改坏的那一侧边界」，
+      实测让自举爆出 104 个错误 —— 根因是 `while buf[i] != 0` 这类 C-string 循环
+      **只**靠循环前 `i == 0` 这条过了 `pointer_index_has_user_bounds_proof`，
+      与 ⑤ 缺口 1 的符号上界是同一条工作量，本轮回退并保留本记录。
     - 现象：下标初值是**常量 0** 时循环体静默放行；初值换成**函数参数**（区间未知）反而报错 ——
       说明「初值为常量」这条路径漏检：
       ```uya
@@ -345,6 +383,14 @@
 
   - **④ `return` 里的 cast / 实参位置跳过常量越界检查**
     （`tests/repros/bounds_const_oob_in_return_cast.uya`）
+    - 状态：**已修复**（2026-10-12）。根因是一条路径只调 `checker_infer_type`，而
+      cast / 调用这类顶层结点在推断里直接返回目标类型、不再深入子表达式。
+      修法是给 `return` 路径补 `checker_check_return_expr_bounds`（只递归下标/成员/容器，
+      **不**复用完整 `checker_check_node`）。刻意不复用是实测出来的：`checker_check_node`
+      会对调用表达式执行 `checker_mark_moved_call_args` 并写回 `var_decl_was_moved`，
+      而 `return` 不移动实参 —— 直接复用让自举炸出 84 个「变量已被移动」误报
+      （如 `return interval_mul(a, b)`）。负例 `tests/error_array_bounds_oob_in_return.uya`、
+      正例 `tests/test_return_expr_bounds.uya`（含 drop 计数断言钉住上面那处误报）。
     - 现象：同一越界下标，是否**直接出现在 `return` 表达式里**决定检查是否执行：
       ```uya
       const via: i32 = a[3];   // 报「数组索引越界」 ✓
@@ -357,9 +403,23 @@
 
   - **⑤ 切片（`&[T]`）下标不做边界证明，切片范围越界不检查**
     （`tests/repros/bounds_slice_index_not_proved.uya`）
-    - 现象 1：`fn read_at(s: &[i32], i: i32) i32 { return s[i]; }` 中 `i` 毫无约束，读写都不报错；
-      同形的数组版本 `return a[i]` 会报「数组索引安全证明失败」。
-    - 现象 2：`&buf[0:99]`（底层 `[i32: 4]`）静默通过，`@len` 得到 99，越界读。
+    - 状态：**缺口 2 已修复、缺口 1 未修复**（2026-10-12）。
+    - 现象 1（**仍未修复**）：`fn read_at(s: &[i32], i: i32) i32 { return s[i]; }` 中 `i` 毫无约束，
+      读写都不报错；同形的数组版本 `return a[i]` 会报「数组索引安全证明失败」。
+      原因：`s.len` 这类**符号上界**进不了约束表（`constraint_add` 只收常量），
+      而全树 340 处 `while i < X.len` 目前正是靠「切片完全不做证明」才通过；
+      接上证明必须同时给约束表引入符号上界（记名字而非常量、且不得把符号约束当有界），
+      且与 ③ 的 C-string 循环缺口纠缠（见 ③ 记录的实测：收紧循环边界让
+      `while buf[i] != 0` 成批失败），属独立工作量。
+    - 现象 2（**已修复**）：`&buf[0:99]`（底层 `[i32: 4]`）此前静默通过，`@len` 得到 99，越界读。
+      `check_slice_bounds` 本来就实现了这条校验但**全树无调用者**（死代码），
+      现接到切片表达式的类型推断上（`infer_type` 的 `AST_SLICE_EXPR` 分支），
+      只覆盖「底层是数组/字符串字面量 + start/len 都是常量」的保守子集。
+      负例 `tests/error_slice_range_oob.uya`、正例 `tests/test_slice_range_bounds.uya`。
+      接上后暴露两处同源代码问题：判常量必须用**成功标志**（`checker_eval_const_expr_ex`）
+      而非 `is_constant_expression` + `checker_eval_const_expr` 的组合，否则**变量**长度
+      会被读成「常量 -1」；以及库里/测试里 12 处越界切片现形（如
+      `"[CONN] Creating socket...\n"[0: 29]` 实际只有 26 字节），逐个改为精确长度。
     - 归属：`checker_check_array_access` 的 `TYPE_SLICE` 分支
       （`src/checker/check_expr_extra.uya:62`）只做元素类型推断，不进入 `TYPE_ARRAY` 分支的证明逻辑；
       切片范围表达式无长度校验。
@@ -376,6 +436,12 @@
 
   - **⑦ 元组下标越界（`t.N`）不检查，落到 C 编译器才报错**
     （`tests/repros/tuple_index_oob_not_checked.uya`）
+    - 状态：**已修复**（2026-10-12）。根因是 checker 里存在这条诊断
+      （`src/checker/check_call.uya:2679`），但在常量元组上不可达 ——
+      `return t.3` / `t.3 as i32` / 条件位置都只走 `infer_member_access`。
+      修法是在 `infer_member_access` 的元组分支补同一条诊断
+      （重复报告由 `checker_should_suppress_duplicate_error` 去重）。
+      负例 `tests/error_tuple_index_oob.uya`。
     - 现象：checker 里存在「元组下标越界（.0/.1/... 必须在元组元素个数内）」诊断
       （`src/checker/check_call.uya:2679`），但在常量元组上不可达：
       `const t: (i32,i32,i32) = (1,2,3); return t.3;` 通过 checker。
@@ -388,7 +454,12 @@
     证明失败：参数读写、单边守卫、usize 与 `as usize` 只证下界、守卫差一、`for` 范围过宽；
     常量模零 / 嵌套除零 / 减、乘、一元负溢出；空指针写与成员访问、移动后取址），
     以及正例 `tests/test_ub_safety_guards.uya`（22 个用例覆盖各类守卫的正确写法与 drop 只执行一次）。
-  - 归属：`src/checker/`（①-⑦ 全部落在 checker）。
+  - 2026-10-12 收口 ①②④⑦ 时补的负例：`tests/error_array_bounds_const_negative_index.uya`、
+    `tests/error_array_bounds_oob_in_return.uya`、`tests/error_tuple_index_oob.uya`、
+    `tests/error_slice_range_oob.uya`；正例：`tests/test_bounds_const_negative_index.uya`、
+    `tests/test_return_expr_bounds.uya`、`tests/test_nested_field_move.uya`、
+    `tests/test_slice_range_bounds.uya`。
+  - 归属：`src/checker/`（①-⑦ 全部落在 checker；② 另需 `src/codegen/c99/` 配合）。
 
 - [x] **P0 / 严重：区间端点 i32 回绕产出「反转区间」，被当成「已证明安全」而放行越界访问（健全性漏洞）**
   - 状态：**已修复**（2026-10-11；`make b` 自举字节一致，`make check` 1142/1142）

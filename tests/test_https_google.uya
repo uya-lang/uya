@@ -30,7 +30,7 @@ export fn main() i32 {
         return 0;
     };
 
-    debug(&"Success! Status="[0: 19]);
+    debug(&"Success! Status="[0: 16]);
     // Print status
     if resp.status == 200 {
         debug(&"200\n"[0: 4]);

@@ -2501,8 +2501,10 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     }
     // 与 checker_eval_const_expr 一致：符号表解析 export const（含跨文件），否则 [T: MAX_N] 在 C 中退化为 [1]
     if codegen != null && codegen.checker != null {
-        const ck: i32 = checker_eval_const_expr(codegen.checker, expr);
-        if ck != -1 {
+        // 用成功标志区分「非常量」与「常量 -1」：早先按 `!= -1` 判会把常量 -1 当成求值失败
+        var ck_ok: i32 = 0;
+        const ck: i32 = checker_eval_const_expr_ex(codegen.checker, expr, &ck_ok);
+        if ck_ok != 0 {
             return ck;
         }
     }

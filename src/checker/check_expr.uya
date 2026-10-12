@@ -2079,7 +2079,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         checker_report_error(checker, expr, "不能引用 _" as *byte);
         return make_void_type();
     } else if expr.type == ASTNodeType.AST_IDENTIFIER {
-        if moved_set_contains(checker, expr.identifier_name) != 0 {
+        if moved_access_path_contains(checker, expr.identifier_name) != 0 {
             checker_report_error_moved(checker, expr, expr.identifier_name);
             return make_void_type();
         }
@@ -2117,6 +2117,20 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         if base_type.kind != TypeKind.TYPE_ARRAY && base_type.kind != TypeKind.TYPE_SLICE &&
             base_type.kind != TypeKind.TYPE_POINTER {
             return make_void_type();
+        }
+        // 切片范围检查：`&buf[0:99]`（底层只有 4 个元素）此前静默通过，
+        // 得到 @len == 99 的越界切片
+        // （tests/repros/bounds_slice_index_not_proved.uya 的缺口 2）。
+        // `check_slice_bounds`（src/checker/proof.uya）本来就实现了常量 start/len
+        // 的校验，但全树没有任何调用者（死代码）—— 这里把它接到唯一会生成切片的
+        // 结点上。只覆盖「底层是数组/字符串字面量 + start/len 都是常量」这一
+        // 保守子集；变量 start/len 与切片形参的下标证明（缺口 1）仍未做，见 buglist。
+        if checker.enable_safety_proof != 0 {
+            const slice_result: BoundsCheckResult = check_slice_bounds(checker, expr.slice_expr_base,
+                expr.slice_expr_start_expr, expr.slice_expr_len_expr);
+            if slice_result.risk == BoundsCheckRisk.BOUNDS_ERROR as i32 && slice_result.message != null {
+                checker_report_error(checker, expr, slice_result.message);
+            }
         }
         var elem: &Type = null;
         if base_type.kind == TypeKind.TYPE_ARRAY {
@@ -3482,6 +3496,23 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
         return make_void_type();
     }
     
+    // 移动语义：读「已移走的字段」或它的子字段必须报错（`h.buf` / `h.buf.data`）。
+    // 早先移动标记只落在顶层变量上，字段移动不留痕迹，于是这处读取静默通过 ——
+    // 而字段早交给目标变量了，读到的指针随后会被外层 drop 再 free 一次
+    // （tests/repros/move_nested_field_double_free.uya）。
+    // 只对「非模块访问」的实体成员做判定：`Color.RED`、`mod.fn` 之类与移动无关。
+    if (checker.enable_safety_proof != 0) {
+        if (expr.member_access_is_module_access == 0 && expr.member_access_field_name != null) {
+            const member_path: &byte = constraint_expr_name(checker, expr);
+            if member_path != null {
+                if (moved_access_path_contains(checker, member_path) != 0) {
+                    checker_report_error_moved(checker, expr, member_path);
+                    return make_void_type();
+                }
+            }
+        }
+    }
+
     // 检查是否是枚举类型访问（如 Color.RED）
     if object.type == ASTNodeType.AST_IDENTIFIER {
         const enum_name: &byte = object.identifier_name;
@@ -3552,6 +3583,11 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         const idx: i32 = atoi(field_name as *byte);
         if idx < 0 || idx >= object_type.tuple_count {
+            // 越界必须在这里报：早先静默返回 void，错误被推迟到 C 编译器
+            // （生成的 C 引用不存在的 `t.f3`），诊断位置失真且不可读。
+            // 与 checker_check_member_access（src/checker/check_call.uya）同一诊断，
+            // 重复报告由 checker_should_suppress_duplicate_error 去重。
+            checker_report_error(checker, expr, "元组下标越界（.0/.1/... 必须在元组元素个数内）" as *byte);
             return make_void_type();
         }
         return object_type.tuple_element_types[idx];
@@ -4051,9 +4087,13 @@ fn infer_array_access(checker: &TypeChecker, expr: &ASTNode) Type {
         const array_size: i32 = array_type.array_size;
         
         // 常量索引越界检查（始终执行，不依赖 enable_safety_proof）
-        const index_val: i32 = checker_eval_const_expr(checker, index_expr);
-        if index_val >= 0 {
-            if index_val >= array_size {
+        // 用成功标志区分「非常量」与「常量 -1」：后者早先会被当成变量索引静默放行。
+        var index_is_const: i32 = 0;
+        const index_val: i32 = checker_eval_const_expr_ex(checker, index_expr, &index_is_const);
+        if index_is_const != 0 {
+            if index_val < 0 {
+                checker_report_error(checker, index_expr, "数组索引越界：索引不能为负数" as *byte);
+            } else if index_val >= array_size {
                 checker_report_error(checker, index_expr, "数组索引越界：常量索引超出数组边界" as *byte);
             }
         } else if checker.enable_safety_proof != 0 {

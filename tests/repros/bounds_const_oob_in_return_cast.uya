@@ -1,13 +1,13 @@
 // 复现：常量越界下标出现在 `return` 的 cast / 实参位置时检查被跳过
 //
-// 状态（2026-10-11）：**未修复**。本文件在当前编译器下**编译通过**，
-// 生成 `(int32_t)a[3]` / `identity(a[3])`，是真实的 UB 漏检。
+// 状态（2026-10-12）：**已修复**。本文件现在报
+// 「数组索引越界：常量索引超出数组边界」，不再静默生成 `(int32_t)a[3]`。
 //
 // 现象：同一个常量越界下标，**取决于它是否直接出现在 return 表达式里**：
 //
 //   const via: i32 = a[3];      // 报「数组索引越界：常量索引超出数组边界」 ✓
-//   return a[3] as i32;         // 静默通过，生成 (int32_t)a[3]                ✗
-//   return identity(a[3]);      // 静默通过，生成 identity(a[3])               ✗
+//   return a[3] as i32;         // 修复前静默通过，生成 (int32_t)a[3]        ✗
+//   return identity(a[3]);      // 修复前静默通过，生成 identity(a[3])       ✗
 //
 // 一旦越界访问包在 `const x: i32 = ...` 里（即使只是把 return 表达式提前
 // 赋给一个局部变量），检查又恢复了 —— 说明 `return` 路径下的
@@ -15,9 +15,21 @@
 // 两条数组访问检查路径（src/checker/check_expr.uya 与 check_expr_extra.uya）
 // 的覆盖不一致。
 //
+// 根因：`return` 语句只调用 `checker_infer_type`，而 cast / 调用这类顶层结点
+//       在推断里直接返回目标类型、不再深入子表达式；变量初始化路径额外调了
+//       `checker_check_node`，所以写在 `const v: T = ...` 里能被抓到。
+//
+// 修复：`return` 路径补一次「边界相关」的递归检查
+//      （`checker_check_return_expr_bounds`，src/checker/check_expr_extra.uya）。
+//      刻意不复用完整的 `checker_check_node`：后者有「标记实参已移动」的副作用，
+//      会让 `return interval_mul(a, ...)` 这类结构体传参成批误报「变量已被移动」。
+//
+// 回归用例：tests/error_array_bounds_oob_in_return.uya（负例）、
+//          tests/test_return_expr_bounds.uya（正例，含「return 不移动实参」）
+//
 // 复现命令：
 //   ./bin/uya build --safety-proof tests/repros/bounds_const_oob_in_return_cast.uya -o /tmp/oob_ret
-//   /tmp/oob_ret; echo $?      # 期望编译失败；实际编译通过并越界读
+//   # 期望：编译失败（修复前：编译通过并越界读）
 
 fn identity(x: i32) i32 {
     return x;

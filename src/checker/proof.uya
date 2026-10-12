@@ -141,28 +141,71 @@ fn check_i32_neg_overflow(val: i32) i32 {
 
 // ===== 常量表达式求值 =====
 
-// 评估编译时常量表达式
+// 评估编译时常量表达式（带成功标志）
+//
+// 历史坑：早先只用返回值 **-1** 同时表示「非常量表达式」与「常量 -1」，
+// 于是 `a[0 - 1]` 这类常量负下标被当成「变量索引」送进证明器，
+// 而证明器对常量既提取不出线性表达式也拿不到区间，静默失败直接放行。
+// 这里改为「成功标志 + 值」双返回：out_ok[0] 为 1 表示求值成功，
+// 此时返回值才是可信的常量（可以是 -1）；为 0 表示非常量/求值失败。
+//
+// 参数：
+// - checker: 类型检查器。
+// - expr: 待求值的表达式。
+// - out_ok: 成功标志出参；传 null 表示调用方只关心值（旧语义）。
+// 返回：
+// - 求值成功时为常量值（含 -1）；失败时为 -1 且 out_ok[0] == 0。
+fn checker_eval_const_expr_ex(checker: &TypeChecker, expr: &ASTNode, out_ok: &i32) i32 {
+    if out_ok != null {
+        out_ok[0] = 0;
+    }
+    const value: i32 = checker_eval_const_expr_ex_impl(checker, expr, out_ok);
+    return value;
+}
+
+// 旧接口：不关心成功标志的调用方沿用（失败仍返回 -1）。
 fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
+    return checker_eval_const_expr_ex(checker, expr, null);
+}
+
+// 记录「求值成功」并返回值，供下面各分支统一收口。
+fn checker_const_ok(out_ok: &i32, value: i32) i32 {
+    if out_ok != null {
+        out_ok[0] = 1;
+    }
+    return value;
+}
+
+fn checker_eval_const_expr_ex_impl(checker: &TypeChecker, expr: &ASTNode, out_ok: &i32) i32 {
     if expr == null || checker == null {
         return -1;
     }
     if expr.type == ASTNodeType.AST_NUMBER {
+        if out_ok != null {
+            out_ok[0] = 1;
+        }
         return expr.number_value as i32;
     } else if expr.type == ASTNodeType.AST_BOOL {
+        if out_ok != null {
+            out_ok[0] = 1;
+        }
         return expr.bool_literal_value;
     } else if expr.type == ASTNodeType.AST_CHAR {
+        if out_ok != null {
+            out_ok[0] = 1;
+        }
         return expr.char_literal_value;
     } else if expr.type == ASTNodeType.AST_IDENTIFIER {
         const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
         if symbol != null && symbol.is_const != 0 && symbol.decl_node != null {
             const decl: &ASTNode = symbol.decl_node;
             if decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_init != null {
-                return checker_eval_const_expr(checker, decl.var_decl_init);
+                return checker_eval_const_expr_ex_impl(checker, decl.var_decl_init, out_ok);
             }
             // export const x: T = v; 解析为 AST_EXTERN_VAR_DECL（非 C extern）
             if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL && decl.extern_var_decl_init_expr != null &&
                 decl.extern_var_decl_is_extern == 0 {
-                return checker_eval_const_expr(checker, decl.extern_var_decl_init_expr);
+                return checker_eval_const_expr_ex_impl(checker, decl.extern_var_decl_init_expr, out_ok);
             }
         }
         
@@ -181,13 +224,13 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
                 if decl.type == ASTNodeType.AST_VAR_DECL {
                     const init: &ASTNode = decl.var_decl_init;
                     if init != null {
-                        return checker_eval_const_expr(checker, init);
+                        return checker_eval_const_expr_ex_impl(checker, init, out_ok);
                     }
                     return -1;
                 }
                 const init_ex: &ASTNode = decl.extern_var_decl_init_expr;
                 if init_ex != null {
-                    return checker_eval_const_expr(checker, init_ex);
+                    return checker_eval_const_expr_ex_impl(checker, init_ex, out_ok);
                 }
                 return -1;
             }
@@ -203,7 +246,7 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
                decl.var_decl_is_const != 0 {
                 const init: &ASTNode = decl.var_decl_init;
                 if init != null {
-                    return checker_eval_const_expr(checker, init);
+                    return checker_eval_const_expr_ex_impl(checker, init, out_ok);
                 }
                 return -1;
             }
@@ -213,7 +256,7 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
                decl.extern_var_decl_is_const != 0 {
                 const init_ex: &ASTNode = decl.extern_var_decl_init_expr;
                 if init_ex != null {
-                    return checker_eval_const_expr(checker, init_ex);
+                    return checker_eval_const_expr_ex_impl(checker, init_ex, out_ok);
                 }
                 return -1;
             }
@@ -249,7 +292,7 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
                     strcmp(base_expr.struct_init_field_names[fi] as *byte, expr.member_access_field_name as *byte) == 0 {
                     const field_value: &ASTNode = base_expr.struct_init_field_values[fi];
                     if field_value != null {
-                        return checker_eval_const_expr(checker, field_value);
+                        return checker_eval_const_expr_ex_impl(checker, field_value, out_ok);
                     }
                     return -1;
                 }
@@ -258,9 +301,11 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
         }
         return -1;
     } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
-        const left_val: i32 = checker_eval_const_expr(checker, expr.binary_expr_left);
-        const right_val: i32 = checker_eval_const_expr(checker, expr.binary_expr_right);
-        if left_val == -1 || right_val == -1 {
+        var left_ok: i32 = 0;
+        var right_ok: i32 = 0;
+        const left_val: i32 = checker_eval_const_expr_ex_impl(checker, expr.binary_expr_left, &left_ok);
+        const right_val: i32 = checker_eval_const_expr_ex_impl(checker, expr.binary_expr_right, &right_ok);
+        if left_ok == 0 || right_ok == 0 {
             return -1;
         }
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
@@ -270,65 +315,66 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
                 checker_report_error(checker, expr, "常量表达式溢出: 加法结果超出 i32 范围" as *byte);
                 return -1;
             }
-            return left_val + right_val;
+            return checker_const_ok(out_ok, left_val + right_val);
         } else if op == TokenType.TOKEN_MINUS {
             if check_i32_sub_overflow(left_val, right_val) != 0 {
                 checker_report_error(checker, expr, "常量表达式溢出: 减法结果超出 i32 范围" as *byte);
                 return -1;
             }
-            return left_val - right_val;
+            return checker_const_ok(out_ok, left_val - right_val);
         } else if op == TokenType.TOKEN_ASTERISK {
             if check_i32_mul_overflow(left_val, right_val) != 0 {
                 checker_report_error(checker, expr, "常量表达式溢出: 乘法结果超出 i32 范围" as *byte);
                 return -1;
             }
-            return left_val * right_val;
+            return checker_const_ok(out_ok, left_val * right_val);
         } else if op == TokenType.TOKEN_SLASH {
             if right_val == 0 {
                 checker_report_error(checker, expr, "常量表达式除零错误" as *byte);
                 return -1;
             }
-            return left_val / right_val;
+            return checker_const_ok(out_ok, left_val / right_val);
         } else if op == TokenType.TOKEN_PERCENT {
             if right_val == 0 {
                 checker_report_error(checker, expr, "常量表达式模零错误" as *byte);
                 return -1;
             }
-            return left_val % right_val;
+            return checker_const_ok(out_ok, left_val % right_val);
         } else if op == TokenType.TOKEN_LESS {
-            if left_val < right_val { return 1; } else { return 0; }
+            if left_val < right_val { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_GREATER {
-            if left_val > right_val { return 1; } else { return 0; }
+            if left_val > right_val { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_LESS_EQUAL {
-            if left_val <= right_val { return 1; } else { return 0; }
+            if left_val <= right_val { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_GREATER_EQUAL {
-            if left_val >= right_val { return 1; } else { return 0; }
+            if left_val >= right_val { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_EQUAL {
-            if left_val == right_val { return 1; } else { return 0; }
+            if left_val == right_val { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_NOT_EQUAL {
-            if left_val != right_val { return 1; } else { return 0; }
+            if left_val != right_val { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_LOGICAL_AND {
-            if left_val != 0 && right_val != 0 { return 1; } else { return 0; }
+            if left_val != 0 && right_val != 0 { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else if op == TokenType.TOKEN_LOGICAL_OR {
-            if left_val != 0 || right_val != 0 { return 1; } else { return 0; }
+            if left_val != 0 || right_val != 0 { return checker_const_ok(out_ok, 1); } else { return checker_const_ok(out_ok, 0); }
         } else {
             return -1;
         }
     } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
-        const operand_val: i32 = checker_eval_const_expr(checker, expr.unary_expr_operand);
-        if operand_val == -1 {
+        var operand_ok: i32 = 0;
+        const operand_val: i32 = checker_eval_const_expr_ex_impl(checker, expr.unary_expr_operand, &operand_ok);
+        if operand_ok == 0 {
             return -1;
         }
         const op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
         if op == TokenType.TOKEN_PLUS {
-            return operand_val;
+            return checker_const_ok(out_ok, operand_val);
         } else if op == TokenType.TOKEN_MINUS {
             if check_i32_neg_overflow(operand_val) != 0 {
                 checker_report_error(checker, expr, "常量表达式溢出: 一元负运算超出 i32 范围" as *byte);
                 return -1;
             }
-            return -operand_val;
+            return checker_const_ok(out_ok, -operand_val);
         } else {
             return -1;
         }
@@ -339,7 +385,7 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
         }
         const array_type: Type = checker_infer_type(checker, array_expr);
         if array_type.kind == TypeKind.TYPE_ARRAY {
-            return array_type.array_size;
+            return checker_const_ok(out_ok, array_type.array_size);
         }
         return -1;
     } else if expr.type == ASTNodeType.AST_SIZEOF {
@@ -350,12 +396,16 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
             if target.type == ASTNodeType.AST_TYPE_FRAME {
                 const frame_size: i32 = get_async_frame_size_bytes(checker, target);
                 if frame_size > 0 {
-                    return frame_size;
+                    return checker_const_ok(out_ok, frame_size);
                 }
             }
             t = type_from_ast(checker, target);
         }
-        return get_type_size_bytes(&t);
+        const size_bytes: i32 = get_type_size_bytes(&t);
+        if size_bytes < 0 {
+            return -1;
+        }
+        return checker_const_ok(out_ok, size_bytes);
     } else if expr.type == ASTNodeType.AST_ALIGNOF {
         const target: &ASTNode = expr.alignof_expr_target;
         if target == null { return -1; }
@@ -364,18 +414,22 @@ fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
             if target.type == ASTNodeType.AST_TYPE_FRAME {
                 const frame_align: i32 = get_async_frame_align_bytes(checker, target);
                 if frame_align > 0 {
-                    return frame_align;
+                    return checker_const_ok(out_ok, frame_align);
                 }
             }
             t = type_from_ast(checker, target);
         }
-        return get_type_align_bytes(&t);
+        const align_bytes: i32 = get_type_align_bytes(&t);
+        if align_bytes < 0 {
+            return -1;
+        }
+        return checker_const_ok(out_ok, align_bytes);
     } else if expr.type == ASTNodeType.AST_CAST_EXPR {
         const inner_expr: &ASTNode = expr.cast_expr_expr;
         if inner_expr == null {
             return -1;
         }
-        return checker_eval_const_expr(checker, inner_expr);
+        return checker_eval_const_expr_ex_impl(checker, inner_expr, out_ok);
     } else {
         return -1;
     }
@@ -1056,13 +1110,14 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
     }
     
     // 检查起始位置
-    if start_expr != null && is_constant_expression(checker, start_expr) != 0 {
-        const start_value: i32 = checker_eval_const_expr(checker, start_expr);
-        
+    // 同下：必须用成功标志判常量，否则变量 start 会被读成常量 -1。
+    var start_pos_is_const: i32 = 0;
+    const start_pos_value: i32 = checker_eval_const_expr_ex(checker, start_expr, &start_pos_is_const);
+    if start_expr != null && start_pos_is_const != 0 {
         // 处理负数索引
-        var actual_start: i32 = start_value;
-        if start_value < 0 {
-            actual_start = result.array_size + start_value;
+        var actual_start: i32 = start_pos_value;
+        if start_pos_value < 0 {
+            actual_start = result.array_size + start_pos_value;
         }
         
         if actual_start < 0 || actual_start > result.array_size {
@@ -1073,17 +1128,25 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
     }
     
     // 检查长度
-    if len_expr != null && is_constant_expression(checker, len_expr) != 0 {
-        const len_value: i32 = checker_eval_const_expr(checker, len_expr);
-        
+    //
+    // 注意必须用**成功标志**判「是否真的求出了常量」：早先只靠
+    // `is_constant_expression` + `checker_eval_const_expr` 的组合，而前者对
+    // 块内已绑定的标识符一律返回 1、后者对非常量返回 -1 —— 于是一个
+    // **变量**长度（如 `img[0: n]` 里的 `n: usize`）会被读成「常量 -1」，
+    // 直接报「切片长度不能为负数」。这段代码此前没有任何调用者（死代码），
+    // 所以直到接到切片表达式上才暴露。
+    var len_is_const: i32 = 0;
+    const len_value: i32 = checker_eval_const_expr_ex(checker, len_expr, &len_is_const);
+    if len_expr != null && len_is_const != 0 {
         if len_value < 0 {
             result.risk = BoundsCheckRisk.BOUNDS_ERROR as i32;
             result.message = "切片长度不能为负数" as &byte;
             return result;
         }
         
-        if start_expr != null && is_constant_expression(checker, start_expr) != 0 {
-            const start_value: i32 = checker_eval_const_expr(checker, start_expr);
+        var start_is_const: i32 = 0;
+        const start_value: i32 = checker_eval_const_expr_ex(checker, start_expr, &start_is_const);
+        if start_expr != null && start_is_const != 0 {
             var actual_start: i32 = start_value;
             if start_value < 0 {
                 actual_start = result.array_size + start_value;

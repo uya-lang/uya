@@ -1,0 +1,39 @@
+// error_array_bounds_oob_in_return.uya - return 表达式里的越界下标必须报错
+//
+// 规范 §14.2：常量索引越界 → 编译错误。`return` 语句早先只调用
+// checker_infer_type，而 cast / 调用这类顶层结点在推断里直接返回目标类型、
+// 不再深入子表达式，于是同一个越界下标「写在 return 里」就静默通过：
+//
+//   const via: i32 = a[3];      // 报「数组索引越界」 ✓
+//   return a[3] as i32;         // 修复前静默通过        ✗
+//   return identity(a[3]);      // 修复前静默通过        ✗
+//
+// 修复后 return 路径补一次「边界相关」的递归检查
+// （checker_check_return_expr_bounds），与变量初始化路径口径一致。
+//
+// 预期：编译失败，报告「数组索引越界：常量索引超出数组边界」
+
+fn identity(x: i32) i32 {
+    return x;
+}
+
+fn oob_through_call() i32 {
+    const a: [i32: 3] = [1, 2, 3];
+    // 实参位置：推断被调用表达式短路
+    return identity(a[3]);
+}
+
+fn oob_through_cast() i32 {
+    const a: [i32: 3] = [1, 2, 3];
+    // cast 位置：推断直接返回目标类型
+    return a[3] as i32;
+}
+
+fn oob_through_binary() i32 {
+    const a: [i32: 3] = [1, 2, 3];
+    return a[3] + 1;
+}
+
+export fn main() i32 {
+    return oob_through_call() + oob_through_cast() + oob_through_binary();
+}

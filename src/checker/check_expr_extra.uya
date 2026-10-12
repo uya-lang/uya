@@ -75,16 +75,17 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
             return array_type.element_type[0];
         }
         
-        // 常量索引越界检测
-        const index_val: i32 = checker_eval_const_expr(checker, node.array_access_index);
-        if index_val >= 0 {
+        // 常量索引越界检测（用成功标志区分「非常量」与「常量 -1」，
+        // 后者早先会被当成变量索引而静默放行）
+        var index_is_const: i32 = 0;
+        const index_val: i32 = checker_eval_const_expr_ex(checker, node.array_access_index, &index_is_const);
+        if index_is_const != 0 {
             // 索引是常量，检查是否越界
             const array_size: i32 = array_type.array_size;
-            if index_val >= array_size {
-                checker_report_error(checker, node.array_access_index, "数组索引越界：常量索引超出数组边界" as *byte);
-            }
             if index_val < 0 {
                 checker_report_error(checker, node.array_access_index, "数组索引越界：索引不能为负数" as *byte);
+            } else if index_val >= array_size {
+                checker_report_error(checker, node.array_access_index, "数组索引越界：常量索引超出数组边界" as *byte);
             }
         } else {
             // 变量索引：使用约束系统验证边界（仅当开启安全证明时）
@@ -191,9 +192,14 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
                         }
                     }
                 } else if known_len >= 0 {
-                    const index_val: i32 = checker_eval_const_expr(checker, node.array_access_index);
-                    if index_val >= 0 {
-                        if index_val >= known_len {
+                    // 同样用成功标志区分为「常量 -1」与「非常量」
+                    var ptr_index_is_const: i32 = 0;
+                    const index_val: i32 = checker_eval_const_expr_ex(checker, node.array_access_index, &ptr_index_is_const);
+                    if ptr_index_is_const != 0 {
+                        if index_val < 0 {
+                            checker_report_error(checker, node.array_access_index,
+                                "指针下标越界：索引不能为负数" as &byte);
+                        } else if index_val >= known_len {
                             checker_report_error(checker, node.array_access_index, 
                                 "指针下标越界：常量索引超出已知长度" as &byte);
                         }
@@ -2134,8 +2140,9 @@ fn checker_check_cast_expr(checker: &TypeChecker, node: &ASTNode) void {
             var is_const_addr: i32 = 0;
             if expr.type == ASTNodeType.AST_NUMBER { is_const_addr = 1; }
             if expr.type == ASTNodeType.AST_IDENTIFIER {
-                const ev: i32 = checker_eval_const_expr(checker, expr);
-                if ev >= 0 { is_const_addr = 1; }
+                var ev_ok: i32 = 0;
+                const ev: i32 = checker_eval_const_expr_ex(checker, expr, &ev_ok);
+                if ev_ok != 0 && ev >= 0 { is_const_addr = 1; }
             }
             if is_const_addr != 0 {
                 // 跳过标准库
@@ -2547,4 +2554,103 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
     // 错误信息已经通过 checker_report_error 输出
     // 主函数会根据错误计数决定是否继续代码生成
     return 0;
+}
+
+// 对 `return` 表达式补一次边界证明检查（不含「标记实参已移动」等副作用）。
+//
+// 为什么需要单独一条：`return` 语句只调用 checker_infer_type，而 cast / 调用等
+// 顶层结点在推断里直接返回目标类型、不再深入子表达式，于是
+// `return a[3] as i32`、`return identity(a[3])` 里的越界下标既不报错也不证明；
+// 同一表达式写在 `const v: T = ...` 里会被 var-decl 路径的 checker_check_node 抓到。
+//
+// 为什么不能直接复用 checker_check_node：它会在调用表达式上执行
+// checker_mark_moved_call_args + 写回 var_decl_was_moved，而 return 语句按既有
+// 语义不移动实参；实测这样会引入成批的「变量已被移动」误报
+// （如 `return interval_mul(a, interval_const(factor))`）。
+// 因此这里只递归做与边界/越界有关的检查：
+//   1. 数组/切片/指针下标访问（checker_check_array_access）；
+//   2. 成员访问（调 checker_infer_type 触发元组下标越界诊断）；
+//   3. 其余结点只当作容器递归下去。
+//
+// 刻意**不**调用 checker_check_cast_expr：cast 的合法性检查需要外层提供的
+// 期望类型上下文（如 `return (meta & 65535) as i32` 里 `65535` 要靠目标类型
+// 才能定成 i64），在 return 路径上单独推断内部表达式会给出
+// 「位运算符操作数类型必须一致」这类误报。
+//
+// 参数：
+// - checker: 类型检查器。
+// - expr: return 语句的表达式（可为 null）。
+// 返回：
+// - 无返回值。
+fn checker_check_return_expr_bounds(checker: &TypeChecker, expr: &ASTNode) void {
+    if checker == null || expr == null {
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        checker_check_array_access(checker, expr);
+        checker_check_return_expr_bounds(checker, expr.array_access_array);
+        checker_check_return_expr_bounds(checker, expr.array_access_index);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        // 触发元组下标越界等成员访问诊断（infer_member_access 内报错）
+        _ = checker_infer_type(checker, expr);
+        checker_check_return_expr_bounds(checker, expr.member_access_object);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        checker_check_return_expr_bounds(checker, expr.cast_expr_expr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        // 只递归实参（不碰 callee：callee 是函数名/方法名，不是下标表达式），
+        // 且不调用 checker_check_call_expr，避免移动标记副作用。
+        if expr.call_expr_args != null {
+            var i: i32 = 0;
+            while i < expr.call_expr_arg_count {
+                checker_check_return_expr_bounds(checker, expr.call_expr_args[i]);
+                i = i + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        checker_check_return_expr_bounds(checker, expr.binary_expr_left);
+        checker_check_return_expr_bounds(checker, expr.binary_expr_right);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        checker_check_return_expr_bounds(checker, expr.unary_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        checker_check_return_expr_bounds(checker, expr.slice_expr_base);
+        checker_check_return_expr_bounds(checker, expr.slice_expr_start_expr);
+        checker_check_return_expr_bounds(checker, expr.slice_expr_len_expr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_STRUCT_INIT && expr.struct_init_field_values != null {
+        var i: i32 = 0;
+        while i < expr.struct_init_field_count {
+            checker_check_return_expr_bounds(checker, expr.struct_init_field_values[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_LITERAL && expr.array_literal_elements != null {
+        var i: i32 = 0;
+        while i < expr.array_literal_element_count {
+            checker_check_return_expr_bounds(checker, expr.array_literal_elements[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_TUPLE_LITERAL && expr.tuple_literal_elements != null {
+        var i: i32 = 0;
+        while i < expr.tuple_literal_element_count {
+            checker_check_return_expr_bounds(checker, expr.tuple_literal_elements[i]);
+            i = i + 1;
+        }
+        return;
+    }
 }

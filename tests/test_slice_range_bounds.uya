@@ -1,0 +1,79 @@
+// test_slice_range_bounds.uya - 切片范围检查的正向回归
+//
+// 与 tests/error_slice_range_oob.uya 配对。切片范围检查（check_slice_bounds）
+// 是这一轮才接上的死代码，最容易出的错是「接得过头」把合法切片也拒了 ——
+// 尤其注意它内部对负 start 做「从末尾回数」（`start < 0` 时按
+// `array_size + start` 解释）以及字符串字面量按「strlen + 1」计长
+// （含结尾 \0，见规范 §14 的编译期边界说明）这两条既有约定。
+//
+// 覆盖：
+//   1. 整段切片与末段切片；
+//   2. 零长度切片（start == len 的边界）；
+//   3. 字符串字面量切片（含 \0 的口径）；
+//   4. 非常量 start/len（本轮不校验，必须仍然放行）；
+//   5. 切片结果的运行期取值正确。
+
+use std.runtime.entry;
+use std.testing.assert_eq_i32;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+fn full_slice() !void {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    const all: &[i32] = &buf[0:4];
+    try assert_eq_i32(all.len as i32, 4);
+    try assert_eq_i32(all[0], 7);
+    try assert_eq_i32(all[3], 10);
+}
+
+fn tail_slice() !void {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    const tail: &[i32] = &buf[2:2];
+    try assert_eq_i32(tail.len as i32, 2);
+    try assert_eq_i32(tail[0], 9);
+    try assert_eq_i32(tail[1], 10);
+}
+
+fn empty_slice_at_end() !void {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    // start == 底层长度、len == 0：合法边界
+    const empty: &[i32] = &buf[4:0];
+    try assert_eq_i32(empty.len as i32, 0);
+}
+
+fn single_element_slice() !void {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    // start + len 恰好等于底层长度
+    const one: &[i32] = &buf[3:1];
+    try assert_eq_i32(one.len as i32, 1);
+    try assert_eq_i32(one[0], 10);
+}
+
+fn string_literal_slice() !void {
+    // 字面量按 strlen + 1 计（含结尾 \0），取可见内容的切片合法
+    const s: &[const byte] = "abc"[0:3];
+    try assert_eq_i32(s.len as i32, 3);
+    try assert_eq_i32(s[0] as i32, 97);
+}
+
+fn variable_range_slice() !void {
+    var buf: [i32: 8] = [0, 1, 2, 3, 4, 5, 6, 7];
+    var start: i32 = 2;
+    var count: i32 = 3;
+    // 非常量 start/len：本轮不校验，必须仍然放行
+    const part: &[i32] = &buf[start:count];
+    try assert_eq_i32(part[0], 2);
+    try assert_eq_i32(part[2], 4);
+}
+
+export fn main() i32 {
+    test_suite_begin("Slice Range Bounds");
+    run_test("full slice", full_slice);
+    run_test("tail slice", tail_slice);
+    run_test("empty slice at end", empty_slice_at_end);
+    run_test("single element slice", single_element_slice);
+    run_test("string literal slice", string_literal_slice);
+    run_test("variable range slice", variable_range_slice);
+    return test_suite_end();
+}

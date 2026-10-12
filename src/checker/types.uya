@@ -325,6 +325,10 @@ struct TypeChecker {
     error_name_count: i32,
     moved_names: [&byte: 128],
     moved_count: i32,
+    // 成员访问链深度：推断 `expr.field` 期间 > 0，用于把「已移动」判定从
+    // 裸标识符扩到访问链根（`h.buf.data` 里的 `h`）。
+    // 见 symbols.uya 的 checker_moved_access_root / moved_access_path_set。
+    member_access_depth: i32,
     module_root_dir: &byte,
     uya_root_dir: &byte,
     current_type_params: &TypeParam,

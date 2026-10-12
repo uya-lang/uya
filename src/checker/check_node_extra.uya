@@ -374,13 +374,9 @@ fn check_assign_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 const op_tmp: !TokenType = src.binary_expr_op as! TokenType;
                 const op: TokenType = op_tmp.value;
                 const left_linear: LinearExpr = extract_linear_expr(checker, left);
-                const right_val: i32 = checker_eval_const_expr(checker, right);
+                // 用成功标志判断右侧是否为常量：`i = i + (-1)` 的 -1 是常量。
                 var right_is_const: i32 = 0;
-                if right_val >= 0 {
-                    right_is_const = 1;
-                } else if right != null && right.type == ASTNodeType.AST_NUMBER {
-                    right_is_const = 1;
-                }
+                const right_val: i32 = checker_eval_const_expr_ex(checker, right, &right_is_const);
                 
                 // 检查是否是 var = var op const 模式
                 if left_linear.is_valid != 0 && left_linear.var_name != null &&
@@ -493,14 +489,18 @@ fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
         // for start..end |i| 意味着 start <= i && i < end
         if node.for_stmt_var_name != null {
             // 从起始值提取约束：i >= start
-            const start_val: i32 = checker_eval_const_expr(checker, node.for_stmt_range_start);
-            if start_val >= 0 {
+            // 用成功标志判断「是否为常量」：`for -3..5` 的 -3 是合法常量，
+            // 早先按 `>= 0` 判会被当成非常量而漏登记。
+            var start_is_const: i32 = 0;
+            const start_val: i32 = checker_eval_const_expr_ex(checker, node.for_stmt_range_start, &start_is_const);
+            if start_is_const != 0 {
                 constraint_add(checker, node.for_stmt_var_name, CONSTRAINT_GE, start_val);
             }
             // 从结束值提取约束：i < end
             if node.for_stmt_range_end != null {
-                const end_val: i32 = checker_eval_const_expr(checker, node.for_stmt_range_end);
-                if end_val >= 0 {
+                var end_is_const: i32 = 0;
+                const end_val: i32 = checker_eval_const_expr_ex(checker, node.for_stmt_range_end, &end_is_const);
+                if end_is_const != 0 {
                     constraint_add(checker, node.for_stmt_var_name, CONSTRAINT_LT, end_val);
                 }
             }

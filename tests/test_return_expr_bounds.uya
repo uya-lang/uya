@@ -1,0 +1,112 @@
+// test_return_expr_bounds.uya - return 表达式的边界检查正向回归
+//
+// 与 tests/error_array_bounds_oob_in_return.uya 配对：「return 路径补一次边界检查」
+// 这一改动最容易出的错是收紧到误报 —— 两种已知风险都要钉住：
+//
+//   1. 合法下标写在 return 里必须仍然放行（含 cast / 实参 / 二元形态）；
+//   2. return 语句**不能**触发「实参已移动」标记（return 不移动实参），
+//      否则 `return interval_mul(a, ...)` 这类结构体传参会成批误报。
+//      第 2 条用一个含 drop 的结构体 + 计数器断言「drop 恰好一次」来钉。
+
+use std.runtime.entry;
+use std.testing.assert_eq_i32;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+fn identity(x: i32) i32 {
+    return x;
+}
+
+fn cast_ok() i32 {
+    const a: [i32: 3] = [10, 20, 30];
+    // 合法下标 + cast
+    return a[2] as i32;
+}
+
+fn call_arg_ok() i32 {
+    const a: [i32: 3] = [10, 20, 30];
+    // 合法下标在实参位置
+    return identity(a[1]);
+}
+
+fn binary_ok() i32 {
+    const a: [i32: 3] = [10, 20, 30];
+    return a[0] + a[2];
+}
+
+fn nested_call_ok() i32 {
+    const a: [i32: 4] = [1, 2, 3, 4];
+    // 嵌套调用 + 合法下标
+    return identity(identity(a[3]));
+}
+
+fn tuple_ok() i32 {
+    const triple: (i32, i32, i32) = (7, 8, 9);
+    // 合法元组下标（含在 return 里）
+    return triple.1;
+}
+
+// ===== return 不移动实参：drop 只执行一次 =====
+//
+// 若 return 路径误触发移动标记，这里的结构体在传给 return 表达式里的函数后
+// 会被标成「已移动」，编译期就会误报「变量已被移动」。
+// 见 src/checker/main.uya 里关于「不调用完整 checker_check_node」的注释。
+
+var ret_drop_count: i32 = 0;
+
+struct RetBox {
+    id: i32,
+    fn drop(self: RetBox) void {
+        ret_drop_count = ret_drop_count + 1;
+    }
+}
+
+fn take_box(v: RetBox) i32 {
+    return v.id;
+}
+
+fn return_moves_box() i32 {
+    const b: RetBox = RetBox{ id: 42 };
+    // return 表达式里的结构体传参：不该报「已被移动」
+    return take_box(b);
+}
+
+fn test_cast_ok() !void {
+    try assert_eq_i32(cast_ok(), 30);
+}
+
+fn test_call_arg_ok() !void {
+    try assert_eq_i32(call_arg_ok(), 20);
+}
+
+fn test_binary_ok() !void {
+    try assert_eq_i32(binary_ok(), 40);
+}
+
+fn test_nested_call_ok() !void {
+    try assert_eq_i32(nested_call_ok(), 4);
+}
+
+fn test_tuple_ok() !void {
+    try assert_eq_i32(tuple_ok(), 8);
+}
+
+fn test_return_drop_once() !void {
+    ret_drop_count = 0;
+    const got: i32 = return_moves_box();
+    try assert_eq_i32(got, 42);
+    // 出作用域后只应 drop 一次（take_box 的形参副本）
+    try assert_eq_i32(ret_drop_count, 1);
+}
+
+export fn main() i32 {
+    test_suite_begin("Return Expr Bounds");
+    run_test("cast ok", test_cast_ok);
+    run_test("call arg ok", test_call_arg_ok);
+    run_test("binary ok", test_binary_ok);
+    run_test("nested call ok", test_nested_call_ok);
+    run_test("tuple ok", test_tuple_ok);
+    run_test("return drop once", test_return_drop_once);
+    return test_suite_end();
+}
