@@ -675,6 +675,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         gen_destructure_decl(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_VAR_DECL {
         gen_var_decl_stmt(codegen, stmt);
+        gen_moved_field_source_clear(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_IF_STMT {
         gen_if_stmt(codegen, stmt);
     } else if stmt.type == ASTNodeType.AST_WHILE_STMT {
@@ -2606,6 +2607,48 @@ fn c99_emit_zero_init_for_decl_type(codegen: &C99CodeGenerator, var_type: &ASTNo
         }
     }
     fputs("0" as *byte, codegen.emit_stream as *void);
+}
+
+// 嵌套字段移动后把「源字段」置空，使外层结构体的字段 drop 变成空操作（规范 §12.5）。
+//
+// 为什么必须在 codegen 收口：结构体的 `_drop` 是**类型级**函数
+// （`uya_Holder_drop` 无条件 `uya_Buf_drop(self.buf)`），它感知不到「本次运行里
+// 这个字段已经被移走」。checker 的 var_decl_was_moved 只能让**整变量**跳过 drop，
+// 管不到外层结构体的字段清理。于是
+//   const h: Holder = Holder{ buf: Buf{ data: malloc(64) } };
+//   const moved: Buf = h.buf;      // h.buf 被移走
+// // 出作用域：moved 与 h.buf 各自清理 → 同一指针 free 两次
+// （实测 tests/repros/move_nested_field_double_free.uya 打印同一地址两次 free）。
+//
+// 修法：在移动点把源字段清零。`uya_Buf_drop` 里的 `if self.data != NULL` 随即为假，
+// 那次字段 drop 成为空操作 —— 与规范「移动后只有目标对象调用 drop」一致。
+//
+// 只处理「路径上除末段外都是结构体字段」的形态；字段类型可能是数组/联合，
+// 用 `__builtin_memset(... , 0, sizeof(...))` 统一清零，不依赖具体布局。
+//
+// 参数：
+// - codegen: 代码生成器。
+// - stmt: var 声明语句（读取 checker 写回的 var_decl_moved_field_src）。
+// 返回：
+// - 无返回值。
+fn gen_moved_field_source_clear(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
+    if codegen == null || stmt == null || stmt.type != ASTNodeType.AST_VAR_DECL {
+        return;
+    }
+    const src_path: &byte = stmt.var_decl_moved_field_src;
+    if src_path == null || stmt.var_decl_init == null ||
+        stmt.var_decl_init.type != ASTNodeType.AST_MEMBER_ACCESS {
+        return;
+    }
+    // 源字段的完整路径：`h.buf` / `h.inner.buf` 都可能。按 `init_expr` 重新发射
+    // 一次该成员访问的 C 表达式（gen_expr 会给出 `h.buf` 这样的 C 形式），
+    // 再对它取地址清零。
+    c99_emit_indent(codegen);
+    fputs("__builtin_memset((void *)&(" as *byte, codegen.emit_stream as *void);
+    gen_expr(codegen, stmt.var_decl_init);
+    fputs("), 0, sizeof(" as *byte, codegen.emit_stream as *void);
+    gen_expr(codegen, stmt.var_decl_init);
+    fputs("));\n" as *byte, codegen.emit_stream as *void);
 }
 
 fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {

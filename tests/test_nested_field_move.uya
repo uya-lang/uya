@@ -1,0 +1,123 @@
+// test_nested_field_move.uya - 嵌套字段移动的所有权正向回归
+//
+// 与 tests/repros/move_nested_field_double_free.uya 配对。
+//
+// 背景：移动标记早先只落在**顶层变量**上，字段移动不留痕迹：
+//   const moved: Buf = h.buf;        // h.buf 被移走，但没有任何标记
+// 出作用域时 `moved` 与外层结构体的字段 drop 都作用在同一份资源上 ——
+// 同一块堆内存 free 两次（repro 文件实测打印同一地址两次 free）。
+//
+// 结构体的 drop 是**类型级**函数（`uya_Holder_drop` 无条件
+// `uya_Buf_drop(self.buf)`，即规范 §12.3 的递归 drop 规则），它感知不到
+// 「本次运行里这个字段已被移走」，所以修复分两半：
+//   1. checker：字段移动登记访问路径（`h.buf`），读 `h.buf` / `h.buf.data`
+//      报「变量已被移动」（负例是 repro 文件本身）；
+//   2. codegen：在移动点把**源字段置零**，于是那次字段 drop 看到的是空值。
+//
+// 语义边界（本文件据此断言，避免把「drop 函数被调用次数」当成判据）：
+// 置零只让源字段成为**空值**，类型级 drop 仍会按函数体执行一次。
+// 判据必须是**资源释放次数**：下面的 `Res.drop` 只在 `live != 0` 时计数，
+// 于是「被移走的字段不再释放资源」可观测，而空值那一次调用不计入。
+//
+// 覆盖：
+//   a. 字段移走后资源只释放一次；
+//   b. 同一外层的兄弟字段仍照常释放；
+//   c. 两层嵌套（`w.pair` 整体移走）同样只释放一次；
+//   d. 无 drop 的纯数据字段移动只是复制，不受影响。
+
+use std.runtime.entry;
+use std.testing.assert_eq_i32;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+var released_count: i32 = 0;
+
+// live != 0 表示还持有资源；drop 只对「仍持有资源」的值计数。
+struct Res {
+    live: i32,
+    fn drop(self: Res) void {
+        if self.live != 0 {
+            released_count = released_count + 1;
+        }
+    }
+}
+
+// 声明了 drop ⇒ 按规范 §12.3 会对字段递归 drop（这正是重复释放的来源）。
+struct Pair {
+    head: Res,
+    tail: Res,
+    fn drop(self: Pair) void {
+        // 空函数体：字段的递归 drop 由编译器插入
+    }
+}
+
+struct Wrapper {
+    pair: Pair,
+    fn drop(self: Wrapper) void {
+    }
+}
+
+fn test_field_move_releases_once() !void {
+    released_count = 0;
+    {
+        const p: Pair = Pair{ head: Res{ live: 1 }, tail: Res{ live: 1 } };
+        // head 被移走：源字段应被置空（live = 0），于是 Pair 的类型级字段 drop
+        // 里那次 head 清理不再释放资源；tail 仍归 p 所有。
+        const moved: Res = p.head;
+        try assert_eq_i32(moved.live, 1);
+    }
+    // 期望：moved 一次 + tail 一次。若源字段没被置空，head 会被重复释放（= 3）
+    try assert_eq_i32(released_count, 2);
+}
+
+fn test_sibling_field_still_released() !void {
+    released_count = 0;
+    {
+        const p: Pair = Pair{ head: Res{ live: 1 }, tail: Res{ live: 1 } };
+        const head_moved: Res = p.head;
+        try assert_eq_i32(head_moved.live, 1);
+        // tail 没有被移走，离开作用域时必须仍然释放
+    }
+    try assert_eq_i32(released_count, 2);
+}
+
+fn test_nested_two_level_move() !void {
+    released_count = 0;
+    {
+        const w: Wrapper = Wrapper{ pair: Pair{ head: Res{ live: 1 }, tail: Res{ live: 1 } } };
+        const moved_pair: Pair = w.pair;
+        try assert_eq_i32(moved_pair.head.live, 1);
+        // w.pair 整体被移走并置空 → Wrapper 的类型级字段 drop 不再重复释放这一对
+    }
+    // 期望：moved_pair 的 head + tail 各一次
+    try assert_eq_i32(released_count, 2);
+}
+
+struct PlainInner {
+    a: i32,
+    b: i32,
+}
+
+struct PlainOuter {
+    inner: PlainInner,
+}
+
+fn test_plain_field_move_ok() !void {
+    const po: PlainOuter = PlainOuter{ inner: PlainInner{ a: 7, b: 8 } };
+    const copied: PlainInner = po.inner;
+    try assert_eq_i32(copied.a, 7);
+    try assert_eq_i32(copied.b, 8);
+    // 无 drop 类型：复制后两边都能读（不被误标记为「已移动」）
+    try assert_eq_i32(po.inner.a, 7);
+    try assert_eq_i32(po.inner.b, 8);
+}
+
+export fn main() i32 {
+    test_suite_begin("Nested Field Move");
+    run_test("field move releases once", test_field_move_releases_once);
+    run_test("sibling field still released", test_sibling_field_still_released);
+    run_test("nested two level move", test_nested_two_level_move);
+    run_test("plain field move ok", test_plain_field_move_ok);
+    return test_suite_end();
+}

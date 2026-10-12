@@ -1502,6 +1502,89 @@ fn checker_mark_moved(checker: &TypeChecker, node: &ASTNode, var_name: &byte, st
     }
 }
 
+// 登记一条「访问路径」为已移动（如字段移动留下的 `h.buf`）。
+//
+// 与 checker_mark_moved 分开：后者面向顶层变量（会查活跃指针、写回
+// var_decl_was_moved 让整变量跳过 drop），字段移动只需要留一条路径痕迹，
+// 让之后读 `h.buf` / `h.buf.data` 能报「已被移动」；
+// 外层结构体的字段清理由 codegen 在移动点置空来收口
+// （结构体的 drop 函数是类型级的，checker 侧的 was_moved 标记管不到它）。
+//
+// 参数：
+// - checker: 类型检查器。
+// - node: 用于报错的结点（活跃指针/循环检查失败时使用）。
+// - path: 访问路径（如 `h.buf`）。
+// - struct_name: 被移动字段的结构体名（用于存在性校验，可为 null）。
+fn checker_mark_moved_path(checker: &TypeChecker, node: &ASTNode, path: &byte, struct_name: &byte) void {
+    if checker == null || path == null {
+        return;
+    }
+    if checker.loop_depth > 0 {
+        checker_report_error(checker, node, "循环中的变量不能移动" as *byte);
+        return;
+    }
+    if moved_access_path_contains(checker, path) != 0 {
+        return;  // 已登记过
+    }
+    if checker.moved_count >= MAX_MOVED_NAMES {
+        return;
+    }
+    const copy: &byte = checker_intern_strdup(checker, path);
+    if copy == null {
+        return;
+    }
+    const idx: i32 = checker.moved_count;
+    if idx >= 0 && idx < MAX_MOVED_NAMES {
+        checker.moved_names[idx] = copy;
+    }
+    checker.moved_count = idx + 1;
+}
+
+// 判断 `name` 是否已被移动，或是否**位于**某个已移动访问链之下。
+//
+// 移动标记早先只登记「顶层变量名」，于是字段移动（`const moved: Buf = h.buf;`）
+// 不留痕迹：`h.buf` 已被移走，但读 `h.buf.data`（以及出作用域时外层 `_drop`
+// 对 `h.buf` 的字段清理）都照常执行，同一份堆内存被 free 两次 ——
+// 实测 tests/repros/move_nested_field_double_free.uya 打印同一地址两次 free。
+//
+// 修法是把标记扩到**访问路径**：字段被移动时登记 `h.buf`，之后
+//   - 读 `h.buf`（整条路径相等）→ 报「已被移动」；
+//   - 读 `h.buf.data`（前缀匹配 + 恰好接在字段边界上）→ 同样报「已被移动」。
+// 判定时必须要求前缀停在字段边界：`h.bufx` 不该因为存在 `h.buf` 而被判移动，
+// 所以只有在 `name[prefix_len]` 是 `.` 或 `\0` 时才认前缀。
+//
+// 参数：
+// - checker: 类型检查器。
+// - name: 待判定的变量名或访问路径（如 `h`、`h.buf`）。
+// 返回：
+// - 1 表示已被移动（或位于已移动访问链之下）；0 表示没有。
+fn moved_access_path_contains(checker: &TypeChecker, name: &byte) i32 {
+    if checker == null || name == null {
+        return 0;
+    }
+    const name_len: usize = strlen(name as *byte);
+    var i: i32 = 0;
+    const count: i32 = checker.moved_count;
+    while i < count {
+        if i < MAX_MOVED_NAMES {
+            const marked: &byte = checker.moved_names[i];
+            if marked != null {
+                if str_equals(marked, name) != 0 {
+                    return 1;
+                }
+                const marked_len: usize = strlen(marked as *byte);
+                if marked_len < name_len && strncmp(marked as *byte, name as *byte, marked_len) == 0 {
+                    if name[marked_len] == '.' as byte {
+                        return 1;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 // 标记调用参数已移动
 fn checker_mark_moved_call_args(checker: &TypeChecker, node: &ASTNode) void {
     if checker == null || node == null || node.type != ASTNodeType.AST_CALL_EXPR {

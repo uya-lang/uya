@@ -257,6 +257,7 @@ struct ASTNode {
     var_decl_init: &ASTNode,
     var_decl_is_const: i32,
     var_decl_was_moved: i32,   // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
+    var_decl_moved_field_src: &byte,  // 嵌套字段移动：源访问路径（如 "h.buf"），未移动时为 null
     var_decl_is_export: i32,  // 1 表示 export const，0 表示私有（仅顶层 const 声明使用）
     // extern_var_decl（顶层：extern const/var name: type; 或 export const/var name: type = val;）
     extern_var_decl_name: &byte,           // 变量名
@@ -586,6 +587,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.var_decl_init = null;
     node.var_decl_is_const = 0;
     node.var_decl_was_moved = 0;
+    node.var_decl_moved_field_src = null;
     node.var_decl_is_export = 0;
     node.destructure_decl_names = null;
     node.destructure_decl_name_count = 0;
