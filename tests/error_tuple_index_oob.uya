@@ -1,0 +1,35 @@
+// error_tuple_index_oob.uya - 元组下标越界必须在 checker 阶段报错
+//
+// 规范 §14.2 与元组语义：`.0/.1/...` 必须在元组元素个数内。
+// checker 里一直存在这条诊断（checker_check_member_access），但它在常量元组上
+// 不可达：`return t.3` / `t.3 as i32` / 条件位置都只走 infer_member_access，
+// 那里越界时静默返回 void，错误被推迟到 C 编译器
+// （生成的 C 引用不存在的 `t.f3`，报 `has no member named 'f3'`）。
+// 诊断位置失真（指向生成的 .c 而不是 .uya），可读性差。
+//
+// 修复后 infer_member_access 在越界处直接报同一条诊断。
+//
+// 预期：编译失败，报告「元组下标越界（.0/.1/... 必须在元组元素个数内）」
+
+fn oob_in_return() i32 {
+    const triple: (i32, i32, i32) = (1, 2, 3);
+    // 合法范围是 .0 / .1 / .2
+    return triple.3;
+}
+
+fn oob_in_cast() i32 {
+    const triple: (i32, i32, i32) = (1, 2, 3);
+    return (triple.3) as i32;
+}
+
+fn oob_in_condition() i32 {
+    const pair: (i32, i32) = (1, 2);
+    if pair.2 > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+export fn main() i32 {
+    return oob_in_return() + oob_in_cast() + oob_in_condition();
+}

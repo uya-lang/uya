@@ -805,6 +805,18 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     copy_type(&checker.current_return_type.error_union_payload_type[0]));
             }
             const expr_type: Type = checker_infer_type(checker, node.return_stmt_expr);
+            // 与变量初始化路径对齐：推断之后补一次「边界相关」的递归检查。
+            //
+            // 只调用 checker_infer_type 会漏掉「顶层结点把推断短路掉」的形态 ——
+            // cast / 调用等只返回目标类型、不再往下走（`return a[3] as i32`、
+            // `return identity(a[3])`），于是下标越界不进检查器；
+            // 对照：同一表达式写在 `const v: T = ...` 里会正确报错。
+            //
+            // 这里刻意**不**调用完整的 checker_check_node：后者对调用表达式有
+            // 「标记实参已移动」的副作用（还会写回 var_decl_was_moved 影响 drop），
+            // 而 return 语句按既有语义不移动实参 —— 用它会引入成批的
+            // 「变量已被移动」误报（实测 `return interval_mul(a, ...)`）。
+            checker_check_return_expr_bounds(checker, node.return_stmt_expr);
 
             // Pinned 类型检查：禁止按值返回包含 async frame 的类型
             if checker_type_contains_pinned_field(checker, &expr_type) != 0 {

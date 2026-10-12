@@ -3552,6 +3552,11 @@ fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         const idx: i32 = atoi(field_name as *byte);
         if idx < 0 || idx >= object_type.tuple_count {
+            // 越界必须在这里报：早先静默返回 void，错误被推迟到 C 编译器
+            // （生成的 C 引用不存在的 `t.f3`），诊断位置失真且不可读。
+            // 与 checker_check_member_access（src/checker/check_call.uya）同一诊断，
+            // 重复报告由 checker_should_suppress_duplicate_error 去重。
+            checker_report_error(checker, expr, "元组下标越界（.0/.1/... 必须在元组元素个数内）" as *byte);
             return make_void_type();
         }
         return object_type.tuple_element_types[idx];
@@ -4051,9 +4056,13 @@ fn infer_array_access(checker: &TypeChecker, expr: &ASTNode) Type {
         const array_size: i32 = array_type.array_size;
         
         // 常量索引越界检查（始终执行，不依赖 enable_safety_proof）
-        const index_val: i32 = checker_eval_const_expr(checker, index_expr);
-        if index_val >= 0 {
-            if index_val >= array_size {
+        // 用成功标志区分「非常量」与「常量 -1」：后者早先会被当成变量索引静默放行。
+        var index_is_const: i32 = 0;
+        const index_val: i32 = checker_eval_const_expr_ex(checker, index_expr, &index_is_const);
+        if index_is_const != 0 {
+            if index_val < 0 {
+                checker_report_error(checker, index_expr, "数组索引越界：索引不能为负数" as *byte);
+            } else if index_val >= array_size {
                 checker_report_error(checker, index_expr, "数组索引越界：常量索引超出数组边界" as *byte);
             }
         } else if checker.enable_safety_proof != 0 {

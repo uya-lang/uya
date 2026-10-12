@@ -894,9 +894,10 @@ fn extract_linear_expr(checker: &TypeChecker, expr: &ASTNode) LinearExpr {
         // 检查是否是 const 变量，如果是则尝试获取其常量值
         const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
         if symbol != null && symbol.is_const != 0 {
-            // const 变量：尝试获取其常量值
-            const const_val: i32 = checker_eval_const_expr(checker, expr);
-            if const_val != -1 {
+            // const 变量：尝试获取其常量值（用成功标志区分「非常量」与「常量 -1」）
+            var const_ok: i32 = 0;
+            const const_val: i32 = checker_eval_const_expr_ex(checker, expr, &const_ok);
+            if const_ok != 0 {
                 // 成功获取常量值，作为纯常量处理
                 result.var_name = null;
                 result.offset = const_val;
@@ -1090,8 +1091,10 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
     if expr.type == ASTNodeType.AST_IDENTIFIER {
         const var_name: &byte = expr.identifier_name;
         if var_name != null {
-            const const_val: i32 = checker_eval_const_expr(checker, expr);
-            if const_val != -1 {
+            // 用成功标志区分「非常量」与「常量 -1」
+            var const_ok: i32 = 0;
+            const const_val: i32 = checker_eval_const_expr_ex(checker, expr, &const_ok);
+            if const_ok != 0 {
                 return interval_const(const_val);
             }
             return get_var_interval(checker, var_name);
