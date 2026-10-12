@@ -1,0 +1,40 @@
+// error_slice_range_oob.uya - 切片范围越界必须报错
+//
+// 规范 §14.2：切片 `&buf[start:len]` 的 `start`/`len` 必须落在底层对象范围内。
+// `check_slice_bounds`（src/checker/proof.uya）本来就实现了这条校验，但全树
+// **没有任何调用者**（死代码），于是 `&buf[0:99]`（底层只有 4 个元素）静默通过，
+// 得到 `@len == 99` 的越界切片 —— 之后的读写都落在数组之外。
+// 见 tests/repros/bounds_slice_index_not_proved.uya 的缺口 2。
+//
+// 修复：在切片表达式推断（infer_type 的 AST_SLICE_EXPR 分支）里接上
+// check_slice_bounds，只覆盖「底层是数组 + start/len 都是常量」的保守子集。
+//
+// 注意：切片**形参**的下标证明（`fn f(s: &[i32], i: i32) { return s[i]; }`）
+// 是同一 repro 的缺口 1，需要给约束表引入符号上界，本轮未做，见 buglist。
+//
+// 预期：编译失败，报告「切片结束位置越界」
+
+fn len_exceeds_array() i32 {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    // 底层 4 个元素，切片长度 99
+    const wide: &[i32] = &buf[0:99];
+    return wide.len - 99;
+}
+
+fn start_exceeds_array() i32 {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    // 起始位置就越过底层数组
+    const bad: &[i32] = &buf[9:1];
+    return bad.len - 1;
+}
+
+fn start_plus_len_exceeds() i32 {
+    var buf: [i32: 4] = [7, 8, 9, 10];
+    // start 合法、len 合法，但 start + len 越过末尾
+    const bad: &[i32] = &buf[3:5];
+    return bad.len - 5;
+}
+
+export fn main() i32 {
+    return len_exceeds_array() + start_exceeds_array() + start_plus_len_exceeds();
+}

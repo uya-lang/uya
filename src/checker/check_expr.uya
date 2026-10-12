@@ -2118,6 +2118,20 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             base_type.kind != TypeKind.TYPE_POINTER {
             return make_void_type();
         }
+        // 切片范围检查：`&buf[0:99]`（底层只有 4 个元素）此前静默通过，
+        // 得到 @len == 99 的越界切片
+        // （tests/repros/bounds_slice_index_not_proved.uya 的缺口 2）。
+        // `check_slice_bounds`（src/checker/proof.uya）本来就实现了常量 start/len
+        // 的校验，但全树没有任何调用者（死代码）—— 这里把它接到唯一会生成切片的
+        // 结点上。只覆盖「底层是数组/字符串字面量 + start/len 都是常量」这一
+        // 保守子集；变量 start/len 与切片形参的下标证明（缺口 1）仍未做，见 buglist。
+        if checker.enable_safety_proof != 0 {
+            const slice_result: BoundsCheckResult = check_slice_bounds(checker, expr.slice_expr_base,
+                expr.slice_expr_start_expr, expr.slice_expr_len_expr);
+            if slice_result.risk == BoundsCheckRisk.BOUNDS_ERROR as i32 && slice_result.message != null {
+                checker_report_error(checker, expr, slice_result.message);
+            }
+        }
         var elem: &Type = null;
         if base_type.kind == TypeKind.TYPE_ARRAY {
             elem = base_type.element_type;

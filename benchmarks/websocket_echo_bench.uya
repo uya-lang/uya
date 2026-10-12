@@ -149,7 +149,9 @@ fn bench_wss(rounds: i32) !u64 {
             return 0u64;
         };
 
-        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 162];
+        // 切片长度必须是字面量的实际字节数（150）：早先写的 162 越过了字符串
+        // 结尾，`req.len` 因此比真实请求多 12 字节，发出去的是越界读到的内容。
+        const req: &[byte] = &"GET /ws HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"[0: 150];
         tls_write_plain(fd, &ctx, req.ptr as &const byte, req.len) catch {
             _exit(13);
             return 0u64;

@@ -1,15 +1,25 @@
 // 复现：切片（&[T]）下标完全不做边界证明，且切片范围越界不检查
 //
-// 状态（2026-10-11）：**未修复**。本文件在当前编译器下**编译通过**，
-// 运行期越界读，是真实的 UB 漏检。
+// 状态（2026-10-12）：**缺口 2 已修复、缺口 1 仍未修复**。
+// 本文件现在因缺口 2 报「切片结束位置越界」（`&buf[0:99]` 底层只 4 个元素），
+// 不再编译通过并越界读。
 //
 // 两处缺口：
-//   1. `&[T]` 切片元素访问（`s[i]`）不走任何边界证明 ——
-//      对照数组 `[T: N]` 的同形访问会报「数组索引安全证明失败」；
-//   2. 切片范围表达式 `&a[start:len]` 的 `len` 不校验是否超出底层数组 ——
-//      `&buf[0:99]`（底层只 4 个元素）静默通过。
+//   1. `&[T]` 切片元素访问（`s[i]`）不走任何边界证明 —— **仍未修复**。
+//      对照数组 `[T: N]` 的同形访问会报「数组索引安全证明失败」。
+//      原因：`s.len` 这类**符号上界**进不了约束表（`constraint_add` 只收常量），
+//      而全树 340 处 `while i < X.len` 目前正是靠「切片完全不做证明」才通过。
+//      接上证明必须同时给约束表引入符号上界（记名字而非常量、且不得把符号约束
+//      当有界），属独立工作量；且与下面的 C-string 循环缺口纠缠（见 buglist
+//      第 3 条记录的实测：收紧循环边界会让 `while buf[i] != 0` 成批失败）。
+//   2. 切片范围表达式 `&a[start:len]` 的 `len`/`start` 不校验是否超出底层数组 ——
+//      **已修复**。`check_slice_bounds`（src/checker/proof.uya）本来就实现了
+//      这条校验，但全树没有任何调用者（死代码）；现接到切片表达式的类型推断上
+//      （infer_type 的 AST_SLICE_EXPR 分支），覆盖「底层是数组/字符串字面量 +
+//      start/len 都是常量」的保守子集。负例 tests/error_slice_range_oob.uya、
+//      正例 tests/test_slice_range_bounds.uya。
 //
-// 源码依据：`checker_check_array_access` 的 TYPE_SLICE 分支
+// 源码依据（缺口 1）：`checker_check_array_access` 的 TYPE_SLICE 分支
 // （src/checker/check_expr_extra.uya:62）只做元素类型推断，
 // 不进入 TYPE_ARRAY 分支里的证明逻辑。
 //
@@ -21,7 +31,7 @@
 //
 // 复现命令：
 //   ./bin/uya build --safety-proof tests/repros/bounds_slice_index_not_proved.uya -o /tmp/slice_oob
-//   /tmp/slice_oob; echo $?    # 期望编译失败；实际编译通过并越界读
+//   # 期望：编译失败（缺口 2 已收口；缺口 1 的 s[i] 部分仍需后续修）
 
 const OOB_INDEX: i32 = 99;
 

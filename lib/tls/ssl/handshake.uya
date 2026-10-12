@@ -1341,12 +1341,12 @@ fn hs_parse_server_flight_tls_record(ctx: &HandshakeCtx, in_: &const byte, in_le
             if msg_type == HS_MSG_SERVER_HELLO {
                 hs_debug(&"[HS] Found ServerHello\n"[0: 24]);
                 if msg_len < 2 + HS_RANDOM_LEN + 1 + 2 + 1 {
-                    hs_debug(&"[HS] Fail: ServerHello too short\n"[0: 35]);
+                    hs_debug(&"[HS] Fail: ServerHello too short\n"[0: 33]);
                     return false;
                 }
                 const hello_ver: u16 = hs_read_u16(&in_[pos + 4]);
                 if hello_ver != TLS_VERSION_1_2 {
-                    hs_debug(&"[HS] Fail: ServerHello ver != 1.2\n"[0: 36]);
+                    hs_debug(&"[HS] Fail: ServerHello ver != 1.2\n"[0: 34]);
                     return false;
                 }
                 mem_copy(&ctx.server_random[0], &in_[pos + 6], HS_RANDOM_LEN);

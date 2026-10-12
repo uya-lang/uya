@@ -698,7 +698,7 @@ fn https_client_connect(host: &const byte, host_len: usize, port: u16) !i32 {
     https_debug(&"[CONN] DNS resolved\n"[0: 20]);
     
     // 4) 使用解析结果建立 TCP 连接
-    https_debug(&"[CONN] Creating socket...\n"[0: 29]);
+    https_debug(&"[CONN] Creating socket...\n"[0: 26]);
     const fd: i32 = try sys_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     https_debug(&"[CONN] Connecting socket...\n"[0: 29]);
     
@@ -714,7 +714,7 @@ fn https_client_connect(host: &const byte, host_len: usize, port: u16) !i32 {
             if eid == EINTR {
                 continue;
             }
-            https_debug(&"[CONN] Connect failed\n"[0: 25]);
+            https_debug(&"[CONN] Connect failed\n"[0: 22]);
             _ = sys_close(fd) catch {};
             return error.ConnectionClosed;
         };
@@ -807,7 +807,7 @@ export fn https_client_handshake(fd: i32, ctx: &SslContext) !void {
         return error.TlsHandshakeFailure;
     }
     https_debug(&"[TLS] ClientHello ready\n"[0: 24]);
-    https_debug(&"[TLS] send_len ok\n"[0: 20]);
+    https_debug(&"[TLS] send_len ok\n"[0: 18]);
     try https_write_all(fd, &send_buf[0], send_len);
     https_debug(&"[TLS] ClientHello sent\n"[0: 24]);
     

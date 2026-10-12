@@ -77,7 +77,7 @@ fn test_https_with_verification() i32 {
     };
     
     if resp.status != 200 {
-        write_stderr_msg(&"  FAIL: Unexpected HTTP status\n"[0: 33]);
+        write_stderr_msg(&"  FAIL: Unexpected HTTP status\n"[0: 31]);
         return 1;
     }
     
@@ -134,7 +134,7 @@ fn test_https_insecure() i32 {
     };
     
     if resp.status != 200 {
-        write_stderr_msg(&"  FAIL: Unexpected HTTP status\n"[0: 33]);
+        write_stderr_msg(&"  FAIL: Unexpected HTTP status\n"[0: 31]);
         return 1;
     }
     

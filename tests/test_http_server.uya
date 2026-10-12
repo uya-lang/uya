@@ -265,7 +265,7 @@ fn run_client_chunked_post_expect_201(port: u16) void {
     if cfd < 0 {
         sys_exit(1);
     }
-    const req: &[byte] = &"POST /chunk HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\n\r\n"[0: 100];
+    const req: &[byte] = &"POST /chunk HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n1\r\n \r\n5\r\nworld\r\n0\r\n\r\n"[0: 92];
     _ = sys_write(cfd, req.ptr, req.len);
     var rb: [byte: 256] = [];
     var total: usize = 0;

@@ -1110,13 +1110,14 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
     }
     
     // 检查起始位置
-    if start_expr != null && is_constant_expression(checker, start_expr) != 0 {
-        const start_value: i32 = checker_eval_const_expr(checker, start_expr);
-        
+    // 同下：必须用成功标志判常量，否则变量 start 会被读成常量 -1。
+    var start_pos_is_const: i32 = 0;
+    const start_pos_value: i32 = checker_eval_const_expr_ex(checker, start_expr, &start_pos_is_const);
+    if start_expr != null && start_pos_is_const != 0 {
         // 处理负数索引
-        var actual_start: i32 = start_value;
-        if start_value < 0 {
-            actual_start = result.array_size + start_value;
+        var actual_start: i32 = start_pos_value;
+        if start_pos_value < 0 {
+            actual_start = result.array_size + start_pos_value;
         }
         
         if actual_start < 0 || actual_start > result.array_size {
@@ -1127,17 +1128,25 @@ export fn check_slice_bounds(checker: &TypeChecker, array_expr: &ASTNode, start_
     }
     
     // 检查长度
-    if len_expr != null && is_constant_expression(checker, len_expr) != 0 {
-        const len_value: i32 = checker_eval_const_expr(checker, len_expr);
-        
+    //
+    // 注意必须用**成功标志**判「是否真的求出了常量」：早先只靠
+    // `is_constant_expression` + `checker_eval_const_expr` 的组合，而前者对
+    // 块内已绑定的标识符一律返回 1、后者对非常量返回 -1 —— 于是一个
+    // **变量**长度（如 `img[0: n]` 里的 `n: usize`）会被读成「常量 -1」，
+    // 直接报「切片长度不能为负数」。这段代码此前没有任何调用者（死代码），
+    // 所以直到接到切片表达式上才暴露。
+    var len_is_const: i32 = 0;
+    const len_value: i32 = checker_eval_const_expr_ex(checker, len_expr, &len_is_const);
+    if len_expr != null && len_is_const != 0 {
         if len_value < 0 {
             result.risk = BoundsCheckRisk.BOUNDS_ERROR as i32;
             result.message = "切片长度不能为负数" as &byte;
             return result;
         }
         
-        if start_expr != null && is_constant_expression(checker, start_expr) != 0 {
-            const start_value: i32 = checker_eval_const_expr(checker, start_expr);
+        var start_is_const: i32 = 0;
+        const start_value: i32 = checker_eval_const_expr_ex(checker, start_expr, &start_is_const);
+        if start_expr != null && start_is_const != 0 {
             var actual_start: i32 = start_value;
             if start_value < 0 {
                 actual_start = result.array_size + start_value;
