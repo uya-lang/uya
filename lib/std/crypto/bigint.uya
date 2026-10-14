@@ -277,12 +277,23 @@ export fn bigint_mont_mul(r: &u64, a: &const u64, b: &const u64, n: &const u64, 
     }
 
     // 3) 取高 k 字并条件减
+    //
+    // **必须考虑溢出字 t[2k]**：Montgomery 归约的定理是「结果 V < 2n」，
+    // 而 n < 2^(64k)，所以 V 可能要 k+1 个字才装得下。
+    // 只取 t[k..2k) 会在 t[2k] != 0 时丢掉最高位——症状是**输出最高字节错**，
+    // 而小模数（或小指数）时 t[2k] 恒为 0，所以先前的测试全都漏掉了这个缺陷。
+    // 这个缺陷在 SSH 的 RSA-4096 签名上直接暴露：n 接近 2^4096，
+    // 几乎每次归约都溢出，签名于是完全不可用。
+    const overflow: u64 = t[k + k];
     i = 0;
     while i < k {
         r[i] = t[k + i];
         i = i + 1;
     }
-    if bigint_cmp(r, n, k) >= 0 {
+    if overflow != 0 {
+        // V >= 2^(64k) > n，必然要减一次；减法回绕正好给出 V - n
+        bigint_sub(r, r, n, k);
+    } else if bigint_cmp(r, n, k) >= 0 {
         bigint_sub(r, r, n, k);
     }
 }
