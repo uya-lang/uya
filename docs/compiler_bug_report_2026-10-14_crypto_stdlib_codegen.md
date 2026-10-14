@@ -140,3 +140,49 @@ while i < 8 {
 1. Bug 1 → 丢弃返回值时写 `_ = f(x);`。
 2. Bug 2 → 常量一律写成 byte 数组；需要字符串语义时在**调用点**拷进数组再传指针。
 3. Bug 3 → 位运算的字面量一律带类型后缀（`255u64`、`1 as i64`、`15 as usize`）。
+
+---
+
+## Bug 4（诊断/易误用）：`x catch { return v; }` 里的 `return` 从**外层函数**返回
+
+现象：把 `catch` 块当作「给表达式兜底取值」来用时，块内的 `return` 并不是「让这个表达式
+取值 v」，而是**直接从包含它的函数返回**。写成下面这样时，`pending` 的赋值会丢失、
+后续代码全部不执行，函数提前带着 v 返回：
+
+```uya
+var pending: bool = false;
+const rc: i32 = sys_connect(fd, addr, len) catch |err| {
+    const eid: i32 = (@error_id(err) as! i32).value;
+    if eid == EINPROGRESS {
+        pending = true;
+        return 0 as i32;      // ← 这行直接从外层函数返回！
+    }
+    return -1 as i32;
+};
+// 到这里已经不会执行了
+if rc != 0 && !pending { return error.ConnectFailed; }
+```
+
+实测症状极具误导性：非阻塞 connect 明明返回 EINPROGRESS（115，正常路径），
+函数却直接返回 `0`，调用方拿到 fd=0 并读到空数据；同时 `defer` 里的清理按「未成功」执行，
+把 fd 关掉。整个现象看起来像「socket 返回了 0 号描述符」。
+
+不过这一条**可能是有意设计**（`return` 就是函数级返回，`catch` 只是控制流），
+标准库自身（如 `lib/std/net/dns.uya`）也大量这么写。真正的问题在于它极易与
+「给表达式取值」混淆，且没有任何编译期提示。建议至少在文档/语言参考里写明；
+若想避免误用，可要求 `catch` 块的最后表达式即取值，禁止块内 `return`。
+
+规避（本仓库采用）：把「取值」与「判错」拆开，catch 块只做赋值：
+
+```uya
+var rc: i32 = 0;
+var conn_err: i32 = 0;
+const cr: !i32 = sys_connect(fd, addr, len);
+rc = cr catch |err| {
+    conn_err = (@error_id(err) as! i32).value;
+    -1 as i32;                       // 只取值
+};
+if rc != 0 && conn_err != EINPROGRESS {
+    return error.ConnectFailed;
+}
+```
