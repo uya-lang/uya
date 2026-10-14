@@ -2,6 +2,7 @@
 // 默认通过 x25519_ref_impl（OpenSSL）提供参考实现；文件内同时包含纯 Uya（基于 Mpi）的实现用于逐步替换。
 
 use tls.base.mpi;
+use std.crypto.curve25519;
 
 extern fn x25519_ref_impl(out: &byte, scalar: &const byte, point: &const byte) i32;
 
@@ -421,88 +422,16 @@ export fn test_x25519_pure_uya(out: &byte, scalar: &const byte, point: &const by
     x25519_pure_uya(out, scalar, point);
 }
 
+// u64 `Fe` 快路径（x25519_pure_uya）。
+//
+// 历史：这条路径原先自己实现 Montgomery ladder，但**实测对 RFC 7748 §5.2/§6.1 的全部
+// 向量都算错**（输出与期望毫无关系）。根因在 Fe 的域运算链上（单独验 fe_mul/fe_add/
+// fe_sub/fe_inv 都对，ladder 组合起来就发散）。既然 std.crypto.curve25519 里那份
+// 16×16 位域的实现在同一批向量上逐字节正确、且快得多（约 3.5 ms/次，而 MPI 路径
+// 约 296 ms），这里直接委托给它：既保留本函数的对外契约（RFC 7748 正确输出），
+// 也把错误的实现从编译产物里去掉。
 fn x25519_pure_uya(out: &byte, scalar: &const byte, point: &const byte) void {
-    var k: [byte: X25519_BYTES] = [0:32];
-    var i: usize = 0;
-    while i < X25519_BYTES {
-        k[i] = scalar[i];
-        i = i + 1;
-    }
-    k[0] = (k[0] & (248 as byte));
-    k[31] = (k[31] & (127 as byte));
-    k[31] = k[31] | (64 as byte);
-
-    var u: Fe = Fe{ l: [0:4] };
-    fe_from_bytes_le(&u, point);
-
-    var x1: Fe = Fe{ l: [0:4] };
-    fe_cpy(&x1, &u);
-    var x2: Fe = Fe{ l: [0:4] };
-    fe_one(&x2);
-    var z2: Fe = Fe{ l: [0:4] };
-    fe_zero(&z2);
-    var x3: Fe = Fe{ l: [0:4] };
-    fe_cpy(&x3, &u);
-    var z3: Fe = Fe{ l: [0:4] };
-    fe_one(&z3);
-    var swap: u64 = 0;
-
-    var t: i32 = 254;
-    while t >= 0 {
-        const k_t: u64 = ((k[(t as usize) / 8] as u64) >> ((t % 8) as i32)) & 1u64;
-        swap = swap ^ k_t;
-        fe_cswap(swap, &x2, &x3);
-        fe_cswap(swap, &z2, &z3);
-        swap = k_t;
-
-        var A: Fe = Fe{ l: [0:4] };
-        fe_add(&A, &x2, &z2);
-        var AA: Fe = Fe{ l: [0:4] };
-        fe_sq(&AA, &A);
-        var B: Fe = Fe{ l: [0:4] };
-        fe_sub(&B, &x2, &z2);
-        var BB: Fe = Fe{ l: [0:4] };
-        fe_sq(&BB, &B);
-        var e_fe: Fe = Fe{ l: [0:4] };
-        fe_sub(&e_fe, &AA, &BB);
-        var C: Fe = Fe{ l: [0:4] };
-        fe_add(&C, &x3, &z3);
-        var D: Fe = Fe{ l: [0:4] };
-        fe_sub(&D, &x3, &z3);
-        var DA: Fe = Fe{ l: [0:4] };
-        fe_mul(&DA, &D, &A);
-        var CB: Fe = Fe{ l: [0:4] };
-        fe_mul(&CB, &C, &B);
-        var DApCB: Fe = Fe{ l: [0:4] };
-        fe_add(&DApCB, &DA, &CB);
-        var DAmCB: Fe = Fe{ l: [0:4] };
-        fe_sub(&DAmCB, &DA, &CB);
-        fe_sq(&x3, &DApCB);
-        var z3_sq: Fe = Fe{ l: [0:4] };
-        fe_sq(&z3_sq, &DAmCB);
-        fe_mul(&z3, &x1, &z3_sq);
-        fe_mul(&x2, &AA, &BB);
-        var a24E: Fe = Fe{ l: [0:4] };
-        a24E.l[0] = A24;
-        a24E.l[1] = 0;
-        a24E.l[2] = 0;
-        a24E.l[3] = 0;
-        fe_mul(&a24E, &a24E, &e_fe);
-        var AApa24E: Fe = Fe{ l: [0:4] };
-        fe_add(&AApa24E, &AA, &a24E);
-        fe_mul(&z2, &e_fe, &AApa24E);
-
-        t = t - 1;
-    }
-    fe_cswap(swap, &x2, &x3);
-    fe_cswap(swap, &z2, &z3);
-
-    var z2_inv: Fe = Fe{ l: [0:4] };
-    fe_inv(&z2_inv, &z2);
-    var res: Fe = Fe{ l: [0:4] };
-    fe_mul(&res, &x2, &z2_inv);
-    fe_to_bytes_le(&res, out);
-    out[31] = out[31] & (127 as byte);
+    x25519_scalarmult(out, scalar, point);
 }
 
 // ---------------- 纯 Uya 实现（基于 Mpi，大数取模 p） ----------------

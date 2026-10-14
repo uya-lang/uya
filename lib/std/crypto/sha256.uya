@@ -165,3 +165,202 @@ export fn sha256_digest(data: &[byte], digest: &[byte]) void {
         di = di + 1;
     }
 }
+
+// ---------- 增量（流式）SHA-256 与 HMAC-SHA256 ----------
+//
+// 为什么需要：一次性接口要求调用方备好整段消息。SSH 的一个包可达 64 KiB
+// （RFC 4253 §6.1 允许至少 35000 字节），MAC 覆盖的是「序号 || 整包」，
+// 用一次性接口就得先把两份数据拼进一个大缓冲；流式接口可以分片喂入，
+// 既省一次拷贝，也不受某个固定的消息长度上限约束
+// （std.crypto.hmac_sha256 内部有 HMAC_SHA256_MAX_MSG = 256 的限制，SSH 用不了）。
+
+/// 增量 SHA-256 上下文。
+export struct Sha256Ctx {
+    state: [u32: 8],
+    buf: [byte: 64],
+    buf_len: usize,
+    total_len: u64,
+
+    /// 初始化上下文。
+    /// 参数：无。
+    /// 返回值：无。
+    fn init(self: &Self) void {
+        self.state[0] = 0x6a09e667 as u32;
+        self.state[1] = 0xbb67ae85 as u32;
+        self.state[2] = 0x3c6ef372 as u32;
+        self.state[3] = 0xa54ff53a as u32;
+        self.state[4] = 0x510e527f as u32;
+        self.state[5] = 0x9b05688c as u32;
+        self.state[6] = 0x1f83d9ab as u32;
+        self.state[7] = 0x5be0cd19 as u32;
+        var i: usize = 0;
+        while i < 64 {
+            self.buf[i] = 0 as byte;
+            i = i + 1;
+        }
+        self.buf_len = 0;
+        self.total_len = 0u64;
+    }
+
+    /// 追加数据（可多次调用）。
+    /// 参数：data 为待追加字节。
+    /// 返回值：无。
+    fn update(self: &Self, data: &[const byte]) void {
+        if data.len == 0 {
+            return;
+        }
+        self.total_len = self.total_len + (data.len as u64);
+        var off: usize = 0;
+        if self.buf_len > 0 {
+            const need: usize = 64 - self.buf_len;
+            var copy: usize = need;
+            if copy > data.len {
+                copy = data.len;
+            }
+            var ci: usize = 0;
+            while ci < copy {
+                self.buf[self.buf_len + ci] = data.ptr[ci];
+                ci = ci + 1;
+            }
+            self.buf_len = self.buf_len + copy;
+            off = off + copy;
+            if self.buf_len == 64 {
+                sha256_compress(self.state[0: 8], self.buf[0: 64]);
+                self.buf_len = 0;
+            }
+            if off >= data.len {
+                return;
+            }
+        }
+        while off + 64 <= data.len {
+            sha256_compress(self.state[0: 8], data[off: 64]);
+            off = off + 64;
+        }
+        if off < data.len {
+            var ri: usize = 0;
+            while ri < (data.len - off) {
+                self.buf[ri] = data.ptr[off + ri];
+                ri = ri + 1;
+            }
+            self.buf_len = data.len - off;
+        }
+    }
+
+    /// 收尾并输出 32 字节摘要。
+    /// 参数：digest 为输出缓冲（须 ≥ 32 字节）。
+    /// 返回值：无。
+    fn final(self: &Self, digest: &[byte]) void {
+        if digest.len < 32 {
+            return;
+        }
+        var tail: [byte: 128] = [];
+        var ti: usize = 0;
+        while ti < self.buf_len {
+            tail[ti] = self.buf[ti];
+            ti = ti + 1;
+        }
+        tail[ti] = 0x80 as byte;
+        ti = ti + 1;
+        const bitlen: u64 = self.total_len * 8u64;
+        const bl64: usize = 64;
+        const eight: usize = 8;
+        const pad: usize = (bl64 - ((ti + eight) % bl64)) % bl64;
+        const total: usize = ti + pad + eight;
+        var ei: i32 = 0;
+        while ei < 8 {
+            const sh: i32 = (7 - ei) * 8;
+            tail[total - 8 + ei as usize] = ((bitlen >> sh) & 0xffu64) as byte;
+            ei = ei + 1;
+        }
+        var tb: usize = 0;
+        while tb < total {
+            sha256_compress(self.state[0: 8], tail[tb: 64]);
+            tb = tb + 64;
+        }
+        var di: usize = 0;
+        while di < 8 {
+            sha256_store_be32(digest, di * 4, self.state[di]);
+            di = di + 1;
+        }
+    }
+}
+
+/// 增量 HMAC-SHA256 上下文。
+export struct HmacSha256Ctx {
+    inner: Sha256Ctx,
+    opad: [byte: 64],
+
+    /// 用密钥初始化（超 64 字节的密钥先哈希）。
+    /// 参数：key 为密钥，key_len 为长度。
+    /// 返回值：无。
+    fn init(self: &Self, key: &const byte, key_len: usize) void {
+        var kbuf: [byte: 64] = [0: 64];
+        if key_len > 64 {
+            var kh: [byte: 32] = [0: 32];
+            var kctx: Sha256Ctx = Sha256Ctx{};
+            kctx.init();
+            kctx.update(key[0: key_len]);
+            kctx.final(kh[0: 32]);
+            var i: usize = 0;
+            while i < 32 {
+                kbuf[i] = kh[i];
+                i = i + 1;
+            }
+        } else {
+            var i: usize = 0;
+            while i < key_len {
+                kbuf[i] = key[i];
+                i = i + 1;
+            }
+        }
+        var ipad: [byte: 64] = [0: 64];
+        var i: usize = 0;
+        while i < 64 {
+            ipad[i] = kbuf[i] ^ (0x36 as byte);
+            self.opad[i] = kbuf[i] ^ (0x5c as byte);
+            i = i + 1;
+        }
+        self.inner.init();
+        self.inner.update(ipad[0: 64]);
+    }
+
+    /// 追加消息字节。
+    /// 参数：data 为消息分片。
+    /// 返回值：无。
+    fn update(self: &Self, data: &[const byte]) void {
+        self.inner.update(data);
+    }
+
+    /// 输出 32 字节 MAC。
+    /// 参数：mac_out 为输出缓冲（须 ≥ 32 字节）。
+    /// 返回值：无。
+    fn final(self: &Self, mac_out: &[byte]) void {
+        if mac_out.len < 32 {
+            return;
+        }
+        var ih: [byte: 32] = [0: 32];
+        self.inner.final(ih[0: 32]);
+        var octx: Sha256Ctx = Sha256Ctx{};
+        octx.init();
+        octx.update(self.opad[0: 64]);
+        octx.update(ih[0: 32]);
+        octx.final(mac_out[0: 32]);
+    }
+}
+
+/// 一次性 HMAC-SHA256（无消息长度上限，内部走流式）。
+/// 参数：key/key_len 为密钥，msg/msg_len 为消息，out 为 32 字节输出。
+/// 返回值：无。
+export fn hmac_sha256_stream(key: &const byte, key_len: usize, msg: &const byte, msg_len: usize,
+    out: &byte) void {
+    var ctx: HmacSha256Ctx = HmacSha256Ctx{};
+    ctx.init(key, key_len);
+    ctx.update(msg[0: msg_len]);
+    var o: [byte: 32] = [0: 32];
+    ctx.final(o[0: 32]);
+    var i: usize = 0;
+    while i < 32 {
+        out[i] = o[i];
+        i = i + 1;
+    }
+}

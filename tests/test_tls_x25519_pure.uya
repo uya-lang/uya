@@ -60,6 +60,36 @@ fn check_x25519_vector(scalar: &const byte, point: &const byte, expected: &const
     return 0;
 }
 
+// 验证 u64 `Fe` 快路径（x25519_pure_uya）与 RFC 7748 期望一致。
+// 这个函数存在的原因：原先的测试只调 x25519_pure_mpi，于是**快路径的错误一直没人发现**。
+// 实测该快路径对下面三条向量全部算错（输出与期望完全无关），本用例就是把它钉住。
+fn check_x25519_fast_vector(scalar: &const byte, point: &const byte, expected: &const byte, base_code: i32) i32 {
+    var out: [byte: 32] = [0:32];
+    x25519_pure_uya(&out[0], scalar, point);
+
+    var i: usize = 0;
+    while i < 32 {
+        if out[i] != expected[i] {
+            return base_code + 10 + (i as i32);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn test_x25519_fast_path_vectors() i32 {
+    var ret: i32 = check_x25519_fast_vector(&RFC_ALICE_PRIV[0], &RFC_BASE9[0], &RFC_ALICE_PUB_EXPECTED[0], 1000);
+    if ret != 0 {
+        return ret;
+    }
+    ret = check_x25519_fast_vector(&RFC_BOB_PRIV[0], &RFC_BASE9[0], &RFC_BOB_PUB_EXPECTED[0], 1200);
+    if ret != 0 {
+        return ret;
+    }
+    ret = check_x25519_fast_vector(&RFC_ALICE_PRIV[0], &RFC_BOB_PUB_EXPECTED[0], &RFC_SHARED_EXPECTED[0], 1400);
+    return ret;
+}
+
 fn test_x25519_pure_vectors() i32 {
     var ret: i32 = check_x25519_vector(&RFC_ALICE_PRIV[0], &RFC_BASE9[0], &RFC_ALICE_PUB_EXPECTED[0], 10);
     if ret != 0 {
@@ -78,5 +108,9 @@ fn test_x25519_pure_vectors() i32 {
 }
 
 export fn main() i32 {
-    return test_x25519_pure_vectors();
+    const mpi_ret: i32 = test_x25519_pure_vectors();
+    if mpi_ret != 0 {
+        return mpi_ret;
+    }
+    return test_x25519_fast_path_vectors();
 }

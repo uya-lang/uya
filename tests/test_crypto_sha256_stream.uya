@@ -1,0 +1,143 @@
+// test_crypto_sha256_stream.uya — 增量 SHA-256 与 HMAC-SHA256（无消息长度上限）
+//
+// 为什么单独测：std.crypto.hmac_sha256 的 msg 上限是 HMAC_SHA256_MAX_MSG = 256 字节，
+// 而 SSH 的 MAC 要覆盖「序号 || 整包」（包长上限 64 KiB），TLS/HTTP 也有大消息。
+// 本文件验证新加的流式接口：分片喂入与一次性结果一致、超长消息可用、
+// HMAC 与 RFC 4231 向量一致。
+//
+// 注意：期望值写成 byte 数组而非 &"hex"[0:n] 字面量切片——后者经函数参数传递后
+// 下标访问会取到错位基址（见 docs/compiler_bug_report_2026-10-14_crypto_stdlib_codegen.md）。
+
+use std.crypto.sha256;
+use std.crypto.sha256.Sha256Ctx;
+use std.crypto.sha256.HmacSha256Ctx;
+use std.crypto.sha256.hmac_sha256_stream;
+use std.testing.assert_eq_i32;
+
+/// 断言 32 字节相等。
+/// 参数：a/b 为待比较摘要。
+/// 返回值：无（不等即断言失败）。
+fn eq32(a: &const byte, b: &const byte) !void {
+    var i: usize = 0;
+    while i < 32 {
+        try assert_eq_i32(a[i] as i32, b[i] as i32);
+        i = i + 1;
+    }
+}
+
+test "sha256_stream_matches_oneshot_short" {
+    var a: [byte: 32] = [];
+    var b: [byte: 32] = [];
+    var msg: [byte: 3] = [97, 98, 99];
+    sha256_digest(msg[0: 3], a[0: 32]);
+    var ctx: Sha256Ctx = Sha256Ctx{};
+    ctx.init();
+    ctx.update(msg[0: 1]);
+    ctx.update(msg[1: 2]);
+    ctx.final(b[0: 32]);
+    try eq32(&a[0], &b[0]);
+}
+
+test "sha256_stream_empty" {
+    var a: [byte: 32] = [];
+    var b: [byte: 32] = [];
+    var z: [byte: 1] = [0];
+    sha256_digest(z[0: 0], a[0: 32]);
+    var ctx: Sha256Ctx = Sha256Ctx{};
+    ctx.init();
+    ctx.final(b[0: 32]);
+    try eq32(&a[0], &b[0]);
+}
+
+test "sha256_stream_matches_oneshot_large" {
+    // 64 KiB：覆盖多块累积与 buf 拼接
+    var msg: [byte: 65536] = [];
+    var i: usize = 0;
+    while i < 65536 {
+        msg[i] = ((i % (251 as usize)) as! byte).value;
+        i = i + 1;
+    }
+    var a: [byte: 32] = [];
+    sha256_digest(msg[0: 65536], a[0: 32]);
+    var b: [byte: 32] = [];
+    var ctx: Sha256Ctx = Sha256Ctx{};
+    ctx.init();
+    // 故意用不整齐的分片（7 / 1000 / 剩余），跨块边界
+    ctx.update(msg[0: 7]);
+    ctx.update(msg[7: 1000]);
+    ctx.update(msg[1007: 64529]);
+    ctx.final(b[0: 32]);
+    try eq32(&a[0], &b[0]);
+}
+
+test "sha256_stream_rfc4231_case1_hmac" {
+    var key: [byte: 20] = [];
+    var i: usize = 0;
+    while i < 20 {
+        key[i] = 0x0b as byte;
+        i = i + 1;
+    }
+    var msg: [byte: 8] = [72, 105, 32, 84, 104, 101, 114, 101];
+    var out: [byte: 32] = [];
+    hmac_sha256_stream(&key[0], 20, &msg[0], 8, &out[0]);
+    var exp: [byte: 32] = [
+        176, 52, 76, 97, 216, 219, 56, 83, 92, 168, 175, 206, 175, 11, 241, 43,
+        136, 29, 194, 0, 201, 131, 61, 167, 38, 233, 55, 108, 46, 50, 207, 247,
+    ];
+    try eq32(&out[0], &exp[0]);
+}
+
+test "hmac_sha256_incremental_matches_oneshot" {
+    var key: [byte: 32] = [];
+    var i: usize = 0;
+    while i < 32 {
+        key[i] = (((i * 7 + 1) % (251 as usize)) as! byte).value;
+        i = i + 1;
+    }
+    var msg: [byte: 2048] = [];
+    i = 0;
+    while i < 2048 {
+        msg[i] = (((i * 13 + 5) % (251 as usize)) as! byte).value;
+        i = i + 1;
+    }
+    var a: [byte: 32] = [];
+    hmac_sha256_stream(&key[0], 32, &msg[0], 2048, &a[0]);
+    var b: [byte: 32] = [];
+    var ctx: HmacSha256Ctx = HmacSha256Ctx{};
+    ctx.init(&key[0], 32);
+    ctx.update(msg[0: 1]);
+    ctx.update(msg[1: 1023]);
+    ctx.update(msg[1024: 1024]);
+    var o: [byte: 32] = [];
+    ctx.final(o[0: 32]);
+    i = 0;
+    while i < 32 {
+        b[i] = o[i];
+        i = i + 1;
+    }
+    try eq32(&a[0], &b[0]);
+}
+
+test "hmac_sha256_long_key_hashed_first" {
+    // 100 字节密钥 > 64 字节块：必须先哈希（RFC 2104）
+    var key: [byte: 100] = [];
+    var i: usize = 0;
+    while i < 100 {
+        key[i] = (((i + 1) % (256 as usize)) as! byte).value;
+        i = i + 1;
+    }
+    var msg: [byte: 50] = [];
+    i = 0;
+    while i < 50 {
+        msg[i] = 0xcd as byte;
+        i = i + 1;
+    }
+    var out: [byte: 32] = [];
+    hmac_sha256_stream(&key[0], 100, &msg[0], 50, &out[0]);
+    // 与 Python hmac.new(bytes(range(1,101)), bytes([0xcd]*50), sha256) 对照
+    var exp: [byte: 32] = [
+        157, 65, 131, 211, 237, 250, 70, 121, 159, 172, 70, 193, 88, 2, 72, 44,
+        62, 188, 134, 127, 187, 41, 222, 213, 74, 207, 59, 124, 98, 32, 95, 244,
+    ];
+    try eq32(&out[0], &exp[0]);
+}
