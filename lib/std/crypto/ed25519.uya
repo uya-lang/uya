@@ -681,6 +681,56 @@ fn ed25519_scalar_reduce_wide(out: &byte, in: &const byte, n: usize) void {
     }
 }
 
+/// 判定点是否为小阶点（阶整除 8）：8·P == 单位元。
+/// 参数：p 为待判定点（须已成功解码）。
+/// 返回值：是小阶点返回 true。
+export fn ge_is_small_order(p: &const Ge) bool {
+    // 8·P == 单位元 ⇔ P 的阶整除 8。
+    var q: Ge = Ge{};
+    ge_copy(&q, p);
+    var i: usize = 0;
+    while i < 3 {
+        ge_double(&q, &q);
+        i = i + 1;
+    }
+    // 单位元的仿射坐标是 (0, 1)，射影坐标下即 X == 0 且 Y == Z。
+    //
+    // **不能逐 limb 直接比较 y 与 z**：域元素允许冗余表示（gf_carry 只把 limb 收进
+    // [0, 2^16)，并不做模 p 的唯一化），同一个值可以有多种 limb 组合，逐 limb 比会漏判。
+    // 正确做法是拿**完全归约后的规范形式**比：gf_pack 会把值约到 [0, p)。
+    var xb: [byte: 32] = [0: 32];
+    gf_pack(&xb[0], &q.x);
+    var xzero: bool = true;
+    i = 0;
+    while i < 32 {
+        if xb[i] != 0 {
+            xzero = false;
+        }
+        i = i + 1;
+    }
+    if !xzero {
+        return false;
+    }
+    var yb: [byte: 32] = [0: 32];
+    var zb: [byte: 32] = [0: 32];
+    // gf_pack 会就地修改入参，因此先各拷一份
+    var ycopy: Gf = Gf{};
+    var zcopy: Gf = Gf{};
+    gf_copy(&ycopy, &q.y);
+    gf_copy(&zcopy, &q.z);
+    gf_pack(&yb[0], &ycopy);
+    gf_pack(&zb[0], &zcopy);
+    var same: bool = true;
+    i = 0;
+    while i < 32 {
+        if yb[i] != zb[i] {
+            same = false;
+        }
+        i = i + 1;
+    }
+    return same;
+}
+
 /// 验签（RFC 8032 §5.1.7）。
 /// 参数：sig 为 64 字节签名，msg/msg_len 为消息，pk 为 32 字节公钥。
 /// 返回值：签名有效返回 true。
@@ -710,6 +760,13 @@ export fn ed25519_verify(sig: &const byte, msg: &const byte, msg_len: usize, pk:
     }
     var A: Ge = Ge{};
     if !ge_unpack(&A, pk) {
+        return false;
+    }
+    // RFC 8032 §5.1.7 要求：若 A 或 R 是**小阶点**（阶整除 8），验签必须失败。
+    // 少了这一步，「全零编码」这种 4 阶点就能当公钥/签名前半段用（它确实是一条合法
+    // 曲线点，编码也合法），于是可以被构造出对任意消息都通过的伪造签名。
+    // 判定法：8·P == 单位元 当且仅当 P 的阶整除 8。
+    if ge_is_small_order(&A) || ge_is_small_order(&R) {
         return false;
     }
     // k = SHA-512(R || pk || msg) mod L
