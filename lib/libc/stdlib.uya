@@ -1067,6 +1067,14 @@ extern "libc" fn uya_macos_host_opendir(name: &const byte) &void;
 extern "libc" fn uya_macos_host_readdir_fill(dirp: &void, out: *void) i32;
 extern "libc" fn uya_macos_host_closedir(dirp: &void) i32;
 
+// Windows hosted 目录遍历 bridge（由 codegen 的 UYA_TARGET_WINDOWS 块提供，
+// 内部用 FindFirstFileW/FindNextFileW）。与 macOS 三者同构，避免上层写平台分支。
+std.cfg(std.target_os == .tos_windows, {
+extern "libc" fn uya_windows_host_opendir(name: &const byte) &void;
+extern "libc" fn uya_windows_host_readdir_fill(dirp: &void, out: *void) i32;
+extern "libc" fn uya_windows_host_closedir(dirp: &void) i32;
+}, {})
+
 // 目录句柄不透明类型（与 POSIX DIR* 对应）
 export struct DIR {}
 
@@ -1110,6 +1118,14 @@ export extern "libc" fn opendir(name: &const byte) &DIR {
         }
         return host_dir as &DIR;
     }, {
+        std.cfg(std.target_os == .tos_windows, {
+            // Windows 无 POSIX DIR*，直接返回 FindFirstFileW 维护的宿主句柄。
+            const host_dir_w: &void = uya_windows_host_opendir(name);
+            if host_dir_w == null {
+                return null;
+            }
+            return host_dir_w as &DIR;
+        }, {
         const result: !i32 = sys_open(name, (O_RDONLY | O_DIRECTORY) as i32, 0);
         const fd: i32 = result catch {
             return null;
@@ -1134,6 +1150,7 @@ export extern "libc" fn opendir(name: &const byte) &DIR {
 
         _ = sys_close(fd);
         return null;
+        })
     })
 }
 
@@ -1152,6 +1169,14 @@ export extern "libc" fn readdir(dirp: &DIR) &Dirent {
         }
         return &readdir_result;
     }, {
+        std.cfg(std.target_os == .tos_windows, {
+            // 与 macOS 同构：bridge 负责清零并只填 d_type / d_name。
+            const host_result_w: i32 = uya_windows_host_readdir_fill(dirp as &void, &readdir_result as *void);
+            if host_result_w <= 0 {
+                return null;
+            }
+            return &readdir_result;
+        }, {
         const state: &DirState = dirp as &DirState;
         if state.fd < 0 {
             return null;
@@ -1211,6 +1236,7 @@ export extern "libc" fn readdir(dirp: &DIR) &Dirent {
             return &readdir_result;
         }
         return null;
+        })
     })
 }
 
@@ -1224,6 +1250,9 @@ export extern "libc" fn closedir(dirp: &DIR) i32 {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_host_closedir(dirp as &void);
     }, {
+        std.cfg(std.target_os == .tos_windows, {
+            return uya_windows_host_closedir(dirp as &void);
+        }, {
         const state: &DirState = dirp as &DirState;
         const fd: i64 = state.fd;
 
@@ -1238,5 +1267,6 @@ export extern "libc" fn closedir(dirp: &DIR) i32 {
 
         state.fd = 0 - 1;
         return 0;
+        })
     })
 }

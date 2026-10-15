@@ -897,6 +897,14 @@ extern "libc" fn uya_macos_getpid() i32;
 extern "libc" fn uya_macos_getppid() i32;
 extern "libc" fn uya_macos_exit(status: i32) void;
 
+// Windows hosted bridge（由 src/codegen/c99/main.uya 的 UYA_TARGET_WINDOWS 块提供实现）。
+// 与 uya_macos_* 同构：目标是 windows 时由这些入口完成宿主调用，避免在 libc 层写平台分支。
+std.cfg(std.target_os == .tos_windows, {
+extern "libc" fn uya_windows_stat(pathname: *const byte, statbuf: &Stat) !i32;
+extern "libc" fn uya_windows_fstat(fd: i32, statbuf: &Stat) !i32;
+extern "libc" fn uya_windows_lstat(pathname: *const byte, statbuf: &Stat) !i32;
+}, {})
+
 // ============================================================
 // 系统调用封装函数
 // ============================================================
@@ -1389,13 +1397,20 @@ export extern "libc" fn sys_stat(pathname: *const byte, statbuf: &Stat) !i32 {
     std.cfg(std.target_os == .tos_macos, {
         return uya_macos_stat(pathname, statbuf);
     }, {
-        std.cfg(std.target_arch == .ta_arm64, {
-            return @syscall(SYS_newfstatat, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
+        std.cfg(std.target_os == .tos_windows, {
+            // Windows hosted：走 codegen 提供的 uya_windows_stat bridge（内部 _stat64 +
+            // 统一 Stat 映射）。编号式 @syscall 亦可，但此处直接调用 bridge 更省一层转换，
+            // 且与 macOS 分支的写法保持一致。
+            return uya_windows_stat(pathname, statbuf);
         }, {
-            std.cfg(std.target_arch == .ta_riscv64, {
+            std.cfg(std.target_arch == .ta_arm64, {
                 return @syscall(SYS_newfstatat, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
             }, {
-                return @syscall(SYS_stat, pathname as i64, statbuf as i64) as! i32;
+                std.cfg(std.target_arch == .ta_riscv64, {
+                    return @syscall(SYS_newfstatat, AT_FDCWD as i64, pathname as i64, statbuf as i64, 0 as i64) as! i32;
+                }, {
+                    return @syscall(SYS_stat, pathname as i64, statbuf as i64) as! i32;
+                })
             })
         })
     })

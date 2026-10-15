@@ -77,9 +77,15 @@ typedef signed char int8_t;
 typedef signed short int16_t;
 typedef signed int int32_t;
 typedef signed long long int64_t;
+#if defined(_WIN32)
+typedef long long ssize_t;
+typedef unsigned long long uintptr_t;
+typedef long long intptr_t;
+#else
 typedef signed long ssize_t;
 typedef unsigned long uintptr_t;
 typedef signed long intptr_t;
+#endif
 #ifndef NULL
 #define NULL ((void *)0)
 #endif
@@ -735,6 +741,596 @@ static int32_t uya_macos_host_closedir(void *dirp) {
     if (real_closedir == (uya_macos_closedir_fn)0) real_closedir = (uya_macos_closedir_fn)dlsym((void *)-1, "closedir");
     if (real_closedir == (uya_macos_closedir_fn)0) return -1;
     return real_closedir(dirp);
+}
+#endif
+#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)
+#define timeval uya_win_native_timeval
+#define timespec uya_win_native_timespec
+#define timezone uya_win_native_timezone
+#define mkdir uya_win_native_mkdir_hidden
+#define rmdir uya_win_native_rmdir_hidden
+#define chdir uya_win_native_chdir_hidden
+#define getcwd uya_win_native_getcwd_hidden
+#define stat uya_win_native_stat_hidden
+#define fstat uya_win_native_fstat_hidden
+#define readlink uya_win_native_readlink_hidden
+#define access uya_win_native_access_hidden
+#define unlink uya_win_native_unlink_hidden
+#define rename uya_win_native_rename_hidden
+#define getpid uya_win_native_getpid_hidden
+#define execve uya_win_native_execve_hidden
+#define system uya_win_native_system_hidden
+#define sleep uya_win_native_sleep_hidden
+#define read uya_win_native_read_hidden
+#define write uya_win_native_write_hidden
+#define lseek uya_win_native_lseek_hidden
+#define close uya_win_native_close_hidden
+#include <io.h>
+#include <direct.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <process.h>
+#include <windows.h>
+#undef timeval
+#undef timespec
+#undef timezone
+#undef mkdir
+#undef rmdir
+#undef chdir
+#undef getcwd
+#undef stat
+#undef fstat
+#undef readlink
+#undef access
+#undef unlink
+#undef rename
+#undef getpid
+#undef execve
+#undef system
+#undef sleep
+#undef read
+#undef write
+#undef lseek
+#undef close
+#ifdef isascii
+#undef isascii
+#endif
+#ifdef toascii
+#undef toascii
+#endif
+#ifdef isblank
+#undef isblank
+#endif
+#ifdef iswctype
+#undef iswctype
+#endif
+#ifdef iswalpha
+#undef iswalpha
+#endif
+#ifdef iswdigit
+#undef iswdigit
+#endif
+#ifdef iswalnum
+#undef iswalnum
+#endif
+#ifdef iswspace
+#undef iswspace
+#endif
+#ifdef towupper
+#undef towupper
+#endif
+#ifdef towlower
+#undef towlower
+#endif
+#ifdef _S_IFMT
+#undef _S_IFMT
+#endif
+#ifdef _S_IFDIR
+#undef _S_IFDIR
+#endif
+#ifdef _S_IFREG
+#undef _S_IFREG
+#endif
+#ifdef _S_IFCHR
+#undef _S_IFCHR
+#endif
+#ifdef _S_IFIFO
+#undef _S_IFIFO
+#endif
+#ifdef S_IFMT
+#undef S_IFMT
+#endif
+#ifdef S_IFDIR
+#undef S_IFDIR
+#endif
+#ifdef S_IFREG
+#undef S_IFREG
+#endif
+struct Stat;
+struct TimeSpec;
+struct PollFd;
+// uya 统一 Stat 的内存布局镜像（与 lib/libc/syscall.uya 的 Stat 字段顺序一致）。
+// 只写上层真实消费的字段，其余保持调用方清零后的值。
+struct uya_windows_uya_stat {
+    int64_t st_dev;
+    int64_t st_ino;
+    int64_t st_nlink;
+    int32_t st_mode;
+    int32_t st_uid;
+    int32_t st_gid;
+    int32_t _pad0;
+    int64_t st_rdev;
+    int64_t st_size;
+    int64_t st_blksize;
+    int64_t st_blocks;
+    int64_t st_atime;
+    int64_t st_atime_nsec;
+    int64_t st_mtime;
+    int64_t st_mtime_nsec;
+    int64_t st_ctime;
+    int64_t st_ctime_nsec;
+    int64_t _unused0;
+    int64_t _unused1;
+    int64_t _unused2;
+};
+static struct err_union_int32_t uya_win_err_i32(int err) { return (struct err_union_int32_t){ .error_id = (uint32_t)err, .value = 0 }; }
+static struct err_union_int32_t uya_win_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }
+static struct err_union_int64_t uya_win_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }
+static struct err_union_int64_t uya_win_ok_i64(int64_t value) { return (struct err_union_int64_t){ .error_id = 0, .value = value }; }
+static int uya_windows_map_errno(int win_err) {
+    switch (win_err) {
+        case ENOENT: return 2;
+        case EINTR: return 4;
+        case EIO: return 5;
+        case EACCES: return 13;
+        case EEXIST: return 17;
+        case ENOTDIR: return 20;
+        case EISDIR: return 21;
+        case EINVAL: return 22;
+        case ENOSPC: return 28;
+        case EPIPE: return 32;
+        case EAGAIN: return 11;
+        default: return win_err;
+    }
+}
+static void uya_windows_copy_stat(struct Stat *dst, const struct _stat64 *src) {
+    struct uya_windows_uya_stat *d = (struct uya_windows_uya_stat *)dst;
+    if (d == (struct uya_windows_uya_stat *)0 || src == (const struct _stat64 *)0) return;
+    d->st_dev = (int64_t)src->st_dev;
+    d->st_ino = (int64_t)src->st_ino;
+    d->st_nlink = (int64_t)src->st_nlink;
+    d->st_mode = ((src->st_mode & 0xF000) == 0x4000) ? 0040000 : 0100000;
+    d->st_uid = 0;
+    d->st_gid = 0;
+    d->st_rdev = 0;
+    d->st_size = (int64_t)src->st_size;
+    d->st_blksize = 4096;
+    d->st_blocks = (int64_t)((src->st_size + 511) / 512);
+    d->st_atime = (int64_t)src->st_atime; d->st_atime_nsec = 0;
+    d->st_mtime = (int64_t)src->st_mtime; d->st_mtime_nsec = 0;
+    d->st_ctime = (int64_t)src->st_ctime; d->st_ctime_nsec = 0;
+}
+static int uya_windows_fill_file_identity(const char *pathname, int64_t *dev_out, int64_t *ino_out) {
+    wchar_t wpath[1024];
+    HANDLE h;
+    BY_HANDLE_FILE_INFORMATION info;
+    if (pathname == (const char *)0 || dev_out == (int64_t *)0 || ino_out == (int64_t *)0) return -1;
+    if (MultiByteToWideChar(CP_UTF8, 0, pathname, -1, wpath, 1024) == 0) return -1;
+    h = CreateFileW(wpath, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    (LPSECURITY_ATTRIBUTES)0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, (HANDLE)0);
+    if (h == INVALID_HANDLE_VALUE) return -1;
+    if (GetFileInformationByHandle(h, &info) == 0) { CloseHandle(h); return -1; }
+    *dev_out = (int64_t)(uint32_t)info.dwVolumeSerialNumber;
+    *ino_out = (((int64_t)(uint32_t)info.nFileIndexHigh) << 32) | (int64_t)(uint32_t)info.nFileIndexLow;
+    CloseHandle(h);
+    return 0;
+}
+static int uya_windows_fill_file_identity_fd(int32_t fd, int64_t *dev_out, int64_t *ino_out) {
+    intptr_t osf = _get_osfhandle((int)fd);
+    BY_HANDLE_FILE_INFORMATION info;
+    if (osf == (intptr_t)-1) return -1;
+    if (dev_out == (int64_t *)0 || ino_out == (int64_t *)0) return -1;
+    if (GetFileInformationByHandle((HANDLE)osf, &info) == 0) return -1;
+    *dev_out = (int64_t)(uint32_t)info.dwVolumeSerialNumber;
+    *ino_out = (((int64_t)(uint32_t)info.nFileIndexHigh) << 32) | (int64_t)(uint32_t)info.nFileIndexLow;
+    return 0;
+}
+struct err_union_int32_t uya_windows_stat(const char *pathname, struct Stat *statbuf) {
+    struct _stat64 st;
+    int64_t id_dev = 0;
+    int64_t id_ino = 0;
+    if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_win_err_i32(22);
+    if (_stat64(pathname, &st) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    uya_windows_copy_stat(statbuf, &st);
+    if (uya_windows_fill_file_identity(pathname, &id_dev, &id_ino) == 0) {
+        ((struct uya_windows_uya_stat *)statbuf)->st_dev = id_dev;
+        ((struct uya_windows_uya_stat *)statbuf)->st_ino = id_ino;
+    }
+    return uya_win_ok_i32(0);
+}
+struct err_union_int32_t uya_windows_fstat(int32_t fd, struct Stat *statbuf) {
+    struct _stat64 st;
+    int64_t id_dev = 0;
+    int64_t id_ino = 0;
+    if (statbuf == (struct Stat *)0) return uya_win_err_i32(22);
+    if (_fstat64((int)fd, &st) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    uya_windows_copy_stat(statbuf, &st);
+    if (uya_windows_fill_file_identity_fd(fd, &id_dev, &id_ino) == 0) {
+        ((struct uya_windows_uya_stat *)statbuf)->st_dev = id_dev;
+        ((struct uya_windows_uya_stat *)statbuf)->st_ino = id_ino;
+    }
+    return uya_win_ok_i32(0);
+}
+struct err_union_int32_t uya_windows_lstat(const char *pathname, struct Stat *statbuf) {
+    return uya_windows_stat(pathname, statbuf);
+}
+static struct err_union_int64_t uya_windows_write(int32_t fd, const char *buf, size_t count) {
+    int ret = _write((int)fd, buf, (unsigned int)count);
+    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));
+    return uya_win_ok_i64((int64_t)ret);
+}
+static struct err_union_int64_t uya_windows_read(int32_t fd, char *buf, size_t count) {
+    if (buf == (char *)0 && count != 0) return uya_win_err_i64(22);
+    int ret = _read((int)fd, buf, (unsigned int)count);
+    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));
+    return uya_win_ok_i64((int64_t)ret);
+}
+static struct err_union_int32_t uya_windows_open(const char *pathname, int32_t flags, int32_t mode) {
+    // uya 的 O_* 常量是 Linux 取值（O_CREAT=0x40、O_EXCL=0x80、O_TRUNC=0x200、O_APPEND=0x400），
+    // 与 MinGW CRT 的 _O_* 不同（_O_CREAT=0x100、_O_TRUNC=0x200、_O_APPEND=0x8）。
+    // 必须显式翻译，否则 fopen(...,"w") 因 O_CREAT 未被识别而失败。
+    int win_flags = _O_BINARY;
+    switch (flags & 0x3) {
+        case 1: win_flags |= _O_WRONLY; break;
+        case 2: win_flags |= _O_RDWR; break;
+        default: win_flags |= _O_RDONLY; break;
+    }
+    if ((flags & 0x40) != 0) win_flags |= _O_CREAT;
+    if ((flags & 0x80) != 0) win_flags |= _O_EXCL;
+    if ((flags & 0x200) != 0) win_flags |= _O_TRUNC;
+    if ((flags & 0x400) != 0) win_flags |= _O_APPEND;
+    int ret = _open(pathname, win_flags, (int)mode);
+    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(ret);
+}
+static struct err_union_int32_t uya_windows_close(int32_t fd) {
+    int ret = _close((int)fd);
+    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(ret);
+}
+static struct err_union_int64_t uya_windows_lseek(int32_t fd, int64_t offset, int32_t whence) {
+    __int64 ret = _lseeki64((int)fd, (__int64)offset, (int)whence);
+    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));
+    return uya_win_ok_i64((int64_t)ret);
+}
+static struct err_union_int32_t uya_windows_access(const char *pathname, int32_t mode) {
+    if (_access(pathname, (int)mode) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_chdir(const char *pathname) {
+    if (_chdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int64_t uya_windows_getcwd(char *buf, size_t size) {
+    if (buf == (char *)0 || size == 0) return uya_win_err_i64(22);
+    if (_getcwd(buf, (int)size) == (char *)0) return uya_win_err_i64(uya_windows_map_errno(errno));
+    size_t len = strlen(buf);
+    if (len >= size) return uya_win_err_i64(34);
+    return uya_win_ok_i64((int64_t)len);
+}
+static struct err_union_int32_t uya_windows_mkdir(const char *pathname, int32_t mode) {
+    (void)mode;
+    if (_mkdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_rmdir(const char *pathname) {
+    if (_rmdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_unlink(const char *pathname) {
+    if (_unlink(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_rename(const char *oldpath, const char *newpath) {
+    wchar_t wold[1024];
+    wchar_t wnew[1024];
+    if (MultiByteToWideChar(CP_UTF8, 0, oldpath, -1, wold, 1024) == 0) return uya_win_err_i32(22);
+    if (MultiByteToWideChar(CP_UTF8, 0, newpath, -1, wnew, 1024) == 0) return uya_win_err_i32(22);
+    if (MoveFileExW(wold, wnew, MOVEFILE_REPLACE_EXISTING) == 0) return uya_win_err_i32((int)GetLastError());
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_dup(int32_t fd) {
+    int ret = _dup((int)fd);
+    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(ret);
+}
+static struct err_union_int32_t uya_windows_dup2(int32_t oldfd, int32_t newfd) {
+    if (_dup2((int)oldfd, (int)newfd) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_fcntl(int32_t fd, int32_t cmd, int32_t arg) {
+    (void)cmd; (void)arg;
+    if (_get_osfhandle((int)fd) == (intptr_t)-1) return uya_win_err_i32(9);
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int64_t uya_windows_writev(int32_t fd, const void *iov, int32_t iovcnt) {
+    // 逐段写出；任一失败即返回，保持与 POSIX writev 的短路语义一致。
+    // 用 uya 统一 IOVec 布局（iov_base/iov_len）解析，避免依赖宿主 struct iovec 的字段名。
+    struct uya_windows_iov { void *iov_base; size_t iov_len; };
+    const struct uya_windows_iov *v = (const struct uya_windows_iov *)iov;
+    int64_t total = 0;
+    int32_t i = 0;
+    for (; i < iovcnt; i++) {
+        struct err_union_int64_t r = uya_windows_write(fd, (const char *)v[i].iov_base, v[i].iov_len);
+        if (r.error_id != 0) return (total > 0) ? uya_win_ok_i64(total) : r;
+        total += r.value;
+    }
+    return uya_win_ok_i64(total);
+}
+static struct err_union_int32_t uya_windows_pipe2(int32_t *pipefd, int32_t flags) {
+    int text_mode = ((flags & 0x80000) != 0) ? _O_TEXT : _O_BINARY;
+    if (_pipe((int *)pipefd, 65536, text_mode) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_getpid(void) {
+    return uya_win_ok_i32((int32_t)GetCurrentProcessId());
+}
+static struct err_union_int32_t uya_windows_getppid(void) {
+    return uya_win_ok_i32(0);
+}
+static int64_t uya_windows_clock_gettime_monotonic_ns(void) {
+    static LARGE_INTEGER freq;
+    static int freq_ready = 0;
+    LARGE_INTEGER now;
+    if (freq_ready == 0) { QueryPerformanceFrequency(&freq); freq_ready = 1; }
+    QueryPerformanceCounter(&now);
+    if (freq.QuadPart == 0) return 0;
+    return (int64_t)((now.QuadPart * 1000000000LL) / freq.QuadPart);
+}
+static int64_t uya_windows_realtime_ns(void) {
+    FILETIME ft;
+    ULARGE_INTEGER u;
+    GetSystemTimeAsFileTime(&ft);
+    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
+    // FILETIME 起点 1601-01-01，单位 100ns；减去 1970 起点的偏移得 Unix 纪元纳秒。
+    return (int64_t)((u.QuadPart - 116444736000000000ULL) * 100LL);
+}
+static struct err_union_int32_t uya_windows_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {
+    if (tp == (struct TimeSpec *)0) return uya_win_err_i32(22);
+    // CLOCK_MONOTONIC(=1) 走单调时钟，其余按实时时钟处理。
+    int64_t ns = (clock_id == 1) ? uya_windows_clock_gettime_monotonic_ns() : uya_windows_realtime_ns();
+    int64_t *fields = (int64_t *)tp;
+    fields[0] = ns / 1000000000LL;
+    fields[1] = ns % 1000000000LL;
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_gettimeofday(int64_t *sec_out, int64_t *usec_out) {
+    int64_t ns = uya_windows_realtime_ns();
+    if (sec_out != (int64_t *)0) *sec_out = ns / 1000000000LL;
+    if (usec_out != (int64_t *)0) *usec_out = (ns % 1000000000LL) / 1000LL;
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_nanosleep(int64_t req_sec, int64_t req_nsec) {
+    int64_t ms = req_sec * 1000LL + req_nsec / 1000000LL;
+    if (ms > 0) Sleep((DWORD)ms);
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_sched_yield(void) {
+    SwitchToThread();
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_sched_getaffinity(int64_t *out_mask) {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    if (out_mask != (int64_t *)0) *out_mask = (int64_t)((si.dwNumberOfProcessors >= 64) ? (DWORD_PTR)-1 : (((DWORD_PTR)1 << si.dwNumberOfProcessors) - 1));
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_sched_setaffinity(int64_t mask) {
+    (void)mask;
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_getrlimit(int32_t resource, int64_t *cur_out, int64_t *max_out) {
+    (void)resource;
+    if (cur_out != (int64_t *)0) *cur_out = 1073741824LL;
+    if (max_out != (int64_t *)0) *max_out = 1073741824LL;
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_setrlimit(int32_t resource, int64_t cur, int64_t max) {
+    (void)resource; (void)cur; (void)max;
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int64_t uya_windows_gettid(void) { return uya_win_ok_i64((int64_t)GetCurrentThreadId()); }
+static struct err_union_int64_t uya_windows_mmap(int64_t length, int32_t prot) {
+    DWORD win_prot = ((prot & 0x2) != 0) ? PAGE_READWRITE : PAGE_READONLY;
+    void *p = VirtualAlloc((void *)0, (SIZE_T)length, MEM_COMMIT | MEM_RESERVE, win_prot);
+    if (p == (void *)0) return uya_win_err_i64(12);
+    return uya_win_ok_i64((int64_t)(intptr_t)p);
+}
+static struct err_union_int32_t uya_windows_munmap(void *addr) {
+    if (VirtualFree(addr, 0, MEM_RELEASE) == 0) return uya_win_err_i32((int)GetLastError());
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int32_t uya_windows_mprotect(void *addr, size_t length, int32_t prot) {
+    DWORD win_prot = ((prot & 0x2) != 0) ? PAGE_READWRITE : PAGE_READONLY;
+    DWORD old = 0;
+    if (VirtualProtect(addr, (SIZE_T)length, win_prot, &old) == 0) return uya_win_err_i32((int)GetLastError());
+    return uya_win_ok_i32(0);
+}
+static struct err_union_int64_t uya_windows_brk(void *addr) {
+    (void)addr;
+    return uya_win_err_i64(12);
+}
+int stat(const char *pathname, struct Stat *statbuf) {
+    struct err_union_int32_t r = uya_windows_stat(pathname, statbuf);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int lstat(const char *pathname, struct Stat *statbuf) {
+    struct err_union_int32_t r = uya_windows_lstat(pathname, statbuf);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int mkdir(const char *pathname, int mode) {
+    struct err_union_int32_t r = uya_windows_mkdir(pathname, (int32_t)mode);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int rmdir(const char *pathname) {
+    struct err_union_int32_t r = uya_windows_rmdir(pathname);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int unlink(const char *pathname) {
+    struct err_union_int32_t r = uya_windows_unlink(pathname);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int access(const char *pathname, int mode) {
+    struct err_union_int32_t r = uya_windows_access(pathname, (int32_t)mode);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int chdir(const char *pathname) {
+    struct err_union_int32_t r = uya_windows_chdir(pathname);
+    return (r.error_id != 0) ? -1 : 0;
+}
+char *getcwd(char *buf, size_t size) {
+    struct err_union_int64_t r = uya_windows_getcwd(buf, size);
+    return (r.error_id != 0) ? (char *)0 : buf;
+}
+int rename(const char *oldpath, const char *newpath) {
+    struct err_union_int32_t r = uya_windows_rename(oldpath, newpath);
+    return (r.error_id != 0) ? -1 : 0;
+}
+int getpid(void) {
+    return (int)GetCurrentProcessId();
+}
+int getppid(void) { return 0; }
+struct uya_windows_dir_handle {
+    HANDLE h;
+    int first_pending;
+    WIN32_FIND_DATAW fd;
+};
+static int uya_windows_utf8_to_utf16(const char *src, wchar_t *dst, int dst_cap) {
+    if (src == (const char *)0 || dst == (wchar_t *)0 || dst_cap <= 0) return 0;
+    return MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dst_cap);
+}
+static void *uya_windows_host_opendir(const char *path) {
+    wchar_t wpath[1024];
+    wchar_t wpattern[1088];
+    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)0;
+    if (path == (const char *)0) return (void *)0;
+    if (uya_windows_utf8_to_utf16(path, wpath, 1024) == 0) return (void *)0;
+    {
+        size_t plen = 0;
+        while (wpath[plen] != 0) plen++;
+        size_t q = 0;
+        if (plen + 3 > 1088) return (void *)0;
+        for (q = 0; q < plen; q++) wpattern[q] = wpath[q];
+        if (plen > 0 && wpath[plen - 1] != L'/' && wpath[plen - 1] != L'\\') {
+            wpattern[plen] = L'\\';
+            plen = plen + 1;
+        }
+        wpattern[plen] = L'*';
+        wpattern[plen + 1] = 0;
+    }
+    dh = (struct uya_windows_dir_handle *)malloc(sizeof(struct uya_windows_dir_handle));
+    if (dh == (struct uya_windows_dir_handle *)0) return (void *)0;
+    dh->h = FindFirstFileW(wpattern, &dh->fd);
+    if (dh->h == INVALID_HANDLE_VALUE) { free(dh); return (void *)0; }
+    dh->first_pending = 1;
+    return (void *)dh;
+}
+static int32_t uya_windows_host_readdir_fill(void *dirp, void *out) {
+    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)dirp;
+    unsigned char *dst = (unsigned char *)out;
+    size_t clear_idx = 0;
+    size_t name_len = 0;
+    int is_dir = 0;
+    if (dh == (struct uya_windows_dir_handle *)0 || out == (void *)0) return -1;
+    if (dh->first_pending != 0) {
+        dh->first_pending = 0;
+    } else if (FindNextFileW(dh->h, &dh->fd) == 0) {
+        return 0;
+    }
+    for (clear_idx = 0; clear_idx < 275u; clear_idx++) dst[clear_idx] = 0;
+    is_dir = ((dh->fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+    dst[18] = (unsigned char)(is_dir ? 4 : 8);
+    name_len = (size_t)WideCharToMultiByte(CP_UTF8, 0, dh->fd.cFileName, -1, (char *)(dst + 19), 255, (const char *)0, (int *)0);
+    if (name_len == 0) dst[19] = 0;
+    return 1;
+}
+static int32_t uya_windows_host_closedir(void *dirp) {
+    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)dirp;
+    if (dh == (struct uya_windows_dir_handle *)0) return -1;
+    if (dh->h != INVALID_HANDLE_VALUE) FindClose(dh->h);
+    free(dh);
+    return 0;
+}
+int readlink(const char *path, char *buf, size_t bufsiz) {
+    (void)path; (void)buf; (void)bufsiz;
+    return -1;
+}
+int fork(void) { return -1; }
+int waitpid(int pid, int *status, int options) { (void)pid; (void)status; (void)options; return -1; }
+static struct err_union_int64_t uya_windows_readlink(const char *path, char *buf, size_t bufsiz) {
+    (void)path; (void)buf; (void)bufsiz;
+    return uya_win_err_i64(22);
+}
+static struct err_union_int32_t uya_windows_exit_process(int32_t code) {
+    exit((int)code);
+    return uya_win_ok_i32(0);
+}
+static int64_t uya_windows_syscall(int64_t nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) {
+    (void)a5; (void)a6;
+    switch (nr) {
+        case 1: { struct err_union_int64_t r = uya_windows_write((int32_t)a1, (const char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 0: { struct err_union_int64_t r = uya_windows_read((int32_t)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 20: { struct err_union_int64_t r = uya_windows_writev((int32_t)a1, (const void *)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 2: { struct err_union_int32_t r = uya_windows_open((const char *)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 3: { struct err_union_int32_t r = uya_windows_close((int32_t)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 8: { struct err_union_int64_t r = uya_windows_lseek((int32_t)a1, (int64_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 4: { struct err_union_int32_t r = uya_windows_stat((const char *)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 5: { struct err_union_int32_t r = uya_windows_fstat((int32_t)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 6: { struct err_union_int32_t r = uya_windows_lstat((const char *)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 257: return (a1 == -100) ? uya_windows_syscall(2, a2, a3, a4, 0, 0, 0) : -38;
+        case 262: return (a1 == -100) ? uya_windows_syscall(4, a2, a3, 0, 0, 0, 0) : -38;
+        case 269: return (a1 == -100) ? uya_windows_syscall(21, a2, a3, 0, 0, 0, 0) : -38;
+        case 263: return (a1 == -100) ? ((a3 == 0x200) ? uya_windows_syscall(84, a2, 0, 0, 0, 0, 0) : uya_windows_syscall(87, a2, 0, 0, 0, 0, 0)) : -38;
+        case 258: return (a1 == -100) ? uya_windows_syscall(83, a2, a3, 0, 0, 0, 0) : -38;
+        case 264: return (a1 == -100 && a3 == -100) ? uya_windows_syscall(82, a2, a4, 0, 0, 0, 0) : -38;
+        case 267: return (a1 == -100) ? uya_windows_syscall(89, a2, a3, a4, 0, 0, 0) : -38;
+        case 21: { struct err_union_int32_t r = uya_windows_access((const char *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 80: { struct err_union_int32_t r = uya_windows_chdir((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 79: { struct err_union_int64_t r = uya_windows_getcwd((char *)a1, (size_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 83: { struct err_union_int32_t r = uya_windows_mkdir((const char *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 84: { struct err_union_int32_t r = uya_windows_rmdir((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 87: { struct err_union_int32_t r = uya_windows_unlink((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 82: { struct err_union_int32_t r = uya_windows_rename((const char *)a1, (const char *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 89: { struct err_union_int64_t r = uya_windows_readlink((const char *)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 32: { struct err_union_int32_t r = uya_windows_dup((int32_t)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 33: case 292: { struct err_union_int32_t r = uya_windows_dup2((int32_t)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 72: { struct err_union_int32_t r = uya_windows_fcntl((int32_t)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 293: { struct err_union_int32_t r = uya_windows_pipe2((int32_t *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 39: { struct err_union_int32_t r = uya_windows_getpid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 110: { struct err_union_int32_t r = uya_windows_getppid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 102: case 104: case 107: case 108: return 0;
+        case 105: case 106: return 0;
+        case 186: { struct err_union_int64_t r = uya_windows_gettid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 57: case 59: case 61: case 62: case 234: return -38;
+        case 60: { struct err_union_int32_t r = uya_windows_exit_process((int32_t)a1); return r.error_id ? -38 : 0; }
+        case 228: { struct err_union_int32_t r = uya_windows_clock_gettime((int32_t)a1, (struct TimeSpec *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 96: { struct err_union_int32_t r = uya_windows_gettimeofday((int64_t *)(void *)a1, (int64_t *)(void *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 35: { struct err_union_int32_t r = uya_windows_nanosleep((int64_t)a1, (int64_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 24: { struct err_union_int32_t r = uya_windows_sched_yield(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 204: { struct err_union_int32_t r = uya_windows_sched_getaffinity((int64_t *)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 203: { struct err_union_int32_t r = uya_windows_sched_setaffinity((int64_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 97:  { struct err_union_int32_t r = uya_windows_getrlimit((int32_t)a1, (int64_t *)(void *)a2, (int64_t *)(void *)a2 + 1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 160: { struct err_union_int32_t r = uya_windows_setrlimit((int32_t)a1, 0, 0); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 9:  { struct err_union_int64_t r = uya_windows_mmap((int64_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 11: { struct err_union_int32_t r = uya_windows_munmap((void *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 10: { struct err_union_int32_t r = uya_windows_mprotect((void *)a1, (size_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        case 12: { struct err_union_int64_t r = uya_windows_brk((void *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }
+        default: break;
+    }
+    (void)a1; (void)a2; (void)a3; (void)a4;
+    return -38;
 }
 #endif
 
@@ -3430,7 +4026,7 @@ static const char str2686[] = "(struct EmbedDirEntry *)0";
 static const char str2687[] = "/lib/std/microapp/";
 static const char str2688[] = "lib/std/microapp/";
 static const char str2689[] = "long _uya_syscall_ret = uya_microapp_bridge_dispatch";
-static const char str2690[] = "long _uya_syscall_ret = uya_syscall";
+static const char str2690[] = "int64_t _uya_syscall_ret = (int64_t)uya_syscall";
 static const char str2691[] = "%d(";
 static const char str2692[] = "struct err_union_int64_t _uya_result; ";
 static const char str2693[] = "if (_uya_syscall_ret < 0) { ";
@@ -4270,10 +4866,10 @@ static const char str3526[] = "heap.uya";
 static const char str3527[] = "stdlib.uya";
 static const char str3528[] = "errno";
 static const char str3529[] = "errno.uya";
-static const char str3530[] = "rand_seed";
-static const char str3531[] = "rand_max_val";
-static const char str3532[] = "opendir_storage";
-static const char str3533[] = "readdir_result";
+static const char str3530[] = "opendir_storage";
+static const char str3531[] = "readdir_result";
+static const char str3532[] = "rand_seed";
+static const char str3533[] = "rand_max_val";
 static const char str3534[] = "char";
 static const char str3535[] = "const %s *";
 static const char str3536[] = "%s *";
@@ -7671,7 +8267,16 @@ size_t uya_pipeline_image_anchor(void) {
 }
 
 // 系统调用辅助函数：Linux/Darwin x86-64；Linux/Darwin AArch64；Linux ARM32 EABI
-#if (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)
+#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)
+static int64_t uya_windows_syscall(int64_t nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6);
+static inline int64_t uya_syscall0(long nr) { return uya_windows_syscall((int64_t)nr, 0, 0, 0, 0, 0, 0); }
+static inline int64_t uya_syscall1(long nr, int64_t a1) { return uya_windows_syscall((int64_t)nr, a1, 0, 0, 0, 0, 0); }
+static inline int64_t uya_syscall2(long nr, int64_t a1, int64_t a2) { return uya_windows_syscall((int64_t)nr, a1, a2, 0, 0, 0, 0); }
+static inline int64_t uya_syscall3(long nr, int64_t a1, int64_t a2, int64_t a3) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, 0, 0, 0); }
+static inline int64_t uya_syscall4(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, 0, 0); }
+static inline int64_t uya_syscall5(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, a5, 0); }
+static inline int64_t uya_syscall6(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, a5, a6); }
+#elif (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)
 static inline long uya_syscall0(long nr) {
     long ret;
     __asm__ volatile("syscall" : "=a"(ret) : "a"(nr) : "rcx", "r11", "cc", "memory");
@@ -10033,6 +10638,7 @@ static __attribute__((used)) void gen_asm_block(struct C99CodeGenerator * codege
 static __attribute__((used)) int32_t c99_filename_is_in_lib_family(uint8_t * filename, uint8_t * family);
 static __attribute__((used)) int32_t c99_filename_is_libc_file(uint8_t * filename, uint8_t * file_name);
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_alloc_symbol(uint8_t * name);
+static __attribute__((used)) int32_t c99_host_target_is_windows();
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_io_symbol(uint8_t * name);
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_stdio_symbol(uint8_t * name);
 static __attribute__((used)) int32_t c99_hosted_stdio_name_uses_host_libc(uint8_t * name);
@@ -10241,6 +10847,7 @@ static __attribute__((used)) void gen_extern_var_decl(struct C99CodeGenerator * 
 static __attribute__((used)) void c99_mirror_emit_extern_global_line(struct C99CodeGenerator * codegen, uint8_t * tc, uint8_t * cname, int32_t is_const);
 void codegen_c99_global_c99_mirror_emit_extern_const_fwd(struct C99CodeGenerator * codegen, struct ASTNode * program);
 static __attribute__((used)) int32_t c99_want_profile_codegen();
+static __attribute__((used)) int32_t c99_target_os_env_is_windows(uint8_t * target_os_env);
 static __attribute__((used)) int32_t c99_output_basename_equals(uint8_t * output_file, uint8_t * expected);
 static __attribute__((used)) void emit_microapp_syscall_helpers(struct C99CodeGenerator * codegen);
 static __attribute__((used)) void emit_microapp_mmu_helpers(struct C99CodeGenerator * codegen);
@@ -10698,7 +11305,7 @@ void cmd_upm_upm_lib_lockfile_upm_lock_item_record(struct UPMPackageBuildPlan * 
 int32_t cmd_upm_upm_lib_lockfile_upm_dependency_exact_ref(struct UPMDependency * dep, uint8_t * resolved_commit, uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_lockfile_upm_lock_item_matches_source(struct UPMLockItem * item, struct UPMManifest * manifest, struct UPMDependency * dep, uint8_t * resolved_commit);
 static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * item);
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf);
 static __attribute__((used)) int32_t upm_lockfile_parse_key_value(uint8_t * line, uint8_t * key_out, size_t key_cap, uint8_t * value_out, size_t value_cap);
 static __attribute__((used)) int32_t upm_lockfile_version_is_supported(uint8_t * value);
 static __attribute__((used)) void upm_lockfile_apply_item_field(struct UPMLockItem * item, uint8_t * key, uint8_t * value);
@@ -10735,7 +11342,7 @@ static __attribute__((used)) int32_t upm_fetch_module_cache_dependency(struct UP
 static __attribute__((used)) int32_t upm_fetch_module_version_dependency(struct UPMDependency * dep, struct UPMFetchResult * result);
 static __attribute__((used)) int32_t upm_fetch_dependency_is_module_version_only(struct UPMDependency * dep);
 int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest * owner_manifest, struct UPMDependency * dep, int32_t force_refresh, struct UPMFetchResult * result);
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf);
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf);
 int32_t cmd_upm_upm_lib_git_fetch_upm_find_git_binary(uint8_t * out, size_t cap);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_wait(uint8_t * * argv, uint8_t * failure_label);
 int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * argv, uint8_t * out, size_t cap, uint8_t * failure_label);
@@ -29793,7 +30400,7 @@ __attribute__((used)) void * signal(int32_t signum, void * handler) {
     restorer = (void *)(&_signal_restorer);
     struct sigaction action = (struct sigaction){.sa_handler = handler, .sa_flags = flags, .sa_restorer = restorer, .sa_mask = 0};
     struct sigaction old_action = (struct sigaction){.sa_handler = (void *)libc_SIG_DFL, .sa_flags = 0, .sa_restorer = NULL, .sa_mask = 0};
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall4(SYS_rt_sigaction, signum, (int64_t)(&action), (int64_t)(&old_action), 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(SYS_rt_sigaction, signum, (int64_t)(&action), (int64_t)(&old_action), 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             void * _uya_ret = (void *)libc_SIG_ERR;
@@ -29820,21 +30427,21 @@ __attribute__((used)) int32_t raise(int32_t signum) {
             return _uya_ret;
                 }
     }
-    struct err_union_int64_t pid_result = ({ long _uya_syscall_ret = uya_syscall6(SYS_getpid_sig, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t pid_result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(SYS_getpid_sig, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t pid = ({ struct err_union_int64_t _uya_catch_tmp = pid_result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
                 }
     } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
-    struct err_union_int64_t tid_result = ({ long _uya_syscall_ret = uya_syscall6(SYS_gettid_sig, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t tid_result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(SYS_gettid_sig, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t tid = ({ struct err_union_int64_t _uya_catch_tmp = tid_result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
                 }
     } else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; });
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall3(SYS_tgkill, pid, tid, signum); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(SYS_tgkill, pid, tid, signum); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -29862,7 +30469,7 @@ __attribute__((used)) int32_t kill(int32_t pid, int32_t signum) {
             return _uya_ret;
                 }
     }
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall2(SYS_kill_sig, pid, signum); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(SYS_kill_sig, pid, signum); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -29893,7 +30500,7 @@ __attribute__((used)) int32_t sigprocmask(int32_t how, const struct sigset_t * s
     if (oldset != NULL) {
         oldset_ptr = (int64_t)oldset;
     }
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall4(SYS_rt_sigprocmask, how, set_ptr, oldset_ptr, 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(SYS_rt_sigprocmask, how, set_ptr, oldset_ptr, 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -29920,7 +30527,7 @@ __attribute__((used)) int32_t sigpending(struct sigset_t * set) {
             return _uya_ret;
                 }
     }
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall2(SYS_rt_sigpending, (int64_t)set, 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(SYS_rt_sigpending, (int64_t)set, 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -29947,7 +30554,7 @@ __attribute__((used)) int32_t sigsuspend(const struct sigset_t * mask) {
             return _uya_ret;
                 }
     }
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall2(SYS_rt_sigsuspend, (int64_t)mask, 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(SYS_rt_sigsuspend, (int64_t)mask, 8); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -29962,7 +30569,7 @@ __attribute__((used)) int32_t sigsuspend(const struct sigset_t * mask) {
 
 __attribute__((used)) uint32_t alarm(uint32_t seconds) {
     (void)seconds;
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall6(SYS_alarm, seconds, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(SYS_alarm, seconds, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             uint32_t _uya_ret = 0;
@@ -29976,7 +30583,7 @@ __attribute__((used)) uint32_t alarm(uint32_t seconds) {
 }
 
 __attribute__((used)) int32_t pause() {
-    struct err_union_int64_t result = ({ long _uya_syscall_ret = uya_syscall6(SYS_pause, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t result = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(SYS_pause, 0, 0, 0, 0, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     int64_t ret = ({ struct err_union_int64_t _uya_catch_tmp = result; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -33328,7 +33935,7 @@ __attribute__((used)) struct err_union_intptr_t sys_writev(int32_t fd, const str
     (void)iov;
     (void)iovcnt;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_writev, (int64_t)fd, (int64_t)iov, (int64_t)iovcnt); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_writev, (int64_t)fd, (int64_t)iov, (int64_t)iovcnt); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33398,7 +34005,7 @@ __attribute__((used)) struct err_union_int32_t sys_access(const char * pathname,
 __attribute__((used)) struct err_union_int32_t sys_unlink(const char * pathname) {
     (void)pathname;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_unlink, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_unlink, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33408,7 +34015,7 @@ __attribute__((used)) struct err_union_int32_t sys_mkdir(const char * pathname, 
     (void)pathname;
     (void)mode;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_mkdir, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_mkdir, (int64_t)pathname, (int64_t)mode); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33417,7 +34024,7 @@ __attribute__((used)) struct err_union_int32_t sys_mkdir(const char * pathname, 
 __attribute__((used)) struct err_union_int32_t sys_rmdir(const char * pathname) {
     (void)pathname;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_rmdir, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_rmdir, (int64_t)pathname); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33450,7 +34057,7 @@ __attribute__((used)) struct err_union_voidptr sys_mmap(void * addr, size_t leng
     (void)fd;
     (void)offset;
         {
-        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall6(libc_SYS_mmap, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (void *){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (void *)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_voidptr _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_mmap, (int64_t)addr, (int64_t)length, (int64_t)prot, (int64_t)flags, (int64_t)fd, (int64_t)offset); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_voidptr _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (void *){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (void *)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_voidptr){0};
@@ -33460,7 +34067,7 @@ __attribute__((used)) struct err_union_int32_t sys_munmap(void * addr, size_t le
     (void)addr;
     (void)length;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_munmap, (int64_t)addr, (int64_t)length); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_munmap, (int64_t)addr, (int64_t)length); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33470,7 +34077,7 @@ __attribute__((used)) struct err_union_int32_t sys_mprotect(void * addr, size_t 
     (void)length;
     (void)prot;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_mprotect, (int64_t)addr, (int64_t)length, (int64_t)prot); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_mprotect, (int64_t)addr, (int64_t)length, (int64_t)prot); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33489,7 +34096,7 @@ __attribute__((used)) struct err_union_int32_t sys_kill(int64_t pid, int32_t sig
     (void)pid;
     (void)sig;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_kill, pid, (int64_t)sig, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_kill, pid, (int64_t)sig, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33500,7 +34107,7 @@ __attribute__((used)) struct err_union_int32_t sys_tgkill(int32_t tgid, int32_t 
     (void)tid;
     (void)sig;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(SYS_tgkill, (int64_t)tgid, (int64_t)tid, (int64_t)sig); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(SYS_tgkill, (int64_t)tgid, (int64_t)tid, (int64_t)sig); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33508,7 +34115,7 @@ __attribute__((used)) struct err_union_int32_t sys_tgkill(int32_t tgid, int32_t 
 __attribute__((used)) struct err_union_int32_t sys_set_tid_address(int32_t * tidptr) {
     (void)tidptr;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_set_tid_address, (int64_t)tidptr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_set_tid_address, (int64_t)tidptr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33529,7 +34136,7 @@ __attribute__((used)) int32_t sys_futex(int32_t * uaddr, int32_t op, int32_t val
     (void)op;
     (void)val;
     (void)timeout;
-    struct err_union_int64_t r = ({ long _uya_syscall_ret = uya_syscall6(libc_SYS_futex, (int64_t)uaddr, (int64_t)op, (int64_t)val, (int64_t)timeout, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t r = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(libc_SYS_futex, (int64_t)uaddr, (int64_t)op, (int64_t)val, (int64_t)timeout, 0, 0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t v = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -33557,7 +34164,7 @@ __attribute__((used)) struct err_union_int32_t sys_setrlimit(int32_t resource, c
     (void)resource;
     (void)rlim;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_setrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_setrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33566,7 +34173,7 @@ __attribute__((used)) struct err_union_int32_t sys_getrlimit(int32_t resource, s
     (void)resource;
     (void)rlim;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_getrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_getrlimit, (int64_t)resource, (int64_t)rlim); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33577,7 +34184,7 @@ __attribute__((used)) struct err_union_intptr_t sys_getdirentries64(int32_t fd, 
     (void)count;
     (void)basep;
         {
-        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall4(libc_SYS_getdents64, (int64_t)fd, (int64_t)dirp, (int64_t)count, (int64_t)basep); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_intptr_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_getdents64, (int64_t)fd, (int64_t)dirp, (int64_t)count, (int64_t)basep); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_intptr_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (intptr_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (intptr_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_intptr_t){0};
@@ -33599,7 +34206,7 @@ __attribute__((used)) int32_t sched_setaffinity(int64_t pid, size_t cpusetsize, 
     (void)pid;
     (void)cpusetsize;
     (void)mask;
-    struct err_union_int64_t r = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_sched_setaffinity, pid, (int64_t)cpusetsize, (int64_t)mask); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t r = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_sched_setaffinity, pid, (int64_t)cpusetsize, (int64_t)mask); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t v = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -33616,7 +34223,7 @@ __attribute__((used)) int32_t sched_getaffinity(int64_t pid, size_t cpusetsize, 
     (void)pid;
     (void)cpusetsize;
     (void)mask;
-    struct err_union_int64_t r = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_sched_getaffinity, pid, (int64_t)cpusetsize, (int64_t)mask); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t r = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_sched_getaffinity, pid, (int64_t)cpusetsize, (int64_t)mask); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
     const int64_t v = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -33631,7 +34238,7 @@ __attribute__((used)) int32_t sched_getaffinity(int64_t pid, size_t cpusetsize, 
 
 __attribute__((used)) int64_t sys_brk(int64_t addr) {
     (void)addr;
-    struct err_union_int64_t r = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_brk, addr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+    struct err_union_int64_t r = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_brk, addr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
         {
         int64_t _uya_ret = ({ struct err_union_int64_t _uya_catch_tmp = r; __typeof__(_uya_catch_tmp.value) _uya_catch_result; if (_uya_catch_tmp.error_id != 0) {
                         {
@@ -33646,7 +34253,7 @@ __attribute__((used)) int64_t sys_brk(int64_t addr) {
 __attribute__((used)) struct err_union_int32_t sys_dup(int32_t fd) {
     (void)fd;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_dup, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_dup, (int64_t)fd); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33665,7 +34272,7 @@ __attribute__((used)) struct err_union_int32_t sys_rename(const char * oldpath, 
     (void)oldpath;
     (void)newpath;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_rename, (int64_t)oldpath, (int64_t)newpath); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_rename, (int64_t)oldpath, (int64_t)newpath); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33704,7 +34311,7 @@ __attribute__((used)) struct err_union_int32_t sys_execve(const char * path, con
     (void)argv;
     (void)envp;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_execve, (int64_t)path, (int64_t)argv, (int64_t)envp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_execve, (int64_t)path, (int64_t)argv, (int64_t)envp); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33725,7 +34332,7 @@ struct err_union_int32_t libc_sys_gettimeofday(struct TimeVal * tv, void * tz) {
     (void)tv;
     (void)tz;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_gettimeofday, (int64_t)tv, (int64_t)tz, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_gettimeofday, (int64_t)tv, (int64_t)tz, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33746,7 +34353,7 @@ struct err_union_int32_t libc_sys_ioctl(int32_t fd, int64_t request, int64_t arg
     (void)request;
     (void)arg;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall3(libc_SYS_ioctl, (int64_t)fd, request, arg); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(libc_SYS_ioctl, (int64_t)fd, request, arg); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33809,7 +34416,7 @@ struct err_union_int32_t libc_sys_eventfd(uint32_t initval, int32_t flags) {
     (void)initval;
     (void)flags;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_eventfd, (int64_t)initval, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_eventfd, (int64_t)initval, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33834,7 +34441,7 @@ int32_t libc_epoll_event_fd(struct EpollEvent * event) {
 struct err_union_int32_t libc_sys_epoll_create1(int32_t flags) {
     (void)flags;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_epoll_create1, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_epoll_create1, (int64_t)flags); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33845,7 +34452,7 @@ struct err_union_int32_t libc_sys_epoll_ctl(int32_t epfd, int32_t op, int32_t fd
     (void)fd;
     (void)event;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)op, (int64_t)fd, (int64_t)event); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)op, (int64_t)fd, (int64_t)event); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33855,7 +34462,7 @@ struct err_union_int32_t libc_sys_epoll_ctl_del(int32_t epfd, int32_t fd) {
     (void)fd;
     struct EpollEvent dummy = libc_epoll_event_with_fd((uint32_t)0, 0);
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)libc_EPOLL_CTL_DEL, (int64_t)fd, (int64_t)(&dummy)); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_ctl, (int64_t)epfd, (int64_t)libc_EPOLL_CTL_DEL, (int64_t)fd, (int64_t)(&dummy)); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33866,7 +34473,7 @@ struct err_union_int32_t libc_sys_epoll_wait(int32_t epfd, struct EpollEvent * e
     (void)maxevents;
     (void)timeout_ms;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall4(libc_SYS_epoll_wait, (int64_t)epfd, (int64_t)events, (int64_t)maxevents, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(libc_SYS_epoll_wait, (int64_t)epfd, (int64_t)events, (int64_t)maxevents, (int64_t)timeout_ms); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33874,14 +34481,14 @@ struct err_union_int32_t libc_sys_epoll_wait(int32_t epfd, struct EpollEvent * e
 
 struct err_union_int32_t libc_sys_getuid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall0(libc_SYS_getuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_getgid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall0(libc_SYS_getgid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getgid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33889,7 +34496,7 @@ struct err_union_int32_t libc_sys_getgid() {
 struct err_union_int32_t libc_sys_setuid(int32_t uid) {
     (void)uid;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_setuid, (int64_t)uid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_setuid, (int64_t)uid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
@@ -33897,28 +34504,28 @@ struct err_union_int32_t libc_sys_setuid(int32_t uid) {
 struct err_union_int32_t libc_sys_setgid(int32_t gid) {
     (void)gid;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall1(libc_SYS_setgid, (int64_t)gid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(libc_SYS_setgid, (int64_t)gid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_geteuid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall0(libc_SYS_geteuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_geteuid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_getegid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall0(libc_SYS_getegid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(libc_SYS_getegid); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
 }
 
 struct err_union_int32_t libc_sys_gettid() {
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall2(libc_SYS_gettid, (int64_t)0, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(libc_SYS_gettid, (int64_t)0, (int64_t)0); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -33931,7 +34538,7 @@ struct err_union_int64_t libc_sys_clone(int64_t flags, void * child_stack, int32
     (void)ctid;
     (void)tls;
         {
-        struct err_union_int64_t _uya_ret = ({ long _uya_syscall_ret = uya_syscall5(libc_SYS_clone, flags, (int64_t)child_stack, (int64_t)ptid, (int64_t)ctid, (int64_t)tls); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
+        struct err_union_int64_t _uya_ret = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(libc_SYS_clone, flags, (int64_t)child_stack, (int64_t)ptid, (int64_t)ctid, (int64_t)tls); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; });
         return _uya_ret;
         }
         return (struct err_union_int64_t){0};
@@ -34073,7 +34680,7 @@ __attribute__((used)) struct err_union_int32_t sys_getsockopt(int32_t sockfd, in
     (void)optval;
     (void)optlen;
         {
-        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ long _uya_syscall_ret = uya_syscall5(libc_SYS_getsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
+        struct err_union_int32_t _uya_ret = ({ struct err_union_int64_t _uya_asbang_src = ({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(libc_SYS_getsockopt, (int64_t)sockfd, (int64_t)level, (int64_t)optname, (int64_t)optval, (int64_t)optlen); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }); struct err_union_int32_t _uya_asbang; if (_uya_asbang_src.error_id != 0) { _uya_asbang.error_id = _uya_asbang_src.error_id; _uya_asbang.value = (int32_t){0}; } else { _uya_asbang.error_id = 0; _uya_asbang.value = (int32_t)(_uya_asbang_src.value); } _uya_asbang; });
         return _uya_ret;
         }
         return (struct err_union_int32_t){0};
@@ -63459,21 +64066,22 @@ static __attribute__((used)) void constraint_update_for_increment(struct TypeChe
             if (((name != NULL) && (std_string_strcmp((uint8_t *)name, (uint8_t *)var_name) == 0))) {
                 const int32_t op = checker->constraint_ops[i];
                 const int32_t val = checker->constraint_values[i];
+                const int32_t val_inc = (int32_t)((uint32_t)val + (uint32_t)increment);
                 if (op == CONSTRAINT_EQ) {
-                    checker->constraint_values[i] = (val + increment);
+                    checker->constraint_values[i] = val_inc;
                 } else {
                     if (op == CONSTRAINT_GE) {
-                        checker->constraint_values[i] = (val + increment);
+                        checker->constraint_values[i] = val_inc;
                     } else {
                         if (op == CONSTRAINT_GT) {
-                            checker->constraint_values[i] = (val + increment);
+                            checker->constraint_values[i] = val_inc;
                         } else {
                             if (op == CONSTRAINT_LE) {
-                                checker->constraint_values[i] = (val + increment);
+                                checker->constraint_values[i] = val_inc;
                             } else {
                                 if (op == CONSTRAINT_LT) {
                                     checker->constraint_ops[i] = CONSTRAINT_LE;
-                                    checker->constraint_values[i] = ((val + increment) - 1);
+                                    checker->constraint_values[i] = (int32_t)((uint32_t)val_inc - 1);
                                 }
                             }
                         }
@@ -63931,7 +64539,8 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
             bound_val = right_interval.min;
         }
     }
-    int32_t adjusted_val = (bound_val - var_offset);
+    const uint32_t adj_u = ((uint32_t)bound_val - (uint32_t)var_offset);
+    int32_t adjusted_val = (int32_t)adj_u;
     (void)(constraint_add(checker, var_name, constraint_op, adjusted_val)    );
 }
 
@@ -63968,8 +64577,10 @@ static __attribute__((used)) struct Interval interval_add(struct Interval a, str
             return _uya_ret;
                 }
     }
+    const uint32_t lo_u = ((uint32_t)a.min + (uint32_t)b.min);
+    const uint32_t hi_u = ((uint32_t)a.max + (uint32_t)b.max);
         {
-        struct Interval _uya_ret = interval_range((a.min + b.min), (a.max + b.max));
+        struct Interval _uya_ret = interval_range((int32_t)lo_u, (int32_t)hi_u);
         return _uya_ret;
         }
 }
@@ -63983,8 +64594,10 @@ static __attribute__((used)) struct Interval interval_sub(struct Interval a, str
             return _uya_ret;
                 }
     }
+    const uint32_t lo_s = ((uint32_t)a.min - (uint32_t)b.max);
+    const uint32_t hi_s = ((uint32_t)a.max - (uint32_t)b.min);
         {
-        struct Interval _uya_ret = interval_range((a.min - b.max), (a.max - b.min));
+        struct Interval _uya_ret = interval_range((int32_t)lo_s, (int32_t)hi_s);
         return _uya_ret;
         }
 }
@@ -63998,10 +64611,10 @@ static __attribute__((used)) struct Interval interval_mul(struct Interval a, str
             return _uya_ret;
                 }
     }
-    const int32_t p1 = (a.min * b.min);
-    const int32_t p2 = (a.min * b.max);
-    const int32_t p3 = (a.max * b.min);
-    const int32_t p4 = (a.max * b.max);
+    const int32_t p1 = (int32_t)((uint32_t)a.min * (uint32_t)b.min);
+    const int32_t p2 = (int32_t)((uint32_t)a.min * (uint32_t)b.max);
+    const int32_t p3 = (int32_t)((uint32_t)a.max * (uint32_t)b.min);
+    const int32_t p4 = (int32_t)((uint32_t)a.max * (uint32_t)b.max);
     int32_t min_val = p1;
     int32_t max_val = p1;
     if (p2 < min_val) {
@@ -64269,9 +64882,9 @@ static __attribute__((used)) struct LinearExpr extract_linear_expr(struct TypeCh
             if (((left_expr.var_name != NULL) && (right_expr.var_name == NULL))) {
                 result.var_name = left_expr.var_name;
                 if (op == main_TokenType_TOKEN_PLUS) {
-                    result.offset = (left_expr.offset + right_expr.offset);
+                    result.offset = (int32_t)((uint32_t)left_expr.offset + (uint32_t)right_expr.offset);
                 } else {
-                    result.offset = (left_expr.offset - right_expr.offset);
+                    result.offset = (int32_t)((uint32_t)left_expr.offset - (uint32_t)right_expr.offset);
                 }
                 result.is_valid = 1;
                                 {
@@ -64281,7 +64894,7 @@ static __attribute__((used)) struct LinearExpr extract_linear_expr(struct TypeCh
             } else {
                 if ((((left_expr.var_name == NULL) && (right_expr.var_name != NULL)) && (op == main_TokenType_TOKEN_PLUS))) {
                     result.var_name = right_expr.var_name;
-                    result.offset = (left_expr.offset + right_expr.offset);
+                    result.offset = (int32_t)((uint32_t)left_expr.offset + (uint32_t)right_expr.offset);
                     result.is_valid = 1;
                                         {
                         struct LinearExpr _uya_ret = result;
@@ -64326,8 +64939,9 @@ static __attribute__((used)) struct Interval get_var_interval(struct TypeChecker
                         }
                     } else {
                         if (op == CONSTRAINT_GT) {
-                            if ((val + 1) > min_val) {
-                                min_val = (val + 1);
+                            const int32_t val_p1 = (int32_t)((uint32_t)val + 1);
+                            if (val_p1 > min_val) {
+                                min_val = val_p1;
                             }
                         } else {
                             if (op == CONSTRAINT_LE) {
@@ -64336,8 +64950,9 @@ static __attribute__((used)) struct Interval get_var_interval(struct TypeChecker
                                 }
                             } else {
                                 if (op == CONSTRAINT_LT) {
-                                    if ((val - 1) < max_val) {
-                                        max_val = (val - 1);
+                                    const int32_t val_m1 = (int32_t)((uint32_t)val - 1);
+                                    if (val_m1 < max_val) {
+                                        max_val = val_m1;
                                     }
                                 }
                             }
@@ -64626,7 +65241,7 @@ static __attribute__((used)) struct Interval eval_expr_interval(struct TypeCheck
                                                                         }
                                 }
                                                                 {
-                                    struct Interval _uya_ret = interval_range(0, (right_interval.min - 1));
+                                    struct Interval _uya_ret = interval_range(0, (int32_t)((uint32_t)right_interval.min - 1));
                                     return _uya_ret;
                                                                 }
                             }
@@ -64815,7 +65430,7 @@ static __attribute__((used)) int32_t verify_linear_expr_bounds_ex(struct TypeChe
         }
     }
     const int32_t need_lower = (-offset);
-    const int32_t need_upper = (array_size - offset);
+    const int32_t need_upper = (int32_t)((uint32_t)array_size - (uint32_t)offset);
     if (((((var_interval.is_valid != 0) && (var_interval.min <= var_interval.max)) && (var_interval.min >= need_lower)) && (var_interval.max < need_upper))) {
                 {
             int32_t _uya_ret = 1;
@@ -64833,14 +65448,14 @@ static __attribute__((used)) int32_t verify_linear_expr_bounds_ex(struct TypeChe
                 if (((op == CONSTRAINT_GE) && (val >= need_lower))) {
                     has_lower_bound = 1;
                 } else {
-                    if ((((op == CONSTRAINT_GT) && (val < 2147483647)) && ((val + 1) >= need_lower))) {
+                    if ((((op == CONSTRAINT_GT) && (val < 2147483647)) && ((int32_t)((uint32_t)val + 1) >= need_lower))) {
                         has_lower_bound = 1;
                     }
                 }
                 if (((op == CONSTRAINT_LT) && (val <= need_upper))) {
                     has_upper_bound = 1;
                 } else {
-                    if ((((op == CONSTRAINT_LE) && (val < 2147483647)) && ((val + 1) <= need_upper))) {
+                    if ((((op == CONSTRAINT_LE) && (val < 2147483647)) && ((int32_t)((uint32_t)val + 1) <= need_upper))) {
                         has_upper_bound = 1;
                     }
                 }
@@ -113040,7 +113655,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall0(int32_t targ
     (void)target_pointee_kind;
     (void)nr;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall0(nr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall0(nr); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -113051,7 +113666,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall1(int32_t targ
     (void)nr;
     (void)a1;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall1(nr, a1); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall1(nr, a1); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -113063,7 +113678,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall2(int32_t targ
     (void)a1;
     (void)a2;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall2(nr, a1, a2); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall2(nr, a1, a2); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -113076,7 +113691,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall3(int32_t targ
     (void)a2;
     (void)a3;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall3(nr, a1, a2, a3); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall3(nr, a1, a2, a3); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -113090,7 +113705,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall4(int32_t targ
     (void)a3;
     (void)a4;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall4(nr, a1, a2, a3, a4); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall4(nr, a1, a2, a3, a4); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -113105,7 +113720,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall5(int32_t targ
     (void)a4;
     (void)a5;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall5(nr, a1, a2, a3, a4, a5); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall5(nr, a1, a2, a3, a4, a5); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -113121,7 +113736,7 @@ static __attribute__((used)) struct ExecValue exec_vm_host_syscall6(int32_t targ
     (void)a5;
     (void)a6;
         {
-        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ long _uya_syscall_ret = uya_syscall6(nr, a1, a2, a3, a4, a5, a6); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
+        struct ExecValue _uya_ret = exec_vm_wrap_syscall_result(({ int64_t _uya_syscall_ret = (int64_t)uya_syscall6(nr, a1, a2, a3, a4, a5, a6); struct err_union_int64_t _uya_result; if (_uya_syscall_ret < 0 && _uya_syscall_ret >= -4095) { _uya_result.error_id = (int)(-_uya_syscall_ret); } else { _uya_result.error_id = 0; _uya_result.value = _uya_syscall_ret; } _uya_result; }), target_kind, target_pointee_kind);
         return _uya_ret;
         }
 }
@@ -130705,6 +131320,26 @@ static __attribute__((used)) int32_t c99_name_is_hosted_raw_alloc_symbol(uint8_t
         }
 }
 
+static __attribute__((used)) int32_t c99_host_target_is_windows() {
+    uint8_t * const target_os_env = (uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str753);
+    if (target_os_env == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)target_os_env, (uint8_t *)(uint8_t *)str751) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t c99_name_is_hosted_raw_io_symbol(uint8_t * name) {
     (void)name;
     if (name == NULL) {
@@ -131304,6 +131939,14 @@ static __attribute__((used)) int32_t c99_should_skip_hosted_libc_function_body(s
                 }
     }
     if (((fn_decl->fn_decl_extern_lib_name != NULL) && (c99_name_is_hosted_raw_libc_symbol(name) != 0))) {
+        if (c99_host_target_is_windows() != 0) {
+            if ((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3470) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str2796) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3471) == 0))) {
+                                {
+                    int32_t _uya_ret = 0;
+                    return _uya_ret;
+                                }
+            }
+        }
                 {
             int32_t _uya_ret = 1;
             return _uya_ret;
@@ -131358,7 +132001,15 @@ static __attribute__((used)) int32_t c99_should_skip_hosted_libc_global_var(stru
                 }
     }
     if (c99_filename_is_libc_file(var_decl->filename, (uint8_t *)(uint8_t *)str3527) != 0) {
-        if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3530) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3531) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3532) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3533) == 0))) {
+        if (c99_host_target_is_windows() != 0) {
+            if (((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3530) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3531) == 0))) {
+                                {
+                    int32_t _uya_ret = 0;
+                    return _uya_ret;
+                                }
+            }
+        }
+        if (((((std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3532) == 0) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3533) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3530) == 0)) || (std_string_strcmp((uint8_t *)name, (uint8_t *)(uint8_t *)str3531) == 0))) {
                         {
                 int32_t _uya_ret = 1;
                 return _uya_ret;
@@ -142500,6 +143151,26 @@ static __attribute__((used)) int32_t c99_want_profile_codegen() {
         }
 }
 
+static __attribute__((used)) int32_t c99_target_os_env_is_windows(uint8_t * target_os_env) {
+    (void)target_os_env;
+    if (target_os_env == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    if (std_string_strcmp((uint8_t *)target_os_env, (uint8_t *)(uint8_t *)str751) == 0) {
+                {
+            int32_t _uya_ret = 1;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t c99_output_basename_equals(uint8_t * output_file, uint8_t * expected) {
     (void)output_file;
     (void)expected;
@@ -144721,11 +145392,13 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     }
     int32_t is_std_lib = 0;
     int32_t target_os_is_macos = 0;
+    int32_t target_os_is_windows = 0;
     int32_t is_bootstrap = 0;
     uint8_t * const target_os_env = (uint8_t *)getenv((const char *)(uint8_t *)(uint8_t *)str753);
     if (((target_os_env != NULL) && (std_string_strcmp((uint8_t *)target_os_env, (uint8_t *)(uint8_t *)str747) == 0))) {
         target_os_is_macos = 1;
     }
+    target_os_is_windows = c99_target_os_env_is_windows(target_os_env);
     if (output_file != NULL) {
         if (((c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4051) != 0) || (c99_output_basename_equals((uint8_t *)output_file, (uint8_t *)(uint8_t *)str4052) != 0))) {
             is_bootstrap = 1;
@@ -144878,9 +145551,15 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         if (codegen->freestanding != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str356, (void *)codegen->emit_stream)            );
         }
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(_WIN32)\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef long long ssize_t;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef unsigned long long uintptr_t;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef long long intptr_t;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str399, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef signed long ssize_t;\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str4066, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef signed long intptr_t;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str401, (void *)codegen->emit_stream)        );
         if (codegen->freestanding != 0) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)"typedef signed long ptrdiff_t;\n", (void *)codegen->emit_stream)            );
         }
@@ -145893,6 +146572,565 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return real_closedir(dirp);\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str401, (void *)codegen->emit_stream)    );
+    if (codegen->container_mode == 0) {
+        if (target_os_is_windows != 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define UYA_TARGET_WINDOWS 1\n", (void *)codegen->emit_stream)            );
+        }
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define timeval uya_win_native_timeval\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define timespec uya_win_native_timespec\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define timezone uya_win_native_timezone\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define mkdir uya_win_native_mkdir_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define rmdir uya_win_native_rmdir_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define chdir uya_win_native_chdir_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define getcwd uya_win_native_getcwd_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define stat uya_win_native_stat_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define fstat uya_win_native_fstat_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define readlink uya_win_native_readlink_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define access uya_win_native_access_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define unlink uya_win_native_unlink_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define rename uya_win_native_rename_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define getpid uya_win_native_getpid_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define execve uya_win_native_execve_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define system uya_win_native_system_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define sleep uya_win_native_sleep_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define read uya_win_native_read_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define write uya_win_native_write_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define lseek uya_win_native_lseek_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#define close uya_win_native_close_hidden\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <io.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <direct.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <fcntl.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <errno.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <sys/stat.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <sys/types.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <process.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#include <windows.h>\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef timeval\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef timespec\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef timezone\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef mkdir\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef rmdir\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef chdir\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef getcwd\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef stat\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef fstat\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef readlink\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef access\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef unlink\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef rename\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef getpid\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef execve\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef system\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef sleep\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef read\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef write\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef lseek\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#undef close\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef isascii\n#undef isascii\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef toascii\n#undef toascii\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef isblank\n#undef isblank\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef iswctype\n#undef iswctype\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef iswalpha\n#undef iswalpha\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef iswdigit\n#undef iswdigit\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef iswalnum\n#undef iswalnum\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef iswspace\n#undef iswspace\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef towupper\n#undef towupper\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef towlower\n#undef towlower\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef _S_IFMT\n#undef _S_IFMT\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef _S_IFDIR\n#undef _S_IFDIR\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef _S_IFREG\n#undef _S_IFREG\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef _S_IFCHR\n#undef _S_IFCHR\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef _S_IFIFO\n#undef _S_IFIFO\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IFMT\n#undef S_IFMT\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IFDIR\n#undef S_IFDIR\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#ifdef S_IFREG\n#undef S_IFREG\n#endif\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct Stat;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct TimeSpec;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct PollFd;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"// uya 统一 Stat 的内存布局镜像（与 lib/libc/syscall.uya 的 Stat 字段顺序一致）。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"// 只写上层真实消费的字段，其余保持调用方清零后的值。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct uya_windows_uya_stat {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_dev;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_ino;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_nlink;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t st_mode;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t st_uid;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t st_gid;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t _pad0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_rdev;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_size;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_blksize;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_blocks;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_atime;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_atime_nsec;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_mtime;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_mtime_nsec;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_ctime;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t st_ctime_nsec;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t _unused0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t _unused1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t _unused2;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str2580, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_win_err_i32(int err) { return (struct err_union_int32_t){ .error_id = (uint32_t)err, .value = 0 }; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_win_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_win_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_win_ok_i64(int64_t value) { return (struct err_union_int64_t){ .error_id = 0, .value = value }; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int uya_windows_map_errno(int win_err) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    switch (win_err) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case ENOENT: return 2;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EINTR: return 4;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EIO: return 5;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EACCES: return 13;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EEXIST: return 17;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case ENOTDIR: return 20;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EISDIR: return 21;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EINVAL: return 22;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case ENOSPC: return 28;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EPIPE: return 32;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case EAGAIN: return 11;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        default: return win_err;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void uya_windows_copy_stat(struct Stat *dst, const struct _stat64 *src) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_windows_uya_stat *d = (struct uya_windows_uya_stat *)dst;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (d == (struct uya_windows_uya_stat *)0 || src == (const struct _stat64 *)0) return;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_dev = (int64_t)src->st_dev;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_ino = (int64_t)src->st_ino;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_nlink = (int64_t)src->st_nlink;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_mode = ((src->st_mode & 0xF000) == 0x4000) ? 0040000 : 0100000;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_uid = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_gid = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_rdev = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_size = (int64_t)src->st_size;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_blksize = 4096;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_blocks = (int64_t)((src->st_size + 511) / 512);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_atime = (int64_t)src->st_atime; d->st_atime_nsec = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_mtime = (int64_t)src->st_mtime; d->st_mtime_nsec = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    d->st_ctime = (int64_t)src->st_ctime; d->st_ctime_nsec = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int uya_windows_fill_file_identity(const char *pathname, int64_t *dev_out, int64_t *ino_out) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    wchar_t wpath[1024];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    HANDLE h;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    BY_HANDLE_FILE_INFORMATION info;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (pathname == (const char *)0 || dev_out == (int64_t *)0 || ino_out == (int64_t *)0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (MultiByteToWideChar(CP_UTF8, 0, pathname, -1, wpath, 1024) == 0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    h = CreateFileW(wpath, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"                    (LPSECURITY_ATTRIBUTES)0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, (HANDLE)0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (h == INVALID_HANDLE_VALUE) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (GetFileInformationByHandle(h, &info) == 0) { CloseHandle(h); return -1; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    *dev_out = (int64_t)(uint32_t)info.dwVolumeSerialNumber;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    *ino_out = (((int64_t)(uint32_t)info.nFileIndexHigh) << 32) | (int64_t)(uint32_t)info.nFileIndexLow;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    CloseHandle(h);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str466, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int uya_windows_fill_file_identity_fd(int32_t fd, int64_t *dev_out, int64_t *ino_out) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    intptr_t osf = _get_osfhandle((int)fd);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    BY_HANDLE_FILE_INFORMATION info;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (osf == (intptr_t)-1) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dev_out == (int64_t *)0 || ino_out == (int64_t *)0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (GetFileInformationByHandle((HANDLE)osf, &info) == 0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    *dev_out = (int64_t)(uint32_t)info.dwVolumeSerialNumber;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    *ino_out = (((int64_t)(uint32_t)info.nFileIndexHigh) << 32) | (int64_t)(uint32_t)info.nFileIndexLow;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str466, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_windows_stat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct _stat64 st;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t id_dev = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t id_ino = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_win_err_i32(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_stat64(pathname, &st) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_windows_copy_stat(statbuf, &st);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_windows_fill_file_identity(pathname, &id_dev, &id_ino) == 0) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        ((struct uya_windows_uya_stat *)statbuf)->st_dev = id_dev;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        ((struct uya_windows_uya_stat *)statbuf)->st_ino = id_ino;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_windows_fstat(int32_t fd, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct _stat64 st;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t id_dev = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t id_ino = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (statbuf == (struct Stat *)0) return uya_win_err_i32(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_fstat64((int)fd, &st) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    uya_windows_copy_stat(statbuf, &st);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_windows_fill_file_identity_fd(fd, &id_dev, &id_ino) == 0) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        ((struct uya_windows_uya_stat *)statbuf)->st_dev = id_dev;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        ((struct uya_windows_uya_stat *)statbuf)->st_ino = id_ino;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct err_union_int32_t uya_windows_lstat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_windows_stat(pathname, statbuf);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_write(int32_t fd, const char *buf, size_t count) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = _write((int)fd, buf, (unsigned int)count);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_read(int32_t fd, char *buf, size_t count) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (buf == (char *)0 && count != 0) return uya_win_err_i64(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = _read((int)fd, buf, (unsigned int)count);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_open(const char *pathname, int32_t flags, int32_t mode) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // uya 的 O_* 常量是 Linux 取值（O_CREAT=0x40、O_EXCL=0x80、O_TRUNC=0x200、O_APPEND=0x400），\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // 与 MinGW CRT 的 _O_* 不同（_O_CREAT=0x100、_O_TRUNC=0x200、_O_APPEND=0x8）。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // 必须显式翻译，否则 fopen(...,\"w\") 因 O_CREAT 未被识别而失败。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int win_flags = _O_BINARY;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    switch (flags & 0x3) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 1: win_flags |= _O_WRONLY; break;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 2: win_flags |= _O_RDWR; break;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        default: win_flags |= _O_RDONLY; break;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if ((flags & 0x40) != 0) win_flags |= _O_CREAT;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if ((flags & 0x80) != 0) win_flags |= _O_EXCL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if ((flags & 0x200) != 0) win_flags |= _O_TRUNC;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if ((flags & 0x400) != 0) win_flags |= _O_APPEND;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = _open(pathname, win_flags, (int)mode);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(ret);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_close(int32_t fd) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = _close((int)fd);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(ret);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_lseek(int32_t fd, int64_t offset, int32_t whence) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    __int64 ret = _lseeki64((int)fd, (__int64)offset, (int)whence);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i64((int64_t)ret);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_access(const char *pathname, int32_t mode) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_access(pathname, (int)mode) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_chdir(const char *pathname) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_chdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_getcwd(char *buf, size_t size) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (buf == (char *)0 || size == 0) return uya_win_err_i64(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_getcwd(buf, (int)size) == (char *)0) return uya_win_err_i64(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    size_t len = strlen(buf);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (len >= size) return uya_win_err_i64(34);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i64((int64_t)len);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_mkdir(const char *pathname, int32_t mode) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)mode;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_mkdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_rmdir(const char *pathname) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_rmdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_unlink(const char *pathname) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_unlink(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_rename(const char *oldpath, const char *newpath) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    wchar_t wold[1024];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    wchar_t wnew[1024];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (MultiByteToWideChar(CP_UTF8, 0, oldpath, -1, wold, 1024) == 0) return uya_win_err_i32(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (MultiByteToWideChar(CP_UTF8, 0, newpath, -1, wnew, 1024) == 0) return uya_win_err_i32(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (MoveFileExW(wold, wnew, MOVEFILE_REPLACE_EXISTING) == 0) return uya_win_err_i32((int)GetLastError());\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_dup(int32_t fd) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int ret = _dup((int)fd);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(ret);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_dup2(int32_t oldfd, int32_t newfd) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_dup2((int)oldfd, (int)newfd) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)cmd; (void)arg;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_get_osfhandle((int)fd) == (intptr_t)-1) return uya_win_err_i32(9);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_writev(int32_t fd, const void *iov, int32_t iovcnt) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // 逐段写出；任一失败即返回，保持与 POSIX writev 的短路语义一致。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // 用 uya 统一 IOVec 布局（iov_base/iov_len）解析，避免依赖宿主 struct iovec 的字段名。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_windows_iov { void *iov_base; size_t iov_len; };\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    const struct uya_windows_iov *v = (const struct uya_windows_iov *)iov;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t total = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int32_t i = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    for (; i < iovcnt; i++) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        struct err_union_int64_t r = uya_windows_write(fd, (const char *)v[i].iov_base, v[i].iov_len);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (r.error_id != 0) return (total > 0) ? uya_win_ok_i64(total) : r;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        total += r.value;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i64(total);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_pipe2(int32_t *pipefd, int32_t flags) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int text_mode = ((flags & 0x80000) != 0) ? _O_TEXT : _O_BINARY;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (_pipe((int *)pipefd, 65536, text_mode) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_getpid(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32((int32_t)GetCurrentProcessId());\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_getppid(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int64_t uya_windows_clock_gettime_monotonic_ns(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static LARGE_INTEGER freq;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    static int freq_ready = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    LARGE_INTEGER now;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (freq_ready == 0) { QueryPerformanceFrequency(&freq); freq_ready = 1; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    QueryPerformanceCounter(&now);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (freq.QuadPart == 0) return 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int64_t)((now.QuadPart * 1000000000LL) / freq.QuadPart);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int64_t uya_windows_realtime_ns(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    FILETIME ft;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    ULARGE_INTEGER u;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    GetSystemTimeAsFileTime(&ft);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // FILETIME 起点 1601-01-01，单位 100ns；减去 1970 起点的偏移得 Unix 纪元纳秒。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int64_t)((u.QuadPart - 116444736000000000ULL) * 100LL);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (tp == (struct TimeSpec *)0) return uya_win_err_i32(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    // CLOCK_MONOTONIC(=1) 走单调时钟，其余按实时时钟处理。\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t ns = (clock_id == 1) ? uya_windows_clock_gettime_monotonic_ns() : uya_windows_realtime_ns();\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t *fields = (int64_t *)tp;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    fields[0] = ns / 1000000000LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    fields[1] = ns % 1000000000LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_gettimeofday(int64_t *sec_out, int64_t *usec_out) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t ns = uya_windows_realtime_ns();\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (sec_out != (int64_t *)0) *sec_out = ns / 1000000000LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (usec_out != (int64_t *)0) *usec_out = (ns % 1000000000LL) / 1000LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_nanosleep(int64_t req_sec, int64_t req_nsec) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int64_t ms = req_sec * 1000LL + req_nsec / 1000000LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (ms > 0) Sleep((DWORD)ms);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_sched_yield(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    SwitchToThread();\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_sched_getaffinity(int64_t *out_mask) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    SYSTEM_INFO si;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    GetSystemInfo(&si);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (out_mask != (int64_t *)0) *out_mask = (int64_t)((si.dwNumberOfProcessors >= 64) ? (DWORD_PTR)-1 : (((DWORD_PTR)1 << si.dwNumberOfProcessors) - 1));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_sched_setaffinity(int64_t mask) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)mask;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_getrlimit(int32_t resource, int64_t *cur_out, int64_t *max_out) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)resource;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (cur_out != (int64_t *)0) *cur_out = 1073741824LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (max_out != (int64_t *)0) *max_out = 1073741824LL;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_setrlimit(int32_t resource, int64_t cur, int64_t max) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)resource; (void)cur; (void)max;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_gettid(void) { return uya_win_ok_i64((int64_t)GetCurrentThreadId()); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_mmap(int64_t length, int32_t prot) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    DWORD win_prot = ((prot & 0x2) != 0) ? PAGE_READWRITE : PAGE_READONLY;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    void *p = VirtualAlloc((void *)0, (SIZE_T)length, MEM_COMMIT | MEM_RESERVE, win_prot);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (p == (void *)0) return uya_win_err_i64(12);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i64((int64_t)(intptr_t)p);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_munmap(void *addr) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (VirtualFree(addr, 0, MEM_RELEASE) == 0) return uya_win_err_i32((int)GetLastError());\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_mprotect(void *addr, size_t length, int32_t prot) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    DWORD win_prot = ((prot & 0x2) != 0) ? PAGE_READWRITE : PAGE_READONLY;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    DWORD old = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (VirtualProtect(addr, (SIZE_T)length, win_prot, &old) == 0) return uya_win_err_i32((int)GetLastError());\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_brk(void *addr) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)addr;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_err_i64(12);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int stat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_stat(pathname, statbuf);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int lstat(const char *pathname, struct Stat *statbuf) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_lstat(pathname, statbuf);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int mkdir(const char *pathname, int mode) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_mkdir(pathname, (int32_t)mode);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int rmdir(const char *pathname) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_rmdir(pathname);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int unlink(const char *pathname) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_unlink(pathname);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int access(const char *pathname, int mode) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_access(pathname, (int32_t)mode);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int chdir(const char *pathname) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_chdir(pathname);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"char *getcwd(char *buf, size_t size) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int64_t r = uya_windows_getcwd(buf, size);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? (char *)0 : buf;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int rename(const char *oldpath, const char *newpath) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct err_union_int32_t r = uya_windows_rename(oldpath, newpath);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (r.error_id != 0) ? -1 : 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int getpid(void) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (int)GetCurrentProcessId();\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int getppid(void) { return 0; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"struct uya_windows_dir_handle {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    HANDLE h;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int first_pending;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    WIN32_FIND_DATAW fd;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str2580, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int uya_windows_utf8_to_utf16(const char *src, wchar_t *dst, int dst_cap) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (src == (const char *)0 || dst == (wchar_t *)0 || dst_cap <= 0) return 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dst_cap);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static void *uya_windows_host_opendir(const char *path) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    wchar_t wpath[1024];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    wchar_t wpattern[1088];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (path == (const char *)0) return (void *)0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (uya_windows_utf8_to_utf16(path, wpath, 1024) == 0) return (void *)0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3724, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        size_t plen = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        while (wpath[plen] != 0) plen++;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        size_t q = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (plen + 3 > 1088) return (void *)0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        for (q = 0; q < plen; q++) wpattern[q] = wpath[q];\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        if (plen > 0 && wpath[plen - 1] != L'/' && wpath[plen - 1] != L'\\\\') {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"            wpattern[plen] = L'\\\\';\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"            plen = plen + 1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3619, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        wpattern[plen] = L'*';\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        wpattern[plen + 1] = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dh = (struct uya_windows_dir_handle *)malloc(sizeof(struct uya_windows_dir_handle));\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dh == (struct uya_windows_dir_handle *)0) return (void *)0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dh->h = FindFirstFileW(wpattern, &dh->fd);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dh->h == INVALID_HANDLE_VALUE) { free(dh); return (void *)0; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dh->first_pending = 1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return (void *)dh;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_windows_host_readdir_fill(void *dirp, void *out) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)dirp;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    unsigned char *dst = (unsigned char *)out;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    size_t clear_idx = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    size_t name_len = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    int is_dir = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dh == (struct uya_windows_dir_handle *)0 || out == (void *)0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dh->first_pending != 0) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        dh->first_pending = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    } else if (FindNextFileW(dh->h, &dh->fd) == 0) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        return 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    for (clear_idx = 0; clear_idx < 275u; clear_idx++) dst[clear_idx] = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    is_dir = ((dh->fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    dst[18] = (unsigned char)(is_dir ? 4 : 8);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    name_len = (size_t)WideCharToMultiByte(CP_UTF8, 0, dh->fd.cFileName, -1, (char *)(dst + 19), 255, (const char *)0, (int *)0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (name_len == 0) dst[19] = 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return 1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int32_t uya_windows_host_closedir(void *dirp) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)dirp;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dh == (struct uya_windows_dir_handle *)0) return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    if (dh->h != INVALID_HANDLE_VALUE) FindClose(dh->h);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    free(dh);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str466, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int readlink(const char *path, char *buf, size_t bufsiz) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)path; (void)buf; (void)bufsiz;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return -1;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int fork(void) { return -1; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"int waitpid(int pid, int *status, int options) { (void)pid; (void)status; (void)options; return -1; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int64_t uya_windows_readlink(const char *path, char *buf, size_t bufsiz) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)path; (void)buf; (void)bufsiz;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_err_i64(22);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static struct err_union_int32_t uya_windows_exit_process(int32_t code) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    exit((int)code);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return uya_win_ok_i32(0);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int64_t uya_windows_syscall(int64_t nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)a5; (void)a6;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    switch (nr) {\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 1: { struct err_union_int64_t r = uya_windows_write((int32_t)a1, (const char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 0: { struct err_union_int64_t r = uya_windows_read((int32_t)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 20: { struct err_union_int64_t r = uya_windows_writev((int32_t)a1, (const void *)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 2: { struct err_union_int32_t r = uya_windows_open((const char *)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 3: { struct err_union_int32_t r = uya_windows_close((int32_t)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 8: { struct err_union_int64_t r = uya_windows_lseek((int32_t)a1, (int64_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 4: { struct err_union_int32_t r = uya_windows_stat((const char *)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 5: { struct err_union_int32_t r = uya_windows_fstat((int32_t)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 6: { struct err_union_int32_t r = uya_windows_lstat((const char *)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 257: return (a1 == -100) ? uya_windows_syscall(2, a2, a3, a4, 0, 0, 0) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 262: return (a1 == -100) ? uya_windows_syscall(4, a2, a3, 0, 0, 0, 0) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 269: return (a1 == -100) ? uya_windows_syscall(21, a2, a3, 0, 0, 0, 0) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 263: return (a1 == -100) ? ((a3 == 0x200) ? uya_windows_syscall(84, a2, 0, 0, 0, 0, 0) : uya_windows_syscall(87, a2, 0, 0, 0, 0, 0)) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 258: return (a1 == -100) ? uya_windows_syscall(83, a2, a3, 0, 0, 0, 0) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 264: return (a1 == -100 && a3 == -100) ? uya_windows_syscall(82, a2, a4, 0, 0, 0, 0) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 267: return (a1 == -100) ? uya_windows_syscall(89, a2, a3, a4, 0, 0, 0) : -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 21: { struct err_union_int32_t r = uya_windows_access((const char *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 80: { struct err_union_int32_t r = uya_windows_chdir((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 79: { struct err_union_int64_t r = uya_windows_getcwd((char *)a1, (size_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 83: { struct err_union_int32_t r = uya_windows_mkdir((const char *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 84: { struct err_union_int32_t r = uya_windows_rmdir((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 87: { struct err_union_int32_t r = uya_windows_unlink((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 82: { struct err_union_int32_t r = uya_windows_rename((const char *)a1, (const char *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 89: { struct err_union_int64_t r = uya_windows_readlink((const char *)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 32: { struct err_union_int32_t r = uya_windows_dup((int32_t)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 33: case 292: { struct err_union_int32_t r = uya_windows_dup2((int32_t)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 72: { struct err_union_int32_t r = uya_windows_fcntl((int32_t)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 293: { struct err_union_int32_t r = uya_windows_pipe2((int32_t *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 39: { struct err_union_int32_t r = uya_windows_getpid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 110: { struct err_union_int32_t r = uya_windows_getppid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 102: case 104: case 107: case 108: return 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 105: case 106: return 0;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 186: { struct err_union_int64_t r = uya_windows_gettid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 57: case 59: case 61: case 62: case 234: return -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 60: { struct err_union_int32_t r = uya_windows_exit_process((int32_t)a1); return r.error_id ? -38 : 0; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 228: { struct err_union_int32_t r = uya_windows_clock_gettime((int32_t)a1, (struct TimeSpec *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 96: { struct err_union_int32_t r = uya_windows_gettimeofday((int64_t *)(void *)a1, (int64_t *)(void *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 35: { struct err_union_int32_t r = uya_windows_nanosleep((int64_t)a1, (int64_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 24: { struct err_union_int32_t r = uya_windows_sched_yield(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 204: { struct err_union_int32_t r = uya_windows_sched_getaffinity((int64_t *)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 203: { struct err_union_int32_t r = uya_windows_sched_setaffinity((int64_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 97:  { struct err_union_int32_t r = uya_windows_getrlimit((int32_t)a1, (int64_t *)(void *)a2, (int64_t *)(void *)a2 + 1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 160: { struct err_union_int32_t r = uya_windows_setrlimit((int32_t)a1, 0, 0); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 9:  { struct err_union_int64_t r = uya_windows_mmap((int64_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 11: { struct err_union_int32_t r = uya_windows_munmap((void *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 10: { struct err_union_int32_t r = uya_windows_mprotect((void *)a1, (size_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        case 12: { struct err_union_int64_t r = uya_windows_brk((void *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"        default: break;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str3701, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    (void)a1; (void)a2; (void)a3; (void)a4;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"    return -38;\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)str401, (void *)codegen->emit_stream)        );
+    }
     (void)(c99_emit_newline(codegen)    );
     if (prof_codegen != 0) {
         t_mk2 = clock();
@@ -146016,6 +147254,10 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
                 (void)(c99_emit_semi_newline(codegen)                );
             } else {
                 uint8_t * const target_type_c = c99_type_to_c(codegen, target_type);
+                if (((target_os_is_windows != 0) && ((std_string_strcmp((uint8_t *)alias_name, (uint8_t *)(uint8_t *)"wchar_t") == 0) || (std_string_strcmp((uint8_t *)alias_name, (uint8_t *)(uint8_t *)"wint_t") == 0)))) {
+                    i = (i + 1);
+                    continue;
+                }
                 (void)(libc_fprintf((void *)codegen->emit_stream, (const char *)"typedef %s %s;\n", (uint8_t *)target_type_c, (uint8_t *)alias_name)                );
             }
         }
@@ -146329,6 +147571,11 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str410, (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)str368, (void *)codegen->emit_stream)    );
     if (codegen->container_mode == 0) {
+        if (target_os_is_windows != 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n", (void *)codegen->emit_stream)            );
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str399, (void *)codegen->emit_stream)            );
+        }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(__GNUC__) || defined(__clang__)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_pipeline_worker_dispatch(void) {\n", (void *)codegen->emit_stream)        );
@@ -146338,6 +147585,9 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str399, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str401, (void *)codegen->emit_stream)        );
+        if (target_os_is_windows != 0) {
+            (void)(std_io_fputs((uint8_t *)(uint8_t *)str401, (void *)codegen->emit_stream)            );
+        }
     }
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"int64_t uya_thread_call_i64(void *fn, int64_t arg) {\n", (void *)codegen->emit_stream)    );
     (void)(std_io_fputs((uint8_t *)(uint8_t *)"    typedef int64_t (*uya_thrd_fn_i64)(int64_t);\n", (void *)codegen->emit_stream)    );
@@ -146415,7 +147665,16 @@ static __attribute__((used)) int32_t c99_codegen_generate(struct C99CodeGenerato
             (void)(emit_microapp_syscall_helpers(codegen)            );
         }
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"// 系统调用辅助函数：Linux/Darwin x86-64；Linux/Darwin AArch64；Linux ARM32 EABI\n", (void *)codegen->emit_stream)        );
-        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static int64_t uya_windows_syscall(int64_t nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6);\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall0(long nr) { return uya_windows_syscall((int64_t)nr, 0, 0, 0, 0, 0, 0); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall1(long nr, int64_t a1) { return uya_windows_syscall((int64_t)nr, a1, 0, 0, 0, 0, 0); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall2(long nr, int64_t a1, int64_t a2) { return uya_windows_syscall((int64_t)nr, a1, a2, 0, 0, 0, 0); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall3(long nr, int64_t a1, int64_t a2, int64_t a3) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, 0, 0, 0); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall4(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, 0, 0); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall5(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, a5, 0); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline int64_t uya_syscall6(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, a5, a6); }\n", (void *)codegen->emit_stream)        );
+        (void)(std_io_fputs((uint8_t *)(uint8_t *)"#elif (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"static inline long uya_syscall0(long nr) {\n", (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str365, (void *)codegen->emit_stream)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)"    __asm__ volatile(\"syscall\" : \"=a\"(ret) : \"a\"(nr) : \"rcx\", \"r11\", \"cc\", \"memory\");\n", (void *)codegen->emit_stream)        );
@@ -165841,14 +167100,15 @@ static __attribute__((used)) int32_t c99_decl_result_cache_pair_slot(uint8_t * n
             return _uya_ret;
                 }
     }
-    int32_t h = hash_string((uint8_t *)name);
+    const uint32_t hn = (uint32_t)hash_string((uint8_t *)name);
+    uint32_t h = hn;
     if (context != NULL) {
-        h = (h + (hash_string((uint8_t *)context) * 37));
+        h = (hn + ((uint32_t)hash_string((uint8_t *)context) * 37));
     } else {
-        h = (h + 17);
+        h = (hn + 17);
     }
         {
-        int32_t _uya_ret = (int32_t)(h & C99_DECL_RESULT_CACHE_MASK);
+        int32_t _uya_ret = (int32_t)(h & (uint32_t)C99_DECL_RESULT_CACHE_MASK);
         return _uya_ret;
         }
 }
@@ -173513,7 +174773,7 @@ static __attribute__((used)) void upm_lockfile_item_reset(struct UPMLockItem * i
     item[0] = (struct UPMLockItem){.alias = {0}, .package_name = {0}, .module = {0}, .kind = 0, .path_raw = {0}, .package_root = {0}, .source_root = {0}, .git_url = {0}, .ref_kind = 0, .ref_value = {0}, .resolved_version = {0}, .resolved_commit = {0}, .content_hash = {0}};
 }
 
-static __attribute__((used)) void uya_priv_1492664251_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_488789601_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -174760,7 +176020,7 @@ int32_t cmd_upm_upm_lib_fetcher_upm_fetch_dependency_source(struct UPMManifest *
         }
 }
 
-static __attribute__((used)) void uya_priv_640476447_upm_trim_newline_in_place(uint8_t * buf) {
+static __attribute__((used)) void uya_priv_1872351365_upm_trim_newline_in_place(uint8_t * buf) {
     (void)buf;
     if (buf == NULL) {
         return;
@@ -175004,7 +176264,7 @@ int32_t cmd_upm_upm_lib_git_fetch_upm_exec_argv_capture_first_line(uint8_t * * a
             return _uya_ret;
                 }
     }
-    (void)(uya_priv_640476447_upm_trim_newline_in_place((uint8_t *)out)    );
+    (void)(uya_priv_1872351365_upm_trim_newline_in_place((uint8_t *)out)    );
     if (out[0] == (uint8_t)0) {
                 {
             int32_t _uya_ret = 1;

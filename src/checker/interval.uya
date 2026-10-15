@@ -233,18 +233,21 @@ fn constraint_update_for_increment(checker: &TypeChecker, var_name: &byte, incre
             if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
                 const op: i32 = checker.constraint_ops[i];
                 const val: i32 = checker.constraint_values[i];
-                // 更新精确值/上下界约束
+                // 更新精确值/上下界约束。
+                // 增量累加会贴到 i32 边界（实测 UBSan：2147483647 + 1），
+                // 以 u32 回绕消除有符号溢出 UB；位模式与原语义一致。
+                const val_inc: i32 = ((val as u32) + (increment as u32)) as i32;
                 if op == CONSTRAINT_EQ {
-                    checker.constraint_values[i] = val + increment;
+                    checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_GE {
-                    checker.constraint_values[i] = val + increment;
+                    checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_GT {
-                    checker.constraint_values[i] = val + increment;
+                    checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_LE {
-                    checker.constraint_values[i] = val + increment;
+                    checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_LT {
                     checker.constraint_ops[i] = CONSTRAINT_LE;
-                    checker.constraint_values[i] = val + increment - 1;
+                    checker.constraint_values[i] = ((val_inc as u32) - 1u) as i32;
                 }
             }
         }
@@ -631,7 +634,9 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
         }
         bound_val = right_interval.min;
     }
-    var adjusted_val: i32 = bound_val - var_offset;
+    // 以 u32 回绕消除有符号溢出 UB（实测 UBSan：2147483647 - -1）。
+    const adj_u: u32 = (bound_val as u32) - (var_offset as u32);
+    var adjusted_val: i32 = adj_u as i32;
 
     constraint_add(checker, var_name, constraint_op, adjusted_val);
 }
@@ -666,7 +671,7 @@ fn constraint_verify_bounds(checker: &TypeChecker, var_name: &byte, array_size: 
                 // 检查上界：var < size 或 var <= size-1
                 if op == CONSTRAINT_LT && val == array_size {
                     has_upper_bound = 1;
-                } else if op == CONSTRAINT_LE && val == array_size - 1 {
+                } else if op == CONSTRAINT_LE && val == ((array_size as u32) - 1u) as i32 {
                     has_upper_bound = 1;
                 }
             }
@@ -729,7 +734,11 @@ fn interval_add(a: Interval, b: Interval) Interval {
         return interval_invalid();
     }
     // [a.min, a.max] + [b.min, b.max] = [a.min + b.min, a.max + b.max]
-    return interval_range(a.min + b.min, a.max + b.max);
+    // u32 回绕消除有符号溢出 UB（i32 加法溢出在 C 里未定义；带 UBSan 的 zig cc 交叉
+    // 编译 Windows 时直接 panic）。u32 相加良定义，位模式与原符号回绕一致。
+    const lo_u: u32 = (a.min as u32) + (b.min as u32);
+    const hi_u: u32 = (a.max as u32) + (b.max as u32);
+    return interval_range(lo_u as i32, hi_u as i32);
 }
 
 // 区间减法
@@ -738,7 +747,10 @@ fn interval_sub(a: Interval, b: Interval) Interval {
         return interval_invalid();
     }
     // [a.min, a.max] - [b.min, b.max] = [a.min - b.max, a.max - b.min]
-    return interval_range(a.min - b.max, a.max - b.min);
+    // 同样以 u32 回绕消除有符号溢出 UB。
+    const lo_s: u32 = (a.min as u32) - (b.max as u32);
+    const hi_s: u32 = (a.max as u32) - (b.min as u32);
+    return interval_range(lo_s as i32, hi_s as i32);
 }
 
 // 区间乘法
@@ -747,10 +759,11 @@ fn interval_mul(a: Interval, b: Interval) Interval {
         return interval_invalid();
     }
     // 乘法需要考虑所有组合，找出最小和最大值
-    const p1: i32 = a.min * b.min;
-    const p2: i32 = a.min * b.max;
-    const p3: i32 = a.max * b.min;
-    const p4: i32 = a.max * b.max;
+    // 乘积以 u32 回绕消除有符号溢出 UB（u32 乘法良定义，位模式与原语义一致）。
+    const p1: i32 = ((a.min as u32) * (b.min as u32)) as i32;
+    const p2: i32 = ((a.min as u32) * (b.max as u32)) as i32;
+    const p3: i32 = ((a.max as u32) * (b.min as u32)) as i32;
+    const p4: i32 = ((a.max as u32) * (b.max as u32)) as i32;
 
     var min_val: i32 = p1;
     var max_val: i32 = p1;
@@ -955,16 +968,16 @@ fn extract_linear_expr(checker: &TypeChecker, expr: &ASTNode) LinearExpr {
                 // var + const 或 var - const
                 result.var_name = left_expr.var_name;
                 if op == TokenType.TOKEN_PLUS {
-                    result.offset = left_expr.offset + right_expr.offset;
+                    result.offset = ((left_expr.offset as u32) + (right_expr.offset as u32)) as i32;
                 } else {
-                    result.offset = left_expr.offset - right_expr.offset;
+                    result.offset = ((left_expr.offset as u32) - (right_expr.offset as u32)) as i32;
                 }
                 result.is_valid = 1;
                 return result;
             } else if left_expr.var_name == null && right_expr.var_name != null && op == TokenType.TOKEN_PLUS {
                 // const + var（只有加法支持交换律）
                 result.var_name = right_expr.var_name;
-                result.offset = left_expr.offset + right_expr.offset;
+                result.offset = ((left_expr.offset as u32) + (right_expr.offset as u32)) as i32;
                 result.is_valid = 1;
                 return result;
             }
@@ -1007,8 +1020,10 @@ fn get_var_interval(checker: &TypeChecker, var_name: &byte) Interval {
                     }
                 } else if op == CONSTRAINT_GT {
                     // > val：更新下界（至少 val + 1）
-                    if val + 1 > min_val {
-                        min_val = val + 1;
+                    // +1/-1 以 u32 回绕消除溢出 UB。
+                    const val_p1: i32 = ((val as u32) + 1u) as i32;
+                    if val_p1 > min_val {
+                        min_val = val_p1;
                     }
                 } else if op == CONSTRAINT_LE {
                     // <= val：更新上界
@@ -1017,8 +1032,9 @@ fn get_var_interval(checker: &TypeChecker, var_name: &byte) Interval {
                     }
                 } else if op == CONSTRAINT_LT {
                     // < val：更新上界（最多 val - 1）
-                    if val - 1 < max_val {
-                        max_val = val - 1;
+                    const val_m1: i32 = ((val as u32) - 1u) as i32;
+                    if val_m1 < max_val {
+                        max_val = val_m1;
                     }
                 }
             }
@@ -1223,7 +1239,7 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
                 if left_interval.max < right_interval.min {
                     return interval_range(left_interval.min, left_interval.max);
                 }
-                return interval_range(0, right_interval.min - 1);
+                return interval_range(0, ((right_interval.min as u32) - 1u) as i32);
             }
             return interval_invalid();
         } else if op == TokenType.TOKEN_AMPERSAND {
@@ -1350,7 +1366,8 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
 
     // 计算需要的下界和上界
     const need_lower: i32 = -offset;  // i >= -offset
-    const need_upper: i32 = array_size - offset;  // i < size - offset
+    // array_size - offset 与 -offset 均以 u32 回绕消除溢出 UB。
+    const need_upper: i32 = ((array_size as u32) - (offset as u32)) as i32;  // i < size - offset
 
     // 端点反转不构成证明（证明不成立就不放行）。
     if var_interval.is_valid != 0 && var_interval.min <= var_interval.max &&
@@ -1371,7 +1388,7 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
                 // 如果约束是 i >= val，需要 val >= need_lower（val 更强）
                 if op == CONSTRAINT_GE && val >= need_lower {
                     has_lower_bound = 1;
-                } else if op == CONSTRAINT_GT && val < 2147483647 && val + 1 >= need_lower {
+                } else if op == CONSTRAINT_GT && val < 2147483647 && ((val as u32) + 1u) as i32 >= need_lower {
                     // i > val 等价于 i >= val + 1
                     has_lower_bound = 1;
                 }
@@ -1380,7 +1397,7 @@ fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, ar
                 // 如果约束是 i < val，需要 val <= need_upper（val 更强）
                 if op == CONSTRAINT_LT && val <= need_upper {
                     has_upper_bound = 1;
-                } else if op == CONSTRAINT_LE && val < 2147483647 && val + 1 <= need_upper {
+                } else if op == CONSTRAINT_LE && val < 2147483647 && ((val as u32) + 1u) as i32 <= need_upper {
                     // i <= val 等价于 i < val + 1
                     has_upper_bound = 1;
                 }
@@ -1444,7 +1461,8 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
 
     // 计算需要的下界和上界
     const need_lower: i32 = -offset;  // i >= -offset
-    const need_upper: i32 = array_size - offset;  // i < size - offset
+    // array_size - offset 与 -offset 均以 u32 回绕消除溢出 UB。
+    const need_upper: i32 = ((array_size as u32) - (offset as u32)) as i32;  // i < size - offset
 
     // 端点反转不构成证明（证明不成立就不放行）。
     if var_interval.is_valid != 0 && var_interval.min <= var_interval.max &&
@@ -1465,7 +1483,7 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
                 // 如果约束是 i >= val，需要 val >= need_lower（val 更强）
                 if op == CONSTRAINT_GE && val >= need_lower {
                     has_lower_bound = 1;
-                } else if op == CONSTRAINT_GT && val < 2147483647 && val + 1 >= need_lower {
+                } else if op == CONSTRAINT_GT && val < 2147483647 && ((val as u32) + 1u) as i32 >= need_lower {
                     // i > val 等价于 i >= val + 1
                     has_lower_bound = 1;
                 }
@@ -1474,7 +1492,7 @@ fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr,
                 // 如果约束是 i < val，需要 val <= need_upper（val 更强）
                 if op == CONSTRAINT_LT && val <= need_upper {
                     has_upper_bound = 1;
-                } else if op == CONSTRAINT_LE && val < 2147483647 && val + 1 <= need_upper {
+                } else if op == CONSTRAINT_LE && val < 2147483647 && ((val as u32) + 1u) as i32 <= need_upper {
                     // i <= val 等价于 i < val + 1
                     has_upper_bound = 1;
                 }

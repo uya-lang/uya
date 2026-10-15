@@ -25,8 +25,20 @@ fn c99_want_profile_codegen() i32 {
     return 1;
 }
 
-fn c99_output_basename_equals(output_file: &byte, expected: &byte) i32 {
-    if output_file == null || expected == null {
+/// 判断 TARGET_OS 环境变量是否指向 windows 目标。
+/// 参数说明：target_os_env 为 TARGET_OS 的取值（可为 null）。
+/// 返回值说明：1 表示目标是 windows，0 表示不是。
+fn c99_target_os_env_is_windows(target_os_env: &byte) i32 {
+    if target_os_env == null {
+        return 0;
+    }
+    if strcmp(target_os_env as *byte, "windows" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_output_basename_equals(output_file: &byte, expected: &byte) i32 {    if output_file == null || expected == null {
         return 0;
     }
     var basename: &byte = strrchr(output_file as *byte, 47) as &byte;
@@ -2164,12 +2176,14 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // 通过检查输出文件名是否包含 "libuya" 来判断
     var is_std_lib: i32 = 0;
     var target_os_is_macos: i32 = 0;
+    var target_os_is_windows: i32 = 0;
     // 检测自举编译（basename 精确为 uya.c 或 compiler_bootstrap.c）：强制与 C 编译器一致，不添加 stdio/string/opendir
     var is_bootstrap: i32 = 0;
     const target_os_env: &byte = getenv("TARGET_OS" as &byte);
     if target_os_env != null && strcmp(target_os_env as *byte, "macos" as *byte) == 0 {
         target_os_is_macos = 1;
     }
+    target_os_is_windows = c99_target_os_env_is_windows(target_os_env);
     if output_file != null {
         if c99_output_basename_equals(output_file, "uya.c" as &byte) != 0 ||
             c99_output_basename_equals(output_file, "compiler_bootstrap.c" as &byte) != 0 {
@@ -2351,9 +2365,18 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         if codegen.freestanding != 0 {
             fputs("typedef unsigned long size_t;\n" as *byte, codegen.emit_stream as *void);
         }
+        // Windows (LLP64) 的 long 是 32 位，而 ssize_t/intptr_t/uintptr_t 必须与指针同宽（64 位）。
+        // 若沿用 `long`，MinGW 的 corecrt.h 会以 `__int64` 重定义这些 typedef 并报
+        // "typedef redefinition with different types"，导致 Windows 目标无法编译。
+        fputs("#if defined(_WIN32)\n" as *byte, codegen.emit_stream as *void);
+        fputs("typedef long long ssize_t;\n" as *byte, codegen.emit_stream as *void);
+        fputs("typedef unsigned long long uintptr_t;\n" as *byte, codegen.emit_stream as *void);
+        fputs("typedef long long intptr_t;\n" as *byte, codegen.emit_stream as *void);
+        fputs("#else\n" as *byte, codegen.emit_stream as *void);
         fputs("typedef signed long ssize_t;\n" as *byte, codegen.emit_stream as *void);
         fputs("typedef unsigned long uintptr_t;\n" as *byte, codegen.emit_stream as *void);
         fputs("typedef signed long intptr_t;\n" as *byte, codegen.emit_stream as *void);
+        fputs("#endif\n" as *byte, codegen.emit_stream as *void);
         if codegen.freestanding != 0 {
             fputs("typedef signed long ptrdiff_t;\n" as *byte, codegen.emit_stream as *void);
         }
@@ -2650,6 +2673,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                         fputs("extern ssize_t write(int, const void *, size_t);\n" as *byte, codegen.emit_stream as *void);
                     }
                 }
+                // Windows 目标：这些是 POSIX 名称，MinGW 的 <io.h>/<direct.h>/<sys/stat.h>/
+                // <process.h> 已给出各自（不同签名）的声明，重复声明会直接编译失败
+                // （例如 `conflicting types for 'read'`）。这些名字在生成代码里只作声明、
+                // 无实际调用点（调用统一走 libc_ 前缀的 uya 实现），故 Windows 下整体跳过。
                 if is_bootstrap == 0 {
                     if has_decl_close != 0 {
                         fputs("extern int close(int);\n" as *byte, codegen.emit_stream as *void);
@@ -3371,6 +3398,676 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     fputs("    return real_closedir(dirp);\n" as *byte, codegen.emit_stream as *void);
     fputs("}\n" as *byte, codegen.emit_stream as *void);
     fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+    // microapp（container_mode）目标自带独立运行时常量，不链接宿主 bridge。
+    // 若不排除，microapp 生成物会内嵌 Windows bridge 文本，触发
+    // verify_microapp_syscall_codegen.sh 的「不应直接依赖宿主 sched_yield」断言。
+    if codegen.container_mode == 0 {
+        // Windows (MinGW/zig cc) hosted bridge。
+        // 与 macOS 分支同构：目标为 windows 时定义 UYA_TARGET_WINDOWS，使交叉生成（宿主预处理器
+        // 不认识 _WIN32）也能选中本块；否则调用点仍在但定义被裁掉，退化为隐式声明。
+        // uya_windows_syscall 是本后端唯一的 syscall 汇聚点：@syscall 生成的 uya_syscall0..6
+        // 全部转发到这里，再由本函数按号分发到 MinGW CRT / Win32 API。
+        if target_os_is_windows != 0 {
+            fputs("#define UYA_TARGET_WINDOWS 1\n" as *byte, codegen.emit_stream as *void);
+        }
+        fputs("#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)\n" as *byte, codegen.emit_stream as *void);
+        // MinGW 头文件与 uya 自带 libc 存在同名实体：uya 的 libc/time.uya 定义 struct timeval/
+        // timespec/timezone，MinGW 的 <sys/stat.h> / <corecrt.h> / <windows.h> 也定义这些名字，
+        // 直接 include 会报 "redefinition of 'timeval'"。
+        // 做法与 macOS 分支一致：include 期间用宏把「系统侧」的名字改名；所有可能引入这些名字的
+        // 头文件（含 windows.h）都必须在 #undef 之前完成 include，否则改名失效、冲突复现。
+        fputs("#define timeval uya_win_native_timeval\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define timespec uya_win_native_timespec\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define timezone uya_win_native_timezone\n" as *byte, codegen.emit_stream as *void);
+        // MinGW 头文件与 uya 自带 libc 对同一批 POSIX 名字给出了不兼容的声明。典型两例：
+        //   * MinGW 的 mkdir 只接受 1 个参数（`_mkdir(const char*)`），而 uya 的 libc.mkdir 是
+        //     `mkdir(path, mode)`；调用点会报
+        //     "too many arguments to function call, expected single argument '_Path'"。
+        //   * stat 的第二个参数 MinGW 是 `struct stat*`，uya 是自有的 `struct Stat*`；调用点会报
+        //     "incompatible pointer types passing 'struct Stat *' to parameter of type 'struct stat *'"。
+        // 做法与 macOS 分支一致：include 期间把系统侧名字改名隐藏（使宿主头文件自身自洽），
+        // include 完再 #undef，让 uya 的声明与调用点继续使用原名。
+        fputs("#define mkdir uya_win_native_mkdir_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define rmdir uya_win_native_rmdir_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define chdir uya_win_native_chdir_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define getcwd uya_win_native_getcwd_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define stat uya_win_native_stat_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define fstat uya_win_native_fstat_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define readlink uya_win_native_readlink_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define access uya_win_native_access_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define unlink uya_win_native_unlink_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define rename uya_win_native_rename_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define getpid uya_win_native_getpid_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define execve uya_win_native_execve_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define system uya_win_native_system_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define sleep uya_win_native_sleep_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define read uya_win_native_read_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define write uya_win_native_write_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define lseek uya_win_native_lseek_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#define close uya_win_native_close_hidden\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <io.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <direct.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <fcntl.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <errno.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <sys/stat.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <sys/types.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <process.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <windows.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef timeval\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef timespec\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef timezone\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef mkdir\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef rmdir\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef chdir\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef getcwd\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef stat\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef fstat\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef readlink\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef access\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef unlink\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef rename\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef getpid\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef execve\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef system\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef sleep\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef read\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef write\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef lseek\n" as *byte, codegen.emit_stream as *void);
+        fputs("#undef close\n" as *byte, codegen.emit_stream as *void);
+        // MinGW 的 <ctype.h> 把若干 ctype 名字定义成宏（isascii->__isascii、toascii->__toascii 等）。
+        // uya 的 libc/ctype.uya 提供了自己的函数实现，若不撤销这些宏，函数定义点会被宏改写名字，
+        // 变成 "expected identifier or '('" / "conflicting types for 'iswctype'" 一类错误。
+        // 这里的名单覆盖 <ctype.h>/<wctype.h> 中会与 uya 自身实现重名的宏。
+        fputs("#ifdef isascii\n#undef isascii\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef toascii\n#undef toascii\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef isblank\n#undef isblank\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef iswctype\n#undef iswctype\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef iswalpha\n#undef iswalpha\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef iswdigit\n#undef iswdigit\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef iswalnum\n#undef iswalnum\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef iswspace\n#undef iswspace\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef towupper\n#undef towupper\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef towlower\n#undef towlower\n#endif\n" as *byte, codegen.emit_stream as *void);
+        // MinGW 的 <sys/stat.h> 把 _S_IFMT/_S_IFDIR/_S_IFREG 定义为宏；
+        // uya 的 libc/stdio.uya 等处在函数内声明同名局部常量（`const _S_IFMT: u32 = 61440;`），
+        // 会被宏改写成非法语法（"expected identifier or '('"）。撤销这些宏，让 uya 的常量生效。
+        fputs("#ifdef _S_IFMT\n#undef _S_IFMT\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef _S_IFDIR\n#undef _S_IFDIR\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef _S_IFREG\n#undef _S_IFREG\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef _S_IFCHR\n#undef _S_IFCHR\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef _S_IFIFO\n#undef _S_IFIFO\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef S_IFMT\n#undef S_IFMT\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef S_IFDIR\n#undef S_IFDIR\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("#ifdef S_IFREG\n#undef S_IFREG\n#endif\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct Stat;\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct TimeSpec;\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct PollFd;\n" as *byte, codegen.emit_stream as *void);
+        fputs("// uya 统一 Stat 的内存布局镜像（与 lib/libc/syscall.uya 的 Stat 字段顺序一致）。\n" as *byte, codegen.emit_stream as *void);
+        fputs("// 只写上层真实消费的字段，其余保持调用方清零后的值。\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct uya_windows_uya_stat {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_dev;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_ino;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_nlink;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int32_t st_mode;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int32_t st_uid;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int32_t st_gid;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int32_t _pad0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_rdev;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_size;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_blksize;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_blocks;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_atime;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_atime_nsec;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_mtime;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_mtime_nsec;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_ctime;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t st_ctime_nsec;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t _unused0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t _unused1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t _unused2;\n" as *byte, codegen.emit_stream as *void);
+        fputs("};\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_win_err_i32(int err) { return (struct err_union_int32_t){ .error_id = (uint32_t)err, .value = 0 }; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_win_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_win_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_win_ok_i64(int64_t value) { return (struct err_union_int64_t){ .error_id = 0, .value = value }; }\n" as *byte, codegen.emit_stream as *void);
+        // Linux errno 与 Windows CRT errno 数值不同；上层只依赖「非 0 即错误」，这里统一映射常见项。
+        // 映射表覆盖 ENOENT/EEXIST/EACCES/ENOTDIR/EISDIR/EINVAL/ENOMEM/ENOSPC/EPIPE/EAGAIN/EINTR。
+        fputs("static int uya_windows_map_errno(int win_err) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    switch (win_err) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case ENOENT: return 2;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EINTR: return 4;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EIO: return 5;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EACCES: return 13;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EEXIST: return 17;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case ENOTDIR: return 20;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EISDIR: return 21;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EINVAL: return 22;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case ENOSPC: return 28;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EPIPE: return 32;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case EAGAIN: return 11;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        default: return win_err;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 文件状态：把 CRT 的 struct _stat64 映射到统一 Stat。mode 位按 POSIX S_IFMT 约定重建，
+        // 使上层 is_file/is_directory 无需平台分支。
+        fputs("static void uya_windows_copy_stat(struct Stat *dst, const struct _stat64 *src) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct uya_windows_uya_stat *d = (struct uya_windows_uya_stat *)dst;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (d == (struct uya_windows_uya_stat *)0 || src == (const struct _stat64 *)0) return;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_dev = (int64_t)src->st_dev;\n" as *byte, codegen.emit_stream as *void);
+        // st_ino 由调用方用真实文件索引覆盖（见 uya_windows_stat/fstat）；
+        // 这里保留 _stat64 的值仅作兜底，不可作为文件身份依赖。
+        fputs("    d->st_ino = (int64_t)src->st_ino;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_nlink = (int64_t)src->st_nlink;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_mode = ((src->st_mode & 0xF000) == 0x4000) ? 0040000 : 0100000;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_uid = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_gid = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_rdev = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_size = (int64_t)src->st_size;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_blksize = 4096;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_blocks = (int64_t)((src->st_size + 511) / 512);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_atime = (int64_t)src->st_atime; d->st_atime_nsec = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_mtime = (int64_t)src->st_mtime; d->st_mtime_nsec = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    d->st_ctime = (int64_t)src->st_ctime; d->st_ctime_nsec = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 文件身份：Windows 的 _stat64 不提供可用的「文件身份」——st_ino 恒为 0、
+        // st_dev 仅为驱动器号。而 uya 的 paths_equal（src/main.uya）用 (st_dev, st_ino)
+        // 判断两个路径是否指向同一文件：若 ino 恒为 0，任意两个文件都会被判成同一个，
+        // 模块去重时就会把真实不同的文件丢掉。实测症状：`use std.platform;` 报
+        // 「模块中未找到导出项」（同目录的文件模块被误判为重复而丢弃），
+        // 而目录模块（std.string / std.io）不受影响。
+        // 因此这里用 BY_HANDLE_FILE_INFORMATION 取真实的卷序列号 + 文件索引。
+        fputs("static int uya_windows_fill_file_identity(const char *pathname, int64_t *dev_out, int64_t *ino_out) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    wchar_t wpath[1024];\n" as *byte, codegen.emit_stream as *void);
+        fputs("    HANDLE h;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    BY_HANDLE_FILE_INFORMATION info;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (pathname == (const char *)0 || dev_out == (int64_t *)0 || ino_out == (int64_t *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (MultiByteToWideChar(CP_UTF8, 0, pathname, -1, wpath, 1024) == 0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        // FILE_FLAG_BACKUP_SEMANTICS 是取得目录句柄的必要条件（否则目录会打开失败）。
+        fputs("    h = CreateFileW(wpath, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,\n" as *byte, codegen.emit_stream as *void);
+        fputs("                    (LPSECURITY_ATTRIBUTES)0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, (HANDLE)0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (h == INVALID_HANDLE_VALUE) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (GetFileInformationByHandle(h, &info) == 0) { CloseHandle(h); return -1; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    *dev_out = (int64_t)(uint32_t)info.dwVolumeSerialNumber;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    *ino_out = (((int64_t)(uint32_t)info.nFileIndexHigh) << 32) | (int64_t)(uint32_t)info.nFileIndexLow;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    CloseHandle(h);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 基于 fd 的同一套身份获取（供 fstat 使用）。
+        fputs("static int uya_windows_fill_file_identity_fd(int32_t fd, int64_t *dev_out, int64_t *ino_out) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    intptr_t osf = _get_osfhandle((int)fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    BY_HANDLE_FILE_INFORMATION info;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (osf == (intptr_t)-1) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dev_out == (int64_t *)0 || ino_out == (int64_t *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (GetFileInformationByHandle((HANDLE)osf, &info) == 0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    *dev_out = (int64_t)(uint32_t)info.dwVolumeSerialNumber;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    *ino_out = (((int64_t)(uint32_t)info.nFileIndexHigh) << 32) | (int64_t)(uint32_t)info.nFileIndexLow;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct err_union_int32_t uya_windows_stat(const char *pathname, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct _stat64 st;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t id_dev = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t id_ino = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (pathname == (const char *)0 || statbuf == (struct Stat *)0) return uya_win_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_stat64(pathname, &st) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    uya_windows_copy_stat(statbuf, &st);\n" as *byte, codegen.emit_stream as *void);
+        // 覆盖为真实文件身份，供 paths_equal 之类的去重逻辑使用。
+        fputs("    if (uya_windows_fill_file_identity(pathname, &id_dev, &id_ino) == 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        ((struct uya_windows_uya_stat *)statbuf)->st_dev = id_dev;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        ((struct uya_windows_uya_stat *)statbuf)->st_ino = id_ino;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct err_union_int32_t uya_windows_fstat(int32_t fd, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct _stat64 st;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t id_dev = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t id_ino = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (statbuf == (struct Stat *)0) return uya_win_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_fstat64((int)fd, &st) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    uya_windows_copy_stat(statbuf, &st);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_fill_file_identity_fd(fd, &id_dev, &id_ino) == 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        ((struct uya_windows_uya_stat *)statbuf)->st_dev = id_dev;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        ((struct uya_windows_uya_stat *)statbuf)->st_ino = id_ino;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // Windows 无 lstat 语义（不做符号链接区分）；退化为 stat，保持上层可用。
+        fputs("struct err_union_int32_t uya_windows_lstat(const char *pathname, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_windows_stat(pathname, statbuf);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_write(int32_t fd, const char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int ret = _write((int)fd, buf, (unsigned int)count);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)ret);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_read(int32_t fd, char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (buf == (char *)0 && count != 0) return uya_win_err_i64(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int ret = _read((int)fd, buf, (unsigned int)count);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)ret);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_open(const char *pathname, int32_t flags, int32_t mode) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // uya 的 O_* 常量是 Linux 取值（O_CREAT=0x40、O_EXCL=0x80、O_TRUNC=0x200、O_APPEND=0x400），\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // 与 MinGW CRT 的 _O_* 不同（_O_CREAT=0x100、_O_TRUNC=0x200、_O_APPEND=0x8）。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // 必须显式翻译，否则 fopen(...,\"w\") 因 O_CREAT 未被识别而失败。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int win_flags = _O_BINARY;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    switch (flags & 0x3) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 1: win_flags |= _O_WRONLY; break;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 2: win_flags |= _O_RDWR; break;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        default: win_flags |= _O_RDONLY; break;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if ((flags & 0x40) != 0) win_flags |= _O_CREAT;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if ((flags & 0x80) != 0) win_flags |= _O_EXCL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if ((flags & 0x200) != 0) win_flags |= _O_TRUNC;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if ((flags & 0x400) != 0) win_flags |= _O_APPEND;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int ret = _open(pathname, win_flags, (int)mode);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_close(int32_t fd) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int ret = _close((int)fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_lseek(int32_t fd, int64_t offset, int32_t whence) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    __int64 ret = _lseeki64((int)fd, (__int64)offset, (int)whence);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)ret);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_access(const char *pathname, int32_t mode) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_access(pathname, (int)mode) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_chdir(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_chdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_getcwd(char *buf, size_t size) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (buf == (char *)0 || size == 0) return uya_win_err_i64(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_getcwd(buf, (int)size) == (char *)0) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    size_t len = strlen(buf);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (len >= size) return uya_win_err_i64(34);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)len);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_mkdir(const char *pathname, int32_t mode) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)mode;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_mkdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_rmdir(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_rmdir(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_unlink(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_unlink(pathname) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // rename 必须保持「目标已存在则覆盖」语义（与 POSIX sys_rename 对齐）；
+        // CRT 的 rename 在目标存在时直接失败，所以走 MoveFileExW + MOVEFILE_REPLACE_EXISTING。
+        fputs("static struct err_union_int32_t uya_windows_rename(const char *oldpath, const char *newpath) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    wchar_t wold[1024];\n" as *byte, codegen.emit_stream as *void);
+        fputs("    wchar_t wnew[1024];\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (MultiByteToWideChar(CP_UTF8, 0, oldpath, -1, wold, 1024) == 0) return uya_win_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (MultiByteToWideChar(CP_UTF8, 0, newpath, -1, wnew, 1024) == 0) return uya_win_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (MoveFileExW(wold, wnew, MOVEFILE_REPLACE_EXISTING) == 0) return uya_win_err_i32((int)GetLastError());\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_dup(int32_t fd) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int ret = _dup((int)fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_dup2(int32_t oldfd, int32_t newfd) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_dup2((int)oldfd, (int)newfd) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)cmd; (void)arg;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_get_osfhandle((int)fd) == (intptr_t)-1) return uya_win_err_i32(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_writev(int32_t fd, const void *iov, int32_t iovcnt) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // 逐段写出；任一失败即返回，保持与 POSIX writev 的短路语义一致。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // 用 uya 统一 IOVec 布局（iov_base/iov_len）解析，避免依赖宿主 struct iovec 的字段名。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct uya_windows_iov { void *iov_base; size_t iov_len; };\n" as *byte, codegen.emit_stream as *void);
+        fputs("    const struct uya_windows_iov *v = (const struct uya_windows_iov *)iov;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t total = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int32_t i = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    for (; i < iovcnt; i++) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        struct err_union_int64_t r = uya_windows_write(fd, (const char *)v[i].iov_base, v[i].iov_len);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (r.error_id != 0) return (total > 0) ? uya_win_ok_i64(total) : r;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        total += r.value;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64(total);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 匿名管道：_pipe 的第 2 参数是字节数上限（Win32 语义为字节），第 3 参数为 _O_BINARY/_O_TEXT。
+        fputs("static struct err_union_int32_t uya_windows_pipe2(int32_t *pipefd, int32_t flags) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int text_mode = ((flags & 0x80000) != 0) ? _O_TEXT : _O_BINARY;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (_pipe((int *)pipefd, 65536, text_mode) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_getpid(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32((int32_t)GetCurrentProcessId());\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_getppid(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static int64_t uya_windows_clock_gettime_monotonic_ns(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    static LARGE_INTEGER freq;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    static int freq_ready = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    LARGE_INTEGER now;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (freq_ready == 0) { QueryPerformanceFrequency(&freq); freq_ready = 1; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    QueryPerformanceCounter(&now);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (freq.QuadPart == 0) return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (int64_t)((now.QuadPart * 1000000000LL) / freq.QuadPart);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static int64_t uya_windows_realtime_ns(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    FILETIME ft;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    ULARGE_INTEGER u;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    GetSystemTimeAsFileTime(&ft);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // FILETIME 起点 1601-01-01，单位 100ns；减去 1970 起点的偏移得 Unix 纪元纳秒。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (int64_t)((u.QuadPart - 116444736000000000ULL) * 100LL);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_clock_gettime(int32_t clock_id, struct TimeSpec *tp) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (tp == (struct TimeSpec *)0) return uya_win_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // CLOCK_MONOTONIC(=1) 走单调时钟，其余按实时时钟处理。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t ns = (clock_id == 1) ? uya_windows_clock_gettime_monotonic_ns() : uya_windows_realtime_ns();\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t *fields = (int64_t *)tp;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    fields[0] = ns / 1000000000LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    fields[1] = ns % 1000000000LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_gettimeofday(int64_t *sec_out, int64_t *usec_out) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t ns = uya_windows_realtime_ns();\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (sec_out != (int64_t *)0) *sec_out = ns / 1000000000LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (usec_out != (int64_t *)0) *usec_out = (ns % 1000000000LL) / 1000LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_nanosleep(int64_t req_sec, int64_t req_nsec) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t ms = req_sec * 1000LL + req_nsec / 1000000LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (ms > 0) Sleep((DWORD)ms);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_sched_yield(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    SwitchToThread();\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_sched_getaffinity(int64_t *out_mask) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    SYSTEM_INFO si;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    GetSystemInfo(&si);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (out_mask != (int64_t *)0) *out_mask = (int64_t)((si.dwNumberOfProcessors >= 64) ? (DWORD_PTR)-1 : (((DWORD_PTR)1 << si.dwNumberOfProcessors) - 1));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_sched_setaffinity(int64_t mask) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)mask;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // getrlimit(RLIMIT_STACK)：Windows 无 rlimit，报告成功并给出一个足够大的名义上限，
+        // 让上层的「按上限调优」逻辑自然退化为 no-op，而不是报错。
+        fputs("static struct err_union_int32_t uya_windows_getrlimit(int32_t resource, int64_t *cur_out, int64_t *max_out) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)resource;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (cur_out != (int64_t *)0) *cur_out = 1073741824LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (max_out != (int64_t *)0) *max_out = 1073741824LL;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_setrlimit(int32_t resource, int64_t cur, int64_t max) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)resource; (void)cur; (void)max;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_gettid(void) { return uya_win_ok_i64((int64_t)GetCurrentThreadId()); }\n" as *byte, codegen.emit_stream as *void);
+        // 地址空间：用 Win32 虚拟内存映射 sys_mmap 的匿名映射语义。
+        // prot 的 PROT_WRITE(=2) 决定读写权限；MAP_ANONYMOUS 之外的文件映射不在当前 hosted 范围内。
+        fputs("static struct err_union_int64_t uya_windows_mmap(int64_t length, int32_t prot) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    DWORD win_prot = ((prot & 0x2) != 0) ? PAGE_READWRITE : PAGE_READONLY;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    void *p = VirtualAlloc((void *)0, (SIZE_T)length, MEM_COMMIT | MEM_RESERVE, win_prot);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (p == (void *)0) return uya_win_err_i64(12);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)(intptr_t)p);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_munmap(void *addr) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (VirtualFree(addr, 0, MEM_RELEASE) == 0) return uya_win_err_i32((int)GetLastError());\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_mprotect(void *addr, size_t length, int32_t prot) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    DWORD win_prot = ((prot & 0x2) != 0) ? PAGE_READWRITE : PAGE_READONLY;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    DWORD old = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (VirtualProtect(addr, (SIZE_T)length, win_prot, &old) == 0) return uya_win_err_i32((int)GetLastError());\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // brk：Windows 无 brk。返回 -1 让上层走 mmap 路径（heap.uya 两条路径中 mmap 是主路径）。
+        fputs("static struct err_union_int64_t uya_windows_brk(void *addr) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)addr;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_err_i64(12);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 以下一组是「POSIX 名字」的 C 兼容 shim，直接导出编译器自身源码会调用的符号。
+        //
+        // 背景：src/ 里存在 `stat(path, &st)` / `mkdir(p, 493)` / `access(p, F_OK)` 这类直接调用。
+        // 这些名字的 uya 侧 wrapper（lib/libc/stdlib.uya 的 libc.stat 等）在 hosted 模式下被整体
+        // 跳过（见 c99_should_skip_hosted_libc_function_body），于是生成代码只留下
+        // `extern int stat(const char *, struct Stat *);` 这样的声明；若不做处理，链接器会把它们
+        // 绑到 MinGW 的同名函数上——而 MinGW 的签名不同（`stat(const char*, struct stat*)`），
+        // 于是调用「成功」但结构体内容全是垃圾（实测 st_size=0、st_mode 错误）。
+        // 这里给出与 uya 声明一致的定义，转发到内部 bridge，保证语义正确。
+        fputs("int stat(const char *pathname, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_stat(pathname, statbuf);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int lstat(const char *pathname, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_lstat(pathname, statbuf);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int mkdir(const char *pathname, int mode) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_mkdir(pathname, (int32_t)mode);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int rmdir(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_rmdir(pathname);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int unlink(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_unlink(pathname);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // access：uya 侧常量是 Linux 取值（R_OK=4/W_OK=2/X_OK=1），MinGW 的 _access 用
+        // 0=存在、2=写、4=读、6=读写，与 Linux 一致；F_OK=0 两边相同，故直接透传。
+        fputs("int access(const char *pathname, int mode) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_access(pathname, (int32_t)mode);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int chdir(const char *pathname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_chdir(pathname);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("char *getcwd(char *buf, size_t size) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int64_t r = uya_windows_getcwd(buf, size);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? (char *)0 : buf;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int rename(const char *oldpath, const char *newpath) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct err_union_int32_t r = uya_windows_rename(oldpath, newpath);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (r.error_id != 0) ? -1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int getpid(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (int)GetCurrentProcessId();\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("int getppid(void) { return 0; }\n" as *byte, codegen.emit_stream as *void);
+        // 目录遍历 bridge：lib/libc/stdlib.uya 的 opendir/readdir/closedir 在 macOS 上走
+        // uya_macos_host_* 宿主封装；Windows 没有 POSIX DIR*，改用 FindFirstFileW/FindNextFileW。
+        //
+        // 这一组是必须的：编译器的模块发现（src/driver/modules.uya）用 opendir/readdir 扫描
+        // 子目录来解析 `use codegen.c99;` / `use cmd.upm.upm_lib;` 这类子目录模块。缺了它，
+        // 子目录模块解析全部失败，表现为「模块中未找到导出项」。
+        //
+        // 不透明句柄布局：FindFirstFileW 返回的首个目录项必须缓存（否则第一条被消费掉），
+        // 因此句柄内同时保存 WIN32_FIND_DATAW 与「首条是否待用」标志。
+        fputs("struct uya_windows_dir_handle {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    HANDLE h;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int first_pending;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    WIN32_FIND_DATAW fd;\n" as *byte, codegen.emit_stream as *void);
+        fputs("};\n" as *byte, codegen.emit_stream as *void);
+        // UTF-8 -> UTF-16：失败返回 0。
+        fputs("static int uya_windows_utf8_to_utf16(const char *src, wchar_t *dst, int dst_cap) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (src == (const char *)0 || dst == (wchar_t *)0 || dst_cap <= 0) return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dst_cap);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static void *uya_windows_host_opendir(const char *path) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    wchar_t wpath[1024];\n" as *byte, codegen.emit_stream as *void);
+        fputs("    wchar_t wpattern[1088];\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (path == (const char *)0) return (void *)0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_utf8_to_utf16(path, wpath, 1024) == 0) return (void *)0;\n" as *byte, codegen.emit_stream as *void);
+        // Win32 目录搜索需要通配符后缀；该细节只留在 bridge 内部，不泄漏到上层。
+        // 不用 swprintf（生成代码在 stdio 冲突模式下不包含 <stdio.h>，会退化为隐式声明），
+        // 直接手工拼接 `path\*`，避免额外的宽字符格式化依赖。
+        fputs("    {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        size_t plen = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        while (wpath[plen] != 0) plen++;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        size_t q = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (plen + 3 > 1088) return (void *)0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        for (q = 0; q < plen; q++) wpattern[q] = wpath[q];\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (plen > 0 && wpath[plen - 1] != L'/' && wpath[plen - 1] != L'\\\\') {\n" as *byte, codegen.emit_stream as *void);
+        fputs("            wpattern[plen] = L'\\\\';\n" as *byte, codegen.emit_stream as *void);
+        fputs("            plen = plen + 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        wpattern[plen] = L'*';\n" as *byte, codegen.emit_stream as *void);
+        fputs("        wpattern[plen + 1] = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    dh = (struct uya_windows_dir_handle *)malloc(sizeof(struct uya_windows_dir_handle));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dh == (struct uya_windows_dir_handle *)0) return (void *)0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    dh->h = FindFirstFileW(wpattern, &dh->fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dh->h == INVALID_HANDLE_VALUE) { free(dh); return (void *)0; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    dh->first_pending = 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (void *)dh;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 填充统一 Dirent：先清零，只写当前消费者依赖的 d_type 与 d_name
+        // （与 macOS 的 uya_macos_host_readdir_fill 收敛方式一致）。
+        // 返回 1 表示取到一项，0 表示结束，-1 表示参数/系统错误。
+        fputs("static int32_t uya_windows_host_readdir_fill(void *dirp, void *out) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)dirp;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    unsigned char *dst = (unsigned char *)out;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    size_t clear_idx = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    size_t name_len = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int is_dir = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dh == (struct uya_windows_dir_handle *)0 || out == (void *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dh->first_pending != 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        dh->first_pending = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    } else if (FindNextFileW(dh->h, &dh->fd) == 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    for (clear_idx = 0; clear_idx < 275u; clear_idx++) dst[clear_idx] = 0;\n" as *byte, codegen.emit_stream as *void);
+        // d_type 偏移 18；DT_DIR=4、DT_REG=8（与 src/extern_decls.uya 的常量一致）。
+        fputs("    is_dir = ((dh->fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    dst[18] = (unsigned char)(is_dir ? 4 : 8);\n" as *byte, codegen.emit_stream as *void);
+        // d_name 偏移 19，UTF-16 -> UTF-8。
+        fputs("    name_len = (size_t)WideCharToMultiByte(CP_UTF8, 0, dh->fd.cFileName, -1, (char *)(dst + 19), 255, (const char *)0, (int *)0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (name_len == 0) dst[19] = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static int32_t uya_windows_host_closedir(void *dirp) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    struct uya_windows_dir_handle *dh = (struct uya_windows_dir_handle *)dirp;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dh == (struct uya_windows_dir_handle *)0) return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (dh->h != INVALID_HANDLE_VALUE) FindClose(dh->h);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    free(dh);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // readlink：Windows 无符号链接读语义，返回错误让上层走「非符号链接」分支。
+        // 同时导出 C 兼容签名的 readlink，供编译器自身源码里 `readlink(path, buf, n)` 的直接调用点使用
+        // （这些调用点期望 -1 表示失败，与 POSIX 语义一致）。
+        fputs("int readlink(const char *path, char *buf, size_t bufsiz) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)path; (void)buf; (void)bufsiz;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // fork/waitpid：Windows 无 POSIX 进程模型。这两个符号只在 upm 的 git_fetch 路径出现，
+        // 编译器主线不调用；但生成代码里保留 extern 声明并要求链接期可解析，
+        // 因此提供失败桩以保证链接通过（运行时返回 -1，调用方按「失败」处理）。
+        fputs("int fork(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("int waitpid(int pid, int *status, int options) { (void)pid; (void)status; (void)options; return -1; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_readlink(const char *path, char *buf, size_t bufsiz) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)path; (void)buf; (void)bufsiz;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_err_i64(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 进程创建：system()/fork 类语义在 Windows 上不可用；返回错误而不是静默成功，
+        // 使调用方能观察到「不支持」而不是把它当成成功。
+        fputs("static struct err_union_int32_t uya_windows_exit_process(int32_t code) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    exit((int)code);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // epoll/futex/eventfd/kqueue：Windows 侧由 IOCP / 同步原语承担，属后续阶段；
+        // 这里显式返回「不支持」，避免把未实现路径伪装成成功。
+        // 唯一 syscall 汇聚点：@syscall 生成的 uya_syscall0..6 全部转发到此。
+        //
+        // 编号沿用 lib/libc/syscall.uya 兜底 arm 的 Linux x86_64 编号。这不是「假装是 Linux」，
+        // 而是把号值当作本后端内部 ABI：调用点由该 arm 生成，号值稳定可知，本函数负责把它
+        // 翻译成 Win32/CRT 调用。
+        //
+        // 返回约定与 Linux 一致（上层生成代码就是这样解读的）：
+        //   成功 -> 非负返回值；失败 -> 落在 [-4095, -1] 的负 errno。
+        // 未实现的号返回 -ENOSYS(38)，不返回 0，避免把「没做」伪装成「成功」。
+        fputs("static int64_t uya_windows_syscall(int64_t nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)a5; (void)a6;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    switch (nr) {\n" as *byte, codegen.emit_stream as *void);
+        // 文件读写与描述符
+        fputs("        case 1: { struct err_union_int64_t r = uya_windows_write((int32_t)a1, (const char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 0: { struct err_union_int64_t r = uya_windows_read((int32_t)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 20: { struct err_union_int64_t r = uya_windows_writev((int32_t)a1, (const void *)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 2: { struct err_union_int32_t r = uya_windows_open((const char *)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 3: { struct err_union_int32_t r = uya_windows_close((int32_t)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 8: { struct err_union_int64_t r = uya_windows_lseek((int32_t)a1, (int64_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 4: { struct err_union_int32_t r = uya_windows_stat((const char *)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 5: { struct err_union_int32_t r = uya_windows_fstat((int32_t)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 6: { struct err_union_int32_t r = uya_windows_lstat((const char *)a1, (struct Stat *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // *at 系列：Windows 无 dirfd 语义，AT_FDCWD(-100) 时等价于普通路径调用；
+        // 其它 dirfd 不在当前 hosted 范围内，返回 ENOSYS 而不是猜一个路径。
+        fputs("        case 257: return (a1 == -100) ? uya_windows_syscall(2, a2, a3, a4, 0, 0, 0) : -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 262: return (a1 == -100) ? uya_windows_syscall(4, a2, a3, 0, 0, 0, 0) : -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 269: return (a1 == -100) ? uya_windows_syscall(21, a2, a3, 0, 0, 0, 0) : -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 263: return (a1 == -100) ? ((a3 == 0x200) ? uya_windows_syscall(84, a2, 0, 0, 0, 0, 0) : uya_windows_syscall(87, a2, 0, 0, 0, 0, 0)) : -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 258: return (a1 == -100) ? uya_windows_syscall(83, a2, a3, 0, 0, 0, 0) : -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 264: return (a1 == -100 && a3 == -100) ? uya_windows_syscall(82, a2, a4, 0, 0, 0, 0) : -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 267: return (a1 == -100) ? uya_windows_syscall(89, a2, a3, a4, 0, 0, 0) : -38;\n" as *byte, codegen.emit_stream as *void);
+        // 路径与元数据
+        fputs("        case 21: { struct err_union_int32_t r = uya_windows_access((const char *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 80: { struct err_union_int32_t r = uya_windows_chdir((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 79: { struct err_union_int64_t r = uya_windows_getcwd((char *)a1, (size_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 83: { struct err_union_int32_t r = uya_windows_mkdir((const char *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 84: { struct err_union_int32_t r = uya_windows_rmdir((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 87: { struct err_union_int32_t r = uya_windows_unlink((const char *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 82: { struct err_union_int32_t r = uya_windows_rename((const char *)a1, (const char *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 89: { struct err_union_int64_t r = uya_windows_readlink((const char *)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // 描述符复制
+        fputs("        case 32: { struct err_union_int32_t r = uya_windows_dup((int32_t)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 33: case 292: { struct err_union_int32_t r = uya_windows_dup2((int32_t)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 72: { struct err_union_int32_t r = uya_windows_fcntl((int32_t)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 293: { struct err_union_int32_t r = uya_windows_pipe2((int32_t *)a1, (int32_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // 进程与用户（Windows 无 POSIX 对等物，按能力退化）
+        fputs("        case 39: { struct err_union_int32_t r = uya_windows_getpid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 110: { struct err_union_int32_t r = uya_windows_getppid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 102: case 104: case 107: case 108: return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 105: case 106: return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 186: { struct err_union_int64_t r = uya_windows_gettid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 57: case 59: case 61: case 62: case 234: return -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 60: { struct err_union_int32_t r = uya_windows_exit_process((int32_t)a1); return r.error_id ? -38 : 0; }\n" as *byte, codegen.emit_stream as *void);
+        // 时间
+        fputs("        case 228: { struct err_union_int32_t r = uya_windows_clock_gettime((int32_t)a1, (struct TimeSpec *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 96: { struct err_union_int32_t r = uya_windows_gettimeofday((int64_t *)(void *)a1, (int64_t *)(void *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 35: { struct err_union_int32_t r = uya_windows_nanosleep((int64_t)a1, (int64_t)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 24: { struct err_union_int32_t r = uya_windows_sched_yield(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 204: { struct err_union_int32_t r = uya_windows_sched_getaffinity((int64_t *)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 203: { struct err_union_int32_t r = uya_windows_sched_setaffinity((int64_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // 资源限制（Windows 无 rlimit：报告成功使上层调优退化为 no-op）
+        fputs("        case 97:  { struct err_union_int32_t r = uya_windows_getrlimit((int32_t)a1, (int64_t *)(void *)a2, (int64_t *)(void *)a2 + 1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 160: { struct err_union_int32_t r = uya_windows_setrlimit((int32_t)a1, 0, 0); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // 虚拟内存
+        fputs("        case 9:  { struct err_union_int64_t r = uya_windows_mmap((int64_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 11: { struct err_union_int32_t r = uya_windows_munmap((void *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 10: { struct err_union_int32_t r = uya_windows_mprotect((void *)a1, (size_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 12: { struct err_union_int64_t r = uya_windows_brk((void *)a1); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // 未实现（socket/epoll/futex/eventfd/ioctl/目录流）：显式 ENOSYS，交由后续阶段
+        fputs("        default: break;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)a1; (void)a2; (void)a3; (void)a4;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+    }
     c99_emit_newline(codegen);
     if prof_codegen != 0 {
         t_mk2 = clock();
@@ -3521,6 +4218,17 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 c99_emit_semi_newline(codegen);
             } else {
                 const target_type_c: &byte = c99_type_to_c(codegen, target_type);
+                // Windows：MinGW 的 corecrt.h 已把 wchar_t/wint_t 定义为 unsigned short，
+                // 而 uya 的 libc/wchar.uya 把它们定义为 i32（UTF-32）。同名 typedef 无法共存，
+                // 且宽字符 API 并非当前 Windows hosted 运行时所需，故此处跳过这两个 typedef，
+                // 让宿主定义保持有效；引用它们的函数在 Windows 目标下不参与链接（见
+                // c99_should_skip_hosted_libc_function_body 的 hosted 跳过规则）。
+                if target_os_is_windows != 0 &&
+                    (strcmp(alias_name as *byte, "wchar_t" as *byte) == 0 ||
+                     strcmp(alias_name as *byte, "wint_t" as *byte) == 0) {
+                    i = i + 1;
+                    continue;
+                }
                 fprintf(codegen.emit_stream as *void, "typedef %s %s;\n" as *byte, target_type_c as *byte, alias_name as *byte);
             }
         }
@@ -3903,6 +4611,15 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     //      重定位，而微应用镜像不含 GOT，microapp 对象提取会失败。
     // entry.uya 中对本函数的调用已在 gen_expr 内联为 -1，故不发射不会留下未定义引用。
     if codegen.container_mode == 0 {
+        // GNU 的 __attribute__((weak)) 在 PE/COFF 目标上不受 lld-link 支持：未定义弱符号
+        // 不会退化为地址 0，`== (void*)0` 判空失效，于是调用到无效地址导致进程启动即崩溃。
+        // Windows 目标下改为直接返回 -1（本函数的语义就是「没有 exec worker 入口」），
+        // 与 microapp 分支的写法保持一致。
+        if target_os_is_windows != 0 {
+            fputs("#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)\n" as *byte, codegen.emit_stream as *void);
+            fputs("int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
+            fputs("#else\n" as *byte, codegen.emit_stream as *void);
+        }
         fputs("#if defined(__GNUC__) || defined(__clang__)\n" as *byte, codegen.emit_stream as *void);
         fputs("extern int32_t uya_pipeline_worker_main_if_requested(void) __attribute__((weak));\n" as *byte, codegen.emit_stream as *void);
         fputs("int32_t uya_pipeline_worker_dispatch(void) {\n" as *byte, codegen.emit_stream as *void);
@@ -3912,6 +4629,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("#else\n" as *byte, codegen.emit_stream as *void);
         fputs("int32_t uya_pipeline_worker_dispatch(void) { return -1; }\n" as *byte, codegen.emit_stream as *void);
         fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+        if target_os_is_windows != 0 {
+            fputs("#endif\n" as *byte, codegen.emit_stream as *void);
+        }
     }
     fputs("int64_t uya_thread_call_i64(void *fn, int64_t arg) {\n" as *byte, codegen.emit_stream as *void);
     fputs("    typedef int64_t (*uya_thrd_fn_i64)(int64_t);\n" as *byte, codegen.emit_stream as *void);
@@ -3993,7 +4713,24 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
             emit_microapp_syscall_helpers(codegen);
         }
             fputs("// 系统调用辅助函数：Linux/Darwin x86-64；Linux/Darwin AArch64；Linux ARM32 EABI\n" as *byte, codegen.emit_stream as *void);
-            fputs("#if (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)\n" as *byte, codegen.emit_stream as *void);
+            // Windows 必须排在 Linux/Darwin 分支之前：MinGW/zig cc 在 x86_64 Windows 上同样
+            // 定义 __x86_64__（但不定义 __linux__），若先判 (__x86_64__ && __linux__) 则不会命中；
+            // 但 Darwin 分支用 (__x86_64__ && __APPLE__) 同样不会误命中。真正的问题在于
+            // 该链的收尾 #else 会把 Windows 判为“无后端”。把 Windows 判据提到最前，
+            // 保证 _WIN32/UYA_TARGET_WINDOWS 一定选中 Windows 分支。
+            // 注意：Windows(LLP64) 上 long 是 32 位，而调用点传入的是 (int64_t) 转换后的
+            // 指针/长度值。若这里沿用 long 形参，高位会被截断，指针变成野地址（实测表现为
+            // _write 读非法地址而崩溃）。故 Windows 版本一律用 int64_t 承载参数。
+            fputs("#if defined(_WIN32) || defined(UYA_TARGET_WINDOWS)\n" as *byte, codegen.emit_stream as *void);
+            fputs("static int64_t uya_windows_syscall(int64_t nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6);\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall0(long nr) { return uya_windows_syscall((int64_t)nr, 0, 0, 0, 0, 0, 0); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall1(long nr, int64_t a1) { return uya_windows_syscall((int64_t)nr, a1, 0, 0, 0, 0, 0); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall2(long nr, int64_t a1, int64_t a2) { return uya_windows_syscall((int64_t)nr, a1, a2, 0, 0, 0, 0); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall3(long nr, int64_t a1, int64_t a2, int64_t a3) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, 0, 0, 0); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall4(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, 0, 0); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall5(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, a5, 0); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("static inline int64_t uya_syscall6(long nr, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) { return uya_windows_syscall((int64_t)nr, a1, a2, a3, a4, a5, a6); }\n" as *byte, codegen.emit_stream as *void);
+            fputs("#elif (defined(__x86_64__) || defined(_M_X64)) && defined(__linux__)\n" as *byte, codegen.emit_stream as *void);
     
     // uya_syscall0 - 无参数
     fputs("static inline long uya_syscall0(long nr) {\n" as *byte, codegen.emit_stream as *void);
@@ -4281,6 +5018,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("        : \"memory\", \"cc\"\n" as *byte, codegen.emit_stream as *void);
         fputs("    );\n" as *byte, codegen.emit_stream as *void);
         fputs("    return r0;\n}\n\n" as *byte, codegen.emit_stream as *void);
+        // 收尾兜底：Windows 分支已提到链首（见函数开头），此处只需给出「无后端」错误。
         fputs("#else\n" as *byte, codegen.emit_stream as *void);
         fputs("#error \"@syscall C99 backend: supported targets are Linux/Darwin x86-64, Linux/Darwin AArch64, and Linux ARM32 EABI. Other OS/arch need a backend.\"\n" as *byte, codegen.emit_stream as *void);
         fputs("#endif\n\n" as *byte, codegen.emit_stream as *void);

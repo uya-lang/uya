@@ -891,7 +891,7 @@ check: uya
 	fi; \
 	echo ""; \
 	echo "验证 std.path Linux/macOS/Windows 平台条件..."; \
-	if ./tests/verify_std_path_platform_targets.sh > /tmp/verify_out.txt 2>&1; then \
+	if ZIG="$(ZIG)" ./tests/verify_std_path_platform_targets.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "✓|✗|验证 std\\.path" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
 		VERIFY_EXIT=0; \
 	else \
@@ -1076,7 +1076,7 @@ check-hosted: b-hosted
 	fi
 	@echo ""
 	@echo "验证 std.path Linux/macOS/Windows 平台条件..."
-	@./tests/verify_std_path_platform_targets.sh; \
+	@ZIG="$(ZIG)" ./tests/verify_std_path_platform_targets.sh; \
 	VERIFY_EXIT=$$?; \
 	if [ $$VERIFY_EXIT -ne 0 ]; then \
 		echo "✗ std.path 跨目标平台条件验证失败"; \

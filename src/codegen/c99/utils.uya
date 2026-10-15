@@ -142,13 +142,16 @@ fn c99_decl_result_cache_pair_slot(name: &byte, context: &byte) i32 {
     if name == null {
         return 0;
     }
-    var h: i32 = hash_string(name);
+    // 哈希计算有意回绕：以 u32 承载乘加，避免有符号溢出 UB
+    // （实测 UBSan：-69312052 * 37）。u32 乘加在 C99 里良定义，位模式与原语义一致。
+    const hn: u32 = hash_string(name) as u32;
+    var h: u32 = hn;
     if context != null {
-        h = h + (hash_string(context) * 37);
+        h = hn + ((hash_string(context) as u32) * 37u);
     } else {
-        h = h + 17;
+        h = hn + 17u;
     }
-    return (h & C99_DECL_RESULT_CACHE_MASK) as i32;
+    return ((h & (C99_DECL_RESULT_CACHE_MASK as u32)) as i32);
 }
 
 fn c99_decl_result_cache_pair_matches(valid: i32, cached_name: &byte, cached_context: &byte, query_name: &byte, query_context: &byte) i32 {
