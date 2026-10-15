@@ -10551,7 +10551,8 @@ static __attribute__((used)) int32_t c99_fn_decl_slice_param_pass_by_value(struc
 static __attribute__((used)) int32_t c99_param_type_ast_is_const_byte_slice(struct ASTNode * param_type_ast);
 static __attribute__((used)) int32_t c99_string_literal_passes_as_const_byte_slice_value(struct ASTNode * callee_fn, int32_t param_index, struct ASTNode * arg);
 static __attribute__((used)) void c99_emit_string_literal_uint8_ptr_expr(struct C99CodeGenerator * codegen, struct ASTNode * expr);
-static __attribute__((used)) void c99_emit_binary_operator(struct C99CodeGenerator * codegen, enum main_TokenType op);
+static __attribute__((used)) int32_t op_code_for_emit(enum main_TokenType op);
+static __attribute__((used)) void c99_emit_binary_operator(struct C99CodeGenerator * codegen, int32_t op_code);
 static __attribute__((used)) struct ASTNode * c99_unwrap_error_value_expr(struct ASTNode * expr);
 static __attribute__((used)) int32_t c99_expr_is_null_literal(struct ASTNode * expr);
 static __attribute__((used)) int32_t c99_emit_error_value_for_err_union_param(struct C99CodeGenerator * codegen, struct ASTNode * fn_decl, int32_t param_index, struct ASTNode * arg);
@@ -10588,15 +10589,15 @@ static __attribute__((used)) void gen_struct_memcmp_comparison(struct C99CodeGen
 static __attribute__((used)) uint8_t * c99_make_temp_name(struct C99CodeGenerator * codegen, uint8_t * prefix);
 static __attribute__((used)) uint8_t * c99_type_c_skip_const(uint8_t * elem_c);
 static __attribute__((used)) void c99_simd_emit_sse_binary_fast_at(struct C99CodeGenerator * codegen, int32_t fast_kind, uint8_t * result_name, uint8_t * left_name, uint8_t * right_name, int32_t lane_off, int32_t lanes);
-static __attribute__((used)) void c99_simd_emit_per_lane_binary_assign(struct C99CodeGenerator * codegen, uint8_t * result_name, uint8_t * left_name, uint8_t * right_name, int32_t lanes, enum main_TokenType simd_op);
+static __attribute__((used)) void c99_simd_emit_per_lane_binary_assign(struct C99CodeGenerator * codegen, uint8_t * result_name, uint8_t * left_name, uint8_t * right_name, int32_t lanes, int32_t simd_op_code);
 static __attribute__((used)) int32_t c99_simd_sse_x4_tile_lane_count_ok(int32_t lanes);
 static __attribute__((used)) int32_t c99_simd_sse_i32_u32_f32_two_or_x4_lane_ok(int32_t lanes);
 static __attribute__((used)) int32_t c99_simd_sse_i8_u8_lane_ok(int32_t lanes);
 static __attribute__((used)) int32_t c99_simd_sse_i64_u64_lane_ok(int32_t lanes);
 static __attribute__((used)) int32_t c99_simd_try_emit_x86_sse_binary(struct C99CodeGenerator * codegen, struct ASTNode * result_type_ast, struct ASTNode * left_type_ast, enum main_TokenType simd_op, uint8_t * result_name, uint8_t * left_name, uint8_t * right_name, int32_t lanes);
 static __attribute__((used)) int32_t c99_simd_try_emit_x86_sse_unary_minus(struct C99CodeGenerator * codegen, struct ASTNode * result_type_ast, uint8_t * result_name, uint8_t * operand_name, int32_t lanes);
-static __attribute__((used)) void c99_emit_simd_binary_operator(struct C99CodeGenerator * codegen, enum main_TokenType op);
-static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGenerator * codegen, enum main_TokenType op, uint8_t * type_c, uint8_t * base_type, uint8_t * left_name, uint8_t * right_name, int32_t lane);
+static __attribute__((used)) void c99_emit_simd_binary_operator(struct C99CodeGenerator * codegen, int32_t op_code);
+static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGenerator * codegen, int32_t op_code, uint8_t * type_c, uint8_t * base_type, uint8_t * left_name, uint8_t * right_name, int32_t lane);
 static __attribute__((used)) struct ASTNode * c99_resolve_simd_type_ast_from_type_node(struct C99CodeGenerator * codegen, struct ASTNode * type_node);
 static __attribute__((used)) struct ASTNode * c99_resolve_struct_decl_from_type_node(struct C99CodeGenerator * codegen, struct ASTNode * type_node);
 static __attribute__((used)) struct ASTNode * c99_resolve_struct_decl_for_member_object(struct C99CodeGenerator * codegen, struct ASTNode * object);
@@ -67385,7 +67386,8 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
     }
     struct err_union_enummain_TokenType op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->binary_expr_op) }; _uya_asbang; });
     const enum main_TokenType op = op_tmp.value;
-    if (op == main_TokenType_TOKEN_LOGICAL_AND) {
+    const int32_t op_code = (int32_t)op;
+    if (op_code == (int32_t)main_TokenType_TOKEN_LOGICAL_AND) {
         if (is_positive == 0) {
             return;
         }
@@ -67399,7 +67401,7 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
         }
         return;
     }
-    if (op == main_TokenType_TOKEN_LOGICAL_OR) {
+    if (op_code == (int32_t)main_TokenType_TOKEN_LOGICAL_OR) {
         if (is_positive == 0) {
             struct ASTNode * const left_or_expr = expr->binary_expr_left;
             struct ASTNode * const right_or_expr = expr->binary_expr_right;
@@ -67412,7 +67414,7 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
         }
         return;
     }
-    if (((((((op != main_TokenType_TOKEN_EQUAL) && (op != main_TokenType_TOKEN_NOT_EQUAL)) && (op != main_TokenType_TOKEN_LESS)) && (op != main_TokenType_TOKEN_GREATER)) && (op != main_TokenType_TOKEN_LESS_EQUAL)) && (op != main_TokenType_TOKEN_GREATER_EQUAL))) {
+    if (((((((op_code != (int32_t)main_TokenType_TOKEN_EQUAL) && (op_code != (int32_t)main_TokenType_TOKEN_NOT_EQUAL)) && (op_code != (int32_t)main_TokenType_TOKEN_LESS)) && (op_code != (int32_t)main_TokenType_TOKEN_GREATER)) && (op_code != (int32_t)main_TokenType_TOKEN_LESS_EQUAL)) && (op_code != (int32_t)main_TokenType_TOKEN_GREATER_EQUAL))) {
         return;
     }
     struct ASTNode * left = expr->binary_expr_left;
@@ -67427,16 +67429,16 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
         struct ASTNode * const tmp = left;
         left = right;
         right = tmp;
-        if (op == main_TokenType_TOKEN_LESS) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_LESS) {
             effective_op = main_TokenType_TOKEN_GREATER;
         } else {
-            if (op == main_TokenType_TOKEN_GREATER) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_GREATER) {
                 effective_op = main_TokenType_TOKEN_LESS;
             } else {
-                if (op == main_TokenType_TOKEN_LESS_EQUAL) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_LESS_EQUAL) {
                     effective_op = main_TokenType_TOKEN_GREATER_EQUAL;
                 } else {
-                    if (op == main_TokenType_TOKEN_GREATER_EQUAL) {
+                    if (op_code == (int32_t)main_TokenType_TOKEN_GREATER_EQUAL) {
                         effective_op = main_TokenType_TOKEN_LESS_EQUAL;
                     }
                 }
@@ -67452,7 +67454,7 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
     }
     uint8_t * const var_name = left_linear.var_name;
     const int32_t var_offset = left_linear.offset;
-    if ((((op == main_TokenType_TOKEN_EQUAL) || (op == main_TokenType_TOKEN_NOT_EQUAL)) && (var_offset == 0))) {
+    if ((((op_code == (int32_t)main_TokenType_TOKEN_EQUAL) || (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL)) && (var_offset == 0))) {
         int32_t is_null_compare = 0;
         uint8_t * ptr_name = NULL;
         if (((right->type == main_ASTNodeType_AST_IDENTIFIER) && (right->identifier_name != NULL))) {
@@ -67468,7 +67470,7 @@ static __attribute__((used)) void constraint_extract_from_binary(struct TypeChec
             }
         }
         if (((is_null_compare != 0) && (ptr_name != NULL))) {
-            if (op == main_TokenType_TOKEN_NOT_EQUAL) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL) {
                 if (is_positive != 0) {
                     (void)(pointer_nonnull_add(checker, (uint8_t *)ptr_name)                    );
                 } else {
@@ -67880,9 +67882,10 @@ static __attribute__((used)) struct LinearExpr extract_linear_expr(struct TypeCh
     if (expr->type == main_ASTNodeType_AST_BINARY_EXPR) {
         struct err_union_enummain_TokenType op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->binary_expr_op) }; _uya_asbang; });
         const enum main_TokenType op = op_tmp.value;
+        const int32_t op_code = (int32_t)op;
         struct ASTNode * const left = expr->binary_expr_left;
         struct ASTNode * const right = expr->binary_expr_right;
-        if (((op != main_TokenType_TOKEN_PLUS) && (op != main_TokenType_TOKEN_MINUS))) {
+        if (((op_code != (int32_t)main_TokenType_TOKEN_PLUS) && (op_code != (int32_t)main_TokenType_TOKEN_MINUS))) {
                         {
                 struct LinearExpr _uya_ret = result;
                 return _uya_ret;
@@ -67893,7 +67896,7 @@ static __attribute__((used)) struct LinearExpr extract_linear_expr(struct TypeCh
         if (((left_expr.is_valid != 0) && (right_expr.is_valid != 0))) {
             if (((left_expr.var_name != NULL) && (right_expr.var_name == NULL))) {
                 result.var_name = left_expr.var_name;
-                if (op == main_TokenType_TOKEN_PLUS) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_PLUS) {
                     result.offset = (int32_t)((uint32_t)left_expr.offset + (uint32_t)right_expr.offset);
                 } else {
                     result.offset = (int32_t)((uint32_t)left_expr.offset - (uint32_t)right_expr.offset);
@@ -67904,7 +67907,7 @@ static __attribute__((used)) struct LinearExpr extract_linear_expr(struct TypeCh
                     return _uya_ret;
                                 }
             } else {
-                if ((((left_expr.var_name == NULL) && (right_expr.var_name != NULL)) && (op == main_TokenType_TOKEN_PLUS))) {
+                if ((((left_expr.var_name == NULL) && (right_expr.var_name != NULL)) && (op_code == (int32_t)main_TokenType_TOKEN_PLUS))) {
                     result.var_name = right_expr.var_name;
                     result.offset = (int32_t)((uint32_t)left_expr.offset + (uint32_t)right_expr.offset);
                     result.is_valid = 1;
@@ -68175,9 +68178,10 @@ static __attribute__((used)) struct Interval eval_expr_interval(struct TypeCheck
     if (expr->type == main_ASTNodeType_AST_BINARY_EXPR) {
         struct err_union_enummain_TokenType op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->binary_expr_op) }; _uya_asbang; });
         const enum main_TokenType op = op_tmp.value;
+        const int32_t op_code = (int32_t)op;
         struct ASTNode * const left = expr->binary_expr_left;
         struct ASTNode * const right = expr->binary_expr_right;
-        if (op == main_TokenType_TOKEN_AMPERSAND) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_AMPERSAND) {
             const int32_t right_const = checker_eval_const_expr(checker, right);
             if (right_const >= 0) {
                                 {
@@ -68193,7 +68197,7 @@ static __attribute__((used)) struct Interval eval_expr_interval(struct TypeCheck
                                 }
             }
         } else {
-            if (op == main_TokenType_TOKEN_PERCENT) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_PERCENT) {
                 const int32_t mod_const = checker_eval_const_expr(checker, right);
                 if (mod_const > 0) {
                     struct Interval left_mod_interval = eval_expr_interval(checker, left);
@@ -68220,31 +68224,31 @@ static __attribute__((used)) struct Interval eval_expr_interval(struct TypeCheck
                 return _uya_ret;
                         }
         }
-        if (op == main_TokenType_TOKEN_PLUS) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_PLUS) {
                         {
                 struct Interval _uya_ret = interval_add(left_interval, right_interval);
                 return _uya_ret;
                         }
         } else {
-            if (op == main_TokenType_TOKEN_MINUS) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_MINUS) {
                                 {
                     struct Interval _uya_ret = interval_sub(left_interval, right_interval);
                     return _uya_ret;
                                 }
             } else {
-                if (op == main_TokenType_TOKEN_ASTERISK) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK) {
                                         {
                         struct Interval _uya_ret = interval_mul(left_interval, right_interval);
                         return _uya_ret;
                                         }
                 } else {
-                    if (op == main_TokenType_TOKEN_SLASH) {
+                    if (op_code == (int32_t)main_TokenType_TOKEN_SLASH) {
                                                 {
                             struct Interval _uya_ret = interval_div(left_interval, right_interval);
                             return _uya_ret;
                                                 }
                     } else {
-                        if (op == main_TokenType_TOKEN_PERCENT) {
+                        if (op_code == (int32_t)main_TokenType_TOKEN_PERCENT) {
                             if ((((right_interval.min == right_interval.max) && (right_interval.min > 0)) && (left_interval.min >= 0))) {
                                 if (left_interval.max < right_interval.min) {
                                                                         {
@@ -68262,19 +68266,19 @@ static __attribute__((used)) struct Interval eval_expr_interval(struct TypeCheck
                                 return _uya_ret;
                                                         }
                         } else {
-                            if (op == main_TokenType_TOKEN_AMPERSAND) {
+                            if (op_code == (int32_t)main_TokenType_TOKEN_AMPERSAND) {
                                                                 {
                                     struct Interval _uya_ret = interval_bitand(left_interval, right_interval);
                                     return _uya_ret;
                                                                 }
                             } else {
-                                if (op == main_TokenType_TOKEN_LSHIFT) {
+                                if (op_code == (int32_t)main_TokenType_TOKEN_LSHIFT) {
                                                                         {
                                         struct Interval _uya_ret = interval_shl(left_interval, right_interval);
                                         return _uya_ret;
                                                                         }
                                 } else {
-                                    if (op == main_TokenType_TOKEN_RSHIFT) {
+                                    if (op_code == (int32_t)main_TokenType_TOKEN_RSHIFT) {
                                                                                 {
                                             struct Interval _uya_ret = interval_shr(left_interval, right_interval);
                                             return _uya_ret;
@@ -123970,64 +123974,72 @@ static __attribute__((used)) void c99_emit_string_literal_uint8_ptr_expr(struct 
     }
 }
 
-static __attribute__((used)) void c99_emit_binary_operator(struct C99CodeGenerator * codegen, enum main_TokenType op) {
-    (void)codegen;
+static __attribute__((used)) int32_t op_code_for_emit(enum main_TokenType op) {
     (void)op;
+        {
+        int32_t _uya_ret = (int32_t)op;
+        return _uya_ret;
+        }
+}
+
+static __attribute__((used)) void c99_emit_binary_operator(struct C99CodeGenerator * codegen, int32_t op_code) {
+    (void)codegen;
+    (void)op_code;
     if (codegen == NULL) {
         return;
     }
-    if (op == main_TokenType_TOKEN_PLUS) {
+    if (op_code == (int32_t)main_TokenType_TOKEN_PLUS) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str587, (void *)codegen->emit_stream)        );
     } else {
-        if (op == main_TokenType_TOKEN_MINUS) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_MINUS) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str588, (void *)codegen->emit_stream)            );
         } else {
-            if (op == main_TokenType_TOKEN_ASTERISK) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str589, (void *)codegen->emit_stream)                );
             } else {
-                if (op == main_TokenType_TOKEN_SLASH) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_SLASH) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str590, (void *)codegen->emit_stream)                    );
                 } else {
-                    if (op == main_TokenType_TOKEN_PERCENT) {
+                    if (op_code == (int32_t)main_TokenType_TOKEN_PERCENT) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str591, (void *)codegen->emit_stream)                        );
                     } else {
-                        if (op == main_TokenType_TOKEN_EQUAL) {
+                        if (op_code == (int32_t)main_TokenType_TOKEN_EQUAL) {
                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str592, (void *)codegen->emit_stream)                            );
                         } else {
-                            if (op == main_TokenType_TOKEN_NOT_EQUAL) {
+                            if (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL) {
                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str593, (void *)codegen->emit_stream)                                );
                             } else {
-                                if (op == main_TokenType_TOKEN_LESS) {
+                                if (op_code == (int32_t)main_TokenType_TOKEN_LESS) {
                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str594, (void *)codegen->emit_stream)                                    );
                                 } else {
-                                    if (op == main_TokenType_TOKEN_GREATER) {
+                                    if (op_code == (int32_t)main_TokenType_TOKEN_GREATER) {
                                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str595, (void *)codegen->emit_stream)                                        );
                                     } else {
-                                        if (op == main_TokenType_TOKEN_LESS_EQUAL) {
+                                        if (op_code == (int32_t)main_TokenType_TOKEN_LESS_EQUAL) {
                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str596, (void *)codegen->emit_stream)                                            );
                                         } else {
-                                            if (op == main_TokenType_TOKEN_GREATER_EQUAL) {
+                                            if (op_code == (int32_t)main_TokenType_TOKEN_GREATER_EQUAL) {
                                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str597, (void *)codegen->emit_stream)                                                );
                                             } else {
-                                                if (op == main_TokenType_TOKEN_LOGICAL_AND) {
+                                                if (op_code == (int32_t)main_TokenType_TOKEN_LOGICAL_AND) {
                                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str598, (void *)codegen->emit_stream)                                                    );
                                                 } else {
-                                                    if (op == main_TokenType_TOKEN_LOGICAL_OR) {
+                                                    if (op_code == (int32_t)main_TokenType_TOKEN_LOGICAL_OR) {
                                                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str599, (void *)codegen->emit_stream)                                                        );
                                                     } else {
-                                                        if (op == main_TokenType_TOKEN_AMPERSAND) {
+                                                        if (op_code == (int32_t)main_TokenType_TOKEN_AMPERSAND) {
                                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str600, (void *)codegen->emit_stream)                                                            );
                                                         } else {
-                                                            if (op == main_TokenType_TOKEN_PIPE) {
+                                                            if (op_code == (int32_t)main_TokenType_TOKEN_PIPE) {
                                                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str601, (void *)codegen->emit_stream)                                                                );
                                                             } else {
-                                                                if (op == main_TokenType_TOKEN_CARET) {
+                                                                if (op_code == (int32_t)main_TokenType_TOKEN_CARET) {
                                                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str602, (void *)codegen->emit_stream)                                                                    );
                                                                 } else {
-                                                                    if (op == main_TokenType_TOKEN_LSHIFT) {
+                                                                    if (op_code == (int32_t)main_TokenType_TOKEN_LSHIFT) {
                                                                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str603, (void *)codegen->emit_stream)                                                                        );
                                                                     } else {
-                                                                        if (op == main_TokenType_TOKEN_RSHIFT) {
+                                                                        if (op_code == (int32_t)main_TokenType_TOKEN_RSHIFT) {
                                                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str604, (void *)codegen->emit_stream)                                                                            );
                                                                         } else {
                                                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str587, (void *)codegen->emit_stream)                                                                            );
@@ -124638,7 +124650,7 @@ static __attribute__((used)) void c99_emit_condition_expr(struct C99CodeGenerato
         struct err_union_enummain_TokenType op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->binary_expr_op) }; _uya_asbang; });
         const enum main_TokenType op = op_tmp.value;
         (void)(gen_expr(codegen, left)        );
-        (void)(c99_emit_binary_operator(codegen, op)        );
+        (void)(c99_emit_binary_operator(codegen, op_code_for_emit(op))        );
         (void)(gen_expr(codegen, right)        );
         return;
     }
@@ -127918,13 +127930,13 @@ static __attribute__((used)) void c99_simd_emit_sse_binary_fast_at(struct C99Cod
     }
 }
 
-static __attribute__((used)) void c99_simd_emit_per_lane_binary_assign(struct C99CodeGenerator * codegen, uint8_t * result_name, uint8_t * left_name, uint8_t * right_name, int32_t lanes, enum main_TokenType simd_op) {
+static __attribute__((used)) void c99_simd_emit_per_lane_binary_assign(struct C99CodeGenerator * codegen, uint8_t * result_name, uint8_t * left_name, uint8_t * right_name, int32_t lanes, int32_t simd_op_code) {
     (void)codegen;
     (void)result_name;
     (void)left_name;
     (void)right_name;
     (void)lanes;
-    (void)simd_op;
+    (void)simd_op_code;
     if ((((((codegen == NULL) || (result_name == NULL)) || (left_name == NULL)) || (right_name == NULL)) || (lanes <= 0))) {
         return;
     }
@@ -127932,7 +127944,7 @@ static __attribute__((used)) void c99_simd_emit_per_lane_binary_assign(struct C9
     while (ii < lanes) {
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3102, (uint8_t *)result_name, ii)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3103, (uint8_t *)left_name, ii)        );
-        (void)(c99_emit_simd_binary_operator(codegen, simd_op)        );
+        (void)(c99_emit_simd_binary_operator(codegen, simd_op_code)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3104, (uint8_t *)right_name, ii)        );
         ii = (ii + 1);
     }
@@ -129017,55 +129029,55 @@ static __attribute__((used)) int32_t c99_simd_try_emit_x86_sse_unary_minus(struc
         }
 }
 
-static __attribute__((used)) void c99_emit_simd_binary_operator(struct C99CodeGenerator * codegen, enum main_TokenType op) {
+static __attribute__((used)) void c99_emit_simd_binary_operator(struct C99CodeGenerator * codegen, int32_t op_code) {
     (void)codegen;
-    (void)op;
-    if (op == main_TokenType_TOKEN_PLUS) {
+    (void)op_code;
+    if (op_code == (int32_t)main_TokenType_TOKEN_PLUS) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str587, (void *)codegen->emit_stream)        );
     } else {
-        if (op == main_TokenType_TOKEN_MINUS) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_MINUS) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str588, (void *)codegen->emit_stream)            );
         } else {
-            if (op == main_TokenType_TOKEN_ASTERISK) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str589, (void *)codegen->emit_stream)                );
             } else {
-                if (op == main_TokenType_TOKEN_SLASH) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_SLASH) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str590, (void *)codegen->emit_stream)                    );
                 } else {
-                    if (op == main_TokenType_TOKEN_PERCENT) {
+                    if (op_code == (int32_t)main_TokenType_TOKEN_PERCENT) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str591, (void *)codegen->emit_stream)                        );
                     } else {
-                        if (op == main_TokenType_TOKEN_EQUAL) {
+                        if (op_code == (int32_t)main_TokenType_TOKEN_EQUAL) {
                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str592, (void *)codegen->emit_stream)                            );
                         } else {
-                            if (op == main_TokenType_TOKEN_NOT_EQUAL) {
+                            if (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL) {
                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str593, (void *)codegen->emit_stream)                                );
                             } else {
-                                if (op == main_TokenType_TOKEN_LESS) {
+                                if (op_code == (int32_t)main_TokenType_TOKEN_LESS) {
                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str594, (void *)codegen->emit_stream)                                    );
                                 } else {
-                                    if (op == main_TokenType_TOKEN_GREATER) {
+                                    if (op_code == (int32_t)main_TokenType_TOKEN_GREATER) {
                                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str595, (void *)codegen->emit_stream)                                        );
                                     } else {
-                                        if (op == main_TokenType_TOKEN_LESS_EQUAL) {
+                                        if (op_code == (int32_t)main_TokenType_TOKEN_LESS_EQUAL) {
                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str596, (void *)codegen->emit_stream)                                            );
                                         } else {
-                                            if (op == main_TokenType_TOKEN_GREATER_EQUAL) {
+                                            if (op_code == (int32_t)main_TokenType_TOKEN_GREATER_EQUAL) {
                                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str597, (void *)codegen->emit_stream)                                                );
                                             } else {
-                                                if (op == main_TokenType_TOKEN_AMPERSAND) {
+                                                if (op_code == (int32_t)main_TokenType_TOKEN_AMPERSAND) {
                                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str600, (void *)codegen->emit_stream)                                                    );
                                                 } else {
-                                                    if (op == main_TokenType_TOKEN_PIPE) {
+                                                    if (op_code == (int32_t)main_TokenType_TOKEN_PIPE) {
                                                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str601, (void *)codegen->emit_stream)                                                        );
                                                     } else {
-                                                        if (op == main_TokenType_TOKEN_CARET) {
+                                                        if (op_code == (int32_t)main_TokenType_TOKEN_CARET) {
                                                             (void)(std_io_fputs((uint8_t *)(uint8_t *)str602, (void *)codegen->emit_stream)                                                            );
                                                         } else {
-                                                            if (op == main_TokenType_TOKEN_LSHIFT) {
+                                                            if (op_code == (int32_t)main_TokenType_TOKEN_LSHIFT) {
                                                                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str603, (void *)codegen->emit_stream)                                                                );
                                                             } else {
-                                                                if (op == main_TokenType_TOKEN_RSHIFT) {
+                                                                if (op_code == (int32_t)main_TokenType_TOKEN_RSHIFT) {
                                                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str604, (void *)codegen->emit_stream)                                                                    );
                                                                 } else {
                                                                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str587, (void *)codegen->emit_stream)                                                                    );
@@ -129087,9 +129099,9 @@ static __attribute__((used)) void c99_emit_simd_binary_operator(struct C99CodeGe
     }
 }
 
-static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGenerator * codegen, enum main_TokenType op, uint8_t * type_c, uint8_t * base_type, uint8_t * left_name, uint8_t * right_name, int32_t lane) {
+static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGenerator * codegen, int32_t op_code, uint8_t * type_c, uint8_t * base_type, uint8_t * left_name, uint8_t * right_name, int32_t lane) {
     (void)codegen;
-    (void)op;
+    (void)op_code;
     (void)type_c;
     (void)base_type;
     (void)left_name;
@@ -129098,15 +129110,15 @@ static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGene
     if ((((((codegen == NULL) || (type_c == NULL)) || (base_type == NULL)) || (left_name == NULL)) || (right_name == NULL))) {
         return;
     }
-    if ((((op == main_TokenType_TOKEN_PLUS_PIPE) || (op == main_TokenType_TOKEN_MINUS_PIPE)) || (op == main_TokenType_TOKEN_ASTERISK_PIPE))) {
+    if ((((op_code == (int32_t)main_TokenType_TOKEN_PLUS_PIPE) || (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PIPE)) || (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PIPE))) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2652, (void *)codegen->emit_stream)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3126, (uint8_t *)base_type, (uint8_t *)left_name, lane)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3127, (uint8_t *)base_type, (uint8_t *)right_name, lane)        );
         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3128, (uint8_t *)base_type)        );
-        if (op == main_TokenType_TOKEN_PLUS_PIPE) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_PLUS_PIPE) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str3129, (void *)codegen->emit_stream)            );
         } else {
-            if (op == main_TokenType_TOKEN_MINUS_PIPE) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PIPE) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str3130, (void *)codegen->emit_stream)                );
             } else {
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str3131, (uint8_t *)base_type)                );
@@ -129116,7 +129128,7 @@ static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGene
         (void)(gen_saturate_limit_from_type_c(codegen, (uint8_t *)type_c, 1)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3133, (void *)codegen->emit_stream)        );
         (void)(gen_saturate_limit_from_type_c(codegen, (uint8_t *)type_c, 0)        );
-        if (op == main_TokenType_TOKEN_ASTERISK_PIPE) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PIPE) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str3134, (void *)codegen->emit_stream)            );
         } else {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str3135, (void *)codegen->emit_stream)            );
@@ -129125,10 +129137,10 @@ static __attribute__((used)) void c99_emit_simd_lane_sat_wrap(struct C99CodeGene
     }
     uint8_t * const ut = unsigned_type_for_wrapping((uint8_t *)type_c);
     (void)(fprintf((void *)codegen->emit_stream, (const char *)str3136, (uint8_t *)type_c, (uint8_t *)ut, (uint8_t *)left_name, lane)    );
-    if (op == main_TokenType_TOKEN_PLUS_PERCENT) {
+    if (op_code == (int32_t)main_TokenType_TOKEN_PLUS_PERCENT) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3137, (void *)codegen->emit_stream)        );
     } else {
-        if (op == main_TokenType_TOKEN_MINUS_PERCENT) {
+        if (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PERCENT) {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str3138, (void *)codegen->emit_stream)            );
         } else {
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str3139, (void *)codegen->emit_stream)            );
@@ -131215,7 +131227,7 @@ static __attribute__((used)) int32_t c99_gen_simd_binary_expr(struct C99CodeGene
         int32_t j = 0;
         while (j < lanes) {
             (void)(fprintf((void *)codegen->emit_stream, (const char *)str3254, (uint8_t *)result_name, j)            );
-            (void)(c99_emit_simd_lane_sat_wrap(codegen, simd_op, elem_c, (uint8_t *)base_type, left_name, right_name, j)            );
+            (void)(c99_emit_simd_lane_sat_wrap(codegen, op_code_for_emit(simd_op), elem_c, (uint8_t *)base_type, left_name, right_name, j)            );
             (void)(std_io_fputs((uint8_t *)(uint8_t *)str2659, (void *)codegen->emit_stream)            );
             j = (j + 1);
         }
@@ -131226,7 +131238,7 @@ static __attribute__((used)) int32_t c99_gen_simd_binary_expr(struct C99CodeGene
                 }
     }
     if (c99_simd_try_emit_x86_sse_binary(codegen, result_type_ast, left_type_ast, simd_op, result_name, left_name, right_name, lanes) == 0) {
-        (void)(c99_simd_emit_per_lane_binary_assign(codegen, result_name, left_name, right_name, lanes, simd_op)        );
+        (void)(c99_simd_emit_per_lane_binary_assign(codegen, result_name, left_name, right_name, lanes, op_code_for_emit(simd_op))        );
     }
     (void)(fprintf((void *)codegen->emit_stream, (const char *)str3156, (uint8_t *)result_name)    );
         {
@@ -131323,6 +131335,7 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
     struct ASTNode * const right = expr->binary_expr_right;
     struct err_union_enummain_TokenType op_tmp = ({ struct err_union_enummain_TokenType _uya_asbang = { .error_id = 0, .value = (enum main_TokenType)(expr->binary_expr_op) }; _uya_asbang; });
     const enum main_TokenType op = op_tmp.value;
+    const int32_t op_code = (int32_t)op;
     if (((left == NULL) || (right == NULL))) {
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str264, (void *)codegen->emit_stream)        );
         return;
@@ -131330,14 +131343,14 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
     if (c99_gen_simd_binary_expr(codegen, expr) != 0) {
         return;
     }
-    if (((op == main_TokenType_TOKEN_EQUAL) || (op == main_TokenType_TOKEN_NOT_EQUAL))) {
+    if (((op_code == (int32_t)main_TokenType_TOKEN_EQUAL) || (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL))) {
         if (gen_error_value_comparison(codegen, left, right, op) != 0) {
             return;
         }
     }
     int32_t is_struct_comparison = 0;
     struct ASTNode * struct_decl = NULL;
-    if (((((op == main_TokenType_TOKEN_EQUAL) || (op == main_TokenType_TOKEN_NOT_EQUAL)) && (left != NULL)) && (right != NULL))) {
+    if (((((op_code == (int32_t)main_TokenType_TOKEN_EQUAL) || (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL)) && (left != NULL)) && (right != NULL))) {
         struct_decl = c99_struct_decl_for_value_comparison(codegen, left);
         if (struct_decl == NULL) {
             struct_decl = c99_struct_decl_for_value_comparison(codegen, right);
@@ -131348,16 +131361,16 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
     }
     if (is_struct_comparison != 0) {
         if (((struct_decl != NULL) && (struct_decl->struct_decl_field_count == 0))) {
-            if (op == main_TokenType_TOKEN_EQUAL) {
+            if (op_code == (int32_t)main_TokenType_TOKEN_EQUAL) {
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str2820, (void *)codegen->emit_stream)                );
             } else {
-                if (op == main_TokenType_TOKEN_NOT_EQUAL) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3257, (void *)codegen->emit_stream)                    );
                 }
             }
         } else {
             if ((((struct_decl != NULL) && (struct_decl->type == main_ASTNodeType_AST_STRUCT_DECL)) && (struct_decl->struct_decl_field_count > 0))) {
-                if (op == main_TokenType_TOKEN_NOT_EQUAL) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3258, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(std_io_fputc(40, (void *)codegen->emit_stream)                    );
@@ -131365,7 +131378,7 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
                 uint8_t * root_path[16] = {0};
                 (void)(c99_emit_struct_decl_comparison(codegen, left, right, struct_decl, (&root_path[0]), 0)                );
                 (void)(std_io_fputc(41, (void *)codegen->emit_stream)                );
-                if (op == main_TokenType_TOKEN_NOT_EQUAL) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_NOT_EQUAL) {
                     (void)(std_io_fputc(41, (void *)codegen->emit_stream)                    );
                 }
             } else {
@@ -131373,12 +131386,12 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
             }
         }
     } else {
-        if (((((((op == main_TokenType_TOKEN_PLUS_PIPE) || (op == main_TokenType_TOKEN_MINUS_PIPE)) || (op == main_TokenType_TOKEN_ASTERISK_PIPE)) || (op == main_TokenType_TOKEN_PLUS_PERCENT)) || (op == main_TokenType_TOKEN_MINUS_PERCENT)) || (op == main_TokenType_TOKEN_ASTERISK_PERCENT))) {
+        if (((((((op_code == (int32_t)main_TokenType_TOKEN_PLUS_PIPE) || (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PIPE)) || (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PIPE)) || (op_code == (int32_t)main_TokenType_TOKEN_PLUS_PERCENT)) || (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PERCENT)) || (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PERCENT))) {
             uint8_t * type_c = get_c_type_of_expr(codegen, left);
             if (type_c == NULL) {
                 type_c = (uint8_t *)(uint8_t *)str2717;
             }
-            if ((((op == main_TokenType_TOKEN_PLUS_PIPE) || (op == main_TokenType_TOKEN_MINUS_PIPE)) || (op == main_TokenType_TOKEN_ASTERISK_PIPE))) {
+            if ((((op_code == (int32_t)main_TokenType_TOKEN_PLUS_PIPE) || (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PIPE)) || (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PIPE))) {
                 uint8_t * base_type = type_c;
                 if (((type_c != NULL) && (std_string_strncmp((uint8_t *)type_c, (uint8_t *)(uint8_t *)str564, 6) == 0))) {
                     base_type = (uint8_t *)((uint8_t *)type_c + 6);
@@ -131394,10 +131407,10 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
                 (void)(gen_expr(codegen, right)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str2595, (void *)codegen->emit_stream)                );
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str3128, (uint8_t *)base_type)                );
-                if (op == main_TokenType_TOKEN_PLUS_PIPE) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_PLUS_PIPE) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3129, (void *)codegen->emit_stream)                    );
                 } else {
-                    if (op == main_TokenType_TOKEN_MINUS_PIPE) {
+                    if (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PIPE) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3130, (void *)codegen->emit_stream)                        );
                     } else {
                         (void)(fprintf((void *)codegen->emit_stream, (const char *)str3131, (uint8_t *)base_type)                        );
@@ -131407,7 +131420,7 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
                 (void)(gen_saturate_limit_from_type_c(codegen, (uint8_t *)type_c, 1)                );
                 (void)(std_io_fputs((uint8_t *)(uint8_t *)str3133, (void *)codegen->emit_stream)                );
                 (void)(gen_saturate_limit_from_type_c(codegen, (uint8_t *)type_c, 0)                );
-                if (op == main_TokenType_TOKEN_ASTERISK_PIPE) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_ASTERISK_PIPE) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3134, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3135, (void *)codegen->emit_stream)                    );
@@ -131416,10 +131429,10 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
                 uint8_t * const ut = unsigned_type_for_wrapping((uint8_t *)type_c);
                 (void)(fprintf((void *)codegen->emit_stream, (const char *)str3261, (uint8_t *)type_c, (uint8_t *)ut)                );
                 (void)(gen_expr(codegen, left)                );
-                if (op == main_TokenType_TOKEN_PLUS_PERCENT) {
+                if (op_code == (int32_t)main_TokenType_TOKEN_PLUS_PERCENT) {
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str3262, (void *)codegen->emit_stream)                    );
                 } else {
-                    if (op == main_TokenType_TOKEN_MINUS_PERCENT) {
+                    if (op_code == (int32_t)main_TokenType_TOKEN_MINUS_PERCENT) {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3263, (void *)codegen->emit_stream)                        );
                     } else {
                         (void)(std_io_fputs((uint8_t *)(uint8_t *)str3264, (void *)codegen->emit_stream)                        );
@@ -131432,7 +131445,7 @@ static __attribute__((used)) void gen_binary_expr(struct C99CodeGenerator * code
         } else {
             (void)(std_io_fputc(40, (void *)codegen->emit_stream)            );
             (void)(gen_expr(codegen, left)            );
-            (void)(c99_emit_binary_operator(codegen, op)            );
+            (void)(c99_emit_binary_operator(codegen, op_code_for_emit(op))            );
             (void)(gen_expr(codegen, right)            );
             (void)(std_io_fputc(41, (void *)codegen->emit_stream)            );
         }

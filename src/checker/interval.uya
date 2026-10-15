@@ -445,9 +445,13 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
 
     const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
     const op: TokenType = op_tmp.value;
+    // 操作符的 i32 快照：该函数的控制流会对 op 做多处/多次比较，
+    // 而独立检查（单独 check 本文件）时枚举操作数在第二次读取即被判为「已被移动」。
+    // 快照一次后所有比较都走 i32，规避该误报且语义等价。
+    const op_code: i32 = op as i32;
 
     // 处理逻辑与（&&）：正条件下 A && B 同时成立
-    if op == TokenType.TOKEN_LOGICAL_AND {
+    if op_code == TokenType.TOKEN_LOGICAL_AND as i32 {
         if is_positive == 0 {
             return;
         }
@@ -463,7 +467,7 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
     }
 
     // 处理逻辑或（||）：负条件下 !(A || B) 等价于 !A && !B
-    if op == TokenType.TOKEN_LOGICAL_OR {
+    if op_code == TokenType.TOKEN_LOGICAL_OR as i32 {
         if is_positive == 0 {
             const left_or_expr: &ASTNode = expr.binary_expr_left;
             const right_or_expr: &ASTNode = expr.binary_expr_right;
@@ -478,9 +482,9 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
     }
 
     // 只处理比较运算符
-    if op != TokenType.TOKEN_EQUAL && op != TokenType.TOKEN_NOT_EQUAL &&
-       op != TokenType.TOKEN_LESS && op != TokenType.TOKEN_GREATER &&
-       op != TokenType.TOKEN_LESS_EQUAL && op != TokenType.TOKEN_GREATER_EQUAL {
+    if op_code != TokenType.TOKEN_EQUAL as i32 && op_code != TokenType.TOKEN_NOT_EQUAL as i32 &&
+       op_code != TokenType.TOKEN_LESS as i32 && op_code != TokenType.TOKEN_GREATER as i32 &&
+       op_code != TokenType.TOKEN_LESS_EQUAL as i32 && op_code != TokenType.TOKEN_GREATER_EQUAL as i32 {
         return;
     }
 
@@ -504,13 +508,13 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
         left = right;
         right = tmp;
         // 翻转比较操作符
-        if op == TokenType.TOKEN_LESS {             // < -> >
+        if op_code == TokenType.TOKEN_LESS as i32 {             // < -> >
             effective_op = TokenType.TOKEN_GREATER;
-        } else if op == TokenType.TOKEN_GREATER {   // > -> <
+        } else if op_code == TokenType.TOKEN_GREATER as i32 {   // > -> <
             effective_op = TokenType.TOKEN_LESS;
-        } else if op == TokenType.TOKEN_LESS_EQUAL {    // <= -> >=
+        } else if op_code == TokenType.TOKEN_LESS_EQUAL as i32 {    // <= -> >=
             effective_op = TokenType.TOKEN_GREATER_EQUAL;
-        } else if op == TokenType.TOKEN_GREATER_EQUAL { // >= -> <=
+        } else if op_code == TokenType.TOKEN_GREATER_EQUAL as i32 { // >= -> <=
             effective_op = TokenType.TOKEN_LESS_EQUAL;
         }
         // == 和 != 不需要翻转
@@ -533,7 +537,7 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
 
     // 检查是否是指针与 null 的比较（用于空指针检测）
     // 注意：指针比较不支持偏移量
-    if (op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL) && var_offset == 0 {
+    if (op_code == TokenType.TOKEN_EQUAL as i32 || op_code == TokenType.TOKEN_NOT_EQUAL as i32) && var_offset == 0 {
         var is_null_compare: i32 = 0;
         var ptr_name: &byte = null;
 
@@ -554,7 +558,7 @@ fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_posi
 
         if is_null_compare != 0 && ptr_name != null {
             // 指针与 null 的比较
-            if op == TokenType.TOKEN_NOT_EQUAL {
+            if op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
                 // ptr != null
                 if is_positive != 0 {
                     // then 分支：ptr 非空
@@ -948,11 +952,13 @@ fn extract_linear_expr(checker: &TypeChecker, expr: &ASTNode) LinearExpr {
     if expr.type == ASTNodeType.AST_BINARY_EXPR {
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
+        // 操作符 i32 快照：独立检查时枚举被多次读取会被判为「已被移动」。
+        const op_code: i32 = op as i32;
         const left: &ASTNode = expr.binary_expr_left;
         const right: &ASTNode = expr.binary_expr_right;
 
         // 只支持 + 和 - 运算
-        if op != TokenType.TOKEN_PLUS && op != TokenType.TOKEN_MINUS {
+        if op_code != TokenType.TOKEN_PLUS as i32 && op_code != TokenType.TOKEN_MINUS as i32 {
             return result;
         }
 
@@ -967,14 +973,14 @@ fn extract_linear_expr(checker: &TypeChecker, expr: &ASTNode) LinearExpr {
             if left_expr.var_name != null && right_expr.var_name == null {
                 // var + const 或 var - const
                 result.var_name = left_expr.var_name;
-                if op == TokenType.TOKEN_PLUS {
+                if op_code == TokenType.TOKEN_PLUS as i32 {
                     result.offset = ((left_expr.offset as u32) + (right_expr.offset as u32)) as i32;
                 } else {
                     result.offset = ((left_expr.offset as u32) - (right_expr.offset as u32)) as i32;
                 }
                 result.is_valid = 1;
                 return result;
-            } else if left_expr.var_name == null && right_expr.var_name != null && op == TokenType.TOKEN_PLUS {
+            } else if left_expr.var_name == null && right_expr.var_name != null && op_code == TokenType.TOKEN_PLUS as i32 {
                 // const + var（只有加法支持交换律）
                 result.var_name = right_expr.var_name;
                 result.offset = ((left_expr.offset as u32) + (right_expr.offset as u32)) as i32;
@@ -1195,9 +1201,11 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
     if expr.type == ASTNodeType.AST_BINARY_EXPR {
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
+        // 操作符 i32 快照：独立检查时枚举被多次读取会被判为「已被移动」。
+        const op_code: i32 = op as i32;
         const left: &ASTNode = expr.binary_expr_left;
         const right: &ASTNode = expr.binary_expr_right;
-        if op == TokenType.TOKEN_AMPERSAND {
+        if op_code == TokenType.TOKEN_AMPERSAND as i32 {
             const right_const: i32 = checker_eval_const_expr(checker, right);
             if right_const >= 0 {
                 return interval_range(0, right_const);
@@ -1206,7 +1214,7 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
             if left_const >= 0 {
                 return interval_range(0, left_const);
             }
-        } else if op == TokenType.TOKEN_PERCENT {
+        } else if op_code == TokenType.TOKEN_PERCENT as i32 {
             const mod_const: i32 = checker_eval_const_expr(checker, right);
             if mod_const > 0 {
                 const left_mod_interval: Interval = eval_expr_interval(checker, left);
@@ -1226,15 +1234,15 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
             return interval_invalid();
         }
 
-        if op == TokenType.TOKEN_PLUS {
+        if op_code == TokenType.TOKEN_PLUS as i32 {
             return interval_add(left_interval, right_interval);
-        } else if op == TokenType.TOKEN_MINUS {
+        } else if op_code == TokenType.TOKEN_MINUS as i32 {
             return interval_sub(left_interval, right_interval);
-        } else if op == TokenType.TOKEN_ASTERISK {
+        } else if op_code == TokenType.TOKEN_ASTERISK as i32 {
             return interval_mul(left_interval, right_interval);
-        } else if op == TokenType.TOKEN_SLASH {
+        } else if op_code == TokenType.TOKEN_SLASH as i32 {
             return interval_div(left_interval, right_interval);
-        } else if op == TokenType.TOKEN_PERCENT {
+        } else if op_code == TokenType.TOKEN_PERCENT as i32 {
             if right_interval.min == right_interval.max && right_interval.min > 0 && left_interval.min >= 0 {
                 if left_interval.max < right_interval.min {
                     return interval_range(left_interval.min, left_interval.max);
@@ -1242,11 +1250,11 @@ fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
                 return interval_range(0, ((right_interval.min as u32) - 1u) as i32);
             }
             return interval_invalid();
-        } else if op == TokenType.TOKEN_AMPERSAND {
+        } else if op_code == TokenType.TOKEN_AMPERSAND as i32 {
             return interval_bitand(left_interval, right_interval);
-        } else if op == TokenType.TOKEN_LSHIFT {
+        } else if op_code == TokenType.TOKEN_LSHIFT as i32 {
             return interval_shl(left_interval, right_interval);
-        } else if op == TokenType.TOKEN_RSHIFT {
+        } else if op_code == TokenType.TOKEN_RSHIFT as i32 {
             return interval_shr(left_interval, right_interval);
         }
 

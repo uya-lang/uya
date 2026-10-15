@@ -1847,45 +1847,55 @@ fn c99_emit_string_literal_uint8_ptr_expr(codegen: &C99CodeGenerator, expr: &AST
     }
 }
 
-fn c99_emit_binary_operator(codegen: &C99CodeGenerator, op: TokenType) void {
+// 取 TokenType 的 i32 编码（避免枚举按值传递触发「已移动」判定）。
+fn op_code_for_emit(op: TokenType) i32 {
+    return op as i32;
+}
+
+/// 发射二元运算符的 C 文本。
+/// 参数说明：codegen 为代码生成器；op_code 为运算符的 i32 取值（TokenType 的整数编码）。
+/// 返回值说明：无。
+/// 说明：形参用 i32 而非 TokenType——枚举按值传入后源变量视为已移动，
+/// 调用点若在之后还要读取同一个枚举会误报「变量已被移动」。
+fn c99_emit_binary_operator(codegen: &C99CodeGenerator, op_code: i32) void {
     if codegen == null {
         return;
     }
-    if op == TokenType.TOKEN_PLUS {
+    if op_code == TokenType.TOKEN_PLUS as i32 {
         fputs(" + " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_MINUS {
+    } else if op_code == TokenType.TOKEN_MINUS as i32 {
         fputs(" - " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_ASTERISK {
+    } else if op_code == TokenType.TOKEN_ASTERISK as i32 {
         fputs(" * " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_SLASH {
+    } else if op_code == TokenType.TOKEN_SLASH as i32 {
         fputs(" / " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_PERCENT {
+    } else if op_code == TokenType.TOKEN_PERCENT as i32 {
         fputs(" % " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_EQUAL {
+    } else if op_code == TokenType.TOKEN_EQUAL as i32 {
         fputs(" == " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_NOT_EQUAL {
+    } else if op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
         fputs(" != " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LESS {
+    } else if op_code == TokenType.TOKEN_LESS as i32 {
         fputs(" < " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_GREATER {
+    } else if op_code == TokenType.TOKEN_GREATER as i32 {
         fputs(" > " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LESS_EQUAL {
+    } else if op_code == TokenType.TOKEN_LESS_EQUAL as i32 {
         fputs(" <= " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_GREATER_EQUAL {
+    } else if op_code == TokenType.TOKEN_GREATER_EQUAL as i32 {
         fputs(" >= " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LOGICAL_AND {
+    } else if op_code == TokenType.TOKEN_LOGICAL_AND as i32 {
         fputs(" && " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LOGICAL_OR {
+    } else if op_code == TokenType.TOKEN_LOGICAL_OR as i32 {
         fputs(" || " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_AMPERSAND {
+    } else if op_code == TokenType.TOKEN_AMPERSAND as i32 {
         fputs(" & " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_PIPE {
+    } else if op_code == TokenType.TOKEN_PIPE as i32 {
         fputs(" | " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_CARET {
+    } else if op_code == TokenType.TOKEN_CARET as i32 {
         fputs(" ^ " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LSHIFT {
+    } else if op_code == TokenType.TOKEN_LSHIFT as i32 {
         fputs(" << " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_RSHIFT {
+    } else if op_code == TokenType.TOKEN_RSHIFT as i32 {
         fputs(" >> " as *byte, codegen.emit_stream as *void);
     } else {
         fputs(" + " as *byte, codegen.emit_stream as *void);
@@ -2318,7 +2328,7 @@ fn c99_emit_condition_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
         gen_expr(codegen, left);
-        c99_emit_binary_operator(codegen, op);
+        c99_emit_binary_operator(codegen, op_code_for_emit(op));
         gen_expr(codegen, right);
         return;
     }
@@ -5296,7 +5306,7 @@ fn c99_simd_emit_sse_binary_fast_at(codegen: &C99CodeGenerator, fast_kind: i32, 
 
 // 按通道标量赋值（与 SSE #else 分支共用）
 fn c99_simd_emit_per_lane_binary_assign(codegen: &C99CodeGenerator, result_name: &byte, left_name: &byte, right_name: &byte,
-    lanes: i32, simd_op: TokenType) void {
+    lanes: i32, simd_op_code: i32) void {
     if codegen == null || result_name == null || left_name == null || right_name == null || lanes <= 0 {
         return;
     }
@@ -5304,7 +5314,7 @@ fn c99_simd_emit_per_lane_binary_assign(codegen: &C99CodeGenerator, result_name:
     while ii < lanes {
         fprintf(codegen.emit_stream as *void, "%s.lanes[%d] = (" as *byte, result_name as *byte, ii);
         fprintf(codegen.emit_stream as *void, "%s.lanes[%d]" as *byte, left_name as *byte, ii);
-        c99_emit_simd_binary_operator(codegen, simd_op);
+        c99_emit_simd_binary_operator(codegen, simd_op_code);
         fprintf(codegen.emit_stream as *void, "%s.lanes[%d]); " as *byte, right_name as *byte, ii);
         ii = ii + 1;
     }
@@ -5953,38 +5963,38 @@ fn c99_simd_try_emit_x86_sse_unary_minus(codegen: &C99CodeGenerator, result_type
     return 0;
 }
 
-fn c99_emit_simd_binary_operator(codegen: &C99CodeGenerator, op: TokenType) void {
-    if op == TokenType.TOKEN_PLUS {
+fn c99_emit_simd_binary_operator(codegen: &C99CodeGenerator, op_code: i32) void {
+    if op_code == TokenType.TOKEN_PLUS as i32 {
         fputs(" + " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_MINUS {
+    } else if op_code == TokenType.TOKEN_MINUS as i32 {
         fputs(" - " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_ASTERISK {
+    } else if op_code == TokenType.TOKEN_ASTERISK as i32 {
         fputs(" * " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_SLASH {
+    } else if op_code == TokenType.TOKEN_SLASH as i32 {
         fputs(" / " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_PERCENT {
+    } else if op_code == TokenType.TOKEN_PERCENT as i32 {
         fputs(" % " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_EQUAL {
+    } else if op_code == TokenType.TOKEN_EQUAL as i32 {
         fputs(" == " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_NOT_EQUAL {
+    } else if op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
         fputs(" != " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LESS {
+    } else if op_code == TokenType.TOKEN_LESS as i32 {
         fputs(" < " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_GREATER {
+    } else if op_code == TokenType.TOKEN_GREATER as i32 {
         fputs(" > " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LESS_EQUAL {
+    } else if op_code == TokenType.TOKEN_LESS_EQUAL as i32 {
         fputs(" <= " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_GREATER_EQUAL {
+    } else if op_code == TokenType.TOKEN_GREATER_EQUAL as i32 {
         fputs(" >= " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_AMPERSAND {
+    } else if op_code == TokenType.TOKEN_AMPERSAND as i32 {
         fputs(" & " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_PIPE {
+    } else if op_code == TokenType.TOKEN_PIPE as i32 {
         fputs(" | " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_CARET {
+    } else if op_code == TokenType.TOKEN_CARET as i32 {
         fputs(" ^ " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_LSHIFT {
+    } else if op_code == TokenType.TOKEN_LSHIFT as i32 {
         fputs(" << " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_RSHIFT {
+    } else if op_code == TokenType.TOKEN_RSHIFT as i32 {
         fputs(" >> " as *byte, codegen.emit_stream as *void);
     } else {
         fputs(" + " as *byte, codegen.emit_stream as *void);
@@ -5992,19 +6002,19 @@ fn c99_emit_simd_binary_operator(codegen: &C99CodeGenerator, op: TokenType) void
 }
 
 // 单个 SIMD 向量通道上的饱和 / 包装二元运算（与标量 +| / +% 等语义一致）
-fn c99_emit_simd_lane_sat_wrap(codegen: &C99CodeGenerator, op: TokenType, type_c: &byte, base_type: &byte,
+fn c99_emit_simd_lane_sat_wrap(codegen: &C99CodeGenerator, op_code: i32, type_c: &byte, base_type: &byte,
     left_name: &byte, right_name: &byte, lane: i32) void {
     if codegen == null || type_c == null || base_type == null || left_name == null || right_name == null {
         return;
     }
-    if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE {
+    if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
         fputs("({ " as *byte, codegen.emit_stream as *void);
         fprintf(codegen.emit_stream as *void, "%s _l = %s.lanes[%d]; " as *byte, base_type as *byte, left_name as *byte, lane);
         fprintf(codegen.emit_stream as *void, "%s _r = %s.lanes[%d]; " as *byte, base_type as *byte, right_name as *byte, lane);
         fprintf(codegen.emit_stream as *void, "%s _s; " as *byte, base_type as *byte);
-        if op == TokenType.TOKEN_PLUS_PIPE {
+        if op_code == TokenType.TOKEN_PLUS_PIPE as i32 {
             fputs("__builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? " as *byte, codegen.emit_stream as *void);
-        } else if op == TokenType.TOKEN_MINUS_PIPE {
+        } else if op_code == TokenType.TOKEN_MINUS_PIPE as i32 {
             fputs("__builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? " as *byte, codegen.emit_stream as *void);
         } else {
             fprintf(codegen.emit_stream as *void, "%s _res; " as *byte, base_type as *byte);
@@ -6013,7 +6023,7 @@ fn c99_emit_simd_lane_sat_wrap(codegen: &C99CodeGenerator, op: TokenType, type_c
         gen_saturate_limit_from_type_c(codegen, type_c, 1);
         fputs(" : " as *byte, codegen.emit_stream as *void);
         gen_saturate_limit_from_type_c(codegen, type_c, 0);
-        if op == TokenType.TOKEN_ASTERISK_PIPE {
+        if op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
             fputs("; else _res = _s; _res; })" as *byte, codegen.emit_stream as *void);
         } else {
             fputs(") : _s; })" as *byte, codegen.emit_stream as *void);
@@ -6022,9 +6032,9 @@ fn c99_emit_simd_lane_sat_wrap(codegen: &C99CodeGenerator, op: TokenType, type_c
     }
     const ut: &byte = unsigned_type_for_wrapping(type_c);
     fprintf(codegen.emit_stream as *void, "((%s)((%s)(%s.lanes[%d]) " as *byte, type_c as *byte, ut as *byte, left_name as *byte, lane);
-    if op == TokenType.TOKEN_PLUS_PERCENT {
+    if op_code == TokenType.TOKEN_PLUS_PERCENT as i32 {
         fputs("+ " as *byte, codegen.emit_stream as *void);
-    } else if op == TokenType.TOKEN_MINUS_PERCENT {
+    } else if op_code == TokenType.TOKEN_MINUS_PERCENT as i32 {
         fputs("- " as *byte, codegen.emit_stream as *void);
     } else {
         fputs("* " as *byte, codegen.emit_stream as *void);
@@ -7714,7 +7724,7 @@ fn c99_gen_simd_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         var j: i32 = 0;
         while j < lanes {
             fprintf(codegen.emit_stream as *void, "%s.lanes[%d] = " as *byte, result_name as *byte, j);
-            c99_emit_simd_lane_sat_wrap(codegen, simd_op, elem_c, base_type, left_name, right_name, j);
+            c99_emit_simd_lane_sat_wrap(codegen, op_code_for_emit(simd_op), elem_c, base_type, left_name, right_name, j);
             fputs("; " as *byte, codegen.emit_stream as *void);
             j = j + 1;
         }
@@ -7723,7 +7733,7 @@ fn c99_gen_simd_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     }
 
     if c99_simd_try_emit_x86_sse_binary(codegen, result_type_ast, left_type_ast, simd_op, result_name, left_name, right_name, lanes) == 0 {
-        c99_simd_emit_per_lane_binary_assign(codegen, result_name, left_name, right_name, lanes, simd_op);
+        c99_simd_emit_per_lane_binary_assign(codegen, result_name, left_name, right_name, lanes, op_code_for_emit(simd_op));
     }
 
     fprintf(codegen.emit_stream as *void, "%s; })" as *byte, result_name as *byte);
@@ -7797,6 +7807,9 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const right: &ASTNode = expr.binary_expr_right;
         const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
         const op: TokenType = op_tmp.value;
+        // 操作符 i32 快照：本函数对 op 有多处/多次比较，独立检查时枚举操作数
+        // 在第二次读取即被判为「已被移动」。快照一次后统一走 i32，语义等价。
+        const op_code: i32 = op as i32;
         
         if left == null || right == null {
             fputs("0" as *byte, codegen.emit_stream as *void);
@@ -7806,7 +7819,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             return;
         }
         // 错误类型比较：err == error.X 或 error.X == err -> .error_id 比较
-        if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL {
+        if op_code == TokenType.TOKEN_EQUAL as i32 || op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
             if gen_error_value_comparison(codegen, left, right, op) != 0 {
                 return;
             }
@@ -7815,7 +7828,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         // 检查是否是结构体比较（== 或 !=）
         var is_struct_comparison: i32 = 0;
         var struct_decl: &ASTNode = null;
-        if (op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL) && left != null && right != null {
+        if (op_code == TokenType.TOKEN_EQUAL as i32 || op_code == TokenType.TOKEN_NOT_EQUAL as i32) && left != null && right != null {
             struct_decl = c99_struct_decl_for_value_comparison(codegen, left);
             if struct_decl == null {
                 struct_decl = c99_struct_decl_for_value_comparison(codegen, right);
@@ -7827,13 +7840,13 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         
         if is_struct_comparison != 0 {
             if struct_decl != null && struct_decl.struct_decl_field_count == 0 {
-                if op == TokenType.TOKEN_EQUAL {
+                if op_code == TokenType.TOKEN_EQUAL as i32 {
                     fputs("(1)" as *byte, codegen.emit_stream as *void);
-                } else if op == TokenType.TOKEN_NOT_EQUAL {
+                } else if op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
                     fputs("(0)" as *byte, codegen.emit_stream as *void);
                 }
             } else if struct_decl != null && struct_decl.type == ASTNodeType.AST_STRUCT_DECL && struct_decl.struct_decl_field_count > 0 {
-                if op == TokenType.TOKEN_NOT_EQUAL {
+                if op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
                     fputs("(!(" as *byte, codegen.emit_stream as *void);
                 } else {
                     fputc(40, codegen.emit_stream as *void);  // '('
@@ -7841,19 +7854,19 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 var root_path: [&byte: C99_STRUCT_COMPARE_MAX_DEPTH] = [];
                 c99_emit_struct_decl_comparison(codegen, left, right, struct_decl, &root_path[0], 0);
                 fputc(41, codegen.emit_stream as *void);  // ')'
-                if op == TokenType.TOKEN_NOT_EQUAL {
+                if op_code == TokenType.TOKEN_NOT_EQUAL as i32 {
                     fputc(41, codegen.emit_stream as *void);  // ')'
                 }
             } else {
                 // 回退：无法按字段比较时用 memcmp
                 gen_struct_memcmp_comparison(codegen, left, right, op);
             }
-        } else if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE ||
-            op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT || op == TokenType.TOKEN_ASTERISK_PERCENT {
+        } else if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 ||
+            op_code == TokenType.TOKEN_PLUS_PERCENT as i32 || op_code == TokenType.TOKEN_MINUS_PERCENT as i32 || op_code == TokenType.TOKEN_ASTERISK_PERCENT as i32 {
             // 饱和运算 +| -| *| 或包装运算 +% -% *%
             var type_c: &byte = get_c_type_of_expr(codegen, left);
             if type_c == null { type_c = "int32_t" as &byte; }
-            if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE {
+            if op_code == TokenType.TOKEN_PLUS_PIPE as i32 || op_code == TokenType.TOKEN_MINUS_PIPE as i32 || op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
                 var base_type: &byte = type_c;
                 if type_c != null && strncmp(type_c as *byte, "const " as *byte, 6) == 0 { base_type = (type_c as *byte + 6) as &byte; }
                 if base_type == null { base_type = "int32_t" as &byte; }
@@ -7865,9 +7878,9 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_expr(codegen, right);
                 fputs("); " as *byte, codegen.emit_stream as *void);
                 fprintf(codegen.emit_stream as *void, "%s _s; " as *byte, base_type as *byte);
-                if op == TokenType.TOKEN_PLUS_PIPE {
+                if op_code == TokenType.TOKEN_PLUS_PIPE as i32 {
                     fputs("__builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? " as *byte, codegen.emit_stream as *void);
-                } else if op == TokenType.TOKEN_MINUS_PIPE {
+                } else if op_code == TokenType.TOKEN_MINUS_PIPE as i32 {
                     fputs("__builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? " as *byte, codegen.emit_stream as *void);
                 } else {
                     fprintf(codegen.emit_stream as *void, "%s _res; " as *byte, base_type as *byte);
@@ -7876,7 +7889,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 gen_saturate_limit_from_type_c(codegen, type_c, 1);
                 fputs(" : " as *byte, codegen.emit_stream as *void);
                 gen_saturate_limit_from_type_c(codegen, type_c, 0);
-                if op == TokenType.TOKEN_ASTERISK_PIPE {
+                if op_code == TokenType.TOKEN_ASTERISK_PIPE as i32 {
                     fputs("; else _res = _s; _res; })" as *byte, codegen.emit_stream as *void);
                 } else {
                     fputs(") : _s; })" as *byte, codegen.emit_stream as *void);
@@ -7885,8 +7898,8 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 const ut: &byte = unsigned_type_for_wrapping(type_c);
                 fprintf(codegen.emit_stream as *void, "((%s)((%s)(" as *byte, type_c as *byte, ut as *byte);
                 gen_expr(codegen, left);
-                if op == TokenType.TOKEN_PLUS_PERCENT { fputs(") + (" as *byte, codegen.emit_stream as *void); }
-                else if op == TokenType.TOKEN_MINUS_PERCENT { fputs(") - (" as *byte, codegen.emit_stream as *void); }
+                if op_code == TokenType.TOKEN_PLUS_PERCENT as i32 { fputs(") + (" as *byte, codegen.emit_stream as *void); }
+                else if op_code == TokenType.TOKEN_MINUS_PERCENT as i32 { fputs(") - (" as *byte, codegen.emit_stream as *void); }
                 else { fputs(") * (" as *byte, codegen.emit_stream as *void); }
                 fprintf(codegen.emit_stream as *void, "%s)(" as *byte, ut as *byte);
                 gen_expr(codegen, right);
@@ -7896,7 +7909,7 @@ fn gen_binary_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 普通二元表达式
             fputc(40, codegen.emit_stream as *void);  // '('
             gen_expr(codegen, left);
-            c99_emit_binary_operator(codegen, op);
+            c99_emit_binary_operator(codegen, op_code_for_emit(op));
             gen_expr(codegen, right);
             fputc(41, codegen.emit_stream as *void);  // ')'
         }
