@@ -1,0 +1,88 @@
+// The Computer Language Benchmarks Game
+// https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+// Uya port of spectral-norm C gcc #3
+
+use std.runtime;
+use libc.math;
+extern "libc" fn printf(fmt: *byte, ...) i32;
+extern "libc" fn atoi(s: &const byte) i32;
+
+fn A(i: i32, j: i32) i32 {
+    return ((i + j) * (i + j + 1) / 2 + i + 1);
+}
+
+fn dot(v: &[f64], u: &[f64], n: i32) f64 {
+    var sum: f64 = 0.0;
+    var i: i32 = 0;
+    while i < n {
+        sum = sum + v[i] * u[i];
+        i = i + 1;
+    }
+    return sum;
+}
+
+fn mult_Av(v: &[f64], out: &[f64], n: i32) void {
+    var i: i32 = 0;
+    var j: i32 = 0;
+    var sum: f64 = 0.0;
+    while i < n {
+        sum = 0.0;
+        j = 0;
+        while j < n {
+            sum = sum + v[j] / A(i, j) as f64;
+            j = j + 1;
+        }
+        out[i] = sum;
+        i = i + 1;
+    }
+}
+
+fn mult_Atv(v: &[f64], out: &[f64], n: i32) void {
+    var i: i32 = 0;
+    var j: i32 = 0;
+    var sum: f64 = 0.0;
+    while i < n {
+        sum = 0.0;
+        j = 0;
+        while j < n {
+            sum = sum + v[j] / A(j, i) as f64;
+            j = j + 1;
+        }
+        out[i] = sum;
+        i = i + 1;
+    }
+}
+
+fn main() i32 {
+    var n: i32 = 2000;
+    const argc: i32 = get_argc();
+    if argc > 1 {
+        const arg1: &byte = get_argv(1);
+        n = atoi(arg1 as &const byte);
+        if n <= 0 {
+            n = 2000;
+        }
+    }
+
+    var u: [f64: 2000] = [0.0: 2000];
+    var v: [f64: 2000] = [0.0: 2000];
+    var tmp: [f64: 2000] = [0.0: 2000];
+
+    var i: i32 = 0;
+    while i < n {
+        u[i] = 1.0;
+        i = i + 1;
+    }
+
+    var iter: i32 = 0;
+    while iter < 10 {
+        mult_Av(&u[0:n], &v[0:n], n);
+        mult_Atv(&v[0:n], &u[0:n], n);
+        mult_Av(&u[0:n], &v[0:n], n);
+        mult_Atv(&v[0:n], &u[0:n], n);
+        iter = iter + 1;
+    }
+
+    printf("%.9f\n", sqrt(dot(&v[0:n], &u[0:n], n) / dot(&v[0:n], &v[0:n], n)));
+    return 0;
+}

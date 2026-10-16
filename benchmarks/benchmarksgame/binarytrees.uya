@@ -1,0 +1,90 @@
+// The Computer Language Benchmarks Game
+// https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
+// Uya port of binary-trees C gcc #3
+
+extern "libc" fn printf(fmt: *byte, ...) i32;
+extern "libc" fn malloc(size: usize) &void;
+extern "libc" fn free(ptr: &void) void;
+extern "libc" fn atoi(s: &const byte) i32;
+use std.runtime;
+
+struct TreeNode {
+    left: *TreeNode,
+    right: *TreeNode,
+}
+
+fn create_tree(depth: i32) &void {
+    const ptr: &void = malloc(16);
+    if (ptr as *byte) == null {
+        return null as &void;
+    }
+    const node: *TreeNode = ptr as *TreeNode;
+    if depth > 0 {
+        node[0].left = create_tree(depth - 1) as *TreeNode;
+        node[0].right = create_tree(depth - 1) as *TreeNode;
+    } else {
+        node[0].left = null as *TreeNode;
+        node[0].right = null as *TreeNode;
+    }
+    return node as &void;
+}
+
+fn compute_checksum(node: &void) i32 {
+    const n: *TreeNode = node as *TreeNode;
+    if (n[0].left as *byte) != null {
+        return compute_checksum(n[0].left as &void) + compute_checksum(n[0].right as &void) + 1;
+    } else {
+        return 1;
+    }
+}
+
+fn main() i32 {
+    const minimum_depth: i32 = 4;
+    var maximum_depth: i32 = 0;
+
+    const argc: i32 = get_argc();
+    if argc > 1 {
+        const arg1: &byte = get_argv(1);
+        maximum_depth = atoi(arg1 as &const byte);
+    } else {
+        maximum_depth = minimum_depth + 2;
+    }
+    if maximum_depth < minimum_depth + 2 {
+        maximum_depth = minimum_depth + 2;
+    }
+
+    var stretch_depth: i32 = maximum_depth + 1;
+    var stretch_tree: &void = create_tree(stretch_depth);
+    printf("stretch tree of depth %d\t check: %d\n", stretch_depth, compute_checksum(stretch_tree));
+    free(stretch_tree);
+
+    var long_lived_tree: &void = create_tree(maximum_depth);
+
+    var depth: i32 = minimum_depth;
+    while depth <= maximum_depth {
+        var iterations: i32 = 1;
+        var shift: i32 = maximum_depth - depth + minimum_depth;
+        var sh: i32 = 0;
+        while sh < shift {
+            iterations = iterations * 2;
+            sh = sh + 1;
+        }
+
+        var checksum: i32 = 0;
+        var i: i32 = 0;
+        while i < iterations {
+            var tree: &void = create_tree(depth);
+            checksum = checksum + compute_checksum(tree);
+            free(tree);
+            i = i + 1;
+        }
+
+        printf("%d\t trees of depth %d\t check: %d\n", iterations, depth, checksum);
+        depth = depth + 2;
+    }
+
+    printf("long lived tree of depth %d\t check: %d\n", maximum_depth, compute_checksum(long_lived_tree));
+    free(long_lived_tree);
+
+    return 0;
+}
