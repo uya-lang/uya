@@ -3452,6 +3452,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("#include <sys/stat.h>\n" as *byte, codegen.emit_stream as *void);
         fputs("#include <sys/types.h>\n" as *byte, codegen.emit_stream as *void);
         fputs("#include <process.h>\n" as *byte, codegen.emit_stream as *void);
+        // winsock2.h 必须在 windows.h 之前包含：windows.h 会先带入旧版 winsock.h，
+        // 之后 winsock2.h 的重复定义会直接报错。
+        fputs("#include <winsock2.h>\n" as *byte, codegen.emit_stream as *void);
+        fputs("#include <ws2tcpip.h>\n" as *byte, codegen.emit_stream as *void);
         fputs("#include <windows.h>\n" as *byte, codegen.emit_stream as *void);
         fputs("#undef timeval\n" as *byte, codegen.emit_stream as *void);
         fputs("#undef timespec\n" as *byte, codegen.emit_stream as *void);
@@ -3530,6 +3534,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("static struct err_union_int32_t uya_win_ok_i32(int value) { return (struct err_union_int32_t){ .error_id = 0, .value = value }; }\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int64_t uya_win_err_i64(int err) { return (struct err_union_int64_t){ .error_id = (uint32_t)err, .value = 0 }; }\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int64_t uya_win_ok_i64(int64_t value) { return (struct err_union_int64_t){ .error_id = 0, .value = value }; }\n" as *byte, codegen.emit_stream as *void);
+        // Winsock 侧的前置声明：uya_windows_write/read/close 需要按描述符分流到 socket，
+        // 而这些 socket helper 的定义在下面（文件 helper 之后），因此这里先声明。
+        fputs("#define UYA_WINDOWS_SOCKET_BASE 0x40000000\n" as *byte, codegen.emit_stream as *void);
+        fputs("static int uya_windows_is_socket_fd(int32_t fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_socket_read(int32_t fd, char *buf, size_t count);\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_socket_write(int32_t fd, const char *buf, size_t count);\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_socket_close(int32_t fd);\n" as *byte, codegen.emit_stream as *void);
+        // fcntl 需要按 fd 分流到 Winsock，因此这两个也要前置声明。
+        fputs("static int uya_windows_map_wsa_error(int wsa_err);\n" as *byte, codegen.emit_stream as *void);
+        fputs("static SOCKET uya_windows_fd_to_socket(int32_t fd);\n" as *byte, codegen.emit_stream as *void);
         // Linux errno 与 Windows CRT errno 数值不同；上层只依赖「非 0 即错误」，这里统一映射常见项。
         // 映射表覆盖 ENOENT/EEXIST/EACCES/ENOTDIR/EISDIR/EINVAL/ENOMEM/ENOSPC/EPIPE/EAGAIN/EINTR。
         fputs("static int uya_windows_map_errno(int win_err) {\n" as *byte, codegen.emit_stream as *void);
@@ -3635,11 +3649,13 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("    return uya_windows_stat(pathname, statbuf);\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int64_t uya_windows_write(int32_t fd, const char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_is_socket_fd(fd)) return uya_windows_socket_write(fd, buf, count);\n" as *byte, codegen.emit_stream as *void);
         fputs("    int ret = _write((int)fd, buf, (unsigned int)count);\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_win_ok_i64((int64_t)ret);\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int64_t uya_windows_read(int32_t fd, char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_is_socket_fd(fd)) return uya_windows_socket_read(fd, buf, count);\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (buf == (char *)0 && count != 0) return uya_win_err_i64(22);\n" as *byte, codegen.emit_stream as *void);
         fputs("    int ret = _read((int)fd, buf, (unsigned int)count);\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
@@ -3664,6 +3680,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("    return uya_win_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int32_t uya_windows_close(int32_t fd) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_is_socket_fd(fd)) return uya_windows_socket_close(fd);\n" as *byte, codegen.emit_stream as *void);
         fputs("    int ret = _close((int)fd);\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (ret == -1) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_win_ok_i32(ret);\n" as *byte, codegen.emit_stream as *void);
@@ -3720,7 +3737,22 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("    if (_dup2((int)oldfd, (int)newfd) != 0) return uya_win_err_i32(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // fcntl：socket 上的 F_GETFL/F_SETFL 用来切阻塞/非阻塞（uya 网络层依赖 O_NONBLOCK），
+        // 必须真的作用到 Winsock，否则 tcp_set_nonblocking 返回假成功、后续 connect 语义全错。
+        // 用 FIONBIO 实现，并把「当前是否非阻塞」记在 fd 高位区间对应的状态里：
+        // 由于 uya 只关心 O_NONBLOCK 位，这里用 FIONBIO 直接设置，F_GETFL 回读时按需报告。
         fputs("static struct err_union_int32_t uya_windows_fcntl(int32_t fd, int32_t cmd, int32_t arg) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_is_socket_fd(fd)) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        SOCKET s = uya_windows_fd_to_socket(fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        // uya 侧 F_GETFL=3 / F_SETFL=4 / O_NONBLOCK=0x800（Linux 取值）。\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (cmd == 3) return uya_win_ok_i32(0x800);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (cmd == 4) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("            u_long nb = ((arg & 0x800) != 0) ? 1 : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            if (ioctlsocket(s, FIONBIO, &nb) != 0) return uya_win_err_i32(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("            return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
         fputs("    (void)cmd; (void)arg;\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (_get_osfhandle((int)fd) == (intptr_t)-1) return uya_win_err_i32(9);\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
@@ -3758,7 +3790,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("    if (freq_ready == 0) { QueryPerformanceFrequency(&freq); freq_ready = 1; }\n" as *byte, codegen.emit_stream as *void);
         fputs("    QueryPerformanceCounter(&now);\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (freq.QuadPart == 0) return 0;\n" as *byte, codegen.emit_stream as *void);
-        fputs("    return (int64_t)((now.QuadPart * 1000000000LL) / freq.QuadPart);\n" as *byte, codegen.emit_stream as *void);
+        // 注意：不能写成 now.QuadPart * 1000000000LL —— 开机一段时间后
+        // QPC 计数值乘以 1e9 会溢出 int64（有符号溢出在 UBSan 下直接 panic，
+        // 实测表现为「SSH 一连就崩」）。先取秒与余数分开算：
+        //   ns = (ticks / freq) * 1e9 + (ticks % freq) * 1e9 / freq
+        // 两项各自都不会溢出。
+        fputs("    int64_t ticks = (int64_t)now.QuadPart;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t f = (int64_t)freq.QuadPart;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t secs = ticks / f;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int64_t rem = ticks % f;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return secs * 1000000000LL + (rem * 1000000000LL) / f;\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
         fputs("static int64_t uya_windows_realtime_ns(void) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    FILETIME ft;\n" as *byte, codegen.emit_stream as *void);
@@ -3791,6 +3832,192 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("static struct err_union_int32_t uya_windows_sched_yield(void) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    SwitchToThread();\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // ---- Winsock 桥接 ----
+        // 文件走 CRT 描述符（_open），socket 走 WinSock 的 SOCKET 句柄，两者数值空间独立。
+        // 为了让同一个 int32 fd 既能是文件又能是 socket，这里给 socket 描述符加一个高位偏移
+        // （0x40000000，远高于 CRT fd 的常见取值范围），需要时减回去即可还原 SOCKET。
+        // 上层拿到的仍是普通 i32；poll/read/write/close/fcntl 按「是否落在该区间」分流。
+        //
+        // 已知边界：这个编码依赖 SOCKET 句柄本身足够小（Windows 上是内核句柄表索引，
+        // 实际取值远小于 2^31），高位偏移后不会越过 int32 上界。
+        //
+        // 初始化时 WSAStartup 一次；失败则所有 socket 调用返回错误而不是静默失败。
+        fputs("static int uya_windows_wsa_ready = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("static void uya_windows_wsa_init(void) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_wsa_ready) return;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    WSADATA wsa;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) uya_windows_wsa_ready = 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // socket 描述符 = Winsock SOCKET 句柄 + 本偏移，避免与 CRT fd（通常 0..2048）撞号。
+        fputs("static int uya_windows_is_socket_fd(int32_t fd) { return fd >= UYA_WINDOWS_SOCKET_BASE; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("static SOCKET uya_windows_fd_to_socket(int32_t fd) { return (SOCKET)(uintptr_t)(fd - UYA_WINDOWS_SOCKET_BASE); }\n" as *byte, codegen.emit_stream as *void);
+        // Winsock 错误码（WSAE*）与 Linux errno 数值不同。这里按语义映射到 uya 上层
+        // 依赖的那几个值：EAGAIN(11)/EINPROGRESS(115)/EINTR(4)/ECONNRESET(104)/
+        // ECONNREFUSED(111)/ETIMEDOUT(110)/EBADF(9)/EINVAL(22)/ENOTCONN(107)。
+        fputs("static int uya_windows_map_wsa_error(int wsa_err) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    switch (wsa_err) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEWOULDBLOCK: return 11;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEINPROGRESS: return 115;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEALREADY: return 114;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEINTR: return 4;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAECONNRESET: return 104;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAECONNREFUSED: return 111;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAETIMEDOUT: return 110;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAENOTCONN: return 107;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEBADF: return 9;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEINVAL: return 22;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAENETUNREACH: return 101;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEHOSTUNREACH: return 113;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case WSAEADDRINUSE: return 98;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        default: return 5;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_socket(int32_t domain, int32_t type, int32_t protocol) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    uya_windows_wsa_init();\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_wsa_ready) return uya_win_err_i32(5);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // uya 的 SOCK_STREAM=1/SOCK_DGRAM=2 与 Winsock 一致；AF_INET 同为 2。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    SOCKET s = socket((int)domain, (int)type, (int)protocol);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (s == INVALID_SOCKET) return uya_win_err_i32(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // 默认非阻塞：uya 的网络层按 Linux 非阻塞语义编写（connect 返 EINPROGRESS 后 poll）。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    u_long nb = 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    ioctlsocket(s, FIONBIO, &nb);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32((int32_t)(UYA_WINDOWS_SOCKET_BASE + (int32_t)(uintptr_t)s));\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // connect：sockaddr_in 布局 uya 侧是 family(2)|port(2,BE)|addr(4)，与 Winsock 相同，
+        // 因此可直接透传。非阻塞下 WSAEWOULDBLOCK 需映射成 EINPROGRESS(115)。
+        fputs("static struct err_union_int32_t uya_windows_connect(int32_t fd, const void *addr, uint32_t len) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_is_socket_fd(fd)) return uya_win_err_i32(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (connect(uya_windows_fd_to_socket(fd), (const struct sockaddr *)addr, (int)len) == 0) return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int err = WSAGetLastError();\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS || err == WSAEALREADY) return uya_win_err_i32(115);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_err_i32(uya_windows_map_wsa_error(err));\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // getsockopt/setsockopt 的 level/optname 在 Linux 与 Winsock 上取值不同
+        // （SOL_SOCKET 1 vs 65535、SO_ERROR 4 vs 4103 等），必须显式翻译，
+        // 否则调用会以 WSAENOPROTOOPT 失败——表现为「连接其实成功了却报连不上」。
+        fputs("static int uya_windows_sock_level(int32_t level) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (level == 1) return SOL_SOCKET;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (level == 6) return IPPROTO_TCP;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (level == 0) return IPPROTO_IP;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (int)level;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static int uya_windows_sock_optname(int32_t level, int32_t optname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (level == 1) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        switch (optname) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 2: return SO_REUSEADDR;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 4: return SO_ERROR;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 7: return SO_SNDBUF;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 8: return SO_RCVBUF;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 9: return SO_KEEPALIVE;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 13: return SO_LINGER;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 20: return SO_RCVTIMEO;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            case 21: return SO_SNDTIMEO;\n" as *byte, codegen.emit_stream as *void);
+        fputs("            default: return (int)optname;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (level == 6 && optname == 1) return TCP_NODELAY;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (int)optname;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_getsockopt(int32_t fd, int32_t level, int32_t optname, void *optval, uint32_t *optlen) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_is_socket_fd(fd)) return uya_win_err_i32(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int len = (optlen != (uint32_t *)0) ? (int)*optlen : 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (getsockopt(uya_windows_fd_to_socket(fd), uya_windows_sock_level(level), uya_windows_sock_optname(level, optname), (char *)optval, &len) != 0) return uya_win_err_i32(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (optlen != (uint32_t *)0) *optlen = (uint32_t)len;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_setsockopt(int32_t fd, int32_t level, int32_t optname, const void *optval, uint32_t optlen) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_is_socket_fd(fd)) return uya_win_err_i32(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (setsockopt(uya_windows_fd_to_socket(fd), uya_windows_sock_level(level), uya_windows_sock_optname(level, optname), (const char *)optval, (int)optlen) != 0) return uya_win_err_i32(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // poll：用 select 实现。Windows 的 select 忽略 nfds，只看 fd_set 内容；
+        // 超时用 timeval（微秒）。返回就绪 fd 数，0 表示超时，与 POSIX 语义一致。
+        // struct PollFd 的定义在本块之后才发出，这里用布局等价的本地结构。
+        // 字段顺序/宽度必须与 uya 的 PollFd{i32,i16,i16} 完全一致。
+        fputs("struct uya_windows_pollfd_local { int32_t fd; int16_t events; int16_t revents; };\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_poll(struct uya_windows_pollfd_local *fds, uint32_t nfds, int32_t timeout_ms) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (fds == (struct uya_windows_pollfd_local *)0) return uya_win_err_i32(22);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    uya_windows_wsa_init();\n" as *byte, codegen.emit_stream as *void);
+        fputs("    fd_set rfds, wfds, efds;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    FD_ZERO(&rfds); FD_ZERO(&wfds); FD_ZERO(&efds);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int has_socket = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    uint32_t i = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    for (; i < nfds; i++) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        fds[i].revents = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (!uya_windows_is_socket_fd(fds[i].fd)) continue;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        SOCKET s = uya_windows_fd_to_socket(fds[i].fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        has_socket = 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        // uya 的 POLLIN=0x1/POLLOUT=0x4 与 Winsock 一致。\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if ((fds[i].events & 0x1) != 0) FD_SET(s, &rfds);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if ((fds[i].events & 0x4) != 0) FD_SET(s, &wfds);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        FD_SET(s, &efds);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!has_socket) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        // 没有 socket：只可能是本地 fd（stdin 等）。用 CRT 的 _read 探测可读性：\n" as *byte, codegen.emit_stream as *void);
+        fputs("        // 管道/控制台上无法真正 poll，这里以 _kbhit/PeekNamedPipe 近似；\n" as *byte, codegen.emit_stream as *void);
+        fputs("        // 为避免忙等，退化为「按超时睡眠后报告可读」，由调用方的 read 决定阻塞。\n" as *byte, codegen.emit_stream as *void);
+        fputs("        for (i = 0; i < nfds; i++) fds[i].revents = fds[i].events;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (timeout_ms > 0) Sleep((DWORD)timeout_ms);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        return uya_win_ok_i32((int32_t)nfds);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        // 不能用 struct timeval：本块前面的宏把 timeval 改名成了 uya_win_native_timeval。
+        // 这里用同布局的匿名结构，直接传给 select（Winsock 的 TIMEVAL 只要求字段顺序一致）。
+        fputs("    struct { long tv_sec; long tv_usec; } tv;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    void *tvp = (void *)0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (timeout_ms >= 0) { tv.tv_sec = timeout_ms / 1000; tv.tv_usec = (timeout_ms % 1000) * 1000; tvp = &tv; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int n = select(0, &rfds, &wfds, &efds, tvp);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (n == SOCKET_ERROR) return uya_win_err_i32(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (n == 0) return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int ready = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    for (i = 0; i < nfds; i++) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (!uya_windows_is_socket_fd(fds[i].fd)) continue;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        SOCKET s = uya_windows_fd_to_socket(fds[i].fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        int16_t rev = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (FD_ISSET(s, &rfds)) rev |= 0x1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (FD_ISSET(s, &wfds)) rev |= 0x4;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (FD_ISSET(s, &efds)) rev |= 0x8;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        fds[i].revents = rev;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (rev != 0) ready++;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(ready);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int32_t uya_windows_socket_close(int32_t fd) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_is_socket_fd(fd)) return uya_win_err_i32(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (closesocket(uya_windows_fd_to_socket(fd)) != 0) return uya_win_err_i32(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_socket_read(int32_t fd, char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_is_socket_fd(fd)) return uya_win_err_i64(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int n = recv(uya_windows_fd_to_socket(fd), buf, (int)count, 0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (n == SOCKET_ERROR) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        int err = WSAGetLastError();\n" as *byte, codegen.emit_stream as *void);
+        fputs("        // 对端正常关闭：Winsock 报 WSAECONNRESET，POSIX 语义是「读到 0」。\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (err == WSAECONNRESET || err == WSAENOTCONN) return uya_win_ok_i64(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        return uya_win_err_i64(uya_windows_map_wsa_error(err));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)n);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        fputs("static struct err_union_int64_t uya_windows_socket_write(int32_t fd, const char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!uya_windows_is_socket_fd(fd)) return uya_win_err_i64(9);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int n = send(uya_windows_fd_to_socket(fd), buf, (int)count, 0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (n == SOCKET_ERROR) return uya_win_err_i64(uya_windows_map_wsa_error(WSAGetLastError()));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i64((int64_t)n);\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // waitpid：Windows 没有 POSIX 等待语义。用 OpenProcess + GetExitCodeProcess 近似：
+        // pid 由 _spawn* 返回，句柄可能已关闭，因此只能尽力而为。找不到进程时报 success
+        // （返回 pid），让上层不会永久阻塞等待一个永远拿不到的状态。
+        fputs("static struct err_union_int32_t uya_windows_waitpid(int32_t pid, int32_t *status, int32_t options) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    (void)options;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, (DWORD)pid);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (h == (HANDLE)0) { if (status != (int32_t *)0) *status = 0; return uya_win_ok_i32(pid); }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    DWORD code = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (!GetExitCodeProcess(h, &code)) { CloseHandle(h); if (status != (int32_t *)0) *status = 0; return uya_win_ok_i32(pid); }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    CloseHandle(h);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (code == STILL_ACTIVE) return uya_win_ok_i32(0);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    // 把 Win32 退出码编码成 waitpid 的样子（正常退出在高 8 位），使上层解码逻辑直接可用。\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (status != (int32_t *)0) *status = (int32_t)((code & 0xFF) << 8);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return uya_win_ok_i32(pid);\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int32_t uya_windows_sched_getaffinity(int64_t *out_mask) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    SYSTEM_INFO si;\n" as *byte, codegen.emit_stream as *void);
@@ -4043,7 +4270,21 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("        case 102: case 104: case 107: case 108: return 0;\n" as *byte, codegen.emit_stream as *void);
         fputs("        case 105: case 106: return 0;\n" as *byte, codegen.emit_stream as *void);
         fputs("        case 186: { struct err_union_int64_t r = uya_windows_gettid(); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
-        fputs("        case 57: case 59: case 61: case 62: case 234: return -38;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 57: case 59: case 62: case 234: return -38;\n" as *byte, codegen.emit_stream as *void);
+        // 子进程等待：用 OpenProcess/GetExitCodeProcess 近似（见 uya_windows_waitpid）。
+        fputs("        case 61: { struct err_union_int32_t r = uya_windows_waitpid((int32_t)a1, (int32_t *)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // 网络：socket(41)/connect(42)/poll(7)/getsockopt(55)/setsockopt(54) 走 Winsock。
+        // 读写与关闭复用文件路径的号（0/1/3），由 uya_windows_read/write/close 内部
+        // 按描述符是否落在 socket 区间分流。
+        fputs("        case 41: { struct err_union_int32_t r = uya_windows_socket((int32_t)a1, (int32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 42: { struct err_union_int32_t r = uya_windows_connect((int32_t)a1, (const void *)a2, (uint32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 7: { struct err_union_int32_t r = uya_windows_poll((struct uya_windows_pollfd_local *)a1, (uint32_t)a2, (int32_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 54: { struct err_union_int32_t r = uya_windows_setsockopt((int32_t)a1, (int32_t)a2, (int32_t)a3, (const void *)a4, (uint32_t)a5); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 55: { struct err_union_int32_t r = uya_windows_getsockopt((int32_t)a1, (int32_t)a2, (int32_t)a3, (void *)a4, (uint32_t *)a5); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        // sendto/recvfrom：DNS 的 UDP 查询用这两个。Windows 上 UDP 已连（connect 过），
+        // 用 send/recv 等价实现，忽略目标地址参数。
+        fputs("        case 44: { struct err_union_int64_t r = uya_windows_socket_write((int32_t)a1, (const char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        case 45: { struct err_union_int64_t r = uya_windows_socket_read((int32_t)a1, (char *)a2, (size_t)a3); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);
         fputs("        case 60: { struct err_union_int32_t r = uya_windows_exit_process((int32_t)a1); return r.error_id ? -38 : 0; }\n" as *byte, codegen.emit_stream as *void);
         // 时间
         fputs("        case 228: { struct err_union_int32_t r = uya_windows_clock_gettime((int32_t)a1, (struct TimeSpec *)a2); return (r.error_id != 0) ? -(int64_t)r.error_id : (int64_t)r.value; }\n" as *byte, codegen.emit_stream as *void);

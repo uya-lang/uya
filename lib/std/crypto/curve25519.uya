@@ -34,7 +34,11 @@ export fn gf_carry(o: &Gf) void {
             // 最高 limb：溢出的 2^256 ≡ 38，即 (c−1) 的 38 倍折回 limb0
             o.v[0] = o.v[0] + ((c - (1 as i64)) * (38 as i64));
         }
-        o.v[i] = o.v[i] - (c << 16);
+        // 用乘法而不是 `c << 16`：c 可能为负（limb 借位时），
+        // 对负数左移在 C 里是未定义行为——UBSan 构建会直接 panic
+        // （实测：Windows 目标一发起 kex 就崩在 gf_carry）。
+        // c * 65536 与 c << 16 在位运算上等价，且对负数是良定义的。
+        o.v[i] = o.v[i] - (c * (65536 as i64));
         i = i + 1;
     }
 }
