@@ -3648,8 +3648,67 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
         fputs("struct err_union_int32_t uya_windows_lstat(const char *pathname, struct Stat *statbuf) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_windows_stat(pathname, statbuf);\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 控制台不是字节流：conhost 会按「控制台输出代码页」解释写进去的字节。
+        // 本程序一律产出 UTF-8，于是在中文 Windows 的 CP936 控制台上就成了乱码：
+        // UTF-8 的「用法」是 E7 94 A8 E6 B3 95，按 CP936 解出来是「鐢ㄦ硶」。
+        // 所以「写控制台」单独走一条路：UTF-8 → UTF-16 交给 WriteConsoleW，由
+        // conhost 自己按 Unicode 渲染；文件/管道/重定向仍写原始字节（那里本来就
+        // 该是 UTF-8 字节，重定向到文件后正是用户期望的结果）。
+        // 回退规则：转换失败（不是合法 UTF-8/内存不足）或 WriteConsoleW 失败时返回 -1，
+        // 由调用方回退到 _write —— 宁可像以前那样难看，也不能把内容吞掉。
+        fputs("static int uya_windows_console_handle(int32_t fd, HANDLE *out) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    intptr_t osf = _get_osfhandle((int)fd);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    DWORD mode = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (osf == (intptr_t)-1 || osf == (intptr_t)-2) return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (GetConsoleMode((HANDLE)osf, &mode) == 0) return 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    *out = (HANDLE)osf;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
+        // 把一段 UTF-8 写到控制台：成功返回写入的字节数（与 write(2) 语义对齐），
+        // 失败返回 -1 表示「这条路走不通，请回退 _write」。
+        fputs("static int uya_windows_console_write(HANDLE h, const char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    wchar_t *wide;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    int n = 0, done = 0, chars = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    size_t bytes = 0, i = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (count == 0) return 0;\n" as *byte, codegen.emit_stream as *void);
+        // 每个 UTF-8 字节最多对应一个 UTF-16 码元，因此 count+1 一定够。
+        fputs("    wide = (wchar_t *)malloc(sizeof(wchar_t) * (count + 1));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (wide == NULL) return -1;\n" as *byte, codegen.emit_stream as *void);
+        // MB_ERR_INVALID_CHARS：不是合法 UTF-8 就明确失败并回退，不做有损替换。
+        fputs("    n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, buf, (int)count, wide, (int)(count + 1));\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (n <= 0) { free(wide); return -1; }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    while (done < n) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        DWORD chunk = 0;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (WriteConsoleW(h, wide + done, (DWORD)(n - done), &chunk, NULL) == 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("            free(wide);\n" as *byte, codegen.emit_stream as *void);
+        fputs("            return -1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        }\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (chunk == 0) break;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        done += (int)chunk;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    free(wide);\n" as *byte, codegen.emit_stream as *void);
+        // WriteConsoleW 回报的是「字符数」，而 write(2) 的契约是「字节数」：
+        // 按 UTF-8 的字符边界数出前 done 个字符占了多少字节（上面已校验过合法性）。
+        fputs("    while (i < count && chars < done) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        unsigned char c = (unsigned char)buf[i];\n" as *byte, codegen.emit_stream as *void);
+        fputs("        size_t step = 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (c >= 0xF0) step = 4;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        else if (c >= 0xE0) step = 3;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        else if (c >= 0xC0) step = 2;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (i + step > count) step = count - i;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        i += step;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        bytes += step;\n" as *byte, codegen.emit_stream as *void);
+        fputs("        chars++;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        fputs("    return (int)bytes;\n" as *byte, codegen.emit_stream as *void);
+        fputs("}\n" as *byte, codegen.emit_stream as *void);
         fputs("static struct err_union_int64_t uya_windows_write(int32_t fd, const char *buf, size_t count) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("    HANDLE con = NULL;\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (uya_windows_is_socket_fd(fd)) return uya_windows_socket_write(fd, buf, count);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    if (uya_windows_console_handle(fd, &con)) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        int got = uya_windows_console_write(con, buf, count);\n" as *byte, codegen.emit_stream as *void);
+        fputs("        if (got >= 0) return uya_win_ok_i64((int64_t)got);\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
         fputs("    int ret = _write((int)fd, buf, (unsigned int)count);\n" as *byte, codegen.emit_stream as *void);
         fputs("    if (ret == -1) return uya_win_err_i64(uya_windows_map_errno(errno));\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_win_ok_i64((int64_t)ret);\n" as *byte, codegen.emit_stream as *void);
