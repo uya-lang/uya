@@ -767,7 +767,7 @@ fn link_split_with_make(split_dir: &byte, output_exe: &byte, is_nostdlib: i32) i
     c99_mkdir_p_for_file(output_for_make);
     var cc_driver_buffer: [byte: PATH_MAX] = [];
     const cc_driver: &byte = resolve_cc_driver(&cc_driver_buffer[0] as &byte, PATH_MAX);
-    const cflags_env: &byte = get_env_or_default("CFLAGS" as *byte, "-std=c99 -O0 -fno-builtin" as *byte);
+    const cflags_env: &byte = get_env_or_default("CFLAGS" as *byte, "-std=c99 -O2 -fno-builtin" as *byte);
     const target_triple: &byte = get_env_or_default("TARGET_TRIPLE" as *byte, "" as *byte);
     var target_flags: &byte = get_env_or_default("CC_TARGET_FLAGS" as *byte, "" as *byte);
     var target_flags_buffer: [byte: 256] = [];
@@ -936,7 +936,7 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
     var cc_driver_buffer: [byte: PATH_MAX] = [];
     const cc_driver: &byte = resolve_cc_driver(&cc_driver_buffer[0] as &byte, PATH_MAX);
     // 默认对齐仓库 Makefile 的 hosted CFLAGS，避免 uya build/run/test 与 make check 走出不同的宿主代码路径。
-    const cflags_env: &byte = get_env_or_default("CFLAGS" as *byte, "-std=c99 -O0 -fno-builtin" as *byte);
+    const cflags_env: &byte = get_env_or_default("CFLAGS" as *byte, "-std=c99 -O2 -fno-builtin" as *byte);
     var cflags_clang_buf: [byte: 2048] = [];
     var cflags_buf: [byte: 2048] = [];
     var cflags: &byte = hosted_cflags_add_clang_compat(cflags_env, cc_driver, &cflags_clang_buf[0] as &byte, 2048);

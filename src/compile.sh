@@ -5,7 +5,9 @@
 # 注意：不使用 set -e，因为我们需要捕获编译器的退出码并处理错误
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
-CFLAGS="${CFLAGS:--std=c99 -O0 -g -fno-builtin -Werror}"
+# 默认使用 -O2（-O0 会导致 C 编译器不进行任何优化，性能差距显著）；
+# 可通过 CFLAGS 环境变量覆盖，如 CFLAGS="-std=c99 -O3" bin/uya build ...
+CFLAGS="${CFLAGS:--std=c99 -O2 -g -fno-builtin -Werror}"
 LDFLAGS="${LDFLAGS:-}"
 TOOLCHAIN="${TOOLCHAIN:-system}"
 ZIG="${ZIG:-/home/winger/zig/zig}"
