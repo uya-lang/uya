@@ -38,9 +38,19 @@ All three Uya ports produce **bit-identical output** to their C reference implem
 
 ## Performance Notes
 
-- `nbody`: Uya's `libc.math.sqrt` is a Uya Newton-iteration implementation (not C libm), so Uya runs ~2.8× slower than C at `-O3`.
-- `spectral-norm`: Uya at `--opt=3` matches C `-O3` performance (~0.26s for n=2000).
-- `binary-trees`: Uya at `--opt=3` matches C `-O3` (~23s for depth 21), dominated by `malloc`/`free` overhead.
+Measured on Linux x86-64, 50M simulation steps (`nbody`), 2000x2000 (`spectral-norm`), depth 21 (`binary-trees`).
+
+- `nbody`: Uya default build ≈ 24.5s vs C reference ≈ 6.9s (~3.5×). Root cause: hosted builds define Uya's
+  Newton-iteration `sqrt` (from `lib/libc/math.uya`) under the bare libc name, and the default `-fno-builtin`
+  prevents GCC from emitting hardware `sqrtsd`. Experiment: delegating `sqrt` to the host libm lowers the
+  same generated C to ≈ 8.7s; hosting standard math functions in hosted mode is the recommended next step.
+- `spectral-norm`: Uya matches C (~0.26s for n=2000).
+- `binary-trees`: Uya matches C (~23s for depth 21), dominated by `malloc`/`free` overhead.
+
+## Optimization History
+
+- `-O0` → `-O2` for the C99 backend (commit `6c90874c`); `-O2` builds auto-append
+  `-fno-inline-small-functions` to dodge a known GCC small-function inlining miscompile.
 
 ## Source References
 
