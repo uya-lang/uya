@@ -1243,6 +1243,59 @@ fn c99_async_emit_poll_error_return(codegen: &C99CodeGenerator, expr: &ASTNode) 
     return 1;
 }
 
+// `return <标识符>;` 而这个标识符**是一个错误值**（`catch |err| { return err; }` 的
+// `err`）时，在 async 状态机里也要发成「带 error_id 的 Ready」。
+//
+// 现场（2026-10，uya-agent 的 async 改造）：同步函数里这条路一直是好的
+// （`gen_return_error_union_error_value` 会发 `{ .error_id = err, .value = 0 }`），
+// 但 async 的 `gen_return_stmt` 里 `is_error_return` **只认 `AST_ERROR_VALUE`**
+// （也就是只认 `return error.X;` 这种字面量），于是 `return err;` 掉进了「包装成
+// Ready(ok(expr))」那一支，发成 `{ .error_id = 0, .value = err }` —— 错误被当成
+// **成功值**返回：调用方的 `catch |err|` 不触发，`@error_id` 拿到 0，整条错误链
+// 静默消失（实测：深 5 层的 async 调用链，最内层的 `AsyncDeadlineExceeded` 传到
+// 顶层变成「成功、eid=0」）。
+//
+// 判据：tests/test_async_catch_reraise.uya（异步 re-raise / 嵌套两层 / 与同步对照）。
+fn c99_async_emit_poll_error_ident_return(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
+    if codegen == null || expr == null || expr.type != ASTNodeType.AST_IDENTIFIER ||
+        expr.identifier_name == null {
+        return 0;
+    }
+    if codegen.async_emit_poll_return == 0 || codegen.async_poll_ret_c == null ||
+        codegen.async_poll_union_c == null ||
+        codegen.async_poll_ready_payload_c == null {
+        return 0;
+    }
+    if codegen.async_poll_inner_is_err_union == 0 {
+        return 0;
+    }
+    if c99_identifier_is_error_value(codegen, expr.identifier_name) == 0 {
+        return 0;
+    }
+    // 错误返回前要跑 defer（与同步的 error 分支同一个口径：`emit_all_active_scope_cleanup(1)`）
+    emit_all_active_scope_cleanup(codegen, 1);
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void,
+        "{ %s _uya_async_err = (%s){ .error_id = " as *byte,
+        codegen.async_poll_ready_payload_c as *byte,
+        codegen.async_poll_ready_payload_c as *byte);
+    gen_expr(codegen, expr);
+    if c99_async_poll_error_payload_is_void(codegen) != 0 {
+        fputs(" };
+" as *byte, codegen.emit_stream as *void);
+    } else {
+        fputs(", .value = 0 };
+" as *byte, codegen.emit_stream as *void);
+    }
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void,
+        "return (%s){ ._tag = 1, .u = (%s){ .Ready = _uya_async_err } };\n" as *byte,
+        codegen.async_poll_ret_c as *byte, codegen.async_poll_union_c as *byte);
+    c99_emit_indent(codegen);
+    c99_emit(codegen, "}\n" as *byte);
+    return 1;
+}
+
 fn c99_async_full_return_is_error_future(codegen: &C99CodeGenerator) i32 {
     if codegen == null || codegen.async_full_return_type == null {
         return 0;
@@ -1362,6 +1415,10 @@ fn gen_return_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         codegen.async_poll_union_c != null && is_error_return == 0 {
         c99_emit_indent(codegen);
         if c99_async_try_emit_error_future_literal_poll_return(codegen, expr) != 0 {
+            return;
+        }
+        // `return err;`（err 来自 catch 绑定）必须走**错误**分支，不能当成功值包。
+        if c99_async_emit_poll_error_ident_return(codegen, expr) != 0 {
             return;
         }
         const async_full_is_error_future: i32 = c99_async_full_return_is_error_future(codegen);

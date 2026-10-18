@@ -1,0 +1,117 @@
+// test_async_catch_reraise.uya
+// 目标：`catch |err| { return err; }` 在 `@async_fn` 里必须**原样把错误抛出去**。
+//
+// 现场（2026-10，uya-agent 的 async 改造）：同步函数这条路一直是好的，但 async 的
+// `gen_return_stmt` 里 `is_error_return` 只认 `AST_ERROR_VALUE`（即只认
+// `return error.X;` 字面量），于是 `return err;` 掉进了「包装成 Ready(ok(expr))」
+// 那一支，发成 `{ .error_id = 0, .value = err }` —— 错误被当成**成功值**：
+// 调用方的 `catch |err|` 不触发、`@error_id` 拿到 0，整条错误链静默消失。
+// 实测症状是「深 5 层的 async 调用链，最内层的 AsyncDeadlineExceeded 到顶层变成
+// 成功、eid=0」——这类静默吞错在有网络/超时的程序里最难查。
+//
+// 修法：`c99_async_emit_poll_error_ident_return`（发生成 `{ .error_id = err,
+// .value = 0 }` 的 Ready），判据就是本文件。
+
+use std.async;
+use std.testing.assert_eq_i32;
+
+export error NestBoom;
+
+// 最内层：产生错误。
+fn raise_boom() !usize {
+    return error.NestBoom;
+}
+
+// 一层：catch 之后 re-raise（**同步**对照）。
+fn sync_reraise() !usize {
+    const r: !usize = raise_boom();
+    const v: usize = r catch |err| {
+        return err;
+    };
+    return v;
+}
+
+// 一层：catch 之后 re-raise（**异步**，本轮修的那条）。
+@async_fn fn as_reraise() Future<!usize> {
+    const r: !usize = raise_boom();
+    const v: usize = r catch |err| {
+        return err;
+    };
+    return v;
+}
+
+// 两层：异步 → 异步，确认 re-raise 穿过状态机之后还是同一个 error id。
+@async_fn fn as_reraise_outer() Future<!usize> {
+    const r: !usize = @await as_reraise();
+    const v: usize = r catch |err| {
+        return err;
+    };
+    return v;
+}
+
+// 一个真的成功、类型是 `!usize` 的调用（**不要**写成 `const r: !usize = 42 as usize;`
+// —— 那是另一条已知的独立缺口：隐式把 T 塞进 !T 不装箱，同步函数同样失败）。
+fn ok_usize() !usize {
+    return 42 as usize;
+}
+
+// 成功路径：re-raise 形态不能被修成「总是报错」。
+@async_fn fn as_ok() Future<!usize> {
+    const r: !usize = ok_usize();
+    const v: usize = r catch |err| {
+        return err;
+    };
+    return v;
+}
+
+// 在 async 外层捕获，把 error id 折成 i32 交出来。
+@async_fn fn as_probe(eid_out: &i32, val_out: &usize) Future<!i32> {
+    const r: !usize = @await as_reraise_outer();
+    const v: usize = r catch |err| {
+        eid_out[0] = (@error_id(err) as! i32).value;
+        0 as usize;
+    };
+    val_out[0] = v;
+    return 0;
+}
+
+test "async_catch_reraise_keeps_error_id" {
+    const w: Waker = Waker{};
+    var eid: i32 = 0;
+    var val: usize = 0;
+    const f: Future<!i32> = as_probe(&eid, &val);
+    _ = f.poll(&w);
+    const want: i32 = (@error_id(error.NestBoom) as! i32).value;
+    try assert_eq_i32(eid, want);
+    try assert_eq_i32(val as i32, 0);
+}
+
+test "sync_catch_reraise_keeps_error_id" {
+    const want: i32 = (@error_id(error.NestBoom) as! i32).value;
+    var got: i32 = 0;
+    const r: !usize = sync_reraise();
+    const v: usize = r catch |err| {
+        got = (@error_id(err) as! i32).value;
+        0 as usize;
+    };
+    try assert_eq_i32(got, want);
+    try assert_eq_i32(v as i32, 0);
+}
+
+test "async_catch_reraise_success_path" {
+    const w: Waker = Waker{};
+    const f: Future<!usize> = as_ok();
+    var got: i32 = 0;
+    const p: Poll<!usize> = f.poll(&w);
+    match p {
+        .Pending(_) => { got = 0 - 1; },
+        .Ready(r) => {
+            const v: !usize = r;
+            const n: usize = v catch {
+                0 as usize;
+            };
+            got = n as i32;
+        },
+    };
+    try assert_eq_i32(got, 42);
+}
