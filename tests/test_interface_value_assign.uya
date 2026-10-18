@@ -1,0 +1,66 @@
+// test_interface_value_assign.uya
+// 目标：具体 struct → 接口的**赋值**要装箱成 {vtable, data}。
+//
+// 现场（2026-10，uya-agent 的 async 改造）：文件作用域的 `var g: I = concrete;`
+// 一直是对的（顶层初始化器会发射装箱字面量），函数**实参**那条路也是对的
+// （expr.uya 的 c99_emit_call_arg_expr 里有 boxing 分支）；只有**赋值语句**
+// `x = concrete;` 直接发射成 `x = concrete;`，宿主 C 报
+//   incompatible types when assigning to type 'struct uya_interface_I'
+//   from type 'struct Concrete'
+// 链接失败。本文件把三条腿钉住：全局赋值（值形态 / 字面量形态）、`&x` 指针形态、
+// 局部声明形态。
+//
+// **口径（与 uya-agent 的 ui_reg / rt 用法一致）**：值形态的装箱在检查器里算一次
+// 「移动」（结构体值语义）—— 装箱之后再读那个具体变量会报「已被移动」，所以具体
+// struct 只装箱一次、之后一律传接口值；`&x` 形态是借用，装箱之后原变量照常可用。
+
+use std.testing.assert_eq_i32;
+
+interface Counter {
+    fn bump(self: &Self) i32;
+    fn peek(self: &Self) i32;
+}
+
+struct Inc : Counter {
+    n: i32,
+
+    fn bump(self: &Self) i32 {
+        self.n = self.n + 1;
+        return self.n;
+    }
+
+    fn peek(self: &Self) i32 {
+        return self.n;
+    }
+}
+
+var g_inc: Inc = Inc{ n: 0 };
+var g_c: Counter = g_inc;
+
+// 结构体字面量右侧：现场装箱，不要求先绑一个变量。
+test "interface_value_assign_struct_init" {
+    g_c = Inc{ n: 40 };
+    const a: i32 = g_c.bump();
+    try assert_eq_i32(a, 41);
+    // 同一个存储：再调一次要接着加，而不是从头来
+    const b: i32 = g_c.bump();
+    try assert_eq_i32(b, 42);
+}
+
+// 指针形态（`&x`）：接口的 data 直接存指针；原变量之后照常可用（借用，不是移动）。
+test "interface_value_assign_pointer_like" {
+    g_inc.n = 100;
+    g_c = &g_inc;
+    const a: i32 = g_c.bump();
+    try assert_eq_i32(a, 101);
+    const seen: i32 = g_inc.n;
+    try assert_eq_i32(seen, 101);
+}
+
+// 局部声明形态（本地装箱分支一直有，这里作为对照，防止修复把那条路带坏）。
+test "interface_value_local_decl" {
+    var local_inc: Inc = Inc{ n: 7 };
+    const local_c: Counter = local_inc;
+    const a: i32 = local_c.peek();
+    try assert_eq_i32(a, 7);
+}

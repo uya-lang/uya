@@ -2311,6 +2311,16 @@ fn gen_assign_non_array(codegen: &C99CodeGenerator, dest: &ASTNode, src: &ASTNod
         }
     }
     
+    if is_atomic == 0 {
+        // 具体 struct → 接口的**赋值**（`x = concrete;` / `x = Concrete{...};`）。
+        // 以前只有「函数实参」那条路会构造 {vtable, data} 对（expr.uya 里
+        // c99_emit_call_arg_expr 的 boxing 分支），赋值语句直接发射 `x = concrete;`
+        // ⇒ 宿主 C 报 incompatible types，链接失败。判据见
+        // tests/test_interface_value_assign.uya。
+        if gen_assign_iface_box(codegen, dest, src) != 0 {
+            return;
+        }
+    }
     if is_atomic != 0 {
         gen_assign_atomic(codegen, dest, src);
     } else {
@@ -3985,4 +3995,177 @@ fn emit_pointer_const_decl(codegen: &C99CodeGenerator, var_name: &byte, type_c: 
         snprintf(stored_type2 as *byte, str_len, "%s const" as *byte, type_c as *byte);
     }
     return stored_type2;
+}
+
+// ============================================================
+// 具体 struct → 接口的赋值装箱
+// ============================================================
+//
+// 现场（2026-10，uya-agent 的 async 改造）：`var g: I = concrete;` 在**文件作用域**
+// 能编译（顶层初始化器会发射 `(struct uya_interface_I){ .vtable = …, .data = … }`），
+// 但同一个类型在**函数体里赋值**就发射成 `g = concrete;` —— 宿主 C 直接
+// `incompatible types when assigning to type 'struct uya_interface_I' from type
+// 'struct Concrete'`，链接失败。函数**实参**那条路一直是好的（expr.uya 的
+// c99_emit_call_arg_expr 里有 boxing 分支），所以这里补的是「赋值」这一条。
+//
+// 判据：tests/test_interface_value_assign.uya（赋值 / struct init / 局部声明三条腿）。
+// 安全写法仍是「具体 struct → 接口变量」的赋值本身（本函数就是在实现它）；
+// `&具体struct as &接口` 那条路仍然不许走 —— 它不构造 {vtable, data} 对，
+// 运行期 SIGSEGV（uya-agent 的 ui_audit 判据 A）。
+
+// 从 C 类型串里抽「`uya_interface_` 之后的名字」，抽不到返回 null。
+// 支持 `struct uya_interface_Foo`、`const struct uya_interface_Foo`、
+// `struct uya_interface_Foo *`。
+fn iface_name_from_c_type_c(type_c: &byte, out: &byte, out_cap: i32) &byte {
+    if type_c == null {
+        return null;
+    }
+    var p: &byte = type_c;
+    if strncmp(p as *byte, "const " as *byte, 6) == 0 {
+        p = &type_c[6] as &byte;
+    }
+    const marker: &byte = strstr(p as *byte, "uya_interface_" as *byte);
+    if marker == null {
+        return null;
+    }
+    const start: &byte = &marker[14] as &byte;   // strlen("uya_interface_")
+    var n: i32 = 0;
+    while start[n] != 0 && start[n] != 32 && start[n] != 42 && n < out_cap - 1 {
+        out[n] = start[n];
+        n = n + 1;
+    }
+    out[n] = 0;
+    if n == 0 {
+        return null;
+    }
+    return &out[0] as &byte;
+}
+
+// 从 C 类型串里抽具体 struct 名（`struct Foo` → `Foo`）；接口与别名一律返回 null。
+fn struct_name_from_c_type_c(type_c: &byte, out: &byte, out_cap: i32) &byte {
+    if type_c == null {
+        return null;
+    }
+    var p: &byte = type_c;
+    if strncmp(p as *byte, "const " as *byte, 6) == 0 {
+        p = &type_c[6] as &byte;
+    }
+    if strncmp(p as *byte, "struct " as *byte, 7) != 0 {
+        return null;
+    }
+    if strstr(p as *byte, "uya_interface_" as *byte) != null {
+        return null;
+    }
+    const start: &byte = &p[7] as &byte;
+    var n: i32 = 0;
+    while start[n] != 0 && start[n] != 32 && start[n] != 42 && n < out_cap - 1 {
+        out[n] = start[n];
+        n = n + 1;
+    }
+    out[n] = 0;
+    if n == 0 {
+        return null;
+    }
+    return &out[0] as &byte;
+}
+
+// 赋值右侧「这个表达式属于哪个具体 struct」：标识符 / 结构体字面量 / `&x` 三种形态。
+// 抽不到（或不是具体 struct）返回 null。
+fn assign_src_struct_name_c(
+    codegen: &C99CodeGenerator,
+    src: &ASTNode,
+    out: &byte,
+    out_cap: i32,
+    pointer_like: &i32
+) &byte {
+    pointer_like[0] = 0;
+    if src == null {
+        return null;
+    }
+    if src.type == ASTNodeType.AST_STRUCT_INIT {
+        const st_name: &byte = src.struct_init_struct_name;
+        if st_name == null {
+            return null;
+        }
+        var n: i32 = 0;
+        while st_name[n] != 0 && n < out_cap - 1 {
+            out[n] = st_name[n];
+            n = n + 1;
+        }
+        out[n] = 0;
+        // 泛型字面量：用单态名（与调用实参那条路的 get_mono_struct_name 同源）
+        if src.struct_init_type_arg_count > 0 && src.struct_init_type_args != null {
+            const mono: &byte = get_mono_struct_name(codegen, st_name,
+                src.struct_init_type_args, src.struct_init_type_arg_count);
+            if mono != null {
+                var k: i32 = 0;
+                while mono[k] != 0 && k < out_cap - 1 {
+                    out[k] = mono[k];
+                    k = k + 1;
+                }
+                out[k] = 0;
+            }
+        }
+        return &out[0] as &byte;
+    }
+    if src.type == ASTNodeType.AST_UNARY_EXPR &&
+        (src.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND &&
+        src.unary_expr_operand != null {
+        pointer_like[0] = 1;
+        return struct_name_from_c_type_c(
+            get_c_type_of_expr(codegen, src.unary_expr_operand), out, out_cap);
+    }
+    return struct_name_from_c_type_c(get_c_type_of_expr(codegen, src), out, out_cap);
+}
+
+// 赋值目标若是接口，且右侧是实现了它的具体 struct，就发射装箱字面量并返回 1；
+// 其余情况返回 0（调用方走原来的直接赋值）。
+fn gen_assign_iface_box(codegen: &C99CodeGenerator, dest: &ASTNode, src: &ASTNode) i32 {
+    var dest_type_c: &byte = null;
+    if dest.type == ASTNodeType.AST_IDENTIFIER {
+        dest_type_c = get_identifier_type_c(codegen, dest.identifier_name);
+    } else if dest.type == ASTNodeType.AST_MEMBER_ACCESS {
+        dest_type_c = get_c_type_of_expr(codegen, dest);
+    }
+    if dest_type_c == null {
+        return 0;
+    }
+    var iface_buf: [byte: SHORT_NAME_BUF_SIZE] = [];
+    const iface_name: &byte = iface_name_from_c_type_c(dest_type_c,
+        &iface_buf[0] as &byte, SHORT_NAME_BUF_SIZE);
+    if iface_name == null {
+        return 0;
+    }
+    var struct_buf: [byte: SHORT_NAME_BUF_SIZE] = [];
+    var ptr_like: i32 = 0;
+    const struct_name: &byte = assign_src_struct_name_c(codegen, src,
+        &struct_buf[0] as &byte, SHORT_NAME_BUF_SIZE, &ptr_like);
+    if struct_name == null {
+        return 0;
+    }
+    if find_interface_decl_c99(codegen, iface_name) == null {
+        return 0;
+    }
+    if struct_implements_interface_c99(codegen, struct_name, iface_name) == 0 {
+        return 0;
+    }
+    const safe_iface: &byte = get_safe_c_identifier(codegen, iface_name);
+    const safe_struct: &byte = get_safe_c_identifier(codegen, struct_name);
+    codegen.emitting_assign_lhs = 1;
+    gen_expr(codegen, dest);
+    codegen.emitting_assign_lhs = 0;
+    fputs(" = " as *byte, codegen.emit_stream as *void);
+    if ptr_like != 0 {
+        fprintf(codegen.emit_stream as *void,
+            "(struct uya_interface_%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)(" as *byte,
+            safe_iface as *byte, safe_iface as *byte, safe_struct as *byte);
+    } else {
+        fprintf(codegen.emit_stream as *void,
+            "(struct uya_interface_%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&(" as *byte,
+            safe_iface as *byte, safe_iface as *byte, safe_struct as *byte);
+    }
+    gen_expr(codegen, src);
+    fputs(") }" as *byte, codegen.emit_stream as *void);
+    c99_emit_semi_newline(codegen);
+    return 1;
 }
