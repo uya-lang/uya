@@ -15,6 +15,7 @@
 - `lexer.uya` - 词法分析器
 - `microapp/` - microapp 镜像打包、检查与目标平台处理
 - `std_cfg.uya` - 平台 / 构建配置
+- `version.uya` - 编译器版本号唯一来源（`UYA_VERSION`，`--version` / usage / upm 共用）
 - `str_utils.uya` - 字符串工具
 - `parser/` - 语法分析阶段
 - `checker/` - 类型检查、可达性、泛型、证明优化等阶段
@@ -79,7 +80,7 @@ cd src
 
 ```text
 main.uya
-  ├─> arena.uya / ast.uya / fmt.uya / lexer.uya / std_cfg.uya / str_utils.uya
+  ├─> arena.uya / ast.uya / fmt.uya / lexer.uya / std_cfg.uya / str_utils.uya / version.uya
   ├─> driver/*
   ├─> microapp/*
   ├─> parser/*

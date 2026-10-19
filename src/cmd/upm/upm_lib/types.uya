@@ -1,3 +1,4 @@
+use version;
 use cmd.upm.upm_lib.types.UPM_PATH_MAX;
 use cmd.upm.upm_lib.types.UPM_LINE_MAX;
 use cmd.upm.upm_lib.types.UPM_CMD_MAX;
@@ -33,7 +34,9 @@ export const UPM_MAX_DEPS: i32 = 64;
 export const UPM_MAX_ALIAS_LEN: usize = 128;
 export const UPM_MAX_NAME_LEN: usize = 128;
 export const UPM_MAX_VERSION_LEN: usize = 64;
-export const UYA_UPM_RUNTIME_VERSION: &byte = "0.10.3" as &byte;
+// upm 与 package.uya_min_version 做 semver 比较，用的就是编译器版本号；
+// 唯一来源是 src/version.uya 的 UYA_VERSION，这里只做别名，不要另写字面量。
+export const UYA_UPM_RUNTIME_VERSION: &byte = UYA_VERSION;
 export const UPM_MAX_META_LEN: usize = 256;
 export const UPM_MAX_REF_LEN: usize = 256;
 export const UPM_MAX_LOCK_ITEMS: i32 = 128;

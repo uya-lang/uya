@@ -778,6 +778,19 @@ check: uya
 		exit 1; \
 	fi; \
 	echo ""; \
+	echo "验证版本号唯一来源与文档一致..."; \
+	if bash ./tests/verify_version_sources.sh > /tmp/verify_out.txt 2>&1; then \
+		grep -E "ok$$|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=0; \
+	else \
+		cat /tmp/verify_out.txt; \
+		VERIFY_EXIT=1; \
+	fi; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 版本号来源一致性验证失败"; \
+		exit 1; \
+	fi; \
+	echo ""; \
 	echo "验证 run .ush shebang..."; \
 	if bash ./tests/verify_run_shebang_ush.sh > /tmp/verify_out.txt 2>&1; then \
 		grep -E "ok$$|✓|✗" /tmp/verify_out.txt || cat /tmp/verify_out.txt; \
@@ -995,6 +1008,14 @@ check-hosted: b-hosted
 	if [ $$TEST_EXIT -ne 0 ]; then \
 		echo ""; \
 		echo "✗ hosted 测试失败"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "验证版本号唯一来源与文档一致..."
+	@UYA_COMPILER="$(PWD)/bin/uya-hosted" bash ./tests/verify_version_sources.sh; \
+	VERIFY_EXIT=$$?; \
+	if [ $$VERIFY_EXIT -ne 0 ]; then \
+		echo "✗ 版本号来源一致性验证失败"; \
 		exit 1; \
 	fi
 	@echo ""

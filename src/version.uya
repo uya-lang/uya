@@ -1,0 +1,13 @@
+// version.uya - 编译器版本号的**唯一来源**
+//
+// 改版本号只改这一个字面量；其它地方一律引用这里，不要另写字面量：
+//   - `src/main.uya`：`uya --version` 与 usage 首行的版本号
+//   - `src/cmd/upm/upm_lib/types.uya`：upm 的 `UYA_UPM_RUNTIME_VERSION`
+//     （与 `package.uya_min_version` 做 semver 比较，故不带 `v` 前缀）
+//   - `tests/verify_version_sources.sh`：校验 readme / CHANGELOG / 发行说明
+//     与这里一致，并校验 `bin/uya --version` 的输出
+//
+// 版本形态固定为 `MAJOR.MINOR.PATCH`（不带 `v`）；展示时由调用方补 `v` 前缀。
+
+/// 编译器版本号（`MAJOR.MINOR.PATCH`，**不含** `v` 前缀）。
+export const UYA_VERSION: &byte = "0.10.4" as &byte;

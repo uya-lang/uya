@@ -1,18 +1,36 @@
 # Uya 变更日志
 
-## v0.10.4 - 纯 Uya 的 JPEG 编解码（未发布）
+## v0.10.4 - 编译器容量收口、密码学底座与 Windows 目标
 
-> 发布日期：待定
+> 发布日期：2026-10-19
 
 ### 概要
 
-新增 **`std.image`**：内存位图 + **纯 Uya 的基线 JPEG 编解码**（Huffman + 8×8 DCT），
-**零 libm、零 C 依赖**（全整数定点），编码除调用方给的分配器外不用堆。
+**v0.10.4** 是 v0.10.x 发行线上的**能力补丁**，四条主线：
 
-这是「多模态图片只能接受原图或拒绝」那条硬约束的收口：此前超预算的图缩不了，
-因为没有编解码器；现在有了「解码 → 缩放 → 重编码」的前两半（缩放不在本次范围）。
+1. **编译器容量与速度**：输入文件表 / call edge 表 / reachable 函数表 / 顶层全局类型
+   查找全部改成按需增长 —— 大工程不再撞「容量已满」编不过，也不再静默丢函数；
+   前端改进程级并行 + 增量指纹，`make uya` 22s → 14s（无改动 0.4s）。
+2. **密码学底座**：新增 `std.crypto`（SHA-512/HMAC、4096 位 bigint + Montgomery、
+   Curve25519、Ed25519），并修掉三个真缺陷 —— RSA-4096 的 Montgomery 归约丢溢出字、
+   Ed25519 验签缺小阶点检查、`x25519` 的 u64 快路径算错。
+3. **纯 Uya 的基线 JPEG 编解码**：新增 `std.image`（`Image` + Huffman + 8×8 DCT，
+   全整数定点、零 libm / 零 C 依赖）。
+4. **Windows 目标**：用 zig cc 打通 Windows 自举（syscall 汇聚点、LLP64 指针截断、
+   Winsock、控制台代码页、UBSan 下暴露的区间运算 UB）。
+
+另外：检查器再收口 4 条 UB 漏检并接上切片范围校验；C99 后端默认优化从 `-O0` 提到
+`-O2`；补 Benchmarks Game 移植；修 kernel/sim x86 call gate trampoline 的 SysV 栈对齐；
+**版本号统一到唯一来源 `src/version.uya`**。
 
 ### 新增
+
+#### `std.image`：纯 Uya 的基线 JPEG 编解码
+
+内存位图 + **基线 JPEG 编解码**（Huffman + 8×8 DCT），**零 libm、零 C 依赖**
+（全整数定点），编码除调用方给的分配器外不用堆。这是「多模态图片只能接受原图或
+拒绝」那条硬约束的收口：此前超预算的图缩不了，因为没有编解码器；现在有了
+「解码 → 缩放 → 重编码」的前两半（缩放不在本次范围）。
 
 - **`lib/std/image/image.uya`**：内存位图 `Image`（灰度 / RGB，行优先、无填充）。
   接口：`image_new` / `image_free` / `image_get` / `image_set` / `image_fill` /
@@ -46,6 +64,142 @@
 - **文档**：`docs/std_jpeg.md`（分层、支持矩阵、接口、不变量、测试与证据）；
   `docs/uya.md` 的标准库表补 `std.image` 三行。
 
+#### `std.crypto`：纯 Uya 的密码学底座
+
+为纯 Uya 的 SSH 客户端打底（上游一直缺 SHA-512、Ed25519，以及能做 2048 位以上模幂的
+大数）。全部纯 Uya，不引 C / OpenSSL。
+
+- **`lib/std/crypto/sha512.uya`**：SHA-512（FIPS 180-4）+ HMAC-SHA512（RFC 2104），
+  带流式上下文。
+- **`lib/std/crypto/bigint.uya`**：定长 64 limb（4096 位）大数 + SOS Montgomery 乘法 +
+  模幂。上游 `lib/tls/base/mpi.uya` 的 `MPI_MAX_LIMBS = 32` 让 2048 位平方直接返回
+  `TlsBadInput`（2048 位平方需要 64 limb），RSA-4096 更无可能；本模块实测 2048 位模幂
+  （e=65537）约 13 ms、4096 位模乘 0.27 ms。
+- **`lib/std/crypto/curve25519.uya`**：RFC 7748，16×16 位 limb（TweetNaCl 结构，
+  不需要 u128）；**`ed25519.uya`**：RFC 8032 签名/验签，复用同一套域运算。
+- **`lib/std/crypto/sha256.uya`**：补流式上下文与无长度上限的 HMAC-SHA256
+  （原 `std.crypto.hmac_sha256` 的消息上限 256 字节，而 SSH 的 MAC 要覆盖最长 64 KiB 的包）。
+- **测试**（期望值均由独立的 Python 参考实现算出，不是从实现反推）：
+  `test_crypto_sha512`（13 项，FIPS 180-4 附录 C + RFC 4231 全 7 条 + 流式/边界）、
+  `test_crypto_bigint`（11 项）、`test_crypto_bigint_modexp4096`（RSA-4096 向量）、
+  `test_crypto_curve25519`（8 项，RFC 7748 §5.2/§6.1）、`test_crypto_ed25519`（7 项，
+  RFC 8032 §7.1 TEST 1/2/3 逐字节 + 篡改必须失败 + 9 个小阶点必须被拒）、
+  `test_crypto_sha256_stream`（6 项）。
+
+#### Benchmarks Game 移植
+
+`benchmarks/benchmarksgame/` 新增 Uya 版 `n-body` / `spectral-norm` / `binary-trees`，
+三者输出与 C 参考实现**逐字节一致**，附构建方法、运行说明与性能对比。
+
+### 修复与收口
+
+#### 编译器容量：四处「表满即静默失效 / 直接编不过」
+
+- **输入文件表（`src/driver/path_list.uya`）**。`main()` 的 `input_file_indices` 是
+  `[i32: 64]`（compiler-mini 遗留），而 `parse_args` 的守卫用的是 `MAX_INPUT_FILES`（512）
+  ⇒ 第 65 个显式输入的下标写到数组之外，现象是「无法获取输入文件路径（索引 1886221359）」
+  这类与真实原因无关的报错。新增 `PathList` / `IntList`（按 2 倍增长、只装指针，
+  扩容不打断指针身份），并把同族的 6 张定长表、`ast_merge_programs`、split-C 镜像表
+  与 libc 的 128 槽 FILE 池（128 × 64 KiB = 8 MiB BSS）一并改成按需分配；删掉
+  `current_size < max_files` 那类**静默停手**的循环。新增
+  `tests/verify_input_file_count.sh`（100 个显式输入必须 build+check+依赖表全登记）。
+- **reachable 函数表**。`[&ASTNode: 4096]` 且以同一个 4096 当循环上界 ⇒ 第 4097 个可达
+  函数被**静默丢掉**（定义不发射、原型不写进 `uya_split_protos.h`），报错点在调用处
+  （`implicit declaration` / `invalid initializer`）。改为按 checker 的实际条数分配、
+  装满 2 倍扩容，常量降级为初始容量。
+- **call edge 表**。`MAX_FN_CALL_EDGES = 16384` 装满就让整个工程编不过，报错点落在标准库
+  里。改为按需增长；扩容失败**报错而不静默丢边** —— 静默丢边会让可达集合变小，
+  变成「定义不发射、调用点还在」的链接期 `undefined reference`。
+- **顶层全局类型查找**。`C99_MAX_GLOBAL_VARS` 是刻意做成的缓存（满了降级是设计），
+  但名字查找有 `program_decls` 兜底、类型查找没有 ⇒ 表满后 `&SOME_CONST[0: n]` 退化成
+  `struct uya_slice_int32_t`。补上同款降级（只在未命中时触发，表没满时逐字节不变）。
+
+#### 检查器：再收口 4 条 UB 漏检 + 接上切片范围校验
+
+- **区间端点回绕（健全性漏洞）**。`[i32::MIN, i32::MAX]` 相加回绕成反转区间 `[0, -2]`，
+  而 `interval_within_bounds` 只比较两个端点 ⇒ `a[w + h]` 被判「已证明安全」而静默放行。
+  同一个回绕也解释了「除数是形参加减表达式时编译器自己 SIGFPE（退出码 136）」。四处守卫
+  统一改为**保守拒绝**（端点反转直接判「无法证明」），没有采用 i64 饱和运算 ——
+  多算一步就多一个静默放行的机会。回归：`error_array_bounds_interval_wrap.uya` +
+  正例 `test_bounds_interval_wrap.uya`。
+- **常量 `-1` 兼作「非常量」哨兵**。`checker_eval_const_expr` 用 `-1` 同时表示「非常量」，
+  于是 `a[0 - 1]` 掉进变量证明分支、静默放行。改为「成功标志 + 值」双返回
+  （`checker_eval_const_expr_ex`），下标检查 / for 范围端点 / 区间提取 / codegen 常量折叠
+  全部改看成功标志；顺带收口 `2147483647 - (0 - 1)` 这类中间结果为 -1 的减法上溢。
+- **嵌套字段移动导致的真 double free**。移动标记原先只落在顶层变量上，
+  `const moved: Buf = h.buf` 之后外层结构体的类型级 drop 仍会清理同一份资源。
+  checker 侧登记**字段访问路径**（`h.buf`，判定用「前缀 + 恰好停在字段边界」，
+  所以 `h.bufx` 不会被误判）且只对「字段类型自带 drop」的形态登记（否则自举爆出
+  110 个误报）；codegen 侧在移动点把源字段置零，让类型级 drop 成为空操作。
+- **`return` 表达式与元组下标**：`return` 只走类型推断、不深入 cast/实参位置的子表达式，
+  元组越界也只在 `checker_check_member_access` 里报 ⇒ 错误被推迟到 C 编译器。给 return
+  补一条只递归下标/成员/容器的边界检查（刻意**不**复用 `checker_check_node`，
+  否则会对调用实参误做 move 标记，自举当场炸出 84 个「变量已被移动」误报）。
+- **切片范围校验接上**：`check_slice_bounds`（`src/checker/proof.uya`）早就实现了，
+  但**全树没有调用者**（死代码）。接到切片表达式的类型推断上后，立刻暴露并清掉 13 处
+  越界切片（`"..."[0: N]` 的 N 跨过了字符串结尾，切开的是越界读到的内存；逐个按 UTF-8
+  字节数核算，语义不变）。全树 984 处字面量切片重新扫描后越界 0 处。
+- 测试：新增 21 个负例（`tests/error_*.uya`）+ 40 余个正例（`test_ub_safety_guards` 22 用例、
+  `test_bounds_const_negative_index`、`test_return_expr_bounds`、`test_slice_range_bounds`、
+  `test_nested_field_move`），正例专门防「证明器收紧到误报」。
+
+#### 密码学：三个真缺陷
+
+- **RSA-4096 签名全错（Montgomery 归约丢溢出字）**。`bigint_mont_mul` 第 3 步只读
+  `t[k .. 2k)`，丢掉了 `t[2k]`。模数小或指数短（65537）时它恒为 0，所以既有 11 条测试
+  一直绿；RSA-4096 私钥签名几乎每次归约都溢出，错误只在最高字节，症状是服务端稳定回
+  `message authentication code incorrect`。修法：读入溢出字，非 0 时必然要减一次 n
+  （回绕正好给出 V - n）。`test_crypto_bigint_modexp4096` 修复前红、修复后绿。
+- **Ed25519 验签缺小阶点检查（可伪造任意消息的签名）**。8 个小阶点的编码完全合法、
+  都能成功解码，缺了 cofactor 检查就能拿它当公钥/A 或 R 构造万能伪造签名；
+  而**所有正常的 RFC 8032 向量测试照样全绿**。按 RFC 8032 §5.1.7 增加 `8·P == 单位元`
+  判定。过程中还修掉自己那版检查的隐蔽错误：域元素允许**冗余表示**，逐 limb 比较会漏判
+  两个 8 阶点，改为比较 `gf_pack` 后的规范字节形式。
+- **`x25519` 的 u64 快路径算错**。该路径对 RFC 7748 §5.2/§6.1 全部向量都算错
+  （域运算单点都对，ladder 组合起来发散），原测试只调 `x25519_pure_mpi` 所以一直没被
+  发现。快路径改为委托 `std.crypto.curve25519`（同批向量逐字节正确，约 3.5 ms/次
+  vs MPI 路径 296 ms），并补上快路径的向量断言。
+
+#### Windows 目标
+
+- **编译器可在 Windows 运行并自举自检**：新增 `UYA_TARGET_WINDOWS` 块，
+  `uya_windows_syscall` 作为唯一 syscall 汇聚点；syscall ABI 用 `int64_t` 而非 `long`
+  （LLP64 下 `long` 仅 32 位，会把指针/长度高位截断成野地址）；目录遍历走
+  `FindFirstFileW` bridge；`stat` 用 `BY_HANDLE_FILE_INFORMATION` 补真实
+  (卷序列号, 文件索引) —— `_stat64` 的 `st_ino` 恒为 0 会让模块被去重丢弃。
+- **Winsock 桥**：socket 描述符加 `0x40000000` 偏移与 CRT fd 区分，`poll` 用 `select`
+  实现，`WSAE*` 错误码按语义映射回 Linux errno，`getsockopt`/`setsockopt` 的
+  level/optname 做取值翻译，`fcntl` 的 `O_NONBLOCK` 用 `FIONBIO` 实现
+  （空实现会让 `tcp_set_nonblocking` 假成功、`connect` 语义全错）。
+- **控制台代码页**：`uya_windows_write` 原先一律走 CRT `_write`，中文 Windows（CP936）
+  会把 UTF-8 的「用法」渲染成「鐢ㄦ硶」。现在 fd 是控制台时（`GetConsoleMode` 成功）
+  单独走 UTF-8 → UTF-16 → `WriteConsoleW`。
+- **`clock_gettime` 有符号溢出**：`now.QuadPart * 1e9` 开机一段时间后溢出 int64，
+  UBSan 构建直接 panic（实测「SSH 一连就崩」）；改为秒与余数分开计算。
+- **区间/哈希运算的 i32 有符号溢出**：`src/checker/interval.uya` 与
+  `src/codegen/c99/utils.uya` 里端点加减乘、offset 组合、声明结果缓存哈希等统一改用 u32
+  承载（C99 中良定义）再转回 i32，位模式与原语义完全一致（改饱和会改变约束值，
+  实测导致 10+ 处边界证明失效）。
+
+#### C99 后端与构建
+
+- **默认 `CFLAGS` 从 `-O0` 提到 `-O2`**。`--opt=N` 只控制 Uya 自己的优化器，不控制宿主 C
+  编译器；-O0 让生成代码与手写 C 差一个量级（n-body 22s vs 6.8s）。改为 -O2 后
+  n-body 3.9s、spectral-norm 与 binary-trees 追平，可用 `CFLAGS` 覆盖。
+  剩余 n-body 差距（sqrt 走 Newton 迭代、`-fno-builtin` 挡住硬件 `sqrtsd`）已记入
+  `benchmarks/benchmarksgame/README.md`。
+- **async 里 `catch |err| { return err; }` 必须带上 error_id**；**具体 struct → 接口的
+  赋值要装箱**（`{vtable, data}`）。
+- **`make uya` 22s → 14s**：前端进程级并行 + 增量指纹（`UYA_FORCE_BUILD=1` 可强制重建）。
+- **kernel/sim x86 call gate trampoline 改尾跳**：原来的 `call rax; ret` 会多压一层返回
+  地址，让 payload 入口的 `rsp % 16` 从 8 变成 0，违反 SysV ABI，下游一用 `movaps`
+  就 SIGSEGV（实测 microapp `time` 用例崩在 `syscall_handle_time`）。改为 `jmp rax`，
+  并补两条裸函数探针测试覆盖 `uya_call0_i32` 与 `uya_call0_i32_stack`（私有栈）两条路径。
+- **版本号统一到唯一来源**：新增 `src/version.uya`（`UYA_VERSION`），`uya --version`、
+  usage 首行与 upm 的 `UYA_UPM_RUNTIME_VERSION` 全部引用它；新增
+  `tests/verify_version_sources.sh` 校验编译器输出、upm 输出与 readme / CHANGELOG /
+  发行说明 / 优化状态报告一致，已挂进 `make check`。
+
 ### 设计取舍
 
 - **渐进式 / 算术编码 / 12-bit / 4 分量一律明确拒绝**（`JpegUnsupported`），
@@ -63,11 +217,18 @@
 - 我们的解码器与 `djpeg -nosmooth` 在 4:4:4 / 4:2:2 / 4:2:0 / 4:2:0+重启 四种
   256×256 图上逐样本比对：**最大误差 4/255**（196608 个样本，0 个超过 4）。
 
-### 顺带记录
+### 仍在账上（本版未修）
 
-- `buglist.md` 新增一条**编译器 bug**：除数是「函数形参的加减表达式」时
-  编译器自己 `SIGFPE`（无错误输出、退出码 136）。最小复现、规避写法
-  （除数先落临时量）与推测方向都写在那条里。
+- `buglist.md` 里的「取值路径非线性下标不检查」与「除法正确性证明」仍未做：
+  `a[w + h]` 作为**取值**仍不做边界检查（赋值路径已检查），`a / b` 乃至 `a / 0`
+  都还不报错；补前者需连带为 13 处 `digits[di - 1 - i]` 型多变量下标补证明。
+- 循环体内下标、切片**形参**下标、指针形参解引用这三条 UB 仍未收口（`tests/repros/`
+  下仍编译通过并运行期真 UB）；「进循环体前丢掉被改坏的那一侧边界」的尝试实测让自举
+  爆出 104 个错误 —— 根因是 `while buf[i] != 0` 这类 C-string 循环只靠循环前 `i == 0`
+  那一条过了证明，属独立工作量。
+- macOS `kqueue` 后端仍未经真机验收，Windows 的 IOCP 后端仍未落地（沿用 poll 回退）。
+- `uya-agent` 的 TUI 自测轮在本机 0.10.3 上整组红，已确认与本版改动无关
+  （同机 0.10.1 构建同一份源码全绿），详见 `buglist.md`。
 
 ## v0.10.3 - 检查器动态表与 async 缺失项收口
 
