@@ -70,6 +70,27 @@ test "range_contract_loop_counter" {
     try assert_eq_i32(counter_with_contract(0), 0);
 }
 
+fn count_up(n: i32 @range(0, 1000000)) i32 @range(0, 1000000) {
+    // 局部计数器的契约让它获得上界，`c = c + 1` 可证
+    var c: i32 @range(0, 1000000) = 0;
+    while c < n {
+        c = c + 1;
+    }
+    return c;
+}
+
+fn local_via_chain() i32 {
+    // 返回契约让调用结果参与算术也可证
+    const r: i32 @range(0, 1000000) = count_up(4);
+    return r - 4;
+}
+
+test "range_contract_local_var" {
+    try assert_eq_i32(count_up(4), 4);
+    try assert_eq_i32(count_up(0), 0);
+    try assert_eq_i32(local_via_chain(), 0);
+}
+
 test "range_contract_no_runtime_check" {
     // 契约不做运行时检查：越界传入照常计算（这是契约的信任模型）
     try assert_eq_i32(advance(2000000, 5), 2000005);

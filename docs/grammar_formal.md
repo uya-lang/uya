@@ -294,6 +294,10 @@ postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')'
                 # 泛型方法调用在解析歧义消解后同样归入这条后缀链，如 obj.method<T>().next()
                 # 0.49.41：STRING 为 primary_expr 时，可接 '[' expr ']'（下标）或 slice_op（与数组字面量、标识符一致），如 "hello"[0:3]、&"hello"[0:3]
 catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'      # 后缀，可连续多个（左结合），见 src/parser/expressions.uya:63-138；是 cast 级后缀，就地处理整条算术须写 (a + b) catch {}
+
+# 区间契约（声明属性，供 --strict-overflow 证明器使用；不做运行时检查）
+range_contract = '@range' '(' const_expr ',' const_expr ')'          # 可跟在参数类型、局部变量类型、返回类型之后
+                                                                     # 例：x: i32 @range(0, 1000)；var c: i32 @range(0, 1000000) = 0；fn f() i32 @range(0, 2000)
 primary_expr   = ID | NUM | STRING | CHAR | 'true' | 'false' | 'null'
                | builtin_expr
                | struct_literal | array_literal | tuple_literal | enum_literal | union_literal

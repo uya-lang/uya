@@ -171,6 +171,8 @@ errdefer { rollback(); }
 
 **优先级（高→低，与 `src/parser/expressions.uya` 一致）**：调用/字段/下标/切片 → 一元 `- ! ~ & *` → `as` `as!` → `* / % *| *%` → `+ - +| -| +% -%` → 移位 → 比较 `< > <= >=` → `== !=` → `&` → `&&` → `^` → `|` → `||` → `|>` → 赋值与复合赋值（`=` `+=` `-=` `*=` `/=` `%=`）。**`catch`** 是 `as` 之后的后缀，不是独立优先级级别。
 
+**区间契约 `@range(lo, hi)`（0.49.55）**：声明参数 / 局部变量 / 返回值的取值区间，供 `--strict-overflow` 证明器使用。属**声明属性**（不做运行时检查，与 `@align` 同类），调用方负责满足。例：`fn f(line: i32 @range(0, 1000000)) i32 @range(0, 2000)`、`var c: i32 @range(0, 1000000) = 0;`。`lo`/`hi` 为整型常量表达式，支持 `@max`/`@min`。
+
 **饱和**：`+|` `-|` `*|`；**包装**：`+%` `-%` `*%`。**`try expr`**：传播 `!T`。`!T` 由两类操作数提供 —— ① 本身是错误联合类型；② 是**整数算术表达式**（根为 `+ - * / %` 或一元 `-`），按 **checked 算术**求值：溢出 → `error.Overflow`，除零 → `error.DivisionByZero`。`try` 的操作数按「相对表达式」解析，`try a + b` 即 `try (a + b)`，**无需加括号**；`catch` 是 cast 级后缀，就地处理整条算术**必须**写 **`(a + b) catch |e| { … }`**（写成 `a + b catch {}` 只会绑定 `b`）。`error.Overflow` / `error.DivisionByZero` 无需 `error X;` 声明。普通上下文的 `a + b` 仍是普通整数算术，不做 checked 求值。
 
 **类型化管道 `|>`（0.49.54）**：只用于 **`Pipeline`**（`std.process` 的不透明、move-only 执行计划）与 **`!Pipeline`**；`pipeline_expr = or_expr { '|>' postfix_expr }`（左结合，位于 `||` 与赋值之间，右侧最外层必须是调用表达式）。

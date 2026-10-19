@@ -446,6 +446,26 @@ enum HttpStatus : u16 {
 - `try expr` 位于一元级，**操作数按「相对表达式」解析**：`try a + b` 即 `try (a + b)`，无需加括号。`try` 传播 `!T`；整数算术操作数按 checked 求值（溢出 → `error.Overflow`，除零 → `error.DivisionByZero`）。`catch` 是 cast 级后缀，就地处理整条算术要写 `(a + b) catch |e| { … }`
 - `catch` 不是独立优先级：它是 `expr catch [|err|] { ... }` 的**后缀**，写在 `as` / `as!` 之后
 
+### 区间契约 `@range(lo, hi)`（**0.49.55**）
+
+声明参数 / 局部变量 / 返回值的取值区间，供 `--strict-overflow` 证明器使用。
+属**声明属性**，不做运行时检查（与 `@align` 同类），调用方负责满足。
+
+```uya
+fn advance(line: i32 @range(0, 1000000),
+           off: i32 @range(0, 1000)) i32 @range(0, 1001000) {
+    return line + off;
+}
+
+fn count_up(n: i32 @range(0, 1000000)) i32 @range(0, 1000000) {
+    var c: i32 @range(0, 1000000) = 0;   // 局部计数器上界
+    while c < n { c = c + 1; }
+    return c;
+}
+```
+
+`lo`/`hi` 为整型常量表达式，支持 `@max`/`@min`。
+
 ### 类型化管道 `|>`（**0.49.54**）
 
 ```uya
