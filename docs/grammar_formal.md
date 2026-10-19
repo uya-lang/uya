@@ -1,6 +1,6 @@
 # Uya 语言正式语法规范（Formal BNF）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.54 同步（2026-10-19）
+> **版本**：与 [uya.md](./uya.md) 0.49.55 同步（2026-10-19）
 
 本文档包含 Uya 语言的完整、无歧义的 BNF 语法定义，用于：
 - 编译器/解析器实现
@@ -285,7 +285,7 @@ shift_expr     = add_expr { ('<<' | '>>') add_expr }
 add_expr       = mul_expr { ('+' | '-' | '+|' | '-|' | '+%' | '-%') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%' | '*|' | '*%') cast_expr }
 cast_expr      = unary_expr [ ('as' | 'as!') type ] { catch_op }  # 'as' 比一元运算更外层：-x as i64 即 (-x) as i64
-unary_expr     = 'try' rel_expr                                  # try 的操作数按相对表达式解析
+unary_expr     = 'try' rel_expr                                  # try 的操作数按相对表达式解析（try a + b 即 try (a + b)）；操作数须提供 !T：错误联合值，或整数算术表达式（checked：溢出→error.Overflow，除零→error.DivisionByZero）
                | ('!' | '-' | '~' | '&' | '*') unary_expr         # 右结合
                | postfix_expr
 postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')' | slice_op }
@@ -293,7 +293,7 @@ postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')'
                 # 花括号字面量、括号表达式、下标结果、方法调用结果都可继续重复接同一套后缀，因此链式调用深度不受限制
                 # 泛型方法调用在解析歧义消解后同样归入这条后缀链，如 obj.method<T>().next()
                 # 0.49.41：STRING 为 primary_expr 时，可接 '[' expr ']'（下标）或 slice_op（与数组字面量、标识符一致），如 "hello"[0:3]、&"hello"[0:3]
-catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'      # 后缀，可连续多个（左结合），见 src/parser/expressions.uya:63-138
+catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'      # 后缀，可连续多个（左结合），见 src/parser/expressions.uya:63-138；是 cast 级后缀，就地处理整条算术须写 (a + b) catch {}
 primary_expr   = ID | NUM | STRING | CHAR | 'true' | 'false' | 'null'
                | builtin_expr
                | struct_literal | array_literal | tuple_literal | enum_literal | union_literal

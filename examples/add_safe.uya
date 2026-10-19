@@ -3,7 +3,8 @@
 // Uya 的整数溢出规则：
 //   - 常量运算溢出 -> 编译错误
 //   - 变量运算 -> 必须让编译器证明无溢出，或显式检查后返回错误/极值
-//   - `try` 只做 !T 错误传播，不做算术溢出检查（`try a + b` 会报错）
+//   - `try a + b` / `(a + b) catch |e| {...}` 提供运行时 checked 算术：
+//     溢出 → error.Overflow，除零 → error.DivisionByZero
 //
 // 运行：./bin/uya run examples/add_safe.uya
 

@@ -987,10 +987,12 @@ fn checker_reset_proof_steps(checker: &TypeChecker) void {
             checker.constraint_values[i] = 0;
         }
         checker.constraint_count = 0;
+        constraint_sound_clear_all();
         for 0..@len(checker.pointer_nonnull_names) |i| {
             checker.pointer_nonnull_names[i] = null;
         }
         checker.pointer_nonnull_count = 0;
+        checker.checked_arith_root_count = 0;
     }
 }
 
@@ -1735,4 +1737,76 @@ fn validate_async_function(checker: &TypeChecker, fn_node: &ASTNode) i32 {
     var seen_return: i32 = 0;
     validate_async_body(checker, fn_node.fn_decl_body, 0, &seen_return, &errors);
     return errors;
+}
+
+// ===== 溢出证明（--strict-overflow 闸门）=====
+//
+// 目标：在开启 --strict-overflow 时，普通上下文里的整数算术必须能证明不溢出，
+// 否则报编译错误，并给出三条可用修法（checked / 守卫 / 包装）。
+// 默认关闭，避免一次性砸坏存量代码（见 buglist.md 的分阶段迁移计划）。
+//
+// 判定链：表达式 -> WideInterval（i64 宽化，见 interval.uya）-> 是否落在类型范围内。
+// 保守优先：任何无法可靠求界的形态（调用、成员访问、下标、转换、除法等）
+// 一律返回「不可证明」，宁可要求显式检查，也不放过可能的溢出。
+
+// 整数运算是否在类型 kind 下可证明无溢出。
+// 参数：checker - 类型检查器；expr - 算术表达式；kind - 目标整数类型的 TypeKind（as i32）
+// 返回：1 表示已证明无溢出；0 表示无法证明
+export fn checker_prove_no_overflow(checker: &TypeChecker, expr: &ASTNode, kind: i32) i32 {
+    if checker == null || expr == null {
+        return 0;
+    }
+    const wide: WideInterval = wide_interval_of_expr(checker, expr, kind);
+    return wide_fits_type_kind(wide, kind);
+}
+
+// 报告溢出证明失败。
+// 参数：checker - 类型检查器；node - 算术表达式节点；op_text - 运算符原文（如 "+"）；
+//       kind - 目标整数类型的 TypeKind（as i32）
+// 返回：无
+export fn checker_report_overflow_unproven(checker: &TypeChecker, node: &ASTNode, op_text: &byte, kind: i32) void {
+    if checker == null || node == null {
+        return;
+    }
+    if checker.suppress_codegen_diagnostics != 0 {
+        return;
+    }
+    const kind_tmp: !TypeKind = kind as! TypeKind;
+    const type_name: &byte = proof_integer_type_name(kind_tmp.value);
+    // 文案要短：报错通路只有 512 字节缓冲，长中文会被截断成半个 UTF-8 序列
+    var msg_buf: [byte: 512] = [];
+    snprintf(&msg_buf[0] as *byte, 512,
+        "%s 溢出无法证明（--strict-overflow）：改用 try a %s b、(a %s b) catch、加区间守卫，或用饱和/包装运算符" as *byte,
+        type_name as *byte, op_text as *byte, op_text as *byte);
+    checker_report_error(checker, node, &msg_buf[0] as *byte);
+}
+
+// 整数类型 kind 的显示名（用于诊断文案）
+fn proof_integer_type_name(kind: TypeKind) &byte {
+    if kind == TypeKind.TYPE_I8 { return "i8" as &byte; }
+    if kind == TypeKind.TYPE_I16 { return "i16" as &byte; }
+    if kind == TypeKind.TYPE_I32 { return "i32" as &byte; }
+    if kind == TypeKind.TYPE_I64 { return "i64" as &byte; }
+    if kind == TypeKind.TYPE_U8 { return "u8" as &byte; }
+    if kind == TypeKind.TYPE_U16 { return "u16" as &byte; }
+    if kind == TypeKind.TYPE_U32 { return "u32" as &byte; }
+    if kind == TypeKind.TYPE_U64 { return "u64" as &byte; }
+    if kind == TypeKind.TYPE_USIZE { return "usize" as &byte; }
+    if kind == TypeKind.TYPE_BYTE { return "byte" as &byte; }
+    return "整数" as &byte;
+}
+
+// 该类型 kind 是否参与溢出闸门（只有真正的整数类型参与）
+export fn proof_type_kind_is_integer(kind: i32) i32 {
+    if kind == TypeKind.TYPE_I8 as i32 { return 1; }
+    if kind == TypeKind.TYPE_I16 as i32 { return 1; }
+    if kind == TypeKind.TYPE_I32 as i32 { return 1; }
+    if kind == TypeKind.TYPE_I64 as i32 { return 1; }
+    if kind == TypeKind.TYPE_U8 as i32 { return 1; }
+    if kind == TypeKind.TYPE_U16 as i32 { return 1; }
+    if kind == TypeKind.TYPE_U32 as i32 { return 1; }
+    if kind == TypeKind.TYPE_U64 as i32 { return 1; }
+    if kind == TypeKind.TYPE_USIZE as i32 { return 1; }
+    if kind == TypeKind.TYPE_BYTE as i32 { return 1; }
+    return 0;
 }

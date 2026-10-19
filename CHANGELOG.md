@@ -1,5 +1,28 @@
 # Uya 变更日志
 
+## [Unreleased]
+
+### Added
+- **`--strict-overflow` 静态溢出闸门（可选，默认关）**：开启后整数 `+` `-` `*` 必须能证明不溢出，
+  否则编译错误，诊断给出 checked / 区间守卫 / 饱和包装三条修法。证明器基于 i64 宽化区间，
+  只采纳可信约束（用户守卫、无回绕增量、常量初始化）。仓库自身开启后约 2052 处待迁移，
+  故默认关闭。回归 `tests/verify_strict_overflow.sh`。
+- **`try`/`catch` 整数溢出检查（规范 0.49.55）**：`try expr` 的 `expr` 现在可以是一个**整数算术表达式**
+  （根为 `+` `-` `*` `/` `%` 或一元 `-`），按 checked 求值并产出 `!T`：越界 → `error.Overflow`，
+  除数为 0 → `error.DivisionByZero`。整棵算术树共享一次检查，每棵子树只求值一次。
+  - 传播：`fn add(a: i32, b: i32) !i32 { return try a + b; }`
+  - 就地处理：`(a + b) catch |e| { … }`（`catch` 是 cast 级后缀，整条算术必须加括号）
+  - 覆盖 `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/`usize`/`byte`
+- **入口 `main` 可返回错误联合**：`export fn main() !T` / `fn main() !T` 现在能正常链接运行。
+
+### Fixed
+- `gen_return_error_union` 的「标识符名含 result 即视为错误联合」启发式会误判
+  `return result;`（`result: i32`，函数返回 `!i32`）并生成非法 C；改为类型判定优先于名字猜测。
+
+### Compatibility
+- 非 `try`/`catch` 上下文的 `a + b` 行为完全不变；`try a + b` 由「编译错误」变为「合法」，
+  属纯增量变更。
+
 ## v0.10.4 - 编译器容量收口、密码学底座与 Windows 目标
 
 > 发布日期：2026-10-19

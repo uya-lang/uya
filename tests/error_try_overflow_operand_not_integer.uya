@@ -1,0 +1,18 @@
+// 负例：try 的操作数既不是错误联合，也不是可检查的整数算术
+// 预期：编译失败，报「try 的操作数必须是错误联合类型 !T」
+//
+// 抽查点：普通函数返回 i32（不是 !T）时，try 仍必须报错；
+// checked 算术只对「整数算术表达式」生效，不会把裸调用变成 checked。
+
+fn plain_i32() i32 {
+    return 1;
+}
+
+fn caller() !i32 {
+    return try plain_i32();
+}
+
+fn main() i32 {
+    _ = caller() catch { 0; };
+    return 0;
+}

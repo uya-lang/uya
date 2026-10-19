@@ -1,0 +1,20 @@
+// 负例：错误联合值与整数混在同一棵算术树里
+// 预期：编译失败，提示应先 (try f()) 解包再参与算术
+//
+// checked 算术只接受整数叶子；`!i32` 必须先用 try 解包，
+// 例如 `(try value()) + 1`。
+
+error Boom;
+
+fn value() !i32 {
+    return error.Boom;
+}
+
+fn caller() !i32 {
+    return try value() + 1;
+}
+
+fn main() i32 {
+    _ = caller() catch { 0; };
+    return 0;
+}

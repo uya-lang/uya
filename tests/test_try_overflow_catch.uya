@@ -1,0 +1,81 @@
+// try / catch 整数溢出检查：catch 就地处理的各种形态
+// 规范 uya.md §10（catch 是 cast 级后缀，可写 |e| 绑定错误）
+//
+// `catch` 是后缀运算符，优先级在 `as` 之后：`a + b catch {...}` 会解析成
+// `a + (b catch {...})`，因此本地处理整条算术时**必须加括号**：`(a + b) catch {...}`。
+
+use libc.strcmp;
+use std.testing.assert_eq_i32;
+use std.testing.assert_true;
+
+const MAX_I32: i32 = @max;
+
+var g_probe: i32 = 0;
+
+fn add_or_default(a: i32, b: i32, fallback: i32) i32 {
+    // 无 |e| 绑定：只关心成功/失败
+    return (a + b) catch { fallback; };
+}
+
+fn add_or_default_bound(a: i32, b: i32, fallback: i32) i32 {
+    // 带 |e| 绑定：拿到错误值后分流
+    var result: i32 = fallback - 1;
+    _ = (a + b) catch |e| {
+        if e == error.Overflow {
+            result = fallback;
+        }
+        0;
+    };
+    return result;
+}
+
+fn add_multistmt(a: i32, b: i32) i32 {
+    // 多语句 catch 块：非末句是副作用，末句产生结果
+    return (a + b) catch |e| {
+        g_probe = g_probe + 1;
+        if e == error.Overflow {
+            g_probe = g_probe + 10;
+        }
+        0 - 1;
+    };
+}
+
+test "catch_add_success" {
+    try assert_eq_i32(add_or_default(20, 22, 0 - 1), 42);
+}
+
+test "catch_add_overflow" {
+    try assert_eq_i32(add_or_default(MAX_I32, 1, 0 - 1), 0 - 1);
+}
+
+test "catch_add_bound_error_value" {
+    try assert_eq_i32(add_or_default_bound(MAX_I32, 1, 100), 100);
+}
+
+test "catch_multistmt_block" {
+    g_probe = 0;
+    const v: i32 = add_multistmt(MAX_I32, 1);
+    try assert_eq_i32(v, 0 - 1);
+    // 副作用按顺序生效：先 +1，再 +10
+    try assert_eq_i32(g_probe, 11);
+}
+
+test "catch_nested_expression" {
+    // 算术树整体作为一个 !T 被 catch
+    const a: i32 = MAX_I32;
+    const b: i32 = 2;
+    const c: i32 = 3;
+    const v: i32 = (a * b + c) catch { 0 - 1; };
+    try assert_eq_i32(v, 0 - 1);
+}
+
+test "catch_error_name_is_overflow" {
+    var seen: i32 = 0;
+    _ = (MAX_I32 + 1) catch |e| {
+        if strcmp(@error_name(e) as *const byte, "Overflow\0" as *const byte) == 0 {
+            seen = 1;
+        }
+        0;
+    };
+    try assert_true(seen != 0);
+}

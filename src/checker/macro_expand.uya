@@ -1390,11 +1390,15 @@ fn deep_copy_ast_internal(node: &ASTNode, ctx: &MacroExpandContext, filename: &b
         hygiene_exit_scope(state);
     } else if node.type == ASTNodeType.AST_TRY_EXPR {
         copy.try_expr_operand = deep_copy_ast_internal(node.try_expr_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.try_expr_is_checked_arith = node.try_expr_is_checked_arith;
+        copy.try_expr_checked_kind = node.try_expr_checked_kind;
     } else if node.type == ASTNodeType.AST_AWAIT_EXPR {
         copy.await_expr_operand = deep_copy_ast_internal(node.await_expr_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
     } else if node.type == ASTNodeType.AST_CATCH_EXPR {
         var renamed_err_name: &byte = node.catch_expr_err_name;
         copy.catch_expr_operand = deep_copy_ast_internal(node.catch_expr_operand, ctx, filename, state, loop_var_name, current_name, current_type_name, enable_field_subst);
+        copy.catch_expr_is_checked_arith = node.catch_expr_is_checked_arith;
+        copy.catch_expr_checked_kind = node.catch_expr_checked_kind;
         if macro_ctx_has_hygiene(ctx) != 0 && node.catch_expr_err_name != null {
             renamed_err_name = create_hygiene_name(ctx, node.catch_expr_err_name);
         }
@@ -2191,10 +2195,14 @@ export fn deep_copy_ast_substitute_type_params(node: &ASTNode, type_params: &Typ
         }
     } else if node.type == ASTNodeType.AST_TRY_EXPR && node.try_expr_operand != null {
         copy.try_expr_operand = deep_copy_ast_substitute_type_params(node.try_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);
+        copy.try_expr_is_checked_arith = node.try_expr_is_checked_arith;
+        copy.try_expr_checked_kind = node.try_expr_checked_kind;
     } else if node.type == ASTNodeType.AST_AWAIT_EXPR && node.await_expr_operand != null {
         copy.await_expr_operand = deep_copy_ast_substitute_type_params(node.await_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);
     } else if node.type == ASTNodeType.AST_CATCH_EXPR {
         copy.catch_expr_err_name = node.catch_expr_err_name;
+        copy.catch_expr_is_checked_arith = node.catch_expr_is_checked_arith;
+        copy.catch_expr_checked_kind = node.catch_expr_checked_kind;
         if node.catch_expr_operand != null {
             copy.catch_expr_operand = deep_copy_ast_substitute_type_params(node.catch_expr_operand, type_params, type_param_count, type_args, type_arg_count, arena, filename);
         }

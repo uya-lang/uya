@@ -1,4 +1,4 @@
-# Uya 语言规范 0.49.54（完整版 · 2026-10-19）
+# Uya 语言规范 0.49.55（完整版 · 2026-10-19）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -55,6 +55,32 @@
 
 ## 规范变更
 
+### 0.49.55（2026-10-19）
+
+- **`try`/`catch` 支持整数溢出检查**：`!T` 的重载面从「错误联合值」扩展为两类操作数——① 本身是
+  `!T`（`!T` 调用、`as!`、`!T` 标识符/块、`try @await`）；② **整数算术表达式**（根为 `+` `-` `*` `/` `%`
+  或一元 `-`），按 **checked 算术**求值：`+` `-` `*` 与一元 `-` 越界 → `error.Overflow`；
+  `/` `%` 除数为 0 → `error.DivisionByZero`；有符号 `MIN / -1`、`MIN % -1` → `error.Overflow`。
+  整棵算术树共享一次检查（内层子表达式不单独成为 `!T`），每棵子树只求值一次。
+  `try`/`catch` 原有规则不变：操作数必须提供 `!T`，`try` 传播、`catch` 就地处理。
+  覆盖类型 `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/`usize`/`byte`。
+  见 [§8 `try`/`catch`](#8-控制流)、[§14 内存安全](#14-内存安全)。
+- **括号规则**：`try` 的操作数走相对表达式，`try a + b` 即 `try (a + b)`，**无需**加括号；
+  `catch` 是 cast 级后缀，就地处理整条算术**必须**写 `(a + b) catch |e| { … }`，写 `a + b catch {}`
+  只绑定 `b`（该形态仍报错）。
+- **普通上下文不受影响**：非 `try`/`catch` 位置的 `a + b` 仍是普通整数算术，不做 checked 求值，
+  现有代码零改动。
+- **入口 `main` 允许返回错误联合**：`export fn main() !T` / `fn main() !T` 编译为
+  `uya_main_result()`，由编译器发射的 `int32_t main_main(void)` 桥接解包——成功值作为进程退出码，
+  未捕获错误打印 `未捕获的错误: <name>` 并返回退出码 1。此前该形态能通过类型检查但链接失败。
+- **错误名免声明**：`error.Overflow` / `error.DivisionByZero` 由编译器按需注册，无需 `error X;` 声明。
+- **`--strict-overflow` 静态闸门（可选，默认关）**：开启后整数 `+` `-` `*` 必须能证明不溢出，
+  否则编译错误。证明器：`checker_prove_no_overflow`（`src/checker/proof.uya`）+ i64 宽化区间
+  （`wide_*`，`src/checker/interval.uya`）。判定只采纳**可信约束**（用户守卫、无回绕的 `i = i + c`），
+  由抽象区间计算出的区间（内部用 u32 位模式回绕）一律视为不可信，避免把真实溢出判成安全。
+  默认关闭：仓库自身开启后报约 2052 处，翻默认需先完成存量迁移（见 `buglist.md`）。
+  CLI：`--strict-overflow` / `--no-strict-overflow`；回归 `tests/verify_strict_overflow.sh`。
+
 ### 0.49.54（2026-10-19）
 
 - **类型化管道 `|>`**：新增 [10.1 类型化管道](#101-类型化管道)，收录 `pipeline_expr = or_expr { '|>' postfix_expr }`（左结合，优先级介于 `||` 与 `=` 之间）及其类型规则：左侧必须是 `Pipeline` 或 `!Pipeline`；右侧最外层必须是调用表达式；被调用函数首个参数必须是 `Pipeline`；`!Pipeline` 左侧走 try-forward（整体类型为 `!R`，且只在返回错误联合类型的函数内合法）；同一条链只做一次消费/移动标记。明确 `Pipeline` 是 `std.process` 提供的不透明、move-only、延迟执行的执行计划，`|>` 不是通用数据管道操作符。
@@ -62,7 +88,7 @@
 - **§16 标准库清单与 `lib/std/` 对齐**：补入 `std.process` / `std.script` / `std.env` / `std.path` / `std.platform` / `std.time` / `std.thread` / `std.testing` / `std.core.*` / `std.collections.*` / `std.mem.*` / `std.io.*` / `std.json` / `std.yaml` / `std.protobuf` / `std.sql` / `std.mqtt.async` / `std.net.*` / `std.async*` / `std.fmt` / `std.macro_typeinfo` / `std.runtime` / `std.microapp` / `std.crypto.*` / `std.http.*` / `std.image.*` 与 `libc.*` / `syscall.*` / `osal.*` / `mem.*` / `kernel.*` / `tls.*` / `tflm.*`；修正 `std.mem` 条目为实际入口 `mem_copy` / `mem_set` / `mem_move` / `mem_cmp` / `mem_chr`。
 - **其余事实修正**：§1 关键字表补齐 `src/lexer.uya` 实际保留字（`enum` / `interface` / `else` / `for` / `as` / `match` / `test` / `mc` / `type` / `opaque` 等）并注明 `as!` 为独立单 token；§2 类型表补 `isize`（当前映射为 `i64`）；§16 内置函数表补齐 `@params`、`@src_name`、`@src_path`、`@src_line`、`@src_col`、`@func_name`、`@print`、`@println`、`@syscall`、`@asm_target`、`@ptr_from_usize`、`@usize_from_ptr` 与 `@align(N)` 声明属性。
 - **语义口径纠正（按当前实现）**：
-  - `try` **只做 `!T` 错误传播**，不做算术溢出检查；`try a + b` 报「try 的操作数必须是错误联合类型」，溢出改用区间证明或 `+|`/`+%` 系列（§8、§10、§14）。
+  - `try` **传播 `!T` 错误**；`!T` 可由两类操作数提供：本身是错误联合类型，或是**整数算术表达式**（按 checked 求值，溢出 → `error.Overflow`，除零 → `error.DivisionByZero`）。`try a + b` 即 `try (a + b)`，无需加括号；就地处理写 `(a + b) catch |e| { … }`（§8、§10、§14）。
   - `for` 的受体是**定长数组 / 迭代器接口 / 整数范围**；**切片不能直接 for 迭代**；没有索引迭代形式，`for obj |i|` 只是值绑定；数组也不支持省略绑定的 `for obj {}`（§8）。
   - **没有负数索引**：`&arr[-3:3]` 不做 `len + start` 换算，会切出越界内容（§1.4；缺口登记在 `buglist.md`）。
   - **没有 `extern struct` 声明语法**：`extern` 只支持 `extern fn` / `extern union` / `extern const|var`；Uya `struct` 统一 C 布局（§5.2、§5.3）。
@@ -622,7 +648,7 @@
 - **异步编程**（第 18 章）：`@async_fn`/`@await` + `union Poll<T>` + `interface Future<T>`，状态机零分配，挂起显式，并发安全编译期证明
 - **模块系统**（第 1.5 章）：目录级模块、显式导出、路径导入，编译期解析
 - **简化 for 循环语法**（第 8 章）：支持 `for obj |v| {}`、`for 0..10 |v| {}`、`for obj |&v| {}` 等简化语法
-- **运算符简化**（第 10 章）：`try` 只做 `!T` 错误传播（不做算术溢出检查），溢出由区间证明或 `+|`/`-|`/`*|`（饱和）与 `+%`/`-%`/`*%`（包装）处理
+- **运算符简化**（第 10 章）：`try` 传播 `!T` 错误，整数算术操作数按 checked 求值（溢出 → `error.Overflow`，除零 → `error.DivisionByZero`）；也可用 `+|`/`-|`/`*|`（饱和）与 `+%`/`-%`/`*%`（包装）显式选择溢出语义
 
 ---
 
@@ -2883,19 +2909,31 @@ bin/uya --c99 app.uya …   # 推荐：由驱动自动加入 entry.uya
 [examples/process.uya](./examples/process.uya)
 
 - **`try` 关键字**：
-  - `try expr` 用于**传播错误联合类型 `!T` 的错误**；`expr` 必须是错误联合类型
+  - `try expr` 用于**传播错误联合类型 `!T` 的错误**；`expr` 必须**提供** `!T`
   - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误；否则取成功载荷继续执行
-  - **不做算术溢出检查**：`try a + b` 会被解析为 `try (a + b)`，而 `a + b` 不是错误联合类型，
-    checker 报「try 的操作数必须是错误联合类型 !T」。需要同时传播错误并做算术时写 `(try a) + b`
-  - 溢出由编译期区间证明或饱和 `+|` `-|` `*|` / 包装 `+%` `-%` `*%` 运算符处理
-  - **只能在返回错误联合类型的函数中使用**
+  - **提供 `!T` 的两种形式**：
+    1. `expr` 本身就是错误联合类型（`!T` 函数调用、`as!` 强转、`!T` 标识符/块、`try @await`）
+    2. `expr` 是**整数算术表达式**（根为 `+` `-` `*` `/` `%` 或一元 `-`）：按 **checked 算术**求值，
+       溢出产出 `error.Overflow`，除零产出 `error.DivisionByZero`
+  - **算术操作数按相对表达式解析**：`try a + b` 即 `try (a + b)`，整棵算术树共享一次 checked 求值，
+    内层子表达式不单独成为 `!T`；**不需要**额外加括号
+  - **checked 算术的错误映射**：`+` `-` `*` 与一元 `-` 越界 → `error.Overflow`；
+    `/` `%` 除数为 0 → `error.DivisionByZero`；有符号 `MIN / -1`、`MIN % -1` → `error.Overflow`
+  - **不用声明错误名**：`error.Overflow` / `error.DivisionByZero` 由编译器按需注册，无需写 `error Overflow;`
+  - **`try` 与 `catch` 互斥**：`try (x catch { ... })` 仍报错
+  - **只在 `try`/`catch` 上下文激活**：普通上下文里的 `a + b` 仍是普通整数算术，不做 checked 求值
+  - **只能在返回错误联合类型的函数中使用**（`@async_fn` 返回 `Future<!T>` 亦允许）
   - **错误传播示例**：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`，可能抛出 `error.DivisionByZero` 等）
+  - **checked 算术示例**：`fn add(a: i32, b: i32) !i32 { return try a + b; }`（溢出时返回 `error.Overflow`）
 
 - **`catch` 语法**：
   - `expr catch |err| { statements }` 用于捕获并处理错误
   - `expr catch { statements }` 用于捕获所有错误（不绑定错误变量）
   - 如果 `expr` 返回错误，执行 catch 块
   - 如果 `expr` 返回值，跳过 catch 块
+  - **`catch` 是 cast 级后缀**：`a + b catch { ... }` 解析为 `a + (b catch { ... })`。
+    就地处理整条算术时**必须加括号**：`(a + b) catch |e| { ... }`
+  - **不要求所在函数返回错误联合类型**：`catch` 就地消费错误，可在任意函数（含 `fn main() i32`）中使用
   - **类型规则**：`catch` 表达式的类型是 `expr` 成功时的值类型（不是错误联合类型）
     - `expr catch { default_value }` 的类型 = `expr` 的值类型
     - `catch` 块必须返回与 `expr` 成功值类型相同的值
@@ -4608,8 +4646,8 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
    - 编译期展开，与手写代码性能相同
    - 示例：
 [examples/add_safe_2.uya](./examples/add_safe_2.uya)
-   - **注意**：`try` 关键字**只做错误传播**，不做算术溢出检查；`try a + b` 会报
-     「try 的操作数必须是错误联合类型 !T」（详见 §8 的 `try` 说明）
+   - **注意**：`try a + b` 是 **checked 算术**——溢出产出 `error.Overflow`，除零产出
+     `error.DivisionByZero`；就地处理写 `(a + b) catch |e| { … }`（详见 §8 的 `try`/`catch` 说明）
    - **饱和运算符**：
      - `a +| b`（饱和加法）
      - `a -| b`（饱和减法）
@@ -4639,9 +4677,15 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
    - **编译期常量**：这些表达式在编译期求值
 
 4. **变量运算**：
-   - 必须显式检查溢出条件，或编译器能够证明无溢出
-   - 证明失败 → 编译错误并给出修改建议
-   - 显式检查后，编译器可以证明后续运算安全
+   - **默认行为（不强制）**：变量算术不做溢出检查，直接按目标类型求值。需要检查时显式选用
+     下列任一写法（见下一条）。
+   - **`--strict-overflow` 闸门（可选，默认关）**：开启后整数 `+` `-` `*` 必须能证明不溢出，
+     否则报编译错误并给出三条修法（checked 算术 / 区间守卫 / 饱和或包装运算符）。
+     证明器只覆盖「常量、受守卫收窄的变量、以及它们的加减乘」；函数调用、成员访问、
+     下标、类型转换一律视为无界（不可证明）。
+   - **存量成本**：仓库自身（`src/` + `lib/`）开启该闸门会报约 2052 处，故默认不开启，
+     也暂不建议在工程中直接打开。
+   - **显式检查后**，编译器可以证明后续运算安全
    - **溢出处理方式**：
      - **返回错误**：使用错误联合类型 `!T`，溢出时返回 `error.Overflow`
      - **返回饱和值**：溢出时返回类型的最大值或最小值（饱和算术）
@@ -4676,7 +4720,7 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
 | 变量数组索引 | `i >= 0 && i < len` | `if i < @len(arr) { arr[i] }` |
 | 指针解引用 | `ptr != null` | `if ptr != null { *ptr }` |
 | 变量除法 | `divisor != 0` | `if d != 0 { n / d }` |
-| 变量运算溢出 | 无溢出条件 | `if a <= @max - b { a + b }` |
+| 变量运算溢出 | 无溢出条件（仅 `--strict-overflow` 下强制） | `if a <= @max - b { a + b }` |
 
 **证明失败处理**：
 - 如果开发者没有编写必要的 `if` 检查，编译器报编译错误并给出修改建议
@@ -4912,9 +4956,9 @@ fn caller() void {
    - 功能：提供简洁的溢出处理方式，避免重复编写溢出检查代码
    - 支持的类型：`i8`, `i16`, `i32`, `i64`
    - 编译期展开：饱和/包装运算符在编译期展开为相应的运算代码
-   - **注意**：`try` 关键字**只做 `!T` 错误传播**，不做算术溢出检查；
-     `try a + b` 会报「try 的操作数必须是错误联合类型 !T」。手动溢出检查用
-     `if a > @max - b { return error.Overflow; }` 一类写法。
+   - **注意**：`try a + b` 是 **checked 算术**（溢出 → `error.Overflow`，除零 →
+     `error.DivisionByZero`）；就地处理写 `(a + b) catch |e| { … }`。手动守卫
+     `if a > @max - b { return error.Overflow; }` 仍然有效。
    - **饱和运算符**（`+|`, `-|`, `*|`）：返回饱和值，溢出时返回类型的最大值或最小值
      - **功能**：执行饱和算术，溢出时返回类型的极值（最大值或最小值），而不是错误
      - **返回类型**：`T`（普通类型），不会返回错误，总是返回有效数值

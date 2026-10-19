@@ -302,10 +302,21 @@ struct ASTNode {
     unary_expr_operand: &ASTNode,
     // try_expr（try expr）
     try_expr_operand: &ASTNode,
+    // 操作数按「checked 整数算术」求值：操作数是整数算术表达式（根为 + - * / %
+    // 或一元 -），在 try 上下文中产出 !T，溢出 → error.Overflow，除零 →
+    // error.DivisionByZero。由 checker 置位，codegen 据此选择 checked 发射器。
+    try_expr_is_checked_arith: i32,
+    // checked 算术载荷的 TypeKind（checker 期在符号表有效时解析并记录，
+    // codegen 期局部符号已退出作用域，无法再从叶子表达式反推）
+    try_expr_checked_kind: i32,
     // catch_expr（expr catch [|err|] { stmts }）
     catch_expr_operand: &ASTNode,
     catch_expr_err_name: &byte,
     catch_expr_catch_block: &ASTNode,
+    // 同 try_expr_is_checked_arith：catch 的操作数是 checked 整数算术
+    catch_expr_is_checked_arith: i32,
+    // 同 try_expr_checked_kind
+    catch_expr_checked_kind: i32,
     // await_expr（try @await expr）- 异步等待
     await_expr_operand: &ASTNode,
     // error_value（error.Name）
@@ -615,9 +626,13 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.unary_expr_op = 0;
     node.unary_expr_operand = null;
     node.try_expr_operand = null;
+    node.try_expr_is_checked_arith = 0;
+    node.try_expr_checked_kind = -1;  // -1 = 未设置（TYPE_I8 的枚举值是 0，不能用 0 当哨兵）
     node.catch_expr_operand = null;
     node.catch_expr_err_name = null;
     node.catch_expr_catch_block = null;
+    node.catch_expr_is_checked_arith = 0;
+    node.catch_expr_checked_kind = -1;  // -1 = 未设置
     node.await_expr_operand = null;
     node.error_value_name = null;
     node.match_expr_expr = null;

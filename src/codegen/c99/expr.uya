@@ -312,6 +312,214 @@ fn gen_int_limit_literal(codegen: &C99CodeGenerator, is_max: i32, resolved_kind:
     }
 }
 
+// ===== checked 整数算术（try / catch 的溢出检查操作数）=====
+//
+// checker 判定「操作数是 checked 整数算术树」后置 try_expr_is_checked_arith /
+// catch_expr_is_checked_arith 并记录载荷 TypeKind；此处把它发射成一个 !T 值：
+//   + - *   → __builtin_{add,sub,mul}_overflow
+//   / %     → 显式除零 + 有符号 MIN/-1 判断
+//   一元 -  → 显式 MIN 判断
+// 溢出 → error.Overflow，除零 → error.DivisionByZero。整棵算术树共享一个错误槽，
+// 只保留首个错误；出错后跳过后续运算，避免对未定义操作数二次求值。
+
+// 由 TypeKind（as i32）构造载荷 Type；越界时按 i32 处理
+fn c99_checked_arith_type_of_kind(kind: i32) Type {
+    var payload: Type = make_void_type();
+    // -1 = 未设置（TYPE_I8 的枚举值为 0，不能用 0 当哨兵）
+    if kind < 0 {
+        payload.kind = TypeKind.TYPE_I32;
+        return payload;
+    }
+    const kind_tmp: !TypeKind = kind as! TypeKind;
+    payload.kind = kind_tmp.value;
+    return payload;
+}
+
+// checked 算术载荷的 C 类型。注意不能用 get_c_type_of_expr(二元表达式)：
+// 它对 AST_BINARY_EXPR 恒返回 int32_t。
+fn c99_checked_arith_c_type(codegen: &C99CodeGenerator, kind: i32) &byte {
+    if codegen == null || codegen.checker == null {
+        return "int32_t" as &byte;
+    }
+    const payload: Type = c99_checked_arith_type_of_kind(kind);
+    const payload_ast: &ASTNode = type_to_ast(codegen.checker, &payload, 0, 0, null);
+    if payload_ast == null {
+        return "int32_t" as &byte;
+    }
+    const type_c: &byte = c99_type_to_c(codegen, payload_ast);
+    if type_c == null {
+        return "int32_t" as &byte;
+    }
+    const bare: &byte = c99_type_c_skip_const(type_c);
+    if bare == null {
+        return "int32_t" as &byte;
+    }
+    return bare;
+}
+
+// C 类型串是否为无符号整数（无符号不做 MIN/-1 与负溢出判断）
+fn c99_c_type_is_unsigned(type_c: &byte) i32 {
+    if type_c == null {
+        return 0;
+    }
+    // ssize_t 含 "size_t" 子串，必须先排除
+    if strstr(type_c as *byte, "ssize_t" as *byte) != null {
+        return 0;
+    }
+    if strstr(type_c as *byte, "uint8" as *byte) != null { return 1; }
+    if strstr(type_c as *byte, "uint16" as *byte) != null { return 1; }
+    if strstr(type_c as *byte, "uint32" as *byte) != null { return 1; }
+    if strstr(type_c as *byte, "uint64" as *byte) != null { return 1; }
+    if strstr(type_c as *byte, "size_t" as *byte) != null { return 1; }
+    if strstr(type_c as *byte, "uintptr_t" as *byte) != null { return 1; }
+    return 0;
+}
+
+// checked 算术的 !T 联合体 C 类型（struct err_union_<T>）。
+// 走 AST_TYPE_ERROR_UNION 路径是为了让 c99_type_to_c 把 payload 登记进
+// err_union_struct_* 表，供 emit_pending_err_union_structs 发射结构体定义。
+fn c99_checked_arith_union_c(codegen: &C99CodeGenerator, kind: i32) &byte {
+    if codegen == null || codegen.checker == null {
+        return null;
+    }
+    const payload: Type = c99_checked_arith_type_of_kind(kind);
+    const payload_ptr: &Type = compiler_arena_alloc(codegen.checker.arena, @size_of(Type)) as &Type;
+    if payload_ptr == null {
+        return null;
+    }
+    payload_ptr[0] = payload;
+    const eu_type: Type = make_error_union_type(codegen.checker.arena, payload_ptr);
+    const eu_ast: &ASTNode = type_to_ast(codegen.checker, &eu_type, 0, 0, null);
+    if eu_ast == null {
+        return null;
+    }
+    return c99_type_to_c(codegen, eu_ast);
+}
+
+// checked 算术相关错误 id（Overflow / DivisionByZero），0 时兜底 1
+fn c99_checked_arith_error_id(codegen: &C99CodeGenerator, name: &byte) u32 {
+    var id: i32 = c99_get_or_add_error_id(codegen, name);
+    if id == 0 {
+        id = 1;
+    }
+    return id as u32;
+}
+
+// 把 checked 算术树求值进 result_var；出错写 err_var（保留首个错误）。
+// 调用方负责声明 result_var / err_var 并置零。
+fn c99_emit_checked_arith_into(codegen: &C99CodeGenerator, node: &ASTNode, result_var: &byte,
+    err_var: &byte, type_c: &byte, kind: i32) void {
+    if codegen == null || node == null || result_var == null || err_var == null || type_c == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    const is_unsigned: i32 = c99_c_type_is_unsigned(type_c);
+    const overflow_id: u32 = c99_checked_arith_error_id(codegen, "Overflow" as &byte);
+
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const raw_op: i32 = node.binary_expr_op;
+        const op_tmp: !TokenType = raw_op as! TokenType;
+        const op: TokenType = op_tmp.value;
+        const tmp_l: &byte = c99_make_temp_name(codegen, "__uya_ca_l" as &byte);
+        const tmp_r: &byte = c99_make_temp_name(codegen, "__uya_ca_r" as &byte);
+        if tmp_l == null || tmp_r == null {
+            return;
+        }
+        fprintf(codegen.emit_stream as *void, "%s %s = 0; " as *byte, type_c as *byte, tmp_l as *byte);
+        c99_emit_checked_arith_into(codegen, node.binary_expr_left, tmp_l, err_var, type_c, kind);
+        fprintf(codegen.emit_stream as *void, "%s %s = 0; " as *byte, type_c as *byte, tmp_r as *byte);
+        c99_emit_checked_arith_into(codegen, node.binary_expr_right, tmp_r, err_var, type_c, kind);
+        fprintf(codegen.emit_stream as *void, "if (%s == 0) { " as *byte, err_var as *byte);
+        if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK {
+            var builtin_name: &byte = "add" as &byte;
+            if op == TokenType.TOKEN_MINUS { builtin_name = "sub" as &byte; }
+            if op == TokenType.TOKEN_ASTERISK { builtin_name = "mul" as &byte; }
+            fprintf(codegen.emit_stream as *void, "if (__builtin_%s_overflow(%s, %s, &%s)) %s = %uU; " as *byte,
+                builtin_name as *byte, tmp_l as *byte, tmp_r as *byte, result_var as *byte,
+                err_var as *byte, overflow_id);
+        } else if op == TokenType.TOKEN_PERCENT || op == TokenType.TOKEN_SLASH {
+            const div_zero_id: u32 = c99_checked_arith_error_id(codegen, "DivisionByZero" as &byte);
+            fprintf(codegen.emit_stream as *void, "if (%s == 0) { %s = %uU; } else " as *byte,
+                tmp_r as *byte, err_var as *byte, div_zero_id);
+            if is_unsigned == 0 {
+                fprintf(codegen.emit_stream as *void, "if (%s == (" as *byte, tmp_l as *byte);
+                gen_int_limit_literal(codegen, 0, kind);
+                fprintf(codegen.emit_stream as *void, ") && %s == -1) { %s = %uU; } else " as *byte,
+                    tmp_r as *byte, err_var as *byte, overflow_id);
+            }
+            if op == TokenType.TOKEN_PERCENT {
+                fprintf(codegen.emit_stream as *void, "%s = %s %% %s; " as *byte,
+                    result_var as *byte, tmp_l as *byte, tmp_r as *byte);
+            } else {
+                fprintf(codegen.emit_stream as *void, "%s = %s / %s; " as *byte,
+                    result_var as *byte, tmp_l as *byte, tmp_r as *byte);
+            }
+        }
+        fputs("} " as *byte, codegen.emit_stream as *void);
+        return;
+    }
+
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        const tmp_u: &byte = c99_make_temp_name(codegen, "__uya_ca_u" as &byte);
+        if tmp_u == null {
+            return;
+        }
+        fprintf(codegen.emit_stream as *void, "%s %s = 0; " as *byte, type_c as *byte, tmp_u as *byte);
+        c99_emit_checked_arith_into(codegen, node.unary_expr_operand, tmp_u, err_var, type_c, kind);
+        fprintf(codegen.emit_stream as *void, "if (%s == 0) { " as *byte, err_var as *byte);
+        if is_unsigned == 0 {
+            fprintf(codegen.emit_stream as *void, "if (%s == (" as *byte, tmp_u as *byte);
+            gen_int_limit_literal(codegen, 0, kind);
+            fprintf(codegen.emit_stream as *void, ")) { %s = %uU; } else " as *byte,
+                err_var as *byte, overflow_id);
+        }
+        fprintf(codegen.emit_stream as *void, "%s = 0 - %s; } " as *byte,
+            result_var as *byte, tmp_u as *byte);
+        return;
+    }
+
+    // 叶子：直接求值参与 checked 计算，自身不做溢出检查
+    fprintf(codegen.emit_stream as *void, "%s = (%s)(" as *byte, result_var as *byte, type_c as *byte);
+    gen_expr(codegen, node);
+    fputs("); " as *byte, codegen.emit_stream as *void);
+}
+
+// 发射 checked 算术的 !T 值（语句表达式）
+fn c99_emit_checked_arith_union_expr(codegen: &C99CodeGenerator, node: &ASTNode, kind: i32) void {
+    if codegen == null || node == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    const union_c: &byte = c99_checked_arith_union_c(codegen, kind);
+    if union_c == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    const type_c: &byte = c99_checked_arith_c_type(codegen, kind);
+    const val_var: &byte = c99_make_temp_name(codegen, "__uya_ca_v" as &byte);
+    const err_var: &byte = c99_make_temp_name(codegen, "__uya_ca_e" as &byte);
+    if val_var == null || err_var == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    fputs("({ " as *byte, codegen.emit_stream as *void);
+    fprintf(codegen.emit_stream as *void, "%s %s = 0; uint32_t %s = 0; " as *byte,
+        type_c as *byte, val_var as *byte, err_var as *byte);
+    c99_emit_checked_arith_into(codegen, node, val_var, err_var, type_c, kind);
+    fprintf(codegen.emit_stream as *void, "%s ? (%s){ .error_id = %s } : (%s){ .error_id = 0, .value = %s }; })" as *byte,
+        err_var as *byte, union_c as *byte, err_var as *byte, union_c as *byte, val_var as *byte);
+}
+
+// try / catch 操作数统一发射：checked 算术 → 合成 !T；否则走常规 gen_expr
+fn c99_emit_try_catch_operand(codegen: &C99CodeGenerator, is_checked: i32, operand: &ASTNode, kind: i32) void {
+    if is_checked != 0 {
+        c99_emit_checked_arith_union_expr(codegen, operand, kind);
+        return;
+    }
+    gen_expr(codegen, operand);
+}
+
+
 fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_name: &byte) void {
     if codegen == null || expr == null || expr.type != ASTNodeType.AST_STRING_INTERP || buf_name == null {
         return;
@@ -9106,7 +9314,16 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputs("0" as *byte, codegen.emit_stream as *void);
             return;
         }
-        var operand_union_c: &byte = get_c_type_of_expr(codegen, operand);
+        // checked 整数算术：union / payload 由算术树类型直接给出，
+        // 不允许走「按 union 名反推 payload」逻辑（err_union_uint8_t 会被误推成 struct uint8_t）
+        const is_checked_arith: i32 = expr.catch_expr_is_checked_arith;
+        const checked_kind: i32 = expr.catch_expr_checked_kind;
+        var operand_union_c: &byte = null;
+        if is_checked_arith != 0 {
+            operand_union_c = c99_checked_arith_union_c(codegen, checked_kind);
+        } else {
+            operand_union_c = get_c_type_of_expr(codegen, operand);
+        }
         var operand_is_err_union: i32 = 0;
         // union_c / payload_c 须先于下方「从函数声明补全 err_union」块使用，避免对未声明变量赋值
         var union_c: &byte = ("int32_t" as *byte) as &byte;
@@ -9139,7 +9356,9 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
         if operand_is_err_union != 0 {
             union_c = operand_union_c;
-            if operand != null && operand.type == ASTNodeType.AST_CAST_EXPR && operand.cast_expr_is_force_cast != 0 && operand.cast_expr_target_type != null {
+            if is_checked_arith != 0 {
+                payload_c = c99_checked_arith_c_type(codegen, checked_kind);
+            } else if operand != null && operand.type == ASTNodeType.AST_CAST_EXPR && operand.cast_expr_is_force_cast != 0 && operand.cast_expr_target_type != null {
                 payload_c = c99_type_to_c(codegen, operand.cast_expr_target_type);
             } else {
                 var payload_inferred: i32 = 0;
@@ -9313,7 +9532,7 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             is_void_payload = 0;
         }
         fprintf(codegen.emit_stream as *void, "({ %s _uya_catch_tmp = " as *byte, union_c as *byte);
-        gen_expr(codegen, operand);
+        c99_emit_try_catch_operand(codegen, is_checked_arith, operand, checked_kind);
         if wrap_result_as_err_union != 0 && result_union_c != null {
             fprintf(codegen.emit_stream as *void, "; %s _uya_catch_result = (%s){ .error_id = 0 }" as *byte,
                 result_union_c as *byte, result_union_c as *byte);
@@ -10082,7 +10301,16 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputs("0" as *byte, codegen.emit_stream as *void);
             return;
         }
-        var operand_union_c: &byte = get_c_type_of_expr(codegen, operand);
+        // checked 整数算术：合成 !T 联合体类型并走 checked 发射器，
+        // 其余错误传播 / scope cleanup / async poll 路径全部复用。
+        const is_checked_arith: i32 = expr.try_expr_is_checked_arith;
+        const checked_kind: i32 = expr.try_expr_checked_kind;
+        var operand_union_c: &byte = null;
+        if is_checked_arith != 0 {
+            operand_union_c = c99_checked_arith_union_c(codegen, checked_kind);
+        } else {
+            operand_union_c = get_c_type_of_expr(codegen, operand);
+        }
         if operand_union_c != null && strcmp(operand_union_c as *byte, "struct err_union_void" as *byte) == 0 &&
             operand.type == ASTNodeType.AST_CALL_EXPR &&
             operand.call_expr_callee != null &&
@@ -10289,7 +10517,7 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fprintf(codegen.emit_stream as *void, "({ %s _uya_try_tmp = " as *byte, union_c as *byte);
                 const saved_expected_block: &byte = codegen.expected_block_union_type;
                 codegen.expected_block_union_type = union_c;
-                gen_expr(codegen, operand);
+                c99_emit_try_catch_operand(codegen, is_checked_arith, operand, checked_kind);
                 codegen.expected_block_union_type = saved_expected_block;
                 if ret_is_void != 0 {
                     c99_try_emit_error_return_stmt(codegen, ret_union_c, 1);
@@ -10349,7 +10577,7 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         fprintf(codegen.emit_stream as *void, "({ %s _uya_try_tmp = " as *byte, operand_union_emit_c as *byte);
         const saved_expected_block: &byte = codegen.expected_block_union_type;
         codegen.expected_block_union_type = operand_union_emit_c;
-        gen_expr(codegen, operand);
+        c99_emit_try_catch_operand(codegen, is_checked_arith, operand, checked_kind);
         codegen.expected_block_union_type = saved_expected_block;
         // 错误传播时需转换为函数返回类型
         if operand_is_void != 0 {

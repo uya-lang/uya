@@ -1,0 +1,113 @@
+// try / catch 整数溢出检查：按整数类型覆盖
+// 规范 uya.md §10（try/catch）、§14（溢出）
+//
+// 有符号：越界 → error.Overflow
+// 无符号：上溢与下溢都 → error.Overflow
+// 任意整数：除数为 0 → error.DivisionByZero
+
+use std.testing.assert_eq_i32;
+
+test "try_add_u8_upper" {
+    const a: u8 = 255 as u8;
+    const b: u8 = 1 as u8;
+    var saw: i32 = 0;
+    _ = (a + b) catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0 as u8;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_sub_u8_underflow" {
+    const a: u8 = 0 as u8;
+    const b: u8 = 1 as u8;
+    var saw: i32 = 0;
+    _ = (a - b) catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0 as u8;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_add_u8_in_range" {
+    const a: u8 = 10 as u8;
+    const b: u8 = 20 as u8;
+    const v: u8 = (a + b) catch { 0 as u8; };
+    try assert_eq_i32(v as i32, 30);
+}
+
+test "try_mul_u32_upper" {
+    const a: u32 = 4294967295 as u32;
+    const b: u32 = 2 as u32;
+    var saw: i32 = 0;
+    _ = (a * b) catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0 as u32;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_div_u32_by_zero" {
+    const a: u32 = 100 as u32;
+    const b: u32 = 0 as u32;
+    var saw: i32 = 0;
+    _ = (a / b) catch |e| {
+        if e == error.DivisionByZero {
+            saw = 1;
+        }
+        0 as u32;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_add_usize_upper" {
+    const a: usize = @max;
+    const b: usize = 1 as usize;
+    var saw: i32 = 0;
+    _ = (a + b) catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0 as usize;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_add_i64_in_range" {
+    const a: i64 = 3000000000 as i64;
+    const b: i64 = 3000000000 as i64;
+    const v: i64 = try (a + b);
+    try assert_eq_i32((v / 1000000000 as i64) as i32, 6);
+}
+
+test "try_add_i64_upper" {
+    const a: i64 = @max;
+    const b: i64 = 1 as i64;
+    var saw: i32 = 0;
+    _ = (a + b) catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0 as i64;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_add_i8_upper" {
+    const a: i8 = 127 as i8;
+    const b: i8 = 1 as i8;
+    var saw: i32 = 0;
+    _ = (a + b) catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0 as i8;
+    };
+    try assert_eq_i32(saw, 1);
+}

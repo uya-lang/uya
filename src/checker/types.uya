@@ -345,6 +345,16 @@ struct TypeChecker {
     pointer_nullable_names: [&byte: 32],
     pointer_nullable_count: i32,
     enable_safety_proof: i32,
+    // --strict-overflow：普通上下文的整数算术必须能证明无溢出，否则报编译错误。
+    // 默认 0（关闭），避免一次性砸坏存量代码；分阶段迁移见 buglist.md。
+    strict_overflow: i32,
+    // 抑制计数：>0 时跳过溢出闸门判定。
+    suppress_overflow_gate: i32,
+    // 已识别的 checked 算术根（try/catch 的操作数）。闸门对这些根的整棵子树豁免：
+    // 那部分由运行时 checked 检查负责，不该再被静态闸门拦一次。
+    // 按函数重置（见 checker_reset_proof_steps）。
+    checked_arith_roots: [&ASTNode: 64],
+    checked_arith_root_count: i32,
     container_mode: i32,        // 1 = microapp 模式: 禁止 @asm/extern
     proof_step_limit: i32,
     proof_step_count: i32,

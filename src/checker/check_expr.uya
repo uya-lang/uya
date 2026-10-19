@@ -1911,92 +1911,7 @@ export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.tuple_count = cur_fn.fn_decl_param_count;
         return result;
     } else if expr.type == ASTNodeType.AST_TRY_EXPR {
-        const operand_type: Type = checker_infer_type(checker, expr.try_expr_operand);
-        if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
-            // 特例：to_json<T> 内 try encode_to_to_json(T,...) 未展开或已展开为占位；单态体在 codegen 时再展开，此处视为 !usize。
-            const op: &ASTNode = expr.try_expr_operand;
-            var accept_as_encode_placeholder: i32 = 0;
-            if op != null && op.type == ASTNodeType.AST_CALL_EXPR && op.call_expr_arg_count >= 4 &&
-               op.call_expr_callee != null {
-                const callee: &ASTNode = op.call_expr_callee;
-                if callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null &&
-                   str_equals(callee.identifier_name, "encode_to_to_json" as *byte) != 0 {
-                    accept_as_encode_placeholder = 1;
-                }
-                if accept_as_encode_placeholder == 0 && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_field_name != null &&
-                   str_equals(callee.member_access_field_name, "encode_to_to_json" as *byte) != 0 {
-                    accept_as_encode_placeholder = 1;
-                }
-            }
-            if accept_as_encode_placeholder == 0 && op != null && op.type == ASTNodeType.AST_CAST_EXPR &&
-               op.cast_expr_target_type != null && op.cast_expr_target_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
-                accept_as_encode_placeholder = 1;
-            }
-            if accept_as_encode_placeholder != 0 {
-                if checker.current_function_decl == null || checker.in_function == 0 {
-                    checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
-                    return make_void_type();
-                }
-                if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
-                    var allow: i32 = 0;
-                    if checker.current_function_decl.fn_decl_is_async != 0 ||
-                        checker_current_fn_returns_future_error_union(checker) != 0 {
-                        allow = 1;
-                    }
-                    if allow == 0 {
-                        checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
-                        return make_void_type();
-                    }
-                }
-                return make_usize_type();
-            }
-            if expr.try_expr_operand != null &&
-                expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR {
-                return make_void_type();
-            }
-            checker_report_error(checker, expr.try_expr_operand, "try 的操作数必须是错误联合类型 !T" as *byte);
-            return make_void_type();
-        }
-        if checker.in_function == 0 {
-            checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
-            return make_void_type();
-        }
-        // 常规路径：函数返回 !T
-        if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
-            // 异步阶段 B：@async_fn 返回 Future<!T>，允许 try 传播到内部 !T
-            var allow_in_async: i32 = 0;
-            if checker.current_function_decl != null &&
-                (checker.current_function_decl.fn_decl_is_async != 0 ||
-                 checker_current_fn_returns_future_error_union(checker) != 0) &&
-                checker.current_function_decl.fn_decl_return_type != null {
-                const fr: &ASTNode = checker.current_function_decl.fn_decl_return_type;
-                if fr.type == ASTNodeType.AST_TYPE_NAMED && fr.type_named_name != null &&
-                    str_equals(fr.type_named_name, "Future" as *byte) != 0 &&
-                    fr.type_named_type_arg_count == 1 && fr.type_named_type_args != null {
-                    const a0: &ASTNode = fr.type_named_type_args[0];
-                    if a0 != null && a0.type == ASTNodeType.AST_TYPE_ERROR_UNION {
-                        allow_in_async = 1;
-                    }
-                } else if fr.type == ASTNodeType.AST_TYPE_ERROR_UNION &&
-                    fr.type_error_union_payload_type != null {
-                    const payload2: &ASTNode = fr.type_error_union_payload_type;
-                    if payload2.type == ASTNodeType.AST_TYPE_NAMED && payload2.type_named_name != null &&
-                        str_equals(payload2.type_named_name, "Future" as *byte) != 0 &&
-                        payload2.type_named_type_arg_count == 1 && payload2.type_named_type_args != null &&
-                        payload2.type_named_type_args[0] != null {
-                        allow_in_async = 1;
-                    }
-                }
-            }
-            if allow_in_async == 0 {
-                checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
-                return make_void_type();
-            }
-        }
-        if operand_type.error_union_payload_type == null {
-            return make_void_type();
-        }
-        return operand_type.error_union_payload_type[0];
+        return infer_try_expr(checker, expr);
     } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
         if checker.in_defer_or_errdefer != 0 {
             checker_report_error(checker, expr, "@await 不能出现在 defer/errdefer 块中；清理逻辑必须保持同步" as &byte);
@@ -4202,8 +4117,161 @@ fn infer_print_expr(checker: &TypeChecker, expr: &ASTNode) Type {
     return make_i32_type();
 }
 
+// 推断 try 表达式的类型。
+// 期间豁免 --strict-overflow 闸门：try 的操作数要么本身是 !T，要么按 checked 算术
+// 走运行时检查，两种情形都不该再被静态闸门拦一次。
+// 参数：checker - 类型检查器；expr - try 表达式节点
+// 返回：解包后的载荷类型（失败时返回 void 类型）
+fn infer_try_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    if checker == null || expr == null {
+        return make_void_type();
+    }
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate + 1;
+    const inferred: Type = infer_try_expr_inner(checker, expr);
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate - 1;
+    return inferred;
+}
+
+// infer_try_expr 的实际实现（不含闸门豁免的包裹）
+fn infer_try_expr_inner(checker: &TypeChecker, expr: &ASTNode) Type {
+    const operand_type: Type = checker_infer_type(checker, expr.try_expr_operand);
+    if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
+        // 特例：to_json<T> 内 try encode_to_to_json(T,...) 未展开或已展开为占位；单态体在 codegen 时再展开，此处视为 !usize。
+        const op: &ASTNode = expr.try_expr_operand;
+        var accept_as_encode_placeholder: i32 = 0;
+        if op != null && op.type == ASTNodeType.AST_CALL_EXPR && op.call_expr_arg_count >= 4 &&
+           op.call_expr_callee != null {
+            const callee: &ASTNode = op.call_expr_callee;
+            if callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null &&
+               str_equals(callee.identifier_name, "encode_to_to_json" as *byte) != 0 {
+                accept_as_encode_placeholder = 1;
+            }
+            if accept_as_encode_placeholder == 0 && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_field_name != null &&
+               str_equals(callee.member_access_field_name, "encode_to_to_json" as *byte) != 0 {
+                accept_as_encode_placeholder = 1;
+            }
+        }
+        if accept_as_encode_placeholder == 0 && op != null && op.type == ASTNodeType.AST_CAST_EXPR &&
+           op.cast_expr_target_type != null && op.cast_expr_target_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+            accept_as_encode_placeholder = 1;
+        }
+        if accept_as_encode_placeholder != 0 {
+            if checker.current_function_decl == null || checker.in_function == 0 {
+                checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
+                return make_void_type();
+            }
+            if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
+                var allow: i32 = 0;
+                if checker.current_function_decl.fn_decl_is_async != 0 ||
+                    checker_current_fn_returns_future_error_union(checker) != 0 {
+                    allow = 1;
+                }
+                if allow == 0 {
+                    checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
+                    return make_void_type();
+                }
+            }
+            return make_usize_type();
+        }
+        if expr.try_expr_operand != null &&
+            expr.try_expr_operand.type == ASTNodeType.AST_AWAIT_EXPR {
+            return make_void_type();
+        }
+        // checked 整数算术：try a + b 按 checked 求值，溢出 → error.Overflow，
+        // 除零 → error.DivisionByZero，整棵算术树共享一次检查并产出 !T。
+        if checker_expr_is_checked_arith(checker, op) != 0 {
+            if checker.current_function_decl == null || checker.in_function == 0 {
+                checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
+                return make_void_type();
+            }
+            if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
+                var allow_checked: i32 = 0;
+                if checker.current_function_decl.fn_decl_is_async != 0 ||
+                    checker_current_fn_returns_future_error_union(checker) != 0 {
+                    allow_checked = 1;
+                }
+                if allow_checked == 0 {
+                    checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
+                    return make_void_type();
+                }
+            }
+            const checked_payload: Type = checker_checked_arith_payload(checker, op);
+            if checked_payload.kind == TypeKind.TYPE_VOID {
+                checker_report_error(checker, op, "try 的算术操作数必须是整数类型" as *byte);
+                return make_void_type();
+            }
+            expr.try_expr_is_checked_arith = 1;
+            expr.try_expr_checked_kind = checked_payload.kind as i32;
+            checker_register_checked_arith_root(checker, op);
+            _ = get_or_add_error_id(checker, "Overflow" as &byte, expr);
+            _ = get_or_add_error_id(checker, "DivisionByZero" as &byte, expr);
+            return checked_payload;
+        }
+        // 算术树里混入错误联合值：给出「先解包」的专门提示，而不是笼统的 !T 诊断
+        if op != null &&
+            (op.type == ASTNodeType.AST_BINARY_EXPR || op.type == ASTNodeType.AST_UNARY_EXPR) &&
+            checker_checked_arith_tree_has_error_union(checker, op) != 0 {
+            checker_report_error(checker, op, "错误联合值不能直接参与整数算术；请先用 (try x) 解包再运算" as *byte);
+            return make_void_type();
+        }
+        checker_report_error(checker, expr.try_expr_operand, "try 的操作数必须是错误联合类型 !T" as *byte);
+        return make_void_type();
+    }
+    if checker.in_function == 0 {
+        checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
+        return make_void_type();
+    }
+    // 常规路径：函数返回 !T
+    if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
+        // 异步阶段 B：@async_fn 返回 Future<!T>，允许 try 传播到内部 !T
+        var allow_in_async: i32 = 0;
+        if checker.current_function_decl != null &&
+            (checker.current_function_decl.fn_decl_is_async != 0 ||
+             checker_current_fn_returns_future_error_union(checker) != 0) &&
+            checker.current_function_decl.fn_decl_return_type != null {
+            const fr: &ASTNode = checker.current_function_decl.fn_decl_return_type;
+            if fr.type == ASTNodeType.AST_TYPE_NAMED && fr.type_named_name != null &&
+                str_equals(fr.type_named_name, "Future" as *byte) != 0 &&
+                fr.type_named_type_arg_count == 1 && fr.type_named_type_args != null {
+                const a0: &ASTNode = fr.type_named_type_args[0];
+                if a0 != null && a0.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                    allow_in_async = 1;
+                }
+            } else if fr.type == ASTNodeType.AST_TYPE_ERROR_UNION &&
+                fr.type_error_union_payload_type != null {
+                const payload2: &ASTNode = fr.type_error_union_payload_type;
+                if payload2.type == ASTNodeType.AST_TYPE_NAMED && payload2.type_named_name != null &&
+                    str_equals(payload2.type_named_name, "Future" as *byte) != 0 &&
+                    payload2.type_named_type_arg_count == 1 && payload2.type_named_type_args != null &&
+                    payload2.type_named_type_args[0] != null {
+                    allow_in_async = 1;
+                }
+            }
+        }
+        if allow_in_async == 0 {
+            checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
+            return make_void_type();
+        }
+    }
+    if operand_type.error_union_payload_type == null {
+        return make_void_type();
+    }
+    return operand_type.error_union_payload_type[0];
+}
+
 // 推断 catch 表达式类型
+// 推断 catch 表达式的类型（豁免 --strict-overflow 闸门，理由同 infer_try_expr）。
 fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    if checker == null || expr == null {
+        return make_void_type();
+    }
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate + 1;
+    const inferred: Type = infer_catch_expr_inner(checker, expr);
+    checker.suppress_overflow_gate = checker.suppress_overflow_gate - 1;
+    return inferred;
+}
+
+fn infer_catch_expr_inner(checker: &TypeChecker, expr: &ASTNode) Type {
     var operand_type: Type = checker_infer_type(checker, expr.catch_expr_operand);
     
     if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
@@ -4227,8 +4295,32 @@ fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
             }
         }
         if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
-            checker_report_error(checker, expr.catch_expr_operand, "catch 的操作数必须是错误联合类型 !T" as *byte);
-            return make_void_type();
+            // checked 整数算术：catch 就地处理 (a + b) 的溢出 / 除零，
+            // 不要求所在函数返回错误联合类型。
+            if checker_expr_is_checked_arith(checker, expr.catch_expr_operand) != 0 {
+                const checked_catch_payload: Type = checker_checked_arith_payload(checker, expr.catch_expr_operand);
+                if checked_catch_payload.kind == TypeKind.TYPE_VOID {
+                    checker_report_error(checker, expr.catch_expr_operand, "catch 的算术操作数必须是整数类型" as *byte);
+                    return make_void_type();
+                }
+                expr.catch_expr_is_checked_arith = 1;
+                expr.catch_expr_checked_kind = checked_catch_payload.kind as i32;
+                checker_register_checked_arith_root(checker, expr.catch_expr_operand);
+                _ = get_or_add_error_id(checker, "Overflow" as &byte, expr);
+                _ = get_or_add_error_id(checker, "DivisionByZero" as &byte, expr);
+                return infer_catch_block_type(checker, expr, checked_catch_payload);
+            } else {
+                if expr.catch_expr_operand != null &&
+                    (expr.catch_expr_operand.type == ASTNodeType.AST_BINARY_EXPR ||
+                     expr.catch_expr_operand.type == ASTNodeType.AST_UNARY_EXPR) &&
+                    checker_checked_arith_tree_has_error_union(checker, expr.catch_expr_operand) != 0 {
+                    checker_report_error(checker, expr.catch_expr_operand,
+                        "错误联合值不能直接参与整数算术；请先用 (try x) 解包再运算" as *byte);
+                    return make_void_type();
+                }
+                checker_report_error(checker, expr.catch_expr_operand, "catch 的操作数必须是错误联合类型 !T" as *byte);
+                return make_void_type();
+            }
         }
     }
     
@@ -4236,8 +4328,13 @@ fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
         return make_void_type();
     }
     
-    const payload: Type = operand_type.error_union_payload_type[0];
-    
+    return infer_catch_block_type(checker, expr, operand_type.error_union_payload_type[0]);
+}
+
+// 检查 catch 块体，校验末句类型与成功载荷一致；返回表达式类型（= payload）。
+// 参数：checker - 类型检查器；expr - catch 表达式节点；payload - 成功值类型
+// 返回：catch 表达式类型（成功值类型）
+fn infer_catch_block_type(checker: &TypeChecker, expr: &ASTNode, payload: Type) Type {
     var catch_block_type: Type = make_void_type();
     if expr.catch_expr_err_name != null {
         var err_type: Type = make_void_type();

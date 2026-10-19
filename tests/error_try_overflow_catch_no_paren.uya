@@ -1,0 +1,13 @@
+// 负例：catch 是 cast 级后缀，`a + b catch {...}` 只会绑定到 b
+// 预期：编译失败（要么 b catch 不是错误联合，要么整体类型不匹配）
+//
+// 正确写法是给整条算术加括号：`(a + b) catch |e| {...}`。
+
+fn compute(a: i32, b: i32) i32 {
+    return a + b catch { 0; };
+}
+
+fn main() i32 {
+    _ = compute(1, 2);
+    return 0;
+}

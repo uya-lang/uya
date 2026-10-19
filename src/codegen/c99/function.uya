@@ -1336,6 +1336,12 @@ fn get_c_name_for_function_decl(codegen: &C99CodeGenerator, fn_decl: &ASTNode) &
         return get_safe_c_identifier(codegen, fn_decl.fn_decl_name);
     }
     if c99_fn_decl_is_user_entry_main(codegen, fn_decl) != 0 {
+        // 返回错误联合的入口 main 发射为 uya_main_result()，与定义处保持一致；
+        // int32_t main_main(void) 由入口桥接单独发射。
+        if fn_decl.fn_decl_return_type != null &&
+            fn_decl.fn_decl_return_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+            return ("uya_main_result" as *byte) as &byte;
+        }
         if fn_decl.fn_decl_is_export != 0 {
             return ("main_main" as *byte) as &byte;
         }
@@ -1887,6 +1893,22 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         var main_def_name: &byte = "uya_main" as *byte;
         if fn_decl.fn_decl_is_export != 0 {
             main_def_name = "main_main" as *byte;
+        }
+        // 返回错误联合的入口 main（export fn main() !T / fn main() !T）：
+        // C 入口 main_main 必须是 int32_t，所以用户函数改名 uya_main_result()，
+        // 由 main.uya 另发射 int32_t main_main(void) 桥接解包并映射退出码。
+        if return_type != null && return_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+            main_def_name = "uya_main_result" as *byte;
+            codegen.entry_main_err_union_c = c99_arena_strdup(codegen.arena, return_c);
+            const payload_node: &ASTNode = return_type.type_error_union_payload_type;
+            if payload_node != null && payload_node.type == ASTNodeType.AST_TYPE_NAMED &&
+                payload_node.type_named_name != null &&
+                strcmp(payload_node.type_named_name as *byte, "void" as *byte) == 0 {
+                codegen.entry_main_payload_void = 1;
+            } else {
+                codegen.entry_main_payload_void = 0;
+            }
+            fputs("__attribute__((used)) " as *byte, codegen.emit_stream);
         }
         fprintf(codegen.emit_stream, "%s %s(void)" as *byte, return_c as *byte, main_def_name as *byte);
     } else {

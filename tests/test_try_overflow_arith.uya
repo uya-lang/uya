@@ -1,0 +1,137 @@
+// try / catch 整数溢出检查：加、减、乘、一元负
+// 规范 uya.md §10（try/catch）、§14（溢出）
+//
+// try a + b：当操作数是整数算术表达式时，按 checked 算术求值；
+// 溢出产出 error.Overflow，由 try 传播或 catch 就地处理。
+// try 的操作数按相对表达式解析，故 `try a + b` 即 `try (a + b)`。
+
+use std.testing.assert_eq_i32;
+
+const MAX_I32: i32 = @max;
+const MIN_I32: i32 = @min;
+
+fn add_checked(a: i32, b: i32) !i32 {
+    return try a + b;
+}
+
+fn sub_checked(a: i32, b: i32) !i32 {
+    return try a - b;
+}
+
+fn mul_checked(a: i32, b: i32) !i32 {
+    return try a * b;
+}
+
+fn neg_checked(a: i32) !i32 {
+    return try -a;
+}
+
+fn add_mul_nested(a: i32, b: i32, c: i32) !i32 {
+    // 整棵算术树共享一次 checked 求值；内层 b * c 溢出同样要被抓到
+    return try a + b * c;
+}
+
+test "try_add_in_range" {
+    const v: i32 = try add_checked(3, 4);
+    try assert_eq_i32(v, 7);
+}
+
+test "try_add_upper_overflow" {
+    const r: !i32 = add_checked(MAX_I32, 1);
+    var saw_overflow: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw_overflow, 1);
+}
+
+test "try_add_lower_overflow" {
+    const r: !i32 = add_checked(MIN_I32, 0 - 1);
+    var saw_overflow: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw_overflow, 1);
+}
+
+test "try_sub_in_range" {
+    const v: i32 = try sub_checked(10, 4);
+    try assert_eq_i32(v, 6);
+}
+
+test "try_sub_lower_overflow" {
+    const r: !i32 = sub_checked(MIN_I32, 1);
+    var saw_overflow: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw_overflow, 1);
+}
+
+test "try_mul_in_range" {
+    const v: i32 = try mul_checked(6, 7);
+    try assert_eq_i32(v, 42);
+}
+
+test "try_mul_upper_overflow" {
+    const r: !i32 = mul_checked(MAX_I32, 2);
+    var saw_overflow: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw_overflow, 1);
+}
+
+test "try_neg_in_range" {
+    const v: i32 = try neg_checked(5);
+    try assert_eq_i32(v, 0 - 5);
+}
+
+test "try_neg_overflow" {
+    // -INT_MIN 无法用 i32 表示
+    const r: !i32 = neg_checked(MIN_I32);
+    var saw_overflow: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw_overflow, 1);
+}
+
+test "try_nested_tree_in_range" {
+    const v: i32 = try add_mul_nested(1, 2, 3);
+    try assert_eq_i32(v, 7);
+}
+
+test "try_nested_tree_inner_overflow" {
+    // b * c 内层就上溢，整棵树应产出 error.Overflow
+    const r: !i32 = add_mul_nested(0, MAX_I32, 2);
+    var saw_overflow: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw_overflow, 1);
+}
+
+test "try_success_path_has_no_error" {
+    // 成功路径必须返回载荷而不是错误
+    const v: i32 = add_checked(20, 22) catch |_e| { 0; };
+    try assert_eq_i32(v, 42);
+}

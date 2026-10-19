@@ -1,6 +1,6 @@
 # 编译器 / 标准库 Bug 待办清单
 
-**最后更新：** 2026-10-19（新增 **P1：负 `start` 切片 `&arr[-3:3]` 静默切出越界内容**；**P2：`@max`/`@min` 极值常量发射不可靠**、`@print` 负值与浮点插值、`@asm` memory clobber 检查失效；**P3：命名空间 + `&receiver` 方法调用生成坏 C**。最小复现与规避写法见「编译器 bug」前五条。）
+**最后更新：** 2026-10-19（新增 overflow/try 限制登记：普通上下文算术溢出仍是 UB；再新增 **P1：负 `start` 切片 `&arr[-3:3]` 静默切出越界内容**；**P2：`@max`/`@min` 极值常量发射不可靠**、`@print` 负值与浮点插值、`@asm` memory clobber 检查失效；**P3：命名空间 + `&receiver` 方法调用生成坏 C**。最小复现与规避写法见「编译器 bug」前五条。）
 此前：2026-10-12（**UB 漏检批次 7 条收口 ①②④⑦ + ⑤ 的缺口 2，余 ③、⑤ 的缺口 1、⑥ 未修复**：
 ① 常量 -1 下标（`checker_eval_const_expr` 拿 -1 兼作「非常量」哨兵）、② 嵌套字段移动后
 同一块堆内存被 free 两次（实测真 double free）、④ `return` 里的 cast/实参位置跳过越界检查、
@@ -46,6 +46,48 @@
 - **标准库 bug**：`lib/std/**` 里的实现问题。
 - **运行时 bug**：异步调度、事件循环、waker/future 状态机等问题。
 - **网络 / TLS 回归**：TCP、HTTP、HTTPS、DNS、TLS 链路问题。
+
+## 编译器限制 / 待办（overflow 与 try 相关）
+
+- [ ] **P2 / 高：普通上下文的整数算术溢出不做任何检查，且发射成 C 有符号溢出 UB**
+  - 现象：`var a: i32 = 2147483647; var c: i32 = a + 1;` 编译通过，运行时得到 `-2147483648`；
+    `fn add(a: i32, b: i32) i32 { return a + b; }` 零守卫、零证明即可编译。
+  - 根因（已坐实到行）：
+    1. `checker_check_binary_expr()` 的算术分支（`src/checker/check_expr_extra.uya`）只比较类型，
+       **不做任何溢出判定**；
+    2. `proof.uya` 里的 `check_i32_{add,sub,mul,neg}_overflow` 只被常量求值
+       `checker_eval_const_expr_ex_impl` 调用，**变量算术没有任何证明入口**；
+    3. codegen 原样发射 C 的 `+` / `-` / `*`（`c99_emit_binary_operator`），
+       且构建**未加 `-fwrapv`**，因此 i32 溢出是 C99 未定义行为（`-O2` 下可被任意误编译）。
+  - 与规范不符：`docs/uya.md` §14.4 写的是「变量运算必须显式检查溢出，或编译器能证明无溢出；
+    证明失败 → 编译错误」，实现从未执行该条。已在 0.49.55 把 §14 的表述降级为如实描述。
+  - 仓库自己撞过的证据：`src/checker/interval.uya` 手工用 u32 回绕规避了 8 处
+    （238 / 641 / 741 / 754 / 766 / 1029 / 1377 / 1472，「带 UBSan 的 zig cc 交叉编译 Windows 时直接 panic」）。
+  - 现有逃生口（0.49.55 起）：`try a + b`（传播 `error.Overflow` / `error.DivisionByZero`）、
+    `(a + b) catch |e| { … }`（就地处理）、饱和 `+| -| *|`、包装 `+% -% *%`。
+  - 已实现（0.49.55，默认关）：`wide_*` 宽化区间（i64，`src/checker/interval.uya`）+
+    `checker_prove_no_overflow`（`src/checker/proof.uya`）+ `--strict-overflow` 闸门
+    （`checker_check_binary_expr`）。开启后无法证明无溢出的整数 `+ - *` 报编译错误，
+    诊断给出 checked / 守卫 / 饱和包装三条修法。回归：`tests/verify_strict_overflow.sh`
+    （已并入 `make check`）。
+  - **翻转默认的实测成本**：`./bin/uya check --strict-overflow <src 全部文件>` 报
+    **2052 处**——`src/checker/macro_expand.uya` 645、`lib/libc/stdio.uya` 259、
+    `lib/libc/stdlib.uya` 161、`lib/libc/time.uya` 120、`src/checker/modules.uya` 86 …
+    因此闸门保持默认关，翻默认需要先做完这轮存量迁移。
+  - **证明器的保守边界（已知限制）**：
+    1. 函数调用、成员访问、下标、类型转换一律视为无界 → 不可证明；
+    2. `var x: T = <非常量表达式>` 的区间来自 `eval_expr_interval`（内部 u32 回绕，
+       已用 `constraint_sound` 标记为不可信）→ 该变量参与算术时不可证明；
+    3. 除法/取模不做闸门判定（除数非零证明仍未实现）；
+    4. 一元负不参与闸门（只有 `+ - *`）。
+  - **邻居隐患（本次未修，已量化）**：`constraint_update_for_increment` 与
+    `interval_add/sub/mul` 用 u32 位模式回绕。对**越界**证明这是既有行为且被依赖
+    （改成饱和会让 12 处既有证明失败、编译器无法冷构建）；但对溢出证明是不 sound 的，
+    故溢出证明只采纳 `constraint_sound = 1`（用户守卫 + 无回绕增量）的约束。
+
+- [ ] **P3 / 中：`try`/`catch` 的 checked 算术在下列场景尚不支持**
+  - `exec` / 字节码 VM 后端：给出明确的「暂不支持」降级诊断（不静默错算）。
+  - 泛型函数体内：checker 在类型参数作用域下判定 checked 算术会失败，报既有诊断。
 
 ## 标准库 bug
 

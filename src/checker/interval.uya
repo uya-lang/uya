@@ -17,6 +17,10 @@ const CONSTRAINT_NE: i32 = 5;   // !=
 
 const CONSTRAINT_EXPR_NAME_MAX: i32 = 256;
 
+// 与 checker.constraint_* 同下标的可信度标记（见 wide_constraint_* 说明）
+var g_constraint_sound: [i32: 64] = [];
+
+
 // 添加指针非空状态
 // 参数：ptr_name - 指针变量名
 fn pointer_nonnull_add(checker: &TypeChecker, ptr_name: &byte) void {
@@ -172,6 +176,78 @@ fn constraint_clear(checker: &TypeChecker) void {
 
 // 添加约束
 // 参数：var_name - 变量名，op - 操作符，value - 常量值
+// ===== 约束可信度标记（溢出证明专用）=====
+//
+// constraint_* 表里不同来源的约束可信度不同：
+//   - constraint_add：直接来自用户写的守卫（if i < 100 …）→ 可信，sound = 1
+//   - constraint_update_for_increment：i = i + const 的位模式回绕更新 → 不可信
+//   - constraint_replace_with_interval：来自 eval_expr_interval（内部用 u32 回绕）
+//     → 不可信
+// 越界证明沿用既有行为（全部采纳）；溢出证明只采纳 sound = 1 的约束，
+// 否则会把「回绕后被收得更紧」的假区间当成真区间，把真实溢出判成安全。
+
+fn wide_mark_constraint_unsound_at(idx: i32) void {
+    if idx < 0 || idx >= @len(g_constraint_sound) {
+        return;
+    }
+    g_constraint_sound[idx] = 0;
+}
+
+fn wide_mark_constraint_sound_at(idx: i32) void {
+    if idx < 0 || idx >= @len(g_constraint_sound) {
+        return;
+    }
+    g_constraint_sound[idx] = 1;
+}
+
+fn wide_move_constraint_sound(from_idx: i32, to_idx: i32) void {
+    const v: i32 = wide_constraint_is_sound_at(from_idx);
+    if to_idx < 0 || to_idx >= @len(g_constraint_sound) {
+        return;
+    }
+    g_constraint_sound[to_idx] = v;
+}
+
+fn wide_constraint_is_sound_at(idx: i32) i32 {
+    if idx < 0 || idx >= @len(g_constraint_sound) {
+        return 0;
+    }
+    return g_constraint_sound[idx];
+}
+
+fn wide_constraint_sound_reset() void {
+    var i: i32 = 0;
+    while i < @len(g_constraint_sound) {
+        g_constraint_sound[i] = 0;
+        i = i + 1;
+    }
+}
+
+// 把 src_name 的**可信**约束整组复制到 dest_name。
+// 用于 `var dst: T = src;` 这种直接传递：dst 的取值域与 src 完全相同，
+// 因此 src 上由用户守卫建立的可信约束可以原样继承（用于溢出证明）。
+fn constraint_copy_sound_guards(checker: &TypeChecker, dest_name: &byte, src_name: &byte) void {
+    if checker == null || dest_name == null || src_name == null {
+        return;
+    }
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS && wide_constraint_is_sound_at(i) != 0 {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, src_name as *byte) == 0 {
+                constraint_add(checker, dest_name, checker.constraint_ops[i], checker.constraint_values[i]);
+            }
+        }
+        i = i + 1;
+    }
+}
+
+// 清空约束表时一并清空可信度标记
+fn constraint_sound_clear_all() void {
+    wide_constraint_sound_reset();
+}
+
 fn constraint_add(checker: &TypeChecker, var_name: &byte, op: i32, value: i32) void {
     if checker == null || var_name == null {
         return;
@@ -184,6 +260,7 @@ fn constraint_add(checker: &TypeChecker, var_name: &byte, op: i32, value: i32) v
         checker.constraint_var_names[idx] = var_name;
         checker.constraint_ops[idx] = op;
         checker.constraint_values[idx] = value;
+        wide_mark_constraint_sound_at(idx);   // 用户守卫，可信
         checker.constraint_count = idx + 1;
     }
 }
@@ -206,6 +283,7 @@ fn constraint_remove_var(checker: &TypeChecker, var_name: &byte) void {
                     checker.constraint_var_names[write_idx] = name;
                     checker.constraint_ops[write_idx] = checker.constraint_ops[i];
                     checker.constraint_values[write_idx] = checker.constraint_values[i];
+                    wide_move_constraint_sound(i, write_idx);
                 }
                 write_idx = write_idx + 1;
             }
@@ -236,7 +314,16 @@ fn constraint_update_for_increment(checker: &TypeChecker, var_name: &byte, incre
                 // 更新精确值/上下界约束。
                 // 增量累加会贴到 i32 边界（实测 UBSan：2147483647 + 1），
                 // 以 u32 回绕消除有符号溢出 UB；位模式与原语义一致。
-                const val_inc: i32 = ((val as u32) + (increment as u32)) as i32;
+                // 注意：回绕后的上界可能比真实值域更紧（unsound）——现有越界证明
+                // 依赖这套位模式，故保持原样；溢出证明只采纳 constraint_sound 的约束。
+                const val_wrapped: i32 = ((val as u32) + (increment as u32)) as i32;
+                const val_exact: i32 = interval_saturate_i32((val as i64) + (increment as i64));
+                // 回绕时上界会比真实值域更紧（unsound），只在这种情况下降级；
+                // 没回绕就保留原可信度，让 i = i + 1 这类循环计数器仍可用于溢出证明。
+                if val_wrapped != val_exact {
+                    wide_mark_constraint_unsound_at(i);
+                }
+                const val_inc: i32 = val_wrapped;
                 if op == CONSTRAINT_EQ {
                     checker.constraint_values[i] = val_inc;
                 } else if op == CONSTRAINT_GE {
@@ -732,6 +819,34 @@ fn interval_invalid() Interval {
     };
 }
 
+// 把 i64 端点在 i32 范围内**饱和**。
+// 注意：不能用 u32 回绕。抽象区间域必须保证 min <= max 且「包含所有真实值」，
+// 回绕会把 [MAX,MAX] + [1,1] 算成 [MIN,MIN] —— 既反转了端点，又让结果假称
+// 「落在 i32 范围内」，会让溢出证明把真实溢出判成安全（unusound）。
+fn interval_i32_min() i32 {
+    const v: i32 = @min;
+    return v;
+}
+
+fn interval_i32_max() i32 {
+    const v: i32 = @max;
+    return v;
+}
+
+fn interval_saturate_i32(v: i64) i32 {
+    // 不用 i64 字面量 -2147483648：checker 的常量折叠是 i32 域，
+    // `0i64 - 2147483648i64` 会被自己判成 i32 溢出。
+    const hi: i64 = interval_i32_max() as i64;
+    const lo: i64 = interval_i32_min() as i64;
+    if v > hi {
+        return interval_i32_max();
+    }
+    if v < lo {
+        return interval_i32_min();
+    }
+    return v as i32;
+}
+
 // 区间加法
 fn interval_add(a: Interval, b: Interval) Interval {
     if a.is_valid == 0 || b.is_valid == 0 {
@@ -740,6 +855,9 @@ fn interval_add(a: Interval, b: Interval) Interval {
     // [a.min, a.max] + [b.min, b.max] = [a.min + b.min, a.max + b.max]
     // u32 回绕消除有符号溢出 UB（i32 加法溢出在 C 里未定义；带 UBSan 的 zig cc 交叉
     // 编译 Windows 时直接 panic）。u32 相加良定义，位模式与原符号回绕一致。
+    //
+    // 注意：回绕区间**不能**用于溢出证明（会把 [MAX,MAX]+[1,1] 算成 [MIN,MIN]，
+    // 假称落在 i32 内）。溢出证明用 wide_* 系列 + constraint_sound 标记，见下方。
     const lo_u: u32 = (a.min as u32) + (b.min as u32);
     const hi_u: u32 = (a.max as u32) + (b.max as u32);
     return interval_range(lo_u as i32, hi_u as i32);
@@ -886,7 +1004,355 @@ fn interval_within_bounds(interval: Interval, lower: i32, upper: i32) i32 {
     return 0;
 }
 
-// 从表达式中提取线性表达式
+// ===== 溢出证明专用：i64 宽化区间 =====
+//
+// 上面 Interval 的 min/max 是 i32，且 interval_add/sub/mul 刻意用 u32 回绕消除
+// 有符号溢出 UB —— 这对越界检查是「保守安全」，但**不能**用于溢出证明：
+// [MAX,MAX] + [1,1] 会算出 [MIN,MIN]，落在 i32 范围内被误判为「无溢出」。
+//
+// 因此溢出证明单独用 i64 宽化的 WideInterval：
+//   - 上下界用 i64 表示，能覆盖 i8/i16/i32/u8/u16/u32 的完整范围；
+//   - u64/usize 的上界无法用 i64 表示，用 hi_known = 0 标记「上界未知」，
+//     只保留已知的 lo（默认为 0）；
+//   - 所有运算在 i64 上做显式溢出预处理，越界即标记为「不可证明」，绝不静默回绕。
+// 保守优先：证明不出来就是证明不出来，不允许任何「可能溢出却判安全」的路径。
+
+struct WideInterval {
+    lo: i64,
+    hi: i64,
+    lo_known: i32,   // lo 是否已知
+    hi_known: i32,   // hi 是否已知
+}
+
+fn wide_i64_min() i64 {
+    const v: i64 = @min;
+    return v;
+}
+
+fn wide_i64_max() i64 {
+    const v: i64 = @max;
+    return v;
+}
+
+// 上界超过 i64 表示范围（u64 / usize）
+const WIDE_TYPE_KIND_U64: i32 = TypeKind.TYPE_U64 as i32;
+const WIDE_TYPE_KIND_USIZE: i32 = TypeKind.TYPE_USIZE as i32;
+
+fn wide_unknown() WideInterval {
+    return WideInterval {
+        lo: 0i64,
+        hi: 0i64,
+        lo_known: 0,
+        hi_known: 0,
+    };
+}
+
+fn wide_point(val: i64) WideInterval {
+    return WideInterval {
+        lo: val,
+        hi: val,
+        lo_known: 1,
+        hi_known: 1,
+    };
+}
+
+// 整数类型 kind（TypeKind as i32）对应的溢出上界是否为「超出 i64」
+fn wide_kind_hi_overflows_i64(kind: i32) i32 {
+    if kind == WIDE_TYPE_KIND_U64 || kind == WIDE_TYPE_KIND_USIZE {
+        return 1;
+    }
+    return 0;
+}
+
+// 整数类型 kind 的完整取值范围
+fn wide_of_type_kind(kind: i32) WideInterval {
+    if kind == TypeKind.TYPE_I8 as i32 {
+        return WideInterval { lo: 0i64 - 128i64, hi: 127i64, lo_known: 1, hi_known: 1 };
+    }
+    if kind == TypeKind.TYPE_I16 as i32 {
+        return WideInterval { lo: 0i64 - 32768i64, hi: 32767i64, lo_known: 1, hi_known: 1 };
+    }
+    if kind == TypeKind.TYPE_I32 as i32 {
+        return WideInterval { lo: 0i64 - 2147483648i64, hi: 2147483647i64, lo_known: 1, hi_known: 1 };
+    }
+    if kind == TypeKind.TYPE_I64 as i32 {
+        return WideInterval { lo: wide_i64_min(), hi: wide_i64_max(), lo_known: 1, hi_known: 1 };
+    }
+    if kind == TypeKind.TYPE_U8 as i32 || kind == TypeKind.TYPE_BYTE as i32 {
+        return WideInterval { lo: 0i64, hi: 255i64, lo_known: 1, hi_known: 1 };
+    }
+    if kind == TypeKind.TYPE_U16 as i32 {
+        return WideInterval { lo: 0i64, hi: 65535i64, lo_known: 1, hi_known: 1 };
+    }
+    if kind == TypeKind.TYPE_U32 as i32 {
+        return WideInterval { lo: 0i64, hi: 4294967295i64, lo_known: 1, hi_known: 1 };
+    }
+    if wide_kind_hi_overflows_i64(kind) != 0 {
+        // u64 / usize：下界 0 已知，上界超出 i64，标记为未知
+        return WideInterval { lo: 0i64, hi: 0i64, lo_known: 1, hi_known: 0 };
+    }
+    return wide_unknown();
+}
+
+// i64 加法，溢出时返回 0（out 不写入）
+fn wide_add_i64(a: i64, b: i64, out: &i64) i32 {
+    if b > 0i64 {
+        if a > wide_i64_max() - b {
+            return 0;
+        }
+    } else {
+        if a < wide_i64_min() - b {
+            return 0;
+        }
+    }
+    out[0] = a + b;
+    return 1;
+}
+
+// i64 减法，溢出时返回 0
+fn wide_sub_i64(a: i64, b: i64, out: &i64) i32 {
+    if b > 0i64 {
+        if a < wide_i64_min() + b {
+            return 0;
+        }
+    } else {
+        if a > wide_i64_max() + b {
+            return 0;
+        }
+    }
+    out[0] = a - b;
+    return 1;
+}
+
+// 乘法安全阈值：|bound| <= 2^31 时四个乘积都能落在 i64 内（2^62）
+const WIDE_MUL_SAFE_BOUND: i64 = 2147483647i64;
+
+fn wide_bound_mul_is_safe(v: i64) i32 {
+    if v > WIDE_MUL_SAFE_BOUND {
+        return 0;
+    }
+    if v < 0i64 - WIDE_MUL_SAFE_BOUND {
+        return 0;
+    }
+    return 1;
+}
+
+fn wide_add(a: WideInterval, b: WideInterval) WideInterval {
+    var out: WideInterval = wide_unknown();
+    out.lo_known = a.lo_known & b.lo_known;
+    out.hi_known = a.hi_known & b.hi_known;
+    if out.lo_known != 0 {
+        var lo_v: [i64: 1] = [0i64];
+        if wide_add_i64(a.lo, b.lo, &lo_v[0]) == 0 {
+            out.lo_known = 0;
+        } else {
+            out.lo = lo_v[0];
+        }
+    }
+    if out.hi_known != 0 {
+        var hi_v: [i64: 1] = [0i64];
+        if wide_add_i64(a.hi, b.hi, &hi_v[0]) == 0 {
+            out.hi_known = 0;
+        } else {
+            out.hi = hi_v[0];
+        }
+    }
+    return out;
+}
+
+fn wide_sub(a: WideInterval, b: WideInterval) WideInterval {
+    var out: WideInterval = wide_unknown();
+    out.lo_known = a.lo_known & b.hi_known;
+    out.hi_known = a.hi_known & b.lo_known;
+    if out.lo_known != 0 {
+        var lo_v: [i64: 1] = [0i64];
+        if wide_sub_i64(a.lo, b.hi, &lo_v[0]) == 0 {
+            out.lo_known = 0;
+        } else {
+            out.lo = lo_v[0];
+        }
+    }
+    if out.hi_known != 0 {
+        var hi_v: [i64: 1] = [0i64];
+        if wide_sub_i64(a.hi, b.lo, &hi_v[0]) == 0 {
+            out.hi_known = 0;
+        } else {
+            out.hi = hi_v[0];
+        }
+    }
+    return out;
+}
+
+// 区间乘法：四个端点两两相乘取极值。任一端点超出安全阈值即放弃（保守）
+fn wide_mul(a: WideInterval, b: WideInterval) WideInterval {
+    if a.lo_known == 0 || a.hi_known == 0 || b.lo_known == 0 || b.hi_known == 0 {
+        return wide_unknown();
+    }
+    if wide_bound_mul_is_safe(a.lo) == 0 || wide_bound_mul_is_safe(a.hi) == 0 ||
+        wide_bound_mul_is_safe(b.lo) == 0 || wide_bound_mul_is_safe(b.hi) == 0 {
+        return wide_unknown();
+    }
+    const p1: i64 = a.lo * b.lo;
+    const p2: i64 = a.lo * b.hi;
+    const p3: i64 = a.hi * b.lo;
+    const p4: i64 = a.hi * b.hi;
+    var lo: i64 = p1;
+    var hi: i64 = p1;
+    if p2 < lo { lo = p2; }
+    if p3 < lo { lo = p3; }
+    if p4 < lo { lo = p4; }
+    if p2 > hi { hi = p2; }
+    if p3 > hi { hi = p3; }
+    if p4 > hi { hi = p4; }
+    return WideInterval { lo: lo, hi: hi, lo_known: 1, hi_known: 1 };
+}
+
+fn wide_neg(a: WideInterval) WideInterval {
+    var out: WideInterval = wide_unknown();
+    out.lo_known = a.hi_known;
+    out.hi_known = a.lo_known;
+    // -hi / -lo：hi 为 i64 最小值时取负溢出（i64 最小值的相反数不可表示）
+    if out.lo_known != 0 {
+        if a.hi == wide_i64_min() {
+            out.lo_known = 0;
+        } else {
+            out.lo = 0i64 - a.hi;
+        }
+    }
+    if out.hi_known != 0 {
+        if a.lo == wide_i64_min() {
+            out.hi_known = 0;
+        } else {
+            out.hi = 0i64 - a.lo;
+        }
+    }
+    return out;
+}
+
+// 该区间是否完全落在整数类型 kind 的取值范围内（即不会溢出）
+fn wide_fits_type_kind(w: WideInterval, kind: i32) i32 {
+    if w.lo_known == 0 || w.hi_known == 0 {
+        return 0;
+    }
+    if w.lo > w.hi {
+        return 0;
+    }
+    const bounds: WideInterval = wide_of_type_kind(kind);
+    if w.lo < bounds.lo {
+        return 0;
+    }
+    // u64 / usize 的上界超出 i64：任何 i64 可表示的上界都满足
+    if wide_kind_hi_overflows_i64(kind) != 0 {
+        return 1;
+    }
+    if w.hi > bounds.hi {
+        return 0;
+    }
+    return 1;
+}
+
+// 基于约束表构造变量的宽化区间：从类型全域出发，按已收集约束收窄
+fn wide_interval_of_var(checker: &TypeChecker, var_name: &byte, kind: i32) WideInterval {
+    if checker == null || var_name == null {
+        return wide_unknown();
+    }
+    var out: WideInterval = wide_of_type_kind(kind);
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS && wide_constraint_is_sound_at(i) != 0 {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                const val: i64 = checker.constraint_values[i] as i64;
+                if op == CONSTRAINT_EQ {
+                    out = wide_point(val);
+                } else if op == CONSTRAINT_GE {
+                    if out.lo_known == 0 || val > out.lo {
+                        out.lo = val;
+                        out.lo_known = 1;
+                    }
+                } else if op == CONSTRAINT_GT {
+                    const val_p1: i64 = val + 1i64;
+                    if out.lo_known == 0 || val_p1 > out.lo {
+                        out.lo = val_p1;
+                        out.lo_known = 1;
+                    }
+                } else if op == CONSTRAINT_LE {
+                    if out.hi_known == 0 || val < out.hi {
+                        out.hi = val;
+                        out.hi_known = 1;
+                    }
+                } else if op == CONSTRAINT_LT {
+                    const val_m1: i64 = val - 1i64;
+                    if out.hi_known == 0 || val_m1 < out.hi {
+                        out.hi = val_m1;
+                        out.hi_known = 1;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// 表达式的宽化区间。
+// 只识别能提供可靠边界的形态：整数字面量、局部/全局标识符（查约束表）、
+// 一元负、加减乘。其余（调用、成员访问、下标、转换等）一律返回「未知」——
+// 保守失败，绝不猜测。
+fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideInterval {
+    if checker == null || expr == null {
+        return wide_unknown();
+    }
+    if expr.type == ASTNodeType.AST_NUMBER {
+        return wide_point(expr.number_value);
+    }
+    if expr.type == ASTNodeType.AST_INT_LIMIT {
+        if expr.int_limit_is_max != 0 {
+            const bounds_max: WideInterval = wide_of_type_kind(kind);
+            if bounds_max.hi_known != 0 {
+                return wide_point(bounds_max.hi);
+            }
+            return wide_unknown();
+        }
+        const bounds_min: WideInterval = wide_of_type_kind(kind);
+        if bounds_min.lo_known != 0 {
+            return wide_point(bounds_min.lo);
+        }
+        return wide_unknown();
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        return wide_interval_of_var(checker, expr.identifier_name, kind);
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        const uop_tmp: !TokenType = expr.unary_expr_op as! TokenType;
+        const uop: TokenType = uop_tmp.value;
+        if uop != TokenType.TOKEN_MINUS {
+            return wide_unknown();
+        }
+        return wide_neg(wide_interval_of_expr(checker, expr.unary_expr_operand, kind));
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp.value;
+        const left: WideInterval = wide_interval_of_expr(checker, expr.binary_expr_left, kind);
+        const right: WideInterval = wide_interval_of_expr(checker, expr.binary_expr_right, kind);
+        if op == TokenType.TOKEN_PLUS {
+            return wide_add(left, right);
+        }
+        if op == TokenType.TOKEN_MINUS {
+            return wide_sub(left, right);
+        }
+        if op == TokenType.TOKEN_ASTERISK {
+            return wide_mul(left, right);
+        }
+        return wide_unknown();
+    }
+    return wide_unknown();
+}
+
+
 // 支持：标识符、常量、标识符+常量、标识符-常量、类型转换表达式
 // 返回 LinearExpr 结构
 fn extract_linear_expr(checker: &TypeChecker, expr: &ASTNode) LinearExpr {
@@ -1085,6 +1551,15 @@ fn constraint_replace_with_interval(checker: &TypeChecker, var_name: &byte, inte
     }
     if interval.min >= 0 {
         constraint_add(checker, var_name, CONSTRAINT_GE, 0);
+    }
+    // 该区间的端点由 eval_expr_interval 用 u32 回绕算出，不可用于溢出证明
+    var mi: i32 = 0;
+    while mi < checker.constraint_count {
+        if mi < MAX_CONSTRAINTS && checker.constraint_var_names[mi] != null &&
+            strcmp(checker.constraint_var_names[mi] as *byte, var_name as *byte) == 0 {
+            wide_mark_constraint_unsound_at(mi);
+        }
+        mi = mi + 1;
     }
 }
 

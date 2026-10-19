@@ -220,6 +220,11 @@ struct C99CodeGenerator {
     interp_fill_counter: i32,
     pipeline_temp_counter: i32,  // 管道表达式 lowering 临时变量唯一编号
     test_count: i32,  // 测试语句数量（用于判断是否生成 uya_run_tests 调用）
+    // export fn main / fn main 的返回类型是错误联合时：
+    // 用户函数发射为 uya_main_result()，另生成 int32_t main_main(void) 桥接
+    // 解包并把 error_id 映射成非零退出码。null 表示入口 main 不是错误联合。
+    entry_main_err_union_c: &byte,
+    entry_main_payload_void: i32,
     error_names: [&byte: C99_MAX_ERROR_IDS],   // 错误集
     error_hashes: [u32: C99_MAX_ERROR_IDS],    // 对应 error_id（hash 值）
     error_count: i32,

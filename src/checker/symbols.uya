@@ -175,6 +175,9 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     
     // 与 uya CLI 默认一致；compile_files 会按参数覆盖
     checker.enable_safety_proof = 1;
+    checker.strict_overflow = 0;      // 溢出闸门默认关闭（--strict-overflow 开启）
+    checker.suppress_overflow_gate = 0;
+    checker.checked_arith_root_count = 0;
     checker.container_mode = 0;  // 默认 kernel 模式（允许 @asm/extern）
 
     // 证明超时机制：默认限制 1000 步

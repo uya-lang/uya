@@ -1118,7 +1118,25 @@ fn collect_err_union_from_ast(codegen: &C99CodeGenerator, node: &ASTNode) void {
     if codegen == null || node == null {
         return;
     }
+    // checked 整数算术合成出的 !T：须在函数体发射前登记 struct err_union_*，
+    // 否则 split-C / 多 TU 下会出现 incomplete type 或结构体定义晚于使用。
+    if node.type == ASTNodeType.AST_CATCH_EXPR {
+        if codegen.checker != null && node.catch_expr_is_checked_arith != 0 && node.catch_expr_operand != null {
+            c99_checked_arith_union_c(codegen, node.catch_expr_checked_kind);
+        }
+        if node.catch_expr_operand != null {
+            collect_err_union_from_ast(codegen, node.catch_expr_operand);
+        }
+        if node.catch_expr_catch_block != null {
+            collect_err_union_from_ast(codegen, node.catch_expr_catch_block);
+        }
+        return;
+    }
     if node.type == ASTNodeType.AST_TRY_EXPR {
+        if codegen.checker != null && node.try_expr_operand != null &&
+            node.try_expr_is_checked_arith != 0 {
+            c99_checked_arith_union_c(codegen, node.try_expr_checked_kind);
+        }
         if codegen.checker != null && node.try_expr_operand != null {
             var registered: i32 = 0;
             const operand: &ASTNode = node.try_expr_operand;
@@ -5619,6 +5637,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 } else {
                     collect_err_union_from_function_body(codegen, decl, decl.fn_decl_body, null, 0);
                 }
+            } else if decl != null && decl.type == ASTNodeType.AST_TEST_STMT && decl.test_stmt_body != null {
+                // test "..." {} 编译成独立函数，其体内 try/catch 合成的 err_union_*
+                // 同样要在函数体发射前登记结构体定义
+                collect_err_union_from_ast(codegen, decl.test_stmt_body);
             }
             i = i + 1;
         }
@@ -6369,6 +6391,25 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
                 } else if is_c_main == 0 {
                     main_c_name = "uya_main" as *byte;
                 }
+                // 返回错误联合的入口 main：C 入口必须是 int32_t，
+                // 用户函数改名 uya_main_result()，由下方桥接解包并映射退出码。
+                if is_c_main == 0 && decl.fn_decl_return_type != null &&
+                    decl.fn_decl_return_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                    main_c_name = "uya_main_result" as *byte;
+                    codegen.entry_main_err_union_c = return_c;
+                    const eu_payload: &ASTNode = decl.fn_decl_return_type.type_error_union_payload_type;
+                    if eu_payload != null && eu_payload.type == ASTNodeType.AST_TYPE_NAMED &&
+                        eu_payload.type_named_name != null &&
+                        strcmp(eu_payload.type_named_name as *byte, "void" as *byte) == 0 {
+                        codegen.entry_main_payload_void = 1;
+                    } else {
+                        codegen.entry_main_payload_void = 0;
+                    }
+                    if is_entry_main != 0 {
+                        has_user_main = 1;
+                        has_plain_user_main = 1;
+                    }
+                }
                 if is_c_main != 0 {
                     fprintf(codegen.emit_stream as *void, "%s main(" as *byte, return_c as *byte);
                     var pj: i32 = 0;
@@ -6424,7 +6465,25 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, input_ast: &ASTNode, output_
     // std.runtime.entry 始终通过 main_main() 进入用户程序。
     // 对普通 fn main()，代码生成仍保留 uya_main() 作为真实实现，这里补一个稳定桥接，
     // 这样多文件/单文件模式都不再依赖测试脚本额外注入 bridge.c。
-    if cg_emit_now != 0 && has_plain_user_main != 0 && c99_parallel_is_common_owner(codegen) != 0 {
+    if cg_emit_now != 0 && codegen.entry_main_err_union_c != null && c99_parallel_is_common_owner(codegen) != 0 {
+        // 入口 main 返回错误联合：用户函数已发射为 uya_main_result()，
+        // 这里生成 int32_t main_main(void)：解包成功值作为退出码，出错打印错误名并返回 1。
+        c99_mirror_emit_common(codegen);
+        fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
+        fprintf(codegen.emit_stream as *void, "    %s _uya_main_r = uya_main_result();\n" as *byte,
+            codegen.entry_main_err_union_c as *byte);
+        fputs("    if (_uya_main_r.error_id != 0) {\n" as *byte, codegen.emit_stream as *void);
+        fputs("        fprintf(stderr, \"\\n未捕获的错误: %s\\n\", (char *)uya_error_name_from_id(_uya_main_r.error_id));\n" as *byte,
+            codegen.emit_stream as *void);
+        fputs("        return 1;\n" as *byte, codegen.emit_stream as *void);
+        fputs("    }\n" as *byte, codegen.emit_stream as *void);
+        if codegen.entry_main_payload_void != 0 {
+            fputs("    return 0;\n" as *byte, codegen.emit_stream as *void);
+        } else {
+            fputs("    return (int32_t)_uya_main_r.value;\n" as *byte, codegen.emit_stream as *void);
+        }
+        c99_emit_close_brace_newline(codegen);
+    } else if cg_emit_now != 0 && has_plain_user_main != 0 && c99_parallel_is_common_owner(codegen) != 0 {
         c99_mirror_emit_common(codegen);
         fputs("int32_t main_main(void) {\n" as *byte, codegen.emit_stream as *void);
         fputs("    return uya_main();\n" as *byte, codegen.emit_stream as *void);

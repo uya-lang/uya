@@ -1,15 +1,55 @@
-    // 源代码：使用 try 关键字进行溢出检查
-    fn safe_add(a: i32, b: i32) !i32 {
-        const result: i32 = try a + b;
-        return result;
+// 源代码：使用 try 关键字进行溢出检查
+// 运行：./bin/uya run examples/example_104.uya
+//
+// `try a + b` 的操作数按相对表达式解析，即 `try (a + b)`；整棵算术树按
+// checked 求值，溢出时产出 error.Overflow 并由 try 向外传播。
+
+fn safe_add(a: i32, b: i32) !i32 {
+    const result: i32 = try a + b;
+    return result;
+}
+
+fn add_or_default(a: i32, b: i32) i32 {
+    // 就地处理：catch 是 cast 级后缀，必须给整条算术加括号
+    var fallback: i32 = 0 - 2;
+    _ = (a + b) catch |e| {
+        if e == error.Overflow {
+            fallback = 0 - 1;
+        }
+        0;
+    };
+    return fallback;
+}
+
+export fn main() i32 {
+    const ok: i32 = safe_add(20, 22) catch { return 1; };
+    if ok != 42 {
+        return 2;
     }
-     
-     // 编译期展开为（伪代码）
-     // if a > 0 && b > 0 && a > max - b {
-     //     return error.Overflow;
-     // }
-     // if a < 0 && b < 0 && a < min - b {
-     //     return error.Overflow;
-     // }
-     // return a + b;
-     
+
+    // 溢出路径：add_or_default 返回兜底值 -1
+    const o: i32 = add_or_default(@max, 1);
+    if o != 0 - 1 {
+        return 3;
+    }
+
+    // 传播路径：safe_add 溢出时 caller 拿到 error.Overflow
+    var saw_overflow: i32 = 0;
+    _ = safe_add(@max, 1) catch |e| {
+        if e == error.Overflow {
+            saw_overflow = 1;
+        }
+        0;
+    };
+    if saw_overflow == 0 {
+        return 4;
+    }
+
+    return 0;
+}
+
+// 编译期等价展开（伪代码）
+// if (__builtin_add_overflow(a, b, &result)) {
+//     return error.Overflow;
+// }
+// return result;

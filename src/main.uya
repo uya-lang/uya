@@ -128,6 +128,9 @@ var g_split_c_lock_active: i32 = 0;
 
 // --verbose：默认静默普通编译进度、统计和成功提示；错误诊断仍始终输出。
 var g_verbose_output: i32 = 0;
+// --strict-overflow：普通上下文的整数算术必须能证明无溢出，否则报编译错误。
+// 默认关闭（存量代码尚未完成迁移，见 buglist.md）。
+var g_strict_overflow: i32 = 0;
 
 // --async-frame-heap=on：async frame pool 满时回退到调试 heap
 var g_async_frame_heap_fallback: i32 = 0;
@@ -1105,6 +1108,8 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  -O0, -O1, -O2, -O3   优化级别（简写形式）\n" as *byte);
     fprintf(libc.stderr, "  --safety-proof       启用内存安全证明（默认已启用）\n" as *byte);
     fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
+    fprintf(libc.stderr, "  --strict-overflow    整数算术必须能证明无溢出，否则报编译错误（默认关）\n" as *byte);
+    fprintf(libc.stderr, "  --no-strict-overflow 关闭溢出闸门（默认）\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
     fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);
     fprintf(libc.stderr, "  MICROAPP_TARGET_CFLAGS  microapp 目标 gcc 编译旗标；call_gate profile 默认 -std=c99 -Os -fomit-frame-pointer -fno-builtin -fno-stack-protector -fpie -ffunction-sections -fdata-sections -flto=auto，trap profile 默认改为 -fno-pie（均不含 -g）\n" as *byte);
@@ -1837,6 +1842,10 @@ fn parse_args(
             enable_safety_proof[0] = 1;
         } else if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
             enable_safety_proof[0] = 0;
+        } else if strcmp(arg, "--strict-overflow" as *byte) == 0 {
+            g_strict_overflow = 1;
+        } else if strcmp(arg, "--no-strict-overflow" as *byte) == 0 {
+            g_strict_overflow = 0;
         } else if strcmp(arg, "--jobs" as *byte) == 0 || strcmp(arg, "-j" as *byte) == 0 {
             // 分离写法：--jobs 8 / -j 8
             if i + 1 >= argc {
@@ -2698,6 +2707,7 @@ fn compile_files(
     }
     // 设置内存安全证明开关
     checker.enable_safety_proof = enable_safety_proof;
+    checker.strict_overflow = g_strict_overflow;
     checker.container_mode = g_container_mode;
 
     if checker_check(checker, merged_ast) != 0 {

@@ -6,7 +6,7 @@
 > | 工作项 | 实现状态 | 证据 | 仍缺 |
 > |---|---|---|---|
 > | **T1** 独立 goal 文档 | ✅ 已完成 | 本文件 | — |
-> | **T2** `try` 双重语义拆分 | ✅ 已完成 | 实测 `try a + b` 报「try 的操作数必须是错误联合类型 !T」；checker 只处理 `!T`（`src/checker/check_expr.uya`）；`docs/uya.md` §8/§10/§14 已改为「只做错误传播」 | — |
+> | **T2** `try` 双重语义拆分 | ✅ 已完成（0.49.55 重述口径） | `try` **不**再承担「溢出/UB 检查标记」这一第二语义：`!T` 的操作数集合扩展为两类（本身是错误联合，或是被按 checked 求值的整数算术表达式），错误统一走 err_union；`src/checker/check_expr.uya` 只做 `!T` 判定，`src/checker/check_expr_extra.uya` 负责 checked 算术识别 | — |
 > | **T2** 禁止 `try X catch` 叠用 | 🔶 已拒绝但诊断不精确 | 实测 `try f() catch { ... }` 报「try 的操作数必须是错误联合类型」（因为 `catch` 先挂在 cast_expr 上，`try` 的operand 变成 catch 表达式），不会误接受 | 明确的「`try` 与 `catch` 互斥」诊断文案；`tests/error_try_catch_combined.uya` |
 > | **T2** 多语句 catch block-expr lowering | ✅ 同步路径已实现 | 实测 `f() catch |err| { t = 1; t + 10; }` 与 `f() catch { 4; }` 均返回末句值（末句须以 `;` 结尾）；真实用法见 `lib/std/async_channel.uya:140`、`lib/std/async_event.uya:327` | `tests/test_catch_multistmt_block.uya` |
 > | **T3** 卫生宏 | ✅ 代码 + 文档均完成 | `src/checker/macro_expand.uya`（`hygiene_enabled`、`create_hygiene_name`，生成名 `<原名>__hyg_<exp>_<id>`）；`docs/uya.md` §25.2.2；`grammar_formal.md` / `grammar_quick.md` 已补卫生说明；`macro_hygiene_design.md` / `todo_macro_hygiene.md` 头部已回填；`tests/test_macro_hygiene.uya` 通过 | — |
@@ -67,7 +67,17 @@ catch 的 block-expr lowering 是 async `@await catch` 的前置；async 完善�
 - `try` 当前**双重语义**：错误传播 + 溢出/UB 检查标记（`docs/uya.md:2856`）。
 
 **要做：**
-- [ ] **拆分 `try` 双重语义**：错误传播与"溢出/UB 检查"分离，`try a + b` 不再二义。决定：保留 `try` 仅做错误传播，溢出检查另用机制（评估 `@`-内建或显式形式），同步 `docs/uya.md`、`grammar_formal.md`。
+- [x] **拆分 `try` 双重语义**：错误传播与"溢出/UB 检查"分离，`try a + b` 不再二义。
+  **最终决议（2026-10-19，规范 0.49.55）**：不做「`try` = 溢出检查标记」这种第二语义，而是把
+  **整数算术表达式**纳入「提供 `!T`」的操作数集合 —— checked 算术产出的是普通 `!T`
+  （溢出 → `error.Overflow`，除零 → `error.DivisionByZero`），由既有的 `try` 传播 / `catch` 就地处理。
+  `try` 的类型规则本身一个字未改（操作数必须提供 `!T`），因此 T2 的「拆分」目标达成且无二义。
+  已同步 `docs/uya.md`（0.49.55）、`grammar_formal.md`、`grammar_quick.md`、`uya_ai_prompt.md`。
+  测试：`tests/test_try_overflow_{arith,div,catch,types}.uya` + `tests/error_try_overflow_*.uya`（4 个负例）。
+  **闸门（0.49.55 已实现，默认关）**：`--strict-overflow` 开启后 `+ - *` 必须能证明无溢出，
+  否则编译错误（`checker_prove_no_overflow` + i64 宽化区间 + 可信约束标记），
+  回归 `tests/verify_strict_overflow.sh`。仓库自身开启后约 2052 处待迁移，故默认仍关闭；
+  普通上下文的 `a + b` 默认不检查溢出（见 `buglist.md`）。
 - [ ] **禁止 `try X catch` 叠用**：在 parser 或 checker 报明确错误（二者互斥：try 传播 / catch 处理）。补 `tests/error_try_catch_combined.uya` 负测。
 - [ ] **修复多语句 catch block-expr lowering**：在同步路径与 `@await` 路径都正确处理"非末句副作用 + 末句产值 / 发散"。补 `tests/test_catch_multistmt_block.uya`。
 - [ ] `make check` 通过。

@@ -8,6 +8,38 @@
 
 **发布日期：** 待定
 
+### `--strict-overflow` 静态溢出闸门（规范 0.49.55，2026-10-19）
+
+- **行为**：开启后普通上下文的整数 `+` `-` `*` 必须能证明不溢出，否则报编译错误：
+  `i32 溢出无法证明（--strict-overflow）：改用 try a + b、(a + b) catch、加区间守卫，或用饱和/包装运算符`。
+- **默认关闭**：仓库自身（`src/` + `lib/`）开启后报约 2052 处，翻默认需先完成存量迁移。
+- **证明器**：`checker_prove_no_overflow`（`src/checker/proof.uya`）基于 i64 宽化区间
+  （`wide_*`，`src/checker/interval.uya`）；加法/减法做显式溢出预处理，乘法限制端点 ≤ 2^31。
+  只采纳 `constraint_sound = 1` 的约束（用户守卫、无回绕的 `i = i + c`、直接常量初始化），
+  抽象区间计算（`eval_expr_interval`，内部 u32 回绕）产出的约束一律不可信。
+- **豁免**：`try`/`catch` 的 checked 算术操作数（运行时检查负责）、饱和 `+|`/`-|`/`*|`、
+  包装 `+%`/`-%`/`*%`、浮点与向量算术。
+- **CLI**：`--strict-overflow` / `--no-strict-overflow`。
+- **回归**：`tests/verify_strict_overflow.sh`（已并入 `make check`）。
+
+### `try`/`catch` 支持整数溢出检查（规范 0.49.55，2026-10-19）
+
+- **语义**：`!T` 的操作数集合扩展为两类 —— ① 本身是错误联合类型；② **整数算术表达式**（根为
+  `+` `-` `*` `/` `%` 或一元 `-`）。后者按 **checked 算术**求值：越界 → `error.Overflow`，
+  除数为 0 → `error.DivisionByZero`，有符号 `MIN / -1`、`MIN % -1` → `error.Overflow`。
+  整棵算术树共享一次检查，每棵子树只求值一次。`try`/`catch` 原有规则（操作数须提供 `!T`）不变。
+- **写法**：`try a + b`（传播；操作数走相对表达式，无需加括号）与 `(a + b) catch |e| { … }`
+  （就地处理；`catch` 是 cast 级后缀，必须给整条算术加括号）。
+- **兼容性**：非 `try`/`catch` 上下文的 `a + b` 行为完全不变；此前被判「操作数必须是错误联合类型」
+  的 `try a + b` 现在合法 —— 纯增量，无破坏性变更。
+- **入口 main**：`export fn main() !T` / `fn main() !T` 现在可链接运行：用户函数发射为
+  `uya_main_result()`，编译器发射 `int32_t main_main(void)` 桥接解包，成功值作为退出码，
+  未捕获错误打印 `未捕获的错误: <name>` 并返回 1。
+- **顺带修复**：`gen_return_error_union` 的「标识符名含 result 即视为错误联合」启发式原先会误判
+  `return result;`（`result: i32`，函数返回 `!i32`）从而生成非法 C；现在以类型判定优先于名字猜测。
+- **测试**：`tests/test_try_overflow_arith.uya`、`test_try_overflow_div.uya`、`test_try_overflow_catch.uya`、
+  `test_try_overflow_types.uya`；负例 `tests/error_try_overflow_*.uya`（4 个）。
+
 ### 规范文档同步 v0.10.4（2026-10-19）
 
 本轮按 `src/` 实现回填语言规范，规范版本升到 **0.49.54**（详见 `uya.md` 的「规范变更」）：

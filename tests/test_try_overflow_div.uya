@@ -1,0 +1,93 @@
+// try / catch 整数溢出检查：除法与取模
+// 规范 uya.md §10（try/catch）、§14（除零、溢出）
+//
+// 除数为 0 → error.DivisionByZero
+// 有符号 MIN / -1、MIN % -1 → error.Overflow（商/余数无法用该类型表示）
+
+use std.testing.assert_eq_i32;
+
+const MIN_I32: i32 = @min;
+
+fn div_checked(a: i32, b: i32) !i32 {
+    return try a / b;
+}
+
+fn mod_checked(a: i32, b: i32) !i32 {
+    return try a % b;
+}
+
+fn div_by_zero_err(a: i32, b: i32) i32 {
+    var saw: i32 = 0;
+    _ = (a / b) catch |e| {
+        if e == error.DivisionByZero {
+            saw = 1;
+        }
+        0;
+    };
+    return saw;
+}
+
+test "try_div_in_range" {
+    const v: i32 = try div_checked(20, 4);
+    try assert_eq_i32(v, 5);
+}
+
+test "try_mod_in_range" {
+    const v: i32 = try mod_checked(20, 6);
+    try assert_eq_i32(v, 2);
+}
+
+test "try_div_by_zero" {
+    const r: !i32 = div_checked(10, 0);
+    var saw: i32 = 0;
+    _ = r catch |e| {
+        if e == error.DivisionByZero {
+            saw = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_mod_by_zero" {
+    const r: !i32 = mod_checked(10, 0);
+    var saw: i32 = 0;
+    _ = r catch |e| {
+        if e == error.DivisionByZero {
+            saw = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_div_min_by_neg_one" {
+    // INT_MIN / -1 → error.Overflow
+    const r: !i32 = div_checked(MIN_I32, 0 - 1);
+    var saw: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "try_mod_min_by_neg_one" {
+    const r: !i32 = mod_checked(MIN_I32, 0 - 1);
+    var saw: i32 = 0;
+    _ = r catch |e| {
+        if e == error.Overflow {
+            saw = 1;
+        }
+        0;
+    };
+    try assert_eq_i32(saw, 1);
+}
+
+test "catch_div_by_zero_local" {
+    // catch 是 cast 级后缀：本地处理必须写 (a / b) catch {...}
+    try assert_eq_i32(div_by_zero_err(9, 0), 1);
+    try assert_eq_i32(div_by_zero_err(9, 3), 0);
+}

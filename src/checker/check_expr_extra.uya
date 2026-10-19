@@ -980,6 +980,242 @@ fn checker_infer_type_bypass_moved(checker: &TypeChecker, expr: &ASTNode) Type {
     return result;
 }
 
+// ===== checked 整数算术（try / catch 的溢出检查操作数）=====
+//
+// 设计：checked 算术不是新类型，而是「在 try / catch 上下文下提供 !T」的
+// 整数表达式形式（与 as! 同类：as! 无条件产出 !T，算术按上下文产出）。
+// 判定唯一规则：
+//   operand 提供 !T  ⟺  天生是 !T（调用 / as! / !T 标识符 / 块 / @await）
+//                        ∨ 是 checked 整数算术树（根为 + - * / % 或一元 -）
+// 整棵算术树共享一次 checked 求值，内层不单独成为 !T。
+
+// checked 算术的根运算符判定
+fn checker_checked_arith_op_is_root(op: TokenType) i32 {
+    if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK ||
+        op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT {
+        return 1;
+    }
+    return 0;
+}
+
+// checked 算术节点的两端类型是否可接受：
+// 要求两个操作数都是整数类型，且类型一致；允许一侧是整数字面量或 @max/@min
+// （它们会在推断阶段被解析成对侧类型）。
+fn checker_checked_arith_operands_ok(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null || node.type != ASTNodeType.AST_BINARY_EXPR {
+        return 0;
+    }
+    const left: &ASTNode = node.binary_expr_left;
+    const right: &ASTNode = node.binary_expr_right;
+    if left == null || right == null {
+        return 0;
+    }
+    const left_type: Type = checker_infer_type(checker, left);
+    const right_type: Type = checker_infer_type(checker, right);
+    if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+        return 0;
+    }
+    if left_type.kind == TypeKind.TYPE_INT_LIMIT || right_type.kind == TypeKind.TYPE_INT_LIMIT {
+        return 1;
+    }
+    if is_integer_type(left_type.kind) == 0 || is_integer_type(right_type.kind) == 0 {
+        return 0;
+    }
+    // 一侧是无类型整数字面量时按对侧类型求值
+    if left.type == ASTNodeType.AST_NUMBER || right.type == ASTNodeType.AST_NUMBER {
+        return 1;
+    }
+    return (left_type.kind == right_type.kind) as i32;
+}
+
+// checked 算术树的递归判定。
+// 非根节点（叶子）只需是整数类型：调用 / 下标 / 成员访问 / @ 内置 / as 转换都允许，
+// 它们本身不做溢出检查，但参与 checked 求值。
+// 错误联合、指针、浮点、向量一律不接受 —— 尤其 `!T` 必须先 (try x) 解包。
+fn checker_checked_arith_tree_ok(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const raw_op: i32 = node.binary_expr_op;
+        const op: TokenType = checker_token_or_plus_extra(raw_op);
+        if checker_checked_arith_op_is_root(op) != 0 {
+            if checker_checked_arith_operands_ok(checker, node) == 0 {
+                return 0;
+            }
+            return (checker_checked_arith_tree_ok(checker, node.binary_expr_left) != 0 &&
+                    checker_checked_arith_tree_ok(checker, node.binary_expr_right) != 0) as i32;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        const raw_uop: i32 = node.unary_expr_op;
+        const uop: TokenType = checker_token_or_plus_extra(raw_uop);
+        if uop != TokenType.TOKEN_MINUS {
+            return 0;
+        }
+        const operand: &ASTNode = node.unary_expr_operand;
+        if operand == null {
+            return 0;
+        }
+        const inner: Type = checker_infer_type(checker, operand);
+        // 无符号取负不产生溢出，不算 checked 根
+        if is_integer_type(inner.kind) == 0 || is_unsigned_type(inner.kind) != 0 {
+            return 0;
+        }
+        return checker_checked_arith_tree_ok(checker, operand);
+    }
+    // 叶子：必须是整数类型，且不能是错误联合
+    const leaf_type: Type = checker_infer_type(checker, node);
+    if leaf_type.kind == TypeKind.TYPE_ERROR_UNION || leaf_type.kind == TypeKind.TYPE_VOID {
+        return 0;
+    }
+    if is_integer_type(leaf_type.kind) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+// 操作数是否按 checked 整数算术提供 !T。
+// 根必须是算术运算符（`try x` 这种裸标识符不适用）。
+export fn checker_expr_is_checked_arith(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const raw_op: i32 = node.binary_expr_op;
+        const op: TokenType = checker_token_or_plus_extra(raw_op);
+        if checker_checked_arith_op_is_root(op) == 0 {
+            return 0;
+        }
+    } else if node.type == ASTNodeType.AST_UNARY_EXPR {
+        const raw_uop: i32 = node.unary_expr_op;
+        const uop: TokenType = checker_token_or_plus_extra(raw_uop);
+        if uop != TokenType.TOKEN_MINUS {
+            return 0;
+        }
+    } else {
+        return 0;
+    }
+    return checker_checked_arith_tree_ok(checker, node);
+}
+
+// checked 整数算术树的载荷类型（溢出检查的 !T 载荷）。
+// 非 checked 算术时返回 void 类型，调用方据此判断「不适用」。
+export fn checker_checked_arith_payload(checker: &TypeChecker, node: &ASTNode) Type {
+    if checker_expr_is_checked_arith(checker, node) == 0 {
+        return make_void_type();
+    }
+    var payload_node: &ASTNode = node;
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        payload_node = node.unary_expr_operand;
+    } else if node.type == ASTNodeType.AST_BINARY_EXPR {
+        // 两端类型一致（或一侧为字面量），取左操作数类型
+        payload_node = node.binary_expr_left;
+    }
+    if payload_node == null {
+        return make_void_type();
+    }
+    const payload: Type = checker_infer_type(checker, payload_node);
+    if payload.kind == TypeKind.TYPE_INT_LIMIT {
+        return make_i32_type();
+    }
+    if is_integer_type(payload.kind) == 0 {
+        return make_void_type();
+    }
+    return copy_type(&payload);
+}
+
+// 检测算术树里是否混入了错误联合值（用于给出「先 (try x) 解包」的专门提示）
+fn checker_checked_arith_tree_has_error_union(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if checker_checked_arith_tree_has_error_union(checker, node.binary_expr_left) != 0 {
+            return 1;
+        }
+        if checker_checked_arith_tree_has_error_union(checker, node.binary_expr_right) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return checker_checked_arith_tree_has_error_union(checker, node.unary_expr_operand);
+    }
+    const leaf_type: Type = checker_infer_type(checker, node);
+    if leaf_type.kind == TypeKind.TYPE_ERROR_UNION {
+        return 1;
+    }
+    return 0;
+}
+
+// 登记 checked 算术根：闸门对整棵子树豁免（运行时 checked 检查已覆盖）
+fn checker_register_checked_arith_root(checker: &TypeChecker, root: &ASTNode) void {
+    if checker == null || root == null {
+        return;
+    }
+    if checker.checked_arith_root_count >= @len(checker.checked_arith_roots) {
+        return;
+    }
+    const idx: i32 = checker.checked_arith_root_count;
+    if idx >= 0 && idx < @len(checker.checked_arith_roots) {
+        checker.checked_arith_roots[idx] = root;
+        checker.checked_arith_root_count = idx + 1;
+    }
+}
+
+// node 是否位于某棵已登记的 checked 算术树内
+fn checker_tree_contains_node(root: &ASTNode, node: &ASTNode) i32 {
+    if root == null || node == null {
+        return 0;
+    }
+    if @usize_from_ptr(root as &void) == @usize_from_ptr(node as &void) {
+        return 1;
+    }
+    if root.type == ASTNodeType.AST_BINARY_EXPR {
+        if checker_tree_contains_node(root.binary_expr_left, node) != 0 {
+            return 1;
+        }
+        if checker_tree_contains_node(root.binary_expr_right, node) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if root.type == ASTNodeType.AST_UNARY_EXPR {
+        return checker_tree_contains_node(root.unary_expr_operand, node);
+    }
+    return 0;
+}
+
+// 该节点是否被 checked 算术豁免（属于 try/catch 的 checked 操作数）
+export fn checker_node_in_checked_arith(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < checker.checked_arith_root_count {
+        if i >= 0 && i < @len(checker.checked_arith_roots) {
+            const root: &ASTNode = checker.checked_arith_roots[i];
+            if root != null && checker_tree_contains_node(root, node) != 0 {
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 算术运算符的原文（用于溢出闸门诊断文案）
+fn proof_op_text(op: TokenType) &byte {
+    if op == TokenType.TOKEN_PLUS { return "+" as &byte; }
+    if op == TokenType.TOKEN_MINUS { return "-" as &byte; }
+    if op == TokenType.TOKEN_ASTERISK { return "*" as &byte; }
+    if op == TokenType.TOKEN_SLASH { return "/" as &byte; }
+    if op == TokenType.TOKEN_PERCENT { return "%" as &byte; }
+    return "运算" as &byte;
+}
+
 // 检查二元表达式
 // 参数：checker - TypeChecker 指针，node - 二元表达式节点
 // 返回：表达式类型（如果检查失败返回TYPE_VOID）
@@ -1271,6 +1507,20 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
             // 允许混合整数类型（如 i32 + usize），结果取左操作数类型
         }
         result.kind = left_type.kind;
+        // --strict-overflow 闸门：整数加减乘必须能证明不溢出，否则报错。
+        // 默认关闭；try/catch 的 checked 算术操作数由 suppress 计数豁免
+        //（那部分交给运行时检查，见 R2）。除法/取模不在此判定范围内。
+        if checker.strict_overflow != 0 && checker.suppress_overflow_gate == 0 &&
+            (op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK) &&
+            checker_node_in_checked_arith(checker, node) == 0 {
+            const gate_kind: i32 = left_type.kind as i32;
+            if proof_type_kind_is_integer(gate_kind) != 0 {
+                if checker_prove_no_overflow(checker, node, gate_kind) == 0 {
+                    const op_text: &byte = proof_op_text(op);
+                    checker_report_overflow_unproven(checker, node, op_text, gate_kind);
+                }
+            }
+        }
         return result;
     }
     

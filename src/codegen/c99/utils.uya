@@ -483,6 +483,8 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.simd_emit_reduce_max_u32x4 = 0;
     codegen.simd_emit_reduce_max_f32x4 = 0;
     codegen.test_count = 0;  // 初始化测试计数为 0
+    codegen.entry_main_err_union_c = null;
+    codegen.entry_main_payload_void = 0;
     ii = 0;
     while ii < C99_MAX_DEFER_STACK {
         codegen.defer_count[ii] = 0;
