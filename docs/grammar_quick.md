@@ -1,6 +1,6 @@
 # Uya 语法速查手册（Quick Reference）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.53 同步（2026-07-11）
+> **版本**：与 [uya.md](./uya.md) 0.49.54 同步（2026-10-19）
 
 本文档是 Uya 语言的快速参考手册，包含精简语法定义、常用代码模式和速查表。
 
@@ -64,7 +64,7 @@ var y: i32 = 10;
 | **原子类型** | `atomic T` | `value: atomic i32` | 原子类型 |
 | **函数指针** | `fn(...) type` | `type Func = fn(i32, i32) i32;` | 函数指针类型 |
 | **SIMD 向量/掩码** | `@vector(T, N)`<br>`@mask(N)` | `type Vec4i32 = @vector(i32, 4);`<br>`const lt: @mask(4) = u < v;`<br>`const neg: Vec4i32 = -u;`<br>`const w: Vec4f32 = @vector.splat(1.0f32);`<br>`const chunk: @vector(u8,16) = @vector.load(&buf[i]);`<br>`@vector.store(&buf[0], w);`<br>`const mix: Vec4i32 = @vector.select(lt, a, b);`<br>`const s: i32 = @vector.reduce_add(u);`<br>`const p: i32 = @vector.reduce_mul(v);`<br>`const mn: i32 = @vector.reduce_min(m);`<br>`const mx: i32 = @vector.reduce_max(n);` | 向量算术/比较/位运算；整数向量 `%`；有符号整数向量 `+|`/`-|`/`*|`；整数向量 `+%`/`-%`/`*%`；一元 `-`（整数/浮点元素）、`~`（仅整数元素）；`@vector.splat` / **`@vector.load` / `@vector.store` / `@vector.select` / `@vector.reduce_add` / `@vector.reduce_mul` / `@vector.reduce_min` / `@vector.reduce_max`**（**0.49.33** / **0.49.34** / **0.49.35** / **0.49.36** / **0.49.38** / **0.49.39**；`load`/`select` 目标 `@vector` 由上下文确定；`store` 为 **`void`**；`reduce_add`/`reduce_mul`/`reduce_min`/`reduce_max` 返回元素标量） |
-| **异步帧类型** | `@frame(fn)`<br>`@frame(fn<T>)` | `var f: @frame(my_async_fn);`<br>`f.start(...);`<br>`const p = f.poll(&w);`<br>`f.stop();` | 暴露 `@async_fn` 的状态机帧类型；高层方法 `start/poll/stop`；禁止按值移动/赋值/传参/返回；允许无初始化声明（**v0.9.3**） |
+| **异步帧类型** | `@frame(fn)`<br>`@frame(fn<T>)` | `var f: @frame(my_async_fn);`<br>`f.start(...);`<br>`const p: Poll<!i32> = f.poll(&w);`<br>`f.stop();` | 暴露 `@async_fn` 的状态机帧类型；高层方法 `start/poll/stop`；禁止按值移动/赋值/传参/返回；允许无初始化声明（**v0.9.3**） |
 
 ---
 
@@ -162,13 +162,13 @@ fn may_fail() !i32 {
 ### 传播错误
 
 ```uya
-const x = try may_fail();  // 自动传播错误
+const x: i32 = try may_fail();  // 自动传播错误
 ```
 
 ### 捕获错误
 
 ```uya
-const x = may_fail() catch |err| {
+const x: i32 = may_fail() catch |err| {
     // 处理错误
     return 0;
 };
@@ -243,6 +243,24 @@ fn max<T: Ord>(a: T, b: T) T {
     if a > b { return a; }
     return b;
 }
+
+// 函数属性（可选，写在 export 之后、fn 之前；顺序固定）
+@async_fn
+fn fetch(handle: i32) Future<!i32> {
+    return handle;
+}
+
+@align(64)          // 帧对齐（仅对 @async_fn 生成的帧结构体生效），必须写在 @async_fn 之前
+@async_fn
+fn aligned_fetch(handle: i32) Future<!i32> {
+    return handle;
+}
+
+// @naked_fn：无标准序言/尾声，只用于极底层函数（见 lib/libc/setjmp.uya 的
+// `export @naked_fn fn setjmp(env: &jmp_buf) i32 { ... }`）
+
+// 属性顺序：'export' → 'opaque'（仅 struct） → '@align(N)' → '@async_fn' | '@naked_fn' → 声明关键字
+// 'extern' 函数不能加 @async_fn / @naked_fn；'@align' 不是内置函数，只能出现在声明位置
 ```
 
 ### 结构体定义模板
@@ -341,8 +359,8 @@ union Name {
 }
 
 // 创建：UnionName.variant(expr)
-const v = IntOrFloat.i(42);
-const f = IntOrFloat.f(3.14);
+const v: IntOrFloat = IntOrFloat.i(42);
+const f: IntOrFloat = IntOrFloat.f(3.14);
 
 // 访问：必须 match 或已知标签直接访问
 match v {
@@ -403,6 +421,53 @@ enum HttpStatus : u16 {
 ## 六、运算符优先级
 
 > 完整说明：详见 [uya.md](./uya.md#运算符)
+
+下表按 `src/parser/expressions.uya` 的实际解析顺序列出（`parser_parse_expression` → `assign_expr` → `pipeline_expr` → `or_expr` → … → `postfix_expr`）；**高 → 低**：
+
+| 级别 | 运算符 | 结合性 | 说明 |
+|------|--------|--------|------|
+| 1 | `()` `.` `[]` `[start:len]` | 左 | 调用、字段/元组下标访问、下标、切片（`postfix_expr`） |
+| 2 | `-` `!` `~` `&` `*`（一元） | 右 | 取负、逻辑非、按位取反、取址、解引用（`unary_expr`） |
+| 3 | `as` `as!` | — | 类型转换，比乘除更紧；`-x as i64` 即 `(-x) as i64`（`cast_expr`） |
+| 4 | `*` `/` `%` `*|` `*%` | 左 | 乘、除、取模、饱和乘法、包装乘法 |
+| 5 | `+` `-` `+|` `-|` `+%` `-%` | 左 | 加、减、饱和加减、包装加减 |
+| 6 | `<<` `>>` | 左 | 左移、右移 |
+| 7 | `<` `>` `<=` `>=` | 左 | 比较 |
+| 8 | `==` `!=` | 左 | 相等性 |
+| 9 | `&` | 左 | 按位与 |
+| 10 | `&&` | 左 | 逻辑与 |
+| 11 | `^` | 左 | 按位异或 |
+| 12 | `\|` | 左 | 按位或 |
+| 13 | `\|\|` | 左 | 逻辑或 |
+| 14 | `\|>` | 左 | 类型化管道（仅 `Pipeline` / `!Pipeline`，见下） |
+| 15 | `=` `+=` `-=` `*=` `/=` `%=` | 右 | 赋值与复合赋值（最低优先级） |
+
+- `&` / `^` / `|` 只接受整数操作数，`&&` / `||` 只接受 `bool`；混用会被类型检查拒绝，因此第 9–13 级的相对次序在合法程序中通常不可见
+- `try expr` 位于一元级，但**操作数按「相对表达式」解析**：`try a + b` 即 `try (a + b)`，要写成 `(try a) + b`；且 `try` 只用于错误传播（操作数必须是 `!T`），不做整数溢出检查
+- `catch` 不是独立优先级：它是 `expr catch [|err|] { ... }` 的**后缀**，写在 `as` / `as!` 之后
+
+### 类型化管道 `|>`（**0.49.54**）
+
+```uya
+use std.process;
+
+fn run() !void {
+    const args: [&const byte: 1] = ["src"];
+    try (pipeline()
+        |> cmd_argv("rg", &args[0:1])
+        |> stdout_file("out.txt")
+        |> check());
+}
+```
+
+- **语法**：`pipeline_expr = or_expr { '|>' postfix_expr }`，左结合；右侧只能是「最外层是调用」的后缀表达式（`o |> f(a, b)` 等价于 `f(o, a, b)`）
+- **类型要求**（`src/checker/check_expr_extra.uya:793-870`）：
+  - 左侧必须是 `Pipeline`（`std.process` 的 `export opaque struct Pipeline`）或 `!Pipeline`
+  - 右侧被调用函数的**第一个参数**必须是 `Pipeline`；**不能**是带隐式 `self` receiver 的实例方法调用
+  - 左侧为 `!Pipeline` 时按 try-forward 处理（等价 `f(try lhs, ...)`），整体类型为 `!R`，且只能在返回错误联合类型的函数（或返回 `Future<!T>` 的 `@async_fn`）中使用
+  - `Pipeline` 是 move-only：一条链只消费最左侧变量一次，链尾 sink 之后再接 `|>` 是错误
+- ✅ 正例：`pipeline() |> cmd_argv("ls", &empty[0:0]) |> check()`
+- ❌ 负例：`1 |> check()`（左侧不是 `Pipeline`）；`p |> sink() |> again()`（sink 已返回非 `Pipeline`）；`p |> s.instance_method()`（隐式 self receiver）
 
 ---
 
@@ -469,17 +534,19 @@ fn log_error(fmt: *byte, ...) void {
     printf(fmt, ...);  // 使用 ... 转发可变参数
 }
 
-fn sum(...) i32 {
-    const args = @params;  // 所有参数作为元组
-    var total: i32 = 0;
-    for args |val| { total += val; }
-    return total;
+fn add_two(a: i32, b: i32) i32 {
+    const p: (i32, i32) = @params;  // 所有命名参数作为元组（必须显式写元组类型）
+    return p.0 + p.1;
+}
+
+fn mul_two(x: i32, y: i32) i32 {
+    return @params.0 * @params.1;
 }
 ```
 
 - 声明：`...` 为参数列表最后一项
 - 转发：`printf(fmt, ...)` 将可变参数转发
-- `@params`：函数体内访问所有参数作为元组
+- `@params`：函数体内把**已命名参数**作为元组访问（`@params.0`、`@params.1` 或用 `const p: (T1, T2) = @params;` 解构）；元组不能直接 `for` 迭代
 - `@va_start` / `@va_end` / `@va_arg` / `@va_copy`：可变参数栈访问
   - 声明：`@va_start(&ap, last)`、`@va_end(&ap)`、`@va_arg(ap, Type)`、`@va_copy(&dest, src)`
   - 初始化：`var ap: va_list = va_list{}; @va_start(&ap, last_param);`
@@ -526,37 +593,43 @@ fn main() i32 {
 ```uya
 var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-// 基本切片
-const slice1: &[i32] = &arr[2:5];      // [2, 3, 4]
-
-// 负数索引切片
-const slice2: &[i32] = &arr[-3:3];     // [7, 8, 9]（等价于 &arr[7:3]）
+// 基本切片：&arr[start:len]（第二项是长度）
+const slice1: &[i32] = &arr[2:5];      // [2, 3, 4, 5, 6]，len = 5
 
 // 已知长度切片
 const exact: &[i32: 3] = &arr[2:3];    // [2, 3, 4]
 
-// for循环迭代切片
-for slice1 |v| {
-    // 使用 v
+// 遍历切片：`for slice |v|` 当前不被接受（for 只支持定长数组 / 迭代器接口 / 整数范围），
+// 用下标范围循环
+for 0..slice1.len as i32 |i| {
+    const v: i32 = slice1[i];
 }
 ```
+
+> 说明：
+> - `&arr[start:len]` 的第二项是**长度**而不是结束下标
+> - **没有负索引**：`&arr[-3:3]` 不是「从末尾往前数」，编译器不会做该换算，会切出越界内容；要从末尾取请自行算出非负下标
 
 ---
 
 ## 十、字符串插值速查
 
 ```uya
-const name = "Uya";
+const name: &[const byte] = "Uya";
 const value: i32 = 42;
+const pi: f64 = 3.14159;
 
-// 简单插值
-const msg1 = "Hello, ${name}!";
+// 插值结果落在定长数组里（容量自己写，需容纳可见字节 + 结尾 \0）
+const msg1: [i8: 32] = "Hello, ${name}!";
 
 // 格式化插值
-const msg2 = "Value: ${value:d}";      // 十进制整数
-const msg3 = "Pi: ${pi:.2f}";          // 浮点数，2位小数
-const msg4 = "Hex: ${value:x}";        // 十六进制
+const msg2: [i8: 32] = "Value: ${value:d}";      // 十进制整数
+const msg3: [i8: 32] = "Pi: ${pi:.2f}";          // 浮点数，2位小数
+const msg4: [i8: 32] = "Hex: ${value:x}";        // 十六进制
 ```
+
+- 插值只能写在双引号字符串里；`` `...` `` 原始字符串不做插值
+- 插值结果是定长数组（`[i8: N]` 形式），**不是** `&[byte]`；最常用法是直接写 `@println("a ${x}")`
 
 ---
 
@@ -567,7 +640,7 @@ struct Counter {
     value: atomic i32
 }
 
-fn increment(counter: *Counter) void {
+fn increment(counter: &Counter) void {   // 用 &Counter；*T 是 FFI 指针，不能作普通函数参数
     counter.value += 1;      // 自动原子 fetch_add
     const v: i32 = counter.value;  // 自动原子 load
     counter.value = 10;      // 自动原子 store
@@ -608,28 +681,24 @@ fn example() !void {
 
 ```uya
 @asm {
-    // 单条指令
-    "instruction template" (inputs, -> outputs)
-        clobbers = [reg1, reg2, "memory"];
-    
-    // 多条指令
-    "mov rax, 1" (-> _);
-    "syscall" (rax, rdi, -> result);
-}
+    "add {a}, {b}" (a, b, -> result);   // 输入…, -> 输出…
+    "mov rax, 1" ();                    // 没有操作数的指令写 ()
+} clobbers = ["rax", "memory"];         // clobbers 只写在 '}' 之后
 ```
 
 **语法元素**：
-- `instruction template`：汇编指令模板，使用 `{name}` 占位符
-- `inputs`：输入表达式列表
-- `outputs`：输出表达式列表（`->` 之后）
-- `clobbers`：被修改的寄存器列表
+- `instruction template`：汇编指令模板（字符串字面量），使用 `{name}` 占位符
+- `inputs`：输入表达式列表（普通表达式，指向内存时直接传 `&T` / `&const T`）
+- `outputs`：输出表达式列表（`->` 之后）；输出变量必须在块外先声明并初始化
+- `clobbers`：被修改的寄存器列表，只在 `@asm { ... }` 块的 `}` **之后**声明（没有逐指令 clobbers 语法）
+- `_` 不能作为输出操作数（`(-> _)` 会报「输出表达式类型无效」）；无输出就只写 `()` 或只写输入
 
 ### 常用指令示例
 
 ```uya
 // 基本算术
 fn add_asm(a: i32, b: i32) i32 {
-    var result: i32;
+    var result: i32 = 0;
     @asm {
         "add {a}, {b}" (a, b, -> result);
     }
@@ -638,12 +707,12 @@ fn add_asm(a: i32, b: i32) i32 {
 
 // 系统调用（x86-64 Linux）
 fn syscall_write(fd: i32, buf: &const byte, count: i32) !i32 {
-    var result: i64;
+    var result: i64 = 0;
     @asm {
-        "mov rax, 1" (-> _);
-        "mov rdi, {fd}" (fd, -> _);
-        "mov rsi, {buf}" (buf, -> _);
-        "mov rdx, {count}" (count, -> _);
+        "mov rax, 1" ();
+        "mov rdi, {fd}" (fd);
+        "mov rsi, {buf}" (buf);
+        "mov rdx, {count}" (count);
         "syscall" (-> result);
     } clobbers = ["rcx", "r11", "memory"];
     
@@ -651,18 +720,21 @@ fn syscall_write(fd: i32, buf: &const byte, count: i32) !i32 {
     return result as! i32;
 }
 
-// 原子操作
-fn atomic_fetch_add(ptr: &atomic i32, value: i32) i32 {
-    var old: i32;
+// 内存操作数：直接传指针（没有 @asm_mem(...) 这个内置调用）
+fn store_u32(ptr: &u32, v: u32) u32 {
+    var old: u32 = 0;
     @asm {
-        "lock xadd {ptr}, {value}" (@asm_mem(ptr), value, -> old);
+        "mov {old}, [{ptr}]" (ptr, -> old);
     }
     return old;
 }
 
 // CPUID 指令
 fn cpuid(leaf: u32) (u32, u32, u32, u32) {
-    var eax: u32, ebx: u32, ecx: u32, edx: u32;
+    var eax: u32 = 0;
+    var ebx: u32 = 0;
+    var ecx: u32 = 0;
+    var edx: u32 = 0;
     @asm {
         "mov eax, {leaf}" (leaf, -> eax);
         "cpuid" (eax, -> eax, ebx, ecx, edx);
@@ -678,26 +750,28 @@ fn cpuid(leaf: u32) (u32, u32, u32, u32) {
 | 类型 | 说明 | 平台 |
 |------|------|------|
 | `@asm_reg` | 编译器自动分配的通用寄存器 | 跨平台 |
-| `@asm_reg_x64` | x86-64 专用寄存器 | x86-64 |
+| `@asm_reg_x64` | x86-64 通用寄存器 | x86-64 |
+| `@asm_reg_x64_xmm` / `@asm_reg_x64_ymm` / `@asm_reg_x64_zmm` | x86-64 SSE / AVX / AVX-512 寄存器 | x86-64 |
 | `@asm_reg_x86` | x86 专用寄存器 | x86 |
 | `@asm_reg_arm64` | ARM64 专用寄存器 | ARM64 |
+| `@asm_reg_arm64_v` | ARM64 NEON 寄存器 | ARM64 |
 
 #### 内存操作类型
 
-```uya
-type @asm_mem<T> = opaque;  // 类型安全的内存操作
-```
+`@asm_mem` 是**内置类型名**（C 侧映射为 `void *`），用来说明「这个操作数是内存操作数」；它**没有** `@asm_mem(expr)` 调用形式，也不是可以用 `type` 声明的普通类型（`src/checker/type_from_ast.uya:632-634`、`src/codegen/c99/types.uya:939-941`）。
 
-**使用示例**：
+**使用示例**（内存操作数直接传指针）：
 ```uya
 fn read_u32(ptr: &u32) u32 {
-    var value: u32;
+    var value: u32 = 0;
     @asm {
-        "mov {value}, [{ptr}]" (@asm_mem(ptr), -> value);
+        "mov {value}, [{ptr}]" (ptr, -> value);
     }
     return value;
 }
 ```
+
+> **注意**：以 `"lock "` 开头的指令模板会被检查器要求 `clobbers = ["memory"]`，而 `"memory"` 目前只写入 `asm_clobbers_memory`、不进入 clobber 列表（`src/parser/primary.uya:1331`、`src/checker/check_expr.uya:4007-4023`），因此手写 `"lock ..."` 模板暂时无法通过检查；原子读改写请用 `atomic T` 的隐式原子操作（见[十一、原子操作速查](#十一原子操作速查)）。
 
 ### 平台差异说明
 
@@ -714,8 +788,8 @@ const SYS_read: i64 = 0;
 // rax = 返回值
 
 @asm {
-    "mov rax, {nr}" (syscall_nr, -> _);
-    "mov rdi, {arg1}" (arg1, -> _);
+    "mov rax, {nr}" (syscall_nr);
+    "mov rdi, {arg1}" (arg1);
     "syscall" (-> result);
 } clobbers = ["rcx", "r11", "memory"];
 ```
@@ -733,8 +807,8 @@ const SYS_read: i64 = 63;
 // x0 = 返回值
 
 @asm {
-    "mov x8, {nr}" (syscall_nr, -> _);
-    "mov x0, {arg1}" (arg1, -> _);
+    "mov x8, {nr}" (syscall_nr);
+    "mov x0, {arg1}" (arg1);
     "svc #0" (-> result);
 } clobbers = ["x16", "x17", "memory"];
 ```
@@ -742,25 +816,20 @@ const SYS_read: i64 = 63;
 ### 平台检测
 
 ```uya
-enum @asm_target {
-    x86_64_linux,
-    x86_64_macos,
-    x86_64_windows,
-    arm64_linux,
-    arm64_macos,
-    arm64_windows,
-}
-
-// 获取当前平台
-const target: @asm_target = @asm_target();
+// @asm_target() 返回当前平台枚举值（按 i32 使用）：
+// x86_64_linux=0, x86_64_macos=1, x86_64_windows=2,
+// arm64_linux=3, arm64_macos=4, arm64_windows=5, riscv64_linux=6
+const target: i32 = @asm_target();
 
 // 条件编译
-if @asm_target() == .x86_64_linux {
+if target == 0 {
     // x86-64 Linux 代码
-} else if @asm_target() == .arm64_linux {
+} else if target == 3 {
     // ARM64 Linux 代码
 }
 ```
+
+> `@asm_target` 是内置名字（不是可用 `enum` 声明的普通枚举），`.x86_64_linux` 这类省略枚举名的写法也不存在；见 `tests/test_asm_target.uya`。
 
 ### 安全约束
 
@@ -773,33 +842,34 @@ if @asm_target() == .x86_64_linux {
 ### 错误示例
 
 ```uya
-// ❌ 错误：类型不匹配
+// ❌ 错误：@asm 输入必须是整数或 Uya 指针（f64 会被拒绝）
+var d: f64 = 3.14159;
+var result: i32 = 0;
 @asm {
-    "mov {dst}, {src}" (src: f64, -> dst: i32);
+    "mov %0, %1" (d, -> result);
 }
 
-// ❌ 错误：未声明 clobber
+// ❌ 错误：FFI 指针 *T 不能直接作为 @asm 操作数（先转成 &T）
+extern fn malloc(size: usize) *void;
+var p: *i32 = malloc(4) as *i32;
 @asm {
-    "mov rax, 1" (-> _);  // rax 被修改但未声明
+    "nop" (p, -> result);
 }
 
-// ✅ 正确：显式声明 clobber
+// ✅ 正确：显式声明被修改的寄存器
 @asm {
-    "mov rax, 1" (-> _);
+    "mov rax, 1" ();
+    "nop" ();
 } clobbers = ["rax"];
-
-// ❌ 错误：非原子类型的原子操作
-@asm {
-    "lock xadd {ptr}, {value}" (@asm_mem(ptr), value, -> old);
-    // ptr 必须是 &atomic i32 类型
-}
 ```
+
+（对应反向测试：`tests/error_asm_f64_input.uya`、`tests/error_asm_ffi_pointer.uya`、`tests/error_asm_empty_block.uya`。）
 
 ### 最佳实践
 
 1. **优先使用编译器优化**：能用 Uya 原生语法的，不要用 @asm
 2. **显式声明 clobbers**：声明所有被修改的寄存器
-3. **使用类型安全内存操作**：使用 `@asm_mem` 包装指针
+3. **内存操作数直接传 `&T` / `&const T` 指针**：没有 `@asm_mem(...)` 包装函数
 4. **平台抽象**：使用 `@asm_target()` 进行条件编译
 5. **优先使用原子类型**：使用 `atomic T` 类型
 
@@ -816,8 +886,8 @@ if @asm_target() == .x86_64_linux {
 
 ```uya
 // 基本宏定义
-mc macro_name(param1: expr, param2: type) return_tag {
-    // 宏体
+mc macro_name(param1: expr, param2: type) stmt {
+    // 宏体（返回标签写 expr / stmt / struct / type 之一）
 }
 
 // 导出宏（供其他模块使用）
@@ -826,7 +896,7 @@ export mc add(a: expr, b: expr) expr {
 }
 ```
 
-**参数类型**：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
+**参数类型**：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）、`ident`（标识符）
 
 **返回标签**：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
 
@@ -941,7 +1011,7 @@ A: 数组是固定长度的值类型 `[T: N]`，切片是动态长度的引用�
 A: 使用 `catch` 后缀运算符：`value catch |err| { ... }`
 
 ### Q: `try` 关键字的作用？
-A: `try` 用于错误传播和整数溢出检查，是一元运算符
+A: `try` 只做错误传播：操作数必须是 `!T`，在返回 `!T`（或 `@async_fn` 返回 `Future<!T>`）的函数里把错误向外抛。它不是整数溢出检查；溢出证明靠区间检查或改用 `+|` / `+%` 等饱和/包装运算符（见 §六）
 
 ### Q: 如何定义枚举？
 A: `enum Color { Red, Green, Blue }` 或 `enum Status : u16 { Ok = 200 }`
@@ -986,24 +1056,27 @@ struct File : IWriter {
 // 错误定义
 error FileNotFound;
 
-// 函数定义
-fn open_file(path: *byte) !File {
+// 函数定义（参数用 Uya 指针 &const byte，不能用 FFI 指针 *byte）
+fn open_file(path: &const byte) !File {
     // 可能失败的操作
-    if not_found {
+    if @len(path) == 0 {
         return error.FileNotFound;
     }
     return File{ fd: 1 };
 }
 
-// 使用
-fn main() i32 {
-    const file = try open_file("test.txt");
+// 使用：try 只能在返回 !T 的函数里用
+fn run() !i32 {
+    const file: File = try open_file("test.txt");
     defer file.close();
     
-    const data = "Hello";
-    file.write(data, 5);
-    
-    return 0;
+    const data: &[const byte] = "Hello";
+    return file.write(&data[0] as *byte, 5);
+}
+
+export fn main() i32 {
+    const n: i32 = run() catch |_| { return 1; };
+    return n - 5;
 }
 ```
 

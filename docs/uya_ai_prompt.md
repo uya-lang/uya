@@ -2,7 +2,7 @@
 
 > **用途**：指导模型编写可编译的 Uya，减少与其它语言混淆与臆造语法。  
 > **自包含**：下文已写入常用规则；**不**再依赖任何外部说明文件。  
-> **语言版本**：**0.49.53** · 更新 **2026-07-11**（与 [uya.md](./uya.md) 主规范同步；新增 `export opaque struct` 的字段隐藏、移动与自动 drop 规则）
+> **语言版本**：**0.49.54** · 更新 **2026-10-19**（与 [uya.md](./uya.md) 主规范同步；新增类型化管道 `|>` 的类型规则，见 §8）
 
 ---
 
@@ -82,13 +82,15 @@
   }
   ```
 - **裸函数**：`@naked_fn` — 无标准序言/尾声，仅用于极底层场景，勿默认使用
+- **函数属性 `@align(N)`**：写在**函数声明**上（不是表达式内置函数），给 `@async_fn` 生成的帧结构体设对齐；顺序固定为 **`export` → `opaque`（仅 struct） → `@align(N)` → `@async_fn` | `@naked_fn` → `fn`**；`@async_fn`/`@naked_fn` 不能用于 `extern fn`。示例：`@align(64) @async_fn fn f() Future<!i32> { ... }`
+- **资源嵌入**：`@embed("path")` → `&[const byte]`；`@embed_dir("path")` → `&[const EmbedDirEntry]`；参数必须是字符串字面量
 - **宏编译期**：`@mc_eval` `@mc_type` `@mc_ast` `@mc_code` `@mc_error` `@mc_get_env` `@mc_source`
 - **系统调用**：`@syscall(nr, arg1, …, arg6)`。若 `std.target_os == .tos_unknown`（如 Web / emcc hosted smoke），不要假设存在原生 Linux syscall backend；优先复用 `libc.sys_*` 与标准库现有封装
 - **指针与整数**：`@ptr_from_usize` `@usize_from_ptr`
 - **错误**：`@error_id(expr)` → `u32`；`@error_name(expr)` → `*byte`
 - **调试打印**：`@print` `@println` — 可用于整数、浮点、`bool`、双引号字面量；**`byte` / `u8` / `i8`** 的 **`[T:N]`**、**`&[T]`**、**`*byte`** 等可按 C 字符串 **`%s`** 打印时，缓冲区须以 **`\0`** 结尾。**不要**写成 **`@println("a", x)`** 等多实参 C `printf` 风格；多段内容用**字符串插值** **`@println("a ${x}")`** 等
 - **C 构建导入**：`@c_import("path"[,"cflags"[,"ldflags"]]);` —— **顶层构建指令**，不是表达式函数。首参数可指向**单个 `.c` 文件**，或一个目录；目录模式会**递归收集全部 `*.c`**。`cflags` 只作用于该导入展开出的 C 文件，`ldflags` 在最终链接阶段聚合。若输出为单文件 `app.c`，编译器会额外生成 `app.cimports.sh`；若走 split-C / `--split-c-dir` 路径，则由 Makefile 直接处理导入的 C object。**不要**把 `@c_import(...)` 写进表达式位置、函数体内、结构体字段初始化里
-- **内联汇编**：`@asm { "模板"(输入…, -> 输出…); }`；多条指令写多个模板行。**`clobbers = [...]`** 写在 **`@asm { ... }` 闭合 `}` 之后**（若需要）。**输出变量必须在块外先声明**；**FFI 指针 `*T` 不能作为 asm 操作数**，须先转为 `&T` / `&const T` 等。指令字符串与寄存器名**随目标平台变化**，勿照搬单一体系结构示例当通用语法
+- **内联汇编**：`@asm { "模板"(输入…, -> 输出…); }`；多条指令写多个模板行。**`clobbers = [...]`** 写在 **`@asm { ... }` 闭合 `}` 之后**（若需要，不存在逐指令 clobbers）。**输出变量必须在块外先声明并初始化**；**没有 `@asm_mem(expr)` 这种内置调用**（`@asm_mem` / `@asm_reg*` 只是内置**类型名**），内存操作数直接传指针；`_` 不能作输出（不要写 `(-> _)`，无输出就写 `()`）。**FFI 指针 `*T` 不能作为 asm 操作数**，须先转为 `&T` / `&const T` 等。指令字符串与寄存器名**随目标平台变化**，勿照搬单一体系结构示例当通用语法
 - **SIMD**：`@vector(T,N)`、`@mask(N)`；常见：`@vector.splat`、`@vector.load`、`@vector.store`、`@vector.select`、`@vector.reduce_add` / `reduce_mul` / `reduce_min` / `reduce_max`、`@vector.any`、`@vector.all`。**元素类型与通道数**须满足编译器当前支持集合；**`@mask(N)` 不当作普通 `bool`**，分支判断用 `@vector.any` / `@vector.all` 等。具体是否发射 SIMD 指令依赖宿主 C 编译器与目标 CPU，语义以能通过编译的用法为准
 
 ---
@@ -143,9 +145,9 @@ const sl: &[i32] = &arr[0:2];
 
 if cond { } else { }
 while cond { }
-for 0..N |i| { }
-for slice |v| { }
-for slice |&p| { *p = *p + 1; }
+for 0..N |i| { }                 // 整数范围；省略 |i| 则只循环次数
+for arr |v| { }                  // for 的受体当前只支持定长数组 / 迭代器接口 / 整数范围，
+for arr |&p| { *p = *p + 1; }    // 切片不能直接 for 迭代；|&p| 仅 var 数组可用
 match e { PAT => expr, else => expr };
 
 error MyErr;
@@ -167,9 +169,17 @@ errdefer { rollback(); }
 
 **无** C 风格自增自减 **`i++` / `i--` / `++i`**（须写 **`i = i + 1`** 等）。**无**三元 **`?:`**。**`++` 也不是字符串连接符**（见 §6）。
 
-**优先级（高→低）**：调用/字段/下标/切片 → 一元 `- ! ~` → `* / % *| *%` → `+ - +| -| +% -%` → 移位 → 比较 → `== !=` → `&` → `^` → `|` → `&&` → `||` → `as` `as!` → 赋值与复合赋值。
+**优先级（高→低，与 `src/parser/expressions.uya` 一致）**：调用/字段/下标/切片 → 一元 `- ! ~ & *` → `as` `as!` → `* / % *| *%` → `+ - +| -| +% -%` → 移位 → 比较 `< > <= >=` → `== !=` → `&` → `&&` → `^` → `|` → `||` → `|>` → 赋值与复合赋值（`=` `+=` `-=` `*=` `/=` `%=`）。**`catch`** 是 `as` 之后的后缀，不是独立优先级级别。
 
-**饱和**：`+|` `-|` `*|`；**包装**：`+%` `-%` `*%`。**`try expr`**：传播 `!T`；或对 **`+` `-` `*` `/`** 做**溢出**检查（失败为 `error.Overflow`，含如最小值除以 `-1` 一类边界；**除零**仍须用证明或显式判断，不是 `try` 替代）。
+**饱和**：`+|` `-|` `*|`；**包装**：`+%` `-%` `*%`。**`try expr`**：**只**用于传播 `!T`（操作数必须是错误联合类型）；它**不做**整数溢出检查。注意 `try` 的操作数按「相对表达式」解析，`try a + b` 等于 `try (a + b)`，带错误联合值时须写 **`(try a) + b`**。溢出靠区间检查或饱和/包装运算符处理；除零仍须证明或显式判断。
+
+**类型化管道 `|>`（0.49.54）**：只用于 **`Pipeline`**（`std.process` 的不透明、move-only 执行计划）与 **`!Pipeline`**；`pipeline_expr = or_expr { '|>' postfix_expr }`（左结合，位于 `||` 与赋值之间，右侧最外层必须是调用表达式）。
+
+- 左侧必须是 `Pipeline` 或 `!Pipeline`；右侧 callee **第一个参数**必须是 `Pipeline`
+- **不能**把 `|>` 当通用数据管道：`1 |> f()` 这类写法直接报错
+- 右侧不能是带隐式 `self` receiver 的实例方法调用；`Pipeline` 只能用一次（链尾 sink 之后再接 `|>` 报错）
+- 左侧为 `!Pipeline` 时走 try-forward（整体 `!R`），只能在返回错误联合类型的函数中使用
+- 正例：`try (pipeline() |> cmd_argv("rg", &args[0:1]) |> stdout_file("o.txt") |> check());`
 
 ---
 
@@ -210,8 +220,8 @@ errdefer { rollback(); }
 - **常量**下标/运算：尽量在编译期判定
 - **变量**下标：常用 `if i >= 0 && i < len { ... }` 等形式让证明成立
 - **`for 0..@len(arr) |i|`** 等模式可帮助索引合法
-- **`try a + b`** 等处理溢出；饱和/包装运算符可减少证明负担
-- 证明失败时：**改条件、改类型、用 `try`/饱和/包装**，不要假设会默默插入运行时检查
+- 溢出：用**区间条件**让证明成立，或改用饱和 `+| -| *|` / 包装 `+% -% *%` 运算符（`try` **不**做溢出检查，别写 `try a + b`）
+- 证明失败时：**改条件、改类型、用饱和/包装**，不要假设会默默插入运行时检查
 
 ---
 
@@ -238,7 +248,7 @@ errdefer { rollback(); }
 - **`error Name;`**：顶层预定义错误（可选）
 - **运行时错误**：可直接写 **`error.SomeName`**，无需预先 `error SomeName;`，由编译器收集（与预定义错误可混用、可比较）
 - **`@error_id`**：同名错误在多次编译中映射稳定；哈希冲突时编译失败
-- **`try`**：传播 **`!T`**；或对算术做溢出检查。对 **`try @await fut`**：若 `fut` 为 **`Future<!T>`**，成功时**整式类型已为 `T`**（错误已在 `try` 处处理或向外抛），**不能**再写其它语言里的 **`if value is T`** 之类判别
+- **`try`**：传播 **`!T`**（只做错误传播，不做算术溢出检查）。对 **`try @await fut`**：若 `fut` 为 **`Future<!T>`**，成功时**整式类型已为 `T`**（错误已在 `try` 处处理或向外抛），**不能**再写其它语言里的 **`if value is T`** 之类判别
 - **`catch`**：`|err| { }` 或 `{ }` 形式处理 **`!T`**
 
 ---
@@ -281,6 +291,7 @@ export mc twice(x: expr) expr { ${x} + ${x}; }
 | `let x = 1;` / `let mut x = 1;` | **`const x: i32 = 1;`** 或 **`var x: i32 = 1;`**（无 `let`/`mut`） |
 | 把 `@c_import(...)` 当普通表达式赋给变量 | **`@c_import` 只能在顶层单独成句**；它是构建指令，不产生运行时值 |
 | `x++` / `x--` | `x = x + 1;` |
+| 把 `\|>` 当通用数据管道（`1 \|> f()`、`x \|> len()`） | `\|>` 只接受 `Pipeline` / `!Pipeline`，右侧 callee 首个参数必须是 `Pipeline`（见 §8）；普通函数调用直接写 `f(x)` |
 | `cond ? a : b` | `if cond { a } else { b }` |
 | `fn foo() -> i32` | `fn foo() i32` |
 | `pub fn` | `export fn` |
@@ -302,8 +313,12 @@ export mc twice(x: expr) expr { ${x} + ${x}; }
 ## 18. 编译与验证（可选）
 
 ```bash
-./bin/uya -O2 source.uya -o out.c   # -O0 … -O3 / --opt 同义
-make check   # 构建自举编译器并跑测试（常用）
+./bin/uya build source.uya -o out.c --c99 -O2   # 子命令 build；-O0 … -O3 / --opt=<0-3> 同义
+./bin/uya check source.uya                      # 只做词法/语法/类型检查
+./bin/uya run source.uya                        # 编译并运行
+./bin/uya test tests/xxx.uya                    # 编译测试并运行
+./bin/uya fmt source.uya                        # 格式化源文件
+make check                                      # 构建自举编译器并跑测试（常用）
 ```
 
 **工程根目录 / root 语义**：

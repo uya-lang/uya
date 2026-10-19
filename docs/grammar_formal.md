@@ -1,6 +1,6 @@
 # Uya 语言正式语法规范（Formal BNF）
 
-> **版本**：与 [uya.md](./uya.md) 0.49.53 同步（2026-07-11）
+> **版本**：与 [uya.md](./uya.md) 0.49.54 同步（2026-10-19）
 
 本文档包含 Uya 语言的完整、无歧义的 BNF 语法定义，用于：
 - 编译器/解析器实现
@@ -19,21 +19,49 @@
 ```
 program        = { declaration }
 declaration    = fn_decl | struct_decl | struct_method_block | union_decl | union_method_block
-               | interface_decl | enum_decl | const_decl | error_decl | extern_decl | export_decl
-               | import_stmt | test_stmt | macro_decl
+               | interface_decl | enum_decl | type_alias_decl | const_decl | var_decl
+               | error_decl | extern_decl | export_decl | import_stmt | test_stmt
+               | macro_decl | c_import_decl | cfg_decl
+
+# 顶层前缀顺序固定（src/parser/main.uya:710-928）：
+#   'export' → 'opaque'（仅 struct） → '@align(N)' → '@async_fn' | '@naked_fn' → 声明关键字
+# 例：export opaque struct S { ... }、@align(64) @async_fn fn f() Future<!i32> { ... }
+# 反序写法（如 'extern export fn'、'@async_fn @align(64) fn'）是语法错误
+
+type_alias_decl = 'type' ID '=' type ';'
+var_decl       = ('const' | 'var') ID ':' type '=' expr ';'
+c_import_decl  = '@c_import' '(' STRING [ ',' STRING [ ',' STRING ] ] ')' ';'
+cfg_decl       = 'std' '.' 'cfg' '(' cfg_cond ',' cfg_decl_arg [ ',' cfg_decl_arg ] ')'
+cfg_cond       = 'std' '.' ('host_os' | 'host_arch' | 'target_os' | 'target_arch') ('==' | '!=') '.' ID
+cfg_decl_arg   = '{' { declaration } '}' | declaration
 ```
+
+**说明**：
+- `type_alias_decl`：类型别名，见[类型别名声明](#类型别名声明)
+- `c_import_decl`：顶层构建指令，把外部 C 源纳入当前构建图；1–3 个实参只能是字符串字面量（路径、`cflags`、`ldflags`），声明末尾必须有 `;`（`src/parser/declarations.uya:18-94`）。它不是表达式，不能写在表达式位置或函数体内
+- `cfg_decl`：编译期平台裁剪，条件仅支持 `std.host_os` / `std.host_arch` / `std.target_os` / `std.target_arch` 配合 `==` / `!=`；`then` / `else` 分支各是一个声明块或单条声明，`else` 分支可省略（`src/parser/main.uya:403-620`）
+- 顶层 `const` / `var` 与函数体内的变量声明共用同一条产生式 `var_decl`
 
 ### 函数声明
 
 ```
+fn_attr        = fn_align_attr | async_fn_attr | naked_fn_attr
+fn_align_attr  = '@align' '(' NUM ')'    # 函数帧对齐；仅对 @async_fn 生成的帧结构体生效（src/ast.uya:233）
 async_fn_attr  = '@async_fn'
-fn_decl        = [ async_fn_attr ] [ ( 'export' 'extern' | 'extern' 'export' | 'export' | 'extern' [ STRING ] ) ] 'fn' ID [ '<' type_param_list '>' ] '(' [ param_list ] ')' type [ '{' statements '}' | ';' ]
+naked_fn_attr  = '@naked_fn'
+fn_decl        = [ 'export' ] [ fn_attr ] [ 'extern' [ STRING ] ] 'fn' ID [ '<' type_param_list '>' ] '(' [ param_list ] [ '...' ] ')' type ( '{' statements '}' | ';' )
 param_list     = param { ',' param }
 param          = ID ':' type
 type_param_list = type_param { ',' type_param }
 type_param     = ID [ ':' constraint_list ]
 constraint_list = ID { '+' ID }
 ```
+
+**属性与参数**：
+- **属性写法**（`src/parser/main.uya:744-793`）：`@align(N)` 必须写在 `@async_fn` 之前；`@async_fn` 之后必须紧跟 `fn`；`@naked_fn` 与 `@async_fn` 不能用于 `extern` 函数。`@align` 的 `N` 是整数字面量（`@align` 是声明属性，不是表达式内置函数，见[内联汇编](#内联汇编)说明）
+- **`;` 形式的函数体**只属于 `extern` 声明；普通 `fn` 必须有函数体（`src/parser/declarations.uya:2125-2135`）
+- **变参**：参数列表末尾可写一个 `...`（`fn sum(...) i32`、`fn f(fmt: *byte, ...) void`），由 `@params` / `@va_start` 等内置访问（`src/parser/declarations.uya:2018-2028`）；参数没有默认值语法
+- **`export` 必须写在 `extern` 之前**：`export extern fn` 合法，`extern export fn` 是语法错误
 
 **说明**：
 - **函数可见性**（0.43 新增 `extern "libc"`）：
@@ -71,6 +99,7 @@ constraint_list = ID { '+' ID }
 ```
 
 **说明**：
+- **`opaque struct`**（`src/parser/main.uya:744-753`、`src/checker/check_expr.uya:3666`、`src/checker/check_expr_extra.uya:398`）：`opaque` 只是 `struct` 的声明属性，必须紧邻 `struct`（`opaque fn` 等写法是语法错误）；声明模块外**不能构造**该结构体字面量、也**不能访问其字段**。导出写法：`export opaque struct Name { ... }`
 - **接口声明**：结构体定义时可以声明实现的接口，语法为 `struct StructName : InterfaceName1, InterfaceName2 { ... }`
   - 接口声明是可选的，如果结构体不实现接口，可以不声明
   - 接口方法作为结构体方法定义，可以在结构体内部或外部方法块中定义
@@ -137,6 +166,17 @@ enum_variant   = ID [ '=' NUM ]  # 枚举变体，可选显式赋值
 - 枚举值在编译期确定，类型安全
 - 详细语法说明见 [uya.md](./uya.md#2-类型系统) 枚举类型部分
 
+### 类型别名声明
+
+```
+type_alias_decl = 'type' ID '=' type ';'
+```
+
+**说明**：
+- 顶层声明，`type` 后必须是标识符（`@asm_reg` 一类内置类型名不能作为别名名），`=` 后是任意 `type` 产生式，末尾必须有 `;`（`src/parser/declarations.uya:1357-1406`）
+- 可导出：`export type MyInt = i64;`
+- 示例：`type ComparFunc = fn(*void, *void) i32;`、`type Vec4f32 = @vector(f32, 4);`
+
 ### 类型系统
 
 ```
@@ -149,7 +189,7 @@ base_type      = 'i8' | 'i16' | 'i32' | 'i64' | 'u8' | 'u16' | 'u32' | 'u64'
                | 'f32' | 'f64' | 'bool' | 'byte' | 'void' | 'usize'
 pointer_type   = '&' [ 'const' ] type | '*' [ 'const' ] type  # 0.42 新增 &const T 和 *const T
 array_type     = '[' type ':' NUM ']'
-slice_type     = '&[' [ 'const' ] type ']' | '&[' [ 'const' ] type ';' NUM ']'  # 0.49.43：元素只读 & [ const T ]（如 &[const byte]）
+slice_type     = '&[' [ 'const' ] type ']' | '&[' [ 'const' ] type ':' expr ']'  # 0.49.43：元素只读 & [ const T ]（如 &[const byte]）；带长度形参写法用 ': N'（如 &[i32: 3]）
 struct_type    = ID [ '<' type_arg_list '>' ]
 union_type     = ID [ '<' type_arg_list '>' ] | 'union' ID  # 联合体类型；'union' ID 用于外部 C 联合体
 interface_type = ID [ '<' type_arg_list '>' ]
@@ -181,31 +221,38 @@ frame_type     = '@frame' '(' ID [ '<' type_arg_list '>' ] ')'
 ```
 var_decl       = ('const' | 'var') ID ':' type '=' expr ';'
 const_decl     = 'const' ID ':' type '=' expr ';'
+destructure_decl = ('const' | 'var') '(' ID { ',' ID } ')' '=' expr ';'
 ```
+
+**说明**：
+- 初始化器默认必需；唯一例外是 `@frame(...)` 类型的声明可以省略 `=`（由声明点分配/零初始化，`src/parser/statements.uya:553-575`）
+- `destructure_decl`：元组解构，`const (x, y) = point;`、`const (x, _, z) = get_tuple();`（`_` 表示忽略该位）
+- 声明中的绑定名可以是 `type` 这个关键字（编译器内部用于宏展开）
 
 ### 语句
 
 ```
-statement      = expr_stmt | var_decl | return_stmt | if_stmt | while_stmt
+statement      = expr_stmt | var_decl | destructure_decl | return_stmt | if_stmt | while_stmt
                | for_stmt | break_stmt | continue_stmt | defer_stmt | errdefer_stmt
                | block_stmt | match_stmt | test_stmt
 
 expr_stmt      = expr ';'
 return_stmt    = 'return' [ expr ] ';'
-if_stmt        = 'if' expr '{' statements '}' [ 'else' '{' statements '}' ]
+if_stmt        = 'if' expr ( '{' statements '}' | statement ) [ 'else' ( if_stmt | '{' statements '}' | statement ) ]
 while_stmt     = 'while' expr '{' statements '}'
-for_stmt       = 'for' expr '|' ID '|' '{' statements '}'           # 值迭代（只读）
-               | 'for' expr '|' '&' ID '|' '{' statements '}'        # 引用迭代（可修改）
-               | 'for' range '|' ID '|' '{' statements '}'           # 整数范围，有元素变量
-               | 'for' expr '{' statements '}'                       # 丢弃元素，只循环次数
-               | 'for' range '{' statements '}'                      # 整数范围，丢弃元素
+for_stmt       = 'for' iterable '|' ID '|' '{' statements '}'        # 值迭代（只读）
+               | 'for' iterable '|' '&' ID '|' '{' statements '}'    # 引用迭代（可修改）
+               | 'for' range [ '|' [ '&' ] ID '|' ] '{' statements '}'  # 整数范围，绑定变量可省略
+iterable       = expr
+range          = expr '..' [ expr ]
 
 # 详细说明：
-# - expr：可迭代对象（数组、切片、迭代器等）
-# - range：整数范围表达式，如 0..10 或 0..（无限范围）
+# - iterable：可迭代对象；此形式必须有 |ID| 或 |&ID| 绑定，省略绑定（'for obj { ... }'）
+#   是语法错误（src/parser/statements.uya:357-434）。当前检查器只接受定长数组与
+#   实现了 next() 迭代器接口的具体类型（切片不在其中，见 src/checker/check_node_extra.uya:560-660）
+# - range：整数范围表达式，如 0..10 或 0..（无限范围）；省略变量绑定表示只循环次数
 # - |ID|：值迭代（只读），绑定元素值
 # - |&ID|：引用迭代（可修改），绑定元素指针
-# - 省略变量绑定：丢弃元素，只循环次数
 # 详细语法说明见 [uya.md](./uya.md#8-控制流)
 break_stmt     = 'break' ';'
 continue_stmt  = 'continue' ';'
@@ -225,8 +272,8 @@ test_stmt      = 'test' STRING '{' statements '}'
 
 ```
 expr           = assign_expr
-assign_expr    = pipeline_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
-pipeline_expr  = or_expr { '|>' postfix_expr }   # 右侧当前限制为最外层是 call 的 postfix expression
+assign_expr    = pipeline_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]  # 右结合
+pipeline_expr  = or_expr { '|>' postfix_expr }  # 左结合；优先级介于 '||' 与赋值之间
 or_expr        = bitor_expr { '||' bitor_expr }
 bitor_expr     = xor_expr { '|' xor_expr }
 xor_expr       = and_expr { '^' and_expr }
@@ -236,23 +283,32 @@ eq_expr        = rel_expr { ('==' | '!=') rel_expr }
 rel_expr       = shift_expr { ('<' | '>' | '<=' | '>=') shift_expr }
 shift_expr     = add_expr { ('<<' | '>>') add_expr }
 add_expr       = mul_expr { ('+' | '-' | '+|' | '-|' | '+%' | '-%') mul_expr }
-mul_expr       = unary_expr { ('*' | '/' | '%' | '*|' | '*%') unary_expr }
-unary_expr     = ('!' | '-' | '~' | '&' | '*' | 'try') unary_expr | cast_expr
-cast_expr      = postfix_expr [ ('as' | 'as!') type ]
-postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')' | slice_op | catch_op }
+mul_expr       = cast_expr { ('*' | '/' | '%' | '*|' | '*%') cast_expr }
+cast_expr      = unary_expr [ ('as' | 'as!') type ] { catch_op }  # 'as' 比一元运算更外层：-x as i64 即 (-x) as i64
+unary_expr     = 'try' rel_expr                                  # try 的操作数按相对表达式解析
+               | ('!' | '-' | '~' | '&' | '*') unary_expr         # 右结合
+               | postfix_expr
+postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')' | slice_op }
                 # '.' NUM 用于元组字段访问，如 tuple.0, tuple.1
                 # 花括号字面量、括号表达式、下标结果、方法调用结果都可继续重复接同一套后缀，因此链式调用深度不受限制
                 # 泛型方法调用在解析歧义消解后同样归入这条后缀链，如 obj.method<T>().next()
                 # 0.49.41：STRING 为 primary_expr 时，可接 '[' expr ']'（下标）或 slice_op（与数组字面量、标识符一致），如 "hello"[0:3]、&"hello"[0:3]
-catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'
+catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'      # 后缀，可连续多个（左结合），见 src/parser/expressions.uya:63-138
 primary_expr   = ID | NUM | STRING | CHAR | 'true' | 'false' | 'null'
                | builtin_expr
                | struct_literal | array_literal | tuple_literal | enum_literal | union_literal
-               | match_expr | '(' expr ')'
-builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min' | 'params' | 'va_start' | 'va_end' | 'va_arg' | 'va_copy' | 'asm')
+               | match_expr | if_expr | block_expr | '(' expr ')'
+if_expr        = 'if' expr ( '{' statements '}' | statement ) [ 'else' ( if_expr | '{' statements '}' | statement ) ]  # if 可作表达式
+block_expr     = '{' statements '}'   # 块表达式（宏 stmt 参数等场景）
+builtin_expr   = '@' ('params' | 'max' | 'min' | 'src_name' | 'src_path' | 'src_line' | 'src_col' | 'func_name')  # 无实参的内置值
+               | '@' ('size_of' | 'align_of' | 'len' | 'va_start' | 'va_end' | 'va_arg' | 'va_copy' | 'asm_target' | 'embed' | 'embed_dir' | 'ptr_from_usize' | 'usize_from_ptr' | 'print' | 'println') '(' arg_list ')'
+               | '@syscall' '(' expr { ',' expr } ')'          # 至少 1 个实参（系统调用号），最多 7 个
                | '@' ('mc_type' | 'mc_eval' | 'mc_ast' | 'mc_code' | 'mc_error' | 'mc_get_env' | 'mc_source' | 'error_id' | 'error_name') '(' expr_list ')'
+               | '@await' unary_expr | asm_stmt          # asm_stmt 见[内联汇编](#内联汇编)
                | vector_builtin_expr
-               # @size_of(T)、@align_of(T)、@len(expr) 为调用形式；@max、@min 为值形式；@params 为函数体内参数元组；@va_start(&ap,last)、@va_end(&ap)、@va_arg(ap,Type)、@va_copy(&dest,src) 为可变参数栈访问（uya.md §5.4）；@error_id(err) 读取错误 ID；@error_name(err) 返回语言级错误名字符串；@asm 为内联汇编块（uya.md §19）
+               # @size_of(T)、@align_of(T)、@len(expr)、@embed("path")、@embed_dir("path") 为调用形式；@max、@min 为值形式（类型由上下文推断）；@params 为函数体内参数元组；@va_start(&ap,last)、@va_end(&ap)、@va_arg(ap,Type)、@va_copy(&dest,src) 为可变参数栈访问（uya.md §5.4）；@error_id(err) 读取错误 ID；@error_name(err) 返回语言级错误名字符串；@asm 为内联汇编块（uya.md §19）
+               # '@align' 不是内置函数：它只作为函数声明属性出现（见[函数声明](#函数声明)）
+               # '@frame(T)' 是类型（见 frame_type）；在表达式位置只允许作为 '@size_of(...)' / '@align_of(...)' 的实参（src/parser/primary.uya:1660-1668）
                # 宏系统内置（uya.md §25）：@mc_type(expr) 返回 TypeInfo；@mc_eval(expr) 编译时求值；@mc_ast(code)、@mc_code(ast)、@mc_error(msg)、@mc_get_env(name)；@mc_source(expr) 编译期将表达式序列化为字符串
 vector_builtin_expr
                = '@vector' '.' 'splat' '(' expr ')'
@@ -260,10 +316,20 @@ vector_builtin_expr
                | '@vector' '.' 'store' '(' expr ',' expr ')'
                | '@vector' '.' 'select' '(' expr ',' expr ',' expr ')'
                | '@vector' '.' 'reduce_add' '(' expr ')'
+               | '@vector' '.' 'reduce_mul' '(' expr ')'
+               | '@vector' '.' 'reduce_min' '(' expr ')'
+               | '@vector' '.' 'reduce_max' '(' expr ')'
                | '@vector' '.' 'any'   '(' expr ')'
                | '@vector' '.' 'all'   '(' expr ')'
 union_literal  = ID '.' ID '(' expr ')'  # 联合体创建，如 IntOrFloat.i(42)、NetworkPacket.ipv4([...])
 ```
+
+**类型化管道 `|>` 的语义约束**（`src/checker/check_expr_extra.uya:793-870`）：
+
+- 左侧类型必须是规范类型 `Pipeline`（`lib/std/process.uya:2609` 的 `export opaque struct Pipeline`）或 `!Pipeline`；否则报「管道运算符 '|>' 的左侧必须是 Pipeline 或 !Pipeline 类型」
+- 右侧必须是最外层为调用表达式的 `postfix_expr`；且该调用**不能**是带隐式 `self` receiver 的实例方法调用，被调用函数**首个参数**类型必须是 `Pipeline`
+- 左侧为 `!Pipeline` 时走 try-forward：等价于 `f(try lhs, args...)`，整体类型为 `!R`，且只能出现在返回错误联合类型的函数（或返回 `Future<!T>` 的 `@async_fn`）中
+- `Pipeline` 是 move-only：同一条链只对最左侧变量做一次消费标记，链尾 sink 之后再接 `|>` 是错误
 
 ### SIMD 语义规则（第一阶段）
 
@@ -289,63 +355,70 @@ union_literal  = ID '.' ID '(' expr ')'  # 联合体创建，如 IntOrFloat.i(42
 ### 内联汇编
 
 ```
-asm_stmt       = '@asm' '{' { asm_instruction } '}' [ 'clobbers' '=' '[' STRING { ',' STRING } ']' ]
-asm_instruction = STRING '(' [ expr_list ] [ '->' expr_list ] ')' [ 'clobbers' '=' '[' STRING { ',' STRING } ']' ] ';'
+asm_stmt       = '@asm' '{' { asm_instruction } '}' [ 'clobbers' '=' '[' STRING { ',' STRING } ']' ] [ ';' ]
+asm_instruction = STRING '(' [ expr_list ] [ '->' expr_list ] ')' [ ';' ]
 ```
 
 **说明**：
-- **@asm 块**：内联汇编语句块，包含一条或多条汇编指令
+- **@asm 块**：内联汇编语句块，包含一条或多条汇编指令（至少一条）
 - **指令模板**：字符串字面量，使用 `{name}` 作为占位符
-- **输入列表**：指令的输入操作数，多个用逗号分隔
+- **输入列表**：指令的输入操作数（普通表达式），多个用逗号分隔
 - **输出列表**：指令的输出操作数，使用 `->` 分隔
-- **clobbers 声明**：显式声明被修改的寄存器列表
+- **clobbers 声明**：显式声明被修改的寄存器列表，**只有块级写法**（写在 `}` 之后）；不存在逐指令 clobbers（`src/parser/primary.uya:1304-1361`）
 - **内存修改**：使用 `"memory"` 字符串声明内存被修改
 
 **示例**：
 ```uya
-// 单条指令
+// 单条指令（输入输出都是普通表达式；输出变量须在块外先声明并初始化）
 @asm {
     "add {a}, {b}" (a, b, -> result);
 }
 
-// 多条指令
+// 没有操作数的指令写 ()
 @asm {
-    "mov rax, 1" (-> _);
-    "syscall" (rax, rdi, rsi, rdx, -> result);
-} clobbers = ["rcx", "r11", "memory"];
+    "mov rax, 1" ();
+    "nop" ();
+} clobbers = ["rax"];
+```
 
-// 原子操作
-@asm {
-    "lock xadd {ptr}, {value}" (@asm_mem(ptr), value, -> old);
+**实现约束**：
+- `_` 不能作为输出操作数（会被判为 void 输出），无输出时只写输入或 `()`
+- 以 `"lock "` 开头的模板要求 memory clobber，而 `"memory"` 当前只写入 `asm_clobbers_memory`、不进入 clobber 列表（`src/parser/primary.uya:1331`、`src/checker/check_expr.uya:4007-4023`）
+
+**寄存器类型 / 内存操作类型**（内置类型名，不是普通声明，也不是 `@` 函数）：
+
+```
+@asm_reg            编译器自动分配的通用寄存器
+@asm_reg_x64        x86-64 通用寄存器
+@asm_reg_x64_xmm    x86-64 SSE（128 位）
+@asm_reg_x64_ymm    x86-64 AVX/AVX2（256 位）
+@asm_reg_x64_zmm    x86-64 AVX-512（512 位）
+@asm_reg_x86        x86 专用寄存器
+@asm_reg_arm64      ARM64 专用寄存器
+@asm_reg_arm64_v    ARM64 NEON（128 位）
+@asm_mem            内存操作数类型（C 侧映射为 void *），作为「类型」使用
+```
+
+- 这些名字由 `src/checker/type_from_ast.uya:613-635` 与 `src/codegen/c99/types.uya:910-942` 识别；`@asm_mem(expr)` 这类调用形式不存在，内存操作数直接传 `&T` / `&const T` 指针操作数
+
+**平台检测**：`@asm_target()` 无实参，返回当前平台枚举值（按整数使用，`src/parser/primary.uya:1157-1179`）：
+
+```
+x86_64_linux = 0, x86_64_macos = 1, x86_64_windows = 2,
+arm64_linux  = 3, arm64_macos  = 4, arm64_windows  = 5, riscv64_linux = 6
+```
+
+```uya
+const target: i32 = @asm_target();
+
+if target == 0 {
+    // x86-64 Linux
+} else if target == 3 {
+    // ARM64 Linux
 }
 ```
 
-**寄存器类型**：
-```uya
-type @asm_reg = opaque;       // 编译器自动分配的通用寄存器
-type @asm_reg_x64 = opaque;   // x86-64 专用寄存器
-type @asm_reg_x86 = opaque;   // x86 专用寄存器
-type @asm_reg_arm64 = opaque; // ARM64 专用寄存器
-```
-
-**内存操作类型**：
-```uya
-type @asm_mem<T> = opaque;    // 类型安全的内存操作包装
-```
-
-**平台检测**：
-```uya
-enum @asm_target {
-    x86_64_linux,
-    x86_64_macos,
-    x86_64_windows,
-    arm64_linux,
-    arm64_macos,
-    arm64_windows,
-}
-
-const target: @asm_target = @asm_target();
-```
+- `@asm_target` 是内置名字，**不能**写成 `enum @asm_target { ... }`；也没有 `.x86_64_linux` 这种省略枚举名的变体写法（参照 `tests/test_asm_target.uya`）
 
 **详细说明**：见 [uya.md](./uya.md#19-内联汇编) 内联汇编章节
 
@@ -380,18 +453,22 @@ literal        = NUM | STRING | CHAR | 'true' | 'false' | 'null'
 
 ```
 export_decl    = 'export' (fn_decl | struct_decl | union_decl | interface_decl | enum_decl
-               | const_decl | error_decl | extern_decl)
+               | type_alias_decl | const_decl | var_decl | error_decl | extern_decl | macro_decl)
 import_stmt    = 'use' module_path [ 'as' ID ] ';'
 module_path    = ID { '.' ID }
 ```
 
 **说明**：
-- **导出语法**：使用 `export` 关键字标记可导出的项
+- **导出语法**：使用 `export` 关键字标记可导出的项（前缀写在声明最前面，`export opaque struct` 亦然）
   - `export fn public_function() i32 { ... }`
   - `export struct PublicStruct { ... }`
+  - `export opaque struct Resource { handle: usize }`（模块外不可构造、不可访问字段）
   - `export interface PublicInterface { ... }`
+  - `export type MyInt = i64;`
   - `export const PUBLIC_CONST: i32 = 42;`
+  - `export var debug_mode: i32 = 0;`
   - `export error PublicError;`
+  - `export mc twice(x: expr) expr { ${x} + ${x}; }`
   - `export extern printf(fmt: *byte, ...) i32;`（导出外部 C 函数声明，无函数体，链接到 C 标准库）
   - `export extern strcmp(s1: &const byte, s2: &const byte) i32 { ... }`（Uya 实现，以裸函数名导出）
 - **导入语法**：
@@ -533,7 +610,7 @@ macro_call     = ID '(' arg_list ')'
 - `export mc` 可导出宏供其他模块使用
 - 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）、`ident`（标识符）
 - 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
-- 参数默认值：支持为参数指定默认值，语法与函数参数默认值相同
+- 参数默认值：宏参数支持默认值（`p: expr = <表达式>`，`src/parser/declarations.uya:1510-1519`）；注意**普通函数参数没有默认值语法**
 - 宏调用语法与普通函数调用完全一致
 - 跨模块宏导入：`use module.macro_name;`
 - 详细说明见 [uya.md](./uya.md#25-宏系统)
