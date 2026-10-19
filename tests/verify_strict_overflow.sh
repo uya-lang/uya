@@ -123,7 +123,7 @@ EOF
 
 # ---------- 用例 ----------
 
-log "1/5 默认关闭：无守卫算术照常编译"
+log "1/6 默认关闭：无守卫算术照常编译"
 if "$COMPILER" check "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out1.log" 2>&1; then
     log "  ✓ 默认不拦（兼容性保持）"
 else
@@ -131,7 +131,7 @@ else
     cat "$TMP_DIR/out1.log" >&2
 fi
 
-log "2/5 闸门开启：无守卫的加/减/乘报溢出无法证明"
+log "2/6 闸门开启：无守卫的加/减/乘报溢出无法证明"
 if "$COMPILER" check --strict-overflow "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out2.log" 2>&1; then
     fail "闸门开启后无守卫算术仍然通过"
 else
@@ -144,7 +144,7 @@ else
     fi
 fi
 
-log "3/5 闸门开启：区间守卫收窄后放行"
+log "3/6 闸门开启：区间守卫收窄后放行"
 if "$COMPILER" check --strict-overflow "$TMP_DIR/guarded.uya" > "$TMP_DIR/out3.log" 2>&1; then
     log "  ✓ 守卫 / 常量 / checked / 饱和 / 包装 全部放行"
 else
@@ -152,7 +152,7 @@ else
     cat "$TMP_DIR/out3.log" >&2
 fi
 
-log "4/5 闸门开启：诊断给出三条可用修法"
+log "4/6 闸门开启：诊断给出三条可用修法"
 if grep -q "try a" "$TMP_DIR/out2.log" && grep -q "区间守卫" "$TMP_DIR/out2.log"; then
     log "  ✓ 诊断含 checked / 守卫 / 饱和包装 提示"
 else
@@ -160,7 +160,33 @@ else
     cat "$TMP_DIR/out2.log" >&2
 fi
 
-log "5/5 闸门可关闭：--no-strict-overflow 恢复默认行为"
+log "5/6 闸门只覆盖有符号：无符号模运算放行"
+cat > "$TMP_DIR/unsigned.uya" <<'UEOF'
+fn negate_u64(v: u64) u64 {
+    // 二补数取负：无符号回绕是良定义语义，不应被闸门拦下
+    return (0 as u64) - v;
+}
+fn hash_step(h: u32, v: u32) u32 {
+    return h * 31 as u32 + v;
+}
+fn ptr_offset(base: usize, n: usize) usize {
+    return base + n;
+}
+export fn main() i32 {
+    _ = negate_u64(1 as u64);
+    _ = hash_step(2 as u32, 3 as u32);
+    _ = ptr_offset(4 as usize, 5 as usize);
+    return 0;
+}
+UEOF
+if "$COMPILER" check --strict-overflow "$TMP_DIR/unsigned.uya" > "$TMP_DIR/out6.log" 2>&1; then
+    log "  ✓ u64/u32/usize 的模运算未被拦（无符号无 UB）"
+else
+    fail "无符号算术被闸门误拦"
+    cat "$TMP_DIR/out6.log" >&2
+fi
+
+log "6/6 闸门可关闭：--no-strict-overflow 恢复默认行为"
 if "$COMPILER" check --strict-overflow --no-strict-overflow "$TMP_DIR/unguarded.uya" > "$TMP_DIR/out5.log" 2>&1; then
     log "  ✓ 显式关闭后不拦"
 else

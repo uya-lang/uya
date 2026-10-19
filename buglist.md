@@ -71,8 +71,14 @@
     诊断给出 checked / 守卫 / 饱和包装三条修法。回归：`tests/verify_strict_overflow.sh`
     （已并入 `make check`）。
   - **翻转默认的实测成本**：`./bin/uya check --strict-overflow <src 全部文件>` 报
-    **2052 处**——`src/checker/macro_expand.uya` 645、`lib/libc/stdio.uya` 259、
-    `lib/libc/stdlib.uya` 161、`lib/libc/time.uya` 120、`src/checker/modules.uya` 86 …
+    **1355 处**（仅计有符号；闸门已按「无符号模运算是良定义语义」豁免 `u8/u16/u32/u64/usize/byte`）——
+    `src/checker/macro_expand.uya` 645、`lib/libc/stdio.uya` 259、`lib/libc/stdlib.uya` 161、
+    `lib/libc/time.uya` 120、`src/checker/modules.uya` 86 …
+  - **迁移为何不能批量做**：形状抽样显示绝对主力是两类**本质不可证明**的算术——
+    ① 参数位置算术（`line + line_off`、`column + col_off`，参数取整个 i32 域）；
+    ② 循环计数器（`i = i + 1` 上界由运行期循环条件决定，静态无界）。
+    前者要给函数加进入守卫，后者要改循环写法或降级为 `+%`，每处都需人工判断，
+    无法安全地批量替换（批量改 `+%` 会把「本该报错的真 bug」静默成回绕）。
     因此闸门保持默认关，翻默认需要先做完这轮存量迁移。
   - **证明器的保守边界（已知限制）**：
     1. 函数调用、成员访问、下标、类型转换一律视为无界 → 不可证明；

@@ -1325,6 +1325,20 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
     if expr.type == ASTNodeType.AST_IDENTIFIER {
         return wide_interval_of_var(checker, expr.identifier_name, kind);
     }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS || expr.type == ASTNodeType.AST_CAST_EXPR {
+        // 成员访问 / 转换表达式：约束表本来就按 constraint_expr_name 的规范化名字
+        // 跟踪（越界证明一直在用），这里复用同一套名字即可拿到可信守卫。
+        // 例如 `if c.count > 0 { c.count - 1 }` 可以证明不溢出。
+        const path_name: &byte = constraint_expr_name(checker, expr);
+        if (path_name != null) {
+            return wide_interval_of_var(checker, path_name, kind);
+        }
+        // 转换表达式继续往里看（as 不改变值域时仍可用内层区间）
+        if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+            return wide_interval_of_expr(checker, expr.cast_expr_expr, kind);
+        }
+        return wide_unknown();
+    }
     if expr.type == ASTNodeType.AST_UNARY_EXPR {
         const uop_tmp: !TokenType = expr.unary_expr_op as! TokenType;
         const uop: TokenType = uop_tmp.value;
