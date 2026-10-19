@@ -682,7 +682,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             checker.pointer_nonnull_names[fini] = final_nonnull_names[fini];
             fini = fini + 1;
         }
-        
+
         return 1;
     } else if node.type == ASTNodeType.AST_WHILE_STMT {
         // 检查条件表达式
