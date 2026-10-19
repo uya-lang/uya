@@ -224,6 +224,10 @@ struct ASTNode {
     fn_decl_params: & & ASTNode,
     fn_decl_param_count: i32,
     fn_decl_return_type: &ASTNode,
+    // 返回区间契约：`fn f(...) T @range(lo, hi)` 中的 lo / hi 表达式
+    //（null = 无契约）。这是**调用方可依赖的假设**，由实现在 return 处负责成立。
+    fn_decl_out_range_lo: &ASTNode,
+    fn_decl_out_range_hi: &ASTNode,
     fn_decl_body: &ASTNode,
     fn_decl_is_varargs: i32,
     fn_decl_is_export: i32,  // 1 表示 export fn，0 表示私有
@@ -254,6 +258,10 @@ struct ASTNode {
     // var_decl
     var_decl_name: &byte,
     var_decl_type: &ASTNode,
+    // 参数区间契约：`fn f(x: i32 @range(lo, hi))` 中的 lo / hi 表达式
+    //（null = 无契约）。作为函数体内的可信约束参与溢出/越界证明。
+    var_decl_range_lo: &ASTNode,
+    var_decl_range_hi: &ASTNode,
     var_decl_init: &ASTNode,
     var_decl_is_const: i32,
     var_decl_was_moved: i32,   // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
@@ -569,6 +577,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.fn_decl_params = null;
     node.fn_decl_param_count = 0;
     node.fn_decl_return_type = null;
+    node.fn_decl_out_range_lo = null;
+    node.fn_decl_out_range_hi = null;
     node.fn_decl_body = null;
     node.fn_decl_is_varargs = 0;
     node.fn_decl_is_export = 0;
@@ -595,6 +605,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.mc_source_operand = null;
     node.var_decl_name = null;
     node.var_decl_type = null;
+    node.var_decl_range_lo = null;
+    node.var_decl_range_hi = null;
     node.var_decl_init = null;
     node.var_decl_is_const = 0;
     node.var_decl_was_moved = 0;

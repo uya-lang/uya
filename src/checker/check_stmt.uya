@@ -727,6 +727,10 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     // 检查函数体（如果有）
     if node.fn_decl_body != null {
         checker_enter_scope(checker);
+        // 参数区间契约：`fn f(x: i32 @range(lo, hi))` 声明的范围作为**可信约束**
+        // 注入函数体，供溢出/越界证明使用。契约是调用方必须遵守的假设（类似 unsafe）。
+        // 必须放在 checker_reset_proof_steps / enter_scope 之后，否则约束会被清掉。
+        fn_apply_param_range_contracts(checker, node);
         
         // 将参数添加到符号表（仅用于函数体内的类型检查）
         var i: i32 = 0;

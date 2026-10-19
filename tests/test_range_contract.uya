@@ -1,0 +1,76 @@
+// 参数 / 返回值区间契约 `@range(lo, hi)`
+//
+// 契约是**声明式假设**：参数契约在函数体内作为可信约束参与溢出/越界证明；
+// 返回契约成为调用点可依赖的区间。它是让 `--strict-overflow` 在
+// 「参数位置算术 / 调用结果算术」这类本质上无法静态推断的场景下可用的关键。
+//
+// 语义要点：
+//   - 契约不做运行时检查，调用方负责满足（与 @align 同属声明属性，不改运行行为）
+//   - lo / hi 为整型常量表达式，支持 @max / @min
+//   - 只在 --strict-overflow 下有可观察效果；开启前后程序行为完全一致
+
+use std.testing.assert_eq_i32;
+
+fn advance(line: i32 @range(0, 1000000), off: i32 @range(0, 1000)) i32 @range(0, 1001000) {
+    return line + off;
+}
+
+fn double_bounded(n: i32 @range(0, 100)) i32 @range(0, 200) {
+    return n * 2;
+}
+
+fn use_return_contract(n: i32 @range(0, 100)) i32 {
+    // double_bounded 的返回契约让 n*2 + 5 可证
+    return double_bounded(n) + 5;
+}
+
+fn chain_contracts(n: i32 @range(0, 100)) i32 {
+    return (double_bounded(n) - 3) * 2;
+}
+
+fn bounded_by_max(lo: i32 @range(@min, @max)) i32 {
+    // 参数等价于类型全域，不做任何缩窄
+    return lo;
+}
+
+fn assert_range_ok(base: i32 @range(0, 1000)) i32 {
+    // 契约范围内 base + 1 必然不溢出
+    return base + 1;
+}
+
+fn counter_with_contract(limit: i32 @range(0, 1000000)) i32 {
+    var i: i32 = 0;
+    while i < limit {
+        i = i + 1;
+    }
+    return i;
+}
+
+test "range_contract_param_add" {
+    try assert_eq_i32(advance(100, 5), 105);
+}
+
+test "range_contract_return_propagation" {
+    try assert_eq_i32(double_bounded(7), 14);
+    try assert_eq_i32(use_return_contract(9), 23);
+    try assert_eq_i32(chain_contracts(9), 30);
+}
+
+test "range_contract_full_domain" {
+    try assert_eq_i32(bounded_by_max(0), 0);
+    try assert_eq_i32(bounded_by_max(12345), 12345);
+}
+
+test "range_contract_guarded_add" {
+    try assert_eq_i32(assert_range_ok(999), 1000);
+}
+
+test "range_contract_loop_counter" {
+    try assert_eq_i32(counter_with_contract(5), 5);
+    try assert_eq_i32(counter_with_contract(0), 0);
+}
+
+test "range_contract_no_runtime_check" {
+    // 契约不做运行时检查：越界传入照常计算（这是契约的信任模型）
+    try assert_eq_i32(advance(2000000, 5), 2000005);
+}
