@@ -2487,7 +2487,17 @@ fn exec_lower_use_stmt_module_name_equals(use_stmt: &ASTNode, module_name: &byte
         }
         i = i + 1;
     }
-    return (module_name[module_pos] == 0 as byte) as i32;
+    // module_pos 由两分支累加而来，合并后无紧上界；用 local const 快照 + 提前返回，
+    // 让指针下标证明能直接建立上界。
+    // 用指针遍历代替下标：module_pos 由多个分支累加，汇合后无紧上界，
+    // 指针会走出边界时立即停止，行为与原逻辑一致。
+    var p: &byte = module_name;
+    var k: i32 = 0;
+    while k < module_pos && p[0] != 0 as byte {
+        p = p + 1;
+        k = k + 1;
+    }
+    return (p[0] == 0 as byte) as i32;
 }
 
 fn exec_lower_resolve_module_alias_from_file(checker: &TypeChecker, filename: &byte, local_name: &byte) &byte {

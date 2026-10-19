@@ -5,9 +5,11 @@
 // 「参数位置算术 / 调用结果算术」这类本质上无法静态推断的场景下可用的关键。
 //
 // 语义要点：
-//   - 契约不做运行时检查，调用方负责满足（与 @align 同属声明属性，不改运行行为）
+//   - 契约 = 声明 + **运行时验证**（Ada subtype range 语义）：
+//     静态能证明的调用点检查被优化器消掉（零开销）；违约则 __builtin_trap() 终止，
+//     不会静默回绕。违约行为由 tests/verify_strict_overflow.sh 第 7 项覆盖。
 //   - lo / hi 为整型常量表达式，支持 @max / @min
-//   - 只在 --strict-overflow 下有可观察效果；开启前后程序行为完全一致
+//   - 证明效果只在 --strict-overflow 下体现；运行期检查与开关无关
 
 use std.testing.assert_eq_i32;
 
@@ -91,7 +93,5 @@ test "range_contract_local_var" {
     try assert_eq_i32(local_via_chain(), 0);
 }
 
-test "range_contract_no_runtime_check" {
-    // 契约不做运行时检查：越界传入照常计算（这是契约的信任模型）
-    try assert_eq_i32(advance(2000000, 5), 2000005);
-}
+// 契约违反的运行时行为由 tests/error_range_contract_violation.uya 负例覆盖：
+// 传参越界会在入口处终止（不再静默回绕）。

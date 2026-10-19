@@ -77,14 +77,15 @@ export fn upm_normalize_path(input: &byte, out: &byte, out_cap: usize) i32 {
                     continue;
                 }
             }
-            if has_root == 0 && seg_count < 256 {
+            if has_root == 0 && seg_count >= 0 && seg_count < 256 {
+                // 显式上下界守卫（分支汇合后 seg_count 的区间是两分支末态凸包）
                 seg_starts[seg_count] = seg_start;
                 seg_lens[seg_count] = seg_len;
                 seg_count = seg_count + 1;
             }
             continue;
         }
-        if seg_count >= 256 {
+        if seg_count < 0 || seg_count >= 256 {
             return 1;
         }
         seg_starts[seg_count] = seg_start;

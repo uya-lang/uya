@@ -2022,6 +2022,11 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         fputs(") {\n" as *byte, codegen.emit_stream);
     }
     codegen.indent_level = codegen.indent_level + 1;
+
+    // 参数区间契约的**运行时**检查（@range）。
+    // 契约不是纯静态假设：静态能证明时下面的比较会被优化器消掉；
+    // 证不了/调用方违约时必须有运行期兜底，否则契约说谎会静默回绕。
+    gen_param_range_checks(codegen, fn_decl);
     
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen.current_function_return_type = return_type;
@@ -9393,4 +9398,77 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
     codegen.current_type_param_count = saved_type_param_count;
     codegen.current_type_args = saved_type_args;
     codegen.current_type_arg_count = saved_type_arg_count;
+}
+
+// ===== 区间契约（@range）的运行时检查 =====
+//
+// 契约的正确语义是「声明 + 验证」，不是「声明 + 相信」：
+//   - 静态能证明的调用点，下面的比较会被优化器消掉（零开销）；
+//   - 证不了或调用方违约，运行期立即终止，而不是静默回绕/越界。
+// 这条设计与 Ada 的 subtype range 一致，也让 --strict-overflow 能安全地
+// 依赖契约做证明。
+
+// 契约边界的 C 字面量：常量表达式在编译期求值，失败时不生成检查
+fn gen_range_bound_literal(codegen: &C99CodeGenerator, bound: &ASTNode, out_ok: &i32) void {
+    out_ok[0] = 0;
+    if codegen == null || bound == null || codegen.checker == null {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    var ok: i32 = 0;
+    const v: i32 = checker_eval_const_expr_ex(codegen.checker, bound, &ok);
+    if ok == 0 {
+        fputs("0" as *byte, codegen.emit_stream as *void);
+        return;
+    }
+    fprintf(codegen.emit_stream as *void, "%dLL" as *byte, v);
+    out_ok[0] = 1;
+}
+
+// 生成参数契约检查：函数入口处对每个带 @range 的参数校验取值范围
+// 参数：codegen - 代码生成器；fn_decl - 函数声明节点
+// 返回：无
+fn gen_param_range_checks(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
+    if codegen == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    if fn_decl.fn_decl_params == null || fn_decl.fn_decl_param_count <= 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < fn_decl.fn_decl_param_count {
+        const p: &ASTNode = fn_decl.fn_decl_params[i];
+        if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_name != null &&
+            p.var_decl_range_lo != null && p.var_decl_range_hi != null {
+            const pname: &byte = get_safe_c_identifier(codegen, p.var_decl_name);
+            var lo_ok: [i32: 1] = [0];
+            var hi_ok: [i32: 1] = [0];
+            var lo_buf: [byte: 64] = [];
+            var hi_buf: [byte: 64] = [];
+            // 先在内存缓冲里算出边界，确认都可用才发射检查
+            const saved_stream: *void = codegen.emit_stream;
+            _ = saved_stream;
+            var lo_val: i32 = 0;
+            var lo_valid: i32 = 0;
+            var hi_val: i32 = 0;
+            var hi_valid: i32 = 0;
+            var ck: i32 = 0;
+            lo_val = checker_eval_const_expr_ex(codegen.checker, p.var_decl_range_lo, &ck);
+            if ck != 0 { lo_valid = 1; }
+            ck = 0;
+            hi_val = checker_eval_const_expr_ex(codegen.checker, p.var_decl_range_hi, &ck);
+            if ck != 0 { hi_valid = 1; }
+            _ = lo_buf;
+            _ = hi_buf;
+            _ = lo_ok;
+            _ = hi_ok;
+            if lo_valid != 0 && hi_valid != 0 && lo_val <= hi_val && pname != null {
+                c99_emit_indent(codegen);
+                fprintf(codegen.emit_stream as *void, "if (((long long)%s < %dLL) || ((long long)%s > %dLL)) _uya_range_violation(\"参数\", \"%s\", \"%s\", (long long)%s, %dLL, %dLL);\n" as *byte,
+                    pname as *byte, lo_val, pname as *byte, hi_val,
+                    fn_decl.fn_decl_name as *byte, p.var_decl_name as *byte, pname as *byte, lo_val, hi_val);
+            }
+        }
+        i = i + 1;
+    }
 }

@@ -218,6 +218,15 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                 }
                 symbol.pointer_known_length = len + 1;
             }
+            // `var p: &byte = compiler_arena_alloc(arena, N) as &byte;`
+            // 把分配长度写进符号，指针下标证明即可用 `idx < N`。
+            // 没有这一步，arena 缓冲区的下标只能靠「陈旧约束」侥幸通过。
+            if var_type.kind == TypeKind.TYPE_POINTER && node.var_decl_init != null {
+                const alloc_len: i32 = checker_arena_alloc_capacity(checker, node.var_decl_init);
+                if alloc_len > 0 {
+                    symbol.pointer_known_length = alloc_len;
+                }
+            }
             if symbol_table_insert(checker, symbol) != 0 {
                 checker_report_error(checker, node, "符号表已满，无法添加变量" as *byte);
                 return 0;

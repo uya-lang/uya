@@ -1,0 +1,43 @@
+// 正例：if 分支赋值后，按正确守卫写法的下标访问应当通过
+//
+// 与 error_branch_assign_stale_bounds.uya 配对：修复陈旧约束后，
+// 分支汇合得到的区间变宽，必须用显式守卫重新收窄。
+
+use std.testing.assert_eq_i32;
+
+fn pick(a: i32) i32 {
+    var arr: [i32: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    var idx: i32 = 0;
+    if a > 0 {
+        idx = 3;
+    }
+    var out: i32 = 0;
+    if idx >= 0 && idx < 10 {
+        out = arr[idx];
+    }
+    return out;
+}
+
+fn both_branches() i32 {
+    var arr: [i32: 4] = [10, 20, 30, 40];
+    var idx: i32 = 0;
+    if arr[0] == 10 {
+        idx = 1;
+    } else {
+        idx = 2;
+    }
+    var out: i32 = 0;
+    if idx >= 0 && idx < 4 {
+        out = arr[idx];
+    }
+    return out;
+}
+
+test "branch_assign_with_guard" {
+    try assert_eq_i32(pick(1), 4);
+    try assert_eq_i32(pick(0), 1);
+}
+
+test "branch_assign_both_sides" {
+    try assert_eq_i32(both_branches(), 20);
+}

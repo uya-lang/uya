@@ -695,17 +695,26 @@ fn c99_mark_local_variable_error_value(codegen: &C99CodeGenerator, name: &byte) 
         return 0;
     }
     const safe_name: &byte = get_safe_c_identifier(codegen, name);
+    // 数组容量是编译期常量，用常量上界守卫让下标证明可证
     var i: i32 = codegen.local_variable_count - 1;
+    if i >= C99_MAX_LOCAL_VARS {
+        i = C99_MAX_LOCAL_VARS - 1;
+    }
     while i >= 0 {
-        if i < C99_MAX_LOCAL_VARS && codegen.local_variables[i].name != null {
-            if codegen.local_variables[i].owner_fn != codegen.current_function_decl {
+        // 快照 + 嵌套 if（不用 continue）：continue 会让守卫结论在该路径上失效，
+        // 嵌套守卫内则能把 li 的上下界同时保持到下标访问处。
+        const li: i32 = i;
+        if li >= 0 && li < C99_MAX_LOCAL_VARS {
+            if codegen.local_variables[li].name != null {
+            if codegen.local_variables[li].owner_fn != codegen.current_function_decl {
                 i = i - 1;
                 continue;
             }
-            if strcmp(codegen.local_variables[i].name as *byte, name as *byte) == 0 ||
-                (safe_name != null && strcmp(codegen.local_variables[i].name as *byte, safe_name as *byte) == 0) {
-                codegen.local_variables[i].is_error_value = 1;
+            if strcmp(codegen.local_variables[li].name as *byte, name as *byte) == 0 ||
+                (safe_name != null && strcmp(codegen.local_variables[li].name as *byte, safe_name as *byte) == 0) {
+                codegen.local_variables[li].is_error_value = 1;
                 return 1;
+            }
             }
         }
         i = i - 1;
@@ -720,14 +729,17 @@ fn c99_identifier_is_error_value(codegen: &C99CodeGenerator, name: &byte) i32 {
     const safe_name: &byte = get_safe_c_identifier(codegen, name);
     var i: i32 = codegen.local_variable_count - 1;
     while i >= 0 {
-        if i < C99_MAX_LOCAL_VARS && codegen.local_variables[i].name != null {
-            if codegen.local_variables[i].owner_fn != codegen.current_function_decl {
+        const li: i32 = i;
+        if li >= 0 && li < C99_MAX_LOCAL_VARS {
+            if codegen.local_variables[li].name != null {
+            if codegen.local_variables[li].owner_fn != codegen.current_function_decl {
                 i = i - 1;
                 continue;
             }
-            if strcmp(codegen.local_variables[i].name as *byte, name as *byte) == 0 ||
-                (safe_name != null && strcmp(codegen.local_variables[i].name as *byte, safe_name as *byte) == 0) {
-                return codegen.local_variables[i].is_error_value;
+            if strcmp(codegen.local_variables[li].name as *byte, name as *byte) == 0 ||
+                (safe_name != null && strcmp(codegen.local_variables[li].name as *byte, safe_name as *byte) == 0) {
+                return codegen.local_variables[li].is_error_value;
+            }
             }
         }
         i = i - 1;

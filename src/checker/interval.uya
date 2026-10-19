@@ -2212,3 +2212,182 @@ fn fn_out_range_interval(checker: &TypeChecker, fn_node: &ASTNode) WideInterval 
     }
     return WideInterval { lo: lo_v, hi: hi_v, lo_known: 1, hi_known: 1 };
 }
+
+// ===== 分配长度识别（供指针下标证明）=====
+//
+// `var p: &byte = compiler_arena_alloc(arena, N) as &byte;` 之后，p 的有效
+// 下标范围是 [0, N)。把 N 交给 Symbol.pointer_known_length，指针下标证明
+// 就能用 `idx < N`，而不再依赖「进入 if 前的旧约束」这类侥幸。
+//
+// 只识别可静态求值的容量表达式（字面量、常量、`@size_of(T) * n`、四则运算）。
+// 识别不了就返回 -1（保持原行为，继续走用户约束证明）。
+
+// 分配函数名是否属于「返回容量 N 的缓冲区」这一类
+fn arena_alloc_callee_matches(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if str_equals(name, "compiler_arena_alloc" as *byte) != 0 { return 1; }
+    if str_equals(name, "macro_arena_strdup" as *byte) != 0 { return 1; }
+    if str_equals(name, "arena_strdup" as *byte) != 0 { return 1; }
+    return 0;
+}
+
+// 从初始化表达式里取分配容量；识别不了返回 -1。
+// 参数：checker - 类型检查器；init - 变量初始化表达式（可能带 as 转换）
+// 返回：容量（元素个数）或 -1
+fn checker_arena_alloc_capacity(checker: &TypeChecker, init: &ASTNode) i32 {
+    if checker == null || init == null {
+        return 0 - 1;
+    }
+    // 剥掉 `as &byte` / `as *T` 转换
+    var cur: &ASTNode = init;
+    var guard: i32 = 0;
+    while cur != null && cur.type == ASTNodeType.AST_CAST_EXPR && cur.cast_expr_expr != null && guard < 8 {
+        cur = cur.cast_expr_expr;
+        guard = guard + 1;
+    }
+    if cur == null || cur.type != ASTNodeType.AST_CALL_EXPR {
+        return 0 - 1;
+    }
+    const callee: &ASTNode = cur.call_expr_callee;
+    if callee == null || callee.type != ASTNodeType.AST_IDENTIFIER || callee.identifier_name == null {
+        return 0 - 1;
+    }
+    // strdup 类：(arena, str) —— 长度为 strlen(str)+1，静态不可得
+    if str_equals(callee.identifier_name, "compiler_arena_alloc" as *byte) == 0 {
+        return 0 - 1;
+    }
+    if cur.call_expr_args == null || cur.call_expr_arg_count < 2 {
+        return 0 - 1;
+    }
+    const cap_expr: &ASTNode = cur.call_expr_args[1];
+    if cap_expr == null {
+        return 0 - 1;
+    }
+    var ok: i32 = 0;
+    const cap: i32 = checker_eval_const_expr_ex(checker, cap_expr, &ok);
+    if ok == 0 || cap <= 0 {
+        return 0 - 1;
+    }
+    return cap;
+}
+
+// ===== 分支汇合（if/else join）=====
+//
+// 修 P0 soundness 漏洞：if 分支里给变量重新赋值后，进入 if 前的约束
+//（例如 `var i = 0` 得到的 `i == 0`）已不再成立。若合并时原样恢复旧约束，
+// `if c { idx = 999; } arr[idx]` 会凭陈旧的 `idx == 0` 被判安全 —— 实测确实
+// 编译通过并越界读取。正确做法：取两个分支末态区间的**凸包**。
+
+// 从约束快照中求某变量的区间（无约束时为类型全域）
+fn constraint_interval_in_snapshot(names: & &byte, ops: &i32, vals: &i32, count: i32,
+    var_name: &byte, kind: i32) WideInterval {
+    var out: WideInterval = wide_of_type_kind(kind);
+    if names == null || ops == null || vals == null || var_name == null {
+        return out;
+    }
+    var i: i32 = 0;
+    while i < count && i < MAX_CONSTRAINTS {
+        const nm: &byte = names[i];
+        if nm != null && strcmp(nm as *byte, var_name as *byte) == 0 {
+            const op: i32 = ops[i];
+            const val: i64 = vals[i] as i64;
+            if op == CONSTRAINT_EQ {
+                out = wide_point(val);
+            } else if op == CONSTRAINT_GE {
+                if out.lo_known == 0 || val > out.lo {
+                    out.lo = val;
+                    out.lo_known = 1;
+                }
+            } else if op == CONSTRAINT_GT {
+                const val_p1: i64 = val + 1i64;
+                if out.lo_known == 0 || val_p1 > out.lo {
+                    out.lo = val_p1;
+                    out.lo_known = 1;
+                }
+            } else if op == CONSTRAINT_LE {
+                if out.hi_known == 0 || val < out.hi {
+                    out.hi = val;
+                    out.hi_known = 1;
+                }
+            } else if op == CONSTRAINT_LT {
+                const val_m1: i64 = val - 1i64;
+                if out.hi_known == 0 || val_m1 < out.hi {
+                    out.hi = val_m1;
+                    out.hi_known = 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if out.lo_known != 0 && out.hi_known != 0 && out.lo > out.hi {
+        return wide_of_type_kind(kind);
+    }
+    return out;
+}
+
+// 两个区间的凸包（并集的最小包围区间）
+fn wide_hull(a: WideInterval, b: WideInterval) WideInterval {
+    var out: WideInterval = wide_unknown();
+    out.lo_known = a.lo_known & b.lo_known;
+    out.hi_known = a.hi_known & b.hi_known;
+    if out.lo_known != 0 {
+        if a.lo < b.lo { out.lo = a.lo; } else { out.lo = b.lo; }
+    }
+    if out.hi_known != 0 {
+        if a.hi > b.hi { out.hi = a.hi; } else { out.hi = b.hi; }
+    }
+    return out;
+}
+
+// if/else 汇合：为分支中被赋值过的变量写入凸包约束
+// 参数：checker - 类型检查器；var_name - 变量名；then_* / else_* - 分支末态快照；
+//       base_* - 进入 if 前的快照（无 else 时代表未赋值路径）；has_else - 是否有 else
+// 返回：无
+export fn constraint_join_branch_var(checker: &TypeChecker, var_name: &byte,
+    then_names: & &byte, then_ops: &i32, then_vals: &i32, then_count: i32,
+    else_names: & &byte, else_ops: &i32, else_vals: &i32, else_count: i32,
+    base_names: & &byte, base_ops: &i32, base_vals: &i32, base_count: i32,
+    has_else: i32) void {
+    if checker == null || var_name == null {
+        return;
+    }
+    const sym: &Symbol = symbol_table_lookup(checker, var_name);
+    if sym == null || is_integer_type(sym.type.kind) == 0 {
+        return;
+    }
+    const kind: i32 = sym.type.kind as i32;
+    constraint_remove_var(checker, var_name);
+    var then_iv: WideInterval = wide_of_type_kind(kind);
+    if then_count > 0 {
+        then_iv = constraint_interval_in_snapshot(then_names, then_ops, then_vals, then_count, var_name, kind);
+    }
+    var else_iv: WideInterval = wide_of_type_kind(kind);
+    if has_else != 0 {
+        if else_count > 0 {
+            else_iv = constraint_interval_in_snapshot(else_names, else_ops, else_vals, else_count, var_name, kind);
+        }
+    } else if base_count > 0 {
+        else_iv = constraint_interval_in_snapshot(base_names, base_ops, base_vals, base_count, var_name, kind);
+    }
+    const hull: WideInterval = wide_hull(then_iv, else_iv);
+    if hull.lo_known != 0 && hull.hi_known != 0 {
+        const lo_i: i32 = interval_saturate_i32(hull.lo);
+        const hi_i: i32 = interval_saturate_i32(hull.hi);
+        if lo_i == hi_i {
+            constraint_add(checker, var_name, CONSTRAINT_EQ, lo_i);
+        } else {
+            constraint_add(checker, var_name, CONSTRAINT_GE, lo_i);
+            constraint_add(checker, var_name, CONSTRAINT_LE, hi_i);
+        }
+    } else if hull.hi_known != 0 {
+        // 只有上界可用时也要写进去（否则循环体里的下标证明会失去上界）
+        constraint_add(checker, var_name, CONSTRAINT_LE, interval_saturate_i32(hull.hi));
+    }
+    // 无符号类型的下界恒为 0，是类型事实而不是分支末态的结论；
+    // 汇合后必须重新写入，否则 `p[pos]` 的指针下标证明会因缺下界而失败。
+    if is_unsigned_type(sym.type.kind) != 0 {
+        constraint_add(checker, var_name, CONSTRAINT_GE, 0);
+    }
+}

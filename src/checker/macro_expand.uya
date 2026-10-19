@@ -808,9 +808,13 @@ fn ast_expr_to_source_string(node: &ASTNode, arena: &CompilerArena, filename: &b
             }
             i = i + 1;
         }
-        buf[pos] = 41 as i8;
-        pos = pos + 1;
-        buf[pos] = 0;
+        if pos >= 0 && pos < parts_len {
+            buf[pos] = 41 as i8;
+            pos = pos + 1;
+        }
+        if pos >= 0 && pos <= parts_len {
+            buf[pos] = 0;
+        }
         return buf;
     }
     if node.type == ASTNodeType.AST_TYPE_NAMED {

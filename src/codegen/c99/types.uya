@@ -468,7 +468,10 @@ fn c99_make_simd_name_suffix(codegen: &C99CodeGenerator, type_c: &byte) &byte {
         }
         i = i + 1;
     }
-    buf[j] = 0;
+    // 循环里 j 只在 `j < SIZE-1` / `j < SIZE-4` 守卫内自增，收尾再确认一次
+    if j >= 0 && j < STRUCT_NAME_BUF_SIZE {
+        buf[j] = 0;
+    }
     return buf;
 }
 
@@ -8107,16 +8110,24 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
             use_ident_cache = 0;
         }
     }
-    if use_ident_cache != 0 {
-        if g_c99_identifier_type_keys[slot] != null &&
-            strcmp(g_c99_identifier_type_keys[slot] as *byte, name as *byte) == 0 &&
-            g_c99_identifier_type_functions[slot] == codegen.current_function_decl &&
-            g_c99_identifier_type_local_counts[slot] == codegen.local_variable_count &&
-            g_c99_identifier_type_global_counts[slot] == codegen.global_variable_count &&
-            (g_c99_identifier_type_method_structs[slot] == codegen.current_method_struct_name ||
-                (g_c99_identifier_type_method_structs[slot] != null && codegen.current_method_struct_name != null &&
-                    strcmp(g_c99_identifier_type_method_structs[slot] as *byte, codegen.current_method_struct_name as *byte) == 0)) {
-            return g_c99_identifier_type_values[slot];
+    // slot 越界时禁用缓存：不提前 return（后面还有未缓存路径要跑），
+    // 但要让后面的下标访问看到可证的边界。
+    if slot < 0 || slot >= C99_IDENTIFIER_TYPE_CACHE_SIZE {
+        use_ident_cache = 0;
+        slot = 0;
+    }
+    // 显式把 slot 快照成常量级上界守卫：证明器需要看到 `sc >= 0 && sc < CAP`
+    const sc: i32 = slot;
+    if use_ident_cache != 0 && sc >= 0 && sc < C99_IDENTIFIER_TYPE_CACHE_SIZE {
+        if g_c99_identifier_type_keys[sc] != null &&
+            strcmp(g_c99_identifier_type_keys[sc] as *byte, name as *byte) == 0 &&
+            g_c99_identifier_type_functions[sc] == codegen.current_function_decl &&
+            g_c99_identifier_type_local_counts[sc] == codegen.local_variable_count &&
+            g_c99_identifier_type_global_counts[sc] == codegen.global_variable_count &&
+            (g_c99_identifier_type_method_structs[sc] == codegen.current_method_struct_name ||
+                (g_c99_identifier_type_method_structs[sc] != null && codegen.current_method_struct_name != null &&
+                    strcmp(g_c99_identifier_type_method_structs[sc] as *byte, codegen.current_method_struct_name as *byte) == 0)) {
+            return g_c99_identifier_type_values[sc];
         }
     }
     var local_count3: i32 = codegen.local_variable_count;
@@ -8138,13 +8149,14 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
             }
         }
         if local_name3 != null && strcmp(local_name3 as *byte, name as *byte) == 0 {
-            if use_ident_cache != 0 && local_type_c3 != null {
-                g_c99_identifier_type_keys[slot] = name;
-                g_c99_identifier_type_values[slot] = local_type_c3;
-                g_c99_identifier_type_functions[slot] = codegen.current_function_decl;
-                g_c99_identifier_type_local_counts[slot] = codegen.local_variable_count;
-                g_c99_identifier_type_global_counts[slot] = codegen.global_variable_count;
-                g_c99_identifier_type_method_structs[slot] = codegen.current_method_struct_name;
+            if use_ident_cache != 0 && local_type_c3 != null &&
+                sc >= 0 && sc < C99_IDENTIFIER_TYPE_CACHE_SIZE {
+                g_c99_identifier_type_keys[sc] = name;
+                g_c99_identifier_type_values[sc] = local_type_c3;
+                g_c99_identifier_type_functions[sc] = codegen.current_function_decl;
+                g_c99_identifier_type_local_counts[sc] = codegen.local_variable_count;
+                g_c99_identifier_type_global_counts[sc] = codegen.global_variable_count;
+                g_c99_identifier_type_method_structs[sc] = codegen.current_method_struct_name;
             }
             return local_type_c3;
         }
@@ -8198,13 +8210,14 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
                 }
             }
             if local_safe_name != null && strcmp(local_safe_name as *byte, safe_name as *byte) == 0 {
-                if use_ident_cache != 0 && local_safe_type_c != null {
-                    g_c99_identifier_type_keys[slot] = name;
-                    g_c99_identifier_type_values[slot] = local_safe_type_c;
-                    g_c99_identifier_type_functions[slot] = codegen.current_function_decl;
-                    g_c99_identifier_type_local_counts[slot] = codegen.local_variable_count;
-                    g_c99_identifier_type_global_counts[slot] = codegen.global_variable_count;
-                    g_c99_identifier_type_method_structs[slot] = codegen.current_method_struct_name;
+                if use_ident_cache != 0 && local_safe_type_c != null &&
+                    sc >= 0 && sc < C99_IDENTIFIER_TYPE_CACHE_SIZE {
+                    g_c99_identifier_type_keys[sc] = name;
+                    g_c99_identifier_type_values[sc] = local_safe_type_c;
+                    g_c99_identifier_type_functions[sc] = codegen.current_function_decl;
+                    g_c99_identifier_type_local_counts[sc] = codegen.local_variable_count;
+                    g_c99_identifier_type_global_counts[sc] = codegen.global_variable_count;
+                    g_c99_identifier_type_method_structs[sc] = codegen.current_method_struct_name;
                 }
                 return local_safe_type_c;
             }
@@ -8214,13 +8227,14 @@ fn lookup_identifier_type_c_impl(codegen: &C99CodeGenerator, name: &byte) &byte 
     i = 0;
     while i < codegen.global_variable_count {
         if global_var_name_matches(codegen, i, name) != 0 {
-            if use_ident_cache != 0 && codegen.global_variables[i].type_c != null {
-                g_c99_identifier_type_keys[slot] = name;
-                g_c99_identifier_type_values[slot] = codegen.global_variables[i].type_c;
-                g_c99_identifier_type_functions[slot] = codegen.current_function_decl;
-                g_c99_identifier_type_local_counts[slot] = codegen.local_variable_count;
-                g_c99_identifier_type_global_counts[slot] = codegen.global_variable_count;
-                g_c99_identifier_type_method_structs[slot] = codegen.current_method_struct_name;
+            if use_ident_cache != 0 && codegen.global_variables[i].type_c != null &&
+                sc >= 0 && sc < C99_IDENTIFIER_TYPE_CACHE_SIZE {
+                g_c99_identifier_type_keys[sc] = name;
+                g_c99_identifier_type_values[sc] = codegen.global_variables[i].type_c;
+                g_c99_identifier_type_functions[sc] = codegen.current_function_decl;
+                g_c99_identifier_type_local_counts[sc] = codegen.local_variable_count;
+                g_c99_identifier_type_global_counts[sc] = codegen.global_variable_count;
+                g_c99_identifier_type_method_structs[sc] = codegen.current_method_struct_name;
             }
             return codegen.global_variables[i].type_c;
         }

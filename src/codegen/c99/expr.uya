@@ -7035,7 +7035,7 @@ fn c99_find_identifier_type_node(codegen: &C99CodeGenerator, name: &byte) &ASTNo
             use_node_cache = 0;
         }
     }
-    if use_node_cache != 0 {
+    if use_node_cache != 0 && slot >= 0 && slot < C99_IDENTIFIER_TYPE_NODE_CACHE_SIZE {
         if g_c99_identifier_type_node_valid[slot] != 0 &&
             g_c99_identifier_type_node_keys[slot] != null &&
             str_equals(g_c99_identifier_type_node_keys[slot], name) != 0 &&
@@ -7048,6 +7048,9 @@ fn c99_find_identifier_type_node(codegen: &C99CodeGenerator, name: &byte) &ASTNo
         }
     }
     const result: &ASTNode = c99_find_identifier_type_node_uncached(codegen, name);
+    if slot < 0 || slot >= C99_IDENTIFIER_TYPE_NODE_CACHE_SIZE {
+        return result;
+    }
     if use_node_cache != 0 {
         g_c99_identifier_type_node_keys[slot] = c99_decl_result_cache_key_copy(codegen, name);
         g_c99_identifier_type_node_values[slot] = result;

@@ -87,6 +87,44 @@ fn checker_type_is_future_placeholder(t: &Type) i32 {
     return 0;
 }
 
+// 收集子树中被赋值的变量名（if/else 汇合用）
+fn checker_collect_assigned_names(checker: &TypeChecker, node: &ASTNode, out_names: & &byte, out_count: &i32) void {
+    if node == null || out_names == null || out_count == null {
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN && node.assign_dest != null {
+        const dest_name: &byte = constraint_expr_name(checker, node.assign_dest);
+        if dest_name != null && out_count[0] < 64 {
+            const idx: i32 = out_count[0];
+            if idx >= 0 && idx < 64 {
+                out_names[idx] = dest_name;
+                out_count[0] = idx + 1;
+            }
+        }
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            checker_collect_assigned_names(checker, node.block_stmts[i], out_names, out_count);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        checker_collect_assigned_names(checker, node.if_stmt_then_branch, out_names, out_count);
+        checker_collect_assigned_names(checker, node.if_stmt_else_branch, out_names, out_count);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        checker_collect_assigned_names(checker, node.while_stmt_body, out_names, out_count);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        checker_collect_assigned_names(checker, node.for_stmt_body, out_names, out_count);
+        return;
+    }
+}
+
 fn checker_node_definitely_returns(node: &ASTNode) i32 {
     if node == null {
         return 0;
@@ -681,6 +719,24 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         while fini < final_nonnull_count && fini < MAX_POINTER_NAMES {
             checker.pointer_nonnull_names[fini] = final_nonnull_names[fini];
             fini = fini + 1;
+        }
+
+        // 分支汇合：分支里被赋值过的变量取两分支末态的凸包（修 P0 越界读漏洞）
+        var assigned_names: [&byte: 64] = [];
+        var assigned_count: i32 = 0;
+        checker_collect_assigned_names(checker, node.if_stmt_then_branch, &assigned_names[0], &assigned_count);
+        checker_collect_assigned_names(checker, node.if_stmt_else_branch, &assigned_names[0], &assigned_count);
+        var ai: i32 = 0;
+        while ai < assigned_count && ai < 64 {
+            const an: &byte = assigned_names[ai];
+            if an != null {
+                constraint_join_branch_var(checker, an,
+                    &then_end_constraint_names[0], &then_end_constraint_ops[0], &then_end_constraint_values[0], then_end_constraint_count,
+                    &else_end_constraint_names[0], &else_end_constraint_ops[0], &else_end_constraint_values[0], else_end_constraint_count,
+                    &saved_constraint_names[0], &saved_constraint_ops[0], &saved_constraint_values[0], saved_constraint_count,
+                    node.if_stmt_else_branch != null);
+            }
+            ai = ai + 1;
         }
 
         return 1;
