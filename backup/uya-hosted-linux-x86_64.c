@@ -1609,7 +1609,7 @@ static const char str31[] = "../";
 static const char str32[] = "UYA_ROOT";
 static const char str33[] = "uya";
 static const char str34[] = "Uya 编译器 - 零GC系统编程语言\n";
-static const char str35[] = "版本：v0.10.3\n";
+static const char str35[] = "版本：v%s\n";
 static const char str36[] = "\n用法:\n";
 static const char str37[] = "  %s build <文件> [-o <输出>] [选项]  编译为可执行文件或中间产物\n";
 static const char str38[] = "  %s check <文件> [选项]              仅做词法/语法/类型检查，不执行代码生成\n";
@@ -1857,7 +1857,7 @@ static const char str279[] = "\n代码生成完成: %s\n";
 static const char str280[] = "UYA_PROFILE_ARENA";
 static const char str281[] = "[UYA_PROFILE_ARENA] after_parse=%lu after_merge=%lu after_check=%lu chunks_total=%lu\n";
 static const char str282[] = "upm";
-static const char str283[] = "v0.10.3\n";
+static const char str283[] = "v%s\n";
 static const char str284[] = "UYA_SPLIT_C_DIR";
 static const char str285[] = "错误: 无法获取 --outlibc 参数\n";
 static const char str286[] = "错误: inspect-image 只接受一个输入文件\n";
@@ -12222,6 +12222,7 @@ __attribute__((used)) const size_t PARALLEL_PARSE_SLICE_MIN_BYTES = /* optimized
 #endif
 __attribute__((used)) const size_t PARALLEL_PARSE_ARENA_PER_SOURCE_BYTE = (size_t)320;
 
+const uint8_t * UYA_VERSION = (uint8_t *)(uint8_t *)"0.10.4";
 #ifdef libc_EPERM
 #undef libc_EPERM
 #endif
@@ -14956,7 +14957,7 @@ const size_t UPM_MAX_NAME_LEN = 128;
 #undef UPM_MAX_VERSION_LEN
 #endif
 const size_t UPM_MAX_VERSION_LEN = 64;
-const uint8_t * UYA_UPM_RUNTIME_VERSION = (uint8_t *)(uint8_t *)"0.10.3";
+const uint8_t * UYA_UPM_RUNTIME_VERSION = (uint8_t *)(uint8_t *)"0.10.4";
 #ifdef UPM_MAX_META_LEN
 #undef UPM_MAX_META_LEN
 #endif
@@ -16806,7 +16807,7 @@ static __attribute__((used)) void print_usage(uint8_t * program_name) {
         name = (uint8_t *)(uint8_t *)str33;
     }
     (void)(libc_fprintf(libc_stderr, (const char *)str34)    );
-    (void)(libc_fprintf(libc_stderr, (const char *)str35)    );
+    (void)(libc_fprintf(libc_stderr, (const char *)str35, (uint8_t *)UYA_VERSION)    );
     (void)(libc_fprintf(libc_stderr, (const char *)str36)    );
     (void)(libc_fprintf(libc_stderr, (const char *)str37, (uint8_t *)name)    );
     (void)(libc_fprintf(libc_stderr, (const char *)str38, (uint8_t *)name)    );
@@ -181448,7 +181449,7 @@ int32_t main_main(void) {
     g_exec_dump_bytecode_enabled = dump_bytecode;
     g_exec_trace_vm_enabled = trace_vm;
     if (command == main_CommandType_COMMAND_VERSION) {
-        (void)(libc_fprintf(libc_stdout, (const char *)str283)        );
+        (void)(libc_fprintf(libc_stdout, (const char *)str283, (uint8_t *)UYA_VERSION)        );
                 {
             int32_t _uya_ret = 0;
             /* defer */             (void)(int_list_free((&input_files))            );
