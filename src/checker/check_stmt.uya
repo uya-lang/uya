@@ -297,7 +297,7 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker.enable_safety_proof != 0 && node.var_decl_name != null && node.var_decl_init != null {
         const init_interval: Interval = eval_expr_interval(checker, node.var_decl_init);
         if init_interval.is_valid != 0 {
-            constraint_replace_with_interval(checker, node.var_decl_name, &init_interval);
+            constraint_replace_with_interval(checker, node.var_decl_name, &init_interval, node.var_decl_init);
         }
     }
     

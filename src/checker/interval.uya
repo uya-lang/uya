@@ -1560,7 +1560,14 @@ fn get_var_interval(checker: &TypeChecker, var_name: &byte) Interval {
     return interval_range(min_val, max_val);
 }
 
-fn constraint_replace_with_interval(checker: &TypeChecker, var_name: &byte, interval: &Interval) void {
+// 把表达式的区间写成约束。
+// src_expr 用于判定该区间是否**可信**：eval_expr_interval 内部用 u32 位模式回绕，
+// 端点可能已经被绕成假值（例如 [MAX,MAX]+[1,1] → [MIN,MIN]）。只有当同一表达式在
+// i64 宽化域里算出完整且在 i32 内的区间时，才认为这条约束可用于溢出证明。
+// 参数：checker - 类型检查器；var_name - 被约束的变量/路径名；
+//       interval - 已算出的 i32 区间；src_expr - 区间来源表达式（可为 null）
+// 返回：无
+fn constraint_replace_with_interval(checker: &TypeChecker, var_name: &byte, interval: &Interval, src_expr: &ASTNode) void {
     if checker == null || var_name == null || interval == null || interval.is_valid == 0 {
         return;
     }
@@ -1578,12 +1585,24 @@ fn constraint_replace_with_interval(checker: &TypeChecker, var_name: &byte, inte
     if interval.min >= 0 {
         constraint_add(checker, var_name, CONSTRAINT_GE, 0);
     }
-    // 该区间的端点由 eval_expr_interval 用 u32 回绕算出，不可用于溢出证明
+    // 可信度：只有 wide 域能给出完整且落在 i32 内的区间时，这条约束才可用于溢出证明
+    var trusted: i32 = 0;
+    if (src_expr != null) {
+        const wide: WideInterval = wide_interval_of_expr(checker, src_expr, TypeKind.TYPE_I32 as i32);
+        if (wide.lo_known != 0 && wide.hi_known != 0 && wide.lo <= wide.hi &&
+            wide.lo >= (interval_i32_min() as i64) && wide.hi <= (interval_i32_max() as i64)) {
+            trusted = 1;
+        }
+    }
     var mi: i32 = 0;
     while mi < checker.constraint_count {
         if mi < MAX_CONSTRAINTS && checker.constraint_var_names[mi] != null &&
             strcmp(checker.constraint_var_names[mi] as *byte, var_name as *byte) == 0 {
-            wide_mark_constraint_unsound_at(mi);
+            if trusted != 0 {
+                wide_mark_constraint_sound_at(mi);
+            } else {
+                wide_mark_constraint_unsound_at(mi);
+            }
         }
         mi = mi + 1;
     }
