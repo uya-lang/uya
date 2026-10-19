@@ -1241,6 +1241,32 @@ fn wide_neg(a: WideInterval) WideInterval {
     return out;
 }
 
+// 两个区间的交集（用于「类型值域 ∩ 已知内层区间」）。
+// 任一方向已知就收紧对应端点；交集为空时返回 unknown（保守）。
+fn wide_intersect(a: WideInterval, b: WideInterval) WideInterval {
+    var out: WideInterval = wide_unknown();
+    out.lo_known = a.lo_known | b.lo_known;
+    out.hi_known = a.hi_known | b.hi_known;
+    if a.lo_known != 0 && b.lo_known != 0 {
+        if a.lo > b.lo { out.lo = a.lo; } else { out.lo = b.lo; }
+    } else if a.lo_known != 0 {
+        out.lo = a.lo;
+    } else if b.lo_known != 0 {
+        out.lo = b.lo;
+    }
+    if a.hi_known != 0 && b.hi_known != 0 {
+        if a.hi < b.hi { out.hi = a.hi; } else { out.hi = b.hi; }
+    } else if a.hi_known != 0 {
+        out.hi = a.hi;
+    } else if b.hi_known != 0 {
+        out.hi = b.hi;
+    }
+    if out.lo_known != 0 && out.hi_known != 0 && out.lo > out.hi {
+        return wide_unknown();
+    }
+    return out;
+}
+
 // 该区间是否完全落在整数类型 kind 的取值范围内（即不会溢出）
 fn wide_fits_type_kind(w: WideInterval, kind: i32) i32 {
     if w.lo_known == 0 || w.hi_known == 0 {
@@ -1337,7 +1363,26 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
     if expr.type == ASTNodeType.AST_IDENTIFIER {
         return wide_interval_of_var(checker, expr.identifier_name, kind);
     }
-    if expr.type == ASTNodeType.AST_MEMBER_ACCESS || expr.type == ASTNodeType.AST_CAST_EXPR {
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_target_type != null {
+        // 转换到整数类型后，取值必然落在目标类型的值域内（`as` 是截断语义，
+        // `as!` 检查失败会返回错误而不是越界值）。例如 `(x as byte)` 恒在 [0,255]，
+        // 这是 `48 + (c as byte)` 这类写法可证的关键。
+        const target: Type = type_from_ast(checker, expr.cast_expr_target_type);
+        const target_kind: i32 = target.kind as i32;
+        if proof_type_kind_is_integer(target_kind) != 0 || is_unsigned_type(target.kind) != 0 {
+            // 取「目标类型值域」∩「内层区间」：转换既受目标类型限幅，
+            // 内层若已有更窄的守卫也必须继承，否则会把有界表达式放宽。
+            const domain: WideInterval = wide_of_type_kind(target_kind);
+            const inner: WideInterval = wide_interval_of_expr(checker, expr.cast_expr_expr, target_kind);
+            return wide_intersect(domain, inner);
+        }
+        // 非整数目标（指针等）：继续看内层表达式
+        if expr.cast_expr_expr != null {
+            return wide_interval_of_expr(checker, expr.cast_expr_expr, kind);
+        }
+        return wide_unknown();
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
         // 成员访问 / 转换表达式：约束表本来就按 constraint_expr_name 的规范化名字
         // 跟踪（越界证明一直在用），这里复用同一套名字即可拿到可信守卫。
         // 例如 `if c.count > 0 { c.count - 1 }` 可以证明不溢出。
@@ -1372,6 +1417,61 @@ fn wide_interval_of_expr(checker: &TypeChecker, expr: &ASTNode, kind: i32) WideI
         }
         if op == TokenType.TOKEN_ASTERISK {
             return wide_mul(left, right);
+        }
+        const is_div_op: i32 = (op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT) as i32;
+        if is_div_op != 0 && right.lo_known != 0 && right.hi_known != 0 {
+            // 除数必须是**确定的非零单点**常量，否则无法排除除零 UB。
+            // `x % k` 的结果落在 (-k, k)：C 的取模符号跟随被除数，
+            // 所以区间是 [-(k-1), k-1]；被除数已知非负时收窄到 [0, k-1]。
+            // 这条规则让 `48 + (x % 10)` 这类数字格式化可以证明。
+            if right.lo == right.hi && right.lo != 0i64 && right.lo != 0i64 - 1i64 {
+                if op == TokenType.TOKEN_PERCENT {
+                    var m: i64 = right.lo;
+                    if m < 0i64 {
+                        m = 0i64 - m;
+                    }
+                    const span: i64 = m - 1i64;
+                    var lo_v: i64 = 0i64 - span;
+                    if left.lo_known != 0 && left.lo >= 0i64 {
+                        lo_v = 0i64;
+                    }
+                    const mod_r: WideInterval = WideInterval {
+                        lo: lo_v,
+                        hi: span,
+                        lo_known: 1,
+                        hi_known: 1,
+                    };
+                    return wide_intersect(mod_r, left);
+                }
+                // 除法：按绝对值上界保守估计
+                if left.lo_known != 0 && left.hi_known != 0 {
+                    var abs_max: i64 = 0i64;
+                    if left.lo < 0i64 {
+                        abs_max = 0i64 - left.lo;
+                    } else {
+                        abs_max = left.lo;
+                    }
+                    const hi_abs: i64 = left.hi;
+                    if hi_abs > abs_max {
+                        abs_max = hi_abs;
+                    }
+                    if hi_abs < 0i64 && (0i64 - hi_abs) > abs_max {
+                        abs_max = 0i64 - hi_abs;
+                    }
+                    var k: i64 = right.lo;
+                    if k < 0i64 {
+                        k = 0i64 - k;
+                    }
+                    const bound: i64 = abs_max / k;
+                    const div_r: WideInterval = WideInterval {
+                        lo: 0i64 - bound,
+                        hi: bound,
+                        lo_known: 1,
+                        hi_known: 1,
+                    };
+                    return wide_intersect(div_r, left);
+                }
+            }
         }
         return wide_unknown();
     }

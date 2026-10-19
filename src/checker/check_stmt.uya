@@ -677,7 +677,9 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         const await_count: i32 = checker_count_await_in_node(node.fn_decl_body);
         // 状态机大小近似估算：state(4B) + await_fut(16B) + loop_vars(16B) + await_bind(16B/个) + param(16B/个)
         // 若估算超过 4096 字节，提示可能影响性能（实际大小取决于 C 编译器布局）
-        const est_size: i32 = 4 + 16 + 16 + (await_count * 16) + (node.fn_decl_param_count * 16);
+        // await_count / param_count 都无静态上界，`* 16` 可能溢出；这是性能提示的估算值，
+        // 饱和即可（钳到 @max 后依然会触发 > 4096 的警告，语义不变）。
+        const est_size: i32 = state_machine_size_estimate(await_count, node.fn_decl_param_count);
         if est_size > 4096 && libc.stderr != null {
             fprintf(libc.stderr, "%s:(%d:%d): 警告: @async_fn 状态机估算大小约 %d 字节，建议优化（减少 @await 或参数数量）\n" as *byte,
                 node.filename as *byte, node.line, node.column, est_size);
@@ -818,6 +820,53 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     return 1;
 }
 
+// @async_fn 状态机大小估算（饱和，避免无上界计数 * 16 溢出）
+// 参数：await_count - @await 数量；param_count - 参数数量
+// 返回：估算字节数，超出 i32 时返回 @max
+fn state_machine_size_estimate(await_count: i32, param_count: i32) i32 {
+    const max_v: i32 = @max;
+    var total: i32 = 4 + 16 + 16;
+    var i: i32 = 0;
+    while i < 2 {
+        var n: i32 = await_count;
+        if i == 1 {
+            n = param_count;
+        }
+        if n > 0 {
+            if n > max_v / 16 {
+                return max_v;
+            }
+            const part: i32 = n * 16;
+            if total > max_v - part {
+                return max_v;
+            }
+            total = total + part;
+        }
+        i = i + 1;
+    }
+    return total;
+}
+
+// 累加 @await 计数（饱和）。
+// 计数器的真实上界是 AST 节点数，静态不可证；直接写 `count = count + f(...)`
+// 在 --strict-overflow 下会被判为可能溢出。这里显式饱和：超过 i32 上界就钳住，
+// 语义上等价于「数量极大」，而 await 计数只用于容量估算，钳住是安全的。
+// 参数：acc - 已累计值；delta - 本次增量
+// 返回：acc + delta，溢出时返回 @max
+fn await_count_add(acc: i32, delta: i32) i32 {
+    if delta <= 0 {
+        return acc;
+    }
+    if acc < 0 {
+        return delta;
+    }
+    const max_v: i32 = @max;
+    if acc > max_v - delta {
+        return max_v;
+    }
+    return acc + delta;
+}
+
 // 统计 AST 子树中 @await 表达式数量
 fn checker_count_await_in_node(node: &ASTNode) i32 {
     if node == null {
@@ -832,41 +881,41 @@ fn checker_count_await_in_node(node: &ASTNode) i32 {
     if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
         var i: i32 = 0;
         while i < node.block_stmt_count {
-            count = count + checker_count_await_in_node(node.block_stmts[i]);
+            count = await_count_add(count, checker_count_await_in_node(node.block_stmts[i]));
             i = i + 1;
         }
         return count;
     }
     if node.type == ASTNodeType.AST_IF_STMT {
-        count = count + checker_count_await_in_node(node.if_stmt_condition);
-        count = count + checker_count_await_in_node(node.if_stmt_then_branch);
-        count = count + checker_count_await_in_node(node.if_stmt_else_branch);
+        count = await_count_add(count, checker_count_await_in_node(node.if_stmt_condition));
+        count = await_count_add(count, checker_count_await_in_node(node.if_stmt_then_branch));
+        count = await_count_add(count, checker_count_await_in_node(node.if_stmt_else_branch));
         return count;
     }
     if node.type == ASTNodeType.AST_WHILE_STMT {
-        count = count + checker_count_await_in_node(node.while_stmt_condition);
-        count = count + checker_count_await_in_node(node.while_stmt_body);
+        count = await_count_add(count, checker_count_await_in_node(node.while_stmt_condition));
+        count = await_count_add(count, checker_count_await_in_node(node.while_stmt_body));
         return count;
     }
     if node.type == ASTNodeType.AST_FOR_STMT {
         // Uya 的 for 语句目前有两类：range 与 array-iter。这里统计 body + range 端点表达式。
-        count = count + checker_count_await_in_node(node.for_stmt_range_start);
-        count = count + checker_count_await_in_node(node.for_stmt_range_end);
-        count = count + checker_count_await_in_node(node.for_stmt_array);
-        count = count + checker_count_await_in_node(node.for_stmt_body);
+        count = await_count_add(count, checker_count_await_in_node(node.for_stmt_range_start));
+        count = await_count_add(count, checker_count_await_in_node(node.for_stmt_range_end));
+        count = await_count_add(count, checker_count_await_in_node(node.for_stmt_array));
+        count = await_count_add(count, checker_count_await_in_node(node.for_stmt_body));
         return count;
     }
     if node.type == ASTNodeType.AST_RETURN_STMT {
-        count = count + checker_count_await_in_node(node.return_stmt_expr);
+        count = await_count_add(count, checker_count_await_in_node(node.return_stmt_expr));
         return count;
     }
     if node.type == ASTNodeType.AST_VAR_DECL {
-        count = count + checker_count_await_in_node(node.var_decl_init);
+        count = await_count_add(count, checker_count_await_in_node(node.var_decl_init));
         return count;
     }
     if node.type == ASTNodeType.AST_ASSIGN {
-        count = count + checker_count_await_in_node(node.assign_dest);
-        count = count + checker_count_await_in_node(node.assign_src);
+        count = await_count_add(count, checker_count_await_in_node(node.assign_dest));
+        count = await_count_add(count, checker_count_await_in_node(node.assign_src));
         return count;
     }
     if node.type == ASTNodeType.AST_EXPR_STMT {
@@ -874,43 +923,43 @@ fn checker_count_await_in_node(node: &ASTNode) i32 {
     }
     // 表达式：常见递归
     if node.type == ASTNodeType.AST_TRY_EXPR {
-        count = count + checker_count_await_in_node(node.try_expr_operand);
+        count = await_count_add(count, checker_count_await_in_node(node.try_expr_operand));
         return count;
     }
     if node.type == ASTNodeType.AST_CALL_EXPR {
-        count = count + checker_count_await_in_node(node.call_expr_callee);
+        count = await_count_add(count, checker_count_await_in_node(node.call_expr_callee));
         if node.call_expr_args != null {
             var ai: i32 = 0;
             while ai < node.call_expr_arg_count {
-                count = count + checker_count_await_in_node(node.call_expr_args[ai]);
+                count = await_count_add(count, checker_count_await_in_node(node.call_expr_args[ai]));
                 ai = ai + 1;
             }
         }
         return count;
     }
     if node.type == ASTNodeType.AST_MEMBER_ACCESS {
-        count = count + checker_count_await_in_node(node.member_access_object);
+        count = await_count_add(count, checker_count_await_in_node(node.member_access_object));
         return count;
     }
     if node.type == ASTNodeType.AST_BINARY_EXPR {
-        count = count + checker_count_await_in_node(node.binary_expr_left);
-        count = count + checker_count_await_in_node(node.binary_expr_right);
+        count = await_count_add(count, checker_count_await_in_node(node.binary_expr_left));
+        count = await_count_add(count, checker_count_await_in_node(node.binary_expr_right));
         return count;
     }
     if node.type == ASTNodeType.AST_UNARY_EXPR {
-        count = count + checker_count_await_in_node(node.unary_expr_operand);
+        count = await_count_add(count, checker_count_await_in_node(node.unary_expr_operand));
         return count;
     }
     if node.type == ASTNodeType.AST_CATCH_EXPR {
-        count = count + checker_count_await_in_node(node.catch_expr_operand);
-        count = count + checker_count_await_in_node(node.catch_expr_catch_block);
+        count = await_count_add(count, checker_count_await_in_node(node.catch_expr_operand));
+        count = await_count_add(count, checker_count_await_in_node(node.catch_expr_catch_block));
         return count;
     }
     if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
-        count = count + checker_count_await_in_node(node.match_expr_expr);
+        count = await_count_add(count, checker_count_await_in_node(node.match_expr_expr));
         var mi: i32 = 0;
         while mi < node.match_expr_arm_count {
-            count = count + checker_count_await_in_node(node.match_expr_arms[mi].result_expr);
+            count = await_count_add(count, checker_count_await_in_node(node.match_expr_arms[mi].result_expr));
             mi = mi + 1;
         }
         return count;
@@ -918,7 +967,7 @@ fn checker_count_await_in_node(node: &ASTNode) i32 {
     if node.type == ASTNodeType.AST_STRUCT_INIT && node.struct_init_field_values != null {
         var fi: i32 = 0;
         while fi < node.struct_init_field_count {
-            count = count + checker_count_await_in_node(node.struct_init_field_values[fi]);
+            count = await_count_add(count, checker_count_await_in_node(node.struct_init_field_values[fi]));
             fi = fi + 1;
         }
         return count;
@@ -926,7 +975,7 @@ fn checker_count_await_in_node(node: &ASTNode) i32 {
     if node.type == ASTNodeType.AST_ARRAY_LITERAL && node.array_literal_elements != null {
         var ei: i32 = 0;
         while ei < node.array_literal_element_count {
-            count = count + checker_count_await_in_node(node.array_literal_elements[ei]);
+            count = await_count_add(count, checker_count_await_in_node(node.array_literal_elements[ei]));
             ei = ei + 1;
         }
         return count;
@@ -934,7 +983,7 @@ fn checker_count_await_in_node(node: &ASTNode) i32 {
     if node.type == ASTNodeType.AST_TUPLE_LITERAL && node.tuple_literal_elements != null {
         var ti: i32 = 0;
         while ti < node.tuple_literal_element_count {
-            count = count + checker_count_await_in_node(node.tuple_literal_elements[ti]);
+            count = await_count_add(count, checker_count_await_in_node(node.tuple_literal_elements[ti]));
             ti = ti + 1;
         }
         return count;
@@ -1169,7 +1218,16 @@ fn checker_check_struct_interface_impl_recursive(
     var base_name_buf: [byte: MAX_BASE_NAME_LEN] = [];
     const angle: &byte = strchr(iface_name as *byte, 60 as i32) as &byte;
     if angle != null {
-        const base_len: i32 = (angle as i64 - iface_name as i64) as i32;
+        // 指针相减：`angle` 来自 strchr，必然 >= 基址，但证明器无从得知。
+        // 改成受守卫的 usize 差（无符号减法在 `>=` 守卫下不产生有符号溢出），
+        // 并把结果限制在目标缓冲区长度内 —— 后续用法本来就要求 base_len < MAX_BASE_NAME_LEN。
+        var base_len: i32 = 0;
+        if (angle as usize) >= (iface_name as usize) {
+            const diff: usize = (angle as usize) - (iface_name as usize);
+            if diff < MAX_BASE_NAME_LEN as usize {
+                base_len = diff as i32;
+            }
+        }
         if base_len > 0 && base_len < MAX_BASE_NAME_LEN {
             memcpy(&base_name_buf[0] as *void, iface_name as *void, base_len as usize);
             base_name_buf[base_len] = 0;
