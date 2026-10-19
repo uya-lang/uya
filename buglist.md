@@ -49,6 +49,42 @@
 
 ## 编译器限制 / 待办（overflow 与 try 相关）
 
+- [ ] **P0 / 严重（内存安全）：if 分支赋值后仍沿用进入分支前的旧约束，越界读被静默放行**
+  - **最小复现（已实测：编译通过 + 运行时真的越界读）**：
+    ```uya
+    export fn main() i32 {
+        var arr: [i32: 10] = [0,0,0,0,0,0,0,0,0,0];
+        var idx: i32 = 0;
+        if arr[0] == 0 {
+            idx = 999;
+        }
+        const v: i32 = arr[idx];   // 越界读，但证明器沿用「idx == 0」判为安全
+        return v;
+    }
+    ```
+    `./bin/uya check` 通过，`./bin/uya run` 退出码 0（读到了 arr+999 的内存）。
+  - **根因**：`var idx: i32 = 0` 在约束表里留下 `idx == 0`；if 分支内 `idx = 999` 在分支
+    自己的作用域里更新了约束，但 `src/checker/main.uya` 的 if 合并逻辑在
+    「两侧都没有 return」时把约束表**整体恢复成进入 if 前的快照**，于是分支内的赋值被
+    遗忘，陈旧且更窄的 `idx == 0` 继续生效。越界证明（`constraint_verify_bounds` /
+    `pointer_index_has_user_bounds_proof`）因此误判安全。
+  - **与溢出的关系**：同一个陈旧约束既让 `--strict-overflow` 的迁移卡住
+    （循环计数器/累加器在 if 后失去上界），也是一个真实的越界读漏洞 ——
+    与项目「编译期证明 · 零 UB」的身份标签直接冲突。
+  - **已验证的修法**：把 if 合并改成**分支汇合**（取两分支末态区间的凸包，无 else 时
+    用「进入 if 前快照」代表未赋值路径）。实测该改法**确实修好了上面的复现**
+    （现在正确地报「数组索引安全证明失败」），但会让编译器自身 6 处依赖陈旧约束的
+    指针下标暴露出来：
+    `src/checker/check_expr.uya:643/651`、`src/codegen/c99/expr.uya:7052`、
+    `src/codegen/c99/global.uya:707`、`src/codegen/c99/types.uya:471`、
+    `src/exec/lower.uya:2490`。
+  - **真正的阻塞点**：这些站点都是同名模式 —— `compiler_arena_alloc` 返回的 `&byte`
+    长度未知，此前**全靠陈旧约束 `pos == 0` 才通过**下标证明。改成真汇合后，需要
+    **指针长度追踪**（让 arena 分配的长度进入 `Symbol.pointer_known_length`，
+    或用 `@range` 之外的长度契约）才能系统性修好，而不是逐点加守卫。
+  - 结论：这是翻 `--strict-overflow` 默认的**真正前置**，也是应优先于迁移的 P0 项。
+
+
 - [x] **已修：Uya 自带 `%d` 格式化 INT32_MIN 输出错误（只输出负号）**
   - `lib/libc/stdio.uya` 的 `_fmt_i32_to_buf_full` 用 `num = 0 - num` 取幅值，
     INT32_MIN 的相反数在 i32 里不可表示：C 里是 UB，加 `-fwrapv` 后回绕仍是负数，
